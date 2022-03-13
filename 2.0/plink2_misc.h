@@ -358,7 +358,7 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
 
 PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* missing_varid, uint32_t raw_variant_ct, uint32_t variant_ct, RecoverVarIdsFlags flags, uint32_t max_thread_ct, char** variant_ids, uint32_t* max_variant_id_slen_ptr, char* outname, char* outname_end);
 
-PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
+PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, const char* missing_catname, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
 
 // These functions return kPglRetEof on empty files.
 PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip);
@@ -396,7 +396,7 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
 
 PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, uint32_t output_zst, uint32_t allow_dups, uint32_t max_thread_ct, char* outname, char* outname_end);
 
-PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, WriteCovarFlags write_covar_flags, char* outname, char* outname_end);
+PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uint32_t* new_sample_idx_to_old, const char* output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, WriteCovarFlags write_covar_flags, char* outname, char* outname_end);
 
 PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, HetFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
 

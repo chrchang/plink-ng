@@ -42,7 +42,7 @@ typedef struct CatnameLl2Struct {
   char str[];
 } CatnameLl2;
 
-PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uint32_t max_thread_ct, PedigreeIdInfo* piip, uintptr_t** sample_include_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, const char* missing_catname, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uint32_t max_thread_ct, PedigreeIdInfo* piip, uintptr_t** sample_include_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   // outparameter pointers assumed to be initialized to nullptr
   //
   // pheno_ct_max should default to something like 0x7fffffff, not UINT32_MAX
@@ -357,7 +357,6 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
                  bigstack_calloc_w(pheno_ctl, &quantitative_phenos))) {
       goto LoadPsam_ret_NOMEM;
     }
-    const char* missing_catname = g_missing_catname;
     const uint32_t missing_catname_blen = strlen(missing_catname) + 1;
     const uint32_t missing_catname_hval = Hashceil(missing_catname, missing_catname_blen - 1, kCatHtableSize);
     unsigned char* tmp_bigstack_base = g_bigstack_base;
@@ -856,7 +855,7 @@ typedef struct PhenoInfoLlStruct {
 
 // also for loading covariates.  set affection_01 to 2 to prohibit case/control
 // and make unnamed variables start with "COVAR" instead of "PHENO"
-PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t sample_ct, int32_t missing_pheno, uint32_t affection_01, uint32_t iid_only, uint32_t numeric_ranges, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* missing_catname, uint32_t raw_sample_ct, uint32_t sample_ct, int32_t missing_pheno, uint32_t affection_01, uint32_t iid_only, uint32_t numeric_ranges, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   char* pheno_names = nullptr;
@@ -1174,7 +1173,6 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
                  bigstack_calloc_w(new_pheno_ctl, &quantitative_phenos))) {
       goto LoadPhenos_ret_NOMEM;
     }
-    const char* missing_catname = g_missing_catname;
     const uint32_t missing_catname_blen = strlen(missing_catname) + 1;
     const uint32_t missing_catname_hval = Hashceil(missing_catname, missing_catname_blen - 1, kCatHtableSize);
     unsigned char* bigstack_base_copy = g_bigstack_base;
@@ -1420,7 +1418,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           new_pheno_data_iter = &(new_pheno_data_iter[data_vec_ct * kWordsPerVec]);
           const char** cur_name_ptrs = R_CAST(const char**, new_pheno_data_iter);
           pheno_cols_iter->category_names = cur_name_ptrs;
-          *cur_name_ptrs++ = g_missing_catname;
+          *cur_name_ptrs++ = missing_catname;
           char* name_storage_iter = R_CAST(char*, &(new_pheno_data_iter[catname_vec_ct * kWordsPerVec]));
           uint32_t cur_hval = missing_catname_hval + cat_pheno_idx;
           if (cur_hval >= kCatHtableSize) {

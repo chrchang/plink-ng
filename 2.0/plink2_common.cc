@@ -2542,16 +2542,6 @@ void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_e
 }
 */
 
-char g_missing_catname[kMaxMissingPhenostrBlen];
-char g_output_missing_pheno[kMaxMissingPhenostrBlen];
-char g_legacy_output_missing_pheno[kMaxMissingPhenostrBlen];
-
-void InitPheno() {
-  snprintf(g_missing_catname, kMaxMissingPhenostrBlen, "NONE");
-  snprintf(g_output_missing_pheno, kMaxMissingPhenostrBlen, "NA");
-  snprintf(g_legacy_output_missing_pheno, kMaxMissingPhenostrBlen, "-9");
-}
-
 uint32_t IsCategoricalPhenostr(const char* phenostr_iter) {
   uint32_t first_char_code = ctou32(*phenostr_iter++);
   // allow leading +/-

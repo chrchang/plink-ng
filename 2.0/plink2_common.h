@@ -950,12 +950,6 @@ void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_e
 */
 
 CONSTI32(kMaxMissingPhenostrBlen, 32);
-// might want g_input_missing_catname and/or g_output_missing_catname later,
-// but let's start with the simplest implementation
-extern char g_missing_catname[];  // default "NONE", not changeable for now
-
-extern char g_output_missing_pheno[];  // default "NA"
-extern char g_legacy_output_missing_pheno[];  // default "-9"
 
 // don't care about kfUnsortedVarChrom
 FLAGSET_DEF_START()
@@ -1016,9 +1010,6 @@ typedef struct PhenoColStruct {
 
   uint32_t nonnull_category_ct;
 } PhenoCol;
-
-void InitPheno();
-
 
 uint32_t IsCategoricalPhenostr(const char* phenostr_iter);
 

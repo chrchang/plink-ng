@@ -638,7 +638,7 @@ PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const ui
   return reterr;
 }
 
-PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t compound_genotypes, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, char exportf_delim, char lomg_char, PgenFileInfo* pgfip) {
+PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* legacy_output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t compound_genotypes, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, char exportf_delim, char lomg_char, PgenFileInfo* pgfip) {
   // Similar to ExportIndMajorBed() and Export012Smaj().
   //
   // Could be sped up by parallelizing the final rendering step (using
@@ -875,7 +875,6 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
         pheno_qt = pheno_cols[pheno_idx].data.qt;
       }
     }
-    const char* legacy_output_missing_pheno = g_legacy_output_missing_pheno;
     const uint32_t lomp_slen = strlen(legacy_output_missing_pheno);
 
     // * Read phase: main thread reads raw bytes with MultireadNonempty(),
@@ -957,7 +956,7 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
     uint32_t sample_uidx_start = AdvTo1Bit(orig_sample_include, 0);
     const uint32_t variant_ctl2 = NypCtToWordCt(variant_ct);
     const uintptr_t variant_ctaclw2 = variant_cacheline_ct * kWordsPerCacheline;
-    const uint32_t final_backtrack_byte_ct = (4 - compound_genotypes) * ((-variant_ct) & (kBitsPerWordD4 - 1));
+    const uint32_t final_backtrack_byte_ct = (4 - compound_genotypes) * ((-variant_ct) & (kBitsPerWordD2 - 1));
     const uint32_t pass_ct = 1 + (sample_ct - 1) / read_sample_ct;
     for (uint32_t pass_idx = 0; pass_idx != pass_ct; ++pass_idx) {
       memcpy(sample_include, orig_sample_include, raw_sample_ctl * sizeof(intptr_t));

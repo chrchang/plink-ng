@@ -210,8 +210,6 @@ PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
 }
 
 // Assumes ScanMap() was previously called on the .map.
-// Assumes null ref_allele/alt_allele values are initialized to a null string,
-// rather than nullptr.
 PglErr MapToPvar(const char* mapname, const ChrInfo* cip, const char* const* allele_storage, uint32_t variant_ct, uint32_t max_allele_slen, ImportFlags import_flags, uint32_t at_least_one_nzero_cm, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
@@ -307,14 +305,14 @@ PglErr MapToPvar(const char* mapname, const ChrInfo* cip, const char* const* all
         }
         cswritep = memcpyax(cswritep, variant_id_start, variant_id_slen, '\t');
         const char* ref_allele = allele_storage[variant_idx * 2];
-        if (ref_allele[0]) {
+        if (ref_allele) {
           cswritep = strcpya(cswritep, ref_allele);
         } else {
           *cswritep++ = '.';
         }
         *cswritep++ = '\t';
         const char* alt_allele = allele_storage[variant_idx * 2 + 1];
-        if (alt_allele[0]) {
+        if (alt_allele) {
           cswritep = strcpya(cswritep, alt_allele);
         } else {
           *cswritep++ = '.';
@@ -623,7 +621,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
 }
 
 // Ok for in_psamname to alias outname.
-PglErr RewritePsam(const char* in_psamname, MiscFlags misc_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, uint32_t max_thread_ct, char* outname, char* outname_end, uint32_t* raw_sample_ctp) {
+PglErr RewritePsam(const char* in_psamname, const char* missing_catname, MiscFlags misc_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, uint32_t max_thread_ct, char* outname, char* outname_end, uint32_t* raw_sample_ctp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PhenoCol* pheno_cols = nullptr;
   char* pheno_names = nullptr;
@@ -638,7 +636,7 @@ PglErr RewritePsam(const char* in_psamname, MiscFlags misc_flags, FamCol fam_col
     uintptr_t* sex_male = nullptr;
     uintptr_t* founder_info = nullptr;
     uintptr_t max_pheno_name_blen = 0;
-    reterr = LoadPsam(in_psamname, nullptr, fam_cols, 0x7fffffff, missing_pheno, (misc_flags / kfMiscAffection01) & 1, max_thread_ct, &pii, &sample_include, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
+    reterr = LoadPsam(in_psamname, nullptr, missing_catname, fam_cols, 0x7fffffff, missing_pheno, (misc_flags / kfMiscAffection01) & 1, max_thread_ct, &pii, &sample_include, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
     if (unlikely(reterr)) {
       goto RewritePsam_ret_1;
     }
@@ -662,7 +660,7 @@ PglErr RewritePsam(const char* in_psamname, MiscFlags misc_flags, FamCol fam_col
 // It's possible to parallelize this more, but it isn't realistically worth the
 // effort, since there's so little reason to use this format over VCF for
 // larger datasets.
-PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr) {
+PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   TextStream tped_txs;
   PreinitTextStream(&tped_txs);
@@ -680,7 +678,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_fla
       // Only need to generate a .psam if this is a conversion-only run, or
       // --keep-autoconv was specified.  Otherwise Plink2Core() can simply
       // interpret the .tfam as a psam file.
-      reterr = RewritePsam(tfamname, misc_flags, fam_cols, missing_pheno, 0, max_thread_ct, outname, outname_end, &tfam_sample_ct);
+      reterr = RewritePsam(tfamname, missing_catname, misc_flags, fam_cols, missing_pheno, 0, max_thread_ct, outname, outname_end, &tfam_sample_ct);
       if (unlikely(reterr)) {
         goto TpedToPgen_ret_1;
       }
@@ -1477,7 +1475,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
   return reterr;
 }
 
-PglErr PedmapToPgen(const char* pedname, const char* mapname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* indmaj_bed_file = nullptr;
@@ -1814,7 +1812,7 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, MiscFlags misc_fla
     *outname_end = '.';
     BigstackEndSet(tmp_alloc_end);
 
-    reterr = RewritePsam(outname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, nullptr);
+    reterr = RewritePsam(outname, missing_catname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, nullptr);
     if (unlikely(reterr)) {
       goto PedmapToPgen_ret_1;
     }
@@ -1827,6 +1825,12 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, MiscFlags misc_fla
         const char* tmp_allele_code = allele_codes[variant_idx * 2];
         allele_codes[variant_idx * 2] = allele_codes[variant_idx * 2 + 1];
         allele_codes[variant_idx * 2 + 1] = tmp_allele_code;
+      } else if (allele_codes[variant_idx * 2 + 1] == null_str) {
+        // Restore standard representation.
+        allele_codes[variant_idx * 2 + 1] = nullptr;
+        if (allele_codes[variant_idx * 2] == null_str) {
+          allele_codes[variant_idx * 2] = nullptr;
+        }
       }
     }
 

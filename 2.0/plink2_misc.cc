@@ -1129,7 +1129,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
   return reterr;
 }
 
-PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, const char* missing_catname, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -1205,7 +1205,6 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       goto Plink1ClusterImport_ret_NOMEM;
     }
     SetAllU32Arr(cat_htable_size, cat_htable);
-    const char* missing_catname = g_missing_catname;
     const uintptr_t data_vec_ct = Int32CtToVecCt(raw_sample_ct);
     const uint32_t missing_catname_slen = strlen(missing_catname);
     const uint32_t missing_catname_hval = Hashceil(missing_catname, missing_catname_slen, cat_htable_size);
@@ -8980,7 +8979,7 @@ PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant
 }
 
 // similar to write_psam().
-PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, WriteCovarFlags write_covar_flags, char* outname, char* outname_end) {
+PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uint32_t* new_sample_idx_to_old, const char* output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, WriteCovarFlags write_covar_flags, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -8989,7 +8988,6 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
     if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto WriteCovar_ret_OPEN_FAIL;
     }
-    const char* output_missing_pheno = g_output_missing_pheno;
     const uint32_t omp_slen = strlen(output_missing_pheno);
 
     char* textbuf = g_textbuf;

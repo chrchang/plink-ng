@@ -5693,7 +5693,7 @@ typedef struct ParsedQscoreRangeStruct {
   double ubound;
 } ParsedQscoreRange;
 
-PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -6764,7 +6764,6 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       AppendBinaryEoln(&cswritep);
       const uint32_t* scrambled_missing_diploid_cts = &(R_CAST(uint32_t*, missing_accx)[acc4_vec_ct * (3 + 11 * qsr_idx) * kInt32PerVec]);
       const uint32_t* scrambled_missing_haploid_cts = &(R_CAST(uint32_t*, missing_male_accx)[acc4_vec_ct * (3 + 11 * qsr_idx) * kInt32PerVec]);
-      const char* output_missing_pheno = g_output_missing_pheno;
       const uint32_t omp_slen = strlen(output_missing_pheno);
 
       uintptr_t sample_uidx_base = 0;

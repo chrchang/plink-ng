@@ -295,7 +295,7 @@ PglErr LoadPmergeList(const char* list_fname, const char* list_base_dir, PmergeL
 }
 
 // Permanent allocations are at end of bigstack.
-PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, char* outname, char* outname_end, PmergeInputFilesetLl* filesets, SampleIdInfo* siip, uint32_t* sample_ctp, uint32_t* linebuf_capacityp) {
+PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const char* missing_catname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, char* outname, char* outname_end, PmergeInputFilesetLl* filesets, SampleIdInfo* siip, uint32_t* sample_ctp, uint32_t* linebuf_capacityp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -1144,11 +1144,11 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
       }
       SetAllU32Arr(category_names_htable_size, category_names_htable);
       // copy into arena so overread is safe
-      const uint32_t missing_catname_slen = strlen(g_missing_catname);
-      if (unlikely(StoreStringAtEndK(g_bigstack_base, g_missing_catname, missing_catname_slen, &arena_top, &(category_names[0])))) {
+      const uint32_t missing_catname_slen = strlen(missing_catname);
+      if (unlikely(StoreStringAtEndK(g_bigstack_base, missing_catname, missing_catname_slen, &arena_top, &(category_names[0])))) {
         goto MergePsams_ret_NOMEM;
       }
-      const uint32_t hashval = Hashceil(g_missing_catname, missing_catname_slen, category_names_htable_size);
+      const uint32_t hashval = Hashceil(missing_catname, missing_catname_slen, category_names_htable_size);
       category_names_htable[0] = hashval;
       category_names_ct = 1;
     }
@@ -6751,7 +6751,7 @@ PglErr PmergePass(__attribute__((unused)) const PmergeInfo* pmip, __attribute__(
   return reterr;
 }
 
-PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char* missing_catname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 
@@ -6817,7 +6817,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
     SampleIdInfo sii;
     uint32_t sample_ct = 0;
     uint32_t psam_linebuf_capacity = 0;
-    reterr = MergePsams(pmip, sample_sort_fname, misc_flags, sample_sort_mode, fam_cols, missing_pheno, max_thread_ct, outname, outname_end, input_filesets, &sii, &sample_ct, &psam_linebuf_capacity);
+    reterr = MergePsams(pmip, sample_sort_fname, missing_catname, misc_flags, sample_sort_mode, fam_cols, missing_pheno, max_thread_ct, outname, outname_end, input_filesets, &sii, &sample_ct, &psam_linebuf_capacity);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }

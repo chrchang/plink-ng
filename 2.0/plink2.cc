@@ -381,6 +381,11 @@ typedef struct Plink2CmdlineStruct {
   char input_missing_geno_char;
   char output_missing_geno_char;
   char legacy_output_missing_geno_char;
+  // might want input_missing_catname and/or output_missing_catname later, but
+  // let's start with the simplest implementation
+  char missing_catname[kMaxMissingPhenostrBlen];
+  char output_missing_pheno[kMaxMissingPhenostrBlen];
+  char legacy_output_missing_pheno[kMaxMissingPhenostrBlen];
 
   char* var_filter_exceptions_flattened;
   char* varid_template_str;
@@ -824,7 +829,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       // update (26 Nov 2017): change --no-pheno to also apply to .psam file
       const uint32_t ignore_psam_phenos = (!(pcp->fam_cols & kfFamCol6)) || (pcp->pheno_fname && pcp->pheno_range_list.name_ct);
-      reterr = LoadPsam(psamname, pcp->pheno_fname? nullptr : &(pcp->pheno_range_list), pcp->fam_cols, ignore_psam_phenos? 0 : 0x7fffffff, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, pcp->max_thread_ct, &pii, &sample_include, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
+      reterr = LoadPsam(psamname, pcp->pheno_fname? nullptr : &(pcp->pheno_range_list), pcp->missing_catname, pcp->fam_cols, ignore_psam_phenos? 0 : 0x7fffffff, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, pcp->max_thread_ct, &pii, &sample_include, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1114,7 +1119,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       pgfi.nonref_flags = nonref_flags;
     }
     if (pcp->pheno_fname) {
-      reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, &pii.sii, raw_sample_ct, sample_ct, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoIidOnly) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
+      reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, &pii.sii, pcp->missing_catname, raw_sample_ct, sample_ct, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoIidOnly) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1129,7 +1134,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // move processing of PLINK 1.x cluster-loading/filtering flags here, since
     // they're now under the categorical-phenotype umbrella
     if ((pcp->misc_flags & kfMiscCatPhenoFamily) || pcp->within_fname) {
-      reterr = Plink1ClusterImport(pcp->within_fname, pcp->catpheno_name, pcp->family_missing_catname, sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->mwithin_val, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
+      reterr = Plink1ClusterImport(pcp->within_fname, pcp->catpheno_name, pcp->family_missing_catname, sample_include, pii.sii.sample_ids, pcp->missing_catname, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->mwithin_val, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1525,7 +1530,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       if (pcp->covar_fname || pcp->covar_range_list.name_ct) {
         const char* cur_covar_fname = pcp->covar_fname? pcp->covar_fname : (pcp->pheno_fname? pcp->pheno_fname : psamname);
-        reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, &pii.sii, raw_sample_ct, sample_ct, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarIidOnly) & 1, (pcp->misc_flags / kfMiscCovarColNums) & 1, pcp->max_thread_ct, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
+        reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, &pii.sii, pcp->missing_catname, raw_sample_ct, sample_ct, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarIidOnly) & 1, (pcp->misc_flags / kfMiscCovarColNums) & 1, pcp->max_thread_ct, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2562,7 +2567,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         // update (18 Mar 2018): permit no-covariate --write-covar when used to
         // write phenotypes.
         if ((covar_ct || (pheno_ct && (pcp->write_covar_flags & (kfWriteCovarColPheno1 | kfWriteCovarColPhenos)))) && ((pcp->command_flags1 & (kfCommand1Exportf | kfCommand1WriteCovar)) || ((pcp->command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & (kfMakeBed | kfMakeFam | kfMakePgen | kfMakePsam))))) {
-          reterr = WriteCovar(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, new_sample_idx_to_old, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, pcp->write_covar_flags, outname, outname_end);
+          reterr = WriteCovar(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, new_sample_idx_to_old, pcp->output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, pcp->write_covar_flags, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -2577,12 +2582,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           // todo: unsorted case (--update-chr, etc.)
           if (pcp->sort_vars_mode > kSortNone) {
-            reterr = MakePlink2Vsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, xheader, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2Vsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, xheader, &simple_pgr, outname, outname_end);
           } else {
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
             }
-            reterr = MakePlink2NoVsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, vpos_sortstatus, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2NoVsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, vpos_sortstatus, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           }
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
@@ -2592,7 +2597,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->command_flags1 & kfCommand1Exportf) {
-          reterr = Exportf(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, &(pcp->exportf_info), xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, vpos_sortstatus, pcp->input_missing_geno_char, pcp->output_missing_geno_char, pcp->legacy_output_missing_geno_char, pcp->max_thread_ct, make_plink2_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
+          reterr = Exportf(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, &(pcp->exportf_info), pcp->legacy_output_missing_pheno, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, vpos_sortstatus, pcp->input_missing_geno_char, pcp->output_missing_geno_char, pcp->legacy_output_missing_geno_char, pcp->max_thread_ct, make_plink2_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -2659,7 +2664,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Score) {
-        reterr = ScoreReport(sample_include, &pii.sii, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, &(pcp->score_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->xchr_model, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = ScoreReport(sample_include, &pii.sii, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, &(pcp->score_info), pcp->output_missing_pheno, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->xchr_model, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3560,7 +3565,9 @@ int main(int argc, char** argv) {
     pgenname[0] = '\0';
     psamname[0] = '\0';
     pvarname[0] = '\0';
-    InitPheno();
+    snprintf(pc.missing_catname, kMaxMissingPhenostrBlen, "NONE");
+    snprintf(pc.output_missing_pheno, kMaxMissingPhenostrBlen, "NA");
+    snprintf(pc.legacy_output_missing_pheno, kMaxMissingPhenostrBlen, "-9");
     cur_flag_idx = 0;
     pc.command_flags1 = kfCommand10;
     // uint64_t command_flags2 = 0;
@@ -7554,7 +7561,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --missing-catname string too long (max 31 chars).\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          memcpy(g_missing_catname, cur_modif, cur_modif_slen + 1);
+          memcpy(pc.missing_catname, cur_modif, cur_modif_slen + 1);
         } else if (strequal_k_unsafe(flagname_p2, "ouse")) {
           if (unlikely(chr_info.chrset_source)) {
             logerrputs("Error: Conflicting chromosome-set flags.\n");
@@ -8230,8 +8237,8 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           // quasi-bugfix (2 Jan 2021): make this apply to .fam files
-          memcpy(g_legacy_output_missing_pheno, cur_modif, cur_modif_slen + 1);
-          memcpy(g_output_missing_pheno, cur_modif, cur_modif_slen + 1);
+          memcpy(pc.legacy_output_missing_pheno, cur_modif, cur_modif_slen + 1);
+          memcpy(pc.output_missing_pheno, cur_modif, cur_modif_slen + 1);
         } else if (unlikely(!strequal_k_unsafe(flagname_p2, "ut"))) {
           // --out is a special case due to logging
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -10608,7 +10615,7 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE;
       }
     }
-    if (unlikely(!strcmp(g_missing_catname, g_output_missing_pheno))) {
+    if (unlikely(!strcmp(pc.missing_catname, pc.output_missing_pheno))) {
       logerrputs("Error: --missing-catname and --output-missing-phenotype strings can't match.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
@@ -10809,17 +10816,17 @@ int main(int argc, char** argv) {
           //   use 1/2 coding.
           const uint32_t psam_01 = (pc.misc_flags & kfMiscAffection01) && pc.command_flags1;
           if (xload & kfXloadPed) {
-            reterr = PedmapToPgen(pgenname, pvarname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = PedmapToPgen(pgenname, pvarname, pc.missing_catname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadTped) {
-            reterr = TpedToPgen(pgenname, psamname, pc.misc_flags, import_flags, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info, &psam_generated);
+            reterr = TpedToPgen(pgenname, psamname, pc.missing_catname, pc.misc_flags, import_flags, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info, &psam_generated);
           } else if (xload & kfXloadOxGen) {
-            reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxBgen) {
-            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxHaps) {
-            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, psam_01, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadPlink1Dosage) {
-            reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadGenDummy) {
             reterr = GenerateDummy(&gendummy_info, pc.misc_flags, import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, &main_sfmt, outname, convname_end, &chr_info);
           }
@@ -10898,7 +10905,7 @@ int main(int argc, char** argv) {
         if (make_plink2_flags & (kfMakePgen | kfMakePvar | kfMakePsam)) {
           merge_outname_end = strcpya_k(merge_outname_end, "-merge");
         }
-        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.misc_flags, pc.sample_sort_mode, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, pc.sort_vars_mode, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
+        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.missing_catname, pc.misc_flags, pc.sample_sort_mode, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, pc.sort_vars_mode, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
         if (unlikely(reterr)) {
           goto main_ret_1;
         }

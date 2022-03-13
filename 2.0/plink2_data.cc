@@ -804,7 +804,7 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
   return reterr;
 }
 
-PglErr WriteFam(const char* outname, const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uint32_t pheno_ct, char delim) {
+PglErr WriteFam(const char* outname, const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uint32_t* new_sample_idx_to_old, const char* legacy_output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, char delim) {
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
@@ -825,7 +825,6 @@ PglErr WriteFam(const char* outname, const uintptr_t* sample_include, const Pedi
         pheno_qt = pheno_cols[pheno_idx].data.qt;
       }
     }
-    const char* legacy_output_missing_pheno = g_legacy_output_missing_pheno;
     const uint32_t lomp_slen = strlen(legacy_output_missing_pheno);
 
     // possible todo: warning if two sample IDs only differ in SID?  (check for
@@ -6899,7 +6898,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
 }
 
 // allele_presents should be nullptr iff trim_alts not true
-PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, __maybe_unused const char* varid_multi_template_str, __maybe_unused const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, UnsortedVar vpos_sortstatus, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t new_variant_id_max_allele_slen, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, __maybe_unused const char* varid_multi_template_str, __maybe_unused const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* output_missing_pheno, const char* legacy_output_missing_pheno, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, UnsortedVar vpos_sortstatus, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t new_variant_id_max_allele_slen, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -6912,7 +6911,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       snprintf(outname_end, kMaxOutfnameExtBlen, ".fam");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WriteFam(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, new_sample_idx_to_old, sample_ct, pheno_ct, '\t');
+      reterr = WriteFam(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, new_sample_idx_to_old, legacy_output_missing_pheno, sample_ct, pheno_ct, '\t');
       if (unlikely(reterr)) {
         goto MakePlink2NoVsort_ret_1;
       }
@@ -6922,7 +6921,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, g_output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags, 0);
+      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags, 0);
       if (unlikely(reterr)) {
         goto MakePlink2NoVsort_ret_1;
       }
@@ -8149,7 +8148,7 @@ PglErr WritePvarResorted(const char* outname, const uintptr_t* variant_include, 
   return reterr;
 }
 
-PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const ChrIdx* chr_idxs, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, uint32_t use_nsort, PvarPsamFlags pvar_psam_flags, char* xheader, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const ChrIdx* chr_idxs, const char* output_missing_pheno, const char* legacy_output_missing_pheno, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, uint32_t use_nsort, PvarPsamFlags pvar_psam_flags, char* xheader, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
@@ -8363,7 +8362,7 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
       snprintf(outname_end, kMaxOutfnameExtBlen, ".fam");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WriteFam(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, new_sample_idx_to_old, sample_ct, pheno_ct, '\t');
+      reterr = WriteFam(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, new_sample_idx_to_old, legacy_output_missing_pheno, sample_ct, pheno_ct, '\t');
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }
@@ -8373,7 +8372,7 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, g_output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags, 0);
+      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags, 0);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }
