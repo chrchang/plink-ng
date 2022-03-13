@@ -7322,9 +7322,6 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	}
 	axptr = cptr2;
 	axlen = strlen_se(cptr2);
-	if (!axlen) {
-	  goto transposed_to_bed_ret_MISSING_TOKENS;
-	}
 	cptr2 = &(axptr[axlen]);
 	// only way for this to happen if it isn't at end of buffer is if we're
 	// at EOF, which is an error anyway
@@ -7343,11 +7340,14 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	      cptr2 = token_endnn(cptr2);
 	    }
 	    if ((((uintptr_t)(cptr3 - allele_buf)) + ((uintptr_t)(cptr2 - g_textbuf))) >= NON_BIGSTACK_MIN) {
-	      goto transposed_to_bed_ret_NOMEM;
+	      goto transposed_to_bed_ret_LONG_ALLELE;
 	    }
 	    cptr3 = memcpya(cptr3, g_textbuf, cptr2 - g_textbuf);
 	  } while (!(*cptr2));
 	  axlen = (uintptr_t)(cptr3 - allele_buf);
+	}
+	if (!axlen) {
+	  goto transposed_to_bed_ret_MISSING_TOKENS;
 	}
 	if ((*axptr != missing_geno) || (axlen != 1)) {
 	  retval = update_tped_alleles_and_cts(&allele_tot, alleles, alens, allele_cts, axptr, axlen, &uii);
@@ -7377,9 +7377,6 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	axlen = strlen_se(cptr2);
 	cptr2 = &(axptr[axlen]);
 	if (!(*cptr2)) {
-	  if (!axlen) {
-	    goto transposed_to_bed_ret_MISSING_TOKENS;
-	  }
 	  cptr3 = memcpya(allele_buf, axptr, axlen);
 	  axptr = allele_buf;
 	  do {
@@ -7398,12 +7395,15 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	      cptr2 = token_endnn(cptr2);
 	    }
 	    if ((((uintptr_t)(cptr3 - allele_buf)) + ((uintptr_t)(cptr2 - g_textbuf))) >= NON_BIGSTACK_MIN) {
-	      goto transposed_to_bed_ret_NOMEM;
+	      goto transposed_to_bed_ret_LONG_ALLELE;
 	    }
 	    cptr3 = memcpya(cptr3, g_textbuf, cptr2 - g_textbuf);
 	  } while (!(*cptr2));
 	  axlen = (uintptr_t)(cptr3 - allele_buf);
 	}
+        if (!axlen) {
+          goto transposed_to_bed_ret_MISSING_TOKENS;
+        }
 	if ((*axptr != missing_geno) || (axlen != 1)) {
 	  if (uii == 4) {
 	    goto transposed_to_bed_ret_HALF_MISSING;
@@ -7741,11 +7741,14 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   transposed_to_bed_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  transposed_to_bed_ret_LONG_ALLELE:
+    putc_unlocked('\r', stdout);
+    logerrprint("Error: Excessively long allele in .tped file.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
   transposed_to_bed_ret_MISSING_TOKENS:
     putc_unlocked('\r', stdout);
     LOGERRPRINTF("Error: Line %" PRIuPTR " of .tped file has fewer tokens than expected.\n", line_idx);
-    retval = RET_INVALID_FORMAT;
-    break;
   transposed_to_bed_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
