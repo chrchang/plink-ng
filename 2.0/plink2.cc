@@ -3355,7 +3355,7 @@ int main(int argc, char** argv) {
           }
           break;
         case 'c':
-          if (strequal_k(flagname_p, "covarExclude", flag_slen)) {
+          if (strequal_k(flagname_p, "covarExcludeList", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "not-covar");
           } else {
             goto main_flag_copy;
@@ -3473,7 +3473,7 @@ int main(int argc, char** argv) {
         case 'p':
           if (strequal_k(flagname_p, "prune", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "require-pheno");
-          } else if (strequal_k(flagname_p, "phenoExclude", flag_slen)) {
+          } else if (strequal_k(flagname_p, "phenoExcludeList", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "not-pheno");
           } else {
             goto main_flag_copy;

@@ -1585,7 +1585,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      * Otherwise, the value is interpreted as a number, and the variant is\n"
 "        kept if the number is in [<min>, <max>] (default min=0, max=DBL_MAX).\n"
               );
-    HelpPrint("pheno\0pheno-name\0pheno-col-nums\0not-pheno\0mpheno\0phenoExclude\0", &help_ctrl, 0,
+    HelpPrint("pheno\0pheno-name\0pheno-col-nums\0not-pheno\0mpheno\0phenoExcludeList\0", &help_ctrl, 0,
 "  --pheno ['iid-only'] <f> : Specify additional phenotype/covariate file.\n"
 "                             Comma-delimited files with a header line are now\n"
 "                             permitted.\n"
@@ -1626,7 +1626,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --missing-catname <str>       : Set missing-categorical-phenotype string\n"
 "                                  (case-sensitive, default 'NONE').\n"
                );
-    HelpPrint("covar\0covar-name\0covar-col-nums\0not-covar\0covar-number\0covarExclude\0", &help_ctrl, 0,
+    HelpPrint("covar\0covar-name\0covar-col-nums\0not-covar\0covar-number\0covarExcludeList\0", &help_ctrl, 0,
 "  --covar ['iid-only'] <f> : Specify additional covariate file.\n"
 "                             Comma-delimited files with a header line are now\n"
 "                             permitted.\n"
