@@ -808,6 +808,10 @@ HEADER_INLINE VecI16 veci16_and_notfirst(VecI16 excl, VecI16 main) {
   return R_CAST(VecI16, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
 }
 
+HEADER_INLINE VecUc vecuc_and_notfirst(VecUc excl, VecUc main) {
+  return R_CAST(VecUc, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
+}
+
 HEADER_INLINE VecI8 veci8_and_notfirst(VecI8 excl, VecI8 main) {
   return R_CAST(VecI8, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
 }
@@ -830,6 +834,10 @@ HEADER_INLINE VecU16 vecu16_set1(unsigned short usi) {
 
 HEADER_INLINE VecI16 veci16_set1(short si) {
   return R_CAST(VecI16, _mm256_set1_epi16(si));
+}
+
+HEADER_INLINE VecUc vecuc_set1_epi16(unsigned short usi) {
+  return R_CAST(VecUc, _mm256_set1_epi16(usi));
 }
 
 HEADER_INLINE VecUc vecuc_set1(unsigned char ucc) {
@@ -886,6 +894,10 @@ HEADER_INLINE VecW vecw_setr8x(char e31, char e30, char e29, char e28, char e27,
   return R_CAST(VecW, _mm256_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
+HEADER_INLINE VecUc vecuc_setr8x(char e31, char e30, char e29, char e28, char e27, char e26, char e25, char e24, char e23, char e22, char e21, char e20, char e19, char e18, char e17, char e16, char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
+  return R_CAST(VecUc, _mm256_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
+}
+
 HEADER_INLINE VecW vecw_unpacklo8(VecW evens, VecW odds) {
   return R_CAST(VecW, _mm256_unpacklo_epi8(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
 }
@@ -936,6 +948,16 @@ HEADER_INLINE VecI8 veci8_permute0xd8_if_avx2(VecI8 vv) {
 
 HEADER_INLINE VecUc vecuc_permute0xd8_if_avx2(VecUc vv) {
   return R_CAST(VecUc, _mm256_permute4x64_epi64(R_CAST(__m256i, vv), 0xd8));
+}
+
+HEADER_INLINE VecUc vecuc_gather_even(VecUc src_lo, VecUc src_hi, VecUc m8) {
+  const VecUc gathered_laneswapped = R_CAST(VecUc, _mm256_packus_epi16(R_CAST(__m256i, src_lo & m8), R_CAST(__m256i, src_hi & m8)));
+  return vecuc_permute0xd8_if_avx2(gathered_laneswapped);
+}
+
+HEADER_INLINE VecUc vecuc_gather_odd(VecUc src_lo, VecUc src_hi) {
+  const VecUc gathered_laneswapped = R_CAST(VecUc, _mm256_packus_epi16(_mm256_srli_epi16(R_CAST(__m256i, src_lo), 8), _mm256_srli_epi16(R_CAST(__m256i, src_hi), 8)));
+  return vecuc_permute0xd8_if_avx2(gathered_laneswapped);
 }
 
 HEADER_INLINE VecW vecw_shuffle8(VecW table, VecW indexes) {
@@ -1073,6 +1095,10 @@ HEADER_INLINE VecU16 vecu16_blendv(VecU16 aa, VecU16 bb, VecU16 mask) {
   return R_CAST(VecU16, _mm256_blendv_epi8(R_CAST(__m256i, aa), R_CAST(__m256i, bb), R_CAST(__m256i, mask)));
 }
 
+HEADER_INLINE VecUc vecuc_blendv(VecUc aa, VecUc bb, VecUc mask) {
+  return R_CAST(VecUc, _mm256_blendv_epi8(R_CAST(__m256i, aa), R_CAST(__m256i, bb), R_CAST(__m256i, mask)));
+}
+
 #  else  // !USE_AVX2
 
 #    define VCONST_W(xx) {xx, xx}
@@ -1136,6 +1162,10 @@ HEADER_INLINE VecI16 veci16_and_notfirst(VecI16 excl, VecI16 main) {
   return R_CAST(VecI16, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
 }
 
+HEADER_INLINE VecUc vecuc_and_notfirst(VecUc excl, VecUc main) {
+  return R_CAST(VecUc, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
+}
+
 HEADER_INLINE VecI8 veci8_and_notfirst(VecI8 excl, VecI8 main) {
   return R_CAST(VecI8, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
 }
@@ -1158,6 +1188,10 @@ HEADER_INLINE VecU16 vecu16_set1(unsigned short usi) {
 
 HEADER_INLINE VecI16 veci16_set1(short si) {
   return R_CAST(VecI16, _mm_set1_epi16(si));
+}
+
+HEADER_INLINE VecUc vecuc_set1_epi16(unsigned short usi) {
+  return R_CAST(VecUc, _mm_set1_epi16(usi));
 }
 
 HEADER_INLINE VecUc vecuc_set1(unsigned char ucc) {
@@ -1290,6 +1324,22 @@ HEADER_INLINE VecW vecw_setr8x(
   return R_CAST(VecW, _mm_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16));
 }
 
+HEADER_INLINE VecUc vecuc_setr8x(
+    char e31, char e30, char e29, char e28,
+    char e27, char e26, char e25, char e24,
+    char e23, char e22, char e21, char e20,
+    char e19, char e18, char e17, char e16,
+    __maybe_unused char e15, __maybe_unused char e14,
+    __maybe_unused char e13, __maybe_unused char e12,
+    __maybe_unused char e11, __maybe_unused char e10,
+    __maybe_unused char e9, __maybe_unused char e8,
+    __maybe_unused char e7, __maybe_unused char e6,
+    __maybe_unused char e5, __maybe_unused char e4,
+    __maybe_unused char e3, __maybe_unused char e2,
+    __maybe_unused char e1, __maybe_unused char e0) {
+  return R_CAST(VecUc, _mm_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16));
+}
+
 HEADER_INLINE VecW vecw_unpacklo8(VecW evens, VecW odds) {
   return R_CAST(VecW, _mm_unpacklo_epi8(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
 }
@@ -1350,6 +1400,14 @@ HEADER_INLINE VecUc vecuc_permute0xd8_if_avx2(VecUc vv) {
   return vv;
 }
 
+HEADER_INLINE VecUc vecuc_gather_even(VecUc src_lo, VecUc src_hi, VecUc m8) {
+  return R_CAST(VecUc, _mm_packus_epi16(R_CAST(__m128i, src_lo & m8), R_CAST(__m128i, src_hi & m8)));
+}
+
+HEADER_INLINE VecUc vecuc_gather_odd(VecUc src_lo, VecUc src_hi) {
+  return R_CAST(VecUc, _mm_packus_epi16(_mm_srli_epi16(R_CAST(__m128i, src_lo), 8), _mm_srli_epi16(R_CAST(__m128i, src_hi), 8)));
+}
+
 #    ifdef USE_SSE42
 HEADER_INLINE VecI32 veci32_max(VecI32 v1, VecI32 v2) {
   return R_CAST(VecI32, _mm_max_epi32(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
@@ -1386,6 +1444,10 @@ HEADER_INLINE VecU32 vecu32_blendv(VecU32 aa, VecU32 bb, VecU32 mask) {
 HEADER_INLINE VecU16 vecu16_blendv(VecU16 aa, VecU16 bb, VecU16 mask) {
   return R_CAST(VecU16, _mm_blendv_epi8(R_CAST(__m128i, aa), R_CAST(__m128i, bb), R_CAST(__m128i, mask)));
 }
+
+HEADER_INLINE VecUc vecuc_blendv(VecUc aa, VecUc bb, VecUc mask) {
+  return R_CAST(VecUc, _mm_blendv_epi8(R_CAST(__m128i, aa), R_CAST(__m128i, bb), R_CAST(__m128i, mask)));
+}
 #    else
 HEADER_INLINE uintptr_t vecw_extract64_0(VecW vv) {
   return R_CAST(uintptr_t, _mm_movepi64_pi64(R_CAST(__m128i, vv)));
@@ -1408,6 +1470,10 @@ HEADER_INLINE VecU32 vecu32_blendv(VecU32 aa, VecU32 bb, VecU32 mask) {
 
 HEADER_INLINE VecU16 vecu16_blendv(VecU16 aa, VecU16 bb, VecU16 mask) {
   return vecu16_and_notfirst(mask, aa) | (mask & bb);
+}
+
+HEADER_INLINE VecUc vecuc_blendv(VecUc aa, VecUc bb, VecUc mask) {
+  return vecuc_and_notfirst(mask, aa) | (mask & bb);
 }
 #    endif
 

@@ -655,6 +655,46 @@ PglErr RewritePsam(const char* in_psamname, const char* missing_catname, MiscFla
   return reterr;
 }
 
+BoolErr TpedToPgenSnp(uint32_t sample_idx_start, uint32_t sample_idx_stop, char allele1_char, char allele2_char, char input_missing_geno_char, char** text_iter_ptr, uintptr_t* genovec) {
+  char* text_iter = *text_iter_ptr;
+  for (uint32_t sample_idx = sample_idx_start; sample_idx != sample_idx_stop; ++sample_idx) {
+    const char first_delim = text_iter[0];
+    const char first_allele_char = text_iter[1];
+    const char second_delim = text_iter[2];
+    const char second_allele_char = text_iter[3];
+    text_iter = &(text_iter[4]);
+    if (unlikely(((first_delim != '\t') && (first_delim != ' ')) || ((second_delim != '\t') && (second_delim != ' ')))) {
+      return 1;
+    }
+    uintptr_t cur_geno;
+    if (first_allele_char == allele1_char) {
+      if (second_allele_char == allele1_char) {
+        continue;
+      }
+      if (unlikely(second_allele_char != allele2_char)) {
+        return 1;
+      }
+      cur_geno = 1;
+    } else if (first_allele_char == allele2_char) {
+      if (second_allele_char == allele1_char) {
+        cur_geno = 1;
+      } else if (likely(second_allele_char == allele2_char)) {
+        cur_geno = 2;
+      } else {
+        return 1;
+      }
+    } else {
+      if (unlikely(((first_allele_char != '.') && (first_allele_char != input_missing_geno_char)) || ((second_allele_char != '.') && (second_allele_char != input_missing_geno_char)))) {
+        return 1;
+      }
+      cur_geno = 3;
+    }
+    genovec[sample_idx / kBitsPerWordD2] |= cur_geno << ((sample_idx % kBitsPerWordD2) * 2);
+  }
+  *text_iter_ptr = text_iter;
+  return 0;
+}
+
 // psam_generated assumed to be initialized to 1.
 // Unlike plink 1.9, this does not support lines longer than 2 GiB.
 // It's possible to parallelize this more, but it isn't realistically worth the
@@ -732,6 +772,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
     uint32_t max_line_blen = TextLineEnd(&tped_txs) - tped_line_start;
     uint32_t variant_ct = 0;
     uint32_t at_least_one_nzero_cm = 0;
+    // TODO: make this single-pass, after adding .pgi support to pgenlib.
     while (1) {
       char* chr_code_end = CurTokenEnd(tped_line_start);
 
@@ -928,50 +969,142 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
         tped_line_iter = FirstNonTspace(second_allele_end);
       }
       // At this point, both allele codes are locked in.
-      for (; sample_idx != sample_ct; ++sample_idx) {
-        if (unlikely(IsEolnKns(*tped_line_iter))) {
-          goto TpedToPgen_ret_MISSING_TOKENS;
+      if ((allele1_slen == 1) && (allele2_slen == 1)) {
+        char* eoln_ptr = AdvToDelim(tped_line_iter, '\n');
+        if (eoln_ptr[-1] == '\r') {
+          // don't punish Windows eoln
+          --eoln_ptr;
         }
-        char* first_allele_end = CurTokenEnd(tped_line_iter);
-        const uint32_t first_allele_slen = first_allele_end - tped_line_iter;
-        uintptr_t allele2_ct = 0;
-        if ((first_allele_slen == allele1_slen) && memequal(tped_line_iter, allele1, allele1_slen)) {
-          // do nothing
-        } else if ((first_allele_slen == allele2_slen) && memequal(tped_line_iter, allele2, allele2_slen)) {
-          allele2_ct = 1;
-        } else if (likely((first_allele_slen == 1) && ((tped_line_iter[0] == '.') || (tped_line_iter[0] == input_missing_geno_char)))) {
-          allele2_ct = 4;
-        } else {
-          goto TpedToPgen_ret_MULTIALLELIC;
+        const uint32_t remaining_sample_ct = sample_ct - sample_idx;
+        char* text_iter = &(tped_line_iter[-1]);
+        if (eoln_ptr != &(text_iter[remaining_sample_ct * 4])) {
+          goto TpedToPgen_general_case;
         }
-        char* second_allele_start = FirstNonTspace(first_allele_end);
-        if (unlikely(IsEolnKns(*second_allele_start))) {
-          goto TpedToPgen_ret_MISSING_TOKENS;
-        }
-        char* second_allele_end = CurTokenEnd(second_allele_start);
-        const uint32_t second_allele_slen = second_allele_end - second_allele_start;
-        if ((second_allele_slen == allele1_slen) && memequal(second_allele_start, allele1, allele1_slen)) {
-          // do nothing
-        } else if ((second_allele_slen == allele2_slen) && memequal(second_allele_start, allele2, allele2_slen)) {
-          ++allele2_ct;
-        } else if (likely((second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char)))) {
-          allele2_ct += 4;
-        } else {
-          goto TpedToPgen_ret_MULTIALLELIC;
-        }
-        if (allele2_ct) {
-          if (allele2_ct >= 4) {
-            if (unlikely(allele2_ct != 8)) {
-              // Value of 4 or 5 corresponds to 0/. or 1/.
-              goto TpedToPgen_ret_HALF_MISSING;
-            }
-            // Turn this into a genotype code.
-            allele2_ct = 3;
+        // Common-case optimization: if both allele codes are length-1, and the
+        // line ends at the earliest possible byte, valid lines must strictly
+        // alternate between delimiter-bytes and allele-code bytes.
+        // We don't increment sample_idx or tped_line_iter until the loop
+        // finishes, since if anything unexpected happens, we back up and
+        // reparse the line the slow way to generate the correct error message.
+        const char allele1_char = allele1[0];
+        const char allele2_char = allele2[0];
+        uint32_t sample_idx2 = sample_idx;
+#ifdef __LP64__
+        // Try to use vector instructions to process most of the rest of the
+        // line, falling back on the scalar loop for the beginning and the end.
+        //
+        // We use movemask to efficiently convert between text-space and
+        // genovec-space.  Its return type fits kInt16PerVec (16 for AVX2, 8
+        // otherwise) 2-bit genotype values, so that's the natural chunk size.
+        // (Yes, this is overkill for the immediate problem, but it's a
+        // reasonable testbed for parsing ideas.)
+        const uint32_t sample_idx_interior_start = RoundUpPow2(sample_idx, kInt16PerVec);
+        const uint32_t sample_idx_interior_stop = RoundDownPow2(sample_ct, kInt16PerVec);
+        if (sample_idx_interior_stop > sample_idx_interior_start) {
+          if (unlikely(TpedToPgenSnp(sample_idx2, sample_idx_interior_start, allele1_char, allele2_char, input_missing_geno_char, &text_iter, genovec))) {
+            goto TpedToPgen_general_case;
           }
-          genovec[sample_idx / kBitsPerWordD2] |= allele2_ct << ((sample_idx % kBitsPerWordD2) * 2);
-        }
+          const uint32_t vidx_stop = sample_idx_interior_stop / kInt16PerVec;
 
-        tped_line_iter = FirstNonTspace(second_allele_end);
+          const VecUc vvec_tab = vecuc_set1('\t');
+          const VecUc vvec_space = vecuc_set1(' ');
+          const VecUc vvec_ref = vecuc_set1(allele1_char);
+          const VecUc vvec_alt = vecuc_set1(allele2_char);
+          const VecUc vvec_dot = vecuc_set1('.');
+          const VecUc vvec_missing = vecuc_set1(input_missing_geno_char);
+          const VecUc m8 = vecuc_set1_epi16(0x00FF);
+          // We bitwise-and all validity checks with ok_acc, and then perform
+          // a single check of ok_acc's contents at loop-end.
+          VecUc ok_acc = vecuc_set1(-1);
+
+          Vec8thUint* genovec_alias = R_CAST(Vec8thUint*, genovec);
+          for (uint32_t vidx = sample_idx_interior_start / kInt16PerVec; vidx != vidx_stop; ++vidx) {
+            const VecUc text0 = vecuc_loadu(text_iter);
+            const VecUc text1 = vecuc_loadu(&(text_iter[kBytesPerVec]));
+            text_iter = &(text_iter[2 * kBytesPerVec]);
+
+            const VecUc even_all = vecuc_gather_even(text0, text1, m8);
+            ok_acc = ok_acc & ((even_all == vvec_tab) | (even_all == vvec_space));
+            const VecUc odd_all = vecuc_gather_odd(text0, text1);
+
+            const VecUc cur_ref = (odd_all == vvec_ref);
+            const VecUc cur_alt = (odd_all == vvec_alt);
+            const VecUc cur_missing = (odd_all == vvec_dot) | (odd_all == vvec_missing);
+            // All allele codes must match REF, ALT, or missing.
+            ok_acc = ok_acc & (cur_ref | cur_alt | cur_missing);
+
+            // Half-missing check could be done in vector-space instead (so we
+            // only have one movemask operation instead of two per loop, and we
+            // remove an if-statement), but that code is more complicated, and
+            // doesn't seem to be any faster.
+
+            const Vec8thUint alt_bits = vecuc_movemask(cur_alt);
+            const Vec8thUint missing_bits = vecuc_movemask(cur_missing);
+            // Even missing bytes must match odd missing bits.
+            if (unlikely((missing_bits ^ (missing_bits >> 1)) & (kVec8thUintMax / 3))) {
+              // Don't jump directly to HALF_MISSING, since there may be
+              // another earlier error.
+              goto TpedToPgen_general_case;
+            }
+            genovec_alias[vidx] = ((alt_bits & (kVec8thUintMax / 3)) + ((alt_bits >> 1) & (kVec8thUintMax / 3))) | missing_bits;
+          }
+          if (unlikely(vecuc_movemask(ok_acc) != kVec8thUintMax)) {
+            goto TpedToPgen_general_case;
+          }
+          sample_idx2 = sample_idx_interior_stop;
+        }
+#endif
+        if (unlikely(TpedToPgenSnp(sample_idx2, sample_ct, allele1_char, allele2_char, input_missing_geno_char, &text_iter, genovec))) {
+          goto TpedToPgen_general_case;
+        }
+        tped_line_iter = eoln_ptr;
+      } else {
+      TpedToPgen_general_case:
+        for (; sample_idx != sample_ct; ++sample_idx) {
+          if (unlikely(IsEolnKns(*tped_line_iter))) {
+            goto TpedToPgen_ret_MISSING_TOKENS;
+          }
+          char* first_allele_end = CurTokenEnd(tped_line_iter);
+          const uint32_t first_allele_slen = first_allele_end - tped_line_iter;
+          uintptr_t allele2_ct = 0;
+          if ((first_allele_slen == allele1_slen) && memequal(tped_line_iter, allele1, allele1_slen)) {
+            // do nothing
+          } else if ((first_allele_slen == allele2_slen) && memequal(tped_line_iter, allele2, allele2_slen)) {
+            allele2_ct = 1;
+          } else if (likely((first_allele_slen == 1) && ((tped_line_iter[0] == '.') || (tped_line_iter[0] == input_missing_geno_char)))) {
+            allele2_ct = 4;
+          } else {
+            goto TpedToPgen_ret_MULTIALLELIC;
+          }
+          char* second_allele_start = FirstNonTspace(first_allele_end);
+          if (unlikely(IsEolnKns(*second_allele_start))) {
+            goto TpedToPgen_ret_MISSING_TOKENS;
+          }
+          char* second_allele_end = CurTokenEnd(second_allele_start);
+          const uint32_t second_allele_slen = second_allele_end - second_allele_start;
+          if ((second_allele_slen == allele1_slen) && memequal(second_allele_start, allele1, allele1_slen)) {
+            // do nothing
+          } else if ((second_allele_slen == allele2_slen) && memequal(second_allele_start, allele2, allele2_slen)) {
+            ++allele2_ct;
+          } else if (likely((second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char)))) {
+            allele2_ct += 4;
+          } else {
+            goto TpedToPgen_ret_MULTIALLELIC;
+          }
+          if (allele2_ct) {
+            if (allele2_ct >= 4) {
+              if (unlikely(allele2_ct != 8)) {
+                // Value of 4 or 5 corresponds to 0/. or 1/.
+                goto TpedToPgen_ret_HALF_MISSING;
+              }
+              // Turn this into a genotype code.
+              allele2_ct = 3;
+            }
+            genovec[sample_idx / kBitsPerWordD2] |= allele2_ct << ((sample_idx % kBitsPerWordD2) * 2);
+          }
+
+          tped_line_iter = FirstNonTspace(second_allele_end);
+        }
       }
       // Count alleles, and swap allele2 to REF if it's more common than
       // allele1.
@@ -1071,14 +1204,17 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
     reterr = kPglRetWriteFail;
     break;
   TpedToPgen_ret_HALF_MISSING:
+    putc_unlocked('\n', stdout);
     logerrprintfww("Error: Half-missing genotype on line %" PRIuPTR " of %s.\n", line_idx, tpedname);
     reterr = kPglRetMalformedInput;
     break;
   TpedToPgen_ret_MULTIALLELIC:
+    putc_unlocked('\n', stdout);
     logerrprintfww("Error: Multiallelic variant on line %" PRIuPTR " of %s. This violates the .tped specification; please reformat this as e.g. VCF.\n", line_idx, tpedname);
     reterr = kPglRetMalformedInput;
     break;
   TpedToPgen_ret_MISSING_TOKENS:
+    putc_unlocked('\n', stdout);
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, tpedname);
   TpedToPgen_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
