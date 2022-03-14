@@ -6240,7 +6240,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
     const PgenGlobalFlags write_gflags = vrtype_8bit_needed? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0;
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, ppmc.write_allele_idx_offsets, ppmc.write_nonref_flags, write_variant_ct, sample_ct, write_max_allele_ct, write_gflags, nonref_flags_storage, &mw.spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, ppmc.write_allele_idx_offsets, ppmc.write_nonref_flags, write_variant_ct, sample_ct, write_max_allele_ct, 0, write_gflags, nonref_flags_storage, &mw.spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, outname, strerror(errno));

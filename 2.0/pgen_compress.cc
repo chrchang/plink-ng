@@ -129,7 +129,7 @@ int32_t main(int32_t argc, char** argv) {
     write_sample_ct = sample_ct;
 #endif
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(argv[2], nullptr, nullptr, variant_ct, write_sample_ct, 0, kfPgenGlobal0, 2, &spgw, &cur_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(argv[2], nullptr, nullptr, variant_ct, write_sample_ct, 0, 0, kfPgenGlobal0, 2, &spgw, &cur_alloc_cacheline_ct, &max_vrec_len);
     if (reterr) {
       fprintf(stderr, "compression phase 1 error %u\n", S_CAST(uint32_t, reterr));
       goto main_ret_1;
