@@ -19,14 +19,6 @@
 
 #include <errno.h>
 
-#ifndef NO_MMAP
-#  include <sys/types.h>  // fstat()
-#  include <sys/stat.h>  // open(), fstat()
-#  include <sys/mman.h>  // mmap()
-#  include <fcntl.h>  // open()
-#  include <unistd.h>  // fstat()
-#endif
-
 #ifdef __cplusplus
 namespace plink2 {
 #endif
@@ -571,6 +563,7 @@ void Expand4bitTo8(const void* __restrict bytearr, uint32_t input_nybble_ct, uin
 
 void PreinitPgfi(PgenFileInfo* pgfip) {
   pgfip->shared_ff = nullptr;
+  pgfip->pgi_ff = nullptr;
   pgfip->block_base = nullptr;
   // we want this for proper handling of e.g. sites-only VCFs
   pgfip->nonref_flags = nullptr;
@@ -594,9 +587,8 @@ uintptr_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlag
   const uint32_t genovec_cacheline_req = NypCtToCachelineCt(raw_sample_ct);
   const uint32_t bitvec_cacheline_req = BitCtToCachelineCt(raw_sample_ct);
   uintptr_t cachelines_required = genovec_cacheline_req;
-  // fread_buf.  fread_buf_byte_ct should be zero if mmap() is being used.
-  // DivUp() won't overflow since fread_buf_byte_ct requirement can't exceed
-  // kPglMaxBytesPerVariant, which is sufficiently far from 2^32.
+  // fread_buf.  DivUp() won't overflow since fread_buf_byte_ct requirement
+  // can't exceed kPglMaxBytesPerVariant, which is sufficiently far from 2^32.
   cachelines_required += DivUp(fread_buf_byte_ct, kCacheline);
 
   const uint32_t ld_compression_present = (gflags / kfPgenGlobalLdCompressionPresent) & 1;
@@ -661,7 +653,7 @@ uintptr_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlag
 }
 
 static_assert(kPglMaxAlleleCt == 255, "Need to update PgfiInitPhase1().");
-PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, uint32_t use_mmap, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf) {
+PglErr PgfiInitPhase1(const char* fname, __attribute__((unused)) const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf) {
   pgfip->var_fpos = nullptr;
   pgfip->vrtypes = nullptr;
   pgfip->allele_idx_offsets = nullptr;
@@ -678,73 +670,28 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
 
   uint64_t fsize;
   const unsigned char* fread_ptr;
-  FILE* shared_ff = nullptr;
   unsigned char small_readbuf[3];
-#ifdef NO_MMAP
-  if (unlikely(use_mmap)) {
-    pgfip->shared_ff = nullptr;  // this must be initialized before block_base
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: PgfiInitPhase1() use_mmap parameter is nonzero, but pgenlib was not compiled with mmap support.\n");
-    return kPglRetImproperFunctionCall;
+  FILE* shared_ff = fopen(fname, FOPEN_RB);
+  pgfip->shared_ff = shared_ff;
+  if (unlikely(!shared_ff)) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
+    return kPglRetOpenFail;
   }
-#else
-  if (use_mmap) {
-    pgfip->shared_ff = nullptr;  // this must be initialized before block_base
-    int32_t file_handle = open(fname, O_RDONLY);
-    if (unlikely(file_handle < 0)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
-      return kPglRetOpenFail;
-    }
-    struct stat statbuf;
-    if (unlikely(fstat(file_handle, &statbuf) < 0)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
-      return kPglRetOpenFail;
-    }
-    fsize = statbuf.st_size;
-    pgfip->block_offset = 0;
-    pgfip->file_size = fsize;
-    pgfip->block_base = S_CAST(const unsigned char*, mmap(0, pgfip->file_size, PROT_READ, MAP_SHARED, file_handle, 0));
-    if (unlikely(R_CAST(uintptr_t, pgfip->block_base) == (~k0LU))) {
-      pgfip->block_base = nullptr;
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", fname, strerror(errno));
-      return kPglRetReadFail;
-    }
-    // this provided less than a ~5% boost on OS X; mmap still took >80% longer
-    // than fread on an 85GB file there
-    // try MAP_POPULATE on Linux?
-    // madvise((unsigned char*)(pgfip->block_base), fsize, MADV_SEQUENTIAL);
-    close(file_handle);
-    // update (7 Jan 2018): drop support for zero-sample and zero-variant
-    // files, not worth the development cost
-    if (unlikely(fsize < 4)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s is too small to be a valid .pgen file.\n", fname);
-      return kPglRetMalformedInput;
-    }
-    fread_ptr = pgfip->block_base;
+  if (unlikely(fseeko(shared_ff, 0, SEEK_END))) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", fname, strerror(errno));
+    return kPglRetReadFail;
   }
-#endif
-  else {
-    shared_ff = fopen(fname, FOPEN_RB);
-    pgfip->shared_ff = shared_ff;
-    if (unlikely(!shared_ff)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
-      return kPglRetOpenFail;
-    }
-    if (unlikely(fseeko(shared_ff, 0, SEEK_END))) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", fname, strerror(errno));
-      return kPglRetReadFail;
-    }
-    fsize = ftello(shared_ff);
-    if (unlikely(fsize < 4)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s is too small to be a valid .pgen file.\n", fname);
-      return kPglRetMalformedInput;
-    }
-    rewind(shared_ff);
-    if (unlikely(!fread_unlocked(small_readbuf, 3, 1, shared_ff))) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", fname, strerror(errno));
-      return kPglRetReadFail;
-    }
-    fread_ptr = small_readbuf;
+  fsize = ftello(shared_ff);
+  if (unlikely(fsize < 4)) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s is too small to be a valid .pgen file.\n", fname);
+    return kPglRetMalformedInput;
   }
+  rewind(shared_ff);
+  if (unlikely(!fread_unlocked(small_readbuf, 3, 1, shared_ff))) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", fname, strerror(errno));
+    return kPglRetReadFail;
+  }
+  fread_ptr = small_readbuf;
   // deliberate underflow
   if (unlikely(((raw_variant_ct - 1) > 0x7ffffffc) && (raw_variant_ct != UINT32_MAX))) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid raw_variant_ct function parameter.\n");
@@ -805,26 +752,21 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
     return kPglRetSuccess;
   }
 
-  if (unlikely(fsize < 12)) {
+  // TODO: .pgen.pgi support
+  if (file_type_code == 0x20) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen external-index-file support is under development.\n");
+    return kPglRetNotYetSupported;
+  }
+  if (unlikely((file_type_code != 0x20) && (fsize < 12))) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s is too small to be a valid .pgen file.\n", fname);
     return kPglRetMalformedInput;
   }
-#ifndef NO_MMAP
-  if (use_mmap) {
-    memcpy(&(pgfip->raw_variant_ct), &(fread_ptr[3]), sizeof(int32_t));
-    memcpy(&(pgfip->raw_sample_ct), &(fread_ptr[7]), sizeof(int32_t));
-    memcpy(header_ctrl_ptr, &(fread_ptr[11]), 1);
-  } else {
-#endif
-    if (unlikely((!fread_unlocked(&(pgfip->raw_variant_ct), sizeof(int32_t), 1, shared_ff)) ||
-                 (!fread_unlocked(&(pgfip->raw_sample_ct), sizeof(int32_t), 1, shared_ff)) ||
-                 (!fread_unlocked(header_ctrl_ptr, 1, 1, shared_ff)))) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", fname, strerror(errno));
-      return kPglRetReadFail;
-    }
-#ifndef NO_MMAP
+  if (unlikely((!fread_unlocked(&(pgfip->raw_variant_ct), sizeof(int32_t), 1, shared_ff)) ||
+               (!fread_unlocked(&(pgfip->raw_sample_ct), sizeof(int32_t), 1, shared_ff)) ||
+               (!fread_unlocked(header_ctrl_ptr, 1, 1, shared_ff)))) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", fname, strerror(errno));
+    return kPglRetReadFail;
   }
-#endif
   PgenHeaderCtrl header_ctrl = *header_ctrl_ptr;
   if (raw_variant_ct == UINT32_MAX) {
     raw_variant_ct = pgfip->raw_variant_ct;
@@ -891,7 +833,7 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
     return kPglRetSuccess;
   }
   if (unlikely(file_type_code >= 0x11)) {
-    // todo: 0x11 phase sets (maybe not before 2021, though)
+    // probable todo: 0x11 phase sets (unlikely before 2023, though)
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Third byte of %s does not correspond to a storage mode supported by this version of pgenlib.\n", fname);
     return kPglRetNotYetSupported;
   }
@@ -1007,53 +949,12 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
   unsigned char* nonref_flags_iter = R_CAST(unsigned char*, pgfip->nonref_flags);
   const unsigned char* fread_ptr = nullptr;  // maybe-uninitialized warning
   FILE* shared_ff = pgfip->shared_ff;
+  assert(shared_ff);
   if (const_vrec_width) {
     // no allele counts to verify if fixed-width
     // always need ldbase_raw_genovec
     *pgr_alloc_cacheline_ct_ptr = NypCtToCachelineCt(pgfip->raw_sample_ct);
     *max_vrec_width_ptr = const_vrec_width;
-#ifdef NO_MMAP
-    assert(shared_ff);
-#else
-    if (!shared_ff) {
-      if (unlikely(use_blockload)) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: PgfiInitPhase2() cannot be called with use_blockload set when PgfiInitPhase1() had use_mmap set.\n");
-        return kPglRetImproperFunctionCall;
-      }
-      if ((!(header_ctrl & 192)) || (pgfip->const_vrtype == kPglVrtypePlink1)) {
-        return kPglRetSuccess;
-      }
-      fread_ptr = &(pgfip->block_base[12]);
-      const uint32_t nonref_flags_byte_ct = DivUp(raw_variant_ct, CHAR_BIT);
-      if (!nonref_flags_already_loaded) {
-        if (nonref_flags_stored) {
-          memcpy(nonref_flags_iter, fread_ptr, nonref_flags_byte_ct);
-        }
-        return kPglRetSuccess;
-      }
-      if (nonref_flags_stored) {
-        if (unlikely(!memequal(nonref_flags_iter, fread_ptr, nonref_flags_byte_ct))) {
-          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Loaded nonref_flags do not match values in .pgen file.\n");
-          return kPglRetInconsistentInput;
-        }
-        return kPglRetSuccess;
-      }
-      if (header_ctrl & 64) {
-        // all ref
-        if (unlikely(!AllWordsAreZero(pgfip->nonref_flags, BitCtToWordCt(raw_variant_ct)))) {
-          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Loaded nonref_flags do not match values in .pgen file.\n");
-          return kPglRetInconsistentInput;
-        }
-        return kPglRetSuccess;
-      }
-      // all nonref
-      if (unlikely(!AllBitsAreOne(pgfip->nonref_flags, raw_variant_ct))) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Loaded nonref_flags do not match values in .pgen file.\n");
-        return kPglRetInconsistentInput;
-      }
-      return kPglRetSuccess;
-    }
-#endif
     if (!use_blockload) {
       // using fread() single-variant-at-a-time, need pgr.fread_buf
       *pgr_alloc_cacheline_ct_ptr += DivUp(const_vrec_width, kCacheline);
@@ -1115,39 +1016,23 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
   uint32_t vblock_ct_m1 = (raw_variant_ct - 1) / kPglVblockSize;
   uint32_t max_vrec_width = 0;
   uint64_t cur_fpos;
-#ifdef NO_MMAP
-  assert(shared_ff);
-#else
-  if (!shared_ff) {
-    if (unlikely(use_blockload)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: PgfiInitPhase2() cannot be called with use_blockload set when PgfiInitPhase1() had use_mmap set.\n");
-      return kPglRetImproperFunctionCall;
-    }
-    fread_ptr = &(pgfip->block_base[12 + 8 * vblock_idx_start]);
-    memcpy(&cur_fpos, fread_ptr, sizeof(int64_t));
-    fread_ptr = &(fread_ptr[(vblock_ct_m1 + 1 - vblock_idx_start) * sizeof(int64_t)]);
-  } else {
-#endif
-    if (vblock_idx_start) {
-      if (unlikely(fseeko(shared_ff, vblock_idx_start * sizeof(int64_t), SEEK_CUR))) {
-        FillPgenReadErrstrFromNzErrno(errstr_buf);
-        return kPglRetReadFail;
-      }
-    }
-    if (unlikely(!fread_unlocked(&cur_fpos, sizeof(int64_t), 1, shared_ff))) {
-      FillPgenReadErrstr(shared_ff, errstr_buf);
-      return kPglRetReadFail;
-    }
-    // May also need to load the rest of these values in the future, if we want
-    // to support dynamic insertion into a memory-mapped file.  But skip them
-    // for now.
-    if (unlikely(fseeko(shared_ff, (vblock_ct_m1 - vblock_idx_start) * sizeof(int64_t), SEEK_CUR))) {
+  if (vblock_idx_start) {
+    if (unlikely(fseeko(shared_ff, vblock_idx_start * sizeof(int64_t), SEEK_CUR))) {
       FillPgenReadErrstrFromNzErrno(errstr_buf);
       return kPglRetReadFail;
     }
-#ifndef NO_MMAP
   }
-#endif
+  if (unlikely(!fread_unlocked(&cur_fpos, sizeof(int64_t), 1, shared_ff))) {
+    FillPgenReadErrstr(shared_ff, errstr_buf);
+    return kPglRetReadFail;
+  }
+  // May also need to load the rest of these values in the future, if we want
+  // to support dynamic insertion into a memory-mapped file.  But skip them
+  // for now.
+  if (unlikely(fseeko(shared_ff, (vblock_ct_m1 - vblock_idx_start) * sizeof(int64_t), SEEK_CUR))) {
+    FillPgenReadErrstrFromNzErrno(errstr_buf);
+    return kPglRetReadFail;
+  }
   const uint32_t vrtype_and_fpos_storage = header_ctrl & 15;
   const uint32_t alt_allele_ct_byte_ct = (header_ctrl >> 4) & 3;
   if (alt_allele_ct_byte_ct) {
@@ -1174,18 +1059,10 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       }
       header_vblock_byte_ct += kPglVblockSize * (1 + (vrtype_and_fpos_storage & 3));
     }
-#ifndef NO_MMAP
-    if (!shared_ff) {
-      fread_ptr = &(fread_ptr[header_vblock_byte_ct * S_CAST(uint64_t, vblock_idx)]);
-    } else {
-#endif
-      if (unlikely(fseeko(shared_ff, header_vblock_byte_ct * S_CAST(uint64_t, vblock_idx), SEEK_CUR))) {
-        FillPgenReadErrstrFromNzErrno(errstr_buf);
-        return kPglRetReadFail;
-      }
-#ifndef NO_MMAP
+    if (unlikely(fseeko(shared_ff, header_vblock_byte_ct * S_CAST(uint64_t, vblock_idx), SEEK_CUR))) {
+      FillPgenReadErrstrFromNzErrno(errstr_buf);
+      return kPglRetReadFail;
     }
-#endif
   }
   uint32_t cur_vblock_variant_ct = kPglVblockSize;
   uint32_t max_allele_ct = pgfip->max_allele_ct;
@@ -1270,20 +1147,11 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
 #ifdef NO_UNALIGNED
 #  error "Unaligned accesses in PgfiInitPhase2()."
 #endif
-#ifndef NO_MMAP
-      if (!shared_ff) {
-        loadbuf_iter = R_CAST(const uintptr_t*, fread_ptr);
-        fread_ptr = &(fread_ptr[cur_byte_ct]);
-      } else {
-#endif
-        if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, shared_ff))) {
-          FillPgenReadErrstr(shared_ff, errstr_buf);
-          return kPglRetReadFail;
-        }
-        loadbuf_iter = R_CAST(const uintptr_t*, loadbuf);
-#ifndef NO_MMAP
+      if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, shared_ff))) {
+        FillPgenReadErrstr(shared_ff, errstr_buf);
+        return kPglRetReadFail;
       }
-#endif
+      loadbuf_iter = R_CAST(const uintptr_t*, loadbuf);
       const uint32_t log2_entries_per_word = kBitsPerWordLog2 - log2_entry_bit_width;
       const uint32_t block_len = 1 << log2_entries_per_word;
       uint32_t cur_vblock_idx = 0;
@@ -1308,58 +1176,28 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       if (vrtype_and_fpos_storage < 4) {
         // no phase or dosage present, 4-bit vrtypes
         const uint32_t cur_byte_ct = DivUp(cur_vblock_variant_ct, 2);
-#ifndef NO_MMAP
-        if (shared_ff) {
-#endif
-          if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, shared_ff))) {
-            FillPgenReadErrstr(shared_ff, errstr_buf);
-            return kPglRetReadFail;
-          }
-          fread_ptr = loadbuf;
-#ifndef NO_MMAP
-        }
-#endif
-        Expand4bitTo8(fread_ptr, cur_vblock_variant_ct, 0, R_CAST(uintptr_t*, vrtypes_iter));
-        vrtypes_iter = &(vrtypes_iter[cur_vblock_variant_ct]);
-#ifndef NO_MMAP
-        if (!shared_ff) {
-          fread_ptr = &(fread_ptr[cur_byte_ct]);
-        }
-#endif
-      } else {
-        // phase and dosage
-#ifndef NO_MMAP
-        if (shared_ff) {
-#endif
-          if (unlikely(!fread_unlocked(vrtypes_iter, cur_vblock_variant_ct, 1, shared_ff))) {
-            FillPgenReadErrstr(shared_ff, errstr_buf);
-            return kPglRetReadFail;
-          }
-#ifndef NO_MMAP
-        } else {
-          memcpy(vrtypes_iter, fread_ptr, cur_vblock_variant_ct);
-        }
-#endif
-        vrtypes_iter = &(vrtypes_iter[cur_vblock_variant_ct]);
-#ifndef NO_MMAP
-        if (!shared_ff) {
-          fread_ptr = &(fread_ptr[cur_vblock_variant_ct]);
-        }
-#endif
-      }
-      const uint32_t bytes_per_entry = 1 + (vrtype_and_fpos_storage & 3);
-      const uint32_t cur_byte_ct = cur_vblock_variant_ct * bytes_per_entry;
-#ifndef NO_MMAP
-      if (shared_ff) {
-#endif
         if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, shared_ff))) {
           FillPgenReadErrstr(shared_ff, errstr_buf);
           return kPglRetReadFail;
         }
         fread_ptr = loadbuf;
-#ifndef NO_MMAP
+        Expand4bitTo8(fread_ptr, cur_vblock_variant_ct, 0, R_CAST(uintptr_t*, vrtypes_iter));
+        vrtypes_iter = &(vrtypes_iter[cur_vblock_variant_ct]);
+      } else {
+        // phase and dosage
+        if (unlikely(!fread_unlocked(vrtypes_iter, cur_vblock_variant_ct, 1, shared_ff))) {
+          FillPgenReadErrstr(shared_ff, errstr_buf);
+          return kPglRetReadFail;
+        }
+        vrtypes_iter = &(vrtypes_iter[cur_vblock_variant_ct]);
       }
-#endif
+      const uint32_t bytes_per_entry = 1 + (vrtype_and_fpos_storage & 3);
+      const uint32_t cur_byte_ct = cur_vblock_variant_ct * bytes_per_entry;
+      if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, shared_ff))) {
+        FillPgenReadErrstr(shared_ff, errstr_buf);
+        return kPglRetReadFail;
+      }
+      fread_ptr = loadbuf;
       if (bytes_per_entry == 1) {
         for (uint32_t cur_vblock_vidx = 0; cur_vblock_vidx != cur_vblock_variant_ct; ++cur_vblock_vidx) {
           var_fpos_iter[cur_vblock_vidx] = cur_fpos;
@@ -1414,26 +1252,15 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
 #endif
       }
       var_fpos_iter = &(var_fpos_iter[cur_vblock_variant_ct]);
-#ifndef NO_MMAP
-      if (!shared_ff) {
-        fread_ptr = &(fread_ptr[cur_byte_ct]);
-      }
-#endif
     }
     // 2. allele counts?
     if (alt_allele_ct_byte_ct) {
       assert(alt_allele_ct_byte_ct == 1);
-#ifndef NO_MMAP
-      if (shared_ff) {
-#endif
-        if (unlikely(!fread_unlocked(loadbuf, cur_vblock_variant_ct * alt_allele_ct_byte_ct, 1, shared_ff))) {
-          FillPgenReadErrstr(shared_ff, errstr_buf);
-          return kPglRetReadFail;
-        }
-        fread_ptr = loadbuf;
-#ifndef NO_MMAP
+      if (unlikely(!fread_unlocked(loadbuf, cur_vblock_variant_ct * alt_allele_ct_byte_ct, 1, shared_ff))) {
+        FillPgenReadErrstr(shared_ff, errstr_buf);
+        return kPglRetReadFail;
       }
-#endif
+      fread_ptr = loadbuf;
       // max_allele_ct scan can probably be sped up with _mm{256}_max_epu8()?
       // probably can't do much for main loop (at least in sizeof(AlleleCode)
       // == 1 case)
@@ -1462,42 +1289,21 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         }
       }
       allele_idx_offsets_iter = &(allele_idx_offsets_iter[cur_vblock_variant_ct]);
-#ifndef NO_MMAP
-      if (!shared_ff) {
-        fread_ptr = &(fread_ptr[cur_vblock_variant_ct * alt_allele_ct_byte_ct]);
-      }
-#endif
     }
     // 3. nonref flags?
     if (nonref_flags_stored) {
       const uint32_t cur_byte_ct = DivUp(cur_vblock_variant_ct, CHAR_BIT);
-#ifndef NO_MMAP
-      if (!shared_ff) {
-        if (nonref_flags_already_loaded) {
-          if (unlikely(!memequal(nonref_flags_iter, fread_ptr, cur_byte_ct))) {
-            snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Loaded nonref_flags do not match values in .pgen file.\n");
-            return kPglRetInconsistentInput;
-          }
-        } else {
-          memcpy(nonref_flags_iter, fread_ptr, cur_byte_ct);
-        }
-        fread_ptr = &(fread_ptr[cur_byte_ct]);
-      } else {
-#endif
-        unsigned char* loadptr = nonref_flags_already_loaded? loadbuf : nonref_flags_iter;
-        if (unlikely(!fread_unlocked(loadptr, cur_byte_ct, 1, shared_ff))) {
-          FillPgenReadErrstr(shared_ff, errstr_buf);
-          return kPglRetReadFail;
-        }
-        if (nonref_flags_already_loaded) {
-          if (unlikely(!memequal(nonref_flags_iter, loadbuf, cur_byte_ct))) {
-            snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Loaded nonref_flags do not match values in .pgen file.\n");
-            return kPglRetInconsistentInput;
-          }
-        }
-#ifndef NO_MMAP
+      unsigned char* loadptr = nonref_flags_already_loaded? loadbuf : nonref_flags_iter;
+      if (unlikely(!fread_unlocked(loadptr, cur_byte_ct, 1, shared_ff))) {
+        FillPgenReadErrstr(shared_ff, errstr_buf);
+        return kPglRetReadFail;
       }
-#endif
+      if (nonref_flags_already_loaded) {
+        if (unlikely(!memequal(nonref_flags_iter, loadbuf, cur_byte_ct))) {
+          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Loaded nonref_flags do not match values in .pgen file.\n");
+          return kPglRetInconsistentInput;
+        }
+      }
       nonref_flags_iter = &(nonref_flags_iter[cur_byte_ct]);
     }
   }
@@ -1510,30 +1316,19 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
     vrtypes_iter[0] = 0;
   }
 
-#ifndef NO_MMAP
+  const uint64_t actual_fpos = ftello(shared_ff);
+  if (actual_fpos != pgfip->var_fpos[0]) {
   // now > instead of != to allow additional information to be stored between
   // header and first variant record
-  if (!shared_ff) {
-    if (unlikely(S_CAST(uintptr_t, fread_ptr - pgfip->block_base) > pgfip->var_fpos[0])) {
+    if (unlikely(actual_fpos > pgfip->var_fpos[0])) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen header.\n");
       return kPglRetMalformedInput;
     }
-  } else {
-#endif
-    const uint64_t actual_fpos = ftello(shared_ff);
-    if (actual_fpos != pgfip->var_fpos[0]) {
-      if (unlikely(actual_fpos > pgfip->var_fpos[0])) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen header.\n");
-        return kPglRetMalformedInput;
-      }
-      if (unlikely(fseeko(shared_ff, pgfip->var_fpos[0], SEEK_SET))) {
-        FillPgenReadErrstrFromNzErrno(errstr_buf);
-        return kPglRetReadFail;
-      }
+    if (unlikely(fseeko(shared_ff, pgfip->var_fpos[0], SEEK_SET))) {
+      FillPgenReadErrstrFromNzErrno(errstr_buf);
+      return kPglRetReadFail;
     }
-#ifndef NO_MMAP
   }
-#endif
   pgfip->var_fpos[vidx_end] = cur_fpos;
   pgfip->max_allele_ct = max_allele_ct;
   // if difflist/LD might be present, scan for them in a way that's likely to
@@ -10170,21 +9965,12 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
   // file size may not be validated yet.
   uint64_t fsize;
   FILE* ff = pgrp->ff;
-#ifndef NO_MMAP
-  if (ff == nullptr) {
-    // mmap case
-    fsize = pgrp->fi.file_size;
-  } else {
-#endif
-    if (unlikely(fseeko(ff, 0, SEEK_END))) {
-      FillPgenReadErrstrFromNzErrno(errstr_buf);
-      return kPglRetReadFail;
-    }
-    fsize = ftello(ff);
-    pgrp->fp_vidx = 1;  // force fseek when loading first variant
-#ifndef NO_MMAP
+  if (unlikely(fseeko(ff, 0, SEEK_END))) {
+    FillPgenReadErrstrFromNzErrno(errstr_buf);
+    return kPglRetReadFail;
   }
-#endif
+  fsize = ftello(ff);
+  pgrp->fp_vidx = 1;  // force fseek when loading first variant
   // todo: modify this check when phase sets are implemented
   const uint64_t expected_fsize = pgrp->fi.var_fpos[variant_ct];
   if (unlikely(expected_fsize != fsize)) {
@@ -10193,45 +9979,26 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
   }
   const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
   uint32_t header_ctrl = 0;
-#ifndef NO_MMAP
-  if (ff == nullptr) {
-#  ifdef NO_UNALIGNED
-#    error "Unaligned accesses in PgrValidate()."
-#  endif
-    memcpy(&header_ctrl, &(pgrp->fi.block_base[11]), 1);
-    // validate the random-access index.
-    const uint64_t* fpos_index = R_CAST(const uint64_t*, &(pgrp->fi.block_base[12]));
-    for (uint32_t vblock_idx = 0; vblock_idx != vblock_ct; ++vblock_idx) {
-      if (unlikely(fpos_index[vblock_idx] != pgrp->fi.var_fpos[vblock_idx * kPglVblockSize])) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen header vblock-start index is inconsistent with variant record length index.\n");
-        return kPglRetMalformedInput;
-      }
-    }
-  } else {
-#endif
-    if (unlikely(fseeko(ff, 11, SEEK_SET))) {
-      FillPgenReadErrstrFromNzErrno(errstr_buf);
-      return kPglRetReadFail;
-    }
-    header_ctrl = getc_unlocked(ff);
-    if (unlikely(header_ctrl > 255)) {
+  if (unlikely(fseeko(ff, 11, SEEK_SET))) {
+    FillPgenReadErrstrFromNzErrno(errstr_buf);
+    return kPglRetReadFail;
+  }
+  header_ctrl = getc_unlocked(ff);
+  if (unlikely(header_ctrl > 255)) {
+    FillPgenReadErrstr(ff, errstr_buf);
+    return kPglRetReadFail;
+  }
+  for (uint32_t vblock_idx = 0; vblock_idx != vblock_ct; ++vblock_idx) {
+    uint64_t vblock_start_fpos;
+    if (unlikely(!fread_unlocked(&vblock_start_fpos, sizeof(int64_t), 1, ff))) {
       FillPgenReadErrstr(ff, errstr_buf);
       return kPglRetReadFail;
     }
-    for (uint32_t vblock_idx = 0; vblock_idx != vblock_ct; ++vblock_idx) {
-      uint64_t vblock_start_fpos;
-      if (unlikely(!fread_unlocked(&vblock_start_fpos, sizeof(int64_t), 1, ff))) {
-        FillPgenReadErrstr(ff, errstr_buf);
-        return kPglRetReadFail;
-      }
-      if (unlikely(vblock_start_fpos != pgrp->fi.var_fpos[vblock_idx * kPglVblockSize])) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen header vblock-start index is inconsistent with variant record length index.\n");
-        return kPglRetMalformedInput;
-      }
+    if (unlikely(vblock_start_fpos != pgrp->fi.var_fpos[vblock_idx * kPglVblockSize])) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen header vblock-start index is inconsistent with variant record length index.\n");
+      return kPglRetMalformedInput;
     }
-#ifndef NO_MMAP
   }
-#endif
   const uint32_t vrtype_and_fpos_storage = header_ctrl & 15;
   const uint32_t alt_allele_ct_byte_ct = (header_ctrl >> 4) & 3;
   const uint32_t nonref_flags_stored = ((header_ctrl >> 6) == 3);
@@ -10270,23 +10037,15 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
   }
   if (last_vrtype_byte_offset) {
     uint32_t last_vrtype_byte = 0;
-#ifndef NO_MMAP
-    if (ff == nullptr) {
-      memcpy(&last_vrtype_byte, &(pgrp->fi.block_base[last_vrtype_byte_offset]), 1);
-    } else {
-#endif
-      if (unlikely(fseeko(ff, last_vrtype_byte_offset, SEEK_SET))) {
-        FillPgenReadErrstrFromNzErrno(errstr_buf);
-        return kPglRetReadFail;
-      }
-      last_vrtype_byte = getc_unlocked(ff);
-      if (unlikely(last_vrtype_byte > 255)) {
-        FillPgenReadErrstr(ff, errstr_buf);
-        return kPglRetReadFail;
-      }
-#ifndef NO_MMAP
+    if (unlikely(fseeko(ff, last_vrtype_byte_offset, SEEK_SET))) {
+      FillPgenReadErrstrFromNzErrno(errstr_buf);
+      return kPglRetReadFail;
     }
-#endif
+    last_vrtype_byte = getc_unlocked(ff);
+    if (unlikely(last_vrtype_byte > 255)) {
+      FillPgenReadErrstr(ff, errstr_buf);
+      return kPglRetReadFail;
+    }
     if (unlikely(last_vrtype_byte >> trailing_shift)) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Nonzero trailing bits in last vrtype index byte.\n");
       return kPglRetMalformedInput;
@@ -10363,10 +10122,6 @@ BoolErr CleanupPgfi(PgenFileInfo* pgfip, PglErr* reterrp) {
         return 1;
       }
     }
-#ifndef NO_MMAP
-  } else if (pgfip->block_base != nullptr) {
-    munmap(K_CAST(unsigned char*, pgfip->block_base), pgfip->file_size);
-#endif
   }
   return 0;
 }

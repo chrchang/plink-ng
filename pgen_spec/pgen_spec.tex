@@ -51,18 +51,18 @@ backward-compatible extension which can represent phased, multiallelic, and
 dosage data in a manner that provides much better support for ``compressive
 genomics''\footnote{\url{https://www.nature.com/articles/nbt.2241}}.  It also
 incorporates
-SNPack\footnote{\url{http://sysbiobig.dei.unipd.it/?q=Software\#SNPack}}-style
+SNPack\footnote{\url{https://sysbiobig.dei.unipd.it/software/snpack/}}-style
 genotype compression, frequently reducing file sizes by 80+\% with negligible
 encoding and decoding cost (and supporting some direct computation on the
 compressed representations).  The result is, of course, not as simple as the
-PLINK 1 format, but the open-source \texttt{pgenlib\_internal} library (used by
-PLINK 2) provides one way to ignore the additional complexity.
+PLINK 1 format, but the open-source \texttt{pgenlib} library (used by PLINK 2)
+provides one way to ignore the additional complexity.
 
 PLINK 2 also introduces backward-compatible extensions to PLINK 1's sample and
 variant text formats.  PSAM (extension of .fam) supports storage of categorical
 (e.g. 1000 Genomes's ``Population'' field) and other phenotype / covariate
 data.  PVAR (extension of .bim) supports storage of all header and
-variant-specific information in a typical VCF, and is defined such that
+variant-specific information in a typical VCF, and is defined such that most
 ``sites-only VCF'' files are valid PVARs requiring no conversion by PLINK 2 at
 all.
 
@@ -87,8 +87,9 @@ on optimizing PLINK 2's VCF $\leftrightarrow$ PGEN conversion functions.
 \subsection{Overall file organization}
 
 A PGEN file is composed of a mandatory header, followed by a sequence of
-variant records.  The header contains enough information to enable random
-access to the variant records.
+variant records.  The header either contains enough information to enable
+random access to the variant records, or indicates that an external index file
+contains that information.
 
 A variant record's main data track can be ``LD-compressed'' (LD = linkage
 disequilibrium), referring to the most recent non-LD-compressed variant record
@@ -101,25 +102,26 @@ to be kept for possible future reference.
 A future version of this specification may add an optional footer, containing
 phase-set and possibly other information.
 
-It is not always possible to write a PGEN file in a single sequential pass,
-since the header usually contains variant record lengths and compression
-methods which aren't known until variant-record-writing time.  The
-\texttt{pgenlib\_internal} implementation uses a two-pass approach, computing
-only the size of the header on the first write pass, and writing the actual
-contents at the end.  Three fixed-width storage modes are defined (covering
-basic unphased biallelic genotypes, unphased dosages, and phased dosages) which
-don't have this limitation, and are especially straightforward to read and
-write; but they don't benefit from PGEN's low-overhead genotype compression.  A
-future version of this specification may add a way to store most header
-information in a separate file, so that sequential reading, sequential writing,
-and genotype compression are simultaneously possible (at the cost of more
-annoying file management).
+It is not always possible to write a standalone PGEN file in a single
+sequential pass, since the header usually contains variant record lengths and
+compression methods which aren't known until variant-record-writing time.  The
+\texttt{pgenlib} implementation uses a two-pass approach, computing only the
+size of the header on the first write pass, and writing the actual contents at
+the end.  Three fixed-width storage modes are defined (covering basic unphased
+biallelic genotypes, unphased dosages, and phased dosages) which don't have
+this limitation, and are especially straightforward to read and write; but they
+don't benefit from PGEN's low-overhead genotype compression.
+
+However, if the external-index-file representation is used, sequential reading,
+sequential writing, and genotype compression are simultaneously possible (at
+the cost of more annoying file management).
 
 \subsection{Header}
 
 \subsubsection{Magic number}
 
-All PGEN files start with the two magic bytes \texttt{0x6c 0x1b}.
+All PGEN and PGEN-index files start with the two magic bytes \texttt{0x6c
+  0x1b}.
 
 \subsubsection{Storage mode}
 
@@ -140,21 +142,28 @@ currently defined:
   records are of type \texttt{0xc0}.
 \item \texttt{0x10} is the standard PLINK 2 format, with variable-width variant
   records.
+\item \texttt{0x20} is the external-index-file PLINK 2 format.  The index file
+  starts with \texttt{0x6c 0x1b 0x30}.
 \end{itemize}
 
-Mode values \texttt{0x05..0x0f} and \texttt{0x11..0x7f} are reserved for use by
-future versions of this specification, and mode value 0 is off-limits since it
-corresponds to a PLINK 1 sample-major .bed file (and is detected and
-automatically converted to regular PGEN by PLINK 2).  \texttt{0x80..0xff} can
-be safely used by developers for their own purposes.
+Mode values \texttt{0x05..0x0f}, \texttt{0x11..0x1f}, \texttt{0x21..0x2f}, and
+\texttt{0x31..0x7f} are reserved for use by future versions of this
+specification, and mode value 0 is off-limits since it corresponds to a PLINK 1
+sample-major .bed file (and is detected and automatically converted to regular
+PGEN by PLINK 2).
+\texttt{0x80..0xff} can be safely used by developers for their own purposes.
 
 \subsubsection{Dataset dimensions, header body formatting}
 
-If the storage mode isn't \texttt{0x01}, the next eight bytes are the number of
-variants (as a little-endian \texttt{uint32}; everything else in this
-specification is also little-endian), followed by the number of samples as a
-\texttt{uint32} (call this $N$).  This is followed by a byte describing how the
-rest of the header is formatted.
+If the storage mode isn't \texttt{0x01} or \texttt{0x20}, the next eight bytes
+are the number of variants (as a little-endian \texttt{uint32}; everything else
+in this specification is also little-endian), followed by the number of samples
+as a \texttt{uint32} (call this $N$).  This is followed by a byte describing
+how the rest of the header is formatted.
+
+If the storage mode is \texttt{0x20}, there is no more information in that
+file's header.  The external index file is formatted just like a PGEN header
+(except with third byte \texttt{0x30}).
 
 \begin{itemize}
   \itemsep0em
@@ -170,15 +179,15 @@ rest of the header is formatted.
   \item \texttt{5}: 8 bits per record type, 2 bytes per record length.
   \item \texttt{6}: 8 bits per record type, 3 bytes per record length.
   \item \texttt{7}: 8 bits per record type, 4 bytes per record length.
-  \item \sout{\texttt{8}: 0 bits per record type, 2 bits per record length ($\ell
-    -\lceil N/4\rceil$ is stored when the record length is $\ell$ byte(s)).
-    Record type is inferred as 0 when record length is minimal, and 8 (i.e.
-    multiallelic-variant hard-call) when record length has 1-3 extra bytes.
-    This is designed for single-sample filesets sharing a single PVAR.}
-  \item \sout{\texttt{9}: 0 bits per record type, 4 bits per record length ($\ell
-    -\lceil N/4\rceil$ stored when record length is $\ell$).  Record type is
-    inferred as 0 when record length is minimal, and 8 when record-length has
-    1-15 extra bytes.}
+  \item \sout{\texttt{8}: 0 bits per record type, 2 bits per record length
+    ($\ell -\lceil N/4\rceil$ is stored when the record length is $\ell$
+    byte(s)).  Record type is inferred as 0 when record length is minimal, and
+    8 (i.e. multiallelic-variant hard-call) when record length has 1-3 extra
+    bytes.  This is designed for single-sample filesets sharing a single PVAR.}
+  \item \sout{\texttt{9}: 0 bits per record type, 4 bits per record length
+    ($\ell -\lceil N/4\rceil$ stored when record length is $\ell$).  Record
+    type is inferred as 0 when record length is minimal, and 8 when
+    record-length has 1-15 extra bytes.}
   \end{itemize}
   Values 8-15 are reserved for future use.
 
@@ -590,9 +599,9 @@ data tracks \#5-6 indicate how the total-ALT-allele-dosages stored in track \#4
 are divided between the ALT alleles.
 
 The planned format of these data tracks is described in
-\texttt{pgenlib\_internal} comments.  This will not be considered finalized
-until the \texttt{pgenlib\_internal} implementation is complete and has
-undergone some testing.
+\texttt{pgenlib} comments.  This will not be considered finalized
+until the \texttt{pgenlib} implementation is complete and has undergone some
+testing.
 
 \subsubsection{Phased dosages}
 
@@ -637,8 +646,8 @@ As for auxiliary data track \#7:
 When phased dosage data is present and the variant has multiple ALT alleles,
 auxiliary data tracks \#9-10 store the additional information needed to resolve
 all per-haplotype allele dosages.  This part of the specification will not be
-filled in until the \texttt{pgenlib\_internal} implementation is complete and
-has undergone some testing.
+filled in until the \texttt{pgenlib} implementation is complete and has
+undergone some testing.
 
 \newpage
 \section{PSAM Format Specification}

@@ -1,8 +1,8 @@
 Package: pgenlibr
 Type: Package
 Title: PLINK 2 Binary (.pgen) Reader
-Version: 0.3.1
-Date: 2021-01-25
+Version: 0.3.2
+Date: 2022-03-14
 Author: Christopher Chang
 Maintainer: Christopher Chang <chrchang@alumni.caltech.edu>
 Description: A thin wrapper over PLINK 2's core libraries which provides an R

@@ -26,18 +26,6 @@
 namespace plink2 {
 #endif
 
-// mmap is a horrible idea for 32-bit builds, and as long as we have non-mmap
-// code we may as well not worry about Win64 CreateFileMapping.
-
-// also, OS X mmap implementation seems to be crappy for large sequentially
-// accessed files, compared to Linux.
-
-// possible todo: SIGBUS handling?  do we ever want to try to recover from an
-// I/O error?
-#if defined(_WIN32) || !defined(__LP64__)
-#  define NO_MMAP
-#endif
-
 FLAGSET_DEF_START()
   kfPgrLdcache0,
   kfPgrLdcacheNyp = (1 << 0),
@@ -102,17 +90,17 @@ typedef struct PgenFileInfoStruct {
   uint32_t max_allele_ct;
   // uint32_t max_dosage_allele_ct;  // might need this later
 
-  // * nullptr if using mmap
-  // * if using per-variant fread(), this is non-null during Pgen_file_info
-  //   initialization, but it's then "moved" to the first Pgen_reader and set
-  //   to nullptr.
+  // if using per-variant fread(), this is non-null during PgenFileInfo
+  // initialization, but it's then "moved" to the first Pgen_reader and set to
+  // nullptr.
   FILE* shared_ff;
+
+  // can only be non-null after PgfiInitPhase1 and before PgfiInitPhase2, and
+  // only if the external-index-file representation is used.
+  FILE* pgi_ff;
 
   const unsigned char* block_base;  // nullptr if using per-variant fread()
   uint64_t block_offset;  // 0 for mmap
-#ifndef NO_MMAP
-  uint64_t file_size;
-#endif
 } PgenFileInfo;
 
 typedef struct PgenReaderMainStruct {
@@ -379,13 +367,13 @@ HEADER_INLINE void PgrSetBaseAndOffset0(unsigned char* block_base, uint32_t thre
 // malloc-using PgenReader constructor for anyone who doesn't want to worry
 // about these details.)
 //
-// Phase 1: Open the .pgen; verify that the initial bytes are consistent with
-//   the file format; load/verify sample and variant counts, initialize
-//   pgfi.const_vrtype, pgfi.const_vrec_width, and pgfi.const_fpos_offset;
-//   determine initial memory allocation requirement.  pgfi_alloc_cacheline_ct
-//   does not include allele counts and nonref flags, since it may be more
-//   appropriate to allocate those arrays earlier (during loading of a
-//   .bim-like file).
+// Phase 1: Open the .pgen (and .pgen.pgi, if relevant); verify that the
+//   initial bytes are consistent with the file format; load/verify sample and
+//   variant counts, initialize pgfi.const_vrtype, pgfi.const_vrec_width, and
+//   pgfi.const_fpos_offset; determine initial memory allocation requirement.
+//   pgfi_alloc_cacheline_ct does not include allele counts and nonref flags,
+//   since it may be more appropriate to allocate those arrays earlier (during
+//   loading of a .bim-like file).
 //
 //   pgfi.var_fpos is set to nullptr if pgfi.const_vrec_width is nonzero.
 //   pgfi.vrtypes/var_allele_cts are set to nullptr in the plink1-format case.
@@ -418,27 +406,29 @@ typedef uint32_t PgenHeaderCtrl;
 
 void PreinitPgfi(PgenFileInfo* pgfip);
 
-// There are three modes of operation:
-// 1. mmaped file.  Appropriate for handling multiple queries across different
-//    parts of the genome in parallel.  Suboptimal for whole-genome queries.
-//    Doesn't currently run on Windows.
-// 2. fread block-load.  Block-load operations are single-threaded, while
+// There are two modes of operation:
+// 1. fread block-load.  Block-load operations are single-threaded, while
 //    decompression/counting is multithreaded.  Appropriate for whole-genome
 //    queries, since even with a SSD, reading from multiple parts of a file
 //    simultaneously doesn't work well.
-// 3. fread single-variant-at-a-time.  Simpler interface than block-load, and
+// 2. fread single-variant-at-a-time.  Simpler interface than block-load, and
 //    doesn't share its inability to handle multiple queries at a time, but
 //    less performant for CPU-heavy operations on the whole genome.
+// First mode corresponds to use_blockload == 1 in phase2, and second mode
+// corresponds to use_blockload == 0.
 //
-// To specify mode 1, pass in use_mmap == 1 here.
-// To specify mode 2, pass in use_mmap == 0 here, and use_blockload == 1 during
-//   phase2.
-// To specify mode 3, pass in use_mmap == 0 here, and use_blockload == 0 during
-//   phase2.
+// There was originally a third mmap-based mode, which was removed on 14 Mar
+// 2022.  If you are interested in building e.g. a webserver backend that can
+// address multiple queries in parallel, refer to plink-ng commit c470317,
+// which captures the state of the codebase immediately preceding removal of
+// the mmap mode.
 //
-// Update (7 Jan 2018): raw_variant_ct must be in [1, 2^31 - 3], and
-//   raw_sample_ct must be in [1, 2^31 - 2].
-PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, uint32_t use_mmap, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf);
+// Other notes:
+// - If pgi_fname is nullptr but the .pgen has an external index file, the
+//   index file name is assumed to be the .pgen filename with .pgi appended.
+// - raw_variant_ct must be in [1, 2^31 - 3], and raw_sample_ct must be in [1,
+//   2^31 - 2].
+PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf);
 
 // If allele_cts_already_loaded is set, but they're present in the file,
 // they'll be validated; similarly for nonref_flags_already_loaded.
@@ -463,15 +453,14 @@ void PreinitPgr(PgenReader* pgr_ptr);
 //
 // There's also a modal usage difference:
 //
-// * Modes 1-2 (mmap, block-fread): There is one PgenFileInfo per file
-//   which doesn't belong to any reader.  After it's initialized, multiple
-//   PgenReaders can be based off of it.  When the PgenFileInfo is
-//   destroyed, those PgenReaders are invalidated and should be destroyed if
-//   that hasn't already happened.
+// * Mode 1 (block-fread): There is one PgenFileInfo per file which doesn't
+//   belong to any reader.  After it's initialized, multiple PgenReaders can be
+//   based off of it.  When the PgenFileInfo is destroyed, those PgenReaders
+//   are invalidated and should be destroyed if that hasn't already happened.
 //
 //   fname parameter must be nullptr.
 //
-// * Mode 3 (per-variant fread): Destruction of the original PgenFileInfo
+// * Mode 2 (per-variant fread): Destruction of the original PgenFileInfo
 //   struct does not invalidate any extant PgenReader instances (at least
 //   from pgenlib_read's perspective).  Instead, destruction of the
 //   corresponding memory block or allele_idx_offsets/nonref_flags invalidates
@@ -483,7 +472,7 @@ void PreinitPgr(PgenReader* pgr_ptr);
 //
 //   fname parameter must be non-null.
 
-// max_vrec_width ignored when using mode 1 or 2.
+// max_vrec_width ignored when using mode 1.
 PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, PgenReader* pgr_ptr, unsigned char* pgr_alloc);
 
 // practically all these functions require genovec to be allocated up to

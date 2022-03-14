@@ -26,7 +26,6 @@ int32_t main(int32_t argc, char** argv) {
   PreinitPgr(&pgr);
   PreinitSpgw(&spgw);
   {
-    const uint32_t use_mmap = 0;
     if ((argc < 3) || (argc > 5)) {
       fputs(
 "Usage:\n"
@@ -45,7 +44,7 @@ int32_t main(int32_t argc, char** argv) {
     }
     char errstr_buf[kPglErrstrBufBlen];
     uintptr_t cur_alloc_cacheline_ct;
-    reterr = PgfiInitPhase1(argv[1 + decompress], 0xffffffffU, sample_ct, use_mmap, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, errstr_buf);
+    reterr = PgfiInitPhase1(argv[1 + decompress], nullptr, 0xffffffffU, sample_ct, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, errstr_buf);
     if (reterr) {
       fputs(errstr_buf, stderr);
       goto main_ret_1;
@@ -75,7 +74,7 @@ int32_t main(int32_t argc, char** argv) {
     }
 
     // modify this when trying block-fread
-    reterr = PgrInit(use_mmap? nullptr : argv[1 + decompress], max_vrec_width, &pgfi, &pgr, pgr_alloc);
+    reterr = PgrInit(argv[1 + decompress], max_vrec_width, &pgfi, &pgr, pgr_alloc);
     if (reterr) {
       fprintf(stderr, "pgr_init error %u\n", S_CAST(uint32_t, reterr));
       goto main_ret_1;
@@ -213,9 +212,7 @@ int32_t main(int32_t argc, char** argv) {
   }
  main_ret_1:
   CleanupPgr(&pgr, &reterr);
-#ifndef NO_MMAP
   CleanupPgfi(&pgfi, &reterr);
-#endif
   CleanupSpgw(&spgw, &reterr);
   if (pgfi_alloc) {
     aligned_free(pgfi_alloc);

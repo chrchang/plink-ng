@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (13 Mar 2022)";
+  " (14 Mar 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -232,7 +232,7 @@ PglErr PgenInfoStandalone(const char* pgenname) {
   {
     PgenHeaderCtrl header_ctrl;
     uintptr_t cur_alloc_cacheline_ct;
-    reterr = PgfiInitPhase1(pgenname, UINT32_MAX, UINT32_MAX, 0, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
+    reterr = PgfiInitPhase1(pgenname, nullptr, UINT32_MAX, UINT32_MAX, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
     if (unlikely(reterr)) {
       if ((reterr == kPglRetSampleMajorBed) || (reterr == kPglRetImproperFunctionCall)) {
         logerrputs("Warning: Skipping --pgen-info since a .bed file was provided.\n");
@@ -977,7 +977,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       PgenHeaderCtrl header_ctrl;
       uintptr_t cur_alloc_cacheline_ct;
       while (1) {
-        reterr = PgfiInitPhase1(pgenname, raw_variant_ct, raw_sample_ct, 0, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
+        reterr = PgfiInitPhase1(pgenname, nullptr, raw_variant_ct, raw_sample_ct, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
         if (!reterr) {
           break;
         }

@@ -1675,7 +1675,7 @@ PglErr ScanPgenHeaders(uint32_t is_list, MiscFlags misc_flags, PmergeInputFilese
       read_pgen_fname = filesets_iter->pgen_fname;
       PgenHeaderCtrl header_ctrl;
       uintptr_t cur_alloc_cacheline_ct;  // unused
-      reterr = PgfiInitPhase1(read_pgen_fname, UINT32_MAX, filesets_iter->read_sample_ct, 0, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
+      reterr = PgfiInitPhase1(read_pgen_fname, nullptr, UINT32_MAX, filesets_iter->read_sample_ct, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
       if (unlikely(reterr)) {
         if (reterr == kPglRetSampleMajorBed) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is a sample-major .bed file; this is not supported by --pmerge%s. Retry after converting it to a .pgen.\n", read_pgen_fname, is_list? "-list" : "");
@@ -6346,7 +6346,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       const uint32_t read_variant_ct = filesets_iter->read_variant_ct;
       PgenHeaderCtrl header_ctrl;
       uintptr_t cur_alloc_cacheline_ct;
-      reterr = PgfiInitPhase1(read_pgen_fname, read_variant_ct, read_sample_ct, 0, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
+      reterr = PgfiInitPhase1(read_pgen_fname, nullptr, read_variant_ct, read_sample_ct, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
       if (unlikely(reterr)) {
         if (reterr == kPglRetInconsistentInput) {
           // .pgen was not checked for consistency with .pvar on the first
@@ -7115,7 +7115,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
 
     PgenHeaderCtrl header_ctrl;
     uintptr_t cur_alloc_cacheline_ct;
-    reterr = PgfiInitPhase1(pdip->pgen_fname, raw_variant_ct2, raw_sample_ct2, 0, &header_ctrl, &pgfi2, &cur_alloc_cacheline_ct, g_logbuf);
+    reterr = PgfiInitPhase1(pdip->pgen_fname, nullptr, raw_variant_ct2, raw_sample_ct2, &header_ctrl, &pgfi2, &cur_alloc_cacheline_ct, g_logbuf);
     if (unlikely(reterr)) {
       WordWrapB(0);
       logerrputsb();

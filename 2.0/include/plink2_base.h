@@ -950,6 +950,8 @@ HEADER_INLINE VecUc vecuc_permute0xd8_if_avx2(VecUc vv) {
   return R_CAST(VecUc, _mm256_permute4x64_epi64(R_CAST(__m256i, vv), 0xd8));
 }
 
+// Could have a single-src gather_even function, but that should wait until
+// there is a clear SSE2 use case.
 HEADER_INLINE VecUc vecuc_gather_even(VecUc src_lo, VecUc src_hi, VecUc m8) {
   const VecUc gathered_laneswapped = R_CAST(VecUc, _mm256_packus_epi16(R_CAST(__m256i, src_lo & m8), R_CAST(__m256i, src_hi & m8)));
   return vecuc_permute0xd8_if_avx2(gathered_laneswapped);

@@ -117,7 +117,7 @@ cdef extern from "../include/pgenlib_read.h" namespace "plink2":
 
     void PreinitPgfi(PgenFileInfo* pgfip)
 
-    PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, uint32_t use_mmap, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf)
+    PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf)
 
     PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf)
 
@@ -267,7 +267,7 @@ cdef class PgenReader:
         cdef PgenHeaderCtrl header_ctrl
         cdef uintptr_t pgfi_alloc_cacheline_ct
         cdef char errstr_buf[kPglErrstrBufBlen]
-        if PgfiInitPhase1(fname, cur_variant_ct, cur_sample_ct, 0, &header_ctrl, self._info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf) != kPglRetSuccess:
+        if PgfiInitPhase1(fname, NULL, cur_variant_ct, cur_sample_ct, &header_ctrl, self._info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf) != kPglRetSuccess:
             raise RuntimeError(errstr_buf[7:])
         assert (header_ctrl & 0x30) == 0 # no alt allele counts
         assert (header_ctrl & 0xc0) != 0xc0 # no explicit nonref_flags
