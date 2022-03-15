@@ -918,6 +918,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
   while (0) {
   CalcKingSparseThread_err:
     UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    THREAD_BLOCK_FINISH(arg);
     break;
   }
   THREAD_RETURN;
@@ -7469,12 +7470,11 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
       }
     }
     parity = 1 - parity;
+    while (0) {
+    VscoreThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    }
   } while (!THREAD_BLOCK_FINISH(arg));
-  while (0) {
-  VscoreThread_err:
-    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-    break;
-  }
   THREAD_RETURN;
 }
 

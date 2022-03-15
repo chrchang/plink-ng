@@ -2495,12 +2495,11 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
       x_nosex_geno_cts = ctx->founder_x_nosex_geno_cts;
       imp_r2_vals = nullptr;
     }
+    while (0) {
+    LoadAlleleAndGenoCountsThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    }
   } while (!THREAD_BLOCK_FINISH(arg));
-  while (0) {
-  LoadAlleleAndGenoCountsThread_err:
-    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-    break;
-  }
   THREAD_RETURN;
 }
 
@@ -5053,12 +5052,11 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
       }
     }
     parity = 1 - parity;
+    while (0) {
+    MakeBedlikeThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    }
   } while (!THREAD_BLOCK_FINISH(arg));
-  while (0) {
-  MakeBedlikeThread_err:
-    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-    break;
-  }
   THREAD_RETURN;
 }
 

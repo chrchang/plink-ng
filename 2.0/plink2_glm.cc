@@ -4837,12 +4837,11 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
     }
     parity = 1 - parity;
     variant_idx_offset += cur_block_variant_ct;
+    while (0) {
+    GlmLogisticThread_err:
+      UpdateU64IfSmaller(new_err_info, &common->err_info);
+    }
   } while (!THREAD_BLOCK_FINISH(arg));
-  while (0) {
-  GlmLogisticThread_err:
-    UpdateU64IfSmaller(new_err_info, &common->err_info);
-    break;
-  }
   THREAD_RETURN;
 }
 
@@ -7901,12 +7900,11 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
     }
     parity = 1 - parity;
     variant_idx_offset += cur_block_variant_ct;
+    while (0) {
+    GlmLinearThread_err:
+      UpdateU64IfSmaller(new_err_info, &common->err_info);
+    }
   } while (!THREAD_BLOCK_FINISH(arg));
-  while (0) {
-  GlmLinearThread_err:
-    UpdateU64IfSmaller(new_err_info, &common->err_info);
-    break;
-  }
   THREAD_RETURN;
 }
 
@@ -10030,12 +10028,11 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
     }
     parity = 1 - parity;
     variant_idx_offset += cur_block_variant_ct;
+    while (0) {
+    GlmLinearSubbatchThread_err:
+      UpdateU64IfSmaller(new_err_info, &common->err_info);
+    }
   } while (!THREAD_BLOCK_FINISH(arg));
-  while (0) {
-  GlmLinearSubbatchThread_err:
-    UpdateU64IfSmaller(new_err_info, &common->err_info);
-    break;
-  }
   THREAD_RETURN;
 }
 

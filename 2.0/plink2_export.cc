@@ -1315,6 +1315,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
   while (0) {
   ExportBgen11Thread_err:
     UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    THREAD_BLOCK_FINISH(arg);
     break;
   }
   THREAD_RETURN;
@@ -2766,6 +2767,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
   while (0) {
   ExportBgen13Thread_err:
     UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    THREAD_BLOCK_FINISH(arg);
     break;
   }
   THREAD_RETURN;
@@ -9267,12 +9269,11 @@ THREAD_FUNC_DECL DosageTransposeThread(void* raw_arg) {
         smaj_dosagebuf_iter = &(smaj_dosagebuf_iter[vidx_block_size]);
       } while (vidx_start != vidx_end);
     }
+    while (0) {
+    DosageTransposeThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    }
   } while (!THREAD_BLOCK_FINISH(arg));
-  while (0) {
-  DosageTransposeThread_err:
-    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-    break;
-  }
   THREAD_RETURN;
 }
 
@@ -9862,7 +9863,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
         goto Exportf_ret_1;
       }
     } else if (flags & (kfExportfBgen12 | kfExportfBgen13)) {
-      // multiallelic ok
+      // multiallelic ok... in the future, anyway.
       snprintf(outname_end, kMaxOutfnameExtBlen, ".bgen");
       reterr = ExportBgen13(outname, sample_include, sample_include_cumulative_popcounts, &(piip->sii), sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_thread_ct, flags, eip->bgen_bits, idpaste_flags, id_delim, pgr_alloc_cacheline_ct, pgfip, sample_missing_geno_cts);
       if (unlikely(reterr)) {

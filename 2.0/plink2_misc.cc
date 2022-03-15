@@ -6315,6 +6315,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
   while (0) {
   SampleCountsThread_err:
     UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    THREAD_BLOCK_FINISH(arg);
     break;
   }
   THREAD_RETURN;
@@ -9589,6 +9590,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
   while (0) {
   HetThread_err:
     UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    THREAD_BLOCK_FINISH(arg);
     break;
   }
   THREAD_RETURN;
@@ -10256,12 +10258,11 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
       pop_allele_obs_cts_iter = &(pop_allele_obs_cts_iter[pop_ct * allele_ct]);
     }
     parity = 1 - parity;
+    while (0) {
+    FstThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    }
   } while (!THREAD_BLOCK_FINISH(arg));
-  while (0) {
-  FstThread_err:
-    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-    break;
-  }
   THREAD_RETURN;
 }
 

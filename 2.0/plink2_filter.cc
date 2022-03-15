@@ -3514,6 +3514,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* raw_arg) {
   while (0) {
   LoadSampleMissingCtsThread_err:
     UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    THREAD_BLOCK_FINISH(arg);
     break;
   }
   THREAD_RETURN;

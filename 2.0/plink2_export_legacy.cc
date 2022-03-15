@@ -81,12 +81,11 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
       vmaj_readbuf_iter = &(vmaj_readbuf_iter[read_sample_ctaw2]);
     }
     prev_copy_ct += cur_block_copy_ct;
+    while (0) {
+    TransposeToSmajReadThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    }
   } while (!THREAD_BLOCK_FINISH(arg));
-  while (0) {
-  TransposeToSmajReadThread_err:
-    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-    break;
-  }
   THREAD_RETURN;
 }
 
