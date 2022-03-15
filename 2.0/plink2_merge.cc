@@ -5128,9 +5128,9 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             ZeroTrailingNyps(write_sample_ct, read_genovec);
             assert(!pgvp->dosage_ct);  // not yet supported
             if (!pgvp->phasepresent_ct) {
-              reterr = SpgwAppendMultiallelicSparse(read_genovec, pgvp->patch_01_set, pgvp->patch_01_vals, pgvp->patch_10_set, pgvp->patch_10_vals, pgvp->patch_01_ct, pgvp->patch_10_ct, spgwp);
+              reterr = SpgwAppendMultiallelicSparse(read_genovec, pgvp->patch_01_set, pgvp->patch_01_vals, pgvp->patch_10_set, pgvp->patch_10_vals, write_allele_ct, pgvp->patch_01_ct, pgvp->patch_10_ct, spgwp);
             } else {
-              reterr = SpgwAppendMultiallelicGenovecHphase(read_genovec, pgvp->patch_01_set, pgvp->patch_01_vals, pgvp->patch_10_set, pgvp->patch_10_vals, pgvp->phasepresent, pgvp->phaseinfo, pgvp->patch_01_ct, pgvp->patch_10_ct, spgwp);
+              reterr = SpgwAppendMultiallelicGenovecHphase(read_genovec, pgvp->patch_01_set, pgvp->patch_01_vals, pgvp->patch_10_set, pgvp->patch_10_vals, pgvp->phasepresent, pgvp->phaseinfo, write_allele_ct, pgvp->patch_01_ct, pgvp->patch_10_ct, spgwp);
             }
           }
           goto MergePgenVariantNoTmpLocked_ret_1;
@@ -5365,9 +5365,9 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               }
             } else {
               if (!phasepresent_ct) {
-                reterr = SpgwAppendMultiallelicSparse(genovec, mwp->patch_01_set, mwp->patch_01_vals, mwp->patch_10_set, mwp->patch_10_vals, patch_01_ct, patch_10_ct, spgwp);
+                reterr = SpgwAppendMultiallelicSparse(genovec, mwp->patch_01_set, mwp->patch_01_vals, mwp->patch_10_set, mwp->patch_10_vals, write_allele_ct, patch_01_ct, patch_10_ct, spgwp);
               } else {
-                reterr = SpgwAppendMultiallelicGenovecHphase(genovec, mwp->patch_01_set, mwp->patch_01_vals, mwp->patch_10_set, mwp->patch_10_vals, mwp->phasepresent, mwp->phaseinfo, patch_01_ct, patch_10_ct, spgwp);
+                reterr = SpgwAppendMultiallelicGenovecHphase(genovec, mwp->patch_01_set, mwp->patch_01_vals, mwp->patch_10_set, mwp->patch_10_vals, mwp->phasepresent, mwp->phaseinfo, write_allele_ct, patch_01_ct, patch_10_ct, spgwp);
               }
             }
           } else {
@@ -5954,9 +5954,9 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
     } else {
       assert(!dosage_ct); // not yet supported
       if (!phasepresent_ct) {
-        reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, patch_01_ct, patch_10_ct, spgwp);
+        reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, write_allele_ct, patch_01_ct, patch_10_ct, spgwp);
       } else {
-        reterr = SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, patch_01_ct, patch_10_ct, spgwp);
+        reterr = SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, write_allele_ct, patch_01_ct, patch_10_ct, spgwp);
       }
     }
     if (unlikely(reterr)) {

@@ -55,8 +55,7 @@ void PreinitSpgw(STPgenWriter* spgwp) {
 
 // OpenFail and WriteFail errors can now refer to either the .pgen or the
 // .pgen.pgi file.
-PglErr PwcInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, uint32_t separate_index, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uintptr_t vrec_len_byte_ct, PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_outfile_ptr) {
-  pwcp->allele_idx_offsets = allele_idx_offsets;
+PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, uint32_t separate_index, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uintptr_t vrec_len_byte_ct, PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_outfile_ptr) {
   pwcp->explicit_nonref_flags = nullptr;
   if (nonref_flags_storage == 3) {
     if (unlikely(!explicit_nonref_flags)) {
@@ -259,7 +258,7 @@ PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict 
   PgenWriterCommon* pwcp = GetPwcp(spgwp);
   FILE** pgen_outfilep = GetPgenOutfilep(spgwp);
   FILE** pgi_outfilep = GetPgiOutfilep(spgwp);
-  PglErr reterr = PwcInitPhase1(fname, allele_idx_offsets, explicit_nonref_flags, variant_ct, sample_ct, separate_index, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, pwcp, pgen_outfilep, pgi_outfilep);
+  PglErr reterr = PwcInitPhase1(fname, explicit_nonref_flags, variant_ct, sample_ct, separate_index, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, pwcp, pgen_outfilep, pgi_outfilep);
   if (likely(!reterr)) {
     *alloc_cacheline_ct_ptr = CountSpgwAllocCachelinesRequired(variant_ct, sample_ct, phase_dosage_gflags, max_vrec_len);
   }
@@ -482,13 +481,13 @@ void SpgwInitPhase2(uint32_t max_vrec_len, STPgenWriter* spgwp, unsigned char* s
   PwcInitPhase2(fwrite_cacheline_ct, 1, &pwcp, spgw_alloc);
 }
 
-PglErr MpgwInitPhase2(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, uint32_t separate_index, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, MTPgenWriter* mpgwp) {
+PglErr MpgwInitPhase2(const char* __restrict fname, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, uint32_t separate_index, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, MTPgenWriter* mpgwp) {
   assert(thread_ct);
   const uintptr_t pwc_byte_ct = RoundUpPow2(sizeof(PgenWriterCommon), kCacheline);
   for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
     mpgwp->pwcs[tidx] = R_CAST(PgenWriterCommon*, &(mpgw_alloc[tidx * pwc_byte_ct]));
   }
-  PglErr reterr = PwcInitPhase1(fname, allele_idx_offsets, explicit_nonref_flags, variant_ct, sample_ct, separate_index, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, mpgwp->pwcs[0], &(mpgwp->pgen_outfile), &(mpgwp->pgi_outfile));
+  PglErr reterr = PwcInitPhase1(fname, explicit_nonref_flags, variant_ct, sample_ct, separate_index, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, mpgwp->pwcs[0], &(mpgwp->pgen_outfile), &(mpgwp->pgi_outfile));
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -1125,11 +1124,6 @@ uint32_t PwcAppendBiallelicDifflistLimitedMain(const uintptr_t* __restrict rareg
   // trailing bits of raregeno must be zeroed out
 
   assert(difflist_common_geno < 4);
-#ifndef NDEBUG
-  if (pwcp->allele_idx_offsets) {
-    assert(pwcp->allele_idx_offsets[vidx + 1] == pwcp->allele_idx_offsets[vidx] + 2);
-  }
-#endif
   assert((!(difflist_len % kBitsPerWordD2)) || (!(raregeno[difflist_len / kBitsPerWordD2] >> (2 * (difflist_len % kBitsPerWordD2)))));
   assert(difflist_sample_ids[difflist_len] == sample_ct);
   STD_ARRAY_DECL(uint32_t, 4, genocounts);
@@ -1314,7 +1308,7 @@ BoolErr PwcAppendDeltalist(const uintptr_t* delta_bitarr, uint32_t deltalist_len
 }
 
 static_assert(sizeof(AlleleCode) == 1, "PwcAppendMultiallelicMain() needs to be updated.");
-BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, uint32_t vidx, PgenWriterCommon* pwcp, const uintptr_t** genovec_hets_ptr, uint32_t* het_ct_ptr, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
+BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t allele_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, uint32_t vidx, PgenWriterCommon* pwcp, const uintptr_t** genovec_hets_ptr, uint32_t* het_ct_ptr, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
   uint32_t genovec_het_ct;
   uint32_t genovec_altxy_ct;
   uint32_t vrec_len = PwcAppendBiallelicGenovecMain(genovec, vidx, pwcp, &genovec_het_ct, &genovec_altxy_ct, vrtype_ptr);
@@ -1326,7 +1320,6 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
     *vrec_len_ptr = vrec_len;
     return 0;
   }
-  const uint32_t allele_ct = pwcp->allele_idx_offsets[vidx + 1] - pwcp->allele_idx_offsets[vidx];
   assert(allele_ct > 2);
   unsigned char* format_byte_ptr = pwcp->fwrite_bufp;
   ++vrec_len;
@@ -1729,11 +1722,11 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
   return 0;
 }
 
-BoolErr PwcAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp) {
+BoolErr PwcAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t allele_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp) {
   const uint32_t vidx = pwcp->vidx;
   unsigned char vrtype;
   uint32_t vrec_len;
-  if (unlikely(PwcAppendMultiallelicMain(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, patch_01_ct, patch_10_ct, vidx, pwcp, nullptr, nullptr, &vrtype, &vrec_len))) {
+  if (unlikely(PwcAppendMultiallelicMain(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, allele_ct, patch_01_ct, patch_10_ct, vidx, pwcp, nullptr, nullptr, &vrtype, &vrec_len))) {
     return 1;
   }
   pwcp->vidx += 1;
@@ -2081,13 +2074,13 @@ void PwcAppendBiallelicGenovecHphase(const uintptr_t* __restrict genovec, const 
   SubU32Store(vrec_len, vrec_len_byte_ct, vrec_len_dest);
 }
 
-BoolErr PwcAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp) {
+BoolErr PwcAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t allele_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp) {
   const uint32_t vidx = pwcp->vidx;
   const uintptr_t* genovec_hets;
   unsigned char vrtype;
   uint32_t het_ct;
   uint32_t vrec_len;
-  if (unlikely(PwcAppendMultiallelicMain(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, patch_01_ct, patch_10_ct, vidx, pwcp, &genovec_hets, &het_ct, &vrtype, &vrec_len))) {
+  if (unlikely(PwcAppendMultiallelicMain(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, allele_ct, patch_01_ct, patch_10_ct, vidx, pwcp, &genovec_hets, &het_ct, &vrtype, &vrec_len))) {
     return 1;
   }
   const uint32_t sample_ct = pwcp->sample_ct;

@@ -5904,12 +5904,12 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       } else {
         // multiallelic dosage not supported
         if (!is_hphase) {
-          if (unlikely(PwcAppendMultiallelicSparse(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, write_rare01_ct, write_rare10_ct, pwcp))) {
+          if (unlikely(PwcAppendMultiallelicSparse(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, allele_ct, write_rare01_ct, write_rare10_ct, pwcp))) {
             ctx->write_reterr = kPglRetVarRecordTooLarge;
             break;
           }
         } else {
-          if (unlikely(PwcAppendMultiallelicGenovecHphase(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, cur_write_phasepresent, write_phaseinfo, write_rare01_ct, write_rare10_ct, pwcp))) {
+          if (unlikely(PwcAppendMultiallelicGenovecHphase(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, cur_write_phasepresent, write_phaseinfo, allele_ct, write_rare01_ct, write_rare10_ct, pwcp))) {
             ctx->write_reterr = kPglRetVarRecordTooLarge;
             break;
           }
@@ -7436,7 +7436,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       fflush(stdout);
       unsigned char* mpgw_alloc = S_CAST(unsigned char*, bigstack_alloc_raw((alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) * kCacheline));
       assert(g_bigstack_base <= g_bigstack_end);
-      reterr = MpgwInitPhase2(outname, write_allele_idx_offsets, nonref_flags_write, variant_ct, sample_ct, 0, write_gflags, nonref_flags_storage, vrec_len_byte_ct, vblock_cacheline_ct, calc_thread_ct, mpgw_alloc, mpgwp);
+      reterr = MpgwInitPhase2(outname, nonref_flags_write, variant_ct, sample_ct, 0, write_gflags, nonref_flags_storage, vrec_len_byte_ct, vblock_cacheline_ct, calc_thread_ct, mpgw_alloc, mpgwp);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
           logputs("\n");

@@ -217,10 +217,11 @@ uintptr_t* GparseGetPointers(unsigned char* record_start, uint32_t sample_ct, ui
   return genovec;
 }
 
-PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWriter* spgwp) {
+// allele_idx_offsets parameter should change to block_allele_idx_offsets, to
+// enable more memory-efficient single-pass .bgen parsing.
+PglErr GparseFlush(const GparseRecord* grp, const uintptr_t* allele_idx_offsets, uint32_t write_block_size, STPgenWriter* spgwp) {
   PglErr reterr = kPglRetSuccess;
   {
-    const uintptr_t* allele_idx_offsets = SpgwGetAlleleIdxOffsets(spgwp);
     if (allele_idx_offsets) {
       allele_idx_offsets = &(allele_idx_offsets[SpgwGetVidx(spgwp)]);
     }
@@ -251,7 +252,7 @@ PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWri
             goto GparseFlush_ret_WRITE_FAIL;
           }
         } else {
-          reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
+          reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, allele_ct, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
           if (unlikely(reterr)) {
             goto GparseFlush_ret_1;
           }
@@ -273,9 +274,9 @@ PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWri
               }
             } else {
               if (!cur_gwmp->phasepresent_exists) {
-                reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
+                reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, allele_ct, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
               } else {
-                reterr = SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
+                reterr = SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, allele_ct, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
               }
               if (unlikely(reterr)) {
                 goto GparseFlush_ret_1;
@@ -2672,8 +2673,8 @@ static const char kGpText[] = "GP";
 static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
 PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
-  // Currently performs a 2-pass load, but once the sequential writer is
-  // implemented, it should be practical to reduce this to 1-pass.
+  // Performs a 2-pass load.  Probably staying that way after sequential writer
+  // is implemented since header lines are a pain.
   //
   // preexisting_psamname should be nullptr if no such file was specified.
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -3563,7 +3564,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           thread_bidxs = ctx.thread_bidxs[parity];
           cur_gparse = ctx.gparse[parity];
           if (allele_idx_offsets) {
-            ctx.block_allele_idx_offsets[parity] = &(SpgwGetAlleleIdxOffsets(&spgw)[vidx_start]);
+            ctx.block_allele_idx_offsets[parity] = &(allele_idx_offsets[vidx_start]);
           }
           geno_buf_iter = geno_bufs[parity];
           cur_thread_byte_stop = &(geno_buf_iter[per_thread_byte_limit]);
@@ -3775,7 +3776,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         parity = 1 - parity;
         if (vidx_start) {
           // write *previous* block results
-          reterr = GparseFlush(ctx.gparse[parity], prev_block_write_ct, &spgw);
+          reterr = GparseFlush(ctx.gparse[parity], allele_idx_offsets, prev_block_write_ct, &spgw);
           if (unlikely(reterr)) {
             goto VcfToPgen_ret_1;
           }
@@ -8393,7 +8394,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           thread_bidxs = ctx.thread_bidxs[parity];
           cur_gparse = ctx.gparse[parity];
           if (allele_idx_offsets) {
-            ctx.block_allele_idx_offsets[parity] = &(SpgwGetAlleleIdxOffsets(&spgw)[vidx_start]);
+            ctx.block_allele_idx_offsets[parity] = &(allele_idx_offsets[vidx_start]);
           }
           geno_buf_iter = geno_bufs[parity];
           cur_thread_byte_stop = &(geno_buf_iter[per_thread_byte_limit]);
@@ -8854,7 +8855,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         parity = 1 - parity;
         if (vidx_start) {
           // write *previous* block results
-          reterr = GparseFlush(ctx.gparse[parity], prev_block_write_ct, &spgw);
+          reterr = GparseFlush(ctx.gparse[parity], allele_idx_offsets, prev_block_write_ct, &spgw);
           if (unlikely(reterr)) {
             goto BcfToPgen_ret_1;
           }
@@ -13485,7 +13486,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           thread_bidxs = ctx.thread_bidxs[parity];
           GparseRecord* cur_gparse = ctx.gparse[parity];
           if (allele_idx_offsets) {
-            ctx.block_allele_idx_offsets[parity] = &(SpgwGetAlleleIdxOffsets(&spgw)[vidx_start]);
+            ctx.block_allele_idx_offsets[parity] = &(allele_idx_offsets[vidx_start]);
           }
           bgen_geno_iter = compressed_geno_bufs[parity];
           unsigned char* cur_thread_byte_stop = &(bgen_geno_iter[per_thread_byte_limit]);
@@ -13657,7 +13658,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         parity = 1 - parity;
         if (vidx_start) {
           // write *previous* block results
-          reterr = GparseFlush(ctx.gparse[parity], prev_block_write_ct, &spgw);
+          reterr = GparseFlush(ctx.gparse[parity], allele_idx_offsets, prev_block_write_ct, &spgw);
           if (unlikely(reterr)) {
             goto OxBgenToPgen_ret_1;
           }
