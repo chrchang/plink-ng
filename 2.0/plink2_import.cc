@@ -2672,10 +2672,8 @@ static const char kGpText[] = "GP";
 static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
 PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
-  // Performs a 2-pass load.  When multiallelic variants are a possibility,
-  // *and* we can't guarantee the number of variants is known in advance, even
-  // the option of separating out the .pgen.pgi file is not enough to enable a
-  // clean 1-pass workflow.
+  // Currently performs a 2-pass load, but once the sequential writer is
+  // implemented, it should be practical to reduce this to 1-pass.
   //
   // preexisting_psamname should be nullptr if no such file was specified.
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -11841,9 +11839,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     //         second pass.
     // Pass 2: Write .pgen file.
     //
-    // Since larger datasets will practically always use the bgen-1.2 or -1.3
-    // format, and that can contain multiallelic variants, let's keep this at
-    // 2 passes even though bgen-1.1 can technically go down to 1.
+    // Once the sequential writer is implemented, it should be practical to
+    // reduce this to 1-pass.
     if (unlikely(fopen_checked(bgenname, FOPEN_RB, &bgenfile))) {
       goto OxBgenToPgen_ret_OPEN_FAIL;
     }

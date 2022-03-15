@@ -98,10 +98,12 @@ typedef struct PgenWriterCommonStruct {
 // TODO: sequential writer that does not require the number of variants to be
 // known in advance; instead the caller provides an upper bound (which, when
 // enough memory is available, can be set to 2^31) and allocates for that
-// during writer initialization.  This can accelerate many import functions.
-// Though plink2 won't use it when multiallelic variants are a possibility --
-// they raise the worst-case initial allocation size from ~3-8 GiB to ~19-24
-// GiB.)
+// during writer initialization.  This writer also shouldn't require
+// allele_idx_offsets at all (we aren't currently saving it to the index under
+// any circumstances); instead, the caller should specify the number of alleles
+// when appending each multiallelic variant.  (Probably best to implement this
+// as a backward-incompatible change, oops.)  This can accelerate many import
+// functions.
 
 typedef struct STPgenWriterStruct {
   MOVABLE_BUT_NONCOPYABLE(STPgenWriterStruct);
