@@ -2672,10 +2672,11 @@ static const char kGpText[] = "GP";
 static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
 PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
-  // Now performs a 2-pass load.  Yes, this can be slower than plink 1.9, but
-  // it's necessary to use the PgenWriter classes for now (since we need to
-  // know upfront how many variants there are, and whether phase/dosage is
-  // present).
+  // Performs a 2-pass load.  When multiallelic variants are a possibility,
+  // *and* we can't guarantee the number of variants is known in advance, even
+  // the option of separating out the .pgen.pgi file is not enough to enable a
+  // clean 1-pass workflow.
+  //
   // preexisting_psamname should be nullptr if no such file was specified.
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -2816,7 +2817,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // ##fileDate: discard (regenerate)
       // ##source: discard (regenerate)
       // ##contig: conditionally keep
-      // ##INFO/ note presence of INFO/PR, note presence of at least one non-PR
+      // ##INFO: note presence of INFO/PR, note presence of at least one non-PR
       //         field, keep data (though, if INFO/PR is the *only* field,
       //         omit it from the .pvar for consistency with --make-pgen
       //         default)
@@ -9836,6 +9837,7 @@ BoolErr InitOxfordSingleChr(const char* ox_single_chr_str, const char** single_c
 
 static_assert(sizeof(Dosage) == 2, "OxGenToPgen() needs to be updated.");
 PglErr OxGenToPgen(const char* genname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+  // TODO: make this single-pass, now that .pgen.pgi files are supported.
   unsigned char* bigstack_mark = g_bigstack_base;
   char* pvar_cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -11838,7 +11840,10 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     //         filter is involved, so .pvar writing is postponed till the
     //         second pass.
     // Pass 2: Write .pgen file.
-
+    //
+    // Since larger datasets will practically always use the bgen-1.2 or -1.3
+    // format, and that can contain multiallelic variants, let's keep this at
+    // 2 passes even though bgen-1.1 can technically go down to 1.
     if (unlikely(fopen_checked(bgenname, FOPEN_RB, &bgenfile))) {
       goto OxBgenToPgen_ret_OPEN_FAIL;
     }
@@ -13878,6 +13883,7 @@ PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t s
 #  error "Unaligned accesses in OxHapslegendToPgen()."
 #endif
 PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+  // TODO: make this single-pass.
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* psamfile = nullptr;
   uintptr_t line_idx_haps = 0;
@@ -14492,6 +14498,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
 // this up.
 static_assert(sizeof(Dosage) == 2, "Plink1DosageToPgen() needs to be updated.");
 PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+  // TODO: make this single-pass.
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 

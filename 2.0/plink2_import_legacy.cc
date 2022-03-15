@@ -731,7 +731,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
     // First pass: determine variant_ct (applying chromosome filter),
     // sample_ct, and maximum line length; check whether CM column needs to be
     // in .pvar file.
-    // possible todo: benchmark against generating a .bed temporary file.
+    // TODO: make this single-pass, now that .pgen.pgi files are supported.
     const uint32_t decompress_thread_ct = MAXV(1, max_thread_ct - 1);
     reterr = SizeAndInitTextStream(tpedname, bigstack_left(), decompress_thread_ct, &tped_txs);
     if (unlikely(reterr)) {
@@ -772,7 +772,6 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
     uint32_t max_line_blen = TextLineEnd(&tped_txs) - tped_line_start;
     uint32_t variant_ct = 0;
     uint32_t at_least_one_nzero_cm = 0;
-    // TODO: make this single-pass, after adding .pgi support to pgenlib.
     while (1) {
       char* chr_code_end = CurTokenEnd(tped_line_start);
 

@@ -41,9 +41,9 @@ typedef struct PgenWriterCommonStruct {
   //
   // In the multiallelic case, allele_idx_offsets is not changed by
   // pgenlib_write, but it *is* okay for the user of this library to
-  // incrementally fill in its values if known_max_allele_ct is provided during
-  // PgenWriter initialization.  allele_idx_offsets[x] and [x+1] only have to
-  // be finalized before writing (0-based) variant #x.
+  // incrementally fill in its values if optional_max_allele_ct is provided
+  // during STPgenWriter initialization.  allele_idx_offsets[x] and [x+1] only
+  // have to be finalized before writing (0-based) variant #x.
   uint64_t* vblock_fpos;
   unsigned char* vrec_len_buf;
   uintptr_t* vrtype_buf;
@@ -84,12 +84,24 @@ typedef struct PgenWriterCommonStruct {
 // Given packed arrays of unphased biallelic genotypes in uncompressed plink2
 // binary format (00 = hom ref, 01 = het ref/alt1, 10 = hom alt1, 11 =
 // missing), {S,M}TPgenWriter performs difflist (sparse variant), one bit
-// (mostly-two-value), and LD compression before writing to disk, and backfills
-// the header at the end.  CPRA -> CPR merging is under development.
+// (mostly-two-value), and LD compression before writing to disk, and flushes
+// the header at the end.  (The flush requires a backward seek unless
+// separate_index is set to true during initialization, in which case the index
+// is saved to a separate .pgen.pgi file.)
+//
 // The major difference between the two interfaces is that MTPgenWriter forces
 // you to process large blocks of variants at a time (64k per thread).  So
-// STPgenWriter is still worth using in some cases (memory is very limited, I/O
-// is slow, no programmer time to spare for the additional complexity).
+// STPgenWriter is still worth using in some cases (number of samples is too
+// large relative to available RAM, or I/O is slow, or no programmer time to
+// spare for the additional complexity).
+//
+// TODO: sequential writer that does not require the number of variants to be
+// known in advance; instead the caller provides an upper bound (which, when
+// enough memory is available, can be set to 2^31) and allocates for that
+// during writer initialization.  This can accelerate many import functions.
+// Though plink2 won't use it when multiallelic variants are a possibility --
+// they raise the worst-case initial allocation size from ~3-8 GiB to ~19-24
+// GiB.)
 
 typedef struct STPgenWriterStruct {
   MOVABLE_BUT_NONCOPYABLE(STPgenWriterStruct);
@@ -149,9 +161,9 @@ void PreinitSpgw(STPgenWriter* spgwp);
 //
 // Caller is responsible for printing open-fail error message.
 // In the multiallelic case, it is not necessary for the body of
-// allele_idx_offsets to already be filled if known_max_allele_ct is provided;
-// allele_idx_offsets[x] and [x+1] only have to be finalized before writing
-// (0-based) variant #x.
+// allele_idx_offsets to already be filled if optional_max_allele_ct is
+// provided; allele_idx_offsets[x] and [x+1] only have to be finalized before
+// writing (0-based) variant #x.
 // Conversely, if optional_max_allele_ct is set to 0, it will be computed from
 // allele_idx_offsets.
 // The body of explicit_nonref_flags also doesn't need to be filled until
