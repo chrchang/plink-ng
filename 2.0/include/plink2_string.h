@@ -346,16 +346,12 @@ template <uint32_t N> int32_t StrequalK(const char* s1, const char* k_s2, uint32
   return (s1_slen == N) && memequal_k(s1, k_s2, N);
 };
 
-constexpr uint32_t CompileTimeSlen(const char* k_str) {
-  return k_str[0]? (1 + CompileTimeSlen(&(k_str[1]))) : 0;
-}
+// CompileTimeSlen and strcpy_k moved to plink2_base
 
 // can also use sizeof(k_s2) - 1, but that's less safe
 #  define strequal_k(s1, k_s2, s1_slen) plink2::StrequalK<plink2::CompileTimeSlen(k_s2)>(s1, k_s2, s1_slen)
 
 #  define strequal_k_unsafe(s1, k_s2) memequal_k(s1, k_s2, 1 + plink2::CompileTimeSlen(k_s2))
-
-#  define strcpy_k(dst, src) plink2::MemcpyKImpl<plink2::CompileTimeSlen(src) + 1>::MemcpyK(dst, src);
 
 #  define strcpya_k(dst, src) plink2::MemcpyaoK<plink2::CompileTimeSlen(src)>(dst, src);
 #else  // !(defined(__LP64__) && (__cplusplus >= 201103L))
@@ -375,10 +371,6 @@ HEADER_INLINE int32_t strequal_k(const char* s1, const char* k_s2, uint32_t s1_s
 HEADER_INLINE int32_t strequal_k_unsafe(const char* s1, const char* k_s2) {
   const uint32_t s2_blen = 1 + strlen(k_s2);
   return memequal(s1, k_s2, s2_blen);
-}
-
-HEADER_INLINE void strcpy_k(char* __restrict dst, const void* __restrict src) {
-  strcpy(dst, S_CAST(const char*, src));
 }
 
 HEADER_INLINE char* strcpya_k(char* __restrict dst, const void* __restrict src) {

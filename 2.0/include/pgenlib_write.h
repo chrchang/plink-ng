@@ -34,8 +34,16 @@ typedef struct PgenWriterCommonStruct {
   uint32_t sample_ct;
   PgenGlobalFlags phase_dosage_gflags;  // subset of gflags
 
-  // there should be a single copy of these arrays shared by all threads.
-  // allele_idx_offsets is read-only.
+  // I'll cache this for now
+  uintptr_t vrec_len_byte_ct;
+
+  // There should be a single copy of these arrays shared by all threads.
+  //
+  // In the multiallelic case, allele_idx_offsets is not changed by
+  // pgenlib_write, but it *is* okay for the user of this library to
+  // incrementally fill in its values if known_max_allele_ct is provided during
+  // PgenWriter initialization.  allele_idx_offsets[x] and [x+1] only have to
+  // be finalized before writing (0-based) variant #x.
   uint64_t* vblock_fpos;
   unsigned char* vrec_len_buf;
   uintptr_t* vrtype_buf;
@@ -45,11 +53,13 @@ typedef struct PgenWriterCommonStruct {
   // needed for multiallelic-phased case
   uintptr_t* genovec_hets_buf;
 
-  STD_ARRAY_DECL(uint32_t, 4, ldbase_genocounts);
-
   // should match ftello() return value in singlethreaded case, but be set to
   // zero in multithreaded case
   uint64_t vblock_fpos_offset;
+
+
+  // The remainder of this data structure is unshared.
+  STD_ARRAY_DECL(uint32_t, 4, ldbase_genocounts);
 
   // these must hold sample_ct entries
   // genovec_invert_buf also used as phaseinfo and dphase_present temporary
@@ -67,9 +77,6 @@ typedef struct PgenWriterCommonStruct {
 
   uint32_t ldbase_common_geno;  // UINT32_MAX if ldbase_genovec present
   uint32_t ldbase_difflist_len;
-
-  // I'll cache this for now
-  uintptr_t vrec_len_byte_ct;
 
   uint32_t vidx;
 } PgenWriterCommon;
@@ -91,15 +98,19 @@ typedef struct STPgenWriterStruct {
   PgenWriterCommon const& GET_PRIVATE_pwc() const { return pwc; }
   FILE*& GET_PRIVATE_pgen_outfile() { return pgen_outfile; }
   FILE* const& GET_PRIVATE_pgen_outfile() const { return pgen_outfile; }
+  FILE*& GET_PRIVATE_pgi_outfile() { return pgi_outfile; }
+  FILE* const& GET_PRIVATE_pgi_outfile() const { return pgi_outfile; }
  private:
 #endif
   PgenWriterCommon pwc;
   FILE* pgen_outfile;
+  FILE* pgi_outfile;
 } STPgenWriter;
 
 typedef struct MTPgenWriterStruct {
   MOVABLE_BUT_NONCOPYABLE(MTPgenWriterStruct);
   FILE* pgen_outfile;
+  FILE* pgi_outfile;
   uint32_t thread_ct;
   PgenWriterCommon* pwcs[];
 } MTPgenWriter;

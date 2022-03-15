@@ -116,9 +116,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // explicit gzipped .pvar/.bim support was tried, and then rejected since
     // decompression was too slow
     // Zstd should have the necessary x86 performance characteristics, though
-    HelpPrint("pfile\0pgen\0bfile\0bed\0", &help_ctrl, 1,
-"  --pfile <prefix> ['vzs']  : Specify .pgen + .pvar[.zst] + .psam prefix.\n"
+    HelpPrint("pfile\0pgen\0pgi\0bfile\0bed\0", &help_ctrl, 1,
+"  --pfile <prefix> ['vzs']  : Specify .pgen[ + .pgen.pgi] + .pvar[.zst] +\n"
+"                              .psam prefix.\n"
 "  --pgen <filename>         : Specify full name of .pgen/.bed file.\n"
+"  --pgi <filename>          : Specify full name of .pgen.pgi file.\n"
                );
     HelpPrint("pfile\0pgen\0pvar\0psam\0bfile\0bed\0bim\0fam\0dosage\0", &help_ctrl, 1,
 "  --pvar <filename>         : Specify full name of .pvar/.bim file.\n"

@@ -100,7 +100,7 @@ typedef struct PgenFileInfoStruct {
   FILE* pgi_ff;
 
   const unsigned char* block_base;  // nullptr if using per-variant fread()
-  uint64_t block_offset;  // 0 for mmap
+  uint64_t block_offset;
 } PgenFileInfo;
 
 typedef struct PgenReaderMainStruct {
@@ -110,8 +110,7 @@ typedef struct PgenReaderMainStruct {
   struct PgenFileInfoStruct fi;
 
   // ----- Mutable state -----
-  // If we don't fseek, what's the next variant we'd read?  (Still relevant
-  // with mmap due to how LD decompression is implemented.)
+  // If we don't fseek, what's the next variant we'd read?
   uint32_t fp_vidx;
 
   // ** per-variant fread()-only **
@@ -426,6 +425,7 @@ void PreinitPgfi(PgenFileInfo* pgfip);
 // Other notes:
 // - If pgi_fname is nullptr but the .pgen has an external index file, the
 //   index file name is assumed to be the .pgen filename with .pgi appended.
+// - pgi_fname is ignored if the .pgen does not have an external index file.
 // - raw_variant_ct must be in [1, 2^31 - 3], and raw_sample_ct must be in [1,
 //   2^31 - 2].
 PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf);

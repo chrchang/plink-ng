@@ -29,6 +29,10 @@ static inline FILE** GetPgenOutfilep(STPgenWriter* spgwp) {
   return &GET_PRIVATE(*spgwp, pgen_outfile);
 }
 
+static inline FILE** GetPgiOutfilep(STPgenWriter* spgwp) {
+  return &GET_PRIVATE(*spgwp, pgi_outfile);
+}
+
 void GenovecInvertCopyUnsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict genovec_inverted_copy) {
   // flips 0 to 2 and vice versa.
   // "unsafe" because trailing bits are not zeroed out.
@@ -46,12 +50,12 @@ void GenovecInvertCopyUnsafe(const uintptr_t* __restrict genovec, uint32_t sampl
 
 void PreinitSpgw(STPgenWriter* spgwp) {
   *GetPgenOutfilep(spgwp) = nullptr;
+  *GetPgiOutfilep(spgwp) = nullptr;
 }
 
-PglErr PwcInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, uint32_t separate_index, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uintptr_t vrec_len_byte_ct, PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr) {
-  if (separate_index) {
-    return kPglRetNotYetSupported;
-  }
+// OpenFail and WriteFail errors can now refer to either the .pgen or the
+// .pgen.pgi file.
+PglErr PwcInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, uint32_t separate_index, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uintptr_t vrec_len_byte_ct, PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_outfile_ptr) {
   pwcp->allele_idx_offsets = allele_idx_offsets;
   pwcp->explicit_nonref_flags = nullptr;
   if (nonref_flags_storage == 3) {
@@ -77,19 +81,51 @@ PglErr PwcInitPhase1(const char* __restrict fname, const uintptr_t* __restrict a
 #endif
   pwcp->vidx = 0;
 
-  FILE* pgen_outfile = fopen(fname, FOPEN_WB);
-  *pgen_outfile_ptr = pgen_outfile;
-  if (unlikely(!pgen_outfile)) {
+  *pgi_outfile_ptr = nullptr;
+  FILE* header_ff = fopen(fname, FOPEN_WB);
+  *pgen_outfile_ptr = header_ff;
+  if (unlikely(!header_ff)) {
     return kPglRetOpenFail;
   }
-  fwrite_unlocked("l\x1b\x10", 3, 1, pgen_outfile);
-  fwrite_unlocked(&(pwcp->variant_ct), sizeof(int32_t), 1, pgen_outfile);
-  fwrite_unlocked(&(pwcp->sample_ct), sizeof(int32_t), 1, pgen_outfile);
+  fwrite_unlocked("l\x1b", 2, 1, header_ff);
+  const int32_t third_byte = separate_index? 0x20 : 0x10;
+  if (unlikely(putc_checked(third_byte, header_ff))) {
+    return kPglRetWriteFail;
+  }
 
+  const char* header_fname = fname;
+  char pgi_fname_buf[kPglFnamesize];
+  if (separate_index) {
+    const uint32_t fname_slen = strlen(fname);
+    if (fname_slen > kPglFnamesize - 5) {
+      return kPglRetMalformedInput;
+    }
+    char* fname_iter = memcpya(pgi_fname_buf, fname, fname_slen);
+    strcpy_k(fname_iter, ".pgi");
+    header_fname = pgi_fname_buf;
+    header_ff = fopen(header_fname, FOPEN_WB);
+    if (unlikely(!header_ff)) {
+      return kPglRetOpenFail;
+    }
+    *pgi_outfile_ptr = header_ff;
+    fwrite_unlocked("l\x1b\x30", 3, 1, header_ff);
+  }
+
+  fwrite_unlocked(&(pwcp->variant_ct), sizeof(int32_t), 1, header_ff);
+  fwrite_unlocked(&(pwcp->sample_ct), sizeof(int32_t), 1, header_ff);
+
+  // TODO: postpone writing of this byte.  In the .pgi case, the caller may
+  // pass phase_dosage_gflags != 0, but not end up appending any variants with
+  // dosage or phase info.  When that happens, we should pack the vrtypes
+  // arrays down to 4 bits per entry while writing the index.
   const unsigned char control_byte = (vrec_len_byte_ct - 1) + (4 * (phase_dosage_gflags != 0)) + (nonref_flags_storage << 6);
   pwcp->vrec_len_byte_ct = vrec_len_byte_ct;
-  if (unlikely(putc_checked(control_byte, pgen_outfile))) {
+  if (unlikely(putc_checked(control_byte, header_ff))) {
     return kPglRetWriteFail;
+  }
+  if (separate_index) {
+    pwcp->vblock_fpos_offset = 3;
+    return kPglRetSuccess;
   }
   const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
   uintptr_t header_bytes_left = vblock_ct * sizeof(int64_t) + variant_ct * vrec_len_byte_ct;
@@ -115,10 +151,10 @@ PglErr PwcInitPhase1(const char* __restrict fname, const uintptr_t* __restrict a
   unsigned char zerobuf[kPglFwriteBlockSize];
   memset(zerobuf, 0, zeroed_cachelines_needed * kCacheline);
   while (header_bytes_left > kPglFwriteBlockSize) {
-    fwrite_unlocked(zerobuf, kPglFwriteBlockSize, 1, pgen_outfile);
+    fwrite_unlocked(zerobuf, kPglFwriteBlockSize, 1, header_ff);
     header_bytes_left -= kPglFwriteBlockSize;
   }
-  if (unlikely(fwrite_checked(zerobuf, header_bytes_left, pgen_outfile))) {
+  if (unlikely(fwrite_checked(zerobuf, header_bytes_left, header_ff))) {
     return kPglRetWriteFail;
   }
   return kPglRetSuccess;
@@ -222,7 +258,8 @@ PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict 
 
   PgenWriterCommon* pwcp = GetPwcp(spgwp);
   FILE** pgen_outfilep = GetPgenOutfilep(spgwp);
-  PglErr reterr = PwcInitPhase1(fname, allele_idx_offsets, explicit_nonref_flags, variant_ct, sample_ct, separate_index, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, pwcp, pgen_outfilep);
+  FILE** pgi_outfilep = GetPgiOutfilep(spgwp);
+  PglErr reterr = PwcInitPhase1(fname, allele_idx_offsets, explicit_nonref_flags, variant_ct, sample_ct, separate_index, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, pwcp, pgen_outfilep, pgi_outfilep);
   if (likely(!reterr)) {
     *alloc_cacheline_ct_ptr = CountSpgwAllocCachelinesRequired(variant_ct, sample_ct, phase_dosage_gflags, max_vrec_len);
   }
@@ -451,7 +488,7 @@ PglErr MpgwInitPhase2(const char* __restrict fname, const uintptr_t* __restrict 
   for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
     mpgwp->pwcs[tidx] = R_CAST(PgenWriterCommon*, &(mpgw_alloc[tidx * pwc_byte_ct]));
   }
-  PglErr reterr = PwcInitPhase1(fname, allele_idx_offsets, explicit_nonref_flags, variant_ct, sample_ct, separate_index, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, mpgwp->pwcs[0], &(mpgwp->pgen_outfile));
+  PglErr reterr = PwcInitPhase1(fname, allele_idx_offsets, explicit_nonref_flags, variant_ct, sample_ct, separate_index, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, mpgwp->pwcs[0], &(mpgwp->pgen_outfile), &(mpgwp->pgi_outfile));
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -2204,15 +2241,24 @@ BoolErr PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, c
   return 0;
 }
 
-PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr) {
+PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_outfile_ptr) {
   const uint32_t variant_ct = pwcp->variant_ct;
   assert(pwcp->vidx == variant_ct);
-  FILE* pgen_outfile = *pgen_outfile_ptr;
-  if (unlikely(fseeko(pgen_outfile, 12, SEEK_SET))) {
-    return kPglRetWriteFail;
+  FILE** header_ff_ptr;
+  if (*pgi_outfile_ptr) {
+    if (unlikely(fclose_null(pgen_outfile_ptr))) {
+      return kPglRetWriteFail;
+    }
+    header_ff_ptr = pgi_outfile_ptr;
+  } else {
+    header_ff_ptr = pgen_outfile_ptr;
+    if (unlikely(fseeko(*header_ff_ptr, 12, SEEK_SET))) {
+      return kPglRetWriteFail;
+    }
   }
+  FILE* header_ff = *header_ff_ptr;
   const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
-  fwrite_unlocked(pwcp->vblock_fpos, vblock_ct * sizeof(int64_t), 1, pgen_outfile);
+  fwrite_unlocked(pwcp->vblock_fpos, vblock_ct * sizeof(int64_t), 1, header_ff);
   const unsigned char* vrtype_buf_iter = R_CAST(unsigned char*, pwcp->vrtype_buf);
   const uint32_t vrec_len_byte_ct = pwcp->vrec_len_byte_ct;
   const unsigned char* vrec_len_buf_iter = pwcp->vrec_len_buf;
@@ -2226,7 +2272,7 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr) {
   for (; ; vrec_len_buf_iter = &(vrec_len_buf_iter[vrec_iter_incr])) {
     if (vrec_len_buf_iter >= vrec_len_buf_last) {
       if (vrec_len_buf_iter > vrec_len_buf_last) {
-        return fclose_null(pgen_outfile_ptr)? kPglRetWriteFail : kPglRetSuccess;
+        return fclose_null(header_ff_ptr)? kPglRetWriteFail : kPglRetSuccess;
       }
       const uint32_t vblock_size = ModNz(variant_ct, kPglVblockSize);
       vrtype_buf_iter_incr = phase_dosage_gflags? vblock_size : DivUp(vblock_size, 2);
@@ -2234,11 +2280,11 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr) {
       nonref_flags_write_byte_ct = DivUp(vblock_size, CHAR_BIT);
     }
     // 4b(i): array of 4-bit or 1-byte vrtypes
-    fwrite_unlocked(vrtype_buf_iter, vrtype_buf_iter_incr, 1, pgen_outfile);
+    fwrite_unlocked(vrtype_buf_iter, vrtype_buf_iter_incr, 1, header_ff);
     vrtype_buf_iter = &(vrtype_buf_iter[vrtype_buf_iter_incr]);
 
     // 4b(ii): array of variant record lengths
-    if (unlikely(fwrite_checked(vrec_len_buf_iter, vrec_iter_incr, pgen_outfile))) {
+    if (unlikely(fwrite_checked(vrec_len_buf_iter, vrec_iter_incr, header_ff))) {
       return kPglRetWriteFail;
     }
 
@@ -2247,7 +2293,7 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr) {
 
     // 4b(iv): explicit nonref flags
     if (explicit_nonref_flags) {
-      if (unlikely(fwrite_checked(explicit_nonref_flags_iter, nonref_flags_write_byte_ct, pgen_outfile))) {
+      if (unlikely(fwrite_checked(explicit_nonref_flags_iter, nonref_flags_write_byte_ct, header_ff))) {
         return kPglRetWriteFail;
       }
       explicit_nonref_flags_iter = &(explicit_nonref_flags_iter[kPglVblockSize / kBitsPerWord]);
@@ -2261,7 +2307,8 @@ PglErr SpgwFinish(STPgenWriter* spgwp) {
   if (unlikely(fwrite_checked(pwcp->fwrite_buf, pwcp->fwrite_bufp - pwcp->fwrite_buf, *pgen_outfilep))) {
     return kPglRetWriteFail;
   }
-  return PwcFinish(pwcp, pgen_outfilep);
+  FILE** pgi_outfilep = GetPgiOutfilep(spgwp);
+  return PwcFinish(pwcp, pgen_outfilep, pgi_outfilep);
 }
 
 PglErr MpgwFlush(MTPgenWriter* mpgwp) {
@@ -2292,38 +2339,48 @@ PglErr MpgwFlush(MTPgenWriter* mpgwp) {
     return kPglRetSuccess;
   }
   pwcp->vidx = variant_ct;
-  return PwcFinish(pwcp, &(mpgwp->pgen_outfile));
+  return PwcFinish(pwcp, &(mpgwp->pgen_outfile), &(mpgwp->pgi_outfile));
 }
 
 BoolErr CleanupSpgw(STPgenWriter* spgwp, PglErr* reterrp) {
   // assume file is open if spgw.pgen_outfile is not null
   // memory is the responsibility of the caller for now
   FILE** pgen_outfilep = GetPgenOutfilep(spgwp);
-  if (!(*pgen_outfilep)) {
-    return 0;
+  FILE** pgi_outfilep = GetPgiOutfilep(spgwp);
+  BoolErr fclose_err = 0;
+  if (*pgi_outfilep) {
+    fclose_err = fclose_null(pgi_outfilep);
   }
-  if (!fclose_null(pgen_outfilep)) {
-    return 0;
+  if (*pgen_outfilep) {
+    if (fclose_null(pgen_outfilep)) {
+      fclose_err = 1;
+    }
   }
-  if (*reterrp != kPglRetSuccess) {
-    return 0;
+  if (unlikely(fclose_err && (*reterrp == kPglRetSuccess))) {
+    *reterrp = kPglRetWriteFail;
   }
-  *reterrp = kPglRetWriteFail;
-  return 1;
+  return fclose_err;
 }
 
 BoolErr CleanupMpgw(MTPgenWriter* mpgwp, PglErr* reterrp) {
-  if ((!mpgwp) || (!mpgwp->pgen_outfile)) {
+  if (!mpgwp) {
     return 0;
   }
-  if (!fclose_null(&(mpgwp->pgen_outfile))) {
-    return 0;
+  FILE** pgen_outfilep = &(mpgwp->pgen_outfile);
+  FILE** pgi_outfilep = &(mpgwp->pgi_outfile);
+  BoolErr fclose_err = 0;
+  if (*pgi_outfilep) {
+    fclose_err = fclose_null(pgi_outfilep);
   }
-  if (*reterrp != kPglRetSuccess) {
-    return 0;
+  if (*pgen_outfilep) {
+    if (fclose_null(pgen_outfilep)) {
+      fclose_err = 1;
+    }
   }
-  *reterrp = kPglRetWriteFail;
-  return 1;
+  if (unlikely(fclose_err && (*reterrp == kPglRetSuccess))) {
+    *reterrp = kPglRetWriteFail;
+  }
+  return fclose_err;
 }
 
 #ifdef __cplusplus

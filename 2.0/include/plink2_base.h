@@ -2950,6 +2950,22 @@ HEADER_INLINE unsigned char* memcpyuao_k(void* __restrict dst, const void* __res
 
 #endif
 
+#if defined(__LP64__) && (__cplusplus >= 201103L)
+
+constexpr uint32_t CompileTimeSlen(const char* k_str) {
+  return k_str[0]? (1 + CompileTimeSlen(&(k_str[1]))) : 0;
+}
+
+#  define strcpy_k(dst, src) plink2::MemcpyKImpl<plink2::CompileTimeSlen(src) + 1>::MemcpyK(dst, src);
+
+#else
+
+HEADER_INLINE void strcpy_k(char* __restrict dst, const void* __restrict src) {
+  strcpy(dst, S_CAST(const char*, src));
+}
+
+#endif
+
 #ifdef __LP64__
 // This is also better than the June 2018 OS X/LLVM stock implementation,
 // especially for small values of ct.

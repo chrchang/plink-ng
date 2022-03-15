@@ -225,14 +225,14 @@ void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCt
   }
 }
 
-PglErr PgenInfoStandalone(const char* pgenname) {
+PglErr PgenInfoStandalone(const char* pgenname, const char* pginame) {
   PgenFileInfo pgfi;
   PglErr reterr = kPglRetSuccess;
   PreinitPgfi(&pgfi);
   {
     PgenHeaderCtrl header_ctrl;
     uintptr_t cur_alloc_cacheline_ct;
-    reterr = PgfiInitPhase1(pgenname, nullptr, UINT32_MAX, UINT32_MAX, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
+    reterr = PgfiInitPhase1(pgenname, pginame, UINT32_MAX, UINT32_MAX, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
     if (unlikely(reterr)) {
       if ((reterr == kPglRetSampleMajorBed) || (reterr == kPglRetImproperFunctionCall)) {
         logerrputs("Warning: Skipping --pgen-info since a .bed file was provided.\n");
@@ -387,6 +387,7 @@ typedef struct Plink2CmdlineStruct {
   char output_missing_pheno[kMaxMissingPhenostrBlen];
   char legacy_output_missing_pheno[kMaxMissingPhenostrBlen];
 
+  char* pginame;
   char* var_filter_exceptions_flattened;
   char* varid_template_str;
   char* varid_multi_template_str;
@@ -759,6 +760,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: Failed to append '~' to input .bed/.pgen filename.\n");
           goto Plink2Core_ret_OPEN_FAIL;
         }
+        // if/when --make-pgen can generate .pgen.pgi files, change pginame to
+        // a Plink2Core() parameter, and conditionally rename the file here
         fname_slen = strlen(pvarname);
         memcpy(g_textbuf, pvarname, fname_slen + 1);
         snprintf(&(pvarname[fname_slen]), 2, "~");
@@ -977,7 +980,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       PgenHeaderCtrl header_ctrl;
       uintptr_t cur_alloc_cacheline_ct;
       while (1) {
-        reterr = PgfiInitPhase1(pgenname, nullptr, raw_variant_ct, raw_sample_ct, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
+        reterr = PgfiInitPhase1(pgenname, pcp->pginame, raw_variant_ct, raw_sample_ct, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
         if (!reterr) {
           break;
         }
@@ -995,7 +998,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           *pgenname_end = '\0';
           make_plink2_flags &= ~kfMakePgen;
           // no --make-just-pgen command, so we'll never entirely skip the
-          // make_plink2 operation
+          // MakePlink2 operation
         } else {
           snprintf(pgenname_end, kMaxOutfnameExtBlen - 5, ".vmaj");
         }
@@ -3202,6 +3205,7 @@ int main(int argc, char** argv) {
   Plink2Cmdline pc;
   pc.filter_flags = kfFilter0;
   pc.dependency_flags = kfFilter0;
+  pc.pginame = nullptr;
   pc.var_filter_exceptions_flattened = nullptr;
   pc.varid_template_str = nullptr;
   pc.varid_multi_template_str = nullptr;
@@ -8831,6 +8835,25 @@ int main(int argc, char** argv) {
             snprintf(prefix_end, 5, ".ped");
             xload |= kfXloadPed;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "gi")) {
+          if (unlikely(xload)) {
+            goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+          }
+          if (unlikely(!(pgenname[0]))) {
+            // this doesn't catch e.g. --pgi + --bfile, but an imperfect sanity
+            // check is better than no check
+            logerrputs("Error: --pgi must be used with --pfile or --pgen.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          // third argument should be 1 if there's ever a possibility of
+          // appending '~'
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.pginame);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (likely(strequal_k_unsafe(flagname_p2, "heno-quantile-normalize"))) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
@@ -10743,7 +10766,7 @@ int main(int argc, char** argv) {
         logerrputs("Error: --pgen-info requires a .pgen file.\n");
         goto main_ret_INVALID_CMDLINE;
       }
-      reterr = PgenInfoStandalone(pgenname);
+      reterr = PgenInfoStandalone(pgenname, pc.pginame);
     } else {
       if (unlikely(pc.dependency_flags && (!(pc.command_flags1 & (~kfCommand1Pmerge))))) {
         logerrputs("Error: Basic file conversions do not support regular filter or transform\noperations.  Rerun your command with --make-bed/--make-[b]pgen.\n");
@@ -11058,6 +11081,7 @@ int main(int argc, char** argv) {
   free_cond(pc.varid_multi_template_str);
   free_cond(pc.varid_template_str);
   free_cond(pc.var_filter_exceptions_flattened);
+  free_cond(pc.pginame);
   if (file_delete_list) {
     do {
       LlStr* llstr_ptr = file_delete_list->next;

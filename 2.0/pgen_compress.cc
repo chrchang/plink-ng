@@ -26,25 +26,31 @@ int32_t main(int32_t argc, char** argv) {
   PreinitPgr(&pgr);
   PreinitSpgw(&spgw);
   {
-    if ((argc < 3) || (argc > 5)) {
+    if ((argc < 3) || (argc > 6)) {
       fputs(
 "Usage:\n"
-"pgen_compress <input .bed or .pgen> <output filename> [sample_ct]\n"
-"  (sample_ct is required when loading a .bed file)\n"
+"pgen_compress [-i] <input .bed or .pgen> <output filename> [sample_ct]\n"
+"  * sample_ct is required when loading a .bed file\n"
+"  * -i causes the index to be saved to a separate .pgen.pgi file (usually it's\n"
+"    embedded at the front of the .pgen); this is compatible with fully\n"
+"    sequential .pgen writing\n"
 "pgen_compress -u <input .pgen> <output .bed>\n"
             , stdout);
       goto main_ret_INVALID_CMDLINE;
     }
+    const uint32_t write_separate_index = (argv[1][0] == '-') && (argv[1][1] == 'i') && (argv[1][2] == '\0');
     const uint32_t decompress = (argv[1][0] == '-') && (argv[1][1] == 'u') && (argv[1][2] == '\0');
+    const uint32_t input_idx = 1 + write_separate_index + decompress;
     uint32_t sample_ct = 0xffffffffU;
-    if (S_CAST(uint32_t, argc) == 4 + decompress) {
-      if (ScanPosintDefcap(argv[3 + decompress], &sample_ct)) {
+    if (S_CAST(uint32_t, argc) == input_idx + 3) {
+      if (ScanPosintDefcap(argv[input_idx + 2], &sample_ct)) {
+        fprintf(stderr, "error: invalid sample_ct\n");
         goto main_ret_INVALID_CMDLINE;
       }
     }
     char errstr_buf[kPglErrstrBufBlen];
     uintptr_t cur_alloc_cacheline_ct;
-    reterr = PgfiInitPhase1(argv[1 + decompress], nullptr, 0xffffffffU, sample_ct, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, errstr_buf);
+    reterr = PgfiInitPhase1(argv[input_idx], nullptr, 0xffffffffU, sample_ct, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, errstr_buf);
     if (reterr) {
       fputs(errstr_buf, stderr);
       goto main_ret_1;
@@ -74,13 +80,13 @@ int32_t main(int32_t argc, char** argv) {
     }
 
     // modify this when trying block-fread
-    reterr = PgrInit(argv[1 + decompress], max_vrec_width, &pgfi, &pgr, pgr_alloc);
+    reterr = PgrInit(argv[input_idx], max_vrec_width, &pgfi, &pgr, pgr_alloc);
     if (reterr) {
-      fprintf(stderr, "pgr_init error %u\n", S_CAST(uint32_t, reterr));
+      fprintf(stderr, "PgrInit error %u\n", S_CAST(uint32_t, reterr));
       goto main_ret_1;
     }
 
-    if (S_CAST(uint32_t, argc) == 4 + decompress) {
+    if (S_CAST(uint32_t, argc) == input_idx + 3) {
       printf("%u variant%s detected.\n", variant_ct, (variant_ct == 1)? "" : "s");
     } else {
       printf("%u variant%s and %u sample%s detected.\n", variant_ct, (variant_ct == 1)? "" : "s", sample_ct, (sample_ct == 1)? "" : "s");
@@ -129,7 +135,7 @@ int32_t main(int32_t argc, char** argv) {
     write_sample_ct = sample_ct;
 #endif
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(argv[2], nullptr, nullptr, variant_ct, write_sample_ct, 0, 0, kfPgenGlobal0, 2, &spgw, &cur_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(argv[input_idx + 1], nullptr, nullptr, variant_ct, write_sample_ct, 0, write_separate_index, kfPgenGlobal0, 2, &spgw, &cur_alloc_cacheline_ct, &max_vrec_len);
     if (reterr) {
       fprintf(stderr, "compression phase 1 error %u\n", S_CAST(uint32_t, reterr));
       goto main_ret_1;
