@@ -396,7 +396,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         }
         const uint32_t cur_chr_code_u = cur_chr_code;
         if (cur_chr_code_u != prev_chr_code) {
-          uint32_t first_variant_uidx_in_chr = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[cur_chr_code_u]];
+          const uint32_t first_variant_uidx_in_chr = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[cur_chr_code_u]];
           if (first_variant_uidx_in_chr < prev_variant_uidx) {
             if (unlikely(new_variant_ct)) {
               // not worth the trouble of handling this
@@ -450,37 +450,49 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
           char* cur_variant_id = token_ptrs[1];
           cur_variant_id[variant_id_slen] = '\0';
           const uint32_t variant_id_blen = variant_id_slen + 1;
+          // bugfix (16 Mar 2022): if a variant filter was applied to the main
+          // dataset, the local-pvar entry corresponding to prev_variant_uidx
+          // may be on a later line, even if we fail to find an ID match for
+          // the current local-pvar ID.
+          // So we no longer advance prev_variant_uidx/prev_bp here under any
+          // circumstances.  We just scan through the same-bp variant IDs,
+          // looking for a match, and then advance to the next local-pvar line
+          // with prev_variant_uidx/prev_bp unchanged.
+          uint32_t scan_variant_uidx = prev_variant_uidx;
+          uint32_t scan_bp;
           do {
-            const char* loaded_variant_id = variant_ids[prev_variant_uidx];
+            const char* loaded_variant_id = variant_ids[scan_variant_uidx];
             if (memequal(cur_variant_id, loaded_variant_id, variant_id_blen)) {
-              if (unlikely(IsSet(new_variant_include, prev_variant_uidx))) {
+              if (unlikely(IsSet(new_variant_include, scan_variant_uidx))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID (with duplicate CHROM/POS) '%s' in %s.\n", cur_variant_id, local_pvar_fname);
                 goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
               }
-              SetBit(prev_variant_uidx, new_variant_include);
+              SetBit(scan_variant_uidx, new_variant_include);
               ++new_variant_ct;
               SetBit(local_variant_ct, local_variant_include);
               break;
             }
-            prev_variant_uidx = AdvBoundedTo1Bit(orig_variant_include, prev_variant_uidx + 1, raw_variant_ct);
-            if (prev_variant_uidx >= chr_end) {
-              goto GlmLocalOpen_skip_variant_and_update_chr;
+            scan_variant_uidx = AdvBoundedTo1Bit(orig_variant_include, scan_variant_uidx + 1, raw_variant_ct);
+            if (scan_variant_uidx >= chr_end) {
+              break;
             }
-            prev_bp = variant_bps[prev_variant_uidx];
-          } while (cur_bp_u == prev_bp);
+            scan_bp = variant_bps[scan_variant_uidx];
+          } while (cur_bp_u == scan_bp);
         }
         continue;
       GlmLocalOpen_skip_variant_and_update_chr:
         if (prev_variant_uidx == raw_variant_ct) {
-          continue;
+          break;
         }
         chr_fo_idx = GetVariantChrFoIdx(cip, prev_variant_uidx);
         prev_chr_code = cip->chr_file_order[chr_fo_idx];
         prev_bp = variant_bps[prev_variant_uidx];
         chr_end = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[prev_chr_code] + 1];
       }
-      if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
-        goto GlmLocalOpen_ret_TSTREAM_FAIL;
+      if (!line_start) {
+        if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+          goto GlmLocalOpen_ret_TSTREAM_FAIL;
+        }
       }
       BigstackFinalizeW(local_variant_include, BitCtToWordCt(local_variant_ct));
       *local_variant_ctl_ptr = BitCtToWordCt(local_variant_ct);
