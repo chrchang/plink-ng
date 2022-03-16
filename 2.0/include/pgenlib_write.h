@@ -33,6 +33,7 @@ typedef struct PgenWriterCommonStruct {
   uint32_t variant_ct;
   uint32_t sample_ct;
   PgenGlobalFlags phase_dosage_gflags;  // subset of gflags
+  unsigned char nonref_flags_storage;
 
   // I'll cache this for now
   uintptr_t vrec_len_byte_ct;
@@ -150,15 +151,17 @@ void PreinitSpgw(STPgenWriter* spgwp);
 //   3 = use explicit_nonref_flags
 //
 // Caller is responsible for printing open-fail error message.
-// In the multiallelic case, it is not necessary for the body of
-// allele_idx_offsets to already be filled if optional_max_allele_ct is
-// provided; allele_idx_offsets[x] and [x+1] only have to be finalized before
-// writing (0-based) variant #x.
-// Conversely, if optional_max_allele_ct is set to 0, it will be computed from
-// allele_idx_offsets.
-// The body of explicit_nonref_flags also doesn't need to be filled until
-// flush.
-PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, uint32_t optional_max_allele_ct, uint32_t separate_index, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr);
+//
+// In the multiallelic case, allele_idx_offsets can be nullptr if
+// allele_ct_upper_bound is provided.
+//
+// If separate_index is 0, variant_ct_limit must be the actual variant count.
+// If separate_index is 1, variant_ct_limit just needs to be an upper bound,
+// unless you're writing multiallelic variants and you don't specify
+// allele_ct_upper_bound.
+//
+// The body of explicit_nonref_flags doesn't need to be filled until flush.
+PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, uint32_t separate_index, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr);
 
 void SpgwInitPhase2(uint32_t max_vrec_len, STPgenWriter* spgwp, unsigned char* spgw_alloc);
 

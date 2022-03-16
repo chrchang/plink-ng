@@ -134,8 +134,10 @@ int32_t main(int32_t argc, char** argv) {
 #else
     write_sample_ct = sample_ct;
 #endif
+    // Demonstrate that, when write_separate_index is true, variant_ct_limit
+    // can be an overestimate.
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(argv[input_idx + 1], nullptr, nullptr, variant_ct, write_sample_ct, 0, write_separate_index, kfPgenGlobal0, 2, &spgw, &cur_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(argv[input_idx + 1], nullptr, nullptr, write_separate_index? (variant_ct * 2) : variant_ct, write_sample_ct, 0, write_separate_index, kfPgenGlobal0, 2, &spgw, &cur_alloc_cacheline_ct, &max_vrec_len);
     if (reterr) {
       fprintf(stderr, "compression phase 1 error %u\n", S_CAST(uint32_t, reterr));
       goto main_ret_1;
