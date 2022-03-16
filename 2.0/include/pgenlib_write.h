@@ -83,21 +83,13 @@ typedef struct PgenWriterCommonStruct {
 // separate_index is set to true during initialization, in which case the index
 // is saved to a separate .pgen.pgi file.)
 //
-// The major difference between the two interfaces is that MTPgenWriter forces
-// you to process large blocks of variants at a time (64k per thread).  So
-// STPgenWriter is still worth using in some cases (number of samples is too
-// large relative to available RAM, or I/O is slow, or no programmer time to
-// spare for the additional complexity).
-//
-// TODO: sequential writer that does not require the number of variants to be
-// known in advance; instead the caller provides an upper bound (which, when
-// enough memory is available, can be set to 2^31) and allocates for that
-// during writer initialization.  This writer also shouldn't require
-// allele_idx_offsets at all (we aren't currently saving it to the index under
-// any circumstances); instead, the caller should specify the number of alleles
-// when appending each multiallelic variant.  (Probably best to implement this
-// as a backward-incompatible change, oops.)  This can accelerate many import
-// functions.
+// MTPgenWriter has some additional restrictions:
+// * You must process large blocks of variants at a time (64k per thread).
+// * You must know the number of variants in advance.
+// Thus, STPgenWriter is still worth using in many cases (streaming a VCF-like
+// file, or number of samples is too large relative to available RAM, or I/O is
+// too slow for MTPgenWriter's parallelization of encoding to be relevant, or
+// no programmer time to spare for the additional complexity).
 
 typedef struct STPgenWriterStruct {
   MOVABLE_BUT_NONCOPYABLE(STPgenWriterStruct);
