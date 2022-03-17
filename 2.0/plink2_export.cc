@@ -4007,6 +4007,17 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         if (vcf_mode == kVcfExportDsForce) {
           ds_force = 1;
         } else if (vcf_mode == kVcfExportDsOnly) {
+          // quasi-bugfix (16 Mar 2022): DS-only is now prohibited when partly-
+          // haploid or all-haploid variants are present, since without GT
+          // there to indicate ploidy, 0..1 vs. 0..2 scaling is not adequately
+          // defined.
+          if (unlikely((cip->haploid_mask[0] & 1) ||
+                       XymtIsNonempty(variant_include, cip, kChrOffsetX) ||
+                       XymtIsNonempty(variant_include, cip, kChrOffsetY) ||
+                       XymtIsNonempty(variant_include, cip, kChrOffsetMT))) {
+            logerrputs("Error: --export vcf-dosage=DS-only mode can only be used with all-diploid data.\n");
+            goto ExportVcf_ret_INCONSISTENT_INPUT;
+          }
           ds_force = 1;
           ds_only = 1;
         } else if (vcf_mode != kVcfExportDs) {
@@ -4728,10 +4739,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                   const uint32_t cur_geno = genovec_word & 3;
                   const uint32_t cur_is_male = sex_male_hw & 1;
                   const uint32_t cur_genotext_blen = haploid_genotext_blen[cur_geno + cur_is_male * 4];
-                  if (!ds_only) {
-                    memcpy(write_iter, &(basic_genotext[cur_geno]), 4);
-                    write_iter = &(write_iter[cur_genotext_blen]);
-                  }
+                  memcpy(write_iter, &(basic_genotext[cur_geno]), 4);
+                  write_iter = &(write_iter[cur_genotext_blen]);
                   if (dosage_present_hw & 1) {
                     *write_iter++ = ds_prechar;
                     uint32_t dosage_int = *dosage_main_iter++;
@@ -5332,10 +5341,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                   const uint32_t should_be_diploid = is_x && (!cur_is_male);
                   if (!(multiallelic_hw & 1)) {
                     const uint32_t cur_genotext_blen = haploid_genotext_blen[cur_geno + cur_is_male * 4];
-                    if (!ds_only) {
-                      memcpy(write_iter, &(basic_genotext[cur_geno]), 4);
-                      write_iter = &(write_iter[cur_genotext_blen]);
-                    }
+                    memcpy(write_iter, &(basic_genotext[cur_geno]), 4);
+                    write_iter = &(write_iter[cur_genotext_blen]);
                     // DS
                     write_iter = memcpya(write_iter, &(ds_inttext[cur_geno + 8 - 2 * cur_genotext_blen]), 2);
                     if (cur_geno != 3) {
@@ -7284,6 +7291,13 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         if (vcf_mode == kVcfExportDsForce) {
           ds_force = 1;
         } else if (vcf_mode == kVcfExportDsOnly) {
+          if (unlikely((cip->haploid_mask[0] & 1) ||
+                       XymtIsNonempty(variant_include, cip, kChrOffsetX) ||
+                       XymtIsNonempty(variant_include, cip, kChrOffsetY) ||
+                       XymtIsNonempty(variant_include, cip, kChrOffsetMT))) {
+            logerrputs("Error: --export vcf-dosage=DS-only mode can only be used with all-diploid data.\n");
+            goto ExportBcf_ret_INCONSISTENT_INPUT;
+          }
           ds_force = 1;
           ds_only = 1;
         } else if (vcf_mode != kVcfExportDs) {

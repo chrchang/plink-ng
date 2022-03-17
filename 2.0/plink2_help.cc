@@ -500,7 +500,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                   sites-only VCF instead, see --make-pgen/--make-just-pvar's\n"
 "                   'vcfheader' column set.\n"
 "                   Dosages are not exported unless the 'vcf-dosage=' modifier\n"
-"                   is present.  The following five dosage export modes are\n"
+"                   is present.  The following six dosage export modes are\n"
 "                   supported:\n"
 "                   'GP': genotype posterior probabilities (v4.3 only).\n"
 "                   'DS': Minimac3-style dosages, omitted for hardcalls.\n"

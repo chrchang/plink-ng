@@ -1072,7 +1072,7 @@ ENUM_U31_DEF_START()
 ENUM_U31_DEF_END(VcfParseErr);
 
 VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* format_end, uint32_t* phase_or_dosage_found_ptr, char** line_iter_ptr) {
-  // DS+HDS
+  // Either just DS, or DS+HDS.
   // only need to find phase *or* dosage
   const uint32_t gt_present = vicp->vibc.gt_present;
   const uint32_t sample_ct = vicp->vibc.sample_ct;
@@ -3533,6 +3533,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       per_thread_byte_limit = (cachelines_avail * kCacheline) / calc_thread_ct;
     }
 
+    const uint32_t can_fail_on_ds_only = strequal_k(dosage_import_field, "DS", dosage_import_field_slen) && (!require_gt);
+    uint32_t fail_on_ds_only = 0;
+
     // Main workflow:
     // 1. Set n=0, load genotype data for first main_block_size variants
     //    while writing .pvar
@@ -3630,6 +3633,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
               }
               *chr_code_end = '\t';
             }
+            if (can_fail_on_ds_only) {
+              fail_on_ds_only = cip->haploid_mask[0] & 1;
+            }
           } else {
             if (chr_code_base >= kMaxContigs) {
               chr_code_base = cip->xymt_codes[chr_code_base - kMaxContigs];
@@ -3638,6 +3644,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
               assert(variant_skip_ct);
               line_iter = chr_code_end;
               goto VcfToPgen_load_start;
+            }
+            if (can_fail_on_ds_only) {
+              fail_on_ds_only = IsSet(cip->haploid_mask, chr_code_base);
             }
           }
           // chr_code_base is now a proper numeric chromosome index for
@@ -3737,6 +3746,12 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
               }
               if (format_hds_search) {
                 vic.hds_field_idx = GetVcfFormatPosition("HDS", format_start, linebuf_iter, 3);
+              }
+              if (unlikely(fail_on_ds_only && (!vic.vibc.gt_present) && (vic.dosage_field_idx != UINT32_MAX) && (vic.hds_field_idx == UINT32_MAX))) {
+                // could allow the chrX all-female case, but let's keep this
+                // simple for now
+                snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --vcf file is for a chrX, chrM, or fully-haploid variant, and has a DS field without a companion GT field to clarify whether each DS value is on a 0..1 or 0..2 scale. This cannot be imported by " PROG_NAME_STR "; please e.g. regenerate the file with GT present.\n", line_idx);
+                goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
               }
               gparse_flags = ((vic.dosage_field_idx != UINT32_MAX) || (vic.hds_field_idx != UINT32_MAX))? (kfGparseHphase | kfGparseDosage | kfGparseDphase) : kfGparseHphase;
             }
@@ -7399,6 +7414,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     uintptr_t* bcf_contig_keep;
     const char** contig_names;
     uint32_t* contig_slens;
+    const char** contig_out_names;
+    uint32_t* contig_out_slens;
+    char* contig_out_buf;
     const char** fif_strings;
     uint32_t* fif_slens;
     uintptr_t* info_flags;
@@ -7407,6 +7425,11 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     if (unlikely(bigstack_calloc_w(BitCtToWordCt(contig_string_idx_end), &bcf_contig_keep) ||
                  bigstack_calloc_kcp(contig_string_idx_end, &contig_names) ||
                  bigstack_calloc_u32(contig_string_idx_end, &contig_slens) ||
+                 bigstack_alloc_kcp(contig_string_idx_end, &contig_out_names) ||
+                 bigstack_alloc_u32(contig_string_idx_end, &contig_out_slens) ||
+                 // no chrtoa() result is longer than (3 + kMaxChrTextnumSlen)
+                 // characters long
+                 bigstack_alloc_c((kMaxChrTextnum + 1 + kChrOffsetCt) * (3 + kMaxChrTextnumSlen), &contig_out_buf) ||
                  bigstack_calloc_kcp(fif_string_idx_end, &fif_strings) ||
                  bigstack_calloc_u32(fif_string_idx_end, &fif_slens) ||
                  bigstack_calloc_w(BitCtToWordCt(fif_string_idx_end), &info_flags) ||
@@ -7604,6 +7627,8 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       goto BcfToPgen_ret_INCONSISTENT_INPUT;
     }
 
+    memcpy(contig_out_names, contig_names, contig_string_idx_end * sizeof(intptr_t));
+    memcpy(contig_out_slens, contig_slens, contig_string_idx_end * sizeof(int32_t));
 
     unsigned char* bigstack_end_mark2 = g_bigstack_end;
     uintptr_t loadbuf_size = RoundDownPow2(bigstack_left() / 2, kEndAllocAlign);
@@ -7649,6 +7674,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     if (pr_sidx != UINT32_MAX) {
       nonref_flags = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(max_variant_ctaw * sizeof(intptr_t)));
     }
+    char* contig_out_buf_iter = contig_out_buf;
     uintptr_t* nonref_flags_iter = nonref_flags;
     uintptr_t* allele_idx_offsets = R_CAST(uintptr_t*, g_bigstack_base);
     uintptr_t nonref_word = 0;
@@ -7735,6 +7761,12 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           continue;
         }
         SetBit(chrom, bcf_contig_keep);
+        if (cur_chr_code <= cip->max_code) {
+          char* rendered_chr_name = contig_out_buf_iter;
+          contig_out_buf_iter = chrtoa(cip, cur_chr_code, rendered_chr_name);
+          contig_out_names[chrom] = rendered_chr_name;
+          contig_out_slens[chrom] = contig_out_buf_iter - rendered_chr_name;
+        }
       }
       const unsigned char* shared_end = indiv_end - l_indiv;
       const unsigned char* parse_iter = shared_end;
@@ -7810,6 +7842,12 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             continue;
           }
           SetBit(chrom, bcf_contig_keep);
+          if (cur_chr_code <= cip->max_code) {
+            char* rendered_chr_name = contig_out_buf_iter;
+            contig_out_buf_iter = chrtoa(cip, cur_chr_code, rendered_chr_name);
+            contig_out_names[chrom] = rendered_chr_name;
+            contig_out_slens[chrom] = contig_out_buf_iter - rendered_chr_name;
+          }
         }
       }
       // We finally know for sure that we need to convert this variant.
@@ -8242,8 +8280,45 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     if (hard_call_thresh == UINT32_MAX) {
       hard_call_thresh = kDosageMid / 10;
     }
+    uintptr_t* bcf_haploid_mask = nullptr;
     const uint32_t hard_call_halfdist = kDosage4th - hard_call_thresh;
     if (sample_ct) {
+      if (dosage_import_field && strequal_k(dosage_import_field, "DS", dosage_import_field_slen) && (!require_gt)) {
+        // Only need to initialize this when enforcing DS/haploid rule.
+        const uint32_t word_ct = BitCtToWordCt(contig_string_idx_end);
+        if (unlikely(bigstack_alloc_w(word_ct, &bcf_haploid_mask))) {
+          goto BcfToPgen_ret_NOMEM;
+        }
+        if (cip->haploid_mask[0] & 1) {
+          // all observed chromosomes are haploid
+          memcpy(bcf_haploid_mask, bcf_contig_keep, word_ct * sizeof(intptr_t));
+        } else {
+          // chrX, chrY, and chrM are the affected chromosomes
+          ZeroWArr(word_ct, bcf_haploid_mask);
+          uint32_t haploid_found = 0;
+          for (uint32_t widx = 0; widx != word_ct; ++widx) {
+            uintptr_t cur_word = bcf_contig_keep[widx];
+            if (cur_word) {
+              const uint32_t chrom_base = widx * kBitsPerWord;
+              do {
+                const uint32_t chrom = chrom_base + ctzw(cur_word);
+                const uint32_t chr_code_raw = GetChrCodeRaw(contig_names[chrom]);
+                if (chr_code_raw >= kChrRawX) {
+                  if ((chr_code_raw == kChrRawX) || (chr_code_raw == kChrRawY) || (chr_code_raw == kChrRawMT)) {
+                    haploid_found = 1;
+                    SetBit(chrom, bcf_haploid_mask);
+                  }
+                }
+                cur_word &= cur_word - 1;
+              } while (cur_word);
+            }
+          }
+          if (!haploid_found) {
+            BigstackReset(bcf_haploid_mask);
+            bcf_haploid_mask = nullptr;
+          }
+        }
+      }
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
@@ -8382,6 +8457,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     uint32_t hds_type_blen = 0;
     uint32_t hds_main_blen = 0;
     uint32_t record_input_vec_ct = 0;
+    uint32_t unflushed_line = 0;
 
     uint32_t parity = 0;
     for (uint32_t vidx_start = 0; ; ) {
@@ -8403,10 +8479,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         uint32_t block_vidx = 0;
         uint32_t sidx = 0;
         GparseRecord* grp;
-        if (record_input_vec_ct) {
-          // If the last block iteration ended due to insufficient space in
-          // geno_bufs[parity], we haven't actually written the current .pvar
-          // line or copied genotype/quality data over.
+        if (unflushed_line) {
+          // We haven't actually written the current .pvar line or copied
+          // genotype/quality data over.
+          unflushed_line = 0;
           goto BcfToPgen_load_keep;
         }
         while (1) {
@@ -8454,6 +8530,8 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             if (!IsSet(bcf_contig_keep, chrom)) {
               continue;
             }
+            const uint32_t fail_on_ds_only = bcf_haploid_mask && IsSet(bcf_haploid_mask, chrom);
+
             // obvious todo: move duplicated code between first and second pass
             // into separate functions
             shared_end = indiv_end - l_indiv;
@@ -8528,6 +8606,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
               if ((!phase_or_dosage_found) && (!dosage_sidx) && (!hds_sidx)) {
                 gparse_flags = kfGparse0;
               } else {
+                if (unlikely(fail_on_ds_only && (!gt_start) && dosage_start && (!hds_start))) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: Variant record #%" PRIuPTR " of --bcf file is for a chrX, chrM, or fully-haploid variant, and has a DS field without a companion GT field to clarify whether each DS value is on a 0..1 or 0..2 scale. This cannot be imported by " PROG_NAME_STR "; please e.g. regenerate the file with GT present.\n", vrec_idx);
+                  goto BcfToPgen_ret_MALFORMED_INPUT_WWN;
+                }
                 gparse_flags = (dosage_start || hds_start)? (kfGparseHphase | kfGparseDosage | kfGparseDphase) : kfGparseHphase;
               }
             }
@@ -8536,6 +8618,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             if ((block_vidx == cur_thread_block_vidx_limit) || (S_CAST(uintptr_t, cur_thread_byte_stop - geno_buf_iter) < record_byte_ct)) {
               thread_bidxs[++cur_thread_fill_idx] = block_vidx;
               if (cur_thread_fill_idx == calc_thread_ct) {
+                unflushed_line = 1;
                 break;
               }
               cur_thread_byte_stop = &(cur_thread_byte_stop[per_thread_byte_limit]);
@@ -8544,7 +8627,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           }
         BcfToPgen_load_keep:
           // CHROM, POS
-          pvar_cswritep = memcpyax(pvar_cswritep, contig_names[chrom], contig_slens[chrom], '\t');
+          pvar_cswritep = memcpyax(pvar_cswritep, contig_out_names[chrom], contig_out_slens[chrom], '\t');
           pvar_cswritep = u32toa_x(pos + 1, '\t', pvar_cswritep);
           if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
             goto BcfToPgen_ret_WRITE_FAIL;
