@@ -175,11 +175,14 @@ void TriangleFill2(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32
     const uint64_t min_waste = remaining_piece_lower_waste * remaining_piece_ct + remaining_piece_higher_ct * remaining_piece_lower_size;
     uint64_t remaining_cost = ((remaining_row_ct * (ubound + 1LLU + candidate_boundary)) >> 1) + min_waste;
     while (1) {
-      const uint64_t candidate_piece_cost = S_CAST(uint64_t, candidate_piece_size) * (lbound + candidate_boundary);
-      printf("lbound: %u  ubound: %u  candidate_piece_cost: %" PRIu64 "  remaining_piece_ct: %u  remaining_cost: %" PRIu64 "\n", lbound, ubound, candidate_piece_cost, remaining_piece_ct, remaining_cost);
+      const uint64_t candidate_piece_cost = S_CAST(uint64_t, candidate_piece_size) * candidate_boundary;
+      // printf("lbound: %u  ubound: %u  candidate_piece_cost: %" PRIu64 "  remaining_piece_ct: %u  remaining_cost: %" PRIu64 "\n", lbound, ubound, candidate_piece_cost, remaining_piece_ct, remaining_cost);
       if (candidate_piece_cost * remaining_piece_ct > remaining_cost) {
         break;
       }
+      // There are circumstances where we can make larger jumps here, but the
+      // overall computational cost here is low enough; let's keep this
+      // simpler.
       ++candidate_piece_size;
       --remaining_row_ct;
       ++candidate_boundary;
@@ -4076,8 +4079,8 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
       // slightly different from plink 1.9 since we don't bother to treat the
       // diagonal as a special case any more.
-      // TriangleFill2(sample_ct, calc_thread_ct, parallel_idx, parallel_tot, 0, thread_start);
-      TriangleFill(sample_ct, calc_thread_ct, parallel_idx, parallel_tot, 0, 1, thread_start);
+      TriangleFill2(sample_ct, calc_thread_ct, parallel_idx, parallel_tot, 0, thread_start);
+      // TriangleFill(sample_ct, calc_thread_ct, parallel_idx, parallel_tot, 0, 1, thread_start);
       row_start_idx = thread_start[0];
       row_end_idx = thread_start[calc_thread_ct];
       if (row_end_idx < sample_ct) {
