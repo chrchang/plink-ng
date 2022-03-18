@@ -16,7 +16,7 @@
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
 #   Debug symbols: set DEBUG to -g
-NO_AVX2 = 1
+NO_AVX2 =
 NO_SSE42 =
 CPU_CHECK = 1
 NO_LAPACK =

@@ -77,6 +77,9 @@ void ParallelBounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t 
   *bound_end_ptr = TriangleDivide((ct_tot * (parallel_idx + 1)) / parallel_tot, modif);
 }
 
+// Cost function for thread load-balancing: (max - min) * ((max + min)/2)
+// i.e. we don't waste any time processing entries in the irrelevant
+// upper-right triangle
 // set align to 1 for no alignment
 void TriangleFill(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t start, uint32_t align, uint32_t* target_arr) {
   int32_t modif = 1 - start * 2;
@@ -106,6 +109,110 @@ void TriangleFill(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32_
     }
     target_arr[piece_idx] = lbound;
   }
+}
+
+// Cost function for thread load-balancing: (max - min) * max
+// i.e. when we can't avoid processing entries in the irrelevant upper-right
+// triangle
+void TriangleFill2(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t start, uint32_t* target_arr) {
+  int32_t lbound_s;
+  int32_t ubound_s;
+  ParallelBounds(ct, start, parallel_idx, parallel_tot, &lbound_s, &ubound_s);
+  uint32_t lbound = lbound_s;
+  const uint32_t ubound = ubound_s;
+  target_arr[0] = lbound;
+  target_arr[piece_ct] = ubound;
+
+  uint32_t remaining_row_ct = ubound - lbound;
+  uint32_t remaining_piece_ct = piece_ct;
+
+  for (uint32_t piece_idx = 1; piece_idx != piece_ct; ++piece_idx) {
+    // Start by assigning an equal-row-count piece, rounding up (since later
+    // pieces are wider).  Then compare current-piece cost with a lower bound
+    // of average remaining-piece cost, and append rows until current-piece
+    // cost exceeds that average.
+    uint32_t candidate_piece_size = (remaining_row_ct + remaining_piece_ct - 1) / remaining_piece_ct;
+    remaining_row_ct -= candidate_piece_size;
+    remaining_piece_ct -= 1;
+    uint32_t candidate_boundary = lbound + candidate_piece_size;
+
+    // Consider lbound == 0, ubound == 8, piece_ct == 3.  The solution we're
+    // looking for is:
+    //
+    // row 0: 0 0 0 0
+    // row 1: 0 0 0 0
+    // row 2: 0 0 0 0
+    // row 3: 0 0 0 0
+    // row 4: 1 1 1 1 1 1
+    // row 5: 1 1 1 1 1 1
+    // row 6: 2 2 2 2 2 2 2 2
+    // row 7: 2 2 2 2 2 2 2 2
+    //
+    // The initial candidate_piece_size is 3.
+    //
+    // With no waste, the remaining cost would be (8-3) * (8+3+1)/2 = 30.
+    // The true remaining cost is at least 34, because there are 5 remaining
+    // rows, the upper-right-triangle waste is minimized if they're split as
+    // evenly as possible between the remaining threads, and that {3, 2} split
+    // results in waste of 3 for the 3-row piece and 1 for the 2-row piece.
+    //
+    // So current cost is 9, average remaining cost is 17, and we increment
+    // candidate_piece_size.
+    //
+    // On the next iteration, current cost is 16, remaining cost is at least
+    // 26 + 2 waste = 28, average remaining cost is 14 which is less than 16,
+    // so we accept the piece size of 4.
+
+    // If the remaining rows were split as evenly as possible, what's the
+    // smaller chunk size?
+    uint32_t remaining_piece_lower_size = remaining_row_ct / remaining_piece_ct;
+    // What's the waste associated with that smaller chunk size?
+    uint64_t remaining_piece_lower_waste = (S_CAST(uint64_t, remaining_piece_lower_size) * (remaining_piece_lower_size - 1)) >> 1;
+    // How many threads would be assigned the higher chunk size?
+    uint32_t remaining_piece_higher_ct = remaining_row_ct - remaining_piece_lower_size * remaining_piece_ct;
+    // Note that the waste associated with the larger chunk size is
+    // (remaining_piece_lower_waste + remaining_piece_lower_size).
+    const uint64_t min_waste = remaining_piece_lower_waste * remaining_piece_ct + remaining_piece_higher_ct * remaining_piece_lower_size;
+    uint64_t remaining_cost = ((remaining_row_ct * (ubound + 1LLU + candidate_boundary)) >> 1) + min_waste;
+    while (1) {
+      const uint64_t candidate_piece_cost = S_CAST(uint64_t, candidate_piece_size) * (lbound + candidate_boundary);
+      printf("lbound: %u  ubound: %u  candidate_piece_cost: %" PRIu64 "  remaining_piece_ct: %u  remaining_cost: %" PRIu64 "\n", lbound, ubound, candidate_piece_cost, remaining_piece_ct, remaining_cost);
+      if (candidate_piece_cost * remaining_piece_ct > remaining_cost) {
+        break;
+      }
+      ++candidate_piece_size;
+      --remaining_row_ct;
+      ++candidate_boundary;
+      // Incremental update of non-waste portion of remaining_cost.
+      remaining_cost -= candidate_boundary;
+      // Incremental update of waste portion of remaining_cost.
+      if (remaining_piece_higher_ct) {
+        --remaining_piece_higher_ct;
+        remaining_cost -= remaining_piece_lower_size;
+      } else {
+        --remaining_piece_lower_size;
+        remaining_piece_lower_waste -= remaining_piece_lower_size;
+        remaining_cost -= remaining_piece_lower_size;
+        remaining_piece_higher_ct = remaining_piece_ct - 1;
+      }
+    }
+    lbound += candidate_piece_size;
+    target_arr[piece_idx] = lbound;
+  }
+
+  /*
+  cur_prod_x2 = S_CAST(int64_t, lbound) * (lbound + modif);
+  const int64_t ct_tr = (S_CAST(int64_t, ubound) * (ubound + modif) - cur_prod_x2) / piece_ct;
+  for (uint32_t piece_idx = 1; piece_idx != piece_ct; ++piece_idx) {
+    cur_prod_x2 += ct_tr;
+    lbound = TriangleDivide(cur_prod_x2, modif);
+    // lack of this check caused a nasty bug earlier
+    if (S_CAST(uint32_t, lbound) > ct) {
+      lbound = ct;
+    }
+    target_arr[piece_idx] = lbound;
+  }
+  */
 }
 
 // Returns 0 if cells_avail is insufficient.
@@ -3686,7 +3793,8 @@ THREAD_FUNC_DECL CalcGrmPartThread(void* raw_arg) {
   const uintptr_t sample_ct = ctx->sample_ct;
   const uintptr_t first_thread_row_start_idx = ctx->thread_start[0];
   const uintptr_t row_start_idx = ctx->thread_start[tidx];
-  const uintptr_t row_ct = ctx->thread_start[tidx + 1] - row_start_idx;
+  const uintptr_t sample_idx_end = ctx->thread_start[tidx + 1];
+  const uintptr_t row_ct = sample_idx_end - row_start_idx;
   double* grm_piece = &(ctx->grm[(row_start_idx - first_thread_row_start_idx) * sample_ct]);
   uint32_t parity = 0;
   do {
@@ -3694,7 +3802,8 @@ THREAD_FUNC_DECL CalcGrmPartThread(void* raw_arg) {
     if (cur_batch_size) {
       double* normed_vmaj = ctx->normed_dosage_vmaj_bufs[parity];
       double* normed_smaj = ctx->normed_dosage_smaj_bufs[parity];
-      RowMajorMatrixMultiplyIncr(&(normed_smaj[row_start_idx * cur_batch_size]), normed_vmaj, row_ct, sample_ct, cur_batch_size, grm_piece);
+      // quasi-bugfix (18 Mar 2022): forgot to skip extra right-side columns
+      RowMajorMatrixMultiplyStridedIncr(&(normed_smaj[row_start_idx * cur_batch_size]), normed_vmaj, row_ct, cur_batch_size, sample_idx_end, sample_ct, cur_batch_size, sample_ct, grm_piece);
     }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
@@ -3967,6 +4076,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
       // slightly different from plink 1.9 since we don't bother to treat the
       // diagonal as a special case any more.
+      // TriangleFill2(sample_ct, calc_thread_ct, parallel_idx, parallel_tot, 0, thread_start);
       TriangleFill(sample_ct, calc_thread_ct, parallel_idx, parallel_tot, 0, 1, thread_start);
       row_start_idx = thread_start[0];
       row_end_idx = thread_start[calc_thread_ct];
