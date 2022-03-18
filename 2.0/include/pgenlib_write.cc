@@ -63,7 +63,7 @@ PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_fl
     }
     pwcp->explicit_nonref_flags = explicit_nonref_flags;
   }
-  pwcp->variant_ct = variant_ct_limit;
+  pwcp->variant_ct_limit = variant_ct_limit;
   pwcp->sample_ct = sample_ct;
   pwcp->phase_dosage_gflags = phase_dosage_gflags;
   pwcp->nonref_flags_storage = nonref_flags_storage;
@@ -257,6 +257,7 @@ PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict 
 
 static_assert(kPglMaxAlleleCt == 255, "Need to update MpgwInitPhase1().");
 void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t variant_ct, uint32_t sample_ct, PgenGlobalFlags phase_dosage_gflags, uintptr_t* alloc_base_cacheline_ct_ptr, uint64_t* alloc_per_thread_cacheline_ct_ptr, uint32_t* vrec_len_byte_ct_ptr, uint64_t* vblock_cacheline_ct_ptr) {
+  // variant_ct must be exact due to how MpgwFlush() works.
   assert(variant_ct);
   assert(sample_ct);
   // vblock_fpos
@@ -425,19 +426,20 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
 
 
 void PwcInitPhase2(uintptr_t fwrite_cacheline_ct, uint32_t thread_ct, PgenWriterCommon** pwcs, unsigned char* pwc_alloc) {
-  const uint32_t variant_ct = pwcs[0]->variant_ct;
+  const uint32_t variant_ct_limit = pwcs[0]->variant_ct_limit;
+
   unsigned char* alloc_iter = pwc_alloc;
-  const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
+  const uint32_t vblock_ct = DivUp(variant_ct_limit, kPglVblockSize);
   const PgenGlobalFlags phase_dosage_gflags = pwcs[0]->phase_dosage_gflags;
   uint32_t vrtype_buf_byte_ct;
   if (phase_dosage_gflags) {
-    vrtype_buf_byte_ct = RoundUpPow2(variant_ct, kCacheline);
+    vrtype_buf_byte_ct = RoundUpPow2(variant_ct_limit, kCacheline);
   } else {
-    vrtype_buf_byte_ct = DivUp(variant_ct, kCacheline * 2) * kCacheline;
+    vrtype_buf_byte_ct = DivUp(variant_ct_limit, kCacheline * 2) * kCacheline;
   }
   pwcs[0]->vblock_fpos = S_CAST(uint64_t*, arena_alloc_raw_rd(vblock_ct * sizeof(int64_t), &alloc_iter));
 
-  pwcs[0]->vrec_len_buf = S_CAST(unsigned char*, arena_alloc_raw_rd(variant_ct * pwcs[0]->vrec_len_byte_ct, &alloc_iter));
+  pwcs[0]->vrec_len_buf = S_CAST(unsigned char*, arena_alloc_raw_rd(variant_ct_limit * pwcs[0]->vrec_len_byte_ct, &alloc_iter));
 
   pwcs[0]->vrtype_buf = S_CAST(uintptr_t*, arena_alloc_raw(vrtype_buf_byte_ct, &alloc_iter));
   // the PwcAppend... functions assume these bytes are zeroed out
@@ -2228,12 +2230,13 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_out
   const uint32_t variant_ct = pwcp->vidx;
   FILE** header_ff_ptr;
   if (*pgi_outfile_ptr) {
+    assert(pwcp->variant_ct_limit >= variant_ct);
     if (unlikely(fclose_null(pgen_outfile_ptr))) {
       return kPglRetWriteFail;
     }
     header_ff_ptr = pgi_outfile_ptr;
   } else {
-    assert(pwcp->vidx == variant_ct);
+    assert(pwcp->variant_ct_limit == variant_ct);
     header_ff_ptr = pgen_outfile_ptr;
     if (unlikely(fseeko(*header_ff_ptr, 3, SEEK_SET))) {
       return kPglRetWriteFail;
@@ -2279,7 +2282,9 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_out
       return kPglRetWriteFail;
     }
 
-    // 4b(iv): explicit nonref flags
+    // If we were writing allele_idx_offsets, that would happen here.
+
+    // 4b(iii): explicit nonref flags
     if (explicit_nonref_flags) {
       if (unlikely(fwrite_checked(explicit_nonref_flags_iter, nonref_flags_write_byte_ct, header_ff))) {
         return kPglRetWriteFail;
@@ -2303,7 +2308,7 @@ PglErr MpgwFlush(MTPgenWriter* mpgwp) {
   PgenWriterCommon* pwcp = mpgwp->pwcs[0];
   uint32_t vidx = RoundDownPow2(pwcp->vidx - 1, kPglVblockSize);
   uint32_t thread_ct = mpgwp->thread_ct;
-  const uint32_t variant_ct = pwcp->variant_ct;
+  const uint32_t variant_ct = pwcp->variant_ct_limit;
   const uint32_t is_last_flush = ((vidx + thread_ct * kPglVblockSize) >= variant_ct);
   if (is_last_flush) {
     thread_ct = DivUp(variant_ct - vidx, kPglVblockSize);

@@ -30,7 +30,12 @@ typedef struct PgenWriterCommonStruct {
   // was marked noncopyable, but, well, gcc 9 caught me cheating (memcpying the
   // whole struct) in the multithreaded writer implementation.  So, copyable
   // now.
-  uint32_t variant_ct;
+
+  // This must be the true variant count when writing a regular .pgen; but if
+  // the index is being written to a separate .pgen.pgi file, it is okay for
+  // this to just be an upper bound.
+  uint32_t variant_ct_limit;
+
   uint32_t sample_ct;
   PgenGlobalFlags phase_dosage_gflags;  // subset of gflags
   unsigned char nonref_flags_storage;
@@ -83,13 +88,11 @@ typedef struct PgenWriterCommonStruct {
 // separate_index is set to true during initialization, in which case the index
 // is saved to a separate .pgen.pgi file.)
 //
-// MTPgenWriter has some additional restrictions:
+// MTPgenWriter has additional restrictions:
 // * You must process large blocks of variants at a time (64k per thread).
-// * You must know the number of variants in advance.
-// Thus, STPgenWriter is still worth using in many cases (streaming a VCF-like
-// file, or number of samples is too large relative to available RAM, or I/O is
-// too slow for MTPgenWriter's parallelization of encoding to be relevant, or
-// no programmer time to spare for the additional complexity).
+// * You must know the true variant_ct (and, in the multiallelic case, the true
+//   allele_idx_offsets) during initialization.
+// Thus, STPgenWriter is still worth using in many cases.
 
 typedef struct STPgenWriterStruct {
   MOVABLE_BUT_NONCOPYABLE(STPgenWriterStruct);
@@ -117,7 +120,7 @@ typedef struct MTPgenWriterStruct {
 
 HEADER_INLINE uint32_t SpgwGetVariantCt(STPgenWriter* spgwp) {
   PgenWriterCommon* pwcp = &GET_PRIVATE(*spgwp, pwc);
-  return pwcp->variant_ct;
+  return pwcp->variant_ct_limit;
 }
 
 HEADER_INLINE uint32_t SpgwGetSampleCt(STPgenWriter* spgwp) {
