@@ -136,8 +136,8 @@ void TriangleFill2(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32
     remaining_piece_ct -= 1;
     uint32_t candidate_boundary = lbound + candidate_piece_size;
 
-    // Consider lbound == 0, ubound == 8, piece_ct == 3.  The solution we're
-    // looking for is:
+    // Consider lbound == 0, ubound == 8, piece_ct == 3.  The ideal solution
+    // would be:
     //
     // row 0: 0 0 0 0
     // row 1: 0 0 0 0
@@ -156,12 +156,22 @@ void TriangleFill2(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32
     // evenly as possible between the remaining threads, and that {3, 2} split
     // results in waste of 3 for the 3-row piece and 1 for the 2-row piece.
     //
-    // So current cost is 9, average remaining cost is 17, and we increment
-    // candidate_piece_size.
+    // So current cost is 9, average remaining cost is 17.  If we incremented
+    // candidate_piece_size, the current cost would become 16, and the
+    // average remaining cost would drop to ~15 (actually 14, but we use a
+    // slight overestimate in the current comparison); the latter pair of
+    // numbers is closer, so we perform the increment.
     //
-    // On the next iteration, current cost is 16, remaining cost is at least
-    // 26 + 2 waste = 28, average remaining cost is 14 which is less than 16,
-    // so we accept the piece size of 4.
+    // On the next iteration, we clearly don't want to increment
+    // candidate_piece_size any more.
+    //
+    //
+    // Then, when determining the boundary between threads 1 and 2,
+    // candidate_piece_size starts at 2.  Current cost is 6*2=12, average
+    // remaining cost is 16.  If we incremented, candidate_piece_size, the
+    // current cost would become 21, and the average remaining cost would drop
+    // to ~8.  |16-12| is smaller, so thread 1 gets just 2 rows.
+
 
     // If the remaining rows were split as evenly as possible, what's the
     // smaller chunk size?
@@ -176,8 +186,9 @@ void TriangleFill2(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32
     uint64_t remaining_cost = ((remaining_row_ct * (ubound + 1LLU + candidate_boundary)) >> 1) + min_waste;
     while (1) {
       const uint64_t candidate_piece_cost = S_CAST(uint64_t, candidate_piece_size) * candidate_boundary;
+      const uint64_t next_candidate_piece_cost = candidate_piece_cost + candidate_piece_size + candidate_boundary + 1;
       // printf("lbound: %u  ubound: %u  candidate_piece_cost: %" PRIu64 "  remaining_piece_ct: %u  remaining_cost: %" PRIu64 "\n", lbound, ubound, candidate_piece_cost, remaining_piece_ct, remaining_cost);
-      if (candidate_piece_cost * remaining_piece_ct > remaining_cost) {
+      if ((candidate_piece_cost + next_candidate_piece_cost) * remaining_piece_ct > 2 * (remaining_cost - candidate_boundary)) {
         break;
       }
       // There are circumstances where we can make larger jumps here, but the
@@ -202,20 +213,6 @@ void TriangleFill2(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32
     lbound += candidate_piece_size;
     target_arr[piece_idx] = lbound;
   }
-
-  /*
-  cur_prod_x2 = S_CAST(int64_t, lbound) * (lbound + modif);
-  const int64_t ct_tr = (S_CAST(int64_t, ubound) * (ubound + modif) - cur_prod_x2) / piece_ct;
-  for (uint32_t piece_idx = 1; piece_idx != piece_ct; ++piece_idx) {
-    cur_prod_x2 += ct_tr;
-    lbound = TriangleDivide(cur_prod_x2, modif);
-    // lack of this check caused a nasty bug earlier
-    if (S_CAST(uint32_t, lbound) > ct) {
-      lbound = ct;
-    }
-    target_arr[piece_idx] = lbound;
-  }
-  */
 }
 
 // Returns 0 if cells_avail is insufficient.
@@ -4080,7 +4077,6 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       // slightly different from plink 1.9 since we don't bother to treat the
       // diagonal as a special case any more.
       TriangleFill2(sample_ct, calc_thread_ct, parallel_idx, parallel_tot, 0, thread_start);
-      // TriangleFill(sample_ct, calc_thread_ct, parallel_idx, parallel_tot, 0, 1, thread_start);
       row_start_idx = thread_start[0];
       row_end_idx = thread_start[calc_thread_ct];
       if (row_end_idx < sample_ct) {
