@@ -3300,6 +3300,8 @@ PglErr ExportOxSample(const char* outname, const uintptr_t* sample_include, cons
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
     const uint32_t pheno_ctl = BitCtToWordCt(pheno_ct);
     char* writebuf;
     uintptr_t* is_basic_categorical;
@@ -3419,6 +3421,7 @@ PglErr ExportOxSample(const char* outname, const uintptr_t* sample_include, cons
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
       goto ExportOxSample_ret_WRITE_FAIL;
     }
+    logputs("done.\n");
   }
   while (0) {
   ExportOxSample_ret_NOMEM:
@@ -3524,6 +3527,8 @@ PglErr ExportOxSampleV2(const char* outname, const uintptr_t* sample_include, co
       goto ExportOxSampleV2_ret_NOMEM;
     }
 
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
     const double nonmale_geno_ct_recip = 1.0 / u31tod(variant_ct - y_ct);
     const double male_geno_ct_recip = 1.0 / u31tod(variant_ct);
     uintptr_t sample_uidx_base = 0;
@@ -3573,6 +3578,7 @@ PglErr ExportOxSampleV2(const char* outname, const uintptr_t* sample_include, co
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
       goto ExportOxSampleV2_ret_WRITE_FAIL;
     }
+    logputs("done.\n");
   }
   while (0) {
   ExportOxSampleV2_ret_NOMEM:
@@ -9886,8 +9892,6 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
     }
     if (flags & (kfExportfOxGen | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13 | kfExportfHaps | kfExportfHapsLegend)) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".sample");
-      logprintfww5("Writing %s ... ", outname);
-      fflush(stdout);
       uint32_t y_ct = 0;
       const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
       if ((!IsI32Neg(y_code)) && IsSet(cip->chr_mask, y_code)) {
@@ -9902,7 +9906,6 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }
-      logputs("done.\n");
     }
     if (flags & kfExportfVcf) {
       // multiallelic ok
