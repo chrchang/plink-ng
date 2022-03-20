@@ -4908,7 +4908,7 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_A;
             }
           }
-          if (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfOxGen | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13)) {
+          if (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfBgen12 | kfExportfBgen13 | kfExportfSampleV2)) {
             if (!pc.exportf_info.idpaste_flags) {
               pc.exportf_info.idpaste_flags = kfIdpasteDefault;
             }
