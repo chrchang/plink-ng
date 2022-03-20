@@ -584,6 +584,11 @@ HEADER_INLINE void ClearNyparrEntry(uint32_t idx, uintptr_t* nyparr) {
   nyparr[idx / kBitsPerWordD2] &= ~((3 * k1LU) << (idx % kBitsPerWordD2));
 }
 
+// Assumes arr is vector-aligned.
+// 'Unsafe' because it assumes high bits of every byte are 0 and entry_ct is
+// positive.
+void Reduce8to4bitInplaceUnsafe(uintptr_t entry_ct, uintptr_t* arr);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

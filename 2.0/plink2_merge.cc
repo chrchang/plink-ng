@@ -3158,7 +3158,8 @@ PglErr DetectConcatJob(const uint32_t* chr_idx_to_foidx, uintptr_t fileset_ct, S
   return reterr;
 }
 
-void CleanupFilesetLl(PglErr reterr, PmergeInputFilesetLl* filesets_iter) {
+void CleanupFilesetLl(PmergeInputFilesetLl* filesets_iter, PglErr* reterrp) {
+  PglErr reterr = *reterrp;
   while (filesets_iter != nullptr) {
     free_cond(filesets_iter->first_varid);
     free_cond(filesets_iter->last_varid);
@@ -3166,25 +3167,33 @@ void CleanupFilesetLl(PglErr reterr, PmergeInputFilesetLl* filesets_iter) {
     if (is_temporary) {
       if (filesets_iter->pgen_fname) {
         if (reterr == kPglRetSuccess) {
-          unlink(filesets_iter->pgen_fname);
+          if (unlikely(unlink(filesets_iter->pgen_fname))) {
+            reterr = kPglRetWriteFail;
+          }
         }
         free(filesets_iter->pgen_fname);
       }
       if (filesets_iter->pvar_fname) {
         if (reterr == kPglRetSuccess) {
-          unlink(filesets_iter->pvar_fname);
+          if (unlikely(unlink(filesets_iter->pvar_fname))) {
+            reterr = kPglRetWriteFail;
+          }
         }
         free(filesets_iter->pvar_fname);
       }
       if (filesets_iter->psam_fname) {
         if (reterr == kPglRetSuccess) {
-          unlink(filesets_iter->psam_fname);
+          if (unlikely(unlink(filesets_iter->psam_fname))) {
+            reterr = kPglRetWriteFail;
+          }
         }
         free(filesets_iter->psam_fname);
       }
       if (filesets_iter->pgen_locked_fname) {
         if (reterr == kPglRetSuccess) {
-          unlink(filesets_iter->pgen_locked_fname);
+          if (unlikely(unlink(filesets_iter->pgen_locked_fname))) {
+            reterr = kPglRetWriteFail;
+          }
         }
         free(filesets_iter->pgen_locked_fname);
       }
@@ -3195,6 +3204,7 @@ void CleanupFilesetLl(PglErr reterr, PmergeInputFilesetLl* filesets_iter) {
       free(cur_node);
     }
   }
+  *reterrp = reterr;
 }
 
 PglErr ScrapeSampleOrder(const char* psam_fname, const SampleIdInfo* siip, const uint32_t* xid_htable, uint32_t read_sample_ct, uint32_t xid_ct, uint32_t xid_htable_size, FamCol fam_cols, uint32_t psam_linebuf_capacity, uint32_t max_thread_ct, uint32_t* old_sample_idx_to_new, uint32_t* sample_idx_increasingp, uint32_t* cur_write_sample_ctp, uintptr_t* read_sample_include, uintptr_t* sample_span) {
@@ -6240,7 +6250,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
     const PgenGlobalFlags write_gflags = vrtype_8bit_needed? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0;
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, ppmc.write_allele_idx_offsets, ppmc.write_nonref_flags, write_variant_ct, sample_ct, write_max_allele_ct, 0, write_gflags, nonref_flags_storage, &mw.spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, ppmc.write_allele_idx_offsets, ppmc.write_nonref_flags, write_variant_ct, sample_ct, write_max_allele_ct, kPgenWriteBackwardSeek, write_gflags, nonref_flags_storage, &mw.spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -6884,8 +6894,8 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
     break;
   }
  Pmerge_ret_1:
-  CleanupFilesetLl(reterr, input_filesets);
-  CleanupFilesetLl(reterr, next_filesets);
+  CleanupFilesetLl(input_filesets, &reterr);
+  CleanupFilesetLl(next_filesets, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

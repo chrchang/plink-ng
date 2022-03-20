@@ -952,6 +952,11 @@ HEADER_INLINE VecUc vecuc_permute0xd8_if_avx2(VecUc vv) {
 
 // Could have a single-src gather_even function, but that should wait until
 // there is a clear SSE2 use case.
+HEADER_INLINE VecW vecw_gather_even(VecW src_lo, VecW src_hi, VecW m8) {
+  const VecW gathered_laneswapped = R_CAST(VecW, _mm256_packus_epi16(R_CAST(__m256i, src_lo & m8), R_CAST(__m256i, src_hi & m8)));
+  return vecw_permute0xd8_if_avx2(gathered_laneswapped);
+}
+
 HEADER_INLINE VecUc vecuc_gather_even(VecUc src_lo, VecUc src_hi, VecUc m8) {
   const VecUc gathered_laneswapped = R_CAST(VecUc, _mm256_packus_epi16(R_CAST(__m256i, src_lo & m8), R_CAST(__m256i, src_hi & m8)));
   return vecuc_permute0xd8_if_avx2(gathered_laneswapped);
@@ -1400,6 +1405,10 @@ HEADER_INLINE VecI8 veci8_permute0xd8_if_avx2(VecI8 vv) {
 
 HEADER_INLINE VecUc vecuc_permute0xd8_if_avx2(VecUc vv) {
   return vv;
+}
+
+HEADER_INLINE VecW vecw_gather_even(VecW src_lo, VecW src_hi, VecW m8) {
+  return R_CAST(VecW, _mm_packus_epi16(R_CAST(__m128i, src_lo & m8), R_CAST(__m128i, src_hi & m8)));
 }
 
 HEADER_INLINE VecUc vecuc_gather_even(VecUc src_lo, VecUc src_hi, VecUc m8) {

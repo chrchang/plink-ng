@@ -2638,6 +2638,61 @@ uint32_t Copy1bit16Subset(const uintptr_t* __restrict src_subset, const void* __
   return dst_vals_iter - dst_vals_u16;
 }
 
+// 'Unsafe' because it assumes high bits of every byte are 0.
+void Reduce8to4bitInplaceUnsafe(uintptr_t entry_ct, uintptr_t* arr) {
+#ifdef __LP64__
+  const uintptr_t fullvec_ct = entry_ct / (kBytesPerVec * 2);
+  const VecW m8 = VCONST_W(kMask00FF);
+  VecW* varr = R_CAST(VecW*, arr);
+  for (uintptr_t write_vidx = 0; write_vidx != fullvec_ct; ++write_vidx) {
+    VecW v0 = varr[write_vidx * 2];
+    VecW v1 = varr[write_vidx * 2 + 1];
+    v0 = v0 | vecw_srli(v0, 4);
+    v1 = v1 | vecw_srli(v1, 4);
+    varr[write_vidx] = vecw_gather_even(v0, v1, m8);
+  }
+  uintptr_t write_idx = fullvec_ct * kWordsPerVec;
+  if (write_idx == entry_ct * 2) {
+    return;
+  }
+#else
+  uintptr_t write_idx = 0;
+#endif
+  // Read two words at a time and write one.
+  // We could instead read one word and write a Halfword at a time, but I'd
+  // rather not worry about the strict-aliasing issues involved there.
+  const uintptr_t write_idx_last = (entry_ct - 1) / (kBytesPerWord * 2);
+  uintptr_t write_word;
+  for (; ; ++write_idx) {
+    uintptr_t inword0 = arr[2 * write_idx];
+    uintptr_t inword1 = arr[2 * write_idx + 1];
+#ifdef USE_AVX2
+    inword0 = _pext_u64(inword0, kMask0F0F);
+    inword1 = _pext_u64(inword1, kMask0F0F);
+#else
+    // 0 . 1 . 2 . 3 . 4 . 5 . 6 . 7 .
+    // (or just 0 . 1 . 2 . 3 . in 32-bit case)
+    inword0 = (inword0 | (inword0 >> 4)) & kMask00FF;
+    inword1 = (inword1 | (inword1 >> 4)) & kMask00FF;
+    // 0 1 . . 2 3 . . 4 5 . . 6 7 . .
+#  ifdef __LP64__
+    inword0 = (inword0 | (inword0 >> 8)) & kMask0000FFFF;
+    inword1 = (inword1 | (inword1 >> 8)) & kMask0000FFFF;
+    // 0 1 2 3 . . . . 4 5 6 7 . . . .
+#  endif
+    inword0 = S_CAST(Halfword, inword0 | (inword0 >> kBitsPerWordD4));
+    inword1 = S_CAST(Halfword, inword1 | (inword1 >> kBitsPerWordD4));
+#endif
+    write_word = inword0 | (inword1 << kBitsPerWordD2);
+    if (write_idx == write_idx_last) {
+      break;
+    }
+    arr[write_idx] = write_word;
+  }
+  const uint32_t remaining_entry_ct = ModNz(entry_ct, kBytesPerWord * 2);
+  arr[write_idx] = bzhi_max(write_word, remaining_entry_ct * 4);
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (18 Mar 2022)";
+  " (20 Mar 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4908,7 +4908,7 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_A;
             }
           }
-          if (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfBgen12 | kfExportfBgen13)) {
+          if (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfOxGen | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13)) {
             if (!pc.exportf_info.idpaste_flags) {
               pc.exportf_info.idpaste_flags = kfIdpasteDefault;
             }
@@ -11085,7 +11085,12 @@ int main(int argc, char** argv) {
   if (file_delete_list) {
     do {
       LlStr* llstr_ptr = file_delete_list->next;
-      unlink(file_delete_list->str);
+      if (unlikely(unlink(file_delete_list->str))) {
+        logerrprintfww("Error: Failed to delete %s .\n", file_delete_list->str);
+        if (reterr == kPglRetSuccess) {
+          reterr = kPglRetWriteFail;
+        }
+      }
       free(file_delete_list);
       file_delete_list = llstr_ptr;
     } while (file_delete_list);

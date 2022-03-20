@@ -84,15 +84,31 @@ typedef struct PgenWriterCommonStruct {
 // binary format (00 = hom ref, 01 = het ref/alt1, 10 = hom alt1, 11 =
 // missing), {S,M}TPgenWriter performs difflist (sparse variant), one bit
 // (mostly-two-value), and LD compression before writing to disk, and flushes
-// the header at the end.  (The flush requires a backward seek unless
-// separate_index is set to true during initialization, in which case the index
-// is saved to a separate .pgen.pgi file.)
+// the header at the end.
+//
+// The flush requires a backward seek if write_mode is set to
+// kPgenWriteBackwardSeek during initialization.  Otherwise, the index is
+// either saved to a separate .pgen.pgi file (and the .pgen is written
+// sequentially), or the index is sequentially written to the final target
+// .pgen but *everything else* then has to be copied from a .pgen.tmp temporary
+// file, and the caller is responsible for then deleting that temporary file.
+//
+// Slightly over 128 KiB (kPglFwriteBlockSize) of stack space is currently
+// required.  We use plain fwrite() instead of write() to make this more
+// portable, and a 128 KiB write-block size keeps the associated performance
+// penalty to a minimum.
 //
 // MTPgenWriter has additional restrictions:
 // * You must process large blocks of variants at a time (64k per thread).
 // * You must know the true variant_ct (and, in the multiallelic case, the true
 //   allele_idx_offsets) during initialization.
 // Thus, STPgenWriter is still worth using in many cases.
+
+ENUM_U31_DEF_START()
+  kPgenWriteBackwardSeek,
+  kPgenWriteSeparateIndex,
+  kPgenWriteSequentialWithTmp
+ENUM_U31_DEF_END(PgenWriteMode);
 
 typedef struct STPgenWriterStruct {
   MOVABLE_BUT_NONCOPYABLE(STPgenWriterStruct);
@@ -103,17 +119,21 @@ typedef struct STPgenWriterStruct {
   FILE* const& GET_PRIVATE_pgen_outfile() const { return pgen_outfile; }
   FILE*& GET_PRIVATE_pgi_outfile() { return pgi_outfile; }
   FILE* const& GET_PRIVATE_pgi_outfile() const { return pgi_outfile; }
+  FILE*& GET_PRIVATE_final_pgen_outfile() { return final_pgen_outfile; }
+  FILE* const& GET_PRIVATE_final_pgen_outfile() const { return final_pgen_outfile; }
  private:
 #endif
   PgenWriterCommon pwc;
   FILE* pgen_outfile;
   FILE* pgi_outfile;
+  FILE* final_pgen_outfile;
 } STPgenWriter;
 
 typedef struct MTPgenWriterStruct {
   MOVABLE_BUT_NONCOPYABLE(MTPgenWriterStruct);
   FILE* pgen_outfile;
   FILE* pgi_outfile;
+  FILE* final_pgen_outfile;
   uint32_t thread_ct;
   PgenWriterCommon* pwcs[];
 } MTPgenWriter;
@@ -150,13 +170,13 @@ void PreinitSpgw(STPgenWriter* spgwp);
 // In the multiallelic case, allele_idx_offsets can be nullptr if
 // allele_ct_upper_bound is provided.
 //
-// If separate_index is 0, variant_ct_limit must be the actual variant count.
-// If separate_index is 1, variant_ct_limit just needs to be an upper bound,
+// If write_mode is kPgenWriteBackwardSeek, variant_ct_limit must be the actual
+// variant count.  Otherwise, variant_ct_limit just needs to be an upper bound,
 // unless you're writing multiallelic variants and you don't specify
 // allele_ct_upper_bound.
 //
 // The body of explicit_nonref_flags doesn't need to be filled until flush.
-PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, uint32_t separate_index, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr);
+PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr);
 
 void SpgwInitPhase2(uint32_t max_vrec_len, STPgenWriter* spgwp, unsigned char* spgw_alloc);
 
@@ -169,7 +189,7 @@ void SpgwInitPhase2(uint32_t max_vrec_len, STPgenWriter* spgwp, unsigned char* s
 void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t variant_ct, uint32_t sample_ct, PgenGlobalFlags phase_dosage_gflags, uintptr_t* alloc_base_cacheline_ct_ptr, uint64_t* alloc_per_thread_cacheline_ct_ptr, uint32_t* vrec_len_byte_ct_ptr, uint64_t* vblock_cacheline_ct_ptr);
 
 // Caller is responsible for printing open-fail error message.
-PglErr MpgwInitPhase2(const char* __restrict fname, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, uint32_t separate_index, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, MTPgenWriter* mpgwp);
+PglErr MpgwInitPhase2(const char* __restrict fname, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, MTPgenWriter* mpgwp);
 
 
 // trailing bits of genovec must be zeroed out
