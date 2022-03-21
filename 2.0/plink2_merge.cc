@@ -6410,12 +6410,14 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       }
       reterr = InitTextStream(read_pvar_fname, MAXV(filesets_iter->max_pvar_line_blen, kDecompressMinBlen), 1, &pvar_txs);
       if (unlikely(reterr)) {
+        DPrintf("\nInitTextStream failure; reterr = %u\n", S_CAST(uint32_t, reterr));
         goto PmergeConcat_ret_PVAR_TSTREAM_REWIND_FAIL_N;
       }
       char* line_start = TextLineEnd(&pvar_txs);
       for (pvar_line_idx = 1; ; ++pvar_line_idx) {
         if (unlikely(!TextGetUnsafe2(&pvar_txs, &line_start))) {
           reterr = TextStreamRawErrcode(&pvar_txs);
+          DPrintf("\nTextGetUnsafe2 failure (first line); reterr = %u\n", S_CAST(uint32_t, reterr));
           goto PmergeConcat_ret_PVAR_TSTREAM_REWIND_FAIL_N;
         }
         if ((line_start[0] != '#') || tokequal_k(line_start, "#CHROM")) {
@@ -6543,6 +6545,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       for (uint32_t read_variant_idx = 0; read_variant_idx != read_variant_ct; ++read_variant_idx) {
         if (unlikely(!TextGetUnsafe2(&pvar_txs, &line_start))) {
           reterr = TextStreamRawErrcode(&pvar_txs);
+          DPrintf("\nTextGetUnsafe2 failure; read_variant_idx = %u, reterr = %u\n", read_variant_idx, S_CAST(uint32_t, reterr));
           goto PmergeConcat_ret_PVAR_TSTREAM_REWIND_FAIL_N;
         }
         char* chr_token_end = CurTokenEnd(line_start);
@@ -6578,11 +6581,13 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         uint32_t token_slens[8];
         char* line_iter = TokenLex(chr_token_end, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
         if (unlikely(!line_iter)) {
+          DPrintf("\nTokenLex failure; read_variant_idx = %u\n", read_variant_idx);
           goto PmergeConcat_ret_PVAR_REWIND_FAIL_N;
         }
         line_start = AdvPastDelim(line_iter, '\n');
         int32_t cur_bp;
         if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
+          DPrintf("\nScanIntAbsDefcap failure; read_variant_idx = %u\n", read_variant_idx);
           goto PmergeConcat_ret_PVAR_REWIND_FAIL_N;
         }
         if (cur_bp < 0) {
