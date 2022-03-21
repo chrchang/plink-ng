@@ -501,14 +501,9 @@ typedef uint32_t BoolErr;
 #    define int64_t long long
 #  endif
 #else  // Linux or OS X
-#  define FOPEN_RB "rb"
-#  define FOPEN_WB "wb"
-#  define FOPEN_AB "ab"
-/*
 #  define FOPEN_RB "r"
 #  define FOPEN_WB "w"
 #  define FOPEN_AB "a"
-*/
 #  if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
 #    define fread_unlocked fread
 #    define fwrite_unlocked fwrite

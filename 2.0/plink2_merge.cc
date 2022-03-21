@@ -2501,15 +2501,6 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
         }
 
         *first_token_end = '\t';
-        if (g_debug_on && (line_idx == 2942)) {
-          logprintf("\n");
-          char* next_line_start = AdvPastDelim(first_token_end, '\n');
-          const uint32_t slen = next_line_start - first_token_end;
-          char* write_iter = strcpya_k(g_logbuf, "Remainder of line 2942, scanning pass: ");
-          write_iter = memcpya(write_iter, first_token_end, slen);
-          *write_iter = '\0';
-          logputsb();
-        }
         char* token_ptrs[8];
         uint32_t token_slens[8];
         char* line_iter = TokenLex(first_token_end, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
@@ -6428,6 +6419,14 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           reterr = TextStreamRawErrcode(&pvar_txs);
           DPrintf("\nTextGetUnsafe2 failure (first line); reterr = %u\n", S_CAST(uint32_t, reterr));
           goto PmergeConcat_ret_PVAR_TSTREAM_REWIND_FAIL_N;
+        }
+        if (g_debug_on && (pvar_line_idx == 1)) {
+          TextFileBase* basep = &GET_PRIVATE(pvar_txs, m).base;
+          logprintf("\nconsume_stop - line_start: %" PRIuPTR "\n", S_CAST(uintptr_t, basep->consume_stop - line_start));
+          char* write_iter = strcpya_k(g_logbuf, "initial bytes [82126, 82210):\n");
+          write_iter = memcpya(write_iter, &(line_start[82126]), 82210 - 82126);
+          *write_iter = '\0';
+          logputsb();
         }
         if ((line_start[0] != '#') || tokequal_k(line_start, "#CHROM")) {
           break;
