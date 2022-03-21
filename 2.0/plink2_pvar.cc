@@ -1313,9 +1313,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         goto LoadPvar_ret_MALFORMED_INPUT_WW;
       }
 #ifdef __LP64__
-      // maximum prime < 2^32 is 4294967291; quadratic hashing guarantee
-      // breaks down past that divided by 2.
-      if (unlikely(raw_variant_ct == 0x7ffffffd)) {
+      if (unlikely(raw_variant_ct == kPglMaxVariantCt)) {
         logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
         goto LoadPvar_ret_MALFORMED_INPUT;
       }
@@ -2273,8 +2271,8 @@ PglErr LoadAlleleIdxOffsetsFromPvar(const char* pvarname, const char* file_descr
       goto LoadAlleleIdxOffsetsFromPvar_ret_NOMEM;
     }
 #ifdef __LP64__
-    if (allele_idx_offsets_limit > &(allele_idx_offsets[0x7ffffffe])) {
-      allele_idx_offsets_limit = &(allele_idx_offsets[0x7ffffffe]);
+    if (allele_idx_offsets_limit > &(allele_idx_offsets[kPglMaxVariantCt + 1])) {
+      allele_idx_offsets_limit = &(allele_idx_offsets[kPglMaxVariantCt + 1]);
     }
 #endif
     uintptr_t* allele_idx_offsets_iter = allele_idx_offsets;
@@ -2285,7 +2283,7 @@ PglErr LoadAlleleIdxOffsetsFromPvar(const char* pvarname, const char* file_descr
     while (1) {
       if (allele_idx_offsets_iter == allele_idx_offsets_limit) {
 #ifdef __LP64__
-        if (allele_idx_offsets_limit == &(allele_idx_offsets[0x7ffffffe])) {
+        if (allele_idx_offsets_limit == &(allele_idx_offsets[kPglMaxVariantCt + 1])) {
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
           goto LoadAlleleIdxOffsetsFromPvar_ret_MALFORMED_INPUT;
         }

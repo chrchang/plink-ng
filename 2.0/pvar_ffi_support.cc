@@ -220,7 +220,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: No variants in %s.\n", fname);
       goto LoadMinimalPvar_ret_MALFORMED_INPUT;
     }
-    if (variant_ct > 0x7ffffffd) {
+    if (variant_ct > kPglMaxVariantCt) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Too many variants in %s (%" PRIuPTR "; max 2^31 - 3).\n", fname, variant_ct);
       goto LoadMinimalPvar_ret_MALFORMED_INPUT;
     }

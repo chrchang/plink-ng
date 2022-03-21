@@ -88,10 +88,7 @@ typedef struct PgenWriterCommonStruct {
 //
 // The flush requires a backward seek if write_mode is set to
 // kPgenWriteBackwardSeek during initialization.  Otherwise, the index is
-// either saved to a separate .pgen.pgi file (and the .pgen is written
-// sequentially), or the index is sequentially written to the final target
-// .pgen but *everything else* then has to be copied from a .pgen.tmp temporary
-// file, and the caller is responsible for then deleting that temporary file.
+// saved to a separate .pgen.pgi file (and the .pgen is written sequentially.
 //
 // Slightly over 128 KiB (kPglFwriteBlockSize) of stack space is currently
 // required.  We use plain fwrite() instead of write() to make this more
@@ -106,8 +103,7 @@ typedef struct PgenWriterCommonStruct {
 
 ENUM_U31_DEF_START()
   kPgenWriteBackwardSeek,
-  kPgenWriteSeparateIndex,
-  kPgenWriteSequentialWithTmp
+  kPgenWriteSeparateIndex
 ENUM_U31_DEF_END(PgenWriteMode);
 
 typedef struct STPgenWriterStruct {
@@ -119,21 +115,17 @@ typedef struct STPgenWriterStruct {
   FILE* const& GET_PRIVATE_pgen_outfile() const { return pgen_outfile; }
   FILE*& GET_PRIVATE_pgi_outfile() { return pgi_outfile; }
   FILE* const& GET_PRIVATE_pgi_outfile() const { return pgi_outfile; }
-  FILE*& GET_PRIVATE_final_pgen_outfile() { return final_pgen_outfile; }
-  FILE* const& GET_PRIVATE_final_pgen_outfile() const { return final_pgen_outfile; }
  private:
 #endif
   PgenWriterCommon pwc;
   FILE* pgen_outfile;
   FILE* pgi_outfile;
-  FILE* final_pgen_outfile;
 } STPgenWriter;
 
 typedef struct MTPgenWriterStruct {
   MOVABLE_BUT_NONCOPYABLE(MTPgenWriterStruct);
   FILE* pgen_outfile;
   FILE* pgi_outfile;
-  FILE* final_pgen_outfile;
   uint32_t thread_ct;
   PgenWriterCommon* pwcs[];
 } MTPgenWriter;

@@ -3404,6 +3404,101 @@ void PgenErrPrintEx(const char* file_descrip, uint32_t prepend_lf, PglErr reterr
   }
 }
 
+// Given <outname>.tmp.pgen and <outname>.tmp.pgen.pgi, this generates
+// <outname>.pgen and then deletes the two temporary files.
+PglErr EmbedPgenIndex(char* outname, char* outname_end) {
+  FILE* infile = nullptr;
+  FILE* outfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    strcpy_k(outname_end, ".pgen");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto EmbedPgenIndex_ret_OPEN_FAIL;
+    }
+    strcpy_k(outname_end, ".tmp.pgen.pgi");
+    if (unlikely(fopen_checked(outname, FOPEN_RB, &infile))) {
+      goto EmbedPgenIndex_ret_OPEN_FAIL;
+    }
+    unsigned char copybuf[kPglFwriteBlockSize + 3];
+    uintptr_t nbyte = fread(copybuf, 1, kPglFwriteBlockSize, infile);
+    if (unlikely((nbyte <= 3) || (!memequal_k(copybuf, "l\x1b\x30", 3)))) {
+      logerrprintfww("Error: %s does not appear to be a .pgen index file.\n", outname);
+      goto EmbedPgenIndex_ret_MALFORMED_INPUT;
+    }
+    copybuf[2] = 0x10;
+    do {
+      if (unlikely(!fwrite_unlocked(copybuf, nbyte, 1, outfile))) {
+        goto EmbedPgenIndex_ret_WRITE_FAIL;
+      }
+      nbyte = fread(copybuf, 1, kPglFwriteBlockSize, infile);
+    } while (nbyte);
+    if (unlikely(fclose_null(&infile))) {
+      goto EmbedPgenIndex_ret_READ_PGI_FAIL;
+    }
+    strcpy_k(outname_end, ".tmp.pgen");
+    if (unlikely(fopen_checked(outname, FOPEN_RB, &infile))) {
+      goto EmbedPgenIndex_ret_OPEN_FAIL;
+    }
+    nbyte = fread(copybuf, 1, kPglFwriteBlockSize + 3, infile);
+    if (unlikely((nbyte <= 3) || (!memequal_k(copybuf, "l\x1b\x20", 3)))) {
+      logerrprintfww("Error: %s does not appear to be a .pgen with an external index file.\n", outname);
+      goto EmbedPgenIndex_ret_MALFORMED_INPUT;
+    }
+    nbyte -= 3;
+    if (unlikely(!fwrite_unlocked(&(copybuf[3]), nbyte, 1, outfile))) {
+      goto EmbedPgenIndex_ret_WRITE_FAIL;
+    }
+    while (1) {
+      nbyte = fread(copybuf, 1, kPglFwriteBlockSize, infile);
+      if (!nbyte) {
+        break;
+      }
+      if (unlikely(!fwrite_unlocked(copybuf, nbyte, 1, outfile))) {
+        goto EmbedPgenIndex_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(fclose_null(&infile))) {
+      goto EmbedPgenIndex_ret_READ_PGEN_FAIL;
+    }
+    if (unlikely(fclose_null(&outfile))) {
+      goto EmbedPgenIndex_ret_WRITE_FAIL;
+    }
+    if (unlikely(unlink(outname))) {
+      logerrprintfww("Error: Failed to delete %s .\n", outname);
+      goto EmbedPgenIndex_ret_WRITE_FAIL;
+    }
+    strcpy_k(outname_end, ".tmp.pgen.pgi");
+    if (unlikely(unlink(outname))) {
+      logerrprintfww("Error: Failed to delete %s .\n", outname);
+      goto EmbedPgenIndex_ret_WRITE_FAIL;
+    }
+  }
+  while (0) {
+  EmbedPgenIndex_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  EmbedPgenIndex_ret_READ_PGI_FAIL:
+    // strcpy_k(outname_end, ".tmp.pgen.pgi");
+    logerrprintfww(kErrprintfFread, outname, rstrerror(errno));
+    reterr = kPglRetReadFail;
+    break;
+  EmbedPgenIndex_ret_READ_PGEN_FAIL:
+    // strcpy_k(outname_end, ".tmp.pgen");
+    logerrprintfww(kErrprintfFread, outname, rstrerror(errno));
+    reterr = kPglRetReadFail;
+    break;
+  EmbedPgenIndex_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  EmbedPgenIndex_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+  fclose_cond(outfile);
+  fclose_cond(infile);
+  return reterr;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

@@ -52,8 +52,8 @@ PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
       goto ScanMap_ret_TSTREAM_FAIL;
     }
     uintptr_t raw_variant_ct_limit = CHAR_BIT * S_CAST(uintptr_t, g_bigstack_end - g_bigstack_base);
-    if (raw_variant_ct_limit > 0x7ffffffd) {
-      raw_variant_ct_limit = 0x7ffffffd;
+    if (raw_variant_ct_limit > kPglMaxVariantCt) {
+      raw_variant_ct_limit = kPglMaxVariantCt;
     }
     uintptr_t* variant_include = R_CAST(uintptr_t*, g_bigstack_base);
 
@@ -97,7 +97,7 @@ PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     char* line_iter = line_start;
     while (1) {
       if (unlikely(raw_variant_ct == raw_variant_ct_limit)) {
-        if (raw_variant_ct_limit == 0x7ffffffd) {
+        if (raw_variant_ct_limit == kPglMaxVariantCt) {
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
           goto ScanMap_ret_MALFORMED_INPUT;
         }
@@ -700,7 +700,7 @@ BoolErr TpedToPgenSnp(uint32_t sample_idx_start, uint32_t sample_idx_stop, char 
 // It's possible to parallelize this more, but it isn't realistically worth the
 // effort, since there's so little reason to use this format over VCF for
 // larger datasets.
-PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr) {
+PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, __attribute__((unused)) uint32_t* pgi_generated_ptr, uint32_t* psam_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   TextStream tped_txs;
   PreinitTextStream(&tped_txs);
@@ -794,7 +794,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
           goto TpedToPgen_ret_MALFORMED_INPUT_WW;
         }
         if (cur_bp >= 0) {
-          if (variant_ct == 0x7ffffffd) {
+          if (variant_ct == kPglMaxVariantCt) {
             logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
             goto TpedToPgen_ret_MALFORMED_INPUT;
           }

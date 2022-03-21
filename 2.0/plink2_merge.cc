@@ -613,7 +613,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
         const uint32_t id_slen = id_iter - idbuf;
         if (sample_id_strset) {
           if (unlikely(StrsetAddResize(arena_top, idbuf, id_slen, 2U * 0x7ffffffe, sample_id_strset, &sample_id_table_size, &sample_ct, &arena_bottom))) {
-            if (sample_ct == 0x7ffffffe) {
+            if (sample_ct == kPglMaxSampleCt) {
               logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
               goto MergePsams_ret_INCONSISTENT_INPUT;
             }
@@ -625,7 +625,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
               goto MergePsams_ret_NOMEM;
             }
             arena_bottom = memcpyua(arena_bottom, idbuf, id_slen + 1);
-            if (unlikely(first_sample_id_ct == 0x7ffffffe)) {
+            if (unlikely(first_sample_id_ct == kPglMaxSampleCt)) {
               logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
               goto MergePsams_ret_INCONSISTENT_INPUT;
             }
@@ -2639,7 +2639,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
         goto ScanPvarsAndMergeHeader_ret_1;
       }
       const uintptr_t read_variant_ct = line_idx - line_idx_body_start;
-      if (unlikely(read_variant_ct > 0x7ffffffd)) {
+      if (unlikely(read_variant_ct > kPglMaxVariantCt)) {
         logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
         goto ScanPvarsAndMergeHeader_ret_MALFORMED_INPUT;
       }
@@ -6182,7 +6182,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       }
       filesets_iter = filesets_iter->next;
     }
-    if (unlikely(write_variant_ct > 0x7ffffffd)) {
+    if (unlikely(write_variant_ct > kPglMaxVariantCt)) {
       logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
       goto PmergeConcat_ret_INCONSISTENT_INPUT;
     }
@@ -7066,7 +7066,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
       }
       const uintptr_t raw_sample_ct2_ul = psam_line_idx - first_payload_line_idx;
 #ifdef __LP64__
-      if (raw_sample_ct2_ul > 0x7ffffffe) {
+      if (raw_sample_ct2_ul > kPglMaxSampleCt) {
         logerrputs("Error: Too many samples in --pgen-diff .psam file (max 2^31 - 2).\n");
         goto PgenDiff_ret_MALFORMED_INPUT;
       }

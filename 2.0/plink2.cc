@@ -10791,6 +10791,7 @@ int main(int argc, char** argv) {
         }
         const uint32_t convname_slen = convname_end - outname;
         uint32_t pgen_generated = 1;
+        uint32_t pgi_generated = 0;
         uint32_t psam_generated = 1;
 
         // Compress by default for VCF/BCF due to potentially large INFO
@@ -10841,15 +10842,15 @@ int main(int argc, char** argv) {
           if (xload & kfXloadPed) {
             reterr = PedmapToPgen(pgenname, pvarname, pc.missing_catname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadTped) {
-            reterr = TpedToPgen(pgenname, psamname, pc.missing_catname, pc.misc_flags, import_flags, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info, &psam_generated);
+            reterr = TpedToPgen(pgenname, psamname, pc.missing_catname, pc.misc_flags, import_flags, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated, &psam_generated);
           } else if (xload & kfXloadOxGen) {
             reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxBgen) {
             reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxHaps) {
-            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
           } else if (xload & kfXloadPlink1Dosage) {
-            reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
           } else if (xload & kfXloadGenDummy) {
             reterr = GenerateDummy(&gendummy_info, pc.misc_flags, import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, &main_sfmt, outname, convname_end, &chr_info);
           }
@@ -10872,6 +10873,14 @@ int main(int argc, char** argv) {
           if (pgen_generated) {
             if (unlikely(PushLlStr(pgenname, &file_delete_list))) {
               goto main_ret_NOMEM;
+            }
+            if (pgi_generated) {
+              char* pgenname_end = &(pgenname[convname_slen + strlen(".pgen")]);
+              strcpy_k(pgenname_end, ".pgi");
+              if (unlikely(PushLlStr(pgenname, &file_delete_list))) {
+                goto main_ret_NOMEM;
+              }
+              pgenname_end[0] = '\0';
             }
           }
           if (unlikely(PushLlStr(pvarname, &file_delete_list))) {

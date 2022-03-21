@@ -693,11 +693,11 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
   }
   fread_ptr = small_readbuf;
   // deliberate underflow
-  if (unlikely(((raw_variant_ct - 1) > 0x7ffffffc) && (raw_variant_ct != UINT32_MAX))) {
+  if (unlikely(((raw_variant_ct - 1) > (kPglMaxVariantCt - 1)) && (raw_variant_ct != UINT32_MAX))) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid raw_variant_ct function parameter.\n");
     return kPglRetImproperFunctionCall;
   }
-  if (unlikely(((raw_sample_ct - 1) > 0x7ffffffd) && (raw_sample_ct != UINT32_MAX))) {
+  if (unlikely(((raw_sample_ct - 1) > (kPglMaxSampleCt - 1)) && (raw_sample_ct != UINT32_MAX))) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid raw_sample_ct function parameter.\n");
     return kPglRetImproperFunctionCall;
   }
@@ -808,7 +808,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
   if (raw_variant_ct == UINT32_MAX) {
     raw_variant_ct = pgfip->raw_variant_ct;
     // deliberate underflow
-    if (unlikely((raw_variant_ct - 1) > 0x7ffffffc)) {
+    if (unlikely((raw_variant_ct - 1) > (kPglMaxVariantCt - 1))) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid variant count in .pgen%s file.\n", pgfip->pgi_ff? ".pgi" : "");
       return kPglRetMalformedInput;
     }
@@ -819,7 +819,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
   if (raw_sample_ct == UINT32_MAX) {
     raw_sample_ct = pgfip->raw_sample_ct;
     // deliberate underflow
-    if (unlikely((raw_sample_ct - 1) > 0x7ffffffd)) {
+    if (unlikely((raw_sample_ct - 1) > (kPglMaxSampleCt - 1))) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid sample count in .pgen%s file.\n", pgfip->pgi_ff? ".pgi" : "");
       return kPglRetMalformedInput;
     }

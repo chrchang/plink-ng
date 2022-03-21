@@ -369,7 +369,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, psamname);
         goto LoadPsam_ret_MALFORMED_INPUT_WW;
       }
-      if (unlikely(raw_sample_ct == 0x7ffffffe)) {
+      if (unlikely(raw_sample_ct == kPglMaxSampleCt)) {
         logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
         goto LoadPsam_ret_MALFORMED_INPUT;
       }

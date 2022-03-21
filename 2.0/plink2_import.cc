@@ -2972,8 +2972,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       max_variant_ct -= BitCtToAlignedWordCt(max_variant_ct) * kWordsPerVec;
     }
 #ifdef __LP64__
-    if (max_variant_ct > 0x7ffffffd) {
-      max_variant_ct = 0x7ffffffd;
+    if (max_variant_ct > kPglMaxVariantCt) {
+      max_variant_ct = kPglMaxVariantCt;
     }
 #endif
     uintptr_t base_chr_present[kChrExcludeWords];
@@ -3213,7 +3213,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       }
       if (unlikely(variant_ct++ == max_variant_ct)) {
 #ifdef __LP64__
-        if (variant_ct == 0x7ffffffd) {
+        if (variant_ct == kPglMaxVariantCt) {
           putc_unlocked('\n', stdout);
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
@@ -7655,8 +7655,8 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       max_variant_ct -= BitCtToAlignedWordCt(max_variant_ct) * kWordsPerVec;
     }
 #ifdef __LP64__
-    if (max_variant_ct > 0x7ffffffd) {
-      max_variant_ct = 0x7ffffffd;
+    if (max_variant_ct > kPglMaxVariantCt) {
+      max_variant_ct = kPglMaxVariantCt;
     }
 #endif
     // max(32, l_shared + l_indiv - 24)
@@ -8062,7 +8062,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       }
       if (unlikely(variant_ct++ == max_variant_ct)) {
 #ifdef __LP64__
-        if (variant_ct == 0x7ffffffd) {
+        if (variant_ct == kPglMaxVariantCt) {
           putc_unlocked('\n', stdout);
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
           goto BcfToPgen_ret_MALFORMED_INPUT;
@@ -9919,7 +9919,10 @@ BoolErr InitOxfordSingleChr(const char* ox_single_chr_str, const char** single_c
 
 static_assert(sizeof(Dosage) == 2, "OxGenToPgen() needs to be updated.");
 PglErr OxGenToPgen(const char* genname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
-  // TODO: make this single-pass, now that .pgen.pgi files are supported.
+  // Experimented with making this single-pass; that actually benchmarked a bit
+  // slower than the current 2-pass algorithm.  Yes, that might be because the
+  // Mac I tested on has a crappy filesystem, but it's still enough reason to
+  // leave this alone.
   unsigned char* bigstack_mark = g_bigstack_base;
   char* pvar_cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -12754,7 +12757,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             }
             pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
             *pvar_cswritep++ = '\t';
-            if (unlikely(cur_bp > 0x7ffffffe)) {
+            if (unlikely(cur_bp > kMaxBp)) {
               logputs("\n");
               logerrputs("Error: Invalid bp coordinate (> 2^31 - 2) in .bgen file\n");
               goto OxBgenToPgen_ret_MALFORMED_INPUT;
@@ -13200,7 +13203,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
         pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
         *pvar_cswritep++ = '\t';
-        if (unlikely(cur_bp > 0x7ffffffe)) {
+        if (unlikely(cur_bp > kMaxBp)) {
           logputs("\n");
           logerrputs("Error: Invalid bp coordinate (> 2^31 - 2) in .bgen file\n");
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
@@ -13851,7 +13854,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
 
 BoolErr ImportLegendCols(const char* fname, uintptr_t line_idx, uint32_t prov_ref_allele_second, const char** loadbuf_iter_ptr, char** write_iter_ptr, uint32_t* variant_ct_ptr) {
   {
-    if (*variant_ct_ptr == 0x7ffffffd) {
+    if (*variant_ct_ptr == kPglMaxVariantCt) {
       logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
       return 1;
     }
@@ -13964,7 +13967,7 @@ PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t s
 #ifdef NO_UNALIGNED
 #  error "Unaligned accesses in OxHapslegendToPgen()."
 #endif
-PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, __attribute__((unused)) uint32_t* pgi_generated_ptr) {
   // TODO: make this single-pass.
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* psamfile = nullptr;
@@ -14579,7 +14582,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
 // probable todo: use the VCF/BGEN-import parallelization strategy to speed
 // this up.
 static_assert(sizeof(Dosage) == 2, "Plink1DosageToPgen() needs to be updated.");
-PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, __attribute__((unused)) uint32_t* pgi_generated_ptr) {
   // TODO: make this single-pass.
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;

@@ -79,7 +79,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1900
+#define PGENLIB_INTERNAL_VERNUM 1901
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -904,6 +904,12 @@ void PglMultiallelicSparseToDenseMiss(const PgenVariant* pgvp, uint32_t sample_c
 // least.  In principle, this is subject to reevaluation if (i) changes, but
 // given the poor interaction with phased dosages, it's probably better to just
 // think of them as permanently outside PLINK's scope.
+
+// maximum prime < 2^32 is 4294967291; quadratic hashing guarantee breaks down
+// past that divided by 2.
+CONSTI32(kPglMaxVariantCt, 0x7ffffffd);
+
+CONSTI32(kPglMaxSampleCt, 0x7ffffffe);
 
 #ifdef __cplusplus
 }  // namespace plink2

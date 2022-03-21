@@ -32,6 +32,10 @@ namespace plink2 {
 
 #define PROG_NAME_STR "plink2"
 
+// Exclude 0x7fffffff, since the half-open interval containing it ends in
+// 0x80000000U or higher.
+CONSTI32(kMaxBp, 0x7ffffffe);
+
 // leave the door semi-open to 32-bit dosages (or 31?  24?)
 // note that u31tod()/u31tof() can't be used on 32-bit dosages
 typedef uint16_t Dosage;
@@ -1225,6 +1229,10 @@ HEADER_INLINE void PgenErrPrint(PglErr reterr) {
 HEADER_INLINE void PgenErrPrintV(PglErr reterr, uint32_t variant_uidx) {
   PgenErrPrintEx(".pgen file", 0, reterr, variant_uidx);
 }
+
+// Given <outname>.tmp.pgen and <outname>.tmp.pgen.pgi, this generates
+// <outname>.pgen and then deletes the two temporary files.
+PglErr EmbedPgenIndex(char* outname, char* outname_end);
 
 #ifdef __cplusplus
 }  // namespace plink2

@@ -352,7 +352,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       if (unlikely(bigstack_end_calloc_w(raw_variant_ctl, &new_variant_include))) {
         goto GlmLocalOpen_ret_NOMEM;
       }
-      uint32_t max_local_variant_ct = 0x7ffffffd;
+      uint32_t max_local_variant_ct = kPglMaxVariantCt;
       if (bigstack_left() < (0x80000000U / CHAR_BIT)) {
         max_local_variant_ct = RoundDownPow2(bigstack_left(), kCacheline) * CHAR_BIT;
       }
@@ -376,8 +376,8 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
           goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
         }
         if (unlikely(local_variant_ct == max_local_variant_ct)) {
-          if (max_local_variant_ct == 0x7ffffffd) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Too many samples in %s.\n", local_pvar_fname);
+          if (max_local_variant_ct == kPglMaxVariantCt) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Too many variants in %s.\n", local_pvar_fname);
             goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
           }
           goto GlmLocalOpen_ret_NOMEM;

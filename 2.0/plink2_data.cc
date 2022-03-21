@@ -3458,7 +3458,7 @@ PglErr PlanMultiallelicSplit(const uintptr_t* variant_include, const uintptr_t* 
         }
       }
     }
-    if (write_variant_ct > 0x7ffffffd) {
+    if (write_variant_ct > kPglMaxVariantCt) {
       logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
       goto PlanMultiallelicSplit_ret_INCONSISTENT_INPUT;
     }
