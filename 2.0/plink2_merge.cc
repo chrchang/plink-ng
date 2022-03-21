@@ -6423,8 +6423,8 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         if (g_debug_on && (pvar_line_idx == 1)) {
           TextFileBase* basep = &GET_PRIVATE(pvar_txs, m).base;
           logprintf("\nconsume_stop - line_start: %" PRIuPTR "\n", S_CAST(uintptr_t, basep->consume_stop - line_start));
-          char* write_iter = strcpya_k(g_logbuf, "initial bytes [82126, 82210):\n");
-          write_iter = memcpya(write_iter, &(line_start[82126]), 82210 - 82126);
+          char* write_iter = strcpya_k(g_logbuf, "initial bytes [82154, 82182):\n");
+          write_iter = memcpya(write_iter, &(line_start[82154]), 82182 - 82154);
           *write_iter = '\0';
           logputsb();
         }
@@ -6433,6 +6433,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         }
         line_start = AdvPastDelim(line_start, '\n');
       }
+      char* initial_line_start = line_start;
       uint32_t col_skips[8];
       uint32_t col_types[8];
       const uint32_t read_qual = filesets_iter->nm_qual_present;
@@ -6550,7 +6551,12 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       uint32_t cur_single_pos_ct = 0;
       uint32_t prev_chr_idx = UINT32_MAX;
       int32_t prev_bp = 0;
+      uint32_t debug_printed = 0;
       for (uint32_t read_variant_idx = 0; read_variant_idx != read_variant_ct; ++read_variant_idx) {
+        if (g_debug_on && (!debug_printed) && (initial_line_start[82177] != '\t')) {
+          logprintf("\nbyte 82177 mutated as of read_variant_idx %u\n", read_variant_idx);
+          debug_printed = 1;
+        }
         if (unlikely(!TextGetUnsafe2(&pvar_txs, &line_start))) {
           reterr = TextStreamRawErrcode(&pvar_txs);
           DPrintf("\nTextGetUnsafe2 failure; read_variant_idx = %u, reterr = %u\n", read_variant_idx, S_CAST(uint32_t, reterr));
@@ -6598,6 +6604,11 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
             write_iter = memcpya(write_iter, chr_token_end, slen);
             *write_iter = '\0';
             logputsb();
+            logprintf("Byte sequence:");
+            for (uint32_t uii = 0; uii != slen; ++uii) {
+              printf(" %u", chr_token_end[uii]);
+            }
+            logprintf("\n");
           }
         }
         char* token_ptrs[8];
