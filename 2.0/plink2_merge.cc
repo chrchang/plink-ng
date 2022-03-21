@@ -6577,6 +6577,23 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           prev_chr_idx = chr_idx;
           prev_bp = -1;
         }
+        if (g_debug_on && (read_variant_idx == 2942)) {
+          logprintf("\n");
+          char* next_line_start = AdvPastDelim(chr_token_end, '\n');
+          const uint32_t slen = next_line_start - chr_token_end;
+          if (slen > 80) {
+            logprintf("Remainder of line 2942 appears to be > 80 chars\n");
+          } else {
+            char* write_iter = strcpya_k(g_logbuf, "Remainder of line 2942: ");
+            write_iter = memcpya(write_iter, chr_token_end, slen);
+            *write_iter = '\0';
+            logputsb();
+          }
+          logprintf("relevant_postchr_col_ct: %u\n", relevant_postchr_col_ct);
+          for (uint32_t uii = 0; uii != relevant_postchr_col_ct; ++uii) {
+            logprintf("  col_types[%u]: %u  col_skips[%u]: %u\n", uii, col_types[uii], uii, col_skips[uii]);
+          }
+        }
         char* token_ptrs[8];
         uint32_t token_slens[8];
         char* line_iter = TokenLex(chr_token_end, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
