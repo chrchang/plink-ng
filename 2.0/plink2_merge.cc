@@ -2501,6 +2501,15 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
         }
 
         *first_token_end = '\t';
+        if (g_debug_on && (line_idx == 2942)) {
+          logprintf("\n");
+          char* next_line_start = AdvPastDelim(first_token_end, '\n');
+          const uint32_t slen = next_line_start - first_token_end;
+          char* write_iter = strcpya_k(g_logbuf, "Remainder of line 2942, scanning pass: ");
+          write_iter = memcpya(write_iter, first_token_end, slen);
+          *write_iter = '\0';
+          logputsb();
+        }
         char* token_ptrs[8];
         uint32_t token_slens[8];
         char* line_iter = TokenLex(first_token_end, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
@@ -6590,10 +6599,6 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
             write_iter = memcpya(write_iter, chr_token_end, slen);
             *write_iter = '\0';
             logputsb();
-          }
-          logprintf("relevant_postchr_col_ct: %u\n", relevant_postchr_col_ct);
-          for (uint32_t uii = 0; uii != relevant_postchr_col_ct; ++uii) {
-            logprintf("  col_types[%u]: %u  col_skips[%u]: %u\n", uii, col_types[uii], uii, col_skips[uii]);
           }
         }
         char* token_ptrs[8];
