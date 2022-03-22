@@ -2030,6 +2030,7 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
       snprintf(g_logbuf, kLogbufSize, "--update-ids: %u sample%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
     }
     logputsb();
+    // TODO: print at least a warning if a duplicate sample ID is now present.
   }
   while (0) {
   UpdateSampleIds_ret_NOMEM:

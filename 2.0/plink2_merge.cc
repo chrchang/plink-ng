@@ -912,7 +912,6 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
       first_sample_ids = nullptr;
       first_sample_ids_htable = nullptr;
       sample_include = nullptr;
-      cur_sample_include = nullptr;
       sample_id_strset = nullptr;
       g_bigstack_base = bigstack_mark;
 
@@ -1068,6 +1067,21 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
                  bigstack_alloc_c(linebuf_capacity, &linebuf))) {
       goto MergePsams_ret_NOMEM;
     }
+    // bugfix (22 Mar 2022): We've only checked for duplicate sample IDs in the
+    // --sample-inner-join case.  The current implementation does not support
+    // them, so we must error out in the non-sample-inner-join case too.
+    //
+    // We may want to support duplicate sample IDs here in the future; they are
+    // supported by plink 1.x merge, after all, and the online documentation
+    // even explicitly recommends merging a dataset with itself in one
+    // scenario.  (If we do, it should work regardless of --sample-inner-join
+    // state.)
+    cur_sample_include = nullptr;
+    if (!(flags & kfPmergeSampleInnerJoin)) {
+      if (unlikely(bigstack_alloc_w(sample_ctl, &cur_sample_include))) {
+        goto MergePsams_ret_NOMEM;
+      }
+    }
     // sample-major, PAT before MAT
     const MergePhenoMode merge_parents_mode = pmip->merge_parents_mode;
     uintptr_t* parents_locked = nullptr;
@@ -1170,6 +1184,9 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
           break;
         }
         line_start = AdvPastDelim(line_start, '\n');
+      }
+      if (cur_sample_include) {
+        ZeroWArr(sample_ctl, cur_sample_include);
       }
       ZeroWArr(pheno_ctl, pheno_include);
       uint32_t sid_present = 0;
@@ -1278,6 +1295,14 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
         }
         if (sample_idx == UINT32_MAX) {
           continue;
+        }
+        if (cur_sample_include) {
+          if (IsSet(cur_sample_include, sample_idx)) {
+            TabsToSpaces(idbuf);
+            snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in %s.\n", idbuf, cur_fname);
+            goto MergePsams_ret_MALFORMED_INPUT_WW;
+          }
+          SetBit(sample_idx, cur_sample_include);
         }
         ++write_sample_ct;
         if (parents_present) {
@@ -1681,6 +1706,8 @@ PglErr ScanPgenHeaders(uint32_t is_list, MiscFlags misc_flags, PmergeInputFilese
           snprintf(g_logbuf, kLogbufSize, "Error: %s is a sample-major .bed file; this is not supported by --pmerge%s. Retry after converting it to a .pgen.\n", read_pgen_fname, is_list? "-list" : "");
           goto ScanPgenHeaders_ret_INCONSISTENT_INPUT_WW;
         }
+        WordWrapB(0);
+        logerrputsb();
         goto ScanPgenHeaders_ret_1;
       }
       uint32_t vrtype_8bit_needed = 0;
@@ -3255,9 +3282,6 @@ PglErr ScrapeSampleOrder(const char* psam_fname, const SampleIdInfo* siip, const
     uint32_t* old_sample_idx_to_new_iter = old_sample_idx_to_new;
     uint32_t prev_write_sample_idx = 0;
     uint32_t sample_idx_increasing = 1;
-    if (g_debug_on) {
-      logprintf("\ninitial old_sample_idx_to_new:");
-    }
     for (uint32_t read_sample_idx = 0; read_sample_idx != read_sample_ct; ++read_sample_idx, line_start = AdvPastDelim(line_start, '\n')) {
       if (unlikely(!TextGetUnsafe2K(&txs, &line_start))) {
         reterr = TextStreamRawErrcode(&txs);
@@ -3268,16 +3292,10 @@ PglErr ScrapeSampleOrder(const char* psam_fname, const SampleIdInfo* siip, const
         goto ScrapeSampleOrder_ret_REWIND_FAIL_N;
       }
       if (write_sample_idx == UINT32_MAX) {
-        if (g_debug_on) {
-          logprintf(" <skipped>");
-        }
         continue;
       }
       SetBit(read_sample_idx, read_sample_include);
       SetBit(write_sample_idx, sample_span);
-      if (g_debug_on) {
-        logprintf(" %u", write_sample_idx);
-      }
       *old_sample_idx_to_new_iter++ = write_sample_idx;
       if (write_sample_idx < prev_write_sample_idx) {
         sample_idx_increasing = 0;
@@ -3285,9 +3303,6 @@ PglErr ScrapeSampleOrder(const char* psam_fname, const SampleIdInfo* siip, const
       prev_write_sample_idx = write_sample_idx;
     }
     const uint32_t cur_write_sample_ct = PopcountWords(read_sample_include, read_sample_ctl);
-    if (g_debug_on) {
-      logprintf("\nread_sample_ct: %u  write_sample_ct: %u\n", read_sample_ct, cur_write_sample_ct);
-    }
     *cur_write_sample_ctp = cur_write_sample_ct;
     *sample_idx_increasingp = sample_idx_increasing;
   }
@@ -5012,17 +5027,7 @@ typedef struct MergeWriterStruct {
   MergeMode merge_mode;
 } MergeWriter;
 
-uint32_t DebugCheck(char* debug_initial_line_start, uint32_t* debug_printed_ptr) {
-  if (debug_initial_line_start && (!(*debug_printed_ptr))) {
-    if (debug_initial_line_start[82177] != '\t') {
-      *debug_printed_ptr = 1;
-      return 1;
-    }
-  }
-  return 0;
-}
-
-PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const AlleleCode* master_allele_remap, uintptr_t merge_rec_ct, uint32_t write_allele_ct, uint32_t allele_remap_stride, MergeReader** mrp_arr, MergeWriter* mwp, char* debug_initial_line_start, uint32_t* debug_printedp) {
+PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const AlleleCode* master_allele_remap, uintptr_t merge_rec_ct, uint32_t write_allele_ct, uint32_t allele_remap_stride, MergeReader** mrp_arr, MergeWriter* mwp) {
   PglErr reterr = kPglRetSuccess;
   {
     STPgenWriter* spgwp = &(mwp->spgw);
@@ -5034,7 +5039,8 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
     uint32_t hphase_exists = 0;
     uint32_t dosage_exists = 0;
     uint32_t dphase_exists = 0;
-    // "simple" = either non-permuting, or {[0] = kMissingAlleleCode, [1] = 0}.
+    // "simple" = either non-allele-permuting, or {[0] = kMissingAlleleCode,
+    // [1] = 0}.
     // (These are the only possibilities when merge_rec_ct == 1.)
     uint32_t simple_first_allele_remap = 1;
     if (merge_rec_ct > 1) {
@@ -5243,9 +5249,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         }
         ZeroTrailingNyps(write_sample_ct, genovec);
         const uint32_t read_genoword_ct_m1 = (read_sample_ct - 1) / kBitsPerWordD2;
-        if (debug_initial_line_start && (!(*debug_printedp))) {
-          logprintf("\nread_sample_ct: %u  write_sample_ct: %u  most_common_geno_word: %" PRIxPTR "\n", read_sample_ct, write_sample_ct, most_common_geno_word);
-        }
         for (uint32_t widx = 0; ; ++widx) {
           uintptr_t geno_word_xor;
           if (widx >= read_genoword_ct_m1) {
@@ -5260,13 +5263,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             continue;
           }
           const uint32_t* cur_old_sample_idx_to_new = &(old_sample_idx_to_new[widx * kBitsPerWordD2]);
-          if (debug_initial_line_start && (!(*debug_printedp))) {
-            logprintf("widx: %u  geno_word_xor: %" PRIxPTR "\ncur_old_sample_idx_to_new:", widx, geno_word_xor);
-            for (uint32_t uii = 0; uii != kBitsPerWordD2; ++uii) {
-              logprintf(" %u", cur_old_sample_idx_to_new[uii]);
-            }
-            logprintf("\n");
-          }
           do {
             const uint32_t bit_read_shift_ct = ctzw(geno_word_xor) & (kBitsPerWord - 2);
             const uintptr_t cur_geno_xor = (geno_word_xor >> bit_read_shift_ct) & 3;
@@ -5276,9 +5272,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             // Value has been preset to most_common_geno, so if we xor it with
             // (most_common_geno ^ actual_geno), the result is actual_geno.
             genovec[new_word_idx] ^= cur_geno_xor << bit_write_shift_ct;
-            if (DebugCheck(debug_initial_line_start, debug_printedp)) {
-              logprintf("bit_read_shift_ct: %u  new_word_idx: %u\n", bit_read_shift_ct, new_word_idx);
-            }
             geno_word_xor &= (~(3 * k1LU)) << bit_read_shift_ct;
           } while (geno_word_xor);
         }
@@ -6068,11 +6061,10 @@ int32_t SamePosPvarRecordNcmp(const void* r1, const void* r2) {
 }
 #endif
 
-PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeContext* ppmcp, SamePosPvarRecord** same_pos_records, MergeReader* mrp, MergeWriter* mwp, char* debug_initial_line_start) {
+PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeContext* ppmcp, SamePosPvarRecord** same_pos_records, MergeReader* mrp, MergeWriter* mwp) {
   if (!variant_ct) {
     return kPglRetSuccess;
   }
-  uint32_t debug_printed = 0;
   if (ppmcp->sort_vars_mode == kSortAscii) {
     SamePosPvarRecordAsorter* asorter = R_CAST(SamePosPvarRecordAsorter*, same_pos_records);
     STD_SORT(variant_ct, SamePosPvarRecordAcmp, asorter);
@@ -6117,7 +6109,7 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
         AssignBit(write_variant_idx, is_pr, write_nonref_flags);
       }
 
-      reterr = MergePgenVariantNoTmpLocked(same_id_records, ppmcp->pmc.allele_remap, merge_rec_ct, allele_ct, ppmcp->pmc.read_max_allele_ct, &mrp, mwp, debug_initial_line_start, &debug_printed);
+      reterr = MergePgenVariantNoTmpLocked(same_id_records, ppmcp->pmc.allele_remap, merge_rec_ct, allele_ct, ppmcp->pmc.read_max_allele_ct, &mrp, mwp);
       if (unlikely(reterr)) {
         return reterr;
       }
@@ -6446,30 +6438,19 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       }
       reterr = InitTextStream(read_pvar_fname, MAXV(filesets_iter->max_pvar_line_blen, kDecompressMinBlen), 1, &pvar_txs);
       if (unlikely(reterr)) {
-        DPrintf("\nInitTextStream failure; reterr = %u\n", S_CAST(uint32_t, reterr));
         goto PmergeConcat_ret_PVAR_TSTREAM_REWIND_FAIL_N;
       }
       char* line_start = TextLineEnd(&pvar_txs);
       for (pvar_line_idx = 1; ; ++pvar_line_idx) {
         if (unlikely(!TextGetUnsafe2(&pvar_txs, &line_start))) {
           reterr = TextStreamRawErrcode(&pvar_txs);
-          DPrintf("\nTextGetUnsafe2 failure (first line); reterr = %u\n", S_CAST(uint32_t, reterr));
           goto PmergeConcat_ret_PVAR_TSTREAM_REWIND_FAIL_N;
-        }
-        if (g_debug_on && (pvar_line_idx == 1)) {
-          TextFileBase* basep = &GET_PRIVATE(pvar_txs, m).base;
-          logprintf("\nconsume_stop - line_start: %" PRIuPTR "\n", S_CAST(uintptr_t, basep->consume_stop - line_start));
-          char* write_iter = strcpya_k(g_logbuf, "initial bytes [82154, 82182):\n");
-          write_iter = memcpya(write_iter, &(line_start[82154]), 82182 - 82154);
-          *write_iter = '\0';
-          logputsb();
         }
         if ((line_start[0] != '#') || tokequal_k(line_start, "#CHROM")) {
           break;
         }
         line_start = AdvPastDelim(line_start, '\n');
       }
-      char* initial_line_start = line_start;
       uint32_t col_skips[8];
       uint32_t col_types[8];
       const uint32_t read_qual = filesets_iter->nm_qual_present;
@@ -6590,7 +6571,6 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       for (uint32_t read_variant_idx = 0; read_variant_idx != read_variant_ct; ++read_variant_idx) {
         if (unlikely(!TextGetUnsafe2(&pvar_txs, &line_start))) {
           reterr = TextStreamRawErrcode(&pvar_txs);
-          DPrintf("\nTextGetUnsafe2 failure; read_variant_idx = %u, reterr = %u\n", read_variant_idx, S_CAST(uint32_t, reterr));
           goto PmergeConcat_ret_PVAR_TSTREAM_REWIND_FAIL_N;
         }
         char* chr_token_end = CurTokenEnd(line_start);
@@ -6610,7 +6590,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           continue;
         }
         if (chr_idx != prev_chr_idx) {
-          reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw, nullptr);
+          reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
           if (unlikely(reterr)) {
             goto PmergeConcat_ret_N;
           }
@@ -6622,26 +6602,6 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           prev_chr_idx = chr_idx;
           prev_bp = -1;
         }
-        if (g_debug_on && ((read_variant_idx == 2940) || (read_variant_idx == 2941))) {
-          logprintf("\n");
-          char* next_line_start = AdvPastDelim(chr_token_end, '\n');
-          const uint32_t slen = next_line_start - chr_token_end;
-          if (slen > 80) {
-            logprintf("Remainder of line %u appears to be > 80 chars\n", read_variant_idx + 1);
-          } else {
-            char* write_iter = strcpya_k(g_logbuf, "Remainder of line ");
-            write_iter = u32toa(read_variant_idx + 1, write_iter);
-            write_iter = strcpya_k(write_iter, ": ");
-            write_iter = memcpya(write_iter, chr_token_end, slen);
-            *write_iter = '\0';
-            logputsb();
-            logprintf("Byte sequence:");
-            for (uint32_t uii = 0; uii != slen; ++uii) {
-              logprintf(" %u", chr_token_end[uii]);
-            }
-            logprintf("\n");
-          }
-        }
         char* token_ptrs[8];
         uint32_t token_slens[8];
         char* line_iter = TokenLex(chr_token_end, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
@@ -6652,7 +6612,6 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         line_start = AdvPastDelim(line_iter, '\n');
         int32_t cur_bp;
         if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
-          DPrintf("\nScanIntAbsDefcap failure; read_variant_idx = %u\n", read_variant_idx);
           goto PmergeConcat_ret_PVAR_REWIND_FAIL_N;
         }
         if (cur_bp < 0) {
@@ -6662,7 +6621,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           continue;
         }
         if (cur_bp > prev_bp) {
-          reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw, (g_debug_on && (read_variant_idx == 2890))? initial_line_start : nullptr);
+          reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
           if (unlikely(reterr)) {
             goto PmergeConcat_ret_N;
           }
@@ -6734,7 +6693,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         same_pos_records[cur_single_pos_ct] = cur_record;
         ++cur_single_pos_ct;
       }
-      reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw, nullptr);
+      reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
       if (unlikely(reterr)) {
         goto PmergeConcat_ret_N;
       }

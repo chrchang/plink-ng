@@ -799,6 +799,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
       *pheno_cols_ptr = pheno_cols;
       *pheno_ct_ptr = pheno_ct;
     }
+    // TODO: print at least a warning if a duplicate sample ID is present.
   }
   while (0) {
   LoadPsam_ret_NOMEM:

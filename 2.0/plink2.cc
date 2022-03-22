@@ -238,6 +238,7 @@ PglErr PgenInfoStandalone(const char* pgenname, const char* pginame) {
         logerrputs("Warning: Skipping --pgen-info since a .bed file was provided.\n");
         reterr = kPglRetSuccess;
       } else {
+        WordWrapB(0);
         logerrputsb();
       }
       goto PgenInfoStandalone_ret_1;

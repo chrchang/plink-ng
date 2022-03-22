@@ -730,8 +730,8 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
     if (raw_variant_ct == UINT32_MAX) {
       // allow raw_variant_ct to be inferred
       uint64_t quotient = (fsize - 3) / const_vrec_width;
-      if (unlikely((quotient > 0x7fffffffU) || (quotient * const_vrec_width + 3 != fsize))) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Unexpected PLINK 1 .bed file size (since raw_sample_ct was %u, [file size - 3] should be divisible by %u and the quotient should be smaller than 2^31).\n", raw_sample_ct, const_vrec_width);
+      if (unlikely((quotient > kPglMaxSampleCt) || (quotient * const_vrec_width + 3 != fsize))) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Unexpected PLINK 1 .bed file size (since raw_sample_ct was %u, [file size - 3] should be divisible by %u and the quotient should be smaller than 2^31 - 1).\n", raw_sample_ct, const_vrec_width);
         return kPglRetMalformedInput;
       }
       raw_variant_ct = quotient;
