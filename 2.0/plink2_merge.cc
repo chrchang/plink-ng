@@ -6033,9 +6033,23 @@ int32_t SamePosPvarRecordNcmp(const void* r1, const void* r2) {
 }
 #endif
 
-PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeContext* ppmcp, SamePosPvarRecord** same_pos_records, MergeReader* mrp, MergeWriter* mwp) {
+uint32_t DebugCheck(char* debug_initial_line_start, uint32_t* debug_printed_ptr) {
+  if (debug_initial_line_start && (!(*debug_printed_ptr))) {
+    if (debug_initial_line_start[82177] != '\t') {
+      *debug_printed_ptr = 1;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeContext* ppmcp, SamePosPvarRecord** same_pos_records, MergeReader* mrp, MergeWriter* mwp, char* debug_initial_line_start) {
   if (!variant_ct) {
     return kPglRetSuccess;
+  }
+  uint32_t debug_printed = 0;
+  if (DebugCheck(debug_initial_line_start, &debug_printed)) {
+    logprintf("byte mutated in ConcatPvariantPos, step 1\n");
   }
   if (ppmcp->sort_vars_mode == kSortAscii) {
     SamePosPvarRecordAsorter* asorter = R_CAST(SamePosPvarRecordAsorter*, same_pos_records);
@@ -6043,6 +6057,9 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
   } else {
     SamePosPvarRecordNsorter* nsorter = R_CAST(SamePosPvarRecordNsorter*, same_pos_records);
     STD_SORT(variant_ct, SamePosPvarRecordNcmp, nsorter);
+  }
+  if (DebugCheck(debug_initial_line_start, &debug_printed)) {
+    logprintf("byte mutated in ConcatPvariantPos, step 2\n");
   }
   ppmcp->pmc.cur_bp = cur_bp;
   uintptr_t* write_nonref_flags = ppmcp->write_nonref_flags;
@@ -6059,6 +6076,9 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
         break;
       }
     }
+    if (DebugCheck(debug_initial_line_start, &debug_printed)) {
+      logprintf("byte mutated in ConcatPvariantPos, step 3, rec_idx_start = %u, rec_idx_end = %u\n", rec_idx_start, rec_idx_end);
+    }
     SamePosPvarRecord** same_id_records = &(same_pos_records[rec_idx_start]);
     const uintptr_t merge_rec_ct = rec_idx_end - rec_idx_start;
     uint32_t is_pr = 0;
@@ -6067,6 +6087,9 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
     PglErr reterr = MergePvariant(merge_rec_ct, &ppmcp->pmc, same_id_records, write_nonref_flags? (&is_pr) : nullptr, &allele_ct, &cur_line_blen);
     if (unlikely(reterr)) {
       return reterr;
+    }
+    if (DebugCheck(debug_initial_line_start, &debug_printed)) {
+      logprintf("byte mutated in ConcatPvariantPos, step 4, rec_idx_start = %u, rec_idx_end = %u\n", rec_idx_start, rec_idx_end);
     }
     // bugfix (8 Sep 2021): forgot that allele_ct == 0 indicates variant skip
     if (allele_ct) {
@@ -6077,13 +6100,22 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
       if (write_allele_idx_offsets) {
         write_allele_idx_offsets[write_variant_idx + 1] = write_allele_idx_offsets[write_variant_idx] + allele_ct;
       }
+      if (DebugCheck(debug_initial_line_start, &debug_printed)) {
+        logprintf("byte mutated in ConcatPvariantPos, step 5, rec_idx_start = %u, rec_idx_end = %u\n", rec_idx_start, rec_idx_end);
+      }
       if (write_nonref_flags) {
         AssignBit(write_variant_idx, is_pr, write_nonref_flags);
+      }
+      if (DebugCheck(debug_initial_line_start, &debug_printed)) {
+        logprintf("byte mutated in ConcatPvariantPos, step 6, rec_idx_start = %u, rec_idx_end = %u\n", rec_idx_start, rec_idx_end);
       }
 
       reterr = MergePgenVariantNoTmpLocked(same_id_records, ppmcp->pmc.allele_remap, merge_rec_ct, allele_ct, ppmcp->pmc.read_max_allele_ct, &mrp, mwp);
       if (unlikely(reterr)) {
         return reterr;
+      }
+      if (DebugCheck(debug_initial_line_start, &debug_printed)) {
+        logprintf("byte mutated in ConcatPvariantPos, step 7, rec_idx_start = %u, rec_idx_end = %u\n", rec_idx_start, rec_idx_end);
       }
 
       ++write_variant_idx;
@@ -6094,8 +6126,14 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
         ppmcp->next_print_variant_idx = next_print_variant_idx;
       }
     }
+    if (DebugCheck(debug_initial_line_start, &debug_printed)) {
+      logprintf("byte mutated in ConcatPvariantPos, step 8, rec_idx_start = %u, rec_idx_end = %u\n", rec_idx_start, rec_idx_end);
+    }
     if (rec_idx_end == variant_ct) {
       ppmcp->write_variant_idx = write_variant_idx;
+      if (DebugCheck(debug_initial_line_start, &debug_printed)) {
+        logprintf("byte mutated in ConcatPvariantPos, step 9, rec_idx_start = %u, rec_idx_end = %u\n", rec_idx_start, rec_idx_end);
+      }
       return kPglRetSuccess;
     }
     rec_idx_start = rec_idx_end;
@@ -6104,16 +6142,6 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
 
 void CleanupPvariantPosMergeContext(PvariantPosMergeContext* ppmcp) {
   CswriteCloseCond(&ppmcp->pmc.css, ppmcp->pmc.cswritep);
-}
-
-static inline uint32_t DebugCheck(char* initial_read_start, uint32_t* debug_printedp) {
-  if (g_debug_on && (!(*debug_printedp))) {
-    if (initial_read_start[82177] != '\t') {
-      *debug_printedp = 1;
-      return 1;
-    }
-  }
-  return 0;
 }
 
 // This can actually deviate from pure concatenation: same-position variants
@@ -6561,25 +6589,15 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       uint32_t cur_single_pos_ct = 0;
       uint32_t prev_chr_idx = UINT32_MAX;
       int32_t prev_bp = 0;
-      uint32_t debug_printed = 0;
       for (uint32_t read_variant_idx = 0; read_variant_idx != read_variant_ct; ++read_variant_idx) {
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 1\n", read_variant_idx);
-        }
         if (unlikely(!TextGetUnsafe2(&pvar_txs, &line_start))) {
           reterr = TextStreamRawErrcode(&pvar_txs);
           DPrintf("\nTextGetUnsafe2 failure; read_variant_idx = %u, reterr = %u\n", read_variant_idx, S_CAST(uint32_t, reterr));
           goto PmergeConcat_ret_PVAR_TSTREAM_REWIND_FAIL_N;
         }
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 2\n", read_variant_idx);
-        }
         char* chr_token_end = CurTokenEnd(line_start);
         const uint32_t chr_idx = GetChrCodeCounted(cip, chr_token_end - line_start, line_start);
         assert(chr_idx < UINT32_MAXM1);
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 3\n", read_variant_idx);
-        }
         if (!IsSet(cip->chr_mask, chr_idx)) {
           if (pgfi.allele_idx_offsets) {
             // No need to actually parse ALT: we only need
@@ -6590,14 +6608,11 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
             // works), so we defensively set the allele count to 2.
             pgfi.allele_idx_offsets[read_variant_idx + 1] = pgfi.allele_idx_offsets[read_variant_idx] + 2;
           }
-          if (DebugCheck(initial_line_start, &debug_printed)) {
-            logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 4\n", read_variant_idx);
-          }
           line_start = AdvPastDelim(chr_token_end, '\n');
           continue;
         }
         if (chr_idx != prev_chr_idx) {
-          reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
+          reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw, nullptr);
           if (unlikely(reterr)) {
             goto PmergeConcat_ret_N;
           }
@@ -6636,44 +6651,26 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           DPrintf("\nTokenLex failure; read_variant_idx = %u\n", read_variant_idx);
           goto PmergeConcat_ret_PVAR_REWIND_FAIL_N;
         }
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 5\n", read_variant_idx);
-        }
         line_start = AdvPastDelim(line_iter, '\n');
         int32_t cur_bp;
         if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
           DPrintf("\nScanIntAbsDefcap failure; read_variant_idx = %u\n", read_variant_idx);
           goto PmergeConcat_ret_PVAR_REWIND_FAIL_N;
         }
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 6\n", read_variant_idx);
-        }
         if (cur_bp < 0) {
           if (pgfi.allele_idx_offsets) {
             pgfi.allele_idx_offsets[read_variant_idx + 1] = pgfi.allele_idx_offsets[read_variant_idx] + 2;
           }
-          if (DebugCheck(initial_line_start, &debug_printed)) {
-            logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 7\n", read_variant_idx);
-          }
           continue;
         }
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 8\n", read_variant_idx);
-        }
         if (cur_bp > prev_bp) {
-          reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
+          reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw, (g_debug_on && (read_variant_idx == 2890))? initial_line_start : nullptr);
           if (unlikely(reterr)) {
             goto PmergeConcat_ret_N;
-          }
-          if (DebugCheck(initial_line_start, &debug_printed)) {
-            logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 9\n", read_variant_idx);
           }
           cur_pos_readbuf_iter = cur_pos_readbuf;
           cur_single_pos_ct = 0;
           prev_bp = cur_bp;
-        }
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 10\n", read_variant_idx);
         }
         SamePosPvarRecord* cur_record = R_CAST(SamePosPvarRecord*, cur_pos_readbuf_iter);
         uint32_t* other_field_offsets = cur_record->other_field_offsets;
@@ -6682,9 +6679,6 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         char* cur_variant_id_start = cur_record->variant_id;
         cur_pos_readbuf_iter = memcpyax(cur_variant_id_start, token_ptrs[1], variant_id_slen, '\0');
         other_field_offsets[0] = variant_id_slen + 1;
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 11\n", read_variant_idx);
-        }
 
         char* ref_start = token_ptrs[2];
         const uint32_t ref_slen = token_slens[2];
@@ -6695,9 +6689,6 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         }
         *cur_pos_readbuf_iter++ = '\0';
         other_field_offsets[1] = cur_pos_readbuf_iter - cur_variant_id_start;
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 12\n", read_variant_idx);
-        }
 
         char* alt_start = token_ptrs[3];
         const uint32_t alt_slen = token_slens[3];
@@ -6708,68 +6699,35 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           *cur_pos_readbuf_iter++ = '.';
         }
         *cur_pos_readbuf_iter++ = '\0';
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 13\n", read_variant_idx);
-        }
         other_field_offsets[2] = cur_pos_readbuf_iter - cur_variant_id_start;
         cur_record->allele_ct = 2 + extra_alt_ct;
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 14\n", read_variant_idx);
-        }
         if (pgfi.allele_idx_offsets) {
           pgfi.allele_idx_offsets[read_variant_idx + 1] = pgfi.allele_idx_offsets[read_variant_idx] + 2 + extra_alt_ct;
-          if (DebugCheck(initial_line_start, &debug_printed)) {
-            logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 15\n", read_variant_idx);
-          }
         }
 
         uint32_t pgen_pr_status = pgen_pr_status_base;
         if (pgfi.nonref_flags) {
           pgen_pr_status |= IsSet(pgfi.nonref_flags, read_variant_idx);
-          if (DebugCheck(initial_line_start, &debug_printed)) {
-            logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 16\n", read_variant_idx);
-          }
         }
         cur_record->pgen_pr_status = pgen_pr_status;
 
         if (read_qual) {
           cur_pos_readbuf_iter = memcpyax(cur_pos_readbuf_iter, token_ptrs[4], token_slens[4], '\0');
-          if (DebugCheck(initial_line_start, &debug_printed)) {
-            logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 17\n", read_variant_idx);
-          }
         }
         other_field_offsets[3] = cur_pos_readbuf_iter - cur_variant_id_start;
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 18\n", read_variant_idx);
-        }
 
         if (read_filter) {
           cur_pos_readbuf_iter = memcpyax(cur_pos_readbuf_iter, token_ptrs[5], token_slens[5], '\0');
-          if (DebugCheck(initial_line_start, &debug_printed)) {
-            logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 19\n", read_variant_idx);
-          }
         }
         other_field_offsets[4] = cur_pos_readbuf_iter - cur_variant_id_start;
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 20\n", read_variant_idx);
-        }
 
         if (read_info) {
           cur_pos_readbuf_iter = memcpyax(cur_pos_readbuf_iter, token_ptrs[6], token_slens[6], '\0');
-          if (DebugCheck(initial_line_start, &debug_printed)) {
-            logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 21\n", read_variant_idx);
-          }
         }
         other_field_offsets[5] = cur_pos_readbuf_iter - cur_variant_id_start;
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 22\n", read_variant_idx);
-        }
 
         if (read_cm) {
           cur_pos_readbuf_iter = memcpya(cur_pos_readbuf_iter, token_ptrs[7], token_slens[7]);
-          if (DebugCheck(initial_line_start, &debug_printed)) {
-            logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 23\n", read_variant_idx);
-          }
         }
         *cur_pos_readbuf_iter++ = '\0';
         // could align up to 8-byte boundary?
@@ -6777,11 +6735,8 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
 
         same_pos_records[cur_single_pos_ct] = cur_record;
         ++cur_single_pos_ct;
-        if (DebugCheck(initial_line_start, &debug_printed)) {
-          logprintf("\nbyte 82177 mutated as of read_variant_idx %u, step 24\n", read_variant_idx);
-        }
       }
-      reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
+      reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw, nullptr);
       if (unlikely(reterr)) {
         goto PmergeConcat_ret_N;
       }
