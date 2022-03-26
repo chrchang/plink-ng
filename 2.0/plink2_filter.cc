@@ -1507,6 +1507,103 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
   return reterr;
 }
 
+static_assert(kTextbufSize >= 2 * kMaxIdBlen, "KeepOneId() needs to be updated.");
+void KeepOneId(const char* sample_id_flattened, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t iid_sid, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+  // Assumes sample_id_flattened is a multistr (sequence of nonempty
+  // null-terminated strings, end-of-sequence is denoted by an empty string)
+  // with 1-3 parts.
+  // If it has 1 part, interpret as an IID, setting FID to 0.
+  // If it has 2 parts, interpret as FID-IID unless iid_sid is true.
+  const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+  {
+    const char* cur_sid = nullptr;
+    uintptr_t cur_sid_blen = 0;
+    const char* cur_fid_iid;
+    uintptr_t cur_fid_iid_blen;
+    {
+      const char* part1_start = sample_id_flattened;
+      const uint32_t part1_blen = strlen(part1_start) + 1;
+      const char* part2_start = &(part1_start[part1_blen]);
+      char* fid_iid_write_iter = g_textbuf;
+      if (!(*part2_start)) {
+        fid_iid_write_iter = strcpya_k(fid_iid_write_iter, "0\t");
+        fid_iid_write_iter = memcpya(fid_iid_write_iter, part1_start, part1_blen);
+      } else {
+        const uint32_t part2_blen = strlen(part2_start) + 1;
+        const char* sid_start = &(part2_start[part2_blen]);
+        if (!(*sid_start)) {
+          if (!iid_sid) {
+            fid_iid_write_iter = memcpyax(fid_iid_write_iter, part1_start, part1_blen - 1, '\t');
+            fid_iid_write_iter = memcpya(fid_iid_write_iter, part2_start, part2_blen);
+
+          } else {
+            fid_iid_write_iter = strcpya_k(fid_iid_write_iter, "0\t");
+            fid_iid_write_iter = memcpya(fid_iid_write_iter, part1_start, part1_blen);
+            cur_sid = part2_start;
+            cur_sid_blen = part2_blen;
+          }
+        } else {
+          fid_iid_write_iter = memcpyax(fid_iid_write_iter, part1_start, part1_blen - 1, '\t');
+          fid_iid_write_iter = memcpya(fid_iid_write_iter, part2_start, part2_blen);
+          cur_sid = sid_start;
+          cur_sid_blen = strlen(sid_start) + 1;
+        }
+      }
+      cur_fid_iid_blen = fid_iid_write_iter - g_textbuf;
+      cur_fid_iid = g_textbuf;
+    }
+    const char* sids = siip->sids;
+    if (cur_sid) {
+      if (!sids) {
+        // No per-sample SID comparisons.  Either SID is always ok, or it never
+        // is and we can immediately return sample_ct = 0.
+        if ((siip->flags & kfSampleIdStrictSid0) && (!strequal_k_unsafe(cur_sid, "0"))) {
+          goto KeepOneId_match_none;
+        }
+        cur_sid = nullptr;
+        cur_sid_blen = 0;
+      }
+    } else {
+      if (sids) {
+        cur_sid = &(g_one_char_strs[96]);  // "0"
+        cur_sid_blen = 2;
+      }
+    }
+    const char* sample_ids = siip->sample_ids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    if ((cur_fid_iid_blen > max_sample_id_blen) || (cur_sid_blen > max_sid_blen)) {
+      goto KeepOneId_match_none;
+    }
+    uint32_t new_sample_ct = 0;
+    for (uint32_t widx = 0; widx != raw_sample_ctl; ++widx) {
+      uintptr_t cur_word = sample_include[widx];
+      if (cur_word) {
+        const uintptr_t sample_uidx_base = widx * kBitsPerWord;
+        uintptr_t new_word = 0;
+        do {
+          const uint32_t sample_uidx_lowbits = ctzw(cur_word);
+          const uintptr_t sample_uidx = sample_uidx_base + sample_uidx_lowbits;
+          if (memequal(&(sample_ids[sample_uidx * max_sample_id_blen]), cur_fid_iid, cur_fid_iid_blen) &&
+              ((!cur_sid) || memequal(&(sids[sample_uidx * max_sid_blen]), cur_sid, cur_sid_blen))) {
+            new_word |= k1LU << sample_uidx_lowbits;
+            ++new_sample_ct;
+          }
+          cur_word &= cur_word - 1;
+        } while (cur_word);
+        sample_include[widx] = new_word;
+      }
+    }
+    logprintf("--indv: %u sample%s remaining.\n", new_sample_ct, (new_sample_ct == 1)? "" : "s");
+    *sample_ct_ptr = new_sample_ct;
+    return;
+  }
+ KeepOneId_match_none:
+  ZeroWArr(raw_sample_ctl, sample_include);
+  *sample_ct_ptr = 0;
+  logputs("--indv: 0 samples remaining.\n");
+}
+
 // Minor extension of PLINK 1.x --filter.  (Renamed since --filter is not
 // sufficiently self-describing; PLINK has lots of other filters on both
 // samples and variants.  --filter is automatically converted to

@@ -1454,9 +1454,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --idspace-to <c>    : Convert spaces in VCF/.bgen sample IDs to the given\n"
 "                        character.\n"
                );
-    HelpPrint("iid-sid\0id-delim\0sample-diff\0", &help_ctrl, 0,
-"  --iid-sid           : Make --id-delim and --sample-diff interpret two-token\n"
-"                        sample IDs as IID-SID instead of FID-IID.\n"
+    HelpPrint("iid-sid\0id-delim\0sample-diff\0indv\0", &help_ctrl, 0,
+"  --iid-sid           : Make --id-delim, --indv, and --sample-diff interpret\n"
+"                        two-token sample IDs as IID-SID instead of FID-IID.\n"
               );
     HelpPrint("vcf\0bcf\0vcf-half-call\0vcf-min-gq\0vcf-min-dp\0vcf-max-dp\0vcf-require-gt\0vcf-ref-n-missing\0", &help_ctrl, 0,
 "  --vcf-require-gt    : Skip variants with no GT field.\n"
@@ -1655,13 +1655,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --family-missing-catname <nm> : Make --family treat the specified FID as\n"
 "                                  missing.\n"
                );
-    HelpPrint("keep\0remove\0keep-fam\0remove-fam\0", &help_ctrl, 0,
+    HelpPrint("keep\0remove\0keep-fam\0remove-fam\0samples-file\0", &help_ctrl, 0,
 "  --keep <fname...>    : Exclude all samples not named in a file.\n"
 "  --remove <fname...>  : Exclude all samples named in a file.\n"
 "  --keep-fam <fn...>   : Exclude all families not named in a file.\n"
 "  --remove-fam <f...>  : Exclude all families named in a file.\n"
                );
-    HelpPrint("extract\0exclude\0range\0extract-intersect\0", &help_ctrl, 0,
+    HelpPrint("extract\0exclude\0range\0extract-intersect\0regions-file\0", &help_ctrl, 0,
 "  --extract [{bed0 | bed1}] <f...> : Usually excludes all variants (not) named\n"
 "  --exclude [{bed0 | bed1}] <f...>   in the given file(s).  When multiple files\n"
 "                                     are named, they are concatenated.\n"
@@ -1796,6 +1796,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                         allows the run to proceed; the set intersection will\n"
 "                         be taken.\n"
                );
+    HelpPrint("indv\0keep\0samples\0", &help_ctrl, 0,
+"  --indv <sample ID>   : Filter out all samples except for those matching\n"
+"                         the provided sample ID.  (Separate the parts of a\n"
+"                         multipart sample ID with spaces.)\n"
+              );
     HelpPrint("thin\0thin-count\0", &help_ctrl, 0,
 "  --thin <p>           : Randomly remove variants, retaining each with prob. p.\n"
 "  --thin-count <n>     : Randomly remove variants until n of them remain.\n"
@@ -2138,9 +2143,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            * 'file'/'f' uses the order in the given file\n"
 "                              (named in the last argument).\n"
                );
-    HelpPrint("pmerge\0pmerge-list\0pmerge-list-dir\0pmerge-output-vzs\0sample-inner-join\0variant-inner-join\0pheno-inner-join\0merge-mode\0merge-parents-mode\0merge-sex-mode\0merge-pheno-mode\0merge-xheader-mode\0merge-qual-mode\0merge-filter-mode\0merge-info-mode\0merge-cm-mode\0", &help_ctrl, 0,
+    HelpPrint("pmerge\0pmerge-list\0delete-pmerge-result\0pmerge-list-dir\0pmerge-output-vzs\0sample-inner-join\0variant-inner-join\0pheno-inner-join\0merge-mode\0merge-parents-mode\0merge-sex-mode\0merge-pheno-mode\0merge-xheader-mode\0merge-qual-mode\0merge-filter-mode\0merge-info-mode\0merge-cm-mode\0", &help_ctrl, 0,
 "  --pmerge-list-dir <dir>  : Specify base dir to join to --pmerge-list entries.\n"
 "  --pmerge-output-vzs      : Compress the .pvar file from --pmerge[-list].\n"
+"  --delete-pmerge-result   : Delete --pmerge[-list] output files at the end of\n"
+"                             the run.\n"
 "  --sample-inner-join      : By default, --pmerge[-list] performs an 'outer\n"
 "  --variant-inner-join       join': the merged fileset contains the union of\n"
 "  --pheno-inner-join         the samples in the input filesets, and ditto for\n"

@@ -78,6 +78,8 @@ FLAGSET_DEF_END(KeepFlags);
 
 PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_sample_ct, KeepFlags flags, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 
+void KeepOneId(const char* sample_id_flattened, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t iid_sid, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
+
 PglErr KeepColMatch(const char* fname, const SampleIdInfo* siip, const char* strs_flattened, const char* col_name, uint32_t raw_sample_ct, uint32_t col_num, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 
 PglErr RequirePheno(const PhenoCol* pheno_cols, const char* pheno_names, const char* require_pheno_flattened, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uintptr_t* sample_include, uint32_t* sample_ct_ptr);

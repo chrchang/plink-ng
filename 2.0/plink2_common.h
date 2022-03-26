@@ -243,8 +243,8 @@ FLAGSET_DEF_START()
 FLAGSET_DEF_END(SampleIdFlags);
 
 // These structs are small enough and ownership of the pointed-to arrays is
-// generall clear enough that the noncopyable annotation is just intended to be
-// a tripwire.
+// generally clear enough that the noncopyable annotation is just intended to
+// be a tripwire.
 typedef struct SampleIdInfoStruct {
   NONCOPYABLE(SampleIdInfoStruct);
   char* sample_ids;

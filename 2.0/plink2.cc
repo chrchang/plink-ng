@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (22 Mar 2022)";
+  " (25 Mar 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -445,6 +445,7 @@ typedef struct Plink2CmdlineStruct {
   char* indep_preferred_fname;
   char* not_pheno_flattened;
   char* not_covar_flattened;
+  char* indv_str;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt1_allele_flag;
   TwoColParams* update_map_flag;
@@ -1439,6 +1440,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
+      }
+      if (pcp->indv_str) {
+        KeepOneId(pcp->indv_str, &pii.sii, raw_sample_ct, (pcp->misc_flags / kfMiscIidSid) & 1, sample_include, &sample_ct);
       }
 
       // todo: --attrib-indiv
@@ -3267,6 +3271,7 @@ int main(int argc, char** argv) {
   pc.indep_preferred_fname = nullptr;
   pc.not_pheno_flattened = nullptr;
   pc.not_covar_flattened = nullptr;
+  pc.indv_str = nullptr;
   InitRangeList(&pc.snps_range_list);
   InitRangeList(&pc.exclude_snps_range_list);
   InitRangeList(&pc.pheno_range_list);
@@ -3673,6 +3678,7 @@ int main(int argc, char** argv) {
     char id_delim = '\0';
     char idspace_to = '\0';
     ImportFlags import_flags = kfImport0;
+    uint32_t delete_pmerge_result = 0;
     uint32_t aperm_present = 0;
     uint32_t notchr_present = 0;
     uint32_t permit_multiple_inclusion_filters = 0;
@@ -4625,6 +4631,8 @@ int main(int argc, char** argv) {
           chr_info.haploid_mask[1] = 0x580;
 #endif
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "elete-pmerge-result")) {
+          delete_pmerge_result = 1;
         } else if (unlikely(*flagname_p2)) {
           // --d is preprocessed
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -6098,6 +6106,15 @@ int main(int argc, char** argv) {
           }
         } else if (strequal_k_unsafe(flagname_p2, "id-sid")) {
           pc.misc_flags |= kfMiscIidSid;
+        } else if (strequal_k_unsafe(flagname_p2, "ndv")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.indv_str);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.filter_flags |= kfFilterPsamReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "mport-dosage"))) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -10691,6 +10708,16 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_A;
       }
     }
+    if (delete_pmerge_result) {
+      if (unlikely(!(pc.command_flags1 & kfCommand1Pmerge))) {
+        logerrputs("Error: --delete-pmerge-result must be used with --pmerge[-list].\n");
+        goto main_ret_INVALID_CMDLINE;
+      }
+      if (unlikely(pc.command_flags1 == kfCommand1Pmerge)) {
+        logerrputs("Error: --delete-pmerge-result doesn't make sense when --pmerge[-list] is run\nwithout any other commands.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+    }
 
 #ifdef USE_MKL
     if (!mkl_native) {
@@ -10946,6 +10973,13 @@ int main(int argc, char** argv) {
         if (!pc.command_flags1) {
           goto main_ret_1;
         }
+        if (delete_pmerge_result) {
+          if (unlikely(PushLlStr(pgenname, &file_delete_list) ||
+                       PushLlStr(pvarname, &file_delete_list) ||
+                       PushLlStr(psamname, &file_delete_list))) {
+            goto main_ret_NOMEM;
+          }
+        }
         // --real-ref-alleles communicates to --pmerge[-list] that all input
         // .bed filesets have real REF alleles.
         // However, we then need to clear this flag since Plink2Core() would
@@ -11031,6 +11065,7 @@ int main(int argc, char** argv) {
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.indv_str);
   free_cond(pc.not_covar_flattened);
   free_cond(pc.not_pheno_flattened);
   free_cond(pc.indep_preferred_fname);
