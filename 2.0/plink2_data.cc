@@ -6419,6 +6419,10 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uintptr_t* main_loadbufs[2];
       main_loadbufs[0] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size));
       main_loadbufs[1] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size));
+      // DEBUG
+      uintptr_t* main_loadbuf_ends[2];
+      main_loadbuf_ends[0] = main_loadbufs[1];
+      main_loadbuf_ends[1] = R_CAST(uintptr_t*, g_bigstack_base);
 
       // todo: multiallelic trim-alts support
 
@@ -6520,6 +6524,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                 PgenErrPrintNV(reterr, read_variant_uidx);
                 goto MakePgenRobust_ret_1;
               }
+              assert(loadbuf_iter <= main_loadbuf_ends[parity]);
               ++block_widx;
               continue;
             } else if (cur_write_allele_ct == 2) {
