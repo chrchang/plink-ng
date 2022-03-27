@@ -1328,7 +1328,7 @@ void GenovecPermuteSubset(const uintptr_t* genovec, const uintptr_t* sample_incl
       const uint32_t bit_read_shift_ct = ctzw(geno_word_xor) & (kBitsPerWord - 2);
       const uintptr_t cur_geno_xor = (geno_word_xor >> bit_read_shift_ct) & 3;
       const uint32_t new_sample_idx = cur_old_sample_idx_to_new[bit_read_shift_ct / 2];
-      // assert(new_sample_idx != UINT32_MAX);
+      assert(new_sample_idx < sample_ct);
       const uint32_t new_byte_idx = new_sample_idx / 4;
       const uint32_t bit_write_shift_ct = 2 * (new_sample_idx % 4);
       writebuf_b[new_byte_idx] ^= cur_geno_xor << bit_write_shift_ct;
@@ -1415,14 +1415,18 @@ void UnpackAndPermuteHphase(const uintptr_t* __restrict all_hets, const uintptr_
         uintptr_t phaseinfo_bits_to_set = _pdep_u64(tmp_phaseinfo_input_word, new_phasepresent_word);
         while (phaseinfo_bits_to_set) {
           const uint32_t sample_uidx_lowbits = ctzw(phaseinfo_bits_to_set);
-          SetBit(old_sample_idx_to_new_iter[sample_uidx_lowbits], phaseinfo);
+          const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
+          assert(new_sample_idx < sample_ct);
+          SetBit(new_sample_idx, phaseinfo);
           phaseinfo_bits_to_set &= phaseinfo_bits_to_set - 1;
         }
 #else
         while (new_phasepresent_word) {
           const uint32_t sample_uidx_lowbits = ctzw(new_phasepresent_word);
           if (tmp_phaseinfo_input_word & 1) {
-            SetBit(old_sample_idx_to_new_iter[sample_uidx_lowbits], phaseinfo);
+            const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
+            assert(new_sample_idx < sample_ct);
+            SetBit(new_sample_idx, phaseinfo);
           }
           tmp_phaseinfo_input_word >>= 1;
           new_phasepresent_word &= new_phasepresent_word - 1;
@@ -1433,7 +1437,9 @@ void UnpackAndPermuteHphase(const uintptr_t* __restrict all_hets, const uintptr_
         uintptr_t phaseinfo_bits_to_set = _pdep_u64(tmp_phaseinfo_input_word, new_phasepresent_word) & sample_include[widx];
         while (phaseinfo_bits_to_set) {
           const uint32_t sample_uidx_lowbits = ctzw(phaseinfo_bits_to_set);
-          SetBit(old_sample_idx_to_new_iter[sample_uidx_lowbits], phaseinfo);
+          const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
+          assert(new_sample_idx < sample_ct);
+          SetBit(new_sample_idx, phaseinfo);
           phaseinfo_bits_to_set &= phaseinfo_bits_to_set - 1;
         }
 #else
@@ -1442,7 +1448,9 @@ void UnpackAndPermuteHphase(const uintptr_t* __restrict all_hets, const uintptr_
           const uint32_t sample_uidx_lowbits = ctzw(masked_phasepresent_word);
           const uintptr_t lowmask = (k1LU << sample_uidx_lowbits) - k1LU;
           if ((tmp_phaseinfo_input_word >> PopcountWord(new_phasepresent_word & lowmask)) & 1) {
-            SetBit(old_sample_idx_to_new_iter[sample_uidx_lowbits], phaseinfo);
+            const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
+            assert(new_sample_idx < sample_ct);
+            SetBit(new_sample_idx, phaseinfo);
           }
           masked_phasepresent_word &= masked_phasepresent_word - 1;
         }
@@ -1549,6 +1557,7 @@ void UnpackAndPermuteHphase(const uintptr_t* __restrict all_hets, const uintptr_
             uintptr_t collapsed_phaseinfo_input_word = _pext_u64(tmp_phaseinfo_input_word, _pext_u64(sample_include_word, phasepresent_word_expanded));
             while (1) {
               const uint32_t new_sample_idx = old_sample_idx_to_new_iter[ctzw(phasepresent_bits_to_set)];
+              assert(new_sample_idx < sample_ct);
               const uint32_t new_sample_widx = new_sample_idx / kBitsPerWord;
               const uint32_t new_sample_lowbits = new_sample_idx % kBitsPerWord;
               const uintptr_t shifted_bit = k1LU << new_sample_lowbits;
@@ -1571,6 +1580,7 @@ void UnpackAndPermuteHphase(const uintptr_t* __restrict all_hets, const uintptr_
               if (sample_include_word & geno_hets_lowbit) {
                 const uint32_t sample_uidx_lowbits = ctzw(geno_hets_lowbit);
                 const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
+                assert(new_sample_idx < sample_ct);
                 const uint32_t new_sample_widx = new_sample_idx / kBitsPerWord;
                 const uint32_t new_sample_lowbits = new_sample_idx % kBitsPerWord;
                 const uintptr_t shifted_bit = k1LU << new_sample_lowbits;
@@ -1630,6 +1640,7 @@ uint32_t CopyAndPermute8bit(const uintptr_t* __restrict sample_include, const ui
       }
       const uint32_t old_sample_idx = widx * kBitsPerWord + ctzw(old_sample_idx_lowbit);
       const uint32_t new_sample_idx = old_sample_idx_to_new[old_sample_idx];
+      assert(new_sample_idx < sample_ct);
       SetBit(new_sample_idx, dst_subset);
       dst_vals_uc[new_sample_idx] = src_vals_uc[old_val_idx];
       ++new_val_ct;
@@ -1671,6 +1682,7 @@ uint32_t CopyAndPermute16bit(const uintptr_t* __restrict sample_include, const u
       }
       const uint32_t old_sample_idx = widx * kBitsPerWord + ctzw(old_sample_idx_lowbit);
       const uint32_t new_sample_idx = old_sample_idx_to_new[old_sample_idx];
+      assert(new_sample_idx < sample_ct);
       SetBit(new_sample_idx, dst_subset);
       dst_vals_u16[new_sample_idx] = src_vals_u16[old_val_idx];
       ++new_val_ct;
@@ -6200,7 +6212,15 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
             goto MakePgenRobust_ret_NOMEM;
           }
           if (subsetting_required) {
-            // SetAllU32Arr(raw_sample_ct, ctx.old_sample_idx_to_new);
+            if (g_debug_on) {
+              // This array is likely to be related to the Mar 2022 bug
+              // investigation: it has intentionally-uninitialized elements,
+              // which shouldn't be looked up, but if an upstream bug causes
+              // them to be looked up anyway, the lack of initialization would
+              // explain why detectable failure did not occur at the same
+              // variant each time.
+              SetAllU32Arr(raw_sample_ct, ctx.old_sample_idx_to_new);
+            }
             const uint32_t raw_sample_ctv = BitCtToVecCt(raw_sample_ct);
             if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sample_include_interleaved_vec))) {
               goto MakePgenRobust_ret_NOMEM;
@@ -6411,6 +6431,23 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       }
       SetThreadFuncAndData(MakePgenThread, &ctx, &tg);
 
+      if (g_debug_on) {
+        // There is a known bug that is likely to lie in MakePgenRobust(); see
+        //   https://groups.google.com/g/plink2-users/c/1bOcjObgjq8/m/7NDQquz3AgAJ .
+        // The runs triggering this bug have phased-dosage data, and include
+        // the --indiv-sort flag.
+        // The input datasets are very large, so integer overflow is one
+        // possible culprit.
+        logprintf("read_dosage_present: %u\n", read_dosage_present);
+        logprintf("read_phase_present: %u\n", read_phase_present);
+        logprintf("read_dphase_present: %u\n", read_dphase_present);
+        logprintf("write_gflags: %u\n", S_CAST(uint32_t, write_gflags));
+        logprintf("nonref_flags_storage: %u\n", nonref_flags_storage);
+        logprintf("spgw_alloc_cacheline_ct: %" PRIuPTR "\n", spgw_alloc_cacheline_ct);
+        logprintf("max_vrec_len: %u\n", max_vrec_len);
+        logprintf("write_mhc_needed: %u\n", write_mhc_needed);
+        logprintf("write_block_size: %u\n", write_block_size);
+      }
       logprintfww5("Writing %s ... ", outname);
       fputs("0%", stdout);
       fflush(stdout);
@@ -7312,7 +7349,9 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
             goto MakePlink2NoVsort_fallback;
           }
           if (subsetting_required) {
-            // SetAllU32Arr(raw_sample_ct, ctx.old_sample_idx_to_new);
+            if (g_debug_on) {
+              SetAllU32Arr(raw_sample_ct, ctx.old_sample_idx_to_new);
+            }
             const uint32_t raw_sample_ctv = BitCtToVecCt(raw_sample_ct);
             if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sample_include_interleaved_vec))) {
               goto MakePlink2NoVsort_fallback;
