@@ -5342,6 +5342,9 @@ typedef struct MakePgenCtxStruct {
   int32_t write_errno;
 } MakePgenCtx;
 
+// DEBUG
+uintptr_t** g_vrec_expected_ends[2] = {nullptr, nullptr};
+
 // One-thread-per-vblock is sensible for possibly-phased biallelic data, where
 // subsetting and LD-compression are a substantial fraction of processing time,
 // and memory requirements tend to be low enough that it's actually reasonable
@@ -5447,6 +5450,8 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
     const uint32_t write_idx_end = MINV(write_idx + kPglVblockSize, cur_block_write_ct);
     uintptr_t* loadbuf_iter = ctx->loadbuf_thread_starts[parity][tidx];
     unsigned char* loaded_vrtypes = ctx->loaded_vrtypes[parity];
+    // DEBUG
+    uintptr_t** vrec_expected_ends = g_vrec_expected_ends[parity];
     uint32_t loaded_vrtype = 0;
     uint32_t chr_end_bidx = 0;
     uint32_t is_x = 0;
@@ -5467,7 +5472,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         is_mt = (chr_idx == mt_code);
         is_haploid_nonmt = IsSet(cip->haploid_mask, chr_idx) && (!is_mt);
       }
-      uintptr_t* cur_genovec_end = &(loadbuf_iter[raw_sample_ctaw2]);
+      uintptr_t* cur_vrec_end = &(loadbuf_iter[raw_sample_ctaw2]);
       if (write_allele_idx_offsets) {
         allele_ct = write_allele_idx_offsets[write_idx + variant_idx_offset + 1] - write_allele_idx_offsets[write_idx + variant_idx_offset];
       }
@@ -5480,22 +5485,22 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       AlleleCode* read_patch_10_vals = nullptr;
       if (is_mhc) {
         assert(allele_ct > 2);
-        read_rare01_ct = cur_genovec_end[0];
-        read_rare10_ct = cur_genovec_end[1];
-        cur_genovec_end = &(cur_genovec_end[RoundUpPow2(2, kWordsPerVec)]);
+        read_rare01_ct = cur_vrec_end[0];
+        read_rare10_ct = cur_vrec_end[1];
+        cur_vrec_end = &(cur_vrec_end[RoundUpPow2(2, kWordsPerVec)]);
         if (read_rare01_ct) {
-          read_patch_01_set = cur_genovec_end;
-          cur_genovec_end = &(cur_genovec_end[raw_sample_ctl]);
-          read_patch_01_vals = R_CAST(AlleleCode*, cur_genovec_end);
-          cur_genovec_end = &(cur_genovec_end[DivUp(read_rare01_ct, kBytesPerWord / sizeof(AlleleCode))]);
-          VecAlignUp64(&cur_genovec_end);
+          read_patch_01_set = cur_vrec_end;
+          cur_vrec_end = &(cur_vrec_end[raw_sample_ctl]);
+          read_patch_01_vals = R_CAST(AlleleCode*, cur_vrec_end);
+          cur_vrec_end = &(cur_vrec_end[DivUp(read_rare01_ct, kBytesPerWord / sizeof(AlleleCode))]);
+          VecAlignUp64(&cur_vrec_end);
         }
         if (read_rare10_ct) {
-          read_patch_10_set = cur_genovec_end;
-          cur_genovec_end = &(cur_genovec_end[raw_sample_ctl]);
-          read_patch_10_vals = R_CAST(AlleleCode*, cur_genovec_end);
-          cur_genovec_end = &(cur_genovec_end[DivUp(read_rare10_ct, kBytesPerWord / (2 * sizeof(AlleleCode)))]);
-          VecAlignUp64(&cur_genovec_end);
+          read_patch_10_set = cur_vrec_end;
+          cur_vrec_end = &(cur_vrec_end[raw_sample_ctl]);
+          read_patch_10_vals = R_CAST(AlleleCode*, cur_vrec_end);
+          cur_vrec_end = &(cur_vrec_end[DivUp(read_rare10_ct, kBytesPerWord / (2 * sizeof(AlleleCode)))]);
+          VecAlignUp64(&cur_vrec_end);
         }
       }
       uint32_t is_hphase = loaded_vrtype & 0x10;
@@ -5508,7 +5513,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         } else {
           PgrDetectGenoarrHetsMultiallelic(loadbuf_iter, read_patch_10_set, read_patch_10_vals, raw_sample_ct, all_hets);
         }
-        cur_phaseraw = cur_genovec_end;
+        cur_phaseraw = cur_vrec_end;
         const uint32_t het_ct = S_CAST(uint32_t, cur_phaseraw[0]);
 #ifdef __LP64__
         const uint32_t explicit_phasepresent_ct = cur_phaseraw[0] >> 32;
@@ -5516,7 +5521,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         const uint32_t explicit_phasepresent_ct = cur_phaseraw[1];
 #endif
         const uint32_t phaseraw_word_ct = (8 / kBytesPerWord) + 1 + (het_ct / kBitsPerWord) + DivUp(explicit_phasepresent_ct, kBitsPerWord);
-        cur_genovec_end = &(cur_genovec_end[RoundUpPow2(phaseraw_word_ct, kWordsPerVec)]);
+        cur_vrec_end = &(cur_vrec_end[RoundUpPow2(phaseraw_word_ct, kWordsPerVec)]);
       }
       const uint32_t is_dosage = loaded_vrtype & 0x60;
       const uint32_t is_dphase = loaded_vrtype & 0x80;
@@ -5532,20 +5537,20 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         assert(allele_ct == 2);
 
         // this should have length dependent on dosage_ct
-        cur_dosagepresent = cur_genovec_end;
+        cur_dosagepresent = cur_vrec_end;
         cur_dosagevals = R_CAST(Dosage*, &(cur_dosagepresent[raw_sample_ctaw]));
         read_dosage_ct = PopcountWords(cur_dosagepresent, raw_sample_ctl);
 
         // temporary
-        cur_genovec_end = &(cur_genovec_end[dosageraw_word_ct]);
+        cur_vrec_end = &(cur_vrec_end[dosageraw_word_ct]);
 
         if (is_dphase) {
-          cur_dphasepresent = cur_genovec_end;
+          cur_dphasepresent = cur_vrec_end;
           cur_dphasedelta = R_CAST(SDosage*, &(cur_dphasepresent[raw_sample_ctaw]));
           read_dphase_ct = PopcountWords(cur_dphasepresent, raw_sample_ctl);
 
           // temporary
-          cur_genovec_end = &(cur_genovec_end[dosageraw_word_ct]);
+          cur_vrec_end = &(cur_vrec_end[dosageraw_word_ct]);
         }
       }
       uint32_t write_rare01_ct = 0;
@@ -5925,7 +5930,13 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           }
         }
       }
-      loadbuf_iter = cur_genovec_end;
+      loadbuf_iter = cur_vrec_end;
+      if (vrec_expected_ends) {
+        if (loadbuf_iter != vrec_expected_ends[write_idx]) {
+          logprintfww("Read-pointer desync after processing (0-based, output) variant #%u.\n", write_idx + variant_idx_offset);
+          assert(loadbuf_iter == vrec_expected_ends[write_idx]);
+        }
+      }
     }
     parity = 1 - parity;
     variant_idx_offset += cur_block_write_ct;
@@ -6436,6 +6447,12 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       SetThreadFuncAndData(MakePgenThread, &ctx, &tg);
 
       if (g_debug_on) {
+        if (pgl_malloc(write_block_size * sizeof(intptr_t), &g_vrec_expected_ends[0]) ||
+            pgl_malloc(write_block_size * sizeof(intptr_t), &g_vrec_expected_ends[1])) {
+          goto MakePgenRobust_ret_NOMEM;
+        }
+        ZeroPtrArr(write_block_size, g_vrec_expected_ends[0]);
+        ZeroPtrArr(write_block_size, g_vrec_expected_ends[1]);
         // There is a known bug that is likely to lie in MakePgenRobust(); see
         //   https://groups.google.com/g/plink2-users/c/1bOcjObgjq8/m/7NDQquz3AgAJ .
         // The runs triggering this bug have phased-dosage data, and include
@@ -6493,6 +6510,8 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           uintptr_t* loadbuf_iter = cur_loadbuf;
           unsigned char* cur_loaded_vrtypes = ctx.loaded_vrtypes[parity];
           ctx.loadbuf_thread_starts[parity][0] = loadbuf_iter;
+          // DEBUG
+          uintptr_t** vrec_expected_ends = g_vrec_expected_ends[parity];
           if (write_allele_idx_offsets) {
             cur_write_allele_idx_offsets = &(write_allele_idx_offsets[read_batch_idx * write_block_size]);
           }
@@ -6523,6 +6542,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
               if (unlikely(reterr)) {
                 PgenErrPrintNV(reterr, read_variant_uidx);
                 goto MakePgenRobust_ret_1;
+              }
+              if (vrec_expected_ends) {
+                vrec_expected_ends[block_widx] = loadbuf_iter;
               }
               assert(loadbuf_iter <= main_loadbuf_ends[parity]);
               ++block_widx;
@@ -6931,6 +6953,14 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
     break;
   }
  MakePgenRobust_ret_1:
+  if (g_vrec_expected_ends[0]) {
+    free(g_vrec_expected_ends[0]);
+    g_vrec_expected_ends[0] = nullptr;
+    if (g_vrec_expected_ends[1]) {
+      free(g_vrec_expected_ends[1]);
+      g_vrec_expected_ends[1] = nullptr;
+    }
+  }
   CleanupThreads(&tg);
   CleanupSpgw(&spgw, &reterr);
   BigstackReset(bigstack_mark);
