@@ -199,12 +199,9 @@ PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict 
   uintptr_t max_alt_ct_p1 = 2;
   if (allele_idx_offsets) {
     const uint32_t variant_ct = variant_ct_limit;
-    if (allele_ct_upper_bound) {
-      max_alt_ct_p1 = allele_ct_upper_bound;
-    } else if (allele_idx_offsets[variant_ct] != 2 * variant_ct) {
+    if (allele_idx_offsets[variant_ct] != 2 * variant_ct) {
       assert(allele_idx_offsets[0] == 0);
       assert(allele_idx_offsets[variant_ct] > 2 * variant_ct);
-      // could add this as a parameter, since caller should know...
       max_alt_ct_p1 = 3;
       uintptr_t prev_offset = 0;
       for (uint32_t vidx = 1; vidx <= variant_ct; ++vidx) {
@@ -215,12 +212,14 @@ PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict 
         prev_offset = cur_offset;
       }
     }
-    if (max_alt_ct_p1 > 2) {
-      // see comments in middle of MpgwInitPhase1()
-      max_vrec_len += 2 + sizeof(AlleleCode) + GetAux1bAlleleEntryByteCt(max_alt_ct_p1, sample_ct - 1);
-      // try to permit uncompressed records to be larger than this, only error
-      // out when trying to write a larger compressed record.
-    }
+  } else if (allele_ct_upper_bound) {
+    max_alt_ct_p1 = allele_ct_upper_bound;
+  }
+  if (max_alt_ct_p1 > 2) {
+    // see comments in middle of MpgwInitPhase1()
+    max_vrec_len += 2 + sizeof(AlleleCode) + GetAux1bAlleleEntryByteCt(max_alt_ct_p1, sample_ct - 1);
+    // try to permit uncompressed records to be larger than this, only error
+    // out when trying to write a larger compressed record.
   }
   if (phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) {
     // phasepresent, phaseinfo

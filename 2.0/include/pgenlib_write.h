@@ -165,7 +165,11 @@ void PreinitSpgw(STPgenWriter* spgwp);
 // If write_mode is kPgenWriteBackwardSeek, variant_ct_limit must be the actual
 // variant count.  Otherwise, variant_ct_limit just needs to be an upper bound,
 // unless you're writing multiallelic variants and you don't specify
-// allele_ct_upper_bound.
+// allele_ct_upper_bound.  If you're using a plink2-style memory workspace,
+// variant_ct_limit := min(kPglMaxVariantCt, bigstack_left() / 8) is a
+// reasonable default: this tends to consume less than half of your remaining
+// workspace, without falling below the number of variants you can
+// realistically load on the system.
 //
 // The body of explicit_nonref_flags doesn't need to be filled until flush.
 PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr);

@@ -628,7 +628,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
       if (unlikely(reterr)) {
         goto VcfSampleLine_ret_TSTREAM_FAIL;
       }
-      uint32_t sample_line_eoln = (ctou32(sample_line_iter[0]) < 32);
+      uint32_t sample_line_eoln = IsEoln(sample_line_iter[0]);
       char* psam_line_start;
       do {
         ++line_idx;
@@ -9876,7 +9876,11 @@ void Bgen11DosageImportUpdate(uint32_t dosage_int_sum_thresh, uint32_t import_do
   *dosage_main_iterp += 1;
 }
 
-BoolErr InitOxfordSingleChr(const char* ox_single_chr_str, const char** single_chr_str_ptr, uint32_t* single_chr_slen_ptr, uint32_t* cur_chr_code_ptr, ChrInfo* cip) {
+// This may make a (tiny) allocation from the bottom of bigstack.
+// single_chr_str_ptr and single_chr_slen_ptr must be nullptr or non-null
+// together.
+// Ok for file_descrip to be nullptr if cur_chr_code_ptr is nullptr.
+PglErr InitOxfordSingleChr(const char* ox_single_chr_str, const char* file_descrip, const char** single_chr_str_ptr, uint32_t* single_chr_slen_ptr, uint32_t* cur_chr_code_ptr, ChrInfo* cip) {
   const uint32_t chr_code_raw = GetChrCodeRaw(ox_single_chr_str);
   if (chr_code_raw == UINT32_MAX) {
     // command-line parser guarantees that allow_extra_chrs is true here
@@ -9884,37 +9888,44 @@ BoolErr InitOxfordSingleChr(const char* ox_single_chr_str, const char** single_c
     if (single_chr_str_ptr) {
       *single_chr_str_ptr = ox_single_chr_str;
       *single_chr_slen_ptr = chr_slen;
-      return 0;
     }
-    return (TryToAddChrName(ox_single_chr_str, "--bgen file", 0, chr_slen, 1, cur_chr_code_ptr, cip) != kPglRetSuccess);
+    PglErr reterr = kPglRetSuccess;
+    if (cur_chr_code_ptr) {
+      if (TryToAddChrName(ox_single_chr_str, file_descrip, 0, chr_slen, 1, cur_chr_code_ptr, cip) != kPglRetSuccess) {
+        reterr = kPglRetInvalidCmdline;
+      }
+    }
+    return reterr;
   }
   uint32_t chr_code = chr_code_raw;
   if (chr_code > cip->max_code) {
     if (chr_code < kMaxContigs) {
       logerrputs("Error: --oxford-single-chr chromosome code is not in the chromosome set.\n");
-      return 1;
+      return kPglRetInvalidCmdline;
     }
     chr_code = cip->xymt_codes[chr_code - kMaxContigs];
     if (IsI32Neg(chr_code)) {
       logerrputs("Error: --oxford-single-chr chromosome code is not in the chromosome set.\n");
-      return 1;
+      return kPglRetInvalidCmdline;
     }
   }
   if (!IsSet(cip->chr_mask, chr_code)) {
     logerrputs("Error: --oxford-single-chr chromosome code is excluded by chromosome filter.\n");
-    return 1;
+    return kPglRetInvalidCmdline;
   }
-  // bugfix (19 Mar 2018): need a not here...
-  if (!single_chr_str_ptr) {
+  if (cur_chr_code_ptr) {
     *cur_chr_code_ptr = chr_code;
-    return 0;
   }
-  // can't fail due to OxGenToPgen()'s writebuf allocation logic
-  char* chr_buf = S_CAST(char*, bigstack_alloc_raw(kCacheline));
-  char* chr_name_end = chrtoa(cip, chr_code, chr_buf);
-  *single_chr_str_ptr = chr_buf;
-  *single_chr_slen_ptr = chr_name_end - chr_buf;
-  return 0;
+  if (single_chr_str_ptr) {
+    char* chr_buf;
+    if (unlikely(bigstack_alloc_c(kCacheline, &chr_buf))) {
+      return kPglRetNomem;
+    }
+    char* chr_name_end = chrtoa(cip, chr_code, chr_buf);
+    *single_chr_str_ptr = chr_buf;
+    *single_chr_slen_ptr = chr_name_end - chr_buf;
+  }
+  return kPglRetSuccess;
 }
 
 static_assert(sizeof(Dosage) == 2, "OxGenToPgen() needs to be updated.");
@@ -9991,8 +10002,9 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
     const char* single_chr_str = nullptr;
     uint32_t single_chr_slen = 0;
     if (ox_single_chr_str) {
-      if (unlikely(InitOxfordSingleChr(ox_single_chr_str, &single_chr_str, &single_chr_slen, nullptr, cip))) {
-        goto OxGenToPgen_ret_INVALID_CMDLINE;
+      reterr = InitOxfordSingleChr(ox_single_chr_str, nullptr, &single_chr_str, &single_chr_slen, nullptr, cip);
+      if (unlikely(reterr)) {
+        goto OxGenToPgen_ret_1;
       }
     }
 
@@ -10429,9 +10441,6 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
     break;
   OxGenToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
-    break;
-  OxGenToPgen_ret_INVALID_CMDLINE:
-    reterr = kPglRetInvalidCmdline;
     break;
   OxGenToPgen_ret_INVALID_DOSAGE:
     putc_unlocked('\n', stdout);
@@ -12201,8 +12210,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
 
     uint32_t cur_chr_code = 0;
     if (ox_single_chr_str) {
-      if (unlikely(InitOxfordSingleChr(ox_single_chr_str, nullptr, nullptr, &cur_chr_code, cip))) {
-        goto OxBgenToPgen_ret_INVALID_CMDLINE;
+      reterr = InitOxfordSingleChr(ox_single_chr_str, "--bgen file", nullptr, nullptr, &cur_chr_code, cip);
+      if (unlikely(reterr)) {
+        goto OxBgenToPgen_ret_1;
       }
     }
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
@@ -13805,9 +13815,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   OxBgenToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  OxBgenToPgen_ret_INVALID_CMDLINE:
-    reterr = kPglRetInvalidCmdline;
-    break;
   OxBgenToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
@@ -13850,63 +13857,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   CswriteCloseCond(&pvar_css, pvar_cswritep);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
-}
-
-BoolErr ImportLegendCols(const char* fname, uintptr_t line_idx, uint32_t prov_ref_allele_second, const char** loadbuf_iter_ptr, char** write_iter_ptr, uint32_t* variant_ct_ptr) {
-  {
-    if (*variant_ct_ptr == kPglMaxVariantCt) {
-      logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
-      return 1;
-    }
-    *variant_ct_ptr += 1;
-    char* write_iter = *write_iter_ptr;
-    *write_iter++ = '\t';
-    const char* id_start = *loadbuf_iter_ptr;
-    const char* id_end = CurTokenEnd(id_start);
-    const uint32_t id_slen = id_end - id_start;
-    if (id_slen > kMaxIdSlen) {
-      logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
-      return 1;
-    }
-    const char* pos_str = FirstNonTspace(id_end);
-    if (unlikely(!pos_str)) {
-      goto ImportLegendCols_ret_MISSING_TOKENS;
-    }
-    const char* pos_end = CurTokenEnd(pos_str);
-    uint32_t cur_bp;
-    if (ScanUintDefcap(pos_str, &cur_bp)) {
-      logpreprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, fname);
-      return 1;
-    }
-    write_iter = u32toa_x(cur_bp, '\t', write_iter);
-    write_iter = memcpyax(write_iter, id_start, id_slen, '\t');
-    const char* first_allele_str = FirstNonTspace(pos_end);
-    if (unlikely(IsEolnKns(*first_allele_str))) {
-      goto ImportLegendCols_ret_MISSING_TOKENS;
-    }
-    const char* first_allele_end = CurTokenEnd(first_allele_str);
-    const char* second_allele_str = FirstNonTspace(first_allele_end);
-    if (unlikely(IsEolnKns(*second_allele_str))) {
-      goto ImportLegendCols_ret_MISSING_TOKENS;
-    }
-    const char* second_allele_end = CurTokenEnd(second_allele_str);
-    if (!prov_ref_allele_second) {
-      write_iter = memcpyax(write_iter, first_allele_str, first_allele_end - first_allele_str, '\t');
-      write_iter = memcpya(write_iter, second_allele_str, second_allele_end - second_allele_str);
-    } else {
-      write_iter = memcpyax(write_iter, second_allele_str, second_allele_end - second_allele_str, '\t');
-      write_iter = memcpya(write_iter, first_allele_str, first_allele_end - first_allele_str);
-    }
-    *write_iter_ptr = write_iter;
-    AppendBinaryEoln(write_iter_ptr);
-    *loadbuf_iter_ptr = second_allele_end;
-    return 0;
-  }
-  {
-  ImportLegendCols_ret_MISSING_TOKENS:
-    logpreprintfww("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
-    return 1;
-  }
 }
 
 PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t sample_ct, uint32_t is_haploid, uintptr_t line_idx_haps, uint32_t* at_least_one_het_ptr) {
@@ -13967,8 +13917,7 @@ PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t s
 #ifdef NO_UNALIGNED
 #  error "Unaligned accesses in OxHapslegendToPgen()."
 #endif
-PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, __attribute__((unused)) uint32_t* pgi_generated_ptr) {
-  // TODO: make this single-pass.
+PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgi_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* psamfile = nullptr;
   uintptr_t line_idx_haps = 0;
@@ -14014,7 +13963,6 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       }
       goto OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS;
     }
-    unsigned char* bigstack_mark2 = g_bigstack_base;
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
     if (output_zst) {
       snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
@@ -14026,73 +13974,38 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     }
     pvar_cswritep = strcpya_k(pvar_cswritep, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
     ++line_idx_haps;
-    char* haps_line_start = TextGet(&haps_txs);
-    if (unlikely(!haps_line_start)) {
+    char* haps_line_iter = TextGet(&haps_txs);
+    if (unlikely(!haps_line_iter)) {
       if (!TextStreamErrcode2(&haps_txs, &reterr)) {
         snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", hapsname);
         goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
       goto OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS;
     }
-    const uint32_t token_ct = CountTokens(haps_line_start);
-    // pass 1: count variants, write .pvar file, may as well also verify
-    // there's at least one heterozygous call
+    const uint32_t token_ct = CountTokens(haps_line_iter);
     FinalizeChrset(misc_flags, cip);
-    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
-    const uint32_t prov_ref_allele_second = !(oxford_import_flags & kfOxfordImportRefFirst);
-    uint32_t at_least_one_het = 0;
-    uintptr_t variant_skip_ct = 0;
-    uint32_t variant_ct = 0;
+    const char* single_chr_str = nullptr;
+    char* legend_line_start = nullptr;
+    uint32_t single_chr_slen = 0;
     uint32_t is_haploid = 0;
+    // Count number of samples in the .haps file.
+    // Note that the user is not required to provide a .sample file.  So, if a
+    // .sample file is provided, verify the count is as expected; if not,
+    // generate a .psam with the correct sample count once we know what it is.
     uint32_t sample_ct;
-    // support both .haps + .legend (.haps expected to contain no header
-    // columns), and pure .haps
     if (legendname[0]) {
-      assert(ox_single_chr_str);
       if (unlikely(token_ct % 2)) {
         snprintf(g_logbuf, kLogbufSize, "Error: %s has an odd number of tokens in the first line. (With --haps + --legend, the .haps file is expected to have no header columns.)\n", hapsname);
         goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
       }
       sample_ct = token_ct / 2;
-      if (unlikely(sfile_sample_ct && (sfile_sample_ct != sample_ct))) {
-        snprintf(g_logbuf, kLogbufSize, "Error: .sample file has %u sample%s, while %s has %u.\n", sfile_sample_ct, (sfile_sample_ct == 1)? "" : "s", hapsname, sample_ct);
-        goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
-      }
-      reterr = TextRewind(&haps_txs);
+      // Other .legend-specific initialization.
+      uint32_t chr_code;
+      reterr = InitOxfordSingleChr(ox_single_chr_str, "--legend argument", &single_chr_str, &single_chr_slen, &chr_code, cip);
       if (unlikely(reterr)) {
-        goto OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS;
+        goto OxHapslegendToPgen_ret_1;
       }
-      line_idx_haps = 0;
-      const uint32_t chr_code_raw = GetChrCodeRaw(ox_single_chr_str);
-      const char* single_chr_str = nullptr;
-      uint32_t single_chr_slen;
-      char chr_buf[8];  // nothing longer than e.g. "chrMT" for now
-      if (chr_code_raw == UINT32_MAX) {
-        // command-line parser guarantees that allow_extra_chrs is true here
-        single_chr_str = ox_single_chr_str;
-        single_chr_slen = strlen(ox_single_chr_str);
-      } else {
-        uint32_t chr_code = chr_code_raw;
-        if (chr_code > cip->max_code) {
-          if (unlikely(chr_code < kMaxContigs)) {
-            logerrputs("Error: --legend chromosome code is not in the chromosome set.\n");
-            goto OxHapslegendToPgen_ret_INVALID_CMDLINE;
-          }
-          chr_code = cip->xymt_codes[chr_code - kMaxContigs];
-          if (unlikely(IsI32Neg(chr_code))) {
-            logerrputs("Error: --legend chromosome code is not in the chromosome set.\n");
-            goto OxHapslegendToPgen_ret_INVALID_CMDLINE;
-          }
-        }
-        if (unlikely(!IsSet(cip->chr_mask, chr_code))) {
-          logerrputs("Error: --legend chromosome code is excluded by chromosome filter.\n");
-          goto OxHapslegendToPgen_ret_INVALID_CMDLINE;
-        }
-        is_haploid = IsSet(cip->haploid_mask, chr_code);
-        char* chr_name_end = chrtoa(cip, chr_code, chr_buf);
-        single_chr_str = chr_buf;
-        single_chr_slen = chr_name_end - chr_buf;
-      }
+      is_haploid = IsSet(cip->haploid_mask, chr_code);
       reterr = InitTextStream(legendname, max_line_blen, 1, &legend_txs);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
@@ -14105,7 +14018,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         goto OxHapslegendToPgen_ret_TSTREAM_FAIL_LEGEND;
       }
       ++line_idx_legend;
-      char* legend_line_start = TextGet(&legend_txs);
+      legend_line_start = TextGet(&legend_txs);
       if (unlikely(!legend_line_start)) {
         if (!TextStreamErrcode2(&legend_txs, &reterr)) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", legendname);
@@ -14118,112 +14031,23 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       if (unlikely(!NextTokenMult(legend_line_start, 3))) {
         goto OxHapslegendToPgen_ret_MISSING_TOKENS_LEGEND;
       }
-      while (1) {
-        ++line_idx_legend;
-        legend_line_start = TextGet(&legend_txs);
-        if (!legend_line_start) {
-          if (likely(!TextStreamErrcode2(&legend_txs, &reterr))) {
-            break;
-          }
-          goto OxHapslegendToPgen_ret_TSTREAM_FAIL_LEGEND;
-        }
-        const char* linebuf_iter = legend_line_start;
-        pvar_cswritep = memcpya(pvar_cswritep, single_chr_str, single_chr_slen);
-        if (unlikely(ImportLegendCols(legendname, line_idx_legend, prov_ref_allele_second, &linebuf_iter, &pvar_cswritep, &variant_ct))) {
-          goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
-        }
-        if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
-          goto OxHapslegendToPgen_ret_WRITE_FAIL;
-        }
-        if (!at_least_one_het) {
-          ++line_idx_haps;
-          haps_line_start = TextGet(&haps_txs);
-          if (unlikely(!haps_line_start)) {
-            if (!TextStreamErrcode2(&haps_txs, &reterr)) {
-              if (line_idx_haps == 1) {
-                goto OxHapslegendToPgen_ret_TSTREAM_REWIND_FAIL_HAPS;
-              }
-              snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
-              goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
-            }
-            goto OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS;
-          }
-          reterr = ScanHapsForHet(haps_line_start, hapsname, sample_ct, is_haploid, line_idx_haps, &at_least_one_het);
-          if (unlikely(reterr)) {
-            WordWrapB(0);
-            logerrputsb();
-            goto OxHapslegendToPgen_ret_1;
-          }
-        }
-      }
-      BigstackReset(TextStreamMemStart(&legend_txs));
-      if (unlikely(CleanupTextStream2(legendname, &legend_txs, &reterr))) {
-        goto OxHapslegendToPgen_ret_1;
-      }
     } else {
+      // !legendname[0]
       if (unlikely((token_ct < 7) || (!(token_ct % 2)))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Unexpected token count in line %" PRIuPTR " of %s (should be odd, >5).\n", line_idx_haps, hapsname);
         goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
       }
       sample_ct = (token_ct - 5) / 2;
-      if (unlikely(sfile_sample_ct && (sfile_sample_ct != sample_ct))) {
+    }
+    if (sfile_sample_ct) {
+      if (unlikely(sfile_sample_ct != sample_ct)) {
         snprintf(g_logbuf, kLogbufSize, "Error: .sample file has %u sample%s, while %s has %u.\n", sfile_sample_ct, (sfile_sample_ct == 1)? "" : "s", hapsname, sample_ct);
         goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
-      char* haps_line_iter = haps_line_start;
-      while (1) {
-        char* chr_code_end = CurTokenEnd(haps_line_iter);
-        char* linebuf_iter = FirstNonTspace(chr_code_end);
-        if (unlikely(IsEolnKns(*linebuf_iter))) {
-          goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
-        }
-        uint32_t cur_chr_code;
-        reterr = GetOrAddChrCodeDestructive("--haps file", line_idx_haps, allow_extra_chrs, haps_line_iter, chr_code_end, cip, &cur_chr_code);
-        if (unlikely(reterr)) {
-          goto OxHapslegendToPgen_ret_1;
-        }
-        if (!IsSet(cip->chr_mask, cur_chr_code)) {
-          ++variant_skip_ct;
-        } else {
-          is_haploid = IsSet(cip->haploid_mask, cur_chr_code);
-          pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
-          if (unlikely(ImportLegendCols(hapsname, line_idx_haps, prov_ref_allele_second, K_CAST(const char**, &linebuf_iter), &pvar_cswritep, &variant_ct))) {
-            putc_unlocked('\n', stdout);
-            goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
-          }
-          if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
-            goto OxHapslegendToPgen_ret_WRITE_FAIL;
-          }
-          if (!at_least_one_het) {
-            linebuf_iter = FirstNonTspace(linebuf_iter);
-            if (unlikely(ScanHapsForHet(linebuf_iter, hapsname, sample_ct, is_haploid, line_idx_haps, &at_least_one_het))) {
-              // override InconsistentInput return code since chromosome info
-              // was also gathered from .haps file
-              goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
-            }
-          }
-        }
-        haps_line_iter = AdvPastDelim(linebuf_iter, '\n');
-        ++line_idx_haps;
-        if (!TextGetUnsafe2(&haps_txs, &haps_line_iter)) {
-          if (likely(!TextStreamErrcode2(&haps_txs, &reterr))) {
-            break;
-          }
-          goto OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS;
-        }
-      }
-      if (unlikely(!variant_ct)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: All %" PRIuPTR " variant%s in %s skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s", hapsname);
-        goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
-      }
-    }
-    if (unlikely(CswriteCloseNull(&pvar_css, pvar_cswritep))) {
-      goto OxHapslegendToPgen_ret_WRITE_FAIL;
-    }
-    BigstackReset(bigstack_mark2);
-    if (!sfile_sample_ct) {
+    } else {
       // create a dummy .psam file with "per0", "per1", etc. IDs, matching
       // --dummy
+      unsigned char* bigstack_mark2 = g_bigstack_base;
       char* writebuf = S_CAST(char*, bigstack_alloc_raw(kMaxMediumLine + max_line_blen));
       char* writebuf_flush = &(writebuf[kMaxMediumLine]);
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
@@ -14244,16 +14068,18 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       }
       BigstackReset(bigstack_mark2);
     }
-    reterr = TextRewind(&haps_txs);
-    if (unlikely(reterr)) {
-      goto OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS;
+
+    const uint32_t variant_ct_limit = MINV(kPglMaxVariantCt, bigstack_left() / 8);
+    const uint32_t keep_pgi = !(import_flags & kfImportKeepAutoconv);
+    if (keep_pgi) {
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+      *pgi_generated_ptr = 1;
+    } else {
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".tmp.pgen");
     }
-    line_idx_haps = 0;
-    logprintf("--haps%s: %u variant%s scanned.\n", legendname[0]? " + --legend" : "", variant_ct, (variant_ct == 1)? "" : "s");
-    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, kPgenWriteBackwardSeek, at_least_one_het? kfPgenGlobalHardcallPhasePresent : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct_limit, sample_ct, 0, kPgenWriteSeparateIndex, kfPgenGlobalHardcallPhasePresent, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -14268,46 +14094,128 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    const uint32_t prov_ref_allele_second = !(oxford_import_flags & kfOxfordImportRefFirst);
     const uint32_t phaseinfo_match_4char = prov_ref_allele_second? 0x20312030 : 0x20302031;
     const uint32_t phaseinfo_match = 1 + prov_ref_allele_second;
+    uint32_t variant_ct = 0;
+    uintptr_t variant_skip_ct = 0;
     uintptr_t* genovec;
     uintptr_t* phaseinfo;
     if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
                  bigstack_alloc_w(sample_ctl, &phaseinfo))) {
       goto OxHapslegendToPgen_ret_NOMEM;
     }
-
-    char* haps_line_iter = TextLineEnd(&haps_txs);
-    for (uint32_t vidx = 0; vidx != variant_ct; ) {
+    goto OxHapslegendToPgen_first_line;
+    while (1) {
       ++line_idx_haps;
       reterr = TextGetUnsafe(&haps_txs, &haps_line_iter);
-      if (unlikely(reterr)) {
-        if ((reterr == kPglRetEof) && (line_idx_haps > 1) && (legendname[0])) {
-          snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
+      if (reterr) {
+        if (unlikely(reterr != kPglRetEof)) {
+          goto OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS;
+        }
+        if (legend_line_start) {
+          if (unlikely(TextGet(&legend_txs) != nullptr)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
+            goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
+          }
+        }
+        reterr = kPglRetSuccess;
+        break;
+      }
+    OxHapslegendToPgen_first_line:
+      if (legend_line_start) {
+        ++line_idx_legend;
+        legend_line_start = TextGet(&legend_txs);
+        if (unlikely(legend_line_start == nullptr)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", legendname, hapsname);
           goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
         }
-        goto OxHapslegendToPgen_ret_TSTREAM_REWIND_FAIL_HAPS;
       }
       char* linebuf_iter = haps_line_iter;
-      if (!legendname[0]) {
+      char* variant_id_start;
+      char* variant_id_end;
+      char* bp_start;
+      char* bp_end;
+      char* allele0_start;
+      char* allele0_end;
+      char* allele1_start;
+      char* allele1_end;
+      if (!legend_line_start) {
         char* chr_code_end = CurTokenEnd(haps_line_iter);
-        const uint32_t cur_chr_code = GetChrCodeCounted(cip, chr_code_end - haps_line_iter, haps_line_iter);
-        if (!IsSet(cip->chr_mask, cur_chr_code)) {
-          haps_line_iter = AdvPastDelim(haps_line_iter, '\n');
-          continue;
-        }
-        is_haploid = IsSet(cip->haploid_mask, cur_chr_code);
-        linebuf_iter = NextTokenMult(FirstNonTspace(chr_code_end), 4);
-        if (unlikely(!linebuf_iter)) {
+        variant_id_start = FirstNonTspace(chr_code_end);
+        variant_id_end = FirstSpaceOrEoln(variant_id_start);
+        bp_start = FirstNonTspace(variant_id_end);
+        bp_end = FirstSpaceOrEoln(bp_start);
+        allele0_start = FirstNonTspace(bp_end);
+        allele0_end = FirstSpaceOrEoln(allele0_start);
+        allele1_start = FirstNonTspace(allele0_end);
+        allele1_end = FirstSpaceOrEoln(allele1_start);
+        linebuf_iter = FirstNonTspace(allele1_end);
+        if (unlikely(IsEolnKns(*linebuf_iter))) {
           goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
         }
+        uint32_t cur_chr_code;
+        reterr = GetOrAddChrCodeDestructive("--haps file", line_idx_haps, allow_extra_chrs, haps_line_iter, chr_code_end, cip, &cur_chr_code);
+        if (unlikely(reterr)) {
+          goto OxHapslegendToPgen_ret_1;
+        }
+        if (!IsSet(cip->chr_mask, cur_chr_code)) {
+          ++variant_skip_ct;
+          haps_line_iter = AdvPastDelim(linebuf_iter, '\n');
+          continue;
+        }
+        pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
+        is_haploid = IsSet(cip->haploid_mask, cur_chr_code);
+      } else {
+        variant_id_start = legend_line_start;
+        variant_id_end = FirstSpaceOrEoln(variant_id_start);
+        bp_start = FirstNonTspace(variant_id_end);
+        bp_end = FirstSpaceOrEoln(bp_start);
+        allele0_start = FirstNonTspace(bp_end);
+        allele0_end = FirstSpaceOrEoln(allele0_start);
+        allele1_start = FirstNonTspace(allele0_end);
+        if (unlikely(IsEolnKns(*allele1_start))) {
+          goto OxHapslegendToPgen_ret_MISSING_TOKENS_LEGEND;
+        }
+        allele1_end = FirstSpaceOrEoln(allele1_start);
+
+        pvar_cswritep = memcpya(pvar_cswritep, single_chr_str, single_chr_slen);
+      }
+      *pvar_cswritep++ = '\t';
+      const uint32_t id_slen = variant_id_end - variant_id_start;
+      if (unlikely(id_slen > kMaxIdSlen)) {
+        logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+        goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
+      }
+      uint32_t cur_bp;
+      if (unlikely(ScanUintDefcap(bp_start, &cur_bp))) {
+        if (legend_line_start) {
+          logprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_legend, legendname);
+        } else {
+          logprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
+        }
+        goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
+      }
+      pvar_cswritep = u32toa_x(cur_bp, '\t', pvar_cswritep);
+      pvar_cswritep = memcpyax(pvar_cswritep, variant_id_start, id_slen, '\t');
+      if (!prov_ref_allele_second) {
+        pvar_cswritep = memcpyax(pvar_cswritep, allele0_start, allele0_end - allele0_start, '\t');
+        pvar_cswritep = memcpya(pvar_cswritep, allele1_start, allele1_end - allele1_start);
+      } else {
+        pvar_cswritep = memcpyax(pvar_cswritep, allele1_start, allele1_end - allele1_start, '\t');
+        pvar_cswritep = memcpya(pvar_cswritep, allele0_start, allele0_end - allele0_start);
+      }
+      AppendBinaryEoln(&pvar_cswritep);
+      if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
+        goto OxHapslegendToPgen_ret_WRITE_FAIL;
       }
       uintptr_t genovec_word_or = 0;
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       // optimize common case: autosomal diploid, always exactly one space
       // this loop is time-critical; all my attemps to merge in the haploid
       // case have caused >10% slowdowns
-      if ((!is_haploid) && (ctou32(linebuf_iter[sample_ct * 4 - 1]) < 32)) {
+      if ((!is_haploid) && IsEoln(linebuf_iter[sample_ct * 4 - 1])) {
         haps_line_iter = AdvPastDelim(&(linebuf_iter[sample_ct * 4 - 1]), '\n');
         linebuf_iter[sample_ct * 4 - 1] = ' ';
 #ifdef __LP64__
@@ -14487,21 +14395,24 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           goto OxHapslegendToPgen_ret_WRITE_FAIL;
         }
       }
-      if (!(++vidx % 1000)) {
-        printf("\r--haps%s: %uk variants converted.", legendname[0]? " + --legend" : "", vidx / 1000);
+      if (!(++variant_ct % 1000)) {
+        printf("\r--haps%s: %uk variants converted.", legendname[0]? " + --legend" : "", variant_ct / 1000);
         fflush(stdout);
       }
+    }
+    if (unlikely(CswriteCloseNull(&pvar_css, pvar_cswritep))) {
+      goto OxHapslegendToPgen_ret_WRITE_FAIL;
     }
     SpgwFinish(&spgw);
     putc_unlocked('\r', stdout);
     char* write_iter = strcpya_k(g_logbuf, "--haps");
-    if (legendname[0]) {
+    if (legend_line_start) {
       write_iter = strcpya_k(write_iter, " + --legend");
     }
     write_iter = strcpya_k(write_iter, ": ");
     const uint32_t outname_base_slen = outname_end - outname;
-    write_iter = memcpya(write_iter, outname, outname_base_slen + 5);
-    write_iter = strcpya_k(write_iter, " + ");
+    write_iter = memcpya(write_iter, outname, outname_base_slen);
+    write_iter = strcpya_k(write_iter, ".pgen + ");
     if (!sfile_sample_ct) {
       write_iter = memcpya(write_iter, outname, outname_base_slen);
       write_iter = strcpya_k(write_iter, ".psam + ");
@@ -14514,12 +14425,14 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     snprintf(write_iter, kLogbufSize - 3 * kPglFnamesize - 64, " written.\n");
     WordWrapB(0);
     logputsb();
+    if (!keep_pgi) {
+      reterr = EmbedPgenIndex(outname, outname_end);
+      if (unlikely(reterr)) {
+        goto OxHapslegendToPgen_ret_1;
+      }
+    }
   }
   while (0) {
-  OxHapslegendToPgen_ret_TSTREAM_REWIND_FAIL_HAPS:
-    putc_unlocked('\n', stdout);
-    TextStreamErrPrintRewind(hapsname, &haps_txs, &reterr);
-    break;
   OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS:
     putc_unlocked('\n', stdout);
     TextStreamErrPrint(hapsname, &haps_txs);
@@ -14535,9 +14448,6 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     break;
   OxHapslegendToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
-    break;
-  OxHapslegendToPgen_ret_INVALID_CMDLINE:
-    reterr = kPglRetInvalidCmdline;
     break;
   OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx_haps, hapsname);

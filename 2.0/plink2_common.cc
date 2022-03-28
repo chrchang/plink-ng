@@ -3406,6 +3406,9 @@ void PgenErrPrintEx(const char* file_descrip, uint32_t prepend_lf, PglErr reterr
 
 // Given <outname>.tmp.pgen and <outname>.tmp.pgen.pgi, this generates
 // <outname>.pgen and then deletes the two temporary files.
+// TODO: add a third pgenlib_write mode which takes care of this automatically.
+// At the minimal cost of one extra malloc/free (for the base filename string),
+// we avoid the need to create a temporary index file.
 PglErr EmbedPgenIndex(char* outname, char* outname_end) {
   FILE* infile = nullptr;
   FILE* outfile = nullptr;
@@ -3419,19 +3422,79 @@ PglErr EmbedPgenIndex(char* outname, char* outname_end) {
     if (unlikely(fopen_checked(outname, FOPEN_RB, &infile))) {
       goto EmbedPgenIndex_ret_OPEN_FAIL;
     }
-    unsigned char copybuf[kPglFwriteBlockSize + 3];
-    uintptr_t nbyte = fread(copybuf, 1, kPglFwriteBlockSize, infile);
-    if (unlikely((nbyte <= 3) || (!memequal_k(copybuf, "l\x1b\x30", 3)))) {
-      logerrprintfww("Error: %s does not appear to be a .pgen index file.\n", outname);
-      goto EmbedPgenIndex_ret_MALFORMED_INPUT;
+    if (unlikely(fseeko(infile, 0, SEEK_END))) {
+      goto EmbedPgenIndex_ret_READ_PGI_FAIL;
     }
-    copybuf[2] = 0x10;
-    do {
+    const uint64_t pgi_fsize = ftello(infile);
+    if (unlikely(pgi_fsize < 20)) {
+      goto EmbedPgenIndex_ret_INVALID_INDEX;
+    }
+    rewind(infile);
+    uint32_t variant_ct;
+    {
+      char startbuf[12];
+      if (unlikely(!fread(startbuf, 12, 1, infile))) {
+        goto EmbedPgenIndex_ret_READ_PGI_FAIL;
+      }
+      if (unlikely(!memequal_k(startbuf, "l\x1b\x30", 3))) {
+        goto EmbedPgenIndex_ret_INVALID_INDEX;
+      }
+      memcpy(&variant_ct, &(startbuf[3]), 4);
+      // May allow variant_ct == 0 later.
+      if (unlikely((!variant_ct) || (variant_ct > kPglMaxVariantCt))) {
+        goto EmbedPgenIndex_ret_INVALID_INDEX;
+      }
+      startbuf[2] = 0x10;
+      if (unlikely(!fwrite_unlocked(startbuf, 12, 1, outfile))) {
+        goto EmbedPgenIndex_ret_WRITE_FAIL;
+      }
+    }
+    {
+      const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
+      // The next (vblock_ct * 8) bytes of the .pgen.pgi file are a
+      // random-access index, reporting the byte positions that variants 0,
+      // 65536, 131072, etc. start at in the .pgen.
+      // We must increment these positions by (pgi_fsize - 3), since the .pgen
+      // without an embedded index has only 3 header bytes.
+      if (unlikely(pgi_fsize < 12 + vblock_ct * 8)) {
+        goto EmbedPgenIndex_ret_INVALID_INDEX;
+      }
+      const uint32_t kPglFwriteBlockSizeD8 = kPglFwriteBlockSize / 8;
+      const uint64_t offset_incr = pgi_fsize - 3;
+      uint32_t remaining_vblock_ct = vblock_ct;
+      uint64_t offset_buf[kPglFwriteBlockSizeD8];
+      while (remaining_vblock_ct > kPglFwriteBlockSizeD8) {
+        if (unlikely(!fread(offset_buf, kPglFwriteBlockSize, 1, infile))) {
+          goto EmbedPgenIndex_ret_READ_PGI_FAIL;
+        }
+        for (uint32_t uii = 0; uii != kPglFwriteBlockSizeD8; ++uii) {
+          offset_buf[uii] += offset_incr;
+        }
+        if (unlikely(!fwrite_unlocked(offset_buf, kPglFwriteBlockSize, 1, outfile))) {
+          goto EmbedPgenIndex_ret_WRITE_FAIL;
+        }
+        remaining_vblock_ct -= kPglFwriteBlockSizeD8;
+      }
+      if (unlikely(!fread(offset_buf, remaining_vblock_ct * 8, 1, infile))) {
+        goto EmbedPgenIndex_ret_READ_PGI_FAIL;
+      }
+      for (uint32_t uii = 0; uii != remaining_vblock_ct; ++uii) {
+        offset_buf[uii] += offset_incr;
+      }
+      if (unlikely(!fwrite_unlocked(offset_buf, remaining_vblock_ct * 8, 1, outfile))) {
+        goto EmbedPgenIndex_ret_WRITE_FAIL;
+      }
+    }
+    while (1) {
+      unsigned char copybuf[kPglFwriteBlockSize];
+      uintptr_t nbyte = fread(copybuf, 1, kPglFwriteBlockSize, infile);
+      if (!nbyte) {
+        break;
+      }
       if (unlikely(!fwrite_unlocked(copybuf, nbyte, 1, outfile))) {
         goto EmbedPgenIndex_ret_WRITE_FAIL;
       }
-      nbyte = fread(copybuf, 1, kPglFwriteBlockSize, infile);
-    } while (nbyte);
+    }
     if (unlikely(fclose_null(&infile))) {
       goto EmbedPgenIndex_ret_READ_PGI_FAIL;
     }
@@ -3439,7 +3502,8 @@ PglErr EmbedPgenIndex(char* outname, char* outname_end) {
     if (unlikely(fopen_checked(outname, FOPEN_RB, &infile))) {
       goto EmbedPgenIndex_ret_OPEN_FAIL;
     }
-    nbyte = fread(copybuf, 1, kPglFwriteBlockSize + 3, infile);
+    unsigned char copybuf[kPglFwriteBlockSize + 3];
+    uintptr_t nbyte = fread(copybuf, 1, kPglFwriteBlockSize + 3, infile);
     if (unlikely((nbyte <= 3) || (!memequal_k(copybuf, "l\x1b\x20", 3)))) {
       logerrprintfww("Error: %s does not appear to be a .pgen with an external index file.\n", outname);
       goto EmbedPgenIndex_ret_MALFORMED_INPUT;
@@ -3490,6 +3554,9 @@ PglErr EmbedPgenIndex(char* outname, char* outname_end) {
   EmbedPgenIndex_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
+  EmbedPgenIndex_ret_INVALID_INDEX:
+    // strcpy_k(outname_end, ".tmp.pgen.pgi");
+    logerrprintfww("Error: %s does not appear to be a .pgen index file.\n", outname);
   EmbedPgenIndex_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;

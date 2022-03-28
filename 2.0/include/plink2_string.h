@@ -675,6 +675,10 @@ HEADER_INLINE int32_t IsNotNzdigit(unsigned char ucc) {
 }
 
 // May as well treat all chars < 32, except tab, as eoln...
+HEADER_INLINE int32_t IsEoln(unsigned char ucc) {
+  return (ucc < 32) && (ucc != 9);
+}
+
 // kns = "known non-space" (where tab counts as a space)
 // This is of course identical to IsSpaceOrEoln(), but intent should be
 // clearer and we can insert a debug-assert that we aren't at a space/tab.
