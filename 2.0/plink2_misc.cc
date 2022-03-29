@@ -3895,7 +3895,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
           }
         }
       } else {
-        reterr = PgrGetM(cur_sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+        reterr = PgrGetM(cur_sample_include, pssi, nobs_base, variant_uidx, simple_pgrp, &pgv);
         if (unlikely(reterr)) {
           PgenErrPrintNV(reterr, variant_uidx);
           goto WriteGenoCounts_ret_1;

@@ -1379,7 +1379,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
     if (unlikely(!mpgwp)) {
       goto Plink1SampleMajorToPgen_ret_NOMEM;
     }
-    mpgwp->pgen_outfile = nullptr;
+    PreinitMpgw(mpgwp);
     if (unlikely(bigstack_alloc_vp(calc_thread_ct, &ctx.thread_vecaligned_bufs) ||
                  bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_genovecs))) {
       goto Plink1SampleMajorToPgen_ret_NOMEM;

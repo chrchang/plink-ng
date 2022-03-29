@@ -6430,10 +6430,12 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uintptr_t* main_loadbufs[2];
       main_loadbufs[0] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size));
       main_loadbufs[1] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size));
+#ifndef NDEBUG
       // DEBUG
       uintptr_t* main_loadbuf_ends[2];
       main_loadbuf_ends[0] = main_loadbufs[1];
       main_loadbuf_ends[1] = R_CAST(uintptr_t*, g_bigstack_base);
+#endif
 
       // todo: multiallelic trim-alts support
 
@@ -6546,7 +6548,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
               if (vrec_expected_ends) {
                 vrec_expected_ends[block_widx] = loadbuf_iter;
               }
+#ifndef NDEBUG
               assert(loadbuf_iter <= main_loadbuf_ends[parity]);
+#endif
               ++block_widx;
               continue;
             } else if (cur_write_allele_ct == 2) {
@@ -7326,7 +7330,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       if (!mpgwp) {
         goto MakePlink2NoVsort_fallback;
       }
-      mpgwp->pgen_outfile = nullptr;
+      PreinitMpgw(mpgwp);
       if (bigstack_alloc_wp(calc_thread_ct, &(ctx.loadbuf_thread_starts[0])) ||
           bigstack_alloc_wp(calc_thread_ct, &(ctx.loadbuf_thread_starts[1]))) {
         goto MakePlink2NoVsort_fallback;

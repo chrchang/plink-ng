@@ -14071,15 +14071,13 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
 
     const uint32_t variant_ct_limit = MINV(kPglMaxVariantCt, bigstack_left() / 8);
     const uint32_t keep_pgi = !(import_flags & kfImportKeepAutoconv);
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     if (keep_pgi) {
-      snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       *pgi_generated_ptr = 1;
-    } else {
-      snprintf(outname_end, kMaxOutfnameExtBlen, ".tmp.pgen");
     }
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct_limit, sample_ct, 0, kPgenWriteSeparateIndex, kfPgenGlobalHardcallPhasePresent, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct_limit, sample_ct, 0, keep_pgi? kPgenWriteSeparateIndex : kPgenWriteAndCopy, kfPgenGlobalHardcallPhasePresent, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -14185,11 +14183,13 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       *pvar_cswritep++ = '\t';
       const uint32_t id_slen = variant_id_end - variant_id_start;
       if (unlikely(id_slen > kMaxIdSlen)) {
+        putc_unlocked('\n', stdout);
         logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
         goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
       }
       uint32_t cur_bp;
       if (unlikely(ScanUintDefcap(bp_start, &cur_bp))) {
+        putc_unlocked('\n', stdout);
         if (legend_line_start) {
           logprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_legend, legendname);
         } else {
@@ -14404,6 +14404,10 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       goto OxHapslegendToPgen_ret_WRITE_FAIL;
     }
     SpgwFinish(&spgw);
+    if (unlikely(!variant_ct)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: All %" PRIuPTR " variant%s in %s skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s", hapsname);
+      goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
+    }
     putc_unlocked('\r', stdout);
     char* write_iter = strcpya_k(g_logbuf, "--haps");
     if (legend_line_start) {
@@ -14425,12 +14429,6 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     snprintf(write_iter, kLogbufSize - 3 * kPglFnamesize - 64, " written.\n");
     WordWrapB(0);
     logputsb();
-    if (!keep_pgi) {
-      reterr = EmbedPgenIndex(outname, outname_end);
-      if (unlikely(reterr)) {
-        goto OxHapslegendToPgen_ret_1;
-      }
-    }
   }
   while (0) {
   OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS:
@@ -14483,6 +14481,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
   CleanupSpgw(&spgw, &reterr);
   CleanupTextStream2(legendname, &legend_txs, &reterr);
   CleanupTextStream2(hapsname, &haps_txs, &reterr);
+  CswriteCloseCond(&pvar_css, pvar_cswritep);
   fclose_cond(psamfile);
   BigstackReset(bigstack_mark);
   return reterr;

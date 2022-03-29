@@ -87,13 +87,17 @@ typedef struct PgenWriterCommonStruct {
 // the header at the end.
 //
 // The flush requires a backward seek if write_mode is set to
-// kPgenWriteBackwardSeek during initialization.  Otherwise, the index is
-// saved to a separate .pgen.pgi file (and the .pgen is written sequentially.
+// kPgenWriteBackwardSeek during initialization.  Otherwise, the (possibly
+// temporary) .pgen is written sequentially; in the kPgenWriteSeparateIndex
+// mode, the index is then saved to a separate .pgen.pgi file, while in the
+// kPgenWriteAndCopy mode, the real .pgen is only created at the end, by
+// writing the index and then appending the body of the first .pgen (which is
+// then deleted).
 //
 // Slightly over 128 KiB (kPglFwriteBlockSize) of stack space is currently
-// required.  We use plain fwrite() instead of write() to make this more
-// portable, and a 128 KiB write-block size keeps the associated performance
-// penalty to a minimum.
+// required.  We use plain fwrite() instead of write() to reduce the amount of
+// necessary platform-specific logic; a 128 KiB write-block size keeps the
+// associated performance penalty to a minimum.
 //
 // MTPgenWriter has additional restrictions:
 // * You must process large blocks of variants at a time (64k per thread).
@@ -103,7 +107,8 @@ typedef struct PgenWriterCommonStruct {
 
 ENUM_U31_DEF_START()
   kPgenWriteBackwardSeek,
-  kPgenWriteSeparateIndex
+  kPgenWriteSeparateIndex,
+  kPgenWriteAndCopy
 ENUM_U31_DEF_END(PgenWriteMode);
 
 typedef struct STPgenWriterStruct {
@@ -113,19 +118,26 @@ typedef struct STPgenWriterStruct {
   PgenWriterCommon const& GET_PRIVATE_pwc() const { return pwc; }
   FILE*& GET_PRIVATE_pgen_outfile() { return pgen_outfile; }
   FILE* const& GET_PRIVATE_pgen_outfile() const { return pgen_outfile; }
-  FILE*& GET_PRIVATE_pgi_outfile() { return pgi_outfile; }
-  FILE* const& GET_PRIVATE_pgi_outfile() const { return pgi_outfile; }
+  FILE*& GET_PRIVATE_pgi_or_final_pgen_outfile() { return pgi_or_final_pgen_outfile; }
+  FILE* const& GET_PRIVATE_pgi_or_final_pgen_outfile() const { return pgi_or_final_pgen_outfile; }
+  char*& GET_PRIVATE_fname_buf() { return fname_buf; }
+  char* const& GET_PRIVATE_fname_buf() const { return fname_buf; }
  private:
 #endif
   PgenWriterCommon pwc;
   FILE* pgen_outfile;
-  FILE* pgi_outfile;
+  FILE* pgi_or_final_pgen_outfile;
+  // Initialized in kPgenWriteAndCopy mode.  It is necessary on at least macOS
+  // to close and reopen the initially-written .pgen; freopen() with
+  // filename=nullptr can't be used to change from write-mode to read-mode.
+  char* fname_buf;
 } STPgenWriter;
 
 typedef struct MTPgenWriterStruct {
   MOVABLE_BUT_NONCOPYABLE(MTPgenWriterStruct);
   FILE* pgen_outfile;
-  FILE* pgi_outfile;
+  FILE* pgi_or_final_pgen_outfile;
+  char* fname_buf;
   uint32_t thread_ct;
   PgenWriterCommon* pwcs[];
 } MTPgenWriter;
@@ -146,6 +158,8 @@ HEADER_INLINE uint32_t SpgwGetVidx(STPgenWriter* spgwp) {
 }
 
 void PreinitSpgw(STPgenWriter* spgwp);
+
+void PreinitMpgw(MTPgenWriter* mpgwp);
 
 // phase_dosage_gflags zero vs. nonzero is most important: this determines size
 // of header.  Otherwise, setting more flags than necessary just increases
