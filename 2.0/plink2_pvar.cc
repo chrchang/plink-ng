@@ -1679,6 +1679,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           missing_allele_ct += (geno_char == '.');
           *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
         } else {
+          // sanity check: prohibit comma
+          // (could also do it in ref_slen == 1 case, but that's much less
+          // likely to happen by accident)
+          if (unlikely(memchr(ref_allele, ',', ref_slen) != nullptr)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid REF allele on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
+            goto LoadPvar_ret_MALFORMED_INPUT_WW;
+          }
           if (StoreStringAtEndK(tmp_alloc_base, ref_allele, ref_slen, &tmp_alloc_end, allele_storage_iter)) {
             goto LoadPvar_ret_NOMEM;
           }

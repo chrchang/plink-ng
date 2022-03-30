@@ -12399,7 +12399,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           if (unlikely(!fread_unlocked(loadbuf, snpid_slen, 1, bgenfile))) {
             goto OxBgenToPgen_ret_READ_FAIL;
           }
-          loadbuf[snpid_slen] = '\0';
+          // loadbuf[snpid_slen] = '\0';
         }
         uint16_t rsid_slen;
         if (unlikely(!fread_unlocked(&rsid_slen, 2, 1, bgenfile))) {
@@ -12427,15 +12427,14 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (strequal_k(R_CAST(char*, loadbuf), "NA", chr_name_slen)) {
-              memcpy_k(loadbuf, "0", 2);
+              loadbuf[0] = '0';
               chr_name_slen = 1;
-            } else {
-              loadbuf[chr_name_slen] = '\0';
             }
           } else {
             chr_name_slen = snpid_slen;
           }
-          reterr = GetOrAddChrCodeDestructive("--bgen file", 0, allow_extra_chrs, R_CAST(char*, loadbuf), R_CAST(char*, &(loadbuf[chr_name_slen])), cip, &cur_chr_code);
+          loadbuf[chr_name_slen] = '\0';
+          reterr = GetOrAddChrCode(R_CAST(char*, loadbuf), "--bgen file", 0, chr_name_slen, allow_extra_chrs, cip, &cur_chr_code);
           if (unlikely(reterr)) {
             goto OxBgenToPgen_ret_1;
           }
@@ -12638,7 +12637,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               if (unlikely(!fread_unlocked(loadbuf, snpid_slen, 1, bgenfile))) {
                 goto OxBgenToPgen_ret_READ_FAIL;
               }
-              loadbuf[snpid_slen] = '\0';
+              // loadbuf[snpid_slen] = '\0';
               rsid_start = R_CAST(char*, &(loadbuf[snpid_slen + 1]));
             }
             uint16_t rsid_slen;
@@ -12674,10 +12673,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
                   goto OxBgenToPgen_ret_READ_FAIL;
                 }
                 if (strequal_k(chr_name_start, "NA", chr_name_slen)) {
-                  strcpy_k(chr_name_start, "0");
+                  chr_name_start[0] = '0';
                   chr_name_slen = 1;
-                } else {
-                  chr_name_start[chr_name_slen] = '\0';
                 }
               } else {
                 if (unlikely(fseeko(bgenfile, chr_name_slen, SEEK_CUR))) {
@@ -12686,10 +12683,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
                 chr_name_start = R_CAST(char*, loadbuf);
                 chr_name_slen = snpid_slen;
               }
-              reterr = GetOrAddChrCodeDestructive("--bgen file", 0, allow_extra_chrs, chr_name_start, &(chr_name_start[chr_name_slen]), cip, &cur_chr_code);
-              if (unlikely(reterr)) {
-                goto OxBgenToPgen_ret_1;
-              }
+              chr_name_start[chr_name_slen] = '\0';
+              cur_chr_code = GetChrCode(chr_name_start, cip, chr_name_slen);
               skip = !IsSet(cip->chr_mask, cur_chr_code);
             }
 
@@ -13067,7 +13062,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           if (unlikely(!fread_unlocked(loadbuf, snpid_slen, 1, bgenfile))) {
             goto OxBgenToPgen_ret_READ_FAIL;
           }
-          loadbuf[snpid_slen] = '\0';
+          // loadbuf[snpid_slen] = '\0';
           rsid_start = R_CAST(char*, &(loadbuf[snpid_slen + 1]));
         }
         uint16_t rsid_slen;
@@ -13103,10 +13098,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (strequal_k(chr_name_start, "NA", chr_name_slen)) {
-              strcpy_k(chr_name_start, "0");
+              chr_name_start[0] = '0';
               chr_name_slen = 1;
-            } else {
-              chr_name_start[chr_name_slen] = '\0';
             }
           } else {
             if (unlikely(fseeko(bgenfile, chr_name_slen, SEEK_CUR))) {
@@ -13117,7 +13110,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           }
           // chromosome ID length restriction enforced here, so we don't check
           // earlier
-          reterr = GetOrAddChrCodeDestructive("--bgen file", 0, allow_extra_chrs, chr_name_start, &(chr_name_start[chr_name_slen]), cip, &cur_chr_code);
+          chr_name_start[chr_name_slen] = '\0';
+          reterr = GetOrAddChrCode(chr_name_start, "--bgen file", 0, chr_name_slen, allow_extra_chrs, cip, &cur_chr_code);
           if (unlikely(reterr)) {
             goto OxBgenToPgen_ret_1;
           }
