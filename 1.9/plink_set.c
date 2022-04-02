@@ -269,7 +269,7 @@ uint32_t alloc_and_populate_nonempty_set_incl(Set_info* sip, uint32_t* nonempty_
   return 0;
 }
 
-int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t allow_no_variants, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_len_ptr, Make_set_range*** make_set_range_arr_ptr, uint64_t** range_sort_buf_ptr, const char* file_descrip) {
+int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t allow_no_variants, uintptr_t subset_ct, uint32_t allow_extra_chroms, char* sorted_subset_ids, uintptr_t max_subset_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_len_ptr, Make_set_range*** make_set_range_arr_ptr, uint64_t** range_sort_buf_ptr, const char* file_descrip) {
   // Called directly by extract_exclude_range(), define_sets(), and indirectly
   // by annotate(), gene_report(), and clump_reports().
   // Assumes caller will reset g_bigstack_end later.
@@ -323,18 +323,18 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	*first_token_end = '\0';
 	int32_t cur_chrom_code = get_chrom_code(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
 	if (cur_chrom_code < 0) {
-          // kludge (21 Jan 2020): in the --extract/exclude range case, we
-          // should just skip lines that mention a chromosome absent from the
-          // dataset instead of erroring out, if --allow-extra-chr is
-          // specified.  (And it's not obvious whether there's any value in
-          // erroring out when --allow-extra-chr isn't specified, for that
-          // matter; I won't bother for now since it would require adding
-          // another function argument.)
-          if ((!set_ct_ptr) && (cur_chrom_code == -1)) {
+          // quasi-bugfix (2 Apr 2022): It is reasonable for an alternate
+          // contig to be present in a range-list input file, while being
+          // absent from the main dataset due to filtering.  When
+          // --allow-extra-chr is specified, this should be handled the same
+          // way as any other range that doesn't overlap the main dataset.
+          if (cur_chrom_code == -2) {
+            sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+            goto load_range_list_ret_INVALID_FORMAT_2;
+          }
+          if (!set_ct_ptr) {
             continue;
           }
-          sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
-          goto load_range_list_ret_INVALID_FORMAT_2;
 	}
 	// chrom_mask check removed, we want to track empty sets
 	uii = strlen_se(bufptr2);
@@ -371,10 +371,12 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	  memcpy(ll_tmp->ss, bufptr3, uii);
 	} else {
 	  // quasi-bugfix (7 Oct 2017): forgot to check for this
-	  if (cur_chrom_code > 9999) {
-	    logerrprint("Error: This command does not support 10000+ contigs.\n");
+	  if (cur_chrom_code > 9998) {
+	    logerrprint("Error: This command does not support 9999+ contigs.\n");
 	    goto load_range_list_ret_INVALID_FORMAT;
-	  }
+	  } else if (cur_chrom_code == -1) {
+            cur_chrom_code = 9999;
+          }
 	  uitoa_z4((uint32_t)cur_chrom_code, ll_tmp->ss);
 	  // if first character of gene name is a digit, natural sort has
 	  // strange effects unless we force [3] to be nonnumeric...
@@ -585,7 +587,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
   return retval;
 }
 
-int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t is_exclude, uint32_t allow_no_variants, Chrom_info* chrom_info_ptr) {
+int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t is_exclude, uint32_t allow_no_variants, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr) {
   if (unfiltered_marker_ct == *marker_exclude_ct_ptr) {
     return 0;
   }
@@ -601,7 +603,7 @@ int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfil
   if (fopen_checked(fname, "r", &infile)) {
     goto extract_exclude_range_ret_OPEN_FAIL;
   }
-  retval = load_range_list(infile, 0, 0, 0, 0, 0, allow_no_variants, 0, nullptr, 0, marker_pos, chrom_info_ptr, nullptr, nullptr, nullptr, &range_arr, nullptr, is_exclude? "--exclude range" : "--extract range");
+  retval = load_range_list(infile, 0, 0, 0, 0, 0, allow_no_variants, 0, allow_extra_chroms, nullptr, 0, marker_pos, chrom_info_ptr, nullptr, nullptr, nullptr, &range_arr, nullptr, is_exclude? "--exclude range" : "--extract range");
   if (retval) {
     goto extract_exclude_range_ret_1;
   }
@@ -989,7 +991,7 @@ uint32_t save_set_range(uint64_t* range_sort_buf, uint32_t marker_ct, uint32_t r
   return 0;
 }
 
-int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, uint32_t allow_no_variants) {
+int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, uint32_t allow_no_variants, uint32_t allow_extra_chroms) {
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* infile = nullptr;
   char* sorted_marker_ids = nullptr;
@@ -1176,7 +1178,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   }
   // 3. load --make-set range list
   if (make_set) {
-    retval = load_range_list(infile, !sip->merged_set_name, sip->make_set_border, sip->modifier & SET_MAKE_COLLAPSE_GROUP, gene_all || sip->genekeep_flattened, c_prefix, allow_no_variants, subset_ct, sorted_subset_ids, max_subset_id_len, marker_pos, chrom_info_ptr, &set_ct, &set_names, &max_set_id_len, &make_set_range_arr, &range_sort_buf, "--make-set");
+    retval = load_range_list(infile, !sip->merged_set_name, sip->make_set_border, sip->modifier & SET_MAKE_COLLAPSE_GROUP, gene_all || sip->genekeep_flattened, c_prefix, allow_no_variants, subset_ct, allow_extra_chroms, sorted_subset_ids, max_subset_id_len, marker_pos, chrom_info_ptr, &set_ct, &set_names, &max_set_id_len, &make_set_range_arr, &range_sort_buf, "--make-set");
     if (retval) {
       goto define_sets_ret_1;
     }
@@ -2201,7 +2203,7 @@ uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, 
   return 0;
 }
 
-int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, Chrom_info* chrom_info_ptr, uintptr_t* gene_ct_ptr, char** gene_names_ptr, uintptr_t* max_gene_id_len_ptr, uintptr_t** chrom_bounds_ptr, uint32_t*** genedefs_ptr, uintptr_t* chrom_max_gene_ct_ptr, const char* file_descrip) {
+int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t subset_ct, uint32_t allow_extra_chroms, char* sorted_subset_ids, uintptr_t max_subset_id_len, Chrom_info* chrom_info_ptr, uintptr_t* gene_ct_ptr, char** gene_names_ptr, uintptr_t* max_gene_id_len_ptr, uintptr_t** chrom_bounds_ptr, uint32_t*** genedefs_ptr, uintptr_t* chrom_max_gene_ct_ptr, const char* file_descrip) {
   // --annotate, --clump-range, --gene-report
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* infile = nullptr;
@@ -2231,7 +2233,7 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   if (fopen_checked(fname, "r", &infile)) {
     goto load_range_list_sortpos_ret_OPEN_FAIL;
   }
-  retval = load_range_list(infile, 1, border_extend, 0, 0, 0, 0, subset_ct, sorted_subset_ids, 0, nullptr, chrom_info_ptr, &gene_ct, gene_names_ptr, &max_gene_id_len, &gene_arr, &range_sort_buf, file_descrip);
+  retval = load_range_list(infile, 1, border_extend, 0, 0, 0, 0, subset_ct, allow_extra_chroms, sorted_subset_ids, 0, nullptr, chrom_info_ptr, &gene_ct, gene_names_ptr, &max_gene_id_len, &gene_arr, &range_sort_buf, file_descrip);
   if (retval) {
     goto load_range_list_sortpos_ret_1;
   }
@@ -2737,7 +2739,7 @@ int32_t annotate(const Annot_info* aip, uint32_t allow_extra_chroms, char* outna
 	subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, nullptr);
       }
       // normally can't use border here because we need nearest distance
-      retval = load_range_list_sortpos(aip->ranges_fname, (block01 && (!track_distance))? border : 0, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &range_ct, &range_names, &max_range_name_len, &chrom_bounds, &rangedefs, &chrom_max_range_ct, "--annotate ranges");
+      retval = load_range_list_sortpos(aip->ranges_fname, (block01 && (!track_distance))? border : 0, subset_ct, allow_extra_chroms, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &range_ct, &range_names, &max_range_name_len, &chrom_bounds, &rangedefs, &chrom_max_range_ct, "--annotate ranges");
       if (retval) {
 	goto annotate_ret_1;
       }
@@ -2761,7 +2763,7 @@ int32_t annotate(const Annot_info* aip, uint32_t allow_extra_chroms, char* outna
 	  goto annotate_ret_1;
 	}
       }
-      retval = load_range_list_sortpos(aip->filter_fname, border, 0, nullptr, 0, chrom_info_ptr, &filter_range_ct, &filter_range_names, &max_filter_range_name_len, &chrom_filter_bounds, &filter_rangedefs, &chrom_max_filter_range_ct, "--annotate filter");
+      retval = load_range_list_sortpos(aip->filter_fname, border, 0, allow_extra_chroms, nullptr, 0, chrom_info_ptr, &filter_range_ct, &filter_range_names, &max_filter_range_name_len, &chrom_filter_bounds, &filter_rangedefs, &chrom_max_filter_range_ct, "--annotate filter");
       if (retval) {
 	goto annotate_ret_1;
       }
@@ -3373,7 +3375,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       goto gene_report_ret_1;
     }
   }
-  retval = load_range_list_sortpos(glist, 0, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &gene_ct, &gene_names, &max_gene_name_len, &chrom_bounds, &genedefs, &chrom_max_gene_ct, "--gene-report");
+  retval = load_range_list_sortpos(glist, 0, subset_ct, allow_extra_chroms, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &gene_ct, &gene_names, &max_gene_name_len, &chrom_bounds, &genedefs, &chrom_max_gene_ct, "--gene-report");
   if (retval) {
     goto gene_report_ret_1;
   }

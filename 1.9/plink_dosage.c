@@ -819,7 +819,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    logerrprint("Error: '--extract range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	    goto plink1_dosage_ret_INVALID_CMDLINE;
 	  }
-	  retval = extract_exclude_range(extractname, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, 0, chrom_info_ptr);
+	  retval = extract_exclude_range(extractname, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, 0, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, chrom_info_ptr);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
 	  }
@@ -838,7 +838,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    logerrprint("Error: '--exclude range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	    goto plink1_dosage_ret_INVALID_CMDLINE;
 	  }
-	  retval = extract_exclude_range(excludename, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1, 0, chrom_info_ptr);
+	  retval = extract_exclude_range(excludename, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1, 0, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, chrom_info_ptr);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
 	  }

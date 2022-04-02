@@ -12664,7 +12664,7 @@ void update_clump_histo(double pval, uintptr_t* histo) {
   }
 }
 
-int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, Clump_info* clump_ip, uintptr_t* sex_male, uint32_t hh_exists) {
+int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, Clump_info* clump_ip, uintptr_t* sex_male, uint32_t hh_exists, uint32_t allow_extra_chroms) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   gzFile gz_infile = nullptr;
@@ -12833,7 +12833,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
   if (clump_ip->range_fname) {
     // 1. load range file, sort, etc.
-    retval = load_range_list_sortpos(clump_ip->range_fname, clump_ip->range_border, 0, nullptr, 0, chrom_info_ptr, &range_group_ct, &range_group_names, &max_range_group_id_len, &rg_chrom_bounds, &rg_setdefs, &range_chrom_max, "--clump-range");
+    retval = load_range_list_sortpos(clump_ip->range_fname, clump_ip->range_border, 0, allow_extra_chroms, nullptr, 0, chrom_info_ptr, &range_group_ct, &range_group_names, &max_range_group_id_len, &rg_chrom_bounds, &rg_setdefs, &range_chrom_max, "--clump-range");
     if (retval) {
       goto clump_reports_ret_1;
     }

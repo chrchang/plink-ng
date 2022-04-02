@@ -105,10 +105,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (16 Mar 2022)";
+  " (2 Apr 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has two trailing digits)
 #else
@@ -848,7 +848,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	    logerrprint("Error: \"--extract range\" requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	    goto plink_ret_INVALID_CMDLINE;
 	  }
-	  retval = extract_exclude_range(extractname, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, allow_no_variants, chrom_info_ptr);
+	  retval = extract_exclude_range(extractname, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, allow_no_variants, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, chrom_info_ptr);
 	  if (retval) {
 	    goto plink_ret_1;
 	  }
@@ -867,7 +867,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	    logerrprint("Error: \"--exclude range\" requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	    goto plink_ret_INVALID_CMDLINE;
 	  }
-	  retval = extract_exclude_range(excludename, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1, allow_no_variants, chrom_info_ptr);
+	  retval = extract_exclude_range(excludename, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1, allow_no_variants, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, chrom_info_ptr);
 	  if (retval) {
 	    goto plink_ret_1;
 	  }
@@ -1416,7 +1416,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	logerrprint("Error: --set/--make-set requires a sorted .bim file.  Retry this command after\nusing --make-bed to sort your data.\n");
 	goto plink_ret_INVALID_FORMAT;
       }
-      retval = define_sets(sip, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, marker_ids, max_marker_id_blen, chrom_info_ptr, allow_no_variants);
+      retval = define_sets(sip, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, marker_ids, max_marker_id_blen, chrom_info_ptr, allow_no_variants, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -2137,7 +2137,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       logerrprint("Error: --clump requires a sorted .bim.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = clump_reports(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, founder_info, clump_ip, sex_male, hh_exists);
+    retval = clump_reports(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, founder_info, clump_ip, sex_male, hh_exists, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1);
     if (retval) {
       goto plink_ret_1;
     }
