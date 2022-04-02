@@ -328,9 +328,12 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
           // absent from the main dataset due to filtering.  When
           // --allow-extra-chr is specified, this should be handled the same
           // way as any other range that doesn't overlap the main dataset.
-          if (cur_chrom_code == -2) {
-            sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
-            goto load_range_list_ret_INVALID_FORMAT_2;
+          if ((cur_chrom_code == -2) || ((cur_chrom_code == -1) && (!allow_extra_chroms))) {
+            LOGERRPRINTFWW("Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+            if (cur_chrom_code == -1) {
+              logerrprint("(Use --allow-extra-chr to force it to be accepted.)\n");
+            }
+            goto load_range_list_ret_INVALID_FORMAT;
           }
           if (!set_ct_ptr) {
             continue;
@@ -372,7 +375,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	} else {
 	  // quasi-bugfix (7 Oct 2017): forgot to check for this
 	  if (cur_chrom_code > 9998) {
-	    logerrprint("Error: This command does not support 9999+ contigs.\n");
+	    logerrprint("Error: This command does not support 10000+ contigs.\n");
 	    goto load_range_list_ret_INVALID_FORMAT;
 	  } else if (cur_chrom_code == -1) {
             cur_chrom_code = 9999;
@@ -468,11 +471,14 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       *first_token_end = '\0';
       int32_t cur_chrom_code = get_chrom_code(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-        if ((!set_ct_ptr) && (cur_chrom_code == -1)) {
-          continue;
+        if ((cur_chrom_code == -2) || ((cur_chrom_code == -1) && (!allow_extra_chroms))) {
+          LOGERRPRINTFWW("Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+          if (cur_chrom_code == -1) {
+            logerrprint("(Use --allow-extra-chr to force it to be accepted.)\n");
+          }
+          goto load_range_list_ret_INVALID_FORMAT;
         }
-	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
-	goto load_range_list_ret_INVALID_FORMAT_2;
+        continue;
       }
       if (!is_set(chrom_info_ptr->chrom_mask, cur_chrom_code)) {
 	continue;
@@ -535,8 +541,8 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	  msr_tmp = (Make_set_range*)bigstack_end_alloc(sizeof(Make_set_range));
 	  msr_tmp->next = make_set_range_arr[set_idx];
 	  // normally, I'd keep chrom_idx here since that enables by-chromosome
-	  // sorting, but that's probably not worth bloating Make_set_range from
-	  // 16 to 32 bytes
+	  // sorting, but that's probably not worth bloating Make_set_range
+          // from 16 to 32 bytes
 	  msr_tmp->uidx_start = chrom_start + range_first;
 	  msr_tmp->uidx_end = chrom_start + range_last;
 	  make_set_range_arr[set_idx] = msr_tmp;
