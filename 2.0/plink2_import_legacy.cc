@@ -700,7 +700,7 @@ BoolErr TpedToPgenSnp(uint32_t sample_idx_start, uint32_t sample_idx_stop, char 
 // It's possible to parallelize this more, but it isn't realistically worth the
 // effort, since there's so little reason to use this format over VCF for
 // larger datasets.
-PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, __attribute__((unused)) uint32_t* pgi_generated_ptr, uint32_t* psam_generated_ptr) {
+PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   TextStream tped_txs;
   PreinitTextStream(&tped_txs);
@@ -731,7 +731,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
     // First pass: determine variant_ct (applying chromosome filter),
     // sample_ct, and maximum line length; check whether CM column needs to be
     // in .pvar file.
-    // TODO: make this single-pass, now that .pgen.pgi files are supported.
+    // (Tried making this single-pass, did not improve performance.)
     const uint32_t decompress_thread_ct = MAXV(1, max_thread_ct - 1);
     reterr = SizeAndInitTextStream(tpedname, bigstack_left(), decompress_thread_ct, &tped_txs);
     if (unlikely(reterr)) {
@@ -1166,7 +1166,10 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
       }
       tped_line_iter = AdvPastDelim(tped_line_iter, '\n');
     }
-    SpgwFinish(&spgw);
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto TpedToPgen_ret_1;
+    }
     putc_unlocked('\r', stdout);
     char* write_iter = strcpya_k(g_logbuf, "--tped: ");
     const uint32_t outname_base_slen = outname_end - outname;

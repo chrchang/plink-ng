@@ -1230,6 +1230,10 @@ HEADER_INLINE void PgenErrPrintV(PglErr reterr, uint32_t variant_uidx) {
   PgenErrPrintEx(".pgen file", 0, reterr, variant_uidx);
 }
 
+// This should be called on SpgwFinish() failure when kPgenWriteAndCopy mode
+// may have been used; otherwise it's unnecessary.
+void PgenWriteFinishErrPrint(PglErr reterr, char* outname, char* outname_end);
+
 // Given <outname>.tmp.pgen and <outname>.tmp.pgen.pgi, this generates
 // <outname>.pgen and then deletes the two temporary files.
 PglErr EmbedPgenIndex(char* outname, char* outname_end);

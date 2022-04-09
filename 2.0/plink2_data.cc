@@ -1328,7 +1328,6 @@ void GenovecPermuteSubset(const uintptr_t* genovec, const uintptr_t* sample_incl
       const uint32_t bit_read_shift_ct = ctzw(geno_word_xor) & (kBitsPerWord - 2);
       const uintptr_t cur_geno_xor = (geno_word_xor >> bit_read_shift_ct) & 3;
       const uint32_t new_sample_idx = cur_old_sample_idx_to_new[bit_read_shift_ct / 2];
-      assert(new_sample_idx < sample_ct);
       const uint32_t new_byte_idx = new_sample_idx / 4;
       const uint32_t bit_write_shift_ct = 2 * (new_sample_idx % 4);
       writebuf_b[new_byte_idx] ^= cur_geno_xor << bit_write_shift_ct;
@@ -1416,7 +1415,6 @@ void UnpackAndPermuteHphase(const uintptr_t* __restrict all_hets, const uintptr_
         while (phaseinfo_bits_to_set) {
           const uint32_t sample_uidx_lowbits = ctzw(phaseinfo_bits_to_set);
           const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
-          assert(new_sample_idx < sample_ct);
           SetBit(new_sample_idx, phaseinfo);
           phaseinfo_bits_to_set &= phaseinfo_bits_to_set - 1;
         }
@@ -1425,7 +1423,6 @@ void UnpackAndPermuteHphase(const uintptr_t* __restrict all_hets, const uintptr_
           const uint32_t sample_uidx_lowbits = ctzw(new_phasepresent_word);
           if (tmp_phaseinfo_input_word & 1) {
             const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
-            assert(new_sample_idx < sample_ct);
             SetBit(new_sample_idx, phaseinfo);
           }
           tmp_phaseinfo_input_word >>= 1;
@@ -1438,7 +1435,6 @@ void UnpackAndPermuteHphase(const uintptr_t* __restrict all_hets, const uintptr_
         while (phaseinfo_bits_to_set) {
           const uint32_t sample_uidx_lowbits = ctzw(phaseinfo_bits_to_set);
           const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
-          assert(new_sample_idx < sample_ct);
           SetBit(new_sample_idx, phaseinfo);
           phaseinfo_bits_to_set &= phaseinfo_bits_to_set - 1;
         }
@@ -1449,7 +1445,6 @@ void UnpackAndPermuteHphase(const uintptr_t* __restrict all_hets, const uintptr_
           const uintptr_t lowmask = (k1LU << sample_uidx_lowbits) - k1LU;
           if ((tmp_phaseinfo_input_word >> PopcountWord(new_phasepresent_word & lowmask)) & 1) {
             const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
-            assert(new_sample_idx < sample_ct);
             SetBit(new_sample_idx, phaseinfo);
           }
           masked_phasepresent_word &= masked_phasepresent_word - 1;
@@ -1557,7 +1552,6 @@ void UnpackAndPermuteHphase(const uintptr_t* __restrict all_hets, const uintptr_
             uintptr_t collapsed_phaseinfo_input_word = _pext_u64(tmp_phaseinfo_input_word, _pext_u64(sample_include_word, phasepresent_word_expanded));
             while (1) {
               const uint32_t new_sample_idx = old_sample_idx_to_new_iter[ctzw(phasepresent_bits_to_set)];
-              assert(new_sample_idx < sample_ct);
               const uint32_t new_sample_widx = new_sample_idx / kBitsPerWord;
               const uint32_t new_sample_lowbits = new_sample_idx % kBitsPerWord;
               const uintptr_t shifted_bit = k1LU << new_sample_lowbits;
@@ -1580,7 +1574,6 @@ void UnpackAndPermuteHphase(const uintptr_t* __restrict all_hets, const uintptr_
               if (sample_include_word & geno_hets_lowbit) {
                 const uint32_t sample_uidx_lowbits = ctzw(geno_hets_lowbit);
                 const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
-                assert(new_sample_idx < sample_ct);
                 const uint32_t new_sample_widx = new_sample_idx / kBitsPerWord;
                 const uint32_t new_sample_lowbits = new_sample_idx % kBitsPerWord;
                 const uintptr_t shifted_bit = k1LU << new_sample_lowbits;
@@ -1640,7 +1633,6 @@ uint32_t CopyAndPermute8bit(const uintptr_t* __restrict sample_include, const ui
       }
       const uint32_t old_sample_idx = widx * kBitsPerWord + ctzw(old_sample_idx_lowbit);
       const uint32_t new_sample_idx = old_sample_idx_to_new[old_sample_idx];
-      assert(new_sample_idx < sample_ct);
       SetBit(new_sample_idx, dst_subset);
       dst_vals_uc[new_sample_idx] = src_vals_uc[old_val_idx];
       ++new_val_ct;
@@ -1682,7 +1674,6 @@ uint32_t CopyAndPermute16bit(const uintptr_t* __restrict sample_include, const u
       }
       const uint32_t old_sample_idx = widx * kBitsPerWord + ctzw(old_sample_idx_lowbit);
       const uint32_t new_sample_idx = old_sample_idx_to_new[old_sample_idx];
-      assert(new_sample_idx < sample_ct);
       SetBit(new_sample_idx, dst_subset);
       dst_vals_u16[new_sample_idx] = src_vals_u16[old_val_idx];
       ++new_val_ct;
@@ -5342,9 +5333,6 @@ typedef struct MakePgenCtxStruct {
   int32_t write_errno;
 } MakePgenCtx;
 
-// DEBUG
-uintptr_t** g_vrec_expected_ends[2] = {nullptr, nullptr};
-
 // One-thread-per-vblock is sensible for possibly-phased biallelic data, where
 // subsetting and LD-compression are a substantial fraction of processing time,
 // and memory requirements tend to be low enough that it's actually reasonable
@@ -5450,8 +5438,6 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
     const uint32_t write_idx_end = MINV(write_idx + kPglVblockSize, cur_block_write_ct);
     uintptr_t* loadbuf_iter = ctx->loadbuf_thread_starts[parity][tidx];
     unsigned char* loaded_vrtypes = ctx->loaded_vrtypes[parity];
-    // DEBUG
-    uintptr_t** vrec_expected_ends = g_vrec_expected_ends[parity];
     uint32_t loaded_vrtype = 0;
     uint32_t chr_end_bidx = 0;
     uint32_t is_x = 0;
@@ -5931,12 +5917,6 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         }
       }
       loadbuf_iter = cur_vrec_end;
-      if (vrec_expected_ends) {
-        if (loadbuf_iter != vrec_expected_ends[write_idx]) {
-          logprintfww("Read-pointer desync after processing (0-based, output) variant #%u.\n", write_idx + variant_idx_offset);
-          assert(loadbuf_iter == vrec_expected_ends[write_idx]);
-        }
-      }
     }
     parity = 1 - parity;
     variant_idx_offset += cur_block_write_ct;
@@ -6223,15 +6203,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
             goto MakePgenRobust_ret_NOMEM;
           }
           if (subsetting_required) {
-            if (g_debug_on) {
-              // This array is likely to be related to the Mar 2022 bug
-              // investigation: it has intentionally-uninitialized elements,
-              // which shouldn't be looked up, but if an upstream bug causes
-              // them to be looked up anyway, the lack of initialization would
-              // explain why detectable failure did not occur at the same
-              // variant each time.
-              SetAllU32Arr(raw_sample_ct, ctx.old_sample_idx_to_new);
-            }
             const uint32_t raw_sample_ctv = BitCtToVecCt(raw_sample_ct);
             if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sample_include_interleaved_vec))) {
               goto MakePgenRobust_ret_NOMEM;
@@ -6245,6 +6216,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         if (unlikely(bigstack_alloc_w(sample_ctl2, &(ctx.thread_write_genovecs[0])))) {
           goto MakePgenRobust_ret_NOMEM;
         }
+        // TODO: why is this here?
         write_mhc_needed = 1;
       }
       ctx.thread_write_mhc = nullptr;
@@ -6430,12 +6402,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uintptr_t* main_loadbufs[2];
       main_loadbufs[0] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size));
       main_loadbufs[1] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size));
-#ifndef NDEBUG
-      // DEBUG
-      uintptr_t* main_loadbuf_ends[2];
-      main_loadbuf_ends[0] = main_loadbufs[1];
-      main_loadbuf_ends[1] = R_CAST(uintptr_t*, g_bigstack_base);
-#endif
 
       // todo: multiallelic trim-alts support
 
@@ -6449,27 +6415,13 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       SetThreadFuncAndData(MakePgenThread, &ctx, &tg);
 
       if (g_debug_on) {
-        if (pgl_malloc(write_block_size * sizeof(intptr_t), &g_vrec_expected_ends[0]) ||
-            pgl_malloc(write_block_size * sizeof(intptr_t), &g_vrec_expected_ends[1])) {
-          goto MakePgenRobust_ret_NOMEM;
-        }
-        ZeroPtrArr(write_block_size, g_vrec_expected_ends[0]);
-        ZeroPtrArr(write_block_size, g_vrec_expected_ends[1]);
         // There is a known bug that is likely to lie in MakePgenRobust(); see
         //   https://groups.google.com/g/plink2-users/c/1bOcjObgjq8/m/7NDQquz3AgAJ .
         // The runs triggering this bug have phased-dosage data, and include
         // the --indiv-sort flag.
         // The input datasets are very large, so integer overflow is one
         // possible culprit.
-        logprintf("read_dosage_present: %u\n", read_dosage_present);
-        logprintf("read_phase_present: %u\n", read_phase_present);
-        logprintf("read_dphase_present: %u\n", read_dphase_present);
-        logprintf("write_gflags: %u\n", S_CAST(uint32_t, write_gflags));
-        logprintf("nonref_flags_storage: %u\n", nonref_flags_storage);
-        logprintf("spgw_alloc_cacheline_ct: %" PRIuPTR "\n", spgw_alloc_cacheline_ct);
-        logprintf("max_vrec_len: %u\n", max_vrec_len);
-        logprintf("write_mhc_needed: %u\n", write_mhc_needed);
-        logprintf("write_block_size: %u\n", write_block_size);
+        g_debug_get_raw = 1;
       }
       logprintfww5("Writing %s ... ", outname);
       fputs("0%", stdout);
@@ -6512,8 +6464,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           uintptr_t* loadbuf_iter = cur_loadbuf;
           unsigned char* cur_loaded_vrtypes = ctx.loaded_vrtypes[parity];
           ctx.loadbuf_thread_starts[parity][0] = loadbuf_iter;
-          // DEBUG
-          uintptr_t** vrec_expected_ends = g_vrec_expected_ends[parity];
           if (write_allele_idx_offsets) {
             cur_write_allele_idx_offsets = &(write_allele_idx_offsets[read_batch_idx * write_block_size]);
           }
@@ -6543,14 +6493,17 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
               reterr = PgrGetRaw(read_variant_uidx, read_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[block_widx])) : nullptr);
               if (unlikely(reterr)) {
                 PgenErrPrintNV(reterr, read_variant_uidx);
+                if (g_debug_on) {
+                  const uint32_t output_vidx = read_batch_idx * write_block_size + block_widx;
+                  logerrprintf("write-index: %u\n", output_vidx);
+                  if (new_variant_idx_to_old_iter && output_vidx) {
+                    logerrprintf("previous read-index: %u\n", new_variant_idx_to_old_iter[-2]);
+                  }
+                  logerrprintf("block_widx: %u\n", block_widx);
+                  logerrprintf("g_debug_get_raw: %u\n", g_debug_get_raw);
+                }
                 goto MakePgenRobust_ret_1;
               }
-              if (vrec_expected_ends) {
-                vrec_expected_ends[block_widx] = loadbuf_iter;
-              }
-#ifndef NDEBUG
-              assert(loadbuf_iter <= main_loadbuf_ends[parity]);
-#endif
               ++block_widx;
               continue;
             } else if (cur_write_allele_ct == 2) {
@@ -6901,6 +6854,8 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
               write_aidx = 1;
             } else {
               // merge; todo
+              logerrputs("\nnot implemented yet\n");
+              exit(1);
             }
           }
         }
@@ -6940,7 +6895,10 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           }
         }
       }
-      SpgwFinish(ctx.spgwp);
+      reterr = SpgwFinish(ctx.spgwp);
+      if (unlikely(reterr)) {
+        goto MakePgenRobust_ret_1;
+      }
       if (pct > 10) {
         putc_unlocked('\b', stdout);
       }
@@ -6957,14 +6915,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
     break;
   }
  MakePgenRobust_ret_1:
-  if (g_vrec_expected_ends[0]) {
-    free(g_vrec_expected_ends[0]);
-    g_vrec_expected_ends[0] = nullptr;
-    if (g_vrec_expected_ends[1]) {
-      free(g_vrec_expected_ends[1]);
-      g_vrec_expected_ends[1] = nullptr;
-    }
-  }
   CleanupThreads(&tg);
   CleanupSpgw(&spgw, &reterr);
   BigstackReset(bigstack_mark);
@@ -7388,9 +7338,6 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
             goto MakePlink2NoVsort_fallback;
           }
           if (subsetting_required) {
-            if (g_debug_on) {
-              SetAllU32Arr(raw_sample_ct, ctx.old_sample_idx_to_new);
-            }
             const uint32_t raw_sample_ctv = BitCtToVecCt(raw_sample_ct);
             if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sample_include_interleaved_vec))) {
               goto MakePlink2NoVsort_fallback;

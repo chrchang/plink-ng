@@ -671,6 +671,8 @@ PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, PgrSampleSubsetI
 
 PglErr PgrGetMDp(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
 
+extern uint32_t g_debug_get_raw;
+
 // interface used by --make-pgen, just performs basic LD/difflist decompression
 // to maximize parallelism
 PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr, uintptr_t** loadbuf_iter_ptr, unsigned char* loaded_vrtype_ptr);

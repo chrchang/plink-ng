@@ -6704,7 +6704,10 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         goto PmergeConcat_ret_N;
       }
     }
-    SpgwFinish(&mw.spgw);
+    reterr = SpgwFinish(&mw.spgw);
+    if (unlikely(reterr)) {
+      goto PmergeConcat_ret_1;
+    }
     if (unlikely(CswriteCloseNull(&ppmc.pmc.css, ppmc.pmc.cswritep))) {
       goto PmergeConcat_ret_WRITE_FAIL_N;
     }

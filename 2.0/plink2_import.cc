@@ -3816,7 +3816,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       goto VcfToPgen_ret_WRITE_FAIL;
     }
     if (sample_ct) {
-      SpgwFinish(&spgw);
+      reterr = SpgwFinish(&spgw);
+      if (unlikely(reterr)) {
+        goto VcfToPgen_ret_1;
+      }
     }
     putc_unlocked('\r', stdout);
     char* write_iter = strcpya_k(g_logbuf, "--vcf: ");
@@ -8963,7 +8966,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       goto BcfToPgen_ret_WRITE_FAIL;
     }
     if (sample_ct) {
-      SpgwFinish(&spgw);
+      reterr = SpgwFinish(&spgw);
+      if (unlikely(reterr)) {
+        goto BcfToPgen_ret_1;
+      }
     }
     putc_unlocked('\r', stdout);
     char* write_iter = strcpya_k(g_logbuf, "--bcf: ");
@@ -10417,7 +10423,10 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
       }
       line_iter = AdvPastDelim(K_CAST(char*, linebuf_iter), '\n');
     }
-    SpgwFinish(&spgw);
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto OxGenToPgen_ret_1;
+    }
     putc_unlocked('\r', stdout);
     char* write_iter = strcpya_k(g_logbuf, "--data/--gen: ");
     const uint32_t outname_base_slen = outname_end - outname;
@@ -13772,7 +13781,10 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       goto OxBgenToPgen_ret_WRITE_FAIL;
     }
 
-    SpgwFinish(&spgw);
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto OxBgenToPgen_ret_1;
+    }
     putc_unlocked('\r', stdout);
     char* write_iter = strcpya_k(g_logbuf, "--bgen: ");
     const uint32_t outname_base_slen = outname_end - outname;
@@ -14397,7 +14409,11 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     if (unlikely(CswriteCloseNull(&pvar_css, pvar_cswritep))) {
       goto OxHapslegendToPgen_ret_WRITE_FAIL;
     }
-    SpgwFinish(&spgw);
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      PgenWriteFinishErrPrint(reterr, outname, outname_end);
+      goto OxHapslegendToPgen_ret_1;
+    }
     if (unlikely(!variant_ct)) {
       snprintf(g_logbuf, kLogbufSize, "Error: All %" PRIuPTR " variant%s in %s skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s", hapsname);
       goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
@@ -14485,8 +14501,8 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
 // probable todo: use the VCF/BGEN-import parallelization strategy to speed
 // this up.
 static_assert(sizeof(Dosage) == 2, "Plink1DosageToPgen() needs to be updated.");
-PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, __attribute__((unused)) uint32_t* pgi_generated_ptr) {
-  // TODO: make this single-pass.
+PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+  // Tried making this single-pass, doesn't appear to be an improvement.
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 
@@ -15330,7 +15346,10 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         fflush(stdout);
       }
     }
-    SpgwFinish(&spgw);
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto Plink1DosageToPgen_ret_1;
+    }
     putc_unlocked('\r', stdout);
     write_iter = strcpya_k(g_logbuf, "--import-dosage: ");
     const uint32_t outname_base_slen = outname_end - outname;
@@ -16037,7 +16056,10 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
       vidx_start += cur_block_write_ct;
       prev_block_write_ct = cur_block_write_ct;
     }
-    SpgwFinish(&spgw);
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto GenerateDummy_ret_1;
+    }
 
     putc_unlocked('\r', stdout);
     *outname_end = '\0';

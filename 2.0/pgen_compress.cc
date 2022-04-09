@@ -206,7 +206,7 @@ int32_t main(int32_t argc, char** argv) {
   }
   printf("\n");
 
-  SpgwFinish(&spgw);
+  reterr = SpgwFinish(&spgw);
   while (0) {
   main_ret_NOMEM:
     reterr = kPglRetNomem;

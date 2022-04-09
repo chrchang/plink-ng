@@ -3404,6 +3404,20 @@ void PgenErrPrintEx(const char* file_descrip, uint32_t prepend_lf, PglErr reterr
   }
 }
 
+void PgenWriteFinishErrPrint(PglErr reterr, char* outname, char* outname_end) {
+  // This mirrors include/pgenlib_write.cc PwcFinish().
+  if (reterr == kPglRetOpenFail) {
+    // Only way this can happen is if .pgen.tmp reopen fails.
+    logputs("\n");
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen.tmp");
+    logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+  } else if (reterr == kPglRetRewindFail) {
+    logputs("\n");
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen.tmp");
+    logerrprintfww("Error: %s is malformed.\n", outname);
+  }
+}
+
 // Given <outname>.tmp.pgen and <outname>.tmp.pgen.pgi, this generates
 // <outname>.pgen and then deletes the two temporary files.
 // TODO: add a third pgenlib_write mode which takes care of this automatically.

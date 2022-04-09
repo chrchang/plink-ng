@@ -8776,6 +8776,8 @@ uintptr_t CountAux1bHets(const AlleleCode* patch_10_vals, uintptr_t rare10_ct) {
 #endif
 }
 
+uint32_t g_debug_get_raw = 0;
+
 PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr, uintptr_t** loadbuf_iter_ptr, unsigned char* loaded_vrtype_ptr) {
   PgenReaderMain* pgrp = GetPgrp(pgr_ptr);
   // currently handles multiallelic hardcalls, hardcall phase, and biallelic
@@ -8803,6 +8805,9 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
   PglErr reterr = ReadRawGenovec(0, vidx, pgrp, &fread_ptr, &fread_end, genovec);
   if ((!(multiallelic_hc_present || save_hphase || save_dosage)) || reterr) {
     *loadbuf_iter_ptr = loadbuf_iter;
+    if (reterr && g_debug_get_raw) {
+      g_debug_get_raw = 2;
+    }
     return reterr;
   }
 
@@ -8816,6 +8821,9 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
       // todo: erase-alt2+ fast path
       // mostly mirror PgrGet2P(0, 1), but a bit of extra logic is needed to
       // throw out phased-10het entries
+      if (g_debug_get_raw) {
+        g_debug_get_raw = 3;
+      }
       return kPglRetNotYetSupported;
     }
     // assume we always save multiallelic info
@@ -8854,6 +8862,9 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
       AlleleCode* patch_01_vals = R_CAST(AlleleCode*, loadbuf_iter);
       reterr = ExportAux1a(fread_end, genovec, aux1a_mode, raw_sample_ct, allele_ct, het_ct, &fread_ptr, patch_01_set, patch_01_vals, &rare01_ct);
       if (unlikely(reterr)) {
+        if (g_debug_get_raw) {
+          g_debug_get_raw = 4;
+        }
         return reterr;
       }
       loadbuf_iter = &(loadbuf_iter[DivUp(rare01_ct, kBytesPerWord / sizeof(AlleleCode))]);
@@ -8866,6 +8877,9 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
       AlleleCode* patch_10_vals = R_CAST(AlleleCode*, loadbuf_iter);
       reterr = ExportAux1b(fread_end, genovec, aux1b_mode, raw_sample_ct, allele_ct, raw_10_ct, &fread_ptr, patch_10_set, patch_10_vals, &rare10_ct);
       if (unlikely(reterr)) {
+        if (g_debug_get_raw) {
+          g_debug_get_raw = 5;
+        }
         return reterr;
       }
       loadbuf_iter = &(loadbuf_iter[DivUp(rare10_ct, kBytesPerWord / (2 * sizeof(AlleleCode)))]);
@@ -8883,6 +8897,9 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
   if (hphase_is_present) {
     if (unlikely(!het_ct)) {
       // there shouldn't be a hphase track at all in this case
+      if (g_debug_get_raw) {
+        g_debug_get_raw = 6;
+      }
       return kPglRetMalformedInput;
     }
     const uint32_t het_ctdl = het_ct / kBitsPerWord;
@@ -8920,6 +8937,9 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
       --raw_phasepresent_ct;
       if (unlikely(!raw_phasepresent_ct)) {
         // there shouldn't be a hphase track at all in this case, either
+        if (g_debug_get_raw) {
+          g_debug_get_raw = 7;
+        }
         return kPglRetMalformedInput;
       }
       const uint32_t second_half_byte_ct = DivUp(raw_phasepresent_ct, CHAR_BIT);
@@ -8963,7 +8983,11 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
     loadbuf_iter = &(loadbuf_iter[dosage_main_aligned_wordct]);
   }
   *loadbuf_iter_ptr = loadbuf_iter;
-  return ParseDosage16(fread_ptr, fread_end, nullptr, raw_sample_ct, vidx, allele_ct, pgrp, nullptr, dphase_present, dphase_delta, nullptr, dosage_present, dosage_main);
+  reterr = ParseDosage16(fread_ptr, fread_end, nullptr, raw_sample_ct, vidx, allele_ct, pgrp, nullptr, dphase_present, dphase_delta, nullptr, dosage_present, dosage_main);
+  if (reterr && g_debug_get_raw) {
+    g_debug_get_raw = 8;
+  }
+  return reterr;
 }
 
 
