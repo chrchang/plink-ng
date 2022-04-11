@@ -449,7 +449,7 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
   return kPglRetSuccess;
 }
 
-PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, uint32_t output_missing_geno_code, uint32_t max_thread_ct, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, char* outname, char* outname_end) {
+PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, uint32_t output_missing_geno_code, uint32_t max_thread_ct, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, uint32_t* contig_lens, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   FILE* nlist_file = nullptr;
@@ -484,7 +484,12 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
     }
 
     // To simplify indel/complex-variant handling, we load an entire contig at
-    // a time.  Determine an upper bound for the size of this buffer.
+    // a time.  Determine an upper bound for the number of bases we must keep
+    // from a contig.
+    // (If a contig is longer than this, we don't load the trailing bases,
+    // since they are irrelevant to the
+    // normalization/REF-correction/length-count operation(s) we're currently
+    // performing.)
     const uintptr_t* chr_mask = cip->chr_mask;
     uint32_t seqbuf_size = 0;
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
@@ -519,6 +524,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
     char* seq_iter = nullptr;
     // possible but low-priority todo: exploit .fai when it's present
     uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_idx = UINT32_MAX;
     uint32_t cur_vidx_last = 0;
     uint32_t skip_chr = 1;
     uint32_t is_first_noncomment_line = 1;
@@ -526,6 +532,10 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
     uint32_t ref_validated_ct = 0;
     uint32_t ref_downgraded_ct = 0;
     uint32_t nchanged_ct = 0;
+
+    // If a contig contains a gap ('-'), we set the high bit of this value.
+    uint64_t skipped_base_ct = 0;
+
     while (1) {
       ++line_idx;
       char* line_iter;
@@ -565,6 +575,18 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
               goto ProcessFa_ret_1;
             }
           }
+          if (contig_lens && (!(skipped_base_ct >> 63))) {
+            // Subtract 1, since we inserted an 'N' in front to simplify indel
+            // handling.
+            const uint64_t contig_len = bp_end + skipped_base_ct - 1;
+            if (unlikely(contig_len > UINT32_MAX)) {
+              logerrputs("Error: " PROG_NAME_STR " does not currently support contigs >= 2^32 bases.\n");
+              reterr = kPglRetNotYetSupported;
+              goto ProcessFa_ret_1;
+            }
+            // Don't need explicit handling of contig_len == 0 case.
+            contig_lens[chr_idx] = S_CAST(uint32_t, contig_len);
+          }
         }
         char* chr_name_start = &(line_iter[1]);
         if (unlikely(IsSpaceOrEoln(*chr_name_start))) {
@@ -576,7 +598,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
         *chr_name_end = '\0';
         const uint32_t chr_name_slen = chr_name_end - chr_name_start;
         chr_fo_idx = UINT32_MAX;
-        const uint32_t chr_idx = GetChrCode(chr_name_start, cip, chr_name_slen);
+        chr_idx = GetChrCode(chr_name_start, cip, chr_name_slen);
         if ((!IsI32Neg(chr_idx)) && IsSet(cip->chr_mask, chr_idx)) {
           chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
           if (unlikely(IsSet(chr_already_seen, chr_fo_idx))) {
@@ -595,27 +617,32 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
           }
         }
         skip_chr = (chr_fo_idx == UINT32_MAX);
+        skipped_base_ct = 0;
         *chr_name_end = '\n';  // bugfix (16 Apr 2018)
         continue;
       }
       const char* line_start = line_iter;
       line_iter = CurTokenEnd(line_iter);
       const char* seqline_end = line_iter;
-      if (skip_chr) {
-        if (is_first_noncomment_line) {
-          logerrputs("Error: --fa file is not a valid FASTA.\n");
-          goto ProcessFa_ret_MALFORMED_INPUT;
-        }
-        continue;
-      }
       ucc = *seqline_end;
       if (unlikely((ucc == ' ') || (ucc == '\t'))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --fa file is malformed.\n", line_idx);
         goto ProcessFa_ret_MALFORMED_INPUT_2;
       }
       uint32_t cur_seq_slen = seqline_end - line_start;
+      if (skip_chr) {
+        if (is_first_noncomment_line) {
+          logerrputs("Error: --fa file is not a valid FASTA.\n");
+          goto ProcessFa_ret_MALFORMED_INPUT;
+        }
+        if (seqbuf_end == seq_iter) {
+          skipped_base_ct += cur_seq_slen;
+        }
+        continue;
+      }
       const uint32_t seq_rem = seqbuf_end - seq_iter;
       if (seq_rem <= cur_seq_slen) {
+        skipped_base_ct += cur_seq_slen - seq_rem;
         cur_seq_slen = seq_rem;
         skip_chr = 1;
       }
@@ -623,6 +650,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
       if (gap_start) {
         logerrprintfww("Warning: Indeterminate-length gap present on line %" PRIuPTR " of --fa file. Ignoring remainder of contig.\n", line_idx);
         cur_seq_slen = gap_start - line_start;
+        skipped_base_ct = 1LLU << 63;
         skip_chr = 1;
       }
       seq_iter = memcpya(seq_iter, line_start, cur_seq_slen);
@@ -664,6 +692,16 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
       if ((*vpos_sortstatusp) & kfUnsortedVarBp) {
         logerrprintf("Warning: Base-pair positions are now unsorted!\n");
       }
+    }
+    if (contig_lens) {
+      const uint32_t chr_code_ct = cip->max_code + 1 + cip->name_ct;
+      uint32_t scraped_contig_len_ct = 0;
+      for (uint32_t chr_code = 1; chr_code != chr_code_ct; ++chr_code) {
+        if (contig_lens[chr_code]) {
+          ++scraped_contig_len_ct;
+        }
+      }
+      logprintf("--fa: Length%s scraped for %u contig%s.\n", (scraped_contig_len_ct == 1)? "" : "s", scraped_contig_len_ct, (scraped_contig_len_ct == 1)? "" : "s");
     }
   }
   while (0) {

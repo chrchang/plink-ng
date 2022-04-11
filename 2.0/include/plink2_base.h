@@ -97,7 +97,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 800
+#define PLINK2_BASE_VERNUM 801
 
 
 #define _FILE_OFFSET_BITS 64
@@ -174,6 +174,10 @@ namespace plink2 {
 #endif
 
 #define UINT32_MAXM1 0xfffffffeU
+
+#ifndef UINT64_MAX
+#  define UINT64_MAX 0xffffffffffffffffLLU
+#endif
 
 #ifdef __cplusplus
 #  define HEADER_INLINE inline
