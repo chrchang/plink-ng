@@ -3599,7 +3599,7 @@ PglErr ExportOxSampleV2(const char* outname, const uintptr_t* sample_include, co
 const unsigned char kValidVcf43ContigChars[256] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1,
+  0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1,
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1,
@@ -3630,8 +3630,8 @@ uint32_t ValidVcfContigName(const char* name_start, const char* name_end, uint32
   if (!v43) {
     return 1;
   }
-  if (unlikely(name_start[0] == '=')) {
-    logerrputs("Error: VCFv4.3 contig names cannot start with the '=' character.\n");
+  if (unlikely((name_start[0] == '*') || (name_start[0] == '='))) {
+    logerrputs("Error: VCFv4.3 contig names cannot start with '*' or '='.\n");
     return 0;
   }
   for (uint32_t uii = 0; uii != slen; ++uii) {
@@ -3639,7 +3639,7 @@ uint32_t ValidVcfContigName(const char* name_start, const char* name_end, uint32
     if (unlikely(!kValidVcf43ContigChars[ucc])) {
       char* write_iter = strcpya_k(g_logbuf, "Error: Contig name '");
       write_iter = memcpya(write_iter, name_start, slen);
-      strcpy_k(write_iter, "' is prohibited by the VCFv4.3 specification ('*', '<', '>', '[', ']', and ASCII codes outside 33..126 not allowed).\n");
+      strcpy_k(write_iter, "' is prohibited by the VCFv4.3 specification ('<', '>', '[', ']', and ASCII codes outside 33..126 not allowed).\n");
       WordWrapB(0);
       logerrputsb();
       return 0;

@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (10 Apr 2022)";
+  " (15 Apr 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -10629,7 +10629,7 @@ int main(int argc, char** argv) {
         logerrputs("Error: --normalize must be used with --make-bed/--make-[b]pgen/--export and no\nother commands.\n");
         goto main_ret_INVALID_CMDLINE;
       }
-    } else if (pc.fa_fname && ((make_plink2_flags & kfMakePvar) || (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf)))) {
+    } else if (pc.fa_fname && (((make_plink2_flags & kfMakePvar) && (pc.pvar_psam_flags & (kfPvarColXheader | kfPvarColVcfheader))) || (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf)))) {
       pc.fa_flags |= kfFaScrapeLengths;
     }
     if (pc.keep_cat_phenoname && (!pc.keep_cat_names_flattened) && (!pc.keep_cats_fname)) {
