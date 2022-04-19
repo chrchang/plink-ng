@@ -77,6 +77,15 @@
 //   valid input types, NOT counting VecW*.
 
 
+// gcc 8.3.0 has been miscompiling the ParseOnebitUnsafe() function in
+// pgenlib_read.cc for the last several years.  gcc 8.4 does not have this
+// problem, and neither does any other gcc major version I've tested to date.
+#ifndef __clang__
+#  if (__GNUC__ == 8) && (__GNUC_MINOR__ < 4)
+#    error "gcc 8.3 is known to have a miscompilation bug that was fixed in 8.4."
+#  endif
+#endif
+
 #if (__GNUC__ < 4)
 // may eventually add MSVC support to gain access to MKL on Windows, but can't
 // justify doing that before all major features are implemented.
