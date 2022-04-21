@@ -586,6 +586,8 @@ HEADER_INLINE PglErr PgrGet2(const uintptr_t* __restrict sample_include, PgrSamp
 
 void PreinitPgv(PgenVariant* pgvp);
 
+extern uint32_t g_debug_get_raw;
+
 PglErr PgrGetM(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
 
 // possible todo: add functions which directly support MAF-based queries.  Note
@@ -670,8 +672,6 @@ HEADER_INLINE PglErr PgrGetDp(const uintptr_t* __restrict sample_include, PgrSam
 PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, PgenVariant* pgvp);
 
 PglErr PgrGetMDp(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
-
-extern uint32_t g_debug_get_raw;
 
 // interface used by --make-pgen, just performs basic LD/difflist decompression
 // to maximize parallelism
