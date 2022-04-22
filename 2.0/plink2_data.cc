@@ -5687,19 +5687,21 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       if (old_sample_idx_to_new) {
         ZeroTrailingNyps(raw_sample_ct, loadbuf_iter);
         GenovecPermuteSubset(loadbuf_iter, sample_include, sample_include_interleaved_vec, old_sample_idx_to_new, raw_sample_ct, sample_ct, write_genovec);
+        // bugfix (22 Apr 2022): need to pass sample_ct rather than
+        // raw_sample_ct to these functions.
         if (read_rare01_ct) {
-          write_rare01_ct = CopyAndPermute8bit(sample_include, read_patch_01_set, read_patch_01_vals, old_sample_idx_to_new, raw_sample_ct, read_rare01_ct, write_patch_01_set, write_patch_01_vals);
+          write_rare01_ct = CopyAndPermute8bit(sample_include, read_patch_01_set, read_patch_01_vals, old_sample_idx_to_new, sample_ct, read_rare01_ct, write_patch_01_set, write_patch_01_vals);
         }
         if (read_rare10_ct) {
-          write_rare10_ct = CopyAndPermute16bit(sample_include, read_patch_10_set, read_patch_10_vals, old_sample_idx_to_new, raw_sample_ct, read_rare10_ct, write_patch_10_set, write_patch_10_vals);
+          write_rare10_ct = CopyAndPermute16bit(sample_include, read_patch_10_set, read_patch_10_vals, old_sample_idx_to_new, sample_ct, read_rare10_ct, write_patch_10_set, write_patch_10_vals);
         }
         if (is_hphase) {
           UnpackAndPermuteHphase(all_hets, cur_phaseraw, sample_include, old_sample_idx_to_new, raw_sample_ct, sample_ct, &cur_write_phasepresent, write_phaseinfo);
         }
         if (is_dosage) {
-          write_dosage_ct = CopyAndPermute16bit(sample_include, cur_dosagepresent, cur_dosagevals, old_sample_idx_to_new, raw_sample_ct, read_dosage_ct, write_dosagepresent, write_dosagevals);
+          write_dosage_ct = CopyAndPermute16bit(sample_include, cur_dosagepresent, cur_dosagevals, old_sample_idx_to_new, sample_ct, read_dosage_ct, write_dosagepresent, write_dosagevals);
           if (is_dphase) {
-            write_dphase_ct = CopyAndPermute16bit(sample_include, cur_dphasepresent, cur_dphasedelta, old_sample_idx_to_new, raw_sample_ct, read_dphase_ct, write_dphasepresent, write_dphasedeltas);
+            write_dphase_ct = CopyAndPermute16bit(sample_include, cur_dphasepresent, cur_dphasedelta, old_sample_idx_to_new, sample_ct, read_dphase_ct, write_dphasepresent, write_dphasedeltas);
           }
         }
       } else if (sample_include) {
