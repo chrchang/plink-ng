@@ -15532,6 +15532,11 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
         if (cur_rand64 & 1) {
           prev_genovec = nullptr;
           // Only update allele and missing frequencies if not simulating LD.
+
+          // Could make this follow e.g. a beta(0.2, 0.2) distribution, but
+          // that's unimportant for software testing, so I won't bother
+          // unless/until that inverse-CDF is already implemented in this
+          // codebase for some reason.
           afreq = sfmt_to_res53(cur_rand64);
           if (geno3_thresh_ct > 1) {
             if (!rand16_left) {
