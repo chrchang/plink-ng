@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (22 Apr 2022)";
+  " (24 Apr 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3297,6 +3297,8 @@ int main(int argc, char** argv) {
   InitCmpExpr(&pc.exclude_if_info_expr);
   InitExtractColCond(&pc.extract_col_cond_info);
   InitExportf(&pc.exportf_info);
+  GenDummyInfo gendummy_info;
+  InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
   InitAdjust(&pc.adjust_info, &adjust_file_info);
   ChrInfo chr_info;
@@ -3693,8 +3695,6 @@ int main(int argc, char** argv) {
     uint32_t mkl_native = 0;
 #endif
     uint32_t randmem = 0;
-    GenDummyInfo gendummy_info;
-    InitGenDummy(&gendummy_info);
     Plink1DosageInfo plink1_dosage_info;
     InitPlink1Dosage(&plink1_dosage_info);
     do {
@@ -4591,18 +4591,38 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               gendummy_info.dosage_freq = dxx;
-            } else {
+            } else if (!extra_numeric_param_ct) {
+              const uint32_t mfreq_ct = 1 + CountByte(cur_modif, ',', cur_modif_slen);
+              gendummy_info.geno_mfreq_ct = mfreq_ct;
+              if (unlikely(pgl_malloc(mfreq_ct * sizeof(double), &gendummy_info.geno_mfreqs))) {
+                goto main_ret_NOMEM;
+              }
+              const char* cur_modif_iter = cur_modif;
+              for (uint32_t mfreq_idx = 0; ; ) {
+                double dxx;
+                cur_modif_iter = ScanadvDouble(cur_modif_iter, &dxx);
+                if (unlikely((dxx < 0.0) || (dxx > 1.0) || ((*cur_modif_iter != ',') && (*cur_modif_iter != '\0')))) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy argument '%s' %lu.\n", cur_modif, cur_modif_iter - cur_modif);
+                  goto main_ret_INVALID_CMDLINE_WWA;
+                }
+                gendummy_info.geno_mfreqs[mfreq_idx] = dxx;
+                if (++mfreq_idx == mfreq_ct) {
+                  break;
+                }
+                ++cur_modif_iter;
+              }
+              ++extra_numeric_param_ct;
+            } else if (likely(extra_numeric_param_ct == 1)) {
               double dxx;
-              if (unlikely((extra_numeric_param_ct == 2) || (!ScantokDouble(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 1.0))) {
+              if (unlikely((!ScantokDouble(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 1.0))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy argument '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
-              if (!extra_numeric_param_ct) {
-                gendummy_info.geno_mfreq = dxx;
-              } else {
-                gendummy_info.pheno_mfreq = dxx;
-              }
+              gendummy_info.pheno_mfreq = dxx;
               ++extra_numeric_param_ct;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
           const uint32_t mutually_exclusive_flags = gendummy_info.flags & (kfGenDummyAcgt | kfGenDummy1234 | kfGenDummy12);
@@ -11149,6 +11169,7 @@ int main(int argc, char** argv) {
     } while (file_delete_list);
   }
   CleanupChrInfo(&chr_info);
+  CleanupGenDummy(&gendummy_info);
   CleanupExportf(&pc.exportf_info);
   CleanupExtractColCond(&pc.extract_col_cond_info);
   CleanupCmpExpr(&pc.exclude_if_info_expr);

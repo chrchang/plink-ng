@@ -284,9 +284,9 @@ inline static double sfmt_genrand_real3(sfmt_t * sfmt)
 }
 
 /**
- * converts an unsigned 32-bit integer to double on [0,1)
+ * converts an unsigned 64-bit integer to double on [0,1)
  * with 53-bit resolution.
- * @param v 32-bit unsigned integer
+ * @param v 64-bit unsigned integer
  * @return double on [0,1)-real-interval with 53-bit resolution.
  */
 inline static double sfmt_to_res53(uint64_t v)

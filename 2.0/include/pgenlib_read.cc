@@ -5795,17 +5795,12 @@ void PreinitPgv(PgenVariant* pgvp) {
   pgvp->multidphase_sample_ct = 0;
 }
 
-uint32_t g_debug_get_raw = 0;
-
 // similar to ParseAndSaveDifflist()
 PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t raw_sample_ct, const unsigned char** fread_pp, uintptr_t* deltalist_include, uint32_t* deltalist_len_ptr) {
   const unsigned char* group_info_iter;
   PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, nullptr, &group_info_iter, deltalist_len_ptr);
   const uint32_t deltalist_len = *deltalist_len_ptr;
   if (reterr || (!deltalist_len)) {
-    if (reterr && g_debug_get_raw) {
-      g_debug_get_raw = 9;
-    }
     return reterr;
   }
   const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
@@ -5825,13 +5820,6 @@ PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t ra
     for (uint32_t raw_deltalist_idx_lowbits = 0; ; ++raw_deltalist_idx_lowbits) {
       // always check, otherwise we may scribble over arbitrary memory
       if (unlikely(raw_sample_idx >= raw_sample_ct)) {
-        if (g_debug_get_raw) {
-          if (*fread_pp >= fread_end) {
-            g_debug_get_raw = 10;
-          } else {
-            g_debug_get_raw = 11;
-          }
-        }
         return kPglRetMalformedInput;
       }
       SetBit(raw_sample_idx, deltalist_include);
@@ -8976,9 +8964,6 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
   }
   *loadbuf_iter_ptr = loadbuf_iter;
   reterr = ParseDosage16(fread_ptr, fread_end, nullptr, raw_sample_ct, vidx, allele_ct, pgrp, nullptr, dphase_present, dphase_delta, nullptr, dosage_present, dosage_main);
-  if (reterr && g_debug_get_raw) {
-    g_debug_get_raw = 8;
-  }
   return reterr;
 }
 

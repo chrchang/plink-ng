@@ -6542,12 +6542,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         ulii = MINV(kPglVblockSize, write_variant_ct);
       }
       const uint32_t write_block_size = ulii;
-      // DEBUG
-      unsigned char* debug_bubble = nullptr;
-      if (g_debug_on) {
-        debug_bubble = S_CAST(unsigned char*, bigstack_alloc_raw(64));
-        memset(debug_bubble, 99, 64);
-      }
       uintptr_t* main_loadbufs[2];
       main_loadbufs[0] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size));
       main_loadbufs[1] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size));
@@ -6563,15 +6557,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       }
       SetThreadFuncAndData(MakePgenThread, &ctx, &tg);
 
-      if (g_debug_on) {
-        // There is a known bug that is likely to lie in MakePgenRobust(); see
-        //   https://groups.google.com/g/plink2-users/c/1bOcjObgjq8/m/7NDQquz3AgAJ .
-        // The runs triggering this bug have phased-dosage data, and include
-        // the --indiv-sort flag.
-        // The input datasets are very large, so integer overflow is one
-        // possible culprit.
-        g_debug_get_raw = 1;
-      }
       logprintfww5("Writing %s ... ", outname);
       fputs("0%", stdout);
       fflush(stdout);
@@ -6639,34 +6624,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
               cur_write_allele_ct = cur_write_allele_idx_offsets[block_widx + 1] - cur_write_allele_idx_offsets[block_widx];
             }
             if (cur_read_allele_ct == cur_write_allele_ct) {
-              if (debug_bubble && (debug_bubble[0] != 99)) {
-                logerrprintf("debug_bubble:");
-                for (uint32_t uii = 0; uii != 64; ++uii) {
-                  logerrprintf(" %u", debug_bubble[uii]);
-                }
-                logerrprintf("\n");
-                const uint32_t output_vidx = read_batch_idx * write_block_size + block_widx;
-                logerrprintf("write-index: %u\n", output_vidx);
-                reterr = kPglRetInternalError;
-                goto MakePgenRobust_ret_1;
-              }
               reterr = PgrGetRaw(read_variant_uidx, read_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[block_widx])) : nullptr);
               if (unlikely(reterr)) {
                 PgenErrPrintNV(reterr, read_variant_uidx);
-                if (g_debug_on) {
-                  const uint32_t output_vidx = read_batch_idx * write_block_size + block_widx;
-                  logerrprintf("write-index: %u\n", output_vidx);
-                  if (new_variant_idx_to_old_iter && output_vidx) {
-                    logerrprintf("previous read-index: %u\n", new_variant_idx_to_old_iter[-2]);
-                  }
-                  logerrprintf("block_widx: %u\n", block_widx);
-                  logerrprintf("g_debug_get_raw: %u\n", g_debug_get_raw);
-                  logerrprintf("debug_bubble:");
-                  for (uint32_t uii = 0; uii != 64; ++uii) {
-                    logerrprintf(" %u", debug_bubble[uii]);
-                  }
-                  logerrprintf("\n");
-                }
                 goto MakePgenRobust_ret_1;
               }
               ++block_widx;

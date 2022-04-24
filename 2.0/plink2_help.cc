@@ -238,13 +238,17 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     // todo: triallelic rate
     HelpPrint("dummy\0", &help_ctrl, 1,
-"  --dummy <sample ct> <SNP ct> [missing dosage freq] [missing pheno freq]\n"
+"  --dummy <sample ct> <SNP ct> [missing dosage freq(s)] [missing pheno freq]\n"
 "          [{acgt | 1234 | 12}] ['pheno-ct='<count>] ['scalar-pheno']\n"
 "          ['phase-freq='<rate>] ['dosage-freq='<rate>]\n"
 "    This generates a fake input dataset with the specified number of samples\n"
 "    and SNPs.\n"
-"    * By default, the missing dosage and phenotype frequencies are zero.\n"
-"      These can be changed by providing 3rd and 4th numeric arguments.\n"
+"    * By default, the missing dosage frequency is zero.  This can be changed by\n"
+"      providing a comma-separated list of possible frequencies (one frequency\n"
+"      in the list is selected for each variant).\n"
+"    * By default, the missing phenotype frequency is zero.  This can be changed\n"
+"      by providing both a dosage-frequency and a 4th numeric argument; the 4th\n"
+"      argument is then interpreted as the missing phenotype frequency.\n"
 "    * By default, allele codes are As and Bs; this can be changed with the\n"
 "      'acgt', '1234', or '12' modifier.\n"
 "    * By default, one binary phenotype is generated.  'pheno-ct=' can be used\n"

@@ -75,7 +75,8 @@ typedef struct GenDummyInfoStruct {
   uint32_t sample_ct;
   uint32_t variant_ct;
   uint32_t pheno_ct;
-  double geno_mfreq;
+  uint32_t geno_mfreq_ct;
+  double* geno_mfreqs;
   double pheno_mfreq;
   double phase_freq;
   double dosage_freq;
@@ -84,6 +85,8 @@ typedef struct GenDummyInfoStruct {
 void InitPlink1Dosage(Plink1DosageInfo* plink1_dosage_info_ptr);
 
 void InitGenDummy(GenDummyInfo* gendummy_info_ptr);
+
+void CleanupGenDummy(GenDummyInfo* gendummy_info_ptr);
 
 PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr);
 

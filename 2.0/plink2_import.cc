@@ -38,10 +38,15 @@ void InitPlink1Dosage(Plink1DosageInfo* plink1_dosage_info_ptr) {
 void InitGenDummy(GenDummyInfo* gendummy_info_ptr) {
   gendummy_info_ptr->flags = kfGenDummy0;
   gendummy_info_ptr->pheno_ct = 1;
-  gendummy_info_ptr->geno_mfreq = 0.0;
+  gendummy_info_ptr->geno_mfreq_ct = 0;
+  gendummy_info_ptr->geno_mfreqs = nullptr; // defensive
   gendummy_info_ptr->pheno_mfreq = 0.0;
   gendummy_info_ptr->phase_freq = 0.0;
   gendummy_info_ptr->dosage_freq = 0.0;
+}
+
+void CleanupGenDummy(GenDummyInfo* gendummy_info_ptr) {
+  free_cond(gendummy_info_ptr->geno_mfreqs);
 }
 
 
@@ -15433,14 +15438,18 @@ typedef struct GenerateDummyCtxStruct {
   uint32_t sample_ct;
   // binary search over cdf is faster than (int)(log(drand)/log(q)) for
   // truncated geometric distribution
-  STD_ARRAY_DECL(uint64_t, kBitsPerWordD2, geno_missing_geomdist);
   STD_ARRAY_DECL(uint64_t, kBitsPerWordD2, phase_geomdist);
   STD_ARRAY_DECL(uint64_t, kBitsPerWordD2, dosage_geomdist);
-  uint32_t geno_missing_invert;
   uint32_t phase_invert;
   uint32_t dosage_geomdist_max;
   uint32_t hard_call_halfdist;
   uint32_t dosage_erase_halfdist;
+
+  uint32_t geno3_thresh_ct;
+  // Usually (<nonmissing geno freq> * 2^32).
+  // If <nonmissing geno freq> is in (0, 1e-7), it's rounded up to 1e-7 so that
+  // discretization doesn't really interfere with Hardy-Weinberg equilibrium.
+  uint64_t* geno3_thresh_arr;
 
   sfmt_t** sfmtp_arr;
 
@@ -15465,11 +15474,10 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
 
   const uint32_t sample_ct = ctx->sample_ct;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
-  STD_ARRAY_KREF(uint64_t, kBitsPerWordD2) geno_missing_geomdist = ctx->geno_missing_geomdist;
   STD_ARRAY_KREF(uint64_t, kBitsPerWordD2) phase_geomdist = ctx->phase_geomdist;
   STD_ARRAY_KREF(uint64_t, kBitsPerWordD2) dosage_geomdist = ctx->dosage_geomdist;
-  const uint32_t geno_missing_invert = ctx->geno_missing_invert;
-  const uint32_t geno_missing_check = geno_missing_invert || (geno_missing_geomdist[kBitsPerWordD2 - 1] != 0);
+  const uint32_t geno3_thresh_ct = ctx->geno3_thresh_ct;
+  const uint64_t* geno3_thresh_arr = ctx->geno3_thresh_arr;
   const uint32_t phase_invert = ctx->phase_invert;
   const uint32_t phase_is_variable = (phase_geomdist[kBitsPerWordD2 - 1] != 0);
   const uint32_t phase_is_present = phase_invert || phase_is_variable;
@@ -15483,6 +15491,21 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
   sfmt_t* sfmtp = ctx->sfmtp_arr[tidx];
   uint64_t u64rand = sfmt_genrand_uint64(sfmtp);
   uint32_t rand16_left = 4;
+  uint32_t ld_denom = 0;
+  uint32_t ld_invert = 0;
+  double afreq = sfmt_to_res53(sfmt_genrand_uint64(sfmtp));
+  uint64_t geno3_thresh = 1LLU << 32;
+  double geno3_thresh_d = 4294967296.0;
+  if (geno3_thresh_ct) {
+    uint32_t uii = 0;
+    if (geno3_thresh_ct > 1) {
+      // assumes rand16_left != 0
+      uii = ((u64rand & 65535) * geno3_thresh_ct) >> 16;
+      --rand16_left;
+    }
+    geno3_thresh = geno3_thresh_arr[uii];
+    geno3_thresh_d = u63tod(geno3_thresh);
+  }
   uint32_t parity = 0;
   do {
     const uintptr_t cur_block_write_ct = ctx->cur_block_write_ct;
@@ -15497,39 +15520,150 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
     uint32_t* write_dphase_ct_iter = &(ctx->write_dphase_cts[parity][vidx]);
     uintptr_t* write_dphase_present_iter = &(ctx->write_dphase_presents[parity][vidx * sample_ctaw]);
     SDosage* write_dphase_delta_iter = &(ctx->write_dphase_deltas[parity][vidx * sample_ct]);
+    uintptr_t* prev_genovec = nullptr;
     for (; vidx != vidx_end; ++vidx) {
       Dosage* cur_dosage_main_iter = write_dosage_main_iter;
       SDosage* cur_dphase_delta_iter = write_dphase_delta_iter;
+      uint64_t geno1_thresh;
+      uint64_t geno2_thresh;
+      {
+        const uint64_t cur_rand64 = sfmt_genrand_uint64(sfmtp);
+        // ~50% chance of high LD
+        if (cur_rand64 & 1) {
+          prev_genovec = nullptr;
+          // Only update allele and missing frequencies if not simulating LD.
+          afreq = sfmt_to_res53(cur_rand64);
+          if (geno3_thresh_ct > 1) {
+            if (!rand16_left) {
+              u64rand = sfmt_genrand_uint64(sfmtp);
+              rand16_left = 4;
+            }
+            const uint32_t uii = ((u64rand & 65535) * geno3_thresh_ct) >> 16;
+            u64rand >>= 16;
+            --rand16_left;
+            geno3_thresh = geno3_thresh_arr[uii];
+            geno3_thresh_d = u63tod(geno3_thresh);
+          }
+        } else {
+          // When generating a genovec_word in high LD with the previous one,
+          // we use the following process to select positions to generate a
+          // new genotype:
+          // 1. Draw a uint16.
+          // 2. Multiply by ld_denom, and right-shift 16 (Lemire's fast
+          //    alternative to the modulo reduction).
+          // 3. If this is >= loop_len, stop selecting.  Otherwise, generate a
+          //    new genotype for this value of sample_idx_lowbits.
+          // Our chance of continuing the loop is r=(loop_len/ld_denom) on each
+          // iteration, so the expected number of iterations is
+          //   r/(1-r) = loop_len / (ld_denom - loop_len).
+          // Given a target genotype-reselection rate of R, we want this last
+          // expectation to be R*loop_len.  Solving this equation:
+          //   R * loop_len = loop_len / (ld_denom - loop_len)
+          //   R = 1 / (ld_denom - loop_len)
+          //   ld_denom - loop_len = 1 / R
+          //   ld_denom = loop_len + (1 / R)
+          // Since the chance of regenerating the same genotype as before is
+          // sometimes smaller than 1/2 but never by that much, choosing R =
+          // (2 / kPglMaxDifflistLenDivisor) should test a mix of
+          // LD-compression and not-quite-LD-compression cases, while smaller
+          // values of R test the former more heavily.
+          const uint32_t rand_shift = (cur_rand64 >> 1) & 3;
+          ld_denom = kBitsPerWordD2 + ((kPglMaxDifflistLenDivisor / 2) << rand_shift);
+          // 1/16 chance of LD-invert.
+          ld_invert = ((cur_rand64 & 120) == 120);
+        }
+        const double inv_afreq = 1.0 - afreq;
+        // respect Hardy-Weinberg equilibrium
+        geno1_thresh = S_CAST(int64_t, geno3_thresh_d * afreq * afreq);
+        geno2_thresh = S_CAST(int64_t, geno3_thresh_d * (1.0 - inv_afreq * inv_afreq));
+      }
       uint32_t loop_len = kBitsPerWordD2;
+      uint32_t loop_len_d2 = kBitsPerWordD4;
       for (uint32_t widx = 0; ; ++widx) {
         if (widx >= sample_ctl2_m1) {
           if (widx > sample_ctl2_m1) {
             break;
           }
           loop_len = ModNz(sample_ct, kBitsPerWordD2);
+          loop_len_d2 = loop_len / 2;
+          if (prev_genovec) {
+            ld_denom = ld_denom + loop_len - kBitsPerWordD2;
+          }
         }
-        // sfmt_genrand_uint64 calls can't be mixed with sfmt_genrand_uint32
-        // calls, so use it here even in 32-bit build
-        uintptr_t genovec_word = sfmt_genrand_uint64(sfmtp);
-        genovec_word = genovec_word - ((genovec_word >> 1) & kMask5555);
-        if (geno_missing_check) {
-          uintptr_t missing_mask = 0;
-          uint32_t sample_idx_lowbits = 0;
+        uintptr_t genovec_word;
+        if (!prev_genovec) {
+          genovec_word = 0;
+          for (uint32_t rand_idx = 0; rand_idx != loop_len_d2; ++rand_idx) {
+
+            // sfmt_genrand_uint64 calls can't be mixed with
+            // sfmt_genrand_uint32 calls, so use it here even in 32-bit build
+            const uint64_t cur_rand = sfmt_genrand_uint64(sfmtp);
+            const uintptr_t rand_lowbits = cur_rand & UINT32_MAX;
+            uintptr_t cur_geno;
+            if (rand_lowbits >= geno2_thresh) {
+              cur_geno = 2 + (rand_lowbits >= geno3_thresh);
+            } else {
+              cur_geno = (rand_lowbits >= geno1_thresh);
+            }
+            genovec_word = genovec_word << 2;
+            genovec_word |= cur_geno;
+            const uintptr_t rand_highbits = cur_rand >> 32;
+            if (rand_highbits >= geno2_thresh) {
+              cur_geno = 2 + (rand_highbits >= geno3_thresh);
+            } else {
+              cur_geno = (rand_highbits >= geno1_thresh);
+            }
+            genovec_word = genovec_word << 2;
+            genovec_word |= cur_geno;
+          }
+          if (loop_len % 2) {
+            const uintptr_t rand_lowbits = sfmt_genrand_uint64(sfmtp) & UINT32_MAX;
+            uintptr_t cur_geno;
+            if (rand_lowbits >= geno2_thresh) {
+              cur_geno = 2 + (rand_lowbits >= geno3_thresh);
+            } else {
+              cur_geno = (rand_lowbits >= geno1_thresh);
+            }
+            genovec_word = genovec_word << 2;
+            genovec_word |= cur_geno;
+          }
+        } else {
+          genovec_word = prev_genovec[widx];
+          if (ld_invert) {
+            genovec_word = InvertGenoWordUnsafe(genovec_word);
+            genovec_word = bzhi_max(genovec_word, loop_len * 2);
+          }
           while (1) {
-            sample_idx_lowbits += CountSortedLeqU64(&geno_missing_geomdist[0], kBitsPerWordD2, sfmt_genrand_uint64(sfmtp));
+            if (!rand16_left) {
+              u64rand = sfmt_genrand_uint64(sfmtp);
+              rand16_left = 4;
+            }
+            const uint32_t sample_idx_lowbits = ((u64rand & 65535) * ld_denom) >> 16;
+            u64rand >>= 16;
+            --rand16_left;
             if (sample_idx_lowbits >= loop_len) {
               break;
             }
-            missing_mask |= (3 * k1LU) << (2 * sample_idx_lowbits);
-            ++sample_idx_lowbits;
+            if (rand16_left < 2) {
+              u64rand = sfmt_genrand_uint64(sfmtp);
+              rand16_left = 4;
+            }
+            const uintptr_t rand_lowbits = u64rand & UINT32_MAX;
+            u64rand >>= 32;
+            rand16_left -= 2;
+            uintptr_t cur_geno;
+            if (rand_lowbits >= geno2_thresh) {
+              cur_geno = 2 + (rand_lowbits >= geno3_thresh);
+            } else {
+              cur_geno = (rand_lowbits >= geno1_thresh);
+            }
+            const uint32_t bit_shift_ct = sample_idx_lowbits * 2;
+            genovec_word &= ~((3 * k1LU) << bit_shift_ct);
+            genovec_word |= cur_geno << bit_shift_ct;
           }
-          if (geno_missing_invert) {
-            missing_mask = ~missing_mask;
-          }
-          genovec_word |= missing_mask;
         }
-        // set bits may correspond to missing or homozygous calls; that's
-        // resolved later.
+        // set phasepresent bits may correspond to missing or homozygous calls;
+        // that's resolved later.
         uint32_t phasepresent_possible_hw = 0;
         uint32_t phaseinfo_hw = 0;
         if (phase_is_present) {
@@ -15576,6 +15710,11 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
               u64rand = sfmt_genrand_uint64(sfmtp);
               rand16_left = 4;
             }
+            // possible todo: make this respect simulated allele frequency
+            //
+            // repeated squaring provides a quick and dirty way to do this,
+            // e.g. square a uniform 0..1-scaled value 4 times to get an
+            // expectation of 1/17.
             const uint32_t dosage_int = ((u64rand & 65535) + 1) / 2;
             u64rand >>= 16;
             --rand16_left;
@@ -15590,6 +15729,14 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
                 // To test both the maximum-difference and the
                 // nonmaximal-difference cases, we subtract 1 from this number
                 // if it's even.
+                //
+                // Note that, as of this writing, pgenlib_write
+                // AppendDphase16() does *not* omit a dphase_delta entry when
+                // the implicit value inferred from hardcall-phase and dosage
+                // would be correct.  It is the caller's responsibility to
+                // exploit this case.  (MakePgenThread doesn't do this, maybe
+                // it should.  Exporting to VCF/BCF and re-importing does do
+                // the trick.)
                 cur_dphase_delta -= 1 - (cur_dphase_delta & 1);
                 if (!(phaseinfo_hw & shifted_bit)) {
                   cur_dphase_delta = -cur_dphase_delta;
@@ -15620,6 +15767,7 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
       *write_dosage_ct_iter++ = dosage_ct;
       const uint32_t dphase_ct = cur_dphase_delta_iter - write_dphase_delta_iter;
       *write_dphase_ct_iter++ = dphase_ct;
+      prev_genovec = write_genovec_iter;
       write_genovec_iter = &(write_genovec_iter[sample_ctaw2]);
       write_phasepresent_iter = &(write_phasepresent_iter[sample_ctaw]);
       write_phaseinfo_iter = &(write_phaseinfo_iter[sample_ctaw]);
@@ -15816,25 +15964,31 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
 
     BigstackReset(writebuf);
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
-    const double geno_mfreq = gendummy_info_ptr->geno_mfreq;
     GenerateDummyCtx ctx;
-    ctx.geno_missing_invert = 0;
-    if (geno_mfreq < kRecip2m53) {
-      // beyond this point, 1-x may just be 1
-      ctx.geno_missing_geomdist[kBitsPerWordD2 - 1] = 0;
-    } else {
-      double remaining_prob = 1.0;
-      ctx.geno_missing_invert = (geno_mfreq > 0.5);
-      if (ctx.geno_missing_invert) {
-        for (uint32_t uii = 0; uii != kBitsPerWordD2; ++uii) {
-          remaining_prob *= geno_mfreq;
-          ctx.geno_missing_geomdist[uii] = -S_CAST(uint64_t, remaining_prob * k2m64);
+    {
+      const uint32_t geno_mfreq_ct = gendummy_info_ptr->geno_mfreq_ct;
+      ctx.geno3_thresh_ct = geno_mfreq_ct;
+      ctx.geno3_thresh_arr = nullptr;
+      if (geno_mfreq_ct) {
+        if (unlikely(geno_mfreq_ct > 65536)) {
+          logerrputs("Error: --dummy is limited to 65536 missing-dosage frequencies.\n");
+          goto GenerateDummy_ret_INVALID_CMDLINE;
         }
-      } else {
-        const double geno_nmfreq = 1.0 - geno_mfreq;
-        for (uint32_t uii = 0; uii != kBitsPerWordD2; ++uii) {
-          remaining_prob *= geno_nmfreq;
-          ctx.geno_missing_geomdist[uii] = -S_CAST(uint64_t, remaining_prob * k2m64);
+        uint32_t warning_9999999 = 0;
+        if (unlikely(bigstack_alloc_u64(geno_mfreq_ct, &ctx.geno3_thresh_arr))) {
+          goto GenerateDummy_ret_NOMEM;
+        }
+        const double* geno_mfreqs = gendummy_info_ptr->geno_mfreqs;
+        for (uint32_t uii = 0; uii != geno_mfreq_ct; ++uii) {
+          double nm_freq = 1.0 - geno_mfreqs[uii];
+          if ((nm_freq < 1e-7) && (nm_freq > 0.0)) {
+            warning_9999999 = 1;
+            nm_freq = 1e-7;
+          }
+          ctx.geno3_thresh_arr[uii] = S_CAST(int64_t, nm_freq * 4294967296.0);
+        }
+        if (warning_9999999) {
+          logerrputs("Warning: reducing missing dosage freq(s) in (0.9999999, 1) to 0.9999999.\n");
         }
       }
     }
@@ -15846,7 +16000,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     } else {
       double remaining_prob = 1.0;
       ctx.phase_invert = (phase_freq > 0.5);
-      if (ctx.geno_missing_invert) {
+      if (ctx.phase_invert) {
         for (uint32_t uii = 0; uii != kBitsPerWordD2; ++uii) {
           remaining_prob *= phase_freq;
           ctx.phase_geomdist[uii] = -S_CAST(uint64_t, remaining_prob * k2m64);
