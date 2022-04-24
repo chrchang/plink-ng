@@ -4602,7 +4602,7 @@ int main(int argc, char** argv) {
                 double dxx;
                 cur_modif_iter = ScanadvDouble(cur_modif_iter, &dxx);
                 if (unlikely((dxx < 0.0) || (dxx > 1.0) || ((*cur_modif_iter != ',') && (*cur_modif_iter != '\0')))) {
-                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy argument '%s' %lu.\n", cur_modif, cur_modif_iter - cur_modif);
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy argument '%s'.\n", cur_modif);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }
                 gendummy_info.geno_mfreqs[mfreq_idx] = dxx;
