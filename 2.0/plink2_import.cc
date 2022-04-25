@@ -15562,7 +15562,9 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
           // iteration, so the expected number of iterations is
           //   r/(1-r) = loop_len / (ld_denom - loop_len).
           // Given a target genotype-reselection rate of R, we want this last
-          // expectation to be R*loop_len.  Solving this equation:
+          // expectation to be near R*loop_len.  (Technically a bit larger,
+          // since we're sampling with replacement, but we only need this
+          // calculation to hit the right ballpark.)  Solving this equation:
           //   R * loop_len = loop_len / (ld_denom - loop_len)
           //   R = 1 / (ld_denom - loop_len)
           //   ld_denom - loop_len = 1 / R

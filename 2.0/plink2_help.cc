@@ -2129,10 +2129,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            to permit that.\n"
                );
     HelpPrint("normalize\0norm\0fa\0", &help_ctrl, 0,
-"  --normalize ['list']    : Left-normalize all variants, using the --fa file.\n"
-"    (alias: --norm)         (Assumes no differences in capitalization.)  The\n"
-"                            'list' modifier causes a list of affected variant\n"
-"                            IDs to be written to <output prefix>.normalized.\n"
+"  --normalize ['list'] ['shrink-overlapping-deletions'] :\n"
+"    (alias: --norm)\n"
+"    Left-normalize all variants, using the --fa file.  (Assumes no differences\n"
+"    in capitalization.)\n"
+"    * 'list' causes a list of affected variant IDs to be written to\n"
+"      <output prefix>.normalized.\n"
+"    * 'shrink-overlapping-deletions' allows the span of '*'\n"
+"      overlapping-deletion alleles to be shrunk.\n"
               );
     HelpPrint("indiv-sort\0pmerge\0pmerge-list\0", &help_ctrl, 0,
 "  --indiv-sort <mode> [f] : Specify sample ID sort order for merge and\n"

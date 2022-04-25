@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (24 Apr 2022)";
+  " (25 Apr 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -8147,16 +8147,20 @@ int main(int argc, char** argv) {
             logerrputs("Error: --normalize requires --fa.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (param_ct) {
-            const char* cur_modif = argvk[arg_idx + 1];
-            if (unlikely(strcmp(cur_modif, "list"))) {
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "list", cur_modif_slen)) {
+              pc.fa_flags |= kfFaNormalizeList;
+            } else if (likely(strequal_k(cur_modif, "shrink-overlapping-deletions", cur_modif_slen))) {
+              pc.fa_flags |= kfFaNormalizeShrinkOverlappingDeletions;
+            } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --normalize argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-            pc.fa_flags |= kfFaNormalizeList;
           }
           pc.fa_flags |= kfFaNormalize;
           pc.dependency_flags |= kfFilterPvarReq;
