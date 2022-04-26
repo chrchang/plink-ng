@@ -154,7 +154,7 @@ PglErr RefFromFaContig(const uintptr_t* variant_include, const uint32_t* variant
   }
 }
 
-PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* seqbuf, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t bp_end, uint32_t shrink_overlapping_deletions, uint32_t output_missing_geno_code, unsigned char** alloc_endp, UnsortedVar* vpos_sortstatusp, uint32_t* __restrict variant_bps, const char** allele_storage, uint32_t* __restrict nchanged_ct_ptr, char* nlist_flush, FILE* nlist_file, char** nlist_write_iterp, uint32_t* __restrict alen_buf, uintptr_t* __restrict allele_skip_buf) {
+PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* seqbuf, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t bp_end, uint32_t adjust_overlapping_deletions, uint32_t output_missing_geno_code, unsigned char** alloc_endp, UnsortedVar* vpos_sortstatusp, uint32_t* __restrict variant_bps, const char** allele_storage, uint32_t* __restrict nchanged_ct_ptr, char* nlist_flush, FILE* nlist_file, char** nlist_write_iterp, uint32_t* __restrict alen_buf, uintptr_t* __restrict allele_skip_buf) {
   uintptr_t variant_uidx_base;
   uintptr_t cur_bits;
   BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &cur_bits);
@@ -168,9 +168,9 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
     logerrputsb();
     return kPglRetInconsistentInput;
   }
-  const char* star_str_shrink = shrink_overlapping_deletions? (&(g_one_char_strs[84])) : (&(g_one_char_strs[0]));
+  const char* star_str_adjust = adjust_overlapping_deletions? (&(g_one_char_strs[84])) : (&(g_one_char_strs[0]));
   const char* missing_allele_str = &(g_one_char_strs[92]);
-  const uint32_t star_code_noshrink = shrink_overlapping_deletions? 0 : 42;
+  const uint32_t star_code_noadjust = adjust_overlapping_deletions? 0 : 42;
   unsigned char* alloc_base = g_bigstack_base;
   unsigned char* alloc_end = *alloc_endp;
   char* nlist_write_iter = *nlist_write_iterp;
@@ -226,12 +226,12 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
       const uint32_t first_code = ctou32(cur_allele[0]);
       // Special case: if first character of any allele is '<', skip the entire
       // variant.
-      if ((first_code == '<') || (first_code == star_code_noshrink)) {
+      if ((first_code == '<') || (first_code == star_code_noadjust)) {
         left_match = UINT32_MAX;
         right_match = UINT32_MAX;
         break;
       }
-      if ((cur_alleles[aidx] == missing_allele_str) || (cur_alleles[aidx] == star_str_shrink)) {
+      if ((cur_alleles[aidx] == missing_allele_str) || (cur_alleles[aidx] == star_str_adjust)) {
         SetBit(aidx, allele_skip_buf);
         continue;
       }
@@ -571,7 +571,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
             }
           }
           if (flags & kfFaNormalize) {
-            reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, flags & kfFaNormalizeShrinkOverlappingDeletions, output_missing_geno_code, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf, allele_skip_buf);
+            reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, flags & kfFaNormalizeAdjustOverlappingDeletions, output_missing_geno_code, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf, allele_skip_buf);
             if (unlikely(reterr)) {
               goto ProcessFa_ret_1;
             }
@@ -677,7 +677,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
         // slightly redundant
         *seq_iter = '\0';
         const uint32_t bp_end = seq_iter - seqbuf;
-        reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, flags & kfFaNormalizeShrinkOverlappingDeletions, output_missing_geno_code, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf, allele_skip_buf);
+        reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, flags & kfFaNormalizeAdjustOverlappingDeletions, output_missing_geno_code, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf, allele_skip_buf);
         if (unlikely(reterr)) {
           goto ProcessFa_ret_1;
         }

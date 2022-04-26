@@ -30,7 +30,7 @@ FLAGSET_DEF_START()
   kfFaRefFromForce = (1 << 1),
   kfFaNormalize = (1 << 2),
   kfFaNormalizeList = (1 << 3),
-  kfFaNormalizeShrinkOverlappingDeletions = (1 << 4),
+  kfFaNormalizeAdjustOverlappingDeletions = (1 << 4),
   kfFaScrapeLengths = (1 << 5)
 FLAGSET_DEF_END(FaFlags);
 

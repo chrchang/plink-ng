@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (25 Apr 2022)";
+  " (26 Apr 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -8155,8 +8155,11 @@ int main(int argc, char** argv) {
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "list", cur_modif_slen)) {
               pc.fa_flags |= kfFaNormalizeList;
-            } else if (likely(strequal_k(cur_modif, "shrink-overlapping-deletions", cur_modif_slen))) {
-              pc.fa_flags |= kfFaNormalizeShrinkOverlappingDeletions;
+            } else if (strequal_k(cur_modif, "shrink-overlapping-deletions", cur_modif_slen)) {
+              logerrputs("Warning: 'shrink-overlapping-deletions' modifier has been renamed to\n'adjust-overlapping-deletions'.\n");
+              pc.fa_flags |= kfFaNormalizeAdjustOverlappingDeletions;
+            } else if (likely(strequal_k(cur_modif, "adjust-overlapping-deletions", cur_modif_slen))) {
+              pc.fa_flags |= kfFaNormalizeAdjustOverlappingDeletions;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --normalize argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
