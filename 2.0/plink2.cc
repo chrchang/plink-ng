@@ -2017,7 +2017,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // VariantMissingHcCtsAreNeeded(),
             // VariantMissingDosageCtsAreNeeded(),
             // [Founder]RawGenoCtsAreNeeded(), TrimAlts, and is_minimac3_r2.
-            logerrputs("Error: --error-on-freq-calc specified, but allele frequency calculation is\nneeded.\nFlags which may invoke the allele frequency calculation include --freq, --geno,\n--geno-counts, --genotyping-rate, --glm (unless 'omit-ref' is specified),\n--hardy, --het (unless 'small-sample' is specified), --hwe, --indep-pairwise,\nthe 'trim-alts' modifier of --make-[b]pgen/--make-bed, --make-grm-{bin,list},\n--make-rel, --[max-]mac, --{max,min}-maf, --minimac3-r2-filter, --missing,\n--pca, --score (unless 'no-mean-imputation' is specified, and neither 'center'\nnor 'variance-standardize' are), and --variant-score.\n");
+            logerrputs("Error: --error-on-freq-calc specified, but allele frequency calculation is\nneeded.\nFlags which may invoke the allele frequency calculation include --freq, --geno,\n--geno-counts, --genotyping-rate, --glm (unless 'omit-ref' is specified),\n--hardy, --het (unless 'small-sample' is specified), --hwe, --indep-pairwise,\nthe 'trim-alts' modifier of --make-[b]pgen/--make-bed, --make-grm-{bin,list},\n--make-rel, --[max-]mac, --[max-]maf, --minimac3-r2-filter, --missing, --pca,\n--score (unless 'no-mean-imputation' is specified, and neither 'center' nor\n'variance-standardize' are), and --variant-score.\n");
             goto Plink2Core_ret_INVALID_CMDLINE;
           }
           // note that --geno depends on different handling of X/Y than --maf.
