@@ -141,7 +141,8 @@ FLAGSET64_DEF_START()
   kfMiscIidSid = (1LLU << 39),
   kfMiscPhenoIidOnly = (1LLU << 40),
   kfMiscCovarIidOnly = (1LLU << 41),
-  kfMiscAllowBadLd = (1LLU << 42)
+  kfMiscAllowBadLd = (1LLU << 42),
+  kfMiscErrorOnFreqCalc = (1LLU << 43)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()

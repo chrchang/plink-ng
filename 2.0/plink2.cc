@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (26 Apr 2022)";
+  " (3 May 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -463,6 +463,7 @@ uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Fl
 
 
 uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, HetFlags het_flags, ScoreFlags score_flags) {
+  // Keep this in sync with --error-on-freq-calc.
   return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel)) ||
     ((command_flags1 & kfCommand1Score) && ((!(score_flags & kfScoreNoMeanimpute)) || (score_flags & (kfScoreCenter | kfScoreVarianceStandardize)))) ||
     ((command_flags1 & kfCommand1Het) && (!(het_flags & kfHetSmallSample)));
@@ -471,6 +472,7 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, HetFlags het_f
 // not actually needed for e.g. --hardy, --hwe, etc. if no multiallelic
 // variants are retained, but let's keep this simpler for now
 uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags) {
+  // Keep this in sync with --error-on-freq-calc.
   return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld)) ||
     ((command_flags1 & kfCommand1Pca) && (pca_flags & kfPcaBiallelicVarWts)) ||
     ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef)));
@@ -479,9 +481,8 @@ uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, G
 // only needs to cover cases not captured by DecentAlleleFreqsAreNeeded() or
 // MajAllelesAreNeeded()
 uint32_t IndecentAlleleFreqsAreNeeded(Command1Flags command_flags1, double min_maf, double max_maf) {
+  // Keep this in sync with --error-on-freq-calc.
   // Vscore could go either here or in the decent bucket
-  // bugfix (5 Feb 2020): --freq doesn't refer to allele_freqs at all at this
-  // point
   return (command_flags1 & kfCommand1Vscore) ||
     (min_maf != 0.0) ||
     (max_maf != 1.0);
@@ -510,6 +511,7 @@ uint32_t AlleleDosagesAreNeeded(Command1Flags command_flags1, MiscFlags misc_fla
       (misc_flags & kfMiscMajRef) ||
       min_allele_ddosage ||
       (max_allele_ddosage != UINT32_MAX)) {
+    // Keep this in sync with --error-on-freq-calc.
     *regular_freqcounts_neededp = 1;
     return 1;
   }
@@ -524,6 +526,7 @@ uint32_t FounderAlleleDosagesAreNeeded(Command1Flags command_flags1, MiscFlags m
       (misc_flags & kfMiscMajRef) ||
       min_allele_ddosage ||
       (max_allele_ddosage != (~0LLU))) {
+    // Keep this in sync with --error-on-freq-calc.
     *regular_freqcounts_neededp = 1;
     return 1;
   }
@@ -536,6 +539,7 @@ uint32_t SampleMissingDosageCtsAreNeeded(MiscFlags misc_flags, uint32_t smaj_mis
 }
 
 uint32_t VariantMissingHcCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags) {
+  // Keep this in sync with --error-on-freq-calc.
   return ((command_flags1 & kfCommand1GenotypingRate) && (!(misc_flags & kfMiscGenotypingRateDosage))) ||
     ((command_flags1 & kfCommand1MissingReport) && (missing_rpt_flags & (kfMissingRptVcolNmiss | kfMissingRptVcolNmissHh | kfMissingRptVcolHethap | kfMissingRptVcolFmiss | kfMissingRptVcolFmissHh | kfMissingRptVcolFhethap))) ||
     ((geno_thresh != 1.0) && (!(misc_flags & kfMiscGenoDosage)));
@@ -546,6 +550,7 @@ uint32_t VariantHethapCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_
 }
 
 uint32_t VariantMissingDosageCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags) {
+  // Keep this in sync with --error-on-freq-calc.
   return ((command_flags1 & kfCommand1GenotypingRate) && (misc_flags & kfMiscGenotypingRateDosage)) ||
     ((command_flags1 & kfCommand1MissingReport) && (!(missing_rpt_flags & kfMissingRptSampleOnly)) && (missing_rpt_flags & (kfMissingRptVcolNmissDosage | kfMissingRptVcolFmissDosage))) ||
     ((geno_thresh != 1.0) && (misc_flags & kfMiscGenoDosage));
@@ -554,11 +559,13 @@ uint32_t VariantMissingDosageCtsAreNeeded(Command1Flags command_flags1, MiscFlag
 // can simplify --geno-counts all-biallelic case, but let's first make sure the
 // general case works for multiallelic variants
 uint32_t RawGenoCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double hwe_thresh) {
+  // Keep this in sync with --error-on-freq-calc.
   return (command_flags1 & kfCommand1GenoCounts) ||
     ((misc_flags & kfMiscNonfounders) && ((command_flags1 & kfCommand1Hardy) || (hwe_thresh != 0.0)));
 }
 
 uint32_t FounderRawGenoCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double hwe_thresh) {
+  // Keep this in sync with --error-on-freq-calc.
   return (!(misc_flags & kfMiscNonfounders)) && ((command_flags1 & kfCommand1Hardy) || (hwe_thresh != 0.0));
 }
 
@@ -2000,9 +2007,19 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             afreqcalc_variant_ct = variant_ct;
           }
         } else if (pcp->read_freq_fname) {
-          logerrprintf("Warning: Ignoring --read-freq since no command would use the frequencies.\n");
+          logerrputs("Warning: Ignoring --read-freq since no command would use the frequencies.\n");
         }
         if (regular_freqcounts_needed || afreqcalc_variant_ct) {
+          if (unlikely(pcp->misc_flags & kfMiscErrorOnFreqCalc)) {
+            // This needs to be kept in sync with DecentAlleleFreqsAreNeeded(),
+            // MajAllelesAreNeeded(), IndecentAlleleFreqsAreNeeded(),
+            // [Founder]AlleleDosagesAreNeeded(),
+            // VariantMissingHcCtsAreNeeded(),
+            // VariantMissingDosageCtsAreNeeded(),
+            // [Founder]RawGenoCtsAreNeeded(), TrimAlts, and is_minimac3_r2.
+            logerrputs("Error: --error-on-freq-calc specified, but allele frequency calculation is\nneeded.\nFlags which may invoke the allele frequency calculation include --freq, --geno,\n--geno-counts, --genotyping-rate, --glm (unless 'omit-ref' is specified),\n--hardy, --het (unless 'small-sample' is specified), --hwe, --indep-pairwise,\nthe 'trim-alts' modifier of --make-[b]pgen/--make-bed, --make-grm-{bin,list},\n--make-rel, --[max-]mac, --{max,min}-maf, --minimac3-r2-filter, --missing,\n--pca, --score (unless 'no-mean-imputation' is specified, and neither 'center'\nnor 'variance-standardize' are), and --variant-score.\n");
+            goto Plink2Core_ret_INVALID_CMDLINE;
+          }
           // note that --geno depends on different handling of X/Y than --maf.
 
           // possible todo: "free" these arrays early in some cases
@@ -5070,7 +5087,7 @@ int main(int argc, char** argv) {
           }
           // LoadPvar() currently checks value string if nonnumeric
           pc.filter_flags |= kfFilterPvarReq;
-        } else if (likely(strequal_k_unsafe(flagname_p2, "xclude-if-info"))) {
+        } else if (strequal_k_unsafe(flagname_p2, "xclude-if-info")) {
           reterr = ValidateAndAllocCmpExpr(&(argvk[arg_idx + 1]), argvk[arg_idx], param_ct, &pc.exclude_if_info_expr);
           if (unlikely(reterr)) {
             goto main_ret_1;
@@ -5083,6 +5100,9 @@ int main(int argc, char** argv) {
           }
           // LoadPvar() currently checks value string if nonnumeric
           pc.filter_flags |= kfFilterPvarReq;
+        } else if (likely(strequal_k_unsafe(flagname_p2, "rror-on-freq-calc"))) {
+          pc.misc_flags |= kfMiscErrorOnFreqCalc;
+          goto main_param_zero;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }

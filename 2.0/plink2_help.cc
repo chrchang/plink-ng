@@ -1962,11 +1962,17 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       impute them from.  Use --bad-freqs to force PLINK 2 to\n"
 "                       proceed in this case.\n"
               );
+    HelpPrint("error-on-freq-calc\0read-freq\0", &help_ctrl, 0,
+"  --error-on-freq-calc : When working with a very large dataset, the allele\n"
+"                         frequency calculation can be expensive.\n"
+"                         --error-on-freq-calc can help ensure that you aren't\n"
+"                         invoking it unnecessarily.\n"
+              );
     HelpPrint("bad-ld\0", &help_ctrl, 0,
-"  --bad-ld           : PLINK 2 normally errors out when it needs to estimate LD\n"
-"                       between variants, but there are less than 50 founders to\n"
-"                       estimate from.  Use --bad-ld to force PLINK 2 to\n"
-"                       proceed.\n"
+"  --bad-ld             : PLINK 2 normally errors out when it needs to estimate\n"
+"                         LD between variants, but there are less than 50\n"
+"                         founders to estimate from.  Use --bad-ld to force\n"
+"                         PLINK 2 to proceed.\n"
               );
     HelpPrint("export-allele\0recode-allele\0export\0recode", &help_ctrl, 0,
 "  --export-allele <file> : With --export A/AD/Av, count alleles named in the\n"
