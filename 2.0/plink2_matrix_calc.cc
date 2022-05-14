@@ -4480,7 +4480,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
           if (!missing_cts) {
             // trivial case: write the same number repeatedly
-            const uintptr_t tot_cells = (S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2;
+            const uintptr_t tot_cells = (S_CAST(uint64_t, row_end_idx) * (row_end_idx + 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx + 1)) / 2;
             const float variant_ctf = u31tof(variant_ct);
             write_float_buf = R_CAST(float*, g_textbuf);
             for (uint32_t uii = 0; uii != (kTextbufMainSize / sizeof(float)); ++uii) {
