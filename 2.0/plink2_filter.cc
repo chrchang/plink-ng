@@ -947,6 +947,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
     } else {
       PgrClearSampleSubsetIndex(simple_pgrp, &pssi);
     }
+    uint32_t missing_ct = 0;
     for (uint32_t variant_idx = 0; variant_idx != orig_dup_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(orig_dups, &variant_uidx_base, &cur_bits);
       if (IsSet(already_seen, variant_uidx)) {
@@ -954,6 +955,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
       }
       const char* cur_id = variant_ids[variant_uidx];
       if (memequal(cur_id, missing_varid_match, missing_varid_blen)) {
+        ++missing_ct;
         continue;
       }
       uint32_t first_llidx;
@@ -1211,6 +1213,9 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
           }
         }
       }
+    }
+    if (missing_ct) {
+      logprintf("--rm-dup: %u missing-ID variant%s skipped.\n", missing_ct, (missing_ct == 1)? "" : "s");
     }
     if (mismatch_file != nullptr) {
       if (unlikely(fclose_flush_null(mismatch_flush, mismatch_write_iter, &mismatch_file))) {

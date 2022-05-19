@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a3"
+static const char ver_str[] = "PLINK v2.00a3.1"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (14 May 2022)";
+  " (19 May 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -88,7 +88,7 @@ static const char ver_str2[] =
 #ifndef NOLAPACK
   "  "
 #endif
-  "   www.cog-genomics.org/plink/2.0/\n"
+  " www.cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2022 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 

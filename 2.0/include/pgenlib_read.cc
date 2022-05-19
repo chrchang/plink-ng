@@ -145,7 +145,9 @@ void GenoarrbCountSubsetFreqs(const unsigned char* genoarrb, const uintptr_t* __
         cur_geno_word1 = *genoarrb_iter++;
         cur_geno_word2 = *genoarrb_iter++;
       } else {
-        const uint32_t remaining_byte_ct = NypCtToByteCt(raw_sample_ct) % kBytesPerVec;
+        // bugfix (19 May 2022): this was in 0..31 when it needed to be in
+        // 0..15
+        const uint32_t remaining_byte_ct = NypCtToByteCt(raw_sample_ct) % (kBytesPerVec / 2);
         // todo: check if this harms usual-case loop efficiency
         vechalf_idx = 1;
         if (remaining_byte_ct < kBytesPerWord) {
