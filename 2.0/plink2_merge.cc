@@ -2922,8 +2922,8 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
     for (uint32_t chr_code = 0; chr_code != autosome_code_end; ++chr_code) {
       chr_idx_to_sort_idx[chr_code] = chr_code;
     }
-    const uint32_t xymt_idx_to_chr_sort_offset[kChrOffsetCt] = {1, 3, 4, 5, 0, 2};
     const uint32_t xymt_ct = cip->max_code - autosome_code_end;
+    const uint32_t xymt_idx_to_chr_sort_offset[kChrOffsetCt] = {1, 3, 4, 5, 0, 2};
     for (uint32_t xymt_idx = 0; xymt_idx != xymt_ct; ++xymt_idx) {
       chr_idx_to_sort_idx[autosome_code_end + xymt_idx] = autosome_code_end + xymt_idx_to_chr_sort_offset[xymt_idx];
     }
@@ -6278,7 +6278,11 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
     const PgenGlobalFlags write_gflags = vrtype_8bit_needed? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0;
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, ppmc.write_allele_idx_offsets, ppmc.write_nonref_flags, write_variant_ct, sample_ct, write_max_allele_ct, kPgenWriteBackwardSeek, write_gflags, nonref_flags_storage, &mw.spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    // bugfix (1 Jun 2022): in multiallelic case, contents of
+    // write_allele_idx_offsets have not been initialized, and this triggered
+    // an assert-failure in debug builds or a write_max_allele_ct
+    // miscalculation otherwise (practically always a harmless overestimate)
+    reterr = SpgwInitPhase1(outname, nullptr, ppmc.write_nonref_flags, write_variant_ct, sample_ct, write_max_allele_ct, kPgenWriteBackwardSeek, write_gflags, nonref_flags_storage, &mw.spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -6779,6 +6783,7 @@ PglErr PmergePass(__attribute__((unused)) const PmergeInfo* pmip, __attribute__(
     PmergeInputFilesetLl** next_filesets_end_ptr = next_filesets_ptr;
     do {
       logerrputs("Error: Non-concatenating --pmerge-list is under development.\n");
+      reterr = kPglRetNotYetSupported;
       goto PmergePass_ret_1;
     } while (input_filesets_remaining > 1);
     if (input_filesets_remaining == 1) {

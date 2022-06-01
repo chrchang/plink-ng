@@ -373,8 +373,7 @@ CONSTI32(kLoadMapBlockSize, 65536);
 
 // assumes FinalizeChrset() has already been called.
 // .bim ok
-static_assert(kMaxContigs <= 65536, "LoadMap() needs to be updated.");
-PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint16_t** variant_chr_codes_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, double** variant_cms_ptr, uint32_t* variant_ct_ptr) {
+PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, ChrIdx** variant_chr_codes_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, double** variant_cms_ptr, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -544,12 +543,12 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
       goto LoadMap_ret_1;
     }
 
-    if (unlikely(bigstack_alloc_u16(variant_ct, variant_chr_codes_ptr) ||
+    if (unlikely(bigstack_alloc_chridx(variant_ct, variant_chr_codes_ptr) ||
                  bigstack_alloc_u32(variant_ct, variant_bps_ptr) ||
                  bigstack_alloc_cp(variant_ct, variant_ids_ptr))) {
       goto LoadMap_ret_NOMEM;
     }
-    uint16_t* variant_chr_codes = *variant_chr_codes_ptr;
+    ChrIdx* variant_chr_codes = *variant_chr_codes_ptr;
     uint32_t* variant_bps = *variant_bps_ptr;
     char** variant_ids = *variant_ids_ptr;
     double* variant_cms = nullptr;
@@ -570,8 +569,8 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     bigstack_end_mark = g_bigstack_end;
 
     for (uint32_t block_idx = 0; block_idx != full_block_ct; ++block_idx) {
-      memcpy(&(variant_chr_codes[block_idx * kLoadMapBlockSize]), read_iter, kLoadMapBlockSize * sizeof(int16_t));
-      read_iter = &(read_iter[kLoadMapBlockSize * sizeof(int16_t)]);
+      memcpy(&(variant_chr_codes[block_idx * kLoadMapBlockSize]), read_iter, kLoadMapBlockSize * sizeof(ChrIdx));
+      read_iter = &(read_iter[kLoadMapBlockSize * sizeof(ChrIdx)]);
       memcpy(&(variant_bps[block_idx * kLoadMapBlockSize]), read_iter, kLoadMapBlockSize * sizeof(int32_t));
       read_iter = &(read_iter[kLoadMapBlockSize * sizeof(int32_t)]);
       memcpy(&(variant_ids[block_idx * kLoadMapBlockSize]), read_iter, kLoadMapBlockSize * sizeof(intptr_t));
@@ -582,7 +581,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
       read_iter = &(read_iter[kLoadMapBlockSize * sizeof(double)]);
     }
     const uint32_t variant_ct_lowbits = variant_ct % kLoadMapBlockSize;
-    memcpy(&(variant_chr_codes[full_block_ct * kLoadMapBlockSize]), read_iter, variant_ct_lowbits * sizeof(int16_t));
+    memcpy(&(variant_chr_codes[full_block_ct * kLoadMapBlockSize]), read_iter, variant_ct_lowbits * sizeof(ChrIdx));
     read_iter = &(read_iter[kLoadMapBlockSize * sizeof(int16_t)]);
     memcpy(&(variant_bps[full_block_ct * kLoadMapBlockSize]), read_iter, variant_ct_lowbits * sizeof(int32_t));
     read_iter = &(read_iter[kLoadMapBlockSize * sizeof(int32_t)]);

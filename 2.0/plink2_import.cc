@@ -14735,7 +14735,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
 
     // 3. Read .map file if it exists.
     uint32_t max_variant_id_slen = 1;
-    uint16_t* variant_chr_codes = nullptr;
+    ChrIdx* variant_chr_codes = nullptr;
     uint32_t* variant_bps = nullptr;
     char** variant_ids = nullptr;
     double* variant_cms = nullptr;

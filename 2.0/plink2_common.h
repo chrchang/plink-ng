@@ -604,6 +604,20 @@ typedef uint16_t ChrIdx;
 // have far fewer than 2^16 codes)
 CONSTI32(kChrHtableSize, 130560);
 
+static_assert((kMaxChrCodeDigits == 5) || (kMaxChrCodeDigits == 6), "u32toa_zchr() must be updated");
+HEADER_INLINE char* u32toa_zchr(uint32_t uii, char* start) {
+  if (kMaxChrCodeDigits == 5) {
+    return u32toa_z5(uii, start);
+  } else {
+    return u32toa_z6(uii, start);
+  }
+}
+
+HEADER_INLINE BoolErr bigstack_alloc_chridx(uintptr_t ct, ChrIdx** chridx_arr_ptr) {
+  *chridx_arr_ptr = S_CAST(ChrIdx*, bigstack_alloc(ct * sizeof(ChrIdx)));
+  return !(*chridx_arr_ptr);
+}
+
 // (note that n+1, n+2, n+3, and n+4 are reserved for X/Y/XY/MT)
 CONSTI32(kMaxChrTextnum, 95);
 

@@ -2016,7 +2016,7 @@ char* u32toa_z5(uint32_t uii, char* start) {
   return uitoa_z4(uii - 10000 * quotient, start);
 }
 
-char* uitoa_z6(uint32_t uii, char* start) {
+char* u32toa_z6(uint32_t uii, char* start) {
   uint32_t quotient = uii / 10000;
   start = memcpya_k(start, &(kDigitPair[quotient]), 2);
   return uitoa_z4(uii - 10000 * quotient, start);
@@ -2025,7 +2025,7 @@ char* uitoa_z6(uint32_t uii, char* start) {
 char* uitoa_z8(uint32_t uii, char* start) {
   uint32_t quotient = uii / 1000000;
   start = memcpya_k(start, &(kDigitPair[quotient]), 2);
-  return uitoa_z6(uii - 1000000 * quotient, start);
+  return u32toa_z6(uii - 1000000 * quotient, start);
 }
 
 char* i64toa(int64_t llii, char* start) {
@@ -2313,7 +2313,7 @@ char* dtoa_so6(double dxx, char* start) {
     goto dtoa_so6_pretail;
   }
   if (dxx >= 99999.949999999) {
-    return uitoa_z6(BankerRoundD(dxx, kBankerRound8), start);
+    return u32toa_z6(BankerRoundD(dxx, kBankerRound8), start);
   }
   BankerRoundD1(dxx, kBankerRound8, &uii, &remainder);
   quotient = uii / 10000;
@@ -2753,7 +2753,7 @@ char* dtoa_f_probp6_spaced(double dxx, char* start) {
   const uint32_t dec_digits = BankerRoundD(dxx_10_6, kBankerRound8);
   *start++ = '0' + (dec_digits == 1000000);
   *start++ = '.';
-  start = uitoa_z6(dec_digits, start);
+  start = u32toa_z6(dec_digits, start);
   if (fabs(dxx_10_6 - u31tod(dec_digits)) >= 0.00000005) {
     return start;
   }
@@ -2766,7 +2766,7 @@ char* dtoa_f_probp6_clipped(double dxx, char* start) {
   const uint32_t dec_digits = BankerRoundD(dxx_10_6, kBankerRound8);
   *start++ = '0' + (dec_digits == 1000000);
   *start++ = '.';
-  start = uitoa_z6(dec_digits, start);
+  start = u32toa_z6(dec_digits, start);
   if (fabs(dxx_10_6 - u31tod(dec_digits)) >= 0.00000005) {
     return start;
   }

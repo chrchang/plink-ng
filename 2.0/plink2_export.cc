@@ -7429,7 +7429,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     char* writebuf;
     if (unlikely(bigstack_alloc_u32(fif_keys_htable_size, &fif_keys_htable) ||
                  bigstack_calloc_cp(fif_key_ct_ubound, &fif_keys_mutable) ||
-                 bigstack_alloc_u16(chr_ct, &chr_fo_to_bcf_idx) ||
+                 bigstack_alloc_chridx(chr_ct, &chr_fo_to_bcf_idx) ||
                  bigstack_alloc_c(header_ubound + 9, &writebuf))) {
       goto ExportBcf_ret_NOMEM;
     }

@@ -1364,6 +1364,8 @@ char* i32toa(int32_t ii, char* start);
 
 char* u32toa_z5(uint32_t uii, char* start);
 
+char* u32toa_z6(uint32_t uii, char* start);
+
 char* i64toa(int64_t llii, char* start);
 
 #ifdef __LP64__

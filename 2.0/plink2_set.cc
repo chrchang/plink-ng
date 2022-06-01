@@ -28,7 +28,6 @@ typedef struct MakeSetRangeStruct {
   uint32_t uidx_end;
 } MakeSetRange;
 
-static_assert(kMaxChrCodeDigits == 5, "LoadIntervalBed() must be updated.");
 PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t zero_based, uint32_t track_set_names, uint32_t border_extend, uint32_t fail_on_no_sets, uint32_t c_prefix, uintptr_t subset_ct, uintptr_t max_subset_id_blen, TextStream* txsp, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, MakeSetRange*** make_set_range_arr_ptr) {
   // In plink 1.9, this was named load_range_list() and called directly by
   // ExtractExcludeRange(), define_sets(), and indirectly by annotate(),
@@ -103,7 +102,7 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         if (variant_bps) {
           memcpy(ll_tmp->str, last_token, set_id_blen);
         } else {
-          u32toa_z5(cur_chr_code, ll_tmp->str);
+          u32toa_zchr(cur_chr_code, ll_tmp->str);
           // if first character of gene name is a digit, natural sort has
           // strange effects unless we force [3] to be nonnumeric...
           ll_tmp->str[kMaxChrCodeDigits - 1] -= 15;
@@ -258,7 +257,7 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
           memcpy_k(last_token, "C_", 2);
         } else if (!variant_bps) {
           last_token = &(last_token[-S_CAST(int32_t, kMaxChrCodeDigits)]);
-          u32toa_z5(cur_chr_code, last_token);
+          u32toa_zchr(cur_chr_code, last_token);
           last_token[kMaxChrCodeDigits - 1] -= 15;
         }
         // this should never fail
