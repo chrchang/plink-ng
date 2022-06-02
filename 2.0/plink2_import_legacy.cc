@@ -1353,6 +1353,11 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
       raw_load_batch_size += 131071 / variant_ct4;
       if (unlikely(bigstack_alloc_uc(raw_load_batch_size * variant_ct4, &raw_loadbuf))) {
         goto Plink1SampleMajorToPgen_ret_NOMEM;
+
+      }
+      // bugfix (2 Jun 2022): forgot to skip header bytes
+      if (unlikely(fseeko(infile, 3, SEEK_SET))) {
+        goto Plink1SampleMajorToPgen_ret_READ_FAIL;
       }
     }
     const uint32_t raw_load_batch_ct_m1 = (sample_ct - 1) / raw_load_batch_size;
