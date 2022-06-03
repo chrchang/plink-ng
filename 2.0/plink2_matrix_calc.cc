@@ -5879,13 +5879,12 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
           // defensive
           shard_dosage_present = nullptr;
           shard_dosage_main = nullptr;
+          // bugfix (3 Jun 2022)
+          shard_dosage_ct = 0;
           const uint32_t dosage_ct = dosage_cts[vidx];
           if (dosage_ct) {
             const uint32_t dosage_main_offset = PopcountWords(dosage_present_iter, sample_idx_startl);
-            if (dosage_main_offset == dosage_ct) {
-              // bugfix (3 Jun 2022)
-              shard_dosage_ct = 0;
-            } else {
+            if (dosage_main_offset != dosage_ct) {
               shard_dosage_ct = PopcountWords(&(dosage_present_iter[sample_idx_startl]), shard_sizel);
               if (shard_dosage_ct) {
                 shard_dosage_present = &(dosage_present_iter[sample_idx_startl]);
