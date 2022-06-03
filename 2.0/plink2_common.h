@@ -30,6 +30,10 @@
 namespace plink2 {
 #endif
 
+// Uncomment this if the default contig-count limit of ~65k is too low, and you
+// want to rebuild this program to support ~980k instead.
+// #define HIGH_CONTIG_BUILD
+
 #define PROG_NAME_STR "plink2"
 
 // Exclude 0x7fffffff, since the half-open interval containing it ends in
@@ -591,6 +595,7 @@ HEADER_INLINE uint32_t CharToSex(char cc) {
 }
 
 
+#ifndef HIGH_CONTIG_BUILD
 // note that this is no longer divisible by 64
 CONSTI32(kMaxContigs, 65274);
 CONSTI32(kMaxChrCodeDigits, 5);
@@ -598,11 +603,19 @@ CONSTI32(kMaxChrCodeDigits, 5);
 // change ChrIdx to uint32_t if (kMaxContigs + kChrOffsetCt) > 65536
 typedef uint16_t ChrIdx;
 
-// get_htable_min_size(kChrRawEnd) (use constexpr once sufficient
-// compiler support is available)
-// (not get_htable_fast_size since, an overwhelming majority of the time, we'll
+// GetHtableMinSize(kChrRawEnd) (use constexpr once sufficient compiler support
+// is available)
+// (not GetHtableFastSize since, an overwhelming majority of the time, we'll
 // have far fewer than 2^16 codes)
 CONSTI32(kChrHtableSize, 130560);
+#else
+CONSTI32(kMaxContigs, 982778);
+CONSTI32(kMaxChrCodeDigits, 6);
+
+typedef uint32_t ChrIdx;
+
+CONSTI32(kChrHtableSize, 1965568);
+#endif
 
 static_assert((kMaxChrCodeDigits == 5) || (kMaxChrCodeDigits == 6), "u32toa_zchr() must be updated");
 HEADER_INLINE char* u32toa_zchr(uint32_t uii, char* start) {
