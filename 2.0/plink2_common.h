@@ -609,6 +609,8 @@ typedef uint16_t ChrIdx;
 // have far fewer than 2^16 codes)
 CONSTI32(kChrHtableSize, 130560);
 #else
+// Keep this number in sync with the top-of-file comment, and the error message
+// in TryToAddChrName().
 CONSTI32(kMaxContigs, 982778);
 CONSTI32(kMaxChrCodeDigits, 6);
 

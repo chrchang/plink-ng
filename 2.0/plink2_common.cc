@@ -1883,7 +1883,11 @@ PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t
   const uint32_t chr_code_end = max_code_p1 + name_ct;
   if (unlikely(chr_code_end == kMaxContigs)) {
     logputs("\n");
+#ifdef HIGH_CONTIG_BUILD
     logerrputs("Error: Too many distinct nonstandard chromosome/contig names.\n");
+#else
+    logerrputs("Error: Too many distinct nonstandard chromosome/contig names.\nThe usual limit is about 65k.  You can raise this to ~980k by uncommenting\n\"#define HIGH_CONTIG_BUILD\" at the top of plink2_common.h and recompiling.  If\nthat still isn't enough, we should be able to help you if you make a post in\nthe plink2-users Google group.\n");
+#endif
     return kPglRetMalformedInput;
   }
   if (!name_ct) {
