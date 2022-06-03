@@ -122,15 +122,30 @@
 #    endif
 
      /*
-      * Determine whether CRC32 intrinsics are supported.
+      * Determine whether ARM CRC32 intrinsics are supported.
       *
-      * With gcc r274827 or later (gcc 10.1+, 9.3+, or 8.4+), or with clang,
-      * they work as expected.  (Well, not quite.  There's still a bug, but we
-      * have to work around it later when including arm_acle.h.)
+      * This support has been affected by several gcc bugs, which we must avoid
+      * by only allowing gcc versions that have the corresponding fixes.  First,
+      * gcc commit 943766d37ae4 ("[arm] Fix use of CRC32 intrinsics with Armv8-a
+      * and hard-float"), i.e. gcc 8.4+, 9.3+, 10.1+, or 11+, is needed.
+      * Second, gcc commit c1cdabe3aab8 ("arm: reorder assembler architecture
+      * directives [PR101723]"), i.e. gcc 9.5+, 10.4+, 11.3+, or 12+, is needed
+      * when binutils is 2.34 or later, due to
+      * https://gcc.gnu.org/bugzilla/show_bug.cgi?id=104439.  We use the second
+      * set of prerequisites, as they are stricter and we have no way to detect
+      * the binutils version in C source without requiring a configure script.
+      *
+      * Yet another gcc bug makes arm_acle.h sometimes not define the crc
+      * functions even when the corresponding builtins are available.  However,
+      * we work around this later when including arm_acle.h.
+      *
+      * Things are a bit easier with clang -- we can just check whether the
+      * crc builtins are available.  However, clang's arm_acle.h is broken in
+      * the same way as gcc's, which we work around later in the same way.
       */
-#    if GCC_PREREQ(10, 1) || \
-        (GCC_PREREQ(9, 3) && !GCC_PREREQ(10, 0)) || \
-        (GCC_PREREQ(8, 4) && !GCC_PREREQ(9, 0)) || \
+#    if GCC_PREREQ(11, 3) || \
+        (GCC_PREREQ(10, 4) && !GCC_PREREQ(11, 0)) || \
+        (GCC_PREREQ(9, 5) && !GCC_PREREQ(10, 0)) || \
         (defined(__clang__) && __has_builtin(__builtin_arm_crc32b))
 #      define COMPILER_SUPPORTS_CRC32_TARGET_INTRINSICS 1
 #    endif
@@ -199,3 +214,22 @@ typedef char  __v64qi __attribute__((__vector_size__(64)));
 #define bsr64(n)	(63 - __builtin_clzll(n))
 #define bsf32(n)	__builtin_ctz(n)
 #define bsf64(n)	__builtin_ctzll(n)
+
+#if defined(__arm__) && \
+	(__ARM_ARCH >= 7 || (__ARM_ARCH == 6 && defined(__ARM_ARCH_6T2__)))
+static forceinline unsigned int
+rbit32(unsigned int v)
+{
+	__asm__("rbit %0, %1\n" : "=r" (v) : "r" (v));
+	return v;
+}
+#define rbit32 rbit32
+#elif defined(__aarch64__)
+static forceinline unsigned int
+rbit32(unsigned int v)
+{
+	__asm__("rbit %w0, %w1\n" : "=r" (v) : "r" (v));
+	return v;
+}
+#define rbit32 rbit32
+#endif /* __aarch64__ */

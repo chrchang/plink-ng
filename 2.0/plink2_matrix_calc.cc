@@ -5743,12 +5743,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
 
 // to test: do we actually want cur_dosage_ints to be uint64_t* instead of
 // uint32_t*?
-// also, should this be moved to plink2_common?
-void FillCurDdosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_present, const Dosage* dosage_main_buf, uint32_t sample_ct, uint32_t dosage_ct, uint32_t is_diploid_p1, uint64_t* cur_ddosage_ints) {
+void FillDdosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_present, const Dosage* dosage_main_buf, uint32_t sample_ct, uint32_t dosage_ct, uint32_t is_diploid, uint64_t* cur_ddosage_ints) {
   uint64_t lookup_table[32] ALIGNV16;
   lookup_table[0] = 0;
-  lookup_table[2] = is_diploid_p1 * kDosageMid;
-  lookup_table[4] = is_diploid_p1 * kDosageMax;
+  lookup_table[2] = (kDosageMid * k1LU) << is_diploid;
+  lookup_table[4] = (kDosageMax * k1LU) << is_diploid;
   lookup_table[6] = 0;
   InitLookup16x8bx2(lookup_table);
   GenoarrLookup16x8bx2(genovec_buf, lookup_table, sample_ct, cur_ddosage_ints);
@@ -5759,38 +5758,284 @@ void FillCurDdosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_pr
   uintptr_t cur_bits = dosage_present[0];
   for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
     const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &cur_bits);
-    cur_ddosage_ints[sample_idx] = dosage_main_buf[dosage_idx] * is_diploid_p1;
+    cur_ddosage_ints[sample_idx] = (dosage_main_buf[dosage_idx] * k1LU) << is_diploid;
   }
 }
 
 CONSTI32(kScoreVariantBlockSize, 240);
+CONSTI32(kSampleShardSizeAlign, 256); // must be a power of 2, >= kBitsPerWord
 
+// The previous implementation had poor parallelism; the main thread was
+// responsible for too many per-sample uint64_t and floating-point operations.
+// We now shard those operations across all worker threads, and leave only
+// much faster bitvector and similar operations in the main thread.
 typedef struct CalcScoreCtxStruct {
+  const uintptr_t* variant_include;
+  const uint32_t* variant_include_cumulative_popcounts;
+  const uintptr_t* qsr_include;
+  const uintptr_t* sex_nonmale_collapsed;
   uint32_t score_final_col_ct;
+  uint32_t sample_shard_size;
   uint32_t sample_ct;
+  ScoreFlags flags;
+  uint32_t qsr_ct;
 
-  double* dosages_vmaj[2];
+  uint32_t* variant_uidxs[2];
+  uintptr_t* genovecs[2];
+  uintptr_t* dosage_presents[2];
+  Dosage* dosage_mains[2];
+  uint32_t* dosage_cts[2];
+  uintptr_t* missing_bitvecs[2];
+  uintptr_t* missing_male_bitvecs[2];
+  double* allele_freqs[2];
+  double* geno_slopes[2];
+  double* geno_intercepts[2];
   double* score_coefs_cmaj[2];
+  unsigned char is_nonx_haploids[2][kScoreVariantBlockSize];
+  unsigned char is_relevant_xs[2][kScoreVariantBlockSize];
+  unsigned char is_ys[2][kScoreVariantBlockSize];
+  unsigned char ploidy_m1s[2][kScoreVariantBlockSize];
+  uint32_t cur_variant_batch_size;
 
-  uint32_t cur_batch_size;
+  // per-thread buffers
+  uint64_t** ddosage_incrs;
+  double** dosages_vmaj;
 
+  // final results
+  uint64_t* ddosage_sums;
   double* final_scores_cmaj;
 } CalcScoreCtx;
 
 THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
-  // don't bother to explicitly multithread for now
-  assert(!arg->tidx);
+  const uintptr_t tidx = arg->tidx;
   CalcScoreCtx* ctx = S_CAST(CalcScoreCtx*, arg->sharedp->context);
 
-  double* final_scores_cmaj = ctx->final_scores_cmaj;
+  const uintptr_t* variant_include = ctx->variant_include;
+  const uint32_t* variant_include_cumulative_popcounts = ctx->variant_include_cumulative_popcounts;
+  const uintptr_t* qsr_include = ctx->qsr_include;
+
   const uint32_t score_final_col_ct = ctx->score_final_col_ct;
+  uint32_t sample_shard_size = ctx->sample_shard_size;
+  const uint32_t sample_idx_start = tidx * sample_shard_size;
+  double* shard_final_scores_cmaj = &(ctx->final_scores_cmaj[sample_idx_start]);
   const uint32_t sample_ct = ctx->sample_ct;
+  if (sample_shard_size + sample_idx_start > sample_ct) {
+    sample_shard_size = sample_ct - sample_idx_start;
+  }
+  const uint32_t sample_idx_startl2 = NypCtToWordCt(sample_idx_start);
+  const uint32_t sample_idx_startl = BitCtToWordCt(sample_idx_start);
+  const uint32_t shard_sizel = BitCtToWordCt(sample_shard_size);
+  const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+  const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
+  const uint32_t dosage_main_stride = RoundUpPow2(sample_ct, kDosagePerVec);
+  const uint32_t final_scores_stride = RoundUpPow2(sample_ct, kDoublesPerCacheline);
+  const uintptr_t* shard_sex_nonmale_collapsed = &(ctx->sex_nonmale_collapsed[sample_idx_startl]);
+  const uint32_t shard_nonmale_ct = PopcountWords(shard_sex_nonmale_collapsed, shard_sizel);
+  const uint32_t shard_male_ct = sample_shard_size - shard_nonmale_ct;
+  const ScoreFlags flags = ctx->flags;
+  const uint32_t model_dominant = (flags / kfScoreDominant) & 1;
+  const uint32_t domrec = model_dominant || (flags & kfScoreRecessive);
+  const uint32_t no_meanimpute = (flags / kfScoreNoMeanimpute) & 1;
+  const uint32_t se_mode = (flags / kfScoreSe) & 1;
+  const uint32_t qsr_ct = ctx->qsr_ct;
+
+  uint64_t* ddosage_incrs = ctx->ddosage_incrs[tidx];
+  double* dosages_vmaj = ctx->dosages_vmaj[tidx];
+
+  uint64_t* shard_ddosage_sums = &(ctx->ddosage_sums[sample_idx_start]);
+
+  double cur_allele_freq = 0.0;
+  double geno_slope = kRecipDosageMax;
+  double geno_intercept = 0.0;
   uint32_t parity = 0;
   do {
-    const uint32_t cur_batch_size = ctx->cur_batch_size;
-    if (cur_batch_size) {
-      RowMajorMatrixMultiplyStridedIncr(ctx->score_coefs_cmaj[parity], ctx->dosages_vmaj[parity], score_final_col_ct, kScoreVariantBlockSize, sample_ct, sample_ct, cur_batch_size, sample_ct, final_scores_cmaj);
+    const uint32_t cur_variant_batch_size = ctx->cur_variant_batch_size;
+    if (cur_variant_batch_size) {
+      const uint32_t* variant_uidxs = ctx->variant_uidxs[parity];
+      const uintptr_t* genovec_iter = &(ctx->genovecs[parity][sample_idx_startl2]);
+      const uintptr_t* dosage_present_iter = ctx->dosage_presents[parity];
+      const Dosage* dosage_main_iter = ctx->dosage_mains[parity];
+      const uint32_t* dosage_cts = ctx->dosage_cts[parity];
+      const uintptr_t* missing_bitvec_iter = &(ctx->missing_bitvecs[parity][sample_idx_startl]);
+      const uintptr_t* missing_male_bitvec_iter = &(ctx->missing_male_bitvecs[parity][sample_idx_startl]);
+      const double* allele_freqs = ctx->allele_freqs[parity];
+      const double* geno_slopes = ctx->geno_slopes[parity];
+      const double* geno_intercepts = ctx->geno_intercepts[parity];
+      const unsigned char* is_nonx_haploids = &(ctx->is_nonx_haploids[parity][0]);
+      const unsigned char* is_relevant_xs = &(ctx->is_relevant_xs[parity][0]);
+      const unsigned char* is_ys = &(ctx->is_ys[parity][0]);
+      const unsigned char* ploidy_m1s = &(ctx->ploidy_m1s[parity][0]);
+      const uintptr_t* shard_dosage_present = nullptr;
+      const Dosage* shard_dosage_main = nullptr;
+      double* dosages_vmaj_iter = dosages_vmaj;
+
+      uint32_t shard_dosage_ct = 0;
+      for (uint32_t vidx = 0; vidx != cur_variant_batch_size; ++vidx) {
+        if (dosage_cts) {
+          // defensive
+          shard_dosage_present = nullptr;
+          shard_dosage_main = nullptr;
+          const uint32_t dosage_ct = dosage_cts[vidx];
+          if (dosage_ct) {
+            const uint32_t dosage_main_offset = PopcountWords(dosage_present_iter, sample_idx_startl);
+            if (dosage_main_offset < dosage_ct) {
+              shard_dosage_ct = PopcountWords(&(dosage_present_iter[sample_idx_startl]), shard_sizel);
+              if (shard_dosage_ct) {
+                shard_dosage_present = &(dosage_present_iter[sample_idx_startl]);
+                shard_dosage_main = &(dosage_main_iter[dosage_main_offset]);
+              }
+            }
+          }
+        }
+        const uint32_t is_nonx_haploid = is_nonx_haploids[vidx];
+        const uint32_t is_relevant_x = is_relevant_xs[vidx];
+        const uint32_t is_y = is_ys[vidx];
+        FillDdosageInts(genovec_iter, shard_dosage_present, shard_dosage_main, sample_shard_size, shard_dosage_ct, 1 - is_nonx_haploid, ddosage_incrs);
+        if (is_y) {
+          if (shard_nonmale_ct) {
+            uintptr_t shard_sample_idx_base = 0;
+            uintptr_t shard_sex_nonmale_collapsed_bits = shard_sex_nonmale_collapsed[0];
+            for (uint32_t shard_nonmale_idx = 0; shard_nonmale_idx != shard_nonmale_ct; ++shard_nonmale_idx) {
+              const uintptr_t shard_sample_idx = BitIter1(shard_sex_nonmale_collapsed, &shard_sample_idx_base, &shard_sex_nonmale_collapsed_bits);
+              ddosage_incrs[shard_sample_idx] = 0;
+            }
+          }
+        } else if (is_relevant_x) {
+          uintptr_t shard_sample_idx_base = 0;
+          uintptr_t shard_sex_nonmale_collapsed_inv_bits = ~shard_sex_nonmale_collapsed[0];
+          for (uint32_t shard_male_idx = 0; shard_male_idx != shard_male_ct; ++shard_male_idx) {
+            const uintptr_t shard_sample_idx = BitIter0(shard_sex_nonmale_collapsed, &shard_sample_idx_base, &shard_sex_nonmale_collapsed_inv_bits);
+            ddosage_incrs[shard_sample_idx] /= 2;
+          }
+        }
+        if (domrec) {
+          if (model_dominant) {
+            for (uint32_t shard_sample_idx = 0; shard_sample_idx != sample_shard_size; ++shard_sample_idx) {
+              if (ddosage_incrs[shard_sample_idx] > kDosageMax) {
+                ddosage_incrs[shard_sample_idx] = kDosageMax;
+              }
+            }
+          } else {
+            // recessive
+            for (uint32_t shard_sample_idx = 0; shard_sample_idx != sample_shard_size; ++shard_sample_idx) {
+              uint64_t cur_ddosage_incr = ddosage_incrs[shard_sample_idx];
+              if (cur_ddosage_incr <= kDosageMax) {
+                cur_ddosage_incr = 0;
+              } else {
+                cur_ddosage_incr -= kDosageMax;
+              }
+              ddosage_incrs[shard_sample_idx] = cur_ddosage_incr;
+            }
+          }
+        }
+        if (!qsr_ct) {
+          for (uint32_t shard_sample_idx = 0; shard_sample_idx != sample_shard_size; ++shard_sample_idx) {
+            shard_ddosage_sums[shard_sample_idx] += ddosage_incrs[shard_sample_idx];
+          }
+        } else {
+          const uint32_t variant_uidx = variant_uidxs[vidx];
+          const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
+          for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
+            if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
+              uint64_t* cur_ddosage_sums = &(shard_ddosage_sums[qsr_idx * sample_ct]);
+              for (uint32_t shard_sample_idx = 0; shard_sample_idx != sample_shard_size; ++shard_sample_idx) {
+                cur_ddosage_sums[shard_sample_idx] += ddosage_incrs[shard_sample_idx];
+              }
+            }
+          }
+        }
+        if (allele_freqs) {
+          cur_allele_freq = allele_freqs[vidx];
+          geno_slope = geno_slopes[vidx];
+          geno_intercept = geno_intercepts[vidx];
+        }
+        const uint32_t shard_missing_ct = PopcountWords(missing_bitvec_iter, shard_sizel);
+        if (shard_missing_ct) {
+          double missing_effect = 0.0;
+          if (!no_meanimpute) {
+            missing_effect = kDosageMax * cur_allele_freq * geno_slope;
+          }
+          if (is_y || is_relevant_x) {
+            ZeroDArr(sample_shard_size, dosages_vmaj_iter);
+            if (!no_meanimpute) {
+              if (shard_male_ct) {
+                for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
+                  uintptr_t cur_missing_male_bits = missing_male_bitvec_iter[shard_widx];
+                  if (!cur_missing_male_bits) {
+                    continue;
+                  }
+                  double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
+                  do {
+                    const uint32_t sample_idx_lowbits = ctzw(cur_missing_male_bits);
+                    cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                    cur_missing_male_bits &= cur_missing_male_bits - 1;
+                  } while (cur_missing_male_bits);
+                }
+              }
+              if (is_relevant_x && shard_nonmale_ct) {
+                missing_effect *= 2;
+                for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
+                  uintptr_t cur_missing_nonmale_bits = missing_bitvec_iter[shard_widx] & shard_sex_nonmale_collapsed[shard_widx];
+                  if (!cur_missing_nonmale_bits) {
+                    continue;
+                  }
+                  double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
+                  do {
+                    const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonmale_bits);
+                    cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                    cur_missing_nonmale_bits &= cur_missing_nonmale_bits - 1;
+                  } while (cur_missing_nonmale_bits);
+                }
+              }
+            }
+          } else {
+            const double ploidy_d = ploidy_m1s[vidx]? 2.0 : 1.0;
+            missing_effect *= ploidy_d;
+            uintptr_t shard_sample_idx_base = 0;
+            uintptr_t missing_bits = missing_bitvec_iter[0];
+            for (uint32_t missing_idx = 0; missing_idx != shard_missing_ct; ++missing_idx) {
+              const uintptr_t shard_sample_idx = BitIter1(missing_bitvec_iter, &shard_sample_idx_base, &missing_bits);
+              dosages_vmaj_iter[shard_sample_idx] = missing_effect;
+            }
+          }
+        }
+        const uint32_t shard_nm_sample_ct = sample_shard_size - shard_missing_ct;
+        uintptr_t shard_sample_idx_base = 0;
+        uintptr_t missing_inv_bits = ~missing_bitvec_iter[0];
+        for (uint32_t shard_nm_sample_idx = 0; shard_nm_sample_idx != shard_nm_sample_ct; ++shard_nm_sample_idx) {
+          const uintptr_t shard_sample_idx = BitIter0(missing_bitvec_iter, &shard_sample_idx_base, &missing_inv_bits);
+          dosages_vmaj_iter[shard_sample_idx] = u63tod(ddosage_incrs[shard_sample_idx]) * geno_slope + geno_intercept;
+        }
+        if (se_mode) {
+          // Suppose our score coefficients are drawn from independent
+          // Gaussians.  Then the variance of the final score average is the
+          // sum of the variances of the individual terms, divided by (T^2)
+          // where T is the number of terms.  These individual variances are of
+          // the form (<genotype value> * <stdev>)^2.
+          //
+          // Thus, we can use the same inner loop to compute standard errors,
+          // as long as
+          //   1. we square the genotypes and the standard errors before matrix
+          //      multiplication, and
+          //   2. we take the square root of the sums at the end.
+          for (uint32_t shard_sample_idx = 0; shard_sample_idx != sample_shard_size; ++shard_sample_idx) {
+            dosages_vmaj_iter[shard_sample_idx] *= dosages_vmaj_iter[shard_sample_idx];
+          }
+        }
+        dosages_vmaj_iter = &(dosages_vmaj_iter[sample_shard_size]);
+
+        genovec_iter = &(genovec_iter[sample_ctaw2]);
+        missing_bitvec_iter = &(missing_bitvec_iter[sample_ctaw]);
+        missing_male_bitvec_iter = &(missing_male_bitvec_iter[sample_ctaw]);
+        if (dosage_present_iter) {
+          dosage_present_iter = &(dosage_present_iter[sample_ctaw]);
+          dosage_main_iter = &(dosage_main_iter[dosage_main_stride]);
+        }
+      }
+
+      const double* score_coefs_cmaj = ctx->score_coefs_cmaj[parity];
+      RowMajorMatrixMultiplyStridedIncr(score_coefs_cmaj, dosages_vmaj, score_final_col_ct, kScoreVariantBlockSize, sample_shard_size, sample_shard_size, cur_variant_batch_size, final_scores_stride, shard_final_scores_cmaj);
     }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
@@ -6029,7 +6274,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         double cur_val;
         if (!ScantokDouble(colval_ptr, &cur_val)) {
           // Tolerate NA without erroring out.  (Could count this as seen, but
-          // that would for the min_vals logic to be more complicated.)
+          // that would force the min_vals logic to be more complicated.)
           const char* colval_end = CurTokenEnd(colval_ptr);
           if (likely(IsNanStr(colval_ptr, colval_end - colval_ptr))) {
             continue;
@@ -6206,16 +6451,35 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
 #endif
     }
+    const uint32_t calc_thread_ct = MAXV(1, max_thread_ct - 1);
+    uint32_t sample_shard_size;
+    uint32_t sample_shard_ct;
+    if (sample_ct <= calc_thread_ct * kSampleShardSizeAlign) {
+      sample_shard_size = kSampleShardSizeAlign;
+      sample_shard_ct = DivUp(sample_ct, kSampleShardSizeAlign);
+    } else {
+      sample_shard_size = kSampleShardSizeAlign * DivUp(sample_ct, calc_thread_ct * kSampleShardSizeAlign);
+      sample_shard_ct = DivUp(sample_ct, sample_shard_size);
+    }
     CalcScoreCtx ctx;
+    ctx.variant_include = qsr_ct? variant_include : nullptr;
+    ctx.variant_include_cumulative_popcounts = variant_include_cumulative_popcounts;
+    ctx.qsr_include = qsr_include;
     ctx.score_final_col_ct = score_final_col_ct;
+    ctx.sample_shard_size = sample_shard_size;
     ctx.sample_ct = sample_ct;
-    ctx.cur_batch_size = kScoreVariantBlockSize;
-    if (unlikely(SetThreadCt(1, &tg))) {
+    ctx.flags = flags;
+    ctx.qsr_ct = qsr_ct;
+    ctx.cur_variant_batch_size = kScoreVariantBlockSize;
+    if (unlikely(SetThreadCt(sample_shard_ct, &tg))) {
       goto ScoreReport_ret_NOMEM;
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+    const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
+    const uintptr_t dosage_main_stride = RoundUpPow2(sample_ct, kDosagePerVec);
+    const uintptr_t final_scores_stride = RoundUpPow2(sample_ct, kDoublesPerCacheline);
     const uint32_t acc1_vec_ct = BitCtToVecCt(sample_ct);
     const uint32_t acc4_vec_ct = acc1_vec_ct * 4;
     const uint32_t acc8_vec_ct = acc1_vec_ct * 8;
@@ -6234,46 +6498,100 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uintptr_t qsr_ct_nz = qsr_ct + (qsr_ct == 0);
     uint32_t* sample_include_cumulative_popcounts = nullptr;
     uintptr_t* sex_nonmale_collapsed = nullptr;
-    uintptr_t* genovec_buf = nullptr;
-    uintptr_t* dosage_present_buf = nullptr;
-    Dosage* dosage_main_buf = nullptr;
-    uintptr_t* missing_bitvec = nullptr;
-    uintptr_t* missing_male_bitvec = nullptr;
     VecW* missing_accx = nullptr;
     VecW* missing_male_accx = nullptr;
     uint32_t* allele_ct_bases;
     int32_t* male_allele_ct_deltas;
     uint32_t* variant_ct_rems;
     uint32_t* variant_hap_ct_rems;
-    uint64_t* ddosage_sums;
-    uint64_t* ddosage_incrs;
     uintptr_t* already_seen_variants;
     uintptr_t* already_seen_alleles;
     char* overflow_buf = nullptr;
-    if (unlikely(bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(ctx.dosages_vmaj[0])) ||
-                 bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(ctx.dosages_vmaj[1])) ||
+    if (unlikely(bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw2, &ctx.genovecs[0]) ||
+                 bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw2, &ctx.genovecs[1]) ||
+                 bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.missing_bitvecs[0]) ||
+                 bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.missing_bitvecs[1]) ||
+                 bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.missing_male_bitvecs[0]) ||
+                 bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.missing_male_bitvecs[1]) ||
                  bigstack_alloc_d(kScoreVariantBlockSize * score_final_col_ct, &(ctx.score_coefs_cmaj[0])) ||
                  bigstack_alloc_d(kScoreVariantBlockSize * score_final_col_ct, &(ctx.score_coefs_cmaj[1])) ||
-                 bigstack_calloc_d(score_final_col_ct * sample_ct, &ctx.final_scores_cmaj) ||
+                 bigstack_calloc_d(score_final_col_ct * final_scores_stride, &ctx.final_scores_cmaj) ||
                  bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
                  bigstack_alloc_w(sample_ctl, &sex_nonmale_collapsed) ||
-                 bigstack_alloc_w(sample_ctl2, &genovec_buf) ||
-                 bigstack_alloc_w(sample_ctl, &dosage_present_buf) ||
-                 bigstack_alloc_dosage(sample_ct, &dosage_main_buf) ||
-                 bigstack_alloc_w(acc1_vec_ct * kWordsPerVec, &missing_bitvec) ||
-                 bigstack_alloc_w(acc1_vec_ct * kWordsPerVec, &missing_male_bitvec) ||
                  bigstack_calloc_v(11 * acc4_vec_ct * qsr_ct_nz, &missing_accx) ||
                  bigstack_calloc_v(11 * acc4_vec_ct * qsr_ct_nz, &missing_male_accx) ||
                  bigstack_calloc_u32(qsr_ct_nz, &allele_ct_bases) ||
                  bigstack_calloc_i32(qsr_ct_nz, &male_allele_ct_deltas) ||
                  bigstack_alloc_u32(qsr_ct_nz * 2, &variant_ct_rems) ||
                  bigstack_alloc_u32(qsr_ct_nz * 2, &variant_hap_ct_rems) ||
-                 bigstack_calloc_u64(qsr_ct_nz * sample_ct, &ddosage_sums) ||
-                 bigstack_calloc_u64(sample_ct, &ddosage_incrs) ||
+                 bigstack_alloc_u64p(sample_shard_ct, &ctx.ddosage_incrs) ||
+                 bigstack_alloc_dp(sample_shard_ct, &ctx.dosages_vmaj) ||
+                 bigstack_calloc_u64(qsr_ct_nz * sample_ct, &ctx.ddosage_sums) ||
                  bigstack_calloc_w(raw_variant_ctl, &already_seen_variants) ||
                  bigstack_calloc_w(raw_allele_ctl, &already_seen_alleles) ||
                  bigstack_alloc_c(overflow_buf_alloc, &overflow_buf))) {
       goto ScoreReport_ret_NOMEM;
+    }
+    {
+      uint32_t cur_sample_shard_size = sample_shard_size;
+      const uint32_t sample_shard_ct_m1 = sample_shard_ct - 1;
+      for (uint32_t shard_idx = 0; ; ++shard_idx) {
+        if (shard_idx >= sample_shard_ct_m1) {
+          if (shard_idx > sample_shard_ct_m1) {
+            break;
+          }
+          cur_sample_shard_size = sample_ct - sample_shard_ct_m1 * sample_shard_size;
+        }
+        if (unlikely(bigstack_alloc_u64(cur_sample_shard_size, &ctx.ddosage_incrs[shard_idx]) ||
+                     bigstack_alloc_d(kScoreVariantBlockSize * cur_sample_shard_size, &ctx.dosages_vmaj[shard_idx]))) {
+          goto ScoreReport_ret_NOMEM;
+        }
+      }
+    }
+    if (qsr_ct) {
+      if (unlikely(bigstack_alloc_u32(kScoreVariantBlockSize, &ctx.variant_uidxs[0]) ||
+                   bigstack_alloc_u32(kScoreVariantBlockSize, &ctx.variant_uidxs[1]))) {
+        goto ScoreReport_ret_NOMEM;
+      }
+    } else {
+      ctx.variant_uidxs[0] = nullptr;
+      ctx.variant_uidxs[1] = nullptr;
+    }
+    if (PgrGetGflags(simple_pgrp) & kfPgenGlobalDosagePresent) {
+      // We may want to buffer less than 2x240 variants at a time in this case
+      // if there are >500k samples...
+      if (unlikely(bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.dosage_presents[0]) ||
+                   bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.dosage_presents[1]) ||
+                   bigstack_alloc_dosage(kScoreVariantBlockSize * dosage_main_stride, &ctx.dosage_mains[0]) ||
+                   bigstack_alloc_dosage(kScoreVariantBlockSize * dosage_main_stride, &ctx.dosage_mains[1]) ||
+                   bigstack_alloc_u32(kScoreVariantBlockSize, &ctx.dosage_cts[0]) ||
+                   bigstack_alloc_u32(kScoreVariantBlockSize, &ctx.dosage_cts[1]))) {
+        goto ScoreReport_ret_NOMEM;
+      }
+    } else {
+      ctx.dosage_presents[0] = nullptr;
+      ctx.dosage_presents[1] = nullptr;
+      ctx.dosage_mains[0] = nullptr;
+      ctx.dosage_mains[1] = nullptr;
+      ctx.dosage_cts[0] = nullptr;
+      ctx.dosage_cts[1] = nullptr;
+    }
+    if (allele_freqs) {
+      if (unlikely(bigstack_alloc_d(kScoreVariantBlockSize, &ctx.allele_freqs[0]) ||
+                   bigstack_alloc_d(kScoreVariantBlockSize, &ctx.allele_freqs[1]) ||
+                   bigstack_alloc_d(kScoreVariantBlockSize, &ctx.geno_slopes[0]) ||
+                   bigstack_alloc_d(kScoreVariantBlockSize, &ctx.geno_slopes[1]) ||
+                   bigstack_alloc_d(kScoreVariantBlockSize, &ctx.geno_intercepts[0]) ||
+                   bigstack_alloc_d(kScoreVariantBlockSize, &ctx.geno_intercepts[1]))) {
+        goto ScoreReport_ret_NOMEM;
+      }
+    } else {
+      ctx.allele_freqs[0] = nullptr;
+      ctx.allele_freqs[1] = nullptr;
+      ctx.geno_slopes[0] = nullptr;
+      ctx.geno_slopes[1] = nullptr;
+      ctx.geno_intercepts[0] = nullptr;
+      ctx.geno_intercepts[1] = nullptr;
     }
     SetThreadFuncAndData(CalcScoreThread, &ctx, &tg);
 
@@ -6286,8 +6604,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
     CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_nonmale_collapsed);
     AlignedBitarrInvert(sample_ct, sex_nonmale_collapsed);
-    const uint32_t nonmale_ct = PopcountWords(sex_nonmale_collapsed, sample_ctl);
-    const uint32_t male_ct = sample_ct - nonmale_ct;
+    ctx.sex_nonmale_collapsed = sex_nonmale_collapsed;
+
     if (!variant_id_htable) {
       reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, 0, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
       if (unlikely(reterr)) {
@@ -6300,7 +6618,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     if (list_variants) {
       const uint32_t list_variants_zst = (flags / kfScoreListVariantsZs) & 1;
       OutnameZstSet(".sscore.vars", list_variants_zst, outname_end);
-      reterr = InitCstream(outname, 0, list_variants_zst, max_thread_ct, overflow_buf_size, overflow_buf, R_CAST(unsigned char*, &(overflow_buf[overflow_buf_size])), &css);
+      reterr = InitCstream(outname, 0, list_variants_zst, 1, overflow_buf_size, overflow_buf, R_CAST(unsigned char*, &(overflow_buf[overflow_buf_size])), &css);
       if (unlikely(reterr)) {
         goto ScoreReport_ret_1;
       }
@@ -6310,8 +6628,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
-    const uint32_t model_dominant = (flags / kfScoreDominant) & 1;
-    const uint32_t domrec = model_dominant || (flags & kfScoreRecessive);
+    const uint32_t domrec = !!(flags & (kfScoreDominant | kfScoreRecessive));
     const uint32_t variance_standardize = (flags / kfScoreVarianceStandardize) & 1;
     const uint32_t center = variance_standardize || (flags & kfScoreCenter);
     const uint32_t no_meanimpute = (flags / kfScoreNoMeanimpute) & 1;
@@ -6319,18 +6636,32 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     uint32_t block_vidx = 0;
     uint32_t parity = 0;
     uint32_t cur_allele_ct = 2;
-    double* cur_dosages_vmaj_iter = ctx.dosages_vmaj[0];
+    uintptr_t* genovec_iter = ctx.genovecs[0];
+    uintptr_t* dosage_present_iter = ctx.dosage_presents[0];
+    Dosage* dosage_main_iter = ctx.dosage_mains[0];
+    uint32_t* dosage_cts = ctx.dosage_cts[0];
+    uintptr_t* missing_bitvec_iter = ctx.missing_bitvecs[0];
+    uintptr_t* missing_male_bitvec_iter = ctx.missing_male_bitvecs[0];
+    double* cur_allele_freqs = ctx.allele_freqs[0];
+    double* geno_slopes = ctx.geno_slopes[0];
+    double* geno_intercepts = ctx.geno_intercepts[0];
     double* cur_score_coefs_cmaj = ctx.score_coefs_cmaj[0];
+    uint32_t* variant_uidxs = ctx.variant_uidxs[0];
+    unsigned char* is_nonx_haploids = &(ctx.is_nonx_haploids[0][0]);
+    unsigned char* is_relevant_xs = &(ctx.is_relevant_xs[0][0]);
+    unsigned char* is_ys = &(ctx.is_ys[0][0]);
+    unsigned char* ploidy_m1s = &(ctx.ploidy_m1s[0][0]);
     double geno_slope = kRecipDosageMax;
     double geno_intercept = 0.0;
-    double cur_allele_freq = 0.0;
     uint32_t valid_variant_ct = 0;
     uintptr_t missing_var_id_ct = 0;
     uintptr_t duplicated_var_id_ct = 0;
     uintptr_t missing_allele_code_ct = 0;
 #ifdef USE_MTBLAS
-    const uint32_t matrix_multiply_thread_ct = (max_thread_ct > 1)? (max_thread_ct - 1) : 1;
-    BLAS_SET_NUM_THREADS(matrix_multiply_thread_ct);
+    if (sample_shard_ct < calc_thread_ct) {
+      const uint32_t matrix_multiply_thread_ct = 1 + ((calc_thread_ct - 1) / sample_shard_ct);
+      BLAS_SET_NUM_THREADS(matrix_multiply_thread_ct);
+    }
 #endif
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
@@ -6410,7 +6741,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       // (possible todo: avoid reloading the same variant multiple times in a
       // row.)
       uint32_t dosage_ct;
-      reterr = PgrGet1D(sample_include, pssi, sample_ct, variant_uidx, cur_allele_idx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
+      reterr = PgrGet1D(sample_include, pssi, sample_ct, variant_uidx, cur_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
       if (unlikely(reterr)) {
         PgenErrPrintNV(reterr, variant_uidx);
         goto ScoreReport_ret_1;
@@ -6432,21 +6763,14 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       is_relevant_x = is_relevant_x && xchr_model;
 
       const uint32_t is_y = (chr_idx == y_code);
-      ZeroTrailingNyps(sample_ct, genovec_buf);
-      GenoarrToMissingnessUnsafe(genovec_buf, sample_ct, missing_bitvec);
+      ZeroTrailingNyps(sample_ct, genovec_iter);
+      GenoarrToMissingnessUnsafe(genovec_iter, sample_ct, missing_bitvec_iter);
       if (dosage_ct) {
-        BitvecInvmask(dosage_present_buf, sample_ctl, missing_bitvec);
+        BitvecInvmask(dosage_present_iter, sample_ctl, missing_bitvec_iter);
       }
-      FillCurDdosageInts(genovec_buf, dosage_present_buf, dosage_main_buf, sample_ct, dosage_ct, 2 - is_nonx_haploid, ddosage_incrs);
-      double ploidy_d;
+      uint32_t ploidy_m1;
       if (is_nonx_haploid) {
         if (is_y) {
-          uintptr_t sample_idx_base = 0;
-          uintptr_t sex_nonmale_collapsed_bits = sex_nonmale_collapsed[0];
-          for (uint32_t nonmale_idx = 0; nonmale_idx != nonmale_ct; ++nonmale_idx) {
-            const uintptr_t sample_idx = BitIter1(sex_nonmale_collapsed, &sample_idx_base, &sex_nonmale_collapsed_bits);
-            ddosage_incrs[sample_idx] = 0;
-          }
           if (is_new_variant) {
             if (!qsr_ct) {
               male_allele_ct_deltas[0] += 1;
@@ -6459,7 +6783,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               }
             }
           }
-          BitvecInvmask(sex_nonmale_collapsed, sample_ctl, missing_bitvec);
+          BitvecInvmask(sex_nonmale_collapsed, sample_ctl, missing_bitvec_iter);
         } else if (is_new_variant) {
           if (!qsr_ct) {
             allele_ct_bases[0] += 1;
@@ -6474,190 +6798,93 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
         if (is_new_variant) {
           if (!qsr_ct) {
-            VerticalCounterUpdate(missing_bitvec, acc1_vec_ct, variant_hap_ct_rems, missing_male_accx);
+            VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_hap_ct_rems, missing_male_accx);
           } else {
             const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
             for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
               if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
-                VerticalCounterUpdate(missing_bitvec, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
+                VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
               }
             }
           }
         }
         if (is_y) {
-          memcpy(missing_male_bitvec, missing_bitvec, sample_ctl * sizeof(intptr_t));
-          BitvecOr(sex_nonmale_collapsed, sample_ctl, missing_bitvec);
+          memcpy(missing_male_bitvec_iter, missing_bitvec_iter, sample_ctl * sizeof(intptr_t));
+          BitvecOr(sex_nonmale_collapsed, sample_ctl, missing_bitvec_iter);
         }
-        ploidy_d = 1.0;
+        ploidy_m1 = 0;
       } else {
+        // !is_nonx_haploid
         if (is_relevant_x) {
-          uintptr_t sample_idx_base = 0;
-          uintptr_t sex_nonmale_collapsed_inv_bits = ~sex_nonmale_collapsed[0];
-          for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx) {
-            const uintptr_t sample_idx = BitIter0(sex_nonmale_collapsed, &sample_idx_base, &sex_nonmale_collapsed_inv_bits);
-            ddosage_incrs[sample_idx] /= 2;
-          }
-          BitvecInvmaskCopy(missing_bitvec, sex_nonmale_collapsed, sample_ctl, missing_male_bitvec);
-          BitvecAnd(sex_nonmale_collapsed, sample_ctl, missing_bitvec);
+          // Handle nonmales first.  Remove males from missing_bitvec_iter,
+          // to be restored at the end of this block.
+          BitvecInvmaskCopy(missing_bitvec_iter, sex_nonmale_collapsed, sample_ctl, missing_male_bitvec_iter);
+          BitvecAnd(sex_nonmale_collapsed, sample_ctl, missing_bitvec_iter);
         }
         if (is_new_variant) {
           if (!qsr_ct) {
             allele_ct_bases[0] += 2;
-            VerticalCounterUpdate(missing_bitvec, acc1_vec_ct, variant_ct_rems, missing_accx);
+            VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_ct_rems, missing_accx);
           } else {
             const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
             for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
               if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
                 allele_ct_bases[qsr_idx] += 2;
-                VerticalCounterUpdate(missing_bitvec, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_accx[acc4_vec_ct * 11 * qsr_idx]));
+                VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_accx[acc4_vec_ct * 11 * qsr_idx]));
               }
             }
           }
         }
         if (is_relevant_x) {
+          // Now count males.
           if (is_new_variant) {
             if (!qsr_ct) {
               male_allele_ct_deltas[0] -= 1;
-              VerticalCounterUpdate(missing_male_bitvec, acc1_vec_ct, variant_hap_ct_rems, missing_male_accx);
+              VerticalCounterUpdate(missing_male_bitvec_iter, acc1_vec_ct, variant_hap_ct_rems, missing_male_accx);
             } else {
               const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
               for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
                 if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
                   male_allele_ct_deltas[qsr_idx] -= 1;
-                  VerticalCounterUpdate(missing_male_bitvec, acc1_vec_ct, &(variant_hap_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
+                  VerticalCounterUpdate(missing_male_bitvec_iter, acc1_vec_ct, &(variant_hap_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
                 }
               }
             }
           }
-          BitvecOr(missing_male_bitvec, sample_ctl, missing_bitvec);
+          // Restore missing males to missing_bitvec_iter.
+          BitvecOr(missing_male_bitvec_iter, sample_ctl, missing_bitvec_iter);
         }
-        if (!domrec) {
-          ploidy_d = 2.0;
-        } else {
-          if (model_dominant) {
-            for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-              if (ddosage_incrs[sample_idx] > kDosageMax) {
-                ddosage_incrs[sample_idx] = kDosageMax;
-              }
-            }
-          } else {
-            for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-              uint64_t cur_ddosage_incr = ddosage_incrs[sample_idx];
-              if (cur_ddosage_incr <= kDosageMax) {
-                cur_ddosage_incr = 0;
-              } else {
-                cur_ddosage_incr -= kDosageMax;
-              }
-              ddosage_incrs[sample_idx] = cur_ddosage_incr;
-            }
-          }
-          ploidy_d = 1.0;
-        }
+        ploidy_m1 = domrec? 0 : 1;
       }
-      if (!qsr_ct) {
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          ddosage_sums[sample_idx] += ddosage_incrs[sample_idx];
-        }
-      } else {
-        const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
-        for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
-          if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
-            uint64_t* cur_ddosage_sums = &(ddosage_sums[qsr_idx * sample_ct]);
-            for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-              cur_ddosage_sums[sample_idx] += ddosage_incrs[sample_idx];
-            }
-          }
-        }
-      }
+      const double ploidy_d = ploidy_m1? 2.0 : 1.0;
       if (allele_freqs) {
-        cur_allele_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), cur_allele_idx, cur_allele_ct);
-      }
-      if (center) {
-        if (variance_standardize) {
-          const double variance = ploidy_d * 0.5 * ComputeDiploidMultiallelicVariance(&(allele_freqs[allele_idx_offset_base - variant_uidx]), cur_allele_ct);
-          if (!(variance > kSmallEpsilon)) {
-            // ZeroTrailingNyps(sample_ct, genovec_buf);
-            STD_ARRAY_DECL(uint32_t, 4, genocounts);
-            GenoarrCountFreqsUnsafe(genovec_buf, sample_ct, genocounts);
-            if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {
-              snprintf(g_logbuf, kLogbufSize, "Error: --score variance-standardize failure for variant '%s': estimated allele frequency is zero or NaN, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
-              goto ScoreReport_ret_DEGENERATE_DATA_WW;
-            }
-            geno_slope = 0.0;
-          } else {
-            geno_slope = kRecipDosageMax / sqrt(variance);
-          }
-        }
-        // (ploidy * cur_allele_freq * kDosageMax) * geno_slope +
-        //   geno_intercept == 0
-        // bugfix: must use "-1.0 *" instead of - to avoid unsigned int
-        //   wraparound
-        geno_intercept = (-1.0 * kDosageMax) * ploidy_d * cur_allele_freq * geno_slope;
-      }
-      const uint32_t missing_ct = PopcountWords(missing_bitvec, sample_ctl);
-      const uint32_t nm_sample_ct = sample_ct - missing_ct;
-      if (missing_ct) {
-        double missing_effect = 0.0;
-        if (!no_meanimpute) {
-          missing_effect = kDosageMax * cur_allele_freq * geno_slope;
-        }
-        uintptr_t sample_idx_base = 0;
-        if (is_y || is_relevant_x) {
-          ZeroDArr(sample_ct, cur_dosages_vmaj_iter);
-          if (!no_meanimpute) {
-            const uint32_t male_missing_ct = PopcountWords(missing_male_bitvec, sample_ctl);
-            uintptr_t missing_male_bits = missing_male_bitvec[0];
-            for (uint32_t male_missing_idx = 0; male_missing_idx != male_missing_ct; ++male_missing_idx) {
-              const uintptr_t sample_idx = BitIter1(missing_male_bitvec, &sample_idx_base, &missing_male_bits);
-              cur_dosages_vmaj_iter[sample_idx] = missing_effect;
-            }
-            if (is_relevant_x) {
-              // missing_male_bitvec not used after this point, so okay to
-              // use buffer for nonmales
-              BitvecAndCopy(missing_bitvec, sex_nonmale_collapsed, sample_ctl, missing_male_bitvec);
-              missing_effect *= 2;
-              // bugfix (8 Jul 2018): need to reset sample_idx
-              sample_idx_base = 0;
-              missing_male_bits = missing_male_bitvec[0];
-              const uint32_t nonmale_missing_ct = PopcountWords(missing_male_bitvec, sample_ctl);
-              for (uint32_t nonmale_missing_idx = 0; nonmale_missing_idx != nonmale_missing_ct; ++nonmale_missing_idx) {
-                const uintptr_t sample_idx = BitIter1(missing_male_bitvec, &sample_idx_base, &missing_male_bits);
-                cur_dosages_vmaj_iter[sample_idx] = missing_effect;
+        const double cur_allele_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), cur_allele_idx, cur_allele_ct);
+        if (center) {
+          if (variance_standardize) {
+            const double variance = ploidy_d * 0.5 * ComputeDiploidMultiallelicVariance(&(allele_freqs[allele_idx_offset_base - variant_uidx]), cur_allele_ct);
+            if (!(variance > kSmallEpsilon)) {
+              // ZeroTrailingNyps(sample_ct, genovec_buf);
+              STD_ARRAY_DECL(uint32_t, 4, genocounts);
+              GenoarrCountFreqsUnsafe(genovec_iter, sample_ct, genocounts);
+              if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {
+                snprintf(g_logbuf, kLogbufSize, "Error: --score variance-standardize failure for variant '%s': estimated allele frequency is zero or NaN, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
+                goto ScoreReport_ret_DEGENERATE_DATA_WW;
               }
+              geno_slope = 0.0;
+            } else {
+              geno_slope = kRecipDosageMax / sqrt(variance);
             }
           }
-        } else {
-          missing_effect *= ploidy_d;
-          uintptr_t missing_bits = missing_bitvec[0];
-          for (uint32_t missing_idx = 0; missing_idx != missing_ct; ++missing_idx) {
-            const uintptr_t sample_idx = BitIter1(missing_bitvec, &sample_idx_base, &missing_bits);
-            cur_dosages_vmaj_iter[sample_idx] = missing_effect;
-          }
+          // (ploidy * cur_allele_freq * kDosageMax) * geno_slope +
+          //   geno_intercept == 0
+          // bugfix: must use "-1.0 *" instead of - to avoid unsigned int
+          //   wraparound
+          geno_intercept = (-1.0 * kDosageMax) * ploidy_d * cur_allele_freq * geno_slope;
         }
+        cur_allele_freqs[block_vidx] = cur_allele_freq;
+        geno_slopes[block_vidx] = geno_slope;
+        geno_intercepts[block_vidx] = geno_intercept;
       }
-      uintptr_t sample_idx_base = 0;
-      uintptr_t missing_inv_bits = ~missing_bitvec[0];
-      for (uint32_t nm_sample_idx = 0; nm_sample_idx != nm_sample_ct; ++nm_sample_idx) {
-        const uintptr_t sample_idx = BitIter0(missing_bitvec, &sample_idx_base, &missing_inv_bits);
-        cur_dosages_vmaj_iter[sample_idx] = u63tod(ddosage_incrs[sample_idx]) * geno_slope + geno_intercept;
-      }
-      if (se_mode) {
-        // Suppose our score coefficients are drawn from independent Gaussians.
-        // Then the variance of the final score average is the sum of the
-        // variances of the individual terms, divided by (T^2) where T is the
-        // number of terms.  These individual variances are of the form
-        // (<genotype value> * <stdev>)^2.
-        //
-        // Thus, we can use the same inner loop to compute standard errors, as
-        // long as
-        //   1. we square the genotypes and the standard errors before matrix
-        //      multiplication, and
-        //   2. we take the square root of the sums at the end.
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          cur_dosages_vmaj_iter[sample_idx] *= cur_dosages_vmaj_iter[sample_idx];
-        }
-      }
-      cur_dosages_vmaj_iter = &(cur_dosages_vmaj_iter[sample_ct]);
 
       *allele_end = allele_end_char;
       double* cur_score_coefs_iter = &(cur_score_coefs_cmaj[block_vidx]);
@@ -6700,6 +6927,21 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           fflush(stdout);
         }
       }
+      if (variant_uidxs) {
+        variant_uidxs[block_vidx] = variant_uidx;
+      }
+      is_nonx_haploids[block_vidx] = is_nonx_haploid;
+      is_relevant_xs[block_vidx] = is_relevant_x;
+      is_ys[block_vidx] = is_y;
+      ploidy_m1s[block_vidx] = ploidy_m1;
+      genovec_iter = &(genovec_iter[sample_ctaw2]);
+      missing_bitvec_iter = &(missing_bitvec_iter[sample_ctaw]);
+      missing_male_bitvec_iter = &(missing_male_bitvec_iter[sample_ctaw]);
+      if (dosage_present_iter) {
+        dosage_present_iter = &(dosage_present_iter[sample_ctaw]);
+        dosage_main_iter = &(dosage_main_iter[dosage_main_stride]);
+        dosage_cts[block_vidx] = dosage_ct;
+      }
       ++block_vidx;
       if (block_vidx == kScoreVariantBlockSize) {
         if (se_mode) {
@@ -6716,7 +6958,20 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         if (unlikely(SpawnThreads(&tg))) {
           goto ScoreReport_ret_THREAD_CREATE_FAIL;
         }
-        cur_dosages_vmaj_iter = ctx.dosages_vmaj[parity];
+        genovec_iter = ctx.genovecs[parity];
+        dosage_present_iter = ctx.dosage_presents[parity];
+        dosage_main_iter = ctx.dosage_mains[parity];
+        dosage_cts = ctx.dosage_cts[parity];
+        missing_bitvec_iter = ctx.missing_bitvecs[parity];
+        missing_male_bitvec_iter = ctx.missing_male_bitvecs[parity];
+        cur_allele_freqs = ctx.allele_freqs[parity];
+        geno_slopes = ctx.geno_slopes[parity];
+        geno_intercepts = ctx.geno_intercepts[parity];
+        variant_uidxs = ctx.variant_uidxs[parity];
+        is_nonx_haploids = &(ctx.is_nonx_haploids[parity][0]);
+        is_relevant_xs = &(ctx.is_relevant_xs[parity][0]);
+        is_ys = &(ctx.is_ys[parity][0]);
+        ploidy_m1s = &(ctx.ploidy_m1s[parity][0]);
         cur_score_coefs_cmaj = ctx.score_coefs_cmaj[parity];
         block_vidx = 0;
       }
@@ -6769,7 +7024,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       JoinThreads(&tg);
     }
     DeclareLastThreadBlock(&tg);
-    ctx.cur_batch_size = block_vidx;
+    ctx.cur_variant_batch_size = block_vidx;
     if (se_mode) {
       for (uintptr_t score_final_col_idx = 0; score_final_col_idx != score_final_col_ct; ++score_final_col_idx) {
         double* cur_score_coefs_row = &(cur_score_coefs_cmaj[score_final_col_idx * kScoreVariantBlockSize]);
@@ -6935,7 +7190,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
         if (write_dosage_sum) {
           *cswritep++ = '\t';
-          cswritep = ddosagetoa(ddosage_sums[sample_idx + qsr_idx * sample_ct], cswritep);
+          cswritep = ddosagetoa(ctx.ddosage_sums[sample_idx + qsr_idx * sample_ct], cswritep);
         }
         const double* final_score_col = &(ctx.final_scores_cmaj[sample_idx]);
         if (write_score_avgs) {
