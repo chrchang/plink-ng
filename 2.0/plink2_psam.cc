@@ -1318,8 +1318,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
             continue;
           }
         } else {
-          if (unlikely(!IsSpaceOrEoln(*cur_phenostr_end))) {
-            cur_phenostr_end = CurTokenEnd(cur_phenostr_end);
+          if (unlikely(!IsCommaOrTspaceTokenEnd(*cur_phenostr_end, comma_delim))) {
+            cur_phenostr_end = CommaOrTspaceTokenEnd(cur_phenostr_end, comma_delim);
             *K_CAST(char*, cur_phenostr_end) = '\0';
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, pheno_fname);
             goto LoadPhenos_ret_MALFORMED_INPUT_WW;

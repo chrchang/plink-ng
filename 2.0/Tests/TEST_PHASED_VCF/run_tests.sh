@@ -153,3 +153,10 @@ python3 glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm.PHENO1.glm.log
 plink --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --linear --covar plink1_pca.eigenvec --tests 1,3,5 --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --glm --covar plink2_pca.eigenvec --tests 1,3,5 --out plink2_glm
 python3 glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
+
+# Test --pheno/--covar support for comma-separated files.
+echo "#FID,IID,PHENO1" > pheno_qt_commas.txt
+cat pheno_qt.txt | tr '\t' ',' >> pheno_qt_commas.txt
+cat plink2_pca.eigenvec | tr '\t' ',' > plink2_pca_commas.eigenvec
+$1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt_commas.txt --glm --covar plink2_pca_commas.eigenvec --tests 1,3,5 --out plink2_glm_commas
+diff -q plink2_glm.PHENO1.glm.linear plink2_glm_commas.PHENO1.glm.linear

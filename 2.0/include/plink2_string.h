@@ -408,6 +408,14 @@ HEADER_INLINE int32_t IsSpaceOrEoln(unsigned char ucc) {
   return (ucc <= 32);
 }
 
+HEADER_INLINE uint32_t IsCommaOrTspaceTokenEnd(unsigned char ucc, uint32_t comma_delim) {
+  if (comma_delim) {
+    return (ucc < 32) || (ucc == ',');
+  } else {
+    return (ucc <= 32);
+  }
+}
+
 // Assumes it's safe to read first 1 + strlen(s_const) bytes of s_read, i.e.
 // this is ALWAYS 'unsafe'.
 // Differs from strequal_k_unsafe() since strings are not considered equal when
@@ -831,6 +839,7 @@ HEADER_INLINE CXXCONST_CP CsvFieldEnd(const char* token_iter) {
 
 // length-zero tokens and non-leading spaces are permitted in the
 // comma-delimiter case
+// assumes we're inside a token if comma_delim is false
 HEADER_INLINE CXXCONST_CP CommaOrTspaceTokenEnd(const char* token_iter, uint32_t comma_delim) {
   if (comma_delim) {
     return CsvFieldEnd(token_iter);
