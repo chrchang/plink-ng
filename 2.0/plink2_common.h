@@ -757,6 +757,10 @@ HEADER_INLINE PglErr InitChrInfoHuman(ChrInfo* cip) {
   return kPglRetSuccess;
 }
 
+HEADER_INLINE uint32_t IsHumanChrset(const ChrInfo* cip) {
+  return (cip->max_code == 28) && (cip->max_numeric_code == 26) && (cip->autosome_ct == 22);
+}
+
 void ForgetExtraChrNames(uint32_t reinitialize, ChrInfo* cip);
 
 // in the usual case where the number of chromosomes/contigs is much less than

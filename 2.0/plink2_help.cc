@@ -2016,7 +2016,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --set-mixed-mt-missing ['keep-dosage'] : Make --make-[b]pgen/--make-bed set\n"
 "                                           mixed MT hardcalls to missing.\n"
                );
-    HelpPrint("split-par\0merge-par\0split-x\0merge-x\0", &help_ctrl, 0,
+    HelpPrint("split-par\0merge-par\0split-x\0merge-x\0vcf\0bcf\0", &help_ctrl, 0,
 "  --split-par <bp1> <bp2> : Changes chromosome code of all X chromosome\n"
 "  --split-par <build>       variants with bp position <= bp1 to PAR1, and those\n"
 "                            with position >= bp2 to PAR2.  The following build\n"
@@ -2033,6 +2033,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --merge-x               : Merge XY back with X.  This usually has to be\n"
 "                            combined with --sort-vars.\n"
                );
+    HelpPrint("lax-chrx-import\0vcf\0bcf\0gen\0bgen\0data\0haps\0", &help_ctrl, 0,
+"  --lax-chrx-import       : During import of non-PLINK-format data that appears\n"
+"                            to contain chrX, suppress the usual warning (which\n"
+"                            (will be upgraded to an error in the future) if\n"
+"                            --split-par and/or a .fam/.psam/--update-sex file\n"
+"                            is expected and not present.\n"
+              );
     HelpPrint("set-all-var-ids\0set-missing-var-ids\0var-id-multi\0var-id-multi-nonsnp\0new-id-max-allele-len\0", &help_ctrl, 0,
 "  --set-missing-var-ids <t>  : Given a template string with a '@' where the\n"
 "  --set-all-var-ids <t>        chromosome code should go and '#' where the bp\n"
