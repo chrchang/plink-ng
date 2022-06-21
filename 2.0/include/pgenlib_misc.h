@@ -79,7 +79,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1904
+#define PGENLIB_INTERNAL_VERNUM 1905
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -380,6 +380,8 @@ void GenoarrToMissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sa
 
 // currently does not zero trailing halfword
 void GenoarrToNonmissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict nonmissingness);
+
+void SparseToMissingness(const uintptr_t* __restrict raregeno, const uint32_t* difflist_sample_ids, uint32_t sample_ct, uint32_t difflist_common_geno, uint32_t difflist_len, uintptr_t* __restrict missingness);
 
 // hom_buf gets set bits when genoarr value is 0 or 2.
 // ref2het_buf gets set bits when genoarr value is 0 or 1.

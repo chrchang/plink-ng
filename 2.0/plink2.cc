@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3.4"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (17 Jun 2022)";
+  " (20 Jun 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -5543,6 +5543,9 @@ int main(int argc, char** argv) {
               pc.glm_info.flags |= kfGlmFirthResidualize;
             } else if (strequal_k(cur_modif, "cc-residualize", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmCcResidualize;
+            } else if (strequal_k(cur_modif, "single-prec-logistic", cur_modif_slen)) {
+              // No effect for now, this is just here for
+              // forward-compatibility.
             } else if (unlikely(strequal_k(cur_modif, "standard-beta", cur_modif_slen))) {
               logerrputs("Error: --glm 'standard-beta' modifier has been retired.  Use\n--{covar-}variance-standardize instead.\n");
               goto main_ret_INVALID_CMDLINE_A;

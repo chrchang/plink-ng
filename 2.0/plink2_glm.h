@@ -19,99 +19,11 @@
 
 
 #include "plink2_adjust.h"
+#include "plink2_glm_shared.h"
 
 #ifdef __cplusplus
 namespace plink2 {
 #endif
-
-FLAGSET_DEF_START()
-  kfGlm0,
-  kfGlmZs = (1 << 0),
-
-  kfGlmOmitRef = (1 << 1),
-
-  // mutually exclusive
-  kfGlmSex = (1 << 2),
-  kfGlmNoXSex = (1 << 3),
-
-  kfGlmLog10 = (1 << 4),
-
-  // mutually exclusive
-  kfGlmGenotypic = (1 << 5),
-  kfGlmHethom = (1 << 6),
-  kfGlmDominant = (1 << 7),
-  kfGlmRecessive = (1 << 8),
-  kfGlmHetonly = (1 << 9),
-
-  kfGlmInteraction = (1 << 10),
-  kfGlmHideCovar = (1 << 11),
-  kfGlmIntercept = (1 << 12),
-  kfGlmSkipInvalidPheno = (1 << 13),
-  kfGlmNoFirth = (1 << 14),
-  kfGlmFirth = (1 << 15),
-  kfGlmPerm = (1 << 16),
-  kfGlmPermCount = (1 << 17),
-  kfGlmConditionDominant = (1 << 18),
-  kfGlmConditionRecessive = (1 << 19),
-  kfGlmConditionMultiallelic = (1 << 20),
-  kfGlmLocalOmitLast = (1 << 21),
-  kfGlmTestsAll = (1 << 22),
-  kfGlmPhenoIds = (1 << 23),
-  kfGlmLocalHaps = (1 << 24),
-  kfGlmLocalCats1based = (1 << 25),
-  kfGlmFirthResidualize = (1 << 26),
-  kfGlmCcResidualize = (1 << 27),
-  kfGlmAllowNoCovars = (1 << 28)
-FLAGSET_DEF_END(GlmFlags);
-
-FLAGSET_DEF_START()
-  kfGlmCol0,
-  kfGlmColChrom = (1 << 0),
-  kfGlmColPos = (1 << 1),
-  kfGlmColRef = (1 << 2),
-  kfGlmColAlt1 = (1 << 3),
-  kfGlmColAlt = (1 << 4),
-  kfGlmColAx = (1 << 5),
-  kfGlmColA1count = (1 << 6),
-  kfGlmColTotallele = (1 << 7),
-  kfGlmColA1countcc = (1 << 8),
-  kfGlmColTotallelecc = (1 << 9),
-  kfGlmColGcountcc = (1 << 10),
-  kfGlmColA1freq = (1 << 11),
-  kfGlmColA1freqcc = (1 << 12),
-  kfGlmColMachR2 = (1 << 13),
-  kfGlmColFirthYn = (1 << 14),
-  kfGlmColTest = (1 << 15),
-  kfGlmColNobs = (1 << 16),
-
-  // if beta specified, ignore orbeta
-  kfGlmColBeta = (1 << 17),
-  kfGlmColOrbeta = (1 << 18),
-
-  kfGlmColSe = (1 << 19),
-  kfGlmColCi = (1 << 20),
-  kfGlmColTz = (1 << 21),
-  kfGlmColP = (1 << 22),
-  kfGlmColErr = (1 << 23),
-  kfGlmColDefault = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColFirthYn | kfGlmColTest | kfGlmColNobs | kfGlmColOrbeta | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP | kfGlmColErr)
-FLAGSET_DEF_END(GlmColFlags);
-
-typedef struct GlmInfoStruct {
-  NONCOPYABLE(GlmInfoStruct);
-  GlmFlags flags;
-  GlmColFlags cols;
-  uint32_t mperm_ct;
-  uint32_t local_cat_ct;
-  uint32_t local_header_line_ct;
-  uint32_t local_chrom_col;
-  uint32_t local_bp_col;
-  uint32_t local_first_covar_col;
-  double max_corr;
-  char* condition_varname;
-  char* condition_list_fname;
-  RangeList parameters_range_list;
-  RangeList tests_range_list;
-} GlmInfo;
 
 void InitGlm(GlmInfo* glm_info_ptr);
 

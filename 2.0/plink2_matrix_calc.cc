@@ -5781,11 +5781,16 @@ typedef struct CalcScoreCtxStruct {
   uint32_t score_final_col_ct;
   uint32_t sample_shard_size;
   uint32_t sample_ct;
+  uint32_t max_returned_difflist_len;
   ScoreFlags flags;
   uint32_t qsr_ct;
 
   uint32_t* variant_uidxs[2];
   uintptr_t* genovecs[2];
+  uintptr_t* raregenos[2];
+  uint32_t* difflist_lens[2];
+  uint32_t* difflist_sample_ids[2];
+  int8_t* difflist_common_genos[2];
   uintptr_t* dosage_presents[2];
   Dosage* dosage_mains[2];
   uint32_t* dosage_cts[2];
@@ -5794,7 +5799,8 @@ typedef struct CalcScoreCtxStruct {
   double* allele_freqs[2];
   double* geno_slopes[2];
   double* geno_intercepts[2];
-  double* score_coefs_cmaj[2];
+  double* score_dense_coefs_cmaj[2];
+  double* score_sparse_coefs_vmaj[2];
   unsigned char is_nonx_haploids[2][kScoreVariantBlockSize];
   unsigned char is_relevant_xs[2][kScoreVariantBlockSize];
   unsigned char is_ys[2][kScoreVariantBlockSize];
@@ -5832,6 +5838,9 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
   const uint32_t shard_sizel = BitCtToWordCt(sample_shard_size);
   const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
+  const uint32_t max_returned_difflist_len = ctx->max_returned_difflist_len;
+  const uintptr_t raregeno_stride = NypCtToAlignedWordCt(max_returned_difflist_len);
+  const uintptr_t difflist_sample_ids_stride = RoundUpPow2(max_returned_difflist_len, kInt32PerVec);
   const uint32_t dosage_main_stride = RoundUpPow2(sample_ct, kDosagePerVec);
   const uintptr_t* shard_sex_nonmale_collapsed = &(ctx->sex_nonmale_collapsed[sample_idx_startl]);
   const uint32_t shard_nonmale_ct = PopcountWords(shard_sex_nonmale_collapsed, shard_sizel);
@@ -5857,6 +5866,10 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
     if (cur_variant_batch_size) {
       const uint32_t* variant_uidxs = ctx->variant_uidxs[parity];
       const uintptr_t* genovec_iter = &(ctx->genovecs[parity][sample_idx_startl2]);
+      const uintptr_t* raregeno_iter = ctx->raregenos[parity];
+      const uint32_t* difflist_lens = ctx->difflist_lens[parity];
+      const uint32_t* difflist_sample_ids_iter = ctx->difflist_sample_ids[parity];
+      const int8_t* difflist_common_genos = ctx->difflist_common_genos[parity];
       const uintptr_t* dosage_present_iter = ctx->dosage_presents[parity];
       const Dosage* dosage_main_iter = ctx->dosage_mains[parity];
       const uint32_t* dosage_cts = ctx->dosage_cts[parity];
@@ -5865,6 +5878,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
       const double* allele_freqs = ctx->allele_freqs[parity];
       const double* geno_slopes = ctx->geno_slopes[parity];
       const double* geno_intercepts = ctx->geno_intercepts[parity];
+      const double* score_sparse_coefs_vmaj_iter = ctx->score_sparse_coefs_vmaj[parity];
       const unsigned char* is_nonx_haploids = &(ctx->is_nonx_haploids[parity][0]);
       const unsigned char* is_relevant_xs = &(ctx->is_relevant_xs[parity][0]);
       const unsigned char* is_ys = &(ctx->is_ys[parity][0]);
@@ -5873,8 +5887,12 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
       const Dosage* shard_dosage_main = nullptr;
       double* dosages_vmaj_iter = dosages_vmaj;
 
+      uint32_t sparse_vidx = 0;
       uint32_t shard_dosage_ct = 0;
       for (uint32_t vidx = 0; vidx != cur_variant_batch_size; ++vidx) {
+        const uint32_t is_nonx_haploid = is_nonx_haploids[vidx];
+        const uint32_t is_relevant_x = is_relevant_xs[vidx];
+        const uint32_t is_y = is_ys[vidx];
         if (dosage_cts) {
           // defensive
           shard_dosage_present = nullptr;
@@ -5892,10 +5910,122 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
               }
             }
           }
+        } else if (!domrec) {
+          // For now, the sparse-genotype optimization is only considered if
+          // there are no dosages in the entire .pgen, and
+          // 'dominant'/'recessive' wasn't specified.
+          // It's actually straightforward to support domrec
+          // (modifying difflist_common_geno and raregeno upfront is almost
+          // enough), but let's get this working first.
+          const uint32_t difflist_common_geno = S_CAST(int32_t, difflist_common_genos[vidx]);
+          if (difflist_common_geno != UINT32_MAX) {
+            const uint32_t difflist_len = difflist_lens[sparse_vidx];
+            if (difflist_len) {
+              uint32_t difflist_start_idx = 0;
+              if (sample_idx_start) {
+                difflist_start_idx = CountSortedSmallerU32(difflist_sample_ids_iter, difflist_len, sample_idx_start);
+              }
+              if (difflist_len > difflist_start_idx) {
+                const uint32_t shard_difflist_len = CountSortedSmallerU32(&(difflist_sample_ids_iter[difflist_start_idx]), difflist_len - difflist_start_idx, sample_idx_start + sample_shard_size);
+                if (shard_difflist_len) {
+                  // Shard contains at least one uncommon genotype, so we have
+                  // some work to do.
+                  if (allele_freqs) {
+                    cur_allele_freq = allele_freqs[vidx];
+                    geno_slope = geno_slopes[vidx];
+                    geno_intercept = geno_intercepts[vidx];
+                  }
+                  uint64_t ddosage_incr_lookup_table[4];
+                  ddosage_incr_lookup_table[0] = 0;
+                  ddosage_incr_lookup_table[1] = kDosageMax;
+                  ddosage_incr_lookup_table[2] = kDosageMax * 2LL;
+                  ddosage_incr_lookup_table[3] = 0;
+                  const uint64_t common_ddosage = ddosage_incr_lookup_table[difflist_common_geno];
+                  if (common_ddosage) {
+                    for (uint32_t uii = 0; uii != 4; ++uii) {
+                      // deliberate underflow
+                      ddosage_incr_lookup_table[uii] -= common_ddosage;
+                    }
+                  }
+                  double dosage_incr_lookup_table[4];
+                  dosage_incr_lookup_table[0] = geno_intercept;
+                  const double geno_incr = kDosageMax * geno_slope;
+                  dosage_incr_lookup_table[1] = geno_incr + geno_intercept;
+                  dosage_incr_lookup_table[2] = dosage_incr_lookup_table[1] + geno_incr;
+                  dosage_incr_lookup_table[3] = 0.0;
+                  if (!no_meanimpute) {
+                    dosage_incr_lookup_table[3] = kDosageMax * 2LL * cur_allele_freq * geno_slope;
+                  }
+                  if (se_mode) {
+                    for (uint32_t uii = 0; uii != 4; ++uii) {
+                      dosage_incr_lookup_table[uii] *= dosage_incr_lookup_table[uii];
+                    }
+                  }
+                  const double common_dosage = dosage_incr_lookup_table[difflist_common_geno];
+                  for (uint32_t uii = 0; uii != 4; ++uii) {
+                    dosage_incr_lookup_table[uii] -= common_dosage;
+                  }
+
+                  const uint32_t difflist_end_idx = difflist_start_idx + shard_difflist_len;
+                  const uint32_t widx_last = (difflist_end_idx - 1) / kBitsPerWordD2;
+                  uint32_t widx = difflist_start_idx / kBitsPerWordD2;
+                  const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids_iter[widx * kBitsPerWordD2]);
+                  uint32_t difflist_idx_lowbits = difflist_start_idx % kBitsPerWordD2;
+                  uint32_t difflist_idx_lowbits_end = kBitsPerWordD2;
+                  if (widx == widx_last) {
+                    difflist_idx_lowbits_end = ModNz(difflist_end_idx, kBitsPerWordD2);
+                  }
+                  uintptr_t raregeno_word = raregeno_iter[widx] >> (2 * difflist_idx_lowbits);
+                  while (1) {
+                    for (; difflist_idx_lowbits != difflist_idx_lowbits_end; ++difflist_idx_lowbits) {
+                      const uintptr_t cur_geno = raregeno_word & 3;
+                      const uint32_t shard_sample_idx = cur_difflist_sample_ids[difflist_idx_lowbits] - sample_idx_start;
+                      uint64_t* ddosage_sum_col_base = &(shard_ddosage_sums[shard_sample_idx]);
+                      const uint64_t cur_ddosage_incr = ddosage_incr_lookup_table[cur_geno];
+                      if (!qsr_ct) {
+                        ddosage_sum_col_base[0] += cur_ddosage_incr;
+                      } else {
+                        const uint32_t variant_uidx = variant_uidxs[vidx];
+                        const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
+                        for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
+                          if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
+                            ddosage_sum_col_base[qsr_idx * sample_ct] += cur_ddosage_incr;
+                          }
+                        }
+                      }
+                      double* final_score_col_iter = &(shard_final_scores_cmaj[shard_sample_idx]);
+                      const double cur_dosage_incr = dosage_incr_lookup_table[cur_geno];
+                      for (uint32_t uii = 0; uii != score_final_col_ct; ++uii) {
+                        *final_score_col_iter += cur_dosage_incr * score_sparse_coefs_vmaj_iter[uii];
+                        final_score_col_iter = &(final_score_col_iter[sample_shard_size]);
+                      }
+                      raregeno_word = raregeno_word >> 2;
+                    }
+                    ++widx;
+                    if (widx >= widx_last) {
+                      if (widx > widx_last) {
+                        break;
+                      }
+                      difflist_idx_lowbits_end = ModNz(difflist_end_idx, kBitsPerWordD2);
+                    }
+                    cur_difflist_sample_ids = &(cur_difflist_sample_ids[kBitsPerWordD2]);
+                    difflist_idx_lowbits = 0;
+                    raregeno_word = raregeno_iter[widx];
+                  }
+                }
+              }
+            }
+
+            genovec_iter = &(genovec_iter[sample_ctaw2]);
+            missing_bitvec_iter = &(missing_bitvec_iter[sample_ctaw]);
+            missing_male_bitvec_iter = &(missing_male_bitvec_iter[sample_ctaw]);
+            score_sparse_coefs_vmaj_iter = &(score_sparse_coefs_vmaj_iter[score_final_col_ct]);
+            ++sparse_vidx;
+            raregeno_iter = &(raregeno_iter[raregeno_stride]);
+            difflist_sample_ids_iter = &(difflist_sample_ids_iter[difflist_sample_ids_stride]);
+            continue;
+          }
         }
-        const uint32_t is_nonx_haploid = is_nonx_haploids[vidx];
-        const uint32_t is_relevant_x = is_relevant_xs[vidx];
-        const uint32_t is_y = is_ys[vidx];
         FillDdosageInts(genovec_iter, shard_dosage_present, shard_dosage_main, sample_shard_size, shard_dosage_ct, 1 - is_nonx_haploid, ddosage_incrs);
         if (is_y) {
           if (shard_nonmale_ct) {
@@ -5978,6 +6108,12 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             }
             lookup_table[6] = missing_effect;
           }
+          if (se_mode) {
+            lookup_table[0] *= lookup_table[0];
+            lookup_table[2] *= lookup_table[2];
+            lookup_table[4] *= lookup_table[4];
+            lookup_table[6] *= lookup_table[6];
+          }
           InitLookup16x8bx2(lookup_table);
           GenoarrLookup16x8bx2(genovec_iter, lookup_table, sample_shard_size, dosages_vmaj_iter);
         } else {
@@ -6038,21 +6174,21 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             const uintptr_t shard_sample_idx = BitIter0(missing_bitvec_iter, &shard_sample_idx_base, &missing_inv_bits);
             dosages_vmaj_iter[shard_sample_idx] = u63tod(ddosage_incrs[shard_sample_idx]) * geno_slope + geno_intercept;
           }
-        }
-        if (se_mode) {
-          // Suppose our score coefficients are drawn from independent
-          // Gaussians.  Then the variance of the final score average is the
-          // sum of the variances of the individual terms, divided by (T^2)
-          // where T is the number of terms.  These individual variances are of
-          // the form (<genotype value> * <stdev>)^2.
-          //
-          // Thus, we can use the same inner loop to compute standard errors,
-          // as long as
-          //   1. we square the genotypes and the standard errors before matrix
-          //      multiplication, and
-          //   2. we take the square root of the sums at the end.
-          for (uint32_t shard_sample_idx = 0; shard_sample_idx != sample_shard_size; ++shard_sample_idx) {
-            dosages_vmaj_iter[shard_sample_idx] *= dosages_vmaj_iter[shard_sample_idx];
+          if (se_mode) {
+            // Suppose our score coefficients are drawn from independent
+            // Gaussians.  Then the variance of the final score average is the
+            // sum of the variances of the individual terms, divided by (T^2)
+            // where T is the number of terms.  These individual variances are
+            // of the form (<genotype value> * <stdev>)^2.
+            //
+            // Thus, we can use the same inner loop to compute standard errors,
+            // as long as
+            //   1. we square the genotypes and the standard errors before
+            //      matrix multiplication, and
+            //   2. we take the square root of the sums at the end.
+            for (uint32_t shard_sample_idx = 0; shard_sample_idx != sample_shard_size; ++shard_sample_idx) {
+              dosages_vmaj_iter[shard_sample_idx] *= dosages_vmaj_iter[shard_sample_idx];
+            }
           }
         }
         dosages_vmaj_iter = &(dosages_vmaj_iter[sample_shard_size]);
@@ -6066,8 +6202,11 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
         }
       }
 
-      const double* score_coefs_cmaj = ctx->score_coefs_cmaj[parity];
-      RowMajorMatrixMultiplyStridedIncr(score_coefs_cmaj, dosages_vmaj, score_final_col_ct, kScoreVariantBlockSize, sample_shard_size, sample_shard_size, cur_variant_batch_size, sample_shard_size, shard_final_scores_cmaj);
+      const uint32_t dense_variant_ct = cur_variant_batch_size - sparse_vidx;
+      if (dense_variant_ct) {
+        const double* score_dense_coefs_cmaj = ctx->score_dense_coefs_cmaj[parity];
+        RowMajorMatrixMultiplyStridedIncr(score_dense_coefs_cmaj, dosages_vmaj, score_final_col_ct, kScoreVariantBlockSize, sample_shard_size, sample_shard_size, dense_variant_ct, sample_shard_size, shard_final_scores_cmaj);
+      }
     }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
@@ -6080,6 +6219,12 @@ typedef struct ParsedQscoreRangeStruct {
   double ubound;
 } ParsedQscoreRange;
 
+// Probable todo: --score-list which preprocesses many --score input files into
+// a much smaller number of Zstd-compressed temporary files, which are then
+// passed to ScoreReport() (or a new shared ScoreReportInternal function), then
+// the temporary ScoreReport() output files are pasted together.
+// Note that, in the --score-list preprocessing step, score values should be
+// kept as strings to avoid floating-point-rounding issues.
 PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -6460,7 +6605,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     }
     BigstackBaseSet(write_iter);
 
-    uint32_t score_final_col_ct = score_col_ct;
+    uintptr_t score_final_col_ct = score_col_ct;
     if (qsr_ct) {
       const uint64_t prod = S_CAST(uint64_t, qsr_ct) * score_col_ct;
       if (prod > 0x7fffffff) {
@@ -6494,7 +6639,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       sample_shard_ct = DivUp(sample_ct, sample_shard_size);
     }
 #ifndef LAPACK_ILP64
-    if (unlikely(score_final_col_ct * S_CAST(uintptr_t, sample_shard_size) > 0x7fffffff)) {
+    if (unlikely(score_final_col_ct * sample_shard_size > 0x7fffffff)) {
         logerrputs("Error: <--score column count> * <sample count> too large for this " PROG_NAME_STR " build.\nIf this is really the computation you want, use a " PROG_NAME_STR " build with\nlarge-matrix support.\n");
         goto ScoreReport_ret_INCONSISTENT_INPUT;
     }
@@ -6551,8 +6696,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                  bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.missing_bitvecs[1]) ||
                  bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.missing_male_bitvecs[0]) ||
                  bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.missing_male_bitvecs[1]) ||
-                 bigstack_alloc_d(kScoreVariantBlockSize * score_final_col_ct, &(ctx.score_coefs_cmaj[0])) ||
-                 bigstack_alloc_d(kScoreVariantBlockSize * score_final_col_ct, &(ctx.score_coefs_cmaj[1])) ||
+                 bigstack_alloc_d(kScoreVariantBlockSize * score_final_col_ct, &(ctx.score_dense_coefs_cmaj[0])) ||
+                 bigstack_alloc_d(kScoreVariantBlockSize * score_final_col_ct, &(ctx.score_dense_coefs_cmaj[1])) ||
                  bigstack_alloc_dp(sample_shard_ct, &ctx.sharded_final_scores_cmaj) ||
                  bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
                  bigstack_alloc_w(sample_ctl, &sex_nonmale_collapsed) ||
@@ -6614,6 +6759,43 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       ctx.dosage_cts[0] = nullptr;
       ctx.dosage_cts[1] = nullptr;
     }
+    const uint32_t domrec = !!(flags & (kfScoreDominant | kfScoreRecessive));
+    uint32_t* common_geno_sum_incrs = nullptr;
+    double* common_score_incrs = nullptr;
+    uint32_t max_returned_difflist_len = 0;
+    uintptr_t raregeno_stride = 0;
+    uintptr_t difflist_sample_ids_stride = 0;
+    if ((!ctx.dosage_presents[0]) && (!domrec)) {
+      max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+      raregeno_stride = NypCtToAlignedWordCt(max_returned_difflist_len);
+      difflist_sample_ids_stride = RoundUpPow2(max_returned_difflist_len, kInt32PerVec);
+      if (unlikely(bigstack_calloc_u32(qsr_ct_nz, &common_geno_sum_incrs) ||
+                   bigstack_calloc_d(score_final_col_ct, &common_score_incrs) ||
+                   bigstack_alloc_w(kScoreVariantBlockSize * raregeno_stride, &ctx.raregenos[0]) ||
+                   bigstack_alloc_w(kScoreVariantBlockSize * raregeno_stride, &ctx.raregenos[1]) ||
+                   bigstack_alloc_u32(kScoreVariantBlockSize, &ctx.difflist_lens[0]) ||
+                   bigstack_alloc_u32(kScoreVariantBlockSize, &ctx.difflist_lens[1]) ||
+                   bigstack_alloc_u32(kScoreVariantBlockSize * difflist_sample_ids_stride, &ctx.difflist_sample_ids[0]) ||
+                   bigstack_alloc_u32(kScoreVariantBlockSize * difflist_sample_ids_stride, &ctx.difflist_sample_ids[1]) ||
+                   bigstack_alloc_i8(kScoreVariantBlockSize, &ctx.difflist_common_genos[0]) ||
+                   bigstack_alloc_i8(kScoreVariantBlockSize, &ctx.difflist_common_genos[1]) ||
+                   bigstack_alloc_d(kScoreVariantBlockSize * score_final_col_ct, &ctx.score_sparse_coefs_vmaj[0]) ||
+                   bigstack_alloc_d(kScoreVariantBlockSize * score_final_col_ct, &ctx.score_sparse_coefs_vmaj[1]))) {
+        goto ScoreReport_ret_NOMEM;
+      }
+    } else {
+      ctx.raregenos[0] = nullptr;
+      ctx.raregenos[1] = nullptr;
+      ctx.difflist_lens[0] = nullptr;
+      ctx.difflist_lens[1] = nullptr;
+      ctx.difflist_sample_ids[0] = nullptr;
+      ctx.difflist_sample_ids[1] = nullptr;
+      ctx.difflist_common_genos[0] = nullptr;
+      ctx.difflist_common_genos[1] = nullptr;
+      ctx.score_sparse_coefs_vmaj[0] = nullptr;
+      ctx.score_sparse_coefs_vmaj[1] = nullptr;
+    }
+    ctx.max_returned_difflist_len = max_returned_difflist_len;
     if (allele_freqs) {
       if (unlikely(bigstack_alloc_d(kScoreVariantBlockSize, &ctx.allele_freqs[0]) ||
                    bigstack_alloc_d(kScoreVariantBlockSize, &ctx.allele_freqs[1]) ||
@@ -6663,19 +6845,26 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       cswritep = overflow_buf;
     }
 
+    // Stricter threshold for multi-score since standard matrix-multiply
+    // workflow is more likely to pay off
+    const uint32_t max_sparse = (score_final_col_ct == 1)? (sample_ct / 16) : (sample_ct / 32);
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
-    const uint32_t domrec = !!(flags & (kfScoreDominant | kfScoreRecessive));
     const uint32_t variance_standardize = (flags / kfScoreVarianceStandardize) & 1;
     const uint32_t center = variance_standardize || (flags & kfScoreCenter);
     const uint32_t no_meanimpute = (flags / kfScoreNoMeanimpute) & 1;
     const uint32_t se_mode = (flags / kfScoreSe) & 1;
     uint32_t block_vidx = 0;
+    uint32_t sparse_vidx = 0;
     uint32_t parity = 0;
     uint32_t cur_allele_ct = 2;
     uint32_t prev_variant_uidx = UINT32_MAX;
     uintptr_t* genovec_iter = ctx.genovecs[0];
+    uintptr_t* raregeno_iter = ctx.raregenos[0];
+    uint32_t* difflist_lens = ctx.difflist_lens[0];
+    uint32_t* difflist_sample_ids_iter = ctx.difflist_sample_ids[0];
+    int8_t* difflist_common_genos = ctx.difflist_common_genos[0];
     uintptr_t* dosage_present_iter = ctx.dosage_presents[0];
     Dosage* dosage_main_iter = ctx.dosage_mains[0];
     uint32_t* dosage_cts = ctx.dosage_cts[0];
@@ -6684,7 +6873,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     double* cur_allele_freqs = ctx.allele_freqs[0];
     double* geno_slopes = ctx.geno_slopes[0];
     double* geno_intercepts = ctx.geno_intercepts[0];
-    double* cur_score_coefs_cmaj = ctx.score_coefs_cmaj[0];
+    double* score_dense_coefs_cmaj = ctx.score_dense_coefs_cmaj[0];
+    double* score_sparse_coefs_vmaj = ctx.score_sparse_coefs_vmaj[0];
     uint32_t* variant_uidxs = ctx.variant_uidxs[0];
     unsigned char* is_nonx_haploids = &(ctx.is_nonx_haploids[0][0]);
     unsigned char* is_relevant_xs = &(ctx.is_relevant_xs[0][0]);
@@ -6696,6 +6886,12 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     uintptr_t missing_var_id_ct = 0;
     uintptr_t duplicated_var_id_ct = 0;
     uintptr_t missing_allele_code_ct = 0;
+    // If we're not attempting the sparse-genotype optimization, this is always
+    // UINT32_MAX.
+    uint32_t difflist_common_geno = UINT32_MAX;
+
+    uint32_t difflist_len = 0;
+    uint32_t dosage_ct = 0;
 #ifdef USE_MTBLAS
     if (sample_shard_ct < calc_thread_ct) {
       const uint32_t matrix_multiply_thread_ct = 1 + ((calc_thread_ct - 1) / sample_shard_ct);
@@ -6777,29 +6973,6 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       SetBit(variant_uidx, already_seen_variants);
 
       // okay, the variant and allele are in our dataset.
-      uint32_t dosage_ct;
-      if ((variant_uidx == prev_variant_uidx) && (cur_allele_ct == 2)) {
-        // Previous record is the exact inverse of what we now want, so just
-        // copy and invert it.
-        // This is worth the trouble since PgrGet1D() is usually the main
-        // bottleneck, and the repeated-variant case definitely comes up from
-        // at least the recommended PCA-projection workflow.
-        memcpy(genovec_iter, &(genovec_iter[-S_CAST(intptr_t, sample_ctaw2)]), sample_ctaw2 * sizeof(intptr_t));
-        GenovecInvertUnsafe(sample_ct, genovec_iter);
-        dosage_ct = 0;
-        if (dosage_present_iter) {
-          memcpy(dosage_present_iter, &(dosage_present_iter[-S_CAST(intptr_t, sample_ctaw)]), sample_ctaw * sizeof(intptr_t));
-          dosage_ct = dosage_cts[block_vidx - 1];
-          memcpy(dosage_main_iter, &(dosage_main_iter[-S_CAST(intptr_t, dosage_main_stride)]), dosage_ct * sizeof(Dosage));
-          BiallelicDosage16Invert(dosage_ct, dosage_main_iter);
-        }
-      } else {
-        reterr = PgrGet1D(sample_include, pssi, sample_ct, variant_uidx, cur_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
-        if (unlikely(reterr)) {
-          PgenErrPrintNV(reterr, variant_uidx);
-          goto ScoreReport_ret_1;
-        }
-      }
       const uint32_t chr_idx = GetVariantChr(cip, variant_uidx);
       uint32_t is_nonx_haploid = IsSet(cip->haploid_mask, chr_idx);
       if (unlikely(domrec && is_nonx_haploid)) {
@@ -6817,109 +6990,209 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       is_relevant_x = is_relevant_x && xchr_model;
 
       const uint32_t is_y = (chr_idx == y_code);
-      ZeroTrailingNyps(sample_ct, genovec_iter);
-      GenoarrToMissingnessUnsafe(genovec_iter, sample_ct, missing_bitvec_iter);
-      if (dosage_ct) {
-        BitvecInvmask(dosage_present_iter, sample_ctl, missing_bitvec_iter);
-      }
       uint32_t ploidy_m1;
-      if (is_nonx_haploid) {
-        if (is_y) {
-          if (is_new_variant) {
-            if (!qsr_ct) {
-              male_allele_ct_deltas[0] += 1;
-            } else {
-              const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
-              for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
-                if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
-                  male_allele_ct_deltas[qsr_idx] += 1;
-                }
-              }
-            }
-          }
-          BitvecInvmask(sex_nonmale_collapsed, sample_ctl, missing_bitvec_iter);
-        } else if (is_new_variant) {
-          if (!qsr_ct) {
-            allele_ct_bases[0] += 1;
-          } else {
-            const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
-            for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
-              if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
-                allele_ct_bases[qsr_idx] += 1;
-              }
-            }
+      if ((variant_uidx == prev_variant_uidx) && (cur_allele_ct == 2)) {
+        // Previous record is the exact inverse of what we now want, so just
+        // copy and invert it.
+        // This is worth the trouble since PgrGet1D() is usually the main
+        // bottleneck, and the repeated-variant case definitely comes up from
+        // at least the recommended PCA-projection workflow.
+        if (difflist_common_geno != UINT32_MAX) {
+          memcpy(raregeno_iter, &(raregeno_iter[-S_CAST(intptr_t, raregeno_stride)]), NypCtToWordCt(difflist_len) * sizeof(intptr_t));
+          memcpy(difflist_sample_ids_iter, &(difflist_sample_ids_iter[-S_CAST(intptr_t, difflist_sample_ids_stride)]), difflist_len * sizeof(int32_t));
+          GenovecInvertUnsafe(difflist_len, raregeno_iter);
+          difflist_common_geno = (6 - difflist_common_geno) & 3;
+        } else {
+          memcpy(genovec_iter, &(genovec_iter[-S_CAST(intptr_t, sample_ctaw2)]), sample_ctaw2 * sizeof(intptr_t));
+          GenovecInvertUnsafe(sample_ct, genovec_iter);
+          if (dosage_present_iter) {
+            memcpy(dosage_present_iter, &(dosage_present_iter[-S_CAST(intptr_t, sample_ctaw)]), sample_ctaw * sizeof(intptr_t));
+            dosage_ct = dosage_cts[block_vidx - 1];
+            memcpy(dosage_main_iter, &(dosage_main_iter[-S_CAST(intptr_t, dosage_main_stride)]), dosage_ct * sizeof(Dosage));
+            BiallelicDosage16Invert(dosage_ct, dosage_main_iter);
           }
         }
-        if (is_new_variant) {
-          if (!qsr_ct) {
-            VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_hap_ct_rems, missing_male_accx);
-          } else {
-            const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
-            for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
-              if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
-                VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
-              }
-            }
-          }
+      } else if (dosage_present_iter || (cur_allele_ct > 2) || domrec || is_nonx_haploid || is_relevant_x) {
+        difflist_common_geno = UINT32_MAX;
+        reterr = PgrGet1D(sample_include, pssi, sample_ct, variant_uidx, cur_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
+        if (unlikely(reterr)) {
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto ScoreReport_ret_1;
         }
-        if (is_y) {
-          memcpy(missing_male_bitvec_iter, missing_bitvec_iter, sample_ctl * sizeof(intptr_t));
-          BitvecOr(sex_nonmale_collapsed, sample_ctl, missing_bitvec_iter);
-        }
-        ploidy_m1 = 0;
       } else {
-        // !is_nonx_haploid
-        if (is_relevant_x) {
-          // Handle nonmales first.  Remove males from missing_bitvec_iter,
-          // to be restored at the end of this block.
-          BitvecInvmaskCopy(missing_bitvec_iter, sex_nonmale_collapsed, sample_ctl, missing_male_bitvec_iter);
-          BitvecAnd(sex_nonmale_collapsed, sample_ctl, missing_bitvec_iter);
+        // Sparse-genotype optimization.  We limit this to the no-dosage,
+        // all-diploid, biallelic, no 'dominant'/'recessive' case to keep code
+        // size under control.
+        reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_sparse, variant_uidx, simple_pgrp, genovec_iter, &difflist_common_geno, raregeno_iter, difflist_sample_ids_iter, &difflist_len);
+        if (unlikely(reterr)) {
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto ScoreReport_ret_1;
         }
+        if (!cur_allele_idx) {
+          if (difflist_common_geno == UINT32_MAX) {
+            GenovecInvertUnsafe(sample_ct, genovec_iter);
+          } else {
+            GenovecInvertUnsafe(difflist_len, raregeno_iter);
+            difflist_common_geno = (6 - difflist_common_geno) & 3;
+          }
+        }
+      }
+      if (difflist_common_geno != UINT32_MAX) {
+        ZeroTrailingNyps(difflist_len, raregeno_iter);
         if (is_new_variant) {
+          uint32_t missing_exists = (difflist_common_geno == 3);
+          if ((!missing_exists) && difflist_len) {
+            STD_ARRAY_DECL(uint32_t, 4, genocounts);
+            GenoarrCountFreqsUnsafe(raregeno_iter, difflist_len, genocounts);
+            missing_exists = (genocounts[3] != 0);
+          }
+          // This must be kept in sync with how the main branch processes
+          // missingness.
+          if (missing_exists) {
+            SparseToMissingness(raregeno_iter, difflist_sample_ids_iter, sample_ct, difflist_common_geno, difflist_len, missing_bitvec_iter);
+          }
           if (!qsr_ct) {
             allele_ct_bases[0] += 2;
-            VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_ct_rems, missing_accx);
+            if (missing_exists) {
+              VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_ct_rems, missing_accx);
+            }
           } else {
             const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
             for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
               if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
                 allele_ct_bases[qsr_idx] += 2;
-                VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_accx[acc4_vec_ct * 11 * qsr_idx]));
-              }
-            }
-          }
-        }
-        if (is_relevant_x) {
-          // Now count males.
-          if (is_new_variant) {
-            if (!qsr_ct) {
-              male_allele_ct_deltas[0] -= 1;
-              VerticalCounterUpdate(missing_male_bitvec_iter, acc1_vec_ct, variant_hap_ct_rems, missing_male_accx);
-            } else {
-              const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
-              for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
-                if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
-                  male_allele_ct_deltas[qsr_idx] -= 1;
-                  VerticalCounterUpdate(missing_male_bitvec_iter, acc1_vec_ct, &(variant_hap_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
+                if (missing_exists) {
+                  VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_accx[acc4_vec_ct * 11 * qsr_idx]));
                 }
               }
             }
           }
-          // Restore missing males to missing_bitvec_iter.
-          BitvecOr(missing_male_bitvec_iter, sample_ctl, missing_bitvec_iter);
         }
-        ploidy_m1 = domrec? 0 : 1;
+        // Enable sparse ddosage_sums update.
+        if ((difflist_common_geno == 1) || (difflist_common_geno == 2)) {
+          if (!qsr_ct) {
+            common_geno_sum_incrs[0] += difflist_common_geno;
+          } else {
+            const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
+            for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
+              if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
+                common_geno_sum_incrs[qsr_idx] += difflist_common_geno;
+              }
+            }
+          }
+        }
+        ploidy_m1 = 1;
+      } else {
+        ZeroTrailingNyps(sample_ct, genovec_iter);
+        GenoarrToMissingnessUnsafe(genovec_iter, sample_ct, missing_bitvec_iter);
+        if (dosage_ct) {
+          BitvecInvmask(dosage_present_iter, sample_ctl, missing_bitvec_iter);
+        }
+        if (is_nonx_haploid) {
+          if (is_y) {
+            if (is_new_variant) {
+              if (!qsr_ct) {
+                male_allele_ct_deltas[0] += 1;
+              } else {
+                const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
+                for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
+                  if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
+                    male_allele_ct_deltas[qsr_idx] += 1;
+                  }
+                }
+              }
+            }
+            BitvecInvmask(sex_nonmale_collapsed, sample_ctl, missing_bitvec_iter);
+          } else if (is_new_variant) {
+            if (!qsr_ct) {
+              allele_ct_bases[0] += 1;
+            } else {
+              const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
+              for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
+                if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
+                  allele_ct_bases[qsr_idx] += 1;
+                }
+              }
+            }
+          }
+          if (is_new_variant) {
+            if (!qsr_ct) {
+              VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_hap_ct_rems, missing_male_accx);
+            } else {
+              const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
+              for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
+                if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
+                  VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
+                }
+              }
+            }
+          }
+          if (is_y) {
+            memcpy(missing_male_bitvec_iter, missing_bitvec_iter, sample_ctl * sizeof(intptr_t));
+            BitvecOr(sex_nonmale_collapsed, sample_ctl, missing_bitvec_iter);
+          }
+          ploidy_m1 = 0;
+        } else {
+          // !is_nonx_haploid
+          if (is_relevant_x) {
+            // Handle nonmales first.  Remove males from missing_bitvec_iter,
+            // to be restored at the end of this block.
+            BitvecInvmaskCopy(missing_bitvec_iter, sex_nonmale_collapsed, sample_ctl, missing_male_bitvec_iter);
+            BitvecAnd(sex_nonmale_collapsed, sample_ctl, missing_bitvec_iter);
+          }
+          if (is_new_variant) {
+            if (!qsr_ct) {
+              allele_ct_bases[0] += 2;
+              VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_ct_rems, missing_accx);
+            } else {
+              const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
+              for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
+                if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
+                  allele_ct_bases[qsr_idx] += 2;
+                  VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_accx[acc4_vec_ct * 11 * qsr_idx]));
+                }
+              }
+            }
+          }
+          if (is_relevant_x) {
+            // Now count males.
+            if (is_new_variant) {
+              if (!qsr_ct) {
+                male_allele_ct_deltas[0] -= 1;
+                VerticalCounterUpdate(missing_male_bitvec_iter, acc1_vec_ct, variant_hap_ct_rems, missing_male_accx);
+              } else {
+                const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
+                for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
+                  if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
+                    male_allele_ct_deltas[qsr_idx] -= 1;
+                    VerticalCounterUpdate(missing_male_bitvec_iter, acc1_vec_ct, &(variant_hap_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
+                  }
+                }
+              }
+            }
+            // Restore missing males to missing_bitvec_iter.
+            BitvecOr(missing_male_bitvec_iter, sample_ctl, missing_bitvec_iter);
+          }
+          ploidy_m1 = domrec? 0 : 1;
+        }
       }
       const double ploidy_d = ploidy_m1? 2.0 : 1.0;
       if (allele_freqs) {
         const double cur_allele_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), cur_allele_idx, cur_allele_ct);
         if (center) {
+          // Note that we prohibit 'dominant'/'recessive' from being used with
+          // 'center'/'variance-standardize'.
           if (variance_standardize) {
             const double variance = ploidy_d * 0.5 * ComputeDiploidMultiallelicVariance(&(allele_freqs[allele_idx_offset_base - variant_uidx]), cur_allele_ct);
             if (!(variance > kSmallEpsilon)) {
               // ZeroTrailingNyps(sample_ct, genovec_buf);
               STD_ARRAY_DECL(uint32_t, 4, genocounts);
-              GenoarrCountFreqsUnsafe(genovec_iter, sample_ct, genocounts);
+              if (difflist_common_geno != UINT32_MAX) {
+                GenoarrCountFreqsUnsafe(raregeno_iter, difflist_len, genocounts);
+                genocounts[difflist_common_geno] = sample_ct - difflist_len;
+              } else {
+                GenoarrCountFreqsUnsafe(genovec_iter, sample_ct, genocounts);
+              }
               if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {
                 snprintf(g_logbuf, kLogbufSize, "Error: --score variance-standardize failure for variant '%s': estimated allele frequency is zero or NaN, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
                 goto ScoreReport_ret_DEGENERATE_DATA_WW;
@@ -6941,7 +7214,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
 
       *allele_end = allele_end_char;
-      double* cur_score_coefs_iter = &(cur_score_coefs_cmaj[block_vidx]);
+      const uint32_t dense_vidx = block_vidx - sparse_vidx;
+      double* score_coefs_iter = (difflist_common_geno == UINT32_MAX)? (&(score_dense_coefs_cmaj[dense_vidx])) : (&(score_sparse_coefs_vmaj[sparse_vidx * score_final_col_ct]));
+      double* common_score_incrs_iter = common_score_incrs;
       const char* read_iter = line_start;
       for (uint32_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
         read_iter = NextTokenMult0(read_iter, score_col_idx_deltas[score_col_idx]);
@@ -6954,18 +7229,62 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --score file has an invalid coefficient.\n", line_idx);
           goto ScoreReport_ret_MALFORMED_INPUT_2;
         }
-        if (!qsr_ct) {
-          *cur_score_coefs_iter = raw_coef;
-          cur_score_coefs_iter = &(cur_score_coefs_iter[kScoreVariantBlockSize]);
-        } else {
-          const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
-          for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
-            double cur_coef = raw_coef * u31tod(IsSet(qsr_include, qsr_idx + bit_idx_base));
-            *cur_score_coefs_iter = cur_coef;
-            cur_score_coefs_iter = &(cur_score_coefs_iter[kScoreVariantBlockSize]);
+        if (difflist_common_geno == UINT32_MAX) {
+          // dense case: fill column for later matrix-multiply
+          if (!qsr_ct) {
+            *score_coefs_iter = raw_coef;
+            score_coefs_iter = &(score_coefs_iter[kScoreVariantBlockSize]);
+          } else {
+            const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
+            for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
+              double cur_coef = raw_coef * u31tod(IsSet(qsr_include, qsr_idx + bit_idx_base));
+              *score_coefs_iter = cur_coef;
+              score_coefs_iter = &(score_coefs_iter[kScoreVariantBlockSize]);
+            }
           }
+        } else {
+          // sparse case: use variant-major representation instead
+          if (!qsr_ct) {
+            score_coefs_iter[0] = raw_coef;
+          } else {
+            const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
+            for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
+              const double cur_coef = raw_coef * u31tod(IsSet(qsr_include, qsr_idx + bit_idx_base));
+              score_coefs_iter[qsr_idx] = cur_coef;
+            }
+          }
+          double common_dosage = 0.0;
+          if (difflist_common_geno != 3) {
+            common_dosage = geno_intercept + kDosageMax * geno_slope * difflist_common_geno;
+          } else if (!no_meanimpute) {
+            common_dosage = kDosageMax * 2LL * cur_allele_freqs[block_vidx] * geno_slope;
+          }
+          if (!se_mode) {
+            for (uint32_t uii = 0; uii != qsr_ct_nz; ++uii) {
+              common_score_incrs_iter[uii] += common_dosage * score_coefs_iter[uii];
+            }
+          } else {
+            for (uint32_t uii = 0; uii != qsr_ct_nz; ++uii) {
+              score_coefs_iter[uii] *= score_coefs_iter[uii];
+            }
+            const double common_dosage_sq = common_dosage * common_dosage;
+            for (uint32_t uii = 0; uii != qsr_ct_nz; ++uii) {
+              common_score_incrs_iter[uii] += common_dosage_sq * score_coefs_iter[uii];
+            }
+          }
+          score_coefs_iter = &(score_coefs_iter[qsr_ct_nz]);
+          common_score_incrs_iter = &(common_score_incrs_iter[qsr_ct_nz]);
         }
         read_iter = token_end;
+      }
+      if (difflist_common_genos) {
+        difflist_common_genos[block_vidx] = S_CAST(int8_t, difflist_common_geno);
+        if (difflist_common_geno != UINT32_MAX) {
+          difflist_lens[sparse_vidx] = difflist_len;
+          raregeno_iter = &(raregeno_iter[raregeno_stride]);
+          difflist_sample_ids_iter = &(difflist_sample_ids_iter[difflist_sample_ids_stride]);
+          ++sparse_vidx;
+        }
       }
       if (is_new_variant) {
         if (list_variants) {
@@ -6977,7 +7296,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
         ++valid_variant_ct;
         if (!(valid_variant_ct % 10000)) {
-          printf("\r--score: %uk variants loaded.", valid_variant_ct / 1000);
+          // Technically still processing a few of these variants, but this is
+          // less misleading than the previous 'loaded' message.
+          printf("\r--score: %uk variants processed.", valid_variant_ct / 1000);
           fflush(stdout);
         }
       }
@@ -7000,8 +7321,17 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       ++block_vidx;
       if (block_vidx == kScoreVariantBlockSize) {
         if (se_mode) {
-          for (uintptr_t ulii = 0; ulii != kScoreVariantBlockSize * score_final_col_ct; ++ulii) {
-            cur_score_coefs_cmaj[ulii] *= cur_score_coefs_cmaj[ulii];
+          const uint32_t dense_ct = block_vidx - sparse_vidx;
+          if (dense_ct) {
+            for (uintptr_t score_final_col_idx = 0; score_final_col_idx != score_final_col_ct; ++score_final_col_idx) {
+              double* score_dense_coefs_row = &(score_dense_coefs_cmaj[score_final_col_idx * kScoreVariantBlockSize]);
+              for (uint32_t uii = 0; uii != dense_ct; ++uii) {
+                score_dense_coefs_row[uii] *= score_dense_coefs_row[uii];
+              }
+            }
+          }
+          for (uintptr_t ulii = 0; ulii != sparse_vidx * score_final_col_ct; ++ulii) {
+            score_sparse_coefs_vmaj[ulii] *= score_sparse_coefs_vmaj[ulii];
           }
         }
         parity = 1 - parity;
@@ -7017,7 +7347,12 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         // pointers, but this should be good enough
         prev_variant_uidx = UINT32_MAX;
 
+        variant_uidxs = ctx.variant_uidxs[parity];
         genovec_iter = ctx.genovecs[parity];
+        raregeno_iter = ctx.raregenos[parity];
+        difflist_lens = ctx.difflist_lens[parity];
+        difflist_sample_ids_iter = ctx.difflist_sample_ids[parity];
+        difflist_common_genos = ctx.difflist_common_genos[parity];
         dosage_present_iter = ctx.dosage_presents[parity];
         dosage_main_iter = ctx.dosage_mains[parity];
         dosage_cts = ctx.dosage_cts[parity];
@@ -7026,13 +7361,14 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         cur_allele_freqs = ctx.allele_freqs[parity];
         geno_slopes = ctx.geno_slopes[parity];
         geno_intercepts = ctx.geno_intercepts[parity];
-        variant_uidxs = ctx.variant_uidxs[parity];
+        score_dense_coefs_cmaj = ctx.score_dense_coefs_cmaj[parity];
+        score_sparse_coefs_vmaj = ctx.score_sparse_coefs_vmaj[parity];
         is_nonx_haploids = &(ctx.is_nonx_haploids[parity][0]);
         is_relevant_xs = &(ctx.is_relevant_xs[parity][0]);
         is_ys = &(ctx.is_ys[parity][0]);
         ploidy_m1s = &(ctx.ploidy_m1s[parity][0]);
-        cur_score_coefs_cmaj = ctx.score_coefs_cmaj[parity];
         block_vidx = 0;
+        sparse_vidx = 0;
       }
     }
     if (unlikely(TextStreamErrcode2(&score_txs, &reterr))) {
@@ -7085,17 +7421,50 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     DeclareLastThreadBlock(&tg);
     ctx.cur_variant_batch_size = block_vidx;
     if (se_mode) {
-      for (uintptr_t score_final_col_idx = 0; score_final_col_idx != score_final_col_ct; ++score_final_col_idx) {
-        double* cur_score_coefs_row = &(cur_score_coefs_cmaj[score_final_col_idx * kScoreVariantBlockSize]);
-        for (uint32_t uii = 0; uii != block_vidx; ++uii) {
-          cur_score_coefs_row[uii] *= cur_score_coefs_row[uii];
+      const uint32_t dense_ct = block_vidx - sparse_vidx;
+      if (dense_ct) {
+        for (uintptr_t score_final_col_idx = 0; score_final_col_idx != score_final_col_ct; ++score_final_col_idx) {
+          double* score_dense_coefs_row = &(score_dense_coefs_cmaj[score_final_col_idx * kScoreVariantBlockSize]);
+          for (uint32_t uii = 0; uii != dense_ct; ++uii) {
+            score_dense_coefs_row[uii] *= score_dense_coefs_row[uii];
+          }
         }
+      }
+      for (uintptr_t ulii = 0; ulii != sparse_vidx * score_final_col_ct; ++ulii) {
+        score_sparse_coefs_vmaj[ulii] *= score_sparse_coefs_vmaj[ulii];
       }
     }
     if (unlikely(SpawnThreads(&tg))) {
       goto ScoreReport_ret_THREAD_CREATE_FAIL;
     }
     JoinThreads(&tg);
+    // Sparse-optimization postprocessing.
+    if (common_geno_sum_incrs) {
+      uint64_t* ddosage_sums_iter = ctx.ddosage_sums;
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        for (uint32_t qsr_idx = 0; qsr_idx != qsr_ct_nz; ++qsr_idx) {
+          *ddosage_sums_iter += common_geno_sum_incrs[qsr_idx] * S_CAST(uint64_t, kDosageMax);
+          ++ddosage_sums_iter;
+        }
+      }
+      uintptr_t cur_sample_shard_size = sample_shard_size;
+      for (uint32_t shard_idx = 0; ; ++shard_idx) {
+        if (shard_idx >= sample_shard_ct_m1) {
+          if (shard_idx > sample_shard_ct_m1) {
+            break;
+          }
+          cur_sample_shard_size = sample_ct - sample_shard_ct_m1 * sample_shard_size;
+        }
+        double* shard_final_scores_cmaj_iter = ctx.sharded_final_scores_cmaj[shard_idx];
+        for (uintptr_t ulii = 0; ulii != score_final_col_ct; ++ulii) {
+          const double cur_score_incr = common_score_incrs[ulii];
+          for (uint32_t shard_sample_idx = 0; shard_sample_idx != cur_sample_shard_size; ++shard_sample_idx) {
+            *shard_final_scores_cmaj_iter += cur_score_incr;
+            ++shard_final_scores_cmaj_iter;
+          }
+        }
+      }
+    }
     if (se_mode) {
       // sample_ct * score_final_col_ct
       uintptr_t cur_sample_shard_size = sample_shard_size;

@@ -478,6 +478,11 @@ HEADER_INLINE BoolErr bigstack_alloc_f(uintptr_t ct, float** f_arr_ptr) {
   return !(*f_arr_ptr);
 }
 
+HEADER_INLINE BoolErr bigstack_alloc_i8(uintptr_t ct, int8_t** i8_arr_ptr) {
+  *i8_arr_ptr = S_CAST(int8_t*, bigstack_alloc(ct * sizeof(int8_t)));
+  return !(*i8_arr_ptr);
+}
+
 HEADER_INLINE BoolErr bigstack_alloc_i16(uintptr_t ct, int16_t** i16_arr_ptr) {
   *i16_arr_ptr = S_CAST(int16_t*, bigstack_alloc(ct * sizeof(int16_t)));
   return !(*i16_arr_ptr);
