@@ -1,0 +1,13 @@
+include src/pgenlib/pgenlib.pyx
+include src/plink2/pgenlib_ffi_support.cc
+include src/plink2/pgenlib_ffi_support.h
+include src/plink2/include/pgenlib_misc.cc
+include src/plink2/include/pgenlib_misc.h
+include src/plink2/include/pgenlib_read.cc
+include src/plink2/include/pgenlib_read.h
+include src/plink2/include/pgenlib_write.cc
+include src/plink2/include/pgenlib_write.h
+include src/plink2/include/plink2_base.cc
+include src/plink2/include/plink2_base.h
+include src/plink2/include/plink2_bits.cc
+include src/plink2/include/plink2_bits.h
