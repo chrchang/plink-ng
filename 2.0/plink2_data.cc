@@ -86,6 +86,8 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
             if (allele_idx_offset_end != allele_idx_offset_base + 2) {
               // not actually unlikely at this point, but simplest to stay
               // consistent
+              // see e.g. https://www.biostars.org/p/9531649/ for a reason NOT
+              // to mention --max-alleles in the error message
               if (unlikely((!allele_presents) || (!AllBitsAreZero(allele_presents, 2 + allele_idx_offset_base, allele_idx_offset_end)))) {
                 logputs("\n");
                 logerrprintfww("Error: %s cannot contain multiallelic variants.\n", outname);

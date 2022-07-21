@@ -713,7 +713,7 @@ CONSTI32(kBytesPerVec, 32);
 // However, processor power management, numeric libraries, and my AVX2 code
 // should improve over time.  There will probably come a time where switching
 // to 32-byte fp is worthwhile.
-// #define FVEC_32
+#define FVEC_32
 
 // bleah, have to define these here, vector_size doesn't see enum values
 typedef uintptr_t VecW __attribute__ ((vector_size (32)));
@@ -1535,23 +1535,37 @@ CONSTI32(kVec8thUintPerWord, sizeof(intptr_t) / sizeof(Vec8thUint));
 #    endif
 
 CONSTI32(kBytesPerFVec, 32);
+CONSTI32(kBytesPerDVec, 32);
 typedef float VecF __attribute__ ((vector_size (32)));
+typedef double VecD __attribute__ ((vector_size (32)));
 
 #    define VCONST_F(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
+#    define VCONST_D(xx) {xx, xx, xx, xx}
 
 HEADER_INLINE VecF vecf_setzero() {
   return R_CAST(VecF, _mm256_setzero_ps());
 }
 
+HEADER_INLINE VecD vecd_setzero() {
+  return R_CAST(VecD, _mm256_setzero_pd());
+}
+
 #  else  // !FVEC_32
 
 CONSTI32(kBytesPerFVec, 16);
+CONSTI32(kBytesPerDVec, 16);
 typedef float VecF __attribute__ ((vector_size (16)));
+typedef double VecD __attribute__ ((vector_size (16)));
 
 #    define VCONST_F(xx) {xx, xx, xx, xx}
+#    define VCONST_D(xx) {xx, xx}
 
 HEADER_INLINE VecF vecf_setzero() {
   return R_CAST(VecF, _mm_setzero_ps());
+}
+
+HEADER_INLINE VecD vecd_setzero() {
+  return R_CAST(VecD, _mm_setzero_pd());
 }
 
 #  endif  // !FVEC_32
@@ -1559,6 +1573,7 @@ HEADER_INLINE VecF vecf_setzero() {
 #else  // not __LP64__
 CONSTI32(kBytesPerVec, 4);
 CONSTI32(kBytesPerFVec, 4);
+CONSTI32(kBytesPerDVec, 8);
 CONSTI32(kBitsPerWord, 32);
 CONSTI32(kBitsPerWordLog2, 5);
 
@@ -1568,6 +1583,7 @@ typedef uint8_t Quarterword;
 typedef uintptr_t VecW;
 typedef uintptr_t VecU32;
 typedef float VecF;
+typedef double VecD;
 // VecI16 and VecI8 aren't worth the trouble of scaling down to 32-bit
 
 #  define VCONST_W(xx) (xx)
@@ -1659,6 +1675,7 @@ CONSTI32(kInt32PerVec, kBytesPerVec / 4);
 CONSTI32(kInt16PerVec, kBytesPerVec / 2);
 
 CONSTI32(kFloatPerFVec, kBytesPerFVec / 4);
+CONSTI32(kDoublePerDVec, kBytesPerDVec / 8);
 
 CONSTI32(kCacheline, 64);
 
@@ -1787,6 +1804,11 @@ typedef union {
   STD_ARRAY_DECL(float, kFloatPerFVec, f4);
 } UniVecF;
 
+typedef union {
+  VecD vd;
+  STD_ARRAY_DECL(double, kDoublePerDVec, d8);
+} UniVecD;
+
 // sum must fit in 16 bits
 HEADER_INLINE uintptr_t UniVecHsum16(UniVec uv) {
 #ifdef __LP64__
@@ -1825,6 +1847,20 @@ HEADER_INLINE float VecFHsum(VecF vecf) {
 #  endif
 #else
   return uvf.f4[0];
+#endif
+}
+
+HEADER_INLINE double VecDHsum(VecD vecd) {
+  UniVecD uvd;
+  uvd.vd = vecd;
+#ifdef __LP64__
+#  ifdef FVEC_32
+  return uvd.d8[0] + uvd.d8[1] + uvd.d8[2] + uvd.d8[3];
+#  else
+  return uvd.d8[0] + uvd.d8[1];
+#  endif
+#else
+  return uvd.d8[0];
 #endif
 }
 
@@ -3389,6 +3425,8 @@ typedef uint32_t tname
 #else
 #  define GET_PRIVATE(par, member) (par).member
 #endif
+
+static const double kLn2 = 0.6931471805599453;
 
 #ifdef __cplusplus
 }  // namespace plink2

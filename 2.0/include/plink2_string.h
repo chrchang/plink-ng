@@ -78,7 +78,6 @@ static const double kE = 2.7182818284590452;
 static const double kPi = 3.1415926535897932;
 static const double kSqrt2 = 1.4142135623730951;
 static const double kRecipE = 0.36787944117144233;
-static const double kLn2 = 0.6931471805599453;
 static const double kRecip2m53 = 0.00000000000000011102230246251565404236316680908203125;
 
 // floating point comparison-to-nonzero tolerance, currently 2^{-30}

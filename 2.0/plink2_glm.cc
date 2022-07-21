@@ -3235,6 +3235,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   return reterr;
 }
 
+void LogisticTest() {
+  LogisticTestInternal();
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

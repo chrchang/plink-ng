@@ -167,18 +167,24 @@ void ReflectFmatrix(uint32_t dim, uint32_t stride, float* matrix);
 // If dim < stride, this zeroes out the trailing elements of each row.
 void ReflectFmatrix0(uint32_t dim, uint32_t stride, float* matrix);
 
-// AddFVec executes main += arg, under the assumption that both vectors have
-// been zero-padded.
+// AddDVec and AddFVec execute main += arg, under the assumption that both
+// vectors have been zero-padded.
 // "ctav" is the float-length of both vectors, rounded up to a vector boundary.
 // (With the current implementation, it's harmless to just pass in ct instead,
 // but ctav is better practice since it indicates awareness of what this
 // function is actually doing.)
+HEADER_INLINE void AddDVec(const double* arg, uintptr_t ctav, double* main) {
+  // LEA instruction supports multiply by 4 or 8, but *not* by 16 or 32, so
+  // this awkward loop tends to generate slightly better code than the more
+  // natural vector-based loop.
+  for (uintptr_t ulii = 0; ulii < ctav; ulii += kDoublePerDVec) {
+    *R_CAST(VecD*, &(main[ulii])) += *R_CAST(const VecD*, &(arg[ulii]));
+  }
+}
+
 HEADER_INLINE void AddFVec(const float* arg, uintptr_t ctav, float* main) {
-  const VecF* arg_iter = R_CAST(const VecF*, arg);
-  VecF* main_iter = R_CAST(VecF*, main);
-  VecF* main_stop = R_CAST(VecF*, &(main[ctav]));
-  for (; main_iter < main_stop; ++main_iter, ++arg_iter) {
-    *main_iter += *arg_iter;
+  for (uintptr_t ulii = 0; ulii < ctav; ulii += kFloatPerFVec) {
+    *R_CAST(VecF*, &(main[ulii])) += *R_CAST(const VecF*, &(arg[ulii]));
   }
 }
 
@@ -395,6 +401,9 @@ HEADER_INLINE void RowMajorMatrixMultiplyStridedIncr(const double* inmatrix1, co
 // out := M^T * V
 void ColMajorVectorMatrixMultiplyStrided(const double* in_dvec1, const double* inmatrix2, __CLPK_integer common_ct, __CLPK_integer stride2, __CLPK_integer col2_ct, double* out_dvec);
 
+// out := M * V
+void ColMajorMatrixVectorMultiplyStrided(const double* inmatrix1, const double* in_dvec2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer common_ct, double* out_dvec);
+
 void ColMajorFmatrixMultiplyStrided(const float* inmatrix1, const float* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, float* outmatrix);
 
 HEADER_INLINE void RowMajorFmatrixMultiply(const float* inmatrix1, const float* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, float* outmatrix) {
@@ -416,6 +425,8 @@ void FmatrixTransposeCopy(const float* old_matrix, uint32_t old_maj, uint32_t ne
 // A(A^T), where A is row-major; result is dim x dim
 // ONLY UPDATES LOWER TRIANGLE OF result[].
 void MultiplySelfTranspose(const double* input_matrix, uint32_t dim, uint32_t col_ct, double* result);
+
+void MultiplySelfTransposeStrided(const double* input_matrix, uint32_t dim, uint32_t col_ct, uint32_t stride, double* result);
 
 void MultiplySelfTransposeStridedF(const float* input_matrix, uint32_t dim, uint32_t col_ct, uint32_t stride, float* result);
 
@@ -465,7 +476,7 @@ BoolErr LinearRegressionInvMain(const double* xt_y_phenomaj, uint32_t predictor_
 #endif
 
 // now assumes xtx_inv is predictors_pmaj * transpose on input
-HEADER_INLINE BoolErr LinearRegressionInv(const double* pheno_d_pmaj, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, uint32_t pheno_ct, double* xtx_inv, double* fitted_coefs_phenomaj, double* xt_y_phenomaj, __maybe_unused MatrixInvertBuf1* mi_buf, __maybe_unused double* dbl_2d_buf) {
+HEADER_INLINE BoolErr LinearRegressionInv(const double* pheno_d_pmaj, const double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, uint32_t pheno_ct, double* xtx_inv, double* fitted_coefs_phenomaj, double* xt_y_phenomaj, __maybe_unused MatrixInvertBuf1* mi_buf, __maybe_unused double* dbl_2d_buf) {
   // MultiplySelfTranspose(predictors_pmaj, predictor_ct, sample_ct,
   //   xtx_inv);
   // categorical optimization possible here
@@ -479,11 +490,24 @@ HEADER_INLINE BoolErr LinearRegressionInv(const double* pheno_d_pmaj, double* pr
 #endif
 }
 
+HEADER_INLINE BoolErr LinearRegressionDVec(const double* pheno_d, const double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, double* fitted_coefs, double* xtx_inv_buf, double* xt_y_buf, __maybe_unused MatrixInvertBuf1* mi_buf, __maybe_unused double* dbl_2d_buf) {
+  // categorical optimization possible here
+  const uint32_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
+  ColMajorVectorMatrixMultiplyStrided(pheno_d, predictors_pmaj, sample_ct, sample_ctav, predictor_ct, xt_y_buf);
+  MultiplySelfTransposeStrided(predictors_pmaj, predictor_ct, sample_ct, sample_ctav, xtx_inv_buf);
+#ifdef NOLAPACK
+  return LinearRegressionInvMain(xt_y_buf, predictor_ct, 1, xtx_inv_buf, fitted_coefs, mi_buf, dbl_2d_buf);
+#else
+  return LinearRegressionInvMain(xt_y_buf, predictor_ct, 1, xtx_inv_buf, fitted_coefs);
+#endif
+}
+
 // just for debugging
 HEADER_INLINE void PrintSymmMatrix(const double* matrix, uint32_t dim) {
   for (uint32_t uii = 0; uii != dim; ++uii) {
-    for (uint32_t ujj = 0; ujj <= uii; ++ujj) {
-      printf("%g ", matrix[uii * dim + ujj]);
+    printf("%g", matrix[uii * dim]);
+    for (uint32_t ujj = 1; ujj <= uii; ++ujj) {
+      printf(" %g", matrix[uii * dim + ujj]);
     }
     printf("\n");
   }
@@ -491,8 +515,9 @@ HEADER_INLINE void PrintSymmMatrix(const double* matrix, uint32_t dim) {
 
 HEADER_INLINE void PrintSymmFmatrix(const float* matrix, uint32_t dim) {
   for (uint32_t uii = 0; uii != dim; ++uii) {
-    for (uint32_t ujj = 0; ujj <= uii; ++ujj) {
-      printf("%g ", S_CAST(double, matrix[uii * dim + ujj]));
+    printf("%g", S_CAST(double, matrix[uii * dim]));
+    for (uint32_t ujj = 1; ujj <= uii; ++ujj) {
+      printf(" %g", S_CAST(double, matrix[uii * dim + ujj]));
     }
     printf("\n");
   }
@@ -500,8 +525,9 @@ HEADER_INLINE void PrintSymmFmatrix(const float* matrix, uint32_t dim) {
 
 HEADER_INLINE void PrintMatrix(const double* matrix, uintptr_t row_ct, uintptr_t col_ct) {
   for (uintptr_t ulii = 0; ulii != row_ct; ++ulii) {
-    for (uintptr_t uljj = 0; uljj != col_ct; ++uljj) {
-      printf("%g ", matrix[ulii * col_ct + uljj]);
+    printf("%g", matrix[ulii * col_ct]);
+    for (uintptr_t uljj = 1; uljj != col_ct; ++uljj) {
+      printf(" %g", matrix[ulii * col_ct + uljj]);
     }
     printf("\n");
   }
@@ -509,8 +535,9 @@ HEADER_INLINE void PrintMatrix(const double* matrix, uintptr_t row_ct, uintptr_t
 
 HEADER_INLINE void PrintFmatrix(const float* matrix, uintptr_t row_ct, uintptr_t col_ct, uintptr_t stride) {
   for (uintptr_t ulii = 0; ulii != row_ct; ++ulii) {
-    for (uintptr_t uljj = 0; uljj != col_ct; ++uljj) {
-      printf("%g ", S_CAST(double, matrix[ulii * stride + uljj]));
+    printf("%g", S_CAST(double, matrix[ulii * stride]));
+    for (uintptr_t uljj = 1; uljj != col_ct; ++uljj) {
+      printf(" %g", S_CAST(double, matrix[ulii * stride + uljj]));
     }
     printf("\n");
   }

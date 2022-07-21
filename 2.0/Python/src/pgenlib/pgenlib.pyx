@@ -446,8 +446,8 @@ cdef class PgenReader:
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("read_alleles_and_phasepresent() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         cdef uint32_t subset_size = self._subset_size
-        if allele_int32_out.shape[0] < subset_size:
-            raise RuntimeError("read_alleles_and_phasepresent() allele_int32_out is too small (" + str(allele_int32_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ").")
+        if allele_int32_out.shape[0] < 2 * subset_size:
+            raise RuntimeError("read_alleles_and_phasepresent() allele_int32_out is too small (" + str(allele_int32_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ", , and column count should be twice that).")
         if phasepresent_out.shape[0] < subset_size:
             raise RuntimeError("read_alleles_and_phasepresent() phasepresent_out is too small (" + str(phasepresent_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ").")
 
@@ -1135,8 +1135,8 @@ cdef class PgenReader:
                 raise RuntimeError("Variant-major read_alleles_and_phasepresent_range() phasepresent_out buffer has too few rows (" + str(phasepresent_out.shape[0]) + "; (variant_idx_end - variant_idx_start) is " + str(variant_idx_ct) + ")")
             if allele_int32_out.shape[1] < 2 * subset_size:
                 raise RuntimeError("Variant-major read_alleles_and_phasepresent_range() allele_int32_out buffer has too few columns (" + str(allele_int32_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ", and column count should be twice that)")
-            if phasepresent_out.shape[1] < 2 * subset_size:
-                raise RuntimeError("Variant-major read_alleles_and_phasepresent_range() phasepresent_out buffer has too few columns (" + str(allele_int32_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ", and column count should be twice that)")
+            if phasepresent_out.shape[1] < subset_size:
+                raise RuntimeError("Variant-major read_alleles_and_phasepresent_range() phasepresent_out buffer has too few columns (" + str(allele_int32_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ")")
             for variant_idx in range(variant_idx_start, variant_idx_end):
                 # upgrade to multiallelic version of this function later
                 reterr = PgrGetP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct)
@@ -1176,8 +1176,8 @@ cdef class PgenReader:
                 raise RuntimeError("Variant-major read_alleles_and_phasepresent_list() phasepresent_out buffer has too few rows (" + str(phasepresent_out.shape[0]) + "; variant_idxs length is " + str(variant_idx_ct) + ")")
             if allele_int32_out.shape[1] < 2 * subset_size:
                 raise RuntimeError("Variant-major read_alleles_and_phasepresent_list() allele_int32_out buffer has too few columns (" + str(allele_int32_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ", and column count should be twice that)")
-            if phasepresent_out.shape[1] < 2 * subset_size:
-                raise RuntimeError("Variant-major read_alleles_and_phasepresent_list() phasepresent_out buffer has too few columns (" + str(phasepresent_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ", and column count should be twice that)")
+            if phasepresent_out.shape[1] < subset_size:
+                raise RuntimeError("Variant-major read_alleles_and_phasepresent_list() phasepresent_out buffer has too few columns (" + str(phasepresent_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ")")
             for variant_list_idx in range(variant_idx_ct):
                 variant_idx = variant_idxs[variant_list_idx]
                 if variant_idx >= raw_variant_ct:

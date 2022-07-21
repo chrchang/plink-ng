@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3.4"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (20 Jun 2022)";
+  " (21 Jul 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3188,6 +3188,7 @@ int main(int argc, char** argv) {
   _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
 #  endif
 #endif
+  // LogisticTest();
   // special case, since it may dump to stdout
   if (argc > 1) {
     const char* argv1 = argv[1];
@@ -3712,6 +3713,7 @@ int main(int argc, char** argv) {
     uint32_t mkl_native = 0;
 #endif
     uint32_t randmem = 0;
+    uint32_t allow_misleading_out_arg = 0;
     Plink1DosageInfo plink1_dosage_info;
     InitPlink1Dosage(&plink1_dosage_info);
     do {
@@ -4024,6 +4026,9 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.af_pseudocount = dxx;
+        } else if (strequal_k_unsafe(flagname_p2, "llow-misleading-out-arg")) {
+          allow_misleading_out_arg = 1;
+          goto main_param_zero;
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "ssoc"))) {
           logerrputs("Error: --assoc is retired.  Use --glm instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
@@ -4933,6 +4938,8 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.exportf_info.flags |= kfExportfSampleV2;
+            } else if (strequal_k(cur_modif, "ref-last", cur_modif_slen)) {
+              // do nothing for now
             } else if (likely(strequal_k(cur_modif, "ref-first", cur_modif_slen))) {
               pc.exportf_info.flags |= kfExportfRefFirst;
             } else if (strequal_k(cur_modif, "gen-gz", cur_modif_slen)) {
@@ -5543,7 +5550,7 @@ int main(int argc, char** argv) {
               pc.glm_info.flags |= kfGlmFirthResidualize;
             } else if (strequal_k(cur_modif, "cc-residualize", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmCcResidualize;
-            } else if (strequal_k(cur_modif, "single-prec-logistic", cur_modif_slen)) {
+            } else if (strequal_k(cur_modif, "single-prec-cc", cur_modif_slen)) {
               // No effect for now, this is just here for
               // forward-compatibility.
             } else if (unlikely(strequal_k(cur_modif, "standard-beta", cur_modif_slen))) {
@@ -6274,8 +6281,8 @@ int main(int argc, char** argv) {
             plink1_dosage_info.flags |= kfPlink1DosageFormatSingle;
           } else {
             if (plink1_dosage_info.flags & kfPlink1DosageFormatSingle01) {
-              if (unlikely(format_num_m1 != 3)) {
-                logerrputs("Error: --import-dosage 'dose1' modifier must be used with 'format=1'.\n");
+              if (unlikely(format_num_m1 < 3)) {
+                logerrputs("Error: --import-dosage 'dose1' modifier cannot be used with 'format=2' or\n'format=3'.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               // format_num_m1 = 0;
@@ -10635,6 +10642,22 @@ int main(int argc, char** argv) {
     } while ((++cur_flag_idx) < flag_ct);
     if (!outname_end) {
       outname_end = &(outname[6]);
+    } else if (!allow_misleading_out_arg) {
+      char* outname_last_dot = Memrchr(outname, '.', outname_end - outname);
+      if (outname_last_dot) {
+        char* outname_ext = &(outname_last_dot[1]);
+        const uint32_t outname_ext_slen = outname_end - outname_ext;
+        // this will be upgraded to an error soon
+        if (strequal_k(outname_ext, "bcf", outname_ext_slen) ||
+            strequal_k(outname_ext, "bed", outname_ext_slen) ||
+            strequal_k(outname_ext, "bgen", outname_ext_slen) ||
+            strequal_k(outname_ext, "gz", outname_ext_slen) ||
+            strequal_k(outname_ext, "ped", outname_ext_slen) ||
+            strequal_k(outname_ext, "pgen", outname_ext_slen) ||
+            strequal_k(outname_ext, "vcf", outname_ext_slen)) {
+          logerrputs("Warning: --out argument is supposed to be a filename *prefix*; the value you've\nprovided looks like it is intended to be an entire filename.\nIf the current --out argument is really what you want, use\n--allow-misleading-out-arg to suppress this warning (which will become an error in a future build).\n");
+        }
+      }
     }
 
     pc.dependency_flags |= pc.filter_flags;

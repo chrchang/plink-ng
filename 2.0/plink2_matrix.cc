@@ -396,7 +396,7 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
         }
         z=Pythag(f,h);
         w[j]=z;
-        if (z) {
+        if (z != 0.0) {
           z=1.0/z;
           c=f*z;
           s=h*z;
@@ -786,6 +786,33 @@ void ColMajorVectorMatrixMultiplyStrided(const double* in_dvec1, const double* i
 #endif  // !NOLAPACK
 }
 
+void ColMajorMatrixVectorMultiplyStrided(const double* inmatrix1, const double* in_dvec2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer common_ct, double* out_dvec) {
+#ifdef NOLAPACK
+  ZeroDArr(row1_ct, out_dvec);
+  const uintptr_t row1_ct_l = row1_ct;
+  const uintptr_t common_ct_l = common_ct;
+  const uintptr_t stride_l = stride1;
+  const double* col_iter = inmatrix1;
+  for (uintptr_t common_idx = 0; common_idx != common_ct_l; ++common_idx) {
+    const double dxx = in_dvec2[common_idx];
+    for (uintptr_t row1_idx = 0; row1_idx != row1_ct_l; ++row1_idx) {
+      out_dvec[row1_idx] += col_iter[row1_idx] * dxx;
+    }
+    col_iter = &(col_iter[stride_l]);
+  }
+#else
+#  ifndef USE_CBLAS_XGEMM
+  char trans = 'N';
+  __CLPK_integer incxy = 1;
+  double dyy = 1;
+  double dzz = 0;
+  dgemv_(&trans, &row1_ct, &common_ct, &dyy, K_CAST(double*, inmatrix1), &stride1, K_CAST(double*, in_dvec2), &incxy, &dzz, out_dvec, &incxy);
+#  else
+  cblas_dgemv(CblasColMajor, CblasNoTrans, row1_ct, common_ct, 1.0, inmatrix1, stride1, in_dvec2, 1, 0.0, out_dvec, 1);
+#  endif  // USE_CBLAS_XGEMM
+#endif  // !NOLAPACK
+}
+
 // er, should make this _addassign for consistency...
 void ColMajorFmatrixMultiplyStrided(const float* inmatrix1, const float* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, float* outmatrix) {
 #ifdef NOLAPACK
@@ -990,6 +1017,32 @@ void MultiplySelfTranspose(const double* input_matrix, uint32_t dim, uint32_t co
   }
 #    endif
   */
+#  endif
+#endif
+}
+
+void MultiplySelfTransposeStrided(const double* input_matrix, uint32_t dim, uint32_t col_ct, uint32_t stride, double* result) {
+#ifdef NOLAPACK
+  for (uintptr_t row1_idx = 0; row1_idx != dim; ++row1_idx) {
+    const double* pred_row1 = &(input_matrix[row1_idx * stride]);
+    double* result_row = &(result[row1_idx * dim]);
+    for (uintptr_t row2_idx = 0; row2_idx <= row1_idx; ++row2_idx) {
+      const double* pred_row2 = &(input_matrix[row2_idx * stride]);
+      result_row[row2_idx] = DotprodD(pred_row1, pred_row2, col_ct);
+    }
+  }
+#else
+#  ifndef USE_CBLAS_XGEMM
+  char uplo = 'U';
+  char trans = 'T';
+  __CLPK_integer tmp_n = dim;
+  __CLPK_integer tmp_k = col_ct;
+  __CLPK_integer tmp_lda = stride;
+  double alpha = 1.0;
+  double beta = 0.0;
+  dsyrk_(&uplo, &trans, &tmp_n, &tmp_k, &alpha, K_CAST(double*, input_matrix), &tmp_lda, &beta, result, &tmp_n);
+#  else
+  cblas_dsyrk(CblasColMajor, CblasUpper, CblasTrans, dim, col_ct, 1.0, input_matrix, stride, 0.0, result, dim);
 #  endif
 #endif
 }

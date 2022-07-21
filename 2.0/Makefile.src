@@ -55,6 +55,7 @@ PGENLIB_CCSRC = include/plink2_base.cc \
 PLINK2LIB_CCSRC = $(PGENLIB_CCSRC) \
                   include/plink2_bgzf.cc \
                   include/plink2_bitmap.cc \
+                  include/plink2_fmath.cc \
                   include/plink2_stats.cc \
                   include/plink2_string.cc \
                   include/plink2_text.cc \
