@@ -2397,6 +2397,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("zst-level\0", &help_ctrl, 0,
 "  --zst-level <lvl>  : Set the Zstd compression level (1-22, default 3).\n"
                );
+    HelpPrint("allow-misleading-out-arg\0out\0", &help_ctrl, 0,
+"  --allow-misleading-out-arg : Allow --out argument to end in a common filename\n"
+"                               extension, even though that usually corresponds\n"
+"                               to a misunderstanding of how --out works.\n"
+              );
     if (!param_ct) {
       fputs(
 "\nPrimary methods paper:\n"

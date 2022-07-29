@@ -3997,7 +3997,7 @@ void LogisticTestInternal() {
   uint32_t is_unfinished = 0;
   BoolErr reterr = LogisticRegressionD(yy, xx, sample_ct, predictor_ct, &is_unfinished, coef, ll, pp, vv, hh, grad, dcoef, nullptr, nullptr);
   printf("coef: %g %g %g %g %g\n", coef[0], coef[1], coef[2], coef[3], coef[4]);
-  printf("reterr: %u  is_unfinished: %u\n", reterr, is_unfinished);
+  printf("reterr: %u  is_unfinished: %u\n", S_CAST(uint32_t, reterr), is_unfinished);
 }
 
 #ifdef __cplusplus

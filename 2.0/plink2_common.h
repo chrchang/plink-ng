@@ -34,6 +34,10 @@ namespace plink2 {
 // want to rebuild this program to support ~980k instead.
 // #define HIGH_CONTIG_BUILD
 
+// Uncomment this if the default autosome-pair limit of 95 is too low, and you
+// want to rebuild this program to support 995 instead.
+// #define HIGH_AUTOSOME_NUM_BUILD
+
 #define PROG_NAME_STR "plink2"
 
 // Exclude 0x7fffffff, since the half-open interval containing it ends in
@@ -633,12 +637,6 @@ HEADER_INLINE BoolErr bigstack_alloc_chridx(uintptr_t ct, ChrIdx** chridx_arr_pt
   return !(*chridx_arr_ptr);
 }
 
-// (note that n+1, n+2, n+3, and n+4 are reserved for X/Y/XY/MT)
-CONSTI32(kMaxChrTextnum, 95);
-
-// get_chr_code_raw() needs to be modified if this changes
-CONSTI32(kMaxChrTextnumSlen, 2);
-
 ENUM_U31_DEF_START()
   kChrOffsetX,
   kChrOffsetY,
@@ -666,10 +664,28 @@ CONSTI32(kChrRawEnd, kMaxContigs + kChrOffsetCt);
 static_assert((!(kChrRawEnd % kBitsPerWord)), "kChrRawEnd expression must be updated.");
 CONSTI32(kChrMaskWords, kChrRawEnd / kBitsPerWord);
 
-#ifdef __LP64__
+#ifndef HIGH_AUTOSOME_NUM_BUILD
+// (note that n+1, n+2, n+3, and n+4 are reserved for X/Y/XY/MT)
+CONSTI32(kMaxChrTextnum, 95);
+
+#  ifdef __LP64__
 CONSTI32(kChrExcludeWords, 2);
-#else
+#  else
 CONSTI32(kChrExcludeWords, 4);
+#  endif
+
+// GetChrCodeRaw() needs to be modified if this changes
+CONSTI32(kMaxChrTextnumSlen, 2);
+#else  // HIGH_AUTOSOME_NUM_BUILD
+CONSTI32(kMaxChrTextnum, 995);
+
+#  ifdef __LP64__
+CONSTI32(kChrExcludeWords, 32);
+#  else
+CONSTI32(kChrExcludeWords, 64);
+#  endif
+
+CONSTI32(kMaxChrTextnumSlen, 3);
 #endif
 static_assert(kChrExcludeWords * kBitsPerWord >= kMaxChrTextnum + 2 * kChrOffsetCt + 1, "kChrExcludeWords must be updated.");
 

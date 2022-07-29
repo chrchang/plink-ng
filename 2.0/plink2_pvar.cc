@@ -71,7 +71,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
     if (StrStartsWithUnsafe(chrset_iter, "haploidAutosomeCt=")) {
       uint32_t explicit_haploid_ct;
       if (unlikely(ScanPosintCapped(&(chrset_iter[strlen("haploidAutosomeCt=")]), kMaxChrTextnum, &explicit_haploid_ct))) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s has an invalid ##chrSet haploid count (max %u).\n", line_idx, file_descrip, kMaxChrTextnum);
+        snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s has an unsupported ##chrSet haploid count (max %u).\n", line_idx, file_descrip, kMaxChrTextnum);
         goto ReadChrsetHeaderLine_ret_MALFORMED_INPUT_WW;
       }
       // could verify that X, Y, etc. are not present?
@@ -95,7 +95,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
       chrset_iter = &(chrset_iter[strlen("autosomePairCt=")]);
       uint32_t explicit_autosome_ct;
       if (unlikely(ScanmovPosintCapped(kMaxChrTextnum, &chrset_iter, &explicit_autosome_ct))) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s has an invalid ##chrSet autosome count (max %u).\n", line_idx, file_descrip, kMaxChrTextnum);
+        snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s has an unsupported ##chrSet autosome count (max %u).\n", line_idx, file_descrip, kMaxChrTextnum);
         goto ReadChrsetHeaderLine_ret_MALFORMED_INPUT_WW;
       }
       cip->autosome_ct = explicit_autosome_ct;

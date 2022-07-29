@@ -1714,31 +1714,56 @@ static inline uint32_t SingleCapLetterChrCode(uint32_t cap_letter) {
   return UINT32_MAX;
 }
 
+#ifndef HIGH_AUTOSOME_NUM_BUILD
 static_assert(kMaxChrTextnumSlen == 2, "GetChrCodeRaw() must be updated.");
+#else
+static_assert(kMaxChrTextnumSlen == 3, "GetChrCodeRaw() must be updated.");
+#endif
 uint32_t GetChrCodeRaw(const char* str_iter) {
   // any character <= ' ' is considered a terminator
   // note that char arithmetic tends to be compiled to uint32 operations, so we
   // mostly work with ints here
   uint32_t first_char_code = ctou32(str_iter[0]);
-  uint32_t first_char_toi;
+  uint32_t first_char_toui;
   if (first_char_code < 58) {
   GetChrCodeRaw_digits:
-    first_char_toi = first_char_code - '0';
-    if (first_char_toi < 10) {
+    first_char_toui = first_char_code - '0';
+    if (first_char_toui < 10) {
       const uint32_t second_char_code = ctou32(str_iter[1]);
       if (second_char_code <= ' ') {
-        return first_char_toi;
+        return first_char_toui;
       }
-      if (ctou32(str_iter[2]) <= ' ') {
-        const uint32_t second_char_toi = second_char_code - '0';
-        if (second_char_toi < 10) {
-          return first_char_toi * 10 + second_char_toi;
+      const uint32_t third_char_code = ctou32(str_iter[2]);
+#ifndef HIGH_AUTOSOME_NUM_BUILD
+      if (third_char_code <= ' ') {
+        const uint32_t second_char_toui = second_char_code - '0';
+        if (second_char_toui < 10) {
+          return first_char_toui * 10 + second_char_toui;
         }
-        if (!first_char_toi) {
+        if (!first_char_toui) {
           // accept '0X', '0Y', '0M' emitted by Oxford software
           return SingleCapLetterChrCode(second_char_code & 0xdf);
         }
       }
+#else
+      const uint32_t second_char_toui = second_char_code - '0';
+      if (second_char_toui < 10) {
+        if (third_char_code <= ' ') {
+          return first_char_toui * 10 + second_char_toui;
+        }
+        if (ctou32(str_iter[3]) <= ' ') {
+          const uint32_t third_char_toui = third_char_code - '0';
+          if (third_char_toui < 10) {
+            return first_char_toui * 100 + second_char_toui * 10 + third_char_toui;
+          }
+        }
+      } else {
+        // accept '0X', '0Y', '0M' emitted by Oxford software
+        if ((!first_char_toui) && (third_char_code <= ' ')) {
+          return SingleCapLetterChrCode(second_char_code & 0xdf);
+        }
+      }
+#endif
     }
     return UINT32_MAX;
   }
