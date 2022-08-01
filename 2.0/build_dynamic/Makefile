@@ -60,7 +60,7 @@ else
       endif
     endif
   else
-    BASEFLAGS += -mavx2 -mbmi -mbmi2 -mlzcnt
+    BASEFLAGS += -mavx2 -mbmi -mbmi2 -mfma -mlzcnt
     ifdef CPU_CHECK
       BASEFLAGS += -DCPU_CHECK_AVX2
       CPUCHECK_FLAGS = -O2 -DCPU_CHECK_AVX2 ${CXXWARN2}

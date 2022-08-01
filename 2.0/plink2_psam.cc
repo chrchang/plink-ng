@@ -1019,6 +1019,9 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       char* pheno_names_iter = &(pheno_names[old_pheno_ct * max_pheno_name_blen]);
       for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
         linebuf_iter = CommaOrTspaceNextTokenMult(linebuf_iter, col_skips[new_pheno_idx], comma_delim);
+        if (unlikely(!linebuf_iter)) {
+          goto LoadPhenos_ret_MISSING_TOKENS;
+        }
         const char* token_end = CommaOrTspaceTokenEnd(linebuf_iter, comma_delim);
         const uint32_t name_slen = token_end - linebuf_iter;
         if (unlikely(IsReservedPhenoName(linebuf_iter, name_slen))) {

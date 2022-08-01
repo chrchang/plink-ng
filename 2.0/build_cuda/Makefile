@@ -64,7 +64,7 @@ else
       endif
     endif
   else
-    BASEFLAGS += -mavx2 -mbmi -mbmi2 -mlzcnt
+    BASEFLAGS += -mavx2 -mbmi -mbmi2 -mfma -mlzcnt
     ifdef AVX2_CUDA
       BASEFLAGS += -DUSE_CUDA
       LINKFLAGS += -L${CUDAROOT}/lib64 -lcudart -lcublas

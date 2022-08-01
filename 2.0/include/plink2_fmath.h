@@ -405,7 +405,7 @@ HEADER_INLINE double expd(double x) {
 
 HEADER_INLINE void expd_v(double* px, uintptr_t n) {
   for (uintptr_t ulii = 0; ulii != n; ++ulii) {
-    px[i] = exp(px[i]);
+    px[ulii] = exp(px[ulii]);
   }
 }
 
@@ -415,7 +415,7 @@ HEADER_INLINE double logistic(double x) {
 
 HEADER_INLINE void logistic_v_unsafe(double* px, uintptr_t n) {
   for (uintptr_t ulii = 0; ulii != n; ++ulii) {
-    px[i] = logistic(px[i]);
+    px[ulii] = logistic(px[ulii]);
   }
 }
 

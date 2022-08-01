@@ -3647,9 +3647,9 @@ static inline void ComputeThreeTripleProductD(const double* bb, const double* a1
 }
 
 static inline void ComputeTwoPlusOneTripleProductD(const double* bb, const double* a1, const double* a2, const double* vv, uint32_t nn, double* __restrict r1_ptr, double* __restrict r2_ptr, double* __restrict r3_ptr) {
-  VecD s1 = vecf_setzero();
-  VecD s2 = vecf_setzero();
-  VecD s3 = vecf_setzero();
+  VecD s1 = vecd_setzero();
+  VecD s2 = vecd_setzero();
+  VecD s3 = vecd_setzero();
   for (uint32_t uii = 0; uii < nn; uii += kDoublePerDVec) {
     const VecD a1tmp = *R_CAST(const VecD*, &(a1[uii]));
     const VecD a2tmp = *R_CAST(const VecD*, &(a2[uii]));
@@ -3713,7 +3713,7 @@ static inline void ComputeThreeTripleProductD(const double* bb, const double* a1
   *r3_ptr = r3;
 }
 
-static inline void ComputeTwoPlusOneTripleProductF(const double* bb, const double* a1, const double* a2, const double* vv, uint32_t nn, double* __restrict r1_ptr, double* __restrict r2_ptr, double* __restrict r3_ptr) {
+static inline void ComputeTwoPlusOneTripleProductD(const double* bb, const double* a1, const double* a2, const double* vv, uint32_t nn, double* __restrict r1_ptr, double* __restrict r2_ptr, double* __restrict r3_ptr) {
   double r1 = 0.0;
   double r2 = 0.0;
   double r3 = 0.0;
@@ -3950,6 +3950,7 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_
   return 0;
 }
 
+/*
 void LogisticTestInternal() {
   const uint32_t sample_ct = 7777;
   const uint32_t sample_ctav = RoundUpPow2(sample_ct, kDoublePerDVec);
@@ -3999,6 +4000,7 @@ void LogisticTestInternal() {
   printf("coef: %g %g %g %g %g\n", coef[0], coef[1], coef[2], coef[3], coef[4]);
   printf("reterr: %u  is_unfinished: %u\n", S_CAST(uint32_t, reterr), is_unfinished);
 }
+*/
 
 #ifdef __cplusplus
 }  // namespace plink2

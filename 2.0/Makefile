@@ -7,7 +7,7 @@
 # Does not currently support -DCPU_CHECK_...
 
 # BASEFLAGS=-g -DZSTD_MULTITHREAD -DSTATIC_ZSTD
-BASEFLAGS=-g -mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
+BASEFLAGS=-g -mavx2 -mbmi -mbmi2 -mfma -mlzcnt -DZSTD_MULTITHREAD
 # BASEFLAGS=-g -msse4.2 -DZSTD_MULTITHREAD
 
 include Makefile.src
