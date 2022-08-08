@@ -713,7 +713,7 @@ CONSTI32(kBytesPerVec, 32);
 // However, processor power management, numeric libraries, and my AVX2 code
 // should improve over time.  There will probably come a time where switching
 // to 32-byte fp is worthwhile.
-#define FVEC_32
+// #define FVEC_32
 
 // bleah, have to define these here, vector_size doesn't see enum values
 typedef uintptr_t VecW __attribute__ ((vector_size (32)));

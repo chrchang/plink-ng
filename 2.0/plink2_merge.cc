@@ -5107,6 +5107,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         reterr = PgrGetMDp(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp);
       }
       if (unlikely(reterr)) {
+        DebugPrintf("DEBUG (MergePgenVariantNoTmpLocked: simple_first_allele_remap branch: failed to read variant %u\nmerge_rec_ct=%" PRIuPTR "  write_allele_ct=%u  allele_remap_stride=%u\n", read_variant_uidx, merge_rec_ct, write_allele_ct, allele_remap_stride);
         PgenErrPrintNV(reterr, read_variant_uidx);
         goto MergePgenVariantNoTmpLocked_ret_1;
       }
@@ -5540,6 +5541,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         reterr = PgrGetMDp(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp);
       }
       if (unlikely(reterr)) {
+        DebugPrintf("DEBUG (MergePgenVariantNoTmpLocked): failed to read variant %u\nmerge_rec_ct=%" PRIuPTR "  write_allele_ct=%u  allele_remap_stride=%u  simple_first_allele_remap=%u\n", read_variant_uidx, merge_rec_ct, write_allele_ct, allele_remap_stride, simple_first_allele_remap);
         PgenErrPrintNV(reterr, read_variant_uidx);
         goto MergePgenVariantNoTmpLocked_ret_1;
       }
@@ -6111,6 +6113,7 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
 
       reterr = MergePgenVariantNoTmpLocked(same_id_records, ppmcp->pmc.allele_remap, merge_rec_ct, allele_ct, ppmcp->pmc.read_max_allele_ct, &mrp, mwp);
       if (unlikely(reterr)) {
+        DebugPrintf("DEBUG (ConcatPvariantPos): cur_bp=%u  variant_ct=%u  rec_idx_start=%" PRIuPTR "\n", cur_bp, variant_ct, rec_idx_start);
         return reterr;
       }
 
@@ -6596,6 +6599,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         if (chr_idx != prev_chr_idx) {
           reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
           if (unlikely(reterr)) {
+            DebugPrintf("DEBUG (PmergeConcat): chr_idx != prev_chr_idx branch\n");
             goto PmergeConcat_ret_N;
           }
           cur_pos_readbuf_iter = cur_pos_readbuf;
@@ -6627,6 +6631,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         if (cur_bp > prev_bp) {
           reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
           if (unlikely(reterr)) {
+            DebugPrintf("DEBUG (PmergeConcat): cur_bp > prev_bp branch\n");
             goto PmergeConcat_ret_N;
           }
           cur_pos_readbuf_iter = cur_pos_readbuf;
@@ -6699,6 +6704,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       }
       reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
       if (unlikely(reterr)) {
+        DebugPrintf("DEBUG (PmergeConcat): trailing branch\n");
         goto PmergeConcat_ret_N;
       }
       // bugfix (14 Apr 2021): forgot to close .pgen
