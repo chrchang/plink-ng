@@ -36,7 +36,8 @@ void DEBUG_CHECK_CORRUPTION(const PgenFileInfo* pgfip, const char* fmt, ...) {
   va_list args;
   va_start(args, fmt);
   vsnprintf(g_logbuf, kLogbufSize, fmt, args);
-  printf("\n");
+  logerrputsb();
+  logerrputs("\n");
   exit(1);
 }
 
@@ -53,7 +54,8 @@ void DEBUG_CHECK_CORRUPTION2(PgenReader* pgr_ptr, const char* fmt, ...) {
   va_list args;
   va_start(args, fmt);
   vsnprintf(g_logbuf, kLogbufSize, fmt, args);
-  printf("\n");
+  logerrputsb();
+  logerrputs("\n");
 }
 
 void InitPmerge(PmergeInfo* pmerge_info_ptr) {
