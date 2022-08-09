@@ -1357,9 +1357,6 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
     // must guarantee a trailing zero for is_ldbase check to work
     vrtypes_iter[0] = 0;
   }
-  if (g_debug_state) {
-    printf("DEBUG (PgfiInitPhase2): vrtypes_iter addr=%" PRIxPTR "\n", R_CAST(uintptr_t, vrtypes_iter));
-  }
 
   if (is_pgi) {
     if (unlikely(fclose_null(&pgfip->pgi_ff))) {
@@ -1382,6 +1379,10 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
     }
   }
   pgfip->var_fpos[vidx_end] = variant_fpos;
+  if (g_debug_state) {
+    printf("DEBUG (PgfiInitPhase2): vrtypes_iter addr=%" PRIxPTR "\n", R_CAST(uintptr_t, vrtypes_iter));
+    printf("var_fpos[6966]=%" PRIu64 "  var_fpos[6967]=%" PRIu64 "\n", pgfip->var_fpos[6966], pgfip->var_fpos[6967]);
+  }
   pgfip->max_allele_ct = max_allele_ct;
   // if difflist/LD might be present, scan for them in a way that's likely to
   // terminate quickly
@@ -2427,14 +2428,25 @@ BoolErr InitReadPtrs(uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** 
 
     return 0;
   }
+  const uint32_t debug_print = (g_debug_state == 2);
   if (pgrp->fp_vidx != vidx) {
+    if (debug_print) {
+      printf("DEBUG (InitReadPtrs): fp_vidx was %u, seeking to offset %" PRIu64 "\n", pgrp->fp_vidx, GetPgfiFpos(&(pgrp->fi), vidx));
+    }
     if (unlikely(fseeko(pgrp->ff, GetPgfiFpos(&(pgrp->fi), vidx), SEEK_SET))) {
+      if (debug_print) {
+        printf("DEBUG (InitReadPtrs): fseeko failed\n");
+      }
       return 1;
     }
   }
   const uintptr_t cur_vrec_width = GetPgfiVrecWidth(&(pgrp->fi), vidx);
 #ifdef __LP64__
   if (unlikely(fread_checked(pgrp->fread_buf, cur_vrec_width, pgrp->ff))) {
+    if (debug_print) {
+      printf("DEBUG (InitReadPtrs): fread failed, cur_vrec_width=%" PRIuPTR ", errno=%u\n", cur_vrec_width, errno);
+      printf("var_fpos[6966]=%" PRIu64 "  var_fpos[6967]=%" PRIu64 "  address=%" PRIxPTR "\n", pgrp->fi.var_fpos[6966], pgrp->fi.var_fpos[6967], R_CAST(uintptr_t, &(pgrp->fi.var_fpos[6967])));
+    }
     if (feof_unlocked(pgrp->ff)) {
       errno = 0;
     }
@@ -2503,32 +2515,19 @@ PglErr ReadGenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const
   //   may use pgr.workspace_raregeno_tmp_loadbuf (any difflist)
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const uint32_t maintrack_vrtype = vrtype & 7;
-  const uint32_t debug_print = (g_debug_state && (vidx == 6966));
-  if (debug_print) {
-    printf("DEBUG (ReadGenovecSubsetUnsafe): vrtype=%u\n", vrtype);
-  }
   if (VrtypeLdCompressed(maintrack_vrtype)) {
     // LD compression
     PglErr reterr = LdLoadAndCopyGenovecSubset(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genovec);
     if (unlikely(reterr)) {
-      if (debug_print) {
-        printf("DEBUG (ReadGenovecSubsetUnsafe): LdLoadAndCopyGenovecSubset reterr=%u\n", S_CAST(uint32_t, reterr));
-      }
       return reterr;
     }
     const unsigned char* fread_ptr;
     const unsigned char* fread_end;
     if (unlikely(InitReadPtrs(vidx, pgrp, &fread_ptr, &fread_end))) {
-      if (debug_print) {
-        printf("DEBUG (ReadGenovecSubsetUnsafe): LD InitReadPtrs fail; fread_ptr=%" PRIxPTR "  fread_end=%" PRIxPTR "\n", R_CAST(uintptr_t, fread_ptr), R_CAST(uintptr_t, fread_end));
-      }
       return kPglRetReadFail;
     }
     reterr = ParseAndApplyDifflistSubset(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, &fread_ptr, pgrp, genovec);
     if (unlikely(reterr)) {
-      if (debug_print) {
-        printf("DEBUG (ReadGenovecSubsetUnsafe): ParseAndApplyDifflistSubset reterr=%u\n", S_CAST(uint32_t, reterr));
-      }
       return reterr;
     }
     if (maintrack_vrtype == 3) {
@@ -2544,18 +2543,15 @@ PglErr ReadGenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const
   const unsigned char* fread_end = nullptr;  // maybe-uninitialized warning
   // tried inserting special-case code for the plink1 case to avoid a copy, and
   // it was actually slower
+  if (g_debug_state && (vidx == 6966)) {
+    g_debug_state = 2;
+  }
   if (unlikely(InitReadPtrs(vidx, pgrp, &fread_ptr, &fread_end))) {
-    if (debug_print) {
-      printf("DEBUG (ReadGenovecSubsetUnsafe): Non-LD InitReadPtrs fail; fread_ptr=%" PRIxPTR "  fread_end=%" PRIxPTR "\n", R_CAST(uintptr_t, fread_ptr), R_CAST(uintptr_t, fread_end));
-    }
     return kPglRetReadFail;
   }
   // tried to add more sophisticated caching, but turns out it isn't worth it
   PglErr reterr = ParseNonLdGenovecSubsetUnsafe(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, maintrack_vrtype, &fread_ptr, pgrp, genovec);
   if (unlikely(reterr)) {
-    if (debug_print) {
-      printf("DEBUG (ReadGenovecSubsetUnsafe): ParseNonLdGenovecSubsetUnsafe reterr=%u\n", S_CAST(uint32_t, reterr));
-    }
     return reterr;
   }
   if (vrtype == kPglVrtypePlink1) {
