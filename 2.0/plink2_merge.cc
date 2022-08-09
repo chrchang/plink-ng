@@ -26,6 +26,36 @@
 namespace plink2 {
 #endif
 
+void DEBUG_CHECK_CORRUPTION(const PgenFileInfo* pgfip, const char* fmt, ...) {
+  if (!g_debug_on) {
+    return;
+  }
+  if (pgfip->var_fpos[6966] == 5449872) {
+    return;
+  }
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(g_logbuf, kLogbufSize, fmt, args);
+  printf("\n");
+  exit(1);
+}
+
+// don't exit, since we want to bubble up
+void DEBUG_CHECK_CORRUPTION2(PgenReader* pgr_ptr, const char* fmt, ...) {
+  if (!g_debug_on) {
+    return;
+  }
+  PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
+  PgenFileInfo* pgfip = &(pgrp->fi);
+  if (pgfip->var_fpos[6966] == 5449872) {
+    return;
+  }
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(g_logbuf, kLogbufSize, fmt, args);
+  printf("\n");
+}
+
 void InitPmerge(PmergeInfo* pmerge_info_ptr) {
   pmerge_info_ptr->flags = kfPmerge0;
   pmerge_info_ptr->list_mode = kPmergeListModePfile;
@@ -6073,6 +6103,7 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
     SamePosPvarRecordNsorter* nsorter = R_CAST(SamePosPvarRecordNsorter*, same_pos_records);
     STD_SORT(variant_ct, SamePosPvarRecordNcmp, nsorter);
   }
+  DEBUG_CHECK_CORRUPTION2(&(mrp->pgr), "ConcatPvariantPos cur_bp=%d initialization", cur_bp);
   ppmcp->pmc.cur_bp = cur_bp;
   uintptr_t* write_nonref_flags = ppmcp->write_nonref_flags;
   uint32_t write_variant_idx = ppmcp->write_variant_idx;
@@ -6093,7 +6124,9 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
     uint32_t is_pr = 0;
     uint32_t allele_ct;
     uint64_t cur_line_blen;
+    DEBUG_CHECK_CORRUPTION2(&(mrp->pgr), "ConcatPvariantPos cur_bp=%d rec_idx_start=%" PRIuPTR " before MergePvariant", cur_bp, rec_idx_start);
     PglErr reterr = MergePvariant(merge_rec_ct, &ppmcp->pmc, same_id_records, write_nonref_flags? (&is_pr) : nullptr, &allele_ct, &cur_line_blen);
+    DEBUG_CHECK_CORRUPTION2(&(mrp->pgr), "ConcatPvariantPos cur_bp=%d rec_idx_start=%" PRIuPTR " after MergePvariant", cur_bp, rec_idx_start);
     if (unlikely(reterr)) {
       return reterr;
     }
@@ -6110,7 +6143,9 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
         AssignBit(write_variant_idx, is_pr, write_nonref_flags);
       }
 
+      DEBUG_CHECK_CORRUPTION2(&(mrp->pgr), "ConcatPvariantPos cur_bp=%d rec_idx_start=%" PRIuPTR " before MergePgenVariantNoTmpLocked", cur_bp, rec_idx_start);
       reterr = MergePgenVariantNoTmpLocked(same_id_records, ppmcp->pmc.allele_remap, merge_rec_ct, allele_ct, ppmcp->pmc.read_max_allele_ct, &mrp, mwp);
+      DEBUG_CHECK_CORRUPTION2(&(mrp->pgr), "ConcatPvariantPos cur_bp=%d rec_idx_start=%" PRIuPTR " after MergePgenVariantNoTmpLocked", cur_bp, rec_idx_start);
       if (unlikely(reterr)) {
         DebugPrintf("DEBUG (ConcatPvariantPos): cur_bp=%u  variant_ct=%u  rec_idx_start=%" PRIuPTR "\n", cur_bp, variant_ct, rec_idx_start);
         return reterr;
@@ -6385,7 +6420,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         mr.sample_idx_increasing = 2;
       }
       mr.sample_ct = cur_write_sample_ct;
-      DebugPrintf("DEBUG (PmergeConcat): fileset_idx=%" PRIuPTR "  mr.sample_ct=%u  sample_idx_increasing=%u\n", fileset_idx, mr.sample_ct, mr.sample_idx_increasing);
+      DebugPrintf("DEBUG (PmergeConcat): fileset_idx=%" PRIuPTR "  sample_ct=%u  sample_idx_increasing=%u\n", fileset_idx, mr.sample_ct, mr.sample_idx_increasing);
       if (g_debug_on) {
         g_debug_state = 1;
       }
@@ -6585,6 +6620,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           reterr = TextStreamRawErrcode(&pvar_txs);
           goto PmergeConcat_ret_PVAR_TSTREAM_REWIND_FAIL_N;
         }
+        DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 1", read_variant_idx);
         char* chr_token_end = CurTokenEnd(line_start);
         const uint32_t chr_idx = GetChrCodeCounted(cip, chr_token_end - line_start, line_start);
         assert(chr_idx < UINT32_MAXM1);
@@ -6614,6 +6650,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           prev_chr_idx = chr_idx;
           prev_bp = -1;
         }
+        DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 2", read_variant_idx);
         char* token_ptrs[8];
         uint32_t token_slens[8];
         char* line_iter = TokenLex(chr_token_end, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
@@ -6621,6 +6658,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           DPrintf("\nTokenLex failure; read_variant_idx = %u\n", read_variant_idx);
           goto PmergeConcat_ret_PVAR_REWIND_FAIL_N;
         }
+        DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 3", read_variant_idx);
         line_start = AdvPastDelim(line_iter, '\n');
         int32_t cur_bp;
         if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
@@ -6633,7 +6671,9 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           continue;
         }
         if (cur_bp > prev_bp) {
+          DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 4", read_variant_idx);
           reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
+          DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 5", read_variant_idx);
           if (unlikely(reterr)) {
             DebugPrintf("DEBUG (PmergeConcat): cur_bp > prev_bp branch\n");
             goto PmergeConcat_ret_N;
@@ -6647,9 +6687,11 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         cur_record->secondary_key = read_variant_idx;
         const uint32_t variant_id_slen = token_slens[1];
         char* cur_variant_id_start = cur_record->variant_id;
+        DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 6", read_variant_idx);
         cur_pos_readbuf_iter = memcpyax(cur_variant_id_start, token_ptrs[1], variant_id_slen, '\0');
         other_field_offsets[0] = variant_id_slen + 1;
 
+        DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 7", read_variant_idx);
         char* ref_start = token_ptrs[2];
         const uint32_t ref_slen = token_slens[2];
         if ((ref_start[0] != input_missing_geno_char) || (ref_slen != 1)) {
@@ -6659,6 +6701,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         }
         *cur_pos_readbuf_iter++ = '\0';
         other_field_offsets[1] = cur_pos_readbuf_iter - cur_variant_id_start;
+        DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 8", read_variant_idx);
 
         char* alt_start = token_ptrs[3];
         const uint32_t alt_slen = token_slens[3];
@@ -6671,6 +6714,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         *cur_pos_readbuf_iter++ = '\0';
         other_field_offsets[2] = cur_pos_readbuf_iter - cur_variant_id_start;
         cur_record->allele_ct = 2 + extra_alt_ct;
+        DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 9", read_variant_idx);
         if (pgfi.allele_idx_offsets) {
           pgfi.allele_idx_offsets[read_variant_idx + 1] = pgfi.allele_idx_offsets[read_variant_idx] + 2 + extra_alt_ct;
         }
@@ -6680,21 +6724,25 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           pgen_pr_status |= IsSet(pgfi.nonref_flags, read_variant_idx);
         }
         cur_record->pgen_pr_status = pgen_pr_status;
+        DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 10", read_variant_idx);
 
         if (read_qual) {
           cur_pos_readbuf_iter = memcpyax(cur_pos_readbuf_iter, token_ptrs[4], token_slens[4], '\0');
         }
         other_field_offsets[3] = cur_pos_readbuf_iter - cur_variant_id_start;
+        DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 11", read_variant_idx);
 
         if (read_filter) {
           cur_pos_readbuf_iter = memcpyax(cur_pos_readbuf_iter, token_ptrs[5], token_slens[5], '\0');
         }
         other_field_offsets[4] = cur_pos_readbuf_iter - cur_variant_id_start;
+        DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 12", read_variant_idx);
 
         if (read_info) {
           cur_pos_readbuf_iter = memcpyax(cur_pos_readbuf_iter, token_ptrs[6], token_slens[6], '\0');
         }
         other_field_offsets[5] = cur_pos_readbuf_iter - cur_variant_id_start;
+        DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 13", read_variant_idx);
 
         if (read_cm) {
           cur_pos_readbuf_iter = memcpya(cur_pos_readbuf_iter, token_ptrs[7], token_slens[7]);
@@ -6704,6 +6752,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         assert(cur_pos_readbuf_iter <= R_CAST(char*, same_pos_records));
 
         same_pos_records[cur_single_pos_ct] = cur_record;
+        DEBUG_CHECK_CORRUPTION(&pgfi, "var_fpos corrupt at read_variant_idx=%u step 14", read_variant_idx);
         ++cur_single_pos_ct;
       }
       reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
