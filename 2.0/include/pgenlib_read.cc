@@ -23,8 +23,6 @@
 namespace plink2 {
 #endif
 
-uint32_t g_debug_state = 0;
-
 static inline PgenReaderMain* GetPgrp(PgenReader* pgr_ptr) {
   return &GET_PRIVATE(*pgr_ptr, m);
 }
@@ -1379,10 +1377,6 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
     }
   }
   pgfip->var_fpos[vidx_end] = variant_fpos;
-  if (g_debug_state) {
-    printf("DEBUG (PgfiInitPhase2): vrtypes_iter addr=%" PRIxPTR "\n", R_CAST(uintptr_t, vrtypes_iter));
-    printf("var_fpos[6966]=%" PRIu64 "  var_fpos[6967]=%" PRIu64 "\n", pgfip->var_fpos[6966], pgfip->var_fpos[6967]);
-  }
   pgfip->max_allele_ct = max_allele_ct;
   // if difflist/LD might be present, scan for them in a way that's likely to
   // terminate quickly
@@ -1798,9 +1792,6 @@ PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, 
         pgrp->workspace_dphase_present = S_CAST(uintptr_t*, arena_alloc_raw(bitvec_bytes_req, &pgr_alloc_iter));
       }
     }
-  }
-  if (g_debug_state) {
-    printf("DEBUG (PgrInit): pgr_alloc_iter addr=%" PRIxPTR "\n", R_CAST(uintptr_t, pgr_alloc_iter));
   }
   return kPglRetSuccess;
 }
@@ -2428,25 +2419,14 @@ BoolErr InitReadPtrs(uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** 
 
     return 0;
   }
-  const uint32_t debug_print = (g_debug_state == 2);
   if (pgrp->fp_vidx != vidx) {
-    if (debug_print) {
-      printf("DEBUG (InitReadPtrs): fp_vidx was %u, seeking to offset %" PRIu64 "\n", pgrp->fp_vidx, GetPgfiFpos(&(pgrp->fi), vidx));
-    }
     if (unlikely(fseeko(pgrp->ff, GetPgfiFpos(&(pgrp->fi), vidx), SEEK_SET))) {
-      if (debug_print) {
-        printf("DEBUG (InitReadPtrs): fseeko failed\n");
-      }
       return 1;
     }
   }
   const uintptr_t cur_vrec_width = GetPgfiVrecWidth(&(pgrp->fi), vidx);
 #ifdef __LP64__
   if (unlikely(fread_checked(pgrp->fread_buf, cur_vrec_width, pgrp->ff))) {
-    if (debug_print) {
-      printf("DEBUG (InitReadPtrs): fread failed, cur_vrec_width=%" PRIuPTR ", errno=%u\n", cur_vrec_width, errno);
-      printf("var_fpos[6966]=%" PRIu64 "  var_fpos[6967]=%" PRIu64 "  address=%" PRIxPTR "\n", pgrp->fi.var_fpos[6966], pgrp->fi.var_fpos[6967], R_CAST(uintptr_t, &(pgrp->fi.var_fpos[6967])));
-    }
     if (feof_unlocked(pgrp->ff)) {
       errno = 0;
     }
@@ -2543,9 +2523,6 @@ PglErr ReadGenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const
   const unsigned char* fread_end = nullptr;  // maybe-uninitialized warning
   // tried inserting special-case code for the plink1 case to avoid a copy, and
   // it was actually slower
-  if (g_debug_state && (vidx == 6966)) {
-    g_debug_state = 2;
-  }
   if (unlikely(InitReadPtrs(vidx, pgrp, &fread_ptr, &fread_end))) {
     return kPglRetReadFail;
   }
