@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3.5"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (8 Aug 2022)";
+  " (9 Aug 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "

@@ -26,6 +26,8 @@
 namespace plink2 {
 #endif
 
+extern uint32_t g_debug_state;
+
 FLAGSET_DEF_START()
   kfPgrLdcache0,
   kfPgrLdcacheNyp = (1 << 0),
