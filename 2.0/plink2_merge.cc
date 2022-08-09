@@ -4984,7 +4984,7 @@ typedef struct MergeReaderStruct {
   uint32_t sample_ct;
 } MergeReader;
 
-void DEBUG_CHECK_CORRUPTION(MergeReader** mrp_arr, __attribute__((unused)) uintptr_t merge_rec_ct, const char* fmt, ...) {
+void DEBUG_CHECK_CORRUPTION(MergeReader** mrp_arr, const char* fmt, ...) {
   if (g_debug_state != 3) {
     return;
   }
@@ -5061,7 +5061,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
     // [1] = 0}.
     // (These are the only possibilities when merge_rec_ct == 1.)
     uint32_t simple_first_allele_remap = 1;
-    DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 0\n");
     if (merge_rec_ct > 1) {
       const uint32_t read_allele_ct = same_id_records[0]->allele_ct;
       for (uint32_t allele_idx = 0; allele_idx != read_allele_ct; ++allele_idx) {
@@ -5082,7 +5081,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           break;
         }
       }
-      DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 1\n");
       uint32_t vrtype_or = 0;
       for (uintptr_t rec_idx = 0; rec_idx != merge_rec_ct; ++rec_idx) {
         const uint32_t file_idx = same_id_records[rec_idx]->secondary_key >> 32;
@@ -5101,7 +5099,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         goto MergePgenVariantNoTmpLocked_ret_1;
       }
     }
-    DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 2\n");
     const MergeMode merge_mode = mwp->merge_mode;
     if (simple_first_allele_remap) {
       const uint32_t file_idx = same_id_records[0]->secondary_key >> 32;
@@ -5114,7 +5111,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       const uint32_t read_phase_present = !!(vrtype & 0x90);
       const uint32_t read_dosage_present = !!(vrtype & 0x60);
       const uintptr_t* sample_include = cur_mrp->sample_include;
-      DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 3\n");
       if ((read_allele_ct == 2) && (!read_dosage_present)) {
         pgvp->patch_01_ct = 0;
         pgvp->patch_10_ct = 0;
@@ -5128,7 +5124,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       } else {
         reterr = PgrGetMDp(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp);
       }
-      DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 4\n");
       if (unlikely(reterr)) {
         DebugPrintf("DEBUG (MergePgenVariantNoTmpLocked: simple_first_allele_remap branch: failed to read variant %u\nmerge_rec_ct=%" PRIuPTR "  write_allele_ct=%u  allele_remap_stride=%u\n", read_variant_uidx, merge_rec_ct, write_allele_ct, allele_remap_stride);
         PgenErrPrintNV(reterr, read_variant_uidx);
@@ -5145,7 +5140,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       const uint32_t sample_idx_increasing = cur_mrp->sample_idx_increasing;
       const uint32_t write_biallelic = (!pgvp->patch_01_ct) && (!pgvp->patch_10_ct);
       uint32_t unlocked_ct = 0;
-      DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 5\n");
       if (sample_idx_increasing == 2) {
         // read_sample_ct == write_sample_ct
         if ((merge_rec_ct != 1) && (merge_mode != kMergeModeFirst)) {
@@ -5259,7 +5253,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         // it in the read_sample_ct == write_sample_ct case.)
         uintptr_t* genovec = mwp->genovec;
         const uint32_t write_sample_ctl2 = NypCtToWordCt(write_sample_ct);
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 6\n");
         if (read_sample_ct == write_sample_ct) {
           for (uint32_t hwidx = 0; hwidx != write_sample_ctl2; ++hwidx) {
             genovec[hwidx] = most_common_geno_word;
@@ -5273,7 +5266,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             genovec[hwidx] = most_common_geno_word | (UnpackHalfwordToWord(inv_sample_span_hw) * 3);
           }
         }
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 7\n");
         ZeroTrailingNyps(write_sample_ct, genovec);
         const uint32_t read_genoword_ct_m1 = (read_sample_ct - 1) / kBitsPerWordD2;
         for (uint32_t widx = 0; ; ++widx) {
@@ -5302,7 +5294,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             geno_word_xor &= (~(3 * k1LU)) << bit_read_shift_ct;
           } while (geno_word_xor);
         }
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 8\n");
         // Resolve dosage_present first, so we know unlocked_ct status and can
         // select correct (sparse vs. dense) conversion for patch_01_vals,
         // patch_10_vals, dosage_main, and dphase_delta.
@@ -5315,7 +5306,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             CopyAndPermuteBitarr(pgvp->dosage_present, old_sample_idx_to_new, write_sample_ctl, dosage_ct, mwp->dosage_present);
           }
         }
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 9\n");
         if (merge_rec_ct != 1) {
           if (merge_mode == kMergeModeFirst) {
             if (read_sample_ct != write_sample_ct) {
@@ -5340,7 +5330,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             }
           }
         }
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 10\n");
         uint32_t patch_01_ct = 0;
         uint32_t patch_10_ct = 0;
         if (!write_biallelic) {
@@ -5361,7 +5350,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               }
             }
           }
-          DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 11\n");
           patch_10_ct = pgvp->patch_10_ct;
           if (patch_10_ct) {
             if (sample_idx_increasing) {
@@ -5380,7 +5368,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             }
           }
         }
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 12\n");
         const uint32_t phasepresent_ct = pgvp->phasepresent_ct;
         if (phasepresent_ct) {
           if (sample_idx_increasing) {
@@ -5425,7 +5412,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             }
           }
         }
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 13\n");
         if (unlocked_ct == 0) {
           if (!dosage_ct) {
             if (write_biallelic) {
@@ -5453,7 +5439,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           }
           goto MergePgenVariantNoTmpLocked_ret_1;
         }
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 14\n");
         // unlocked_ct > 0, some write buffers already copied to.  Only need
         // to initialize write buffers which don't happen to have been touched
         // by processing of the first file.
@@ -5474,7 +5459,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             ZeroWArr(write_sample_ctl, mwp->dphase_present);
           }
         }
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 15\n");
       }
     } else {
       SetAllBits(write_sample_ct * 2, mwp->genovec);
@@ -5495,7 +5479,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           ZeroWArr(write_sample_ctl, mwp->dphase_present);
         }
       }
-      DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 16\n");
     }
 
     // Multiple variants to merge.
@@ -5538,7 +5521,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
     }
     const uint32_t write_sample_ctl2 = NypCtToWordCt(write_sample_ct);
     for (uintptr_t rec_idx = simple_first_allele_remap; rec_idx != merge_rec_ct; ++rec_idx) {
-      DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 17 rec_idx=%" PRIuPTR "\n", rec_idx);
       const uint32_t file_idx = same_id_records[rec_idx]->secondary_key >> 32;
       MergeReader* cur_mrp = mrp_arr[file_idx];
       uintptr_t* sample_span = cur_mrp->sample_span;
@@ -5550,7 +5532,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       uintptr_t* unlocked_sample_span = mwp->unlocked_sample_span;
       BitvecAndCopy(sample_span, unlocked_set, write_sample_ctl, unlocked_sample_span);
       uint32_t unlocked_sample_ct = PopcountWords(unlocked_sample_span, write_sample_ctl);
-      DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 18 rec_idx=%" PRIuPTR "\n", rec_idx);
       if (!unlocked_sample_ct) {
         // No point in loading this entry, all genotypes for these samples are
         // already locked.
@@ -5564,7 +5545,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       const uint32_t vrtype = PgrGetVrtype(pgrp, read_variant_uidx);
       const uint32_t read_hphase_present = (vrtype / 0x10) & 1;
       const uint32_t read_dosage_present = !!(vrtype & 0x60);
-      DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 19 rec_idx=%" PRIuPTR "\n", rec_idx);
       if ((read_allele_ct == 2) && (!read_dosage_present)) {
         pgvp->patch_01_ct = 0;
         pgvp->patch_10_ct = 0;
@@ -5578,7 +5558,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       } else {
         reterr = PgrGetMDp(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp);
       }
-      DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 20 rec_idx=%" PRIuPTR "\n", rec_idx);
       if (unlikely(reterr)) {
         PgenErrPrintNV(reterr, read_variant_uidx);
         goto MergePgenVariantNoTmpLocked_ret_1;
@@ -5599,7 +5578,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         // (In the "--merge-mode nm-first" and "--merge-mode first" cases, we
         // wait until after we've subsetted down to the samples we'll be
         // clobbering.)
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 21 rec_idx=%" PRIuPTR "\n", rec_idx);
         uint32_t read_allele_idx = 0;
         for (; read_allele_idx != read_allele_ct; ++read_allele_idx) {
           if (cur_allele_remap[read_allele_idx] != read_allele_idx) {
@@ -5613,7 +5591,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             if (unlikely(reterr)) {
               goto MergePgenVariantNoTmpLocked_ret_1;
             }
-            DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 22 rec_idx=%" PRIuPTR "\n", rec_idx);
           } else {
             const uint32_t read_sample_ctl = BitCtToWordCt(read_sample_ct);
             if (write_allele_ct == 2) {
@@ -5630,7 +5607,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
                   BiallelicDphase16Invert(pgvp->dphase_ct, pgvp->dphase_delta);
                 }
               }
-              DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 23 rec_idx=%" PRIuPTR "\n", rec_idx);
             } else {
               uintptr_t* phaseinfo_xor = nullptr;
               if (pgvp->phasepresent_ct) {
@@ -5647,7 +5623,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
                 // now.
                 read_allele_ct = 3;
               }
-              DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 24 rec_idx=%" PRIuPTR "\n", rec_idx);
             }
           }
         }
@@ -5655,9 +5630,9 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         clobber_sample_span = mwp->clobber_sample_span;
         BitvecAndCopy(unlocked_missing_set, sample_span, write_sample_ctl, clobber_sample_span);
         clobber_sample_ct = PopcountWords(clobber_sample_span, write_sample_ctl);
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 25 rec_idx=%" PRIuPTR "\n", rec_idx);
       }
       if ((merge_mode == kMergeModeNmMatch) && (clobber_sample_ct != read_sample_ct)) {
+        DEBUG_CHECK_CORRUPTION(mrp_arr, "step 25a rec_idx=%" PRIuPTR "\n", rec_idx);
         // Need to scan some samples for conflicts (clearing unlocked_set bit
         // whenever one exists), and maybe clobber some others.
         // Number of samples involved is likely to be a large fraction of
@@ -5682,11 +5657,14 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         // 2. Clear unlocked_set bits.
         PgenVariant* compare_pgvp = &(mwp->pgv_midbuf);
         BitvecInvmaskCopy(unlocked_sample_span, clobber_sample_span, write_sample_ctl, mwp->unlocked_nonmissing_sample_span);
+        DEBUG_CHECK_CORRUPTION(mrp_arr, "step 25b rec_idx=%" PRIuPTR "\n", rec_idx);
         uintptr_t* compare_mask = mwp->mask_buf;
         memcpy(compare_mask, mwp->unlocked_nonmissing_sample_span, write_sample_ctl * sizeof(intptr_t));
+        DEBUG_CHECK_CORRUPTION(mrp_arr, "step 25c rec_idx=%" PRIuPTR "\n", rec_idx);
         uintptr_t* orig_genovec = pgvp->genovec;
         uintptr_t* r_genovec = compare_pgvp->genovec;
         ZeroWArr(write_sample_ctl2, r_genovec);
+        DEBUG_CHECK_CORRUPTION(mrp_arr, "step 25d rec_idx=%" PRIuPTR "\n", rec_idx);
         const uint32_t* old_sample_idx_to_new = cur_mrp->old_sample_idx_to_new;
         const uint32_t read_sample_ctl2 = NypCtToWordCt(read_sample_ct);
         for (uint32_t widx = 0; widx != read_sample_ctl2; ++widx) {
@@ -5702,6 +5680,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             const uint32_t new_word_idx = new_sample_idx / kBitsPerWordD2;
             const uint32_t bit_write_shift_ct = 2 * (new_sample_idx % kBitsPerWordD2);
             r_genovec[new_word_idx] |= cur_geno << bit_write_shift_ct;
+            DEBUG_CHECK_CORRUPTION(mrp_arr, "step 25e rec_idx=%" PRIuPTR " widx=%u new_sample_idx=%u new_word_idx=%u\n", rec_idx, widx, new_sample_idx, new_word_idx);
             geno_word &= (~(3 * k1LU)) << bit_read_shift_ct;
           } while (geno_word);
         }
@@ -5714,6 +5693,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           const uintptr_t diff_bits = r_genovec[widx] ^ genovec[widx];
           const Halfword diff_hw = PackWordToHalfwordMask5555(diff_bits | (diff_bits >> 1));
           compare_mask_hwalias[widx] = compare_mask_hw & (~diff_hw);
+          DEBUG_CHECK_CORRUPTION(mrp_arr, "step 25f rec_idx=%" PRIuPTR " widx=%u\n", rec_idx, widx);
         }
         // possible todo: check if performance gain from switching to single
         // compare+clobber loops is significant
@@ -5725,6 +5705,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               continue;
             }
             genovec[widx] ^= (UnpackHalfwordToWord(clobber_span_hw) * 3) & (~r_genovec[widx]);
+            DEBUG_CHECK_CORRUPTION(mrp_arr, "step 25g rec_idx=%" PRIuPTR " widx=%u\n", rec_idx, widx);
           }
         }
         if (write_allele_ct > 2) {
@@ -5817,10 +5798,12 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             }
           }
         }
+        DEBUG_CHECK_CORRUPTION(mrp_arr, "step 25h rec_idx=%" PRIuPTR "\n", rec_idx);
         // unlocked_set ^= unlocked_nonmissing_sample_span ^ compare_mask
         BitvecXor(mwp->unlocked_nonmissing_sample_span, write_sample_ctl, unlocked_set);
+        DEBUG_CHECK_CORRUPTION(mrp_arr, "step 25i rec_idx=%" PRIuPTR "\n", rec_idx);
         BitvecXor(compare_mask, write_sample_ctl, unlocked_set);
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 26 rec_idx=%" PRIuPTR "\n", rec_idx);
+        DEBUG_CHECK_CORRUPTION(mrp_arr, "step 26 rec_idx=%" PRIuPTR "\n", rec_idx);
       } else if (clobber_sample_ct) {
         // possible todo: only use this branch on sufficiently small
         // clobber_sample_ct
@@ -5905,7 +5888,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               PermuteUpdate16bitDenseFromSparse(clobber_pgvp->dphase_present, clobber_pgvp->dphase_delta, clobber_sample_idx_to_new, clobber_sample_ct, r_dosage_ct, dphase_present, dphase_dense);
             }
           }
-          DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 27 rec_idx=%" PRIuPTR "\n", rec_idx);
         } else {
           // Multiallelic variant.
           uintptr_t* r_patch_01_set = clobber_pgvp->patch_01_set;
@@ -5949,7 +5931,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           if (r_phasepresent_ct) {
             PermuteUpdateHphase(clobber_pgvp->phasepresent, clobber_pgvp->phaseinfo, clobber_sample_idx_to_new, r_phasepresent_ct, phasepresent, phaseinfo);
           }
-          DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 28 rec_idx=%" PRIuPTR "\n", rec_idx);
         }
       }
       if (clobber_sample_ct && (rec_idx + 1 != merge_rec_ct)) {
@@ -5970,7 +5951,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             BitvecInvmask(dosage_present, write_sample_ctl, untouched_set);
           }
         }
-        DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 29 rec_idx=%" PRIuPTR "\n", rec_idx);
       }
     }
     if (merge_mode == kMergeModeNmMatch) {
@@ -5996,9 +5976,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           BitvecAnd(unlocked_set, write_sample_ctl, dphase_present);
         }
       }
-      DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 30\n");
     }
-    DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 31\n");
     // Collapse dense representations to sparse when the latter is expected by
     // the writer.
     uint32_t patch_01_ct = 0;
@@ -6040,7 +6018,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           reterr = SpgwAppendBiallelicGenovecDphase16(genovec, phasepresent, phaseinfo, dosage_present, dphase_present, dosage_main, dphase_delta, dosage_ct, dphase_ct, spgwp);
         }
       }
-      DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 32\n");
     } else {
       assert(!dosage_ct); // not yet supported
       if (!phasepresent_ct) {
@@ -6048,7 +6025,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
       } else {
         reterr = SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, write_allele_ct, patch_01_ct, patch_10_ct, spgwp);
       }
-      DEBUG_CHECK_CORRUPTION(mrp_arr, merge_rec_ct, "step 33\n");
     }
     if (unlikely(reterr)) {
       goto MergePgenVariantNoTmpLocked_ret_1;
