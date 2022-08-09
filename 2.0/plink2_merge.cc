@@ -4984,23 +4984,21 @@ typedef struct MergeReaderStruct {
   uint32_t sample_ct;
 } MergeReader;
 
-void DEBUG_CHECK_CORRUPTION(MergeReader** mrp_arr, uintptr_t merge_rec_ct, const char* fmt, ...) {
+void DEBUG_CHECK_CORRUPTION(MergeReader** mrp_arr, __attribute__((unused)) uintptr_t merge_rec_ct, const char* fmt, ...) {
   if (g_debug_state != 3) {
     return;
   }
 
-  for (uintptr_t file_idx = 0; file_idx != merge_rec_ct; ++file_idx) {
-    PgenReader* pgr_ptr = &(mrp_arr[file_idx]->pgr);
-    PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
-    PgenFileInfo* pgfip = &(pgrp->fi);
-    if (pgfip->var_fpos[6966] != 5449872) {
-      va_list args;
-      va_start(args, fmt);
-      vsnprintf(g_logbuf, kLogbufSize, fmt, args);
-      logerrputsb();
-      logerrputs("\n");
-      exit(1);
-    }
+  PgenReader* pgr_ptr = &(mrp_arr[0]->pgr);
+  PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
+  PgenFileInfo* pgfip = &(pgrp->fi);
+  if (pgfip->var_fpos[6966] != 5449872) {
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(g_logbuf, kLogbufSize, fmt, args);
+    logerrputsb();
+    logerrputs("\n");
+    exit(1);
   }
 }
 
