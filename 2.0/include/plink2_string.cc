@@ -223,6 +223,7 @@ void WordWrap(uint32_t suffix_len, char* strbuf) {
 //   https://lemire.me/blog/2021/06/03/computing-the-number-of-digits-of-an-integer-even-faster/
 
 #ifdef USE_AVX2
+// bugfix (14 Aug 2022): _lzcnt_u32(0) is 32.
 static const uint64_t kLzcntUintSlenTable[] =
   {42949672960LL, 42949672960LL, 41949672960LL, 41949672960LL, 41949672960LL,
    38554705664LL, 38554705664LL, 38554705664LL, 34349738368LL, 34349738368LL,
@@ -230,7 +231,7 @@ static const uint64_t kLzcntUintSlenTable[] =
    25769703776LL, 25769703776LL, 25769703776LL, 21474826480LL, 21474826480LL,
    21474826480LL, 21474826480LL, 17179868184LL, 17179868184LL, 17179868184LL,
    12884901788LL, 12884901788LL, 12884901788LL,  8589934582LL,  8589934582LL,
-    8589934582LL,  4294967296LL};
+    8589934582LL,  4294967296LL,  4294967296LL};
 
 uint32_t UintSlen(uint32_t num) {
   const uint32_t lz_ct = _lzcnt_u32(num);
