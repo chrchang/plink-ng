@@ -1,11 +1,26 @@
 This provides a basic Python API for pgenlib  (See [python_api.txt](python_api.txt) for details.)
 
 
-##### Build this with this.
-Cython and NumPy must be installed.
+### Build instructions
+To build this library you will first need to clone the repository:
+
+```
+# clone repo
+git clone https://github.com/chrchang/plink-ng
+# go to python folder
+cd plink-ng/2.0/Python 
+```
+
+
+Then install Cython and NumPy:
+```
+pip3 install "cython>=0.29.21" "numpy>=1.19.0"
+```
+
+and then build and install the package
 ```
 python3 setup.py build_ext
-[sudo] python3 setup.py install
+python3 setup.py install
 ```
 
 
