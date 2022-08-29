@@ -96,7 +96,7 @@
   #endif
 #endif
 
-#include "../zlib-1.2.11/zlib.h"
+#include "../zlib-1.2.12/zlib.h"
 
 #ifdef __APPLE__
   #include <sys/sysctl.h>
@@ -305,7 +305,7 @@ static inline char* memcpya(char* target, const void* source, uintptr_t ct) {
 
 uint32_t scan_posintptr(char* ss, uintptr_t* valp) {
   // Reads an integer in [1, 2^BITCT - 1].  Assumes first character is
-  // nonspace. 
+  // nonspace.
   uintptr_t val = (uint32_t)((unsigned char)*ss) - 48;
   uintptr_t cur_digit;
   if (val < 10) {
@@ -418,7 +418,7 @@ static inline void double_bround1(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 10;
-  *remainderp = remainder - (*quotientp) * 10; 
+  *remainderp = remainder - (*quotientp) * 10;
 }
 
 static inline void double_bround2(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -426,7 +426,7 @@ static inline void double_bround2(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 100;
-  *remainderp = remainder - (*quotientp) * 100; 
+  *remainderp = remainder - (*quotientp) * 100;
 }
 
 static inline void double_bround3(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -434,7 +434,7 @@ static inline void double_bround3(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 1000;
-  *remainderp = remainder - (*quotientp) * 1000; 
+  *remainderp = remainder - (*quotientp) * 1000;
 }
 
 static inline void double_bround4(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -442,7 +442,7 @@ static inline void double_bround4(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 10000;
-  *remainderp = remainder - (*quotientp) * 10000; 
+  *remainderp = remainder - (*quotientp) * 10000;
 }
 
 static inline void double_bround5(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -450,7 +450,7 @@ static inline void double_bround5(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 100000;
-  *remainderp = remainder - (*quotientp) * 100000; 
+  *remainderp = remainder - (*quotientp) * 100000;
 }
 
 char* double_write6(char* start, double dxx) {

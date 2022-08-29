@@ -90,7 +90,7 @@ endif
 
 ifdef STATIC_ZLIB
   BASEFLAGS += -DSTATIC_ZLIB
-  LINKFLAGS += -L. ../../zlib-1.2.11/libz.a
+  LINKFLAGS += -L. ../../zlib-1.2.12/libz.a
 else
   LINKFLAGS += -lz
 endif

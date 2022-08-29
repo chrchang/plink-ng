@@ -300,7 +300,7 @@
 #ifdef DYNAMIC_ZLIB
   #include <zlib.h>
 #else
-  #include "../zlib-1.2.11/zlib.h"
+  #include "../zlib-1.2.12/zlib.h"
 #endif
 
 #include "pigz.h"
@@ -526,7 +526,7 @@ int32_t flex_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
 #ifdef DYNAMIC_ZLIB
   #include <zlib.h>
 #else
-  #include "../zlib-1.2.11/zlib.h" /* deflateInit2(), deflateReset(), deflate(), */
+  #include "../zlib-1.2.12/zlib.h" /* deflateInit2(), deflateReset(), deflate(), */
                         /* deflateEnd(), deflateSetDictionary(), crc32(),
                            inflateBackInit(), inflateBack(), inflateBackEnd(),
                            Z_DEFAULT_COMPRESSION, Z_DEFAULT_STRATEGY,
@@ -1310,7 +1310,7 @@ local void write_thread(void *dummy)
    subsequent calls of parallel_compress() */
 void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*))
 {
-    // overflow_buf must have size >= PIGZ_BLOCK_SIZE + maximum emission 
+    // overflow_buf must have size >= PIGZ_BLOCK_SIZE + maximum emission
 
     // if overflow_ct is nonzero, this points to the first uncompressed
     // character in overflow_buf
