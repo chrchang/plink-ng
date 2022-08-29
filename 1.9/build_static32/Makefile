@@ -6,7 +6,7 @@ CXXFLAGS=-O2 -std=c++0x
 ARCH32=-m32 -march=i686
 BASEFLAGS += ${ARCH32}
 
-ZLIB32=../../zlib-1.2.11/libz-32.a
+ZLIB32=../../zlib-1.2.12/libz-32.a
 LINKFLAGS=-lm -lpthread
 
 
