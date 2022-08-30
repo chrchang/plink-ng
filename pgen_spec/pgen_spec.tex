@@ -581,13 +581,13 @@ As for auxiliary data track \#3:
 \end{itemize}
 
 For example, suppose $N=488377$, sample ID 10000 has an ALT allele dosage of
-1.5 on a 0..2 scale, every other even sample ID has an ALT allele dosage of
-0.75, and no odd sample IDs have associated dosages.  Then a bitarray is a more
-compact way to represent the sample ID list than a difflist, so bits 5 and 6 of
-the variant record type would normally be set.  Auxiliary data track \#3 would
-contain 61047 bytes with value \texttt{0x55}, followed by a byte with value
-\texttt{0x01}.  Auxiliary data track \#4 would start with 5000 instances of
-\texttt{0x00 0x30}, which is the little-endian \texttt{uint16} encoding of
+1.5 on a 0..2 scale, every even sample ID other than ID 10000 has an ALT allele
+dosage of 0.75, and no odd sample IDs have associated dosages.  Then a bitarray
+is a more compact way to represent the sample ID list than a difflist, so bits
+5 and 6 of the variant record type would normally be set.  Auxiliary data track
+\#3 would contain 61047 bytes with value \texttt{0x55}, followed by a byte with
+value \texttt{0x01}.  Auxiliary data track \#4 would start with 5000 instances
+of \texttt{0x00 0x30}, which is the little-endian \texttt{uint16} encoding of
 $(0.75/2)\cdot 2^{15}$, followed by \texttt{0x00 0x60} representing the lone
 1.5 dosage (since sample ID 10000 is the 5001th smallest ID with a dosage),
 followed by 239188 more instances of \texttt{0x00 0x30}.
