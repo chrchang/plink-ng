@@ -27,7 +27,6 @@
 
 #include "deflate_compress.h"
 #include "deflate_constants.h"
-#include "unaligned.h"
 
 #include "libdeflate.h"
 
@@ -395,16 +394,10 @@ struct deflate_sequence {
 	u16 offset;
 
 	/*
-	 * If 'length' doesn't indicate end-of-block, then this is the length
-	 * slot of the match which follows the literals.
-	 */
-	u8 length_slot;
-
-	/*
 	 * If 'length' doesn't indicate end-of-block, then this is the offset
 	 * slot of the match which follows the literals.
 	 */
-	u8 offset_slot;
+	u16 offset_slot;
 };
 
 #if SUPPORT_NEAR_OPTIMAL_PARSING
@@ -482,7 +475,7 @@ struct deflate_output_bitstream;
 struct libdeflate_compressor {
 
 	/* Pointer to the compress() implementation chosen at allocation time */
-	void (*impl)(struct libdeflate_compressor *c, const u8 *in,
+	void (*impl)(struct libdeflate_compressor *restrict c, const u8 *in,
 		     size_t in_nbytes, struct deflate_output_bitstream *os);
 
 	/* The compression level with which this compressor was created */
@@ -515,16 +508,29 @@ struct libdeflate_compressor {
 	/* The static Huffman codes defined by the DEFLATE format */
 	struct deflate_codes static_codes;
 
-	/* Temporary space for Huffman code output */
-	u32 precode_freqs[DEFLATE_NUM_PRECODE_SYMS];
-	u8 precode_lens[DEFLATE_NUM_PRECODE_SYMS];
-	u32 precode_codewords[DEFLATE_NUM_PRECODE_SYMS];
-	unsigned precode_items[DEFLATE_NUM_LITLEN_SYMS +
-			       DEFLATE_NUM_OFFSET_SYMS];
-	unsigned num_litlen_syms;
-	unsigned num_offset_syms;
-	unsigned num_explicit_lens;
-	unsigned num_precode_items;
+	/* Temporary space for block flushing */
+	union {
+		/* Information about the precode */
+		struct {
+			u32 freqs[DEFLATE_NUM_PRECODE_SYMS];
+			u32 codewords[DEFLATE_NUM_PRECODE_SYMS];
+			u8 lens[DEFLATE_NUM_PRECODE_SYMS];
+			unsigned items[DEFLATE_NUM_LITLEN_SYMS +
+				       DEFLATE_NUM_OFFSET_SYMS];
+			unsigned num_litlen_syms;
+			unsigned num_offset_syms;
+			unsigned num_explicit_lens;
+			unsigned num_items;
+		} precode;
+		/*
+		 * The "full" length codewords.  Used only after the information
+		 * in 'precode' is no longer needed.
+		 */
+		struct {
+			u32 codewords[DEFLATE_MAX_MATCH_LEN + 1];
+			u8 lens[DEFLATE_MAX_MATCH_LEN + 1];
+		} length;
+	} o;
 
 	union {
 		/* Data for greedy or lazy parsing */
@@ -1035,7 +1041,6 @@ compute_length_counts(u32 A[], unsigned root_idx, unsigned len_counts[],
 		unsigned parent = A[node] >> NUM_SYMBOL_BITS;
 		unsigned parent_depth = A[parent] >> NUM_SYMBOL_BITS;
 		unsigned depth = parent_depth + 1;
-		len = depth;
 
 		/*
 		 * Set the depth of this node so that it is available when its
@@ -1048,19 +1053,19 @@ compute_length_counts(u32 A[], unsigned root_idx, unsigned len_counts[],
 		 * constraint.  This is not the optimal method for generating
 		 * length-limited Huffman codes!  But it should be good enough.
 		 */
-		if (len >= max_codeword_len) {
-			len = max_codeword_len;
+		if (depth >= max_codeword_len) {
+			depth = max_codeword_len;
 			do {
-				len--;
-			} while (len_counts[len] == 0);
+				depth--;
+			} while (len_counts[depth] == 0);
 		}
 
 		/*
 		 * Account for the fact that we have a non-leaf node at the
 		 * current depth.
 		 */
-		len_counts[len]--;
-		len_counts[len + 1] += 2;
+		len_counts[depth]--;
+		len_counts[depth + 1] += 2;
 	}
 }
 
@@ -1183,11 +1188,9 @@ gen_codewords(u32 A[], u8 lens[], const unsigned len_counts[],
 			(next_codewords[len - 1] + len_counts[len - 1]) << 1;
 
 	for (sym = 0; sym < num_syms; sym++) {
-		u8 len2 = lens[sym];
-		u32 codeword = next_codewords[len2]++;
-
 		/* DEFLATE requires bit-reversed codewords. */
-		A[sym] = reverse_codeword(codeword, len2);
+		A[sym] = reverse_codeword(next_codewords[lens[sym]]++,
+					  lens[sym]);
 	}
 }
 
@@ -1533,16 +1536,16 @@ deflate_precompute_huffman_header(struct libdeflate_compressor *c)
 {
 	/* Compute how many litlen and offset symbols are needed. */
 
-	for (c->num_litlen_syms = DEFLATE_NUM_LITLEN_SYMS;
-	     c->num_litlen_syms > 257;
-	     c->num_litlen_syms--)
-		if (c->codes.lens.litlen[c->num_litlen_syms - 1] != 0)
+	for (c->o.precode.num_litlen_syms = DEFLATE_NUM_LITLEN_SYMS;
+	     c->o.precode.num_litlen_syms > 257;
+	     c->o.precode.num_litlen_syms--)
+		if (c->codes.lens.litlen[c->o.precode.num_litlen_syms - 1] != 0)
 			break;
 
-	for (c->num_offset_syms = DEFLATE_NUM_OFFSET_SYMS;
-	     c->num_offset_syms > 1;
-	     c->num_offset_syms--)
-		if (c->codes.lens.offset[c->num_offset_syms - 1] != 0)
+	for (c->o.precode.num_offset_syms = DEFLATE_NUM_OFFSET_SYMS;
+	     c->o.precode.num_offset_syms > 1;
+	     c->o.precode.num_offset_syms--)
+		if (c->codes.lens.offset[c->o.precode.num_offset_syms - 1] != 0)
 			break;
 
 	/*
@@ -1552,64 +1555,86 @@ deflate_precompute_huffman_header(struct libdeflate_compressor *c)
 	 */
 	STATIC_ASSERT(offsetof(struct deflate_lens, offset) ==
 		      DEFLATE_NUM_LITLEN_SYMS);
-	if (c->num_litlen_syms != DEFLATE_NUM_LITLEN_SYMS) {
-		memmove((u8 *)&c->codes.lens + c->num_litlen_syms,
+	if (c->o.precode.num_litlen_syms != DEFLATE_NUM_LITLEN_SYMS) {
+		memmove((u8 *)&c->codes.lens + c->o.precode.num_litlen_syms,
 			(u8 *)&c->codes.lens + DEFLATE_NUM_LITLEN_SYMS,
-			c->num_offset_syms);
+			c->o.precode.num_offset_syms);
 	}
 
 	/*
 	 * Compute the "items" (RLE / literal tokens and extra bits) with which
 	 * the codeword lengths in the larger code will be output.
 	 */
-	c->num_precode_items =
+	c->o.precode.num_items =
 		deflate_compute_precode_items((u8 *)&c->codes.lens,
-					      c->num_litlen_syms +
-							c->num_offset_syms,
-					      c->precode_freqs,
-					      c->precode_items);
+					      c->o.precode.num_litlen_syms +
+					      c->o.precode.num_offset_syms,
+					      c->o.precode.freqs,
+					      c->o.precode.items);
 
 	/* Build the precode. */
 	deflate_make_huffman_code(DEFLATE_NUM_PRECODE_SYMS,
 				  MAX_PRE_CODEWORD_LEN,
-				  c->precode_freqs, c->precode_lens,
-				  c->precode_codewords);
+				  c->o.precode.freqs, c->o.precode.lens,
+				  c->o.precode.codewords);
 
 	/* Count how many precode lengths we actually need to output. */
-	for (c->num_explicit_lens = DEFLATE_NUM_PRECODE_SYMS;
-	     c->num_explicit_lens > 4;
-	     c->num_explicit_lens--)
-		if (c->precode_lens[deflate_precode_lens_permutation[
-						c->num_explicit_lens - 1]] != 0)
+	for (c->o.precode.num_explicit_lens = DEFLATE_NUM_PRECODE_SYMS;
+	     c->o.precode.num_explicit_lens > 4;
+	     c->o.precode.num_explicit_lens--)
+		if (c->o.precode.lens[deflate_precode_lens_permutation[
+				c->o.precode.num_explicit_lens - 1]] != 0)
 			break;
 
 	/* Restore the offset codeword lengths if needed. */
-	if (c->num_litlen_syms != DEFLATE_NUM_LITLEN_SYMS) {
+	if (c->o.precode.num_litlen_syms != DEFLATE_NUM_LITLEN_SYMS) {
 		memmove((u8 *)&c->codes.lens + DEFLATE_NUM_LITLEN_SYMS,
-			(u8 *)&c->codes.lens + c->num_litlen_syms,
-			c->num_offset_syms);
+			(u8 *)&c->codes.lens + c->o.precode.num_litlen_syms,
+			c->o.precode.num_offset_syms);
+	}
+}
+
+/*
+ * To make it faster to output matches, compute the "full" match length
+ * codewords, i.e. the concatenation of the litlen codeword and the extra bits
+ * for each possible match length.
+ */
+static void
+deflate_compute_full_len_codewords(struct libdeflate_compressor *c,
+				   const struct deflate_codes *codes)
+{
+	unsigned len;
+
+	STATIC_ASSERT(MAX_LITLEN_CODEWORD_LEN +
+		      DEFLATE_MAX_EXTRA_LENGTH_BITS <= 32);
+
+	for (len = DEFLATE_MIN_MATCH_LEN; len <= DEFLATE_MAX_MATCH_LEN; len++) {
+		unsigned slot = deflate_length_slot[len];
+		unsigned litlen_sym = DEFLATE_FIRST_LEN_SYM + slot;
+		u32 extra_bits = len - deflate_length_slot_base[slot];
+
+		c->o.length.codewords[len] =
+			codes->codewords.litlen[litlen_sym] |
+			(extra_bits << codes->lens.litlen[litlen_sym]);
+		c->o.length.lens[len] = codes->lens.litlen[litlen_sym] +
+					deflate_extra_length_bits[slot];
 	}
 }
 
 /* Write a match to the output buffer. */
-#define WRITE_MATCH(codes_, length_, length_slot_, offset_, offset_slot_) \
+#define WRITE_MATCH(c_, codes_, length_, offset_, offset_slot_)		\
 do {									\
+	const struct libdeflate_compressor *c__ = (c_);			\
 	const struct deflate_codes *codes__ = (codes_);			\
 	unsigned length__ = (length_);					\
-	unsigned length_slot__ = (length_slot_);			\
 	unsigned offset__ = (offset_);					\
 	unsigned offset_slot__ = (offset_slot_);			\
-	unsigned litlen_symbol__ = DEFLATE_FIRST_LEN_SYM + length_slot__; \
 									\
-	/* Litlen symbol */						\
-	ADD_BITS(codes__->codewords.litlen[litlen_symbol__],		\
-		 codes__->lens.litlen[litlen_symbol__]);		\
-									\
-	/* Extra length bits */						\
+	/* Litlen symbol and extra length bits */			\
 	STATIC_ASSERT(CAN_BUFFER(MAX_LITLEN_CODEWORD_LEN +		\
 				 DEFLATE_MAX_EXTRA_LENGTH_BITS));	\
-	ADD_BITS(length__ - deflate_length_slot_base[length_slot__],	\
-		 deflate_extra_length_bits[length_slot__]);		\
+	ADD_BITS(c__->o.length.codewords[length__],			\
+		 c__->o.length.lens[length__]);				\
 									\
 	if (!CAN_BUFFER(MAX_LITLEN_CODEWORD_LEN +			\
 			DEFLATE_MAX_EXTRA_LENGTH_BITS +			\
@@ -1684,12 +1709,12 @@ deflate_flush_block(struct libdeflate_compressor *c,
 	deflate_precompute_huffman_header(c);
 
 	/* Account for the cost of encoding dynamic Huffman codes. */
-	dynamic_cost += 5 + 5 + 4 + (3 * c->num_explicit_lens);
+	dynamic_cost += 5 + 5 + 4 + (3 * c->o.precode.num_explicit_lens);
 	for (sym = 0; sym < DEFLATE_NUM_PRECODE_SYMS; sym++) {
 		u32 extra = deflate_extra_precode_bits[sym];
 
-		dynamic_cost += c->precode_freqs[sym] *
-				(extra + c->precode_lens[sym]);
+		dynamic_cost += c->o.precode.freqs[sym] *
+				(extra + c->o.precode.lens[sym]);
 	}
 
 	/* Account for the cost of encoding literals. */
@@ -1739,8 +1764,8 @@ deflate_flush_block(struct libdeflate_compressor *c,
 	/* Choose and output the cheapest type of block. */
 	best_cost = MIN(static_cost, uncompressed_cost);
 	if (dynamic_cost < best_cost) {
-		const unsigned num_explicit_lens = c->num_explicit_lens;
-		const unsigned num_precode_items = c->num_precode_items;
+		const unsigned num_explicit_lens = c->o.precode.num_explicit_lens;
+		const unsigned num_precode_items = c->o.precode.num_items;
 		unsigned precode_sym, precode_item;
 		unsigned i;
 
@@ -1751,8 +1776,8 @@ deflate_flush_block(struct libdeflate_compressor *c,
 		STATIC_ASSERT(CAN_BUFFER(1 + 2 + 5 + 5 + 4 + 3));
 		ADD_BITS(is_final_block, 1);
 		ADD_BITS(DEFLATE_BLOCKTYPE_DYNAMIC_HUFFMAN, 2);
-		ADD_BITS(c->num_litlen_syms - 257, 5);
-		ADD_BITS(c->num_offset_syms - 1, 5);
+		ADD_BITS(c->o.precode.num_litlen_syms - 257, 5);
+		ADD_BITS(c->o.precode.num_offset_syms - 1, 5);
 		ADD_BITS(num_explicit_lens - 4, 4);
 
 		/* Output the lengths of the codewords in the precode. */
@@ -1763,13 +1788,13 @@ deflate_flush_block(struct libdeflate_compressor *c,
 			 * flushes we merge one len with the previous fields.
 			 */
 			precode_sym = deflate_precode_lens_permutation[0];
-			ADD_BITS(c->precode_lens[precode_sym], 3);
+			ADD_BITS(c->o.precode.lens[precode_sym], 3);
 			FLUSH_BITS();
 			i = 1; /* num_explicit_lens >= 4 */
 			do {
 				precode_sym =
 					deflate_precode_lens_permutation[i];
-				ADD_BITS(c->precode_lens[precode_sym], 3);
+				ADD_BITS(c->o.precode.lens[precode_sym], 3);
 			} while (++i < num_explicit_lens);
 			FLUSH_BITS();
 		} else {
@@ -1778,7 +1803,7 @@ deflate_flush_block(struct libdeflate_compressor *c,
 			do {
 				precode_sym =
 					deflate_precode_lens_permutation[i];
-				ADD_BITS(c->precode_lens[precode_sym], 3);
+				ADD_BITS(c->o.precode.lens[precode_sym], 3);
 				FLUSH_BITS();
 			} while (++i < num_explicit_lens);
 		}
@@ -1789,11 +1814,11 @@ deflate_flush_block(struct libdeflate_compressor *c,
 		 */
 		i = 0;
 		do {
-			precode_item = c->precode_items[i];
+			precode_item = c->o.precode.items[i];
 			precode_sym = precode_item & 0x1F;
 			STATIC_ASSERT(CAN_BUFFER(MAX_PRE_CODEWORD_LEN + 7));
-			ADD_BITS(c->precode_codewords[precode_sym],
-				 c->precode_lens[precode_sym]);
+			ADD_BITS(c->o.precode.codewords[precode_sym],
+				 c->o.precode.lens[precode_sym]);
 			ADD_BITS(precode_item >> 5,
 				 deflate_extra_precode_bits[precode_sym]);
 			FLUSH_BITS();
@@ -1850,6 +1875,7 @@ deflate_flush_block(struct libdeflate_compressor *c,
 
 	/* Output the literals and matches for a dynamic or static block. */
 	ASSERT(bitcount <= 7);
+	deflate_compute_full_len_codewords(c, codes);
 #if SUPPORT_NEAR_OPTIMAL_PARSING
 	if (sequences == NULL) {
 		/* Output the literals and matches from the minimum-cost path */
@@ -1868,8 +1894,7 @@ deflate_flush_block(struct libdeflate_compressor *c,
 				FLUSH_BITS();
 			} else {
 				/* Match */
-				WRITE_MATCH(codes, length,
-					    deflate_length_slot[length], offset,
+				WRITE_MATCH(c, codes, length, offset,
 					    c->p.n.offset_slot_full[offset]);
 			}
 			cur_node += length;
@@ -1935,8 +1960,8 @@ deflate_flush_block(struct libdeflate_compressor *c,
 			}
 
 			/* Output a match. */
-			WRITE_MATCH(codes, length, seq->length_slot,
-				    seq->offset, seq->offset_slot);
+			WRITE_MATCH(c, codes, length, seq->offset,
+				    seq->offset_slot);
 			in_next += length;
 		}
 	}
@@ -2167,7 +2192,6 @@ deflate_choose_match(struct libdeflate_compressor *c,
 
 	seq->litrunlen_and_length |= (u32)length << SEQ_LENGTH_SHIFT;
 	seq->offset = offset;
-	seq->length_slot = length_slot;
 	seq->offset_slot = offset_slot;
 
 	seq++;
@@ -3786,7 +3810,7 @@ libdeflate_free_compressor(struct libdeflate_compressor *c)
 }
 
 unsigned int
-deflate_get_compression_level(struct libdeflate_compressor *c)
+libdeflate_get_compression_level(struct libdeflate_compressor *c)
 {
 	return c->compression_level;
 }
