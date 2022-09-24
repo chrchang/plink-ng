@@ -105,10 +105,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (2 Apr 2022)";
+  " (24 Sep 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has two trailing digits)
 #else
@@ -4017,7 +4017,7 @@ int32_t main(int32_t argc, char** argv) {
   mapname[0] = '\0';
   pedname[0] = '\0';
   famname[0] = '\0';
-  memcpyl3(output_missing_pheno, "-9");
+  memcpyl3(output_missing_pheno, "-9\0");
   // stuff that must be processed before regular alphabetical loop
   retval = init_delim_and_species(flag_ct, flag_buf, flag_map, argc, argv, &range_delim, &chrom_info);
   if (retval) {

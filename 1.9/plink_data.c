@@ -8140,7 +8140,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     if (fopen_checked(outname, "w", &bimfile)) {
       goto vcf_to_bed_ret_OPEN_FAIL;
     }
-    memcpyl3(&(outname_end[2]), "ed");
+    memcpyl3(&(outname_end[2]), "ed\0");
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto vcf_to_bed_ret_OPEN_FAIL;
     }

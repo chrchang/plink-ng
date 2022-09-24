@@ -1729,7 +1729,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 
 int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double output_min_p, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct_ax, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, uintptr_t* sample_male_include2, uint32_t* trio_nuclear_lookup, uint32_t family_ct, Aperm_info* apip, uint32_t mperm_save, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip, uintptr_t* loadbuf, uintptr_t* workbuf, char* textbuf, double* orig_chisq, uint32_t* trio_error_lookup, uintptr_t trio_ct) {
   FILE* outfile = nullptr;
-  uint64_t mendel_error_ct = 0;
+  // uint64_t mendel_error_ct = 0;
   double pat_a2transmit_recip = 0.0;
   double mat_a1transmit_recip = 0.0;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
@@ -1831,7 +1831,8 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
       if (hh_exists && is_x) {
         hh_reset((unsigned char*)loadbuf, sample_male_include2, unfiltered_sample_ct);
       }
-      mendel_error_ct += erase_mendel_errors(unfiltered_sample_ct, loadbuf, workbuf, sex_male, trio_error_lookup, trio_ct, is_x, multigen);
+      // mendel_error_ct += erase_mendel_errors(unfiltered_sample_ct, loadbuf, workbuf, sex_male, trio_error_lookup, trio_ct, is_x, multigen);
+      erase_mendel_errors(unfiltered_sample_ct, loadbuf, workbuf, sex_male, trio_error_lookup, trio_ct, is_x, multigen);
       lookup_ptr = trio_nuclear_lookup;
       poo_acc = 0;
       poo_acc_ct = 0;
@@ -2002,7 +2003,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uint32_t is_midp = fam_ip->tdt_modifier & TDT_MIDP;
   uint32_t poo_test = fam_ip->tdt_modifier & TDT_POO;
   // uint32_t perm_count = fam_ip->tdt_modifier & TDT_PERM_COUNT;
-  uint32_t case_trio_ct = 0;
+  // uint32_t case_trio_ct = 0;
   uint32_t is_discordant = 0;
   uint32_t discord_exists = 0;
   uint32_t cur_child_ct = 0xffffffffU;
@@ -2124,7 +2125,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	  family_ct++;
 	}
       } else if (cur_child_ct != 0xffffffffU) {
-	case_trio_ct += cur_child_ct;
+	// case_trio_ct += cur_child_ct;
         lookup_ptr[-(1 + (int32_t)cur_child_ct)] = cur_child_ct | (is_discordant << 31);
 	family_ct++;
       }
@@ -2170,7 +2171,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       family_ct++;
     }
   } else if (cur_child_ct != 0xffffffffU) {
-    case_trio_ct += cur_child_ct;
+    // case_trio_ct += cur_child_ct;
     lookup_ptr[-(1 + (int32_t)cur_child_ct)] = cur_child_ct | (is_discordant << 31);
     family_ct++;
   }

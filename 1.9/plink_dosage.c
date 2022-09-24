@@ -1591,7 +1591,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       bufptr = memcpya(bufptr, "and ", 4);
       bufptr = strcpya(bufptr, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
     }
-    memcpyl3(bufptr, ".\n");
+    memcpyl3(bufptr, ".\n\0");
     wordwrapb(0);
     logprintb();
     for (file_idx = 0; file_idx < cur_batch_size; file_idx++) {

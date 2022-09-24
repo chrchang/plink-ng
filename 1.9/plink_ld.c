@@ -8292,7 +8292,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       bufptr = dtoa_f_w9p6_spaced(freq22 + solutions[ulkk], bufptr);
       bufptr = memseta(bufptr, 32, 15);
       bufptr = dtoa_f_w9p6_clipped(freqx2 * freq2x, bufptr);
-      bufptr = memcpyl3a(bufptr, "\n\n");
+      bufptr = memcpyl3a(bufptr, "\n\n\0");
       logprintb();
       bufptr = &(g_logbuf[3]);
       bufptr = memcpya(bufptr, "In phase alleles are ", 21);
@@ -8307,7 +8307,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
 	bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0] + 1], alen01);
 	bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[1]], alen10);
       }
-      bufptr = memcpyl3a(bufptr, "\n\n");
+      bufptr = memcpyl3a(bufptr, "\n\n\0");
       logprintb();
     }
   }

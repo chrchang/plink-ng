@@ -2732,7 +2732,6 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   double total_ssq;
   double perm_ct_recip;
   uintptr_t ulii;
-  uintptr_t uljj = 0;
 #ifdef __LP64__
   __m128d* rvptr1;
   __m128d* rvptr2;
@@ -2787,9 +2786,6 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   generate_perm1_interleaved(pheno_nm_ct, case_ct, 1, perm_ct, perm_rows);
   fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b                       \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b0%", stdout);
   fflush(stdout);
-  for (ulii = 0; ulii < pheno_nm_ct; ulii++) {
-    uljj += ((perm_rows[((ulii / BITCT) * perm_ct)] >> (ulii & (BITCT - 1))) & 1);
-  }
   triangle_fill(pheno_nm_ct, g_thread_ct, 0, 1, 1, 1, g_thread_start);
   if (spawn_threads(threads, &ibs_test_thread, g_thread_ct)) {
     goto ibs_test_calc_ret_THREAD_CREATE_FAIL;
