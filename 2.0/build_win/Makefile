@@ -27,7 +27,7 @@ BASEFLAGS += ${DEBUG}
 
 include ../Makefile.src
 
-BASEFLAGS += -DSTATIC_ZLIB -DSTATIC_ZSTD -fno-exceptions
+BASEFLAGS += -DLIBDEFLATE_STATIC -DSTATIC_ZLIB -DSTATIC_ZSTD -fno-exceptions
 LINKFLAGS=${DEBUG} -lm -static-libgcc -L. ${ZLIB_STATIC}
 ifdef NO_OPENBLAS
   BASEFLAGS += -DNOLAPACK

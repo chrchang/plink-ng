@@ -94,9 +94,12 @@ BoolErr GzRawInit(const void* buf, uint32_t nbytes, GzRawDecompressStream* gzp) 
   dsp->zalloc = nullptr;
   dsp->zfree = nullptr;
   dsp->opaque = nullptr;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
   if (unlikely(inflateInit2(dsp, MAX_WBITS | 16) != Z_OK)) {
     return 1;
   }
+#pragma GCC diagnostic pop
   gzp->ds_initialized = 1;
   gzp->eof = 0;
   return 0;
