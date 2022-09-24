@@ -74,7 +74,7 @@ static void scan_auxv(unsigned long *hwcap, unsigned long *hwcap2)
 				goto out;
 			}
 			filled += ret;
-		} while (filled < 2 * sizeof(long));
+		} while (filled < (long int)(2 * sizeof(long)));
 
 		i = 0;
 		do {
@@ -87,7 +87,7 @@ static void scan_auxv(unsigned long *hwcap, unsigned long *hwcap2)
 				*hwcap2 = value;
 			i += 2;
 			filled -= 2 * sizeof(long);
-		} while (filled >= 2 * sizeof(long));
+		} while (filled >= (long int)(2 * sizeof(long)));
 
 		memmove(auxbuf, &auxbuf[i], filled);
 	}
