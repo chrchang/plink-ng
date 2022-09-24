@@ -95,7 +95,7 @@ SIMDE_BEGIN_DECLS_
 
 SIMDE_FUNCTION_ATTRIBUTES
 int simde_mm_cmpestrs (simde__m128i a, int la, simde__m128i b, int lb, const int imm8)
-    SIMDE_REQUIRE_CONSTANT_RANGE(imm8, 0, 127) {
+    SIMDE_REQUIRE_CONSTANT_RANGE(imm8, 0, 255) {
   #if !defined(HEDLEY_PGI_VERSION)
     /* https://www.pgroup.com/userforum/viewtopic.php?f=4&p=27590&sid=cf89f8bf30be801831fe4a2ff0a2fa6c */
     (void) a;
@@ -106,7 +106,15 @@ int simde_mm_cmpestrs (simde__m128i a, int la, simde__m128i b, int lb, const int
   return la <= ((128 / ((imm8 & SIMDE_SIDD_UWORD_OPS) ? 16 : 8)) - 1);
 }
 #if defined(SIMDE_X86_SSE4_2_NATIVE)
-  #define simde_mm_cmpestrs(a, la, b, lb, imm8) _mm_cmpestrs(a, la, b, lb, imm8)
+  #if defined(__clang__) && !SIMDE_DETECT_CLANG_VERSION_CHECK(3,8,0)
+    #define simde_mm_cmpestrs(a, la, b, lb, imm8) \
+      _mm_cmpestrs( \
+        HEDLEY_REINTERPRET_CAST(__v16qi, a), la, \
+        HEDLEY_REINTERPRET_CAST(__v16qi, b), lb, \
+        imm8)
+  #else
+    #define simde_mm_cmpestrs(a, la, b, lb, imm8) _mm_cmpestrs(a, la, b, lb, imm8)
+  #endif
 #endif
 #if defined(SIMDE_X86_SSE4_2_ENABLE_NATIVE_ALIASES)
   #undef _mm_cmpestrs
@@ -115,7 +123,7 @@ int simde_mm_cmpestrs (simde__m128i a, int la, simde__m128i b, int lb, const int
 
 SIMDE_FUNCTION_ATTRIBUTES
 int simde_mm_cmpestrz (simde__m128i a, int la, simde__m128i b, int lb, const int imm8)
-    SIMDE_REQUIRE_CONSTANT_RANGE(imm8, 0, 127) {
+    SIMDE_REQUIRE_CONSTANT_RANGE(imm8, 0, 255) {
   #if !defined(HEDLEY_PGI_VERSION)
     /* https://www.pgroup.com/userforum/viewtopic.php?f=4&p=27590&sid=cf89f8bf30be801831fe4a2ff0a2fa6c */
     (void) a;
@@ -126,7 +134,15 @@ int simde_mm_cmpestrz (simde__m128i a, int la, simde__m128i b, int lb, const int
   return lb <= ((128 / ((imm8 & SIMDE_SIDD_UWORD_OPS) ? 16 : 8)) - 1);
 }
 #if defined(SIMDE_X86_SSE4_2_NATIVE)
-  #define simde_mm_cmpestrz(a, la, b, lb, imm8) _mm_cmpestrz(a, la, b, lb, imm8)
+  #if defined(__clang__) && !SIMDE_DETECT_CLANG_VERSION_CHECK(3,8,0)
+    #define simde_mm_cmpestrz(a, la, b, lb, imm8) \
+      _mm_cmpestrz( \
+        HEDLEY_REINTERPRET_CAST(__v16qi, a), la, \
+        HEDLEY_REINTERPRET_CAST(__v16qi, b), lb, \
+        imm8)
+  #else
+    #define simde_mm_cmpestrz(a, la, b, lb, imm8) _mm_cmpestrz(a, la, b, lb, imm8)
+  #endif
 #endif
 #if defined(SIMDE_X86_SSE4_2_ENABLE_NATIVE_ALIASES)
   #undef _mm_cmpestrz
@@ -138,6 +154,11 @@ simde__m128i
 simde_mm_cmpgt_epi64 (simde__m128i a, simde__m128i b) {
   #if defined(SIMDE_X86_SSE4_2_NATIVE)
     return _mm_cmpgt_epi64(a, b);
+  #elif defined(SIMDE_X86_SSE2_NATIVE)
+    /* https://stackoverflow.com/a/65175746/501126 */
+    __m128i r = _mm_and_si128(_mm_cmpeq_epi32(a, b), _mm_sub_epi64(b, a));
+    r = _mm_or_si128(r, _mm_cmpgt_epi32(a, b));
+    return _mm_shuffle_epi32(r, _MM_SHUFFLE(3, 3, 1, 1));
   #else
     simde__m128i_private
       r_,
@@ -147,35 +168,12 @@ simde_mm_cmpgt_epi64 (simde__m128i a, simde__m128i b) {
     #if defined(SIMDE_ARM_NEON_A64V8_NATIVE)
       r_.neon_u64 = vcgtq_s64(a_.neon_i64, b_.neon_i64);
     #elif defined(SIMDE_ARM_NEON_A32V7_NATIVE)
-      // ARMv7 lacks vcgtq_s64.
-      // This is based off of Clang's SSE2 polyfill:
-      // (a > b) -> ((a_hi > b_hi) || (a_lo > b_lo && a_hi == b_hi))
-
-      // Mask the sign bit out since we need a signed AND an unsigned comparison
-      // and it is ugly to try and split them.
-      int32x4_t mask   = vreinterpretq_s32_s64(vdupq_n_s64(0x80000000ull));
-      int32x4_t a_mask = veorq_s32(a_.neon_i32, mask);
-      int32x4_t b_mask = veorq_s32(b_.neon_i32, mask);
-      // Check if a > b
-      int64x2_t greater = vreinterpretq_s64_u32(vcgtq_s32(a_mask, b_mask));
-      // Copy upper mask to lower mask
-      // a_hi > b_hi
-      int64x2_t gt_hi = vshrq_n_s64(greater, 63);
-      // Copy lower mask to upper mask
-      // a_lo > b_lo
-      int64x2_t gt_lo = vsliq_n_s64(greater, greater, 32);
-      // Compare for equality
-      int64x2_t equal = vreinterpretq_s64_u32(vceqq_s32(a_mask, b_mask));
-      // Copy upper mask to lower mask
-      // a_hi == b_hi
-      int64x2_t eq_hi = vshrq_n_s64(equal, 63);
-      // a_hi > b_hi || (a_lo > b_lo && a_hi == b_hi)
-      int64x2_t ret = vorrq_s64(gt_hi, vandq_s64(gt_lo, eq_hi));
-      r_.neon_i64 = ret;
+      /* https://stackoverflow.com/a/65223269/501126 */
+      r_.neon_i64 = vshrq_n_s64(vqsubq_s64(b_.neon_i64, a_.neon_i64), 63);
     #elif defined(SIMDE_POWER_ALTIVEC_P8_NATIVE)
       r_.altivec_u64 = HEDLEY_REINTERPRET_CAST(SIMDE_POWER_ALTIVEC_VECTOR(unsigned long long), vec_cmpgt(a_.altivec_i64, b_.altivec_i64));
     #elif defined(SIMDE_VECTOR_SUBSCRIPT_OPS)
-      r_.i64 = HEDLEY_STATIC_CAST(__typeof__(r_.i64), a_.i64 > b_.i64);
+      r_.i64 = HEDLEY_REINTERPRET_CAST(__typeof__(r_.i64), a_.i64 > b_.i64);
     #else
       SIMDE_VECTORIZE
       for (size_t i = 0 ; i < (sizeof(r_.i64) / sizeof(r_.i64[0])) ; i++) {
@@ -220,7 +218,15 @@ simde_mm_cmpistrs_16_(simde__m128i a) {
 }
 
 #if defined(SIMDE_X86_SSE4_2_NATIVE)
-  #define simde_mm_cmpistrs(a, b, imm8) _mm_cmpistrs(a, b, imm8)
+  #if defined(__clang__) && !SIMDE_DETECT_CLANG_VERSION_CHECK(3,8,0)
+    #define simde_mm_cmpistrs(a, b, imm8) \
+      _mm_cmpistrs( \
+        HEDLEY_REINTERPRET_CAST(__v16qi, a), \
+        HEDLEY_REINTERPRET_CAST(__v16qi, b), \
+        imm8)
+  #else
+    #define simde_mm_cmpistrs(a, b, imm8) _mm_cmpistrs(a, b, imm8)
+  #endif
 #else
   #define simde_mm_cmpistrs(a, b, imm8) \
      (((imm8) & SIMDE_SIDD_UWORD_OPS) \
@@ -261,7 +267,15 @@ simde_mm_cmpistrz_16_(simde__m128i b) {
 }
 
 #if defined(SIMDE_X86_SSE4_2_NATIVE)
-  #define simde_mm_cmpistrz(a, b, imm8) _mm_cmpistrz(a, b, imm8)
+  #if defined(__clang__) && !SIMDE_DETECT_CLANG_VERSION_CHECK(3,8,0)
+    #define simde_mm_cmpistrz(a, b, imm8) \
+      _mm_cmpistrz( \
+        HEDLEY_REINTERPRET_CAST(__v16qi, a), \
+        HEDLEY_REINTERPRET_CAST(__v16qi, b), \
+        imm8)
+  #else
+    #define simde_mm_cmpistrz(a, b, imm8) _mm_cmpistrz(a, b, imm8)
+  #endif
 #else
   #define simde_mm_cmpistrz(a, b, imm8) \
      (((imm8) & SIMDE_SIDD_UWORD_OPS) \
@@ -354,7 +368,7 @@ simde_mm_crc32_u64(uint64_t prevcrc, uint64_t v) {
     #endif
   #endif
 }
-#if defined(SIMDE_X86_SSE4_2_ENABLE_NATIVE_ALIASES)
+#if defined(SIMDE_X86_SSE4_2_ENABLE_NATIVE_ALIASES) || (defined(SIMDE_ENABLE_NATIVE_ALIASES) && !defined(SIMDE_ARCH_AMD64))
   #define _mm_crc32_u64(prevcrc, v) simde_mm_crc32_u64(prevcrc, v)
 #endif
 
