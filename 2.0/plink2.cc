@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a3.6"
+static const char ver_str[] = "PLINK v2.00a3.7"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3.6"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (24 Sep 2022)";
+  " (17 Oct 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -432,6 +432,7 @@ typedef struct Plink2CmdlineStruct {
   char* loop_cats_phenoname;
   char* fa_fname;
   char* king_table_subset_fname;
+  char* king_table_require_fnames;
   char* require_info_flattened;
   char* require_no_info_flattened;
   char* keep_col_match_fname;
@@ -2264,12 +2265,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             rel_check = 1;
           }
         }
-        if (pcp->king_table_subset_fname || rel_check) {
-          // command-line parser currently guarantees --king-table-subset and
+        if (pcp->king_table_require_fnames || pcp->king_table_subset_fname || rel_check) {
+          // command-line parser currently guarantees
+          // --king-table-subset/--king-table-require and
           // "--make-king-table rel-check" aren't used with --king-cutoff or
           // --make-king
           // probable todo: --king-cutoff-table which can use .kin0 as input
-          reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, pcp->king_table_subset_fname, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, rel_check, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, pcp->king_table_subset_fname, pcp->king_table_require_fnames, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, rel_check, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -3278,6 +3280,7 @@ int main(int argc, char** argv) {
   pc.loop_cats_phenoname = nullptr;
   pc.fa_fname = nullptr;
   pc.king_table_subset_fname = nullptr;
+  pc.king_table_require_fnames = nullptr;
   pc.require_info_flattened = nullptr;
   pc.require_no_info_flattened = nullptr;
   pc.keep_col_match_fname = nullptr;
@@ -4568,7 +4571,7 @@ int main(int argc, char** argv) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 8))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 9))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (unlikely(ScanPosintDefcapx(argvk[arg_idx + 1], &gendummy_info.sample_ct))) {
@@ -6441,6 +6444,18 @@ int main(int argc, char** argv) {
           } else {
             pc.king_table_subset_thresh = -DBL_MAX;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "ing-table-require")) {
+          if (unlikely(pc.king_cutoff != -1)) {
+            logerrputs("Error: --king-table-require cannot be used with --king-cutoff.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kPglFnamesize, &pc.king_table_require_fnames);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "eep-if")) {
           reterr = ValidateAndAllocCmpExpr(&(argvk[arg_idx + 1]), argvk[arg_idx], param_ct, &pc.keep_if_expr);
           if (unlikely(reterr)) {
@@ -7071,8 +7086,8 @@ int main(int argc, char** argv) {
           if (unlikely(king_cutoff_fprefix)) {
             logerrputs("Error: --make-king cannot be used with a --king-cutoff input fileset.\n");
             goto main_ret_INVALID_CMDLINE_A;
-          } else if (unlikely(pc.king_table_subset_fname)) {
-            logerrputs("Error: --make-king cannot be used with --king-table-subset.\n");
+          } else if (unlikely(pc.king_table_subset_fname || pc.king_table_require_fnames)) {
+            logerrputs("Error: --make-king cannot be used with --king-table-subset or\n--king-table-require.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
@@ -7175,6 +7190,10 @@ int main(int argc, char** argv) {
                 }
                 if (unlikely(pc.king_table_subset_fname)) {
                   logerrputs("Error: --king-table-subset requires --make-king-table cols= to include the 'id'\ncolumn set.\n");
+                  goto main_ret_INVALID_CMDLINE_A;
+                }
+                if (unlikely(pc.king_table_require_fnames)) {
+                  logerrputs("Error: --king-table-require requires --make-king-table cols= to include the 'id'\ncolumn set.\n");
                   goto main_ret_INVALID_CMDLINE_A;
                 }
               }
@@ -11167,6 +11186,7 @@ int main(int argc, char** argv) {
   free_cond(pc.keep_col_match_fname);
   free_cond(pc.require_no_info_flattened);
   free_cond(pc.require_info_flattened);
+  free_cond(pc.king_table_require_fnames);
   free_cond(pc.king_table_subset_fname);
   free_cond(pc.fa_fname);
   free_cond(pc.loop_cats_phenoname);

@@ -2224,7 +2224,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,
     // when it comes out
-    HelpPrint("make-king\0make-king-table\0king-table-filter\0king-table-subset\0", &help_ctrl, 0,
+    HelpPrint("make-king\0make-king-table\0king-table-filter\0king-table-subset\0king-table-require\0", &help_ctrl, 0,
 "  --king-table-filter <min>      : Specify minimum kinship coefficient for\n"
 "                                   inclusion in --make-king-table report.\n"
 "  --king-table-subset <f> [kmin] : Restrict current --make-king-table run to\n"
@@ -2232,6 +2232,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                   If a second argument is provided, only\n"
 "                                   sample pairs with kinship >= that threshold\n"
 "                                   (in the input .kin0) are processed.\n"
+"  --king-table-require <fn...>   : Restrict current --make-king-table run to\n"
+"                                   sample pairs that include at least one of\n"
+"                                   the samples in the given file.\n"
                );
     HelpPrint("glm\0linear\0logistic\0condition\0condition-list\0parameters\0tests\0", &help_ctrl, 0,
 "  --condition <variant ID> [{dominant | recessive}] ['multiallelic']\n"

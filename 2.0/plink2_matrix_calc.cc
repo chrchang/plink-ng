@@ -2542,7 +2542,7 @@ THREAD_FUNC_DECL CalcKingTableSubsetThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t rel_check, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t rel_check, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
   PglErr reterr = kPglRetSuccess;
   {
     uint64_t pair_idx = *pair_idx_ptr;
@@ -2584,6 +2584,12 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
         // error code
         snprintf(g_logbuf, kLogbufSize, "Error: Identical sample IDs on line %" PRIuPTR " of --king-table-subset file.\n", line_idx);
         goto KingTableSubsetLoad_ret_INCONSISTENT_INPUT_WW;
+      }
+      if (sample_require) {
+        if ((!IsSet(sample_require, sample_uidx1)) && (!IsSet(sample_require, sample_uidx2))) {
+          line_iter = K_CAST(char*, linebuf_iter);
+          continue;
+        }
       }
       if (king_table_subset_thresh != -DBL_MAX) {
         linebuf_iter = FirstNonTspace(linebuf_iter);
@@ -2681,58 +2687,181 @@ uint64_t CountRelCheckPairs(const char* nsorted_xidbox, uintptr_t max_xid_blen, 
   return total;
 }
 
-void GetRelCheckPairs(const char* nsorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, FidPairIterator* fpip, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+uint64_t CountRelCheckPairsSampleRequire(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, char* idbuf) {
+  uint64_t total = 0;
+  for (uintptr_t block_start_idx = 0; block_start_idx != orig_sample_ct; ) {
+    const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
+    const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
+    memcpy(idbuf, fid_start, fid_slen);
+    idbuf[fid_slen] = ' ';
+    idbuf[fid_slen + 1] = '\0';
+    const uintptr_t block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
+    const uint64_t cur_block_size = block_end_idx - block_start_idx;
+    uintptr_t required_ct = 0;
+    for (uintptr_t block_idx = block_start_idx; block_idx != block_end_idx; ++block_idx) {
+      const uint32_t sample_uidx = xid_map[block_idx];
+      required_ct += IsSet(sample_require, sample_uidx);
+    }
+    const uint64_t optional_ct = cur_block_size - required_ct;
+    total += ((cur_block_size * (cur_block_size - 1)) - (optional_ct * (optional_ct - 1))) / 2;
+    block_start_idx = block_end_idx;
+  }
+  return total;
+}
+
+void GetRelCheckPairs(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, FidPairIterator* fpip, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
   // Support "--make-king-table rel-check" without an actual subset-file.
+  // These loops aren't really optimized, since actual rel-check use cases
+  // should have small families where it doesn't matter.
   uint32_t block_start_idx = fpip->block_start_idx;
   uint32_t block_end_idx = fpip->block_end_idx;
   uint32_t idx1 = fpip->idx1;
   uint32_t idx2 = fpip->idx2;
   uint64_t pair_idx = *pair_idx_ptr;
   uint32_t* loaded_sample_idx_pairs_iter = loaded_sample_idx_pairs;
-  while (1) {
-    for (; idx1 != block_end_idx; ++idx1) {
-      // idx1 >= idx2.
-      uint32_t cur_pair_ct = idx1 - idx2;
-      uint32_t idx2_stop = idx1;
-      if (pair_idx_stop - pair_idx < cur_pair_ct) {
-        cur_pair_ct = pair_idx_stop - pair_idx;
-        idx2_stop = idx2 + cur_pair_ct;
-      }
-      if (pair_idx < pair_idx_start) {
-        const uint64_t skip_ct = pair_idx_start - pair_idx;
-        if (skip_ct >= cur_pair_ct) {
-          idx2 = idx2_stop;
-        } else {
-          idx2 += skip_ct;
+  if (!sample_require) {
+    while (1) {
+      for (; idx1 != block_end_idx; ++idx1) {
+        // idx1 >= idx2.
+        uint32_t cur_pair_ct = idx1 - idx2;
+        uint32_t idx2_stop = idx1;
+        if (pair_idx_stop - pair_idx < cur_pair_ct) {
+          cur_pair_ct = pair_idx_stop - pair_idx;
+          idx2_stop = idx2 + cur_pair_ct;
         }
-        // pair_idx is updated correctly after the inner loop
-      }
-      const uint32_t sample_uidx1 = xid_map[idx1];
-      for (; idx2 != idx2_stop; ++idx2) {
-        const uint32_t sample_uidx2 = xid_map[idx2];
-        *loaded_sample_idx_pairs_iter++ = sample_uidx1;
-        *loaded_sample_idx_pairs_iter++ = sample_uidx2;
-      }
-      pair_idx += cur_pair_ct;
-      if (pair_idx == pair_idx_stop) {
-        if (is_first_parallel_scan) {
-          pair_idx = CountRelCheckPairs(nsorted_xidbox, max_xid_blen, orig_sample_ct, idbuf);
+        if (pair_idx < pair_idx_start) {
+          // possible in later --parallel shards
+          const uint64_t skip_ct = pair_idx_start - pair_idx;
+          if (skip_ct >= cur_pair_ct) {
+            idx2 = idx2_stop;
+          } else {
+            idx2 += skip_ct;
+          }
+          // pair_idx is updated correctly after the inner loop
         }
-        goto GetRelCheckPairs_early_exit;
+        const uint32_t sample_uidx1 = xid_map[idx1];
+        for (; idx2 != idx2_stop; ++idx2) {
+          const uint32_t sample_uidx2 = xid_map[idx2];
+          *loaded_sample_idx_pairs_iter++ = sample_uidx1;
+          *loaded_sample_idx_pairs_iter++ = sample_uidx2;
+        }
+        pair_idx += cur_pair_ct;
+        if (pair_idx == pair_idx_stop) {
+          if (is_first_parallel_scan) {
+            pair_idx = CountRelCheckPairs(nsorted_xidbox, max_xid_blen, orig_sample_ct, idbuf);
+          }
+          goto GetRelCheckPairs_early_exit;
+        }
+        idx2 = block_start_idx;
+      }
+      block_start_idx = block_end_idx;
+      if (block_start_idx == orig_sample_ct) {
+        break;
       }
       idx2 = block_start_idx;
+      const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
+      const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
+      memcpy(idbuf, fid_start, fid_slen);
+      idbuf[fid_slen] = ' ';
+      idbuf[fid_slen + 1] = '\0';
+      block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
     }
-    block_start_idx = block_end_idx;
-    if (block_start_idx == orig_sample_ct) {
-      break;
+  } else {
+    // --king-table-require
+    while (1) {
+      for (; idx1 != block_end_idx; ++idx1) {
+        // idx1 >= idx2.
+        uint32_t cur_pair_ct = 0;
+        const uint32_t sample_uidx1 = xid_map[idx1];
+        if (IsSet(sample_require, sample_uidx1)) {
+          cur_pair_ct = idx1 - idx2;
+          uint32_t idx2_stop = idx1;
+          if (pair_idx_stop - pair_idx < cur_pair_ct) {
+            cur_pair_ct = pair_idx_stop - pair_idx;
+            idx2_stop = idx2 + cur_pair_ct;
+          }
+          if (pair_idx < pair_idx_start) {
+            const uint64_t skip_ct = pair_idx_start - pair_idx;
+            if (skip_ct >= cur_pair_ct) {
+              idx2 = idx2_stop;
+            } else {
+              idx2 += skip_ct;
+            }
+          }
+          for (; idx2 != idx2_stop; ++idx2) {
+            const uint32_t sample_uidx2 = xid_map[idx2];
+            *loaded_sample_idx_pairs_iter++ = sample_uidx1;
+            *loaded_sample_idx_pairs_iter++ = sample_uidx2;
+          }
+        } else {
+          // !IsSet(sample_require, sample_uidx1)
+          for (uint32_t idx = idx2; idx != idx1; ++idx) {
+            const uint32_t sample_uidx = xid_map[idx];
+            cur_pair_ct += IsSet(sample_require, sample_uidx);
+          }
+          uint32_t idx2_stop = idx1;
+          if (pair_idx_stop - pair_idx < cur_pair_ct) {
+            cur_pair_ct = pair_idx_stop - pair_idx;
+            idx2_stop = idx2;
+            uint32_t remaining_required_pair_ct = cur_pair_ct;
+            while (1) {
+              const uint32_t sample_uidx = xid_map[idx2_stop];
+              ++idx2_stop;
+              if (IsSet(sample_require, sample_uidx)) {
+                --remaining_required_pair_ct;
+                if (!remaining_required_pair_ct) {
+                  break;
+                }
+              }
+            }
+          }
+          if (pair_idx < pair_idx_start) {
+            const uint64_t skip_ct = pair_idx_start - pair_idx;
+            if (skip_ct >= cur_pair_ct) {
+              idx2 = idx2_stop;
+            } else {
+              uint32_t remaining_skip_ct = skip_ct;
+              while (1) {
+                const uint32_t sample_uidx = xid_map[idx2];
+                ++idx2;
+                if (IsSet(sample_require, sample_uidx)) {
+                  --remaining_skip_ct;
+                  if (!remaining_skip_ct) {
+                    break;
+                  }
+                }
+              }
+            }
+          }
+          for (; idx2 != idx2_stop; ++idx2) {
+            const uint32_t sample_uidx2 = xid_map[idx2];
+            if (IsSet(sample_require, sample_uidx2)) {
+              *loaded_sample_idx_pairs_iter++ = sample_uidx1;
+              *loaded_sample_idx_pairs_iter++ = sample_uidx2;
+            }
+          }
+        }
+        pair_idx += cur_pair_ct;
+        if (pair_idx == pair_idx_stop) {
+          if (is_first_parallel_scan) {
+            pair_idx = CountRelCheckPairsSampleRequire(nsorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, idbuf);
+          }
+          goto GetRelCheckPairs_early_exit;
+        }
+        idx2 = block_start_idx;
+      }
+      block_start_idx = block_end_idx;
+      if (block_start_idx == orig_sample_ct) {
+        break;
+      }
+      idx2 = block_start_idx;
+      const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
+      const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
+      memcpy(idbuf, fid_start, fid_slen);
+      idbuf[fid_slen] = ' ';
+      idbuf[fid_slen + 1] = '\0';
+      block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
     }
-    idx2 = block_start_idx;
-    const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
-    const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
-    memcpy(idbuf, fid_start, fid_slen);
-    idbuf[fid_slen] = ' ';
-    idbuf[fid_slen + 1] = '\0';
-    block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
   }
  GetRelCheckPairs_early_exit:
   *pair_idx_ptr = pair_idx;
@@ -2742,7 +2871,7 @@ void GetRelCheckPairs(const char* nsorted_xidbox, const uint32_t* xid_map, uintp
   fpip->idx2 = idx2;
 }
 
-PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, uint32_t rel_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, uint32_t rel_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   // subset_fname permitted to be nullptr when rel_check is true.
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
@@ -2762,6 +2891,23 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     reterr = ConditionalAllocateNonAutosomalVariants(cip, "--make-king-table", raw_variant_ct, &variant_include, &variant_ct);
     if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    const uintptr_t* sample_require = nullptr;
+    if (require_fnames) {
+      uintptr_t* sample_require_tmp;
+      reterr = LoadSampleIds(require_fnames, orig_sample_include, siip, "make-king-table", raw_sample_ct, orig_sample_ct, kfLoadSampleIdsMultifile, &sample_require_tmp, nullptr);
+      if (unlikely(reterr)) {
+        goto CalcKingTableSubset_ret_1;
+      }
+      sample_require = sample_require_tmp;
+      const uint32_t require_set_size = PopcountWords(sample_require, raw_sample_ctl);
+      if (unlikely(!require_set_size)) {
+        logerrputs("Error: No sample ID(s) in --king-table-require file(s) are in the current\ndataset.\n");
+        goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
+      }
+      logprintf("--king-table-require: %u sample ID%s loaded.\n", require_set_size, (require_set_size == 1)? "" : "s");
     }
     // 1. Write output header line if necessary.
     // 2. Count number of relevant sample pairs (higher uidx in high 32 bits),
@@ -2783,7 +2929,6 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     //
     // Could store the pairs in a more compact manner, but can live with 50%
     // space bloat for now.
-    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uint32_t sample_ctaw = BitCtToAlignedWordCt(orig_sample_ct);
     uint32_t sample_ctaw2 = NypCtToAlignedWordCt(orig_sample_ct);
     uint32_t king_bufsizew = kKingMultiplexWords * orig_sample_ct;
@@ -2990,11 +3135,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
 
     uint64_t pair_idx = 0;
     if (!subset_fname) {
-      GetRelCheckPairs(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, (parallel_tot != 1), 0, pair_buf_capacity, &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+      GetRelCheckPairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, (parallel_tot != 1), 0, pair_buf_capacity, &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
     } else {
       fputs("Scanning --king-table-subset file...", stdout);
       fflush(stdout);
-      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
       if (unlikely(reterr)) {
         goto CalcKingTableSubset_ret_1;
       }
@@ -3022,7 +3167,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           pair_idx = 0;
           if (!subset_fname) {
             InitFidPairIterator(&fpi);
-            GetRelCheckPairs(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+            GetRelCheckPairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
           } else {
             reterr = TextRewind(&txs);
             if (unlikely(reterr)) {
@@ -3035,7 +3180,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_TSTREAM_REWIND_FAIL;
             }
-            reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+            reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_1;
             }
@@ -3267,11 +3412,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       }
       pair_idx_cur_start = pair_idx;
       if (!subset_fname) {
-        GetRelCheckPairs(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+        GetRelCheckPairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
       } else {
         fputs("Scanning --king-table-subset file...", stdout);
         fflush(stdout);
-        reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+        reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
         if (unlikely(reterr)) {
           goto CalcKingTableSubset_ret_1;
         }

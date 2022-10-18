@@ -592,6 +592,18 @@ void InitXidHtable(const SampleIdInfo* siip, uint32_t sample_ct, uint32_t xid_ht
 
 BoolErr LookupXidHtable(const char* line_start, const SampleIdInfo* siip, const uint32_t* xid_htable, uint32_t xid_htable_size, uint32_t fid_present, uint32_t sid_present, uint32_t* sample_idxp, char* idbuf);
 
+
+// could add MultifileIntersection mode if there's a user
+FLAGSET_DEF_START()
+  kfLoadSampleIds0,
+  kfLoadSampleIdsMultifile = (1 << 0),
+  kfLoadSampleIdsFamOnly = (1 << 1)
+FLAGSET_DEF_END(LoadSampleIdsFlags);
+
+// Allocates (at the bottom of bigstack) and returns results in loaded_bitarr.
+PglErr LoadSampleIds(const char* fnames, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* flag_name, uint32_t raw_sample_ct, uint32_t sample_ct, LoadSampleIdsFlags flags, uintptr_t** loaded_bitarrp, uint32_t* duplicate_ctp);
+
+
 extern const unsigned char g_char_to_sex[256];
 
 HEADER_INLINE uint32_t CharToSex(char cc) {

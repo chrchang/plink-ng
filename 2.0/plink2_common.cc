@@ -1320,6 +1320,189 @@ BoolErr LookupXidHtable(const char* line_start, const SampleIdInfo* siip, const 
   }
 }
 
+PglErr LoadSampleIds(const char* fnames, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* flag_name, uint32_t raw_sample_ct, uint32_t sample_ct, LoadSampleIdsFlags flags, uintptr_t** loaded_bitarrp, uint32_t* duplicate_ctp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  const char* fname_iter = fnames;
+  const char* fname_txs = nullptr;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  uintptr_t line_idx;
+  {
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* loaded_bitarr;
+    if (unlikely(bigstack_calloc_w(raw_sample_ctl, &loaded_bitarr))) {
+      goto LoadSampleIds_ret_NOMEM;
+    }
+    unsigned char* bigstack_mark2 = g_bigstack_base;
+
+    const uint32_t families_only = flags & kfLoadSampleIdsFamOnly;
+    const char* sample_ids = siip->sample_ids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    char* idbuf = nullptr;
+    uint32_t* xid_map = nullptr;
+    char* sorted_xidbox = nullptr;
+    uintptr_t max_xid_blen = max_sample_id_blen - 1;
+    if (families_only) {
+      // only need to do this once
+      if (unlikely(bigstack_alloc_u32(sample_ct, &xid_map) ||
+                   bigstack_alloc_c(sample_ct * max_xid_blen, &sorted_xidbox))) {
+        goto LoadSampleIds_ret_NOMEM;
+      }
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const char* fidt_ptr = &(sample_ids[sample_uidx * max_sample_id_blen]);
+        const char* fidt_end = AdvPastDelim(fidt_ptr, '\t');
+        const uint32_t cur_fidt_slen = fidt_end - fidt_ptr;
+        // include trailing tab, to simplify bsearch_strbox_lb() usage
+        memcpyx(&(sorted_xidbox[sample_idx * max_xid_blen]), fidt_ptr, cur_fidt_slen, '\0');
+        xid_map[sample_idx] = sample_uidx;
+      }
+      if (unlikely(SortStrboxIndexed(sample_ct, max_xid_blen, 0, sorted_xidbox, xid_map))) {
+        goto LoadSampleIds_ret_NOMEM;
+      }
+    }
+
+    unsigned char* bigstack_mark3 = nullptr;
+    const char* fnames_iter = fnames;
+    uintptr_t duplicate_ct = 0;
+    do {
+      if (!bigstack_mark3) {
+        fname_txs = fnames_iter;
+        reterr = SizeAndInitTextStream(fnames_iter, bigstack_left() - (bigstack_left() / 4), 1, &txs);
+        if (unlikely(reterr)) {
+          goto LoadSampleIds_ret_TSTREAM_FAIL;
+        }
+        bigstack_mark3 = g_bigstack_base;
+      } else {
+        reterr = TextRetarget(fnames_iter, &txs);
+        if (unlikely(reterr)) {
+          goto LoadSampleIds_ret_TSTREAM_FAIL;
+        }
+        fname_txs = fnames_iter;
+      }
+      char* line_start;
+      XidMode xid_mode;
+      line_idx = 0;
+      uint32_t skip_header = 0;
+      if (families_only) {
+        skip_header = 1;
+      } else {
+        reterr = LoadXidHeader(flag_name, (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
+        if (reterr) {
+          if (likely(reterr == kPglRetEof)) {
+            reterr = kPglRetSuccess;
+            goto LoadSampleIds_empty_file;
+          }
+          goto LoadSampleIds_ret_TSTREAM_XID_FAIL;
+        }
+        const uint32_t allow_dups = siip->sids && (!(xid_mode & kfXidModeFlagSid));
+        reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+        if (unlikely(reterr)) {
+          goto LoadSampleIds_ret_1;
+        }
+        if (unlikely(bigstack_alloc_c(max_xid_blen, &idbuf))) {
+          goto LoadSampleIds_ret_NOMEM;
+        }
+        if (*line_start == '#') {
+          skip_header = 1;
+        }
+      }
+      if (skip_header) {
+        ++line_idx;
+        line_start = TextGet(&txs);
+      }
+      for (; line_start; ++line_idx, line_start = TextGet(&txs)) {
+        if (!families_only) {
+          const char* linebuf_iter = line_start;
+          uint32_t xid_idx_start;
+          uint32_t xid_idx_end;
+          if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+            uint32_t sample_uidx = xid_map[xid_idx_start];
+            if (IsSet(loaded_bitarr, sample_uidx)) {
+              ++duplicate_ct;
+            } else {
+              for (uint32_t xid_idx = xid_idx_start; ; ) {
+                SetBit(sample_uidx, loaded_bitarr);
+                if (++xid_idx == xid_idx_end) {
+                  break;
+                }
+                sample_uidx = xid_map[xid_idx];
+              }
+            }
+          } else if (unlikely(!linebuf_iter)) {
+            goto LoadSampleIds_ret_MISSING_TOKENS;
+          }
+        } else {
+          char* token_end = CurTokenEnd(line_start);
+          // bugfix (28 Oct 2018): \n was being clobbered and not replaced
+          // const char orig_token_end_char = *token_end;
+          *token_end = '\t';
+          const uint32_t slen = 1 + S_CAST(uintptr_t, token_end - line_start);
+          uint32_t lb_idx = bsearch_strbox_lb(line_start, sorted_xidbox, slen, max_xid_blen, sample_ct);
+          *token_end = ' ';
+          const uint32_t ub_idx = bsearch_strbox_lb(line_start, sorted_xidbox, slen, max_xid_blen, sample_ct);
+          if (ub_idx != lb_idx) {
+            uint32_t sample_uidx = xid_map[lb_idx];
+            if (IsSet(loaded_bitarr, sample_uidx)) {
+              ++duplicate_ct;
+            } else {
+              for (uint32_t xid_map_idx = lb_idx; ; ) {
+                SetBit(sample_uidx, loaded_bitarr);
+                if (++xid_map_idx == ub_idx) {
+                  break;
+                }
+                sample_uidx = xid_map[xid_map_idx];
+              }
+            }
+          }
+          // *token_end = orig_token_end_char;
+        }
+      }
+      if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+        goto LoadSampleIds_ret_TSTREAM_FAIL;
+      }
+    LoadSampleIds_empty_file:
+      if (!(flags & kfLoadSampleIdsMultifile)) {
+        break;
+      }
+      BigstackReset(bigstack_mark3);
+      fnames_iter = strnul(fnames_iter);
+      ++fnames_iter;
+    } while (*fnames_iter);
+    reterr = kPglRetSuccess;
+    *loaded_bitarrp = loaded_bitarr;
+    if (duplicate_ctp) {
+      *duplicate_ctp = duplicate_ct;
+    }
+    bigstack_mark = bigstack_mark2;
+  }
+  while (0) {
+  LoadSampleIds_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadSampleIds_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
+  LoadSampleIds_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(fname_txs, &txs);
+    break;
+  LoadSampleIds_ret_MISSING_TOKENS:
+    logerrprintf("Error: --%s: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", flag_name, line_idx, fname_iter);
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ LoadSampleIds_ret_1:
+  if (fname_txs) {
+    CleanupTextStream2(fname_txs, &txs, &reterr);
+  }
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 // accept 'M'/'F'/'m'/'f' since that's more readable without being any less
 // efficient
 const unsigned char g_char_to_sex[256] =
