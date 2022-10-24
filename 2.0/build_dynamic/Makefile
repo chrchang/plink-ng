@@ -12,6 +12,8 @@
 #   Link to MKL with 64-bit indexes (dynamically): DYNAMIC_MKL
 #     (this also requires MKLROOT and MKL_IOMP5_DIR to be defined, and
 #     LD_LIBRARY_PATH to include the appropriate directories)
+#   Link statically to AOCL with 64-bit indexes: STATIC_AOCL
+#     (this supports older OSes than dynamic linking)
 #   32-bit binary (also sets STATIC_ZLIB and ZSTD_O2):
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
@@ -27,7 +29,8 @@ STATIC_ZSTD = 1
 DYNAMIC_MKL =
 MKLROOT = /home/ubuntu/intel/mkl
 MKL_IOMP5_DIR = /home/ubuntu/intel/compilers_and_libraries_2017.2.174/linux/compiler/lib/intel64
-AOCLROOT =
+STATIC_AOCL =
+AOCLROOT = /home/ubuntu/amd/aocl/3.2.0
 FORCE_32BIT =
 DEBUG =
 CC ?= gcc
@@ -118,6 +121,9 @@ ifeq ($(UNAME), Darwin)
   ifdef DYNAMIC_MKL
     $(error MKL is not currently supported on OS X)
   endif
+  ifdef STATIC_AOCL
+    $(error AOCL is not currently supported on OS X)
+  endif
   BLASFLAGS=-framework Accelerate
   CFLAGS += -I/usr/local/include
   CXXFLAGS += -I/usr/local/include -stdlib=libc++
@@ -132,8 +138,22 @@ else
     ifdef FORCE_32BIT
       $(error DYNAMIC_MKL + FORCE_32BIT not supported)
     endif
+    ifdef STATIC_AOCL
+      $(error DYNAMIC_MKL + STATIC_AOCL does not make sense)
+    endif
     BASEFLAGS += -DDYNAMIC_MKL -DLAPACK_ILP64 -I${MKLROOT}/include
     BLASFLAGS = -L${MKLROOT}/lib/intel64 -L${MKL_IOMP5_DIR} -Wl,--no-as-needed -lmkl_intel_ilp64 -lmkl_intel_thread -lmkl_core -liomp5
+    LINKFLAGS += -ldl
+  endif
+  ifdef STATIC_AOCL
+    ifdef NO_LAPACK
+      $(error STATIC_AOCL and NO_LAPACK conflict)
+    endif
+    ifdef FORCE_32BIT
+      $(error STATIC_AOCL + FORCE_32BIT not supported)
+    endif
+    BASEFLAGS += -DUSE_CBLAS_XGEMM -DLAPACK_ILP64 -I${AOCLROOT}/include
+    BLASFLAGS = -L. ${AOCLROOT}/lib/libflame.a -L. ${AOCLROOT}/lib/libblis.a
     LINKFLAGS += -ldl
   endif
 endif
