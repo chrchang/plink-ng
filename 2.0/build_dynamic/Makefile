@@ -27,6 +27,7 @@ STATIC_ZSTD = 1
 DYNAMIC_MKL =
 MKLROOT = /home/ubuntu/intel/mkl
 MKL_IOMP5_DIR = /home/ubuntu/intel/compilers_and_libraries_2017.2.174/linux/compiler/lib/intel64
+AOCLROOT =
 FORCE_32BIT =
 DEBUG =
 CC ?= gcc

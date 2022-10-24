@@ -447,7 +447,7 @@ PglErr ImportSampleId(const char* input_id_iter, const char* input_id_end, const
     reterr = kPglRetInconsistentInput;
     break;
   }
-  return kPglRetSuccess;
+  return reterr;
 }
 
 PglErr ImportIidFromSampleId(const char* input_id_iter, const char* input_id_end, const ImportSampleIdContext* isicp, const char** iid_start_ptr, uint32_t* iid_slen_ptr) {
@@ -502,7 +502,7 @@ PglErr ImportIidFromSampleId(const char* input_id_iter, const char* input_id_end
     reterr = kPglRetInconsistentInput;
     break;
   }
-  return kPglRetSuccess;
+  return reterr;
 }
 
 PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, char id_delim, char idspace_to, char flag_char, char* sample_line_first_id, char* outname, char* outname_end, uint32_t* sample_ct_ptr) {

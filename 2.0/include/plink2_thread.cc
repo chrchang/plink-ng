@@ -18,7 +18,14 @@
 #include "plink2_thread.h"
 
 #ifndef _WIN32
-#  include <unistd.h>  // sysconf()
+#  ifdef __APPLE__
+#    include <unistd.h>  // sysconf()
+#  else
+#    ifndef _GNU_SOURCE
+#      define _GNU_SOURCE
+#    endif
+#    include <sched.h>  // sched_getaffinity(), CPU_COUNT()
+#  endif
 #endif
 
 #ifdef __cplusplus
@@ -60,7 +67,16 @@ uint32_t NumCpu(int32_t* known_procs_ptr) {
   const int32_t known_procs = sysinfo.dwNumberOfProcessors;
   uint32_t max_thread_ct = known_procs;
 #else
-  const int32_t known_procs = sysconf(_SC_NPROCESSORS_ONLN);
+#  ifdef __APPLE__
+  int32_t known_procs = sysconf(_SC_NPROCESSORS_ONLN);
+#  else
+  int32_t known_procs = -1;
+  cpu_set_t cpu_set;
+  if (sched_getaffinity(0, sizeof(cpu_set), &cpu_set) == 0) {
+    known_procs = CPU_COUNT(&cpu_set);
+    assert(known_procs);
+  }
+#  endif
   uint32_t max_thread_ct = (known_procs == -1)? 1 : known_procs;
 #endif
   if (known_procs_ptr) {
