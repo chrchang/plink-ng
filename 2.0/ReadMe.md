@@ -77,7 +77,9 @@ As for the PLINK 2.0 application:
 * build_dynamic/ contains a Makefile suitable for Linux and macOS dynamic
   builds.  On Linux, if Intel MKL is installed using the instructions at e.g.
   https://www.intel.com/content/www/us/en/developer/articles/guide/installing-free-libraries-and-python-apt-repo.html ,
-  you can dynamically link to it.
+  you can dynamically link to it; or if AOCL
+  (https://developer.amd.com/amd-aocl/#downloads ) static libraries are
+  installed, you can link to them.
 * build_win/ contains a Makefile for producing static Windows builds.  This
   requires MinGW[-w64] and zlib; a prebuilt OpenBLAS package from
   https://sourceforge.net/projects/openblas/files/ is also strongly
