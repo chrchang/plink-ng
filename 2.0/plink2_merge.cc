@@ -6784,7 +6784,7 @@ PglErr PmergePass(__attribute__((unused)) const PmergeInfo* pmip, __attribute__(
     uintptr_t input_filesets_remaining = fileset_ct;
     PmergeInputFilesetLl** next_filesets_end_ptr = next_filesets_ptr;
     do {
-      logerrputs("Error: Non-concatenating --pmerge-list is under development.\n");
+      logerrputs("Error: Non-concatenating --pmerge[-list] is under development.\n");
       reterr = kPglRetNotYetSupported;
       goto PmergePass_ret_1;
     } while (input_filesets_remaining > 1);

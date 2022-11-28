@@ -2830,15 +2830,27 @@ uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include
   uintptr_t cur_bits = sample_include[0];
   const uintptr_t initial_sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
   if (covar_col->type_code == kPhenoDtypeQt) {
+    // bugfix (27 Nov 2022): forgot to check for missingness
+    const uintptr_t* nonmiss = covar_col->nonmiss;
     const double* covar_vals = covar_col->data.qt;
-    const double first_covar_val = covar_vals[initial_sample_uidx];
-    for (uint32_t sample_idx = 1; sample_idx != sample_ct; ++sample_idx) {
-      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-      if (covar_vals[sample_uidx] != first_covar_val) {
-        return 0;
+    uint32_t sample_idx = 0;
+    uintptr_t sample_uidx = initial_sample_uidx;
+    while (!IsSet(nonmiss, sample_uidx)) {
+      ++sample_idx;
+      if (sample_idx == sample_ct) {
+        return 1;
       }
+      sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
     }
-    return 1;
+    const double first_covar_val = covar_vals[sample_uidx];
+    do {
+      ++sample_idx;
+      if (sample_idx == sample_ct) {
+        return 1;
+      }
+      sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+    } while ((!IsSet(nonmiss, sample_uidx)) || (covar_vals[sample_uidx] == first_covar_val));
+    return 0;
   }
   assert(covar_col->type_code == kPhenoDtypeCat);
   const uint32_t* covar_cats = covar_col->data.cat;
