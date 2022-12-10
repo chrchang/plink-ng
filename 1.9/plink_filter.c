@@ -100,7 +100,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
   while (fgets(g_textbuf, MAXLINELEN, infile) != nullptr) {
     line_idx++;
     if (!g_textbuf[MAXLINELEN - 1]) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --%s file is pathologically long.\n", line_idx, keep_or_remove_flag_str(flags));
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --%s file is pathologically long.\n", line_idx, keep_or_remove_flag_str(flags));
       goto keep_or_remove_ret_INVALID_FORMAT_2;
     }
     bufptr0 = skip_initial_spaces(g_textbuf);
@@ -109,7 +109,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
     }
     if (!families_only) {
       if (bsearch_read_fam_indiv(bufptr0, sorted_ids, max_id_len, sorted_ids_ct, nullptr, &ii, id_buf)) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --%s file has fewer tokens than expected.\n", line_idx, keep_or_remove_flag_str(flags));
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --%s file has fewer tokens than expected.\n", line_idx, keep_or_remove_flag_str(flags));
 	goto keep_or_remove_ret_INVALID_FORMAT_2;
       }
       if (ii != -1) {
@@ -212,7 +212,7 @@ int32_t snps_flag(const char* variant_ids, const uint32_t* variant_id_htable, co
       const char* cur_varid = &(varid_strbox[varid_idx * varid_max_blen]);
       uint32_t variant_uidx = id_htable_find(cur_varid, strlen(cur_varid), variant_id_htable, variant_id_htable_size, variant_ids, max_variant_id_blen);
       if (variant_uidx == 0xffffffffU) {
-	sprintf(g_logbuf, "Error: --%ssnps variant '%s' not found.\n", do_exclude? "exclude-" : "", cur_varid);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: --%ssnps variant '%s' not found.\n", do_exclude? "exclude-" : "", cur_varid);
 	goto snps_flag_ret_INVALID_FORMAT_WW;
       }
       if (starts_range[varid_idx]) {
@@ -372,7 +372,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
       curtoklen = (uintptr_t)(bufptr2 - bufptr);
       if (bufptr2 == &(g_textbuf[MAXLINELEN * 2])) {
         if (curtoklen > MAXLINELEN) {
-	  sprintf(g_logbuf, "Error: Excessively long ID in --%s file.\n", do_exclude? "exclude" : "extract");
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Excessively long ID in --%s file.\n", do_exclude? "exclude" : "extract");
           goto extract_exclude_flag_norange_ret_INVALID_FORMAT_2;
 	}
 	bufptr3 = &(g_textbuf[MAXLINELEN - curtoklen]);
@@ -580,7 +580,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
     }
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR" of --attrib file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR" of --attrib file is pathologically long.\n", line_idx);
         goto filter_attrib_ret_INVALID_FORMAT_2;
       }
       goto filter_attrib_ret_NOMEM;
@@ -809,7 +809,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
     }
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR" of --attrib-indiv file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR" of --attrib-indiv file is pathologically long.\n", line_idx);
         goto filter_attrib_sample_ret_INVALID_FORMAT_2;
       }
       goto filter_attrib_sample_ret_NOMEM;
@@ -819,7 +819,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
       continue;
     }
     if (bsearch_read_fam_indiv(bufptr, sorted_ids, max_id_len, sorted_ids_ct, &cond_ptr, &sorted_idx, id_buf)) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --attrib-indiv file has fewer tokens than\nexpected.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --attrib-indiv file has fewer tokens than\nexpected.\n", line_idx);
       goto filter_attrib_sample_ret_INVALID_FORMAT_2;
     }
     if (sorted_idx == -1) {
@@ -943,7 +943,7 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qual-scores file is pathologically long.\n", line_idx);
+        snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --qual-scores file is pathologically long.\n", line_idx);
         goto filter_qual_scores_ret_INVALID_FORMAT_2;
       } else {
 	goto filter_qual_scores_ret_NOMEM;
@@ -994,9 +994,9 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
     goto filter_qual_scores_ret_1;
   }
   if (miss_ct) {
-    sprintf(g_logbuf, "--qual-scores: %" PRIuPTR " variant%s remaining, %" PRIuPTR " ID%s missing.\n", marker_ct, (marker_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    snprintf(g_logbuf, LOGBUFLEN, "--qual-scores: %" PRIuPTR " variant%s remaining, %" PRIuPTR " ID%s missing.\n", marker_ct, (marker_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
   } else {
-    sprintf(g_logbuf, "--qual-scores: %" PRIuPTR " variant%s remaining.\n", marker_ct, (marker_ct == 1)? "" : "s");
+    snprintf(g_logbuf, LOGBUFLEN, "--qual-scores: %" PRIuPTR " variant%s remaining.\n", marker_ct, (marker_ct == 1)? "" : "s");
   }
   logprintb();
   while (0) {
@@ -1007,7 +1007,7 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
     retval = RET_READ_FAIL;
     break;
   filter_qual_scores_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qual-scores file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --qual-scores file has fewer tokens than expected.\n", line_idx);
   filter_qual_scores_ret_INVALID_FORMAT_2:
     logerrprintb();
     retval = RET_INVALID_FORMAT;
@@ -1489,7 +1489,7 @@ int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t
   while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
     if (!g_textbuf[MAXLINELEN - 1]) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --filter file is pathologically long.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --filter file is pathologically long.\n", line_idx);
       goto filter_samples_file_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(g_textbuf);
@@ -1539,7 +1539,7 @@ int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t
     retval = RET_READ_FAIL;
     break;
   filter_samples_file_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --filter file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --filter file has fewer tokens than expected.\n", line_idx);
   filter_samples_file_ret_INVALID_FORMAT_2:
     logerrprintb();
     retval = RET_INVALID_FORMAT;

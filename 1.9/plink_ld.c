@@ -2368,7 +2368,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude, marker_uidx1 + 1, marker_idx1);
   }
   g_ld_keep_sign = 0;
-  sprintf(g_logbuf, "--r%s %s%s to %s ... ", g_ld_is_r2? "2" : "", is_square? "square" : (is_square0? "square0" : "triangle"), is_binary? (output_single_prec? " bin4" : " bin") : (output_gz? " gz" : ""), outname);
+  snprintf(g_logbuf, LOGBUFLEN, "--r%s %s%s to %s ... ", g_ld_is_r2? "2" : "", is_square? "square" : (is_square0? "square0" : "triangle"), is_binary? (output_single_prec? " bin4" : " bin") : (output_gz? " gz" : ""), outname);
   wordwrapb(16); // strlen("99% [processing]")
   logprintb();
   fputs("0%", stdout);
@@ -5940,7 +5940,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   if (marker_idx1) {
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, marker_idx1);
   }
-  sprintf(g_logbuf, "--r%s%s%s%s to %s ... ", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "", outname);
+  snprintf(g_logbuf, LOGBUFLEN, "--r%s%s%s%s to %s ... ", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "", outname);
   wordwrapb(16); // strlen("99% [processing]")
   logprintb();
   fputs("0%", stdout);
@@ -9450,7 +9450,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   // monomorphic and non-autosomal diploid sites
   if (is_custom_set1) {
     if (!sip->ct) {
-      sprintf(g_logbuf, "Error: --%sepistasis set-by-%s requires a variant set to be loaded.\n", is_fast? "fast-" : "", is_set_by_set? "set" : "all");
+      snprintf(g_logbuf, LOGBUFLEN, "Error: --%sepistasis set-by-%s requires a variant set to be loaded.\n", is_fast? "fast-" : "", is_set_by_set? "set" : "all");
       goto epistasis_report_ret_INVALID_CMDLINE_2;
     } else if (!is_set_by_set) {
       if (sip->ct > 1) {
@@ -9481,7 +9481,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   }
   if (!pheno_d) {
     if ((case_ct < 2) || ((!is_case_only) && (ctrl_ct < 2))) {
-      sprintf(g_logbuf, "Error: --%sepistasis requires at least two cases%s.\n", is_fast? "fast-" : "", is_case_only? "" : " and two controls");
+      snprintf(g_logbuf, LOGBUFLEN, "Error: --%sepistasis requires at least two cases%s.\n", is_fast? "fast-" : "", is_case_only? "" : " and two controls");
       goto epistasis_report_ret_INVALID_CMDLINE_2;
     }
     if (bigstack_alloc_ul(case_ctv2 + ctrl_ctl2, &casebuf)) {
@@ -9512,7 +9512,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   if (do_joint_effects && epi_ip->je_cellmin) {
     cellminx3 = epi_ip->je_cellmin * 3;
     if ((case_ct < cellminx3 * 3) || ((!is_case_only) && (ctrl_ct < cellminx3 * 3))) {
-      sprintf(g_logbuf, "Error: Too few cases or controls for --je-cellmin %u.\n", epi_ip->je_cellmin);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Too few cases or controls for --je-cellmin %u.\n", epi_ip->je_cellmin);
       goto epistasis_report_ret_INVALID_CMDLINE_2;
     }
     ulii = case_ctl2;
@@ -9629,7 +9629,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   }
   if (parallel_tot > 1) {
     if (marker_ct1 < (1 + is_triangular) * parallel_tot) {
-      sprintf(g_logbuf, "Error: Too few loci remaining for --parallel %u %u + --%sepistasis.\n", parallel_idx + 1, parallel_tot, is_fast? "fast-" : "");
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Too few loci remaining for --parallel %u %u + --%sepistasis.\n", parallel_idx + 1, parallel_tot, is_fast? "fast-" : "");
       goto epistasis_report_ret_INVALID_CMDLINE_2;
     }
     if (is_triangular) {

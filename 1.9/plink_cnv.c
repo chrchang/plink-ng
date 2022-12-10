@@ -127,7 +127,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
     while (fgets(g_textbuf, MAXLINELEN, intersect_file)) {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 1]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, cift_str);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, cift_str);
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
       char* textbuf_first_token = skip_initial_spaces(g_textbuf);
@@ -138,7 +138,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       char* first_token_end = token_endnn(textbuf_first_token);
       char* col3_ptr = next_token_mult(first_token_end, 2);
       if (no_more_tokens_kns(col3_ptr)) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, cift_str);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, cift_str);
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
       const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
@@ -162,11 +162,11 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       }
       char* textbuf_iter = skip_initial_spaces(&(first_token_end[1]));
       if (scan_uint_defcap(textbuf_iter, (uint32_t*)&jj)) {
-	sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
       if (scan_uint_defcap(col3_ptr, (uint32_t*)&ii)) {
-	sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
       if (ii < jj) {
@@ -219,7 +219,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 	logerrprint("Warning: All intervals filtered out by --cnv-subset.\n");
 	goto cnv_intersect_load_ret_1;
       }
-      sprintf(g_logbuf, "Error: Empty %s.\n", cift_str);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Empty %s.\n", cift_str);
       goto cnv_intersect_load_ret_INVALID_FORMAT_2;
     }
     if (small_interval_ct) {
@@ -521,7 +521,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
     do {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 1]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .cnv file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .cnv file is pathologically long.\n", line_idx);
 	goto cnv_make_map_ret_INVALID_FORMAT_2N;
       }
       char* col3_ptr = skip_initial_spaces(g_textbuf);
@@ -531,7 +531,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
       // FID, IID, CHR, BP1, BP2, TYPE, SCORE, SITES
       col3_ptr = next_token_mult(col3_ptr, 2);
       if (no_more_tokens_kns(next_token_mult(col3_ptr, req_fields))) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .cnv file has fewer tokens than expected.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .cnv file has fewer tokens than expected.\n", line_idx);
 	goto cnv_make_map_ret_INVALID_FORMAT_2N;
       }
       char* col3_end = token_endnn(col3_ptr);
@@ -556,11 +556,11 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
       char* col4_ptr = skip_initial_spaces(&(col3_end[1]));
       char* col5_ptr = next_token(col4_ptr);
       if (scan_uint_defcap(col4_ptr, &seg_start) || scan_uint_defcap(col5_ptr, &seg_end)) {
-	sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of .cnv file.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid bp coordinate on line %" PRIuPTR " of .cnv file.\n", line_idx);
 	goto cnv_make_map_ret_INVALID_FORMAT_2N;
       }
       if (seg_end < seg_start) {
-	sprintf(g_logbuf, "Error: Segment end coordinate smaller than segment start on line %" PRIuPTR " of\n.cnv file.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Segment end coordinate smaller than segment start on line %" PRIuPTR " of\n.cnv file.\n", line_idx);
 	goto cnv_make_map_ret_INVALID_FORMAT_2N;
       }
       if ((marker_pos_start > (int32_t)seg_start) || ((marker_pos_end != -1) && (marker_pos_end < (int32_t)seg_end))) {
@@ -578,7 +578,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
       if (cnv_calc_type & (CNV_DEL | CNV_DUP)) {
 	char* col6_ptr = next_token(col5_end);
 	if (scan_uint_defcap(col6_ptr, (uint32_t*)&ii)) {
-	  sprintf(g_logbuf, "Error: Invalid variant copy count on line %" PRIuPTR " of .cnv file.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid variant copy count on line %" PRIuPTR " of .cnv file.\n", line_idx);
 	  goto cnv_make_map_ret_INVALID_FORMAT_2N;
 	}
 	if (cnv_del) {
@@ -592,7 +592,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
       if (filter_score) {
 	char* col7_ptr = next_token_mult(col5_end, 2);
 	if (scan_double(col7_ptr, &dxx)) {
-	  sprintf(g_logbuf, "Error: Invalid confidence score on line %" PRIuPTR " of .cnv file.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid confidence score on line %" PRIuPTR " of .cnv file.\n", line_idx);
 	  goto cnv_make_map_ret_INVALID_FORMAT_2N;
 	}
 	if ((dxx < min_score) || (dxx > max_score)) {
@@ -602,7 +602,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
       if (filter_sites) {
 	char* col8_ptr = next_token_mult(col5_end, 3);
 	if (scan_posint_defcap(col8_ptr, (uint32_t*)&ii)) {
-	  sprintf(g_logbuf, "Error: Invalid probe count on line %" PRIuPTR " of .cnv file.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid probe count on line %" PRIuPTR " of .cnv file.\n", line_idx);
 	  goto cnv_make_map_ret_INVALID_FORMAT_2N;
 	}
 	if ((((uint32_t)ii) < min_sites) || (((uint32_t)ii) > max_sites)) {
@@ -801,7 +801,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
 	continue;
       }
       if (scan_uint_defcap(bp_col_ptr, (uint32_t*)&ii)) {
-	sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of .cnv.map file.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid bp coordinate on line %" PRIuPTR " of .cnv.map file.\n", line_idx);
 	goto validate_cnv_map_ret_INVALID_FORMAT_2;
       }
       if (ii <= last_pos) {
@@ -849,7 +849,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
     retval = RET_INVALID_FORMAT;
     break;
   validate_cnv_map_ret_LONG_LINE:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .cnv.map is pathologically long.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .cnv.map is pathologically long.\n", line_idx);
   validate_cnv_map_ret_INVALID_FORMAT_2:
     logerrprintb();
   validate_cnv_map_ret_INVALID_FORMAT:
@@ -996,7 +996,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
 	  goto plink_cnv_ret_INVALID_CMDLINE;
 	}
       }
-      sprintf(g_logbuf, "Autogenerating missing %s ... ", mapname);
+      snprintf(g_logbuf, LOGBUFLEN, "Autogenerating missing %s ... ", mapname);
       wordwrapb(5);
       retval = cnv_make_map(cnvfile, mapname, 0, 0, 0xffffffffU, -DBL_MAX, DBL_MAX, 0, 0xffffffffU, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0, 0.0, -1, -1, allow_extra_chroms, 0, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
     } else {
@@ -1007,7 +1007,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
     }
   } else {
     memcpy(outname_end, ".cnv.map", 9);
-    sprintf(g_logbuf, "Generating %s ... ", outname);
+    snprintf(g_logbuf, LOGBUFLEN, "Generating %s ... ", outname);
     wordwrapb(5);
     retval = cnv_make_map(cnvfile, outname, cnv_calc_type, min_seglen, max_seglen, min_score, max_score, min_sites, max_sites, il_chrom_start_small, il_chrom_start_large, il_chrom_max_width_small, il_chrom_max_width_large, il_small, il_large, intersect_filter_type, overlap_type, overlap_val, marker_pos_start, marker_pos_end, allow_extra_chroms, 0, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
     if (retval || (!(cnv_calc_type & (CNV_MAKE_MAP | CNV_DEL | CNV_DUP)))) {

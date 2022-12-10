@@ -230,7 +230,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     while (fgets(g_textbuf, MAXLINELEN - 5, *mapfile_ptr)) {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 6]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .map file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .map file is pathologically long.\n", line_idx);
 	goto load_map_ret_INVALID_FORMAT_2;
       }
       char* textbuf_first_token = skip_initial_spaces(g_textbuf);
@@ -338,7 +338,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
 	  goto load_map_ret_MISSING_TOKENS;
 	}
 	if (scan_int_abs_defcap(textbuf_iter, &ii)) {
-	  sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of .map file.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid bp coordinate on line %" PRIuPTR " of .map file.\n", line_idx);
 	  goto load_map_ret_INVALID_FORMAT_2;
 	}
 	if (ii < 0) {
@@ -378,7 +378,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     retval = RET_READ_FAIL;
     break;
   load_map_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .map file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .map file has fewer tokens than expected.\n", line_idx);
   load_map_ret_INVALID_FORMAT_2:
     logerrprintb();
   load_map_ret_INVALID_FORMAT:
@@ -555,7 +555,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
       line_idx++;
       if (!loadbuf[loadbuf_size - 1]) {
 	if (loadbuf_size == MAXLINEBUFLEN) {
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, ftype_str);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, ftype_str);
 	  goto load_bim_ret_INVALID_FORMAT_2;
 	} else {
 	  goto load_bim_ret_NOMEM;
@@ -570,7 +570,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 	if (is_bim) {
 	  if (!strcmp_se(loadbuf_first_token, "#CHROM", 6)) {
 	    if (chrom_header_line_present) {
-	      sprintf(g_logbuf, "Error: Multiple #CHROM header lines in %s.\n", ftype_str);
+	      snprintf(g_logbuf, LOGBUFLEN, "Error: Multiple #CHROM header lines in %s.\n", ftype_str);
 	      goto load_bim_ret_INVALID_FORMAT_2;
 	    }
 	    // support plink 2.x files with default column order; error out on
@@ -598,7 +598,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 	    chrom_header_line_present = 1;
 	  }
 	} else if (*loadbuf_first_token == '#') {
-	  sprintf(g_logbuf, "Error: Header lines are not permitted in %ss.\n", ftype_str);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Header lines are not permitted in %ss.\n", ftype_str);
 	  goto load_bim_ret_INVALID_FORMAT_2;
 	}
 	continue;
@@ -645,7 +645,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 	if (memchr(bufptr4, ',', ujj + ((uintptr_t)(bufptr5 - bufptr4)))) {
 	  // this breaks VCF and plink 2.x
 	  // may need to add word wrapping if this message is changed
-	  sprintf(g_logbuf, "Error: Comma-containing allele code on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Comma-containing allele code on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
 	  goto load_bim_ret_INVALID_FORMAT_2;
 	}
 	if (marker_alleles_needed) {
@@ -777,7 +777,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
       goto load_bim_ret_READ_FAIL;
     }
     if ((!unfiltered_marker_ct) && (!allow_no_variants)) {
-      sprintf(g_logbuf, "Error: No variants in %s.\n", ftype_str);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: No variants in %s.\n", ftype_str);
       goto load_bim_ret_INVALID_FORMAT_2;
     } else if (unfiltered_marker_ct > 2147483645) {
       // maximum prime < 2^32 is 4294967291; quadratic hashing guarantee breaks
@@ -950,7 +950,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 	  prev_chrom = cur_chrom_code;
 	  if (is_set(loaded_chrom_mask, cur_chrom_code)) {
 	    if (split_chrom_cmd) {
-	      sprintf(g_logbuf, "Error: %s has a split chromosome.  Use --%s by itself to\nremedy this.\n", ftype_str, split_chrom_cmd);
+	      snprintf(g_logbuf, LOGBUFLEN, "Error: %s has a split chromosome.  Use --%s by itself to\nremedy this.\n", ftype_str, split_chrom_cmd);
 	      goto load_bim_ret_INVALID_FORMAT_2;
 	    }
 	    split_chrom = 1;
@@ -987,7 +987,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 	      }
 	    }
 	    if (scan_double(bufptr, &cur_cm)) {
-	      sprintf(g_logbuf, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
+	      snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
 	      goto load_bim_ret_INVALID_FORMAT_2;
 	    }
 	    if (cur_cm < last_cm) {
@@ -1120,7 +1120,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
       goto load_bim_ret_ALL_MARKERS_EXCLUDED;
     }
     if (missing_mid_template && ((*map_is_unsorted_ptr) & UNSORTED_BP)) {
-      sprintf(g_logbuf, "Error: --set-missing-var-ids requires a sorted %s.  Retry this command\nafter using --make-bed to sort your data.\n", ftype_str);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: --set-missing-var-ids requires a sorted %s.  Retry this command\nafter using --make-bed to sort your data.\n", ftype_str);
       goto load_bim_ret_INVALID_FORMAT_2;
     }
     for (uii = 0; uii < CHROM_MASK_WORDS; uii++) {
@@ -1472,7 +1472,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --covar file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --covar file is pathologically long.\n", line_idx);
 	goto load_covars_ret_INVALID_FORMAT_2;
       } else {
 	goto load_covars_ret_NOMEM;
@@ -1571,12 +1571,12 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   if (covar_range_list_ptr) {
     if ((covar_ct + 1 < covar_raw_ct) || ((covar_ct + 1 == covar_raw_ct) && ((!gxe_mcovar) || is_set(covars_active, gxe_mcovar - 1)))) {
       if (gxe_mcovar && (!is_set(covars_active, gxe_mcovar - 1))) {
-        sprintf(g_logbuf, "--covar: 1 C/C cov. loaded for --gxe, %" PRIuPTR "/%" PRIuPTR " for other operations.\n", covar_ct, covar_raw_ct);
+        snprintf(g_logbuf, LOGBUFLEN, "--covar: 1 C/C cov. loaded for --gxe, %" PRIuPTR "/%" PRIuPTR " for other operations.\n", covar_ct, covar_raw_ct);
       } else {
-        sprintf(g_logbuf, "--covar: %" PRIuPTR " out of %" PRIuPTR " covariates loaded.\n", covar_ct, covar_raw_ct);
+        snprintf(g_logbuf, LOGBUFLEN, "--covar: %" PRIuPTR " out of %" PRIuPTR " covariates loaded.\n", covar_ct, covar_raw_ct);
       }
     } else {
-      sprintf(g_logbuf, "--covar: %" PRIuPTR " covariate%s loaded.\n", covar_ct, (covar_ct == 1)? "" : "s");
+      snprintf(g_logbuf, LOGBUFLEN, "--covar: %" PRIuPTR " covariate%s loaded.\n", covar_ct, (covar_ct == 1)? "" : "s");
     }
     logprintb();
   } else {
@@ -1673,7 +1673,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     retval = RET_READ_FAIL;
     break;
   load_covars_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Fewer tokens than expected on line %" PRIuPTR " of --covar file.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Fewer tokens than expected on line %" PRIuPTR " of --covar file.\n", line_idx);
   load_covars_ret_INVALID_FORMAT_2:
     logerrprintb();
   load_covars_ret_INVALID_FORMAT:
@@ -2175,7 +2175,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   while (fgets(g_textbuf, MAXLINELEN, zcfile)) {
     line_idx++;
     if (!g_textbuf[MAXLINELEN - 1]) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --zero-cluster file is pathologically long.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --zero-cluster file is pathologically long.\n", line_idx);
       goto zero_cluster_init_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(g_textbuf);
@@ -2276,7 +2276,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
     retval = RET_READ_FAIL;
     break;
   zero_cluster_init_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --zero-cluster file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --zero-cluster file has fewer tokens than expected.\n", line_idx);
   zero_cluster_init_ret_INVALID_FORMAT_2:
     logerrprintb();
     retval = RET_INVALID_FORMAT;
@@ -2542,7 +2542,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
       line_idx++;
       if (!(loadbuf[loadbuf_size - 1])) {
 	if (loadbuf_size == MAXLINEBUFLEN) {
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --update-chr file is pathologically long.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --update-chr file is pathologically long.\n", line_idx);
 	  goto update_marker_chroms_ret_INVALID_FORMAT_2;
 	} else {
 	  goto update_marker_chroms_ret_NOMEM;
@@ -2591,9 +2591,9 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
       goto update_marker_chroms_ret_READ_FAIL;
     }
     if (miss_ct) {
-      sprintf(g_logbuf, "--update-chr: %" PRIuPTR " value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+      snprintf(g_logbuf, LOGBUFLEN, "--update-chr: %" PRIuPTR " value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
     } else {
-      sprintf(g_logbuf, "--update-chr: %" PRIuPTR " value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+      snprintf(g_logbuf, LOGBUFLEN, "--update-chr: %" PRIuPTR " value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
     }
     logprintb();
   }
@@ -2605,7 +2605,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
     retval = RET_READ_FAIL;
     break;
   update_marker_chroms_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --update-chr file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --update-chr file has fewer tokens than expected.\n", line_idx);
   update_marker_chroms_ret_INVALID_FORMAT_2:
     logerrprintb();
     retval = RET_INVALID_FORMAT;
@@ -2920,7 +2920,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
   while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
     if (!g_textbuf[MAXLINELEN - 1]) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --flip file is pathologically long.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --flip file is pathologically long.\n", line_idx);
       goto flip_subset_init_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(g_textbuf);
@@ -2936,7 +2936,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
     a2ptr = marker_allele_ptrs[2 * marker_uidx + 1];
     ucc = ((unsigned char)a1ptr[0]) - 'A';
     if (a1ptr[1] || a2ptr[1] || (ucc > 19) || (reverse_complements[ucc] != a2ptr[0])) {
-      sprintf(g_logbuf, "Error: Invalid alleles (not reverse complement single bases) on line\n%" PRIuPTR " of --flip file.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid alleles (not reverse complement single bases) on line\n%" PRIuPTR " of --flip file.\n", line_idx);
       goto flip_subset_init_ret_INVALID_FORMAT_2;
     }
     if (is_set(flip_subset_markers, marker_uidx)) {
@@ -2972,7 +2972,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
   while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
     if (!g_textbuf[MAXLINELEN - 1]) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --flip-subset file is pathologically long.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --flip-subset file is pathologically long.\n", line_idx);
       goto flip_subset_init_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(g_textbuf);
@@ -3712,7 +3712,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .fam file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .fam file is pathologically long.\n", line_idx);
 	goto load_fam_ret_INVALID_FORMAT_2;
       } else {
 	goto load_fam_ret_NOMEM;
@@ -3730,7 +3730,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
       }
       tmp_len = strlen_se(bufptr);
       if ((tmp_len == 1) && (*bufptr == '0')) {
-	sprintf(g_logbuf, "Error: Invalid IID '0' on line %" PRIuPTR " of .fam file.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid IID '0' on line %" PRIuPTR " of .fam file.\n", line_idx);
 	goto load_fam_ret_INVALID_FORMAT_2;
       }
       tmp_len = strlen_se(bufptr0) + strlen_se(bufptr) + 2;
@@ -3928,7 +3928,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
     retval = RET_READ_FAIL;
     break;
   load_fam_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .fam file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .fam file has fewer tokens than expected.\n", line_idx);
   load_fam_ret_INVALID_FORMAT_2:
     logerrprintb();
   load_fam_ret_INVALID_FORMAT:
@@ -4253,7 +4253,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	}
 	cc = *bufptr++;
 	if ((cc < '0') || (cc > '2') || ((*bufptr) > ' ')) {
-	  sprintf(g_logbuf, "Error: Invalid sex code on line %" PRIuPTR " of .sample file.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid sex code on line %" PRIuPTR " of .sample file.\n", line_idx);
 	  goto oxford_to_bed_ret_INVALID_FORMAT_2;
 	}
 	*wptr++ = cc;
@@ -5320,7 +5320,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     if (!loadbuf[loadbuf_size - 1]) {
       logprint("\n");
       if (loadbuf_size == MAXLINEBUFLEN) {
-        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .ped file is pathologically long.\n", line_idx);
+        snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .ped file is pathologically long.\n", line_idx);
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2;
       } else {
         goto ped_to_bed_multichar_allele_ret_NOMEM;
@@ -5410,7 +5410,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     g_bigstack_base -= cur_slen_rdup;
     if (!is_eoln_kns(*bufptr)) {
       logprint("\n");
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .ped file has more tokens than expected.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .ped file has more tokens than expected.\n", line_idx);
       goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2;
     }
     sample_ct++;
@@ -5464,7 +5464,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     if (marker_allele_cts[4 * marker_idx + 2]) {
       uii = marker_allele_cts[4 * marker_idx + 3];
       // bugfix (28 May 2018): do NOT look up map_reverse[] in unsorted case
-      sprintf(g_logbuf, "Warning: Variant %" PRIuPTR "%s %sallelic; setting rarest missing.\n", marker_idx + 1, map_is_unsorted? " (post-sort)" : "", (uii? "quad" : "tri"));
+      snprintf(g_logbuf, LOGBUFLEN, "Warning: Variant %" PRIuPTR "%s %sallelic; setting rarest missing.\n", marker_idx + 1, map_is_unsorted? " (post-sort)" : "", (uii? "quad" : "tri"));
       logerrprintb();
       get_top_two_ui(&(marker_allele_cts[4 * marker_idx]), uii? 4 : 3, &ulii, &uljj);
     } else {
@@ -5541,7 +5541,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
   }
   if (bigstack_left() >= marker_ct * sample_ct4) {
     markers_per_pass = marker_ct;
-    sprintf(g_logbuf, "Performing single-pass .bed write (%" PRIuPTR " variant%s, %" PRIuPTR " %s).\n", marker_ct, (marker_ct == 1)? "" : "s", sample_ct, species_str(sample_ct));
+    snprintf(g_logbuf, LOGBUFLEN, "Performing single-pass .bed write (%" PRIuPTR " variant%s, %" PRIuPTR " %s).\n", marker_ct, (marker_ct == 1)? "" : "s", sample_ct, species_str(sample_ct));
     pass_ct = 1;
   } else {
     if (!map_is_unsorted) {
@@ -5554,7 +5554,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       goto ped_to_bed_multichar_allele_ret_NOMEM;
     }
     pass_ct = (marker_ct + markers_per_pass - 1) / markers_per_pass;
-    sprintf(g_logbuf, "Performing %u-pass .bed write (%u/%" PRIuPTR " variant%s/pass, %" PRIuPTR " %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", sample_ct, species_str(sample_ct));
+    snprintf(g_logbuf, LOGBUFLEN, "Performing %u-pass .bed write (%u/%" PRIuPTR " variant%s/pass, %" PRIuPTR " %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", sample_ct, species_str(sample_ct));
   }
   logprintb();
   writebuf = g_bigstack_base;
@@ -5734,7 +5734,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     break;
   ped_to_bed_multichar_allele_ret_MISSING_TOKENS:
     logprint("\n");
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .ped file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .ped file has fewer tokens than expected.\n", line_idx);
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2:
     logerrprintb();
     retval = RET_INVALID_FORMAT;
@@ -5850,7 +5850,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     do {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 6]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .map file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .map file is pathologically long.\n", line_idx);
 	goto ped_to_bed_ret_INVALID_FORMAT_2;
       }
       col1_ptr = skip_initial_spaces(g_textbuf);
@@ -5873,7 +5873,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	marker_exclude_ct++;
       } else {
 	if (scan_int_abs_defcap(bufptr, &jj)) {
-	  sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of .map file.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid bp coordinate on line %" PRIuPTR " of .map file.\n", line_idx);
 	  goto ped_to_bed_ret_INVALID_FORMAT_2;
 	}
 	if (jj >= 0) {
@@ -5966,7 +5966,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       if (!loadbuf[loadbuf_size - 1]) {
 	if (loadbuf_size == MAXLINEBUFLEN) {
 	  logprint("\n");
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .ped file is pathologically long.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .ped file is pathologically long.\n", line_idx);
 	  goto ped_to_bed_ret_INVALID_FORMAT_2;
 	} else {
 	  goto ped_to_bed_ret_NOMEM;
@@ -5992,7 +5992,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       bufptr = token_endnn(bufptr);
       if ((bufptr - col1_ptr) > (MAXLINELEN / 2) - 4) {
 	logprint("\n");
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .ped file has a pathologically long token.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .ped file has a pathologically long token.\n", line_idx);
 	goto ped_to_bed_ret_INVALID_FORMAT_2;
       }
       if (fwrite_checked(col1_ptr, strlen_se(col1_ptr), outfile)) {
@@ -6061,7 +6061,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	putc_unlocked('\r', stdout);
 	logstr("\n");
 	if (!marker_ct) {
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .ped file has more tokens than expected.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .ped file has more tokens than expected.\n", line_idx);
 	  goto ped_to_bed_ret_INVALID_FORMAT_2;
 	}
 	logprint("Possibly irregular .ped line.  Restarting scan, assuming multichar alleles.\n");
@@ -6089,7 +6089,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       }
       if ((!sample_ct) && (!allow_no_samples)) {
 	logprint("\n");
-	sprintf(g_logbuf, "Error: No %s in .ped file.\n", g_species_plural);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: No %s in .ped file.\n", g_species_plural);
 	goto ped_to_bed_ret_INVALID_FORMAT_2;
       }
       if (fclose_null(&outfile)) {
@@ -6123,7 +6123,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	}
 	if (marker_alleles[marker_idx * 4 + 2]) {
 	  cc = marker_alleles[marker_idx * 4 + 3];
-          sprintf(g_logbuf, "Warning: Variant %" PRIuPTR "%s %sallelic; setting rarest alleles missing.\n", marker_idx + 1, map_is_unsorted? " (post-sort)" : "", (cc? "quad" : "tri"));
+          snprintf(g_logbuf, LOGBUFLEN, "Warning: Variant %" PRIuPTR "%s %sallelic; setting rarest alleles missing.\n", marker_idx + 1, map_is_unsorted? " (post-sort)" : "", (cc? "quad" : "tri"));
 	  logerrprintb();
 	  ujj = (cc? 4 : 3);
 	  // insertion sort
@@ -6203,7 +6203,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       }
       if (bigstack_left() >= marker_ct * sample_ct4) {
 	markers_per_pass = marker_ct;
-	sprintf(g_logbuf, "Performing single-pass .bed write (%" PRIuPTR " variant%s, %" PRIuPTR " %s).\n", marker_ct, (marker_ct == 1)? "" : "s", sample_ct, species_str(sample_ct));
+	snprintf(g_logbuf, LOGBUFLEN, "Performing single-pass .bed write (%" PRIuPTR " variant%s, %" PRIuPTR " %s).\n", marker_ct, (marker_ct == 1)? "" : "s", sample_ct, species_str(sample_ct));
 	pass_ct = (marker_ct && sample_ct4)? 1 : 0;
       } else {
 	if (!map_is_unsorted) {
@@ -6216,7 +6216,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	  goto ped_to_bed_ret_NOMEM;
 	}
 	pass_ct = (marker_ct + markers_per_pass - 1) / markers_per_pass;
-	sprintf(g_logbuf, "Performing %u-pass .bed write (%u/%" PRIuPTR " variant%s/pass, %" PRIuPTR " %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", sample_ct, species_str(sample_ct));
+	snprintf(g_logbuf, LOGBUFLEN, "Performing %u-pass .bed write (%u/%" PRIuPTR " variant%s/pass, %" PRIuPTR " %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", sample_ct, species_str(sample_ct));
       }
       logprintb();
       writebuf = g_bigstack_base;
@@ -6388,7 +6388,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     break;
   ped_to_bed_ret_MISSING_TOKENS_PED:
     logprint("\n");
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .ped file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .ped file has fewer tokens than expected.\n", line_idx);
   ped_to_bed_ret_INVALID_FORMAT_2:
     logerrprintb();
   ped_to_bed_ret_INVALID_FORMAT:
@@ -6574,7 +6574,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
       line_idx++;
       if (!loadbuf[loadbuf_size - 1]) {
 	if (loadbuf_size == MAXLINEBUFLEN) {
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .ref file is pathologically long.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .ref file is pathologically long.\n", line_idx);
 	  goto lgen_to_bed_ret_INVALID_FORMAT_2;
 	}
 	goto lgen_to_bed_ret_NOMEM;
@@ -6586,7 +6586,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
       cptr2 = token_endnn(cptr);
       a1ptr = skip_initial_spaces(cptr2);
       if (no_more_tokens_kns(a1ptr)) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .ref file has fewer tokens than expected.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .ref file has fewer tokens than expected.\n", line_idx);
 	goto lgen_to_bed_ret_INVALID_FORMAT_2;
       }
       a1len = strlen_se(cptr);
@@ -6698,7 +6698,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
 	a2len = strlen_se(a2ptr);
       } else {
 	if ((uintptr_t)(sptr - a1ptr) != 2) {
-	  sprintf(g_logbuf, "Error: Invalid compound genotype on line %" PRIuPTR " of .lgen file.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid compound genotype on line %" PRIuPTR " of .lgen file.\n", line_idx);
 	  goto lgen_to_bed_ret_INVALID_FORMAT_2;
 	}
 	a1len = 1;
@@ -6992,7 +6992,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
     retval = RET_INVALID_FORMAT;
     break;
   lgen_to_bed_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .lgen file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .lgen file has fewer tokens than expected.\n", line_idx);
   lgen_to_bed_ret_INVALID_FORMAT_2:
     logerrprintb();
     retval = RET_INVALID_FORMAT;
@@ -7142,7 +7142,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     while (fgets(g_textbuf, MAXLINELEN, infile)) {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 1]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tfam file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .tfam file is pathologically long.\n", line_idx);
 	goto transposed_to_bed_ret_INVALID_FORMAT_2R;
       }
       cptr = skip_initial_spaces(g_textbuf);
@@ -7162,7 +7162,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       goto transposed_to_bed_ret_READ_FAIL;
     }
     if ((!sample_ct) && (!allow_no_samples)) {
-      sprintf(g_logbuf, "Error: No %s in .tfam file.\n", g_species_plural);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: No %s in .tfam file.\n", g_species_plural);
       goto transposed_to_bed_ret_INVALID_FORMAT_2R;
     }
     sample_ct4 = (sample_ct + 3) / 4;
@@ -7218,7 +7218,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       char* textbuf_first_token = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*textbuf_first_token)) {
 	if (!g_textbuf[MAXLINELEN - 1]) {
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has excessive whitespace.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .tped file has excessive whitespace.\n", line_idx);
 	  goto transposed_to_bed_ret_INVALID_FORMAT_2R;
 	}
 	continue;
@@ -7231,18 +7231,18 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       if (no_more_tokens_kns(cptr4)) {
 	if (!g_textbuf[MAXLINELEN - 1]) {
 	  if (chrom_name_slen > MAX_ID_SLEN) {
-	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has an excessively long\nchromosome/contig name.  (The " PROG_NAME_CAPS " limit is " MAX_ID_SLEN_STR " characters.)\n", line_idx);
+	    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .tped file has an excessively long\nchromosome/contig name.  (The " PROG_NAME_CAPS " limit is " MAX_ID_SLEN_STR " characters.)\n", line_idx);
 	  } else if (cptr2 && (strlen_se(cptr2) > MAX_ID_SLEN)) {
-	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has an excessively long variant ID.\n(The " PROG_NAME_CAPS " limit is " MAX_ID_SLEN_STR " characters.)\n", line_idx);
+	    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .tped file has an excessively long variant ID.\n(The " PROG_NAME_CAPS " limit is " MAX_ID_SLEN_STR " characters.)\n", line_idx);
 	  } else if (next_token(cptr2) && (strlen_se(next_token(cptr2)) > MAX_ID_SLEN)) {
 	    // far higher bound than necessary; main point is to ensure that if
 	    // we fall through to the "excessive whitespace" error message,
 	    // that complaint is justified.
-	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has an excessively long centimorgan\nposition.\n", line_idx);
+	    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .tped file has an excessively long centimorgan\nposition.\n", line_idx);
 	  } else if (cptr3 && (strlen_se(cptr3) > MAX_ID_SLEN)) {
-	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has an excessively long bp coordinate.\n", line_idx);
+	    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .tped file has an excessively long bp coordinate.\n", line_idx);
 	  } else {
-	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has excessive whitespace.\n", line_idx);
+	    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .tped file has excessive whitespace.\n", line_idx);
 	  }
 	  goto transposed_to_bed_ret_INVALID_FORMAT_2R;
 	} else {
@@ -7267,7 +7267,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       }
 
       if (scan_int_abs_defcap(cptr3, &jj)) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has an invalid bp coordinate.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .tped file has an invalid bp coordinate.\n", line_idx);
 	goto transposed_to_bed_ret_INVALID_FORMAT_2R;
       }
       char* textbuf_iter = textbuf_first_token;
@@ -7626,7 +7626,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	uii = cptr2 - cptr;
 	memcpyx(&(marker_ids[marker_idx * max_marker_id_len]), cptr, uii, '\0');
 	if (scan_double(cptr3, &(marker_cms[marker_idx]))) {
-	  sprintf(g_logbuf, "Error: Invalid centimorgan position on line %" PRIuPTR " of .tped file\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid centimorgan position on line %" PRIuPTR " of .tped file\n", line_idx);
 	  goto transposed_to_bed_ret_INVALID_FORMAT_2R;
 	}
 	uii = strlen_se(cptr4);
@@ -7753,7 +7753,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     retval = RET_INVALID_FORMAT;
     break;
   transposed_to_bed_ret_HALF_MISSING:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has a half-missing call.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .tped file has a half-missing call.\n", line_idx);
   transposed_to_bed_ret_INVALID_FORMAT_2R:
     putc_unlocked('\r', stdout);
     logerrprintb();
@@ -7829,7 +7829,7 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
       bufptr2 = &(bufptr[slen]);
     }
     if (slen > MAX_ID_SLEN) {
-      sprintf(g_logbuf, "Error: --%ccf does not support sample IDs longer than " MAX_ID_SLEN_STR " characters.\n", flag_char);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: --%ccf does not support sample IDs longer than " MAX_ID_SLEN_STR " characters.\n", flag_char);
       goto vcf_sample_line_ret_INVALID_FORMAT_2;
     }
     if ((*bufptr == '0') && (slen == 1)) {
@@ -7838,10 +7838,10 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
     }
     if (id_delim) {
       if (*bufptr == id_delim) {
-	sprintf(g_logbuf, "Error: '%c' at beginning of sample ID.\n", id_delim);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: '%c' at beginning of sample ID.\n", id_delim);
 	goto vcf_sample_line_ret_INVALID_FORMAT_2;
       } else if (bufptr[slen - 1] == id_delim) {
-	sprintf(g_logbuf, "Error: '%c' at end of sample ID.\n", id_delim);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: '%c' at end of sample ID.\n", id_delim);
 	goto vcf_sample_line_ret_INVALID_FORMAT_2;
       }
       bufptr3 = (char*)memchr(bufptr, (unsigned char)id_delim, slen);
@@ -7851,7 +7851,7 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
 	} else if (const_fid) {
 	  goto vcf_sample_line_const_id;
 	} else {
-	  sprintf(g_logbuf, "Error: No '%c' in sample ID.\n", id_delim);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: No '%c' in sample ID.\n", id_delim);
 	  goto vcf_sample_line_ret_INVALID_FORMAT_2;
 	}
       }
@@ -7865,7 +7865,7 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
       wptr = memcpyax(g_textbuf, bufptr, (uintptr_t)(bufptr3 - bufptr), '\t');
       bufptr3++;
       if ((*bufptr3 == '0') && (bufptr2 == &(bufptr3[1]))) {
-        sprintf(g_logbuf, "Error: Sample ID ends with \"%c0\", which induces an invalid IID of '0'.\n", id_delim);
+        snprintf(g_logbuf, LOGBUFLEN, "Error: Sample ID ends with \"%c0\", which induces an invalid IID of '0'.\n", id_delim);
         goto vcf_sample_line_ret_INVALID_FORMAT_2;
       }
       wptr = memcpya(wptr, bufptr3, (uintptr_t)(bufptr2 - bufptr3));
@@ -8196,7 +8196,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	goto vcf_to_bed_ret_MISSING_TOKENS;
       }
       if ((((unsigned char)(*pos_str)) - '0') >= 10) {
-	sprintf(g_logbuf, "Error: Invalid variant bp coordinate on line %" PRIuPTR " of .vcf file.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid variant bp coordinate on line %" PRIuPTR " of .vcf file.\n", line_idx);
 	goto vcf_to_bed_ret_INVALID_FORMAT_2N;
       }
       ref_allele_ptr = strchr(++marker_id, '\t');
@@ -8216,7 +8216,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       // ',' < '.'
       while (1) {
 	if ((unsigned char)cc <= ',' && (unsigned char)cc != '*') {
-	  sprintf(g_logbuf, "Error: Invalid alternate allele on line %" PRIuPTR  " of .vcf file.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid alternate allele on line %" PRIuPTR  " of .vcf file.\n", line_idx);
 	  goto vcf_to_bed_ret_INVALID_FORMAT_2N;
 	}
 	bufptr2 = bufptr;
@@ -8226,7 +8226,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	} while (((unsigned char)cc > ',') || (cc == '*'));
 	if (((uintptr_t)(bufptr - bufptr2) == ref_allele_len) && (!memcmp(ref_allele_ptr, bufptr2, ref_allele_len))) {
 	  if ((alt_ct != 1) || (cc == ',')) {
-	    sprintf(g_logbuf, "Error: ALT allele duplicates REF allele on line %" PRIuPTR " of .vcf file.\n", line_idx);
+	    snprintf(g_logbuf, LOGBUFLEN, "Error: ALT allele duplicates REF allele on line %" PRIuPTR " of .vcf file.\n", line_idx);
 	    goto vcf_to_bed_ret_INVALID_FORMAT_2N;
 	  }
 	  *alt_alleles = '.'; // tolerate SHAPEIT output
@@ -8238,7 +8238,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	alt_ct++;
       }
       if (cc != '\t') {
-	sprintf(g_logbuf, "Error: Malformed ALT field on line %" PRIuPTR " of .vcf file.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Malformed ALT field on line %" PRIuPTR " of .vcf file.\n", line_idx);
 	goto vcf_to_bed_ret_INVALID_FORMAT_2N;
       }
       if (biallelic_strict && (alt_ct > 1)) {
@@ -8255,7 +8255,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  continue;
 	}
 	if (scan_double(bufptr, &dxx)) {
-	  sprintf(g_logbuf, "Error: Invalid QUAL value on line %" PRIuPTR " of .vcf file.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid QUAL value on line %" PRIuPTR " of .vcf file.\n", line_idx);
 	  goto vcf_to_bed_ret_INVALID_FORMAT_2N;
 	}
 	if (dxx < vcf_min_qual) {
@@ -8946,7 +8946,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     retval = RET_INVALID_FORMAT;
     break;
   vcf_to_bed_ret_LONG_LINE:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .vcf file is pathologically long.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of .vcf file is pathologically long.\n", line_idx);
   vcf_to_bed_ret_INVALID_FORMAT_2N:
     logprint("\n");
   vcf_to_bed_ret_INVALID_FORMAT_2:
@@ -10081,7 +10081,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     while (fgets(g_textbuf, MAXLINELEN, infile_23)) {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 1]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, infile_name);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, infile_name);
 	goto bed_from_23_ret_INVALID_FORMAT_2;
       }
       id_start = skip_initial_spaces(g_textbuf);
@@ -10107,7 +10107,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	cur_chrom_code -= MAX_POSSIBLE_CHROM - 23;
       }
       if ((cur_chrom_code < 0) || (cur_chrom_code > 26)) {
-	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, infile_name);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, infile_name);
 	goto bed_from_23_ret_INVALID_FORMAT_2;
       }
       uii = (uint32_t)cur_chrom_code;
@@ -11008,7 +11008,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
     if (!g_textbuf[MAXLINELEN - 1]) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --simulate%s file is pathologically long.\n", line_idx, is_qt? "-qt" : "");
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --simulate%s file is pathologically long.\n", line_idx, is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2N;
     }
     cptr = skip_initial_spaces(g_textbuf);
@@ -11016,7 +11016,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
       continue;
     }
     if (scan_uint_icap(cptr, &uii)) {
-      sprintf(g_logbuf, "Error: Invalid SNP count on line %" PRIuPTR " of --simulate%s input file.\n", line_idx, is_qt? "-qt" : "");
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid SNP count on line %" PRIuPTR " of --simulate%s input file.\n", line_idx, is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2N;
     }
     ullii += uii;
@@ -11025,10 +11025,10 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     goto simulate_ret_READ_FAIL;
   }
   if (!ullii) {
-    sprintf(g_logbuf, "Error: --simulate%s input file specifies zero SNPs.\n", is_qt? "-qt" : "");
+    snprintf(g_logbuf, LOGBUFLEN, "Error: --simulate%s input file specifies zero SNPs.\n", is_qt? "-qt" : "");
     goto simulate_ret_INVALID_FORMAT_2N;
   } else if (ullii > (do_haps? 0x3ffffffe : 0x7ffffffd)) {
-    sprintf(g_logbuf, "Error: --simulate%s input file specifies too many SNPs.\n", is_qt? "-qt" : "");
+    snprintf(g_logbuf, LOGBUFLEN, "Error: --simulate%s input file specifies too many SNPs.\n", is_qt? "-qt" : "");
     goto simulate_ret_INVALID_FORMAT_2N;
   }
   marker_ct = ullii;
@@ -11053,11 +11053,11 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     }
     last_ptr = next_token(penult_ptr);
     if (no_more_tokens_kns(last_ptr)) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --simulate%s file has fewer tokens than expected.\n", line_idx, is_qt? "-qt" : "");
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --simulate%s file has fewer tokens than expected.\n", line_idx, is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2N;
     }
     if (!no_more_tokens_kns(next_token(last_ptr))) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --simulate%s file has more tokens than expected.\n", line_idx, is_qt? "-qt" : "");
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --simulate%s file has more tokens than expected.\n", line_idx, is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2N;
     }
     scan_uint_icap(cptr, &uii);
@@ -11069,17 +11069,17 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     memcpy(cur_snp_label, snp_label_ptr, snp_label_len);
     cur_snp_label[snp_label_len++] = '_';
     if (scan_two_doubles(freq_lb_ptr, &freq_lb, &freq_delta) || (freq_lb < 0) || (freq_delta < freq_lb) || (freq_delta > 1)) {
-      sprintf(g_logbuf, "Error: Invalid allele frequency bound on line %" PRIuPTR " of --simulate%s\nfile.\n", line_idx, is_qt? "-qt" : "");
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid allele frequency bound on line %" PRIuPTR " of --simulate%s\nfile.\n", line_idx, is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2N;
     }
     freq_delta -= freq_lb;
     if (tags_or_haps) {
       if (scan_two_doubles(marker_freq_lb_ptr, &marker_freq_lb, &marker_freq_ub) || (marker_freq_lb < 0) || (marker_freq_ub < marker_freq_lb) || (marker_freq_ub > 1)) {
-	sprintf(g_logbuf, "Error: Invalid marker allele frequency bound on line %" PRIuPTR " of\n--simulate%s file.\n", line_idx, is_qt? "-qt" : "");
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid marker allele frequency bound on line %" PRIuPTR " of\n--simulate%s file.\n", line_idx, is_qt? "-qt" : "");
 	goto simulate_ret_INVALID_FORMAT_2N;
       }
       if (scan_double(marker_ld_ptr, &dprime) || (dprime < 0) || (dprime > 1)) {
-	sprintf(g_logbuf, "Error: Invalid d-prime on line %" PRIuPTR " of --simulate%s input file.\n", line_idx, is_qt? "-qt" : "");
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid d-prime on line %" PRIuPTR " of --simulate%s input file.\n", line_idx, is_qt? "-qt" : "");
 	goto simulate_ret_INVALID_FORMAT_2N;
       }
     } else {
@@ -11087,11 +11087,11 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     }
     if (is_qt) {
       if (scan_double(penult_ptr, &qt_var) || (qt_var < 0) || (qt_var > 1)) {
-	sprintf(g_logbuf, "Error: Invalid variance value on line %" PRIuPTR " of --simulate-qt file.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid variance value on line %" PRIuPTR " of --simulate-qt file.\n", line_idx);
 	goto simulate_ret_INVALID_FORMAT_2N;
       }
       if ((qt_var > 0) && (((freq_delta == 0) && ((freq_lb == 0) || (freq_lb == 1))) || (tags_or_haps && (marker_freq_lb == marker_freq_ub) && ((marker_freq_lb == 0) || (marker_freq_lb == 1))))) {
-	sprintf(g_logbuf, "Error: Nonzero variance with fixed 0/1 allele frequency on line %" PRIuPTR " of\n--simulate-qt file.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Nonzero variance with fixed 0/1 allele frequency on line %" PRIuPTR " of\n--simulate-qt file.\n", line_idx);
 	goto simulate_ret_INVALID_FORMAT_2N;
       }
       qt_totvar += ((intptr_t)cur_marker_ct) * qt_var;
@@ -11101,18 +11101,18 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	goto simulate_ret_INVALID_FORMAT;
       }
       if (scan_double(last_ptr, &qt_dom)) {
-	sprintf(g_logbuf, "Error: Invalid dominance deviation value on line %" PRIuPTR " of --simulate-qt\nfile.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid dominance deviation value on line %" PRIuPTR " of --simulate-qt\nfile.\n", line_idx);
 	goto simulate_ret_INVALID_FORMAT_2N;
       }
     } else {
       if (scan_double(penult_ptr, &het_odds) || (het_odds < 0)) {
-	sprintf(g_logbuf, "Error: Invalid heterozygote disease odds ratio on line %" PRIuPTR " of\n--simulate file.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid heterozygote disease odds ratio on line %" PRIuPTR " of\n--simulate file.\n", line_idx);
 	goto simulate_ret_INVALID_FORMAT_2N;
       }
       if ((strlen_se(last_ptr) == 4) && match_upper_counted(last_ptr, "MULT", 4)) {
 	hom0_odds = het_odds * het_odds;
       } else if (scan_double(last_ptr, &hom0_odds) || (hom0_odds < 0)) {
-	sprintf(g_logbuf, "Error: Invalid homozygote disease odds ratio on line %" PRIuPTR " of --simulate\nfile.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid homozygote disease odds ratio on line %" PRIuPTR " of --simulate\nfile.\n", line_idx);
 	goto simulate_ret_INVALID_FORMAT_2N;
       }
       if ((!zero_odds_ratio_warning_given) && ((het_odds == 0) || (hom0_odds == 0))) {
@@ -11512,7 +11512,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
   while (fgets(loadbuf, loadbuf_size, rafile)) {
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --recode-allele file is pathologically long.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --recode-allele file is pathologically long.\n", line_idx);
       goto recode_allele_load_ret_INVALID_FORMAT_3;
     }
     bufptr = skip_initial_spaces(loadbuf);
@@ -11522,7 +11522,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
     slen = strlen_se(bufptr);
     bufptr2 = skip_initial_spaces(&(bufptr[slen]));
     if (is_eoln_kns(*bufptr2)) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --recode-allele file has fewer tokens than expected.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --recode-allele file has fewer tokens than expected.\n", line_idx);
       goto recode_allele_load_ret_INVALID_FORMAT_3;
     }
     alen = strlen_se(bufptr2);
@@ -13225,7 +13225,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
     if (!beagle_nomap) {
       memcpy(outname_end, ".chr-", 6);
-      sprintf(g_logbuf, "--recode beagle to %s*.dat + %s*.map... ", outname, outname);
+      snprintf(g_logbuf, LOGBUFLEN, "--recode beagle to %s*.dat + %s*.map... ", outname, outname);
       wordwrapb(5);
       fputs(g_logbuf, stdout);
     } else {
@@ -13536,7 +13536,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     } else {
       *outname_end = '\0';
     }
-    sprintf(g_logbuf, "--recode fastphase%s to %s.recode.phase.inp ... ", (recode_modifier & RECODE_FASTPHASE)? "" : "-1chr", outname);
+    snprintf(g_logbuf, LOGBUFLEN, "--recode fastphase%s to %s.recode.phase.inp ... ", (recode_modifier & RECODE_FASTPHASE)? "" : "-1chr", outname);
     wordwrapb(15); // strlen("[chromosome 10]")
     fputs(g_logbuf, stdout);
     chrom_fo_idx = 0xffffffffU; // exploit overflow for initialization
@@ -13916,9 +13916,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
     if (rlist) {
       *outname_end = '\0';
-      sprintf(g_logbuf, "--recode rlist to %s.rlist + %s.map + %s.fam ... ", outname, outname, outname);
+      snprintf(g_logbuf, LOGBUFLEN, "--recode rlist to %s.rlist + %s.map + %s.fam ... ", outname, outname, outname);
     } else {
-      sprintf(g_logbuf, "--recode list to %s ... ", outname);
+      snprintf(g_logbuf, LOGBUFLEN, "--recode list to %s ... ", outname);
     }
     wordwrapb(5);
     logprintb();
@@ -14100,7 +14100,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
     if (recode_modifier & RECODE_HV) {
       memcpy(outname_end, ".chr-", 5);
-      sprintf(g_logbuf, "--recode HV to %s*.ped + .info... ", outname);
+      snprintf(g_logbuf, LOGBUFLEN, "--recode HV to %s*.ped + .info... ", outname);
       wordwrapb(15); // strlen("[chromosome 10]");
       fputs(g_logbuf, stdout);
       fputs("[chromosome   ", stdout);
@@ -14334,7 +14334,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     } else if (recode_modifier & RECODE_HV) {
       logstr("--recode HV complete.\n");
     } else {
-      sprintf(g_logbuf, "--recode fastphase%s complete.\n", (recode_modifier & RECODE_FASTPHASE_1CHR)? "-1chr" : "");
+      snprintf(g_logbuf, LOGBUFLEN, "--recode fastphase%s complete.\n", (recode_modifier & RECODE_FASTPHASE_1CHR)? "-1chr" : "");
       logstr(g_logbuf);
     }
   }
@@ -14424,7 +14424,7 @@ int32_t sample_sort_file_map(char* sample_sort_fname, uintptr_t unfiltered_sampl
   while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
     if (!g_textbuf[MAXLINELEN - 1]) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --indiv-sort file is pathologically long.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --indiv-sort file is pathologically long.\n", line_idx);
       goto sample_sort_file_map_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(g_textbuf);
@@ -14432,7 +14432,7 @@ int32_t sample_sort_file_map(char* sample_sort_fname, uintptr_t unfiltered_sampl
       continue;
     }
     if (bsearch_read_fam_indiv(bufptr, sorted_sample_ids, max_sample_id_len, sample_ct, nullptr, &ii, idbuf)) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --indiv-sort file has fewer tokens than expected.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --indiv-sort file has fewer tokens than expected.\n", line_idx);
       goto sample_sort_file_map_ret_INVALID_FORMAT_2;
     }
     if (ii != -1) {
@@ -16106,7 +16106,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     while (fgets(g_textbuf, MAXLINELEN, mergelistfile)) {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 1]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --merge-list file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --merge-list file is pathologically long.\n", line_idx);
 	goto merge_datasets_ret_INVALID_FORMAT_2;
       }
       bufptr = skip_initial_spaces(g_textbuf);
@@ -16115,14 +16115,14 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       }
       bufptr2 = next_token_mult(bufptr, 3);
       if (!no_more_tokens_kns(bufptr2)) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --merge-list file has more tokens than expected.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --merge-list file has more tokens than expected.\n", line_idx);
         goto merge_datasets_ret_INVALID_FORMAT_2;
       }
       if (no_more_tokens_kns(next_token(bufptr))) {
 	bufptr2 = token_endnn(bufptr);
 	ulii = bufptr2 - bufptr;
 	if (ulii > FNAMESIZE - 5) {
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --merge-list file has an excessively long fileset\nprefix.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --merge-list file has an excessively long fileset\nprefix.\n", line_idx);
 	  goto merge_datasets_ret_INVALID_FORMAT_2;
 	}
 	ullxx += 3 * ulii + 15;
@@ -16131,7 +16131,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	  bufptr2 = token_endnn(bufptr);
 	  ulii = bufptr2 - bufptr;
 	  if (ulii > FNAMESIZE - 1) {
-	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --merge-list file has an excessively long filename.\n", line_idx);
+	    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --merge-list file has an excessively long filename.\n", line_idx);
 	    goto merge_datasets_ret_INVALID_FORMAT_2;
 	  }
 	  ullxx += ulii + 1;
@@ -16256,13 +16256,13 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   }
 #ifdef __LP64__
   if (ullxx > 0x7fffffff) {
-    sprintf(g_logbuf, "Error: Too many %s (max 2147483647).\n", g_species_plural);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Too many %s (max 2147483647).\n", g_species_plural);
     goto merge_datasets_ret_INVALID_FORMAT_2;
   }
 #else
   // avoid integer overflow in bigstack_alloc calls
   if (ullxx * max_sample_full_len > 0x7fffffff) {
-    sprintf(g_logbuf, "Error: Too many %s for 32-bit " PROG_NAME_CAPS ".\n", g_species_plural);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Too many %s for 32-bit " PROG_NAME_CAPS ".\n", g_species_plural);
     goto merge_datasets_ret_INVALID_FORMAT_2;
   }
 #endif
@@ -16679,9 +16679,9 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       goto merge_datasets_ret_WRITE_FAIL;
     }
     if (pass_ct == 1) {
-      sprintf(g_logbuf, "Performing single-pass merge (%u %s, %u variant%s).\n", tot_sample_ct, species_str(tot_sample_ct), dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
+      snprintf(g_logbuf, LOGBUFLEN, "Performing single-pass merge (%u %s, %u variant%s).\n", tot_sample_ct, species_str(tot_sample_ct), dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
     } else {
-      sprintf(g_logbuf, "Performing %u-pass merge (%u %s, %" PRIuPTR "/%u variant%s per pass).\n", pass_ct, tot_sample_ct, species_str(tot_sample_ct), markers_per_pass, dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
+      snprintf(g_logbuf, LOGBUFLEN, "Performing %u-pass merge (%u %s, %" PRIuPTR "/%u variant%s per pass).\n", pass_ct, tot_sample_ct, species_str(tot_sample_ct), markers_per_pass, dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
     }
   } else {
     memcpy(outname_end, ".diff", 6);

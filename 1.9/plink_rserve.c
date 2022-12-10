@@ -111,7 +111,7 @@ int32_t rserve_call(char* rplugin_fname, char* rplugin_host_or_socket, int32_t r
     }
     line_idx++;
     if (!(inbuf_end[MAXLINELEN - 1])) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --R file is pathologically long.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --R file is pathologically long.\n", line_idx);
       goto rserve_call_ret_INVALID_FORMAT_2;
     }
     uii = strlen(inbuf_end);

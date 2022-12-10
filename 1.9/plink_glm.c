@@ -165,7 +165,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
     while (fgets(g_textbuf, MAXLINELEN, condition_file)) {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 1]) {
-        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --condition-list file is pathologically long.\n", line_idx);
+        snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --condition-list file is pathologically long.\n", line_idx);
         goto glm_scan_conditions_ret_INVALID_FORMAT_2;
       }
       bufptr = skip_initial_spaces(g_textbuf);
@@ -199,9 +199,9 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
       goto glm_scan_conditions_ret_1;
     }
     if (miss_ct) {
-      sprintf(g_logbuf, "--condition-list: %" PRIuPTR " of %" PRIuPTR " variant ID%s loaded from %s.\n", condition_ct, condition_ct + miss_ct, (condition_ct + miss_ct == 1)? "" : "s", condition_fname);
+      snprintf(g_logbuf, LOGBUFLEN, "--condition-list: %" PRIuPTR " of %" PRIuPTR " variant ID%s loaded from %s.\n", condition_ct, condition_ct + miss_ct, (condition_ct + miss_ct == 1)? "" : "s", condition_fname);
     } else {
-      sprintf(g_logbuf, "--condition-list: %" PRIuPTR " variant ID%s loaded from %s.\n", condition_ct, (condition_ct == 1)? "" : "s", condition_fname);
+      snprintf(g_logbuf, LOGBUFLEN, "--condition-list: %" PRIuPTR " variant ID%s loaded from %s.\n", condition_ct, (condition_ct == 1)? "" : "s", condition_fname);
     }
     logprintb();
   }

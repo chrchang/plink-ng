@@ -6213,7 +6213,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     if (fopen_checked(outname, "w", &outfile)) {
       goto model_assoc_ret_OPEN_FAIL;
     }
-    sprintf(g_logbuf, "Writing C/C --assoc report to %s ... ", outname);
+    snprintf(g_logbuf, LOGBUFLEN, "Writing C/C --assoc report to %s ... ", outname);
     wordwrapb(25); // strlen("[generating permutations]")
     logprintb();
     fflush(stdout);
@@ -6267,7 +6267,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     if (fopen_checked(outname, "w", &outfile)) {
       goto model_assoc_ret_OPEN_FAIL;
     }
-    sprintf(g_logbuf, "Writing --model report to %s ... ", outname);
+    snprintf(g_logbuf, LOGBUFLEN, "Writing --model report to %s ... ", outname);
     wordwrapb(25);
     logprintb();
     fflush(stdout);

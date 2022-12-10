@@ -122,7 +122,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	while (fgets(g_textbuf, MAXLINELEN, infile)) {
 	  line_idx++;
 	  if (!g_textbuf[MAXLINELEN - 1]) {
-	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --keep-clusters file is pathologically long.\n", line_idx);
+	    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --keep-clusters file is pathologically long.\n", line_idx);
 	    goto load_clusters_ret_INVALID_FORMAT_2;
 	  }
 	  cluster_name_ptr = skip_initial_spaces(g_textbuf);
@@ -196,7 +196,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
           while (fgets(g_textbuf, MAXLINELEN, infile)) {
 	    line_idx++;
             if (!g_textbuf[MAXLINELEN - 1]) {
-	      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --remove-clusters file is pathologically long.\n", line_idx);
+	      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --remove-clusters file is pathologically long.\n", line_idx);
 	      goto load_clusters_ret_INVALID_FORMAT_2;
 	    }
 	    cluster_name_ptr = skip_initial_spaces(g_textbuf);
@@ -234,7 +234,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	while (fgets(g_textbuf, MAXLINELEN, infile)) {
 	  line_idx++;
 	  if (!g_textbuf[MAXLINELEN - 1]) {
-	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --remove-clusters file is pathologically long.\n", line_idx);
+	    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --remove-clusters file is pathologically long.\n", line_idx);
 	    goto load_clusters_ret_INVALID_FORMAT_2;
 	  }
 	  cluster_name_ptr = skip_initial_spaces(g_textbuf);
@@ -313,7 +313,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
     while (fgets(g_textbuf, MAXLINELEN, infile)) {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 1]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --within file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --within file is pathologically long.\n", line_idx);
 	goto load_clusters_ret_INVALID_FORMAT_2;
       }
       fam_id = skip_initial_spaces(g_textbuf);
@@ -566,7 +566,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
     retval = RET_READ_FAIL;
     break;
   load_clusters_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --within file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --within file has fewer tokens than expected.\n", line_idx);
   load_clusters_ret_INVALID_FORMAT_2:
     logerrprintb();
   load_clusters_ret_INVALID_FORMAT:
@@ -1379,7 +1379,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
     }
     sample_idx2 = id_map[(uint32_t)ii];
     if (sample_idx2 == sample_idx1) {
-      sprintf(g_logbuf, "Error: FID1/IID1 matches FID2/IID2 on line %" PRIuPTR " of --read-genome file.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: FID1/IID1 matches FID2/IID2 on line %" PRIuPTR " of --read-genome file.\n", line_idx);
       goto read_genome_ret_INVALID_FORMAT_2;
     }
     bufptr = next_token_mult(bufptr, 7); // distance
@@ -1389,7 +1389,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
     }
     if (min_ppc != 0.0) {
       if (scan_double(fam_id, &cur_ppc)) {
-	sprintf(g_logbuf, "Error: Invalid PPC test value on line %" PRIuPTR " of --read-genome file.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid PPC test value on line %" PRIuPTR " of --read-genome file.\n", line_idx);
 	goto read_genome_ret_INVALID_FORMAT_2;
       }
       ppc_fail = (cur_ppc < min_ppc);
@@ -1399,7 +1399,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
       }
     }
     if (scan_double(bufptr, &cur_ibs)) {
-      sprintf(g_logbuf, "Error: Invalid IBS value on line %" PRIuPTR " of --read-genome file.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid IBS value on line %" PRIuPTR " of --read-genome file.\n", line_idx);
       goto read_genome_ret_INVALID_FORMAT_2;
     }
     if (neighbor_load_quantiles) {
@@ -1452,7 +1452,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
     retval = RET_INVALID_FORMAT;
     break;
   read_genome_ret_LONG_LINE:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --read-genome file is pathologically long.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --read-genome file is pathologically long.\n", line_idx);
   read_genome_ret_INVALID_FORMAT_2:
     logerrprintb();
   read_genome_ret_INVALID_FORMAT:
@@ -1538,7 +1538,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       while (fgets(g_textbuf, MAXLINELEN, typefile)) {
 	line_idx++;
         if (!g_textbuf[MAXLINELEN - 1]) {
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --match-type file is pathologically long.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --match-type file is pathologically long.\n", line_idx);
           goto cluster_enforce_match_ret_INVALID_FORMAT_2;
 	}
         bufptr = skip_initial_spaces(g_textbuf);
@@ -1554,7 +1554,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
             cov_type_arr[cov_ct] = 0;
 	    cov_idx++;
 	  } else {
-            sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --match-type file has an invalid token\n(0/1/-1/-/+/* expected).\n", line_idx);
+            snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --match-type file has an invalid token\n(0/1/-1/-/+/* expected).\n", line_idx);
 	    goto cluster_enforce_match_ret_INVALID_FORMAT_2;
 	  }
 	  cov_ct++;
@@ -1603,7 +1603,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     do {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 1]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --match file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --match file is pathologically long.\n", line_idx);
 	goto cluster_enforce_match_ret_INVALID_FORMAT_2;
       }
       bufptr = skip_initial_spaces(g_textbuf);
@@ -1771,18 +1771,18 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     while (fgets(g_textbuf, MAXLINELEN, typefile)) {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 1]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qt file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --qt file is pathologically long.\n", line_idx);
 	goto cluster_enforce_match_ret_INVALID_FORMAT_2;
       }
       bufptr = skip_initial_spaces(g_textbuf);
       while (!is_eoln_kns(*bufptr)) {
         if (scan_double(bufptr, &dxx)) {
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qt file has a non-numeric value.\n", line_idx);
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --qt file has a non-numeric value.\n", line_idx);
 	  goto cluster_enforce_match_ret_INVALID_FORMAT_2;
 	}
 	if (dxx < 0) {
 	  if (dxx != -1) {
-	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qt file has an invalid tolerance (-1 = ignore,\nother values must be nonnegative).\n", line_idx);
+	    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --qt file has an invalid tolerance (-1 = ignore,\nother values must be nonnegative).\n", line_idx);
             goto cluster_enforce_match_ret_INVALID_FORMAT_2;
 	  }
 	} else {
@@ -1816,7 +1816,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     while (fgets(g_textbuf, MAXLINELEN, matchfile)) {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 1]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qmatch file is pathologically long.\n", line_idx);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --qmatch file is pathologically long.\n", line_idx);
 	goto cluster_enforce_match_ret_INVALID_FORMAT_2;
       }
       bufptr = skip_initial_spaces(g_textbuf);
@@ -1846,7 +1846,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	    *dptr++ = -DBL_MAX;
 	  } else {
             if (scan_double(bufptr, dptr++)) {
-	      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qmatch file has a non-numeric covariate.\n", line_idx);
+	      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --qmatch file has a non-numeric covariate.\n", line_idx);
 	      goto cluster_enforce_match_ret_INVALID_FORMAT_2;
 	    }
 	  }
@@ -1953,7 +1953,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     retval = RET_INVALID_FORMAT;
     break;
   cluster_enforce_match_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --match file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --match file has fewer tokens than expected.\n", line_idx);
   cluster_enforce_match_ret_INVALID_FORMAT_2:
     logerrprintb();
   cluster_enforce_match_ret_INVALID_FORMAT:

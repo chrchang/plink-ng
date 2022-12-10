@@ -2351,7 +2351,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     fflush(stdout);
   } while (ll_change > tol);
   putc_unlocked('\n', stdout);
-  sprintf(g_logbuf, "covg: %g  covr: %g\n", *covg_ref, *covr_ref);
+  snprintf(g_logbuf, LOGBUFLEN, "covg: %g  covr: %g\n", *covg_ref, *covr_ref);
   logstr(g_logbuf);
 }
 
@@ -3335,13 +3335,13 @@ void distance_print_done(int32_t format_code, char* outname, char* outname_end) 
   putc_unlocked('\r', stdout);
   if (!format_code) {
     strcpy(outname_end, g_textbuf);
-    sprintf(g_logbuf, "Distances (allele counts) written to %s .\n", outname);
+    snprintf(g_logbuf, LOGBUFLEN, "Distances (allele counts) written to %s .\n", outname);
   } else if (format_code == 1) {
     strcpy(outname_end, &(g_textbuf[MAX_POST_EXT]));
-    sprintf(g_logbuf, "IBS matrix written to %s .\n", outname);
+    snprintf(g_logbuf, LOGBUFLEN, "IBS matrix written to %s .\n", outname);
   } else if (format_code == 2) {
     strcpy(outname_end, &(g_textbuf[MAX_POST_EXT * 2]));
-    sprintf(g_logbuf, "Distances (proportions) written to %s .\n", outname);
+    snprintf(g_logbuf, LOGBUFLEN, "Distances (proportions) written to %s .\n", outname);
   }
   wordwrapb(0);
   logprintb();
@@ -6294,7 +6294,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
     set_bit(marker_uidx, marker_include);
     bufptr = skip_initial_spaces(&(bufptr[idlen]));
     if (is_eoln_kns(*bufptr)) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --distance-wts file has fewer tokens than expected.\n", line_idx);
+      snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --distance-wts file has fewer tokens than expected.\n", line_idx);
       goto load_distance_wts_ret_INVALID_FORMAT_2;
     }
     if (scan_double(bufptr, &dxx)) {
@@ -6350,7 +6350,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
     retval = RET_READ_FAIL;
     break;
   load_distance_wts_ret_INVALID_WEIGHT:
-    sprintf(g_logbuf, "Error: Invalid weight on line %" PRIuPTR " of --distance-wts file.\n", line_idx);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid weight on line %" PRIuPTR " of --distance-wts file.\n", line_idx);
   load_distance_wts_ret_INVALID_FORMAT_2:
     logerrprintb();
   load_distance_wts_ret_INVALID_FORMAT:
@@ -6940,7 +6940,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       }
       sprintf(wptr, " , and IDs written to %s .\n", outname);
     } else {
-      sprintf(g_logbuf, "Relationship matrix component written to %s .\n", outname);
+      snprintf(g_logbuf, LOGBUFLEN, "Relationship matrix component written to %s .\n", outname);
     }
     wordwrapb(0);
     logprintb();
@@ -7060,10 +7060,10 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   if ((pc_ct > pca_sample_ct) || (pc_ct > marker_ct)) {
     if (pca_sample_ct <= marker_ct) {
       pc_ct = pca_sample_ct;
-      sprintf(g_logbuf, "Warning: calculating %u PCs, since there are only %u samples.\n", pc_ct, pc_ct);
+      snprintf(g_logbuf, LOGBUFLEN, "Warning: calculating %u PCs, since there are only %u samples.\n", pc_ct, pc_ct);
     } else {
       pc_ct = marker_ct;
-      sprintf(g_logbuf, "Warning: calculating %u PCs, since there are only %u autosomal markers.\n", pc_ct, pc_ct);
+      snprintf(g_logbuf, LOGBUFLEN, "Warning: calculating %u PCs, since there are only %u autosomal markers.\n", pc_ct, pc_ct);
     }
     logerrprintb();
   }
@@ -8068,7 +8068,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       }
       sprintf(wptr, " , and IDs to %s .\n", outname);
     } else {
-      sprintf(g_logbuf, "Distances (proportions) written to %s .\n", outname);
+      snprintf(g_logbuf, LOGBUFLEN, "Distances (proportions) written to %s .\n", outname);
     }
     wordwrapb(0);
     logprintb();

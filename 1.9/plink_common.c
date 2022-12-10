@@ -8150,7 +8150,7 @@ int32_t string_range_list_to_bitarr(char* header_line, uint32_t item_ct, uint32_
     if (ii != -1) {
       cmdline_pos = id_map[(uint32_t)ii];
       if (seen_idxs[cmdline_pos] != -1) {
-	sprintf(g_logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
         goto string_range_list_to_bitarr_ret_INVALID_FORMAT_2;
       }
       seen_idxs[cmdline_pos] = item_idx;
@@ -8180,7 +8180,7 @@ int32_t string_range_list_to_bitarr(char* header_line, uint32_t item_ct, uint32_
   }
   while (0) {
   string_range_list_to_bitarr_ret_INVALID_CMDLINE_3:
-    sprintf(g_logbuf, "Error: Missing --%s token in %s.\n", range_list_flag, file_descrip);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: Missing --%s token in %s.\n", range_list_flag, file_descrip);
   string_range_list_to_bitarr_ret_INVALID_CMDLINE_2:
     logerrprintb();
     retval = RET_INVALID_CMDLINE;
@@ -8247,7 +8247,7 @@ int32_t string_range_list_to_bitarr2(const char* __restrict sorted_ids, const ui
       }
       item_uidx2 = id_map[(uint32_t)ii];
       if (item_uidx2 < item_uidx) {
-	sprintf(g_logbuf, "Error: Second element of --%s range appears before first.\n", range_list_flag);
+	snprintf(g_logbuf, LOGBUFLEN, "Error: Second element of --%s range appears before first.\n", range_list_flag);
 	goto string_range_list_to_bitarr2_ret_INVALID_CMDLINE_2;
       }
       clear_bits(item_uidx, item_uidx2 - item_uidx + 1, bitfield_excl);
@@ -8257,7 +8257,7 @@ int32_t string_range_list_to_bitarr2(const char* __restrict sorted_ids, const ui
   }
   while (0) {
   string_range_list_to_bitarr2_ret_INVALID_CMDLINE_3:
-    sprintf(g_logbuf, "Error: --%s ID not found.\n", range_list_flag);
+    snprintf(g_logbuf, LOGBUFLEN, "Error: --%s ID not found.\n", range_list_flag);
   string_range_list_to_bitarr2_ret_INVALID_CMDLINE_2:
     logerrprintb();
     retval = RET_INVALID_CMDLINE;
