@@ -2206,7 +2206,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       if (fopen_checked(outname, "w", &profile_outfile)) {
 	goto plink1_dosage_ret_OPEN_FAIL;
       }
-      sprintf(g_textbuf, "%%%us %%%us  PHENO%s %s\n", plink_maxfid, plink_maxiid, dosage_score_cnt? "    CNT" : "", score_report_average? "   SCORE" : "SCORESUM");
+      snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us  PHENO%s %s\n", plink_maxfid, plink_maxiid, dosage_score_cnt? "    CNT" : "", score_report_average? "   SCORE" : "SCORESUM");
       fprintf(profile_outfile, g_textbuf, "FID", "IID");
       uii = score_range_obs_cts[qrange_idx];
       uiptr = &(score_miss_cts[sample_ct * qrange_idx]);

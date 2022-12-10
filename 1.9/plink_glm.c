@@ -4942,7 +4942,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   }
   LOGPRINTFWW5("Writing linear model association results to %s ... ", outname);
   fflush(stdout);
-  sprintf(g_textbuf, " CHR %%%us         BP   A1       TEST    NMISS       BETA ", plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         BP   A1       TEST    NMISS       BETA ", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
   if (display_ci) {
     uii = (uint32_t)((int32_t)(ci_size * (100 + EPSILON)));
@@ -5510,9 +5510,9 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       goto glm_linear_assoc_ret_OPEN_FAIL;
     }
     if (perm_adapt_nst) {
-      sprintf(g_textbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
     } else {
-      sprintf(g_textbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
 #ifdef __cplusplus
       std::sort(g_maxt_extreme_stat, &(g_maxt_extreme_stat[perms_total]));
 #else
@@ -6427,7 +6427,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   }
   LOGPRINTFWW5("Writing logistic model association results to %s ... ", outname);
   fflush(stdout);
-  sprintf(g_textbuf, " CHR %%%us         BP   A1       TEST    NMISS       %s ", plink_maxsnp, report_odds? "  OR" : "BETA");
+  snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         BP   A1       TEST    NMISS       %s ", plink_maxsnp, report_odds? "  OR" : "BETA");
   fprintf(outfile, g_textbuf, "SNP");
   if (display_ci) {
     uii = (uint32_t)((int32_t)(ci_size * (100 + EPSILON)));
@@ -6948,9 +6948,9 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       goto glm_logistic_assoc_ret_OPEN_FAIL;
     }
     if (perm_adapt_nst) {
-      sprintf(g_textbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
     } else {
-      sprintf(g_textbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
 #ifdef __cplusplus
       std::sort(g_maxt_extreme_stat, &(g_maxt_extreme_stat[perms_total]));
 #else

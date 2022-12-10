@@ -825,7 +825,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       if (fopen_checked(outname, "w", &outfile)) {
 	goto mendel_error_scan_ret_OPEN_FAIL;
       }
-      sprintf(g_textbuf, "%%%us %%%us  CHR %%%us   CODE                 ERROR\n", plink_maxfid, plink_maxiid, plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us  CHR %%%us   CODE                 ERROR\n", plink_maxfid, plink_maxiid, plink_maxsnp);
       fprintf(outfile, g_textbuf, "FID", "KID", "SNP");
     }
     memcpy(outname_end, ".lmendel", 9);
@@ -833,7 +833,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       goto mendel_error_scan_ret_OPEN_FAIL;
     }
     // replicate harmless 'N' misalignment bug
-    sprintf(g_textbuf, " CHR %%%us   N\n", plink_maxsnp);
+    snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us   N\n", plink_maxsnp);
     fprintf(outfile_l, g_textbuf, "SNP");
   } else {
     // suppress warning
@@ -1064,7 +1064,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     if (fopen_checked(outname, "w", &outfile)) {
       goto mendel_error_scan_ret_OPEN_FAIL;
     }
-    sprintf(g_textbuf, "%%%us %%%us %%%us   CHLD    N\n", plink_maxfid, plink_maxiid, plink_maxiid);
+    snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us %%%us   CHLD    N\n", plink_maxfid, plink_maxiid, plink_maxiid);
     fprintf(outfile, g_textbuf, "FID", "PAT", "MAT");
     fill_ull_zero(family_ct * 3, family_error_cts);
     fill_uint_zero(family_ct, child_cts);
@@ -1122,7 +1122,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     if (fopen_checked(outname, "w", &outfile)) {
       goto mendel_error_scan_ret_OPEN_FAIL;
     }
-    sprintf(g_textbuf, "%%%us %%%us   N\n", plink_maxfid, plink_maxiid);
+    snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us   N\n", plink_maxfid, plink_maxiid);
     fprintf(outfile, g_textbuf, "FID", "IID");
     uii = 0xffffffffU; // family idx
     for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
@@ -4857,9 +4857,9 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       goto dfam_ret_OPEN_FAIL;
     }
     if (perm_adapt_nst) {
-      sprintf(g_textbuf, " CHR %%%us    CHISQ_TDT         EMP1           NP \n", plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us    CHISQ_TDT         EMP1           NP \n", plink_maxsnp);
     } else {
-      sprintf(g_textbuf, " CHR %%%us    CHISQ_TDT         EMP1         EMP2 \n", plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us    CHISQ_TDT         EMP1         EMP2 \n", plink_maxsnp);
 #ifdef __cplusplus
       std::sort(g_maxt_extreme_stat, &(g_maxt_extreme_stat[perms_total]));
 #else
@@ -5667,7 +5667,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   fflush(stdout);
   // deliberately rename last field to RAW_P to reduce likelihood of
   // misinterpretation.  --adjust also disabled.
-  sprintf(g_textbuf, " CHR %%%us         BP   A1       TEST     NIND       BETA         STAT        RAW_P\n", plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         BP   A1       TEST     NIND       BETA         STAT        RAW_P\n", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
   marker_unstopped_ct = marker_ct;
   loop_end = marker_ct / 100;
@@ -5868,7 +5868,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   if (fopen_checked(outname, "w", &outfile)) {
     goto qfam_ret_OPEN_FAIL;
   }
-  sprintf(g_textbuf, emp_se? " CHR %%%us         BETA     EMP_BETA       EMP_SE         EMP1           NP \n" : " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, emp_se? " CHR %%%us         BETA     EMP_BETA       EMP_SE         EMP1           NP \n" : " CHR %%%us         EMP1           NP \n", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
   chrom_fo_idx = 0xffffffffU;
   chrom_end = 0;

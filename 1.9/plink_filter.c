@@ -2608,7 +2608,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   }
   ujj = unfiltered_sample_ctl2 * BITCT2;
   if (!cluster_ct) {
-    sprintf(g_textbuf, " CHR %%%us   N_MISS   N_GENO   F_MISS" EOLN_STR, plink_maxsnp);
+    snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us   N_MISS   N_GENO   F_MISS" EOLN_STR, plink_maxsnp);
   } else {
     if (bigstack_calloc_ui(unfiltered_sample_ct, &sample_to_cluster) ||
         bigstack_alloc_ui(cluster_ct, &missing_ct_by_cluster) ||
@@ -2631,7 +2631,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	}
       }
     }
-    sprintf(g_textbuf, " CHR %%%us       CLST   N_MISS   N_CLST   N_GENO   F_MISS" EOLN_STR, plink_maxsnp);
+    snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us       CLST   N_MISS   N_CLST   N_GENO   F_MISS" EOLN_STR, plink_maxsnp);
   }
 
   pzwritep += sprintf(pzwritep, g_textbuf, "SNP");
@@ -2781,7 +2781,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
     goto write_missingness_reports_ret_OPEN_FAIL;
   }
   pzwritep = (char*)overflow_buf;
-  sprintf(g_textbuf, "%%%us %%%us MISS_PHENO   N_MISS   N_GENO   F_MISS" EOLN_STR, plink_maxfid, plink_maxiid);
+  snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us MISS_PHENO   N_MISS   N_GENO   F_MISS" EOLN_STR, plink_maxfid, plink_maxiid);
   pzwritep += sprintf(pzwritep, g_textbuf, "FID", "IID");
   do {
     sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);

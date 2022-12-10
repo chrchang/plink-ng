@@ -448,13 +448,13 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
   if (fopen_checked(outname, "w", &outfile)) {
     goto write_main_roh_reports_ret_OPEN_FAIL;
   }
-  sprintf(g_textbuf, "%%%us %%%us      PHE  CHR %%%us %%%us         POS1         POS2         KB     NSNP  DENSITY     PHOM     PHET\n", plink_maxfid, plink_maxiid, plink_maxsnp, plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us      PHE  CHR %%%us %%%us         POS1         POS2         KB     NSNP  DENSITY     PHOM     PHET\n", plink_maxfid, plink_maxiid, plink_maxsnp, plink_maxsnp);
   fprintf(outfile, g_textbuf, "FID", "IID", "SNP1", "SNP2");
   memcpy(&(outname_end[4]), ".indiv", 7);
   if (fopen_checked(outname, "w", &outfile_indiv)) {
     goto write_main_roh_reports_ret_OPEN_FAIL;
   }
-  sprintf(g_textbuf, "%%%us %%%us  PHE     NSEG       KB    KBAVG\n", plink_maxfid, plink_maxiid);
+  snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us  PHE     NSEG       KB    KBAVG\n", plink_maxfid, plink_maxiid);
   fprintf(outfile_indiv, g_textbuf, "FID", "IID");
   g_textbuf[plink_maxfid] = ' ';
   g_textbuf[plink_maxfid + plink_maxiid + 1] = ' ';
@@ -573,7 +573,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
   if (fopen_checked(outname, "w", &outfile)) {
     goto write_main_roh_reports_ret_WRITE_FAIL;
   }
-  sprintf(g_textbuf, " CHR %%%us           BP      AFF    UNAFF\n", plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us           BP      AFF    UNAFF\n", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_roh_start = roh_list_chrom_starts[chrom_fo_idx];
@@ -1904,7 +1904,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 #else
 	qsort((int64_t*)verbose_group_sort_buf, pool_size, sizeof(int64_t), llcmp);
 #endif
-        sprintf(g_textbuf, "       %%%us %%%us  GRP \n", plink_maxfid, plink_maxiid);
+        snprintf(g_textbuf, TEXTBUF_SIZE, "       %%%us %%%us  GRP \n", plink_maxfid, plink_maxiid);
 	fprintf(outfile, g_textbuf, "FID", "IID");
 
 	for (slot_idx1 = 0; slot_idx1 < pool_size; slot_idx1++) {
@@ -2227,7 +2227,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   if (fopen_checked(outname, "w", &outfile)) {
     goto roh_pool_ret_OPEN_FAIL;
   }
-  sprintf(g_textbuf, " POOL %%%us %%%us      PHE  CHR %%%us %%%us            BP1            BP2       KB     NSNP NSIM    GRP\n", plink_maxfid, plink_maxiid, plink_maxsnp, plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, " POOL %%%us %%%us      PHE  CHR %%%us %%%us            BP1            BP2       KB     NSNP NSIM    GRP\n", plink_maxfid, plink_maxiid, plink_maxsnp, plink_maxsnp);
   fprintf(outfile, g_textbuf, "FID", "IID", "SNP1", "SNP2");
   uii = 1; // pool ID
   fputs("Writing...", stdout);

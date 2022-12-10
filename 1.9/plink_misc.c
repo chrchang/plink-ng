@@ -2499,7 +2499,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
     goto write_stratified_freqs_ret_OPEN_FAIL;
   }
   pzwritep = (char*)overflow_buf;
-  sprintf(g_textbuf, " CHR %%%us     CLST   A1   A2      MAF    MAC  NCHROBS" EOLN_STR, plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us     CLST   A1   A2      MAF    MAC  NCHROBS" EOLN_STR, plink_maxsnp);
   pzwritep += sprintf(pzwritep, g_textbuf, "SNP");
   if (bigstack_alloc_c(2 * max_marker_allele_len + 16, &csptr)) {
     goto write_stratified_freqs_ret_NOMEM;
@@ -3187,7 +3187,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   if (fopen_checked(outname, "w", &outfile)) {
     goto sexcheck_ret_OPEN_FAIL;
   }
-  sprintf(g_textbuf, "%%%us %%%us       PEDSEX       SNPSEX       STATUS%s%s\n", plink_maxfid, plink_maxiid, yonly? "" : "            F", check_y? "   YCOUNT" : "");
+  snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us       PEDSEX       SNPSEX       STATUS%s%s\n", plink_maxfid, plink_maxiid, yonly? "" : "            F", check_y? "   YCOUNT" : "");
   fprintf(outfile, g_textbuf, "FID", "IID");
   sample_uidx = 0;
   if (do_impute) {
@@ -3895,7 +3895,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     goto het_report_ret_OPEN_FAIL;
   }
   pzwritep = (char*)overflow_buf;
-  sprintf(g_textbuf, "%%%us %%%us       O(HOM)       E(HOM)        N(NM)            F\n", plink_maxfid, plink_maxiid);
+  snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us       O(HOM)       E(HOM)        N(NM)            F\n", plink_maxfid, plink_maxiid);
   pzwritep += sprintf(pzwritep, g_textbuf, "FID", "IID");
   sample_uidx = 0;
   for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, sample_uidx++) {

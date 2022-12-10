@@ -3111,7 +3111,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   if (fopen_checked(outname, "w", &outfile)) {
     goto mds_plot_ret_OPEN_FAIL;
   }
-  sprintf(g_textbuf, "%%%us %%%us    SOL ", plink_maxfid, plink_maxiid);
+  snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us    SOL ", plink_maxfid, plink_maxiid);
   fprintf(outfile, g_textbuf, "FID", "IID");
   g_textbuf[22] = ' ';
   for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
@@ -3420,7 +3420,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   if (fopen_checked(outname, "w", &outfile)) {
     goto mds_plot_eigendecomp_ret_OPEN_FAIL;
   }
-  sprintf(g_textbuf, "%%%us %%%us    SOL ", plink_maxfid, plink_maxiid);
+  snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us    SOL ", plink_maxfid, plink_maxiid);
   fprintf(outfile, g_textbuf, "FID", "IID");
   g_textbuf[22] = ' ';
   for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {

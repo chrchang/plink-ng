@@ -424,14 +424,14 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     goto multcomp_ret_OPEN_FAIL;
   }
   if (!is_set_test) {
-    sprintf(g_textbuf, " CHR %%%us      UNADJ %s", plink_maxsnp, skip_gc? "" : "        GC ");
+    snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us      UNADJ %s", plink_maxsnp, skip_gc? "" : "        GC ");
     fprintf(outfile, g_textbuf, "SNP");
   } else {
     plink_maxsnp = max_marker_id_len - 1;
     if (plink_maxsnp < 3) {
       plink_maxsnp = 3;
     }
-    sprintf(g_textbuf, " %%%us      UNADJ ", plink_maxsnp);
+    snprintf(g_textbuf, TEXTBUF_SIZE, " %%%us      UNADJ ", plink_maxsnp);
     fprintf(outfile, g_textbuf, "SET");
   }
   if (qq_plot) {
@@ -6217,7 +6217,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     wordwrapb(25); // strlen("[generating permutations]")
     logprintb();
     fflush(stdout);
-    sprintf(g_textbuf, " CHR %%%us         BP   A1 ", plink_maxsnp);
+    snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         BP   A1 ", plink_maxsnp);
     fprintf(outfile, g_textbuf, "SNP");
     if (assoc_counts) {
       fputs("     C_A      C_U   A2 ", outfile);
@@ -6282,7 +6282,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     } else if (model_modifier & MODEL_PTREND) {
       outname_end2 = memcpyb(outname_end2, ".trend", 7);
     }
-    sprintf(g_textbuf, " CHR %%%us   A1   A2     TEST            AFF          UNAFF ", plink_maxsnp);
+    snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us   A1   A2     TEST            AFF          UNAFF ", plink_maxsnp);
     fprintf(outfile, g_textbuf, "SNP");
     if (!model_fisher) {
       fputs("       CHISQ   DF ", outfile);
@@ -7657,9 +7657,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       goto model_assoc_ret_OPEN_FAIL;
     }
     if (model_adapt_nst) {
-      sprintf(g_textbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
     } else {
-      sprintf(g_textbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
 #ifdef __cplusplus
       std::sort(maxt_extreme_stat, &(maxt_extreme_stat[perms_total]));
 #else
@@ -8281,7 +8281,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     if (fopen_checked(outname, "w", &outfile_qtm)) {
       goto qassoc_ret_OPEN_FAIL;
     }
-    sprintf(g_textbuf, " CHR %%%us  VALUE      G11      G12      G22\n", plink_maxsnp);
+    snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us  VALUE      G11      G12      G22\n", plink_maxsnp);
     fprintf(outfile_qtm, g_textbuf, "SNP");
     *outname_end2 = '\0';
   }
@@ -8290,7 +8290,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   }
   LOGPRINTFWW5("Writing QT --assoc report to %s ... ", outname);
   fflush(stdout);
-  sprintf(g_textbuf, " CHR %%%us         BP    NMISS       BETA         SE         R2        T            P ", plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         BP    NMISS       BETA         SE         R2        T            P ", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
   if (do_lin) {
     fputs("         LIN        LIN_P ", outfile);
@@ -8998,9 +8998,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       goto qassoc_ret_OPEN_FAIL;
     }
     if (perm_adapt_nst) {
-      sprintf(g_textbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
     } else {
-      sprintf(g_textbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
 #ifdef __cplusplus
       std::sort(g_maxt_extreme_stat, &(g_maxt_extreme_stat[perms_total]));
 #else
@@ -9369,7 +9369,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   LOGPRINTFWW5("Writing --gxe report to %s ... ", outname);
   fputs("0%", stdout);
   fflush(stdout);
-  sprintf(g_textbuf, " CHR %%%us   NMISS1      BETA1        SE1   NMISS2      BETA2        SE2    Z_GXE        P_GXE \n", plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us   NMISS1      BETA1        SE1   NMISS2      BETA2        SE2    Z_GXE        P_GXE \n", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
 
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
@@ -10118,7 +10118,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   }
   LOGPRINTFWW5("Writing --test-missing report to %s ... ", outname);
   fflush(stdout);
-  sprintf(g_textbuf, " CHR %%%us     F_MISS_A     F_MISS_U            P \n", plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us     F_MISS_A     F_MISS_U            P \n", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
   if (ferror(outfile)) {
     goto testmiss_ret_WRITE_FAIL;
@@ -10663,9 +10663,9 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       goto testmiss_ret_OPEN_FAIL;
     }
     if (perm_adapt) {
-      sprintf(g_textbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
     } else {
-      sprintf(g_textbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
+      snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
 #ifdef __cplusplus
       std::sort(g_maxt_extreme_stat, &(g_maxt_extreme_stat[perms_total]));
 #else
@@ -11107,7 +11107,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   LOGPRINTFWW5("Writing report to %s ... ", outname);
   fputs("0%", stdout);
   fflush(stdout);
-  sprintf(g_textbuf, " CHR %%%us         BP   A1      MAF   A2      CHISQ          P         OR         SE        ", plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us         BP   A1      MAF   A2      CHISQ          P         OR         SE        ", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
   uii = (uint32_t)((int32_t)(ci_size * (100 + EPSILON)));
   if (uii >= 10) {
@@ -11733,7 +11733,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   fputs("0%", stdout);
   fflush(stdout);
   // misaligned for backward compatibility
-  sprintf(g_textbuf, " CHR %%%us   A1   A2      F_A      F_U      N_A      N_U     TEST      CHISQ   DF          P         OR\n", plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us   A1   A2      F_A      F_U      N_A      N_U     TEST      CHISQ   DF          P         OR\n", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
   if (chrom_info_ptr->xymt_codes[MT_OFFSET] != -2) {
     hh_or_mt_exists |= NXMHH_EXISTS;

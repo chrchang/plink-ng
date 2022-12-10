@@ -6524,7 +6524,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
     if (fopen_checked(outname, "w", &outfile)) {
       goto show_tags_ret_WRITE_FAIL;
     }
-    sprintf(g_textbuf, "%%%us  CHR         BP NTAG       LEFT      RIGHT   KBSPAN TAGS\n", plink_maxsnp);
+    snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us  CHR         BP NTAG       LEFT      RIGHT   KBSPAN TAGS\n", plink_maxsnp);
     fprintf(outfile, g_textbuf, "SNP");
   }
   printf("--show-tags%s: 0%%", final_set? "" : " all");
@@ -11426,7 +11426,7 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   if (fopen_checked(outname, "w", &outfile)) {
     goto test_mishap_ret_OPEN_FAIL;
   }
-  sprintf(g_textbuf, "%%%us  HAPLOTYPE      F_0      F_1                 M_H1                 M_H2    CHISQ        P FLANKING\n", plink_maxsnp);
+  snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us  HAPLOTYPE      F_0      F_1                 M_H1                 M_H2    CHISQ        P FLANKING\n", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
   min_maf *= 1 - SMALL_EPSILON;
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
