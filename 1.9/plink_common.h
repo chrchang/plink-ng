@@ -929,6 +929,7 @@ extern const char g_cmdline_format_str[];
 
 extern FILE* g_logfile;
 
+#define LOGBUFLEN (MAXLINELEN * 2)
 // mostly-safe sprintf buffer.  warning: do NOT put allele codes or
 // arbitrary-length lists in here.
 extern char g_logbuf[];
@@ -981,9 +982,9 @@ void logprintb();
 
 void logerrprintb();
 
-#define LOGPRINTF(...) sprintf(g_logbuf, __VA_ARGS__); logprintb();
+#define LOGPRINTF(...) snprintf(g_logbuf, LOGBUFLEN, __VA_ARGS__); logprintb();
 
-#define LOGERRPRINTF(...) sprintf(g_logbuf, __VA_ARGS__); logerrprintb();
+#define LOGERRPRINTF(...) snprintf(g_logbuf, LOGBUFLEN, __VA_ARGS__); logerrprintb();
 
 // input for wordwrap/LOGPRINTFWW should have no intermediate '\n's.  If
 // suffix_len is 0, there should be a terminating \n.
@@ -991,14 +992,14 @@ void logerrprintb();
 
 void wordwrapb(uint32_t suffix_len);
 
-#define LOGPREPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrapb(0);
+#define LOGPREPRINTFWW(...) snprintf(g_logbuf, LOGBUFLEN, __VA_ARGS__); wordwrapb(0);
 
-#define LOGPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrapb(0); logprintb();
+#define LOGPRINTFWW(...) snprintf(g_logbuf, LOGBUFLEN, __VA_ARGS__); wordwrapb(0); logprintb();
 
-#define LOGERRPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrapb(0); logerrprintb();
+#define LOGERRPRINTFWW(...) snprintf(g_logbuf, LOGBUFLEN, __VA_ARGS__); wordwrapb(0); logerrprintb();
 
 // 5 = length of "done." suffix, which is commonly used
-#define LOGPRINTFWW5(...) sprintf(g_logbuf, __VA_ARGS__); wordwrapb(5); logprintb();
+#define LOGPRINTFWW5(...) snprintf(g_logbuf, LOGBUFLEN, __VA_ARGS__); wordwrapb(5); logprintb();
 
 #ifdef STABLE_BUILD
   #define UNSTABLE(val) sptr = strcpya(&(g_logbuf[9]), val); goto main_unstable_disabled

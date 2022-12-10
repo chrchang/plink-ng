@@ -39,7 +39,7 @@ sfmt_t g_sfmt;
 
 FILE* g_logfile = nullptr;
 
-char g_logbuf[MAXLINELEN * 2];
+char g_logbuf[LOGBUFLEN];
 
 uint32_t g_debug_on = 0;
 uint32_t g_log_failed = 0;
