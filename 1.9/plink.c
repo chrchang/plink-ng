@@ -4014,6 +4014,7 @@ int32_t main(int32_t argc, char** argv) {
       known_procs = CPU_COUNT(&cpu_set);
     }
   }
+#  endif
   g_thread_ct = (known_procs == -1)? 1 : known_procs;
 #endif
   if (g_thread_ct > 8) {

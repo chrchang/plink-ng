@@ -2267,6 +2267,8 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     if (parallel_tot > 1) {
       job_size /= parallel_tot;
       marker_idx1_start = triangle_divide(job_size * parallel_idx, 1);
+      // bugfix (10 Dec 2022)
+      marker_idx1 = marker_idx1_start;
       if (parallel_idx + 1 < parallel_tot) {
         marker_idx1_end = triangle_divide(job_size * (parallel_idx + 1), 1);
       }
