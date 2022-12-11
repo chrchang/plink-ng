@@ -709,24 +709,26 @@ def main():
 
     # skip --qfam for now since there's no QT test file with family info
 
-    for bfn in bfile_names_qt:
-        retval = subprocess.call('plink19 --bfile ' + bfn + ' --silent --linear --out test1', shell=True)
-        if not retval == 0:
-            print('Unexpected error in --annotate test.')
-            raise SystemExit(1)
-        retval = subprocess.call('plink107 --noweb --silent --annotate test1.assoc.linear ranges=set.txt --out test1', shell=True)
-        if not retval == 0:
-            print('Unexpected error in --annotate test.')
-            raise SystemExit(1)
-        retval = subprocess.call('plink19 --silent --annotate test1.assoc.linear ranges=set.txt --out test2', shell=True)
-        if not retval == 0:
-            print('Unexpected error in --annotate test.')
-            raise SystemExit(1)
-        retval = subprocess.call('diff -q test1.annot test2.annot', shell=True)
-        if not retval == 0:
-            print('--annotate test failed.')
-            raise SystemExit(1)
-    print('--annotate test passed.')
+    # skip --annotate since plink 1.07 does not have sensible sorting behavior
+    # for multiple annotations
+    # for bfn in bfile_names_qt:
+    #     retval = subprocess.call('plink19 --bfile ' + bfn + ' --silent --linear --out test1', shell=True)
+    #     if not retval == 0:
+    #         print('Unexpected error in --annotate test.')
+    #         raise SystemExit(1)
+    #     retval = subprocess.call('plink107 --noweb --silent --annotate test1.assoc.linear ranges=set.txt --out test1', shell=True)
+    #     if not retval == 0:
+    #         print('Unexpected error in --annotate test.')
+    #         raise SystemExit(1)
+    #     retval = subprocess.call('plink19 --silent --annotate test1.assoc.linear ranges=set.txt --out test2', shell=True)
+    #     if not retval == 0:
+    #         print('Unexpected error in --annotate test.')
+    #         raise SystemExit(1)
+    #     retval = subprocess.call('diff -q test1.annot test2.annot', shell=True)
+    #     if not retval == 0:
+    #         print('--annotate test failed.')
+    #         raise SystemExit(1)
+    # print('--annotate test passed.')
 
     # skip --clump for now due to lack of LD
 
