@@ -4004,7 +4004,16 @@ int32_t main(int32_t argc, char** argv) {
   g_thread_ct = sysinfo.dwNumberOfProcessors;
   known_procs = g_thread_ct;
 #else
+#  ifdef __APPLE__
   known_procs = sysconf(_SC_NPROCESSORS_ONLN);
+#  else
+  known_procs = -1;
+  {
+    cpu_set_t cpu_set;
+    if (sched_getaffinity(0, sizeof(cpu_set), &cpu_set) == 0) {
+      known_procs = CPU_COUNT(&cpu_set);
+    }
+  }
   g_thread_ct = (known_procs == -1)? 1 : known_procs;
 #endif
   if (g_thread_ct > 8) {
