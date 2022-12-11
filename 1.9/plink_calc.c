@@ -3297,9 +3297,9 @@ int32_t distance_d_write_ids(char* outname, char* outname_end, uint32_t dist_cal
 int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, const char* varsuffix, const char* mode, int32_t dist_calc_type, int32_t parallel_idx, int32_t parallel_tot) {
   if (dist_calc_type & DISTANCE_ALCT) {
     if (parallel_tot > 1) {
-      sprintf(outname_end, ".dist%s.%d", varsuffix, parallel_idx + 1);
+      snprintf(outname_end, MAX_POST_EXT, ".dist%s.%d", varsuffix, parallel_idx + 1);
     } else {
-      sprintf(outname_end, ".dist%s", varsuffix);
+      snprintf(outname_end, MAX_POST_EXT, ".dist%s", varsuffix);
     }
     strcpy(g_textbuf, outname_end);
     if (fopen_checked(outname, mode, outfile_ptr)) {
@@ -3308,9 +3308,9 @@ int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_p
   }
   if (dist_calc_type & DISTANCE_IBS) {
     if (parallel_tot > 1) {
-      sprintf(outname_end, ".mibs%s.%d", varsuffix, parallel_idx + 1);
+      snprintf(outname_end, MAX_POST_EXT, ".mibs%s.%d", varsuffix, parallel_idx + 1);
     } else {
-      sprintf(outname_end, ".mibs%s", varsuffix);
+      snprintf(outname_end, MAX_POST_EXT, ".mibs%s", varsuffix);
     }
     strcpy(&(g_textbuf[MAX_POST_EXT]), outname_end);
     if (fopen_checked(outname, mode, outfile2_ptr)) {
@@ -3319,9 +3319,9 @@ int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_p
   }
   if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
     if (parallel_tot > 1) {
-      sprintf(outname_end, ".mdist%s.%d", varsuffix, parallel_idx + 1);
+      snprintf(outname_end, MAX_POST_EXT, ".mdist%s.%d", varsuffix, parallel_idx + 1);
     } else {
-      sprintf(outname_end, ".mdist%s", varsuffix);
+      snprintf(outname_end, MAX_POST_EXT, ".mdist%s", varsuffix);
     }
     strcpy(&(g_textbuf[MAX_POST_EXT * 2]), outname_end);
     if (fopen_checked(outname, mode, outfile3_ptr)) {
@@ -4099,9 +4099,9 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
       g_dw_dist_ptr = dists;
       if (dist_calc_type & DISTANCE_GZ) {
 	if (parallel_tot > 1) {
-	  sprintf(outname_end, ".dist.%u.gz", parallel_idx + 1);
+	  snprintf(outname_end, MAX_POST_EXT, ".dist.%u.gz", parallel_idx + 1);
 	} else {
-	  sprintf(outname_end, ".dist.gz");
+	  snprintf(outname_end, MAX_POST_EXT, ".dist.gz");
 	}
 	if (shape == DISTANCE_SQ) {
 	  parallel_compress(outname, overflow_buf, 0, distance_d_write_sq_emitn);
@@ -4112,9 +4112,9 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	}
       } else {
 	if (parallel_tot > 1) {
-	  sprintf(outname_end, ".dist.%u", parallel_idx + 1);
+	  snprintf(outname_end, MAX_POST_EXT, ".dist.%u", parallel_idx + 1);
 	} else {
-	  sprintf(outname_end, ".dist");
+	  snprintf(outname_end, MAX_POST_EXT, ".dist");
 	}
 	if (shape == DISTANCE_SQ) {
 	  retval = write_uncompressed(outname, overflow_buf, 0, distance_d_write_sq_emitn);
@@ -4137,9 +4137,9 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
       g_dw_dist_ptr = dists;
       if (dist_calc_type & DISTANCE_GZ) {
 	if (parallel_tot > 1) {
-	  sprintf(outname_end, ".mdist.%u.gz", parallel_idx + 1);
+	  snprintf(outname_end, MAX_POST_EXT, ".mdist.%u.gz", parallel_idx + 1);
 	} else {
-	  sprintf(outname_end, ".mdist.gz");
+	  snprintf(outname_end, MAX_POST_EXT, ".mdist.gz");
 	}
 	if (shape == DISTANCE_SQ) {
 	  parallel_compress(outname, overflow_buf, 0, distance_d_write_1mibs_sq_emitn);
@@ -4150,9 +4150,9 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	}
       } else {
 	if (parallel_tot > 1) {
-	  sprintf(outname_end, ".mdist.%u", parallel_idx + 1);
+	  snprintf(outname_end, MAX_POST_EXT, ".mdist.%u", parallel_idx + 1);
 	} else {
-	  sprintf(outname_end, ".mdist");
+	  snprintf(outname_end, MAX_POST_EXT, ".mdist");
 	}
 	if (shape == DISTANCE_SQ) {
 	  retval = write_uncompressed(outname, overflow_buf, 0, distance_d_write_1mibs_sq_emitn);
@@ -4177,9 +4177,9 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
       g_dw_hundredth = 1 + ((((int64_t)end_sample_idx * (end_sample_idx + 1)) / 2 - g_dw_start_offset) / 100);
       if (dist_calc_type & DISTANCE_GZ) {
 	if (parallel_tot > 1) {
-	  sprintf(outname_end, ".mibs.%u.gz", parallel_idx + 1);
+	  snprintf(outname_end, MAX_POST_EXT, ".mibs.%u.gz", parallel_idx + 1);
 	} else {
-	  sprintf(outname_end, ".mibs.gz");
+	  snprintf(outname_end, MAX_POST_EXT, ".mibs.gz");
 	}
 	if (shape == DISTANCE_SQ) {
 	  parallel_compress(outname, overflow_buf, 0, distance_d_write_ibs_sq_emitn);
@@ -4190,9 +4190,9 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	}
       } else {
 	if (parallel_tot > 1) {
-	  sprintf(outname_end, ".mibs.%u", parallel_idx + 1);
+	  snprintf(outname_end, MAX_POST_EXT, ".mibs.%u", parallel_idx + 1);
 	} else {
-	  sprintf(outname_end, ".mibs");
+	  snprintf(outname_end, MAX_POST_EXT, ".mibs");
 	}
 	if (shape == DISTANCE_SQ) {
 	  retval = write_uncompressed(outname, overflow_buf, 0, distance_d_write_ibs_sq_emitn);
@@ -5013,14 +5013,14 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   g_cg_sample2uidx = g_cg_sample1uidx + 1;
   if (genome_modifier & GENOME_OUTPUT_GZ) {
     if (parallel_tot > 1) {
-      sprintf(outname_end, ".genome.%d.gz", parallel_idx + 1);
+      snprintf(outname_end, MAX_POST_EXT, ".genome.%d.gz", parallel_idx + 1);
     } else {
       strcpy(outname_end, ".genome.gz");
     }
     parallel_compress(outname, overflow_buf, 0, calc_genome_emitn);
   } else {
     if (parallel_tot > 1) {
-      sprintf(outname_end, ".genome.%d", parallel_idx + 1);
+      snprintf(outname_end, MAX_POST_EXT, ".genome.%d", parallel_idx + 1);
     } else {
       strcpy(outname_end, ".genome");
     }
@@ -6849,7 +6849,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       if (rel_calc_type & REL_CALC_GRM) {
 	if (rel_calc_type & REL_CALC_GZ) {
 	  if (parallel_tot > 1) {
-	    sprintf(outname_end, ".grm.%u.gz", parallel_idx + 1);
+	    snprintf(outname_end, MAX_POST_EXT, ".grm.%u.gz", parallel_idx + 1);
 	  } else {
 	    strcpy(outname_end, ".grm.gz");
 	  }
@@ -6867,7 +6867,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       } else {
 	if (rel_calc_type & REL_CALC_GZ) {
 	  if (parallel_tot > 1) {
-	    sprintf(outname_end, ".rel.%u.gz", parallel_idx + 1);
+	    snprintf(outname_end, MAX_POST_EXT, ".rel.%u.gz", parallel_idx + 1);
 	  } else {
 	    strcpy(outname_end, ".rel.gz");
 	  }
