@@ -843,7 +843,7 @@ void FirthComputeSecondWeightsF(const float* hdiag, const float* vv, __maybe_unu
   }
 #else
   for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-    ww[sample_idx] = (1.0 + hdiag[sample_idx]) * vv[sample_idx];
+    ww[sample_idx] = (S_CAST(float, 1.0) + hdiag[sample_idx]) * vv[sample_idx];
   }
 #endif
 }
