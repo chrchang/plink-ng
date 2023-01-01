@@ -1,7 +1,7 @@
 #ifndef __PLINK2_BASE_H__
 #define __PLINK2_BASE_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -713,7 +713,7 @@ CONSTI32(kBytesPerVec, 32);
 // However, processor power management, numeric libraries, and my AVX2 code
 // should improve over time.  There will probably come a time where switching
 // to 32-byte fp is worthwhile.
-// #define FVEC_32
+#define FVEC_32
 
 // bleah, have to define these here, vector_size doesn't see enum values
 typedef uintptr_t VecW __attribute__ ((vector_size (32)));
@@ -1622,15 +1622,6 @@ HEADER_INLINE VecU32 vecu32_and_notfirst(VecU32 excl, VecU32 main) {
 }
 #endif  // !__LP64__
 
-// debug
-HEADER_INLINE void PrintVec(const void* vv) {
-  const unsigned char* vv_alias = S_CAST(const unsigned char*, vv);
-  for (uint32_t uii = 0; uii != kBytesPerVec; ++uii) {
-    printf("%u ", vv_alias[uii]);
-  }
-  printf("\n");
-}
-
 // Unfortunately, we need to spell out S_CAST(uintptr_t, 0) instead of just
 // typing k0LU in C99.
 static const uintptr_t kMask5555 = (~S_CAST(uintptr_t, 0)) / 3;
@@ -1730,6 +1721,23 @@ CONSTI32(kPglErrstrBufBlen, kPglFnamesize + 256);
 // currently must be power of 2, and multiple of (kBitsPerWord / 2)
 CONSTI32(kPglDifflistGroupSize, 64);
 
+// debug
+HEADER_INLINE void PrintVec(const void* vv) {
+  const unsigned char* vv_alias = S_CAST(const unsigned char*, vv);
+  for (uint32_t uii = 0; uii != kBytesPerVec; ++uii) {
+    printf("%u ", vv_alias[uii]);
+  }
+  printf("\n");
+}
+
+HEADER_INLINE void PrintVecD(const VecD* vv_ptr, const char* preprint) {
+  fputs(preprint, stdout);
+  const double* vv_alias = R_CAST(const double*, vv_ptr);
+  for (uint32_t uii = 0; uii != kDoublePerDVec; ++uii) {
+    printf(" %g", vv_alias[uii]);
+  }
+  fputs("\n", stdout);
+}
 
 #if __cplusplus >= 201103L
 // Main application of std::array in this codebase is enforcing length when

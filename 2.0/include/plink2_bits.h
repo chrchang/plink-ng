@@ -1,7 +1,7 @@
 #ifndef __PLINK2_BITS_H__
 #define __PLINK2_BITS_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it

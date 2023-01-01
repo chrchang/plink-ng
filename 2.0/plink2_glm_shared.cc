@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include "include/plink2_stats.h"
 #include "plink2_glm_shared.h"
 
 #ifdef __cplusplus
@@ -1095,6 +1096,81 @@ PglErr ReadRfmix2Block(const GlmCtx* common, const uint32_t* variant_bps, const 
   *local_bp_ptr = local_bp;
   *local_skip_chr_ptr = local_skip_chr;
   return kPglRetSuccess;
+}
+
+const double kSmallDoubles[4] = {0.0, 1.0, 2.0, 3.0};
+
+const double kSmallDoublePairs[32] ALIGNV16 = PAIR_TABLE16(0.0, 1.0, 2.0, 3.0);
+
+const double kSmallInvDoublePairs[32] ALIGNV16 = PAIR_TABLE16(2.0, 1.0, 0.0, 3.0);
+
+const double kSmallInvDoubles[4] = {2.0, 1.0, 0.0, 3.0};
+
+uint32_t GenoarrToDoublesRemoveMissing(const uintptr_t* genoarr, const double* __restrict table, uint32_t sample_ct, double* __restrict dst) {
+  assert(sample_ct);
+  const uint32_t sample_ctl2m1 = (sample_ct - 1) / kBitsPerWordD2;
+  uint32_t subgroup_len = kBitsPerWordD2;
+  double* dst_iter = dst;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2m1) {
+      if (widx > sample_ctl2m1) {
+        return dst_iter - dst;
+      }
+      subgroup_len = ModNz(sample_ct, kBitsPerWordD2);
+    }
+    uintptr_t geno_word = genoarr[widx];
+    for (uint32_t uii = 0; uii != subgroup_len; ++uii) {
+      const uintptr_t cur_geno = geno_word & 3;
+      if (cur_geno < 3) {
+        // *dst_iter++ = u31tod(cur_geno);
+        *dst_iter++ = table[cur_geno];
+      }
+      geno_word >>= 2;
+    }
+  }
+}
+
+BoolErr LinearHypothesisChisq(const double* coef, const double* constraints_con_major, const double* cov_matrix, uintptr_t constraint_ct, uintptr_t predictor_ct, uintptr_t cov_stride, double* chisq_ptr, double* tmphxs_buf, double* h_transpose_buf, double* inner_buf, MatrixInvertBuf1* mi_buf, double* outer_buf) {
+  // See PLINK model.cpp Model::linearHypothesis().
+  //
+  // outer_buf = constraint_ct
+  // inner_buf = constraint_ct x constraint_ct
+  // tmphxs_buf and h_transpose_buf are constraint_ct x predictor_ct
+  // mi_buf only needs to be of length 2 * constraint_ct
+  //
+  // Since no PLINK function ever calls this with nonzero h[] values, this just
+  // takes a df (constraint_ct) parameter for now; it's trivial to switch to
+  // the more general interface later.
+  ColMajorVectorMatrixMultiplyStrided(coef, constraints_con_major, predictor_ct, predictor_ct, constraint_ct, outer_buf);
+  MatrixTransposeCopy(constraints_con_major, constraint_ct, predictor_ct, h_transpose_buf);
+  ColMajorMatrixMultiplyStrided(h_transpose_buf, cov_matrix, constraint_ct, constraint_ct, predictor_ct, cov_stride, predictor_ct, constraint_ct, tmphxs_buf);
+  // tmp[][] is now predictor-major
+  ColMajorMatrixMultiply(tmphxs_buf, constraints_con_major, constraint_ct, constraint_ct, predictor_ct, inner_buf);
+
+  // don't need H-transpose any more, so we can use h_transpose_buf for matrix
+  // inversion
+  if (InvertMatrix(constraint_ct, inner_buf, mi_buf, h_transpose_buf)) {
+    return 1;
+  }
+  double result = 0.0;
+  const double* inner_iter = inner_buf;
+  if (constraint_ct > kDotprodDThresh) {
+    for (uintptr_t constraint_idx = 0; constraint_idx != constraint_ct; ++constraint_idx) {
+      result += DotprodD(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
+      inner_iter = &(inner_iter[constraint_ct]);
+    }
+  } else {
+    for (uintptr_t constraint_idx = 0; constraint_idx != constraint_ct; ++constraint_idx) {
+      result += DotprodDShort(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
+      inner_iter = &(inner_iter[constraint_ct]);
+    }
+  }
+  if (result < 0.0) {
+    // guard against floating point error
+    result = 0.0;
+  }
+  *chisq_ptr = result;
+  return 0;
 }
 
 #ifdef __cplusplus

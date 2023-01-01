@@ -1,7 +1,7 @@
 #ifndef __PLINK2_GLM_LINEAR_H__
 #define __PLINK2_GLM_LINEAR_H__
 
-// This file is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -24,8 +24,6 @@
 namespace plink2 {
 #endif
 
-extern const double kSmallDoublePairs[32];
-
 typedef struct {
   // double beta;
   // double se;
@@ -45,12 +43,12 @@ typedef struct {
 typedef struct GlmLinearCtxStruct {
   GlmCtx* common;
 
-  double* pheno_d;
-  double* pheno_x_d;
-  double* pheno_y_d;
+  const double* pheno_d;
+  const double* pheno_x_d;
+  const double* pheno_y_d;
   const double* covars_cmaj_d;
-  double* covars_cmaj_x_d;
-  double* covars_cmaj_y_d;
+  const double* covars_cmaj_x_d;
+  const double* covars_cmaj_y_d;
   double* local_covars_vcmaj_d[2];
   LinearAuxResult* block_aux;
 

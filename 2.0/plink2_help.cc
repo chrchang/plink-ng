@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -296,7 +296,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * 'force-first' causes only the first instance of duplicate-ID variants to\n"
 "      be kept, under all circumstances.\n\n"
               );
-    HelpPrint("make-pgen\0make-bpgen\0make-bed\0make-just-pvar\0make-just-psam\0", &help_ctrl, 1,
+    HelpPrint("make-pgen\0make-bpgen\0make-bed\0make-just-pvar\0make-just-psam\0make-pfile\0make-bpfile\0make-bfile\0", &help_ctrl, 1,
 "  --make-pgen ['vzs'] ['format='<code>] ['trim-alts'] ['erase-phase']\n"
 "              ['erase-dosage'] ['fill-missing-from-dosage']\n"
 "              ['pvar-cols='<col set desc>] ['psam-cols='<col set desc>]\n"
@@ -1145,7 +1145,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --glm ['zs'] ['omit-ref'] [{sex | no-x-sex}] ['log10'] ['pheno-ids']\n"
 "        [{genotypic | hethom | dominant | recessive | hetonly}] ['interaction']\n"
 "        ['hide-covar'] ['skip-invalid-pheno'] ['allow-no-covars']\n"
-"        [{intercept | cc-residualize | firth-residualize}]\n"
+"        ['single-prec-cc'] [{intercept | cc-residualize | firth-residualize}]\n"
 "        [{no-firth | firth-fallback | firth}] ['cols='<col set desc>]\n"
 "        ['local-covar='<file>] ['local-psam='<file>]\n"
 "        ['local-pos-cols='<key col #s> | 'local-pvar='<file>] ['local-haps']\n"
@@ -1207,14 +1207,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        regression whenever the logistic regression fails to converge.  This is\n"
 "        now the default.\n"
 "      * 'firth' requests Firth regression all the time.\n"
-"    * Firth regression can be slow.  To trade off some accuracy for speed, you\n"
-"      can use the 'firth-residualize' modifier, which implements the shortcut\n"
-"      described in Mbatchou J et al. (2020) Computationally efficient whole\n"
-"      genome regression for quantitative and binary traits.  (You can also use\n"
-"      'cc-residualize' to force this shortcut to be applied to basic logistic\n"
-"      regression as well.)\n"
-"      * This must be used with 'hide-covar', and disables some other --glm\n"
-"        features.\n"
+"    * To trade off some accuracy for speed, you can use the 'single-prec-cc'\n"
+"      modifier to request use of single-precision instead of double-precision\n"
+"      floating-point numbers during logistic and Firth regression.\n"
+"    * If that's not enough, you can also use the 'firth-residualize' or\n"
+"      'cc-residualize' modifier, which implements the shortcut described in\n"
+"      Mbatchou J et al. (2020) Computationally efficient whole genome\n"
+"      regression for quantitative and binary traits.\n"
+"      * These must be used with 'hide-covar' and 'single-prec-cc', and disable\n"
+"        some other --glm features.\n"
 "    * To add covariates which are not constant across all variants, add the\n"
 "      'local-covar=' and 'local-psam=' modifiers, use full filenames for each,\n"
 "      and use either 'local-pvar=' or 'local-pos-cols=' to provide variant ID\n"

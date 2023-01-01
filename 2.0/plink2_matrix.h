@@ -1,7 +1,7 @@
 #ifndef __PLINK2_MATRIX_H__
 #define __PLINK2_MATRIX_H__
 
-// This file is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -131,6 +131,8 @@ static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
 
   __CLPK_doublereal sdot_(__CLPK_integer* n, float* sx, __CLPK_integer* incx,
                           float* sy, __CLPK_integer* incy);
+  int dpotri_(char* uplo, __CLPK_integer* n, __CLPK_doublereal* a,
+              __CLPK_integer* lda, __CLPK_integer* info);
 #        endif
 #      endif  // !USE_MKL
 #      ifdef USE_CUDA
@@ -162,9 +164,13 @@ static const double kMatrixSingularRcond = 1e-14;
 // Copies (C-order) lower-left to upper right.
 void ReflectMatrix(uint32_t dim, double* matrix);
 
+void ReflectStridedMatrix(uint32_t dim, uint32_t stride, double* matrix);
+
 void ReflectFmatrix(uint32_t dim, uint32_t stride, float* matrix);
 
 // If dim < stride, this zeroes out the trailing elements of each row.
+void ReflectStridedMatrix0(uint32_t dim, uint32_t stride, double* matrix);
+
 void ReflectFmatrix0(uint32_t dim, uint32_t stride, float* matrix);
 
 // AddDVec and AddFVec execute main += arg, under the assumption that both
@@ -185,6 +191,12 @@ HEADER_INLINE void AddDVec(const double* arg, uintptr_t ctav, double* main) {
 HEADER_INLINE void AddFVec(const float* arg, uintptr_t ctav, float* main) {
   for (uintptr_t ulii = 0; ulii < ctav; ulii += kFloatPerFVec) {
     *R_CAST(VecF*, &(main[ulii])) += *R_CAST(const VecF*, &(arg[ulii]));
+  }
+}
+
+HEADER_INLINE void FillDVec(uintptr_t ct, double dxx, double* dst) {
+  for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
+    dst[ulii] = dxx;
   }
 }
 
@@ -266,12 +278,17 @@ HEADER_INLINE BoolErr InvertSymmdefMatrixChecked(int32_t dim, double* matrix, Ma
   return InvertMatrix(dim, matrix, dbl_1d_buf, dbl_2d_buf);
 }
 
-// if we're using float32s instead of float64s, we care enough about low-level
-// details that this split interface makes sense.
 // first half computes either LU or singular value decomposition, and
 //   determinant
 // second half actually inverts matrix, assuming 1d_buf and 2d_buf have results
 //   from first half
+BoolErr InvertStridedMatrixFirstHalf(int32_t dim, int32_t stride, double* matrix, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf);
+
+HEADER_INLINE BoolErr InvertSymmdefMatrixFirstHalf(int32_t dim, int32_t stride, double* matrix, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
+  ReflectStridedMatrix(dim, stride, matrix);
+  return InvertStridedMatrixFirstHalf(dim, stride, matrix, dbl_1d_buf, dbl_2d_buf);
+}
+
 BoolErr InvertFmatrixFirstHalf(int32_t dim, uint32_t stride, const float* matrix, double* half_inverted, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf);
 
 HEADER_INLINE BoolErr InvertSymmdefFmatrixFirstHalf(int32_t dim, uint32_t stride, float* matrix, double* half_inverted, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
@@ -288,8 +305,14 @@ HEADER_INLINE double HalfInvertedDet(__maybe_unused const double* half_inverted_
   return fabs(det_u);
 }
 
-HEADER_INLINE double HalfSymmInvertedDet(__maybe_unused const double* half_inverted_iter, __maybe_unused const MatrixInvertBuf1* dbl_1d_buf, uint32_t dim) {
+HEADER_INLINE double HalfSymmInvertedDet(__maybe_unused const double* half_inverted_iter, __maybe_unused const MatrixInvertBuf1* dbl_1d_buf, uint32_t dim, __maybe_unused uint32_t stride) {
   return HalfInvertedDet(half_inverted_iter, dbl_1d_buf, dim);
+}
+
+void InvertStridedMatrixSecondHalf(__CLPK_integer dim, __CLPK_integer stride, double* inverted_result, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf);
+
+HEADER_INLINE void InvertSymmdefMatrixSecondHalf(__CLPK_integer dim, __CLPK_integer stride, double* inverted_result, __maybe_unused MatrixInvertBuf1* dbl_1d_buf, __maybe_unused double* dbl_2d_buf) {
+  InvertStridedMatrixSecondHalf(dim, stride, inverted_result, dbl_1d_buf, dbl_2d_buf);
 }
 
 void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf);
@@ -297,7 +320,16 @@ void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_i
 HEADER_INLINE void InvertSymmdefFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
   InvertFmatrixSecondHalf(dim, stride, half_inverted, inverted_result, dbl_1d_buf, dbl_2d_buf);
 }
-#else
+
+HEADER_INLINE BoolErr InvertSymmdefStridedMatrix(__CLPK_integer dim, __CLPK_integer stride, double* matrix, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
+  if (InvertSymmdefMatrixFirstHalf(dim, stride, matrix, dbl_1d_buf, dbl_2d_buf)) {
+    return 1;
+  }
+  InvertSymmdefMatrixSecondHalf(dim, stride, matrix, dbl_1d_buf, dbl_2d_buf);
+  return 0;
+}
+
+#else // !NOLAPACK
 HEADER_INLINE double DotprodD(const double* vec1, const double* vec2, uint32_t ct) {
 #  ifndef USE_CBLAS_XGEMM
   __CLPK_integer cti = ct;
@@ -339,14 +371,19 @@ BoolErr InvertMatrixChecked(__CLPK_integer dim, double* matrix, MatrixInvertBuf1
 // filled, and only the lower left of the return matrix is valid.
 BoolErr InvertSymmdefMatrix(__CLPK_integer dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf);
 
+BoolErr InvertSymmdefStridedMatrix(__CLPK_integer dim, __CLPK_integer stride, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf);
+
 // dbl_2d_buf must have room for at least max(dim, 3) * dim elements.
 BoolErr InvertSymmdefMatrixChecked(__CLPK_integer dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf);
+
+BoolErr InvertSymmdefMatrixFirstHalf(__CLPK_integer dim, __CLPK_integer stride, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf);
 
 
 BoolErr InvertFmatrixFirstHalf(__CLPK_integer dim, uint32_t stride, const float* matrix, double* half_inverted, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf);
 
 BoolErr InvertSymmdefFmatrixFirstHalf(__CLPK_integer dim, uint32_t stride, float* matrix, double* half_inverted, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf);
 
+/*
 HEADER_INLINE double HalfInvertedDet(__maybe_unused const double* half_inverted_iter, __maybe_unused const MatrixInvertBuf1* int_1d_buf, uint32_t dim) {
   uint32_t dim_p1 = dim + 1;
   double det_u = *half_inverted_iter;
@@ -356,21 +393,28 @@ HEADER_INLINE double HalfInvertedDet(__maybe_unused const double* half_inverted_
   }
   return fabs(det_u);
 }
+*/
 
-HEADER_INLINE double HalfSymmInvertedDet(__maybe_unused const double* half_inverted_iter, __maybe_unused const MatrixInvertBuf1* int_1d_buf, uint32_t dim) {
-  uint32_t dim_p1 = dim + 1;
+HEADER_INLINE double HalfSymmInvertedDet(__maybe_unused const double* half_inverted_iter, __maybe_unused const MatrixInvertBuf1* int_1d_buf, uint32_t dim, uint32_t stride) {
+  uint32_t stride_p1 = stride + 1;
   double sqrt_det_u = *half_inverted_iter;
   for (uint32_t uii = 1; uii != dim; ++uii) {
-    half_inverted_iter = &(half_inverted_iter[dim_p1]);
+    half_inverted_iter = &(half_inverted_iter[stride_p1]);
     sqrt_det_u *= (*half_inverted_iter);
   }
   return sqrt_det_u * sqrt_det_u;
 }
 
+HEADER_INLINE void InvertSymmdefMatrixSecondHalf(__CLPK_integer dim, __CLPK_integer stride, double* matrix, __maybe_unused MatrixInvertBuf1* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
+  char uplo = 'U';
+  __CLPK_integer info;
+  dpotri_(&uplo, &dim, matrix, &stride, &info);
+}
+
 void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf);
 
 void InvertSymmdefFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf);
-#endif
+#endif // !NOLAPACK
 
 void ColMajorMatrixMultiply(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* outmatrix);
 
@@ -381,6 +425,10 @@ HEADER_INLINE void RowMajorMatrixMultiply(const double* inmatrix1, const double*
 // this is essentially a full-blown dgemm wrapper, only missing the alpha
 // parameter now
 void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, double beta, double* outmatrix);
+
+HEADER_INLINE void ColMajorMatrixMultiplyStrided(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, double* outmatrix) {
+  ColMajorMatrixMultiplyStridedAddassign(inmatrix1, inmatrix2, row1_ct, stride1, col2_ct, stride2, common_ct, stride3, 0.0, outmatrix);
+}
 
 HEADER_INLINE void RowMajorMatrixMultiplyIncr(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* outmatrix) {
   return ColMajorMatrixMultiplyStridedAddassign(inmatrix2, inmatrix1, col2_ct, col2_ct, row1_ct, common_ct, common_ct, col2_ct, 1.0, outmatrix);
@@ -503,6 +551,22 @@ HEADER_INLINE BoolErr LinearRegressionDVec(const double* pheno_d, const double* 
 }
 
 // just for debugging
+HEADER_INLINE void PrintVector(const double* vec, uintptr_t ct) {
+  printf("%g", vec[0]);
+  for (uintptr_t ulii = 1; ulii != ct; ++ulii) {
+    printf(" %g", vec[ulii]);
+  }
+  printf("\n");
+}
+
+HEADER_INLINE void PrintFvector(const float* vec, uintptr_t ct) {
+  printf("%g", S_CAST(double, vec[0]));
+  for (uintptr_t ulii = 1; ulii != ct; ++ulii) {
+    printf(" %g", S_CAST(double, vec[ulii]));
+  }
+  printf("\n");
+}
+
 HEADER_INLINE void PrintSymmMatrix(const double* matrix, uint32_t dim) {
   for (uint32_t uii = 0; uii != dim; ++uii) {
     printf("%g", matrix[uii * dim]);
@@ -528,6 +592,16 @@ HEADER_INLINE void PrintMatrix(const double* matrix, uintptr_t row_ct, uintptr_t
     printf("%g", matrix[ulii * col_ct]);
     for (uintptr_t uljj = 1; uljj != col_ct; ++uljj) {
       printf(" %g", matrix[ulii * col_ct + uljj]);
+    }
+    printf("\n");
+  }
+}
+
+HEADER_INLINE void PrintStridedMatrix(const double* matrix, uintptr_t row_ct, uintptr_t col_ct, uintptr_t stride) {
+  for (uintptr_t ulii = 0; ulii != row_ct; ++ulii) {
+    printf("%g", matrix[ulii * stride]);
+    for (uintptr_t uljj = 1; uljj != col_ct; ++uljj) {
+      printf(" %g", matrix[ulii * stride + uljj]);
     }
     printf("\n");
   }

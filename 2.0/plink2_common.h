@@ -1,7 +1,7 @@
 #ifndef __PLINK2_COMMON_H__
 #define __PLINK2_COMMON_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -1085,7 +1085,7 @@ uint32_t IsCategoricalPhenostrNocsv(const char* phenostr_iter);
 uint32_t FirstCcOrQtPhenoIdx(const PhenoCol* pheno_cols, uint32_t pheno_ct);
 
 // "_covar" since this doesn't handle case/control
-uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include, uint32_t sample_ct);
+uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include, uint32_t raw_sample_ct);
 
 // returns number of nonempty categories, null included
 uint32_t IdentifyRemainingCats(const uintptr_t* sample_include, const PhenoCol* covar_col, uint32_t sample_ct, uintptr_t* observed_cat_bitarr);

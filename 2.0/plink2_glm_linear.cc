@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -21,49 +21,6 @@
 #ifdef __cplusplus
 namespace plink2 {
 #endif
-
-BoolErr LinearHypothesisChisq(const double* coef, const double* constraints_con_major, const double* cov_matrix, uintptr_t constraint_ct, uintptr_t predictor_ct, double* chisq_ptr, double* tmphxs_buf, double* h_transpose_buf, double* inner_buf, MatrixInvertBuf1* mi_buf, double* outer_buf) {
-  // See PLINK model.cpp Model::linearHypothesis().
-  //
-  // outer_buf = constraint_ct
-  // inner_buf = constraint_ct x constraint_ct
-  // tmphxs_buf and h_transpose_buf are constraint_ct x predictor_ct
-  // mi_buf only needs to be of length 2 * constraint_ct
-  //
-  // Since no PLINK function ever calls this with nonzero h[] values, this just
-  // takes a df (constraint_ct) parameter for now; it's trivial to switch to
-  // the more general interface later.
-  ColMajorVectorMatrixMultiplyStrided(coef, constraints_con_major, predictor_ct, predictor_ct, constraint_ct, outer_buf);
-  MatrixTransposeCopy(constraints_con_major, constraint_ct, predictor_ct, h_transpose_buf);
-  ColMajorMatrixMultiply(h_transpose_buf, cov_matrix, constraint_ct, predictor_ct, predictor_ct, tmphxs_buf);
-  // tmp[][] is now predictor-major
-  ColMajorMatrixMultiply(tmphxs_buf, constraints_con_major, constraint_ct, constraint_ct, predictor_ct, inner_buf);
-
-  // don't need H-transpose any more, so we can use h_transpose_buf for matrix
-  // inversion
-  if (InvertMatrix(constraint_ct, inner_buf, mi_buf, h_transpose_buf)) {
-    return 1;
-  }
-  double result = 0.0;
-  const double* inner_iter = inner_buf;
-  if (constraint_ct > kDotprodDThresh) {
-    for (uintptr_t constraint_idx = 0; constraint_idx != constraint_ct; ++constraint_idx) {
-      result += DotprodD(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
-      inner_iter = &(inner_iter[constraint_ct]);
-    }
-  } else {
-    for (uintptr_t constraint_idx = 0; constraint_idx != constraint_ct; ++constraint_idx) {
-      result += DotprodDShort(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
-      inner_iter = &(inner_iter[constraint_ct]);
-    }
-  }
-  if (result < 0.0) {
-    // guard against floating point error
-    result = 0.0;
-  }
-  *chisq_ptr = result;
-  return 0;
-}
 
 // xtx_state 0: either interactions or local covariates present, no xtx_image
 // xtx_state 1: only additive effect
@@ -167,39 +124,6 @@ BoolErr GlmAllocFillAndTestPhenoCovarsQt(const uintptr_t* sample_include, const 
   }
   FillPhenoAndXtY(sample_include, pheno_qt, *covars_cmaj_d_ptr, sample_ct, xtx_state, new_covar_ct, xt_y_image, *pheno_d_ptr);
   return 0;
-}
-
-
-static const double kSmallDoubles[4] = {0.0, 1.0, 2.0, 3.0};
-
-const double kSmallDoublePairs[32] ALIGNV16 = PAIR_TABLE16(0.0, 1.0, 2.0, 3.0);
-
-static const double kSmallInvDoublePairs[32] ALIGNV16 = PAIR_TABLE16(2.0, 1.0, 0.0, 3.0);
-
-static const double kSmallInvDoubles[4] = {2.0, 1.0, 0.0, 3.0};
-
-uint32_t GenoarrToDoublesRemoveMissing(const uintptr_t* genoarr, const double* __restrict table, uint32_t sample_ct, double* __restrict dst) {
-  assert(sample_ct);
-  const uint32_t sample_ctl2m1 = (sample_ct - 1) / kBitsPerWordD2;
-  uint32_t subgroup_len = kBitsPerWordD2;
-  double* dst_iter = dst;
-  for (uint32_t widx = 0; ; ++widx) {
-    if (widx >= sample_ctl2m1) {
-      if (widx > sample_ctl2m1) {
-        return dst_iter - dst;
-      }
-      subgroup_len = ModNz(sample_ct, kBitsPerWordD2);
-    }
-    uintptr_t geno_word = genoarr[widx];
-    for (uint32_t uii = 0; uii != subgroup_len; ++uii) {
-      const uintptr_t cur_geno = geno_word & 3;
-      if (cur_geno < 3) {
-        // *dst_iter++ = u31tod(cur_geno);
-        *dst_iter++ = table[cur_geno];
-      }
-      geno_word >>= 2;
-    }
-  }
 }
 
 uintptr_t GetLinearWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predictor_ct, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct) {
@@ -1409,7 +1333,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                 ReflectMatrix(cur_predictor_ct, xtx_inv);
 #endif
                 double chisq;
-                if (!LinearHypothesisChisq(fitted_coefs, cur_constraints_con_major, xtx_inv, cur_constraint_ct, cur_predictor_ct, &chisq, tmphxs_buf, h_transpose_buf, inner_buf, inv_1d_buf, dbl_2d_buf)) {
+                if (!LinearHypothesisChisq(fitted_coefs, cur_constraints_con_major, xtx_inv, cur_constraint_ct, cur_predictor_ct, cur_predictor_ct, &chisq, tmphxs_buf, h_transpose_buf, inner_buf, inv_1d_buf, dbl_2d_buf)) {
                   beta_se_iter2[-1] = chisq;
                 }
                 // next test may have different alt allele count
@@ -3522,7 +3446,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                   ReflectMatrix(cur_predictor_ct, xtx_inv2);
 #endif
                   double chisq;
-                  if (!LinearHypothesisChisq(tmp_fitted_coefs, cur_constraints_con_major, xtx_inv2, cur_constraint_ct, cur_predictor_ct, &chisq, tmphxs_buf, h_transpose_buf, inner_buf, inv_1d_buf, dbl_2d_buf)) {
+                  if (!LinearHypothesisChisq(tmp_fitted_coefs, cur_constraints_con_major, xtx_inv2, cur_constraint_ct, cur_predictor_ct, cur_predictor_ct, &chisq, tmphxs_buf, h_transpose_buf, inner_buf, inv_1d_buf, dbl_2d_buf)) {
                     beta_se_iter2[-1] = chisq;
                   }
                   // next test may have different alt allele count
@@ -3765,6 +3689,9 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
       cstream_alloc_size += RoundUpPow2(CstreamWkspaceReq(overflow_buf_size), kCacheline);
     }
     unsigned char* bigstack_mark2 = g_bigstack_base;
+    double* pheno_d = nullptr;
+    double* pheno_x_d = nullptr;
+    double* pheno_y_d = nullptr;
     uintptr_t workspace_alloc;
     uint32_t read_block_size;
     uintptr_t max_alt_allele_block_size;
@@ -3775,7 +3702,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         goto GlmLinearBatch_ret_NOMEM;
       }
       BigstackReset(bigstack_mark2);
-      if (bigstack_alloc_d(sample_ct * subbatch_size, &ctx->pheno_d)) {
+      if (bigstack_alloc_d(sample_ct * subbatch_size, &pheno_d)) {
         continue;
       }
       if (common->nm_precomp) {
@@ -3784,7 +3711,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         }
       }
       if (sample_ct_x) {
-        if (bigstack_alloc_d(sample_ct_x * subbatch_size, &ctx->pheno_x_d)) {
+        if (bigstack_alloc_d(sample_ct_x * subbatch_size, &pheno_x_d)) {
           continue;
         }
         if (common->nm_precomp_x) {
@@ -3795,7 +3722,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         }
       }
       if (sample_ct_y) {
-        if (bigstack_alloc_d(sample_ct_y * subbatch_size, &ctx->pheno_y_d)) {
+        if (bigstack_alloc_d(sample_ct_y * subbatch_size, &pheno_y_d)) {
           continue;
         }
         if (common->nm_precomp_y) {
@@ -3989,13 +3916,16 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         AppendBinaryEoln(&cswritep);
         cswritep_arr[fidx] = cswritep;
 
-        FillPhenoAndXtY(sample_include, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_d, sample_ct, domdev_present_p1, covar_ct, common->nm_precomp? (&(common->nm_precomp->xt_y_image[fidx * (1 + domdev_present_p1 + covar_ct)])) : nullptr, &(ctx->pheno_d[fidx * sample_ct]));
+        FillPhenoAndXtY(sample_include, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_d, sample_ct, domdev_present_p1, covar_ct, common->nm_precomp? (&(common->nm_precomp->xt_y_image[fidx * (1 + domdev_present_p1 + covar_ct)])) : nullptr, &(pheno_d[fidx * sample_ct]));
         if (sample_ct_x) {
-          FillPhenoAndXtY(common->sample_include_x, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_x_d, sample_ct_x, domdev_present_p1, covar_ct_x, common->nm_precomp_x? (&(common->nm_precomp_x->xt_y_image[fidx * (1 + domdev_present_p1 + covar_ct_x)])) : nullptr, &(ctx->pheno_x_d[fidx * sample_ct_x]));
+          FillPhenoAndXtY(common->sample_include_x, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_x_d, sample_ct_x, domdev_present_p1, covar_ct_x, common->nm_precomp_x? (&(common->nm_precomp_x->xt_y_image[fidx * (1 + domdev_present_p1 + covar_ct_x)])) : nullptr, &(pheno_x_d[fidx * sample_ct_x]));
         }
         if (sample_ct_y) {
-          FillPhenoAndXtY(common->sample_include_y, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_y_d, sample_ct_y, domdev_present_p1, covar_ct_y, common->nm_precomp_y? (&(common->nm_precomp_y->xt_y_image[fidx * (1 + domdev_present_p1 + covar_ct_y)])) : nullptr, &(ctx->pheno_y_d[fidx * sample_ct_y]));
+          FillPhenoAndXtY(common->sample_include_y, pheno_cols[pheno_uidx].data.qt, ctx->covars_cmaj_y_d, sample_ct_y, domdev_present_p1, covar_ct_y, common->nm_precomp_y? (&(common->nm_precomp_y->xt_y_image[fidx * (1 + domdev_present_p1 + covar_ct_y)])) : nullptr, &(pheno_y_d[fidx * sample_ct_y]));
         }
+        ctx->pheno_d = pheno_d;
+        ctx->pheno_x_d = pheno_x_d;
+        ctx->pheno_y_d = pheno_y_d;
       }
 
       // Main workflow:

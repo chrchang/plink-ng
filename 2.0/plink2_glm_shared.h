@@ -1,7 +1,7 @@
 #ifndef __PLINK2_GLM_SHARED_H__
 #define __PLINK2_GLM_SHARED_H__
 
-// This file is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -62,7 +62,8 @@ FLAGSET_DEF_START()
   kfGlmLocalCats1based = (1 << 25),
   kfGlmFirthResidualize = (1 << 26),
   kfGlmCcResidualize = (1 << 27),
-  kfGlmAllowNoCovars = (1 << 28)
+  kfGlmSinglePrecCc = (1 << 28),
+  kfGlmAllowNoCovars = (1 << 29)
 FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()
@@ -130,13 +131,13 @@ typedef struct GlmCtxStruct {
   const ChrInfo* cip;
   const uintptr_t* allele_idx_offsets;
   const AlleleCode* omitted_alleles;
-  uint32_t* subset_chr_fo_vidx_start;
-  uintptr_t* sample_include;
+  const uint32_t* subset_chr_fo_vidx_start;
+  const uintptr_t* sample_include;
   const uintptr_t* sample_include_x;
   const uintptr_t* sample_include_y;
   uint32_t* sample_include_cumulative_popcounts;
-  uint32_t* sample_include_x_cumulative_popcounts;
-  uint32_t* sample_include_y_cumulative_popcounts;
+  const uint32_t* sample_include_x_cumulative_popcounts;
+  const uint32_t* sample_include_y_cumulative_popcounts;
   const uintptr_t* sex_male_collapsed;
   uintptr_t* parameter_subset;
   uintptr_t* parameter_subset_x;
@@ -278,6 +279,18 @@ uint32_t GetBiallelicReportedTestCt(const uintptr_t* parameter_subset, GlmFlags 
 PglErr ReadLocalCovarBlock(const GlmCtx* common, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t cur_block_variant_ct, uint32_t local_sample_ct, uint32_t local_cat_ct, TextStream* local_covar_txsp, uint32_t* local_line_idx_ptr, uint32_t* local_xy_ptr, float* local_covars_vcmaj_f_iter, double* local_covars_vcmaj_d_iter, uint32_t* local_sample_idx_order);
 
 PglErr ReadRfmix2Block(const GlmCtx* common, const uint32_t* variant_bps, const uint32_t* local_sample_uidx_order, const float* prev_local_covar_row_f, const double* prev_local_covar_row_d, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t cur_block_variant_ct, uint32_t local_sample_ct, uint32_t local_cat_ct, uint32_t local_chrom_col, uint32_t local_bp_col, uint32_t local_first_covar_col, TextStream* local_covar_txsp, const char** local_line_iterp, uint32_t* local_line_idx_ptr, uint32_t* local_prev_chr_code_ptr, uint32_t* local_chr_code_ptr, uint32_t* local_bp_ptr, uint32_t* local_skip_chr_ptr, float* local_covars_vcmaj_f_iter, double* local_covars_vcmaj_d_iter, uint32_t* local_sample_idx_order);
+
+extern const double kSmallDoubles[4];
+
+extern const double kSmallDoublePairs[32];
+
+extern const double kSmallInvDoublePairs[32];
+
+extern const double kSmallInvDoubles[4];
+
+uint32_t GenoarrToDoublesRemoveMissing(const uintptr_t* genoarr, const double* __restrict table, uint32_t sample_ct, double* __restrict dst);
+
+BoolErr LinearHypothesisChisq(const double* coef, const double* constraints_con_major, const double* cov_matrix, uintptr_t constraint_ct, uintptr_t predictor_ct, uintptr_t cov_stride, double* chisq_ptr, double* tmphxs_buf, double* h_transpose_buf, double* inner_buf, MatrixInvertBuf1* mi_buf, double* outer_buf);
 
 #ifdef __cplusplus
 }  // namespace plink2

@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a3.8"
+static const char ver_str[] = "PLINK v2.00a4"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a3.8"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (27 Nov 2022)";
+  " (1 Jan 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -88,8 +88,8 @@ static const char ver_str2[] =
 #ifndef NOLAPACK
   "  "
 #endif
-  " www.cog-genomics.org/plink/2.0/\n"
-  "(C) 2005-2022 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
+  "   www.cog-genomics.org/plink/2.0/\n"
+  "(C) 2005-2023 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
 #ifndef NOLAPACK
@@ -3190,7 +3190,6 @@ int main(int argc, char** argv) {
   _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
 #  endif
 #endif
-  // LogisticTest();
   // special case, since it may dump to stdout
   if (argc > 1) {
     const char* argv1 = argv[1];
@@ -5554,8 +5553,7 @@ int main(int argc, char** argv) {
             } else if (strequal_k(cur_modif, "cc-residualize", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmCcResidualize;
             } else if (strequal_k(cur_modif, "single-prec-cc", cur_modif_slen)) {
-              // No effect for now, this is just here for
-              // forward-compatibility.
+              pc.glm_info.flags |= kfGlmSinglePrecCc;
             } else if (unlikely(strequal_k(cur_modif, "standard-beta", cur_modif_slen))) {
               logerrputs("Error: --glm 'standard-beta' modifier has been retired.  Use\n--{covar-}variance-standardize instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
@@ -5696,8 +5694,8 @@ int main(int argc, char** argv) {
               logputs("Note: 'firth-residualize' is redundant when 'cc-residualize' is already\nspecified.\n");
               pc.glm_info.flags ^= kfGlmFirthResidualize;
             }
-            if (unlikely(!(pc.glm_info.flags & kfGlmHideCovar))) {
-              logerrputs("Error: --glm 'cc-residualize'/'firth-residualize' requires 'hide-covar' to be\nspecified as well.\n");
+            if (unlikely((pc.glm_info.flags & (kfGlmHideCovar | kfGlmSinglePrecCc)) != (kfGlmHideCovar | kfGlmSinglePrecCc))) {
+              logerrputs("Error: --glm 'cc-residualize'/'firth-residualize' requires 'hide-covar' and\n'single-prec-cc' to be specified as well.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (unlikely(pc.glm_info.flags & kfGlmInteraction)) {
@@ -10254,7 +10252,14 @@ int main(int argc, char** argv) {
               goto main_ret_1;
             }
             if (unlikely(!((!strcmp(vcf_dosage_import_field, "GP-force")) || IsAlphanumeric(vcf_dosage_import_field)))) {
-              logerrputs("Error: --vcf dosage= argument is not alphanumeric.\n");
+              // special case: it is reasonble for a user who just used
+              // "--export vcf vcf-dosage=DS-force" or DS-only to try DS-force
+              // or DS-only here.
+              if ((!strcmp(vcf_dosage_import_field, "DS-force")) || (!strcmp(vcf_dosage_import_field, "DS-only"))) {
+                logerrputs("Error: --vcf dosage= argument is not alphanumeric.  (It should contain just the\nname of the dosage field, i.e. 'DS' instead of 'DS-force'/'DS-only'.)\n");
+              } else {
+                logerrputs("Error: --vcf dosage= argument is not alphanumeric.\n");
+              }
               goto main_ret_INVALID_CMDLINE;
             }
             if (unlikely(!strcmp(vcf_dosage_import_field, "GT"))) {
@@ -10666,7 +10671,6 @@ int main(int argc, char** argv) {
       if (outname_last_dot) {
         char* outname_ext = &(outname_last_dot[1]);
         const uint32_t outname_ext_slen = outname_end - outname_ext;
-        // this will be upgraded to an error soon
         if (strequal_k(outname_ext, "bcf", outname_ext_slen) ||
             strequal_k(outname_ext, "bed", outname_ext_slen) ||
             strequal_k(outname_ext, "bgen", outname_ext_slen) ||
@@ -10674,7 +10678,8 @@ int main(int argc, char** argv) {
             strequal_k(outname_ext, "ped", outname_ext_slen) ||
             strequal_k(outname_ext, "pgen", outname_ext_slen) ||
             strequal_k(outname_ext, "vcf", outname_ext_slen)) {
-          logerrputs("Warning: --out argument is supposed to be a filename *prefix*; the value you've\nprovided looks like it is intended to be an entire filename.\nIf the current --out argument is really what you want, use\n--allow-misleading-out-arg to suppress this warning (which will become an error in a future build).\n");
+          logerrputs("Error: --out argument is supposed to be a filename *prefix*; the value you've\nprovided looks like it is intended to be an entire filename.\nIf the current --out argument is really what you want, use\n--allow-misleading-out-arg to suppress this error.\n");
+          goto main_ret_INVALID_CMDLINE_A;
         }
       }
     }

@@ -1,4 +1,4 @@
-// This library is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -2822,43 +2822,61 @@ uint32_t FirstCcOrQtPhenoIdx(const PhenoCol* pheno_cols, uint32_t pheno_ct) {
   return UINT32_MAX;
 }
 
-uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include, uint32_t sample_ct) {
-  if (sample_ct < 2) {
-    return 1;
-  }
-  uintptr_t sample_uidx_base = 0;
-  uintptr_t cur_bits = sample_include[0];
-  const uintptr_t initial_sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include, uint32_t raw_sample_ct) {
+  const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+  const uintptr_t* nonmiss = covar_col->nonmiss;
   if (covar_col->type_code == kPhenoDtypeQt) {
-    // bugfix (27 Nov 2022): forgot to check for missingness
-    const uintptr_t* nonmiss = covar_col->nonmiss;
     const double* covar_vals = covar_col->data.qt;
-    uint32_t sample_idx = 0;
-    uintptr_t sample_uidx = initial_sample_uidx;
-    while (!IsSet(nonmiss, sample_uidx)) {
-      ++sample_idx;
-      if (sample_idx == sample_ct) {
-        return 1;
+    for (uint32_t widx = 0; widx != raw_sample_ctl; ++widx) {
+      uintptr_t cur_bits = sample_include[widx] & nonmiss[widx];
+      if (cur_bits) {
+        const double first_covar_val = covar_vals[widx * kBitsPerWord + ctzw(cur_bits)];
+        cur_bits &= cur_bits - 1;
+        while (1) {
+          if (cur_bits) {
+            const double* cur_covar_vals = &(covar_vals[widx * kBitsPerWord]);
+            do {
+              const uint32_t bit_idx = ctzw(cur_bits);
+              if (cur_covar_vals[bit_idx] != first_covar_val) {
+                return 0;
+              }
+              cur_bits &= cur_bits - 1;
+            } while (cur_bits);
+          }
+          ++widx;
+          if (widx == raw_sample_ctl) {
+            return 1;
+          }
+          cur_bits = sample_include[widx] & nonmiss[widx];
+        }
       }
-      sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
     }
-    const double first_covar_val = covar_vals[sample_uidx];
-    do {
-      ++sample_idx;
-      if (sample_idx == sample_ct) {
-        return 1;
-      }
-      sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-    } while ((!IsSet(nonmiss, sample_uidx)) || (covar_vals[sample_uidx] == first_covar_val));
-    return 0;
+    return 1;
   }
   assert(covar_col->type_code == kPhenoDtypeCat);
   const uint32_t* covar_cats = covar_col->data.cat;
-  const uint32_t first_covar_cat = covar_cats[initial_sample_uidx];
-  for (uint32_t sample_idx = 1; sample_idx != sample_ct; ++sample_idx) {
-    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-    if (covar_cats[sample_uidx] != first_covar_cat) {
-      return 0;
+  for (uint32_t widx = 0; widx != raw_sample_ctl; ++widx) {
+    uintptr_t cur_bits = sample_include[widx] & nonmiss[widx];
+    if (cur_bits) {
+      const uint32_t first_covar_cat = covar_cats[widx * kBitsPerWord + ctzw(cur_bits)];
+      cur_bits &= cur_bits - 1;
+      while (1) {
+        if (cur_bits) {
+          const uint32_t* cur_covar_cats = &(covar_cats[widx * kBitsPerWord]);
+          do {
+            const uint32_t bit_idx = ctzw(cur_bits);
+            if (cur_covar_cats[bit_idx] != first_covar_cat) {
+              return 0;
+            }
+            cur_bits &= cur_bits - 1;
+          } while (cur_bits);
+        }
+        ++widx;
+        if (widx == raw_sample_ctl) {
+          return 1;
+        }
+        cur_bits = sample_include[widx] & nonmiss[widx];
+      }
     }
   }
   return 1;

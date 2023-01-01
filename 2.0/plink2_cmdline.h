@@ -1,7 +1,7 @@
 #ifndef __PLINK2_CMDLINE_H__
 #define __PLINK2_CMDLINE_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -1099,13 +1099,20 @@ HEADER_INLINE void ZeroDArr(uintptr_t entry_ct, double* darr) {
   }
 }
 
-
 HEADER_INLINE void ZeromovFArr(uintptr_t entry_ct, float** farr_ptr) {
   float* farr = *farr_ptr;
   for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
     *farr++ = 0.0;
   }
   *farr_ptr = farr;
+}
+
+HEADER_INLINE void ZeromovDArr(uintptr_t entry_ct, double** darr_ptr) {
+  double* darr = *darr_ptr;
+  for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
+    *darr++ = 0.0;
+  }
+  *darr_ptr = darr;
 }
 
 

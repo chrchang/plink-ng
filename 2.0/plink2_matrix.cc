@@ -182,6 +182,19 @@ void ReflectMatrix(uint32_t dim, double* matrix) {
   }
 }
 
+void ReflectStridedMatrix(uint32_t dim, uint32_t stride, double* matrix) {
+  const uintptr_t stride_p1l = stride + 1;
+  double* write_row = matrix;
+  for (uint32_t row_idx = 0; row_idx != dim; ++row_idx) {
+    double* read_col_iter = &(matrix[stride_p1l * row_idx + stride]);
+    for (uint32_t col_idx = row_idx + 1; col_idx != dim; ++col_idx) {
+      write_row[col_idx] = *read_col_iter;
+      read_col_iter = &(read_col_iter[stride]);
+    }
+    write_row = &(write_row[stride]);
+  }
+}
+
 void ReflectFmatrix(uint32_t dim, uint32_t stride, float* matrix) {
   const uintptr_t stride_p1l = stride + 1;
   float* write_row = matrix;
@@ -191,6 +204,20 @@ void ReflectFmatrix(uint32_t dim, uint32_t stride, float* matrix) {
       write_row[col_idx] = *read_col_iter;
       read_col_iter = &(read_col_iter[stride]);
     }
+    write_row = &(write_row[stride]);
+  }
+}
+
+void ReflectStridedMatrix0(uint32_t dim, uint32_t stride, double* matrix) {
+  const uintptr_t stride_p1l = stride + 1;
+  double* write_row = matrix;
+  for (uint32_t row_idx = 0; row_idx != dim; ++row_idx) {
+    double* read_col_iter = &(matrix[stride_p1l * row_idx + stride]);
+    for (uint32_t col_idx = row_idx + 1; col_idx != dim; ++col_idx) {
+      write_row[col_idx] = *read_col_iter;
+      read_col_iter = &(read_col_iter[stride]);
+    }
+    ZeroDArr(stride - dim, &(write_row[dim]));
     write_row = &(write_row[stride]);
   }
 }
@@ -233,6 +260,11 @@ static inline double MultiplyBySgn(double aa, double bb) {
 
 uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
   // C port of PLINK stats.cpp svdcmp().
+  //   m: (in) number of rows/columns
+  //   a: (in/out) input matrix, becomes first part of decomposition
+  //   w: (out) singular values
+  //   v: (out) final part of decomposition
+  //
   // Now thread-safe.
   double* rv1 = &(w[S_CAST(uint32_t, m)]);
   int32_t n = m;
@@ -471,6 +503,23 @@ BoolErr InvertMatrix(int32_t dim, double* matrix, MatrixInvertBuf1* dbl_1d_buf, 
   return 0;
 }
 
+BoolErr InvertStridedMatrixFirstHalf(int32_t dim, int32_t stride, double* matrix, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
+  // Unfortunately, SvdcmpC() doesn't support a stride parameter.
+  if (stride != dim) {
+    const uint32_t dim_u = dim;
+    const uintptr_t nbyte = dim_u * sizeof(double);
+    const double* read_row = matrix;
+    double* write_row = matrix;
+    for (uint32_t row_idx = 1; row_idx != dim_u; ++row_idx) {
+      read_row = &(read_row[S_CAST(uint32_t, stride)]);
+      write_row = &(write_row[dim_u]);
+      memmove(write_row, read_row, nbyte);
+    }
+  }
+
+  return (!SvdcmpC(dim, matrix, dbl_1d_buf, dbl_2d_buf));
+}
+
 BoolErr InvertFmatrixFirstHalf(int32_t dim, uint32_t stride, const float* matrix, double* half_inverted, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
   const float* read_row = matrix;
   double* write_row = half_inverted;
@@ -483,6 +532,61 @@ BoolErr InvertFmatrixFirstHalf(int32_t dim, uint32_t stride, const float* matrix
   }
 
   return (!SvdcmpC(dim, half_inverted, dbl_1d_buf, dbl_2d_buf));
+}
+
+void InvertStridedMatrixSecondHalf(__CLPK_integer dim, __CLPK_integer stride, double* matrix, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
+  // Look for singular values
+  assert(dim > 0);
+  const double eps = 1e-24;
+  double wmax = 0;
+  int32_t i;
+  for (i=0; i!=dim; ++i) {
+    wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
+  }
+  double wmin = wmax * eps;
+  for (i=0; i!=dim; ++i) {
+    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : (1 / dbl_1d_buf[i]);
+  }
+
+  int32_t j;
+  for (i=0; i!=dim; ++i) {
+    for (j=0; j!=dim; ++j) {
+      matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
+    }
+  }
+
+  int32_t k;
+  // [nxn].[t(v)]
+  for (i=0; i!=dim; ++i) {
+    ZeroDArr(dim, dbl_1d_buf);
+    for (j=0; j!=dim; ++j) {
+      for (k=0; k!=dim; ++k) {
+        dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
+      }
+    }
+    for (j = 0; j != dim; ++j) {
+      matrix[i * dim + j] = dbl_1d_buf[j];
+    }
+  }
+  // transpose, then fix stride
+  for (i=1; i!=dim; ++i) {
+    for(j=0; j!=i; ++j) {
+      const double tmp = matrix[i * dim + j];
+      matrix[i * dim + j] = matrix[j * dim + i];
+      matrix[j * dim + i] = tmp;
+    }
+  }
+  if ((stride != dim) && (dim > 1)) {
+    const uint32_t dim_m1 = dim - 1;
+    const uintptr_t nbyte = S_CAST(uint32_t, dim) * sizeof(double);
+    double* read_row = &(matrix[dim_m1 * dim]);
+    double* write_row = &(matrix[dim_m1 * stride]);
+    for (uint32_t bot_row_idx = 0; bot_row_idx != dim_m1; ++bot_row_idx) {
+      memmove(write_row, read_row, nbyte);
+      read_row -= dim;
+      write_row -= stride;
+    }
+  }
 }
 
 void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
@@ -525,7 +629,7 @@ void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_i
       inverted_result[i * stride + j] = S_CAST(float, half_inverted[j * dim + i]);
       inverted_result[j * stride + i] = S_CAST(float, half_inverted[i * dim + j]);
     }
-    inverted_result[i * stride + i] = S_CAST(float, half_inverted[i * stride + i]);
+    inverted_result[i * stride + i] = S_CAST(float, half_inverted[i * dim + i]);
   }
 }
 #else  // !NOLAPACK
@@ -578,6 +682,18 @@ BoolErr InvertSymmdefMatrix(__CLPK_integer dim, double* matrix, __maybe_unused M
   return 0;
 }
 
+BoolErr InvertSymmdefStridedMatrix(__CLPK_integer dim, __CLPK_integer stride, double* matrix, __maybe_unused MatrixInvertBuf1* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
+  char uplo = 'U';
+  __CLPK_integer info;
+  dpotrf_(&uplo, &dim, matrix, &stride, &info);
+  if (info) {
+    return 1;
+  }
+  dpotri_(&uplo, &dim, matrix, &stride, &info);
+  assert(info == 0);
+  return 0;
+}
+
 BoolErr InvertSymmdefMatrixChecked(__CLPK_integer dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   char cc = '1';
   char uplo = 'U';
@@ -594,6 +710,20 @@ BoolErr InvertSymmdefMatrixChecked(__CLPK_integer dim, double* matrix, MatrixInv
   }
   dpotri_(&uplo, &dim, matrix, &dim, &info);
   return 0;
+}
+
+BoolErr InvertSymmdefMatrixFirstHalf(__CLPK_integer dim, __CLPK_integer stride, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
+  char cc = '1';
+  char uplo = 'U';
+  double norm = dlansy_(&cc, &uplo, &dim, matrix, &stride, dbl_2d_buf);
+  __CLPK_integer info;
+  dpotrf_(&uplo, &dim, matrix, &stride, &info);
+  if (info > 0) {
+    return 1;
+  }
+  double rcond;
+  dpocon_(&uplo, &dim, matrix, &stride, &norm, &rcond, dbl_2d_buf, int_1d_buf, &info);
+  return (rcond < kMatrixSingularRcond);
 }
 
 // quasi-bugfix (20 Sep 2017): give up on doing this with single-precision
