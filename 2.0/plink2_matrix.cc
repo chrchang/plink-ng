@@ -118,9 +118,6 @@ extern "C" {
                __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* b,
                __CLPK_integer* ldb, __CLPK_integer* info);
 
-  int dpotri_(char* uplo, __CLPK_integer* n, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_integer* info);
-
 #        ifndef USE_CBLAS_XGEMM
   void dgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
               __CLPK_integer* k, __CLPK_doublereal* alpha,

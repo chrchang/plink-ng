@@ -390,12 +390,22 @@ HEADER_INLINE bool isfinite_f(float fxx) {
   using namespace std;
   return isfinite(fxx);
 }
+
+HEADER_INLINE bool isfinite_d(double dxx) {
+  using namespace std;
+  return isfinite(dxx);
+}
 #  else
 #    ifdef isfinite
 #      define isfinite_f isfinite
+#      define isfinite_d isfinite
 #    else
 HEADER_INLINE bool isfinite_f(float fxx) {
   return (fxx == fxx) && (fxx != INFINITY) && (fxx != -INFINITY);
+}
+
+HEADER_INLINE bool isfinite_d(double fxx) {
+  return (dxx == dxx) && (dxx != INFINITY) && (dxx != -INFINITY);
 }
 #    endif
 #  endif

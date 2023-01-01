@@ -4471,7 +4471,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
             // validParameters() check
             for (uint32_t pred_uidx = 1; pred_uidx != cur_regressed_predictor_stop; ++pred_uidx) {
               const double hh_inv_diag_element = hh_return[pred_uidx * cur_regressed_predictor_ctavp1];
-              if ((hh_inv_diag_element < 1e-20) || (!isfinite(hh_inv_diag_element))) {
+              if ((hh_inv_diag_element < 1e-20) || (!isfinite_d(hh_inv_diag_element))) {
                 glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
                 goto GlmLogisticThreadD_skip_regression;
               }

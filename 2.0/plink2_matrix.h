@@ -79,10 +79,8 @@ extern "C" {
   __CLPK_doublereal ddot_(__CLPK_integer* n, __CLPK_doublereal* dx,
                           __CLPK_integer* incx, __CLPK_doublereal* dy,
                           __CLPK_integer* incy);
-
   __CLPK_doublereal sdot_(__CLPK_integer* n, float* sx, __CLPK_integer* incx,
                           float* sy, __CLPK_integer* incy);
-
 #    else  // Linux
 #      ifdef USE_MKL
 #        define USE_CBLAS_XGEMM
@@ -101,6 +99,8 @@ static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
 
 #        ifdef USE_CBLAS_XGEMM
 #          include <cblas.h>
+  int dpotri_(char* uplo, __CLPK_integer* n, __CLPK_doublereal* a,
+              __CLPK_integer* lda, __CLPK_integer* info);
 #        else
           // ARGH
           // cmake on Ubuntu 14 seems to require use of cblas_f77.h instead of

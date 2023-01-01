@@ -1212,7 +1212,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      floating-point numbers during logistic and Firth regression.\n"
 "    * If that's not enough, you can also use the 'firth-residualize' or\n"
 "      'cc-residualize' modifier, which implements the shortcut described in\n"
-"      Mbatchou J et al. (2020) Computationally efficient whole genome\n"
+"      Mbatchou J et al. (2021) Computationally efficient whole genome\n"
 "      regression for quantitative and binary traits.\n"
 "      * These must be used with 'hide-covar' and 'single-prec-cc', and disable\n"
 "        some other --glm features.\n"
