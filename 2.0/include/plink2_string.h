@@ -352,6 +352,8 @@ template <uint32_t N> int32_t StrequalK(const char* s1, const char* k_s2, uint32
 
 #  define strequal_k_unsafe(s1, k_s2) memequal_k(s1, k_s2, 1 + plink2::CompileTimeSlen(k_s2))
 
+#  define memequal_sk(s1, k_s2) memequal_k(s1, k_s2, plink2::CompileTimeSlen(k_s2))
+
 #  define strcpya_k(dst, src) plink2::MemcpyaoK<plink2::CompileTimeSlen(src)>(dst, src);
 #else  // !(defined(__LP64__) && (__cplusplus >= 201103L))
 HEADER_INLINE char* memcpyax_k(void* __restrict dst, const void* __restrict src, uint32_t ct, char extra_char) {
@@ -370,6 +372,11 @@ HEADER_INLINE int32_t strequal_k(const char* s1, const char* k_s2, uint32_t s1_s
 HEADER_INLINE int32_t strequal_k_unsafe(const char* s1, const char* k_s2) {
   const uint32_t s2_blen = 1 + strlen(k_s2);
   return memequal(s1, k_s2, s2_blen);
+}
+
+HEADER_INLINE int32_t memequal_sk(const void* s1, const char* k_s2) {
+  const uint32_t s2_slen = strlen(k_s2);
+  return memequal(s1, k_s2, s2_slen);
 }
 
 HEADER_INLINE char* strcpya_k(char* __restrict dst, const void* __restrict src) {

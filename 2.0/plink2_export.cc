@@ -3648,33 +3648,98 @@ uint32_t ValidVcfContigName(const char* name_start, const char* name_end, uint32
   return 1;
 }
 
-PglErr BgzfFixAndWriteContigHeaderLine(const char* contig_name_end, uint32_t remaining_byte_ct, uint32_t contig_len, BgzfCompressStream* bgzfp) {
-  const uint64_t length_str_loc = FindContigHeaderLineLengthStr(contig_name_end);
-  if (unlikely(length_str_loc == UINT64_MAX)) {
-    return kPglRetMalformedInput;
+// Similar to WriteRestOfHeaderLine() in plink2_data.
+BoolErr BgzfWriteRestOfHeaderLine(const char* hkvline_iter, const char* idval, const char* line_end, uint32_t id_slen, BgzfCompressStream* bgzfp) {
+  if (idval > hkvline_iter) {
+    // Copy entries before ",ID=".
+    const char* idkey_prestart = &(idval[-4]);
+    // 1-byte BgzfWrite call is annoying, but this is not the common case.
+    if (unlikely(BgzfWrite(",", 1, bgzfp) ||
+                 BgzfWrite(hkvline_iter, idkey_prestart - hkvline_iter, bgzfp))) {
+      return 1;
+    }
   }
-  if (!length_str_loc) {
+  const char* idval_end = &(idval[id_slen]);
+  return BgzfWrite(idval_end, line_end - idval_end, bgzfp);
+}
+
+// Similar to FixAndWriteContigHeaderLine() in plink2_data.  However, there are
+// two changes to the input assumptions:
+// * Trailing comma after ID field is assumed to be written.
+// * line_end (pointing after the input '\n') replaces closing_gt, since we
+//   never need to append an IDX= entry.
+// These reduce the number of BgzfWrite() calls.
+PglErr BgzfFixAndWriteContigHeaderLine(const char* hkvline_iter, const char* idval, const char* line_end, uint32_t id_slen, uint32_t contig_len, BgzfCompressStream* bgzfp) {
+  if (hkvline_iter[-1] == '>') {
+    // Only ID field present in input.
+    // 20 = strlen("length=") + max 10 bytes for contig_len + '>' + Windows
+    //      EOLN
+    // need to increase this buffer size if contig_len is changed to uint64_t
+    char writebuf[20];
+    char* write_iter = strcpya_k(writebuf, "length=");
+    write_iter = u32toa_x(contig_len, '>', write_iter);
+    AppendBinaryEoln(&write_iter);
+    return BgzfWrite(writebuf, write_iter - writebuf, bgzfp)? kPglRetWriteFail : kPglRetSuccess;
+  }
+  const char* idval_end = &(idval[id_slen]);
+  const char* lenvalstr_start;
+  uint32_t lenval_slen;
+  IntErr interr = HkvlineFindK(hkvline_iter, "length", &lenvalstr_start, &lenval_slen);
+  if (interr) {
+    if (unlikely(S_CAST(int32_t, interr) == 2)) {
+      logerrputs("Error: Malformed ##contig line in .pvar file.\n");
+      return kPglRetMalformedInput;
+    }
     // Existing header line doesn't contain a length.  Place the length
     // immediately after the ID, and then append the rest of the existing line.
     char writebuf[18];
-    char* write_iter = strcpya_k(writebuf, ",length=");
-    write_iter = u32toa(contig_len, write_iter);
+    char* write_iter = strcpya_k(writebuf, "length=");
+    write_iter = u32toa_x(contig_len, ',', write_iter);
     if (unlikely(BgzfWrite(writebuf, write_iter - writebuf, bgzfp))) {
       return kPglRetWriteFail;
     }
-    return BgzfWrite(contig_name_end, remaining_byte_ct, bgzfp)? kPglRetWriteFail : kPglRetSuccess;
+    if (idval < hkvline_iter) {
+      return BgzfWrite(hkvline_iter, line_end - hkvline_iter, bgzfp)? kPglRetWriteFail : kPglRetSuccess;
+    }
+    // -3 to exclude "ID="
+    const char* idkey_start = &(idval[-3]);
+    if (unlikely(BgzfWrite(hkvline_iter, idkey_start - hkvline_iter, bgzfp) ||
+                 BgzfWrite(idval_end, line_end - idval_end, bgzfp))) {
+      return kPglRetWriteFail;
+    }
+    return kPglRetSuccess;
   }
-  const uint32_t start_pos = S_CAST(uint32_t, length_str_loc);
-  const uint32_t end_pos = length_str_loc >> 32;
-  if (unlikely(BgzfWrite(contig_name_end, start_pos, bgzfp))) {
-    return kPglRetWriteFail;
-  }
+  const char* lenvalstr_end = &(lenvalstr_start[lenval_slen]);
   char writebuf[10];
   char* write_iter = u32toa(contig_len, writebuf);
-  if (unlikely(BgzfWrite(writebuf, write_iter - writebuf, bgzfp))) {
+  if (idval < lenvalstr_start) {
+    // Usual case: ID was before length in input.
+    if (idval < hkvline_iter) {
+      if (unlikely(BgzfWrite(hkvline_iter, lenvalstr_start - hkvline_iter, bgzfp))) {
+        return kPglRetWriteFail;
+      }
+    } else {
+      const char* idkey_start = &(idval[-3]);
+      if (unlikely(BgzfWrite(hkvline_iter, idkey_start - hkvline_iter, bgzfp) ||
+                   BgzfWrite(idval_end, lenvalstr_start - idval_end, bgzfp))) {
+        return kPglRetWriteFail;
+      }
+    }
+    if (unlikely(BgzfWrite(writebuf, write_iter - writebuf, bgzfp) ||
+                 BgzfWrite(lenvalstr_end, line_end - lenvalstr_end, bgzfp))) {
+      return kPglRetWriteFail;
+    }
+    return kPglRetSuccess;
+  }
+  // ID is later.
+  const char* idkey_prestart = &(idval[-4]);
+  if (unlikely(BgzfWrite(hkvline_iter, lenvalstr_start - hkvline_iter, bgzfp) ||
+               BgzfWrite(writebuf, write_iter - writebuf, bgzfp) ||
+               BgzfWrite(lenvalstr_end, idkey_prestart - lenvalstr_end, bgzfp) ||
+               BgzfWrite(idval_end, line_end - idval_end, bgzfp))) {
     return kPglRetWriteFail;
   }
-  return BgzfWrite(&(contig_name_end[end_pos]), remaining_byte_ct - end_pos, bgzfp)? kPglRetWriteFail : kPglRetSuccess;
+  return kPglRetSuccess;
 }
 
 uint32_t ValidVcfMetaLine(const char* line_start, uint32_t line_slen, uint32_t v43) {
@@ -3683,11 +3748,14 @@ uint32_t ValidVcfMetaLine(const char* line_start, uint32_t line_slen, uint32_t v
     logerrprintf("Error: Header line in .pvar file does not conform to the VCFv4.%c specification\n(no '=').\n", '2' + v43);
     return 0;
   }
-  if (v43) {
-    // If header line starts with "##key=<", that must be followed by
-    // "ID=" to conform to the VCFv4.3 (but not 4.2) specification.
-    if ((first_eq[1] == '<') && (!memequal_k(&(first_eq[2]), "ID=", 3))) {
-      logerrprintf("Error: Header line in .pvar file does not conform to the VCFv4.%c specification\n(value starts with '<', but that is not followed by an ID).  This is permitted\nin VCFv4.2, so you may want to export that format instead.\n");
+  if (v43 && (first_eq[1] == '<')) {
+    // If header line starts with "##key=<", ID is required to conform to the
+    // VCFv4.3 (but not 4.2) specification.
+    const char* hkvline_iter = &(first_eq[2]);
+    const char* idval;
+    uint32_t id_slen;
+    if (HkvlineIdK(&hkvline_iter, &idval, &id_slen)) {
+      logerrprintf("Error: Header line in .pvar file does not conform to the VCFv4.3 specification\n(value starts with '<', but that is not followed by an ID).  This is permitted\nin VCFv4.2, so you may want to export that format instead.\n");
       return 0;
     }
   }
@@ -4149,23 +4217,26 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uint32_t contig_zero_written = 0;
     uint32_t x_contig_line_written = 0;
     if (xheader) {
-      memcpyao_k(writebuf, "##contig=<ID=", 13);
+      memcpyo_k(writebuf, "##contig=<ID=", 13);
       char* xheader_end = &(xheader[xheader_blen]);
       for (char* line_end = xheader; line_end != xheader_end; ) {
         char* xheader_iter = line_end;
         line_end = AdvPastDelim(xheader_iter, '\n');
-        const uint32_t slen = line_end - xheader_iter;
-        if ((slen > 14) && StrStartsWithUnsafe(xheader_iter, "##contig=<ID=")) {
-          char* contig_name_start = &(xheader_iter[13]);
-          char* contig_name_end = S_CAST(char*, memchr(contig_name_start, ',', slen - 14));
-          if (!contig_name_end) {
-            // if this line is technically well-formed (ends in '>'), it's
-            // useless anyway, throw it out
+        if (StrStartsWithUnsafe(xheader_iter, "##contig=<")) {
+          xheader_iter = &(xheader_iter[strlen("##contig=<")]);
+          char* idval;
+          uint32_t id_slen;
+          if (unlikely(HkvlineId(&xheader_iter, &idval, &id_slen))) {
+            logerrputs("Error: Malformed ##contig line in .pvar file.\n");
+            goto ExportVcf_ret_MALFORMED_INPUT;
+          }
+          if (xheader_iter[-1] == '>') {
+            // regenerate instead of keeping
             continue;
           }
-          // if GetChrCodeCounted() is modified to not mutate
-          // contig_name_start[], xheader can be changed to const char*
-          const uint32_t chr_idx = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
+          // if GetChrCodeCounted() is modified to not mutate idval[], xheader
+          // can be changed to const char*
+          const uint32_t chr_idx = GetChrCodeCounted(cip, id_slen, idval);
           // bugfix (8 Sep 2018): must exclude ##contig lines not present in
           // input, otherwise chr_fo_idx == 0xffffffffU, etc.
           if (IsI32Neg(chr_idx) || (!IsSet(cip->chr_mask, chr_idx)) || (chr_idx == par1_code) || (chr_idx == par2_code)) {
@@ -4192,22 +4263,25 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           if (unlikely(!ValidVcfContigName(contig_write_start, write_iter, v43))) {
             goto ExportVcf_ret_MALFORMED_INPUT;
           }
-          if (unlikely(BgzfWrite(writebuf, write_iter - writebuf, &bgzf))) {
-            goto ExportVcf_ret_WRITE_FAIL;
-          }
           if (contig_lens && contig_lens[chr_idx]) {
-            reterr = BgzfFixAndWriteContigHeaderLine(contig_name_end, line_end - contig_name_end, contig_lens[chr_idx], &bgzf);
+            *write_iter++ = ',';
+            if (unlikely(BgzfWrite(writebuf, write_iter - writebuf, &bgzf))) {
+              goto ExportVcf_ret_WRITE_FAIL;
+            }
+            reterr = BgzfFixAndWriteContigHeaderLine(xheader_iter, idval, line_end, id_slen, contig_lens[chr_idx], &bgzf);
             if (unlikely(reterr)) {
               goto ExportVcf_ret_1;
             }
           } else {
-            if (unlikely(BgzfWrite(contig_name_end, line_end - contig_name_end, &bgzf))) {
+            if (unlikely(BgzfWrite(writebuf, write_iter - writebuf, &bgzf) ||
+                         BgzfWriteRestOfHeaderLine(xheader_iter, idval, line_end, id_slen, &bgzf))) {
               goto ExportVcf_ret_WRITE_FAIL;
             }
           }
         } else if (xheader_iter[1] == '#') {
           // quasi-bugfix (23 Jan 2021): don't export pre-#CHROM header lines
           // starting with a single '#'
+          const uint32_t slen = line_end - xheader_iter;
           if (unlikely(!ValidVcfMetaLine(xheader_iter, slen, v43))) {
             goto ExportVcf_ret_INCONSISTENT_INPUT;
           }
@@ -7369,7 +7443,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     if (xheader) {
       const char* xheader_end = &(xheader[xheader_blen]);
       for (const char* xheader_iter = xheader; xheader_iter != xheader_end; xheader_iter = AdvPastDelim(xheader_iter, '\n')) {
-        fif_key_ct_ubound += StrStartsWithUnsafe(xheader_iter, "##FILTER=<ID=") || StrStartsWithUnsafe(xheader_iter, "##INFO=<ID=");
+        fif_key_ct_ubound += StrStartsWithUnsafe(xheader_iter, "##FILTER=<") || StrStartsWithUnsafe(xheader_iter, "##INFO=<");
       }
     }
     const uint32_t fif_keys_htable_size = GetHtableFastSize(fif_key_ct_ubound);
@@ -7488,10 +7562,10 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
             continue;
           }
           char* line_main = &(line_start[2]);
-          const uint32_t is_filter_line = StrStartsWithUnsafe(line_main, "FILTER=<ID=");
-          const uint32_t is_info_line = StrStartsWithUnsafe(line_main, "INFO=<ID=");
+          const uint32_t is_filter_line = StrStartsWithUnsafe(line_main, "FILTER=<");
+          const uint32_t is_info_line = StrStartsWithUnsafe(line_main, "INFO=<");
           if ((!is_filter_line) && (!is_info_line)) {
-            if (!StrStartsWithUnsafe(line_main, "contig=<ID=")) {
+            if (!StrStartsWithUnsafe(line_main, "contig=<")) {
               const uint32_t slen = line_end - line_start;
               if (unlikely(!ValidVcfMetaLine(line_start, slen, v43))) {
                 goto ExportBcf_ret_INCONSISTENT_INPUT;
@@ -7499,19 +7573,20 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
               write_iter = memcpya(write_iter, line_start, slen);
               continue;
             }
-            char* contig_name_start = &(line_main[11]);
-            char* contig_name_end = strchrnul2_n(contig_name_start, ',', '>');
-            if (*contig_name_end != ',') {
-              if (unlikely(*contig_name_end == '\n')) {
-                logerrputs("Error: ##contig header line in .pvar file doesn't end with '>'.\n");
-                goto ExportBcf_ret_MALFORMED_INPUT;
-              }
-              // Regenerate this line instead of copying it.
+            char* hkvline_iter = &(line_main[strlen("contig=<")]);
+            char* idval;
+            uint32_t id_slen;
+            if (unlikely(HkvlineId(&hkvline_iter, &idval, &id_slen))) {
+              logerrputs("Error: Malformed ##contig header line in .pvar file.\n");
+              goto ExportBcf_ret_MALFORMED_INPUT;
+            }
+            if (hkvline_iter[-1] == '>') {
+              // Otherwise-empty line.  Regenerate instead of copying it.
               continue;
             }
-            // if GetChrCodeCounted() is modified to not mutate
-            // contig_name_start, xheader can be changed to const char*
-            const uint32_t chr_idx = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
+            // if GetChrCodeCounted() is modified to not mutate idval, xheader
+            // can be changed to const char*
+            const uint32_t chr_idx = GetChrCodeCounted(cip, id_slen, idval);
             if (IsI32Neg(chr_idx) || (!IsSet(cip->chr_mask, chr_idx)) || (chr_idx == par1_code) || (chr_idx == par2_code)) {
               continue;
             }
@@ -7536,20 +7611,20 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
             if (unlikely(!ValidVcfContigName(contig_write_start, write_iter, v43))) {
               goto ExportBcf_ret_MALFORMED_INPUT;
             }
-            char* copy_stop = &(line_end[-2]);
-            while (ctou32(*copy_stop) <= 32) {
-              --copy_stop;
+            char* closing_gt = &(line_end[-2]);
+            while (ctou32(*closing_gt) <= 32) {
+              --closing_gt;
             }
-            if (unlikely(*copy_stop != '>')) {
+            if (unlikely(*closing_gt != '>')) {
               logerrputs("Error: ##contig header line in .pvar file doesn't end with '>'.\n");
               goto ExportBcf_ret_MALFORMED_INPUT;
             }
             if (contig_lens && contig_lens[chr_idx]) {
-              if (unlikely(FixAndWriteContigHeaderLine(contig_name_end, copy_stop - contig_name_end, contig_lens[chr_idx], &write_iter))) {
+              if (unlikely(FixAndWriteContigHeaderLine(hkvline_iter, idval, closing_gt, id_slen, contig_lens[chr_idx], &write_iter))) {
                 goto ExportBcf_ret_MALFORMED_INPUT;
               }
             } else {
-              write_iter = memcpya(write_iter, contig_name_end, copy_stop - contig_name_end);
+              write_iter = WriteRestOfHeaderLine(hkvline_iter, idval, closing_gt, id_slen, write_iter);
             }
             write_iter = strcpya_k(write_iter, ",IDX=");
             write_iter = u32toa(contig_string_idx_end, write_iter);
@@ -7557,57 +7632,73 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
             chr_fo_to_bcf_idx[chr_fo_idx] = contig_string_idx_end++;
             continue;
           }
-          char* id_start = &(line_main[11 - 2 * is_info_line]);
-          char* id_end = strchrnul_n(id_start, ',');
-          const uint32_t id_slen = id_end - id_start;
+          char* hkvline_iter = &(line_main[8 - 2 * is_info_line]);
+          char* idval;
+          uint32_t id_slen;
+          if (unlikely(HkvlineId(&hkvline_iter, &idval, &id_slen))) {
+            // This part of INFO line should have already been lexed
+            // successfully during .pvar load.
+            assert(is_filter_line);
+            logerrputs("Error: Malformed FILTER header line in .pvar file.\n");
+            goto ExportBcf_ret_MALFORMED_INPUT;
+          }
+          char* idval_end = &(idval[id_slen]);
           if (unlikely(id_slen > kMaxIdSlen)) {
             logerrputs("Error: " PROG_NAME_STR " does not support FILTER/INFO keys longer than " MAX_ID_SLEN_STR " characters.\n");
             goto ExportBcf_ret_MALFORMED_INPUT;
           }
-          if (unlikely(*id_end == '\n')) {
-            logerrprintf("Error: Malformed %s header line in .pvar file.\n", is_info_line? "INFO" : "FILTER");
-            goto ExportBcf_ret_MALFORMED_INPUT;
-          }
           unsigned char prechar = 8;
           if (is_info_line) {
-            char* type_prestart = strchrnul_n(&(id_end[1]), ',');
-            if (StrStartsWithUnsafe(type_prestart, ",Type=Flag,")) {
+            char* typestr;
+            uint32_t type_slen;
+            if (unlikely(HkvlineFind(hkvline_iter, "Type", &typestr, &type_slen))) {
+              *idval_end = '\0';
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid INFO/%s header line in .pvar file.\n", idval);
+              goto ExportBcf_ret_MALFORMED_INPUT_WW;
+            }
+            if (strequal_k(typestr, "Flag", type_slen)) {
               prechar = 1;
-            } else if (StrStartsWithUnsafe(type_prestart, ",Type=Integer,")) {
+            } else if (strequal_k(typestr, "Integer", type_slen)) {
               prechar = 3;
               if (!info_end_exists) {
                 // ignore when this isn't of integer type
-                info_end_exists = strequal_k(id_start, "END", id_slen);
+                info_end_exists = strequal_k(idval, "END", id_slen);
               }
-            } else if (StrStartsWithUnsafe(type_prestart, ",Type=Float,")) {
+            } else if (strequal_k(typestr, "Float", type_slen)) {
               prechar = 5;
-            } else if (likely(StrStartsWithUnsafe(type_prestart, ",Type=String,") ||
-                              StrStartsWithUnsafe(type_prestart, ",Type=Character,"))) {
+            } else if (likely(strequal_k(typestr, "String", type_slen) ||
+                              strequal_k(typestr, "Character", type_slen))) {
               prechar = 7;
             } else {
-              *id_end = '\0';
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid INFO/%s header line in .pvar file.\n", id_start);
+              *idval_end = '\0';
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid INFO/%s header line in .pvar file.\n", idval);
               goto ExportBcf_ret_MALFORMED_INPUT_WW;
             }
-          } else if (strequal_k(id_start, "PASS", id_slen)) {
+          } else if (strequal_k(idval, "PASS", id_slen)) {
             // Don't duplicate this.
             continue;
           }
-          char* copy_stop = &(line_end[-2]);
-          while (ctou32(*copy_stop) <= 32) {
-            --copy_stop;
+          char* closing_gt = &(line_end[-2]);
+          while (ctou32(*closing_gt) <= 32) {
+            --closing_gt;
           }
-          if (unlikely(*copy_stop != '>')) {
-            *id_end = '\0';
-            snprintf(g_logbuf, kLogbufSize, "Error: %s:%s header line in .pvar file doesn't end with '>'.\n", is_info_line? "INFO" : "FILTER", id_start);
+          if (unlikely(*closing_gt != '>')) {
+            *idval_end = '\0';
+            snprintf(g_logbuf, kLogbufSize, "Error: %s:%s header line in .pvar file doesn't end with '>'.\n", is_info_line? "INFO" : "FILTER", idval);
             goto ExportBcf_ret_MALFORMED_INPUT;
           }
           uint32_t cur_idx;
-          reterr = AddToFifHtable(g_bigstack_base, id_start, fif_keys_htable_size, id_slen, prechar, &tmp_alloc_end, fif_keys_mutable, fif_keys_htable, &fif_key_ct, &cur_idx);
+          reterr = AddToFifHtable(g_bigstack_base, idval, fif_keys_htable_size, id_slen, prechar, &tmp_alloc_end, fif_keys_mutable, fif_keys_htable, &fif_key_ct, &cur_idx);
           if (unlikely(reterr)) {
             goto ExportBcf_ret_1;
           }
-          write_iter = memcpya(write_iter, line_start, copy_stop - line_start);
+          /*
+          write_iter = memcpya(write_iter, line_start, 10 - 2 * is_info_line);
+          write_iter = strcpya_k(write_iter, "ID=");
+          write_iter = memcpya(write_iter, idval, id_slen);
+          write_iter = WriteRestOfHeaderLine(hkvline_iter, idval, closing_gt, id_slen, write_iter);
+          */
+          write_iter = memcpya(write_iter, line_start, closing_gt - line_start);
           write_iter = strcpya_k(write_iter, ",IDX=");
           write_iter = u32toa(cur_idx, write_iter);
           write_iter = strcpya_k(write_iter, ">" EOLN_STR);

@@ -53,6 +53,7 @@ void WaitForAllObjects(uint32_t ct, HANDLE* objs) {
 
 void PreinitThreads(ThreadGroup* tg_ptr) {
   ThreadGroupMain* tgp = GetTgp(tg_ptr);
+  GetCbp(&tgp->shared)->thread_ct = 0;
   GetCbp(&tgp->shared)->is_last_block = 0;
   tgp->thread_func_ptr = nullptr;
   tgp->threads = nullptr;

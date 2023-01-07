@@ -101,10 +101,10 @@ typedef struct PmergeInputFilesetLlStruct {
   uint32_t read_max_nonpass_filter_ct;
   AlleleCode read_max_allele_ct;
   AlleleCode write_nondoomed_max_allele_ct;
-  unsigned char nm_qual_present;
-  unsigned char nm_filter_present;
-  unsigned char nm_info_present;
-  unsigned char pvar_info_pr_present;
+  unsigned char nm_qual_exists;
+  unsigned char nm_filter_exists;
+  unsigned char nm_info_exists;
+  unsigned char pvar_info_pr_exists;
   unsigned char nz_cm_present;
 
   // initialized by ScanPgenHeaders()
@@ -427,7 +427,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
           token_end = CurTokenEnd(token_start);
           const uint32_t token_slen = token_end - token_start;
           if (token_slen == 3) {
-            if (unlikely(memequal_k(token_start, "FID", 3))) {
+            if (unlikely(memequal_sk(token_start, "FID"))) {
               if (fid_present) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Duplicate FID column in %s.\n", cur_fname);
               } else {
@@ -435,11 +435,11 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
               }
               goto MergePsams_ret_MALFORMED_INPUT_WW;
             }
-            if (unlikely(memequal_k(token_start, "IID", 3))) {
+            if (unlikely(memequal_sk(token_start, "IID"))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Duplicate IID column in %s.\n", cur_fname);
               goto MergePsams_ret_MALFORMED_INPUT_WW;
             }
-            if (unlikely(memequal_k(token_start, "SID", 3))) {
+            if (unlikely(memequal_sk(token_start, "SID"))) {
               if (sid_present) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Duplicate SID column in %s.\n", cur_fname);
               } else {
@@ -447,7 +447,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
               }
               goto MergePsams_ret_MALFORMED_INPUT_WW;
             }
-            if (memequal_k(token_start, "PAT", 3)) {
+            if (memequal_sk(token_start, "PAT")) {
               if (unlikely(postid_pat_col_idx)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Duplicate PAT column in %s.\n", cur_fname);
                 goto MergePsams_ret_MALFORMED_INPUT_WW;
@@ -455,7 +455,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
               postid_pat_col_idx = postid_col_idx;
               continue;
             }
-            if (memequal_k(token_start, "MAT", 3)) {
+            if (memequal_sk(token_start, "MAT")) {
               if (unlikely(postid_mat_col_idx)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Duplicate MAT column in %s.\n", cur_fname);
                 goto MergePsams_ret_MALFORMED_INPUT_WW;
@@ -463,7 +463,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
               postid_mat_col_idx = postid_col_idx;
               continue;
             }
-            if (memequal_k(token_start, "SEX", 3)) {
+            if (memequal_sk(token_start, "SEX")) {
               continue;
             }
           } else if (token_slen > kMaxIdBlen) {
@@ -1216,12 +1216,12 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
           const uint32_t token_slen = token_end - token_iter;
           uint32_t cur_col_type = UINT32_MAX;
           if (token_slen == 3) {
-            if (memequal_k(token_iter, "PAT", 3)) {
+            if (memequal_sk(token_iter, "PAT")) {
               cur_col_type = 0;
               parents_present = 1;
-            } else if (memequal_k(token_iter, "MAT", 3)) {
+            } else if (memequal_sk(token_iter, "MAT")) {
               cur_col_type = 1;
-            } else if (memequal_k(token_iter, "SEX", 3)) {
+            } else if (memequal_sk(token_iter, "SEX")) {
               cur_col_type = 2;
               sex_present = 1;
             }
@@ -1314,7 +1314,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
               const uint32_t dad_slen = token_slens[0];
               if (merge_parents_mode == kMergePhenoModeNmMatch) {
                 if (((dad_slen != 1) || (dad_id[0] != '0')) && (!strequal_unsafe(dad_id_dst, dad_id, dad_slen))) {
-                  if (memequal_k(dad_id_dst, "0", 2)) {
+                  if (strequal_k_unsafe(dad_id_dst, "0")) {
                     memcpyx(dad_id_dst, dad_id, dad_slen, '\0');
                   } else {
                     strcpy_k(dad_id_dst, "0");
@@ -1331,7 +1331,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
               const uint32_t mom_slen = token_slens[1];
               if (merge_parents_mode == kMergePhenoModeNmMatch) {
                 if (((mom_slen != 1) || (mom_id[0] != '0')) && (!strequal_unsafe(mom_id_dst, mom_id, mom_slen))) {
-                  if (memequal_k(mom_id_dst, "0", 2)) {
+                  if (strequal_k_unsafe(mom_id_dst, "0")) {
                     memcpyx(mom_id_dst, mom_id, mom_slen, '\0');
                   } else {
                     strcpy_k(mom_id_dst, "0");
@@ -1345,10 +1345,10 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
             }
           } else {
             // nm-first, skip if not missing
-            if (memequal_k(dad_id_dst, "0", 2)) {
+            if (strequal_k_unsafe(dad_id_dst, "0")) {
               memcpyx(dad_id_dst, token_ptrs[0], token_slens[0], '\0');
             }
-            if (memequal_k(mom_id_dst, "0", 2)) {
+            if (strequal_k_unsafe(mom_id_dst, "0")) {
               memcpyx(mom_id_dst, token_ptrs[1], token_slens[1], '\0');
             }
           }
@@ -2078,10 +2078,10 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
     // be equivalent chrSet header lines in *all* .pvar files.
     ChrsetSource orig_chrset_source = cip->chrset_source;
     uintptr_t null_fileset_ct = 0;
-    uint32_t info_pr_present = 0;
-    uint32_t info_pr_nonflag_present = 0;
+    uint32_t info_pr_exists = 0;
+    uint32_t info_pr_nonflag_exists = 0;
     uint32_t max_xheader_line_blen = 0;
-    uint32_t at_least_one_info_present = 0;
+    uint32_t at_least_one_info_exists = 0;
     uintptr_t info_conflict_ct = 0;
     for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
       PmergeInputFilesetLl* cur_fileset = *filesets_iterp;
@@ -2092,7 +2092,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
       }
       uint32_t max_line_blen = 0;
       char* line_start = TextLineEnd(&txs);
-      uint32_t info_pr_present_here = 0;
+      uint32_t info_pr_exists_here = 0;
       uint32_t chrset_seen_in_this_file = 0;
       for (line_idx = 1; ; ++line_idx) {
         if (unlikely(!TextGetUnsafe2(&txs, &line_start))) {
@@ -2126,35 +2126,55 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
           }
           chrset_seen_in_this_file = 1;
         }
-        if (StrStartsWithUnsafe(key_start, "#INFO=<ID=PR,Number=")) {
-          if (StrStartsWithUnsafe(&(key_start[strlen("#INFO=<ID=PR,Number=")]), "0,Type=Flag,Description=")) {
-            if (unlikely(info_pr_nonflag_present)) {
-              // Other conflicting keys can be skipped under "--merge-info-mode
-              // nm-match", but we don't want to remove the INFO/PR key if it's
-              // present.
+        if (StrStartsWithUnsafe(key_start, "#INFO=<")) {
+          char* info_read_iter = &(key_start[strlen("#INFO=<")]);
+          char* idval;
+          uint32_t id_slen;
+          if (unlikely(HkvlineId(&info_read_iter, &idval, &id_slen))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s is malformed.\n", line_idx, cur_fname);
+            goto ScanPvarsAndMergeHeader_ret_MALFORMED_INPUT_WW;
+          }
+          if (strequal_k(idval, "PR", id_slen)) {
+            char* typestr;
+            uint32_t type_slen;
+            if (unlikely(HkvlineFind(info_read_iter, "Type", &typestr, &type_slen))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s is malformed.\n", line_idx, cur_fname);
+              goto ScanPvarsAndMergeHeader_ret_MALFORMED_INPUT_WW;
+            }
+            if (strequal_k(typestr, "Flag", type_slen)) {
+              if (unlikely(info_pr_nonflag_exists)) {
+                // Other conflicting keys can be skipped under
+                // "--merge-info-mode nm-match", but we don't want to remove
+                // the INFO/PR key if it's present.
+                logerrputs("Error: Inconsistent INFO/PR header lines across --pmerge[-list] files.\n");
+                goto ScanPvarsAndMergeHeader_ret_INCONSISTENT_INPUT;
+              }
+              info_pr_exists = 1;
+              info_pr_exists_here = 1;
+              line_start = AdvPastDelim(&(typestr[type_slen]), '\n');
+              continue;
+            }
+            if (unlikely(info_pr_exists)) {
               logerrputs("Error: Inconsistent INFO/PR header lines across --pmerge[-list] files.\n");
               goto ScanPvarsAndMergeHeader_ret_INCONSISTENT_INPUT;
             }
-            info_pr_present = 1;
-            info_pr_present_here = 1;
-            line_start = AdvPastDelim(&(key_start[strlen("#INFO=<ID=PR,Number=0,Type=Flag,Description=")]), '\n');
+            info_pr_nonflag_exists = 1;
+          }
+          if (!xheader_entries_htable) {
+            line_start = AdvPastDelim(info_read_iter, '\n');
             continue;
           }
-          if (unlikely(info_pr_present)) {
-            logerrputs("Error: Inconsistent INFO/PR header lines across --pmerge[-list] files.\n");
-            goto ScanPvarsAndMergeHeader_ret_INCONSISTENT_INPUT;
+        } else {
+          // if the "pvar file" was actually a VCF, suppress the same lines
+          // we'd suppress when importing with --vcf.
+          if ((!xheader_entries_htable) ||
+              StrStartsWithUnsafe(key_start, "#fileformat=") ||
+              StrStartsWithUnsafe(key_start, "#fileDate=") ||
+              StrStartsWithUnsafe(key_start, "#source=") ||
+              StrStartsWithUnsafe(key_start, "#FORMAT=")) {
+            line_start = AdvPastDelim(line_start, '\n');
+            continue;
           }
-          info_pr_nonflag_present = 1;
-        }
-        // if the "pvar file" was actually a VCF, suppress the same lines we'd
-        // suppress when importing with --vcf.
-        if ((!xheader_entries_htable) ||
-            StrStartsWithUnsafe(key_start, "#fileformat=") ||
-            StrStartsWithUnsafe(key_start, "#fileDate=") ||
-            StrStartsWithUnsafe(key_start, "#source=") ||
-            StrStartsWithUnsafe(key_start, "#FORMAT=")) {
-          line_start = AdvPastDelim(line_start, '\n');
-          continue;
         }
         char* value_start;
         char* value_end;
@@ -2167,9 +2187,14 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
             value_end = value_start;
           } else {
             if (value_start[1] == '<') {
-              value_start = strchrnul2_n(&(value_start[2]), ',', '>');
+              char* hline_kv_start = &(value_start[2]);
+              if (unlikely(HkvlineForceIdFirst(arena_top - arena_bottom, &(value_start[2]), arena_bottom))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s is malformed.\n", line_idx, cur_fname);
+                goto ScanPvarsAndMergeHeader_ret_MALFORMED_INPUT_WW;
+              }
+              value_start = strchrnul2_n(hline_kv_start, ',', '>');
               if (unlikely(*value_start == '\n')) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is malformed (value starts with '<', but there is no closing '>').\n", line_idx, cur_fname);
+                snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s is malformed (value starts with '<', but there is no closing '>').\n", line_idx, cur_fname);
                 goto ScanPvarsAndMergeHeader_ret_MALFORMED_INPUT_WW;
               }
             }
@@ -2227,28 +2252,46 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
                 // entry_value_start[0] == 1 marks a conflict.
                 if (entry_value_start[0] != 1) {
                   if (!strequal_unsafe(entry_value_start, value_start, value_slen)) {
-                    info_conflict_ct += StrStartsWithUnsafe(key_start, "#INFO=<ID=");
+                    info_conflict_ct += StrStartsWithUnsafe(key_start, "#INFO=<");
                     entry_value_start[0] = 1;
                   }
                 }
-              } else if (StrStartsWithUnsafe(key_start, "#INFO=<ID=")) {
+              } else if (StrStartsWithUnsafe(key_start, "#INFO=<")) {
                 // Check for possible Number= incompatibility.
+                char* existing_read_iter = &(entry_value_start[1]);
+                char* numstr;
+                uint32_t num_slen;
                 int32_t existing_info_vtype_num;
-                if (unlikely((!StrStartsWithUnsafe(entry_value_start, ",Number=")) ||
-                             FillInfoVtypeNum(&(entry_value_start[strlen(",Number=")]), &existing_info_vtype_num))) {
-                  snprintf(g_logbuf, kLogbufSize, "Error: --pmerge%s: First INFO/%s header line is malformed or unrecognized.\n", pmip->list_fname? "-list" : "", &(key_start[strlen("#INFO=<ID=")]));
+                if (unlikely(HkvlineFind(existing_read_iter, "Number", &numstr, &num_slen) ||
+                             FillInfoVtypeNum(numstr, num_slen, &existing_info_vtype_num))) {
+                  char* write_iter = strcpya_k(g_logbuf, "Error: --pmerge");
+                  if (pmip->list_fname) {
+                    write_iter = strcpya_k(write_iter, "-list");
+                  }
+                  write_iter = strcpya_k(write_iter, ": First INFO/");
+                  write_iter = memcpya(write_iter, &(key_start[strlen("#INFO=<ID=")]), key_slen - strlen("#INFO=<ID="));
+                  strcpy_k(write_iter, " header line is malformed or unrecognized.\n");
                   goto ScanPvarsAndMergeHeader_ret_MALFORMED_INPUT_WW;
                 }
+                char* cur_read_iter = &(value_start[1]);
                 int32_t suppressed_info_vtype_num;
-                if (unlikely((!StrStartsWithUnsafe(value_start, ",Number=")) ||
-                             FillInfoVtypeNum(&(value_start[strlen(",Number=")]), &suppressed_info_vtype_num))) {
-                  snprintf(g_logbuf, kLogbufSize, "Error: INFO/%s header entry on line %" PRIuPTR " of %s is malformed or unrecognized.\n", &(key_start[strlen("#INFO=<ID=")]), line_idx, cur_fname);
+                if (unlikely(HkvlineFind(cur_read_iter, "Number", &numstr, &num_slen) ||
+                             FillInfoVtypeNum(numstr, num_slen, &suppressed_info_vtype_num))) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s is malformed.\n", line_idx, cur_fname);
                   goto ScanPvarsAndMergeHeader_ret_MALFORMED_INPUT_WW;
                 }
                 if ((existing_info_vtype_num != suppressed_info_vtype_num) &&
                     (existing_info_vtype_num != kInfoVtypeUnknown) &&
                     (suppressed_info_vtype_num != kInfoVtypeUnknown)) {
-                  logerrprintfww("Warning: INFO/%s header entry on line %" PRIuPTR " of %s has a different Number= value than an earlier file; this key may be merged incorrectly, if the merge completes at all.\n", &(key_start[strlen("#INFO=<ID=")]), line_idx, cur_fname);
+                  char* write_iter = strcpya_k(g_logbuf, "Warning: INFO/");
+                  write_iter = memcpya(write_iter, &(key_start[strlen("#INFO=<ID=")]), key_slen - strlen("#INFO=<ID="));
+                  write_iter = strcpya_k(write_iter, " header entry on line ");
+                  write_iter = wtoa(line_idx, write_iter);
+                  write_iter = strcpya_k(write_iter, " of ");
+                  write_iter = strcpya(write_iter, cur_fname);
+                  strcpy_k(write_iter, " has a different Number= value than an earlier file; this key may be merged incorrectly, if the merge completes at all.\n");
+                  WordWrapB(0);
+                  logerrputsb();
                 }
                 // possible todo: also warn on most type mismatches
               }
@@ -2308,19 +2351,19 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
           uint32_t cur_col_type;
           if (token_slen <= 3) {
             if (token_slen == 3) {
-              if (memequal_k(token_start, "POS", 3)) {
+              if (memequal_sk(token_start, "POS")) {
                 cur_col_type = 0;
-              } else if (memequal_k(token_start, "REF", 3)) {
+              } else if (memequal_sk(token_start, "REF")) {
                 cur_col_type = 2;
-              } else if (memequal_k(token_start, "ALT", 3)) {
+              } else if (memequal_sk(token_start, "ALT")) {
                 cur_col_type = 3;
               } else {
                 continue;
               }
             } else if (token_slen == 2) {
-              if (memequal_k(token_start, "ID", 2)) {
+              if (memequal_sk(token_start, "ID")) {
                 cur_col_type = 1;
-              } else if (memequal_k(token_start, "CM", 2)) {
+              } else if (memequal_sk(token_start, "CM")) {
                 cur_col_type = 7;
                 check_cm = 1;
               } else {
@@ -2343,13 +2386,13 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
             cur_col_type = 6;
             check_info = 1;
           } else if (token_slen == 6) {
-            if (memequal_k(token_start, "FILTER", 6)) {
+            if (memequal_sk(token_start, "FILTER")) {
               if (pmip->merge_filter_mode == kMergeFilterModeErase) {
                 continue;
               }
               cur_col_type = 5;
               check_filter = 1;
-            } else if (memequal_k(token_start, "FORMAT", 6)) {
+            } else if (memequal_sk(token_start, "FORMAT")) {
               break;
             } else {
               continue;
@@ -2451,20 +2494,20 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
       uint32_t read_max_nonpass_filter_ct = 0;
       uint32_t prev_chr_code = UINT32_MAX;
       int32_t prev_bp = 0;
-      cur_fileset->nm_qual_present = 0;
-      cur_fileset->nm_filter_present = 0;
-      cur_fileset->nm_info_present = 0;
+      cur_fileset->nm_qual_exists = 0;
+      cur_fileset->nm_filter_exists = 0;
+      cur_fileset->nm_info_exists = 0;
       cur_fileset->nz_cm_present = 0;
 
-      info_pr_present_here = info_pr_present_here && info_col_present;
-      if (unlikely((cur_fileset->nonref_flags_storage == 0) && info_pr_present_here)) {
+      info_pr_exists_here = info_pr_exists_here && info_col_present;
+      if (unlikely((cur_fileset->nonref_flags_storage == 0) && info_pr_exists_here)) {
         // Provisional-vs.-not REF status is directly relevant during merge.
         // It's of limited importance for most other operations, so
         // Plink2Core() only prints a warning.
         snprintf(g_logbuf, kLogbufSize, "Error: %s indicates that provisional-REF information (required by --pmerge%s) is stored in the companion .pvar, but that .pvar lacks an INFO/PR header line and/or an INFO column.\n", cur_fileset->pgen_fname, pmip->list_fname? "-list" : "");
         goto ScanPvarsAndMergeHeader_ret_INCONSISTENT_INPUT_WW;
       }
-      cur_fileset->pvar_info_pr_present = info_pr_present_here;
+      cur_fileset->pvar_info_pr_exists = info_pr_exists_here;
       for (; TextGetUnsafe2(&txs, &line_start); ++line_idx) {
         if (unlikely(line_start[0] == '#')) {
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #CHROM header line is present it must denote the end of the header block.)\n", line_idx, cur_fname);
@@ -2615,7 +2658,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
         if (check_qual) {
           const char* qual_token = token_ptrs[4];
           if ((qual_token[0] != '.') || (qual_token[1] > ' ')) {
-            cur_fileset->nm_qual_present = 1;
+            cur_fileset->nm_qual_exists = 1;
             // possible todo: update col_types and col_skips to remove this
             // column.
             check_qual = 0;
@@ -2625,9 +2668,9 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
           const char* filter_token = token_ptrs[5];
           const uint32_t filter_slen = token_slens[5];
           if ((filter_slen > 1) || (filter_token[0] != '.')) {
-            cur_fileset->nm_filter_present = 1;
+            cur_fileset->nm_filter_exists = 1;
             if (filter_count_needed) {
-              if ((filter_slen != 4) || (!memequal_k(filter_token, "PASS", 4))) {
+              if (!strequal_k(filter_token, "PASS", filter_slen)) {
                 const uint32_t cur_filter_ct_m1 = CountByte(filter_token, ';', filter_slen);
                 if (cur_filter_ct_m1 >= read_max_nonpass_filter_ct) {
                   read_max_nonpass_filter_ct = cur_filter_ct_m1 + 1;
@@ -2642,8 +2685,8 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
           const char* info_token = token_ptrs[6];
           const uint32_t info_slen = token_slens[6];
           if ((info_slen > 1) || (info_token[0] != '.')) {
-            cur_fileset->nm_info_present = 1;
-            at_least_one_info_present = 1;
+            cur_fileset->nm_info_exists = 1;
+            at_least_one_info_exists = 1;
             check_info = 0;
           }
         }
@@ -2728,18 +2771,18 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
     arena_bottom = nullptr;
     arena_top = nullptr;
 
-    if (xheader_entries && (!info_pr_present)) {
+    if (xheader_entries && (!info_pr_exists)) {
       // If INFO/PR is not present in any input .pvar/.bim, but nonref_flags
       // is stored in at least one input .pgen, and we're already writing the
       // INFO column for other reasons, we *do* want to write INFO/PR.
       PmergeInputFilesetLl* filesets_iter = *filesets_ptr;
       do {
         if (filesets_iter->nonref_flags_storage == 3) {
-          if (unlikely(info_pr_nonflag_present)) {
+          if (unlikely(info_pr_nonflag_exists)) {
             logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n\"provisional reference\" flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
             goto ScanPvarsAndMergeHeader_ret_INCONSISTENT_INPUT;
           }
-          info_pr_present = 1;
+          info_pr_exists = 1;
           break;
         }
         filesets_iter = filesets_iter->next;
@@ -2747,7 +2790,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
     }
     // Note that, under "--merge-info-mode erase", we may need to scrape
     // INFO/PR from .pvar files to be saved later to the .pgen.
-    const uint32_t write_info_pr_to_pvar = info_pr_present && (pmip->merge_info_mode != kMergeInfoCmModeErase);
+    const uint32_t write_info_pr_to_pvar = info_pr_exists && (pmip->merge_info_mode != kMergeInfoCmModeErase);
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
     // kfImportKeepAutoconvVzs cannot be set here.
     const uint32_t output_zst = (pmip->flags / kfPmergeOutputVzs) & 1;
@@ -2783,8 +2826,8 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
           // conflict that we're skipping
           continue;
         }
-        if (at_least_one_info_present) {
-          if ((key_slen > 10) && StrStartsWithUnsafe(key, "#INFO=<ID=")) {
+        if (at_least_one_info_exists) {
+          if (StrStartsWithUnsafe(key, "#INFO=<")) {
             ++info_key_ct;
           }
         }
@@ -2807,7 +2850,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
       }
 
       BigstackReset(bigstack_mark);
-      if (at_least_one_info_present) {
+      if (at_least_one_info_exists) {
         // Export INFO key hash table for future use, positioning it at the
         // bottom of bigstack.
         // Similar to ParseInfoHeader() in plink2_data.cc.
@@ -2830,10 +2873,10 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
             key = xheader_entries[xheader_entry_idx++];
             key_slen = strlen(key);
             value = &(key[key_slen + 1]);
-          } while ((value[0] == 1) || (key_slen <= 10) || (!StrStartsWithUnsafe(key, "#INFO=<ID=")));
+          } while ((value[0] == 1) || (!StrStartsWithUnsafe(key, "#INFO=<")));
           const char* info_key = &(key[strlen("#INFO=<ID=")]);
           const uint32_t info_key_slen = key_slen - strlen("#INFO=<ID=");
-          if (unlikely(info_key_slen > kMaxInfoKeySlen)) {
+          if (info_key_slen > kMaxInfoKeySlen) {
             logerrputs("Error: " PROG_NAME_STR " does not support INFO keys longer than " MAX_INFO_KEY_SLEN_STR " characters.\n");
             reterr = kPglRetNotYetSupported;
             goto ScanPvarsAndMergeHeader_ret_1;
@@ -2849,7 +2892,10 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
           arena_bottom = &(arena_bottom[entry_byte_ct]);
           memcpy(new_entry->key, info_key, info_key_slen + 1);
           info_keys[info_key_idx] = new_entry->key;
-          if (unlikely(FillInfoVtypeNum(&(value[strlen(",Number=")]), &(new_entry->num)))) {
+          char* numstr;
+          uint32_t num_slen;
+          if (unlikely(HkvlineFind(&(value[1]), "Number", &numstr, &num_slen) ||
+                       FillInfoVtypeNum(numstr, num_slen, &(new_entry->num)))) {
             goto ScanPvarsAndMergeHeader_ret_MALFORMED_INFO_HEADER_LINE;
           }
         }
@@ -3017,7 +3063,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
     cip->chr_ct = chr_ct;
     // edge case: if no header meta lines, but we're writing INFO/PR, no need
     // to log "headers merged"
-    logprintf("--pmerge%s: %" PRIuPTR " .pvar files scanned%s.\n", pmip->list_fname? "-list" : "", fileset_ct, (xheader_entry_ct || (info_pr_present && xheader_entries))? ", headers merged" : "");
+    logprintf("--pmerge%s: %" PRIuPTR " .pvar files scanned%s.\n", pmip->list_fname? "-list" : "", fileset_ct, (xheader_entry_ct || (info_pr_exists && xheader_entries))? ", headers merged" : "");
     if (null_fileset_ct) {
       logprintfww("Note: Ignoring %" PRIuPTR " .pgen file%s since it doesn't intersect the chromosome filter.\n", null_fileset_ct, (null_fileset_ct == 1)? "" : "s");
       *fileset_ctp -= null_fileset_ct;
@@ -3812,7 +3858,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
         cswritep = strcpya_k(cswritep, "\t.");
       } else {
         char* read_qual_start = &(cur_variant_id[qual_offset]);
-        if ((tmp_status != 3) || (!memequal_k(read_qual_start, "=", 2))) {
+        if ((tmp_status != 3) || (!strequal_k_unsafe(read_qual_start, "="))) {
           *cswritep++ = '\t';
           cswritep = memcpya(cswritep, read_qual_start, read_qual_blen - 1);
         } else {
@@ -3827,7 +3873,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
         cswritep = strcpya_k(cswritep, "\t.");
       } else {
         char* read_filter_start = &(cur_variant_id[filter_offset]);
-        if ((tmp_status != 3) || (!memequal_k(read_filter_start, "=", 2))) {
+        if ((tmp_status != 3) || (!strequal_k_unsafe(read_filter_start, "="))) {
           *cswritep++ = '\t';
           cswritep = memcpya(cswritep, read_filter_start, read_filter_blen - 1);
         } else {
@@ -3935,7 +3981,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
     }
     if (pmcp->write_cm) {
       char* cm_start = &(cur_variant_id[other_field_offsets[5]]);
-      if ((tmp_status != 3) || (!memequal_k(cm_start, "=", 2))) {
+      if ((tmp_status != 3) || (!strequal_k_unsafe(cm_start, "="))) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, cm_start);
       } else {
@@ -4205,7 +4251,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
         char** cur_filter_strs = pmcp->cur_fields_buf;
         uintptr_t nm_merge_rec_ct = 0;
         uintptr_t nonpass_subtoken_ct = 0;
-        uint32_t pass_present = 0;
+        uint32_t pass_exists = 0;
         for (uintptr_t rec_idx = 0; rec_idx != merge_rec_ct; ++rec_idx) {
           SamePosPvarRecord* cur_record = same_id_records[rec_idx];
           const uint32_t* other_field_offsets = cur_record->other_field_offsets;
@@ -4214,8 +4260,9 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           const uint32_t filter_blen = other_field_offsets[4] - filter_start;
           if (filter_blen && (!((filter_blen == 2) && (tmp_variant_id[filter_start] == '.')))) {
             char* filter_str = &(tmp_variant_id[filter_start]);
-            if ((filter_blen == 4) && memequal_k(filter_str, "PASS", 4)) {
-              pass_present = 1;
+            // bugfix (7 Jan 2023)
+            if ((filter_blen == 5) && memequal_sk(filter_str, "PASS")) {
+              pass_exists = 1;
             } else {
               nonpass_subtoken_ct += 1 + CountByte(filter_str, ';', filter_blen - 1);
               cur_filter_strs[nm_merge_rec_ct] = filter_str;
@@ -4224,7 +4271,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           }
         }
         if (!nm_merge_rec_ct) {
-          if (pass_present) {
+          if (pass_exists) {
             cswritep = strcpya_k(cswritep, "PASS");
           } else {
             *cswritep++ = '.';
@@ -4487,7 +4534,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             if (merge_info_mode == kMergeInfoCmModeNmFirst) {
               do {
                 const uint32_t write_aidx = cur_allele_remap[read_aidx] - first_aidx;
-                if ((!cur_ar_info_fields[write_aidx]) && (!memequal_k(read_info_iter, ".,", 2))) {
+                if ((!cur_ar_info_fields[write_aidx]) && (!memequal_sk(read_info_iter, ".,"))) {
                   cur_ar_info_fields[write_aidx] = read_info_iter;
                 }
                 read_info_iter = AdvPastDelim(read_info_iter, ',');
@@ -4505,7 +4552,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
               do {
                 const uint32_t write_aidx = cur_allele_remap[read_aidx] - first_aidx;
                 char* next_subtoken_start = AdvPastDelim(read_info_iter, ',');
-                if (!memequal_k(read_info_iter, ".,", 2)) {
+                if (!memequal_sk(read_info_iter, ".,")) {
                   if (!cur_ar_info_fields[write_aidx]) {
                     cur_ar_info_fields[write_aidx] = read_info_iter;
                   } else if (!memequal_k(cur_ar_info_fields[write_aidx], locked_missing_comma_str, 2)) {
@@ -6181,9 +6228,9 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
     const PmergeInputFilesetLl* filesets_iter = filesets;
     for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
       write_variant_ct += filesets_iter->write_nondoomed_variant_ct;
-      write_qual |= filesets_iter->nm_qual_present;
-      write_filter |= filesets_iter->nm_filter_present;
-      write_info |= filesets_iter->nm_info_present;
+      write_qual |= filesets_iter->nm_qual_exists;
+      write_filter |= filesets_iter->nm_filter_exists;
+      write_info |= filesets_iter->nm_info_exists;
       write_cm |= filesets_iter->nz_cm_present;
       if (overflow_buf_size < filesets_iter->max_pvar_line_blen) {
         overflow_buf_size = filesets_iter->max_pvar_line_blen;
@@ -6459,10 +6506,10 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       }
       uint32_t col_skips[8];
       uint32_t col_types[8];
-      const uint32_t read_qual = filesets_iter->nm_qual_present;
-      const uint32_t read_filter = filesets_iter->nm_filter_present;
-      const uint32_t read_info_pr = filesets_iter->pvar_info_pr_present;
-      const uint32_t read_info = read_info_pr | filesets_iter->nm_info_present;
+      const uint32_t read_qual = filesets_iter->nm_qual_exists;
+      const uint32_t read_filter = filesets_iter->nm_filter_exists;
+      const uint32_t read_info_pr = filesets_iter->pvar_info_pr_exists;
+      const uint32_t read_info = read_info_pr | filesets_iter->nm_info_exists;
       const uint32_t pgen_pr_status_base = 2 * read_info_pr + (filesets_iter->nonref_flags_storage == 2);
       const uint32_t read_cm = filesets_iter->nz_cm_present;
       uint32_t relevant_postchr_col_ct;
@@ -6479,19 +6526,19 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           uint32_t cur_col_type;
           if (token_slen <= 3) {
             if (token_slen == 3) {
-              if (memequal_k(token_start, "POS", 3)) {
+              if (memequal_sk(token_start, "POS")) {
                 cur_col_type = 0;
-              } else if (memequal_k(token_start, "REF", 3)) {
+              } else if (memequal_sk(token_start, "REF")) {
                 cur_col_type = 2;
-              } else if (memequal_k(token_start, "ALT", 3)) {
+              } else if (memequal_sk(token_start, "ALT")) {
                 cur_col_type = 3;
               } else {
                 continue;
               }
             } else if (token_slen == 2) {
-              if (memequal_k(token_start, "ID", 2)) {
+              if (memequal_sk(token_start, "ID")) {
                 cur_col_type = 1;
-              } else if (memequal_k(token_start, "CM", 2)) {
+              } else if (memequal_sk(token_start, "CM")) {
                 if (!read_cm) {
                   continue;
                 }
@@ -6513,12 +6560,12 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
             }
             cur_col_type = 6;
           } else if (token_slen == 6) {
-            if (memequal_k(token_start, "FILTER", 6)) {
+            if (memequal_sk(token_start, "FILTER")) {
               if (!read_filter) {
                 continue;
               }
               cur_col_type = 5;
-            } else if (memequal_k(token_start, "FORMAT", 6)) {
+            } else if (memequal_sk(token_start, "FORMAT")) {
               break;
             } else {
               continue;
@@ -7689,7 +7736,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         uint32_t missing1_state = 0;
         for (uint32_t allele1_idx = 0; allele1_idx != cur_allele_ct1; ++allele1_idx) {
           const char* cur_allele1 = cur_allele1s[allele1_idx];
-          if (memequal_k(cur_allele1, ".", 2)) {
+          if (strequal_k_unsafe(cur_allele1, ".")) {
             missing1_state |= allele1_idx + 1;
           }
         }

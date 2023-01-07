@@ -2351,15 +2351,15 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           if (strequal_k(linebuf_iter, "ID", token_slen)) {
             cur_colidx = kfReadFreqColVarId;
           } else if (token_slen == 3) {
-            if (memequal_k(linebuf_iter, "REF", 3)) {
+            if (memequal_sk(linebuf_iter, "REF")) {
               cur_colidx = kfReadFreqColRefAllele;
-            } else if (memequal_k(linebuf_iter, "ALT", 3)) {
+            } else if (memequal_sk(linebuf_iter, "ALT")) {
               cur_colidx = kfReadFreqColAltAlleles;
               if (allele_list_just_alt1) {
                 header_cols &= ~kfReadFreqColsetAlt1Allele;
                 allele_list_just_alt1 = 0;
               }
-            } else if (memequal_k(linebuf_iter, "CTS", 3)) {
+            } else if (memequal_sk(linebuf_iter, "CTS")) {
               goto ReadAlleleFreqs_freqmain_found1;
             }
           } else if (strequal_k(linebuf_iter, "ALT1", token_slen) && allele_list_just_alt1) {

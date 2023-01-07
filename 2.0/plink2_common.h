@@ -1300,6 +1300,85 @@ void PgenWriteFinishErrPrint(PglErr reterr, char* outname, char* outname_end);
 // <outname>.pgen and then deletes the two temporary files.
 PglErr EmbedPgenIndex(char* outname, char* outname_end);
 
+// Before 3 Jan 2023, PLINK 2 usually assumed that in INFO= and FORMAT= VCF
+// header lines, the ID key-value pair appeared first, then Number, then Type.
+// However, the 2022 Byrska-Bishop et al. 1000 Genomes hg38 callset includes a
+// a header line where Type appears before Number, the VCF specification does
+// not clearly forbid this, and parsing of these header lines takes negligible
+// time in practically all real workflows, so it's time to support arbitrary
+// key ordering.
+//
+// Assumptions:
+// - The line is \n-terminated.
+// - It's safe to read a few bytes past the end of the line.
+CXXCONST_CP HkvlineValEnd(const char* val_start);
+
+#ifdef __cplusplus
+HEADER_INLINE char* HkvlineValEnd(char* val_start) {
+  return const_cast<char*>(HkvlineValEnd(const_cast<const char*>(val_start)));
+}
+#endif
+
+// returns 1 if key not found, 2 if line malformed
+IntErr HkvlineFind2K(const char* hkvline_iter, const char* key, uint32_t key_slen, const char** val_ptr, uint32_t* val_slenp);
+
+HEADER_INLINE IntErr HkvlineFind2(const char* hkvline_iter, const char* key, uint32_t key_slen, char** val_ptr, uint32_t* val_slenp) {
+  return HkvlineFind2K(hkvline_iter, key, key_slen, K_CAST(const char**, val_ptr), val_slenp);
+}
+
+HEADER_INLINE IntErr HkvlineFindK(const char* hkvline_iter, const char* key, const char** val_ptr, uint32_t* val_slenp) {
+  return HkvlineFind2K(hkvline_iter, key, strlen(key), val_ptr, val_slenp);
+}
+
+HEADER_INLINE IntErr HkvlineFind(const char* hkvline_iter, const char* key, char** val_ptr, uint32_t* val_slenp) {
+  return HkvlineFind2(hkvline_iter, key, strlen(key), val_ptr, val_slenp);
+}
+
+
+// Input/output:
+// - hkvline_iterp, initially pointing to the character after the '<'.  On exit
+//   success, points to character after '>' if ID is only key; otherwise
+//   beginning of the second key if ID is first key, or stays in place if ID is
+//   positioned later.
+//   Goal is to avoid reparsing the ID entry when we need to look at later
+//   entries.
+// Output:
+// - idval_ptr and id_slenp, to be set to start of ID value and ID length,
+//   respectively.
+// Works on contig=/FILTER= header lines, as well as FORMAT=/INFO=.
+HEADER_INLINE BoolErr HkvlineIdK(const char** hkvline_iterp, const char** idval_ptr, uint32_t* id_slenp) {
+  const char* hkvline_iter = *hkvline_iterp;
+  if (HkvlineFindK(hkvline_iter, "ID", idval_ptr, id_slenp)) {
+    return 1;
+  }
+  if (*idval_ptr == &(hkvline_iter[1 + strlen("ID")])) {
+    *hkvline_iterp = &((*idval_ptr)[1 + (*id_slenp)]);
+  }
+  return 0;
+}
+
+HEADER_INLINE BoolErr HkvlineId(char** hkvline_iterp, char** idval_ptr, uint32_t* id_slenp) {
+  return HkvlineIdK(K_CAST(const char**, hkvline_iterp), K_CAST(const char**, idval_ptr), id_slenp);
+}
+
+// Convenience function for scraping Number and Type values simultaneously.
+// (HkvlineFind works when only one of the two is needed.)
+// Input:
+// - hkvline_iter, as set by part 1
+// Output:
+// - numstr_ptr and num_slenp, to be set to start of Number value string and
+//   string length, respectively
+// - typestr_ptr and type_slenp, to be set to start of Type value and Type
+//   length, respectively
+BoolErr HkvlineNumTypeK(const char* hkvline_iter, const char** numstr_ptr, uint32_t* num_slenp, const char** typestr_ptr, uint32_t* type_slenp);
+
+HEADER_INLINE BoolErr HkvlineNumType(char* hkvline_iter, char** numstr_ptr, uint32_t* num_slenp, char** typestr_ptr, uint32_t* type_slenp) {
+  return HkvlineNumTypeK(hkvline_iter, K_CAST(const char**, numstr_ptr), num_slenp, K_CAST(const char**, typestr_ptr), type_slenp);
+}
+
+// In the unlikely event ID= isn't first, move it in front.
+PglErr HkvlineForceIdFirst(uintptr_t workspace_size, char* hline_kv_start, void* workspace);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

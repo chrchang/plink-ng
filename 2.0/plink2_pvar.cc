@@ -451,10 +451,10 @@ void BackfillChrIdxs(const ChrInfo* cip, uint32_t chrs_encountered_m1, uint32_t 
 }
 
 uint32_t PrInInfo(uint32_t info_slen, char* info_token) {
-  if (memequal_k(info_token, "PR", 2) && ((info_slen == 2) || (info_token[2] == ';'))) {
+  if (memequal_sk(info_token, "PR") && ((info_slen == 2) || (info_token[2] == ';'))) {
     return 1;
   }
-  if (memequal_k(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3)) {
+  if (memequal_sk(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR")) {
     return 1;
   }
   info_token[info_slen] = '\0';
@@ -463,10 +463,10 @@ uint32_t PrInInfo(uint32_t info_slen, char* info_token) {
 }
 
 char* InfoPrStart(uint32_t info_slen, char* info_token) {
-  if (memequal_k(info_token, "PR", 2) && ((info_slen == 2) || (info_token[2] == ';'))) {
+  if (memequal_sk(info_token, "PR") && ((info_slen == 2) || (info_token[2] == ';'))) {
     return info_token;
   }
-  if (memequal_k(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3)) {
+  if (memequal_sk(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR")) {
     return &(info_token[info_slen - 2]);
   }
   info_token[info_slen] = '\0';
@@ -860,8 +860,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 
     char* xheader_end = ((pvar_psam_flags & (kfPvarColXheader | kfPvarColVcfheader)) || xheader_needed)? R_CAST(char*, bigstack_mark) : nullptr;
     uint32_t chrset_present = 0;
-    uint32_t info_pr_present = 0;
-    uint32_t info_pr_nonflag_present = 0;
+    uint32_t info_pr_exists = 0;
+    uint32_t info_pr_nonflag_exists = 0;
     uint32_t info_nonpr_present = 0;
     char* line_iter = TextLineEnd(&pvar_txs);
     char* line_start;
@@ -879,18 +879,32 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       if ((*line_start != '#') || tokequal_k(line_start, "#CHROM")) {
         break;
       }
-      if (StrStartsWithUnsafe(line_start, "##INFO=<ID=PR,Number=")) {
-        if (unlikely(info_pr_present || info_pr_nonflag_present)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate INFO/PR header line in %s.\n", pvarname);
-          goto LoadPvar_ret_MALFORMED_INPUT_WW;
+      if (StrStartsWithUnsafe(line_start, "##INFO=<")) {
+        line_iter = &(line_iter[strlen("##INFO=<")]);
+        char* idval;
+        uint32_t id_slen;
+        if (unlikely(HkvlineId(&line_iter, &idval, &id_slen))) {
+          goto LoadPvar_ret_MALFORMED_HEADER_LINE;
         }
-        info_pr_nonflag_present = !StrStartsWithUnsafe(&(line_start[strlen("##INFO=<ID=PR,Number=")]), "0,Type=Flag,Description=");
-        info_pr_present = 1 - info_pr_nonflag_present;
-        if (info_pr_nonflag_present) {
-          logerrprintfww("Warning: Header line %" PRIuPTR " of %s has an unexpected definition of INFO/PR. This interferes with a few merge and liftover operations.\n", line_idx, pvarname);
+        if (strequal_k(idval, "PR", id_slen)) {
+          if (unlikely(info_pr_exists || info_pr_nonflag_exists)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Duplicate INFO/PR header line in %s.\n", pvarname);
+            goto LoadPvar_ret_MALFORMED_INPUT_WW;
+          }
+          // Could also enforce numstr == "0".
+          char* typestr;
+          uint32_t type_slen;
+          if (unlikely(HkvlineFind(line_iter, "Type", &typestr, &type_slen))) {
+            goto LoadPvar_ret_MALFORMED_HEADER_LINE;
+          }
+          info_pr_nonflag_exists = !strequal_k(typestr, "Flag", type_slen);
+          info_pr_exists = 1 - info_pr_nonflag_exists;
+          if (info_pr_nonflag_exists) {
+            logerrprintfww("Warning: Header line %" PRIuPTR " of %s has an unexpected definition of INFO/PR. This interferes with a few merge and liftover operations.\n", line_idx, pvarname);
+          }
+        } else if (!info_nonpr_present) {
+          info_nonpr_present = 1;
         }
-      } else if ((!info_nonpr_present) && StrStartsWithUnsafe(line_start, "##INFO=<ID=")) {
-        info_nonpr_present = 1;
       }
       if (StrStartsWithUnsafe(line_start, "##chrSet=<")) {
         if (unlikely(chrset_present)) {
@@ -952,7 +966,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t info_col_present = 0;
     uint32_t cm_col_present = 0;
     if (line_start[0] == '#') {
-      *info_flags_ptr = S_CAST(InfoFlags, (info_pr_present * kfInfoPrFlagPresent) | (info_pr_nonflag_present * kfInfoPrNonflagPresent) | (info_nonpr_present * kfInfoNonprPresent));
+      *info_flags_ptr = S_CAST(InfoFlags, (info_pr_exists * kfInfoPrFlagPresent) | (info_pr_nonflag_exists * kfInfoPrNonflagPresent) | (info_nonpr_present * kfInfoNonprPresent));
       // parse header
       // [-1] = #CHROM (must be first column)
       // [0] = POS
@@ -981,20 +995,20 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         uint32_t cur_col_type;
         if (token_slen <= 3) {
           if (token_slen == 3) {
-            if (memequal_k(linebuf_iter, "POS", 3)) {
+            if (memequal_sk(linebuf_iter, "POS")) {
               cur_col_type = 0;
-            } else if (memequal_k(linebuf_iter, "REF", 3)) {
+            } else if (memequal_sk(linebuf_iter, "REF")) {
               cur_col_type = 2;
-            } else if (memequal_k(linebuf_iter, "ALT", 3)) {
+            } else if (memequal_sk(linebuf_iter, "ALT")) {
               cur_col_type = 3;
               alt_col_idx = col_idx;
             } else {
               continue;
             }
           } else if (token_slen == 2) {
-            if (memequal_k(linebuf_iter, "ID", 2)) {
+            if (memequal_sk(linebuf_iter, "ID")) {
               cur_col_type = 1;
-            } else if (memequal_k(linebuf_iter, "CM", 2)) {
+            } else if (memequal_sk(linebuf_iter, "CM")) {
               cur_col_type = 7;
               cm_col_present = 1;
             } else {
@@ -1013,13 +1027,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           cur_col_type = 6;
           info_col_present = 1;
         } else if (token_slen == 6) {
-          if (memequal_k(linebuf_iter, "FILTER", 6)) {
+          if (memequal_sk(linebuf_iter, "FILTER")) {
             load_filter_col = 2 * ((pvar_psam_flags & (kfPvarColMaybefilter | kfPvarColFilter)) || qualfilter_needed) + ((misc_flags / kfMiscExcludePvarFilterFail) & 1);
             if (!load_filter_col) {
               continue;
             }
             cur_col_type = 5;
-          } else if (memequal_k(linebuf_iter, "FORMAT", 6)) {
+          } else if (memequal_sk(linebuf_iter, "FORMAT")) {
             break;
           } else {
             continue;
@@ -1169,9 +1183,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         logerrputs("Error: --extract-if-info used on a variant file with no INFO column.\n");
         goto LoadPvar_ret_INCONSISTENT_INPUT;
       }
-      info_pr_present = 0;
+      info_pr_exists = 0;
       info_reload_slen = 0;
-    } else if ((!info_pr_present) && (!info_reload_slen) && (!info_existp) && (!info_nonexistp) && (!info_keep.prekey) && (!info_remove.prekey)) {
+    } else if ((!info_pr_exists) && (!info_reload_slen) && (!info_existp) && (!info_nonexistp) && (!info_keep.prekey) && (!info_remove.prekey)) {
       info_col_present = 0;
     }
 
@@ -1326,7 +1340,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                        2 * sizeof(intptr_t) +
                        at_least_one_nzero_cm * sizeof(double)) +
                       is_split_chr * sizeof(ChrIdx) +
-                      (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) +
+                      (1 + info_pr_exists) * (kLoadPvarBlockSize / CHAR_BIT) +
                       (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) +
                       (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) ||
                      (allele_storage_iter >= allele_storage_limit))) {
@@ -1352,7 +1366,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           ZeroWArr(kLoadPvarBlockSize / kBitsPerWord, cur_filter_npass);
           tmp_alloc_base = &(tmp_alloc_base[2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)]);
         }
-        if (info_pr_present) {
+        if (info_pr_exists) {
           cur_nonref_flags = R_CAST(uintptr_t*, tmp_alloc_base);
           ZeroWArr(kLoadPvarBlockSize / kBitsPerWord, cur_nonref_flags);
           tmp_alloc_base = &(tmp_alloc_base[kLoadPvarBlockSize / CHAR_BIT]);
@@ -1449,7 +1463,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       char* token_ptrs[8];
       uint32_t token_slens[8];
       uint32_t extra_alt_ct;
-      if (IsSet(chr_mask, cur_chr_code) || info_pr_present) {
+      if (IsSet(chr_mask, cur_chr_code) || info_pr_exists) {
         linebuf_iter = TokenLex(linebuf_iter, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
         if (unlikely(!linebuf_iter)) {
           goto LoadPvar_ret_MISSING_TOKENS;
@@ -1476,11 +1490,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           char* info_token = token_ptrs[6];
           info_token[info_slen] = '\0';
-          if (info_pr_present) {
+          if (info_pr_exists) {
             // always load all nonref_flags entries so (i) --ref-from-fa +
             // --make-just-pvar works and (ii) they can be compared against
             // the .pgen.
-            if ((memequal_k(info_token, "PR", 2) && ((info_slen == 2) || (info_token[2] == ';'))) || memequal_k(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3)) {
+            if ((memequal_sk(info_token, "PR") && ((info_slen == 2) || (info_token[2] == ';'))) || memequal_sk(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR")) {
               SetBit(variant_idx_lowbits, cur_nonref_flags);
             } else {
               const char* first_info_end = strchr(info_token, ';');
@@ -1913,7 +1927,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       }
     }
     uintptr_t* nonref_flags = nullptr;
-    if (info_pr_present) {
+    if (info_pr_exists) {
       if (unlikely(bigstack_alloc_w(raw_variant_ctl, nonref_flags_ptr))) {
         goto LoadPvar_ret_NOMEM;
       }
@@ -1957,7 +1971,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         }
         read_iter = &(read_iter[kLoadPvarBlockSize * sizeof(intptr_t)]);
       }
-      if (info_pr_present) {
+      if (info_pr_exists) {
         memcpy(&(nonref_flags[block_idx * (kLoadPvarBlockSize / kBitsPerWord)]), read_iter, kLoadPvarBlockSize / CHAR_BIT);
         read_iter = &(read_iter[kLoadPvarBlockSize / CHAR_BIT]);
       }
@@ -1999,12 +2013,12 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       // regardless of whether any non-PASS values were ultimately found
       read_iter = &(read_iter[kLoadPvarBlockSize * sizeof(intptr_t)]);
     }
-    if (info_pr_present) {
+    if (info_pr_exists) {
       memcpy(&(nonref_flags[full_block_ct * (kLoadPvarBlockSize / kBitsPerWord)]), read_iter, last_bitblock_size);
       ZeroTrailingBits(raw_variant_ct, nonref_flags);
       // read_iter = &(read_iter[kLoadPvarBlockSize / CHAR_BIT]);
     }
-    const uintptr_t read_iter_stride_base = kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t)) + (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col > 1) * ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) + (load_filter_col > 1) * (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) + info_pr_present * (kLoadPvarBlockSize / CHAR_BIT);
+    const uintptr_t read_iter_stride_base = kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t)) + (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col > 1) * ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) + (load_filter_col > 1) * (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) + info_pr_exists * (kLoadPvarBlockSize / CHAR_BIT);
     if (allele_idx_end > 2 * S_CAST(uintptr_t, raw_variant_ct)) {
       if (no_multiallelic_allowed) {
         snprintf(g_logbuf, kLogbufSize, "Error: %s contains multiallelic variant(s), despite having no #CHROM header line. Add that header line to make it obvious that this isn't a valid .bim.\n", pvarname);
@@ -2096,7 +2110,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     *vpos_sortstatus_ptr = vpos_sortstatus;
     *allele_storage_ptr = allele_storage;
     // if only INFO/PR flag present, no need to reload
-    if (!(info_nonpr_present || info_pr_nonflag_present)) {
+    if (!(info_nonpr_present || info_pr_nonflag_exists)) {
       info_reload_slen = 0;
     }
     if (info_reload_slen) {
@@ -2123,6 +2137,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     WordWrapB(0);
     logerrputsb();
   LoadPvar_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  LoadPvar_ret_MALFORMED_HEADER_LINE:
+    logerrprintf("Error: Header line %" PRIuPTR " of %s is malformed.\n", line_idx);
     reterr = kPglRetMalformedInput;
     break;
   LoadPvar_ret_MULTIALLELIC_MISSING_ALLELE_CODE:

@@ -330,7 +330,7 @@ typedef struct ImportSampleIdContextStruct {
 void InitImportSampleIdContext(const char* const_fid, MiscFlags misc_flags, ImportFlags import_flags, char id_delim, ImportSampleIdContext* isicp) {
   isicp->const_fid = nullptr;
   isicp->const_fid_slen = 0;
-  if (const_fid && (!memequal_k(const_fid, "0", 2))) {
+  if (const_fid && (!strequal_k_unsafe(const_fid, "0"))) {
     isicp->const_fid_slen = strlen(const_fid);
     isicp->const_fid = const_fid;
   }
@@ -2799,7 +2799,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       }
       prev_line_start = line_iter;
       if (unlikely(*line_iter != '#')) {
-        if ((line_idx == 1) && (memequal_k(line_iter, "BCF", 3))) {
+        if ((line_idx == 1) && (memequal_sk(line_iter, "BCF"))) {
           // this is more informative than "missing header line"...
           if (line_iter[3] == 2) {
             snprintf(g_logbuf, kLogbufSize, "Error: %s appears to be a BCF2 file. Try --bcf instead of --vcf.\n", vcfname);
@@ -2847,57 +2847,88 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         }
         chrset_exists = 1;
         // .pvar loader will print a warning if necessary
-        reterr = ReadChrsetHeaderLine(&(line_iter[10]), "--vcf file", misc_flags, line_idx, cip);
+        reterr = ReadChrsetHeaderLine(&(line_iter[2 + strlen("chrSet=<")]), "--vcf file", misc_flags, line_idx, cip);
         if (unlikely(reterr)) {
           goto VcfToPgen_ret_1;
         }
-      } else if (StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID=GT,Number=")) {
-        if (unlikely(format_gt_exists)) {
-          logerrputs("Error: Duplicate FORMAT/GT header line in --vcf file.\n");
-          goto VcfToPgen_ret_MALFORMED_INPUT;
+      } else if (StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<")) {
+        line_iter = &(line_iter[2 + strlen("FORMAT=<")]);
+        char* idval;
+        uint32_t id_slen;
+        if (unlikely(HkvlineId(&line_iter, &idval, &id_slen))) {
+          goto VcfToPgen_ret_MALFORMED_HEADER_LINE;
         }
-        if (unlikely(!StrStartsWithUnsafe(&(line_iter[2 + strlen("FORMAT=<ID=GT,Number=")]), "1,Type=String,Description="))) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected FORMAT/GT format.\n", line_idx);
-          goto VcfToPgen_ret_MALFORMED_INPUT_WW;
+        char* numstr;
+        char* typestr;
+        uint32_t num_slen;
+        uint32_t type_slen;
+        if (unlikely(HkvlineNumType(line_iter, &numstr, &num_slen, &typestr, &type_slen))) {
+          goto VcfToPgen_ret_MALFORMED_HEADER_LINE;
         }
-        format_gt_exists = 1;
-      } else if ((vcf_min_gq != -1) && StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID=GQ,Number=1,Type=")) {
-        if (unlikely(format_gq_relevant)) {
-          logerrputs("Error: Duplicate FORMAT/GQ header line in --vcf file.\n");
-          goto VcfToPgen_ret_MALFORMED_INPUT;
-        }
-        format_gq_relevant = 1;
-      } else if (((vcf_min_dp != -1) || (vcf_max_dp != 0x7fffffff)) && StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID=DP,Number=1,Type=")) {
-        if (unlikely(format_dp_relevant)) {
-          logerrputs("Error: Duplicate FORMAT/DP header line in --vcf file.\n");
-          goto VcfToPgen_ret_MALFORMED_INPUT;
-        }
-        format_dp_relevant = 1;
-      } else if (dosage_import_field && StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID=")) {
-        // strlen("##FORMAT=<ID=") == 13
-        if (memequal(&(line_iter[13]), dosage_import_field, dosage_import_field_slen) && (line_iter[13 + dosage_import_field_slen] == ',')) {
-          if (unlikely(format_dosage_relevant)) {
-            logerrprintfww("Error: Duplicate FORMAT/%s header line in --vcf file.\n", dosage_import_field);
-            goto VcfToPgen_ret_MALFORMED_INPUT_WW;
-          }
-          format_dosage_relevant = 1;
-        } else if (format_hds_search && memequal_k(&(line_iter[13]), "HDS,", 4)) {
-          if (unlikely(format_hds_search == 2)) {
-            logerrputs("Error: Duplicate FORMAT/HDS header line in --vcf file.\n");
+        if (strequal_k(idval, "GT", id_slen)) {
+          if (unlikely(format_gt_exists)) {
+            logerrputs("Error: Duplicate FORMAT/GT header line in --vcf file.\n");
             goto VcfToPgen_ret_MALFORMED_INPUT;
           }
-          format_hds_search = 2;
-        } else if (unforced_gp && memequal_k(&(line_iter[13]), "DS,", 3)) {
-          logerrputs("Error: --vcf dosage=GP specified, but --import-dosage-certainty was not and\nFORMAT/DS header line is present.\nSince " PROG_NAME_STR " collapses genotype probabilities down to dosages (even when\nperforming simple operations like \"" PROG_NAME_STR " --vcf ... --export bgen-1.2 ...\"),\n'dosage=GP' almost never makes sense in this situation.  Either change it to\n'dosage=DS' (if dosages are good enough for your analysis), or use another\nprogram to work with the genotype probabilities.\nThere is one notable exception to the preceding recommendation: you are writing\na script to process VCF files that are guaranteed to have FORMAT/GP, but may or\nmay not have FORMAT/DS.  You can use 'dosage=GP-force' to suppress this error\nin that situation.\n");
-          goto VcfToPgen_ret_INCONSISTENT_INPUT;
+          if (unlikely((!strequal_k(numstr, "1", num_slen)) || (!strequal_k(typestr, "String", type_slen)))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected FORMAT/GT format.\n", line_idx);
+            goto VcfToPgen_ret_MALFORMED_INPUT_WW;
+          }
+        } else if ((vcf_min_gq != -1) && strequal_k(idval, "GQ", id_slen)) {
+          if (unlikely(format_gq_relevant)) {
+            logerrputs("Error: Duplicate FORMAT/GQ header line in --vcf file.\n");
+            goto VcfToPgen_ret_MALFORMED_INPUT;
+          }
+          if (unlikely(!strequal_k(numstr, "1", num_slen))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected FORMAT/GQ format.\n", line_idx);
+            goto VcfToPgen_ret_MALFORMED_INPUT_WW;
+          }
+          format_gq_relevant = 1;
+        } else if (((vcf_min_dp != -1) || (vcf_max_dp != 0x7fffffff)) && strequal_k(idval, "DP", id_slen)) {
+          if (unlikely(format_dp_relevant)) {
+            logerrputs("Error: Duplicate FORMAT/DP header line in --vcf file.\n");
+            goto VcfToPgen_ret_MALFORMED_INPUT;
+          }
+          if (unlikely(!strequal_k(numstr, "1", num_slen))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected FORMAT/DP format.\n", line_idx);
+          }
+          format_dp_relevant = 1;
+        } else if (dosage_import_field) {
+          if ((id_slen == dosage_import_field_slen) && memequal(idval, dosage_import_field, id_slen)) {
+            if (unlikely(format_dosage_relevant)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Duplicate FORMAT/%s header line in --vcf file.\n", dosage_import_field);
+              goto VcfToPgen_ret_MALFORMED_INPUT_WW;
+            }
+            format_dosage_relevant = 1;
+          } else if (format_hds_search && strequal_k(idval, "HDS", id_slen)) {
+            if (unlikely(format_hds_search == 2)) {
+              logerrputs("Error: Duplicate FORMAT/HDS header line in --vcf file.\n");
+              goto VcfToPgen_ret_MALFORMED_INPUT;
+            }
+            format_hds_search = 2;
+          } else if (unforced_gp && strequal_k(idval, "DS", id_slen)) {
+            logerrputs("Error: --vcf dosage=GP specified, but --import-dosage-certainty was not and\nFORMAT/DS header line is present.\nSince " PROG_NAME_STR " collapses genotype probabilities down to dosages (even when\nperforming simple operations like \"" PROG_NAME_STR " --vcf ... --export bgen-1.2 ...\"),\n'dosage=GP' almost never makes sense in this situation.  Either change it to\n'dosage=DS' (if dosages are good enough for your analysis), or use another\nprogram to work with the genotype probabilities.\nThere is one notable exception to the preceding recommendation: you are writing\na script to process VCF files that are guaranteed to have FORMAT/GP, but may or\nmay not have FORMAT/DS.  You can use 'dosage=GP-force' to suppress this error\nin that situation.\n");
+            goto VcfToPgen_ret_INCONSISTENT_INPUT;
+          }
         }
-      } else if (StrStartsWithUnsafe(&(line_iter[2]), "INFO=<ID=")) {
-        if (StrStartsWithUnsafe(&(line_iter[2 + strlen("INFO=<ID=")]), "PR,Number=")) {
+      } else if (StrStartsWithUnsafe(&(line_iter[2]), "INFO=<")) {
+        line_iter = &(line_iter[2 + strlen("INFO=<")]);
+        char* idval;
+        uint32_t id_slen;
+        if (unlikely(HkvlineId(&line_iter, &idval, &id_slen))) {
+          goto VcfToPgen_ret_MALFORMED_HEADER_LINE;
+        }
+        if (strequal_k(idval, "PR", id_slen)) {
           if (unlikely(info_pr_exists || info_pr_nonflag_exists)) {
             logerrputs("Error: Duplicate INFO/PR header line in --vcf file.\n");
             goto VcfToPgen_ret_MALFORMED_INPUT;
           }
-          info_pr_nonflag_exists = !StrStartsWithUnsafe(&(line_iter[2 + strlen("INFO=<ID=PR,Number=")]), "0,Type=Flag,Description=");
+          char* typestr;
+          uint32_t type_slen;
+          if (unlikely(HkvlineFind(line_iter, "Type", &typestr, &type_slen))) {
+            goto VcfToPgen_ret_MALFORMED_HEADER_LINE;
+          }
+          info_pr_nonflag_exists = !strequal_k(typestr, "Flag", type_slen);
           info_pr_exists = 1 - info_pr_nonflag_exists;
           if (info_pr_nonflag_exists) {
             logerrprintfww("Warning: Header line %" PRIuPTR " of --vcf file has an unexpected definition of INFO/PR. This interferes with a few merge and liftover operations.\n", line_idx);
@@ -3111,7 +3142,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           goto VcfToPgen_ret_MISSING_TOKENS;
         }
         linebuf_iter = &(info_end[1]);
-        vic.vibc.gt_exists = memequal_k(linebuf_iter, "GT", 2) && ((linebuf_iter[2] == ':') || (linebuf_iter[2] == '\t'));
+        vic.vibc.gt_exists = memequal_sk(linebuf_iter, "GT") && ((linebuf_iter[2] == ':') || (linebuf_iter[2] == '\t'));
         if (require_gt && (!vic.vibc.gt_exists)) {
           ++variant_skip_ct;
           line_iter = linebuf_iter;
@@ -3698,7 +3729,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           char* pos_str_end = AdvToDelim(pos_str, '\t');
           // copy ID, REF verbatim...
           linebuf_iter = AdvToNthDelim(&(pos_str_end[1]), 2, '\t');
-          if (ref_n_missing && memequal_k(&(linebuf_iter[-2]), "\tN", 2)) {
+          if (ref_n_missing && memequal_sk(&(linebuf_iter[-2]), "\tN")) {
             // ...unless --vcf-ref-n-missing applies.
             linebuf_iter[-1] = '.';
           }
@@ -3710,7 +3741,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           if (sample_ct) {
             info_end = AdvToDelim(&(filter_end[1]), '\t');
             format_start = &(info_end[1]);
-            vic.vibc.gt_exists = memequal_k(format_start, "GT", 2) && ((format_start[2] == ':') || (format_start[2] == '\t'));
+            vic.vibc.gt_exists = memequal_sk(format_start, "GT") && ((format_start[2] == ':') || (format_start[2] == '\t'));
             if (require_gt && (!vic.vibc.gt_exists)) {
               line_iter = format_start;
               goto VcfToPgen_load_start;
@@ -3963,6 +3994,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
   VcfToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
+  VcfToPgen_ret_MALFORMED_HEADER_LINE:
+    logerrprintf("Error: Header line %" PRIuPTR " of --vcf file is malformed.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
   VcfToPgen_ret_MALFORMED_INPUT_WWN:
     putc_unlocked('\n', stdout);
   VcfToPgen_ret_MALFORMED_INPUT_WW:
@@ -3992,7 +4027,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 PglErr BcfHeaderLineIdxCheck(const char* line_iter, uint32_t header_line_idx) {
   while (1) {
     const char* tag_start = &(line_iter[1]);
-    if (unlikely(memequal_k(tag_start, "IDX=", 4))) {
+    if (unlikely(memequal_sk(tag_start, "IDX="))) {
       // Although this is text, it's not supposed to be human-edited, so we
       // deliberately discourage spec-conforming behavior that's different from
       // bcftools's straightforward approach of always putting IDX= at the end.
@@ -7142,7 +7177,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       if (unlikely(reterr)) {
         goto BcfToPgen_ret_BGZF_FAIL;
       }
-      if (unlikely((dummy != prefix_end) || (!memequal_k(prefix_buf, "BCF", 3)))) {
+      if (unlikely((dummy != prefix_end) || (!memequal_sk(prefix_buf, "BCF")))) {
         snprintf(g_logbuf, kLogbufSize, "Error: %s is not a BCF2 file.\n", bcfname);
         goto BcfToPgen_ret_MALFORMED_INPUT_WW;
       }
@@ -7184,7 +7219,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         goto BcfToPgen_ret_MALFORMED_INPUT_GENERIC;
       }
     }
-    if (unlikely(!memequal_k(&(vcf_header[header_size - 2]), "\n", 2))) {
+    if (unlikely(!strequal_k_unsafe(&(vcf_header[header_size - 2]), "\n"))) {
       goto BcfToPgen_ret_MALFORMED_TEXT_HEADER;
     }
     char* vcf_header_end = &(vcf_header[header_size - 1]);
@@ -7339,11 +7374,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         }
         continue;
       }
-      // don't check for subsequent '=' just in case IDX= appears first
-      const uint32_t is_contig_line = StrStartsWithUnsafe(line_main, "contig=<ID");
-      const uint32_t is_filter_line = StrStartsWithUnsafe(line_main, "FILTER=<ID");
-      const uint32_t is_info_line = StrStartsWithUnsafe(line_main, "INFO=<ID");
-      const uint32_t is_format_line = StrStartsWithUnsafe(line_main, "FORMAT=<ID");
+      const uint32_t is_contig_line = StrStartsWithUnsafe(line_main, "contig=<");
+      const uint32_t is_filter_line = StrStartsWithUnsafe(line_main, "FILTER=<");
+      const uint32_t is_info_line = StrStartsWithUnsafe(line_main, "INFO=<");
+      const uint32_t is_format_line = StrStartsWithUnsafe(line_main, "FORMAT=<");
       if (!(is_contig_line || is_filter_line || is_info_line || is_format_line)) {
         continue;
       }
@@ -7368,7 +7402,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         } while (IsDigit(*line_last_iter));
         cur_explicit_idx_key = StrStartsWithUnsafe(&(line_last_iter[-4]), ",IDX=");
       }
-      const char* id_start = &(line_main[11 - 2 * is_info_line]);
+      // Points to leading '<' character.
+      char* hkvline_iter = &(line_main[7 - 2 * is_info_line]);
+
       if (explicit_idx_keys == 2) {
         explicit_idx_keys = cur_explicit_idx_key;
         if (!cur_explicit_idx_key) {
@@ -7378,14 +7414,14 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           // Thus, if a conforming writer puts IDX= in the middle of any lines,
           // we'll detect that either here, or in the next cur_explicit_idx_key
           // != explicit_idx_keys check.
-          reterr = BcfHeaderLineIdxCheck(&(id_start[-4]), header_line_idx);
+          reterr = BcfHeaderLineIdxCheck(hkvline_iter, header_line_idx);
           if (unlikely(reterr)) {
             goto BcfToPgen_ret_1;
           }
         }
       } else {
         if (unlikely(cur_explicit_idx_key != explicit_idx_keys)) {
-          reterr = BcfHeaderLineIdxCheck(&(id_start[-4]), header_line_idx);
+          reterr = BcfHeaderLineIdxCheck(hkvline_iter, header_line_idx);
           if (reterr != kPglRetSuccess) {
             goto BcfToPgen_ret_1;
           }
@@ -7393,12 +7429,21 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           goto BcfToPgen_ret_MALFORMED_INPUT;
         }
       }
+      // Now points past leading '<' character.
+      ++hkvline_iter;
+
+      char* id_ptr;
+      uint32_t id_slen;
+      if (unlikely(HkvlineId(&hkvline_iter, &id_ptr, &id_slen))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %u in BCF text header block is malformed.\n", header_line_idx);
+        goto BcfToPgen_ret_MALFORMED_INPUT_2;
+      }
       // Special case: FILTER/PASS IDX=0 line is implicit, we must be
       // indifferent to whether it's actually present.  (Though when it is
       // present, it's subject to the same IDX= always/never-present rule as
       // the other header lines, which is why we don't perform this check
       // earlier.)
-      if (is_filter_line && memequal_k(id_start, "PASS,", 5)) {
+      if (is_filter_line && strequal_k(id_ptr, "PASS", id_slen)) {
         continue;
       }
       if (!cur_explicit_idx_key) {
@@ -7423,17 +7468,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             fif_string_idx_end = val + 1;
           }
         }
-      }
-      if (id_start[-1] != '=') {
-        snprintf(g_logbuf, kLogbufSize, "Error: Line %u in BCF text header block is malformed.\n", header_line_idx);
-        goto BcfToPgen_ret_MALFORMED_INPUT_2;
-      }
-      // bugfix (19 Feb 2020): contig header lines are permitted to have
-      // nothing but ID.
-      const char* id_end = strchrnul2_n(id_start, ',', '>');
-      if (unlikely(*id_end == '\n')) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Line %u in BCF text header block is malformed.\n", header_line_idx);
-        goto BcfToPgen_ret_MALFORMED_INPUT_2;
       }
     }
 
@@ -7530,15 +7564,20 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         char* line_main = &(line_iter[2]);
         char* line_end = AdvPastDelim(line_main, '\n');
         line_iter = line_end;
-        const uint32_t is_contig_line = StrStartsWithUnsafe(line_main, "contig=<ID");
-        const uint32_t is_filter_line = StrStartsWithUnsafe(line_main, "FILTER=<ID");
-        const uint32_t is_info_line = StrStartsWithUnsafe(line_main, "INFO=<ID");
-        const uint32_t is_format_line = StrStartsWithUnsafe(line_main, "FORMAT=<ID");
+        const uint32_t is_contig_line = StrStartsWithUnsafe(line_main, "contig=<");
+        const uint32_t is_filter_line = StrStartsWithUnsafe(line_main, "FILTER=<");
+        const uint32_t is_info_line = StrStartsWithUnsafe(line_main, "INFO=<");
+        const uint32_t is_format_line = StrStartsWithUnsafe(line_main, "FORMAT=<");
         if (!(is_contig_line || is_filter_line || is_info_line || is_format_line)) {
           continue;
         }
-        const char* id_start = &(line_main[11 - 2 * is_info_line]);
-        if (is_filter_line && memequal_k(id_start, "PASS,", 5)) {
+        const char* hkvline_iter = &(line_main[8 - 2 * is_info_line]);
+        const char* id_ptr;
+        uint32_t id_slen;
+        // previously validated
+        HkvlineIdK(&hkvline_iter, &id_ptr, &id_slen);
+
+        if (is_filter_line && strequal_k(id_ptr, "PASS", id_slen)) {
           continue;
         }
         if (explicit_idx_keys) {
@@ -7568,8 +7607,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           target = &(fif_strings[cur_header_idx]);
           slen_dst = &(fif_slens[cur_header_idx]);
         }
-        const char* id_end = S_CAST(const char*, rawmemchr2(id_start, ',', '>'));
-        const uint32_t id_slen = id_end - id_start;
         // May enforce id_slen <= kMaxIdSlen here later.  (Technically only
         // necessary if we use the key in e.g. error messages, which happens on
         // BCF export but not import.)
@@ -7578,13 +7615,13 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           // string is identical.
           // (In the no-IDX case, if e.g. a FILTER and INFO key are identical,
           // their implicit IDX values are still different.)
-          if (unlikely((id_slen != *slen_dst) || (!memequal(id_start, *target, id_slen)))) {
+          if (unlikely((id_slen != *slen_dst) || (!memequal(id_ptr, *target, id_slen)))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Multiple %s IDs in BCF text header block have IDX=%u.\n", is_contig_line? "contig" : "FILTER/INFO/FORMAT", cur_header_idx);
             goto BcfToPgen_ret_MALFORMED_INPUT_WW;
           }
         } else {
           // technically only need to null-terminate contig names
-          if (StoreStringAtEndK(g_bigstack_base, id_start, id_slen, &tmp_alloc_end, target)) {
+          if (StoreStringAtEndK(g_bigstack_base, id_ptr, id_slen, &tmp_alloc_end, target)) {
             goto BcfToPgen_ret_NOMEM;
           }
           *slen_dst = id_slen;
@@ -7595,10 +7632,18 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         if (is_contig_line || is_filter_line) {
           continue;
         }
+        const char* numstr;
+        const char* typestr;
+        uint32_t num_slen;
+        uint32_t type_slen;
+        if (unlikely(HkvlineNumTypeK(hkvline_iter, &numstr, &num_slen, &typestr, &type_slen))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %u in BCF text header block is malformed.\n", header_line_idx);
+          goto BcfToPgen_ret_MALFORMED_INPUT_2;
+        }
         if (is_info_line) {
-          const uintptr_t is_flag = StrStartsWithUnsafe(id_end, ",Number=0,Type=Flag,Description=");
+          const uintptr_t is_flag = strequal_k(typestr, "Flag", type_slen);
           info_flags[cur_header_idx / kBitsPerWord] |= is_flag << (cur_header_idx % kBitsPerWord);
-          if (strequal_k(id_start, "PR", id_slen)) {
+          if (strequal_k(id_ptr, "PR", id_slen)) {
             if (unlikely((pr_sidx != UINT32_MAX) || info_pr_nonflag_exists)) {
               logerrputs("Error: Duplicate INFO/PR line in BCF text header block.\n");
               goto BcfToPgen_ret_MALFORMED_INPUT;
@@ -7615,42 +7660,50 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           continue;
         }
         // FORMAT
-        if (StrStartsWithUnsafe(id_start, "GT,Number=")) {
+        if (strequal_k(id_ptr, "GT", id_slen)) {
           if (unlikely(gt_sidx)) {
             logerrputs("Error: Duplicate FORMAT/GT line in BCF text header block.\n");
             goto BcfToPgen_ret_MALFORMED_INPUT;
           }
-          if (unlikely(!StrStartsWithUnsafe(&(id_start[strlen("GT,Number=")]), "1,Type=String,Description="))) {
+          if (unlikely((!strequal_k(numstr, "1", num_slen)) || (!strequal_k(typestr, "String", type_slen)))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Line %u of BCF text header block does not have expected FORMAT/GT format.\n", header_line_idx);
             goto BcfToPgen_ret_MALFORMED_INPUT_WW;
           }
           gt_sidx = cur_header_idx;
-        } else if ((vcf_min_gq != -1) && StrStartsWithUnsafe(id_start, "GQ,Number=1,Type=")) {
+        } else if ((vcf_min_gq != -1) && strequal_k(id_ptr, "GQ", id_slen)) {
           if (unlikely(gq_sidx)) {
             logerrputs("Error: Duplicate FORMAT/GQ header line in BCF text header block.\n");
             goto BcfToPgen_ret_MALFORMED_INPUT;
           }
+          if (unlikely(!strequal_k(numstr, "1", num_slen))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Line %u of BCF text header block does not have expected FORMAT/GQ format.\n", header_line_idx);
+            goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+          }
           gq_sidx = cur_header_idx;
-        } else if (((vcf_min_dp != -1) || (vcf_max_dp != 0x7fffffff)) && StrStartsWithUnsafe(id_start, "DP,Number=1,Type=")) {
+        } else if (((vcf_min_dp != -1) || (vcf_max_dp != 0x7fffffff)) && strequal_k(id_ptr, "DP", id_slen)) {
           if (unlikely(dp_sidx)) {
             logerrputs("Error: Duplicate FORMAT/DP header line in BCF text header block.\n");
             goto BcfToPgen_ret_MALFORMED_INPUT;
           }
+          if (unlikely(!strequal_k(numstr, "1", num_slen))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Line %u of BCF text header block does not have expected FORMAT/DP format.\n", header_line_idx);
+            goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+          }
           dp_sidx = cur_header_idx;
         } else if (dosage_import_field) {
-          if ((id_slen == dosage_import_field_slen) && memequal(id_start, dosage_import_field, dosage_import_field_slen)) {
+          if ((id_slen == dosage_import_field_slen) && memequal(id_ptr, dosage_import_field, dosage_import_field_slen)) {
             if (unlikely(dosage_sidx)) {
               snprintf(g_logbuf, kLogbufSize, "Error: Duplicate FORMAT/%s header line in BCF text header block.\n", dosage_import_field);
               goto BcfToPgen_ret_MALFORMED_INPUT_WW;
             }
             dosage_sidx = cur_header_idx;
-          } else if (format_hds_search && StrStartsWithUnsafe(id_start, "HDS,")) {
+          } else if (format_hds_search && strequal_k(id_ptr, "HDS", id_slen)) {
             if (unlikely(hds_sidx)) {
               logerrputs("Error: Duplicate FORMAT/HDS header line in BCF text header block.\n");
               goto BcfToPgen_ret_MALFORMED_INPUT;
             }
             hds_sidx = cur_header_idx;
-          } else if (unforced_gp && StrStartsWithUnsafe(id_start, "DS,")) {
+          } else if (unforced_gp && strequal_k(id_ptr, "DS", id_slen)) {
             logerrputs("Error: --bcf dosage=GP specified, but --import-dosage-certainty was not and\nFORMAT/DS header line is present.\nSince " PROG_NAME_STR " collapses genotype probabilities down to dosages (even when\nperforming simple operations like \"" PROG_NAME_STR " --bcf ... --export bgen-1.2 ...\"),\n'dosage=GP' almost never makes sense in this situation.  Either change it to\n'dosage=DS' (if dosages are good enough for your analysis), or use another\nprogram to work with the genotype probabilities.\nThere is one notable exception to the preceding recommendation: you are writing\na script to process BCF files that are guaranteed to have FORMAT/GP, but may or\nmay not have FORMAT/DS.  You can use 'dosage=GP-force' to suppress this error\nin that situation.\n");
             goto BcfToPgen_ret_INCONSISTENT_INPUT;
           }

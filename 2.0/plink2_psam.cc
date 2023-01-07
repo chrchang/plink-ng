@@ -150,17 +150,17 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
         const uint32_t token_slen = token_end - linebuf_iter;
         if (token_slen == 3) {
           uint32_t cur_col_type = UINT32_MAX;
-          if (memequal_k(linebuf_iter, "IID", 3)) {
+          if (memequal_sk(linebuf_iter, "IID")) {
             cur_col_type = 0;
-          } else if (memequal_k(linebuf_iter, "SID", 3)) {
+          } else if (memequal_sk(linebuf_iter, "SID")) {
             cur_col_type = 1;
-          } else if (memequal_k(linebuf_iter, "PAT", 3)) {
+          } else if (memequal_sk(linebuf_iter, "PAT")) {
             cur_col_type = 2;
-          } else if (memequal_k(linebuf_iter, "MAT", 3)) {
+          } else if (memequal_sk(linebuf_iter, "MAT")) {
             cur_col_type = 3;
-          } else if (memequal_k(linebuf_iter, "SEX", 3)) {
+          } else if (memequal_sk(linebuf_iter, "SEX")) {
             cur_col_type = 4;
-          } else if (unlikely(memequal_k(linebuf_iter, "FID", 3))) {
+          } else if (unlikely(memequal_sk(linebuf_iter, "FID"))) {
             snprintf(g_logbuf, kLogbufSize, "Error: 'FID' column header on line %" PRIuPTR " of %s is not at the beginning.\n", line_idx, psamname);
             goto LoadPsam_ret_MALFORMED_INPUT_WW;
           }
@@ -893,7 +893,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       // For backward compatibility with PLINK 1.x --pheno/--covar, we don't
       // require the leading '#'.
       ++line_iter;
-      if ((memequal_k(line_iter, "FID", 3) || memequal_k(line_iter, "IID", 3)) && ((ctou32(line_iter[3]) <= 32) || (line_iter[3] == ','))) {
+      if ((memequal_sk(line_iter, "FID") || memequal_sk(line_iter, "IID")) && ((ctou32(line_iter[3]) <= 32) || (line_iter[3] == ','))) {
         break;
       }
     }
@@ -907,7 +907,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     uint32_t new_pheno_ct;
     uint32_t final_pheno_ct;
     uintptr_t final_pheno_names_byte_ct;
-    if ((memequal_k(line_iter, "FID", 3) || memequal_k(line_iter, "IID", 3)) && ((ctou32(line_iter[3]) <= 32) || (line_iter[3] == ','))) {
+    if ((memequal_sk(line_iter, "FID") || memequal_sk(line_iter, "IID")) && ((ctou32(line_iter[3]) <= 32) || (line_iter[3] == ','))) {
       // treat this as a header line
       // autodetect CSV vs. space/tab-delimited
       // (note that we don't permit CSVs without header lines)

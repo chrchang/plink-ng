@@ -124,7 +124,9 @@ void AppendChrsetLine(const ChrInfo* cip, char** write_iter_ptr);
 
 uint64_t FindContigHeaderLineLengthStr(const char* contig_name_end);
 
-BoolErr FixAndWriteContigHeaderLine(const char* contig_name_end, uint32_t remaining_byte_ct, uint32_t contig_len, char** writep_ptr);
+char* WriteRestOfHeaderLine(const char* hkvline_iter, const char* idval, const char* closing_gt, uint32_t id_slen, char* write_iter);
+
+BoolErr FixAndWriteContigHeaderLine(const char* header_line_iter, const char* id_ptr, const char* closing_gt, uint32_t id_slen, uint32_t contig_len, char** writep_ptr);
 
 // fileformat, fileDate, source
 // assumes adequate buffer space
@@ -156,7 +158,7 @@ void ApplyHardCallThresh(const uintptr_t* dosage_present, const Dosage* dosage_m
 
 uint32_t ApplyHardCallThreshPhased(const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t dosage_ct, uint32_t hard_call_halfdist, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uintptr_t* dphase_present, SDosage* dphase_delta, SDosage* tmp_dphase_delta);
 
-BoolErr FillInfoVtypeNum(const char* num_str_start, int32_t* info_vtype_num_ptr);
+BoolErr FillInfoVtypeNum(const char* numstr, uint32_t num_slen, int32_t* info_vtype_num_ptr);
 
 PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, __maybe_unused const char* varid_multi_template_str, __maybe_unused const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t new_variant_id_max_allele_slen, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end);
 

@@ -3692,7 +3692,7 @@ PglErr EmbedPgenIndex(char* outname, char* outname_end) {
       if (unlikely(!fread(startbuf, 12, 1, infile))) {
         goto EmbedPgenIndex_ret_READ_PGI_FAIL;
       }
-      if (unlikely(!memequal_k(startbuf, "l\x1b\x30", 3))) {
+      if (unlikely(!memequal_sk(startbuf, "l\x1b\x30"))) {
         goto EmbedPgenIndex_ret_INVALID_INDEX;
       }
       memcpy(&variant_ct, &(startbuf[3]), 4);
@@ -3760,7 +3760,7 @@ PglErr EmbedPgenIndex(char* outname, char* outname_end) {
     }
     unsigned char copybuf[kPglFwriteBlockSize + 3];
     uintptr_t nbyte = fread(copybuf, 1, kPglFwriteBlockSize + 3, infile);
-    if (unlikely((nbyte <= 3) || (!memequal_k(copybuf, "l\x1b\x20", 3)))) {
+    if (unlikely((nbyte <= 3) || (!memequal_sk(copybuf, "l\x1b\x20")))) {
       logerrprintfww("Error: %s does not appear to be a .pgen with an external index file.\n", outname);
       goto EmbedPgenIndex_ret_MALFORMED_INPUT;
     }
@@ -3820,6 +3820,114 @@ PglErr EmbedPgenIndex(char* outname, char* outname_end) {
   fclose_cond(outfile);
   fclose_cond(infile);
   return reterr;
+}
+
+CXXCONST_CP HkvlineValEnd(const char* val_start) {
+  if (val_start[0] != '"') {
+    const char* val_end = strchrnul2_n(val_start, ',', '>');
+    if (unlikely(*val_end == '\n')) {
+      return nullptr;
+    }
+    return val_end;
+  }
+  const char* val_iter = &(val_start[1]);
+  while (1) {
+    val_iter = strchrnul2_n(val_iter, '\\', '"');
+    if (*val_iter == '"') {
+      break;
+    }
+    if (unlikely((*val_iter != '\\') || (val_iter[1] < 32))) {
+      return nullptr;
+    }
+    val_iter = &(val_iter[2]);
+  }
+  const char* val_end = &(val_iter[1]);
+  if (likely((*val_end == ',') || (*val_end == '>'))) {
+    return val_end;
+  }
+  return nullptr;
+}
+
+IntErr HkvlineFind2K(const char* dict_iter, const char* key, uint32_t key_slen, const char** val_ptr, uint32_t* val_slenp) {
+  while (1) {
+    if (dict_iter[-1] == '>') {
+      return 1;
+    }
+    const char* val_prestart = strchrnul_n(dict_iter, '=');
+    if (unlikely(*val_prestart == '\n')) {
+      return 2;
+    }
+    const char* val_start = &(val_prestart[1]);
+    const char* val_end = HkvlineValEnd(val_start);
+    if (unlikely(val_end == nullptr)) {
+      return 2;
+    }
+    if ((S_CAST(uintptr_t, val_prestart - dict_iter) == key_slen) && memequal(dict_iter, key, key_slen)) {
+      *val_ptr = val_start;
+      *val_slenp = val_end - val_start;
+      return 0;
+    }
+    dict_iter = &(val_end[1]);
+  }
+}
+
+BoolErr HkvlineNumTypeK(const char* dict_iter, const char** numstr_ptr, uint32_t* num_slenp, const char** typestr_ptr, uint32_t* type_slenp) {
+  uint32_t need_numstr = 1;
+  uint32_t need_typestr = 1;
+  while (1) {
+    // Note that this is true on the first iteration when ID is the only key.
+    if (unlikely(dict_iter[-1] == '>')) {
+      return 1;
+    }
+    const char* val_prestart = strchrnul_n(dict_iter, '=');
+    if (unlikely(*val_prestart == '\n')) {
+      return 1;
+    }
+    const char* val_start = &(val_prestart[1]);
+    const char* val_end = HkvlineValEnd(val_start);
+    if (unlikely(val_end == nullptr)) {
+      return 1;
+    }
+    const uint32_t key_slen = val_prestart - dict_iter;
+    if (need_numstr && strequal_k(dict_iter, "Number", key_slen)) {
+      *numstr_ptr = val_start;
+      *num_slenp = val_end - val_start;
+      if (!need_typestr) {
+        return 0;
+      }
+      need_numstr = 0;
+    } else if (need_typestr && strequal_k(dict_iter, "Type", key_slen)) {
+      *typestr_ptr = val_start;
+      *type_slenp = val_end - val_start;
+      if (!need_numstr) {
+        return 0;
+      }
+      need_typestr = 0;
+    }
+    ++dict_iter;
+  }
+}
+
+PglErr HkvlineForceIdFirst(uintptr_t workspace_size, char* hline_kv_start, void* workspace) {
+  if (memequal_sk(hline_kv_start, "ID=")) {
+    return kPglRetSuccess;
+  }
+  char* idval;
+  uint32_t id_slen;
+  if (unlikely(HkvlineFind(hline_kv_start, "ID", &idval, &id_slen))) {
+    return kPglRetMalformedInput;
+  }
+  const uintptr_t tmp_nbyte = id_slen + (3 * k1LU);
+  if (tmp_nbyte > workspace_size) {
+    return kPglRetNomem;
+  }
+  char* idkey_start = &(idval[-3]);
+  char* workspace_c = S_CAST(char*, workspace);
+  memcpy(workspace_c, idkey_start, tmp_nbyte);
+  memmove(&(hline_kv_start[tmp_nbyte + 1]), hline_kv_start, &(idkey_start[-1]) - hline_kv_start);
+  memcpy(hline_kv_start, workspace_c, tmp_nbyte);
+  hline_kv_start[tmp_nbyte] = ',';
+  return kPglRetSuccess;
 }
 
 #ifdef __cplusplus

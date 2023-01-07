@@ -373,23 +373,6 @@ uint32_t ChrLenLbound(const ChrInfo* cip, const uint32_t* variant_bps, const uin
 }
 */
 
-// This function facilitates repair of a VCF-style ##contig header line with an
-// incorrect or missing length field, when the contig length is known.
-//
-// contig_line_end is expected to be initialized to the position of the ',' in
-// the header line.  (If there is no ',', i.e. the header line contains nothing
-// but the contig name, there is no need to repair the existing header line;
-// instead, we act as if it doesn't exist, and generate a new one.)  It is
-// expected to be '\n'-terminated.
-//
-// Primary return value is:
-// * 0 if length is not present.
-// * [start, end) of length value, relative to contig_line_end, with start in
-//   low 32 bits.
-// * UINT64_MAX if the input is malformed.  Error message is written to the log
-//   before return.
-//
-// It may be generalized in the future to find any header-line field.
 uint64_t FindContigHeaderLineLengthStr(const char* contig_line_end) {
   // Similar to BcfHeaderLineIdxCheck() in plink2_import.cc.
   // It would be simpler to insist on a null-terminated input string and then
@@ -400,7 +383,7 @@ uint64_t FindContigHeaderLineLengthStr(const char* contig_line_end) {
   uint64_t retval = 0;
   while (1) {
     const char* tag_start = &(line_iter[1]);
-    if (memequal_k(tag_start, "length=", 7)) {
+    if (memequal_sk(tag_start, "length=")) {
       if (unlikely(retval)) {
         logerrputs("Error: Malformed ##contig line in .pvar file (multiple length= fields).\n");
         return UINT64_MAX;
@@ -458,46 +441,152 @@ uint64_t FindContigHeaderLineLengthStr(const char* contig_line_end) {
   }
 }
 
-BoolErr FixAndWriteContigHeaderLine(const char* contig_name_end, uint32_t remaining_byte_ct, uint32_t contig_len, char** writep_ptr) {
-  const uint64_t length_str_loc = FindContigHeaderLineLengthStr(contig_name_end);
-  if (unlikely(length_str_loc == UINT64_MAX)) {
-    return 1;
+char* WriteRestOfHeaderLine(const char* hkvline_iter, const char* idval, const char* closing_gt, uint32_t id_slen, char* write_iter) {
+  if (idval > hkvline_iter) {
+    // Copy entries before ",ID=".
+    const char* idkey_prestart = &(idval[-4]);
+    *write_iter++ = ',';
+    write_iter = memcpya(write_iter, hkvline_iter, idkey_prestart - hkvline_iter);
   }
-  if (!length_str_loc) {
+  const char* idval_end = &(idval[id_slen]);
+  return memcpya(write_iter, idval_end, closing_gt - idval_end);
+}
+
+// Read: assumes hkvline_iter, idval, and id_slen are return values from
+//       HkvlineId(), and closing_gt points to the closing '>'.
+// Write: assumes ID key=value has been written, but NOT trailing comma, and
+//        finishes in an analogous state.
+BoolErr FixAndWriteContigHeaderLine(const char* hkvline_iter, const char* idval, const char* closing_gt, uint32_t id_slen, uint32_t contig_len, char** writep_ptr) {
+  if (hkvline_iter > closing_gt) {
+    // Only ID field present in input.
+    char* writep = strcpya_k(*writep_ptr, ",length=");
+    *writep_ptr = u32toa(contig_len, writep);
+    return 0;
+  }
+  const char* idval_end = &(idval[id_slen]);
+  const char* lenvalstr_start;
+  uint32_t lenval_slen;
+  IntErr interr = HkvlineFindK(hkvline_iter, "length", &lenvalstr_start, &lenval_slen);
+  if (interr) {
+    if (unlikely(S_CAST(int32_t, interr) == 2)) {
+      return 1;
+    }
     // Existing header line doesn't contain a length.  Place the length
     // immediately after the ID, and then append the rest of the existing line.
     char* writep = strcpya_k(*writep_ptr, ",length=");
-    writep = u32toa(contig_len, writep);
-    *writep_ptr = memcpya(writep, contig_name_end, remaining_byte_ct);
+    writep = u32toa_x(contig_len, ',', writep);
+    if (idval < hkvline_iter) {
+      writep = memcpya(writep, hkvline_iter, closing_gt - hkvline_iter);
+    } else {
+      const char* idkey_start = &(idval[-3]);
+      writep = memcpya(writep, hkvline_iter, idkey_start - hkvline_iter);
+      writep = memcpya(writep, idval_end, closing_gt - idval_end);
+    }
+    *writep_ptr = writep;
     return 0;
   }
-  const uint32_t start_pos = S_CAST(uint32_t, length_str_loc);
-  const uint32_t end_pos = length_str_loc >> 32;
-  char* writep = memcpya(*writep_ptr, contig_name_end, start_pos);
-  writep = u32toa(contig_len, writep);
-  *writep_ptr = memcpya(writep, &(contig_name_end[end_pos]), remaining_byte_ct - end_pos);
+  char* writep = *writep_ptr;
+  const char* lenvalstr_end = &(lenvalstr_start[lenval_slen]);
+  *writep++ = ',';
+  if (idval < lenvalstr_start) {
+    // Usual case: ID was before length in input.
+    if (idval < hkvline_iter) {
+      writep = memcpya(writep, hkvline_iter, lenvalstr_start - hkvline_iter);
+    } else {
+      const char* idkey_start = &(idval[-3]);
+      writep = memcpya(writep, hkvline_iter, idkey_start - hkvline_iter);
+      writep = memcpya(writep, idval_end, lenvalstr_start - idval_end);
+    }
+    writep = u32toa(contig_len, writep);
+    writep = memcpya(writep, lenvalstr_end, closing_gt - lenvalstr_end);
+  } else {
+    // ID is later.
+    writep = memcpya(writep, hkvline_iter, lenvalstr_start - hkvline_iter);
+    writep = u32toa(contig_len, writep);
+    const char* idkey_prestart = &(idval[-4]);
+    writep = memcpya(writep, lenvalstr_end, idkey_prestart - lenvalstr_end);
+    writep = memcpya(writep, idval_end, closing_gt - idval_end);
+  }
+  *writep_ptr = writep;
   return 0;
 }
 
-PglErr CsFixAndWriteContigHeaderLine(const char* contig_name_end, uint32_t remaining_byte_ct, uint32_t contig_len, CompressStreamState* css_ptr, char** writep_ptr) {
-  const uint64_t length_str_loc = FindContigHeaderLineLengthStr(contig_name_end);
-  if (unlikely(length_str_loc == UINT64_MAX)) {
-    return kPglRetMalformedInput;
+BoolErr CsWriteRestOfHeaderLine(const char* hkvline_iter, const char* idval, const char* line_end, uint32_t id_slen, CompressStreamState* css_ptr, char** writep_ptr) {
+  if (idval > hkvline_iter) {
+    // Copy entries before ",ID=".
+    const char* idkey_prestart = &(idval[-4]);
+    char* cswritep = *writep_ptr;
+    *cswritep++ = ',';
+    *writep_ptr = cswritep;
+    if (unlikely(CsputsStd(hkvline_iter, idkey_prestart - hkvline_iter, css_ptr, writep_ptr))) {
+      return 1;
+    }
   }
-  if (!length_str_loc) {
+  const char* idval_end = &(idval[id_slen]);
+  return CsputsStd(idval_end, line_end - idval_end, css_ptr, writep_ptr);
+}
+
+PglErr CsFixAndWriteContigHeaderLine(const char* hkvline_iter, const char* idval, const char* line_end, uint32_t id_slen, uint32_t contig_len, CompressStreamState* css_ptr, char** writep_ptr) {
+  if (hkvline_iter[-1] == '>') {
+    // Only ID field present in input.
+    char* cswritep = strcpya_k(*writep_ptr, ",length=");
+    *writep_ptr = u32toa_x(contig_len, '>', cswritep);
+    AppendBinaryEoln(writep_ptr);
+    return Cswrite(css_ptr, writep_ptr)? kPglRetWriteFail : kPglRetSuccess;
+  }
+  const char* idval_end = &(idval[id_slen]);
+  const char* lenvalstr_start;
+  uint32_t lenval_slen;
+  IntErr interr = HkvlineFindK(hkvline_iter, "length", &lenvalstr_start, &lenval_slen);
+  if (interr) {
+    if (unlikely(S_CAST(int32_t, interr) == 2)) {
+      logerrputs("Error: Malformed ##contig line in .pvar file.\n");
+      return kPglRetMalformedInput;
+    }
     // Existing header line doesn't contain a length.  Place the length
     // immediately after the ID, and then append the rest of the existing line.
     char* cswritep = strcpya_k(*writep_ptr, ",length=");
-    *writep_ptr = u32toa(contig_len, cswritep);
-    return CsputsStd(contig_name_end, remaining_byte_ct, css_ptr, writep_ptr)? kPglRetWriteFail : kPglRetSuccess;
+    *writep_ptr = u32toa_x(contig_len, ',', cswritep);
+    if (idval < hkvline_iter) {
+      return CsputsStd(hkvline_iter, line_end - hkvline_iter, css_ptr, writep_ptr)? kPglRetWriteFail : kPglRetSuccess;
+    }
+    const char* idkey_start = &(idval[-3]);
+    if (unlikely(CsputsStd(hkvline_iter, idkey_start - hkvline_iter, css_ptr, writep_ptr) ||
+                 CsputsStd(idval_end, line_end - idval_end, css_ptr, writep_ptr))) {
+      return kPglRetWriteFail;
+    }
+    return kPglRetSuccess;
   }
-  const uint32_t start_pos = S_CAST(uint32_t, length_str_loc);
-  const uint32_t end_pos = length_str_loc >> 32;
-  if (unlikely(CsputsStd(contig_name_end, start_pos, css_ptr, writep_ptr))) {
+  char* cswritep = *writep_ptr;
+  const char* lenvalstr_end = &(lenvalstr_start[lenval_slen]);
+  *cswritep++ = ',';
+  if (idval < lenvalstr_start) {
+    // Usual case: ID was before length in input.
+    if (idval < hkvline_iter) {
+      if (unlikely(CsputsStd(hkvline_iter, lenvalstr_start - hkvline_iter, css_ptr, &cswritep))) {
+        return kPglRetWriteFail;
+      }
+    } else {
+      const char* idkey_start = &(idval[-3]);
+      if (unlikely(CsputsStd(hkvline_iter, idkey_start - hkvline_iter, css_ptr, &cswritep) ||
+                   CsputsStd(idval_end, lenvalstr_start - idval_end, css_ptr, &cswritep))) {
+        return kPglRetWriteFail;
+      }
+    }
+    *writep_ptr = u32toa(contig_len, cswritep);
+    return CsputsStd(lenvalstr_end, line_end - lenvalstr_end, css_ptr, writep_ptr)? kPglRetWriteFail : kPglRetSuccess;
+  }
+  // ID is later.
+  if (unlikely(CsputsStd(hkvline_iter, lenvalstr_start - hkvline_iter, css_ptr, &cswritep))) {
     return kPglRetWriteFail;
   }
-  *writep_ptr = u32toa(contig_len, *writep_ptr);
-  return CsputsStd(&(contig_name_end[end_pos]), remaining_byte_ct - end_pos, css_ptr, writep_ptr)? kPglRetWriteFail : kPglRetSuccess;
+  *writep_ptr = u32toa(contig_len, cswritep);
+  const char* idkey_prestart = &(idval[-4]);
+  if (unlikely(CsputsStd(lenvalstr_end, idkey_prestart - lenvalstr_end, css_ptr, writep_ptr) ||
+               CsputsStd(idval_end, line_end - idval_end, css_ptr, writep_ptr))) {
+    return kPglRetWriteFail;
+  }
+  return kPglRetSuccess;
 }
 
 PglErr PvarXheaderWrite(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* contig_lens, uintptr_t xheader_blen, uint32_t vcfheader, uint32_t write_filter, uint32_t write_info, uint32_t append_info_pr_header_line, char* xheader, CompressStreamState* css_ptr, char** cswritepp) {
@@ -516,8 +605,8 @@ PglErr PvarXheaderWrite(const uintptr_t* variant_include, const ChrInfo* cip, co
         const char* xheader_end = &(xheader[xheader_blen]);
         for (const char* xheader_iter = xheader; xheader_iter != xheader_end; ) {
           const char* next_line_start = AdvPastDelim(xheader_iter, '\n');
-          if (((!write_filter) && StrStartsWithUnsafe(xheader_iter, "##FILTER=<ID=")) ||
-              ((!write_info) && StrStartsWithUnsafe(xheader_iter, "##INFO=<ID="))) {
+          if (((!write_filter) && StrStartsWithUnsafe(xheader_iter, "##FILTER=<")) ||
+              ((!write_info) && StrStartsWithUnsafe(xheader_iter, "##INFO=<"))) {
             if (copy_start != xheader_iter) {
               if (unlikely(CsputsStd(copy_start, xheader_iter - copy_start, css_ptr, cswritepp))) {
                 goto PvarXheaderWrite_ret_WRITE_FAIL;
@@ -552,16 +641,19 @@ PglErr PvarXheaderWrite(const uintptr_t* variant_include, const ChrInfo* cip, co
       for (char* line_end = xheader; line_end != xheader_end; ) {
         char* line_start = line_end;
         line_end = AdvPastDelim(line_start, '\n');
-        const uint32_t slen = line_end - line_start;
-        if ((slen > 14) && StrStartsWithUnsafe(line_start, "##contig=<ID=")) {
-          char* contig_name_start = &(line_start[13]);
-          char* contig_name_end = S_CAST(char*, memchr(contig_name_start, ',', slen - 14));
-          if (!contig_name_end) {
-            // if this line is technically well-formed (ends in '>'), it's
-            // useless anyway, throw it out
+        if (StrStartsWithUnsafe(line_start, "##contig=<")) {
+          char* hkvline_iter = &(line_start[strlen("##contig=<")]);
+          char* idval;
+          uint32_t id_slen;
+          if (unlikely(HkvlineId(&hkvline_iter, &idval, &id_slen))) {
+            logerrputs("Error: Malformed ##contig line in .pvar file.\n");
+            goto PvarXheaderWrite_ret_MALFORMED_INPUT;
+          }
+          if (hkvline_iter[-1] == '>') {
+            // regenerate instead of keeping
             continue;
           }
-          const uint32_t chr_idx = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
+          const uint32_t chr_idx = GetChrCodeCounted(cip, id_slen, idval);
           if (IsI32Neg(chr_idx) || (!IsSet(cip->chr_mask, chr_idx))) {
             continue;
           }
@@ -583,27 +675,21 @@ PglErr PvarXheaderWrite(const uintptr_t* variant_include, const ChrInfo* cip, co
           }
           cswritep = chr_name_write_end;
           if (contig_lens && contig_lens[chr_idx]) {
-            reterr = CsFixAndWriteContigHeaderLine(contig_name_end, line_end - contig_name_end, contig_lens[chr_idx], css_ptr, &cswritep);
+            reterr = CsFixAndWriteContigHeaderLine(hkvline_iter, idval, line_end, id_slen, contig_lens[chr_idx], css_ptr, &cswritep);
             if (unlikely(reterr)) {
               goto PvarXheaderWrite_ret_1;
             }
           } else {
-            if (unlikely(CsputsStd(contig_name_end, line_end - contig_name_end, css_ptr, &cswritep))) {
+            if (unlikely(CsWriteRestOfHeaderLine(hkvline_iter, idval, line_end, id_slen, css_ptr, &cswritep))) {
               goto PvarXheaderWrite_ret_WRITE_FAIL;
             }
           }
         } else {
-          if (!write_filter) {
-            if (StrStartsWithUnsafe(line_start, "##FILTER=<ID=")) {
-              continue;
-            }
+          if (((!write_filter) && StrStartsWithUnsafe(line_start, "##FILTER=<")) ||
+              ((!write_info) && StrStartsWithUnsafe(line_start, "##INFO=<"))) {
+            continue;
           }
-          if (!write_info) {
-            if (StrStartsWithUnsafe(line_start, "##INFO=<ID=")) {
-              continue;
-            }
-          }
-          if (unlikely(CsputsStd(line_start, slen, css_ptr, &cswritep))) {
+          if (unlikely(CsputsStd(line_start, line_end - line_start, css_ptr, &cswritep))) {
             goto PvarXheaderWrite_ret_WRITE_FAIL;
           }
         }
@@ -825,7 +911,7 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
       // here.
       // This check is only need for REF and ALT1; later ALTs are not permitted
       // to be missing.
-      if (!memequal_k(cur_alleles[ref_allele_idx], ".", 2)) {
+      if (!strequal_k_unsafe(cur_alleles[ref_allele_idx], ".")) {
         cswritep = strcpya(cswritep, cur_alleles[ref_allele_idx]);
       } else {
         *cswritep++ = output_missing_geno_char;
@@ -833,7 +919,7 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
       *cswritep++ = '\t';
       uint32_t alt_allele_written = 0;
       if ((!allele_presents) || IsSet(allele_presents, allele_idx_offset_base + alt1_allele_idx)) {
-        if (!memequal_k(cur_alleles[alt1_allele_idx], ".", 2)) {
+        if (!strequal_k_unsafe(cur_alleles[alt1_allele_idx], ".")) {
           cswritep = strcpya(cswritep, cur_alleles[alt1_allele_idx]);
         } else {
           *cswritep++ = output_missing_geno_char;
@@ -1049,7 +1135,7 @@ uint32_t DataFidColIsRequired(const uintptr_t* sample_include, const SampleIdInf
   uintptr_t cur_bits = sample_include[0];
   for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
     const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-    if (!memequal_k(&(sample_ids[sample_uidx * max_sample_id_blen]), "0\t", 2)) {
+    if (!memequal_sk(&(sample_ids[sample_uidx * max_sample_id_blen]), "0\t")) {
       return 1;
     }
   }
@@ -1066,7 +1152,7 @@ uint32_t DataSidColIsRequired(const uintptr_t* sample_include, const char* sids,
     uintptr_t cur_bits = sample_include[0];
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-      if (!memequal_k(&(sids[sample_uidx * max_sid_blen]), "0", 2)) {
+      if (!strequal_k_unsafe(&(sids[sample_uidx * max_sid_blen]), "0")) {
         return 1;
       }
     }
@@ -3349,7 +3435,7 @@ JoinVtype JoinCount(const char* const* cur_alleles, uintptr_t allele_ct, JoinCou
     if (cur_allele[0] == '<') {
       return kJoinVtypeError;
     }
-    if (memequal_k(cur_allele, ".", 2)) {
+    if (strequal_k_unsafe(cur_allele, ".")) {
       if (allele_ct == 2) {
         jcp->nonsnp_ct = 0;
         jcp->missalt_nonsnp_ct = 1;
@@ -3819,37 +3905,36 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
   return reterr;
 }
 
-BoolErr FillInfoVtypeNum(const char* num_str_start, int32_t* info_vtype_num_ptr) {
-  const unsigned char first_num_char = num_str_start[0];
-  if (first_num_char < '1') {
-    if (first_num_char == '0') {
-      // don't see a reason to tolerate Number=01, etc.
-      if (unlikely(!StrStartsWithUnsafe(num_str_start, "0,Type=Flag,"))) {
+BoolErr FillInfoVtypeNum(const char* numstr, uint32_t num_slen, int32_t* info_vtype_num_ptr) {
+  if (num_slen == 1) {
+    const char num_char = numstr[0];
+    if (num_char < '0') {
+      if (likely(num_char == '.')) {
+        *info_vtype_num_ptr = kInfoVtypeUnknown;
+      } else {
         return 1;
       }
-      *info_vtype_num_ptr = 0;
-    } else if (likely(first_num_char == '.')) {
-      *info_vtype_num_ptr = kInfoVtypeUnknown;
+    } else if (num_char > '9') {
+      if (num_char == 'A') {
+        *info_vtype_num_ptr = kInfoVtypeA;
+      } else if (num_char == 'R') {
+        *info_vtype_num_ptr = kInfoVtypeR;
+      } else if (likely(num_char == 'G')) {
+        *info_vtype_num_ptr = kInfoVtypeUnknown;
+      } else {
+        return 1;
+      }
     } else {
-      return 1;
+      *info_vtype_num_ptr = num_char - '0';
     }
-  } else if (first_num_char > '9') {
-    if (first_num_char == 'A') {
-      *info_vtype_num_ptr = kInfoVtypeA;
-    } else if (first_num_char == 'R') {
-      *info_vtype_num_ptr = kInfoVtypeR;
-    } else if (likely(first_num_char == 'G')) {
-      *info_vtype_num_ptr = kInfoVtypeUnknown;
-    } else {
-      return 1;
-    }
-  } else {
-    uint32_t val;
-    if (unlikely(ScanmovPosintCapped(0x3fffffff, &num_str_start, &val) || (num_str_start[0] != ','))) {
-      return 1;
-    }
-    *info_vtype_num_ptr = val;
+    return 0;
   }
+  const char* numstr_iter = numstr;
+  uint32_t val;
+  if (unlikely(ScanmovPosintCapped(0x3fffffff, &numstr_iter, &val) || (numstr_iter != &(numstr[num_slen])))) {
+    return 1;
+  }
+  *info_vtype_num_ptr = val;
   return 0;
 }
 
@@ -3871,35 +3956,38 @@ PglErr ParseInfoHeader(const char* xheader, uintptr_t xheader_blen, const char* 
     while (line_end != xheader_end) {
       xheader_iter = line_end;
       line_end = AdvPastDelim(xheader_iter, '\n');
-      const uint32_t slen = line_end - xheader_iter;
-      if ((slen <= 12) || (!StrStartsWithUnsafe(xheader_iter, "##INFO=<ID="))) {
+      if (!StrStartsWithUnsafe(xheader_iter, "##INFO=<")) {
         continue;
       }
-      const char* key_start = &(xheader_iter[11]);
-      const char* key_end = S_CAST(const char*, memchr(key_start, ',', slen - 12));
-      if (unlikely((!key_end) || (!StrStartsWithUnsafe(key_end, ",Number=")))) {
+      xheader_iter = &(xheader_iter[strlen("##INFO=<")]);
+      const char* idval;
+      uint32_t id_slen;
+      if (unlikely(HkvlineIdK(&xheader_iter, &idval, &id_slen))) {
         goto ParseInfoHeader_ret_MALFORMED_INFO_HEADER_LINE;
       }
-      const uint32_t key_slen = key_end - key_start;
-      if (key_slen > kMaxInfoKeySlen) {
+      if (id_slen > kMaxInfoKeySlen) {
         logerrputs("Error: " PROG_NAME_STR " does not support INFO keys longer than " MAX_INFO_KEY_SLEN_STR " characters.\n");
-        // VCF spec doesn't specify a limit, so this isn't "malformed input".
+        // VCF spec doesn't specify a limit, so this isn't "malformed input",
+        // and not marked as unlikely() even though it is.
         // We enforce a limit so we can safely print INFO keys in error
         // messages, etc.; it's trivial to increase the limit if it's ever
         // necessary.
         reterr = kPglRetNotYetSupported;
         goto ParseInfoHeader_ret_1;
       }
-      const uintptr_t entry_byte_ct = RoundUpPow2(offsetof(InfoVtype, key) + 1 + key_slen, sizeof(intptr_t));
+      const uintptr_t entry_byte_ct = RoundUpPow2(offsetof(InfoVtype, key) + 1 + id_slen, sizeof(intptr_t));
       if (S_CAST(uintptr_t, tmp_alloc_end - R_CAST(unsigned char*, info_keys_iter)) < entry_byte_ct + 8) {
         goto ParseInfoHeader_ret_NOMEM;
       }
       tmp_alloc_end -= entry_byte_ct;
       InfoVtype* new_entry = R_CAST(InfoVtype*, tmp_alloc_end);
-      memcpyx(new_entry->key, key_start, key_slen, '\0');
+      memcpyx(new_entry->key, idval, id_slen, '\0');
       *info_keys_iter++ = new_entry->key;
 
-      if (unlikely(FillInfoVtypeNum(&(key_end[strlen(",Number=")]), &(new_entry->num)))) {
+      const char* numstr;
+      uint32_t num_slen;
+      if (unlikely(HkvlineFindK(xheader_iter, "Number", &numstr, &num_slen) ||
+                   FillInfoVtypeNum(numstr, num_slen, &(new_entry->num)))) {
         goto ParseInfoHeader_ret_MALFORMED_INFO_HEADER_LINE;
       }
     }
@@ -4252,13 +4340,13 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
         const uint32_t cur_alt_allele_slen = strlen(cur_alt_allele);
         if ((split_ct_p1 == 2) || keep_orig_id) {
           cswritep = strcpyax(cswritep, orig_variant_id, '\t');
-          if (!memequal_k(ref_allele, ".", 2)) {
+          if (!strequal_k_unsafe(ref_allele, ".")) {
             cswritep = memcpya(cswritep, ref_allele, ref_allele_slen);
           } else {
             *cswritep++ = output_missing_geno_char;
           }
           *cswritep++ = '\t';
-          if (!memequal_k(cur_alt_allele, ".", 2)) {
+          if (!strequal_k_unsafe(cur_alt_allele, ".")) {
             cswritep = memcpya(cswritep, cur_alt_allele, cur_alt_allele_slen);
           } else {
             *cswritep++ = output_missing_geno_char;
@@ -4297,13 +4385,13 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
           } else {
             cswritep = memcpyax(cswritep, missing_varid_match, missing_varid_slen, '\t');
           }
-          if (!memequal_k(ref_allele, ".", 2)) {
+          if (!strequal_k_unsafe(ref_allele, ".")) {
             cswritep = memcpya(cswritep, ref_allele, ref_allele_slen);
           } else {
             *cswritep++ = output_missing_geno_char;
           }
           *cswritep++ = '\t';
-          if (!memequal_k(cur_alt_allele, ".", 2)) {
+          if (!strequal_k_unsafe(cur_alt_allele, ".")) {
             cswritep = memcpya(cswritep, cur_alt_allele, cur_alt_allele_slen);
           } else {
             *cswritep++ = output_missing_geno_char;
@@ -7997,7 +8085,7 @@ PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* varia
         ref_allele_idx = refalt1_select[variant_uidx][0];
         alt1_allele_idx = refalt1_select[variant_uidx][1];
       }
-      if (!memequal_k(cur_alleles[ref_allele_idx], ".", 2)) {
+      if (!strequal_k_unsafe(cur_alleles[ref_allele_idx], ".")) {
         cswritep = strcpya(cswritep, cur_alleles[ref_allele_idx]);
       } else {
         *cswritep++ = output_missing_geno_char;
@@ -8005,7 +8093,7 @@ PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* varia
       *cswritep++ = '\t';
       uint32_t alt_allele_written = 0;
       if ((!allele_presents) || IsSet(allele_presents, allele_idx_offset_base + alt1_allele_idx)) {
-        if (!memequal_k(cur_alleles[alt1_allele_idx], ".", 2)) {
+        if (!strequal_k_unsafe(cur_alleles[alt1_allele_idx], ".")) {
           cswritep = strcpya(cswritep, cur_alleles[alt1_allele_idx]);
         } else {
           *cswritep++ = output_missing_geno_char;

@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a4"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (1 Jan 2023)";
+  " (7 Jan 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -1419,7 +1419,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       if ((pii.sii.flags & kfSampleIdFidPresent) && ((pii.sii.flags & kfSampleIdNoIdHeaderIidOnly) || (pcp->grm_flags & kfGrmNoIdHeaderIidOnly))) {
         for (uint32_t sample_idx = 0; sample_idx != raw_sample_ct; ++sample_idx) {
           const char* cur_sample_id = &(pii.sii.sample_ids[sample_idx * pii.sii.max_sample_id_blen]);
-          if (unlikely(!memequal_k(cur_sample_id, "0\t", 2))) {
+          if (unlikely(!memequal_sk(cur_sample_id, "0\t"))) {
             logerrputs("Error: 'iid-only' modifier can only be used when FIDs are missing or all-0.\n");
             goto Plink2Core_ret_INCONSISTENT_INPUT;
           }

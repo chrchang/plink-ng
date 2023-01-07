@@ -110,14 +110,14 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
           uint32_t cur_col_type;
           if (token_slen <= 3) {
             if (token_slen == 3) {
-              if (memequal_k(line_iter, "REF", 3)) {
+              if (memequal_sk(line_iter, "REF")) {
                 cur_col_type = 1;
-              } else if (memequal_k(line_iter, "ALT", 3)) {
+              } else if (memequal_sk(line_iter, "ALT")) {
                 cur_col_type = 2;
               } else {
                 continue;
               }
-            } else if (memequal_k(line_iter, "ID", 2)) {
+            } else if (memequal_sk(line_iter, "ID")) {
               cur_col_type = 0;
             } else {
               continue;

@@ -711,17 +711,17 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
         const uint32_t token_slen = token_end - linebuf_iter;
         uint32_t cur_col_type;
         if (token_slen == 3) {
-          if (memequal_k(linebuf_iter, "POS", 3)) {
+          if (memequal_sk(linebuf_iter, "POS")) {
             cur_col_type = 0;
-          } else if (memequal_k(linebuf_iter, "REF", 3)) {
+          } else if (memequal_sk(linebuf_iter, "REF")) {
             cur_col_type = 2;
-          } else if (memequal_k(linebuf_iter, "ALT", 3)) {
+          } else if (memequal_sk(linebuf_iter, "ALT")) {
             cur_col_type = 3;
           } else {
             continue;
           }
         } else if (token_slen == 2) {
-          if (memequal_k(linebuf_iter, "ID", 2)) {
+          if (memequal_sk(linebuf_iter, "ID")) {
             cur_col_type = 1;
           } else {
             continue;
