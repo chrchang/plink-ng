@@ -1561,6 +1561,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --exclude-if-info <key> <op> <val>   a comparison predicate on an INFO key,\n"
 "  (aliases: --extract-if,              e.g.\n"
 "            --exclude-if)                --extract-if-info \"VT == SNP\"\n"
+"                                       As a special case, val=';' specifies the\n"
+"                                       empty-string.\n"
 "                                       Unless the operator is !=, the predicate\n"
 "                                       always evaluates to false when the key\n"
 "                                       is missing.\n"
@@ -1616,6 +1618,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       long as FID and IID are equal (with missing FID treated\n"
 "                       as '0').  If you also want to require SID = '0' for a\n"
 "                       sample ID match in this situation, add --strict-sid0.\n"
+              );
+    HelpPrint("no-categorical\0input-missing-phenotype\0no-input-missing-phenotype\0pheno\0covar\0", &help_ctrl, 0,
+"  --no-categorical   : Force all non-numeric phenotype/covariate strings to be\n"
+"                       interpreted as missing values, not category names.\n"
               );
     // bugfix (27 Feb 2019): "\01" is interpreted as a single character, not a
     // null followed by a '1'...

@@ -7512,7 +7512,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     char* contig_out_buf;
     const char** fif_strings;
     uint32_t* fif_slens;
-    uintptr_t* info_flags;
     uintptr_t* bcf_contig_seen;
     uintptr_t* sample_nypbuf;
     if (unlikely(bigstack_calloc_w(BitCtToWordCt(contig_string_idx_end), &bcf_contig_keep) ||
@@ -7525,7 +7524,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
                  bigstack_alloc_c((kMaxChrTextnum + 1 + kChrOffsetCt) * (3 + kMaxChrTextnumSlen), &contig_out_buf) ||
                  bigstack_calloc_kcp(fif_string_idx_end, &fif_strings) ||
                  bigstack_calloc_u32(fif_string_idx_end, &fif_slens) ||
-                 bigstack_calloc_w(BitCtToWordCt(fif_string_idx_end), &info_flags) ||
                  bigstack_calloc_w(BitCtToWordCt(contig_string_idx_end), &bcf_contig_seen) ||
                  bigstack_alloc_w(sample_ctl2, &sample_nypbuf))) {
       goto BcfToPgen_ret_NOMEM;
@@ -7642,7 +7640,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         }
         if (is_info_line) {
           const uintptr_t is_flag = strequal_k(typestr, "Flag", type_slen);
-          info_flags[cur_header_idx / kBitsPerWord] |= is_flag << (cur_header_idx % kBitsPerWord);
           if (strequal_k(id_ptr, "PR", id_slen)) {
             if (unlikely((pr_sidx != UINT32_MAX) || info_pr_nonflag_exists)) {
               logerrputs("Error: Duplicate INFO/PR line in BCF text header block.\n");
@@ -8106,18 +8103,19 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             }
             parse_iter = &(parse_iter[vec_byte_ct]);
           } else {
-            // tolerate value_type == value_ct == 0 "untyped-missing" special
-            // case, but only if field is of type Flag.  Note that this means the
-            // flag IS present (and yes, bcftools emits this since it's compact).
+            // bugfix (8 Jan 2023): value_type == value_ct == 0
+            // "untyped-missing" special case is always permitted, it's not
+            // restricted to flags.
             //
             // value_ct == 0, value_type == 7 is also valid (string, missing).
             //
             // Otherwise, value_ct == 0 should not happen.
-            if (!IsSet(info_flags, sidx)) {
-              if (unlikely(value_ct != 7)) {
+            if (value_type) {
+              if (unlikely(value_type != 7)) {
                 goto BcfToPgen_ret_VREC_GENERIC;
               }
-              cur_info_slen_ubound += 2;
+              // Emit '=' with empty-string value.
+              ++cur_info_slen_ubound;
             }
           }
           if (sidx == pr_sidx) {
@@ -8894,76 +8892,78 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
                   const uint32_t vec_byte_ct = bytes_per_elem * value_ct;
                   const unsigned char* cur_vec_start = parse_iter;
                   parse_iter = &(parse_iter[vec_byte_ct]);
-                  if (!IsSet(info_flags, sidx)) {
-                    // value_ct guaranteed to be positive
+                  if (value_type == 7) {
+                    // string
+
+                    // Separated from other cases since we still write '=' when
+                    // value_ct == 0.
+                    *pvar_cswritep++ = '=';
+
+                    // Unlike most other VCF/BCF fields, spaces are actually
+                    // allowed by the VCF spec here, so we need to detect
+                    // them.
+                    // We error out on them for now (possible todo:
+                    // autoconversion to "%20").
+                    if (unlikely(memchr(cur_vec_start, ' ', value_ct))) {
+                      snprintf(g_logbuf, kLogbufSize, "Error: INFO field in variant record #%" PRIuPTR " of --bcf file contains a space; this cannot be imported by " PROG_NAME_STR ". Remove or reformat the field before reattempting import.\n", vrec_idx);
+                      goto BcfToPgen_ret_MALFORMED_INPUT_WWN;
+                    }
+                    pvar_cswritep = memcpya(pvar_cswritep, cur_vec_start, value_ct);
+                  } else if (value_ct) {
                     *pvar_cswritep++ = '=';
                     // ugh.  not a separate function for now since no other
                     // code needs to do this
-                    if (value_type == 7) {
-                      // string
-                      // Unlike most other VCF/BCF fields, spaces are actually
-                      // allowed by the VCF spec here, so we need to detect
-                      // them.
-                      // We error out on them for now (possible todo:
-                      // autoconversion to "%20").
-                      if (unlikely(memchr(cur_vec_start, ' ', value_ct))) {
-                        snprintf(g_logbuf, kLogbufSize, "Error: INFO field in variant record #%" PRIuPTR " of --bcf file contains a space; this cannot be imported by " PROG_NAME_STR ". Remove or reformat the field before reattempting import.\n", vrec_idx);
-                        goto BcfToPgen_ret_MALFORMED_INPUT_WWN;
+                    if (value_type == 1) {
+                      // int8
+                      for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
+                        const int8_t cur_val = S_CAST(int8_t, cur_vec_start[value_idx]);
+                        if (cur_val != -128) {
+                          pvar_cswritep = i32toa(cur_val, pvar_cswritep);
+                        } else {
+                          *pvar_cswritep++ = '.';
+                        }
+                        *pvar_cswritep++ = ',';
                       }
-                      pvar_cswritep = memcpya(pvar_cswritep, cur_vec_start, value_ct);
+                    } else if (value_type == 2) {
+                      // int16
+                      const int16_t* cur_vec_alias = R_CAST(const int16_t*, cur_vec_start);
+                      for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
+                        const int16_t cur_val = cur_vec_alias[value_idx];
+                        if (cur_val != -32768) {
+                          pvar_cswritep = i32toa(cur_val, pvar_cswritep);
+                        } else {
+                          *pvar_cswritep++ = '.';
+                        }
+                        *pvar_cswritep++ = ',';
+                      }
+                    } else if (value_type == 3) {
+                      // int32
+                      const int32_t* cur_vec_alias = R_CAST(const int32_t*, cur_vec_start);
+                      for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
+                        const int32_t cur_val = cur_vec_alias[value_idx];
+                        if (cur_val != (-2147483647 - 1)) {
+                          pvar_cswritep = i32toa(cur_val, pvar_cswritep);
+                        } else {
+                          *pvar_cswritep++ = '.';
+                        }
+                        *pvar_cswritep++ = ',';
+                      }
                     } else {
-                      if (value_type == 1) {
-                        // int8
-                        for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
-                          const int8_t cur_val = S_CAST(int8_t, cur_vec_start[value_idx]);
-                          if (cur_val != -128) {
-                            pvar_cswritep = i32toa(cur_val, pvar_cswritep);
-                          } else {
-                            *pvar_cswritep++ = '.';
-                          }
-                          *pvar_cswritep++ = ',';
+                      // float
+                      const uint32_t* cur_vec_alias = R_CAST(const uint32_t*, cur_vec_start);
+                      for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
+                        uint32_t cur_bits = cur_vec_alias[value_idx];
+                        if (cur_bits != 0x7f800001) {
+                          float cur_float;
+                          memcpy(&cur_float, &cur_bits, 4);
+                          pvar_cswritep = ftoa_g(cur_float, pvar_cswritep);
+                        } else {
+                          *pvar_cswritep++ = '.';
                         }
-                      } else if (value_type == 2) {
-                        // int16
-                        const int16_t* cur_vec_alias = R_CAST(const int16_t*, cur_vec_start);
-                        for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
-                          const int16_t cur_val = cur_vec_alias[value_idx];
-                          if (cur_val != -32768) {
-                            pvar_cswritep = i32toa(cur_val, pvar_cswritep);
-                          } else {
-                            *pvar_cswritep++ = '.';
-                          }
-                          *pvar_cswritep++ = ',';
-                        }
-                      } else if (value_type == 3) {
-                        // int32
-                        const int32_t* cur_vec_alias = R_CAST(const int32_t*, cur_vec_start);
-                        for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
-                          const int32_t cur_val = cur_vec_alias[value_idx];
-                          if (cur_val != (-2147483647 - 1)) {
-                            pvar_cswritep = i32toa(cur_val, pvar_cswritep);
-                          } else {
-                            *pvar_cswritep++ = '.';
-                          }
-                          *pvar_cswritep++ = ',';
-                        }
-                      } else {
-                        // float
-                        const uint32_t* cur_vec_alias = R_CAST(const uint32_t*, cur_vec_start);
-                        for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
-                          uint32_t cur_bits = cur_vec_alias[value_idx];
-                          if (cur_bits != 0x7f800001) {
-                            float cur_float;
-                            memcpy(&cur_float, &cur_bits, 4);
-                            pvar_cswritep = ftoa_g(cur_float, pvar_cswritep);
-                          } else {
-                            *pvar_cswritep++ = '.';
-                          }
-                          *pvar_cswritep++ = ',';
-                        }
+                        *pvar_cswritep++ = ',';
                       }
-                      --pvar_cswritep;
                     }
+                    --pvar_cswritep;
                   }
                   *pvar_cswritep++ = ';';
                 }
@@ -14751,7 +14751,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     uintptr_t* sex_male = nullptr;
     uintptr_t* founder_info = nullptr;
     uintptr_t max_pheno_name_blen = 0;
-    reterr = LoadPsam(famname, nullptr, missing_catname, fam_cols, 0x7fffffff, missing_pheno, (misc_flags / kfMiscAffection01) & 1, max_thread_ct, &pii, &sample_include, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
+    reterr = LoadPsam(famname, nullptr, missing_catname, fam_cols, 0x7fffffff, missing_pheno, (misc_flags / kfMiscAffection01) & 1, (misc_flags / kfMiscNoCategorical) & 1, max_thread_ct, &pii, &sample_include, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
     if (unlikely(reterr)) {
       goto Plink1DosageToPgen_ret_1;
     }

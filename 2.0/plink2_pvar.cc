@@ -526,6 +526,7 @@ PglErr InfoExistInit(const unsigned char* arena_end, const char* require_info_fl
   return kPglRetSuccess;
 }
 
+// Returns 1 iff all keys are found.
 uint32_t InfoExistCheck(const char* info_token, const InfoExist* existp) {
   const uint32_t key_ct = existp->key_ct;
   const char* prekeys_iter = existp->prekeys;
@@ -566,6 +567,7 @@ uint32_t InfoExistCheck(const char* info_token, const InfoExist* existp) {
   return 1;
 }
 
+// Returns 1 iff all keys are absent.
 uint32_t InfoNonexistCheck(const char* info_token, const InfoExist* nonexistp) {
   const uint32_t key_ct = nonexistp->key_ct;
   const char* prekeys_iter = nonexistp->prekeys;
@@ -657,16 +659,20 @@ PglErr InfoFilterInit(const unsigned char* arena_end, const CmpExpr* filter_expr
     logerrprintfww("Error: Invalid --%s value '%s' (finite number expected).\n", flagname_p, val_str);
     return kPglRetInvalidCmdline;
   }
-  filterp->val_str = val_str;
   const char* val_str_end_or_invalid = strchrnul2(val_str, ';', '=');
-  if (unlikely(*val_str_end_or_invalid)) {
-    if (*val_str_end_or_invalid == ';') {
-      logerrprintfww("Error: Invalid --%s value '%s' (semicolon prohibited).\n", flagname_p, val_str);
-    } else {
+  if (*val_str_end_or_invalid) {
+    if (unlikely(*val_str_end_or_invalid == '=')) {
       logerrprintfww("Error: Invalid --%s value '%s' ('=' prohibited).\n", flagname_p, val_str);
+      return kPglRetInvalidCmdline;
+    } else if (unlikely(val_str_end_or_invalid[1])) {
+      logerrprintfww("Error: Invalid --%s value '%s' (semicolon prohibited, unless by itself to specify empty-string).\n", flagname_p, val_str);
+      return kPglRetInvalidCmdline;
     }
-    return kPglRetInvalidCmdline;
+    // Empty-string special case.
+    filterp->val_str = &(val_str[1]);
+    return kPglRetSuccess;
   }
+  filterp->val_str = val_str;
   filterp->val_slen = val_str_end_or_invalid - val_str;
   return kPglRetSuccess;
 }

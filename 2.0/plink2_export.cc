@@ -8440,10 +8440,10 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
             ++n_info_raw;
             write_iter = AppendBcfTypedInt(fif_idx, write_iter);
             if (*key_end == ';') {
-              if (unlikely(info_type_code != 1)) {
-                snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: INFO/%s for variant '%s' has no value, and isn't of type Flag.\n", fif_keys[fif_idx], variant_id);
-                goto ExportBcf_ret_MALFORMED_INPUT_WW;
-              }
+              // bugfix (8 Jan 2023): this previously errored out on non-flag
+              // keys, but VCFv4.3 (though not v4.2) allows non-flag keys to
+              // have no value.
+
               // Anything goes here.  As of this writing, the spec suggests
               // 0x11 0x01 (single int8 equal to 1), but bcftools emits the
               // more compact 0x00 (typeless missing value); we imitate
