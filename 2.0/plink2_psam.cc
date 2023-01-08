@@ -825,7 +825,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
     reterr = kPglRetMalformedInput;
     break;
   LoadPsam_ret_INCOMPATIBLE_PHENOSTRS:
-    logerrputs("(Case/control and quantitative phenotypes must all be numeric/'NA'.\nCategorical phenotypes cannot be 'NA'--use e.g. 'NONE' to represent missing\ncategorical values instead--or start with a number.)\n");
+    logerrputs("(Unless --no-categorical is specified, case/control and quantitative phenotypes\nmust all be numeric/'NA'.\nCategorical phenotypes cannot be 'NA'--use e.g. 'NONE' to represent missing\ncategorical values instead--or start with a number.)\n");
     reterr = kPglRetMalformedInput;
     break;
   }
@@ -1507,7 +1507,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     reterr = kPglRetMalformedInput;
     break;
   LoadPhenos_ret_INCOMPATIBLE_PHENOSTRS:
-    logerrputs("(Case/control and quantitative phenotypes must all be numeric/'NA'.\nCategorical phenotypes cannot be 'NA'--use e.g. 'NONE' to represent missing\ncategorical values instead--or start with a number.)\n");
+    logerrputs("(Unless --no-categorical is specified, case/control and quantitative phenotypes\nmust all be numeric/'NA'.\nCategorical phenotypes cannot be 'NA'--use e.g. 'NONE' to represent missing\ncategorical values instead--or start with a number.)\n");
     reterr = kPglRetMalformedInput;
     break;
   LoadPhenos_ret_INCONSISTENT_INPUT_WW:
