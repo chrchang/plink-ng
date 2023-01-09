@@ -1,3 +1,7 @@
 # Ignore zlib download
 zlib-1.2.12*
 .Rproj.user
+pgen_spec/pgen_spec.aux
+pgen_spec/pgen_spec.log
+pgen_spec/pgen_spec.out
+pgen_spec/pgen_spec.toc
