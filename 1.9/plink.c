@@ -4633,6 +4633,11 @@ int32_t main(int32_t argc, char** argv) {
 	  memcpy(&(filter_attrib_sample_liststr[uii]), ",", 2);
 	}
 	filter_flags |= FILTER_FAM_REQ;
+      } else if (!memcmp(argptr2, "c-founders", 11)) {
+        // Accept this flag even though it isn't enforced, since we want to
+        // encourage its use with --mac/"--freq counts" in plink 2.0.
+        misc_flags |= MISC_AC_FOUNDERS;
+        goto main_param_zero;
       } else if ((!memcmp(argptr2, "lt-group", 9)) ||
                  (!memcmp(argptr2, "lt-snp", 7))) {
         goto main_hap_disabled_message;
@@ -9627,6 +9632,10 @@ int32_t main(int32_t argc, char** argv) {
 	fam_cols &= ~FAM_COL_6;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "onfounders", 11)) {
+        if (misc_flags & MISC_AC_FOUNDERS) {
+          logerrprint("Error: --ac-founders and --nonfounders cannot be used together.\n");
+          goto main_ret_INVALID_CMDLINE;
+        }
 	misc_flags |= MISC_NONFOUNDERS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "eighbour", 9)) {

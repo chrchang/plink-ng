@@ -368,6 +368,7 @@
 #define MISC_ALLOW_NO_SAMPLES 0x40000000000LLU
 #define MISC_ALLOW_NO_VARS 0x80000000000LLU
 #define MISC_VCF_REQUIRE_GT 0x100000000000LLU
+#define MISC_AC_FOUNDERS 0x200000000000LLU
 
 // assume for now that .bed must always be accompanied by both .bim and .fam
 #define FILTER_ALL_REQ 1LLU
