@@ -1959,9 +1959,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                       always evaluates to false when the\n"
 "                                       phenotype/covariate is missing.\n"
                );
-    HelpPrint("nonfounders\0freq\0hardy\0hwe\0bad-freqs\0", &help_ctrl, 0,
-"  --nonfounders      : Include nonfounders in allele freq/HWE calculations.\n"
-               );
+    HelpPrint("ac-founders\0nonfounders\0freq\0hardy\0hwe\0bad-freqs\0maf\0min-af\0max-maf\0max-af\0mac\0min-ac\0max-mac\0max-ac\0", &help_ctrl, 0,
+"  --nonfounders      : Include nonfounders in allele freq/count/HWE\n"
+"                       calculations.\n"
+              );
+    HelpPrint("ac-founders\0nonfounders\0freq\0mac\0min-ac\0max-mac\0max-ac\0", &help_ctrl, 0,
+"  --ac-founders      : Confirm that nonfounders should be excluded from\n"
+"                       --mac/--max-mac/\"--freq counts\".\n"
+              );
     HelpPrint("bad-freqs\0", &help_ctrl, 0,
 "  --bad-freqs        : When PLINK 2 needs decent allele frequencies, it\n"
 "                       normally errors out if they aren't provided by\n"

@@ -5785,7 +5785,7 @@ typedef struct SampleCountsCtxStruct {
   uint64_t err_info;
 
   // top-level: length calc_thread_ct array
-  // second level: length-16 arrays, corresponding to the 16 chr_type x
+  // second level: length-20 arrays, corresponding to the 20 chr_type x
   //               subst_code possibilities
   // bottom level: acc2 partial counts, then acc4, then acc8, then acc32 for
   //               genotype=0.  Then the same for genotype=2, and finally (in
@@ -5793,7 +5793,7 @@ typedef struct SampleCountsCtxStruct {
   VecW*** thread_dense_counts;
 
   // top-level: length calc_thread_ct array
-  // second level: length-32 arrays, corresponding to chr_type x common_geno x
+  // second level: length-40 arrays, corresponding to chr_type x common_geno x
   //               subst_code possibilities
   // bottom level: three vector-aligned length-sample_ct arrays, corresponding
   //               to the three ((common_geno ^ rare_geno) - 1) possibilities.
@@ -5809,9 +5809,9 @@ typedef struct SampleCountsCtxStruct {
   // necessary adjustments with the het_rarealt_cts, het2alt_cts,
   // hom_rarealt_cts, and hap_rarealt_cts arrays below.
   // - het2alt_cts has 10 vector-aligned length-sample_ct arrays.  The first
-  //   four correspond to ALT1 subst_codes, and the last four correspond to the
-  //   actually-observed-ALT subst_codes.  The sum of the last four arrays is
-  //   always twice that of the first four arrays, since each allele is counted
+  //   five correspond to ALT1 subst_codes, and the last five correspond to the
+  //   actually-observed-ALT subst_codes.  The sum of the last five arrays is
+  //   always twice that of the first five arrays, since each allele is counted
   //   separately.
   // - het_rarealt_cts, hom_rarealt_cts and hap_rarealt_cts have 5
   //   vector-aligned lenght-sample_ct arrays, corresponding to subst_code
@@ -6161,7 +6161,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
             }
           }
         }
-      } else {
+      } else { // subst_codes_vary
         if (chr_type < 2) {
           const uint32_t patch_01_ct = pgv.patch_01_ct;
           if (patch_01_ct) {
@@ -6169,12 +6169,29 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
             const AlleleCode* patch_01_vals = pgv.patch_01_vals;
             uintptr_t sample_idx_base = 0;
             uintptr_t sample_idx_bits = patch_01_set[0];
-            for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
-              const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &sample_idx_bits);
-              const uint32_t cur_subst_code = alt_subst_codes[patch_01_vals[uii]];
-              if (subst_code1 != cur_subst_code) {
-                het_rarealt_cts[subst_code1_offset + sample_idx] -= 1;
-                het_rarealt_cts[cur_subst_code * sample_ct_i32av + sample_idx] += 1;
+            if (!chr_type) {
+              for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+                const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &sample_idx_bits);
+                const uint32_t cur_subst_code = alt_subst_codes[patch_01_vals[uii]];
+                if (subst_code1 != cur_subst_code) {
+                  het_rarealt_cts[subst_code1_offset + sample_idx] -= 1;
+                  het_rarealt_cts[cur_subst_code * sample_ct_i32av + sample_idx] += 1;
+                }
+              }
+            } else {
+              for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+                const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &sample_idx_bits);
+                // bugfix (9 Jan 2023): in male case, we will adjust hethap
+                // to missing later under the assumption that this genotype
+                // is ref/alt1.  So, subst_code doesn't matter.
+                const uint32_t is_male = IsSet(sex_male_collapsed, sample_idx);
+                if (!is_male) {
+                  const uint32_t cur_subst_code = alt_subst_codes[patch_01_vals[uii]];
+                  if (subst_code1 != cur_subst_code) {
+                    het_rarealt_cts[subst_code1_offset + sample_idx] -= 1;
+                    het_rarealt_cts[cur_subst_code * sample_ct_i32av + sample_idx] += 1;
+                  }
+                }
               }
             }
           }

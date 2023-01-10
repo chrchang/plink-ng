@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a4"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (8 Jan 2023)";
+  " (9 Jan 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -511,7 +511,7 @@ uint32_t AlleleDosagesAreNeeded(Command1Flags command_flags1, MiscFlags misc_fla
   if ((command_flags1 & kfCommand1AlleleFreq) ||
       (misc_flags & kfMiscMajRef) ||
       min_allele_ddosage ||
-      (max_allele_ddosage != UINT32_MAX)) {
+      (max_allele_ddosage != (~0LLU))) {
     // Keep this in sync with --error-on-freq-calc.
     *regular_freqcounts_neededp = 1;
     return 1;
@@ -1859,6 +1859,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(bigstack_alloc_d(raw_allele_ct - raw_variant_ct, &allele_freqs))) {
             goto Plink2Core_ret_NOMEM;
           }
+        }
+        if ((sample_ct != founder_ct) && (pcp->min_allele_ddosage || (pcp->max_allele_ddosage != (~0LLU)) || ((!pcp->read_freq_fname) && (pcp->freq_rpt_flags & kfAlleleFreqCounts))) && (!nonfounders) && (!(pcp->misc_flags & kfMiscAcFounders))) {
+          logerrputs("Warning: --mac/--max-mac/\"--freq counts\" specified, but with neither\n--ac-founders nor --nonfounders; and nonfounders are present.  (This will be\nupgraded to an error in the future.)\n");
         }
         uint32_t x_start = 0;
         uint32_t x_len = 0;
@@ -4031,6 +4034,8 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "llow-misleading-out-arg")) {
           allow_misleading_out_arg = 1;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "c-founders")) {
+          pc.misc_flags |= kfMiscAcFounders;
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "ssoc"))) {
           logerrputs("Error: --assoc is retired.  Use --glm instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
