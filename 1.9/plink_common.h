@@ -43,7 +43,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define SPECIES_HUMAN 0
 #define SPECIES_COW 1
@@ -892,6 +892,7 @@ extern char g_textbuf[];
 extern const char g_one_char_strs[];
 extern const char* g_missing_geno_ptr;
 extern const char* g_output_missing_geno_ptr;
+extern char g_missing_geno_char2;
 
 HEADER_INLINE const char* cond_replace(const char* ss, const char* match_str, const char* replace_str) {
   return (ss != match_str)? ss : replace_str;

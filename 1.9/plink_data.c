@@ -461,6 +461,8 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
   char* bufptr4 = nullptr;
   char* bufptr5 = nullptr;
   char** marker_allele_ptrs = nullptr;
+  const char missing_geno_char = missing_geno_ptr[0];
+  const char missing_geno_char2 = g_missing_geno_char2;
   uintptr_t loaded_chrom_mask[CHROM_MASK_WORDS];
   uint32_t missing_template_seg_len[5];
   uint32_t missing_template_seg_order[4]; // '@', '#', '$1', '$2'
@@ -1043,6 +1045,12 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 	  }
 	  ukk = strlen_se(bufptr4);
 	  umm = strlen_se(bufptr5);
+          if ((bufptr4[0] == missing_geno_char2) && (ukk == 1)) {
+            bufptr4[0] = missing_geno_char;
+          }
+          if ((bufptr5[0] == missing_geno_char2) && (umm == 1)) {
+            bufptr5[0] = missing_geno_char;
+          }
 	  if (marker_alleles_needed) {
 	    if (snps_only) {
 	      if ((ukk != 1) || (umm != 1) || (snps_only_just_acgt && ((!is_acgtm(*bufptr4)) || (!is_acgtm(*bufptr5))))) {
@@ -14754,6 +14762,8 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
   int32_t retval = 0;
   uint32_t alen1 = 1;
   uint32_t alen2 = 1;
+  const char missing_geno_char = g_missing_geno_ptr[0];
+  const char missing_geno_char2 = g_missing_geno_char2;
   char* cur_alleles[2];
   char* loadbuf;
   char* bufptr;
@@ -14859,14 +14869,14 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
 	  alen2 = strlen_se(aptr2);
 	  aptr1[alen1] = '\0';
 	  aptr2[alen2] = '\0';
-	  if ((alen1 == 1) && (*aptr1 == '0')) {
+	  if ((alen1 == 1) && ((*aptr1 == missing_geno_char) || (*aptr1 == missing_geno_char2))) {
 	    aptr1 = nullptr;
 	  }
 	  if (aptr1 && (alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
 	    LOGPREPRINTFWW("Error: Identical A1 and A2 alleles on line %" PRIuPTR " of %s.\n", line_idx, bimname);
 	    goto merge_bim_scan_ret_INVALID_FORMAT_2;
 	  }
-	  if ((alen2 == 1) && (*aptr2 == '0')) {
+	  if ((alen2 == 1) && ((*aptr2 == missing_geno_char) || (*aptr2 == missing_geno_char2))) {
 	    aptr2 = nullptr;
 	  }
 	} else {
@@ -15352,6 +15362,8 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   uintptr_t* mbufptr = nullptr; // merge mode 1, 4, 6, 7
   uintptr_t* readbuf_w = nullptr; // used for main binary load
   const char* missing_geno_ptr = g_missing_geno_ptr;
+  const char missing_geno_char = missing_geno_ptr[0];
+  const char missing_geno_char2 = g_missing_geno_char2;
   uint64_t diff_total_overlap = 0;
   uint64_t diff_not_both_genotyped = 0;
   uint64_t diff_discordant = 0;
@@ -15521,7 +15533,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       if (load_raw(cur_sample_ct4, bedfile, readbuf_w)) {
 	goto merge_main_ret_READ_FAIL;
       }
-      if ((((*bufptr2 != '0') || (alen1 != 1)) && (!strcmp(bufptr2, bufptr5)))  || (((*bufptr3 != '0') || (alen2 != 1)) && (!strcmp(bufptr3, bufptr4)))) {
+      if (((((*bufptr2 != missing_geno_char) && (*bufptr2 != missing_geno_char2)) || (alen1 != 1)) && (!strcmp(bufptr2, bufptr5)))  || ((((*bufptr3 != missing_geno_char) && (*bufptr3 != missing_geno_char2)) || (alen2 != 1)) && (!strcmp(bufptr3, bufptr4)))) {
 	// Ack, how did this bug not get caught for so long!
 	// Necessary to use reverse_loadbuf here to handle last byte properly
 	// (since cur_sample_ct % 4 is not necessarily the same as
@@ -15823,6 +15835,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
           canonical_marker_allele_ptrs = &(marker_allele_ptrs[canonical_ascii_uidx * 2]);
         }
 
+        // Don't support '.' missing code in .ped files, only .bim.
 	if ((*aptr1 == '0') && (alen1 == 1)) {
           if ((*aptr2 != '0') || (alen2 != 1)) {
 	    goto merge_main_ret_HALF_MISSING;

@@ -1354,8 +1354,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --silent         : Suppress output to console.\n"
 "  --gplink         : Reserved for interoperation with gPLINK.\n"
 	       );
-    help_print("missing-genotype", &help_ctrl, 0,
+    help_print("missing-genotype\tmissing-genotype2", &help_ctrl, 0,
 "  --missing-genotype <char> : Set missing genotype code (normally '0').\n"
+"  --missing-genotype2 <c>   : Set additional missing genotype code in .bim\n"
+"                              input (normally '.').\n"
 	       );
     help_print("vcf\tbcf\tdouble-id\tconst-fid\tid-delim", &help_ctrl, 0,
 "  --double-id          : Set both FIDs and IIDs to the VCF/BCF sample ID.\n"

@@ -93,7 +93,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b6.27"
+  "PLINK v1.90b7"
 #else
   "PLINK v1.90p"
 #endif
@@ -105,12 +105,12 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 Jan 2023)";
+  " (16 Jan 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
 #ifdef STABLE_BUILD
-  "" // (don't want this when version number has two trailing digits)
+  "   " // (don't want this when version number has two trailing digits)
 #else
   "    " // (don't want this when version number has e.g. "b3" before "p")
 #endif
@@ -6392,7 +6392,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	load_rare = LOAD_RARE_DOSAGE;
       } else if (!memcmp(argptr2, "fam", 4)) {
-	UNSTABLE("dfam");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -8361,6 +8360,16 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	g_missing_geno_ptr = &(g_one_char_strs[((unsigned char)cc) * 2]);
 	g_output_missing_geno_ptr = g_missing_geno_ptr;
+      } else if (!memcmp(argptr2, "issing-genotype2", 17)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        cc = extract_char_param(argv[cur_arg + 1]);
+	if (((unsigned char)cc <= ' ') || ((cc > '0') && (cc <= '4')) || (cc == 'A') || (cc == 'C') || (cc == 'G') || (cc == 'T')) {
+	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid --missing-genotype2 parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
+	}
+        g_missing_geno_char2 = cc;
       } else if (!memcmp(argptr2, "issing-phenotype", 17)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -12138,7 +12147,6 @@ int32_t main(int32_t argc, char** argv) {
 	ld_info.modifier |= LD_SHOW_TAGS_MODE2;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "ucc", 4)) {
-	UNSTABLE("tucc");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
