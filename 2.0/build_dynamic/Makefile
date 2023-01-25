@@ -19,7 +19,7 @@
 #     work)
 #   Debug symbols: set DEBUG to -g
 NO_AVX2 = 1
-NO_SSE42 =
+NO_SSE42 = 1
 CPU_CHECK = 1
 NO_LAPACK =
 PREFER_CBLAS_F77 =
@@ -30,7 +30,7 @@ DYNAMIC_MKL =
 MKLROOT = /home/ubuntu/intel/mkl
 MKL_IOMP5_DIR = /home/ubuntu/intel/compilers_and_libraries_2017.2.174/linux/compiler/lib/intel64
 STATIC_AOCL =
-AOCLROOT = /home/ubuntu/amd/aocl/3.2.0
+AOCLROOT = /home/ubuntu/amd/aocl/4.0.0
 FORCE_32BIT =
 DEBUG =
 CC ?= gcc
