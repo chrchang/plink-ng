@@ -31,7 +31,7 @@ CC ?=		gcc
 CXX ?=		g++
 CFLAGS ?=	-Wall -O2 -g -I../2.0/simde
 CXXFLAGS ?=	-Wall -O2 -g -I../2.0/simde
-MACFLAGS ?=	--target=x86_64-apple-macosx10.9
+MACFLAGS ?=
 
 PREFIX ?=	/usr/local
 DESTDIR ?=	.
@@ -46,7 +46,7 @@ ifeq ($(SYS), MAC)
   CFLAGS += $(MACFLAGS)
   CXXFLAGS += $(MACFLAGS)
   BLASFLAGS ?= -framework Accelerate
-  LDFLAGS ?= -ldl --target=x86_64-apple-macosx10.9
+  LDFLAGS ?= -ldl
   ZLIB ?= -L. ../zlib-1.2.12/libz.a
 endif
 

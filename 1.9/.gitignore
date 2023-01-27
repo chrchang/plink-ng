@@ -6,6 +6,10 @@ bazel-bin
 bazel-genfiles
 bazel-out
 bazel-testlogs
+build_mac/plink_amd64
+build_mac/plink_arm64
+build_mac/plink_amd64.dSYM/*
+build_mac/plink_arm64.dSYM/*
 *~
 *.tmp
 *.o
