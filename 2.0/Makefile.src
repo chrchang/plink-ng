@@ -127,5 +127,7 @@ CLEAN = *.o \
         zstd/lib/common/*.o \
         zstd/lib/compress/*.o \
         zstd/lib/decompress/*.o \
+        pgenlibr/src/*.o \
+        pgenlibr/src/pgenlibr.so \
         bin/plink2 bin/pgen_compress
 CLEAN3 = $(foreach expr,$(CLEAN),../$(expr))

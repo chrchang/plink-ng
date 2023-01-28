@@ -79,7 +79,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1905
+#define PGENLIB_INTERNAL_VERNUM 1906
 
 #ifdef __cplusplus
 namespace plink2 {
