@@ -6,8 +6,8 @@
 
 # Does not currently support -DCPU_CHECK_...
 
-# BASEFLAGS=-g -DZSTD_MULTITHREAD -DSTATIC_ZSTD
-BASEFLAGS=-g -mavx2 -mbmi -mbmi2 -mfma -mlzcnt -DZSTD_MULTITHREAD
+BASEFLAGS=-g -DZSTD_MULTITHREAD -DSTATIC_ZSTD
+# BASEFLAGS=-g -mavx2 -mbmi -mbmi2 -mfma -mlzcnt -DZSTD_MULTITHREAD
 # BASEFLAGS=-g -msse4.2 -DZSTD_MULTITHREAD
 
 include Makefile.src
@@ -43,11 +43,11 @@ DESTDIR		?= .
 UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
   # argh
-  CFLAGS += -I/usr/local/include
-  CXXFLAGS += -I/usr/local/include
+  CFLAGS += -I/opt/homebrew/include -I/usr/local/include
+  CXXFLAGS += -I/opt/homebrew/include -I/usr/local/include
   BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
-  LDFLAGS=-ldl -lpthread -lz -lzstd -L/usr/local/lib
+  LDFLAGS=-ldl -lpthread -lz -lzstd -L/opt/homebrew/lib -L/usr/local/lib
 endif
 
 %.o: %.c

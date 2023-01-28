@@ -667,7 +667,7 @@ simde_mm_cvtm64_si64 (simde__m64 a) {
     #if defined(SIMDE_ARM_NEON_A32V7_NATIVE)
       HEDLEY_DIAGNOSTIC_PUSH
       #if HEDLEY_HAS_WARNING("-Wvector-conversion") && SIMDE_DETECT_CLANG_VERSION_NOT(10,0,0)
-        #pragma clang diagnostic ignored "-Wvector-conversion"
+        // #pragma clang diagnostic ignored "-Wvector-conversion"
       #endif
       return vget_lane_s64(a_.neon_i64, 0);
       HEDLEY_DIAGNOSTIC_POP
@@ -741,7 +741,7 @@ simde_mm_cvtsi64_si32 (simde__m64 a) {
     #if defined(SIMDE_ARM_NEON_A32V7_NATIVE)
       HEDLEY_DIAGNOSTIC_PUSH
       #if HEDLEY_HAS_WARNING("-Wvector-conversion") && SIMDE_DETECT_CLANG_VERSION_NOT(10,0,0)
-        #pragma clang diagnostic ignored "-Wvector-conversion"
+        // #pragma clang diagnostic ignored "-Wvector-conversion"
       #endif
       return vget_lane_s32(a_.neon_i32, 0);
       HEDLEY_DIAGNOSTIC_POP
@@ -1386,7 +1386,7 @@ simde_mm_sll_pi16 (simde__m64 a, simde__m64 count) {
     #if defined(SIMDE_ARM_NEON_A32V7_NATIVE)
       HEDLEY_DIAGNOSTIC_PUSH
       #if HEDLEY_HAS_WARNING("-Wvector-conversion") && SIMDE_DETECT_CLANG_VERSION_NOT(10,0,0)
-        #pragma clang diagnostic ignored "-Wvector-conversion"
+        // #pragma clang diagnostic ignored "-Wvector-conversion"
       #endif
       r_.neon_i16 = vshl_s16(a_.neon_i16, vmov_n_s16(HEDLEY_STATIC_CAST(int16_t, vget_lane_u64(count_.neon_u64, 0))));
       HEDLEY_DIAGNOSTIC_POP
@@ -1431,7 +1431,7 @@ simde_mm_sll_pi32 (simde__m64 a, simde__m64 count) {
     #if defined(SIMDE_ARM_NEON_A32V7_NATIVE)
       HEDLEY_DIAGNOSTIC_PUSH
       #if HEDLEY_HAS_WARNING("-Wvector-conversion") && SIMDE_DETECT_CLANG_VERSION_NOT(10,0,0)
-        #pragma clang diagnostic ignored "-Wvector-conversion"
+        // #pragma clang diagnostic ignored "-Wvector-conversion"
       #endif
       r_.neon_i32 = vshl_s32(a_.neon_i32, vmov_n_s32(HEDLEY_STATIC_CAST(int32_t, vget_lane_u64(count_.neon_u64, 0))));
       HEDLEY_DIAGNOSTIC_POP
@@ -2379,7 +2379,7 @@ simde_m_to_int (simde__m64 a) {
     #if defined(SIMDE_ARM_NEON_A32V7_NATIVE)
       HEDLEY_DIAGNOSTIC_PUSH
       #if HEDLEY_HAS_WARNING("-Wvector-conversion") && SIMDE_DETECT_CLANG_VERSION_NOT(10,0,0)
-        #pragma clang diagnostic ignored "-Wvector-conversion"
+        // #pragma clang diagnostic ignored "-Wvector-conversion"
       #endif
       return vget_lane_s32(a_.neon_i32, 0);
       HEDLEY_DIAGNOSTIC_POP

@@ -5,6 +5,11 @@
 
 using namespace Rcpp;
 
+#ifdef RCPP_USE_GLOBAL_ROSTREAM
+Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
+Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
+#endif
+
 // NewPgen
 SEXP NewPgen(String filename, Nullable<List> pvar, Nullable<int> raw_sample_ct, Nullable<IntegerVector> sample_subset);
 RcppExport SEXP _pgenlibr_NewPgen(SEXP filenameSEXP, SEXP pvarSEXP, SEXP raw_sample_ctSEXP, SEXP sample_subsetSEXP) {

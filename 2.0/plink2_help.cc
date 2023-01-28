@@ -1278,6 +1278,21 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      err: Error code for NA results.\n"
 "    The default is chrom,pos,ref,alt,firth,test,nobs,orbeta,se,ci,tz,p,err.\n\n"
                );
+    /*
+    HelpPrint("gwas-ssf\0glm\0linear\0logistic\0assoc\0", &help_ctrl, 1,
+"  --gwas-ssf ['zs'] ['delete-orig-glm']\n"
+"             ['files='<comma-separated filenames>]\n"
+"             ['file-lists='<comma-separated filenames>]\n"
+"    Reformat PLINK association test results as GWAS-SSF, for the GWAS catalog\n"
+"    (https://www.ebi.ac.uk/gwas/ ).  Output files have '.ssf.tsv' appended\n"
+"    to the original filenames.\n"
+"    * If --glm was specified, it will postprocess --glm's results, and\n"
+"      optionally delete the --glm results afterward ('delete-orig-glm'\n"
+"      modifier).  Additional files to postprocess can be specified with files=\n"
+"      and/or file-lists=.\n"
+"    * For multiallelic variants, ...\n\n"
+              );
+    */
     HelpPrint("score\0", &help_ctrl, 1,
 "  --score <filename> [i] [j] [k] [{header | header-read}]\n"
 "          [{center | variance-standardize | dominant | recessive}]\n"
@@ -1401,7 +1416,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      sidaksd: Sidak step-down adjusted p-value.\n"
 "      fdrbh: Benjamini & Hochberg (1995) step-up false discovery control.\n"
 "      fdrby: Benjamini & Yekutieli (2001) step-up false discovery control.\n"
-"    Default set is chrom,a1,unadj,gc,bonf,holm,sidakss,sidaksd,fdrbh,fdrby.\n"
+"    Default set is chrom,a1,unadj,gc,bonf,holm,sidakss,sidaksd,fdrbh,fdrby.\n\n"
                );
     // todo: reimplement most/all of PLINK 1.x's other automatic checks (het
     // haploids, missing sex, etc. with corresponding output files) and have a

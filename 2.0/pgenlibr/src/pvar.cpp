@@ -26,7 +26,7 @@ const char* RPvar::GetVariantId(uint32_t variant_idx) const {
   if (variant_idx >= _mp.variant_ct) {
     char errbuf[256];
     if (_mp.variant_ct) {
-      sprintf(errbuf, "variant_num out of range (%d; must be 1..%d)", variant_idx + 1, _mp.variant_ct);
+      snprintf(errbuf, 256, "variant_num out of range (%d; must be 1..%d)", variant_idx + 1, _mp.variant_ct);
     } else {
       strcpy(errbuf, "pvar closed");
     }
@@ -48,7 +48,7 @@ std::pair<std::multimap<const char*, int, classcomp>::iterator, std::multimap<co
 uint32_t RPvar::GetAlleleCt(uint32_t variant_idx) const {
   if (variant_idx >= _mp.variant_ct) {
     char errstr_buf[256];
-    sprintf(errstr_buf, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _mp.variant_ct);
+    snprintf(errstr_buf, 256, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _mp.variant_ct);
     stop(errstr_buf);
   }
   if (!_mp.allele_idx_offsetsp) {
@@ -62,7 +62,7 @@ const char* RPvar::GetAlleleCode(uint32_t variant_idx, uint32_t allele_idx) cons
   if (variant_idx >= _mp.variant_ct) {
     char errbuf[256];
     if (_mp.variant_ct) {
-      sprintf(errbuf, "variant_num out of range (%d; must be 1..%d)", variant_idx + 1, _mp.variant_ct);
+      snprintf(errbuf, 256, "variant_num out of range (%d; must be 1..%d)", variant_idx + 1, _mp.variant_ct);
     } else {
       strcpy(errbuf, "pvar closed");
     }
@@ -77,7 +77,7 @@ const char* RPvar::GetAlleleCode(uint32_t variant_idx, uint32_t allele_idx) cons
   }
   if (allele_idx >= allele_ct) {
     char errbuf[256];
-    sprintf(errbuf, "allele_num out of range (%d; must be 1..%d)", allele_idx + 1, allele_ct);
+    snprintf(errbuf, 256, "allele_num out of range (%d; must be 1..%d)", allele_idx + 1, allele_ct);
     stop(errbuf);
   }
   return _mp.allele_storage[allele_idx_offset_base + allele_idx];

@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a4"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (9 Jan 2023)";
+  " (28 Jan 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -94,9 +94,11 @@ static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --he
 
 #ifndef NOLAPACK
 static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--score, --variant-score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+// static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--gwas-ssf, --score, --variant-score, --genotyping-rate, --pgen-info,\n--validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #else
 // no --pca
 static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--score, --variant-score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+// static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--gwas-ssf, --score, --variant-score, --genotyping-rate, --pgen-info,\n--validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #endif
 
 // multiallelics-already-joined + terminating null
@@ -182,7 +184,8 @@ FLAGSET64_DEF_START()
   kfCommand1Het = (1 << 24),
   kfCommand1Fst = (1 << 25),
   kfCommand1Pmerge = (1 << 26),
-  kfCommand1PgenDiff = (1 << 27)
+  kfCommand1PgenDiff = (1 << 27),
+  kfCommand1GwasSsf = (1 << 28)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -5796,6 +5799,10 @@ int main(int argc, char** argv) {
           }
           memcpy(pgenname, cur_fname, slen + 1);
           xload |= kfXloadOxGen;
+        } else if (strequal_k_unsafe(flagname_p2, "was-ssf")) {
+          logerrputs("Error: --gwas-ssf is under development.\n");
+          reterr = kPglRetNotYetSupported;
+          goto main_ret_1;
         } else if (likely(strequal_k_unsafe(flagname_p2, "enotyping-rate"))) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -8141,6 +8148,10 @@ int main(int argc, char** argv) {
           pc.fam_cols &= ~kfFamCol6;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "onfounders")) {
+          if (unlikely(pc.misc_flags & kfMiscAcFounders)) {
+            logerrputs("Error: --ac-founders and --nonfounders cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           pc.misc_flags |= kfMiscNonfounders;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ot-chr")) {
