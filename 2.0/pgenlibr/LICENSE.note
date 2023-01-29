@@ -1,0 +1,6 @@
+The pgenlibr package as a whole is distributed under LGPL3+.  The pgenlibr package includes other open source software components.  The following is a list of these components:
+
+* libdeflate: MIT
+* pgenlib: written by package author
+* simde: MIT
+* zstd: BSD

@@ -3,10 +3,42 @@ Type: Package
 Title: PLINK 2 Binary (.pgen) Reader
 Version: 0.3.3
 Date: 2023-01-28
-Author: Christopher Chang
-Maintainer: Christopher Chang <chrchang@alumni.caltech.edu>
+Authors@R:
+    c(person(given = "Christopher",
+             family = "Chang",
+             role = c("aut", "cre", "cph"),
+             email = "chrchang@alumni.caltech.edu"),
+      person(given = "Eric",
+             family = "Biggers",
+             role = c("ctb", "cph"),
+             comment = "Author of included libdeflate library"),
+      person(given = "Yann",
+             family = "Collet",
+             role = c("ctb"),
+             comment = "Author of included Zstd library"),
+      person(given = "Meta Platforms, Inc.",
+             role = c("cph"),
+             comment = "Zstd library"),
+      person(given = "Evan",
+             family = "Nemerson",
+             role = c("ctb", "cph"),
+             comment = "Author of included SIMDe library"),
+      person(given = "Przemyslaw",
+             family = "Skibinski",
+             role = c("ctb"),
+             comment = "Author of included Zstd library"),
+      person(given = "Nick",
+             family = "Terrell",
+             role = c("ctb"),
+             comment = "Author of included Zstd library"))
 Description: A thin wrapper over PLINK 2's core libraries which provides an R
-  interface for reading .pgen files.  A minimal .pvar loader is also included.
+    interface for reading .pgen files.  A minimal .pvar loader is also
+    included.
 License: LGPL (>= 3)
+Copyright: This package includes sources of the libdeflate library owned by
+    Eric Biggers, sources of the SIMDe library owned by Evan Nemerson, sources
+    of the Zstd library owned by Meta Platforms, Inc., and sources of the
+    pgenlib library owned by Christopher Chang.
+BugReports: https://github.com/chrchang/plink-ng/issues
 Imports: Rcpp (>= 1.0.1)
 LinkingTo: Rcpp
