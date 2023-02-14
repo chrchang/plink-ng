@@ -587,6 +587,9 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
         if (bigstack_calloc_ul(CHROM_MASK_WORDS, &loaded_chrom_mask_4col)) {
           goto apply_cm_map_ret_NOMEM;
         }
+      } else if ((!cm_map_chrname) && (!at_sign_ptr)) {
+        logerrprint("Error: --cm-map file is in original 3-column format (with no chromosome\ncolumn), and chromosome code was not specified on the command line.\n");
+        goto apply_cm_map_ret_INVALID_FORMAT;
       }
       bp_old = -1;
       while (fgets(g_textbuf, MAXLINELEN, shapeitfile)) {

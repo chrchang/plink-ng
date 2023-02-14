@@ -5727,16 +5727,14 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct == 1) {
-	  // must contain exactly one '@'
+	  // cannot contain more than one '@'
           sptr = strchr(argv[cur_arg + 1], '@');
-	  if (!sptr) {
-            logerrprint("Error: --cm-map requires either a '@' in the filename pattern, or a chromosome\ncode as the second parameter.\n");
-            goto main_ret_INVALID_CMDLINE_A;
-	  }
-          if (strchr(&(sptr[1]), '@')) {
-	    logerrprint("Error: Multiple '@'s in --cm-map filename pattern.\n");
-	    goto main_ret_INVALID_CMDLINE_A;
-	  }
+          if (sptr) {
+            if (strchr(&(sptr[1]), '@')) {
+              logerrprint("Error: Multiple '@'s in --cm-map filename pattern.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
           if (alloc_string(&cm_map_fname, argv[cur_arg + 1])) {
 	    goto main_ret_NOMEM;
 	  }
