@@ -504,7 +504,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
     if (cm_map_chrname) {
       const uint32_t chrom_name_slen = strlen(cm_map_chrname);
       int32_t cur_chrom_code = get_chrom_code(cm_map_chrname, chrom_info_ptr, chrom_name_slen);
-      if (cur_chrom_code < 0) {
+      if ((cur_chrom_code < 0) || (!is_set(chrom_info_ptr->chrom_mask, cur_chrom_code))) {
 	LOGPREPRINTFWW("Error: --cm-map chromosome code '%s' not found in dataset.\n", cm_map_chrname);
 	goto apply_cm_map_ret_INVALID_CMDLINE_2;
       }
@@ -629,6 +629,12 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
               goto apply_cm_map_ret_INVALID_FORMAT_2;
             }
             prev_chrom = cur_chrom_code;
+            if (!is_set(chrom_info_ptr->chrom_mask, cur_chrom_code)) {
+              // chromosome code is valid, but isn't present in dataset, skip
+              marker_uidx = 0;
+              chrom_end = 0;
+              continue;
+            }
             chrom_fo_idx = chrom_info_ptr->chrom_idx_to_foidx[(uint32_t)cur_chrom_code];
             chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
             marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx], chrom_end);
