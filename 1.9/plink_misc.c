@@ -474,15 +474,18 @@ int32_t convert_tail_pheno(uint32_t unfiltered_sample_ct, uintptr_t* pheno_nm, u
 }
 
 int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, double* marker_cms, Chrom_info* chrom_info_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t* loaded_chrom_mask_4col = nullptr;
   FILE* shapeitfile = nullptr;
-  char* at_sign_ptr = nullptr;
   char* fname_write = nullptr;
   char* fname_buf = &(g_textbuf[MAXLINELEN]);
   double cm_old = 0.0;
   uint32_t autosome_ct = chrom_info_ptr->autosome_ct;
   uint32_t post_at_sign_len = 0;
   uint32_t updated_chrom_ct = 0;
+  int32_t prev_chrom = -3;
   int32_t retval = 0;
+  char* at_sign_ptr;
   char* bufptr;
   char* bufptr2;
   double cm_new;
@@ -497,14 +500,8 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
   int32_t bp_old;
   int32_t bp_new;
   {
-    if (!cm_map_chrname) {
-      chrom_fo_idx = 0;
-      chrom_ct = chrom_info_ptr->chrom_ct;
-      at_sign_ptr = strchr(cm_map_fname, '@');
-      fname_write = memcpya(fname_buf, cm_map_fname, (uintptr_t)(at_sign_ptr - cm_map_fname));
-      at_sign_ptr++;
-      post_at_sign_len = strlen(at_sign_ptr) + 1;
-    } else {
+    at_sign_ptr = strchr(cm_map_fname, '@');
+    if (cm_map_chrname) {
       const uint32_t chrom_name_slen = strlen(cm_map_chrname);
       int32_t cur_chrom_code = get_chrom_code(cm_map_chrname, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
@@ -514,6 +511,14 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       chrom_fo_idx = chrom_info_ptr->chrom_idx_to_foidx[(uint32_t)cur_chrom_code];
       chrom_ct = chrom_fo_idx + 1;
       fname_buf = cm_map_fname;
+    } else {
+      chrom_fo_idx = 0;
+      chrom_ct = chrom_info_ptr->chrom_ct;
+    }
+    if (at_sign_ptr) {
+      fname_write = memcpya(fname_buf, cm_map_fname, (uintptr_t)(at_sign_ptr - cm_map_fname));
+      at_sign_ptr++;
+      post_at_sign_len = strlen(at_sign_ptr) + 1;
     }
     g_textbuf[MAXLINELEN - 1] = ' ';
     for (; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
@@ -523,7 +528,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
 	continue;
       }
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      if (!cm_map_chrname) {
+      if (at_sign_ptr) {
 	if ((!uii) || (uii > autosome_ct)) {
 	  continue;
 	}
@@ -540,8 +545,9 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       }
       updated_chrom_ct++;
       irreg_line_ct = 0;
-      // First line is a header with three arbitrary fields.
-      // All subsequent lines have three fields in the following order:
+      // First line is a header with 3-4 arbitrary fields.
+      // All subsequent lines have 3-4 fields in the following order:
+      //   0. chr (only if is_4col true)
       //   1. bp position (increasing)
       //   2. cM/Mb recombination rate between current and previous bp
       //      positions
@@ -559,7 +565,28 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       }
       bufptr = next_token(bufptr);
       if (!no_more_tokens_kns(bufptr)) {
-	goto apply_cm_map_ret_MISSING_TOKENS;
+        // bugfix (13 Feb 2023):
+        // 1. error message incorrectly said "fewer tokens than expected" when
+        //    this is actually the more-tokens case
+        // 2. Eagle-resource files have an additional 'chr' column in front;
+        //    while we're modifying/retesting this, may as well add support for
+        //    that dialect
+        bufptr = next_token(bufptr);
+        if (!no_more_tokens_kns(bufptr)) {
+          logerrprint("Error: Line 1 of --cm-map file has more tokens than expected.\n");
+          goto apply_cm_map_ret_INVALID_FORMAT;
+        }
+        if (cm_map_chrname) {
+          logerrprint("Error: --cm-map chromosome code was explicitly specified, but file appears to\ncontain a chromosome column.\n");
+          goto apply_cm_map_ret_INVALID_FORMAT;
+        }
+        if (at_sign_ptr) {
+          logerrprint("Error: First --cm-map parameter contains a '@'; this can only be used with the\noriginal 3-column file format.\n");
+          goto apply_cm_map_ret_INVALID_FORMAT;
+        }
+        if (bigstack_calloc_ul(CHROM_MASK_WORDS, &loaded_chrom_mask_4col)) {
+          goto apply_cm_map_ret_NOMEM;
+        }
       }
       bp_old = -1;
       while (fgets(g_textbuf, MAXLINELEN, shapeitfile)) {
@@ -569,14 +596,55 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
 	  goto apply_cm_map_ret_INVALID_FORMAT_2;
 	}
 	bufptr = skip_initial_spaces(g_textbuf);
-	if ((*bufptr < '+') || (*bufptr > '9')) {
-	  // warning instead of error if text line found, since as of 8 Jan 2014
-	  // the posted chromosome 19 map has such a line
-	  if (*bufptr > ' ') {
-	    irreg_line_ct++;
-	  }
-	  continue;
-	}
+        if (loaded_chrom_mask_4col) {
+          if (is_eoln_or_comment_kns(*bufptr)) {
+            if (*bufptr > ' ') {
+              irreg_line_ct++;
+            }
+            continue;
+          }
+          char* first_token_end = token_endnn(bufptr);
+          char* col2_ptr = skip_initial_spaces(first_token_end);
+          const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - bufptr);
+          *first_token_end = '\0';
+          int32_t cur_chrom_code = get_chrom_code(bufptr, chrom_info_ptr, chrom_name_slen);
+          if (cur_chrom_code != prev_chrom) {
+            if (prev_chrom >= 0) {
+              for (; marker_uidx < chrom_end; marker_uidx++) {
+                marker_cms[marker_uidx] = cm_old;
+              }
+            }
+            bp_old = -1;
+            if (cur_chrom_code < 0) {
+              // skip lines with unrecognized codes, make sure prev_chrom is
+              // cleared
+              prev_chrom = -3;
+              continue;
+            }
+            if (is_set(loaded_chrom_mask_4col, cur_chrom_code)) {
+              snprintf(g_logbuf, LOGBUFLEN, "Error: Chromosome '%s' is split in --cm-map file.\n", bufptr);
+              goto apply_cm_map_ret_INVALID_FORMAT_2;
+            }
+            prev_chrom = cur_chrom_code;
+            chrom_fo_idx = chrom_info_ptr->chrom_idx_to_foidx[(uint32_t)cur_chrom_code];
+            chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
+            marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx], chrom_end);
+            set_bit(cur_chrom_code, loaded_chrom_mask_4col);
+          }
+          if (marker_uidx == chrom_end) {
+            continue;
+          }
+          bufptr = col2_ptr;
+        } else {
+          if ((*bufptr < '+') || (*bufptr > '9')) {
+            // warning instead of error if text line found, since as of 8 Jan
+            // 2014 the posted chromosome 19 map has such a line
+            if (*bufptr > ' ') {
+              irreg_line_ct++;
+            }
+            continue;
+          }
+        }
 	if (scan_uint_defcap(bufptr, (uint32_t*)&bp_new)) {
 	  snprintf(g_logbuf, LOGBUFLEN, "Error: Invalid bp coordinate on line %" PRIuPTR " of --cm-map file.\n", line_idx);
 	  goto apply_cm_map_ret_INVALID_FORMAT_2;
@@ -609,7 +677,9 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
 	  marker_uidx++;
 	  next_unset_ck(marker_exclude, chrom_end, &marker_uidx);
 	  if (marker_uidx == chrom_end) {
-	    goto apply_cm_map_chrom_done;
+            if (!loaded_chrom_mask_4col) {
+              goto apply_cm_map_chrom_done;
+            }
 	  }
 	}
 	bp_old = bp_new;
@@ -620,15 +690,21 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       }
     apply_cm_map_chrom_done:
       if (fclose_null(&shapeitfile)) {
-	goto apply_cm_map_ret_READ_FAIL;
+        goto apply_cm_map_ret_READ_FAIL;
       }
       if (irreg_line_ct) {
-	LOGERRPRINTFWW("Warning: %" PRIuPTR " irregular line%s skipped in %s.\n", irreg_line_ct, (irreg_line_ct == 1)? "" : "s", fname_buf);
+        LOGERRPRINTFWW("Warning: %" PRIuPTR " irregular line%s skipped in %s.\n", irreg_line_ct, (irreg_line_ct == 1)? "" : "s", fname_buf);
+      }
+      if (loaded_chrom_mask_4col) {
+        break;
       }
     }
     LOGPRINTF("--cm-map: %u chromosome%s updated.\n", updated_chrom_ct, (updated_chrom_ct == 1)? "" : "s");
   }
   while (0) {
+  apply_cm_map_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
   apply_cm_map_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
@@ -643,11 +719,13 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
     snprintf(g_logbuf, LOGBUFLEN, "Error: Line %" PRIuPTR " of --cm-map file has fewer tokens than expected.\n", line_idx);
   apply_cm_map_ret_INVALID_FORMAT_2:
     logerrprintb();
+  apply_cm_map_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
  apply_cm_map_ret_1:
   fclose_cond(shapeitfile);
+  bigstack_reset(bigstack_mark);
   return retval;
 }
 
