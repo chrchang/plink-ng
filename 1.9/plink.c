@@ -112,7 +112,7 @@ static const char ver_str2[] =
 #ifdef STABLE_BUILD
   " " // (don't want this when version number has two trailing digits)
 #else
-  "  " // (don't want this when version number has e.g. "b3" before "p")
+  "    " // (don't want this when version number has e.g. "b3" before "p")
 #endif
 #ifndef NOLAPACK
   "  "
