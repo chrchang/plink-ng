@@ -4794,9 +4794,13 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
 // should be able to remove NOLAPACK later since we already have a non-LAPACK
 // SVD implementation
 #ifndef NOLAPACK
-// this seems to be better than 256 (due to avoidance of cache critical
+// This seems to be better than 256 (due to avoidance of cache critical
 // stride?)
 // (still want this to be a multiple of 8, for cleaner multithreading)
+// TODO: try to allow run to proceed with a smaller value when 240 induces an
+// out-of-memory error.  It's cutting it close for UK Biobank.  Though we don't
+// want to reduce the default value, I've tested that and it degrades
+// performance.
 CONSTI32(kPcaVariantBlockSize, 240);
 
 typedef struct CalcPcaCtxStruct {
@@ -5538,6 +5542,46 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         }
       }
     } else {
+      {
+        // If there are NaNs in grm, ExtractEigvecs should fail; but we want to
+        // print a customized error message in that case, and grm is destroyed
+        // by ExtractEigvecs().  Okay, checking it for NaNs after the fact
+        // probably works in practice, but I'd rather not risk it; checking for
+        // NaNs in advance is cheap enough.
+        uintptr_t row_idx;
+        uintptr_t col_idx;
+        if (LowerTriangularFirstInfOrNan(grm, pca_sample_ct, &row_idx, &col_idx)) {
+          const double invalid_val = grm[row_idx * pca_sample_ct + col_idx];
+          char* id_pair_str = g_textbuf;
+          {
+            char* write_iter = id_pair_str;
+            if (row_idx == col_idx) {
+              write_iter = strcpya_k(write_iter, " '");
+            } else {
+              write_iter = strcpya_k(write_iter, "s '");
+            }
+            const uintptr_t sample_uidx1 = IdxToUidxBasic(sample_include, col_idx);
+            write_iter = AppendSpacedXid(sample_ids, sids, write_fid, write_sid, max_sample_id_blen, max_sid_blen, sample_uidx1, write_iter);
+            if (row_idx == col_idx) {
+              strcpy_k(write_iter, "' and itself");
+            } else {
+              write_iter = strcpya_k(write_iter, "' and '");
+              const uintptr_t sample_uidx2 = IdxToUidxBasic(sample_include, row_idx);
+              write_iter = AppendSpacedXid(sample_ids, sids, write_fid, write_sid, max_sample_id_blen, max_sid_blen, sample_uidx2, write_iter);
+              strcpy_k(write_iter, "'");
+            }
+          }
+          if (invalid_val != invalid_val) {
+            logerrprintfww("Error: NaN value present in GRM, between sample%s. This usually occurs when you have samples with an extremely high amount of missing data; use e.g. --mind to filter them out before retrying.\n", id_pair_str);
+            goto CalcPca_ret_DEGENERATE_DATA;
+          }
+          // I'll call this an internal error, even though in principle this
+          // could result from malicious --read-freq input.
+          logerrprintfww("Error: Infinite value present in GRM, between sample%s. This should never happen; you have probably encountered a plink2 bug. If you report the error on GitHub or the plink2-users Google group (make sure to include the full .log file in your report), we'll try to address it.\n", id_pair_str);
+          reterr = kPglRetInternalError;
+          goto CalcPca_ret_1;
+        }
+      }
       __CLPK_integer lwork;
       __CLPK_integer liwork;
       uintptr_t wkspace_byte_ct;
@@ -5559,6 +5603,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       BLAS_SET_NUM_THREADS(max_thread_ct);
       // not putting unlikely() here for now.
       if (ExtractEigvecs(pca_sample_ct, pc_ct, lwork, liwork, grm, eigvals, reverse_eigvecs_pcmaj, extract_eigvecs_wkspace)) {
+        logputs("\n");
         logerrputs("Error: Failed to extract eigenvector(s) from GRM.\n");
         goto CalcPca_ret_DEGENERATE_DATA;
       }
@@ -5802,19 +5847,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     uintptr_t sample_include_bits = sample_include[0];
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
-      const char* cur_sample_id = &(sample_ids[max_sample_id_blen * sample_uidx]);
-      if (!write_fid) {
-        cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
-      }
-      write_iter = strcpya(write_iter, cur_sample_id);
-      if (write_sid) {
-        *write_iter++ = '\t';
-        if (sids) {
-          write_iter = strcpya(write_iter, &(sids[max_sid_blen * sample_uidx]));
-        } else {
-          *write_iter++ = '0';
-        }
-      }
+      write_iter = AppendXid(sample_ids, sids, write_fid, write_sid, max_sample_id_blen, max_sid_blen, sample_uidx, write_iter);
       double* sample_wts_iter = &(eigvecs_smaj[sample_idx * pc_ct]);
       // todo: read from proj_sample_wts instead when pca_sample_include bit
       // not set
@@ -6726,29 +6759,31 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     if (unlikely(bigstack_alloc_cp(score_col_ct, &score_col_names))) {
       goto ScoreReport_ret_NOMEM;
     }
-    char* write_iter = R_CAST(char*, g_bigstack_base);
-    // don't have to worry about overflow, since linebuf was limited to 1/8
-    // of available workspace.
-    if (flags & kfScoreHeaderRead) {
-      char* read_iter = line_start;
-      for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
-        read_iter = NextTokenMult0(read_iter, score_col_idx_deltas[score_col_idx]);
-        if (unlikely(!read_iter)) {
-          goto ScoreReport_ret_MISSING_TOKENS;
+    {
+      char* write_iter = R_CAST(char*, g_bigstack_base);
+      // don't have to worry about overflow, since linebuf was limited to 1/8
+      // of available workspace.
+      if (flags & kfScoreHeaderRead) {
+        char* read_iter = line_start;
+        for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
+          read_iter = NextTokenMult0(read_iter, score_col_idx_deltas[score_col_idx]);
+          if (unlikely(!read_iter)) {
+            goto ScoreReport_ret_MISSING_TOKENS;
+          }
+          score_col_names[score_col_idx] = write_iter;
+          char* token_end = CurTokenEnd(read_iter);
+          const uint32_t slen = token_end - read_iter;
+          write_iter = memcpyax(write_iter, read_iter, slen, '\0');
         }
-        score_col_names[score_col_idx] = write_iter;
-        char* token_end = CurTokenEnd(read_iter);
-        const uint32_t slen = token_end - read_iter;
-        write_iter = memcpyax(write_iter, read_iter, slen, '\0');
+      } else {
+        for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
+          score_col_names[score_col_idx] = write_iter;
+          write_iter = strcpya_k(write_iter, "SCORE");
+          write_iter = u32toa_x(score_col_idx + 1, '\0', write_iter);
+        }
       }
-    } else {
-      for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
-        score_col_names[score_col_idx] = write_iter;
-        write_iter = strcpya_k(write_iter, "SCORE");
-        write_iter = u32toa_x(score_col_idx + 1, '\0', write_iter);
-      }
+      BigstackBaseSet(write_iter);
     }
-    BigstackBaseSet(write_iter);
 
     uintptr_t score_final_col_ct = score_col_ct;
     if (qsr_ct) {
@@ -7729,19 +7764,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         for (uint32_t shard_sample_idx = 0; shard_sample_idx != cur_sample_shard_size; ++shard_sample_idx) {
           const uint32_t sample_idx = shard_sample_idx + cur_shard_start;
           const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
-          const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
-          if (!write_fid) {
-            cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
-          }
-          cswritep = strcpya(cswritep, cur_sample_id);
-          if (write_sid) {
-            *cswritep++ = '\t';
-            if (sids) {
-              cswritep = strcpya(cswritep, &(sids[max_sid_blen * sample_uidx]));
-            } else {
-              *cswritep++ = '0';
-            }
-          }
+          cswritep = AppendXid(sample_ids, sids, write_fid, write_sid, max_sample_id_blen, max_sid_blen, sample_uidx, cswritep);
           if (write_phenos) {
             // er, this probably belongs in its own function
             for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {

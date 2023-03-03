@@ -1363,19 +1363,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Sam
           sample_uidx = new_sample_idx_to_old[sample_uidx2++];
         } while (!IsSet(sample_include, sample_uidx));
       }
-      const char* cur_sample_id = &(sample_ids[max_sample_id_blen * sample_uidx]);
-      if (!write_fid) {
-        cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
-      }
-      write_iter = strcpya(write_iter, cur_sample_id);
-      if (write_sid) {
-        *write_iter++ = '\t';
-        if (sids) {
-          write_iter = strcpya(write_iter, &(sids[max_sid_blen * sample_uidx]));
-        } else {
-          *write_iter++ = '0';
-        }
-      }
+      write_iter = AppendXid(sample_ids, sids, write_fid, write_sid, max_sample_id_blen, max_sid_blen, sample_uidx, write_iter);
       if (write_parents) {
         *write_iter++ = '\t';
         write_iter = strcpyax(write_iter, &(paternal_ids[max_paternal_id_blen * sample_uidx]), '\t');
@@ -3055,6 +3043,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
   }
  LoadAlleleAndGenoCounts_ret_1:
   CleanupThreads(&tg);
+  DPrintf("LoadAlleleAndGenoCounts: thread cleanup complete.\n");
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   pgfip->block_base = nullptr;
   return reterr;

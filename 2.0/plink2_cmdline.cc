@@ -541,7 +541,7 @@ BoolErr CleanupLogfile(uint32_t print_end_time) {
 unsigned char* g_bigstack_base = nullptr;
 unsigned char* g_bigstack_end = nullptr;
 
-uintptr_t DetectMib() {
+uint64_t DetectMib() {
   int64_t llxx;
   // return zero if detection failed
   // see e.g. http://nadeausoftware.com/articles/2012/09/c_c_tip_how_get_physical_memory_size_system .
@@ -560,6 +560,8 @@ uintptr_t DetectMib() {
   GlobalMemoryStatusEx(&memstatus);
   llxx = memstatus.ullTotalPhys / 1048576;
 #  else
+  // TODO: check whether getrlimit(RLIMIT_AS, ...) returns a per-user limit on
+  // shared systems.
   llxx = S_CAST(uint64_t, sysconf(_SC_PHYS_PAGES)) * S_CAST(size_t, sysconf(_SC_PAGESIZE)) / 1048576;
 #  endif
 #endif
@@ -567,14 +569,59 @@ uintptr_t DetectMib() {
 }
 
 uintptr_t GetDefaultAllocMib() {
-  const uintptr_t total_mib = DetectMib();
+  const uint64_t total_mib = DetectMib();
   if (!total_mib) {
     return kBigstackDefaultMib;
   }
   if (total_mib < (kBigstackMinMib * 2)) {
     return kBigstackMinMib;
   }
+#ifdef __LP64__
   return (total_mib / 2);
+#else
+  // theoretically possible for a 32-bit app to run on a system with a ton of
+  // memory?
+  return MINV(2047, total_mib / 2);
+#endif
+}
+
+uint64_t GetMemAvailableKib() {
+  // On more recent Linux builds, the MemAvailable value reported by
+  // "cat /proc/meminfo" is a pretty accurate estimate of how much we can
+  // afford to allocate before introducing substantial risk of OOM-killer
+  // action.
+  // Returns (~0LLU) if this estimate is unavailable.
+#if defined(__APPLE__) || defined(_WIN32)
+  return (~0LLU);
+#else
+  FILE* meminfo = fopen("/proc/meminfo", FOPEN_RB);
+  if (!meminfo) {
+    return (~0LLU);
+  }
+  {
+    char* textbuf = g_textbuf;
+    textbuf[kMaxMediumLine - 1] = ' ';
+    do {
+      if ((!fgets(textbuf, kMaxMediumLine, meminfo)) || (!textbuf[kMaxMediumLine - 1])) {
+        goto GetMemAvailableKib_ret_FAIL;
+      }
+    } while (!StrStartsWithUnsafe(textbuf, "MemAvailable:"));
+    const char* textbuf_iter = &(textbuf[strlen("MemAvailable:")]);
+    textbuf_iter = FirstNonTspace(textbuf_iter);
+    uintptr_t kib_free;
+    if (ScanmovU64Capped(1LLU << 54, &textbuf_iter, &kib_free)) {
+      goto GetMemAvailableKib_ret_FAIL;
+    }
+    textbuf_iter = FirstNonTspace(textbuf_iter);
+    if (!memequal_sk(textbuf_iter, "kB\n")) {
+      goto GetMemAvailableKib_ret_FAIL;
+    }
+    return kib_free;
+  }
+ GetMemAvailableKib_ret_FAIL:
+  fclose(meminfo);
+  return (~0LLU);
+#endif
 }
 
 PglErr InitBigstack(uintptr_t malloc_size_mib, uintptr_t* malloc_mib_final_ptr, unsigned char** bigstack_ua_ptr) {
@@ -843,6 +890,14 @@ BoolErr push_llstr_counted(const char* str, uint32_t slen, LlStr** ll_stack_ptr)
   return 0;
 }
 */
+
+void llstr_free_cond(LlStr* llstr_head) {
+  while (llstr_head) {
+    LlStr* next = llstr_head->next;
+    free(llstr_head);
+    llstr_head = next;
+  }
+}
 
 
 BoolErr CountAndMeasureMultistrReverseAlloc(const char* multistr, uintptr_t max_str_ct, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr, const char*** strptr_arrp) {
@@ -3996,14 +4051,18 @@ PglErr CmdlineParsePhase3(uintptr_t max_default_mib, uintptr_t malloc_size_mib, 
       pcmp->flag_map = nullptr;
     }
 
-    uint64_t total_mib = DetectMib();
+    const uint64_t total_mib = DetectMib();
     if (!malloc_size_mib) {
       if (!total_mib) {
         malloc_size_mib = max_default_mib? max_default_mib : kBigstackDefaultMib;
       } else if (total_mib < (kBigstackMinMib * 2)) {
         malloc_size_mib = kBigstackMinMib;
       } else {
+#ifdef __LP64__
         malloc_size_mib = total_mib / 2;
+#else
+        malloc_size_mib = MINV(2047, total_mib / 2);
+#endif
         if (max_default_mib && (malloc_size_mib > max_default_mib)) {
           malloc_size_mib = max_default_mib;
         }
@@ -4016,11 +4075,23 @@ PglErr CmdlineParsePhase3(uintptr_t max_default_mib, uintptr_t malloc_size_mib, 
     }
 #endif
     if (total_mib) {
-      snprintf(g_logbuf, kLogbufSize, "%" PRIu64 " MiB RAM detected; reserving %" PRIuPTR " MiB for main workspace.\n", total_mib, malloc_size_mib);
+      const uint64_t mem_available_kib = GetMemAvailableKib();
+      if (mem_available_kib == (~0LLU)) {
+        logprintf("%" PRIu64 " MiB RAM detected; reserving %" PRIuPTR " MiB for main workspace.\n", total_mib, malloc_size_mib);
+      } else {
+        const uint64_t mem_available_mib = mem_available_kib / 1024;
+        if ((mem_available_mib < malloc_size_mib + (kNonBigstackMin >> 20)) && (!memory_require)) {
+          if (mem_available_mib < kBigstackMinMib + (kNonBigstackMin >> 20)) {
+            malloc_size_mib = kBigstackMinMib;
+          } else {
+            malloc_size_mib = mem_available_mib - (kNonBigstackMin >> 20);
+          }
+        }
+        logprintfww("%" PRIu64 " MiB RAM detected, ~%" PRIu64 " available; reserving %" PRIuPTR " MiB for main workspace.\n", total_mib, mem_available_mib, malloc_size_mib);
+      }
     } else {
-      snprintf(g_logbuf, kLogbufSize, "Failed to determine total system memory.  Attempting to reserve %" PRIuPTR " MiB.\n", malloc_size_mib);
+      logprintf("Failed to determine total system memory.  Attempting to reserve %" PRIuPTR " MiB.\n", malloc_size_mib);
     }
-    logputsb();
     uintptr_t malloc_mib_final;
     if (unlikely(InitBigstack(malloc_size_mib, &malloc_mib_final, bigstack_ua_ptr))) {
       goto CmdlineParsePhase3_ret_NOMEM;

@@ -1503,6 +1503,25 @@ PglErr LoadSampleIds(const char* fnames, const uintptr_t* sample_include, const 
   return reterr;
 }
 
+char* AppendSpacedXid(const char* sample_ids, const char* sids, uint32_t write_fid, uint32_t write_sid, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t sample_uidx, char* write_iter) {
+  const char* fid = &(sample_ids[max_sample_id_blen * sample_uidx]);
+  const char* fid_end = AdvToDelim(fid, '\t');
+  if (write_fid) {
+    write_iter = memcpyax(write_iter, fid, fid_end - fid, ' ');
+  }
+  const char* iid = &(fid_end[1]);
+  write_iter = strcpya(write_iter, iid);
+  if (write_sid) {
+    *write_iter++ = ' ';
+    if (sids) {
+      write_iter = strcpya(write_iter, &(sids[max_sid_blen * sample_uidx]));
+    } else {
+      *write_iter++ = '0';
+    }
+  }
+  return write_iter;
+}
+
 // accept 'M'/'F'/'m'/'f' since that's more readable without being any less
 // efficient
 const unsigned char g_char_to_sex[256] =

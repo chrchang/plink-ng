@@ -166,6 +166,34 @@ extern "C" {
 namespace plink2 {
 #endif
 
+intptr_t FirstInfOrNan(const double* vec, uintptr_t size) {
+  // possible todo: vectorize this.  Main loop could bitwise-or results from
+  // several vector-comparisons at a time, use e.g. movemask to check for at
+  // least one hit, then backtrack to identify first location.
+  const uint64_t* vec_alias = R_CAST(const uint64_t*, vec);
+  for (uintptr_t ulii = 0; ulii != size; ++ulii) {
+    if ((vec_alias[ulii] & (0x7ffLLU << 52)) == (0x7ffLLU << 52)) {
+      return S_CAST(intptr_t, ulii);
+    }
+  }
+  return -1;
+}
+
+uint32_t LowerTriangularFirstInfOrNan(const double* matrix, uintptr_t dim, uintptr_t* row_idx_ptr, uintptr_t* col_idx_ptr) {
+  const uint64_t* row_start = R_CAST(const uint64_t*, matrix);
+  for (uintptr_t row_idx = 0; row_idx != dim; ++row_idx) {
+    for (uintptr_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
+      if ((row_start[col_idx] & (0x7ffLLU << 52)) == (0x7ffLLU << 52)) {
+        *row_idx_ptr = row_idx;
+        *col_idx_ptr = col_idx;
+        return 1;
+      }
+    }
+    row_start = &(row_start[dim]);
+  }
+  return 0;
+}
+
 void ReflectMatrix(uint32_t dim, double* matrix) {
   const uintptr_t dim_p1l = dim + 1;
   double* write_row = matrix;
@@ -1316,7 +1344,11 @@ BoolErr ExtractEigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __CLP
   // vl and vu may actually be referenced in some implementations
   double dummy_d = 0.0;
   dsyevr_(&jobz, &range, &uplo, &tmp_n, matrix, &tmp_n, &dummy_d, &dummy_d, &il, &iu, &abstol, &out_m, eigvals, reverse_eigvecs, &tmp_n, isuppz, work, &lwork, iwork, &liwork, &info);
-  return (info != 0);
+  // bug workaround (11 Feb 2023): on macOS, when there are NaNs in the matrix,
+  // info=0 is still returned but out_m=0.
+  // More generally, with the current interface, we want to return an error
+  // whenever the number of found eigenvalues is less than pc_ct.
+  return (S_CAST(uint32_t, out_m) != pc_ct) || (info != 0);
 }
 #endif  // !NOLAPACK
 

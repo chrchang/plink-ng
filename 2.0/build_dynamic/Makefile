@@ -19,7 +19,7 @@
 #     work)
 #   Debug symbols: set DEBUG to -g
 NO_AVX2 = 1
-NO_SSE42 =
+NO_SSE42 = 1
 CPU_CHECK = 1
 NO_LAPACK =
 PREFER_CBLAS_F77 =
@@ -152,7 +152,7 @@ else
     ifdef FORCE_32BIT
       $(error STATIC_AOCL + FORCE_32BIT not supported)
     endif
-    BASEFLAGS += -DUSE_CBLAS_XGEMM -DLAPACK_ILP64 -I${AOCLROOT}/include
+    BASEFLAGS += -DUSE_AOCL -DLAPACK_ILP64 -I${AOCLROOT}/include
     BLASFLAGS = -L. ${AOCLROOT}/lib/libflame.a -L. ${AOCLROOT}/lib/libblis.a
     LINKFLAGS += -ldl
   endif

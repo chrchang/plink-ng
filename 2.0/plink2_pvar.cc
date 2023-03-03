@@ -1412,7 +1412,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         if (!is_split_chr) {
           if (IsSet(loaded_chr_mask, cur_chr_code)) {
             if (unlikely(!split_chr_ok)) {
-              snprintf(g_logbuf, kLogbufSize, "Error: %s has a split chromosome. Use --make-pgen + --sort-vars to remedy this.\n", pvarname);
+              snprintf(g_logbuf, kLogbufSize, "Error: %s has a split chromosome. Use --make-pgen + --sort-vars (without other simultaneous commands) to remedy this.\n", pvarname);
               goto LoadPvar_ret_MALFORMED_INPUT_WW;
             }
             if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(ChrIdx))) {

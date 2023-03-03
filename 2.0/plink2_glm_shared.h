@@ -73,7 +73,7 @@ FLAGSET_DEF_START()
   kfGlmColRef = (1 << 2),
   kfGlmColAlt1 = (1 << 3),
   kfGlmColAlt = (1 << 4),
-  kfGlmColAx = (1 << 5),
+  kfGlmColOmitted = (1 << 5),
   kfGlmColA1count = (1 << 6),
   kfGlmColTotallele = (1 << 7),
   kfGlmColA1countcc = (1 << 8),
@@ -95,7 +95,10 @@ FLAGSET_DEF_START()
   kfGlmColTz = (1 << 21),
   kfGlmColP = (1 << 22),
   kfGlmColErr = (1 << 23),
-  kfGlmColDefault = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColFirthYn | kfGlmColTest | kfGlmColNobs | kfGlmColOrbeta | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP | kfGlmColErr)
+
+  kfGlmColAx = (1 << 24),
+  kfGlmColDefault = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColFirthYn | kfGlmColTest | kfGlmColNobs | kfGlmColOrbeta | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP | kfGlmColErr),
+  kfGlmColGwasSsfReq = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColOmitted | kfGlmColA1freq | kfGlmColTest | kfGlmColNobs | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP)
 FLAGSET_DEF_END(GlmColFlags);
 
 typedef struct GlmInfoStruct {

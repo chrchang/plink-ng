@@ -1377,7 +1377,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLinearCtx* ctx, TextStream* local_covar_txsp, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, uintptr_t* valid_allele_ct_ptr) {
+PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLinearCtx* ctx, TextStream* local_covar_txsp, LlStr** outfnames_ll_ptr, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, uintptr_t* valid_allele_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -1444,6 +1444,11 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     reterr = InitCstreamAlloc(outname, 0, output_zst, 1, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto GlmLinear_ret_1;
+    }
+    if (outfnames_ll_ptr) {
+      if (unlikely(PushLlStr(outname, outfnames_ll_ptr))) {
+        goto GlmLinear_ret_NOMEM;
+      }
     }
     const uint32_t report_neglog10p = (glm_flags / kfGlmLog10) & 1;
     const uint32_t add_interactions = (glm_flags / kfGlmInteraction) & 1;
@@ -1612,6 +1617,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     const uint32_t ref_col = glm_cols & kfGlmColRef;
     const uint32_t alt1_col = glm_cols & kfGlmColAlt1;
     const uint32_t alt_col = glm_cols & kfGlmColAlt;
+    const uint32_t omitted_col = glm_cols & kfGlmColOmitted;
     const uint32_t ax_col = glm_cols & kfGlmColAx;
     const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
@@ -1642,6 +1648,9 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
       cswritep = strcpya_k(cswritep, "\tALT");
     }
     cswritep = strcpya_k(cswritep, "\tA1");
+    if (omitted_col) {
+      cswritep = strcpya_k(cswritep, "\tOMITTED");
+    }
     if (ax_col) {
       cswritep = strcpya_k(cswritep, "\tAX");
     }
@@ -1943,6 +1952,10 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   --cswritep;
                 } else {
                   cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
+                }
+                if (omitted_col) {
+                  *cswritep++ = '\t';
+                  cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
                 }
                 if (ax_col) {
                   *cswritep++ = '\t';
@@ -3508,7 +3521,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
 CONSTI32(kMaxLinearSubbatchSize, 240);
 static_assert(kMaxLinearSubbatchSize + 12 <= kMaxOpenFiles, "kMaxLinearSubbatchSize can't be too close to or larger than kMaxOpenFiles.");
 
-PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, const char* pheno_names, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, uint32_t raw_variant_ct, uint32_t completed_pheno_ct, uint32_t batch_size, uintptr_t max_pheno_name_blen, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLinearCtx* ctx, TextStream* local_covar_txsp, char* outname, char* outname_end) {
+PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, const char* pheno_names, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, uint32_t raw_variant_ct, uint32_t completed_pheno_ct, uint32_t batch_size, uintptr_t max_pheno_name_blen, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLinearCtx* ctx, TextStream* local_covar_txsp, LlStr** outfnames_ll_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char** cswritep_arr = nullptr;
   CompressStreamState* css_arr = nullptr;
@@ -3804,6 +3817,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     const uint32_t ref_col = glm_cols & kfGlmColRef;
     const uint32_t alt1_col = glm_cols & kfGlmColAlt1;
     const uint32_t alt_col = glm_cols & kfGlmColAlt;
+    const uint32_t omitted_col = glm_cols & kfGlmColOmitted;
     const uint32_t ax_col = glm_cols & kfGlmColAx;
     const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
@@ -3844,6 +3858,11 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         if (unlikely(reterr)) {
           goto GlmLinearBatch_ret_1;
         }
+        if (outfnames_ll_ptr) {
+          if (unlikely(PushLlStr(outname, outfnames_ll_ptr))) {
+            goto GlmLinearBatch_ret_NOMEM;
+          }
+        }
         *cswritep++ = '#';
         if (chr_col) {
           cswritep = strcpya_k(cswritep, "CHROM\t");
@@ -3862,6 +3881,9 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           cswritep = strcpya_k(cswritep, "\tALT");
         }
         cswritep = strcpya_k(cswritep, "\tA1");
+        if (omitted_col) {
+          cswritep = strcpya_k(cswritep, "\tOMITTED");
+        }
         if (ax_col) {
           cswritep = strcpya_k(cswritep, "\tAX");
         }
@@ -4176,6 +4198,10 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       --cswritep;
                     } else {
                       cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
+                    }
+                    if (omitted_col) {
+                      *cswritep++ = '\t';
+                      cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
                     }
                     if (ax_col) {
                       *cswritep++ = '\t';

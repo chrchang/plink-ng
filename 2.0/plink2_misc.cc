@@ -4206,33 +4206,23 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       char nobs_strs[2][16];
       uint32_t nobs_slens[2];
       double variant_ct_recips[2];
-      char* write_iter = nobs_strs[0];
-      *write_iter++ = '\t';
-      write_iter = u32toa(variant_ct_nony, write_iter);
-      nobs_slens[0] = write_iter - nobs_strs[0];
-      variant_ct_recips[0] = 1.0 / u31tod(variant_ct_nony);
-      write_iter = nobs_strs[1];
-      *write_iter++ = '\t';
-      write_iter = u32toa(variant_ct, write_iter);
-      nobs_slens[1] = write_iter - nobs_strs[1];
+      {
+        char* write_iter = nobs_strs[0];
+        *write_iter++ = '\t';
+        write_iter = u32toa(variant_ct_nony, write_iter);
+        nobs_slens[0] = write_iter - nobs_strs[0];
+        variant_ct_recips[0] = 1.0 / u31tod(variant_ct_nony);
+        write_iter = nobs_strs[1];
+        *write_iter++ = '\t';
+        write_iter = u32toa(variant_ct, write_iter);
+        nobs_slens[1] = write_iter - nobs_strs[1];
+      }
       variant_ct_recips[1] = 1.0 / u31tod(variant_ct);
       uintptr_t sample_uidx_base = 0;
       uintptr_t cur_bits = sample_include[0];
       for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
         const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-        const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
-        if (!scol_fid) {
-          cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
-        }
-        cswritep = strcpya(cswritep, cur_sample_id);
-        if (scol_sid) {
-          *cswritep++ = '\t';
-          if (sids) {
-            cswritep = strcpya(cswritep, &(sids[sample_uidx * max_sid_blen]));
-          } else {
-            *cswritep++ = '0';
-          }
-        }
+        cswritep = AppendXid(sample_ids, sids, scol_fid, scol_sid, max_sample_id_blen, max_sid_blen, sample_uidx, cswritep);
         if (scol_phenos) {
           for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
             *cswritep++ = '\t';
@@ -7362,19 +7352,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     uintptr_t cur_bits = sample_include[0];
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-      const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
-      if (!col_fid) {
-        cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
-      }
-      cswritep = strcpya(cswritep, cur_sample_id);
-      if (col_sid) {
-        *cswritep++ = '\t';
-        if (sids) {
-          cswritep = strcpya(cswritep, &(sids[sample_uidx * max_sid_blen]));
-        } else {
-          *cswritep++ = '0';
-        }
-      }
+      cswritep = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, cswritep);
       if (col_sex) {
         *cswritep++ = '\t';
         if (IsSet(sex_nm, sample_uidx)) {
@@ -9147,19 +9125,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
           sample_uidx = new_sample_idx_to_old[sample_uidx2++];
         } while (!IsSet(sample_include, sample_uidx));
       }
-      const char* cur_sample_id = &(sample_ids[max_sample_id_blen * sample_uidx]);
-      if (!write_fid) {
-        cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
-      }
-      write_iter = strcpya(write_iter, cur_sample_id);
-      if (write_sid) {
-        *write_iter++ = '\t';
-        if (sids) {
-          write_iter = strcpya(write_iter, &(sids[max_sid_blen * sample_uidx]));
-        } else {
-          *write_iter++ = '0';
-        }
-      }
+      write_iter = AppendXid(sample_ids, sids, write_fid, write_sid, max_sample_id_blen, max_sid_blen, sample_uidx, write_iter);
       if (write_parents) {
         *write_iter++ = '\t';
         write_iter = strcpyax(write_iter, &(paternal_ids[max_paternal_id_blen * sample_uidx]), '\t');
@@ -9858,20 +9824,7 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     uintptr_t cur_bits = sample_include[0];
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-      const char* fid_or_iid_start = &(sample_ids[sample_uidx * max_sample_id_blen]);
-      if (!col_fid) {
-        fid_or_iid_start = AdvPastDelim(fid_or_iid_start, '\t');
-      }
-      cswritep = strcpya(cswritep, fid_or_iid_start);
-
-      if (col_sid) {
-        *cswritep++ = '\t';
-        if (sids) {
-          cswritep = strcpya(cswritep, &(sids[sample_uidx * max_sid_blen]));
-        } else {
-          *cswritep++ = '0';
-        }
-      }
+      cswritep = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, cswritep);
       const uint32_t ohet = ohets[sample_idx];
       const double ehet = ehet_base + ehet_incrs[sample_idx];
       const uint32_t nobs = nobs_base + nobs_incrs[sample_idx];

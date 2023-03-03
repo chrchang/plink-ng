@@ -47,23 +47,21 @@ namespace plink2 {
 static const char ver_str[] = "PLINK v2.00a4"
 #ifdef NOLAPACK
   "NL"
+#elif defined(LAPACK_ILP64)
+  "LM"
 #endif
+
 #ifdef __LP64__
-#  ifdef LAPACK_ILP64
-    "LM"
-#  endif
-#  ifdef USE_AVX2
-#    ifdef USE_CUDA
+#  ifdef USE_CUDA
     " CUDA"
-#    else
+#  elif defined(USE_AVX2)
     " AVX2"
-#    endif
+#  elif defined(__APPLE__) && !defined(__x86_64__)
+    " M1"
+#  elif defined(USE_SSE42)
+    " SSE4.2"
 #  else
-#    ifdef USE_SSE42
-      " SSE4.2"
-#    else
-      " 64-bit"
-#    endif
+    " 64-bit"
 #  endif
 #else
   " 32-bit"
@@ -71,34 +69,46 @@ static const char ver_str[] = "PLINK v2.00a4"
 
 #ifdef USE_MKL
   " Intel"
+#elif defined(USE_AOCL)
+  " AMD"
 #endif
-  " (28 Jan 2023)";
+  " (2 Mar 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
-#ifndef LAPACK_ILP64
+  " "
+
+#ifdef NOLAPACK
+#elif defined(LAPACK_ILP64)
+#else
   "  "
 #endif
-#ifndef USE_MKL
+
+#ifdef USE_MKL
+#elif defined(USE_AOCL)
+  "  "
+#else
   "      "
 #endif
-#ifdef USE_AVX2
-  "  "
+
+#ifdef __LP64__
+#  ifdef USE_CUDA
+    "  "
+#  elif defined(USE_AVX2)
+    "  "
+#  elif defined(__APPLE__) && !defined(__x86_64__)
+    "    "
+#  endif
 #endif
-#ifndef NOLAPACK
-  "  "
-#endif
-  "   www.cog-genomics.org/plink/2.0/\n"
+
+  "     www.cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2023 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--score, --variant-score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
-// static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--gwas-ssf, --score, --variant-score, --genotyping-rate, --pgen-info,\n--validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--gwas-ssf, --score, --variant-score, --genotyping-rate, --pgen-info,\n--validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #else
 // no --pca
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--score, --variant-score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
-// static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--gwas-ssf, --score, --variant-score, --genotyping-rate, --pgen-info,\n--validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--gwas-ssf, --score, --variant-score, --genotyping-rate, --pgen-info,\n--validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #endif
 
 // multiallelics-already-joined + terminating null
@@ -184,8 +194,7 @@ FLAGSET64_DEF_START()
   kfCommand1Het = (1 << 24),
   kfCommand1Fst = (1 << 25),
   kfCommand1Pmerge = (1 << 26),
-  kfCommand1PgenDiff = (1 << 27),
-  kfCommand1GwasSsf = (1 << 28)
+  kfCommand1PgenDiff = (1 << 27)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -335,6 +344,7 @@ typedef struct Plink2CmdlineStruct {
   CmpExpr exclude_if_info_expr;
   ExtractColCondInfo extract_col_cond_info;
   ExportfInfo exportf_info;
+  GwasSsfInfo gwas_ssf_info;
   double ci_size;
   float var_min_qual;
   uint32_t splitpar_bound1;
@@ -704,7 +714,7 @@ PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* extract_int
   }
   if (exclude_fnames && (filter_flags & (kfFilterExcludeBed0 | kfFilterExcludeBed1))) {
     if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
-      logerrputs("Error: '--exclude bed0'/'--exclude bed1' requires a sorted .pvar/.bim.  Retry\nthis commandafter using --make-pgen/--make-bed + --sort-vars to sort your\ndata.\n");
+      logerrputs("Error: '--exclude bed0'/'--exclude bed1' requires a sorted .pvar/.bim.  Retry\nthis command after using --make-pgen/--make-bed + --sort-vars to sort your\ndata.\n");
       return kPglRetInconsistentInput;
     }
     PglErr reterr = ExtractExcludeRange(exclude_fnames, cip, variant_bps, raw_variant_ct, kVfilterExclude, (filter_flags / kfFilterExcludeBed0) & 1, bed_border_bp, max_thread_ct, variant_include, variant_ct_ptr);
@@ -1897,13 +1907,14 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_NOMEM;
           }
         }
+        uint32_t overlapping_allele_ddosages = 0;
         if (FounderAlleleDosagesAreNeeded(pcp->command_flags1, pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_ddosage, pcp->max_allele_ddosage, &regular_freqcounts_needed)) {
-          // For now, we never need allele_ddosages and founder_allele_ddosages
-          // at the same time.  If we ever do, we should just set
-          // founder_allele_ddosages = allele_ddosages when the latter is
-          // allocated and founder_ct == sample_ct.
-          if (unlikely(bigstack_alloc_u64(raw_allele_ct, &founder_allele_ddosages))) {
-            goto Plink2Core_ret_NOMEM;
+          if (allele_ddosages && (founder_ct == sample_ct)) {
+            overlapping_allele_ddosages = 1;
+          } else {
+            if (unlikely(bigstack_alloc_u64(raw_allele_ct, &founder_allele_ddosages))) {
+              goto Plink2Core_ret_NOMEM;
+            }
           }
         }
         double* imp_r2_vals = nullptr;
@@ -2043,6 +2054,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
+          if (overlapping_allele_ddosages) {
+            founder_allele_ddosages = allele_ddosages;
+          }
           if (pcp->command_flags1 & kfCommand1GenotypingRate) {
             // possible todo: also report this opportunistically
             // (variant_missing_hc_cts filled for other reasons).  worth
@@ -2108,6 +2122,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // this case
             logerrputs("Warning: --hwe has no effect since entire genome is haploid.\n");
           } else {
+            DPrintf("Starting --hwe.\n");
             STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts) = nonfounders? raw_geno_cts : founder_raw_geno_cts;
             STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts) = nonfounders? x_male_geno_cts : founder_x_male_geno_cts;
             STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts) = nonfounders? x_nosex_geno_cts : founder_x_nosex_geno_cts;
@@ -2126,25 +2141,32 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts) = nullptr;
             STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts) = nullptr;
             uint32_t hwe_x_ct = 0;
+            DPrintf("hwe_x_probs_needed: %u\n", hwe_x_probs_needed);
             if (hwe_x_probs_needed) {
               hwe_x_ct = CountChrVariantsUnsafe(variant_include, cip, cip->xymt_codes[kChrOffsetX]);
+              DPrintf("hwe_x_ct: %u\n", hwe_x_ct);
               // hwe_x_ct == 0 possible when hwe_x_probs_needed set, if --geno
               // filters out all chrX variants
             }
             uintptr_t autosomal_xallele_ct = 0;
             uintptr_t x_xallele_ct = 0;
+            DPrintf("allele_idx_offsets: %lx\n", R_CAST(uintptr_t, allele_idx_offsets));
             if (allele_idx_offsets) {
               const uint32_t autosomal_variant_ct = variant_ct - hwe_x_ct - CountNonAutosomalVariants(variant_include, cip, 0, 1);
+              DPrintf("autosomal_variant_ct: %u\n", autosomal_variant_ct);
               const uint32_t chr_ct = cip->chr_ct;
+              DPrintf("chr_ct: %u\n", chr_ct);
               for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
                 const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
                 if ((chr_idx != x_code) && (!IsSet(cip->haploid_mask, chr_idx))) {
                   autosomal_xallele_ct += CountExtraAlleles(variant_include, allele_idx_offsets, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], 1);
                 }
               }
+              DPrintf("autosomal_xallele_ct: %u\n", autosomal_xallele_ct);
               if (hwe_x_ct) {
                 x_xallele_ct = CountExtraAlleles(variant_include, allele_idx_offsets, x_start, x_start + x_len, 1);
               }
+              DPrintf("x_xallele_ct: %u\n", x_xallele_ct);
               if (autosomal_xallele_ct || x_xallele_ct) {
                 if (autosomal_xallele_ct) {
                   if (unlikely(BIGSTACK_ALLOC_STD_ARRAY(uint32_t, 2, autosomal_xallele_ct, &autosomal_xgeno_cts))) {
@@ -2161,10 +2183,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                     }
                   }
                 }
+                DPrintf("starting GetMultiallelicMarginalCounts\n");
                 reterr = GetMultiallelicMarginalCounts(nonfounders? sample_include : founder_info, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, hwe_geno_cts, raw_sample_ct, autosomal_variant_ct, autosomal_xallele_ct, hwe_x_ct, x_xallele_ct, &simple_pgr, x_male_xgeno_cts, autosomal_xgeno_cts, x_knownsex_xgeno_cts);
                 if (unlikely(reterr)) {
                   goto Plink2Core_ret_1;
                 }
+                DPrintf("GetMultiallelicMarginalCounts complete\n");
               }
             }
 
@@ -2186,10 +2210,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               } else {
                 hwe_midp = (pcp->misc_flags / kfMiscHweMidp) & 1;
               }
+              DPrintf("starting ComputeHweXPvals\n");
               reterr = ComputeHweXPvals(variant_include, allele_idx_offsets, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_knownsex_xgeno_cts, x_male_xgeno_cts, x_start, hwe_x_ct, x_xallele_ct, hwe_midp, pcp->max_thread_ct, &hwe_x_pvals);
               if (unlikely(reterr)) {
                 goto Plink2Core_ret_1;
               }
+              DPrintf("ComputeHweXPvals complete\n");
             }
             if (pcp->command_flags1 & kfCommand1Hardy) {
               reterr = HardyReport(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, hwe_geno_cts, autosomal_xgeno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_knownsex_xgeno_cts, x_male_xgeno_cts, hwe_x_pvals, variant_ct, hwe_x_ct, max_allele_slen, pcp->output_min_ln, pcp->hardy_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
@@ -2203,6 +2229,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             if (pcp->hwe_thresh != 0.0) {
               // assumes no filtering between hwe_x_pvals[] computation and
               // here
+              DPrintf("starting EnforceHweThresh\n");
               EnforceHweThresh(cip, allele_idx_offsets, hwe_geno_cts, autosomal_xgeno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_knownsex_xgeno_cts, x_male_xgeno_cts, hwe_x_pvals, pcp->misc_flags, pcp->hwe_thresh, nonfounders, variant_include, &variant_ct);
             }
           }
@@ -2721,7 +2748,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: --glm + local-pos-cols= requires a sorted .pvar/.bim.  Retry this\ncommand after using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
-        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->ln_pfilter, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, &(pcp->gwas_ssf_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->ln_pfilter, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3323,6 +3350,7 @@ int main(int argc, char** argv) {
   InitCmpExpr(&pc.exclude_if_info_expr);
   InitExtractColCond(&pc.extract_col_cond_info);
   InitExportf(&pc.exportf_info);
+  InitGwasSsf(&pc.gwas_ssf_info);
   GenDummyInfo gendummy_info;
   InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
@@ -5574,13 +5602,16 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --glm cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0ax\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0tz\0p\0err\0", "glm", kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0omitted\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0tz\0p\0err\0ax\0", "glm", kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
               if (unlikely((!(pc.glm_info.cols & (kfGlmColBeta | kfGlmColOrbeta))) && ((pc.glm_info.cols & kfGlmColSe) || ((pc.glm_info.cols & kfGlmColCi) && (pc.ci_size != 0))))) {
                 logerrputs("Error: --glm's 'se' and 'ci' columns require beta/orbeta to be included.\n");
                 goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (pc.glm_info.cols & kfGlmColAx) {
+                logerrputs("Warning: --glm 'ax' column is deprecated; you probably want 'omitted' instead.\nIf you think you need ax's current behavior, contact the developers and\ndescribe your use case.\n");
               }
             } else if (StrStartsWith0(cur_modif, "mperm", cur_modif_slen)) {
               if (unlikely((cur_modif_slen < 7) || (cur_modif[5] != '='))) {
@@ -5800,9 +5831,82 @@ int main(int argc, char** argv) {
           memcpy(pgenname, cur_fname, slen + 1);
           xload |= kfXloadOxGen;
         } else if (strequal_k_unsafe(flagname_p2, "was-ssf")) {
-          logerrputs("Error: --gwas-ssf is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto main_ret_1;
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 6))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.gwas_ssf_info.flags |= kfGwasSsfZs;
+            } else if (strequal_k(cur_modif, "delete-orig-glm", cur_modif_slen)) {
+              if (unlikely(!(pc.command_flags1 & kfCommand1Glm))) {
+                logerrputs("Error: --gwas-ssf 'delete-orig-glm' was specified, but --glm was not.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              pc.gwas_ssf_info.flags |= kfGwasSsfDeleteOrigGlm;
+            } else if (StrStartsWith(cur_modif, "a1freq-lower-limit=", cur_modif_slen)) {
+              const char* lower_limit_start = &(cur_modif[strlen("a1freq-lower-limit=")]);
+              double dxx;
+              if (unlikely((!ScantokDouble(lower_limit_start, &dxx)) || (dxx < 0.0) || (dxx > 1.0))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gwas-ssf a1freq-lower-bound= argument '%s'.\n", lower_limit_start);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              pc.gwas_ssf_info.a1freq_lower_limit = dxx * (1.0 - kSmallEpsilon);
+            } else if (StrStartsWith(cur_modif, "file=", cur_modif_slen)) {
+              reterr = AllocFname(&(cur_modif[strlen("file=")]), argvk[arg_idx], 0, &pc.gwas_ssf_info.fname);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else if (StrStartsWith(cur_modif, "file-list=", cur_modif_slen)) {
+              reterr = AllocFname(&(cur_modif[strlen("file-list=")]), argvk[arg_idx], 0, &pc.gwas_ssf_info.list_fname);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else if (likely(StrStartsWith(cur_modif, "rsid=", cur_modif_slen))) {
+              if (unlikely(pc.gwas_ssf_info.rsid_mode != kGwasSsfRsidMode0)) {
+                logerrputs("Error: Multiple --gwas-ssf rsid= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* mode_start = &(cur_modif[strlen("rsid=")]);
+              const uint32_t mode_slen = cur_modif_slen - strlen("rsid=");
+              if (strequal_k(mode_start, "no", mode_slen)) {
+                pc.gwas_ssf_info.rsid_mode = kGwasSsfRsidModeNo;
+              } else if (strequal_k(mode_start, "infer", mode_slen)) {
+                pc.gwas_ssf_info.rsid_mode = kGwasSsfRsidModeInfer;
+              } else if (likely(strequal_k(mode_start, "yes", mode_slen))) {
+                pc.gwas_ssf_info.rsid_mode = kGwasSsfRsidModeYes;
+              } else {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gwas-ssf rsid= mode '%s' ('no'/'infer'/'yes' expected).\n", mode_start);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gwas-ssf argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (pc.command_flags1 & kfCommand1Glm) {
+            if (unlikely(pc.glm_info.flags & (kfGlmHethom | kfGlmDominant | kfGlmRecessive | kfGlmHetonly))) {
+              logerrputs("Error: --glm output does not contain an 'ADD' column, which is required by\n--gwas-ssf.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely(((pc.glm_info.cols & kfGlmColGwasSsfReq) != kfGlmColGwasSsfReq) || (!(pc.glm_info.cols & (kfGlmColBeta | kfGlmColOrbeta))))) {
+              logerrputs("Error: --glm column set is inappropriate for --gwas-ssf.  Set e.g.\ncols=+omitted,+a1freq instead.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (pc.gwas_ssf_info.flags & kfGwasSsfDeleteOrigGlm) {
+              if ((pc.glm_info.flags & (kfGlmZs | kfGlmHideCovar)) != (kfGlmZs | kfGlmHideCovar)) {
+                logputs("Note: --gwas-ssf delete-orig-glm: automatically setting --glm 'zs' and\n'hide-covar' to reduce temporary file size.\n");
+                pc.glm_info.flags |= kfGlmZs | kfGlmHideCovar;
+              }
+            }
+          } else if (unlikely((!pc.gwas_ssf_info.fname) && (!pc.gwas_ssf_info.list_fname))) {
+            logerrputs("Error: --gwas-ssf specified without any input (--glm, file=, and/or file-list=\nrequired).\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (pc.gwas_ssf_info.rsid_mode == kGwasSsfRsidMode0) {
+            pc.gwas_ssf_info.rsid_mode = kGwasSsfRsidModeInfer;
+          }
         } else if (likely(strequal_k_unsafe(flagname_p2, "enotyping-rate"))) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -10104,6 +10208,10 @@ int main(int argc, char** argv) {
             logerrputs("Error: --tests cannot be used with --glm firth-residualize.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (unlikely(pc.gwas_ssf_info.flags & kfGwasSsfDeleteOrigGlm)) {
+            logerrputs("Error: --tests doesn't make sense with \"--gwas-ssf delete-orig-glm\" unless\ntest= is specified for --gwas-ssf.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           if ((param_ct == 1) && (!strcmp(argvk[arg_idx + 1], "all"))) {
             pc.glm_info.flags |= kfGlmTestsAll;
           } else {
@@ -10705,7 +10813,7 @@ int main(int argc, char** argv) {
 
     pc.dependency_flags |= pc.filter_flags;
     const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped)));
-    const uint32_t batch_job = (adjust_file_info.fname != nullptr);
+    const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr);
     if (skip_main && (!batch_job)) {
       // add command_flags2 when needed
       goto main_ret_NULL_CALC;
@@ -10905,6 +11013,12 @@ int main(int argc, char** argv) {
     if (batch_job) {
       if (adjust_file_info.fname) {
         reterr = AdjustFile(&adjust_file_info, pc.ln_pfilter, pc.output_min_ln, pc.max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto main_ret_1;
+        }
+      }
+      if (pc.gwas_ssf_info.fname || pc.gwas_ssf_info.list_fname) {
+        reterr = GwasSsfStandalone(&pc.gwas_ssf_info, pc.max_thread_ct);
         if (unlikely(reterr)) {
           goto main_ret_1;
         }
@@ -11270,6 +11384,7 @@ int main(int argc, char** argv) {
   }
   CleanupChrInfo(&chr_info);
   CleanupGenDummy(&gendummy_info);
+  CleanupGwasSsf(&pc.gwas_ssf_info);
   CleanupExportf(&pc.exportf_info);
   CleanupExtractColCond(&pc.extract_col_cond_info);
   CleanupCmpExpr(&pc.exclude_if_info_expr);

@@ -541,6 +541,8 @@ HEADER_INLINE PglErr TextNextLineLstripUnsafeK(TextStream* txs_ptr, const char**
   return TextNextLineLstripUnsafe(txs_ptr, K_CAST(char**, line_iterp));
 }
 
+// Caller is responsible for advancing line_iter past \n when it wants the next
+// line.
 HEADER_INLINE PglErr TextGetUnsafe(TextStream* txs_ptr, char** line_iterp) {
   char* line_iter = *line_iterp;
   TextFileBase* basep = &GET_PRIVATE(*txs_ptr, m).base;
@@ -569,6 +571,8 @@ HEADER_INLINE PglErr TextGetUnsafeK(TextStream* txs_ptr, const char** line_iterp
 
 // Returns *zero* when it's time to stop iterating.  Designed to be the middle
 // argument in a for (; ; ) loop.
+// Caller is responsible for advancing line_iter past \n when it wants the next
+// line.
 HEADER_INLINE uint32_t TextGetUnsafe2(TextStream* txs_ptr, char** line_iterp) {
   char* line_iter = *line_iterp;
   TextFileBase* basep = &GET_PRIVATE(*txs_ptr, m).base;

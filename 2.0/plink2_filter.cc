@@ -2192,59 +2192,59 @@ CONSTI32(kMaxReadFreqAlleles, 255);
 // 15->8: HOM_ALT1_CT
 // 16->10: HAP_ALT1_CT
 ENUM_U31_DEF_START()
-  kfReadFreqColVarId = 0,
-  kfReadFreqColRefAllele,
-  kfReadFreqColAltAlleles,
+  kReadFreqColVarId = 0,
+  kReadFreqColRefAllele,
+  kReadFreqColAltAlleles,
 
-  kfReadFreqColRefFreq,
-  kfReadFreqColAltFreqs,
+  kReadFreqColRefFreq,
+  kReadFreqColAltFreqs,
 
-  kfReadFreqColObsCt,
+  kReadFreqColObsCt,
 
-  kfReadFreqColHomRefCt,
-  kfReadFreqColHetRefAltCts,
-  kfReadFreqColNonrefDiploidCts,
-  kfReadFreqColHapRefCt,
-  kfReadFreqColHapAltCts,
-  kfReadFreqColGenoCtNumeq,
+  kReadFreqColHomRefCt,
+  kReadFreqColHetRefAltCts,
+  kReadFreqColNonrefDiploidCts,
+  kReadFreqColHapRefCt,
+  kReadFreqColHapAltCts,
+  kReadFreqColGenoCtNumeq,
 
-  kfReadFreqColAlt1Allele,
-  kfReadFreqColAlt1Freq,
-  kfReadFreqColHetRefAlt1Ct,
-  kfReadFreqColHomAlt1Ct,
-  kfReadFreqColHapAlt1Ct,
+  kReadFreqColAlt1Allele,
+  kReadFreqColAlt1Freq,
+  kReadFreqColHetRefAlt1Ct,
+  kReadFreqColHomAlt1Ct,
+  kReadFreqColHapAlt1Ct,
 
-  kfReadFreqColNull
+  kReadFreqColNull
 ENUM_U31_DEF_END(ReadFreqColidx);
 
 FLAGSET_DEF_START()
   kfReadFreqColset0,
-  kfReadFreqColsetVarId = (1 << kfReadFreqColVarId),
-  kfReadFreqColsetRefAllele = (1 << kfReadFreqColRefAllele),
-  kfReadFreqColsetAltAlleles = (1 << kfReadFreqColAltAlleles),
+  kfReadFreqColsetVarId = (1 << kReadFreqColVarId),
+  kfReadFreqColsetRefAllele = (1 << kReadFreqColRefAllele),
+  kfReadFreqColsetAltAlleles = (1 << kReadFreqColAltAlleles),
   kfReadFreqColsetBase = (kfReadFreqColsetVarId | kfReadFreqColsetRefAllele | kfReadFreqColsetAltAlleles),
 
-  kfReadFreqColsetRefFreq = (1 << kfReadFreqColRefFreq),
-  kfReadFreqColsetAltFreqs = (1 << kfReadFreqColAltFreqs),
+  kfReadFreqColsetRefFreq = (1 << kReadFreqColRefFreq),
+  kfReadFreqColsetAltFreqs = (1 << kReadFreqColAltFreqs),
   kfReadFreqColsetAfreqOnly = (kfReadFreqColsetRefFreq | kfReadFreqColsetAltFreqs),
 
-  kfReadFreqColsetObsCt = (1 << kfReadFreqColObsCt),
+  kfReadFreqColsetObsCt = (1 << kReadFreqColObsCt),
 
-  kfReadFreqColsetHomRefCt = (1 << kfReadFreqColHomRefCt),
-  kfReadFreqColsetHetRefAltCts = (1 << kfReadFreqColHetRefAltCts),
-  kfReadFreqColsetNonrefDiploidCts = (1 << kfReadFreqColNonrefDiploidCts),
-  kfReadFreqColsetHapRefCt = (1 << kfReadFreqColHapRefCt),
-  kfReadFreqColsetHapAltCts = (1 << kfReadFreqColHapAltCts),
+  kfReadFreqColsetHomRefCt = (1 << kReadFreqColHomRefCt),
+  kfReadFreqColsetHetRefAltCts = (1 << kReadFreqColHetRefAltCts),
+  kfReadFreqColsetNonrefDiploidCts = (1 << kReadFreqColNonrefDiploidCts),
+  kfReadFreqColsetHapRefCt = (1 << kReadFreqColHapRefCt),
+  kfReadFreqColsetHapAltCts = (1 << kReadFreqColHapAltCts),
   kfReadFreqColsetGcountDefault = ((kfReadFreqColsetHapAltCts * 2) - kfReadFreqColsetHomRefCt),
 
-  kfReadFreqColsetGenoCtNumeq = (1 << kfReadFreqColGenoCtNumeq),
+  kfReadFreqColsetGenoCtNumeq = (1 << kReadFreqColGenoCtNumeq),
   kfReadFreqColsetGcountOnly = (kfReadFreqColsetGcountDefault | kfReadFreqColsetGenoCtNumeq),
 
-  kfReadFreqColsetAlt1Allele = (1 << kfReadFreqColAlt1Allele),
-  kfReadFreqColsetAlt1Freq = (1 << kfReadFreqColAlt1Freq),
-  kfReadFreqColsetHetRefAlt1Ct = (1 << kfReadFreqColHetRefAlt1Ct),
-  kfReadFreqColsetHomAlt1Ct = (1 << kfReadFreqColHomAlt1Ct),
-  kfReadFreqColsetHapAlt1Ct = (1 << kfReadFreqColHapAlt1Ct)
+  kfReadFreqColsetAlt1Allele = (1 << kReadFreqColAlt1Allele),
+  kfReadFreqColsetAlt1Freq = (1 << kReadFreqColAlt1Freq),
+  kfReadFreqColsetHetRefAlt1Ct = (1 << kReadFreqColHetRefAlt1Ct),
+  kfReadFreqColsetHomAlt1Ct = (1 << kReadFreqColHomAlt1Ct),
+  kfReadFreqColsetHapAlt1Ct = (1 << kReadFreqColHapAlt1Ct)
 FLAGSET_DEF_END(ReadFreqColFlags);
 
 // Support exact reconstruction of original allele frequencies in --freq counts
@@ -2306,9 +2306,9 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       }
       // automatically skip header lines that start with '##' or '# '
     } while ((*line_start == '#') && (ctou32(line_start[1]) <= '#'));
-    uint32_t col_skips[kfReadFreqColNull];
-    ReadFreqColidx col_types[kfReadFreqColNull];
-    uint32_t overrideable_pos[kfReadFreqColNull - kfReadFreqColAlt1Allele];
+    uint32_t col_skips[kReadFreqColNull];
+    ReadFreqColidx col_types[kReadFreqColNull];
+    uint32_t overrideable_pos[kReadFreqColNull - kReadFreqColAlt1Allele];
     uint32_t geno_counts = 0;
     uint32_t main_eq = 0;
     uint32_t is_numeq = 0;
@@ -2346,15 +2346,15 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       while (1) {
         const char* token_end = CurTokenEnd(linebuf_iter);
         const uint32_t token_slen = token_end - linebuf_iter;
-        ReadFreqColidx cur_colidx = kfReadFreqColNull;
+        ReadFreqColidx cur_colidx = kReadFreqColNull;
         if (token_slen <= 4) {
           if (strequal_k(linebuf_iter, "ID", token_slen)) {
-            cur_colidx = kfReadFreqColVarId;
+            cur_colidx = kReadFreqColVarId;
           } else if (token_slen == 3) {
             if (memequal_sk(linebuf_iter, "REF")) {
-              cur_colidx = kfReadFreqColRefAllele;
+              cur_colidx = kReadFreqColRefAllele;
             } else if (memequal_sk(linebuf_iter, "ALT")) {
-              cur_colidx = kfReadFreqColAltAlleles;
+              cur_colidx = kReadFreqColAltAlleles;
               if (allele_list_just_alt1) {
                 header_cols &= ~kfReadFreqColsetAlt1Allele;
                 allele_list_just_alt1 = 0;
@@ -2363,18 +2363,18 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               goto ReadAlleleFreqs_freqmain_found1;
             }
           } else if (strequal_k(linebuf_iter, "ALT1", token_slen) && allele_list_just_alt1) {
-            cur_colidx = kfReadFreqColAlt1Allele;
+            cur_colidx = kReadFreqColAlt1Allele;
           }
         } else if (strequal_k(linebuf_iter, "REF_FREQ", token_slen) ||
                    strequal_k(linebuf_iter, "REF_CT", token_slen)) {
-          cur_colidx = kfReadFreqColRefFreq;
+          cur_colidx = kReadFreqColRefFreq;
           if (linebuf_iter[4] == 'F') {
             is_frac = 1;
           }
         } else if ((strequal_k(linebuf_iter, "ALT1_FREQ", token_slen) ||
                     strequal_k(linebuf_iter, "ALT1_CT", token_slen)) &&
                    main_list_just_alt1) {
-          cur_colidx = kfReadFreqColAlt1Freq;
+          cur_colidx = kReadFreqColAlt1Freq;
           if (linebuf_iter[5] == 'F') {
             is_frac = 1;
           }
@@ -2397,63 +2397,63 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         ReadAlleleFreqs_freqmain_found1:
           main_allele_idx_start = 0;
         ReadAlleleFreqs_freqmain_found2:
-          cur_colidx = kfReadFreqColAltFreqs;
+          cur_colidx = kReadFreqColAltFreqs;
           if (main_list_just_alt1) {
             header_cols &= ~kfReadFreqColsetAlt1Freq;
             main_list_just_alt1 = 0;
           }
         } else if (strequal_k(linebuf_iter, "OBS_CT", token_slen)) {
-          cur_colidx = kfReadFreqColObsCt;
+          cur_colidx = kReadFreqColObsCt;
         } else if (strequal_k(linebuf_iter, "HOM_REF_CT", token_slen)) {
-          cur_colidx = kfReadFreqColHomRefCt;
+          cur_colidx = kReadFreqColHomRefCt;
         } else if (strequal_k(linebuf_iter, "HET_REF_ALT1_CT", token_slen) && het_list_just_alt1) {
-          cur_colidx = kfReadFreqColHetRefAlt1Ct;
+          cur_colidx = kReadFreqColHetRefAlt1Ct;
         } else if (strequal_k(linebuf_iter, "HET_REF_ALT_CTS", token_slen)) {
-          cur_colidx = kfReadFreqColHetRefAltCts;
+          cur_colidx = kReadFreqColHetRefAltCts;
           if (het_list_just_alt1) {
             header_cols &= ~kfReadFreqColsetHetRefAlt1Ct;
             het_list_just_alt1 = 0;
           }
         } else if (strequal_k(linebuf_iter, "HOM_ALT1_CT", token_slen) && main_list_just_alt1) {
-          cur_colidx = kfReadFreqColHomAlt1Ct;
+          cur_colidx = kReadFreqColHomAlt1Ct;
         } else if (strequal_k(linebuf_iter, "TWO_ALT_GENO_CTS", token_slen) ||
                    strequal_k(linebuf_iter, "NONREF_DIPLOID_GENO_CTS", token_slen)) {
           goto ReadAlleleFreqs_countmain_found;
         } else if (strequal_k(linebuf_iter, "DIPLOID_GENO_CTS", token_slen)) {
           main_allele_idx_start = 0;
         ReadAlleleFreqs_countmain_found:
-          cur_colidx = kfReadFreqColNonrefDiploidCts;
+          cur_colidx = kReadFreqColNonrefDiploidCts;
           if (main_list_just_alt1) {
             header_cols &= ~kfReadFreqColsetHomAlt1Ct;
             // could make this use a different variable than FREQS does
             main_list_just_alt1 = 0;
           }
         } else if (strequal_k(linebuf_iter, "HAP_REF_CT", token_slen)) {
-          cur_colidx = kfReadFreqColHapRefCt;
+          cur_colidx = kReadFreqColHapRefCt;
         } else if (strequal_k(linebuf_iter, "HAP_ALT1_CT", token_slen) && hap_list_just_alt1) {
-          cur_colidx = kfReadFreqColHapAlt1Ct;
+          cur_colidx = kReadFreqColHapAlt1Ct;
         } else if (strequal_k(linebuf_iter, "HAP_ALT_CTS", token_slen)) {
           goto ReadAlleleFreqs_hapmain_found;
         } else if (strequal_k(linebuf_iter, "HAP_CTS", token_slen)) {
           hap_allele_idx_start = 0;
         ReadAlleleFreqs_hapmain_found:
-          cur_colidx = kfReadFreqColHapAltCts;
+          cur_colidx = kReadFreqColHapAltCts;
           if (hap_list_just_alt1) {
             header_cols &= ~kfReadFreqColsetHapAlt1Ct;
             hap_list_just_alt1 = 0;
           }
         } else if (strequal_k(linebuf_iter, "GENO_NUM_CTS", token_slen)) {
-          cur_colidx = kfReadFreqColGenoCtNumeq;
+          cur_colidx = kReadFreqColGenoCtNumeq;
           is_numeq = 1;
         }
-        if (cur_colidx != kfReadFreqColNull) {
+        if (cur_colidx != kReadFreqColNull) {
           const ReadFreqColFlags cur_colset = S_CAST(ReadFreqColFlags, 1U << cur_colidx);
           if (unlikely(header_cols & cur_colset)) {
             logerrputs("Error: Conflicting columns in header line of --read-freq file.\n");
             goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
           }
-          if (cur_colidx >= kfReadFreqColAlt1Allele) {
-            overrideable_pos[cur_colidx - kfReadFreqColAlt1Allele] = relevant_col_ct;
+          if (cur_colidx >= kReadFreqColAlt1Allele) {
+            overrideable_pos[cur_colidx - kReadFreqColAlt1Allele] = relevant_col_ct;
           }
           header_cols |= cur_colset;
           col_skips[relevant_col_ct] = col_idx;
@@ -2468,23 +2468,23 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       ReadFreqColFlags semifinal_header_cols = header_cols;
       if (header_cols & kfReadFreqColsetAlt1Allele) {
         header_cols ^= kfReadFreqColsetAltAlleles | kfReadFreqColsetAlt1Allele;
-        col_types[overrideable_pos[0]] = kfReadFreqColAltAlleles;
+        col_types[overrideable_pos[0]] = kReadFreqColAltAlleles;
       }
       if (header_cols & kfReadFreqColsetAlt1Freq) {
         header_cols ^= kfReadFreqColsetAltFreqs | kfReadFreqColsetAlt1Freq;
-        col_types[overrideable_pos[kfReadFreqColAlt1Freq - kfReadFreqColAlt1Allele]] = kfReadFreqColAltFreqs;
+        col_types[overrideable_pos[kReadFreqColAlt1Freq - kReadFreqColAlt1Allele]] = kReadFreqColAltFreqs;
       }
       if (header_cols & kfReadFreqColsetHetRefAlt1Ct) {
         header_cols ^= kfReadFreqColsetHetRefAltCts | kfReadFreqColsetHetRefAlt1Ct;
-        col_types[overrideable_pos[kfReadFreqColHetRefAlt1Ct - kfReadFreqColAlt1Allele]] = kfReadFreqColHetRefAltCts;
+        col_types[overrideable_pos[kReadFreqColHetRefAlt1Ct - kReadFreqColAlt1Allele]] = kReadFreqColHetRefAltCts;
       }
       if (header_cols & kfReadFreqColsetHomAlt1Ct) {
         header_cols ^= kfReadFreqColsetNonrefDiploidCts | kfReadFreqColsetHomAlt1Ct;
-        col_types[overrideable_pos[kfReadFreqColHomAlt1Ct - kfReadFreqColAlt1Allele]] = kfReadFreqColNonrefDiploidCts;
+        col_types[overrideable_pos[kReadFreqColHomAlt1Ct - kReadFreqColAlt1Allele]] = kReadFreqColNonrefDiploidCts;
       }
       if (header_cols & kfReadFreqColsetHapAlt1Ct) {
         header_cols ^= kfReadFreqColsetHapAltCts | kfReadFreqColsetHapAlt1Ct;
-        col_types[overrideable_pos[kfReadFreqColHapAlt1Ct - kfReadFreqColAlt1Allele]] = kfReadFreqColHapAltCts;
+        col_types[overrideable_pos[kReadFreqColHapAlt1Ct - kReadFreqColAlt1Allele]] = kReadFreqColHapAltCts;
       }
       if ((semifinal_header_cols != header_cols) && (!(header_cols & kfReadFreqColsetGenoCtNumeq))) {
         // we're treating at least one ALT1 column as if it spoke for all ALT
@@ -2518,7 +2518,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           linebuf_iter = line_start;
           const char* alt_freq_str = nullptr;
           for (uint32_t relevant_col_idx = 0; relevant_col_idx != relevant_col_ct; ++relevant_col_idx) {
-            if (col_types[relevant_col_idx] == kfReadFreqColAltFreqs) {
+            if (col_types[relevant_col_idx] == kReadFreqColAltFreqs) {
               alt_freq_str = NextTokenMult0(linebuf_iter, col_skips[relevant_col_idx]);
               break;
             }
@@ -2638,10 +2638,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       col_skips[2] = 1;
       col_skips[3] = 1;
 
-      col_types[0] = kfReadFreqColVarId;
+      col_types[0] = kReadFreqColVarId;
       // doesn't matter if we treat A1 or A2 as ref
-      col_types[1] = kfReadFreqColRefAllele;
-      col_types[2] = kfReadFreqColAltAlleles;
+      col_types[1] = kReadFreqColRefAllele;
+      col_types[2] = kReadFreqColAltAlleles;
       biallelic_only = 1;
       if (StrStartsWithUnsafe(line_start, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)")) {
         col_skips[4] = 1;
@@ -2649,11 +2649,11 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         col_skips[6] = 1;
         col_skips[7] = 1;
 
-        col_types[3] = kfReadFreqColHomRefCt;
-        col_types[4] = kfReadFreqColHetRefAltCts;
-        col_types[5] = kfReadFreqColNonrefDiploidCts;
-        col_types[6] = kfReadFreqColHapRefCt;
-        col_types[7] = kfReadFreqColHapAltCts;
+        col_types[3] = kReadFreqColHomRefCt;
+        col_types[4] = kReadFreqColHetRefAltCts;
+        col_types[5] = kReadFreqColNonrefDiploidCts;
+        col_types[6] = kReadFreqColHapRefCt;
+        col_types[7] = kReadFreqColHapAltCts;
         header_cols = kfReadFreqColsetBase | kfReadFreqColsetGcountOnly;
         geno_counts = 1;
         relevant_col_ct = 8;
@@ -2675,7 +2675,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           goto ReadAlleleFreqs_ret_UNRECOGNIZED_HEADER;
         }
         linebuf_iter = FirstNonTspace(&(linebuf_iter[2]));
-        col_types[3] = kfReadFreqColRefFreq;
+        col_types[3] = kReadFreqColRefFreq;
         if (tokequal_k(linebuf_iter, "MAF")) {
           is_frac = 1;
           infer_one_freq = 1;
@@ -2692,7 +2692,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             goto ReadAlleleFreqs_ret_UNRECOGNIZED_HEADER;
           }
           col_skips[4] = 1;
-          col_types[4] = kfReadFreqColAltFreqs;
+          col_types[4] = kReadFreqColAltFreqs;
           header_cols = kfReadFreqColsetBase | kfReadFreqColsetAfreqOnly;
           relevant_col_ct = 5;
           logputs("--read-freq: PLINK 1.x '--freq counts' file detected.\n");
@@ -2728,8 +2728,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         // characters may be modified, so better find the \n now just in case
         // it gets clobbered
         line_iter = AdvPastDelim(line_iter, '\n');
-        const char* variant_id_start = token_ptrs[kfReadFreqColVarId];
-        const uint32_t variant_id_slen = token_slens[kfReadFreqColVarId];
+        const char* variant_id_start = token_ptrs[kReadFreqColVarId];
+        const uint32_t variant_id_slen = token_slens[kReadFreqColVarId];
         variant_uidx = VariantIdDupflagHtableFind(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
         if (variant_uidx >> 31) {
           if (likely(variant_uidx == UINT32_MAX)) {
@@ -2759,17 +2759,17 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
         uint32_t loaded_allele_ct = 0;
         if (header_cols & kfReadFreqColsetRefAllele) {
-          uint32_t cur_loaded_allele_code_slen = token_slens[kfReadFreqColRefAllele];
+          uint32_t cur_loaded_allele_code_slen = token_slens[kReadFreqColRefAllele];
           uint32_t unmatched_allele_ct = cur_allele_ct;
-          char* cur_loaded_allele_code = token_ptrs[kfReadFreqColRefAllele];
+          char* cur_loaded_allele_code = token_ptrs[kReadFreqColRefAllele];
           // No special handling of missing allele code needed (if the fileset
           // is valid).
           cur_loaded_allele_code[cur_loaded_allele_code_slen] = '\0';
           char* loaded_allele_code_iter;
           char* loaded_allele_code_end;
           if (header_cols & kfReadFreqColsetAltAlleles) {
-            loaded_allele_code_iter = token_ptrs[kfReadFreqColAltAlleles];
-            loaded_allele_code_end = &(loaded_allele_code_iter[token_slens[kfReadFreqColAltAlleles]]);
+            loaded_allele_code_iter = token_ptrs[kReadFreqColAltAlleles];
+            loaded_allele_code_end = &(loaded_allele_code_iter[token_slens[kReadFreqColAltAlleles]]);
             *loaded_allele_code_end++ = ',';
           } else {
             // special case: with --freq alteq or alteqz column, we only need
@@ -2820,8 +2820,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         if (geno_counts) {
           ZeroDArr(cur_allele_ct, cur_allele_freqs);
           if (is_numeq) {
-            const uint32_t full_slen = token_slens[kfReadFreqColGenoCtNumeq];
-            char* geno_num_cts = token_ptrs[kfReadFreqColGenoCtNumeq];
+            const uint32_t full_slen = token_slens[kReadFreqColGenoCtNumeq];
+            char* geno_num_cts = token_ptrs[kReadFreqColGenoCtNumeq];
             if (full_slen > 1) {
               geno_num_cts[full_slen] = ',';
               const char* geno_num_cts_iter = geno_num_cts;
@@ -2883,7 +2883,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             const uint32_t internal0 = IsSet(matched_loaded_alleles, 0)? loaded_to_internal_allele_idx[0] : UINT32_MAX;
             if (header_cols & kfReadFreqColsetHomRefCt) {
               if (internal0 != UINT32_MAX) {
-                const char* hom_ref_str = token_ptrs[kfReadFreqColHomRefCt];
+                const char* hom_ref_str = token_ptrs[kReadFreqColHomRefCt];
                 double dxx;
                 const char* hom_ref_end = ScantokDouble(hom_ref_str, &dxx);
                 if (unlikely((!hom_ref_end) || (dxx < 0.0) || (dxx > 4294967295.0))) {
@@ -2893,8 +2893,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                 cur_allele_freqs[internal0] += 2 * dxx;
               }
 
-              char* het_refalt = token_ptrs[kfReadFreqColHetRefAltCts];
-              const uint32_t het_refalt_slen = token_slens[kfReadFreqColHetRefAltCts];
+              char* het_refalt = token_ptrs[kReadFreqColHetRefAltCts];
+              const uint32_t het_refalt_slen = token_slens[kReadFreqColHetRefAltCts];
               het_refalt[het_refalt_slen] = ',';
               const char* het_refalt_iter = het_refalt;
               const char* het_refalt_end = &(het_refalt[het_refalt_slen]);
@@ -2918,8 +2918,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               }
             }
             // ColNonrefDiploidCts required
-            char* diploid_cts = token_ptrs[kfReadFreqColNonrefDiploidCts];
-            const uint32_t diploid_cts_slen = token_slens[kfReadFreqColNonrefDiploidCts];
+            char* diploid_cts = token_ptrs[kReadFreqColNonrefDiploidCts];
+            const uint32_t diploid_cts_slen = token_slens[kReadFreqColNonrefDiploidCts];
             diploid_cts[diploid_cts_slen] = ',';
             const char* diploid_cts_iter = diploid_cts;
             const char* diploid_cts_end = &(diploid_cts[diploid_cts_slen]);
@@ -2950,7 +2950,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             }
 
             if ((header_cols & kfReadFreqColsetHapRefCt) && (internal0 != UINT32_MAX)) {
-              const char* hap_ref_str = token_ptrs[kfReadFreqColHapRefCt];
+              const char* hap_ref_str = token_ptrs[kReadFreqColHapRefCt];
               double dxx;
               const char* hap_ref_end = ScantokDouble(hap_ref_str, &dxx);
               if (unlikely((!hap_ref_end) || (dxx < 0.0) || (dxx > 4294967295.0))) {
@@ -2960,8 +2960,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               cur_allele_freqs[internal0] += dxx;
             }
             // ColHapAltCts required
-            char* hap_alt = token_ptrs[kfReadFreqColHapAltCts];
-            const uint32_t hap_alt_slen = token_slens[kfReadFreqColHapAltCts];
+            char* hap_alt = token_ptrs[kReadFreqColHapAltCts];
+            const uint32_t hap_alt_slen = token_slens[kReadFreqColHapAltCts];
             hap_alt[hap_alt_slen] = ',';
             const char* hap_alt_iter = hap_alt;
             const char* hap_alt_end = &(hap_alt[hap_alt_slen]);
@@ -2983,10 +2983,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           }
         } else {
           if ((header_cols & kfReadFreqColsetRefFreq) && IsSet(matched_loaded_alleles, 0)) {
-            const char* ref_freq_str = token_ptrs[kfReadFreqColRefFreq];
+            const char* ref_freq_str = token_ptrs[kReadFreqColRefFreq];
             double dxx;
             if (!ScantokDouble(ref_freq_str, &dxx)) {
-              if (likely(IsNanStr(ref_freq_str, token_slens[kfReadFreqColRefFreq]))) {
+              if (likely(IsNanStr(ref_freq_str, token_slens[kReadFreqColRefFreq]))) {
                 goto ReadAlleleFreqs_skip_variant;
               }
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid REF frequency/count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
@@ -3002,8 +3002,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             cur_allele_freqs[loaded_to_internal_allele_idx[0]] = dxx;
           }
           if (header_cols & kfReadFreqColsetAltFreqs) {
-            const uint32_t full_slen = token_slens[kfReadFreqColAltFreqs];
-            char* alt_freq_start = token_ptrs[kfReadFreqColAltFreqs];
+            const uint32_t full_slen = token_slens[kReadFreqColAltFreqs];
+            char* alt_freq_start = token_ptrs[kReadFreqColAltFreqs];
             alt_freq_start[full_slen] = ',';
             if (!main_eq) {
               const char* alt_freq_iter = alt_freq_start;
@@ -3144,7 +3144,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           double adj_obs_ct_recip = 1.0;
           if (header_cols & kfReadFreqColsetObsCt) {
             uint32_t obs_ct_raw;
-            if (unlikely(ScanUintCapped(token_ptrs[kfReadFreqColObsCt], UINT32_MAX, &obs_ct_raw))) {
+            if (unlikely(ScanUintCapped(token_ptrs[kReadFreqColObsCt], UINT32_MAX, &obs_ct_raw))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid allele count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
               goto ReadAlleleFreqs_ret_MALFORMED_INPUT_2;
             }

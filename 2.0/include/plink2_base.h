@@ -106,7 +106,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 801
+#define PLINK2_BASE_VERNUM 803
 
 
 #define _FILE_OFFSET_BITS 64
@@ -366,6 +366,7 @@ typedef enum
   // These are only for internal use.  If any of these reach the top level
   // instead of being handled or converted to another error code, that's a bug,
   // and plink2 prints a message to that effect.
+  kPglRetRetry = 124,
   kPglRetHelp = 125,
   kPglRetLongLine = 126,
   kPglRetEof = 127}
@@ -415,6 +416,7 @@ const PglErr kPglRetWriteFail = PglErr::ec::kPglRetWriteFail;
 const PglErr kPglRetMalformedInput = PglErr::ec::kPglRetMalformedInput;
 const PglErr kPglRetInconsistentInput = PglErr::ec::kPglRetInconsistentInput;
 const PglErr kPglRetInvalidCmdline = PglErr::ec::kPglRetInvalidCmdline;
+const PglErr kPglRetRetry = PglErr::ec::kPglRetRetry;
 const PglErr kPglRetHelp = PglErr::ec::kPglRetHelp;
 const PglErr kPglRetThreadCreateFail = PglErr::ec::kPglRetThreadCreateFail;
 const PglErr kPglRetNetworkFail = PglErr::ec::kPglRetNetworkFail;

@@ -932,6 +932,9 @@ uint32_t IsAlphanumeric(const char* str_iter);
 
 BoolErr ScanPosintptr(const char* str_iter, uintptr_t* valp);
 
+// Requires (cap+1) * 100 < 2^64.
+BoolErr ScanmovU64Capped(uint64_t cap, const char** str_iterp, uint64_t* valp);
+
 #ifdef __LP64__
 BoolErr ScanmovPosintCapped(uint64_t cap, const char** str_iterp, uint32_t* valp);
 

@@ -16,6 +16,7 @@
 
 #include "plink2_adjust.h"
 #include "plink2_compress_stream.h"
+#include "plink2_glm.h"
 #include "plink2_glm_linear.h"
 #include "plink2_glm_logistic.h"
 
@@ -44,6 +45,557 @@ void CleanupGlm(GlmInfo* glm_info_ptr) {
   free_cond(glm_info_ptr->condition_list_fname);
   CleanupRangeList(&(glm_info_ptr->parameters_range_list));
   CleanupRangeList(&(glm_info_ptr->tests_range_list));
+}
+
+void InitGwasSsf(GwasSsfInfo* gwas_ssf_info_ptr) {
+  gwas_ssf_info_ptr->flags = kfGwasSsf0;
+  gwas_ssf_info_ptr->a1freq_lower_limit = 0.0;
+  gwas_ssf_info_ptr->rsid_mode = kGwasSsfRsidMode0;
+  gwas_ssf_info_ptr->fname = nullptr;
+  gwas_ssf_info_ptr->list_fname = nullptr;
+}
+
+void CleanupGwasSsf(GwasSsfInfo* gwas_ssf_info_ptr) {
+  free_cond(gwas_ssf_info_ptr->fname);
+  free_cond(gwas_ssf_info_ptr->list_fname);
+}
+
+// [-1] = #CHROM (must be first column)
+// [0] = POS
+// [1] = ID
+// [2] = REF
+// [3] = ALT
+// [4] = A1
+// [5] = OMITTED (optional, required to keep multiallelic variants)
+// [6] = A1_FREQ
+// [7] = TEST
+// [8] = OBS_CT
+// [9] = BETA/OR
+// [10] = SE/LOG(OR)_SE
+// [11] = L## (optional)
+// [12] = U## (optional)
+// [13] = P/LOG10_P
+ENUM_U31_DEF_START()
+  kGwasSsfColPos = 0,
+  kGwasSsfColId,
+  kGwasSsfColRef,
+  kGwasSsfColAlt,
+  kGwasSsfColA1,
+  kGwasSsfColOmitted,
+  kGwasSsfColA1Freq,
+  kGwasSsfColTest,
+  kGwasSsfColObsCt,
+  kGwasSsfColBetaOr,
+  kGwasSsfColSe,
+  kGwasSsfColCiLower,
+  kGwasSsfColCiUpper,
+  kGwasSsfColP,
+  kGwasSsfColNull
+ENUM_U31_DEF_END(GwasSsfColidx);
+
+FLAGSET_DEF_START()
+  kfGwasSsfColset0,
+  kfGwasSsfColsetPos = (1 << kGwasSsfColPos),
+  kfGwasSsfColsetId = (1 << kGwasSsfColId),
+  kfGwasSsfColsetRef = (1 << kGwasSsfColRef),
+  kfGwasSsfColsetAlt = (1 << kGwasSsfColAlt),
+  kfGwasSsfColsetA1 = (1 << kGwasSsfColA1),
+  kfGwasSsfColsetOmitted = (1 << kGwasSsfColOmitted),
+  kfGwasSsfColsetA1Freq = (1 << kGwasSsfColA1Freq),
+  kfGwasSsfColsetTest = (1 << kGwasSsfColTest),
+  kfGwasSsfColsetObsCt = (1 << kGwasSsfColObsCt),
+  kfGwasSsfColsetBetaOr = (1 << kGwasSsfColBetaOr),
+  kfGwasSsfColsetSe = (1 << kGwasSsfColSe),
+  kfGwasSsfColsetCiLower = (1 << kGwasSsfColCiLower),
+  kfGwasSsfColsetCiUpper = (1 << kGwasSsfColCiUpper),
+  kfGwasSsfColsetP = (1 << kGwasSsfColP),
+
+  kfGwasSsfColsetRequired = kfGwasSsfColsetPos | kfGwasSsfColsetId | kfGwasSsfColsetRef | kfGwasSsfColsetAlt | kfGwasSsfColsetA1 | kfGwasSsfColsetA1Freq | kfGwasSsfColsetTest | kfGwasSsfColsetObsCt | kfGwasSsfColsetBetaOr | kfGwasSsfColsetSe | kfGwasSsfColsetP
+FLAGSET_DEF_END(GwasSsfColFlags);
+
+// If rsid_mode == kGwasSsfRsidModeInfer and force_rsid is false, we initially
+// proceed under the assumption that rsID is absent.  Then, if/when we
+// encounter a rsID (this should happen quickly if rsIDs are present at all),
+// we return kPglRetRetry, and the caller retries with force_rsid true.
+PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char* out_fname, uint32_t force_rsid, uint32_t max_line_blen, uint32_t max_thread_ct, TextStream* txsp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  {
+    char* line_iter = TextLineEnd(txsp);
+    ++line_idx;
+    if (!TextGetUnsafe2(txsp, &line_iter)) {
+      if (unlikely(TextStreamErrcode2(txsp, &reterr))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s is empty.\n", in_fname);
+        goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+      }
+      goto GwasSsfInternal_ret_TSTREAM_FAIL;
+    }
+    uint32_t col_skips[kGwasSsfColNull];
+    GwasSsfColidx col_types[kGwasSsfColNull];
+    char* first_token_end = FirstSpaceOrEoln(line_iter);
+    const uint32_t first_token_slen = first_token_end - line_iter;
+    GwasSsfColFlags header_cols = kfGwasSsfColset0;
+    uint32_t relevant_postchr_col_ct = 0;
+    uint32_t is_odds_ratio = 0;
+    if (unlikely(!strequal_k(line_iter, "#CHROM", first_token_slen))) {
+      if (strequal_k(line_iter, "#POS", first_token_slen) ||
+          strequal_k(line_iter, "#ID", first_token_slen)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s does not have a #CHROM column.\n", in_fname);
+        goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+      }
+      if (strequal_k(line_iter, "CHR", first_token_slen)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s appears to be a PLINK 1.x --linear/--logistic output file, which is missing the required A1_FREQ output column. Redo the regression with PLINK 2 --glm.\n", in_fname);
+        goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+      }
+      snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s does not appear to be a PLINK 2 --glm output file.\n", in_fname);
+      goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+    }
+
+    const char* token_end = first_token_end;
+    for (uint32_t col_idx = 1; ; ++col_idx) {
+      const char* linebuf_iter = FirstNonTspace(token_end);
+      if (IsEolnKns(*linebuf_iter)) {
+        break;
+      }
+      token_end = CurTokenEnd(linebuf_iter);
+      const uint32_t token_slen = token_end - linebuf_iter;
+      GwasSsfColidx cur_colidx = kGwasSsfColNull;
+      if (token_slen <= 3) {
+        if (token_slen == 3) {
+          if (memequal_sk(linebuf_iter, "POS")) {
+            cur_colidx = kGwasSsfColPos;
+          } else if (memequal_sk(linebuf_iter, "REF")) {
+            cur_colidx = kGwasSsfColRef;
+          } else if (memequal_sk(linebuf_iter, "ALT")) {
+            cur_colidx = kGwasSsfColAlt;
+          } else if (IsDigit(linebuf_iter[1]) && IsDigit(linebuf_iter[2])) {
+            if (linebuf_iter[0] == 'L') {
+              cur_colidx = kGwasSsfColCiLower;
+            } else if (linebuf_iter[0] == 'U') {
+              cur_colidx = kGwasSsfColCiUpper;
+            }
+          }
+        } else if (token_slen == 2) {
+          if (memequal_sk(linebuf_iter, "ID")) {
+            cur_colidx = kGwasSsfColId;
+          } else if (memequal_sk(linebuf_iter, "A1")) {
+            cur_colidx = kGwasSsfColA1;
+          } else if (memequal_sk(linebuf_iter, "OR")) {
+            cur_colidx = kGwasSsfColBetaOr;
+            is_odds_ratio = 1;
+          } else if (memequal_sk(linebuf_iter, "SE")) {
+            cur_colidx = kGwasSsfColSe;
+          }
+        } else if (strequal_k(linebuf_iter, "P", token_slen)) {
+          cur_colidx = kGwasSsfColP;
+        }
+      } else if (strequal_k(linebuf_iter, "OMITTED", token_slen)) {
+        cur_colidx = kGwasSsfColOmitted;
+      } else if (strequal_k(linebuf_iter, "A1_FREQ", token_slen)) {
+        cur_colidx = kGwasSsfColA1Freq;
+      } else if (strequal_k(linebuf_iter, "TEST", token_slen)) {
+        cur_colidx = kGwasSsfColTest;
+      } else if (strequal_k(linebuf_iter, "OBS_CT", token_slen)) {
+        cur_colidx = kGwasSsfColObsCt;
+      } else if (strequal_k(linebuf_iter, "BETA", token_slen)) {
+        cur_colidx = kGwasSsfColBetaOr;
+      } else if (strequal_k(linebuf_iter, "LOG(OR)_SE", token_slen)) {
+        cur_colidx = kGwasSsfColSe;
+      } else if (strequal_k(linebuf_iter, "LOG10_P", token_slen)) {
+        cur_colidx = kGwasSsfColP;
+      }
+      if (cur_colidx != kGwasSsfColNull) {
+        const GwasSsfColFlags cur_colset = S_CAST(GwasSsfColFlags, 1U << cur_colidx);
+        if (unlikely(header_cols & cur_colset)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: Conflicting columns in header line of %s .\n", in_fname);
+          goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+        }
+        header_cols |= cur_colset;
+        col_skips[relevant_postchr_col_ct] = col_idx;
+        col_types[relevant_postchr_col_ct++] = cur_colidx;
+      }
+    }
+    for (uint32_t rpc_col_idx = relevant_postchr_col_ct - 1; rpc_col_idx; --rpc_col_idx) {
+      col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
+    }
+    if (unlikely((header_cols & kfGwasSsfColsetRequired) != kfGwasSsfColsetRequired)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s does not have all required input columns. (CHROM, POS, ID, REF, ALT, A1, A1_FREQ, TEST, OBS_CT, BETA/OR, SE/LOG(OR)_SE, and P are required.)\n", in_fname);
+      goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+    }
+
+    const GwasSsfRsidMode rsid_mode = force_rsid? kGwasSsfRsidModeYes : gsip->rsid_mode;
+    const uint32_t rsid_col = (rsid_mode == kGwasSsfRsidModeYes);
+    const uint32_t output_zst = (gsip->flags / kfGwasSsfZs) & 1;
+
+    // Output line length won't be more than ~twice input line length.
+    // (It can be close to 2x because of the variant_id output column.)
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 512 + (2 * k1LU) * max_line_blen;
+    reterr = InitCstreamAlloc(out_fname, 0, output_zst, MAXV(1, max_thread_ct - 1), overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto GwasSsfInternal_ret_1;
+    }
+    cswritep = strcpya_k(cswritep, "chromosome\tbase_pair_location\teffect_allele\tother_allele\t");
+    if (!is_odds_ratio) {
+      cswritep = strcpya_k(cswritep, "beta");
+    } else {
+      cswritep = strcpya_k(cswritep, "odds_ratio");
+    }
+    cswritep = strcpya_k(cswritep, "\tstandard_error\teffect_allele_frequency\tp_value\tvariant_id");
+    if (rsid_col) {
+      cswritep = strcpya_k(cswritep, "\trsid");
+    }
+    if (header_cols & kfGwasSsfColsetCiUpper) {
+      cswritep = strcpya_k(cswritep, "\tci_upper");
+    }
+    if (header_cols & kfGwasSsfColsetCiLower) {
+      cswritep = strcpya_k(cswritep, "\tci_lower");
+    }
+    cswritep = strcpya_k(cswritep, "\tn\tref_allele" EOLN_STR);
+
+    const uint8_t acgt_bool_table[256] = {
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    // X, XY, PAR1, PAR2 -> 23
+    // Y -> 24
+    // MT -> 25, not 26
+    const unsigned char gwas_ssf_chr_remap[6] = {23, 24, 23, 25, 23, 23};
+    const double a1freq_lower_limit = gsip->a1freq_lower_limit;
+    char a1freq_lower_limit_str[16]; // > kMaxDoubleGSlen
+    uint32_t a1freq_lower_limit_slen = 0;
+    if (a1freq_lower_limit > 0.0) {
+      char* a1freq_lower_limit_end = dtoa_g(a1freq_lower_limit, a1freq_lower_limit_str);
+      a1freq_lower_limit_slen = a1freq_lower_limit_end - a1freq_lower_limit_str;
+    }
+    ++line_idx;
+    line_iter = AdvPastDelim(line_iter, '\n');
+    for (; TextGetUnsafe2(txsp, &line_iter); ++line_idx) {
+      if (IsEolnKns(*line_iter)) {
+        goto GwasSsfInternal_ret_MISSING_TOKENS;
+      }
+      const uint32_t chr_code_raw = GetChrCodeRaw(line_iter);
+      if ((!chr_code_raw) || ((chr_code_raw > 26) && (chr_code_raw < kMaxContigs))) {
+        line_iter = AdvPastDelim(line_iter, '\n');
+        continue;
+      }
+
+      char* token_ptrs[14];
+      uint32_t token_slens[14];
+      line_iter = TokenLex(line_iter, R_CAST(uint32_t*, col_types), col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
+      if (unlikely(!line_iter)) {
+        goto GwasSsfInternal_ret_MISSING_TOKENS;
+      }
+      line_iter = AdvPastDelim(line_iter, '\n');
+      // skip if TEST isn't ADD, or result is NA, or REF allele has non-ACGT
+      // character, or OMITTED column is absent and variant is multiallelic
+      if (!strequal_k(token_ptrs[7], "ADD", token_slens[7])) {
+        continue;
+      }
+      if ((token_ptrs[13][0] & 0xdf) == 'N') {
+        continue;
+      }
+      const char* ref_allele = token_ptrs[2];
+      const uint32_t ref_allele_slen = token_slens[2];
+      {
+        uint32_t uii = 0;
+        for (; uii != ref_allele_slen; ++uii) {
+          if (!acgt_bool_table[S_CAST(unsigned char, ref_allele[uii])]) {
+            break;
+          }
+        }
+        if (uii != ref_allele_slen) {
+          continue;
+        }
+      }
+      if (!(header_cols & kfGwasSsfColsetOmitted)) {
+        if (memchr(token_ptrs[3], ',', token_slens[3]) != nullptr) {
+          continue;
+        }
+      }
+
+      uint32_t gwas_ssf_chr_code;
+      if (chr_code_raw < kMaxContigs) {
+        if (chr_code_raw < 25) {
+          gwas_ssf_chr_code = chr_code_raw;
+        } else if (chr_code_raw == 25) {
+          gwas_ssf_chr_code = 23;
+        } else {
+          gwas_ssf_chr_code = 25;
+        }
+      } else {
+        gwas_ssf_chr_code = gwas_ssf_chr_remap[chr_code_raw - kMaxContigs];
+      }
+      cswritep = u32toa_x(gwas_ssf_chr_code, '\t', cswritep);
+
+      // POS
+      const char* pos_str = token_ptrs[0];
+      const uint32_t pos_slen = token_slens[0];
+      cswritep = memcpyax(cswritep, pos_str, pos_slen, '\t');
+
+      // A1
+      const char* a1_str = token_ptrs[4];
+      const uint32_t a1_slen = token_slens[4];
+      cswritep = memcpyax(cswritep, a1_str, a1_slen, '\t');
+
+      // OMITTED
+      const char* alt_allele = token_ptrs[3];
+      const uint32_t alt_allele_slen = token_slens[3];
+      if (header_cols & kfGwasSsfColsetOmitted) {
+        cswritep = memcpya(cswritep, token_ptrs[5], token_slens[5]);
+      } else {
+        // we already verified variant is biallelic.
+        // check for REF/ALT match, ALT first (much more likely), error out if
+        // neither.
+        if ((a1_slen == alt_allele_slen) && memequal(a1_str, alt_allele, a1_slen)) {
+          cswritep = memcpya(cswritep, ref_allele, ref_allele_slen);
+        } else if (likely((a1_slen == ref_allele_slen) && memequal(a1_str, ref_allele, a1_slen))) {
+          cswritep = memcpya(cswritep, alt_allele, alt_allele_slen);
+        } else {
+          snprintf(g_logbuf, kLogbufSize, "Error: A1 allele on line %" PRIuPTR " of %s matches neither REF nor ALT.\n", line_idx, in_fname);
+          goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+        }
+      }
+      *cswritep++ = '\t';
+
+      // BETA/OR
+      cswritep = memcpyax(cswritep, token_ptrs[9], token_slens[9], '\t');
+
+      // SE
+      cswritep = memcpyax(cswritep, token_ptrs[10], token_slens[10], '\t');
+
+      // A1_FREQ
+      const char* a1_freq_str = token_ptrs[6];
+      if (a1freq_lower_limit == 0.0) {
+        cswritep = memcpya(cswritep, a1_freq_str, token_slens[6]);
+      } else {
+        double a1_freq;
+        if (unlikely(!ScanadvDouble(a1_freq_str, &a1_freq))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid A1_FREQ on line %" PRIuPTR " of %s .\n", line_idx, in_fname);
+          goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+        }
+        if (a1_freq >= a1freq_lower_limit) {
+          cswritep = memcpya(cswritep, a1_freq_str, token_slens[6]);
+        } else {
+          cswritep = memcpya(cswritep, a1freq_lower_limit_str, a1freq_lower_limit_slen);
+        }
+      }
+      *cswritep++ = '\t';
+
+      // P
+      cswritep = memcpyax(cswritep, token_ptrs[13], token_slens[13], '\t');
+
+      // C_P_R_A
+      cswritep = u32toa_x(gwas_ssf_chr_code, '_', cswritep);
+      cswritep = memcpyax(cswritep, pos_str, pos_slen, '_');
+      cswritep = memcpyax(cswritep, ref_allele, ref_allele_slen, '_');
+      cswritep = memcpyax(cswritep, alt_allele, alt_allele_slen, '\t');
+
+      if (rsid_mode != kGwasSsfRsidModeNo) {
+        const char* variant_id = token_ptrs[1];
+        const uint32_t variant_id_slen = token_slens[1];
+        uint32_t is_rsid = 0;
+        if (StrStartsWith(variant_id, "rs", variant_id_slen)) {
+          uint32_t uii = strlen("rs");
+          for (; uii != variant_id_slen; ++uii) {
+            if (!IsDigit(variant_id[uii])) {
+              break;
+            }
+          }
+          is_rsid = (uii == variant_id_slen);
+        }
+        if (rsid_col) {
+          if (is_rsid) {
+            cswritep = memcpyax(cswritep, variant_id, variant_id_slen, '\t');
+          } else {
+            cswritep = strcpya_k(cswritep, "#NA\t");
+          }
+        } else if (is_rsid) {
+          reterr = kPglRetRetry;
+          goto GwasSsfInternal_ret_1;
+        }
+      }
+
+      if (header_cols & kfGwasSsfColsetCiUpper) {
+        cswritep = memcpyax(cswritep, token_ptrs[12], token_slens[12], '\t');
+      }
+      if (header_cols & kfGwasSsfColsetCiLower) {
+        cswritep = memcpyax(cswritep, token_ptrs[11], token_slens[11], '\t');
+      }
+
+      // OBS_CT
+      cswritep = memcpyax(cswritep, token_ptrs[8], token_slens[8], '\t');
+
+      cswritep = memcpya(cswritep, ref_allele, ref_allele_slen);
+
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto GwasSsfInternal_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(txsp, &reterr))) {
+      goto GwasSsfInternal_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto GwasSsfInternal_ret_WRITE_FAIL;
+    }
+    reterr = kPglRetSuccess;
+  }
+  while (0) {
+  GwasSsfInternal_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(in_fname, txsp);
+    break;
+  GwasSsfInternal_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  GwasSsfInternal_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, in_fname);
+  GwasSsfInternal_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ GwasSsfInternal_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr GwasSsfOneFile(const GwasSsfInfo* gsip, const char* in_fname, uint32_t max_thread_ct) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* out_fname = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    uint32_t shared_fname_slen = strlen(in_fname);
+    if (StrEndsWith(in_fname, ".zst", shared_fname_slen)) {
+      shared_fname_slen -= 4;
+    }
+    // ".ssf.tsv.zst"
+    if (unlikely(bigstack_alloc_c(shared_fname_slen + 13, &out_fname))) {
+      goto GwasSsfOneFile_ret_NOMEM;
+    }
+    const uint32_t output_zst = (gsip->flags / kfGwasSsfZs) & 1;
+    char* out_fname_iter = memcpya(out_fname, in_fname, shared_fname_slen);
+    out_fname_iter = strcpya_k(out_fname_iter, ".ssf.tsv");
+    if (output_zst) {
+      out_fname_iter = strcpya_k(out_fname_iter, ".zst");
+    }
+    *out_fname_iter = '\0';
+
+    uint32_t max_line_blen;
+    if (unlikely(StandardizeMaxLineBlen(bigstack_left() / 4, &max_line_blen))) {
+      goto GwasSsfOneFile_ret_NOMEM;
+    }
+    // Invert overflow_buf_size expression so we can assume output lines aren't
+    // longer than kMaxLongLine.
+    if (max_line_blen > (kMaxLongLine - 512) / 2) {
+      max_line_blen = (kMaxLongLine - 512) / 2;
+    }
+    reterr = InitTextStream(in_fname, max_line_blen, output_zst? 1 : MAXV(1, max_thread_ct - 1), &txs);
+    if (unlikely(reterr)) {
+      goto GwasSsfOneFile_ret_TSTREAM_FAIL;
+    }
+
+    reterr = GwasSsfInternal(gsip, in_fname, out_fname, 0, max_line_blen, max_thread_ct, &txs);
+    if (reterr) {
+      if (unlikely(reterr != kPglRetRetry)) {
+        goto GwasSsfOneFile_ret_1;
+      }
+      reterr = TextRewind(&txs);
+      if (unlikely(reterr)) {
+        goto GwasSsfOneFile_ret_TSTREAM_FAIL;
+      }
+      reterr = GwasSsfInternal(gsip, in_fname, out_fname, 1, max_line_blen, max_thread_ct, &txs);
+      if (unlikely(reterr)) {
+        goto GwasSsfOneFile_ret_1;
+      }
+    }
+    logprintfww("--gwas-ssf: %s written.\n", out_fname);
+  }
+  while (0) {
+  GwasSsfOneFile_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  GwasSsfOneFile_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(in_fname, &txs);
+    break;
+  }
+ GwasSsfOneFile_ret_1:
+  CleanupTextStream2(in_fname, &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr GwasSsfStandalone(const GwasSsfInfo* gsip, uint32_t max_thread_ct) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  TextStream list_txs;
+  PreinitTextStream(&list_txs);
+  {
+    const GwasSsfFlags flags = gsip->flags;
+    uintptr_t file_ct = 0;
+    if (gsip->fname) {
+      reterr = GwasSsfOneFile(gsip, gsip->fname, max_thread_ct);
+      if (unlikely(reterr)) {
+        goto GwasSsfStandalone_ret_1;
+      }
+      ++file_ct;
+    }
+    if (gsip->list_fname) {
+      reterr = InitTextStream(gsip->list_fname, kTextStreamBlenFast, 1, &list_txs);
+      if (unlikely(reterr)) {
+        goto GwasSsfStandalone_ret_TSTREAM_FAIL;
+      }
+      while (1) {
+        char* first_token_start = TextGet(&list_txs);
+        if (!first_token_start) {
+          break;
+        }
+        if (IsSpaceOrEoln(*first_token_start)) {
+          continue;
+        }
+        char* first_token_end = CurTokenEnd(first_token_start);
+        *first_token_end = '\0';
+        reterr = GwasSsfOneFile(gsip, first_token_start, max_thread_ct);
+        if (unlikely(reterr)) {
+          goto GwasSsfStandalone_ret_1;
+        }
+        ++file_ct;
+      }
+      if (unlikely(TextStreamErrcode2(&list_txs, &reterr))) {
+        goto GwasSsfStandalone_ret_TSTREAM_FAIL;
+      }
+    }
+    logprintf("--gwas-ssf file=/file-list=: %" PRIuPTR " file%s processed.\n", file_ct, (file_ct == 1)? "" : "s");
+  }
+  while (0) {
+  GwasSsfStandalone_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(gsip->list_fname, &list_txs);
+    break;
+  }
+ GwasSsfStandalone_ret_1:
+  CleanupTextStream2(gsip->list_fname, &list_txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
 }
 
 PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, const SampleIdInfo* siip, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const GlmInfo* glm_info_ptr, uint32_t raw_sample_ct, uint32_t raw_variant_ct, const uintptr_t** sample_include_ptr, const uintptr_t** sex_nm_ptr, const uintptr_t** sex_male_ptr, const uintptr_t** variant_include_ptr, uint32_t* sample_ct_ptr, uint32_t* variant_ct_ptr, TextStream* local_covar_txsp, uint32_t** local_sample_uidx_order_ptr, uintptr_t** local_variant_include_ptr, uint32_t* local_sample_ct_ptr, uint32_t* local_variant_ctl_ptr, uint32_t* local_covar_ct_ptr) {
@@ -1267,7 +1819,7 @@ void SexInteractionReshuffle(uint32_t first_interaction_pred_uidx, uint32_t raw_
   memcpy(parameters_or_tests, parameter_subset_reshuffle_buf, biallelic_raw_predictor_ctl * sizeof(intptr_t));
 }
 
-PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, const GwasSsfInfo* gsip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 
@@ -1277,6 +1829,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   // function exit.
   uint32_t x_fully_diploid = 0;
 
+  LlStr* gwas_ssf_ll = nullptr;
   PglErr reterr = kPglRetSuccess;
   TextStream local_covar_txs;
   TokenStream tks;
@@ -2028,6 +2581,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     }
     SetAllBits(pheno_ct, pheno_include);
 
+    LlStr** gwas_ssf_ll_ptr = IsGwasSsf(gsip)? (&gwas_ssf_ll) : nullptr;
     uintptr_t* valid_variants = nullptr;
     uintptr_t* valid_alleles = nullptr;
     unsigned char* bigstack_mark2 = g_bigstack_base;
@@ -2552,7 +3106,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
         }
 
-        reterr = GlmLinearBatch(pheno_batch, pheno_cols, pheno_names, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, raw_variant_ct, completed_pheno_ct, batch_size, max_pheno_name_blen, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &linear_ctx, &local_covar_txs, outname, outname_end);
+        reterr = GlmLinearBatch(pheno_batch, pheno_cols, pheno_names, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, raw_variant_ct, completed_pheno_ct, batch_size, max_pheno_name_blen, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &linear_ctx, &local_covar_txs, gwas_ssf_ll_ptr, outname, outname_end);
         if (unlikely(reterr)) {
           goto GlmMain_ret_1;
         }
@@ -3236,9 +3790,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
 
       uintptr_t valid_allele_ct = 0;
       if (is_logistic) {
-        reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &logistic_ctx, &local_covar_txs, valid_variants, valid_alleles, orig_ln_pvals, orig_permstat, &valid_allele_ct);
+        reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &logistic_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, orig_permstat, &valid_allele_ct);
       } else {
-        reterr = GlmLinear(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &linear_ctx, &local_covar_txs, valid_variants, valid_alleles, orig_ln_pvals, &valid_allele_ct);
+        reterr = GlmLinear(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &linear_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, &valid_allele_ct);
       }
       if (unlikely(reterr)) {
         goto GlmMain_ret_1;
@@ -3257,6 +3811,25 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         // note that orig_permstat signs are now flipped for linear case
       }
     }
+    if (gwas_ssf_ll_ptr) {
+      const uint32_t delete_orig_glm = gsip->flags & kfGwasSsfDeleteOrigGlm;
+      while (gwas_ssf_ll) {
+        const char* in_fname = gwas_ssf_ll->str;
+        reterr = GwasSsfOneFile(gsip, in_fname, max_thread_ct);
+        if (unlikely(reterr)) {
+          goto GlmMain_ret_1;
+        }
+        // Don't need to free linked list nodes yet, but we may need to delete
+        // files here.
+        if (delete_orig_glm) {
+          if (unlikely(unlink(in_fname))) {
+            logerrprintfww("Error: --gwas-ssf delete-orig-glm: Failed to delete %s .\n", in_fname);
+            goto GlmMain_ret_WRITE_FAIL;
+          }
+        }
+        gwas_ssf_ll = gwas_ssf_ll->next;
+      }
+    }
   }
   while (0) {
   GlmMain_ret_NOMEM:
@@ -3264,6 +3837,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     break;
   GlmMain_ret_TKSTREAM_FAIL:
     TokenStreamErrPrint("--condition-list file", &tks);
+    break;
+  GlmMain_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
     break;
   GlmMain_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
@@ -3279,6 +3855,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     break;
   }
  GlmMain_ret_1:
+  llstr_free_cond(gwas_ssf_ll);
   CleanupTokenStream2("--condition-list file", &tks, &reterr);
   CleanupTextStream2(local_covar_fname, &local_covar_txs, &reterr);
   if (x_fully_diploid) {

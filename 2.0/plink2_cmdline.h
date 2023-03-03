@@ -415,9 +415,16 @@ static const double kDblNormalMin = 2.2250738585072013e-308;
 extern unsigned char* g_bigstack_base;
 extern unsigned char* g_bigstack_end;
 
-uintptr_t DetectMib();
+uint64_t DetectMib();
 
 uintptr_t GetDefaultAllocMib();
+
+// On more recent Linux builds, the MemAvailable value reported by
+// "cat /proc/meminfo" is a pretty accurate estimate of how much we can afford
+// to allocate before introducing substantial risk of OOM-killer action.
+// Returns (~0LLU) if this estimate is unavailable.
+// Uses g_textbuf.
+uint64_t GetMemAvailableKib();
 
 // caller is responsible for freeing bigstack_ua
 PglErr InitBigstack(uintptr_t malloc_size_mib, uintptr_t* malloc_mib_final_ptr, unsigned char** bigstack_ua_ptr);
@@ -1039,6 +1046,8 @@ BoolErr PushLlStr(const char* str, LlStr** ll_stack_ptr);
 
 // Does not require null-termination.
 // BoolErr push_llstr_counted(const char* str, uint32_t slen, LlStr** ll_stack_ptr);
+
+void llstr_free_cond(LlStr* llstr_head);
 
 typedef struct L32StrStruct {
   NONCOPYABLE(L32StrStruct);

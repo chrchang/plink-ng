@@ -885,6 +885,57 @@ BoolErr ScanPosintptr(const char* str_iter, uintptr_t* valp) {
   }
 }
 
+// Requires (cap+1) * 100 < 2^64.
+static inline BoolErr ScanmovU64CappedFinish(uint64_t cap, const char** str_iterp, uint64_t* valp) {
+  const char* str_iter = *str_iterp;
+  uint64_t val = *valp;
+  while (1) {
+    // a little bit of unrolling seems to help
+    const uint64_t cur_digit = ctou64(*str_iter++) - 48;
+    if (cur_digit >= 10) {
+      break;
+    }
+    // val = val * 10 + cur_digit;
+    const uint64_t cur_digit2 = ctou64(*str_iter++) - 48;
+    if (cur_digit2 >= 10) {
+      val = val * 10 + cur_digit;
+      if (unlikely(val > cap)) {
+        return 1;
+      }
+      break;
+    }
+    val = val * 100 + cur_digit * 10 + cur_digit2;
+    if (unlikely(val > cap)) {
+      return 1;
+    }
+  }
+  *valp = val;
+  *str_iterp = &(str_iter[-1]);
+  return 0;
+}
+
+BoolErr ScanmovU64Capped(uint64_t cap, const char** str_iterp, uint64_t* valp) {
+  const char* str_iter = *str_iterp;
+  *valp = ctou32(*str_iter++) - 48;
+  if (*valp >= 10) {
+    if (unlikely(*valp != 0xfffffffbU)) {
+      return 1;
+    }
+    *valp = ctou32(*str_iter++) - 48;
+    if (unlikely(*valp >= 10)) {
+      return 1;
+    }
+  }
+  while (!(*valp)) {
+    *valp = ctou32(*str_iter++) - 48;
+    if (unlikely((*valp) >= 10)) {
+      return 1;
+    }
+  }
+  *str_iterp = str_iter;
+  return ScanmovU64CappedFinish(cap, str_iterp, valp);
+}
+
 #ifdef __LP64__
 static inline BoolErr ScanmovUintCappedFinish(uint64_t cap, const char** str_iterp, uint32_t* valp) {
   const char* str_iter = *str_iterp;

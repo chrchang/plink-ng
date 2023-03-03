@@ -605,6 +605,28 @@ FLAGSET_DEF_END(LoadSampleIdsFlags);
 // Allocates (at the bottom of bigstack) and returns results in loaded_bitarr.
 PglErr LoadSampleIds(const char* fnames, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* flag_name, uint32_t raw_sample_ct, uint32_t sample_ct, LoadSampleIdsFlags flags, uintptr_t** loaded_bitarrp, uint32_t* duplicate_ctp);
 
+// AppendXid is inline since it's reasonable to call it in loops writing
+// multi-GB files.  AppendSpacedXid is not since it's only called when printing
+// error messages.
+HEADER_INLINE char* AppendXid(const char* sample_ids, const char* sids, uint32_t write_fid, uint32_t write_sid, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t sample_uidx, char* write_iter) {
+  const char* cur_sample_id = &(sample_ids[max_sample_id_blen * sample_uidx]);
+  if (!write_fid) {
+    cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
+  }
+  write_iter = strcpya(write_iter, cur_sample_id);
+  if (write_sid) {
+    *write_iter++ = '\t';
+    if (sids) {
+      write_iter = strcpya(write_iter, &(sids[max_sid_blen * sample_uidx]));
+    } else {
+      *write_iter++ = '0';
+    }
+  }
+  return write_iter;
+}
+
+char* AppendSpacedXid(const char* sample_ids, const char* sids, uint32_t write_fid, uint32_t write_sid, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t sample_uidx, char* write_iter);
+
 
 extern const unsigned char g_char_to_sex[256];
 

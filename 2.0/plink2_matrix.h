@@ -38,6 +38,8 @@ CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 #  ifdef __APPLE__
 #    include <Accelerate/Accelerate.h>
 #    define USE_CBLAS_XGEMM
+#  elif defined(USE_AOCL)
+#    define USE_CBLAS_XGEMM
 #  endif
 
 #  ifndef __APPLE__
@@ -160,6 +162,12 @@ namespace plink2 {
 #endif
 
 static const double kMatrixSingularRcond = 1e-14;
+
+// Returns -1 if no inf/nan found.
+// May move this to a more central location if there are other users.
+intptr_t FirstInfOrNan(const double* vec, uintptr_t size);
+
+uint32_t LowerTriangularFirstInfOrNan(const double* matrix, uintptr_t dim, uintptr_t* row_idx_ptr, uintptr_t* col_idx_ptr);
 
 // Copies (C-order) lower-left to upper right.
 void ReflectMatrix(uint32_t dim, double* matrix);
@@ -490,7 +498,8 @@ IntErr SvdRect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, doubl
 
 BoolErr GetExtractEigvecsLworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lwork_ptr, __CLPK_integer* liwork_ptr, uintptr_t* wkspace_byte_ct_ptr);
 
-// currently a wrapper for dsyevr_().
+// currently a wrapper for dsyevr_().  Matrix is expected to be
+// lower-triangular from C's perspective.
 // reverse_eigvecs is eigenvector-major, but the vectors are in order of
 // *increasing* eigenvalue.
 BoolErr ExtractEigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __CLPK_integer liwork, double* matrix, double* eigvals, double* reverse_eigvecs, unsigned char* extract_eigvecs_wkspace);

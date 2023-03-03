@@ -4639,7 +4639,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
 // valid_variants and valid_alleles are a bit redundant, may want to remove the
 // former later, but let's make that decision during/after permutation test
 // implementation
-PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLogisticCtx* ctx, TextStream* local_covar_txsp, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, double* orig_permstat, uintptr_t* valid_allele_ct_ptr) {
+PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLogisticCtx* ctx, TextStream* local_covar_txsp, LlStr** outfnames_ll_ptr, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, double* orig_permstat, uintptr_t* valid_allele_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -4707,6 +4707,11 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     reterr = InitCstreamAlloc(outname, 0, output_zst, 1, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto GlmLogistic_ret_1;
+    }
+    if (outfnames_ll_ptr) {
+      if (unlikely(PushLlStr(outname, outfnames_ll_ptr))) {
+        goto GlmLogistic_ret_NOMEM;
+      }
     }
     const uint32_t report_neglog10p = (glm_flags / kfGlmLog10) & 1;
     const uint32_t add_interactions = (glm_flags / kfGlmInteraction) & 1;
@@ -4907,6 +4912,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t ref_col = glm_cols & kfGlmColRef;
     const uint32_t alt1_col = glm_cols & kfGlmColAlt1;
     const uint32_t alt_col = glm_cols & kfGlmColAlt;
+    const uint32_t omitted_col = glm_cols & kfGlmColOmitted;
     const uint32_t ax_col = glm_cols & kfGlmColAx;
     const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
@@ -4942,6 +4948,9 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       cswritep = strcpya_k(cswritep, "\tALT");
     }
     cswritep = strcpya_k(cswritep, "\tA1");
+    if (omitted_col) {
+      cswritep = strcpya_k(cswritep, "\tOMITTED");
+    }
     if (ax_col) {
       cswritep = strcpya_k(cswritep, "\tAX");
     }
@@ -5263,6 +5272,10 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   --cswritep;
                 } else {
                   cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
+                }
+                if (omitted_col) {
+                  *cswritep++ = '\t';
+                  cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
                 }
                 if (ax_col) {
                   *cswritep++ = '\t';
