@@ -129,11 +129,30 @@ uint32_t AllACGT(const char* allele_code, uint32_t allele_code_slen) {
   return 1;
 }
 
-// If rsid_mode == kGwasSsfRsidModeInfer and force_rsid is false, we initially
-// proceed under the assumption that rsID is absent.  Then, if/when we
-// encounter a rsID (this should happen quickly if rsIDs are present at all),
-// we return kPglRetRetry, and the caller retries with force_rsid true.
-PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char* out_fname, uint32_t force_rsid, uint32_t max_line_blen, uint32_t max_thread_ct, TextStream* txsp) {
+// Excludes integers >> 2^64.
+uint32_t IsRsid(const char* variant_id, uint32_t variant_id_slen) {
+  if ((!StrStartsWith(variant_id, "rs", variant_id_slen)) || (variant_id_slen > 22)) {
+    return 0;
+  }
+  uint32_t uii = strlen("rs");
+  for (; uii != variant_id_slen; ++uii) {
+    if (!IsDigit(variant_id[uii])) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+// If rsid_mode == kGwasSsfRsidModeInfer and force_rsid is false, we peek at
+// the second input line and proceed under the assumption that rsID is absent
+// if that doesn't have a rsID.  Then, if/when we encounter a later rsID (this
+// should happen quickly if rsIDs are present at all), we return kPglRetRetry,
+// and the caller retries with force_rsid true.
+//
+// Similarly, if the PROVISIONAL_REF? column is present, we proceed under the
+// assumption that all values are 'Y' if that's true on the second line, and
+// retry if we encounter an exception.
+PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char* out_fname, uint32_t max_line_blen, uint32_t max_thread_ct, TextStream* txsp, uint32_t* force_rsidp, uint32_t* force_refp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   uintptr_t line_idx = 0;
@@ -237,29 +256,63 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
         col_types[relevant_postchr_col_ct++] = cur_colidx;
       }
     }
-    for (uint32_t rpc_col_idx = relevant_postchr_col_ct - 1; rpc_col_idx; --rpc_col_idx) {
-      col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
-    }
     if (unlikely((header_cols & kfGwasSsfColsetRequired) != kfGwasSsfColsetRequired)) {
       snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s does not have all required input columns. (CHROM, POS, REF, ALT, A1, A1_FREQ, TEST, OBS_CT, BETA/OR, SE/LOG(OR)_SE, and P are required.)\n", in_fname);
       goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
     }
-
     // static-cast to remove gcc 4.4 warning
-    const GwasSsfRsidMode rsid_mode = force_rsid? S_CAST(GwasSsfRsidMode, kGwasSsfRsidModeYes) : gsip->rsid_mode;
+    GwasSsfRsidMode rsid_mode = (*force_rsidp)? S_CAST(GwasSsfRsidMode, kGwasSsfRsidModeYes) : gsip->rsid_mode;
     if (unlikely((rsid_mode != kGwasSsfRsidModeNo) && (!(header_cols & kfGwasSsfColsetId)))) {
       snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s does not have an ID column, and rsid=no was not specified.\n", in_fname);
       goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
     }
+    // Peek at second line to make informed rsid_mode and ref_mode guesses.
+    ++line_idx;
+    line_iter = AdvPastDelim(line_iter, '\n');
+    if (!TextGetUnsafe2(txsp, &line_iter)) {
+      if (unlikely(TextStreamErrcode2(txsp, &reterr))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s only has a header line.\n", in_fname);
+        goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+      }
+      goto GwasSsfInternal_ret_TSTREAM_FAIL;
+    }
+    // col_skips has not been finalized yet, it still contains raw column
+    // indices.
+    if (rsid_mode == kGwasSsfRsidModeInfer) {
+      const char* variant_id = NextTokenMult(line_iter, col_skips[kGwasSsfColId]);
+      if (unlikely(variant_id == nullptr)) {
+        goto GwasSsfInternal_ret_MISSING_TOKENS;
+      }
+      const uint32_t variant_id_slen = CurTokenEnd(variant_id) - variant_id;
+      if (IsRsid(variant_id, variant_id_slen)) {
+        *force_rsidp = 1;
+        rsid_mode = kGwasSsfRsidModeYes;
+      }
+    }
     const uint32_t rsid_col = (rsid_mode == kGwasSsfRsidModeYes);
 
-    const uint32_t varid_and_ref_cols = (header_cols & kfGwasSsfColsetProvref) || (gsip->flags & kfGwasSsfRealRefAlleles);
+    uint32_t real_ref_found = (*force_refp) || (gsip->flags & kfGwasSsfRealRefAlleles);
+    if ((!real_ref_found) && (header_cols & kfGwasSsfColsetProvref)) {
+      const char* provref_str = NextTokenMult(line_iter, col_skips[kGwasSsfColProvref]);
+      if (unlikely(provref_str == nullptr)) {
+        goto GwasSsfInternal_ret_MISSING_TOKENS;
+      }
+      if ((provref_str[0] == 'N') && IsSpaceOrEoln(provref_str[1])) {
+        *force_refp = 1;
+        real_ref_found = 1;
+      }
+    }
+
+    // Ok, now we can finalize col_skips.
+    for (uint32_t rpc_col_idx = relevant_postchr_col_ct - 1; rpc_col_idx; --rpc_col_idx) {
+      col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
+    }
 
     const uint32_t output_zst = (gsip->flags / kfGwasSsfZs) & 1;
 
-    // Output line length won't be more than ~1.5x input line length.
-    // (It can be close to 1.5x if REF allele is very long.)
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + 512 + (((3 * k1LU) * max_line_blen) / 2);
+    // Output line length won't be more than ~2x input line length.
+    // (It can be close to 2x if REF allele is very long and isn't A1.)
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 512 + ((2 * k1LU) * max_line_blen);
     reterr = InitCstreamAlloc(out_fname, 0, output_zst, MAXV(1, max_thread_ct - 1), overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto GwasSsfInternal_ret_1;
@@ -271,7 +324,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       cswritep = strcpya_k(cswritep, "odds_ratio");
     }
     cswritep = strcpya_k(cswritep, "\tstandard_error\teffect_allele_frequency\tp_value");
-    if (varid_and_ref_cols) {
+    if (real_ref_found) {
       cswritep = strcpya_k(cswritep, "\tvariant_id");
     }
     if (rsid_col) {
@@ -284,7 +337,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       cswritep = strcpya_k(cswritep, "\tci_lower");
     }
     cswritep = strcpya_k(cswritep, "\tn");
-    if (varid_and_ref_cols) {
+    if (real_ref_found) {
       cswritep = strcpya_k(cswritep, "\tref_allele");
     }
     AppendBinaryEoln(&cswritep);
@@ -301,12 +354,13 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       a1freq_lower_limit_slen = a1freq_lower_limit_end - a1freq_lower_limit_str;
     }
     uint32_t provref = 0;
-    ++line_idx;
-    line_iter = AdvPastDelim(line_iter, '\n');
+    goto GwasSsfInternal_main_loop_start;
+
     for (; TextGetUnsafe2(txsp, &line_iter); ++line_idx) {
       if (IsEolnKns(*line_iter)) {
         goto GwasSsfInternal_ret_MISSING_TOKENS;
       }
+    GwasSsfInternal_main_loop_start:
       const uint32_t chr_code_raw = GetChrCodeRaw(line_iter);
       if ((!chr_code_raw) || ((chr_code_raw > 26) && (chr_code_raw < kMaxContigs))) {
         line_iter = AdvPastDelim(line_iter, '\n');
@@ -350,10 +404,6 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
         } else if ((ref_allele_slen == other_allele_slen) && memequal(ref_allele, other_allele, ref_allele_slen)) {
           ref_allele_match = 1;
         } else {
-          if (unlikely(varid_and_ref_cols && (!AllACGT(ref_allele, ref_allele_slen)))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: REF allele on line %" PRIuPTR " of %s contains non-ACGT character(s).\n", line_idx, in_fname);
-            goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
-          }
           ref_allele_match = 2;
         }
       } else {
@@ -437,16 +487,21 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       cswritep = memcpyax(cswritep, token_ptrs[kGwasSsfColP], token_slens[kGwasSsfColP], '\t');
 
       // C_P_R_A
-      if (varid_and_ref_cols) {
-        if (header_cols & kfGwasSsfColsetProvref) {
-          const uint32_t provref_slen = token_slens[kGwasSsfColProvref];
-          const char provref_char = token_ptrs[kGwasSsfColProvref][0];
-          provref = (provref_char == 'Y');
-          if (unlikely((provref_slen != 1) || ((!provref) && (provref_char != 'N')))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid PROVISIONAL_REF? column value on line %" PRIuPTR " of %s .\n", line_idx, in_fname);
-            goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
-          }
+      if (header_cols & kfGwasSsfColsetProvref) {
+        const uint32_t provref_slen = token_slens[kGwasSsfColProvref];
+        const char provref_char = token_ptrs[kGwasSsfColProvref][0];
+        provref = (provref_char == 'Y');
+        if (unlikely((provref_slen != 1) || ((!provref) && (provref_char != 'N')))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid PROVISIONAL_REF? column value on line %" PRIuPTR " of %s .\n", line_idx, in_fname);
+          goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
         }
+        if ((!real_ref_found) && (!provref)) {
+          *force_refp = 1;
+          reterr = kPglRetRetry;
+          goto GwasSsfInternal_ret_1;
+        }
+      }
+      if (real_ref_found) {
         if ((ref_allele_match == 2) || provref) {
           // at least two ALTs relevant.  As of this writing, the specification
           // doesn't say what to do here.
@@ -467,17 +522,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       if (rsid_mode != kGwasSsfRsidModeNo) {
         const char* variant_id = token_ptrs[kGwasSsfColId];
         const uint32_t variant_id_slen = token_slens[kGwasSsfColId];
-        uint32_t is_rsid = 0;
-        // may as well exclude integers >> 2^64
-        if (StrStartsWith(variant_id, "rs", variant_id_slen) && (variant_id_slen < 23)) {
-          uint32_t uii = strlen("rs");
-          for (; uii != variant_id_slen; ++uii) {
-            if (!IsDigit(variant_id[uii])) {
-              break;
-            }
-          }
-          is_rsid = (uii == variant_id_slen);
-        }
+        const uint32_t is_rsid = IsRsid(variant_id, variant_id_slen);
         if (rsid_col) {
           if (is_rsid) {
             cswritep = memcpyax(cswritep, variant_id, variant_id_slen, '\t');
@@ -485,6 +530,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
             cswritep = strcpya_k(cswritep, "#NA\t");
           }
         } else if (is_rsid) {
+          *force_rsidp = 1;
           reterr = kPglRetRetry;
           goto GwasSsfInternal_ret_1;
         }
@@ -500,7 +546,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       // OBS_CT
       cswritep = memcpya(cswritep, token_ptrs[kGwasSsfColObsCt], token_slens[kGwasSsfColObsCt]);
 
-      if (varid_and_ref_cols) {
+      if (real_ref_found) {
         *cswritep++ = '\t';
         if (provref || (ref_allele_match == 2)) {
           cswritep = strcpya_k(cswritep, "#NA");
@@ -574,10 +620,10 @@ PglErr GwasSsfOneFile(const GwasSsfInfo* gsip, const char* in_fname, uint32_t ma
     }
     *out_fname_iter = '\0';
 
-    // /5 since output stream may require slightly over 3x this amount of
+    // /6 since output stream may require slightly over 4x this amount of
     // memory with compression on
     uint32_t max_line_blen;
-    if (unlikely(StandardizeMaxLineBlen(bigstack_left() / 5, &max_line_blen))) {
+    if (unlikely(StandardizeMaxLineBlen(bigstack_left() / 6, &max_line_blen))) {
       goto GwasSsfOneFile_ret_NOMEM;
     }
     reterr = InitTextStream(in_fname, max_line_blen, output_zst? 1 : MAXV(1, max_thread_ct - 1), &txs);
@@ -585,19 +631,13 @@ PglErr GwasSsfOneFile(const GwasSsfInfo* gsip, const char* in_fname, uint32_t ma
       goto GwasSsfOneFile_ret_TSTREAM_FAIL;
     }
 
-    reterr = GwasSsfInternal(gsip, in_fname, out_fname, 0, max_line_blen, max_thread_ct, &txs);
-    if (reterr) {
-      if (unlikely(reterr != kPglRetRetry)) {
-        goto GwasSsfOneFile_ret_1;
-      }
-      reterr = TextRewind(&txs);
-      if (unlikely(reterr)) {
-        goto GwasSsfOneFile_ret_TSTREAM_FAIL;
-      }
-      reterr = GwasSsfInternal(gsip, in_fname, out_fname, 1, max_line_blen, max_thread_ct, &txs);
-      if (unlikely(reterr)) {
-        goto GwasSsfOneFile_ret_1;
-      }
+    uint32_t force_rsid = 0;
+    uint32_t force_ref = 0;
+    do {
+      reterr = GwasSsfInternal(gsip, in_fname, out_fname, max_line_blen, max_thread_ct, &txs, &force_rsid, &force_ref);
+    } while (reterr == kPglRetRetry);
+    if (unlikely(reterr)) {
+      goto GwasSsfOneFile_ret_1;
     }
     logprintfww("--gwas-ssf: %s written.\n", out_fname);
   }
