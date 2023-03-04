@@ -3043,7 +3043,6 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
   }
  LoadAlleleAndGenoCounts_ret_1:
   CleanupThreads(&tg);
-  DPrintf("LoadAlleleAndGenoCounts: thread cleanup complete.\n");
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   pgfip->block_base = nullptr;
   return reterr;

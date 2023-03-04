@@ -4520,6 +4520,11 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
       goto GetMultiallelicMarginalCounts_ret_NOMEM;
     }
     DPrintf("starting main autosomal_xallele_ct block\n");
+    if (g_debug_on) {
+      for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+        logprintf("chr_end[%u]: %u  chr_idx: %u\n", chr_fo_idx, cip->chr_fo_vidx_start[chr_fo_idx + 1], cip->chr_file_order[chr_fo_idx]);
+      }
+    }
     if (autosomal_xallele_ct) {
       PgrSampleSubsetIndex pssi;
       PgrSetSampleSubsetIndex(cumulative_popcounts, simple_pgrp, &pssi);
@@ -4530,21 +4535,28 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
       uintptr_t xgeno_idx = 0;
       for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx) {
         uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        if (variant_uidx >= 32725695) {
+          DPrintf("variant_idx: %u  variant_uidx: %u  chr_end: %u\n", variant_idx, variant_uidx, chr_end);
+        }
         if (variant_uidx >= chr_end) {
           uint32_t chr_idx;
           do {
             ++chr_fo_idx;
             chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
             chr_idx = cip->chr_file_order[chr_fo_idx];
+            if (variant_uidx >= 32725695) {
+              DPrintf("chr_fo_idx: %u  new chr_end: %u  chr_idx: %u\n", chr_fo_idx, chr_end, chr_idx);
+            }
           } while ((variant_uidx >= chr_end) || IsSet(cip->haploid_mask, chr_idx));
           BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &cur_bits);
           variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+          if (variant_uidx >= 32725695) {
+            DPrintf("variant_uidx: %u\n", variant_uidx);
+          }
         }
         const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
         if (allele_ct > 2) {
-          DPrintf("calling PgrGetM for variant_uidx=%u\n", variant_uidx);
           reterr = PgrGetM(founder_info, pssi, founder_ct, variant_uidx, simple_pgrp, &pgv);
-          DPrintf("PgrGetM returned\n");
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, variant_uidx);
             goto GetMultiallelicMarginalCounts_ret_1;
@@ -4579,9 +4591,9 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
             autosomal_xgeno_cts[xgeno_idx][1] = one_cts[aidx];
             ++xgeno_idx;
           }
-          DPrintf("counts updated\n");
         }
       }
+      DPrintf("exiting autosomal_variant_ct loop\n");
     }
     if (x_xallele_ct) {
       // Related to multiallelic-chrX --geno-counts implementation.
