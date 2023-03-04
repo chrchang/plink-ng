@@ -4912,6 +4912,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t ref_col = glm_cols & kfGlmColRef;
     const uint32_t alt1_col = glm_cols & kfGlmColAlt1;
     const uint32_t alt_col = glm_cols & kfGlmColAlt;
+    const uint32_t provref_col = glm_cols & kfGlmColProvref;
     const uint32_t omitted_col = glm_cols & kfGlmColOmitted;
     const uint32_t ax_col = glm_cols & kfGlmColAx;
     const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
@@ -4946,6 +4947,9 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     }
     if (alt_col) {
       cswritep = strcpya_k(cswritep, "\tALT");
+    }
+    if (provref_col) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
     }
     cswritep = strcpya_k(cswritep, "\tA1");
     if (omitted_col) {
@@ -5029,6 +5033,8 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     }
     AppendBinaryEoln(&cswritep);
 
+    const uintptr_t* nonref_flags = pgfip->nonref_flags;
+    const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
     // Main workflow:
     // 1. Set n=0, load/skip block 0
     //
@@ -5258,6 +5264,10 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   --cswritep;
                 }
                 *cswritep++ = '\t';
+                if (provref_col) {
+                  *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, write_variant_uidx)))? 'Y' : 'N';
+                  *cswritep++ = '\t';
+                }
                 const uint32_t multi_a1 = extra_allele_ct && beta_se_multiallelic_fused && (test_idx != primary_reported_test_idx);
                 if (multi_a1) {
                   for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {

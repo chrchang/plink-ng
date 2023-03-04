@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a4"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (3 Mar 2023)";
+  " (4 Mar 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -5591,7 +5591,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --glm cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0omitted\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0tz\0p\0err\0ax\0", "glm", kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0provref\0omitted\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0tz\0p\0err\0ax\0", "glm", kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -5820,7 +5820,7 @@ int main(int argc, char** argv) {
           memcpy(pgenname, cur_fname, slen + 1);
           xload |= kfXloadOxGen;
         } else if (strequal_k_unsafe(flagname_p2, "was-ssf")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 6))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 7))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -5834,6 +5834,8 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               pc.gwas_ssf_info.flags |= kfGwasSsfDeleteOrigGlm;
+            } else if (strequal_k(cur_modif, "real-ref-alleles", cur_modif_slen)) {
+              pc.gwas_ssf_info.flags |= kfGwasSsfRealRefAlleles;
             } else if (StrStartsWith(cur_modif, "a1freq-lower-limit=", cur_modif_slen)) {
               const char* lower_limit_start = &(cur_modif[strlen("a1freq-lower-limit=")]);
               double dxx;
@@ -5876,11 +5878,11 @@ int main(int argc, char** argv) {
           }
           if (pc.command_flags1 & kfCommand1Glm) {
             if (unlikely(pc.glm_info.flags & (kfGlmHethom | kfGlmDominant | kfGlmRecessive | kfGlmHetonly))) {
-              logerrputs("Error: --glm output does not contain an 'ADD' column, which is required by\n--gwas-ssf.\n");
+              logerrputs("Error: --glm output does not contain an 'ADD' test, which is required by\n--gwas-ssf.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
-            if (unlikely(((pc.glm_info.cols & kfGlmColGwasSsfReq) != kfGlmColGwasSsfReq) || (!(pc.glm_info.cols & (kfGlmColBeta | kfGlmColOrbeta))))) {
-              logerrputs("Error: --glm column set is inappropriate for --gwas-ssf.  Set e.g.\ncols=+omitted,+a1freq instead.\n");
+            if (unlikely(((pc.glm_info.cols & (kfGlmColGwasSsfReq | kfGlmColProvref)) != (kfGlmColGwasSsfReq | kfGlmColProvref)) || (!(pc.glm_info.cols & (kfGlmColBeta | kfGlmColOrbeta))))) {
+              logerrputs("Error: --glm column set is inappropriate for --gwas-ssf.  Set e.g.\ncols=+provref,+omitted,+a1freq instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (pc.gwas_ssf_info.flags & kfGwasSsfDeleteOrigGlm) {
@@ -5888,6 +5890,10 @@ int main(int argc, char** argv) {
                 logputs("Note: --gwas-ssf delete-orig-glm: automatically setting --glm 'zs' and\n'hide-covar' to reduce temporary file size.\n");
                 pc.glm_info.flags |= kfGlmZs | kfGlmHideCovar;
               }
+            }
+            if (unlikely((pc.gwas_ssf_info.flags & kfGwasSsfRealRefAlleles) && (!pc.gwas_ssf_info.fname) && (!pc.gwas_ssf_info.list_fname))) {
+              logerrputs("Error: --gwas-ssf 'real-ref-alleles' modifier was specified without file= or\nfile-list= input.  It has no effect in this context, since the concurrent --glm\nrun includes the provref column in its output.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             }
           } else if (unlikely((!pc.gwas_ssf_info.fname) && (!pc.gwas_ssf_info.list_fname))) {
             logerrputs("Error: --gwas-ssf specified without any input (--glm, file=, and/or file-list=\nrequired).\n");

@@ -28,7 +28,8 @@ namespace plink2 {
 FLAGSET_DEF_START()
   kfGwasSsf0,
   kfGwasSsfZs = (1 << 0),
-  kfGwasSsfDeleteOrigGlm = (1 << 1)
+  kfGwasSsfDeleteOrigGlm = (1 << 1),
+  kfGwasSsfRealRefAlleles = (1 << 2)
 FLAGSET_DEF_END(GwasSsfFlags);
 
 ENUM_U31_DEF_START()

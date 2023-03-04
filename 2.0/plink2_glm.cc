@@ -65,24 +65,26 @@ void CleanupGwasSsf(GwasSsfInfo* gwas_ssf_info_ptr) {
 // [1] = ID
 // [2] = REF
 // [3] = ALT
-// [4] = A1
-// [5] = OMITTED (optional, required to keep multiallelic variants)
-// [6] = A1_FREQ
-// [7] = TEST
-// [8] = OBS_CT
-// [9] = BETA/OR
-// [10] = SE/LOG(OR)_SE
-// [11] = L## (optional)
-// [12] = U## (optional)
-// [13] = P/LOG10_P
+// [4] = PROVISIONAL_REF?
+// [5] = A1
+// [6] = OMITTED (optional, required to keep multiallelic variants)
+// [7] = A1_FREQ
+// [8] = TEST
+// [9] = OBS_CT
+// [10] = BETA/OR
+// [11] = SE/LOG(OR)_SE
+// [12] = L## (optional)
+// [13] = U## (optional)
+// [14] = P/LOG10_P
 ENUM_U31_DEF_START()
   kGwasSsfColPos = 0,
   kGwasSsfColId,
   kGwasSsfColRef,
   kGwasSsfColAlt,
+  kGwasSsfColProvref,
   kGwasSsfColA1,
   kGwasSsfColOmitted,
-  kGwasSsfColA1Freq,
+  kGwasSsfColA1freq,
   kGwasSsfColTest,
   kGwasSsfColObsCt,
   kGwasSsfColBetaOr,
@@ -99,9 +101,10 @@ FLAGSET_DEF_START()
   kfGwasSsfColsetId = (1 << kGwasSsfColId),
   kfGwasSsfColsetRef = (1 << kGwasSsfColRef),
   kfGwasSsfColsetAlt = (1 << kGwasSsfColAlt),
+  kfGwasSsfColsetProvref = (1 << kGwasSsfColProvref),
   kfGwasSsfColsetA1 = (1 << kGwasSsfColA1),
   kfGwasSsfColsetOmitted = (1 << kGwasSsfColOmitted),
-  kfGwasSsfColsetA1Freq = (1 << kGwasSsfColA1Freq),
+  kfGwasSsfColsetA1freq = (1 << kGwasSsfColA1freq),
   kfGwasSsfColsetTest = (1 << kGwasSsfColTest),
   kfGwasSsfColsetObsCt = (1 << kGwasSsfColObsCt),
   kfGwasSsfColsetBetaOr = (1 << kGwasSsfColBetaOr),
@@ -110,8 +113,21 @@ FLAGSET_DEF_START()
   kfGwasSsfColsetCiUpper = (1 << kGwasSsfColCiUpper),
   kfGwasSsfColsetP = (1 << kGwasSsfColP),
 
-  kfGwasSsfColsetRequired = kfGwasSsfColsetPos | kfGwasSsfColsetRef | kfGwasSsfColsetAlt | kfGwasSsfColsetA1 | kfGwasSsfColsetA1Freq | kfGwasSsfColsetTest | kfGwasSsfColsetObsCt | kfGwasSsfColsetBetaOr | kfGwasSsfColsetSe | kfGwasSsfColsetP
+  kfGwasSsfColsetRequired = kfGwasSsfColsetPos | kfGwasSsfColsetRef | kfGwasSsfColsetAlt | kfGwasSsfColsetA1 | kfGwasSsfColsetA1freq | kfGwasSsfColsetTest | kfGwasSsfColsetObsCt | kfGwasSsfColsetBetaOr | kfGwasSsfColsetSe | kfGwasSsfColsetP
 FLAGSET_DEF_END(GwasSsfColFlags);
+
+// this is likely to become a library function.  possible todos: benchmark
+// against bool_table, vectorized code for large allele_code_slen
+uint32_t AllACGT(const char* allele_code, uint32_t allele_code_slen) {
+  for (uint32_t pos = 0; pos != allele_code_slen; ++pos) {
+    uint32_t uii = ctou32(allele_code[pos]);
+    uii -= 64;
+    if ((uii > 31) || (!((0x10008a >> uii) & 1))) {
+      return 0;
+    }
+  }
+  return 1;
+}
 
 // If rsid_mode == kGwasSsfRsidModeInfer and force_rsid is false, we initially
 // proceed under the assumption that rsID is absent.  Then, if/when we
@@ -193,10 +209,12 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
         } else if (strequal_k(linebuf_iter, "P", token_slen)) {
           cur_colidx = kGwasSsfColP;
         }
+      } else if (strequal_k(linebuf_iter, "PROVISIONAL_REF?", token_slen)) {
+        cur_colidx = kGwasSsfColProvref;
       } else if (strequal_k(linebuf_iter, "OMITTED", token_slen)) {
         cur_colidx = kGwasSsfColOmitted;
       } else if (strequal_k(linebuf_iter, "A1_FREQ", token_slen)) {
-        cur_colidx = kGwasSsfColA1Freq;
+        cur_colidx = kGwasSsfColA1freq;
       } else if (strequal_k(linebuf_iter, "TEST", token_slen)) {
         cur_colidx = kGwasSsfColTest;
       } else if (strequal_k(linebuf_iter, "OBS_CT", token_slen)) {
@@ -227,12 +245,16 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
     }
 
+    // static-cast to remove gcc 4.4 warning
     const GwasSsfRsidMode rsid_mode = force_rsid? S_CAST(GwasSsfRsidMode, kGwasSsfRsidModeYes) : gsip->rsid_mode;
     if (unlikely((rsid_mode != kGwasSsfRsidModeNo) && (!(header_cols & kfGwasSsfColsetId)))) {
       snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s does not have an ID column, and rsid=no was not specified.\n", in_fname);
       goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
     }
     const uint32_t rsid_col = (rsid_mode == kGwasSsfRsidModeYes);
+
+    const uint32_t varid_and_ref_cols = (header_cols & kfGwasSsfColsetProvref) || (gsip->flags & kfGwasSsfRealRefAlleles);
+
     const uint32_t output_zst = (gsip->flags / kfGwasSsfZs) & 1;
 
     // Output line length won't be more than ~1.5x input line length.
@@ -248,7 +270,10 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
     } else {
       cswritep = strcpya_k(cswritep, "odds_ratio");
     }
-    cswritep = strcpya_k(cswritep, "\tstandard_error\teffect_allele_frequency\tp_value\tvariant_id");
+    cswritep = strcpya_k(cswritep, "\tstandard_error\teffect_allele_frequency\tp_value");
+    if (varid_and_ref_cols) {
+      cswritep = strcpya_k(cswritep, "\tvariant_id");
+    }
     if (rsid_col) {
       cswritep = strcpya_k(cswritep, "\trsid");
     }
@@ -258,25 +283,12 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
     if (header_cols & kfGwasSsfColsetCiLower) {
       cswritep = strcpya_k(cswritep, "\tci_lower");
     }
-    cswritep = strcpya_k(cswritep, "\tn\tref_allele" EOLN_STR);
+    cswritep = strcpya_k(cswritep, "\tn");
+    if (varid_and_ref_cols) {
+      cswritep = strcpya_k(cswritep, "\tref_allele");
+    }
+    AppendBinaryEoln(&cswritep);
 
-    const uint8_t acgt_bool_table[256] = {
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     // X, XY, PAR1, PAR2 -> 23
     // Y -> 24
     // MT -> 25, not 26
@@ -288,6 +300,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       char* a1freq_lower_limit_end = dtoa_g(a1freq_lower_limit, a1freq_lower_limit_str);
       a1freq_lower_limit_slen = a1freq_lower_limit_end - a1freq_lower_limit_str;
     }
+    uint32_t provref = 0;
     ++line_idx;
     line_iter = AdvPastDelim(line_iter, '\n');
     for (; TextGetUnsafe2(txsp, &line_iter); ++line_idx) {
@@ -300,36 +313,70 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
         continue;
       }
 
-      char* token_ptrs[14];
-      uint32_t token_slens[14];
+      char* token_ptrs[kGwasSsfColNull];
+      uint32_t token_slens[kGwasSsfColNull];
       line_iter = TokenLex(line_iter, R_CAST(uint32_t*, col_types), col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
       if (unlikely(!line_iter)) {
         goto GwasSsfInternal_ret_MISSING_TOKENS;
       }
       line_iter = AdvPastDelim(line_iter, '\n');
-      // skip if TEST isn't ADD, or result is NA, or REF allele has non-ACGT
-      // character, or OMITTED column is absent and variant is multiallelic
-      if (!strequal_k(token_ptrs[7], "ADD", token_slens[7])) {
+      // skip if TEST isn't ADD, or result is NA, or effect/other allele has
+      // non-ACGT character, or OMITTED column is absent and variant is
+      // multiallelic
+      if (!strequal_k(token_ptrs[kGwasSsfColTest], "ADD", token_slens[kGwasSsfColTest])) {
         continue;
       }
-      if ((token_ptrs[13][0] & 0xdf) == 'N') {
+      if ((token_ptrs[kGwasSsfColP][0] & 0xdf) == 'N') {
         continue;
       }
-      const char* ref_allele = token_ptrs[2];
-      const uint32_t ref_allele_slen = token_slens[2];
-      {
-        uint32_t uii = 0;
-        for (; uii != ref_allele_slen; ++uii) {
-          if (!acgt_bool_table[S_CAST(unsigned char, ref_allele[uii])]) {
-            break;
-          }
-        }
-        if (uii != ref_allele_slen) {
+      const char* effect_allele = token_ptrs[kGwasSsfColA1];
+      const uint32_t effect_allele_slen = token_slens[kGwasSsfColA1];
+      if (!AllACGT(effect_allele, effect_allele_slen)) {
+        continue;
+      }
+      const char* ref_allele = token_ptrs[kGwasSsfColRef];
+      uint32_t ref_allele_slen = token_slens[kGwasSsfColRef];
+      const char* other_allele;
+      uint32_t other_allele_slen;
+      uint32_t ref_allele_match; // 0 = effect, 1 = other, 2 = neither
+      if (header_cols & kfGwasSsfColsetOmitted) {
+        other_allele = token_ptrs[kGwasSsfColOmitted];
+        other_allele_slen = token_slens[kGwasSsfColOmitted];
+        if (!AllACGT(other_allele, other_allele_slen)) {
           continue;
         }
-      }
-      if (!(header_cols & kfGwasSsfColsetOmitted)) {
-        if (memchr(token_ptrs[3], ',', token_slens[3]) != nullptr) {
+        if ((ref_allele_slen == effect_allele_slen) && memequal(ref_allele, effect_allele, ref_allele_slen)) {
+          ref_allele_match = 0;
+        } else if ((ref_allele_slen == other_allele_slen) && memequal(ref_allele, other_allele, ref_allele_slen)) {
+          ref_allele_match = 1;
+        } else {
+          if (unlikely(varid_and_ref_cols && (!AllACGT(ref_allele, ref_allele_slen)))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: REF allele on line %" PRIuPTR " of %s contains non-ACGT character(s).\n", line_idx, in_fname);
+            goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+          }
+          ref_allele_match = 2;
+        }
+      } else {
+        const char* alt_str = token_ptrs[kGwasSsfColAlt];
+        const uint32_t alt_slen = token_slens[kGwasSsfColAlt];
+        if (memchr(alt_str, ',', alt_slen) != nullptr) {
+          continue;
+        }
+        // check for REF/ALT match, ALT first (much more likely), error out if
+        // neither.
+        if ((effect_allele_slen == alt_slen) && memequal(effect_allele, alt_str, effect_allele_slen)) {
+          other_allele = ref_allele;
+          other_allele_slen = ref_allele_slen;
+          ref_allele_match = 1;
+        } else if (likely((effect_allele_slen == ref_allele_slen) && memequal(effect_allele, ref_allele, effect_allele_slen))) {
+          other_allele = alt_str;
+          other_allele_slen = alt_slen;
+          ref_allele_match = 0;
+        } else {
+          snprintf(g_logbuf, kLogbufSize, "Error: A1 allele on line %" PRIuPTR " of %s matches neither REF nor ALT.\n", line_idx, in_fname);
+          goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+        }
+        if (!AllACGT(other_allele, other_allele_slen)) {
           continue;
         }
       }
@@ -352,45 +399,26 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       cswritep = u32toa_x(gwas_ssf_chr_code, '\t', cswritep);
 
       // POS
-      const char* pos_str = token_ptrs[0];
-      const uint32_t pos_slen = token_slens[0];
+      const char* pos_str = token_ptrs[kGwasSsfColPos];
+      const uint32_t pos_slen = token_slens[kGwasSsfColPos];
       cswritep = memcpyax(cswritep, pos_str, pos_slen, '\t');
 
       // A1
-      const char* a1_str = token_ptrs[4];
-      const uint32_t a1_slen = token_slens[4];
-      cswritep = memcpyax(cswritep, a1_str, a1_slen, '\t');
+      cswritep = memcpyax(cswritep, effect_allele, effect_allele_slen, '\t');
 
       // OMITTED
-      const char* alt_allele = token_ptrs[3];
-      const uint32_t alt_allele_slen = token_slens[3];
-      if (header_cols & kfGwasSsfColsetOmitted) {
-        cswritep = memcpya(cswritep, token_ptrs[5], token_slens[5]);
-      } else {
-        // we already verified variant is biallelic.
-        // check for REF/ALT match, ALT first (much more likely), error out if
-        // neither.
-        if ((a1_slen == alt_allele_slen) && memequal(a1_str, alt_allele, a1_slen)) {
-          cswritep = memcpya(cswritep, ref_allele, ref_allele_slen);
-        } else if (likely((a1_slen == ref_allele_slen) && memequal(a1_str, ref_allele, a1_slen))) {
-          cswritep = memcpya(cswritep, alt_allele, alt_allele_slen);
-        } else {
-          snprintf(g_logbuf, kLogbufSize, "Error: A1 allele on line %" PRIuPTR " of %s matches neither REF nor ALT.\n", line_idx, in_fname);
-          goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
-        }
-      }
-      *cswritep++ = '\t';
+      cswritep = memcpyax(cswritep, other_allele, other_allele_slen, '\t');
 
       // BETA/OR
-      cswritep = memcpyax(cswritep, token_ptrs[9], token_slens[9], '\t');
+      cswritep = memcpyax(cswritep, token_ptrs[kGwasSsfColBetaOr], token_slens[kGwasSsfColBetaOr], '\t');
 
       // SE
-      cswritep = memcpyax(cswritep, token_ptrs[10], token_slens[10], '\t');
+      cswritep = memcpyax(cswritep, token_ptrs[kGwasSsfColSe], token_slens[kGwasSsfColSe], '\t');
 
       // A1_FREQ
-      const char* a1_freq_str = token_ptrs[6];
+      const char* a1_freq_str = token_ptrs[kGwasSsfColA1freq];
       if (a1freq_lower_limit == 0.0) {
-        cswritep = memcpya(cswritep, a1_freq_str, token_slens[6]);
+        cswritep = memcpya(cswritep, a1_freq_str, token_slens[kGwasSsfColA1freq]);
       } else {
         double a1_freq;
         if (unlikely(!ScanadvDouble(a1_freq_str, &a1_freq))) {
@@ -398,7 +426,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
           goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
         }
         if (a1_freq >= a1freq_lower_limit) {
-          cswritep = memcpya(cswritep, a1_freq_str, token_slens[6]);
+          cswritep = memcpya(cswritep, a1_freq_str, token_slens[kGwasSsfColA1freq]);
         } else {
           cswritep = memcpya(cswritep, a1freq_lower_limit_str, a1freq_lower_limit_slen);
         }
@@ -406,17 +434,39 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       *cswritep++ = '\t';
 
       // P
-      cswritep = memcpyax(cswritep, token_ptrs[13], token_slens[13], '\t');
+      cswritep = memcpyax(cswritep, token_ptrs[kGwasSsfColP], token_slens[kGwasSsfColP], '\t');
 
       // C_P_R_A
-      cswritep = u32toa_x(gwas_ssf_chr_code, '_', cswritep);
-      cswritep = memcpyax(cswritep, pos_str, pos_slen, '_');
-      cswritep = memcpyax(cswritep, ref_allele, ref_allele_slen, '_');
-      cswritep = memcpyax(cswritep, alt_allele, alt_allele_slen, '\t');
+      if (varid_and_ref_cols) {
+        if (header_cols & kfGwasSsfColsetProvref) {
+          const uint32_t provref_slen = token_slens[kGwasSsfColProvref];
+          const char provref_char = token_ptrs[kGwasSsfColProvref][0];
+          provref = (provref_char == 'Y');
+          if (unlikely((provref_slen != 1) || ((!provref) && (provref_char != 'N')))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid PROVISIONAL_REF? column value on line %" PRIuPTR " of %s .\n", line_idx, in_fname);
+            goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+          }
+        }
+        if ((ref_allele_match == 2) || provref) {
+          // at least two ALTs relevant.  As of this writing, the specification
+          // doesn't say what to do here.
+          cswritep = strcpya_k(cswritep, "#NA\t");
+        } else {
+          cswritep = u32toa_x(gwas_ssf_chr_code, '_', cswritep);
+          cswritep = memcpyax(cswritep, pos_str, pos_slen, '_');
+          cswritep = memcpyax(cswritep, ref_allele, ref_allele_slen, '_');
+          if (ref_allele_match == 0) {
+            cswritep = memcpya(cswritep, other_allele, other_allele_slen);
+          } else {
+            cswritep = memcpya(cswritep, effect_allele, effect_allele_slen);
+          }
+          *cswritep++ = '\t';
+        }
+      }
 
       if (rsid_mode != kGwasSsfRsidModeNo) {
-        const char* variant_id = token_ptrs[1];
-        const uint32_t variant_id_slen = token_slens[1];
+        const char* variant_id = token_ptrs[kGwasSsfColId];
+        const uint32_t variant_id_slen = token_slens[kGwasSsfColId];
         uint32_t is_rsid = 0;
         // may as well exclude integers >> 2^64
         if (StrStartsWith(variant_id, "rs", variant_id_slen) && (variant_id_slen < 23)) {
@@ -441,16 +491,25 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       }
 
       if (header_cols & kfGwasSsfColsetCiUpper) {
-        cswritep = memcpyax(cswritep, token_ptrs[12], token_slens[12], '\t');
+        cswritep = memcpyax(cswritep, token_ptrs[kGwasSsfColCiUpper], token_slens[kGwasSsfColCiUpper], '\t');
       }
       if (header_cols & kfGwasSsfColsetCiLower) {
-        cswritep = memcpyax(cswritep, token_ptrs[11], token_slens[11], '\t');
+        cswritep = memcpyax(cswritep, token_ptrs[kGwasSsfColCiLower], token_slens[kGwasSsfColCiLower], '\t');
       }
 
       // OBS_CT
-      cswritep = memcpyax(cswritep, token_ptrs[8], token_slens[8], '\t');
+      cswritep = memcpya(cswritep, token_ptrs[kGwasSsfColObsCt], token_slens[kGwasSsfColObsCt]);
 
-      cswritep = memcpya(cswritep, ref_allele, ref_allele_slen);
+      if (varid_and_ref_cols) {
+        *cswritep++ = '\t';
+        if (provref || (ref_allele_match == 2)) {
+          cswritep = strcpya_k(cswritep, "#NA");
+        } else if (ref_allele_match == 1) {
+          cswritep = strcpya_k(cswritep, "OA");
+        } else {
+          cswritep = strcpya_k(cswritep, "EA");
+        }
+      }
 
       AppendBinaryEoln(&cswritep);
 #ifdef __LP64__
