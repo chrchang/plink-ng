@@ -4519,6 +4519,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
                  bigstack_alloc_u32(max_allele_ct, &two_cts))) {
       goto GetMultiallelicMarginalCounts_ret_NOMEM;
     }
+    DPrintf("starting main autosomal_xallele_ct block\n");
     if (autosomal_xallele_ct) {
       PgrSampleSubsetIndex pssi;
       PgrSetSampleSubsetIndex(cumulative_popcounts, simple_pgrp, &pssi);
@@ -4541,7 +4542,9 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
         }
         const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
         if (allele_ct > 2) {
+          DPrintf("calling PgrGetM for variant_uidx=%u\n", variant_uidx);
           reterr = PgrGetM(founder_info, pssi, founder_ct, variant_uidx, simple_pgrp, &pgv);
+          DPrintf("PgrGetM returned\n");
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, variant_uidx);
             goto GetMultiallelicMarginalCounts_ret_1;
@@ -4576,6 +4579,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
             autosomal_xgeno_cts[xgeno_idx][1] = one_cts[aidx];
             ++xgeno_idx;
           }
+          DPrintf("counts updated\n");
         }
       }
     }

@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a4"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (2 Mar 2023)";
+  " (3 Mar 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -2122,7 +2122,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // this case
             logerrputs("Warning: --hwe has no effect since entire genome is haploid.\n");
           } else {
-            DPrintf("Starting --hwe.\n");
             STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts) = nonfounders? raw_geno_cts : founder_raw_geno_cts;
             STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts) = nonfounders? x_male_geno_cts : founder_x_male_geno_cts;
             STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts) = nonfounders? x_nosex_geno_cts : founder_x_nosex_geno_cts;
@@ -2141,32 +2140,25 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts) = nullptr;
             STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts) = nullptr;
             uint32_t hwe_x_ct = 0;
-            DPrintf("hwe_x_probs_needed: %u\n", hwe_x_probs_needed);
             if (hwe_x_probs_needed) {
               hwe_x_ct = CountChrVariantsUnsafe(variant_include, cip, cip->xymt_codes[kChrOffsetX]);
-              DPrintf("hwe_x_ct: %u\n", hwe_x_ct);
               // hwe_x_ct == 0 possible when hwe_x_probs_needed set, if --geno
               // filters out all chrX variants
             }
             uintptr_t autosomal_xallele_ct = 0;
             uintptr_t x_xallele_ct = 0;
-            DPrintf("allele_idx_offsets: %lx\n", R_CAST(uintptr_t, allele_idx_offsets));
             if (allele_idx_offsets) {
               const uint32_t autosomal_variant_ct = variant_ct - hwe_x_ct - CountNonAutosomalVariants(variant_include, cip, 0, 1);
-              DPrintf("autosomal_variant_ct: %u\n", autosomal_variant_ct);
               const uint32_t chr_ct = cip->chr_ct;
-              DPrintf("chr_ct: %u\n", chr_ct);
               for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
                 const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
                 if ((chr_idx != x_code) && (!IsSet(cip->haploid_mask, chr_idx))) {
                   autosomal_xallele_ct += CountExtraAlleles(variant_include, allele_idx_offsets, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], 1);
                 }
               }
-              DPrintf("autosomal_xallele_ct: %u\n", autosomal_xallele_ct);
               if (hwe_x_ct) {
                 x_xallele_ct = CountExtraAlleles(variant_include, allele_idx_offsets, x_start, x_start + x_len, 1);
               }
-              DPrintf("x_xallele_ct: %u\n", x_xallele_ct);
               if (autosomal_xallele_ct || x_xallele_ct) {
                 if (autosomal_xallele_ct) {
                   if (unlikely(BIGSTACK_ALLOC_STD_ARRAY(uint32_t, 2, autosomal_xallele_ct, &autosomal_xgeno_cts))) {
@@ -2188,7 +2180,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                 if (unlikely(reterr)) {
                   goto Plink2Core_ret_1;
                 }
-                DPrintf("GetMultiallelicMarginalCounts complete\n");
               }
             }
 
@@ -2210,12 +2201,10 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               } else {
                 hwe_midp = (pcp->misc_flags / kfMiscHweMidp) & 1;
               }
-              DPrintf("starting ComputeHweXPvals\n");
               reterr = ComputeHweXPvals(variant_include, allele_idx_offsets, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_knownsex_xgeno_cts, x_male_xgeno_cts, x_start, hwe_x_ct, x_xallele_ct, hwe_midp, pcp->max_thread_ct, &hwe_x_pvals);
               if (unlikely(reterr)) {
                 goto Plink2Core_ret_1;
               }
-              DPrintf("ComputeHweXPvals complete\n");
             }
             if (pcp->command_flags1 & kfCommand1Hardy) {
               reterr = HardyReport(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, hwe_geno_cts, autosomal_xgeno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_knownsex_xgeno_cts, x_male_xgeno_cts, hwe_x_pvals, variant_ct, hwe_x_ct, max_allele_slen, pcp->output_min_ln, pcp->hardy_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
@@ -2229,7 +2218,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             if (pcp->hwe_thresh != 0.0) {
               // assumes no filtering between hwe_x_pvals[] computation and
               // here
-              DPrintf("starting EnforceHweThresh\n");
               EnforceHweThresh(cip, allele_idx_offsets, hwe_geno_cts, autosomal_xgeno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_knownsex_xgeno_cts, x_male_xgeno_cts, hwe_x_pvals, pcp->misc_flags, pcp->hwe_thresh, nonfounders, variant_include, &variant_ct);
             }
           }

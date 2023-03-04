@@ -110,7 +110,7 @@ FLAGSET_DEF_START()
   kfGwasSsfColsetCiUpper = (1 << kGwasSsfColCiUpper),
   kfGwasSsfColsetP = (1 << kGwasSsfColP),
 
-  kfGwasSsfColsetRequired = kfGwasSsfColsetPos | kfGwasSsfColsetId | kfGwasSsfColsetRef | kfGwasSsfColsetAlt | kfGwasSsfColsetA1 | kfGwasSsfColsetA1Freq | kfGwasSsfColsetTest | kfGwasSsfColsetObsCt | kfGwasSsfColsetBetaOr | kfGwasSsfColsetSe | kfGwasSsfColsetP
+  kfGwasSsfColsetRequired = kfGwasSsfColsetPos | kfGwasSsfColsetRef | kfGwasSsfColsetAlt | kfGwasSsfColsetA1 | kfGwasSsfColsetA1Freq | kfGwasSsfColsetTest | kfGwasSsfColsetObsCt | kfGwasSsfColsetBetaOr | kfGwasSsfColsetSe | kfGwasSsfColsetP
 FLAGSET_DEF_END(GwasSsfColFlags);
 
 // If rsid_mode == kGwasSsfRsidModeInfer and force_rsid is false, we initially
@@ -223,17 +223,21 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
     }
     if (unlikely((header_cols & kfGwasSsfColsetRequired) != kfGwasSsfColsetRequired)) {
-      snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s does not have all required input columns. (CHROM, POS, ID, REF, ALT, A1, A1_FREQ, TEST, OBS_CT, BETA/OR, SE/LOG(OR)_SE, and P are required.)\n", in_fname);
+      snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s does not have all required input columns. (CHROM, POS, REF, ALT, A1, A1_FREQ, TEST, OBS_CT, BETA/OR, SE/LOG(OR)_SE, and P are required.)\n", in_fname);
       goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
     }
 
     const GwasSsfRsidMode rsid_mode = force_rsid? kGwasSsfRsidModeYes : gsip->rsid_mode;
+    if (unlikely((rsid_mode != kGwasSsfRsidModeNo) && (!(header_cols & kfGwasSsfColsetId)))) {
+      snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s does not have an ID column, and rsid=no was not specified.\n", in_fname);
+      goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+    }
     const uint32_t rsid_col = (rsid_mode == kGwasSsfRsidModeYes);
     const uint32_t output_zst = (gsip->flags / kfGwasSsfZs) & 1;
 
-    // Output line length won't be more than ~twice input line length.
-    // (It can be close to 2x because of the variant_id output column.)
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + 512 + (2 * k1LU) * max_line_blen;
+    // Output line length won't be more than ~1.5x input line length.
+    // (It can be close to 1.5x if REF allele is very long.)
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 512 + (((3 * k1LU) * max_line_blen) / 2);
     reterr = InitCstreamAlloc(out_fname, 0, output_zst, MAXV(1, max_thread_ct - 1), overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto GwasSsfInternal_ret_1;
@@ -342,6 +346,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       } else {
         gwas_ssf_chr_code = gwas_ssf_chr_remap[chr_code_raw - kMaxContigs];
       }
+      char* outline_start = cswritep;
       cswritep = u32toa_x(gwas_ssf_chr_code, '\t', cswritep);
 
       // POS
@@ -411,7 +416,8 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
         const char* variant_id = token_ptrs[1];
         const uint32_t variant_id_slen = token_slens[1];
         uint32_t is_rsid = 0;
-        if (StrStartsWith(variant_id, "rs", variant_id_slen)) {
+        // may as well exclude integers >> 2^64
+        if (StrStartsWith(variant_id, "rs", variant_id_slen) && (variant_id_slen < 23)) {
           uint32_t uii = strlen("rs");
           for (; uii != variant_id_slen; ++uii) {
             if (!IsDigit(variant_id[uii])) {
@@ -445,6 +451,12 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       cswritep = memcpya(cswritep, ref_allele, ref_allele_slen);
 
       AppendBinaryEoln(&cswritep);
+#ifdef __LP64__
+      if (unlikely(S_CAST(uintptr_t, cswritep - outline_start) > kMaxLongLine)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is too long to process.\n", line_idx, in_fname);
+        goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
+      }
+#endif
       if (unlikely(Cswrite(&css, &cswritep))) {
         goto GwasSsfInternal_ret_WRITE_FAIL;
       }
@@ -501,14 +513,11 @@ PglErr GwasSsfOneFile(const GwasSsfInfo* gsip, const char* in_fname, uint32_t ma
     }
     *out_fname_iter = '\0';
 
+    // /5 since output stream may require slightly over 3x this amount of
+    // memory with compression on
     uint32_t max_line_blen;
-    if (unlikely(StandardizeMaxLineBlen(bigstack_left() / 4, &max_line_blen))) {
+    if (unlikely(StandardizeMaxLineBlen(bigstack_left() / 5, &max_line_blen))) {
       goto GwasSsfOneFile_ret_NOMEM;
-    }
-    // Invert overflow_buf_size expression so we can assume output lines aren't
-    // longer than kMaxLongLine.
-    if (max_line_blen > (kMaxLongLine - 512) / 2) {
-      max_line_blen = (kMaxLongLine - 512) / 2;
     }
     reterr = InitTextStream(in_fname, max_line_blen, output_zst? 1 : MAXV(1, max_thread_ct - 1), &txs);
     if (unlikely(reterr)) {
@@ -551,7 +560,6 @@ PglErr GwasSsfStandalone(const GwasSsfInfo* gsip, uint32_t max_thread_ct) {
   TextStream list_txs;
   PreinitTextStream(&list_txs);
   {
-    const GwasSsfFlags flags = gsip->flags;
     uintptr_t file_ct = 0;
     if (gsip->fname) {
       reterr = GwasSsfOneFile(gsip, gsip->fname, max_thread_ct);
