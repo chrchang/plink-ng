@@ -2148,7 +2148,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             uintptr_t autosomal_xallele_ct = 0;
             uintptr_t x_xallele_ct = 0;
             if (allele_idx_offsets) {
-              const uint32_t autosomal_variant_ct = variant_ct - hwe_x_ct - CountNonAutosomalVariants(variant_include, cip, 0, 1);
+              // bugfix (3 Mar 2023): if !hwe_x_probs_needed, need to subtract
+              // chrX variant count here
+              const uint32_t autosomal_variant_ct = variant_ct - hwe_x_ct - CountNonAutosomalVariants(variant_include, cip, 1 - hwe_x_probs_needed, 1);
               const uint32_t chr_ct = cip->chr_ct;
               for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
                 const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
@@ -2175,7 +2177,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                     }
                   }
                 }
-                DPrintf("starting GetMultiallelicMarginalCounts\n");
                 reterr = GetMultiallelicMarginalCounts(nonfounders? sample_include : founder_info, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, hwe_geno_cts, raw_sample_ct, autosomal_variant_ct, autosomal_xallele_ct, hwe_x_ct, x_xallele_ct, &simple_pgr, x_male_xgeno_cts, autosomal_xgeno_cts, x_knownsex_xgeno_cts);
                 if (unlikely(reterr)) {
                   goto Plink2Core_ret_1;
