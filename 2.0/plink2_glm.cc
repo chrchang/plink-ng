@@ -227,7 +227,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
     }
 
-    const GwasSsfRsidMode rsid_mode = force_rsid? kGwasSsfRsidModeYes : gsip->rsid_mode;
+    const GwasSsfRsidMode rsid_mode = force_rsid? S_CAST(GwasSsfRsidMode, kGwasSsfRsidModeYes) : gsip->rsid_mode;
     if (unlikely((rsid_mode != kGwasSsfRsidModeNo) && (!(header_cols & kfGwasSsfColsetId)))) {
       snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s does not have an ID column, and rsid=no was not specified.\n", in_fname);
       goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
@@ -346,7 +346,9 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       } else {
         gwas_ssf_chr_code = gwas_ssf_chr_remap[chr_code_raw - kMaxContigs];
       }
+#ifdef __LP64__
       char* outline_start = cswritep;
+#endif
       cswritep = u32toa_x(gwas_ssf_chr_code, '\t', cswritep);
 
       // POS

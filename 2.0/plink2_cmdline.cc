@@ -608,7 +608,7 @@ uint64_t GetMemAvailableKib() {
     } while (!StrStartsWithUnsafe(textbuf, "MemAvailable:"));
     const char* textbuf_iter = &(textbuf[strlen("MemAvailable:")]);
     textbuf_iter = FirstNonTspace(textbuf_iter);
-    uintptr_t kib_free;
+    uint64_t kib_free;
     if (ScanmovU64Capped(1LLU << 54, &textbuf_iter, &kib_free)) {
       goto GetMemAvailableKib_ret_FAIL;
     }
