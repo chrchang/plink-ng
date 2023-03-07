@@ -176,6 +176,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
     GwasSsfColFlags header_cols = kfGwasSsfColset0;
     uint32_t relevant_postchr_col_ct = 0;
     uint32_t is_odds_ratio = 0;
+    uint32_t is_neglog10_p = 0;
     if (unlikely(!strequal_k(line_iter, "#CHROM", first_token_slen))) {
       if (strequal_k(line_iter, "#POS", first_token_slen) ||
           strequal_k(line_iter, "#ID", first_token_slen)) {
@@ -244,6 +245,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
         cur_colidx = kGwasSsfColSe;
       } else if (strequal_k(linebuf_iter, "LOG10_P", token_slen)) {
         cur_colidx = kGwasSsfColP;
+        is_neglog10_p = 1;
       }
       if (cur_colidx != kGwasSsfColNull) {
         const GwasSsfColFlags cur_colset = S_CAST(GwasSsfColFlags, 1U << cur_colidx);
@@ -323,7 +325,11 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
     } else {
       cswritep = strcpya_k(cswritep, "odds_ratio");
     }
-    cswritep = strcpya_k(cswritep, "\tstandard_error\teffect_allele_frequency\tp_value");
+    cswritep = strcpya_k(cswritep, "\tstandard_error\teffect_allele_frequency\t");
+    if (is_neglog10_p) {
+      cswritep = strcpya(cswritep, "neg_log_10_");
+    }
+    cswritep = strcpya(cswritep, "p_value");
     if (real_ref_found) {
       cswritep = strcpya_k(cswritep, "\tvariant_id");
     }
