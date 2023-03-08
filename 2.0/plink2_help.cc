@@ -515,8 +515,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                   'HDS-force': Always report DS and HDS.\n"
                // possible todo: pedigree output?
 "    In addition,\n"
-"    * The '12' modifier causes alt1 alleles to be coded as '1' and ref alleles\n"
-"      to be coded as '2', while '01' maps alt1 -> 0 and ref -> 1.\n"
+"    * The '12' modifier causes ref alleles to be coded as '1' and alt1 alleles\n"
+"      to be coded as '2', while '01' maps ref -> 0 and alt1 -> 1.  Note that\n"
+"      this is essentially the reverse of PLINK 1.x; the reversal was not\n"
+"      properly documented before 7 Mar 2023.\n"
 "    * The 'spaces' modifier makes the output space-delimited instead of\n"
 "      tab-delimited, whenever both are permitted.\n"
 "    * For biallelic formats where it's unspecified whether the reference/major\n"
