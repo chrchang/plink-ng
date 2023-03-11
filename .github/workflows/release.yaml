@@ -1,1 +1,145 @@
+name: Publish pgenlib wheels to PyPI and TestPyPI
+
+on:
+  push:
+    branches:
+      - v[0-9]+.[0-9]+.[0-9].x
+    tags:
+      - v*
+  release:
+    types:
+      - published
+
+jobs:
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }} for ${{ matrix.cibw_archs }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-10.15]  # windows-2019,
+        cibw_archs: [auto]
+        cibw_build: ['cp37-* cp38-* cp39-* cp310-*']
+        include:
+           - os: ubuntu-latest
+             cibw_archs: aarch64
+             cibw_build: cp36-*
+           - os: ubuntu-latest
+             cibw_archs: aarch64
+             cibw_build: cp37-*
+           - os: ubuntu-latest
+             cibw_archs: aarch64
+             cibw_build: cp38-*
+           - os: ubuntu-latest
+             cibw_archs: aarch64
+             cibw_build: cp39-*
+           - os: ubuntu-latest
+             cibw_archs: aarch64
+             cibw_build: cp310-*
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+
+      - name: Set up QEMU
+        if: ${{ matrix.cibw_archs == 'aarch64' }}
+        uses: docker/setup-qemu-action@v1
+
+      - name: Install prerequisite Python libraries
+        run:  |
+          python -m pip install --upgrade pip
+          pip install cython pytest pytest-pep8
+
+      - name: Build wheels for linux
+        if:   runner.os == 'Linux'
+        uses: pypa/cibuildwheel@v2.4.0
+        with:
+          package-dir: ./2.0/Python
+        env:
+          CIBW_BUILD: ${{ matrix.cibw_build }}
+          CIBW_SKIP: "*musllinux*"
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_24
+          CIBW_MANYLINUX_I686_IMAGE: manylinux_2_24
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_24
+          CIBW_BEFORE_BUILD: apt-get update && apt-get install -y libcurl4-openssl-dev zlib1g-dev libbz2-dev liblzma-dev && pip install cython
+          CIBW_ARCHS: ${{ matrix.cibw_archs }}
+
+      - name: Build wheels for macos
+        if:   runner.os != 'Linux'
+        uses: pypa/cibuildwheel@v2.4.0
+        with:
+          package-dir: ./2.0/Python
+        env:
+          CIBW_BUILD: ${{ matrix.cibw_build }}
+          CIBW_BEFORE_BUILD: pip install cython
+          CIBW_ARCHS: ${{ matrix.cibw_archs }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          path: ./wheelhouse/*.whl
+
+  build_sdist:
+
+    runs-on: ${{ matrix.os }}-latest
+    strategy:
+      matrix:
+        os: [ubuntu, macos]
+        python-version: [3.9]
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install prerequisite Python libraries
+        run:  pip install cython pytest pytest-pep8
+
+      - name: Install build prerequisites
+        if:   runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -q --no-install-recommends --no-install-suggests libcurl4-openssl-dev
+
+      - name: Create source distribution
+        working-directory: ./2.0/Python
+        run:  python setup.py sdist
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: dist/*.tar.gz
+
+  upload_pypi:
+
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: artifact
+          path: dist
+
+      - name: Publish distribution to Test PyPI
+        if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v')
+        uses: pypa/gh-action-pypi-publish@master
+        with:
+          user: __token__
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          repository_url: https://test.pypi.org/legacy/
+
+      - name: Publish distribution to PyPI
+        if: github.event_name == 'release' && github.event.action == 'published'
+        uses: pypa/gh-action-pypi-publish@master
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
 
