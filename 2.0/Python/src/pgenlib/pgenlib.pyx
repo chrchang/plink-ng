@@ -74,6 +74,8 @@ cdef extern from "../plink2/pgenlib_ffi_support.h" namespace "plink2":
     cdef enum:
         kNypsPerCacheline
     cdef enum:
+        kBytesPerWord
+    cdef enum:
         kBytesPerVec
     cdef enum:
         kInt32PerVec
@@ -111,6 +113,7 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
         uint32_t raw_variant_ct
         uint32_t raw_sample_ct
         unsigned char* vrtypes
+        uintptr_t* nonref_flags
         uint32_t gflags
 
     ctypedef uint32_t PgenHeaderCtrl
@@ -270,7 +273,12 @@ cdef class PgenReader:
         if PgfiInitPhase1(fname, NULL, cur_variant_ct, cur_sample_ct, &header_ctrl, self._info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf) != kPglRetSuccess:
             raise RuntimeError(errstr_buf[7:])
         assert (header_ctrl & 0x30) == 0 # no alt allele counts
-        assert (header_ctrl & 0xc0) != 0xc0 # no explicit nonref_flags
+        cdef uintptr_t nonref_flags_byte_ct = DivUp(self._info_ptr[0].raw_variant_ct, kBitsPerWord) * kBytesPerWord
+        if (header_ctrl & 0xc0) == 0xc0:
+            # explicit nonref_flags
+            # might want to modify PgfiInitPhase2 to let us not load this.
+            if cachealigned_malloc(nonref_flags_byte_ct, &self._info_ptr[0].nonref_flags):
+                raise MemoryError()
         cdef uint32_t file_sample_ct = self._info_ptr[0].raw_sample_ct
         assert file_sample_ct != 0
         cdef unsigned char* pgfi_alloc = NULL
@@ -279,7 +287,7 @@ cdef class PgenReader:
                 raise MemoryError()
         cdef uint32_t max_vrec_width
         cdef uintptr_t pgr_alloc_cacheline_ct
-        if PgfiInitPhase2(header_ctrl, 1, 1, 0, 0, self._info_ptr[0].raw_variant_ct, &max_vrec_width, self._info_ptr, pgfi_alloc, &pgr_alloc_cacheline_ct, errstr_buf):
+        if PgfiInitPhase2(header_ctrl, 1, 0, 0, 0, self._info_ptr[0].raw_variant_ct, &max_vrec_width, self._info_ptr, pgfi_alloc, &pgr_alloc_cacheline_ct, errstr_buf):
             if pgfi_alloc and not self._info_ptr[0].vrtypes:
                 aligned_free(pgfi_alloc)
             raise RuntimeError(errstr_buf[7:])
@@ -996,8 +1004,9 @@ cdef class PgenReader:
                 #       are zero, etc.
                 TransposeBitblock(vmaj_phaseinfo_iter, sample_ctaw, <uint32_t>(kPglNypTransposeWords // 2), variant_batch_size, sample_batch_size, smaj_phaseinfo_iter, transpose_batch_buf)
                 for uii in range(sample_batch_size):
-                    main_data_ptr = <int32_t*>(&(allele_int32_out[2 * (uii + sample_batch_idx * kPglNypTransposeWords), variant_batch_idx * kPglNypTransposeBatch]))
-                    main_data1_ptr = <int32_t*>(&(allele_int32_out[2 * (uii + sample_batch_idx * kPglNypTransposeWords) + 1, variant_batch_idx * kPglNypTransposeBatch]))
+                    # bugfix (11 Mar 2023): first index was incorrect
+                    main_data_ptr = <int32_t*>(&(allele_int32_out[2 * (uii + sample_batch_idx * kPglNypTransposeBatch), variant_batch_idx * kPglNypTransposeBatch]))
+                    main_data1_ptr = <int32_t*>(&(allele_int32_out[2 * (uii + sample_batch_idx * kPglNypTransposeBatch) + 1, variant_batch_idx * kPglNypTransposeBatch]))
                     GenoarrPhasedToHapCodes(smaj_geno_iter, smaj_phaseinfo_iter, variant_batch_size, main_data_ptr, main_data1_ptr)
                     smaj_geno_iter = &(smaj_geno_iter[kPglNypTransposeWords])
                     smaj_phaseinfo_iter = &(smaj_phaseinfo_iter[kPglNypTransposeWords // 2])
@@ -1098,8 +1107,8 @@ cdef class PgenReader:
                 #       are zero, etc.
                 TransposeBitblock(vmaj_phaseinfo_iter, sample_ctaw, <uint32_t>(kPglNypTransposeWords // 2), variant_batch_size, sample_batch_size, smaj_phaseinfo_iter, transpose_batch_buf)
                 for uii in range(sample_batch_size):
-                    main_data_ptr = <int32_t*>(&(allele_int32_out[2 * (uii + sample_batch_idx * kPglNypTransposeWords), variant_batch_idx * kPglNypTransposeBatch]))
-                    main_data1_ptr = <int32_t*>(&(allele_int32_out[2 * (uii + sample_batch_idx * kPglNypTransposeWords) + 1, variant_batch_idx * kPglNypTransposeBatch]))
+                    main_data_ptr = <int32_t*>(&(allele_int32_out[2 * (uii + sample_batch_idx * kPglNypTransposeBatch), variant_batch_idx * kPglNypTransposeBatch]))
+                    main_data1_ptr = <int32_t*>(&(allele_int32_out[2 * (uii + sample_batch_idx * kPglNypTransposeBatch) + 1, variant_batch_idx * kPglNypTransposeBatch]))
                     GenoarrPhasedToHapCodes(smaj_geno_iter, smaj_phaseinfo_iter, variant_batch_size, main_data_ptr, main_data1_ptr)
                     smaj_geno_iter = &(smaj_geno_iter[kPglNypTransposeWords])
                     smaj_phaseinfo_iter = &(smaj_phaseinfo_iter[kPglNypTransposeWords // 2])
@@ -1359,6 +1368,8 @@ cdef class PgenReader:
             CleanupPgfi(self._info_ptr, &reterr)
             if self._info_ptr[0].vrtypes:
                 aligned_free(self._info_ptr[0].vrtypes)
+            if self._info_ptr[0].nonref_flags:
+                aligned_free(self._info_ptr[0].nonref_flags)
             if self._state_ptr:
                 CleanupPgr(self._state_ptr, &reterr)
                 if PgrGetFreadBuf(self._state_ptr):
@@ -1383,6 +1394,8 @@ cdef class PgenReader:
             CleanupPgfi(self._info_ptr, &reterr)
             if self._info_ptr[0].vrtypes:
                 aligned_free(self._info_ptr[0].vrtypes)
+            if self._info_ptr[0].nonref_flags:
+                aligned_free(self._info_ptr[0].nonref_flags)
             if self._state_ptr:
                 CleanupPgr(self._state_ptr, &reterr)
                 if PgrGetFreadBuf(self._state_ptr):
