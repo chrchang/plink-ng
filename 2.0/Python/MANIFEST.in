@@ -11,3 +11,15 @@ include src/plink2/include/plink2_base.cc
 include src/plink2/include/plink2_base.h
 include src/plink2/include/plink2_bits.cc
 include src/plink2/include/plink2_bits.h
+include src/plink2/include/hedley.h
+include src/plink2/include/simde-common.h
+include src/plink2/include/simde-detect-clang.h
+include src/plink2/include/simde-arch.h
+include src/plink2/include/simde-features.h
+include src/plink2/include/simde-diagnostic.h
+include src/plink2/include/simde-math.h
+include src/plink2/include/simde-constify.h
+include src/plink2/include/simde-align.h
+include src/plink2/include/x86/mmx.h
+include src/plink2/include/x86/sse.h
+include src/plink2/include/x86/sse2.h
