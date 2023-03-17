@@ -75,7 +75,7 @@ jobs:
           package-dir: ./2.0/Python
         env:
           CIBW_BUILD: ${{ matrix.cibw_build }}
-          CIBW_BEFORE_BUILD: pip install cython
+          CIBW_BEFORE_BUILD: pip install numpy cython
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
 
       - name: Upload artifacts
@@ -101,7 +101,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install prerequisite Python libraries
-        run:  pip install cython pytest pytest-pep8
+        run:  pip install numpy cython pytest pytest-pep8
 
       - name: Install build prerequisites
         if:   runner.os == 'Linux'
