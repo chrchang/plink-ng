@@ -52,7 +52,7 @@ jobs:
       - name: Install prerequisite Python libraries
         run:  |
           python -m pip install --upgrade pip
-          pip install cython pytest pytest-pep8
+          pip install numpy cython pytest pytest-pep8
 
       - name: Build wheels for linux
         if:   runner.os == 'Linux'
@@ -65,7 +65,7 @@ jobs:
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_24
           CIBW_MANYLINUX_I686_IMAGE: manylinux_2_24
           CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_24
-          CIBW_BEFORE_BUILD: apt-get update && apt-get install -y libcurl4-openssl-dev zlib1g-dev libbz2-dev liblzma-dev && pip install cython
+          CIBW_BEFORE_BUILD: apt-get update && apt-get install -y libcurl4-openssl-dev zlib1g-dev libbz2-dev liblzma-dev libsimde-dev && pip install numpy cython
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
 
       - name: Build wheels for macos
