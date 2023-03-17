@@ -57,8 +57,9 @@ jobs:
       - name: Build wheels for linux
         if:   runner.os == 'Linux'
         uses: pypa/cibuildwheel@v2.4.0
+        working-directory: ./2.0
         with:
-          package-dir: ./2.0/Python
+          package-dir: ./Python
         env:
           CIBW_BUILD: ${{ matrix.cibw_build }}
           CIBW_SKIP: "*musllinux*"
@@ -71,8 +72,9 @@ jobs:
       - name: Build wheels for macos
         if:   runner.os != 'Linux'
         uses: pypa/cibuildwheel@v2.4.0
+        working-directory: ./2.0
         with:
-          package-dir: ./2.0/Python
+          package-dir: ./Python
         env:
           CIBW_BUILD: ${{ matrix.cibw_build }}
           CIBW_BEFORE_BUILD: pip install numpy cython
