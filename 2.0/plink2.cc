@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a4"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (7 Mar 2023)";
+  " (20 Mar 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -5836,6 +5836,8 @@ int main(int argc, char** argv) {
               pc.gwas_ssf_info.flags |= kfGwasSsfDeleteOrigGlm;
             } else if (strequal_k(cur_modif, "real-ref-alleles", cur_modif_slen)) {
               pc.gwas_ssf_info.flags |= kfGwasSsfRealRefAlleles;
+            } else if (strequal_k(cur_modif, "allow-ambiguous-indels", cur_modif_slen)) {
+              pc.gwas_ssf_info.flags |= kfGwasSsfAllowAmbiguousIndels;
             } else if (StrStartsWith(cur_modif, "a1freq-lower-limit=", cur_modif_slen)) {
               const char* lower_limit_start = &(cur_modif[strlen("a1freq-lower-limit=")]);
               double dxx;
@@ -5875,6 +5877,10 @@ int main(int argc, char** argv) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gwas-ssf argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+          }
+          if (unlikely((pc.gwas_ssf_info.flags & (kfGwasSsfRealRefAlleles | kfGwasSsfAllowAmbiguousIndels)) == (kfGwasSsfRealRefAlleles | kfGwasSsfAllowAmbiguousIndels))) {
+            logerrputs("Error: --gwas-ssf 'real-ref-alleles' and 'allow-ambiguous-indels' modifiers\ndon't make sense together.\n");
+            goto main_ret_INVALID_CMDLINE;
           }
           if (pc.command_flags1 & kfCommand1Glm) {
             if (unlikely(pc.glm_info.flags & (kfGlmHethom | kfGlmDominant | kfGlmRecessive | kfGlmHetonly))) {

@@ -353,13 +353,17 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
     // MT -> 25, not 26
     const unsigned char gwas_ssf_chr_remap[6] = {23, 24, 23, 25, 23, 23};
     const double a1freq_lower_limit = gsip->a1freq_lower_limit;
+    const uint32_t allow_ambiguous_indels = (gsip->flags / kfGwasSsfAllowAmbiguousIndels) & 1;
     char a1freq_lower_limit_str[16]; // > kMaxDoubleGSlen
     uint32_t a1freq_lower_limit_slen = 0;
     if (a1freq_lower_limit > 0.0) {
       char* a1freq_lower_limit_end = dtoa_g(a1freq_lower_limit, a1freq_lower_limit_str);
       a1freq_lower_limit_slen = a1freq_lower_limit_end - a1freq_lower_limit_str;
     }
-    uint32_t provref = 0;
+    // If there is no provref column, and the user did not specify
+    // 'real-ref-alleles' on the command line, treat all REF alleles as
+    // provisional for the ambiguous-indel check.
+    uint32_t provref = (!(gsip->flags & kfGwasSsfRealRefAlleles)) && (!(header_cols & kfGwasSsfColsetProvref));
     goto GwasSsfInternal_main_loop_start;
 
     for (; TextGetUnsafe2(txsp, &line_iter); ++line_idx) {
@@ -507,6 +511,18 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
           goto GwasSsfInternal_ret_1;
         }
       }
+
+      // Note that this doesn't catch all ambiguous variants.  Specifically,
+      // when REF is neither the effect nor the other allele in a multiallelic
+      // variant, we technically need to know the length of the REF allele to
+      // disambiguate, and that is not currently recorded.
+      // But that's rare.  This catches the most common problem case.
+      if (unlikely((!allow_ambiguous_indels) && (effect_allele_slen != other_allele_slen) && provref)) {
+        logerrprintfww("Error: --gwas-ssf: Indel with unknown REF allele on line %" PRIuPTR " of %s .\n", line_idx, in_fname);
+        logerrputs("If you have an upstream VCF or similar file from which the correct REF/ALT\nallele labels can be recovered (see the --ref-allele flag documentation for\ndetails), you are STRONGLY encouraged to recover those labels.\n");
+        goto GwasSsfInternal_ret_MALFORMED_INPUT;
+      }
+
       if (real_ref_found) {
         if ((ref_allele_match == 2) || provref) {
           // at least two ALTs relevant.  As of this writing, the specification
@@ -594,6 +610,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
   GwasSsfInternal_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
+  GwasSsfInternal_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   }
