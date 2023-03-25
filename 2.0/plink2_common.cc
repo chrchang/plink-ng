@@ -3847,7 +3847,7 @@ CXXCONST_CP HkvlineValEnd(const char* val_start) {
     if (unlikely(*val_end == '\n')) {
       return nullptr;
     }
-    return val_end;
+    return S_CAST(CXXCONST_CP, val_end);
   }
   const char* val_iter = &(val_start[1]);
   while (1) {
@@ -3862,7 +3862,7 @@ CXXCONST_CP HkvlineValEnd(const char* val_start) {
   }
   const char* val_end = &(val_iter[1]);
   if (likely((*val_end == ',') || (*val_end == '>'))) {
-    return val_end;
+    return S_CAST(CXXCONST_CP, val_end);
   }
   return nullptr;
 }

@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a4"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (20 Mar 2023)";
+  " (25 Mar 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -6237,6 +6237,19 @@ int main(int argc, char** argv) {
           reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.indep_preferred_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "ndep-order")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          const uint32_t cur_modif_slen = strlen(cur_modif);
+          // TODO: flip default in alpha 5
+          if (strequal_k(cur_modif, "2", cur_modif_slen)) {
+            pc.ld_info.prune_flags ^= kfLdPrunePlink1Order;
+          } else if (unlikely(!strequal_k(cur_modif, "1", cur_modif_slen))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --indep-order mode '%s' ('1' or '2' expected).\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k_unsafe(flagname_p2, "nput-missing-genotype")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {

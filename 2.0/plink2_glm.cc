@@ -371,6 +371,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
         goto GwasSsfInternal_ret_MISSING_TOKENS;
       }
     GwasSsfInternal_main_loop_start:
+      ;
       const uint32_t chr_code_raw = GetChrCodeRaw(line_iter);
       if ((!chr_code_raw) || ((chr_code_raw > 26) && (chr_code_raw < kMaxContigs))) {
         line_iter = AdvPastDelim(line_iter, '\n');
@@ -517,7 +518,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       // variant, we technically need to know the length of the REF allele to
       // disambiguate, and that is not currently recorded.
       // But that's rare.  This catches the most common problem case.
-      if (unlikely((!allow_ambiguous_indels) && (effect_allele_slen != other_allele_slen) && provref)) {
+      if (unlikely((!allow_ambiguous_indels) && (effect_allele_slen != other_allele_slen) && provref && (ref_allele_match != 2))) {
         logerrprintfww("Error: --gwas-ssf: Indel with unknown REF allele on line %" PRIuPTR " of %s .\n", line_idx, in_fname);
         logerrputs("If you have an upstream VCF or similar file from which the correct REF/ALT\nallele labels can be recovered (see the --ref-allele flag documentation for\ndetails), you are STRONGLY encouraged to recover those labels.\n");
         goto GwasSsfInternal_ret_MALFORMED_INPUT;

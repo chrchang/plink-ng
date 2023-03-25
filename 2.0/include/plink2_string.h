@@ -418,6 +418,7 @@ HEADER_INLINE bool isfinite_d(double fxx) {
 #  endif
 #else
 #  define isfinite_f isfinite
+#  define isfinite_d isfinite
 #endif
 
 HEADER_INLINE int32_t IsSpaceOrEoln(unsigned char ucc) {
