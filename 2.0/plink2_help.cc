@@ -1253,7 +1253,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      ref: Reference allele.\n"
 "      alt1: Alternate allele 1.\n"
 "      alt: All alternate alleles, comma-separated.\n"
-"      refknown: Reports whether REF allele is marked as known or provisional.\n"
+"      provref: Reports whether REF allele is marked as known or provisional.\n"
 "      (A1 is always present, and positioned here.  For multiallelic variants,\n"
 "      this column may contain multiple comma-separated alleles when the result\n"
 "      doesn't depend on which allele is A1.)\n"
