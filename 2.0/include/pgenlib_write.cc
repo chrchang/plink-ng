@@ -280,6 +280,9 @@ PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict 
 #endif
   *max_vrec_len_ptr = max_vrec_len;
   const uintptr_t vrec_len_byte_ct = BytesToRepresentNzU32(max_vrec_len);
+  if (g_debug_pgenlib) {
+    printf("max_vrec_len: %" PRIu64 "  vrec_len_byte_ct: %" PRIuPTR "\n", max_vrec_len, vrec_len_byte_ct);
+  }
 
   PgenWriterCommon* pwcp = GetPwcp(spgwp);
   FILE** pgen_outfilep = GetPgenOutfilep(spgwp);
@@ -988,6 +991,9 @@ void PwcAppendBiallelicGenovec(const uintptr_t* __restrict genovec, PgenWriterCo
   unsigned char vrtype;
   const uint32_t vrec_len = PwcAppendBiallelicGenovecMain(genovec, vidx, pwcp, nullptr, nullptr, &vrtype);
   const uintptr_t vrec_len_byte_ct = pwcp->vrec_len_byte_ct;
+  if (g_debug_pgenlib && (vidx >= 470) && (vidx <= 536)) {
+    printf("PwcAppendBiallelicGenovec[%u]: vrec_len=%u  vrec_len_byte_ct: %" PRIuPTR "\n", vidx, vrec_len, vrec_len_byte_ct);
+  }
   pwcp->vidx += 1;
   SubU32Store(vrec_len, vrec_len_byte_ct, &(pwcp->vrec_len_buf[vidx * vrec_len_byte_ct]));
   // could have a single expression which branchlessly handles both cases, but
@@ -1264,6 +1270,9 @@ void PwcAppendBiallelicDifflistLimited(const uintptr_t* __restrict raregeno, con
   unsigned char vrtype;
   const uint32_t vrec_len = PwcAppendBiallelicDifflistLimitedMain(raregeno, difflist_sample_ids, vidx, difflist_common_geno, difflist_len, pwcp, &vrtype);
   const uintptr_t vrec_len_byte_ct = pwcp->vrec_len_byte_ct;
+  if (g_debug_pgenlib && (vidx >= 470) && (vidx <= 536)) {
+    printf("PwcAppendBiallelicDifflistLimited[%u]: vrec_len=%u  vrec_len_byte_ct: %" PRIuPTR "\n", vidx, vrec_len, vrec_len_byte_ct);
+  }
   pwcp->vidx += 1;
   SubU32Store(vrec_len, vrec_len_byte_ct, &(pwcp->vrec_len_buf[vidx * vrec_len_byte_ct]));
   if (!pwcp->phase_dosage_gflags) {
@@ -1760,6 +1769,9 @@ BoolErr PwcAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const u
   }
   pwcp->vidx += 1;
   const uintptr_t vrec_len_byte_ct = pwcp->vrec_len_byte_ct;
+  if (g_debug_pgenlib && (vidx >= 470) && (vidx <= 536)) {
+    printf("PwcAppendMultiallelicSparse[%u]: vrec_len=%u  vrec_len_byte_ct: %" PRIuPTR "\n", vidx, vrec_len, vrec_len_byte_ct);
+  }
   SubU32Store(vrec_len, vrec_len_byte_ct, &(pwcp->vrec_len_buf[vidx * vrec_len_byte_ct]));
   if (!pwcp->phase_dosage_gflags) {
     pwcp->vrtype_buf[vidx / kBitsPerWordD4] |= S_CAST(uintptr_t, vrtype) << (4 * (vidx % kBitsPerWordD4));
@@ -2100,6 +2112,9 @@ void PwcAppendBiallelicGenovecHphase(const uintptr_t* __restrict genovec, const 
   if (phasepresent_ct) {
     AppendHphase(genovec, phasepresent, phaseinfo, het_ct, phasepresent_ct, pwcp, vrtype_dest, &vrec_len);
   }
+  if (g_debug_pgenlib && (vidx >= 470) && (vidx <= 536)) {
+    printf("PwcAppendBiallelicGenovecHphase[%u]: vrec_len=%u  vrec_len_byte_ct: %" PRIuPTR "\n", vidx, vrec_len, vrec_len_byte_ct);
+  }
   SubU32Store(vrec_len, vrec_len_byte_ct, vrec_len_dest);
 }
 
@@ -2124,6 +2139,9 @@ BoolErr PwcAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, 
   }
   pwcp->vidx += 1;
   const uintptr_t vrec_len_byte_ct = pwcp->vrec_len_byte_ct;
+  if (g_debug_pgenlib && (vidx >= 470) && (vidx <= 536)) {
+    printf("PwcAppendMultiallelicGenovecHphase[%u]: vrec_len=%u  vrec_len_byte_ct: %" PRIuPTR "\n", vidx, vrec_len, vrec_len_byte_ct);
+  }
   SubU32Store(vrec_len, vrec_len_byte_ct, &(pwcp->vrec_len_buf[vidx * vrec_len_byte_ct]));
   return 0;
 }
@@ -2174,6 +2192,9 @@ BoolErr PwcAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, c
       return 1;
     }
   }
+  if (g_debug_pgenlib && (vidx >= 470) && (vidx <= 536)) {
+    printf("PwcAppendBiallelicGenovecDosage16[%u]: vrec_len=%u  vrec_len_byte_ct: %" PRIuPTR "\n", vidx, vrec_len, vrec_len_byte_ct);
+  }
   SubU32Store(vrec_len, vrec_len_byte_ct, vrec_len_dest);
   if (!pwcp->phase_dosage_gflags) {
     pwcp->vrtype_buf[vidx / kBitsPerWordD4] |= S_CAST(uintptr_t, vrtype) << (4 * (vidx % kBitsPerWordD4));
@@ -2207,6 +2228,9 @@ BoolErr PwcAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict geno
     if (unlikely(AppendDosage16(dosage_present, dosage_main, dosage_ct, 0, pwcp, vrtype_dest, &vrec_len))) {
       return 1;
     }
+  }
+  if (g_debug_pgenlib && (vidx >= 470) && (vidx <= 536)) {
+    printf("PwcAppendBiallelicGenovecHphaseDosage16[%u]: vrec_len=%u  vrec_len_byte_ct: %" PRIuPTR "\n", vidx, vrec_len, vrec_len_byte_ct);
   }
   SubU32Store(vrec_len, vrec_len_byte_ct, vrec_len_dest);
   return 0;
@@ -2258,6 +2282,9 @@ BoolErr PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, c
         return 1;
       }
     }
+  }
+  if (g_debug_pgenlib && (vidx >= 470) && (vidx <= 536)) {
+    printf("PwcAppendBiallelicGenovecDphase16[%u]: vrec_len=%u  vrec_len_byte_ct: %" PRIuPTR "\n", vidx, vrec_len, vrec_len_byte_ct);
   }
   SubU32Store(vrec_len, vrec_len_byte_ct, vrec_len_dest);
   return 0;
@@ -2344,6 +2371,14 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_or_
   fwrite_unlocked(pwcp->vblock_fpos, vblock_ct * sizeof(int64_t), 1, header_ff);
   const unsigned char* vrtype_buf_iter = R_CAST(unsigned char*, pwcp->vrtype_buf);
   const unsigned char* vrec_len_buf_iter = pwcp->vrec_len_buf;
+  if (g_debug_pgenlib) {
+    printf("PwcFinish vrec_len_buf:\n");
+    for (uint32_t uii = 470; uii <= 536; ++uii) {
+      uint32_t ujj = 0;
+      memcpy(&ujj, &(vrec_len_buf_iter[uii * vrec_len_byte_ct]), vrec_len_byte_ct);
+      printf("len[%u]: %u\n", uii, ujj);
+    }
+  }
   uint32_t vrec_iter_incr = kPglVblockSize * vrec_len_byte_ct;
   uint32_t vrtype_buf_iter_incr = phase_dosage_gflags? kPglVblockSize : (kPglVblockSize / 2);
   uint32_t nonref_flags_write_byte_ct = kPglVblockSize / CHAR_BIT;

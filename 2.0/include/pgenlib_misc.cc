@@ -21,6 +21,8 @@
 namespace plink2 {
 #endif
 
+uint32_t g_debug_pgenlib = 0;
+
 #ifdef USE_AVX2
 void CopyNyparrNonemptySubset(const uintptr_t* __restrict raw_nyparr, const uintptr_t* __restrict subset_mask, uint32_t raw_nyparr_entry_ct, uint32_t subset_entry_ct, uintptr_t* __restrict output_nyparr) {
   if (subset_entry_ct == raw_nyparr_entry_ct) {
