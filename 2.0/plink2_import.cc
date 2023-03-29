@@ -227,6 +227,7 @@ uintptr_t* GparseGetPointers(unsigned char* record_start, uint32_t sample_ct, ui
 PglErr GparseFlush(const GparseRecord* grp, const uintptr_t* allele_idx_offsets, uint32_t write_block_size, STPgenWriter* spgwp) {
   PglErr reterr = kPglRetSuccess;
   {
+    const uint32_t debug_vidx_offset = SpgwGetVidx(spgwp);
     if (allele_idx_offsets) {
       allele_idx_offsets = &(allele_idx_offsets[SpgwGetVidx(spgwp)]);
     }
@@ -257,6 +258,14 @@ PglErr GparseFlush(const GparseRecord* grp, const uintptr_t* allele_idx_offsets,
             goto GparseFlush_ret_WRITE_FAIL;
           }
         } else {
+          if (g_debug_on && (write_block_vidx + debug_vidx_offset == 535)) {
+            logprintf("branch 1\n");
+            logprintf("allele_ct[535]: %u\n", allele_ct);
+            logprintf("patch_01_ct[535]: %u\n", cur_gwmp->patch_01_ct);
+            logprintf("popcount(patch_01_set)[535]: %" PRIuPTR "\n", PopcountWords(patch_01_set, BitCtToWordCt(sample_ct)));
+            logprintf("patch_10_ct[535]: %u\n", cur_gwmp->patch_10_ct);
+            logprintf("popcount(patch_10_set)[535]: %" PRIuPTR "\n", PopcountWords(patch_10_set, BitCtToWordCt(sample_ct)));
+          }
           reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, allele_ct, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
           if (unlikely(reterr)) {
             goto GparseFlush_ret_1;
@@ -279,6 +288,14 @@ PglErr GparseFlush(const GparseRecord* grp, const uintptr_t* allele_idx_offsets,
               }
             } else {
               if (!cur_gwmp->phasepresent_exists) {
+                if (g_debug_on && (write_block_vidx + debug_vidx_offset == 535)) {
+                  logprintf("branch 2\n");
+                  logprintf("allele_ct[535]: %u\n", allele_ct);
+                  logprintf("patch_01_ct[535]: %u\n", cur_gwmp->patch_01_ct);
+                  logprintf("popcount(patch_01_set)[535]: %" PRIuPTR "\n", PopcountWords(patch_01_set, BitCtToWordCt(sample_ct)));
+                  logprintf("patch_10_ct[535]: %u\n", cur_gwmp->patch_10_ct);
+                  logprintf("popcount(patch_10_set)[535]: %" PRIuPTR "\n", PopcountWords(patch_10_set, BitCtToWordCt(sample_ct)));
+                }
                 reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, allele_ct, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
               } else {
                 reterr = SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, allele_ct, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
@@ -3175,6 +3192,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         SetBit(cur_chr_code, base_chr_present);
       }
 
+      if (g_debug_on && (variant_ct == 535)) {
+        logprintf("alt_ct[535]: %u\n", alt_ct);
+      }
       allele_idx_offsets[variant_ct] = allele_idx_end;
       allele_idx_end += alt_ct + 1;
       const uint32_t variant_idx_lowbits = variant_ct % kBitsPerWord;

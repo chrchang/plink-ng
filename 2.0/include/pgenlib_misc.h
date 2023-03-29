@@ -85,8 +85,6 @@
 namespace plink2 {
 #endif
 
-extern uint32_t g_debug_pgenlib;
-
 // other configuration-ish values needed by plink2_common subset
 typedef unsigned char AlleleCode;
 typedef uint16_t DoubleAlleleCode;
