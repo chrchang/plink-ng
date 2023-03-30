@@ -227,7 +227,6 @@ uintptr_t* GparseGetPointers(unsigned char* record_start, uint32_t sample_ct, ui
 PglErr GparseFlush(const GparseRecord* grp, const uintptr_t* allele_idx_offsets, uint32_t write_block_size, STPgenWriter* spgwp) {
   PglErr reterr = kPglRetSuccess;
   {
-    const uint32_t debug_vidx_offset = SpgwGetVidx(spgwp);
     if (allele_idx_offsets) {
       allele_idx_offsets = &(allele_idx_offsets[SpgwGetVidx(spgwp)]);
     }
