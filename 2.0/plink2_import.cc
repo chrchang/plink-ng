@@ -4118,7 +4118,9 @@ static inline BoolErr ScanBcfTypeAligned(const unsigned char** vrec_iterp, uint3
   const unsigned char* vrec_iter_tmp = *vrec_iterp;
   ++vrec_iter_tmp;
   *vrec_iterp += kBytesPerVec;
-  return ScanBcfTypedInt(vrec_iterp, value_ct_ptr);
+  // bugfix (5 Apr 2023): this was not scanning the correct value.  Previously
+  // unnoticed since it would only come up for very high ploidy.
+  return ScanBcfTypedInt(&vrec_iter_tmp, value_ct_ptr);
 #else
   *vrec_iterp += 1;
   BoolErr ret_boolerr = ScanBcfTypedInt(vrec_iterp, value_ct_ptr);

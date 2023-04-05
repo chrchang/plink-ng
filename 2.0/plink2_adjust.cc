@@ -240,6 +240,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t unadj_col = flags & kfAdjustColUnadj;
     if (unadj_col) {
       if (is_neglog10) {
+        // TODO: change to NEG_LOG10_ for a5
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "UNADJ\t");
@@ -247,6 +248,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t gc_col = (flags & kfAdjustColGc) && (!skip_gc);
     if (gc_col) {
       if (is_neglog10) {
+        // TODO: change to NEG_LOG10_ for a5
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "GC\t");
@@ -254,6 +256,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t qq_col = flags & kfAdjustColQq;
     if (qq_col) {
       if (is_neglog10) {
+        // TODO: change to NEG_LOG10_ for a5
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "QQ\t");
@@ -261,6 +264,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t bonf_col = flags & kfAdjustColBonf;
     if (bonf_col) {
       if (is_neglog10) {
+        // TODO: change to NEG_LOG10_ for a5
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "BONF\t");
@@ -268,6 +272,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t holm_col = flags & kfAdjustColHolm;
     if (holm_col) {
       if (is_neglog10) {
+        // TODO: change to NEG_LOG10_ for a5
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "HOLM\t");
@@ -275,6 +280,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t sidakss_col = flags & kfAdjustColSidakss;
     if (sidakss_col) {
       if (is_neglog10) {
+        // TODO: change to NEG_LOG10_ for a5
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "SIDAK_SS\t");
@@ -282,6 +288,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t sidaksd_col = flags & kfAdjustColSidaksd;
     if (sidaksd_col) {
       if (is_neglog10) {
+        // TODO: change to NEG_LOG10_ for a5
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "SIDAK_SD\t");
@@ -289,6 +296,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t fdrbh_col = flags & kfAdjustColFdrbh;
     if (fdrbh_col) {
       if (is_neglog10) {
+        // TODO: change to NEG_LOG10_ for a5
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "FDR_BH\t");
@@ -299,6 +307,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         goto Multcomp_ret_NOMEM;
       }
       if (is_neglog10) {
+        // TODO: change to NEG_LOG10_ for a5
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "FDR_BY\t");
@@ -625,7 +634,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     col_search_order[5] = check_a1? (afip->a1_field? afip->a1_field : "A1\0") : "";
     col_search_order[6] = afip->test_field? afip->test_field : "TEST\0";
     const uint32_t input_log10 = (flags & kfAdjustInputLog10);
-    col_search_order[7] = afip->p_field? afip->p_field : (input_log10? "LOG10_P\0LOG10_UNADJ\0P\0UNADJ\0" : "P\0UNADJ\0");
+    col_search_order[7] = afip->p_field? afip->p_field : (input_log10? "LOG10_P\0NEG_LOG10_P\0LOG10_UNADJ\0NEG_LOG10_UNADJ\0P\0UNADJ\0" : "P\0UNADJ\0");
 
     uint32_t col_skips[8];
     uint32_t col_types[8];

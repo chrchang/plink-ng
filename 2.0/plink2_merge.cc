@@ -7104,7 +7104,6 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         postid_sex_col_idx = 0;
       }
       const uintptr_t first_payload_line_idx = psam_line_idx;
-      uint32_t matched_sample_ct = 0;
       for (; line_start; ++psam_line_idx, line_start = TextGet(&psam_txs)) {
         const char* token_iter = line_start;
         uint32_t sample_uidx;
@@ -7121,7 +7120,6 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         }
         SetBit(sample_uidx, sample_include);
         sample1_uidx_to_2[sample_uidx] = psam_line_idx - first_payload_line_idx;
-        ++matched_sample_ct;
         if (postid_sex_col_idx) {
           token_iter = NextTokenMult(token_iter, postid_sex_col_idx);
           if (unlikely(!token_iter)) {

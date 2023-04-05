@@ -5023,6 +5023,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     }
     if (p_col) {
       if (report_neglog10p) {
+        // TODO: change to NEG_LOG10_P for a5
         cswritep = strcpya_k(cswritep, "\tLOG10_P");
       } else {
         cswritep = strcpya_k(cswritep, "\tP");

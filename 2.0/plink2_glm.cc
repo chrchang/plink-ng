@@ -75,7 +75,7 @@ void CleanupGwasSsf(GwasSsfInfo* gwas_ssf_info_ptr) {
 // [11] = SE/LOG(OR)_SE
 // [12] = L## (optional)
 // [13] = U## (optional)
-// [14] = P/LOG10_P
+// [14] = P/LOG10_P/NEG_LOG10_P
 ENUM_U31_DEF_START()
   kGwasSsfColPos = 0,
   kGwasSsfColId,
@@ -243,7 +243,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
         cur_colidx = kGwasSsfColBetaOr;
       } else if (strequal_k(linebuf_iter, "LOG(OR)_SE", token_slen)) {
         cur_colidx = kGwasSsfColSe;
-      } else if (strequal_k(linebuf_iter, "LOG10_P", token_slen)) {
+      } else if (strequal_k(linebuf_iter, "LOG10_P", token_slen) || strequal_k(linebuf_iter, "NEG_LOG10_P", token_slen)) {
         cur_colidx = kGwasSsfColP;
         is_neglog10_p = 1;
       }
@@ -259,7 +259,7 @@ PglErr GwasSsfInternal(const GwasSsfInfo* gsip, const char* in_fname, const char
       }
     }
     if (unlikely((header_cols & kfGwasSsfColsetRequired) != kfGwasSsfColsetRequired)) {
-      snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s does not have all required input columns. (CHROM, POS, REF, ALT, A1, A1_FREQ, TEST, OBS_CT, BETA/OR, SE/LOG(OR)_SE, and P are required.)\n", in_fname);
+      snprintf(g_logbuf, kLogbufSize, "Error: --gwas-ssf: %s does not have all required input columns. (CHROM, POS, REF, ALT, A1, A1_FREQ, TEST, OBS_CT, BETA/OR, SE/LOG(OR)_SE, and P/LOG10_P/NEG_LOG10_P are required.)\n", in_fname);
       goto GwasSsfInternal_ret_MALFORMED_INPUT_WW;
     }
     // static-cast to remove gcc 4.4 warning
