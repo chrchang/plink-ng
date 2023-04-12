@@ -34,6 +34,7 @@ void InitAdjust(AdjustInfo* adjust_info_ptr, AdjustFileInfo* adjust_file_info_pt
   adjust_file_info_ptr->id_field = nullptr;
   adjust_file_info_ptr->ref_field = nullptr;
   adjust_file_info_ptr->alt_field = nullptr;
+  adjust_file_info_ptr->provref_field = nullptr;
   adjust_file_info_ptr->a1_field = nullptr;
   adjust_file_info_ptr->test_field = nullptr;
   adjust_file_info_ptr->p_field = nullptr;
@@ -48,6 +49,7 @@ void CleanupAdjust(AdjustFileInfo* adjust_file_info_ptr) {
     free_cond(adjust_file_info_ptr->pos_field);
     free_cond(adjust_file_info_ptr->id_field);
     free_cond(adjust_file_info_ptr->ref_field);
+    free_cond(adjust_file_info_ptr->provref_field);
     free_cond(adjust_file_info_ptr->test_field);
     free_cond(adjust_file_info_ptr->p_field);
   }
@@ -80,7 +82,7 @@ static inline void adjust_print_ln(const char* output_min_p_str, double ln_pval,
 }
 
 // Now based around ln_pvals, to allow useful comparisons < 2.23e-308.
-PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_include, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* const* loaded_a1, const AdjustInfo* adjust_info_ptr, const double* ln_pvals, const double* chisqs, uintptr_t orig_allele_ct, uint32_t max_allele_slen, double ln_pfilter, double output_min_ln, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_include, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const char* const* loaded_a1, const AdjustInfo* adjust_info_ptr, const double* ln_pvals, const double* chisqs, uint32_t raw_variant_ct, uintptr_t orig_allele_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, double ln_pfilter, double output_min_ln, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -231,6 +233,11 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t alt_col = flags & kfAdjustColAlt;
     if (alt_col) {
       cswritep = strcpya_k(cswritep, "ALT\t");
+    }
+    const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, flags / kfAdjustColMaybeprovref, raw_variant_ct, all_nonref);
+    if (provref_col) {
+      cswritep = strcpya_k(cswritep, "PROVISIONAL_REF?\t");
     }
     const uint32_t a1_col = (flags & kfAdjustColA1) && (loaded_a1 || cip);
     if (a1_col) {
@@ -444,6 +451,10 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         }
         --cswritep;
       }
+      if (provref_col) {
+        *cswritep++ = '\t';
+        *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+      }
       if (a1_col) {
         *cswritep++ = '\t';
         const char* cur_allele;
@@ -607,14 +618,16 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     // [2] = ID (required)
     // [3] = REF
     // [4] = ALT
-    // [5] = A1
-    // [6] = TEST (always scan)
-    // [7] = P (required)
-    const char* col_search_order[8];
+    // [5] = PROVISIONAL_REF?
+    // [6] = A1
+    // [7] = TEST (always scan)
+    // [8] = P (required)
+    const char* col_search_order[9];
     const uint32_t need_chr = (flags & kfAdjustColChrom);
     const uint32_t need_pos = (flags & kfAdjustColPos);
     const uint32_t need_ref = (flags & kfAdjustColRef);
     const uint32_t need_alt = (flags & (kfAdjustColAlt1 | kfAdjustColAlt));
+    const uint32_t need_provref = (flags & (kfAdjustColMaybeprovref | kfAdjustColProvref));
     uint32_t check_a1 = (flags & kfAdjustColA1);
     const uint32_t alt_comma_truncate = (need_alt == kfAdjustColAlt1);
     if (unlikely(need_alt == (kfAdjustColAlt1 | kfAdjustColAlt))) {
@@ -631,20 +644,21 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     col_search_order[2] = afip->id_field? afip->id_field : "ID\0SNP\0";
     col_search_order[3] = need_ref? (afip->ref_field? afip->ref_field : "REF\0A2\0") : "";
     col_search_order[4] = need_alt? (afip->alt_field? afip->alt_field : "ALT\0ALT1\0") : "";
-    col_search_order[5] = check_a1? (afip->a1_field? afip->a1_field : "A1\0") : "";
-    col_search_order[6] = afip->test_field? afip->test_field : "TEST\0";
+    col_search_order[5] = need_provref? (afip->provref_field? afip->provref_field : "PROVISIONAL_REF?\0") : "";
+    col_search_order[6] = check_a1? (afip->a1_field? afip->a1_field : "A1\0") : "";
+    col_search_order[7] = afip->test_field? afip->test_field : "TEST\0";
     const uint32_t input_log10 = (flags & kfAdjustInputLog10);
-    col_search_order[7] = afip->p_field? afip->p_field : (input_log10? "LOG10_P\0NEG_LOG10_P\0LOG10_UNADJ\0NEG_LOG10_UNADJ\0P\0UNADJ\0" : "P\0UNADJ\0");
+    col_search_order[8] = afip->p_field? afip->p_field : (input_log10? "LOG10_P\0NEG_LOG10_P\0LOG10_UNADJ\0NEG_LOG10_UNADJ\0P\0UNADJ\0" : "P\0UNADJ\0");
 
-    uint32_t col_skips[8];
-    uint32_t col_types[8];
+    uint32_t col_skips[9];
+    uint32_t col_types[9];
     uint32_t relevant_col_ct;
     uint32_t found_type_bitset;
-    reterr = SearchHeaderLine(header_start, col_search_order, "--adjust-file", 8, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+    reterr = SearchHeaderLine(header_start, col_search_order, "--adjust-file", 9, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
     if (unlikely(reterr)) {
       goto AdjustFile_ret_1;
     }
-    if (unlikely((found_type_bitset & 0x44) != 0x44)) {
+    if (unlikely((found_type_bitset & 0x104) != 0x104)) {
       logerrputs("Error: --adjust-file requires ID and P columns.\n");
       goto AdjustFile_ret_INCONSISTENT_INPUT;
     }
@@ -657,11 +671,11 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       // big deal
       for (uint32_t relevant_col_idx = 0; ; ++relevant_col_idx) {
         test_col_idx += col_skips[relevant_col_idx];
-        if (col_types[relevant_col_idx] == 6) {
+        if (col_types[relevant_col_idx] == 7) {
           break;
         }
       }
-    } else if (unlikely(found_type_bitset & 0x40)) {
+    } else if (unlikely(found_type_bitset & 0x80)) {
       snprintf(g_logbuf, kLogbufSize, "Error: TEST column present in %s, but no test= parameter was provided to --adjust-file.\n", in_fname);
       goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
@@ -681,7 +695,11 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       snprintf(g_logbuf, kLogbufSize, "Error: No ALT column in %s.\n", in_fname);
       goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
-    if (unlikely(check_a1 && (!(found_type_bitset & 0x20)))) {
+    if (unlikely(need_provref && (!(found_type_bitset & 0x20)))) {
+      snprintf(g_logbuf, kLogbufSize, "Error: No PROVISIONAL_REF? column in %s.\n", in_fname);
+      goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
+    }
+    if (unlikely(check_a1 && (!(found_type_bitset & 0x40)))) {
       snprintf(g_logbuf, kLogbufSize, "Warning: No A1 column in %s. Omitting from output.\n", in_fname);
       check_a1 = 0;
     }
@@ -778,6 +796,12 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     } else {
       allele_storage = nullptr;
     }
+    uintptr_t* nonref_flags = nullptr;
+    if (need_provref) {
+      if (unlikely(bigstack_calloc_w(entry_ctl, &nonref_flags))) {
+        goto AdjustFile_ret_NOMEM;
+      }
+    }
     char** a1_storage;
     if (check_a1) {
       if (unlikely(bigstack_alloc_cp(entry_ct, &a1_storage))) {
@@ -797,13 +821,13 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       if (unlikely(reterr)) {
         goto AdjustFile_ret_TSTREAM_REWIND_FAIL;
       }
-      const char* token_ptrs[8];
-      uint32_t token_slens[8];
+      const char* token_ptrs[9];
+      uint32_t token_slens[9];
       if (unlikely(!TokenLexK0(line_start, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens))) {
         goto AdjustFile_ret_MISSING_TOKENS;
       }
       if (test_name) {
-        if ((token_slens[6] != test_name_slen) || (!memequal(token_ptrs[6], test_name, test_name_slen))) {
+        if ((token_slens[7] != test_name_slen) || (!memequal(token_ptrs[7], test_name, test_name_slen))) {
           continue;
         }
       }
@@ -842,19 +866,29 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           goto AdjustFile_ret_NOMEM;
         }
       }
-      if (check_a1) {
+      if (nonref_flags) {
+        const char provref_char = token_ptrs[5][0];
         const uint32_t cur_slen = token_slens[5];
-        if (StoreStringAtBase(tmp_alloc_end, token_ptrs[5], cur_slen, &tmp_alloc_base, &(a1_storage[variant_idx]))) {
+        if ((provref_char == 'Y') && (cur_slen == 1)) {
+          SetBit(variant_idx, nonref_flags);
+        } else if (unlikely((provref_char != 'N') || (cur_slen != 1))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid provref entry on line %" PRIuPTR " of %s.\n", line_idx, in_fname);
+          goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
+        }
+      }
+      if (check_a1) {
+        const uint32_t cur_slen = token_slens[6];
+        if (StoreStringAtBase(tmp_alloc_end, token_ptrs[6], cur_slen, &tmp_alloc_base, &(a1_storage[variant_idx]))) {
           goto AdjustFile_ret_NOMEM;
         }
       }
-      const char* pval_str = token_ptrs[7];
+      const char* pval_str = token_ptrs[8];
       double ln_pval;
       if (!input_log10) {
         if (!ScantokLn(pval_str, &ln_pval)) {
           uint32_t cur_slen;
         AdjustFile_alphabetic_pval:
-          cur_slen = token_slens[7];
+          cur_slen = token_slens[8];
           if (IsNanStr(pval_str, cur_slen)) {
             ln_pval = kLnPvalError;
           } else if (likely(strequal_k(pval_str, "INF", cur_slen) ||
@@ -881,7 +915,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     }
     BigstackEndReset(bigstack_end_mark);
     BigstackBaseSet(tmp_alloc_base);
-    reterr = Multcomp(variant_include_dummy, nullptr, TO_CONSTCPCONSTP(chr_ids), variant_bps, TO_CONSTCPCONSTP(variant_ids), allele_include_dummy, nullptr, TO_CONSTCPCONSTP(allele_storage), TO_CONSTCPCONSTP(a1_storage), &(afip->base), ln_pvals, nullptr, entry_ct, max_allele_slen, ln_pfilter, output_min_ln, 0, max_thread_ct, outname, outname_end);
+    reterr = Multcomp(variant_include_dummy, nullptr, TO_CONSTCPCONSTP(chr_ids), variant_bps, TO_CONSTCPCONSTP(variant_ids), allele_include_dummy, nullptr, TO_CONSTCPCONSTP(allele_storage), nonref_flags, TO_CONSTCPCONSTP(a1_storage), &(afip->base), ln_pvals, nullptr, entry_ct, entry_ct, max_allele_slen, kfPgenGlobal0, ln_pfilter, output_min_ln, 0, max_thread_ct, outname, outname_end);
     if (unlikely(reterr)) {
       goto AdjustFile_ret_1;
     }

@@ -99,11 +99,13 @@ FLAGSET_DEF_START()
   kfPgenDiffColId = (1 << 4),
   kfPgenDiffColRef = (1 << 5),
   kfPgenDiffColAlt = (1 << 6),
-  kfPgenDiffColMaybefid = (1 << 7),
-  kfPgenDiffColFid = (1 << 8),
-  kfPgenDiffColMaybesid = (1 << 9),
-  kfPgenDiffColSid = (1 << 10),
-  kfPgenDiffColGeno = (1 << 11),
+  kfPgenDiffColMaybeprovref = (1 << 7),
+  kfPgenDiffColProvref = (1 << 8),
+  kfPgenDiffColMaybefid = (1 << 9),
+  kfPgenDiffColFid = (1 << 10),
+  kfPgenDiffColMaybesid = (1 << 11),
+  kfPgenDiffColSid = (1 << 12),
+  kfPgenDiffColGeno = (1 << 13),
   kfPgenDiffColDefault = (kfPgenDiffColId | kfPgenDiffColMaybefid | kfPgenDiffColMaybesid | kfPgenDiffColGeno),
   kfPgenDiffColAll = ((kfPgenDiffColGeno * 2) - kfPgenDiffColPos)
 FLAGSET_DEF_END(PgenDiffFlags);

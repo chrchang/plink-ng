@@ -3931,7 +3931,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         goto GlmMain_ret_1;
       }
       if (report_adjust) {
-        reterr = Multcomp(valid_variants, cip, nullptr, variant_bps, variant_ids, valid_alleles, allele_idx_offsets, allele_storage, nullptr, adjust_info_ptr, orig_ln_pvals, nullptr, valid_allele_ct, max_allele_slen, ln_pfilter, output_min_ln, joint_test, max_thread_ct, outname, outname_end2);
+        reterr = Multcomp(valid_variants, cip, nullptr, variant_bps, variant_ids, valid_alleles, allele_idx_offsets, allele_storage, pgfip->nonref_flags, nullptr, adjust_info_ptr, orig_ln_pvals, nullptr, raw_variant_ct, valid_allele_ct, max_allele_slen, pgfip->gflags, ln_pfilter, output_min_ln, joint_test, max_thread_ct, outname, outname_end2);
         if (unlikely(reterr)) {
           goto GlmMain_ret_1;
         }

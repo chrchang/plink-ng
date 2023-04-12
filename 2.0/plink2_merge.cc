@@ -7373,6 +7373,12 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     if (alt_col) {
       cswritep = strcpya_k(cswritep, "ALT\t");
     }
+    const uintptr_t* nonref_flags1 = pgfip->nonref_flags;
+    const uint32_t all_nonref1 = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags1);
+    const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags1, flags / kfPgenDiffColMaybeprovref, raw_variant_ct, all_nonref1);
+    if (provref_col) {
+      cswritep = strcpya_k(cswritep, "PROVISIONAL_REF?\t");
+    }
     const uint32_t fid_col = FidColIsRequired(siip, flags / kfPgenDiffColMaybefid);
     if (fid_col) {
       cswritep = strcpya_k(cswritep, "FID\t");
@@ -7495,8 +7501,6 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     const uint32_t include_missing = (flags / kfPgenDiffIncludeMissing) & 1;
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
-    const uintptr_t* nonref_flags1 = pgfip->nonref_flags;
-    const uint32_t all_nonref1 = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags1);
     uint32_t chr_idx = UINT32_MAX;
     uint32_t chr_slen = 0;
     uint32_t cur_bp = 0; // just for .pvar-sorted sanity check
@@ -7708,6 +7712,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
       uintptr_t* genovec1 = pgv1.genovec;
       uintptr_t* genovec2 = pgv2.genovec;
       uint32_t merged_allele_ct = 0;
+      uint32_t merged_provref = 0;
       {
         char* ref_allele2 = token_ptrs[2];
         const uint32_t ref_allele2_slen = token_slens[2];
@@ -7797,6 +7802,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         // Initialize these to the index of the first nonmissing allele.
         uint32_t allele1_alt_start = (missing1_state & 1) + (missing1_state == 3);
         uint32_t allele2_alt_start = (missing2_state & 1) + (missing2_state == 3);
+        merged_provref = provisional_ref1;
         if ((!provisional_ref1) || ((!(missing1_state & 1)) && provisional_ref2)) {
           // - If REF1 is not provisional, it's always the merged REF allele.
           // - If REF1 is provisional, it's still the merged REF allele if REF2
@@ -7816,6 +7822,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
             merged_alleles[0] = cur_allele2s[0];
             remap2[0] = 0;
             allele2_alt_start = 1 + ((missing2_state >> 1) & 1);
+            merged_provref = provisional_ref2;
           } else {
             // Both REFs missing.  Treat main dataset ALT1 as REF if it isn't
             // missing.
@@ -7900,6 +7907,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         }
       }
       uint32_t diff_ct = 0;
+      ;;;
       if (merged_allele_ct == 2) {
         // Note that these two conditions aren't necessarily synonymous, due to
         // missing alleles.
@@ -8170,6 +8178,10 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
             cswritep = strcpyax(cswritep, merged_alleles[allele_idx], ',');
           }
           cswritep[-1] = '\t';
+        }
+        if (provref_col) {
+          *cswritep++ = merged_provref? 'Y' : 'N';
+          *cswritep++ = '\t';
         }
         const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
         if (!fid_col) {

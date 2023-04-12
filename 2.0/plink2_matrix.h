@@ -38,6 +38,9 @@ CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 #  ifdef __APPLE__
 #    include <Accelerate/Accelerate.h>
 #    define USE_CBLAS_XGEMM
+#    ifdef ACCELERATE_NEW_LAPACK
+typedef int32_t __CLPK_integer;
+#    endif
 #  elif defined(USE_AOCL)
 #    define USE_CBLAS_XGEMM
 #  endif

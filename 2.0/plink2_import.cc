@@ -8818,8 +8818,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             *pvar_cswritep++ = '\t';
 
             // QUAL
-            if (S_CAST(int32_t, qual_bits) >= 0x7f800000) {
+            if (S_CAST(int32_t, qual_bits) > 0x7f800000) {
               // NaN or missing
+              // (could have fast path here for inf?)
               *pvar_cswritep++ = '.';
             } else {
               float qual_f;

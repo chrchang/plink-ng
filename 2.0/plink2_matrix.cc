@@ -1307,10 +1307,16 @@ BoolErr GetExtractEigvecsLworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lw
   __CLPK_integer iu = dim;
   double abstol = -1.0;
   __CLPK_integer lwork_dummy = -1;
+
+  // defined to make macOS 13.3 happy.
+  double ignored_vl;
+  double ignored_vu;
+  __CLPK_integer ignored_m;
+
   double lwork_d;
   __CLPK_integer liwork;
   __CLPK_integer info;
-  dsyevr_(&jobz, &range, &uplo, &tmp_n, nullptr, &tmp_n, nullptr, nullptr, &il, &iu, &abstol, nullptr, nullptr, nullptr, &tmp_n, nullptr, &lwork_d, &lwork_dummy, &liwork, &lwork_dummy, &info);
+  dsyevr_(&jobz, &range, &uplo, &tmp_n, nullptr, &tmp_n, &ignored_vl, &ignored_vu, &il, &iu, &abstol, &ignored_m, nullptr, nullptr, &tmp_n, nullptr, &lwork_d, &lwork_dummy, &liwork, &lwork_dummy, &info);
 #ifdef LAPACK_ILP64
   if (unlikely(info)) {
     return 1;

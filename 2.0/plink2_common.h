@@ -1403,6 +1403,21 @@ HEADER_INLINE BoolErr HkvlineNumType(char* hkvline_iter, char** numstr_ptr, uint
 // In the unlikely event ID= isn't first, move it in front.
 PglErr HkvlineForceIdFirst(uintptr_t workspace_size, char* hline_kv_start, void* workspace);
 
+
+// 'maybe' bit should be at the bottom of shifted_flag_bits.
+HEADER_INLINE uint32_t ProvrefCol(const uintptr_t* variant_include, const uintptr_t* nonref_flags, uint32_t shifted_flag_bits, uint32_t raw_variant_ct, uint32_t all_nonref) {
+  if (shifted_flag_bits & 2) {
+    return 1;
+  }
+  if (!(shifted_flag_bits & 1)) {
+    return 0;
+  }
+  if (!nonref_flags) {
+    return all_nonref;
+  }
+  return !IntersectionIsEmpty(variant_include, nonref_flags, BitCtToWordCt(raw_variant_ct));
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

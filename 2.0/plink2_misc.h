@@ -78,19 +78,21 @@ FLAGSET_DEF_START()
   kfAlleleFreqColRef = (1 << 7),
   kfAlleleFreqColAlt1 = (1 << 8),
   kfAlleleFreqColAlt = (1 << 9),
-  kfAlleleFreqColReffreq = (1 << 10),
-  kfAlleleFreqColAlt1freq = (1 << 11),
-  kfAlleleFreqColAltfreq = (1 << 12),
-  kfAlleleFreqColFreq = (1 << 13),
-  kfAlleleFreqColEq = (1 << 14),
-  kfAlleleFreqColEqz = (1 << 15),
-  kfAlleleFreqColAlteq = (1 << 16),
-  kfAlleleFreqColAlteqz = (1 << 17),
-  kfAlleleFreqColNumeq = (1 << 18),
-  kfAlleleFreqColAltnumeq = (1 << 19),
-  kfAlleleFreqColMachR2 = (1 << 20),
-  kfAlleleFreqColMinimac3R2 = (1 << 21),
-  kfAlleleFreqColNobs = (1 << 22),
+  kfAlleleFreqColMaybeprovref = (1 << 10),
+  kfAlleleFreqColProvref = (1 << 11),
+  kfAlleleFreqColReffreq = (1 << 12),
+  kfAlleleFreqColAlt1freq = (1 << 13),
+  kfAlleleFreqColAltfreq = (1 << 14),
+  kfAlleleFreqColFreq = (1 << 15),
+  kfAlleleFreqColEq = (1 << 16),
+  kfAlleleFreqColEqz = (1 << 17),
+  kfAlleleFreqColAlteq = (1 << 18),
+  kfAlleleFreqColAlteqz = (1 << 19),
+  kfAlleleFreqColNumeq = (1 << 20),
+  kfAlleleFreqColAltnumeq = (1 << 21),
+  kfAlleleFreqColMachR2 = (1 << 22),
+  kfAlleleFreqColMinimac3R2 = (1 << 23),
+  kfAlleleFreqColNobs = (1 << 24),
   kfAlleleFreqColDefault = (kfAlleleFreqColChrom | kfAlleleFreqColRef | kfAlleleFreqColAlt | kfAlleleFreqColAltfreq | kfAlleleFreqColNobs),
   kfAlleleFreqColAll = ((kfAlleleFreqColNobs * 2) - kfAlleleFreqColChrom),
   // only mutual exclusion is altfreq/freq/eq/eqz/alteq/alteqz/numeq/numeqz
@@ -128,15 +130,17 @@ FLAGSET_DEF_START()
   kfMissingRptVcolPos = (1 << 18),
   kfMissingRptVcolRef = (1 << 19),
   kfMissingRptVcolAlt = (1 << 20),
-  kfMissingRptVcolNmissDosage = (1 << 21),
-  kfMissingRptVcolNmiss = (1 << 22),
-  kfMissingRptVcolNmissHh = (1 << 23),
-  kfMissingRptVcolHethap = (1 << 24),
-  kfMissingRptVcolNobs = (1 << 25),
-  kfMissingRptVcolFmissDosage = (1 << 26),
-  kfMissingRptVcolFmiss = (1 << 27),
-  kfMissingRptVcolFmissHh = (1 << 28),
-  kfMissingRptVcolFhethap = (1 << 29),
+  kfMissingRptVcolMaybeprovref = (1 << 21),
+  kfMissingRptVcolProvref = (1 << 22),
+  kfMissingRptVcolNmissDosage = (1 << 23),
+  kfMissingRptVcolNmiss = (1 << 24),
+  kfMissingRptVcolNmissHh = (1 << 25),
+  kfMissingRptVcolHethap = (1 << 26),
+  kfMissingRptVcolNobs = (1 << 27),
+  kfMissingRptVcolFmissDosage = (1 << 28),
+  kfMissingRptVcolFmiss = (1 << 29),
+  kfMissingRptVcolFmissHh = (1 << 30),
+  kfMissingRptVcolFhethap = (1U << 31),
   kfMissingRptVcolDefault = (kfMissingRptVcolChrom | kfMissingRptVcolNmiss | kfMissingRptVcolNobs | kfMissingRptVcolFmiss),
   kfMissingRptVcolAll = ((kfMissingRptVcolFhethap * 2U) - kfMissingRptVcolChrom)
 FLAGSET_DEF_END(MissingRptFlags);
@@ -150,19 +154,21 @@ FLAGSET_DEF_START()
   kfGenoCountsColRef = (1 << 3),
   kfGenoCountsColAlt1 = (1 << 4),
   kfGenoCountsColAlt = (1 << 5),
-  kfGenoCountsColHomref = (1 << 6),
-  kfGenoCountsColRefalt1 = (1 << 7),
-  kfGenoCountsColRefalt = (1 << 8),
-  kfGenoCountsColHomalt1 = (1 << 9),
-  kfGenoCountsColAltxy = (1 << 10),
-  kfGenoCountsColXy = (1 << 11),
-  kfGenoCountsColHapref = (1 << 12),
-  kfGenoCountsColHapalt1 = (1 << 13),
-  kfGenoCountsColHapalt = (1 << 14),
-  kfGenoCountsColHap = (1 << 15),
-  kfGenoCountsColNumeq = (1 << 16),
-  kfGenoCountsColMissing = (1 << 17),
-  kfGenoCountsColNobs = (1 << 18),
+  kfGenoCountsColMaybeprovref = (1 << 6),
+  kfGenoCountsColProvref = (1 << 7),
+  kfGenoCountsColHomref = (1 << 8),
+  kfGenoCountsColRefalt1 = (1 << 9),
+  kfGenoCountsColRefalt = (1 << 10),
+  kfGenoCountsColHomalt1 = (1 << 11),
+  kfGenoCountsColAltxy = (1 << 12),
+  kfGenoCountsColXy = (1 << 13),
+  kfGenoCountsColHapref = (1 << 14),
+  kfGenoCountsColHapalt1 = (1 << 15),
+  kfGenoCountsColHapalt = (1 << 16),
+  kfGenoCountsColHap = (1 << 17),
+  kfGenoCountsColNumeq = (1 << 18),
+  kfGenoCountsColMissing = (1 << 19),
+  kfGenoCountsColNobs = (1 << 20),
   kfGenoCountsColDefault = (kfGenoCountsColChrom | kfGenoCountsColRef | kfGenoCountsColAlt | kfGenoCountsColHomref | kfGenoCountsColRefalt | kfGenoCountsColAltxy | kfGenoCountsColHapref | kfGenoCountsColHapalt | kfGenoCountsColMissing),
   kfGenoCountsColAll = ((kfGenoCountsColNobs * 2) - kfGenoCountsColChrom),
 
@@ -181,13 +187,15 @@ FLAGSET_DEF_START()
   kfHardyColRef = (1 << 5),
   kfHardyColAlt1 = (1 << 6),
   kfHardyColAlt = (1 << 7),
-  kfHardyColAx = (1 << 8),
-  kfHardyColGcounts = (1 << 9),
-  kfHardyColGcount1col = (1 << 10),
-  kfHardyColHetfreq = (1 << 11),
-  kfHardyColSexaf = (1 << 12),
-  kfHardyColFemalep = (1 << 13),
-  kfHardyColP = (1 << 14),
+  kfHardyColMaybeprovref = (1 << 8),
+  kfHardyColProvref = (1 << 9),
+  kfHardyColAx = (1 << 10),
+  kfHardyColGcounts = (1 << 11),
+  kfHardyColGcount1col = (1 << 12),
+  kfHardyColHetfreq = (1 << 13),
+  kfHardyColSexaf = (1 << 14),
+  kfHardyColFemalep = (1 << 15),
+  kfHardyColP = (1 << 16),
   kfHardyColDefault = (kfHardyColChrom | kfHardyColAx | kfHardyColGcounts | kfHardyColHetfreq | kfHardyColSexaf | kfHardyColP),
   kfHardyColAll = ((kfHardyColP * 2) - kfHardyColChrom)
 FLAGSET_DEF_END(HardyFlags);
@@ -268,28 +276,30 @@ FLAGSET_DEF_START()
   kfSdiffColPos = (1 << 6),
   kfSdiffColRef = (1 << 7),
   kfSdiffColAlt = (1 << 8),
-  kfSdiffColMaybefid = (1 << 9),
-  kfSdiffColFid = (1 << 10),
-  kfSdiffColId = (1 << 11),
-  kfSdiffColMaybesid = (1 << 12),
-  kfSdiffColSid = (1 << 13),
-  kfSdiffColGeno = (1 << 14),
+  kfSdiffColMaybeprovref = (1 << 9),
+  kfSdiffColProvref = (1 << 10),
+  kfSdiffColMaybefid = (1 << 11),
+  kfSdiffColFid = (1 << 12),
+  kfSdiffColId = (1 << 13),
+  kfSdiffColMaybesid = (1 << 14),
+  kfSdiffColSid = (1 << 15),
+  kfSdiffColGeno = (1 << 16),
   kfSdiffColPairwiseDefault = (kfSdiffColChrom | kfSdiffColPos | kfSdiffColRef | kfSdiffColAlt | kfSdiffColGeno),
   kfSdiffColDefault = (kfSdiffColPairwiseDefault | kfSdiffColMaybefid | kfSdiffColId | kfSdiffColMaybesid),
   kfSdiffColAll = ((kfSdiffColGeno * 2) - kfSdiffColChrom),
 
-  kfSdiffCountsColMaybefid = (1 << 15),
-  kfSdiffCountsColFid = (1 << 16),
-  kfSdiffCountsColMaybesid = (1 << 17),
-  kfSdiffCountsColSid = (1 << 18),
-  kfSdiffCountsColNobs = (1 << 19),
-  kfSdiffCountsColNobsIbs = (1 << 20),
-  kfSdiffCountsColIbs0 = (1 << 21),
-  kfSdiffCountsColIbs1 = (1 << 22),
-  kfSdiffCountsColIbs2 = (1 << 23),
+  kfSdiffCountsColMaybefid = (1 << 17),
+  kfSdiffCountsColFid = (1 << 18),
+  kfSdiffCountsColMaybesid = (1 << 19),
+  kfSdiffCountsColSid = (1 << 20),
+  kfSdiffCountsColNobs = (1 << 21),
+  kfSdiffCountsColNobsIbs = (1 << 22),
+  kfSdiffCountsColIbs0 = (1 << 23),
+  kfSdiffCountsColIbs1 = (1 << 24),
+  kfSdiffCountsColIbs2 = (1 << 25),
   kfSdiffCountsIbsNeeded = (kfSdiffCountsColNobsIbs | kfSdiffCountsColIbs0 | kfSdiffCountsColIbs1 | kfSdiffCountsColIbs2),
-  kfSdiffCountsColHalfmiss = (1 << 24),
-  kfSdiffCountsColDiff = (1 << 25),
+  kfSdiffCountsColHalfmiss = (1 << 26),
+  kfSdiffCountsColDiff = (1 << 27),
   kfSdiffCountsColDefault = (kfSdiffCountsColMaybefid | kfSdiffCountsColMaybesid | kfSdiffCountsColNobs | kfSdiffCountsColHalfmiss | kfSdiffCountsColDiff),
   kfSdiffCountsColAll = ((kfSdiffCountsColDiff * 2) - kfSdiffCountsColMaybefid)
 FLAGSET_DEF_END(SdiffFlags);
@@ -321,10 +331,12 @@ FLAGSET_DEF_START()
   kfFstVcolPos = (1 << 8),
   kfFstVcolRef = (1 << 9),
   kfFstVcolAlt = (1 << 10),
-  kfFstVcolNobs = (1 << 11),
-  kfFstVcolNallele = (1 << 12),
-  kfFstVcolFstfrac = (1 << 13),
-  kfFstVcolFst = (1 << 14),
+  kfFstVcolMaybeprovref = (1 << 11),
+  kfFstVcolProvref = (1 << 12),
+  kfFstVcolNobs = (1 << 13),
+  kfFstVcolNallele = (1 << 14),
+  kfFstVcolFstfrac = (1 << 15),
+  kfFstVcolFst = (1 << 16),
   kfFstVcolDefault = (kfFstVcolChrom | kfFstVcolPos | kfFstVcolNobs | kfFstVcolFst),
   kfFstVcolAll = ((kfFstVcolFst * 2) - kfFstVcolChrom),
 FLAGSET_DEF_END(FstFlags);
@@ -378,21 +390,21 @@ PglErr PhenoVarianceStandardize(const char* vstd_flattened, const uintptr_t* sam
 
 PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* sample_include, const char* pheno_names, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uint32_t is_subset_flag, PhenoCol* pheno_cols);
 
-PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uint64_t* founder_allele_ddosages, const double* imp_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, FreqRptFlags freq_rpt_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end);
+PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const uint64_t* founder_allele_ddosages, const double* imp_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, FreqRptFlags freq_rpt_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end);
 
-PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, GenoCountsFlags geno_counts_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, PgenGlobalFlags gflags, GenoCountsFlags geno_counts_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
-PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, MissingRptFlags missing_rpt_flags, uint32_t max_thread_ct, char* outname, char* outname_end);
+PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uintptr_t max_allele_slen, PgenGlobalFlags gflags, uint32_t first_hap_uidx, MissingRptFlags missing_rpt_flags, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), uint32_t raw_sample_ct, uint32_t autosomal_variant_ct, uint32_t autosomal_xallele_ct, uint32_t hwe_x_ct, uint32_t x_xallele_ct, PgenReader* simple_pgrp, STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts));
 
 PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), uint32_t x_start, uint32_t hwe_x_ct, uintptr_t x_xallele_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_pvals_ptr);
 
-PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end);
+PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end);
 
 PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, SampleCountsFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
 
-PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const SdiffInfo* sdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t variant_ct, uint32_t iid_sid, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const SdiffInfo* sdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t iid_sid, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, uint32_t output_zst, uint32_t allow_dups, uint32_t max_thread_ct, char* outname, char* outname_end);
 

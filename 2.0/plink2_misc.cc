@@ -3155,7 +3155,7 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
   return reterr;
 }
 
-PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uint64_t* founder_allele_ddosages, const double* imp_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, FreqRptFlags freq_rpt_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
+PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const uint64_t* founder_allele_ddosages, const double* imp_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, FreqRptFlags freq_rpt_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -3208,6 +3208,11 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
       const uint32_t alt_col = freq_rpt_flags & kfAlleleFreqColAlt;
       if (alt_col) {
         cswritep = strcpya_k(cswritep, "\tALT");
+      }
+      const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+      const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, freq_rpt_flags / kfAlleleFreqColMaybeprovref, raw_variant_ct, all_nonref);
+      if (provref_col) {
+        cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
       }
       const uint32_t reffreq_col = freq_rpt_flags & kfAlleleFreqColReffreq;
       if (reffreq_col) {
@@ -3317,6 +3322,10 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
             cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
           }
           --cswritep;
+        }
+        if (provref_col) {
+          *cswritep++ = '\t';
+          *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
         }
         const uint64_t* cur_allele_ddosages = &(founder_allele_ddosages[allele_idx_offset_base]);
         uint64_t tot_allele_ddosage = cur_allele_ddosages[0];
@@ -3572,7 +3581,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
   return reterr;
 }
 
-PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, GenoCountsFlags geno_counts_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, PgenGlobalFlags gflags, GenoCountsFlags geno_counts_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -3654,6 +3663,11 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
     const uint32_t alt_col = geno_counts_flags & kfGenoCountsColAlt;
     if (alt_col) {
       cswritep = strcpya_k(cswritep, "\tALT");
+    }
+    const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, geno_counts_flags / kfGenoCountsColMaybeprovref, raw_variant_ct, all_nonref);
+    if (provref_col) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
     }
     const uint32_t homref_col = geno_counts_flags & kfGenoCountsColHomref;
     if (homref_col) {
@@ -3795,6 +3809,10 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
           cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
         }
         --cswritep;
+      }
+      if (provref_col) {
+        *cswritep++ = '\t';
+        *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
       }
       STD_ARRAY_KREF(uint32_t, 3) cur_raw_geno_cts = raw_geno_cts[variant_uidx];
       uint32_t missing_ct;
@@ -4118,7 +4136,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
   return reterr;
 }
 
-PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, MissingRptFlags missing_rpt_flags, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uintptr_t max_allele_slen, PgenGlobalFlags gflags, uint32_t first_hap_uidx, MissingRptFlags missing_rpt_flags, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -4314,6 +4332,11 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       if (alt_col) {
         cswritep = strcpya_k(cswritep, "\tALT");
       }
+      const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+      const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, missing_rpt_flags / kfMissingRptVcolMaybeprovref, raw_variant_ct, all_nonref);
+      if (provref_col) {
+        cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+      }
       const uint32_t nmiss_dosage_col = missing_rpt_flags & kfMissingRptVcolNmissDosage;
       if (nmiss_dosage_col) {
         cswritep = strcpya_k(cswritep, "\tMISSING_DOSAGE_CT");
@@ -4415,6 +4438,10 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
             cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
           }
           --cswritep;
+        }
+        if (provref_col) {
+          *cswritep++ = '\t';
+          *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
         }
         if (nmiss_dosage_col) {
           *cswritep++ = '\t';
@@ -4892,7 +4919,7 @@ PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allel
   return reterr;
 }
 
-PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
+PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -4916,11 +4943,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       goto HardyReport_ret_NOMEM;
     }
     // skip chrX, chrY, chrM here
-    const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     memcpy(chr_skips, cip->haploid_mask, chr_code_endl * sizeof(intptr_t));
-    if (!IsI32Neg(mt_code)) {
-      SetBit(mt_code, chr_skips);
-    }
     const uint32_t chr_skip_ct = PopcountWords(chr_skips, chr_code_endl);
     uint32_t variant_skip_ct = 0;
     uintptr_t chr_uidx_base = 0;
@@ -4942,6 +4965,31 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
     const uint32_t ref_col = hardy_flags & kfHardyColRef;
     const uint32_t alt1_col = hardy_flags & kfHardyColAlt1;
     const uint32_t alt_col = hardy_flags & kfHardyColAlt;
+    const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    // customize this, since the standard calculation does not exclude haploid
+    // chromosomes
+    uint32_t provref_col = 0;
+    if (ref_col) {
+      if (hardy_flags & kfHardyColProvref) {
+        provref_col = 1;
+      } else if (!(hardy_flags & kfHardyColMaybeprovref)) {
+        // do nothing
+      } else if (!nonref_flags) {
+        provref_col = all_nonref;
+      } else {
+        const uint32_t chr_ct = cip->chr_ct;
+        for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+          const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+          if ((!IsSet(cip->chr_mask, chr_idx)) || IsSet(chr_skips, chr_idx)) {
+            continue;
+          }
+          if (!IntersectionRangeIsEmpty(variant_include, nonref_flags, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1])) {
+            provref_col = 1;
+            break;
+          }
+        }
+      }
+    }
     const uint32_t ax_col = hardy_flags & kfHardyColAx;
     const uint32_t gcounts = hardy_flags & (kfHardyColGcounts | kfHardyColGcount1col);
     const uint32_t gcount_1col = hardy_flags & kfHardyColGcount1col;
@@ -4979,6 +5027,9 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       }
       if (alt_col) {
         cswritep = strcpya_k(cswritep, "\tALT");
+      }
+      if (provref_col) {
+        cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
       }
       cswritep = strcpya_k(cswritep, "\tA1");
       if (ax_col) {
@@ -5068,6 +5119,10 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
               cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
             }
             --cswritep;
+          }
+          if (provref_col) {
+            *cswritep++ = '\t';
+            *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
           }
           *cswritep++ = '\t';
           cswritep = strcpya(cswritep, cur_alleles[a1_idx]);
@@ -5183,6 +5238,14 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       if (alt_col) {
         cswritep = strcpya_k(cswritep, "\tALT");
       }
+      const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
+      const uint32_t x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
+      if (ref_col && ((hardy_flags & (kfHardyColMaybeprovref | kfHardyColProvref)) == kfHardyColMaybeprovref) && nonref_flags) {
+        provref_col = !IntersectionRangeIsEmpty(variant_include, nonref_flags, x_start, cip->chr_fo_vidx_start[x_chr_fo_idx + 1]);
+      }
+      if (provref_col) {
+        cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+      }
       cswritep = strcpya_k(cswritep, "\tA1");
       if (ax_col) {
         cswritep = strcpya_k(cswritep, "\tAX");
@@ -5221,8 +5284,6 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       AppendBinaryEoln(&cswritep);
       fputs("--hardy: Writing chrX results...", stdout);
       fflush(stdout);
-      const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
-      const uint32_t x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
       uintptr_t variant_uidx_base;
       uintptr_t variant_include_bits;
       BitIter1Start(variant_include, x_start, &variant_uidx_base, &variant_include_bits);
@@ -5274,6 +5335,10 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
               cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
             }
             --cswritep;
+          }
+          if (provref_col) {
+            *cswritep++ = '\t';
+            *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
           }
           *cswritep++ = '\t';
           cswritep = strcpya(cswritep, cur_alleles[a1_idx]);
@@ -7809,7 +7874,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
   return reterr;
 }
 
-void AppendSdiffHeaderLine(SdiffFlags flags, uint32_t col_fid, uint32_t col_sid, uint32_t dosage_reported, char** cswritepp) {
+void AppendSdiffHeaderLine(SdiffFlags flags, uint32_t col_provref, uint32_t col_fid, uint32_t col_sid, uint32_t dosage_reported, char** cswritepp) {
   char* cswritep = *cswritepp;
   *cswritep++ = '#';
   if (flags & kfSdiffColChrom) {
@@ -7824,6 +7889,9 @@ void AppendSdiffHeaderLine(SdiffFlags flags, uint32_t col_fid, uint32_t col_sid,
   }
   if (flags & kfSdiffColAlt) {
     cswritep = strcpya_k(cswritep, "\tALT");
+  }
+  if (col_provref) {
+    cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
   }
   if (flags & kfSdiffColId) {
     if (col_fid) {
@@ -7862,7 +7930,7 @@ typedef struct SdiffWriteContextStruct {
   uint32_t chr_buf_blen;
 } SdiffWriteContext;
 
-BoolErr AppendSdiffPregenoFields(const SdiffWriteContext* swcp, const char* const* cur_alleles, uint32_t sample_idx1, uint32_t sample_idx2, uint32_t variant_uidx, uint32_t allele_ct, CompressStreamState* cssp, char** cswritepp) {
+BoolErr AppendSdiffPregenoFields(const SdiffWriteContext* swcp, const char* const* cur_alleles, uint32_t sample_idx1, uint32_t sample_idx2, uint32_t variant_uidx, uint32_t allele_ct, uint32_t col_provref, uint32_t provref, CompressStreamState* cssp, char** cswritepp) {
   char* cswritep = *cswritepp;
   if (swcp->chr_buf) {
     cswritep = memcpya(cswritep, swcp->chr_buf, swcp->chr_buf_blen);
@@ -7894,6 +7962,10 @@ BoolErr AppendSdiffPregenoFields(const SdiffWriteContext* swcp, const char* cons
     }
     --cswritep;
   }
+  if (col_provref) {
+    *cswritep++ = '\t';
+    *cswritep++ = provref? 'Y' : 'N';
+  }
   if (swcp->collapsed_sample_fmtids) {
     *cswritep++ = '\t';
     cswritep = strcpyax(cswritep, &(swcp->collapsed_sample_fmtids[sample_idx1 * swcp->max_sample_fmtid_blen]), '\t');
@@ -7903,7 +7975,7 @@ BoolErr AppendSdiffPregenoFields(const SdiffWriteContext* swcp, const char* cons
   return 0;
 }
 
-PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts,  const SampleIdInfo* siip, const uint32_t* __restrict id_pairs, const uintptr_t* __restrict pair_sex_male, const uintptr_t* __restrict variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* __restrict allele_idx_offsets, const char* const* allele_storage, const SdiffInfo* sdip, uint32_t sample_ct, uint32_t variant_ct, uintptr_t id_pair_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, SdiffCounts* sdiff_counts) {
+PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts,  const SampleIdInfo* siip, const uint32_t* __restrict id_pairs, const uintptr_t* __restrict pair_sex_male, const uintptr_t* __restrict variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* __restrict allele_idx_offsets, const char* const* allele_storage, const SdiffInfo* sdip, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uintptr_t id_pair_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, SdiffCounts* sdiff_counts) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char** cswritep_arr = nullptr;
   CompressStreamState* css_arr = nullptr;
@@ -7940,6 +8012,9 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
     for (uintptr_t fidx = 0; fidx != id_pair_ct; ++fidx) {
       PreinitCstream(&(css_arr[fidx]));
     }
+    const uintptr_t* nonref_flags = PgrGetNonrefFlags(simple_pgrp);
+    const uint32_t all_nonref = (PgrGetGflags(simple_pgrp) & kfPgenGlobalAllNonref) && (!nonref_flags);
+    const uint32_t col_provref = (flags & kfSdiffColRef) && ProvrefCol(variant_include, nonref_flags, flags / kfSdiffColMaybeprovref, raw_variant_ct, all_nonref);
     const uint32_t output_zst = (flags / kfSdiffZs) & 1;
     // ".sdiff" + terminating null = 7 bytes
     const uintptr_t fname_extrachar_limit = kPglFnamesize - 7 - (output_zst * 4) - S_CAST(uintptr_t, outname_end - outname);
@@ -7995,7 +8070,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
         if (unlikely(reterr)) {
           goto SdiffMainBatch_ret_1;
         }
-        AppendSdiffHeaderLine(flags, col_fid, col_sid, dosage_reported, &(cswritep_arr[fidx]));
+        AppendSdiffHeaderLine(flags, col_provref, col_fid, col_sid, dosage_reported, &(cswritep_arr[fidx]));
       }
     } else {
       char* fname_iter = outname_end;
@@ -8030,7 +8105,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
       if (unlikely(reterr)) {
         goto SdiffMainBatch_ret_1;
       }
-      AppendSdiffHeaderLine(flags, col_fid, col_sid, dosage_reported, &(cswritep_arr[0]));
+      AppendSdiffHeaderLine(flags, col_provref, col_fid, col_sid, dosage_reported, &(cswritep_arr[0]));
     }
     if (!(flags & kfSdiffColId)) {
       swc.collapsed_sample_fmtids = nullptr;
@@ -8135,6 +8210,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
         fflush(stdout);
         next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
       }
+      const uint32_t provref = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)));
       if (allele_ct == 2) {
         if (!pgv.dosage_ct) {
           if (AllGenoEqual(pgv.genovec, sample_ct)) {
@@ -8174,7 +8250,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
             const uintptr_t fidx = is_pairwise? pair_idx : 0;
             char* cswritep = cswritep_arr[fidx];
             const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-            if (unlikely(AppendSdiffPregenoFields(&swc, cur_alleles, sample_idx1, sample_idx2, variant_uidx, allele_ct, &(css_arr[fidx]), &cswritep))) {
+            if (unlikely(AppendSdiffPregenoFields(&swc, cur_alleles, sample_idx1, sample_idx2, variant_uidx, allele_ct, col_provref, provref, &(css_arr[fidx]), &cswritep))) {
               // might not need this assignment, but play it safe for now
               cswritep_arr[fidx] = cswritep;
               goto SdiffMainBatch_ret_WRITE_FAIL;
@@ -8252,7 +8328,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
             const uintptr_t fidx = is_pairwise? pair_idx : 0;
             char* cswritep = cswritep_arr[fidx];
             const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-            if (unlikely(AppendSdiffPregenoFields(&swc, cur_alleles, sample_idx1, sample_idx2, variant_uidx, allele_ct, &(css_arr[fidx]), &cswritep))) {
+            if (unlikely(AppendSdiffPregenoFields(&swc, cur_alleles, sample_idx1, sample_idx2, variant_uidx, allele_ct, col_provref, provref, &(css_arr[fidx]), &cswritep))) {
               cswritep_arr[fidx] = cswritep;
               goto SdiffMainBatch_ret_WRITE_FAIL;
             }
@@ -8321,7 +8397,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
             const uintptr_t fidx = is_pairwise? pair_idx : 0;
             char* cswritep = cswritep_arr[fidx];
             const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-            if (unlikely(AppendSdiffPregenoFields(&swc, cur_alleles, sample_idx1, sample_idx2, variant_uidx, allele_ct, &(css_arr[fidx]), &cswritep))) {
+            if (unlikely(AppendSdiffPregenoFields(&swc, cur_alleles, sample_idx1, sample_idx2, variant_uidx, allele_ct, col_provref, provref, &(css_arr[fidx]), &cswritep))) {
               // might not need this assignment, but play it safe for now
               cswritep_arr[fidx] = cswritep;
               goto SdiffMainBatch_ret_WRITE_FAIL;
@@ -8424,7 +8500,7 @@ CONSTI32(kSdiffBatchMax, (kMaxOpenFiles - 32) & (~(kBitsPerWord - 1)));
 static_assert((kSdiffBatchMax % kBitsPerWord) == 0, "kSdiffBatchMax must be a multiple of kBitsPerWord.");
 static_assert(kSdiffBatchMax > 0, "kSdiffBatchMax must be positive.");
 
-PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const SdiffInfo* sdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t variant_ct, uint32_t iid_sid, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const SdiffInfo* sdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t iid_sid, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -8729,7 +8805,7 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
           printf("\r--sample-diff pairwise batch %" PRIuPTR "/%" PRIuPTR ": 0%%", batch_idx + 1, batch_ct);
         }
         fflush(stdout);
-        reterr = SdiffMainBatch(sample_include, sample_include_cumulative_popcounts, siip, &(id_pairs[2 * id_pair_idx_start]), &(pair_sex_male[id_pair_idx_start / kBitsPerWord]), variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, sdip, sample_ct, variant_ct, id_pair_idx_end - id_pair_idx_start, max_thread_ct, simple_pgrp, outname, outname_end, &(sdiff_counts[id_pair_idx_start]));
+        reterr = SdiffMainBatch(sample_include, sample_include_cumulative_popcounts, siip, &(id_pairs[2 * id_pair_idx_start]), &(pair_sex_male[id_pair_idx_start / kBitsPerWord]), variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, sdip, sample_ct, raw_variant_ct, variant_ct, id_pair_idx_end - id_pair_idx_start, max_thread_ct, simple_pgrp, outname, outname_end, &(sdiff_counts[id_pair_idx_start]));
         if (unlikely(reterr)) {
           goto Sdiff_ret_1;
         }
@@ -10647,6 +10723,8 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
     const uint32_t ref_vcol = (flags / kfFstVcolRef) & 1;
     const uint32_t alt_vcol = (flags / kfFstVcolAlt) & 1;
     const uint32_t alleles_needed = ref_vcol || alt_vcol;
+    const uintptr_t* nonref_flags = pgfip->nonref_flags;
+    const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
     const uint32_t nobs_vcol = (flags / kfFstVcolNobs) & 1;
     const uint32_t nallele_vcol = (flags / kfFstVcolNallele) & 1;
     const uint32_t fstfrac_vcol = (flags / kfFstVcolFstfrac) & 1;
@@ -10730,6 +10808,7 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
       if (!cur_variant_ct) {
         continue;
       }
+      const uint32_t provref_vcol = ref_vcol && ProvrefCol(cur_variant_include, nonref_flags, flags / kfFstVcolMaybeprovref, raw_variant_ct, all_nonref);
       ctx.cur_variant_include = cur_variant_include;
       const uintptr_t pop_geno_vec_ct = DivUp(pop_ct * (4 << (ctx.sex_male_collapsed != nullptr)), kInt32PerVec);
       const uintptr_t thread_xalloc_vec_ct = raregeno_vec_ct + difflist_sample_id_vec_ct + pop_geno_vec_ct;
@@ -10844,6 +10923,9 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
             }
             if (alt_vcol) {
               cswritep = strcpya_k(cswritep, "\tALT");
+            }
+            if (provref_vcol) {
+              cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
             }
             if (nobs_vcol) {
               cswritep = strcpya_k(cswritep, "\tOBS_CT");
@@ -11132,6 +11214,10 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
                       *cswritep++ = ',';
                     }
                     --cswritep;
+                  }
+                  if (provref_vcol) {
+                    *cswritep++ = '\t';
+                    *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, write_variant_uidx)))? 'Y' : 'N';
                   }
                 }
                 if (nobs_vcol) {

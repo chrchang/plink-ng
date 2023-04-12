@@ -1522,6 +1522,8 @@ HEADER_INLINE uint32_t IntersectionIsEmpty(const uintptr_t* bitvec1, const uintp
   return 1;
 }
 
+uint32_t IntersectionRangeIsEmpty(const uintptr_t* bitarr1, const uintptr_t* bitarr2, uintptr_t start_idx, uintptr_t end_idx);
+
 // could use testz here, but it's more awkward
 HEADER_INLINE uint32_t UnionIsFull(const uintptr_t* bitarr1, const uintptr_t* bitarr2, uintptr_t bit_ct) {
   const uintptr_t fullword_ct = bit_ct / kBitsPerWord;

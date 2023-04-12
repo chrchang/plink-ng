@@ -1877,6 +1877,35 @@ uintptr_t PopcountBitRange(const uintptr_t* bitvec, uintptr_t start_idx, uintptr
   return ct;
 }
 
+uint32_t IntersectionRangeIsEmpty(const uintptr_t* bitarr1, const uintptr_t* bitarr2, uintptr_t start_idx, uintptr_t end_idx) {
+  uintptr_t start_idxl = start_idx / kBitsPerWord;
+  const uintptr_t start_idxlr = start_idx & (kBitsPerWord - 1);
+  const uintptr_t end_idxl = end_idx / kBitsPerWord;
+  const uintptr_t end_idxlr = end_idx & (kBitsPerWord - 1);
+  if (start_idxl == end_idxl) {
+    return ((bitarr1[start_idxl] & bitarr2[start_idxl] & ((k1LU << end_idxlr) - (k1LU << start_idxlr))) == 0);
+  }
+  if (start_idxlr) {
+    if ((bitarr1[start_idxl] & bitarr2[start_idxl]) >> start_idxlr) {
+      return 0;
+    }
+    ++start_idxl;
+  }
+  // can speed this up with vectorization, and/or bitwise-oring multiple
+  // comparison results before each comparison to zero
+  for (; start_idxl != end_idxl; ++start_idxl) {
+    if (bitarr1[start_idxl] & bitarr2[start_idxl]) {
+      return 0;
+    }
+  }
+  if (end_idxlr) {
+    if (bzhi(bitarr1[end_idxl] & bitarr2[end_idxl], end_idxlr)) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 #ifdef USE_SSE42
 void PopcountWordsIntersect3val(const uintptr_t* __restrict bitvec1, const uintptr_t* __restrict bitvec2, uint32_t word_ct, uint32_t* __restrict popcount1_ptr, uint32_t* __restrict popcount2_ptr, uint32_t* __restrict popcount_intersect_ptr) {
   uint32_t ct1 = 0;

@@ -1549,7 +1549,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           const char* qual_token = token_ptrs[4];
           if ((qual_token[0] != '.') || (qual_token[1] > ' ')) {
             float cur_qual;
-            if (unlikely(ScanFloat(qual_token, &cur_qual))) {
+            if (unlikely(ScanFloatAllowInf(qual_token, &cur_qual))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid QUAL value on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
               goto LoadPvar_ret_MALFORMED_INPUT_WW;
             }

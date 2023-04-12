@@ -4958,7 +4958,7 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr FlushBiallelicVarWts(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* var_wts_iter, const double* eigval_inv_sqrts, uint32_t batch_size, uint32_t pc_ct, PcaFlags pca_flags, CompressStreamState* cssp, char** cswritepp, char* chr_buf, uint32_t* variant_idxp, uintptr_t* variant_uidxp, uint32_t* chr_fo_idxp, uint32_t* chr_endp, uint32_t* chr_buf_blenp) {
+PglErr FlushBiallelicVarWts(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const AlleleCode* maj_alleles, const double* var_wts_iter, const double* eigval_inv_sqrts, uint32_t batch_size, uint32_t pc_ct, PcaFlags pca_flags, uint32_t provref_col, uint32_t all_nonref, CompressStreamState* cssp, char** cswritepp, char* chr_buf, uint32_t* variant_idxp, uintptr_t* variant_uidxp, uint32_t* chr_fo_idxp, uint32_t* chr_endp, uint32_t* chr_buf_blenp) {
   char* cswritep = *cswritepp;
   uint32_t variant_idx = *variant_idxp;
   uintptr_t variant_uidx = *variant_uidxp;
@@ -5014,6 +5014,10 @@ PglErr FlushBiallelicVarWts(const uintptr_t* variant_include, const ChrInfo* cip
       // guaranteed biallelic
       cswritep = strcpya(cswritep, cur_alleles[1]);
     }
+    if (provref_col) {
+      *cswritep++ = '\t';
+      *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+    }
     const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
     if (maj_col) {
       if (unlikely(Cswrite(cssp, &cswritep))) {
@@ -5055,7 +5059,7 @@ PglErr FlushBiallelicVarWts(const uintptr_t* variant_include, const ChrInfo* cip
   return kPglRetSuccess;
 }
 
-PglErr FlushAlleleWts(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* var_wts_iter, const double* eigval_inv_sqrts, uint32_t batch_size, uint32_t pc_ct, PcaFlags pca_flags, CompressStreamState* cssp, char** cswritepp, char* chr_buf, uint32_t* variant_idxp, uintptr_t* variant_uidxp, uintptr_t* allele_idx_offset_basep, uint32_t* cur_allele_ctp, uint32_t* incomplete_allele_idxp, uint32_t* chr_fo_idxp, uint32_t* chr_endp, uint32_t* chr_buf_blenp) {
+PglErr FlushAlleleWts(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const double* var_wts_iter, const double* eigval_inv_sqrts, uint32_t batch_size, uint32_t pc_ct, PcaFlags pca_flags, uint32_t provref_col, uint32_t all_nonref, CompressStreamState* cssp, char** cswritepp, char* chr_buf, uint32_t* variant_idxp, uintptr_t* variant_uidxp, uintptr_t* allele_idx_offset_basep, uint32_t* cur_allele_ctp, uint32_t* incomplete_allele_idxp, uint32_t* chr_fo_idxp, uint32_t* chr_endp, uint32_t* chr_buf_blenp) {
   char* cswritep = *cswritepp;
   uint32_t variant_idx = *variant_idxp;
   uintptr_t variant_uidx = *variant_uidxp;
@@ -5133,6 +5137,10 @@ PglErr FlushAlleleWts(const uintptr_t* variant_include, const ChrInfo* cip, cons
           cswritep = strcpyax(cswritep, cur_alleles[allele_idx2], ',');
         }
         --cswritep;
+      }
+      if (provref_col) {
+        *cswritep++ = '\t';
+        *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
       }
       // A1 col always present
       if (unlikely(Cswrite(cssp, &cswritep))) {
@@ -5677,6 +5685,12 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       if (pca_flags & kfPcaVcolAlt) {
         cswritep = strcpya_k(cswritep, "\tALT");
       }
+      const uintptr_t* nonref_flags = PgrGetNonrefFlags(simple_pgrp);
+      const uint32_t all_nonref = (PgrGetGflags(simple_pgrp) & kfPgenGlobalAllNonref) && (!nonref_flags);
+      const uint32_t provref_col = (pca_flags & kfPcaVcolRef) && ProvrefCol(variant_include, nonref_flags, pca_flags / kfPcaVcolMaybeprovref, raw_variant_ct, all_nonref);
+      if (provref_col) {
+        cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+      }
       if (allele_wts) {
         cswritep = strcpya_k(cswritep, "\tA1");
       }
@@ -5803,9 +5817,9 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           const double* var_wts_iter = &(var_wts[parity * var_wts_part_size]);
           // (todo: update projection here)
           if (allele_wts) {
-            reterr = FlushAlleleWts(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, var_wts_iter, eigval_inv_sqrts, prev_batch_size, pc_ct, pca_flags, &css, &cswritep, chr_buf, &variant_idx_write, &variant_uidx_write, &allele_idx_offset_write, &cur_allele_ct, &incomplete_allele_idx_write, &chr_fo_idx, &chr_end, &chr_buf_blen);
+            reterr = FlushAlleleWts(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, var_wts_iter, eigval_inv_sqrts, prev_batch_size, pc_ct, pca_flags, provref_col, all_nonref, &css, &cswritep, chr_buf, &variant_idx_write, &variant_uidx_write, &allele_idx_offset_write, &cur_allele_ct, &incomplete_allele_idx_write, &chr_fo_idx, &chr_end, &chr_buf_blen);
           } else {
-            reterr = FlushBiallelicVarWts(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, var_wts_iter, eigval_inv_sqrts, prev_batch_size, pc_ct, pca_flags, &css, &cswritep, chr_buf, &variant_idx_write, &variant_uidx_write, &chr_fo_idx, &chr_end, &chr_buf_blen);
+            reterr = FlushBiallelicVarWts(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, maj_alleles, var_wts_iter, eigval_inv_sqrts, prev_batch_size, pc_ct, pca_flags, provref_col, all_nonref, &css, &cswritep, chr_buf, &variant_idx_write, &variant_uidx_write, &chr_fo_idx, &chr_end, &chr_buf_blen);
           }
           if (unlikely(reterr)) {
             // only write_fail possible in practice
@@ -8913,6 +8927,9 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     if (unlikely(reterr)) {
       goto Vscore_ret_1;
     }
+    const uintptr_t* nonref_flags = pgfip->nonref_flags;
+    const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, flags / kfVscoreColMaybeprovref, raw_variant_ct, all_nonref);
     const uint32_t nmiss_col = (flags / kfVscoreColNmiss) & 1;
     const uint32_t nobs_col = (flags / kfVscoreColNobs) & 1;
     if (!binfile) {
@@ -8934,6 +8951,9 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       }
       if (alt_col) {
         cswritep = strcpya_k(cswritep, "\tALT");
+      }
+      if (provref_col) {
+        cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
       }
       if (flags & kfVscoreColAltfreq) {
         cswritep = strcpya_k(cswritep, "\tALT_FREQ");
@@ -9026,6 +9046,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
 
     fputs("--variant-score: 0%", stdout);
     fflush(stdout);
+
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     // Main workflow:
     // 1. Set n=0, load/skip block 0
@@ -9143,6 +9164,10 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
               cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
             }
             --cswritep;
+          }
+          if (provref_col) {
+            *cswritep++ = '\t';
+            *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, write_variant_uidx)))? 'Y' : 'N';
           }
           if (allele_freqs) {
             *cswritep++ = '\t';

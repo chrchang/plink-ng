@@ -412,7 +412,7 @@ HEADER_INLINE bool isfinite_f(float fxx) {
 }
 
 HEADER_INLINE bool isfinite_d(double fxx) {
-  return (dxx == dxx) && (dxx != INFINITY) && (dxx != -INFINITY);
+  return (dxx == dxx) && (dxx != S_CAST(double, INFINITY)) && (dxx != S_CAST(double, -INFINITY));
 }
 #    endif
 #  endif
@@ -1560,6 +1560,26 @@ HEADER_INLINE uint32_t IsNanStr(const char* ss, uint32_t slen) {
 // Assumes is_neg zero-initialized.
 // Assumes one-char overread is ok.
 uint32_t IsInfStr(const char* ss, uint32_t slen, uint32_t* is_neg_ptr);
+
+// This only accepts explicit infinity; out-of-range values are not converted
+// to infinity.
+HEADER_INLINE BoolErr ScanFloatAllowInf(const char* ss, float* valp) {
+  double dxx;
+  if (!ScantokDouble(ss, &dxx)) {
+    uint32_t is_neg = 0;
+    if (likely(IsInfStr(ss, strlen_se(ss), &is_neg))) {
+      *valp = is_neg? -INFINITY : INFINITY;
+      return 0;
+    } else {
+      return 1;
+    }
+  }
+  if (unlikely(fabs(dxx) > 3.4028235677973362e38)) {
+    return 1;
+  }
+  *valp = S_CAST(float, dxx);
+  return 0;
+}
 
 
 HEADER_INLINE CXXCONST_CP AdvToDelimOrEnd(const char* str_iter, const char* str_end, char delim) {

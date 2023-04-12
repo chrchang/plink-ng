@@ -4912,7 +4912,9 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t ref_col = glm_cols & kfGlmColRef;
     const uint32_t alt1_col = glm_cols & kfGlmColAlt1;
     const uint32_t alt_col = glm_cols & kfGlmColAlt;
-    const uint32_t provref_col = glm_cols & kfGlmColProvref;
+    const uintptr_t* nonref_flags = pgfip->nonref_flags;
+    const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, glm_cols / kfGlmColMaybeprovref, raw_variant_ct, all_nonref);
     const uint32_t omitted_col = glm_cols & kfGlmColOmitted;
     const uint32_t ax_col = glm_cols & kfGlmColAx;
     const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
@@ -5034,8 +5036,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     }
     AppendBinaryEoln(&cswritep);
 
-    const uintptr_t* nonref_flags = pgfip->nonref_flags;
-    const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
     // Main workflow:
     // 1. Set n=0, load/skip block 0
     //
