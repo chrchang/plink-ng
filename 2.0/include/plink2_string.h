@@ -1568,7 +1568,9 @@ HEADER_INLINE BoolErr ScanFloatAllowInf(const char* ss, float* valp) {
   if (!ScantokDouble(ss, &dxx)) {
     uint32_t is_neg = 0;
     if (likely(IsInfStr(ss, strlen_se(ss), &is_neg))) {
-      *valp = is_neg? -INFINITY : INFINITY;
+      // INFINITY is usually a float, but apparently not in w64-mingw32-g++
+      // case?
+      *valp = S_CAST(float, is_neg? -INFINITY : INFINITY);
       return 0;
     } else {
       return 1;
