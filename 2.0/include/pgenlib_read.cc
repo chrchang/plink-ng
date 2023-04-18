@@ -6874,6 +6874,8 @@ PglErr PgrGetMP(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
   uintptr_t* all_hets = VrtypeHphase(vrtype)? pgrp->workspace_all_hets : nullptr;
   PglErr reterr = GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, all_hets? (&fread_ptr) : nullptr, all_hets? (&fread_end) : nullptr, all_hets, pgvp);
   if (reterr || (!all_hets)) {
+    // bugfix (17 Apr 2023): need to zero out phasepresent_ct in this case
+    pgvp->phasepresent_ct = 0;
     return reterr;
   }
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
@@ -8730,6 +8732,7 @@ PglErr PgrGetMDp(const uintptr_t* __restrict sample_include, PgrSampleSubsetInde
   if (VrtypeMultiallelicHc(vrtype)) {
     PglErr reterr = GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, all_hets? (&fread_ptr) : nullptr, all_hets? (&fread_end) : nullptr, all_hets, pgvp);
     if (reterr || (!all_hets)) {
+      pgvp->phasepresent_ct = 0;
       return reterr;
     }
     if (!(vrtype & 0x60)) {

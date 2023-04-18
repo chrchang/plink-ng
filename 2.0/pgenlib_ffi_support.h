@@ -59,6 +59,12 @@ HEADER_INLINE void GenoarrPhasedToAlleleCodesMinus9(const uintptr_t* genoarr, co
   GenoarrPhasedToAlleleCodes(kGenoToIntcodeDPairs, genoarr, phasepresent, phaseinfo, sample_ct, phasepresent_ct, phasebytes, allele_codes);
 }
 
+void GenoarrMPToAlleleCodes(const uint64_t* geno_to_intcode_dpair_table, const PgenVariant* pgv, uint32_t sample_ct, unsigned char* phasebytes, int32_t* allele_codes);
+
+HEADER_INLINE void GenoarrMPToAlleleCodesMinus9(const PgenVariant* pgv, uint32_t sample_ct, unsigned char* phasebytes, int32_t* allele_codes) {
+  GenoarrMPToAlleleCodes(kGenoToIntcodeDPairs, pgv, sample_ct, phasebytes, allele_codes);
+}
+
 // assumes transposed genoarr, phaseinfo
 void GenoarrPhasedToHapCodes(const uintptr_t* genoarr, const uintptr_t* phaseinfo, uint32_t variant_batch_size, int32_t* hap0_codes_iter, int32_t* hap1_codes_iter);
 
@@ -84,12 +90,19 @@ void BytesToBitsUnsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* 
 // Does not zero out trailing bits of genoarr.
 void BytesToGenoarrUnsafe(const int8_t* genobytes, uint32_t sample_ct, uintptr_t* genoarr);
 
+// - Assumes biallelic variant, does not validate that.
+// - Low bit of each element of phasepresent_bytes is significant.
 // - If phasepresent_bytes is nullptr, phasepresent is not updated.  In this
 //   case, phaseinfo is updated iff it's not nullptr.  It's okay for both
 //   phasepresent and phaseinfo to be nullptr here.
 // - Otherwise, phasepresent and phaseinfo are always updated; neither can be
 //   nullptr.
+// - Trailing bits of phasepresent/phaseinfo may not be zeroed out.
 void AlleleCodesToGenoarrUnsafe(const int32_t* allele_codes, const unsigned char* phasepresent_bytes, uint32_t sample_ct, uintptr_t* genoarr, uintptr_t* phasepresent, uintptr_t* phaseinfo);
+
+// Does not clear trailing bits of genovec, phasepresent, or phaseinfo.
+// Returns min(2, 1 + max allele code) if allele_codes is valid, -1 if invalid.
+int32_t ConvertMultiAlleleCodesUnsafe(const int32_t* allele_codes, const unsigned char* phasepresent_bytes, uint32_t sample_ct, uintptr_t* genoarr, uintptr_t* patch_01_set, AlleleCode* patch_01_vals, uintptr_t* patch_10_set, AlleleCode* patch_10_vals, uint32_t* patch_01_ctp, uint32_t* patch_10_ctp, uintptr_t* phasepresent, uintptr_t* phaseinfo);
 
 void FloatsToDosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 

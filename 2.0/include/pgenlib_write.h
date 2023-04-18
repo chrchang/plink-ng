@@ -305,7 +305,7 @@ HEADER_INLINE PglErr SpgwAppendMultiallelicGenovecHphase(const uintptr_t* __rest
 
 
 // dosage_main[] has length dosage_ct, not sample_ct
-// ok for traling bits of dosage_present to not be zeroed out
+// ok for trailing bits of dosage_present to not be zeroed out
 BoolErr PwcAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, PgenWriterCommon* pwcp);
 
 HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, STPgenWriter* spgwp) {

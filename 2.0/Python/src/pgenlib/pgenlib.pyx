@@ -1,13 +1,14 @@
 # cython: language_level=3
 # from libc.stdlib cimport malloc, free
 from libc.stdint cimport int64_t, uintptr_t, uint32_t, int32_t, uint16_t, uint8_t, int8_t
+from libc.string cimport memcpy
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 # from cpython.view cimport array as cvarray
 import numpy as np
 cimport numpy as np
 import sys
 
-cdef extern from "../plink2/pgenlib_ffi_support.h" namespace "plink2":
+cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
     ctypedef uint32_t BoolErr
     ctypedef enum PglErr:
         kPglRetSuccess
@@ -27,35 +28,6 @@ cdef extern from "../plink2/pgenlib_ffi_support.h" namespace "plink2":
         kPglRetNotYetSupported
         kPglRetLongLine
         kPglRetEmptyFile
-
-    BoolErr cachealigned_malloc(uintptr_t size, void* aligned_pp)
-    void aligned_free(void* aligned_ptr)
-
-    uintptr_t DivUp(uintptr_t val, uintptr_t divisor)
-    void ZeroWArr(uintptr_t entry_ct, uintptr_t* ularr)
-    # void BitvecAnd(const uintptr_t* arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec)
-    void FillInterleavedMaskVec(const uintptr_t* subset_mask, uint32_t base_vec_ct, uintptr_t* interleaved_mask_vec)
-    void FillCumulativePopcounts(const uintptr_t* subset_mask, uint32_t word_ct, uint32_t* cumulative_popcounts)
-
-    ctypedef uintptr_t VecW
-    void TransposeNypblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf)
-    void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf)
-
-    void GenovecInvertUnsafe(uint32_t sample_ct, uintptr_t* genovec)
-    void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_main)
-
-    void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* genobytes)
-    void GenoarrToInt32sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* geno_int32)
-    void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t* geno_int64)
-    void GenoarrPhasedToAlleleCodesMinus9(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes)
-    void GenoarrPhasedToHapCodes(const uintptr_t* genoarr, const uintptr_t* phaseinfo, uint32_t variant_batch_size, int32_t* hap0_codes_iter, int32_t* hap1_codes_iter)
-    void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float)
-    void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double)
-    void BytesToBitsUnsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* bitarr)
-    void BytesToGenoarrUnsafe(const int8_t* genobytes, uint32_t sample_ct, uintptr_t* genoarr)
-    void AlleleCodesToGenoarrUnsafe(const int32_t* allele_codes, const unsigned char* phasepresent_bytes, uint32_t sample_ct, uintptr_t* genoarr, uintptr_t* phasepresent, uintptr_t* phaseinfo)
-    void FloatsToDosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr)
-    void DoublesToDosage16(const double* doublearr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr)
 
     cdef enum:
         k1LU
@@ -105,7 +77,62 @@ cdef extern from "../plink2/pgenlib_ffi_support.h" namespace "plink2":
     cdef enum:
         kfPgenGlobalDosagePresent
 
+    BoolErr cachealigned_malloc(uintptr_t size, void* aligned_pp)
+    void aligned_free(void* aligned_ptr)
+
+    uintptr_t RoundUpPow2(uintptr_t val, uintptr_t alignment)
+    uintptr_t DivUp(uintptr_t val, uintptr_t divisor)
+    void ZeroWArr(uintptr_t entry_ct, uintptr_t* ularr)
+    # void BitvecAnd(const uintptr_t* arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec)
+    void FillInterleavedMaskVec(const uintptr_t* subset_mask, uint32_t base_vec_ct, uintptr_t* interleaved_mask_vec)
+    void FillCumulativePopcounts(const uintptr_t* subset_mask, uint32_t word_ct, uint32_t* cumulative_popcounts)
+
+    ctypedef uintptr_t VecW
+    void TransposeNypblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf)
+    void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf)
+
+    void GenovecInvertUnsafe(uint32_t sample_ct, uintptr_t* genovec)
+    void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_main)
+
     ctypedef unsigned char AlleleCode
+
+    cdef struct PgenVariantStruct:
+        uintptr_t* genovec
+        uintptr_t* patch_01_set
+        AlleleCode* patch_01_vals
+        uintptr_t* patch_10_set
+        AlleleCode* patch_10_vals
+        uintptr_t* phasepresent
+        uintptr_t* phaseinfo
+        uintptr_t* dosage_present
+        uint16_t* dosage_main
+        uint32_t patch_01_ct
+        uint32_t patch_10_ct
+        uint32_t phasepresent_ct
+    cdef enum:
+        kPglMaxAlleleCt
+    cdef enum:
+        kPglMaxVariantCt
+
+    uintptr_t PglComputeMaxAlleleCt(const uintptr_t* allele_idx_offsets, uint32_t variant_ct)
+
+
+cdef extern from "../plink2/pgenlib_ffi_support.h" namespace "plink2":
+
+    void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* genobytes)
+    void GenoarrToInt32sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* geno_int32)
+    void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t* geno_int64)
+    void GenoarrPhasedToAlleleCodesMinus9(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes)
+    void GenoarrMPToAlleleCodesMinus9(const PgenVariantStruct* pgv, uint32_t sample_ct, unsigned char* phasebytes, int32_t* allele_codes)
+    void GenoarrPhasedToHapCodes(const uintptr_t* genoarr, const uintptr_t* phaseinfo, uint32_t variant_batch_size, int32_t* hap0_codes_iter, int32_t* hap1_codes_iter)
+    void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float)
+    void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double)
+    void BytesToBitsUnsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* bitarr)
+    void BytesToGenoarrUnsafe(const int8_t* genobytes, uint32_t sample_ct, uintptr_t* genoarr)
+
+    int32_t ConvertMultiAlleleCodesUnsafe(const int32_t* allele_codes, const unsigned char* phasepresent_bytes, uint32_t sample_ct, uintptr_t* genoarr, uintptr_t* patch_01_set, AlleleCode* patch_01_vals, uintptr_t* patch_10_set, AlleleCode* patch_10_vals, uint32_t* patch_01_ctp, uint32_t* patch_10_ctp, uintptr_t* phasepresent, uintptr_t* phaseinfo)
+    void FloatsToDosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr)
+    void DoublesToDosage16(const double* doublearr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr)
 
 
 cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
@@ -113,8 +140,10 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
         uint32_t raw_variant_ct
         uint32_t raw_sample_ct
         unsigned char* vrtypes
+        uintptr_t* allele_idx_offsets
         uintptr_t* nonref_flags
         uint32_t gflags
+        uint32_t max_allele_ct
 
     ctypedef uint32_t PgenHeaderCtrl
 
@@ -146,6 +175,8 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
 
     PglErr PgrGetP(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgr_ptr, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uint32_t* phasepresent_ct_ptr)
 
+    PglErr PgrGetMP(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgr_ptr, PgenVariantStruct* pgvp)
+
     PglErr PgrGet1D(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReaderStruct* pgr_ptr, uintptr_t* allele_countvec, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr)
 
     PglErr PgrGetCounts(const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgr_ptr, uint32_t* genocounts)
@@ -156,10 +187,11 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
 
 cdef extern from "../plink2/include/pgenlib_write.h" namespace "plink2":
     cdef cppclass PgenWriterCommon:
-        uint32_t variant_ct
-        uint32_t sample_ct
-        uintptr_t* allele_idx_offsets
-        uint32_t vidx
+        pass
+
+    ctypedef enum PgenWriteMode:
+        kPgenWriteBackwardSeek
+        kPgenWriteAndCopy
 
     cdef cppclass STPgenWriter:
         pass
@@ -176,7 +208,11 @@ cdef extern from "../plink2/include/pgenlib_write.h" namespace "plink2":
 
     PglErr SpgwAppendBiallelicGenovec(const uintptr_t* genovec, STPgenWriter* spgwp)
 
+    PglErr SpgwAppendMultiallelicSparse(const uintptr_t* genovec, const uintptr_t* patch_01_set, const AlleleCode* patch_01_vals, const uintptr_t* patch_10_set, const AlleleCode* patch_10_vals, uint32_t allele_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, STPgenWriter* spgwp)
+
     PglErr SpgwAppendBiallelicGenovecHphase(const uintptr_t* genovec, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, STPgenWriter* spgwp)
+
+    PglErr SpgwAppendMultiallelicGenovecHphase(const uintptr_t* genovec, const uintptr_t* patch_01_set, const AlleleCode* patch_01_vals, const uintptr_t* patch_10_set, const AlleleCode* patch_10_vals, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t allele_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, STPgenWriter* spgwp)
 
     PglErr SpgwAppendBiallelicGenovecDosage16(const uintptr_t* genovec, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, STPgenWriter* spgwp)
 
@@ -186,7 +222,6 @@ cdef extern from "../plink2/include/pgenlib_write.h" namespace "plink2":
 
 
 cdef class PgenReader:
-    # todo: nonref_flags, multiallelic variant support
     cdef PgenFileInfo* _info_ptr
     cdef PgenReaderStruct* _state_ptr
     cdef uintptr_t* _subset_include_vec
@@ -197,11 +232,7 @@ cdef class PgenReader:
 
     cdef uint32_t _subset_size
     # preallocate buffers we'll use repeatedly
-    cdef uintptr_t* _genovec
-    cdef uintptr_t* _phasepresent
-    cdef uintptr_t* _phaseinfo
-    cdef uintptr_t* _dosage_present
-    cdef uint16_t* _dosage_main
+    cdef PgenVariantStruct _pgv
     cdef VecW* _transpose_batch_buf
     # for multi-variant load-and-transpose, we load up to
     # kPglNypTransposeBatch (= 256) variants at a time, and then transpose
@@ -211,6 +242,15 @@ cdef class PgenReader:
     cdef uintptr_t* _multivar_smaj_geno_batch_buf
     cdef uintptr_t* _multivar_smaj_phaseinfo_batch_buf
     cdef uintptr_t* _multivar_smaj_phasepresent_batch_buf
+
+    cdef set_allele_idx_offsets_internal(self, np.ndarray[np.uintp_t,mode="c",ndim=1] allele_idx_offsets):
+        # Make a copy instead of trying to share this with the caller.
+        cdef uint32_t nvariant = self._info_ptr[0].raw_variant_ct
+        cdef uintptr_t nbytes = (1 + nvariant) * sizeof(uintptr_t)
+        if cachealigned_malloc(nbytes, &self._info_ptr[0].allele_idx_offsets):
+            raise MemoryError()
+        memcpy(self._info_ptr[0].allele_idx_offsets, &(allele_idx_offsets[0]), nbytes)
+        self._info_ptr[0].max_allele_ct = PglComputeMaxAlleleCt(self._info_ptr[0].allele_idx_offsets, nvariant)
 
     cdef set_sample_subset_internal(self, np.ndarray[np.uint32_t,mode="c",ndim=1] sample_subset):
         cdef uint32_t raw_sample_ct = self._info_ptr[0].raw_sample_ct
@@ -252,7 +292,8 @@ cdef class PgenReader:
 
 
     def __cinit__(self, bytes filename, object raw_sample_ct = None,
-                  object variant_ct = None, object sample_subset = None):
+                  object variant_ct = None, object sample_subset = None,
+                  object allele_idx_offsets = None):
         self._info_ptr = <PgenFileInfo*>PyMem_Malloc(sizeof(PgenFileInfo))
         if not self._info_ptr:
             raise MemoryError()
@@ -272,8 +313,16 @@ cdef class PgenReader:
         cdef char errstr_buf[kPglErrstrBufBlen]
         if PgfiInitPhase1(fname, NULL, cur_variant_ct, cur_sample_ct, &header_ctrl, self._info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf) != kPglRetSuccess:
             raise RuntimeError(errstr_buf[7:])
-        assert (header_ctrl & 0x30) == 0 # no alt allele counts
-        cdef uintptr_t nonref_flags_byte_ct = DivUp(self._info_ptr[0].raw_variant_ct, kBitsPerWord) * kBytesPerWord
+        cdef uint32_t file_variant_ct = self._info_ptr[0].raw_variant_ct
+        if allele_idx_offsets is not None:
+            self.set_allele_idx_offsets_internal(allele_idx_offsets)
+        else:
+            if (header_ctrl & 0x30) != 0:
+                # Not tested yet, since C pgenlib doesn't yet have a mode which
+                # embeds a copy of allele_idx_offsets in the .pgen.
+                if cachealigned_malloc((file_variant_ct + 1) * sizeof(uintptr_t), &self._info_ptr[0].allele_idx_offsets):
+                    raise MemoryError()
+        cdef uintptr_t nonref_flags_byte_ct = DivUp(file_variant_ct, kBitsPerWord) * kBytesPerWord
         if (header_ctrl & 0xc0) == 0xc0:
             # explicit nonref_flags
             # might want to modify PgfiInitPhase2 to let us not load this.
@@ -287,14 +336,15 @@ cdef class PgenReader:
                 raise MemoryError()
         cdef uint32_t max_vrec_width
         cdef uintptr_t pgr_alloc_cacheline_ct
-        if PgfiInitPhase2(header_ctrl, 1, 0, 0, 0, self._info_ptr[0].raw_variant_ct, &max_vrec_width, self._info_ptr, pgfi_alloc, &pgr_alloc_cacheline_ct, errstr_buf):
+        if PgfiInitPhase2(header_ctrl, 1, 0, 0, 0, file_variant_ct, &max_vrec_width, self._info_ptr, pgfi_alloc, &pgr_alloc_cacheline_ct, errstr_buf):
             if pgfi_alloc and not self._info_ptr[0].vrtypes:
                 aligned_free(pgfi_alloc)
             raise RuntimeError(errstr_buf[7:])
         if self._info_ptr[0].gflags & kfPgenGlobalMultiallelicHardcallFound:
-            # todo: support this by wrapping pvar loader the same way as the R
-            # interface
-            raise RuntimeError("Multiallelic + phase/dosage datasets not supported yet")
+            # todo: support easy initialization of allele_idx_offsets by
+            # wrapping pvar loader the same way as the R interface
+            if self._info_ptr[0].allele_idx_offsets == NULL:
+                raise RuntimeError("PgenReader: multiallelic variants present, but allele_idx_offsets not provided")
 
         self._state_ptr = <PgenReaderStruct*>PyMem_Malloc(sizeof(PgenReaderStruct))
         if not self._state_ptr:
@@ -305,9 +355,11 @@ cdef class PgenReader:
         cdef uintptr_t sample_subset_byte_ct = DivUp(file_sample_ct, kBitsPerVec) * kBytesPerVec
         cdef uintptr_t cumulative_popcounts_byte_ct = DivUp(file_sample_ct, kBitsPerWord * kInt32PerVec) * kBytesPerVec
         cdef uintptr_t genovec_byte_ct = DivUp(file_sample_ct, kNypsPerVec) * kBytesPerVec
+        cdef uintptr_t patch_01_vals_byte_ct = RoundUpPow2(file_sample_ct * sizeof(AlleleCode), kBytesPerVec)
+        cdef uintptr_t patch_10_vals_byte_ct = RoundUpPow2(file_sample_ct * 2 * sizeof(AlleleCode), kBytesPerVec)
         cdef uintptr_t dosage_main_byte_ct = DivUp(file_sample_ct, (2 * kInt32PerVec)) * kBytesPerVec
         cdef unsigned char* pgr_alloc
-        if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglNypTransposeBatch + 5) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglNypTransposeBatch) * genovec_byte_ct + dosage_main_byte_ct + kPglBitTransposeBufbytes + 4 * (kPglNypTransposeBatch * kPglNypTransposeBatch // 8), &pgr_alloc):
+        if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglNypTransposeBatch + 7) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglNypTransposeBatch) * genovec_byte_ct + patch_01_vals_byte_ct + patch_10_vals_byte_ct + dosage_main_byte_ct + kPglBitTransposeBufbytes + 4 * (kPglNypTransposeBatch * kPglNypTransposeBatch // 8), &pgr_alloc):
             raise MemoryError()
         cdef PglErr reterr = PgrInit(fname, max_vrec_width, self._info_ptr, self._state_ptr, pgr_alloc)
         if reterr != kPglRetSuccess:
@@ -325,15 +377,23 @@ cdef class PgenReader:
 
         self._subset_cumulative_popcounts = <uint32_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[cumulative_popcounts_byte_ct])
-        self._genovec = <uintptr_t*>pgr_alloc_iter
+        self._pgv.genovec = <uintptr_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[genovec_byte_ct])
-        self._phasepresent = <uintptr_t*>pgr_alloc_iter
+        self._pgv.patch_01_set = <uintptr_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct])
-        self._phaseinfo = <uintptr_t*>pgr_alloc_iter
+        self._pgv.patch_01_vals = <AlleleCode*>pgr_alloc_iter
+        pgr_alloc_iter = &(pgr_alloc_iter[patch_01_vals_byte_ct])
+        self._pgv.patch_10_set = <uintptr_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct])
-        self._dosage_present = <uintptr_t*>pgr_alloc_iter
+        self._pgv.patch_10_vals = <AlleleCode*>pgr_alloc_iter
+        pgr_alloc_iter = &(pgr_alloc_iter[patch_10_vals_byte_ct])
+        self._pgv.phasepresent = <uintptr_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct])
-        self._dosage_main = <uint16_t*>pgr_alloc_iter
+        self._pgv.phaseinfo = <uintptr_t*>pgr_alloc_iter
+        pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct])
+        self._pgv.dosage_present = <uintptr_t*>pgr_alloc_iter
+        pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct])
+        self._pgv.dosage_main = <uint16_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[dosage_main_byte_ct])
         if sample_subset is not None:
             self.set_sample_subset_internal(sample_subset)
@@ -373,7 +433,7 @@ cdef class PgenReader:
 
 
     cpdef read(self, uint32_t variant_idx, np.ndarray geno_int_out, uint32_t allele_idx = 1):
-        # for full genotype info for multiallelic variants, use read_phased()
+        # for full genotype info for multiallelic variants, use read_alleles()
         # instead
 
         # when this is too much bounds-checking, caller should be using
@@ -386,7 +446,7 @@ cdef class PgenReader:
         if geno_int_out.shape[0] < subset_size:
             raise RuntimeError("read() geno_int_out is too small (" + str(geno_int_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ").")
 
-        cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* genovec = self._pgv.genovec
         cdef PglErr reterr = PgrGet1(self._subset_include_vec, self._subset_index, subset_size, variant_idx, allele_idx, self._state_ptr, genovec)
         if reterr != kPglRetSuccess:
             raise RuntimeError("read() error " + str(reterr))
@@ -417,17 +477,17 @@ cdef class PgenReader:
             raise RuntimeError("read_dosages() floatarr_out is too small (" + str(floatarr_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ").")
 
         cdef uint32_t dosage_ct
-        cdef PglErr reterr = PgrGet1D(self._subset_include_vec, self._subset_index, subset_size, variant_idx, allele_idx, self._state_ptr, self._genovec, self._dosage_present, self._dosage_main, &dosage_ct)
+        cdef PglErr reterr = PgrGet1D(self._subset_include_vec, self._subset_index, subset_size, variant_idx, allele_idx, self._state_ptr, self._pgv.genovec, self._pgv.dosage_present, self._pgv.dosage_main, &dosage_ct)
         if reterr != kPglRetSuccess:
             raise RuntimeError("read_dosages() error " + str(reterr))
         cdef float* data32_ptr
         cdef double* data64_ptr
         if floatarr_out.dtype == np.float32:
             data32_ptr = <float*>floatarr_out.data
-            Dosage16ToFloatsMinus9(self._genovec, self._dosage_present, self._dosage_main, subset_size, dosage_ct, data32_ptr)
+            Dosage16ToFloatsMinus9(self._pgv.genovec, self._pgv.dosage_present, self._pgv.dosage_main, subset_size, dosage_ct, data32_ptr)
         elif floatarr_out.dtype == np.float64:
             data64_ptr = <double*>floatarr_out.data
-            Dosage16ToDoublesMinus9(self._genovec, self._dosage_present, self._dosage_main, subset_size, dosage_ct, data64_ptr)
+            Dosage16ToDoublesMinus9(self._pgv.genovec, self._pgv.dosage_present, self._pgv.dosage_main, subset_size, dosage_ct, data64_ptr)
         else:
             raise RuntimeError("Invalid read_dosages() floatarr_out array element type (float32 or float64 expected).")
         return
@@ -440,13 +500,11 @@ cdef class PgenReader:
         if allele_int32_out.shape[0] < subset_size:
             raise RuntimeError("read_alleles() allele_int32_out is too small (" + str(allele_int32_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ").")
 
-        cdef uint32_t phasepresent_ct
-        # upgrade to multiallelic version of this function in the future
-        cdef PglErr reterr = PgrGetP(self._subset_include_vec, self._subset_index, subset_size, variant_idx, self._state_ptr, self._genovec, self._phasepresent, self._phaseinfo, &phasepresent_ct)
+        cdef PglErr reterr = PgrGetMP(self._subset_include_vec, self._subset_index, subset_size, variant_idx, self._state_ptr, &self._pgv)
         if reterr != kPglRetSuccess:
             raise RuntimeError("read_alleles() error " + str(reterr))
         cdef int32_t* main_data_ptr = <int32_t*>(&(allele_int32_out[0]))
-        GenoarrPhasedToAlleleCodesMinus9(self._genovec, self._phasepresent, self._phaseinfo, subset_size, phasepresent_ct, NULL, main_data_ptr)
+        GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, NULL, main_data_ptr)
         return
 
 
@@ -459,14 +517,12 @@ cdef class PgenReader:
         if phasepresent_out.shape[0] < subset_size:
             raise RuntimeError("read_alleles_and_phasepresent() phasepresent_out is too small (" + str(phasepresent_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ").")
 
-        cdef uint32_t phasepresent_ct
-        # upgrade to multiallelic version of this function in the future
-        cdef PglErr reterr = PgrGetP(self._subset_include_vec, self._subset_index, subset_size, variant_idx, self._state_ptr, self._genovec, self._phasepresent, self._phaseinfo, &phasepresent_ct)
+        cdef PglErr reterr = PgrGetMP(self._subset_include_vec, self._subset_index, subset_size, variant_idx, self._state_ptr, &self._pgv)
         if reterr != kPglRetSuccess:
             raise RuntimeError("read_alleles_and_phasepresent() error " + str(reterr))
         cdef int32_t* main_data_ptr = <int32_t*>(&(allele_int32_out[0]))
         cdef unsigned char* phasepresent_data_ptr = <unsigned char*>(&(phasepresent_out[0]))
-        GenoarrPhasedToAlleleCodesMinus9(self._genovec, self._phasepresent, self._phaseinfo, subset_size, phasepresent_ct, phasepresent_data_ptr, main_data_ptr)
+        GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, phasepresent_data_ptr, main_data_ptr)
         return
 
 
@@ -480,7 +536,7 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* genovec = self._pgv.genovec
         cdef uint32_t variant_idx_ct = variant_idx_end - variant_idx_start
         cdef uint32_t subset_size = self._subset_size
         cdef int8_t* data_ptr
@@ -546,7 +602,7 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* genovec = self._pgv.genovec
         cdef uint32_t variant_idx_ct = variant_idx_end - variant_idx_start
         cdef uint32_t subset_size = self._subset_size
         cdef int32_t* data_ptr
@@ -612,7 +668,7 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* genovec = self._pgv.genovec
         cdef uint32_t variant_idx_ct = variant_idx_end - variant_idx_start
         cdef uint32_t subset_size = self._subset_size
         cdef int64_t* data_ptr
@@ -693,7 +749,7 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* genovec = self._pgv.genovec
         cdef uint32_t variant_idx_ct = <uint32_t>variant_idxs.shape[0]
         cdef uint32_t subset_size = self._subset_size
         cdef int8_t* data_ptr
@@ -765,7 +821,7 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* genovec = self._pgv.genovec
         cdef uint32_t variant_idx_ct = <uint32_t>variant_idxs.shape[0]
         cdef uint32_t subset_size = self._subset_size
         cdef int32_t* data_ptr
@@ -837,7 +893,7 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* genovec = self._pgv.genovec
         cdef uint32_t variant_idx_ct = <uint32_t>variant_idxs.shape[0]
         cdef uint32_t subset_size = self._subset_size
         cdef int64_t* data_ptr
@@ -926,9 +982,9 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
-        cdef uintptr_t* phasepresent = self._phasepresent
-        cdef uintptr_t* phaseinfo = self._phaseinfo
+        cdef uintptr_t* genovec = self._pgv.genovec
+        cdef uintptr_t* phasepresent = self._pgv.phasepresent
+        cdef uintptr_t* phaseinfo = self._pgv.phaseinfo
         cdef uint32_t variant_idx_ct = variant_idx_end - variant_idx_start
         cdef uint32_t subset_size = self._subset_size
         cdef int32_t* main_data_ptr
@@ -1025,9 +1081,9 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
-        cdef uintptr_t* phasepresent = self._phasepresent
-        cdef uintptr_t* phaseinfo = self._phaseinfo
+        cdef uintptr_t* genovec = self._pgv.genovec
+        cdef uintptr_t* phasepresent = self._pgv.phasepresent
+        cdef uintptr_t* phaseinfo = self._pgv.phaseinfo
         cdef uint32_t variant_idx_ct = <uint32_t>variant_idxs.shape[0]
         cdef uint32_t subset_size = self._subset_size
         cdef int32_t* main_data_ptr
@@ -1127,9 +1183,9 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
-        cdef uintptr_t* phasepresent = self._phasepresent
-        cdef uintptr_t* phaseinfo = self._phaseinfo
+        cdef uintptr_t* genovec = self._pgv.genovec
+        cdef uintptr_t* phasepresent = self._pgv.phasepresent
+        cdef uintptr_t* phaseinfo = self._pgv.phaseinfo
         cdef uint32_t variant_idx_ct = variant_idx_end - variant_idx_start
         cdef uint32_t subset_size = self._subset_size
         cdef int32_t* main_data_ptr
@@ -1167,9 +1223,9 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
-        cdef uintptr_t* phasepresent = self._phasepresent
-        cdef uintptr_t* phaseinfo = self._phaseinfo
+        cdef uintptr_t* genovec = self._pgv.genovec
+        cdef uintptr_t* phasepresent = self._pgv.phasepresent
+        cdef uintptr_t* phaseinfo = self._pgv.phaseinfo
         cdef uint32_t variant_idx_ct = <uint32_t>variant_idxs.shape[0]
         cdef uint32_t subset_size = self._subset_size
         cdef int32_t* main_data_ptr
@@ -1206,9 +1262,9 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
-        cdef uintptr_t* dosage_present = self._dosage_present
-        cdef uint16_t* dosage_main = self._dosage_main
+        cdef uintptr_t* genovec = self._pgv.genovec
+        cdef uintptr_t* dosage_present = self._pgv.dosage_present
+        cdef uint16_t* dosage_main = self._pgv.dosage_main
         cdef uint32_t variant_idx_ct = variant_idx_end - variant_idx_start
         cdef uint32_t subset_size = self._subset_size
         cdef float* data32_ptr
@@ -1230,9 +1286,9 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
-        cdef uintptr_t* dosage_present = self._dosage_present
-        cdef uint16_t* dosage_main = self._dosage_main
+        cdef uintptr_t* genovec = self._pgv.genovec
+        cdef uintptr_t* dosage_present = self._pgv.dosage_present
+        cdef uint16_t* dosage_main = self._pgv.dosage_main
         cdef uint32_t variant_idx_ct = variant_idx_end - variant_idx_start
         cdef uint32_t subset_size = self._subset_size
         cdef double* data64_ptr
@@ -1267,9 +1323,9 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
-        cdef uintptr_t* dosage_present = self._dosage_present
-        cdef uint16_t* dosage_main = self._dosage_main
+        cdef uintptr_t* genovec = self._pgv.genovec
+        cdef uintptr_t* dosage_present = self._pgv.dosage_present
+        cdef uint16_t* dosage_main = self._pgv.dosage_main
         cdef uint32_t variant_idx_ct = <uint32_t>variant_idxs.shape[0]
         cdef uint32_t subset_size = self._subset_size
         cdef float* data32_ptr
@@ -1300,9 +1356,9 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._genovec
-        cdef uintptr_t* dosage_present = self._dosage_present
-        cdef uint16_t* dosage_main = self._dosage_main
+        cdef uintptr_t* genovec = self._pgv.genovec
+        cdef uintptr_t* dosage_present = self._pgv.dosage_present
+        cdef uint16_t* dosage_main = self._pgv.dosage_main
         cdef uint32_t variant_idx_ct = <uint32_t>variant_idxs.shape[0]
         cdef uint32_t subset_size = self._subset_size
         cdef double* data64_ptr
@@ -1368,6 +1424,8 @@ cdef class PgenReader:
             CleanupPgfi(self._info_ptr, &reterr)
             if self._info_ptr[0].vrtypes:
                 aligned_free(self._info_ptr[0].vrtypes)
+            if self._info_ptr[0].allele_idx_offsets:
+                aligned_free(self._info_ptr[0].allele_idx_offsets)
             if self._info_ptr[0].nonref_flags:
                 aligned_free(self._info_ptr[0].nonref_flags)
             if self._state_ptr:
@@ -1394,6 +1452,8 @@ cdef class PgenReader:
             CleanupPgfi(self._info_ptr, &reterr)
             if self._info_ptr[0].vrtypes:
                 aligned_free(self._info_ptr[0].vrtypes)
+            if self._info_ptr[0].allele_idx_offsets:
+                aligned_free(self._info_ptr[0].allele_idx_offsets)
             if self._info_ptr[0].nonref_flags:
                 aligned_free(self._info_ptr[0].nonref_flags)
             if self._state_ptr:
@@ -1413,8 +1473,13 @@ cdef class PgenWriter:
     cdef STPgenWriter* _state_ptr
     cdef uintptr_t* _nonref_flags
     cdef PgenGlobalFlags _phase_dosage_gflags
+    cdef uint32_t _allele_ct_limit
     # preallocate buffers we'll use repeatedly
     cdef uintptr_t* _genovec
+    cdef uintptr_t* _patch_01_set
+    cdef AlleleCode* _patch_01_vals
+    cdef uintptr_t* _patch_10_set
+    cdef AlleleCode* _patch_10_vals
     cdef uintptr_t* _phasepresent
     cdef uintptr_t* _phaseinfo
     cdef uintptr_t* _dosage_present
@@ -1422,17 +1487,31 @@ cdef class PgenWriter:
 
 
     def __cinit__(self, bytes filename, uint32_t sample_ct,
-                  uint32_t variant_ct, object nonref_flags,
-                  object allele_idx_offsets = None,
+                  object variant_ct = None, object nonref_flags = True,
+                  uint32_t allele_ct_limit = 2,
                   bint hardcall_phase_present = False,
                   bint dosage_present = False,
-                  bint dosage_phase_present = False):
+                  bint dosage_phase_present = False,
+                  object variant_ct_limit = None):
+        cdef PgenWriteMode write_mode = kPgenWriteBackwardSeek
+        cdef uint32_t cur_variant_ct_limit
+        if variant_ct is not None:
+            # Could also enforce variant_ct >= variant_ct_limit when both are
+            # provided?
+            cur_variant_ct_limit = variant_ct
+        elif variant_ct_limit is not None:
+            write_mode = kPgenWriteAndCopy
+            cur_variant_ct_limit = variant_ct_limit
+        else:
+            raise RuntimeError("Invalid arguments for PgenWriter constructor (variant_ct or variant_ct_upper_bound must be provided).")
+        if cur_variant_ct_limit == 0 or cur_variant_ct_limit > kPglMaxVariantCt:
+            raise RuntimeError("Invalid arguments for PgenWriter constructor (variant_ct must be positive, and less than ~2^31).")
         if dosage_phase_present and not dosage_present:
             raise RuntimeError("Invalid arguments for PgenWriter constructor (dosage_phase_present true but dosage_present false).")
-        if allele_idx_offsets is not None:
-            for uii in range(variant_ct + 1):
-                if allele_idx_offsets[uii] != uii * 2:
-                    raise RuntimeError("Multiallelic variants aren't supported by PgenWriter yet.")
+        if allele_ct_limit != 2:
+            if (allele_ct_limit < 2) or (allele_ct_limit > kPglMaxAlleleCt):
+                raise RuntimeError("Invalid arguments for PgenWriter constructor (allele_ct_limit must be in [2, 255]).")
+            write_mode = kPgenWriteAndCopy
 
         self._state_ptr = <STPgenWriter*>PyMem_Malloc(sizeof(STPgenWriter))
         if not self._state_ptr:
@@ -1459,22 +1538,48 @@ cdef class PgenWriter:
             phase_dosage_gflags |= kfPgenGlobalDosagePresent
         self._phase_dosage_gflags = phase_dosage_gflags
         assert not dosage_phase_present
+
         cdef uintptr_t alloc_cacheline_ct
         cdef uint32_t max_vrec_len
-        cdef PglErr reterr = SpgwInitPhase1(fname, NULL, self._nonref_flags, variant_ct, sample_ct, 0, 0, phase_dosage_gflags, nonref_flags_storage, self._state_ptr, &alloc_cacheline_ct, &max_vrec_len)
+        cdef PglErr reterr = SpgwInitPhase1(fname, NULL, self._nonref_flags, cur_variant_ct_limit, sample_ct, allele_ct_limit, write_mode, phase_dosage_gflags, nonref_flags_storage, self._state_ptr, &alloc_cacheline_ct, &max_vrec_len)
         if reterr != kPglRetSuccess:
             raise RuntimeError("SpgwInitPhase1() error " + str(reterr))
         cdef uint32_t genovec_cacheline_ct = DivUp(sample_ct, kNypsPerCacheline)
+        cdef uint32_t patch_01_vals_cacheline_ct = DivUp(sample_ct * sizeof(AlleleCode), kCacheline)
+        cdef uint32_t patch_10_vals_cacheline_ct = DivUp(sample_ct * 2 * sizeof(AlleleCode), kCacheline)
         cdef uint32_t dosage_main_cacheline_ct = DivUp(sample_ct, (2 * kInt32PerCacheline))
         cdef unsigned char* spgw_alloc
-        if cachealigned_malloc((alloc_cacheline_ct + genovec_cacheline_ct + 3 * bitvec_cacheline_ct + dosage_main_cacheline_ct) * kCacheline, &spgw_alloc):
+        if cachealigned_malloc((alloc_cacheline_ct + genovec_cacheline_ct + 5 * bitvec_cacheline_ct + patch_01_vals_cacheline_ct + patch_10_vals_cacheline_ct + dosage_main_cacheline_ct) * kCacheline, &spgw_alloc):
             raise MemoryError()
         SpgwInitPhase2(max_vrec_len, self._state_ptr, spgw_alloc)
-        self._genovec = <uintptr_t*>(&(spgw_alloc[alloc_cacheline_ct * kCacheline]))
-        self._phasepresent = <uintptr_t*>(&(spgw_alloc[(alloc_cacheline_ct + genovec_cacheline_ct) * kCacheline]))
-        self._phaseinfo = <uintptr_t*>(&(spgw_alloc[(alloc_cacheline_ct + genovec_cacheline_ct + bitvec_cacheline_ct) * kCacheline]))
-        self._dosage_present = <uintptr_t*>(&(spgw_alloc[(alloc_cacheline_ct + genovec_cacheline_ct + 2 * bitvec_cacheline_ct) * kCacheline]))
-        self._dosage_main = <uint16_t*>(&(spgw_alloc[(alloc_cacheline_ct + genovec_cacheline_ct + 3 * bitvec_cacheline_ct) * kCacheline]))
+        cdef unsigned char* spgw_alloc_iter = &(spgw_alloc[alloc_cacheline_ct * kCacheline])
+        self._allele_ct_limit = allele_ct_limit
+        self._genovec = <uintptr_t*>(spgw_alloc_iter)
+        spgw_alloc_iter = &(spgw_alloc_iter[genovec_cacheline_ct * kCacheline])
+
+        # Can't skimp on patch_{01,10}_{set,vals} allocations even when
+        # allele_ct_limit == 2, due to how ConvertMultiAlleleCodesUnsafe()
+        # works.
+        # Could skimp on dosage/phase, but that doesn't gain us much.
+        self._patch_01_set = <uintptr_t*>(spgw_alloc_iter)
+        spgw_alloc_iter = &(spgw_alloc_iter[bitvec_cacheline_ct * kCacheline])
+        self._patch_01_vals = <AlleleCode*>(spgw_alloc_iter)
+        spgw_alloc_iter = &(spgw_alloc_iter[patch_01_vals_cacheline_ct * kCacheline])
+        self._patch_10_set = <uintptr_t*>(spgw_alloc_iter)
+        spgw_alloc_iter = &(spgw_alloc_iter[bitvec_cacheline_ct * kCacheline])
+        self._patch_10_vals = <AlleleCode*>(spgw_alloc_iter)
+        spgw_alloc_iter = &(spgw_alloc_iter[patch_10_vals_cacheline_ct * kCacheline])
+        self._phasepresent = <uintptr_t*>(spgw_alloc_iter)
+        spgw_alloc_iter = &(spgw_alloc_iter[bitvec_cacheline_ct * kCacheline])
+        self._phaseinfo = <uintptr_t*>(spgw_alloc_iter)
+        spgw_alloc_iter = &(spgw_alloc_iter[bitvec_cacheline_ct * kCacheline])
+        self._dosage_present = <uintptr_t*>(spgw_alloc_iter)
+        spgw_alloc_iter = &(spgw_alloc_iter[bitvec_cacheline_ct * kCacheline])
+        self._dosage_main = <uint16_t*>(spgw_alloc_iter)
+        # bugfix (16 Apr 2023): SpgwAppendBiallelicGenovec[Hphase] assumes
+        # trailing bits are clear
+        self._genovec[(sample_ct - 1) // kBitsPerWordD2] = 0
+        self._phasepresent[(sample_ct - 1) // kBitsPerWord] = 0
         return
 
 
@@ -1493,16 +1598,36 @@ cdef class PgenWriter:
 
     cpdef append_alleles(self, np.ndarray[np.int32_t,mode="c"] allele_int32, bint all_phased = False):
         cdef int32_t* allele_codes = <int32_t*>(&(allele_int32[0]))
+        cdef uint32_t sample_ct = SpgwGetSampleCt(self._state_ptr)
+        cdef uint32_t allele_ct_limit = self._allele_ct_limit
         cdef uintptr_t* genovec = self._genovec
-        cdef PglErr reterr
-        if not all_phased:
-            AlleleCodesToGenoarrUnsafe(allele_codes, NULL, SpgwGetSampleCt(self._state_ptr), genovec, NULL, NULL)
-            reterr = SpgwAppendBiallelicGenovec(genovec, self._state_ptr)
-        else:
+        cdef uintptr_t* patch_01_set = self._patch_01_set
+        cdef AlleleCode* patch_01_vals = self._patch_01_vals
+        cdef uintptr_t* patch_10_set = self._patch_10_set
+        cdef AlleleCode* patch_10_vals = self._patch_10_vals
+        cdef uintptr_t* phaseinfo = NULL
+        if all_phased:
             if (self._phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) == 0:
                 raise RuntimeError("append_alleles called with all_phased True, but PgenWriter was constructed with hardcall_phase_present False")
-            AlleleCodesToGenoarrUnsafe(allele_codes, NULL, SpgwGetSampleCt(self._state_ptr), genovec, NULL, self._phaseinfo)
-            reterr = SpgwAppendBiallelicGenovecHphase(genovec, NULL, self._phaseinfo, self._state_ptr)
+            phaseinfo = self._phaseinfo
+        cdef uint32_t patch_01_ct
+        cdef uint32_t patch_10_ct
+        cdef int32_t allele_ct = ConvertMultiAlleleCodesUnsafe(allele_codes, NULL, sample_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct, NULL, phaseinfo)
+        if allele_ct == -1:
+            raise RuntimeError("append_alleles called with invalid allele codes")
+        if <uint32_t>(allele_ct) > allele_ct_limit:
+            raise RuntimeError("append_alleles called with allele codes >= allele_ct_limit; you may need to construct the PgenWriter with a higher allele_ct_limit setting")
+        cdef PglErr reterr
+        if not all_phased:
+            if (patch_01_ct == 0) and (patch_10_ct == 0):
+                reterr = SpgwAppendBiallelicGenovec(genovec, self._state_ptr)
+            else:
+                reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, allele_ct, patch_01_ct, patch_10_ct, self._state_ptr)
+        else:
+            if (patch_01_ct == 0) and (patch_10_ct == 0):
+                reterr = SpgwAppendBiallelicGenovecHphase(genovec, NULL, phaseinfo, self._state_ptr)
+            else:
+                reterr = SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, NULL, phaseinfo, allele_ct, patch_01_ct, patch_10_ct, self._state_ptr)
         if reterr != kPglRetSuccess:
             raise RuntimeError("append_alleles() error " + str(reterr))
         return
@@ -1513,11 +1638,27 @@ cdef class PgenWriter:
             raise RuntimeError("append_partially_phased cannot be called when PgenWriter was constructed with hardcall_phase_present False")
         cdef int32_t* allele_codes = <int32_t*>(&(allele_int32[0]))
         cdef unsigned char* phasepresent_bytes = <unsigned char*>(&(phasepresent[0]))
+        cdef uint32_t sample_ct = SpgwGetSampleCt(self._state_ptr)
+        cdef uint32_t allele_ct_limit = self._allele_ct_limit
         cdef uintptr_t* genovec = self._genovec
         cdef uintptr_t* phasepresent_buf = self._phasepresent
         cdef uintptr_t* phaseinfo = self._phaseinfo
-        AlleleCodesToGenoarrUnsafe(allele_codes, phasepresent_bytes, SpgwGetSampleCt(self._state_ptr), genovec, phasepresent_buf, phaseinfo)
-        cdef PglErr reterr = SpgwAppendBiallelicGenovecHphase(genovec, phasepresent_buf, phaseinfo, self._state_ptr)
+        cdef uintptr_t* patch_01_set = self._patch_01_set
+        cdef AlleleCode* patch_01_vals = self._patch_01_vals
+        cdef uintptr_t* patch_10_set = self._patch_10_set
+        cdef AlleleCode* patch_10_vals = self._patch_10_vals
+        cdef uint32_t patch_01_ct
+        cdef uint32_t patch_10_ct
+        cdef int32_t allele_ct = ConvertMultiAlleleCodesUnsafe(allele_codes, phasepresent_bytes, sample_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct, phasepresent_buf, phaseinfo)
+        if allele_ct == -1:
+            raise RuntimeError("append_partially_phased called with invalid allele codes")
+        if <uint32_t>(allele_ct) > allele_ct_limit:
+            raise RuntimeError("append_partially_phased called with allele codes >= allele_ct_limit; you may need to construct the PgenWriter with a higher allele_ct_limit setting")
+        cdef PglErr reterr
+        if (patch_01_ct == 0) and (patch_10_ct == 0):
+            reterr = SpgwAppendBiallelicGenovecHphase(genovec, phasepresent_buf, phaseinfo, self._state_ptr)
+        else:
+            reterr = SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent_buf, phaseinfo, allele_ct, patch_01_ct, patch_10_ct, self._state_ptr)
         if reterr != kPglRetSuccess:
             raise RuntimeError("append_partially_phased() error " + str(reterr))
         return
@@ -1573,15 +1714,31 @@ cdef class PgenWriter:
 
     cpdef append_alleles_batch(self, np.ndarray[np.int32_t,mode="c",ndim=2] allele_int32_batch, bint all_phased = False):
         cdef uint32_t batch_size = <uint32_t>allele_int32_batch.shape[0]
+        cdef uint32_t sample_ct = SpgwGetSampleCt(self._state_ptr)
+        cdef uint32_t allele_ct_limit = self._allele_ct_limit
         cdef uintptr_t* genovec = self._genovec
         cdef int32_t* allele_codes
+        cdef uintptr_t* patch_01_set = self._patch_01_set
+        cdef AlleleCode* patch_01_vals = self._patch_01_vals
+        cdef uintptr_t* patch_10_set = self._patch_10_set
+        cdef AlleleCode* patch_10_vals = self._patch_10_vals
         cdef uint32_t uii
+        cdef int32_t allele_ct
+        cdef uint32_t patch_01_ct
+        cdef uint32_t patch_10_ct
         cdef PglErr reterr
         if not all_phased:
             for uii in range(batch_size):
                 allele_codes = <int32_t*>(&(allele_int32_batch[uii, 0]))
-                AlleleCodesToGenoarrUnsafe(allele_codes, NULL, SpgwGetSampleCt(self._state_ptr), genovec, NULL, NULL)
-                reterr = SpgwAppendBiallelicGenovec(genovec, self._state_ptr)
+                allele_ct = ConvertMultiAlleleCodesUnsafe(allele_codes, NULL, sample_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct, NULL, NULL)
+                if allele_ct == -1:
+                    raise RuntimeError("append_alleles_batch called with invalid allele codes")
+                if <uint32_t>(allele_ct) > allele_ct_limit:
+                    raise RuntimeError("append_alleles_batch called with allele codes >= allele_ct_limit; you may need to construct the PgenWriter with a higher allele_ct_limit setting")
+                if (patch_01_ct == 0) and (patch_10_ct == 0):
+                    reterr = SpgwAppendBiallelicGenovec(genovec, self._state_ptr)
+                else:
+                    reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, allele_ct, patch_01_ct, patch_10_ct, self._state_ptr)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("append_alleles_batch() error " + str(reterr))
         else:
@@ -1589,8 +1746,15 @@ cdef class PgenWriter:
                 raise RuntimeError("append_alleles_batch called with all_phased True, but PgenWriter was constructed with hardcall_phase_present False")
             for uii in range(batch_size):
                 allele_codes = <int32_t*>(&(allele_int32_batch[uii, 0]))
-                AlleleCodesToGenoarrUnsafe(allele_codes, NULL, SpgwGetSampleCt(self._state_ptr), genovec, NULL, self._phaseinfo)
-                reterr = SpgwAppendBiallelicGenovecHphase(genovec, NULL, self._phaseinfo, self._state_ptr)
+                allele_ct = ConvertMultiAlleleCodesUnsafe(allele_codes, NULL, sample_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct, NULL, self._phaseinfo)
+                if allele_ct == -1:
+                    raise RuntimeError("append_alleles_batch called with invalid allele codes")
+                if <uint32_t>(allele_ct) > allele_ct_limit:
+                    raise RuntimeError("append_alleles_batch called with allele codes >= allele_ct_limit; you may need to construct the PgenWriter with a higher allele_ct_limit setting")
+                if (patch_01_ct == 0) and (patch_10_ct == 0):
+                    reterr = SpgwAppendBiallelicGenovecHphase(genovec, NULL, self._phaseinfo, self._state_ptr)
+                else:
+                    reterr = SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, NULL, self._phaseinfo, allele_ct, patch_01_ct, patch_10_ct, self._state_ptr)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("append_alleles_batch() error " + str(reterr))
         return
@@ -1600,18 +1764,33 @@ cdef class PgenWriter:
         if (self._phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) == 0:
             raise RuntimeError("append_partially_phased_batch cannot be called when PgenWriter was constructed with hardcall_phase_present False")
         cdef uint32_t batch_size = <uint32_t>allele_int32_batch.shape[0]
+        cdef uint32_t sample_ct = SpgwGetSampleCt(self._state_ptr)
+        cdef uint32_t allele_ct_limit = self._allele_ct_limit
         cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* patch_01_set = self._patch_01_set
+        cdef AlleleCode* patch_01_vals = self._patch_01_vals
+        cdef uintptr_t* patch_10_set = self._patch_10_set
+        cdef AlleleCode* patch_10_vals = self._patch_10_vals
         cdef uintptr_t* phasepresent_buf = self._phasepresent
         cdef uintptr_t* phaseinfo = self._phaseinfo
         cdef int32_t* allele_codes
         cdef unsigned char* phasepresent_bytes
         cdef uint32_t uii
+        cdef uint32_t patch_01_ct
+        cdef uint32_t patch_10_ct
         cdef PglErr reterr
         for uii in range(batch_size):
             allele_codes = <int32_t*>(&(allele_int32_batch[uii, 0]))
             phasepresent_bytes = <unsigned char*>(&(phasepresent_batch[uii, 0]))
-            AlleleCodesToGenoarrUnsafe(allele_codes, phasepresent_bytes, SpgwGetSampleCt(self._state_ptr), genovec, phasepresent_buf, phaseinfo)
-            reterr = SpgwAppendBiallelicGenovecHphase(genovec, phasepresent_buf, phaseinfo, self._state_ptr)
+            allele_ct = ConvertMultiAlleleCodesUnsafe(allele_codes, phasepresent_bytes, sample_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct, phasepresent_buf, phaseinfo)
+            if allele_ct == -1:
+                raise RuntimeError("append_partially_phased_batch called with invalid allele codes")
+            if <uint32_t>(allele_ct) > allele_ct_limit:
+                raise RuntimeError("append_partially_phased_batch called with allele codes >= allele_ct_limit; you may need to construct the PgenWriter with a higher allele_ct_limit setting")
+            if (patch_01_ct == 0) and (patch_10_ct == 0):
+                reterr = SpgwAppendBiallelicGenovecHphase(genovec, phasepresent_buf, phaseinfo, self._state_ptr)
+            else:
+                reterr = SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent_buf, phaseinfo, allele_ct, patch_01_ct, patch_10_ct, self._state_ptr)
             if reterr != kPglRetSuccess:
                 raise RuntimeError("append_partially_phased_batch() error " + str(reterr))
         return
@@ -1660,10 +1839,13 @@ cdef class PgenWriter:
 
 
     cpdef close(self):
+        cdef PglErr reterr = kPglRetSuccess
         if self._state_ptr:
             if SpgwGetVidx(self._state_ptr) != SpgwGetVariantCt(self._state_ptr):
                 raise RuntimeError("PgenWriter.close() called when number of written variants (" + str(SpgwGetVidx(self._state_ptr)) + ") unequal to initially declared value (" + str(SpgwGetVariantCt(self._state_ptr)) + ").")
-            SpgwFinish(self._state_ptr)
+            reterr = SpgwFinish(self._state_ptr)
+            if reterr != kPglRetSuccess:
+                raise RuntimeError("PgenWriter.close(): SpgwFinish() error " + str(reterr))
             if self._nonref_flags:
                 aligned_free(self._nonref_flags)
             PyMem_Free(self._state_ptr)
@@ -1680,7 +1862,9 @@ cdef class PgenWriter:
         cdef PglErr reterr = kPglRetSuccess
         if self._state_ptr:
             if SpgwGetVidx(self._state_ptr) == SpgwGetVariantCt(self._state_ptr):
-                SpgwFinish(self._state_ptr)
+                reterr = SpgwFinish(self._state_ptr)
+                if reterr != kPglRetSuccess:
+                    raise RuntimeError("PgenWriter.__dealloc__(): SpgwFinish() error " + str(reterr))
             else:
                 CleanupSpgw(self._state_ptr, &reterr)
             if self._nonref_flags:

@@ -1,9 +1,9 @@
-Pgenlib Python API specification, v0.8
+Pgenlib Python API specification, v0.83
 ("import numpy as np" assumed)
 
 class PgenReader:
 * PgenReader(bytes filename, raw_sample_ct = None, variant_ct = None,
-             sample_subset = None)
+             sample_subset = None, allele_idx_offsets = None)
   Constructor, opens the .pgen or .bed file.  Requires a filename (exception is
   thrown if file doesn't exist or it's invalid).
   - raw_sample_ct is required for a .bed file (otherwise an exception will be
@@ -32,6 +32,10 @@ class PgenReader:
     exception is thrown if any value is not an integer in 0..(raw_sample_ct -
     1), or the values are not strictly increasing, or the array is empty.
     (Empty array might be permitted in the future.)
+  - allele_idx_offsets is required when multiallelic variants are present.
+    When provided, it should be a np.uintp array of length (variant_ct+1),
+    where allele_idx_offsets[i+1] - allele_idx_offsets[i] is max(2, number of
+    alleles for 0-based variant i).
 
 * get_raw_sample_ct()
   Returns the number of samples in the .pgen file.
@@ -49,8 +53,7 @@ class PgenReader:
   (as distinguished from raw_sample_ct) is the size of the current sample
   subset.  These values are in {0, 1, 2, -9}; by default, 0/1/2 represents the
   alternate allele count.  Setting allele_idx = 0 causes reference allele
-  counts to be reported instead.  (If we ever use multiallelic variant records,
-  setting allele_idx = 2 causes alternate allele 2 counts, etc.)
+  counts to be reported instead, etc.
   - I tried the interface without the required outbuffer, and it could take
     twice as long due to all the extra allocation/deallocation.  The buffer can
     be allocated with
@@ -85,8 +88,6 @@ class PgenReader:
   - If int32_t is problematically large, you probably want to work with a 2-bit
     representation rather than int8_t.  That's outside the scope of this API;
     you may instead want to adapt the appropriate pgenlib.pyx function.
-  - Multiallelic variants aren't fully supported yet.  Instead, all ALT alleles
-    are effectively collapsed into one.
 
 * read_range(uint32_t variant_idx_start, uint32_t variant_idx_end,
              np.ndarray[np.int{8,32,64}_t,mode="c",ndim=2] geno_int_out,
@@ -127,8 +128,6 @@ class PgenReader:
 
   The sample/haplotype-major modes of read_dosages_{range,list} and
   read_alleles_and_phasepresent_{range,list} are not implemented yet.
-  The read_alleles_... functions do not fully support multiallelic variants
-  yet (all ALT alleles are effectively collapsed into one).
 
 * count(uint32_t variant_idx, np.ndarray[np.uint32_t] genocount_uint32_out,
         uint32_t allele_idx = 1)
@@ -143,7 +142,7 @@ class PgenReader:
     for multiallelic variants; instead it has 1 + v(v+1)/2 elements where v is
     the number of alleles, in 0/0, 0/1, 1/1, 0/2, 1/2, 2/2, 0/3, ...,
     (v-1)/(v-1), ./. order.  (This matches VCF FORMAT:GL order.)
-  (Todo: check whether multi-variant analogues of read/read_phased/count have
+  (Todo: check whether multi-variant analogues of read/read_alleles/count have
   any value.)
 
 * phased_samples() [not written yet]
@@ -151,7 +150,7 @@ class PgenReader:
   numpy bool_ array where element n is true iff sample n has at least one phase
   set.  Throws an exception if phased variants are present, but no phase set
   data track is present.  (Note that the phase set data track is not
-  implemented yet, but it should be within the next few months.)
+  implemented yet.)
 
 * change_sample_subset(sample_subset = None)
   Changes the subset of samples to read.
@@ -167,25 +166,23 @@ class PgenReader:
 
 
 class PgenWriter:
-* PgenWriter(bytes filename, uint32_t sample_ct, uint32_t variant_ct,
-             nonref_flags, allele_idx_offsets = None,
+* PgenWriter(bytes filename, uint32_t sample_ct, variant_ct = None,
+             nonref_flags = True, allele_ct_limit = 2,
              hardcall_phase_present = False, dosage_present = False,
-             dosage_phase_present = False)
+             dosage_phase_present = False, variant_ct_limit = None)
   Constructor, creates a new .pgen file and writes a mostly-empty header (which
   gets filled at the end).
-  - sample_ct and variant_ct must be positive (and less than about 2^31).
+  - sample_ct must be positive, and less than ~2^31.
+  - Either variant_ct or variant_ct_limit must be provided; the value
+    must be positive, and less than ~2^31.
   - nonref_flags should be True when the data is from an ordinary PLINK 1.x
     .bed file (where the A2 allele is major rather than consistently
     reference), False when the A2 allele *is* consistently reference, or a
-    numpy bool_ array of length variant_ct when this is mixed.  (Strictly
-    speaking, None is also permitted--that delegates tracking of nonref
-    information to the .pvar file--but it's discouraged, since .pgen+.bim+.fam
-    is a useful data representation with direct plink2 support.)
-  - allele_idx_offsets is an optional numpy intp array of length
-    (variant_ct+1), where allele_idx_offsets[0] = 0, and the number of alleles
-    for (0-based) variant n is (allele_idx_offsets[n+1]-allele_idx_offsets[n]).
-    # of alleles must be at least 2 for each variant.  If allele_idx_offsets
-    is None, all variants are assumed to be biallelic.
+    numpy bool_ array of length variant_ct when this is mixed.
+    (Strictly speaking, None is also permitted--that delegates tracking of
+    nonref information to the .pvar file--but it's discouraged, since
+    .pgen+.bim+.fam is a useful data representation with direct plink2
+    support.)
 
 * append_biallelic(genobytes)
   Takes a numpy int8 array with sample_ct {0, 1, 2, -9} elements, and appends

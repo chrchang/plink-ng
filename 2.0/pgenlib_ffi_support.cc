@@ -72,9 +72,9 @@ const double kGenoDoublePairs[32] ALIGNV16 = PAIR_TABLE16(0.0, 1.0, 2.0, -9.0);
 
 const uint64_t kGenoToIntcodeDPairs[32] ALIGNV16 = PAIR_TABLE16(0, 0x100000000LLU, 0x100000001LLU, 0xfffffff7fffffff7LLU);
 
-void GenoarrPhasedToAlleleCodes(const uint64_t* genoarr_to_intcode_pair_table, const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes) {
+void GenoarrPhasedToAlleleCodes(const uint64_t* genoarr_to_intcode_dpair_table, const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes) {
   // phasebytes can be nullptr, phasepresent cannot
-  GenoarrToAlleleCodes(genoarr_to_intcode_pair_table, genoarr, sample_ct, allele_codes);
+  GenoarrToAlleleCodes(genoarr_to_intcode_dpair_table, genoarr, sample_ct, allele_codes);
   uint64_t* allele_codes_alias64 = R_CAST(uint64_t*, allele_codes);
   uintptr_t sample_uidx_base = 0;
   uintptr_t cur_bits = phasepresent[0];
@@ -108,6 +108,95 @@ void GenoarrPhasedToAlleleCodes(const uint64_t* genoarr_to_intcode_pair_table, c
     phasebytes[sample_uidx] = 1;
     if (IsSet(phaseinfo, sample_uidx)) {
       allele_codes_alias64[sample_uidx] = 1;
+    }
+  }
+}
+
+void GenoarrMPToAlleleCodes(const uint64_t* geno_to_intcode_dpair_table, const PgenVariant* pgv, uint32_t sample_ct, unsigned char* phasebytes, int32_t* allele_codes) {
+  // phasebytes can be nullptr, phasepresent cannot
+  const uintptr_t* genoarr = pgv->genovec;
+  const uintptr_t* phasepresent = pgv->phasepresent;
+  const uintptr_t* phaseinfo = pgv->phaseinfo;
+  const uint32_t phasepresent_ct = pgv->phasepresent_ct;
+  const uint32_t patch_01_ct = pgv->patch_01_ct;
+  const uint32_t patch_10_ct = pgv->patch_10_ct;
+  if ((!patch_01_ct) && (!patch_10_ct)) {
+    GenoarrPhasedToAlleleCodes(geno_to_intcode_dpair_table, genoarr, phasepresent, phaseinfo, sample_ct, phasepresent_ct, phasebytes, allele_codes);
+    return;
+  }
+  GenoarrToAlleleCodes(geno_to_intcode_dpair_table, genoarr, sample_ct, allele_codes);
+  // See e.g. PglMultiallelicSparseToDense().
+  if (patch_01_ct) {
+    const uintptr_t* patch_01_set = pgv->patch_01_set;
+    const AlleleCode* patch_01_vals = pgv->patch_01_vals;
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = patch_01_set[0];
+    int32_t* allele_codes1 = &(allele_codes[1]);
+    for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+      const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &cur_bits);
+      allele_codes1[2 * sample_idx] = patch_01_vals[uii];
+    }
+  }
+  if (phasebytes) {
+    // Initialize 0/2 phasebytes before processing patch_10.
+    const uint32_t word_ct_m1 = (sample_ct - 1) / kBytesPerWord;
+    const Quarterword* read_alias = R_CAST(const Quarterword*, genoarr);
+    uintptr_t* write_walias = R_CAST(uintptr_t*, phasebytes);
+    for (uint32_t widx = 0; ; ++widx) {
+      uintptr_t qw = Unpack0303(read_alias[widx]);
+      qw = (~qw) & kMask0101;
+      if (widx == word_ct_m1) {
+        SubwordStore(qw, ModNz(sample_ct, kBytesPerWord), &(write_walias[widx]));
+        break;
+      }
+      write_walias[widx] = qw;
+    }
+  }
+  if (patch_10_ct) {
+    const uintptr_t* patch_10_set = pgv->patch_10_set;
+    const AlleleCode* patch_10_vals = pgv->patch_10_vals;
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = patch_10_set[0];
+    if (!phasebytes) {
+      for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+        const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
+        allele_codes[2 * sample_idx] = patch_10_vals[2 * uii];
+        allele_codes[2 * sample_idx + 1] = patch_10_vals[2 * uii + 1];
+      }
+    } else {
+      for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+        const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
+        const AlleleCode ac0 = patch_10_vals[2 * uii];
+        const AlleleCode ac1 = patch_10_vals[2 * uii + 1];
+        allele_codes[2 * sample_idx] = ac0;
+        allele_codes[2 * sample_idx + 1] = ac1;
+        if (ac0 != ac1) {
+          phasebytes[sample_idx] = 0;
+          // When phasepresent bit is set, we'll fix this up later.
+        }
+      }
+    }
+  }
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = phasepresent[0];
+  if (!phasebytes) {
+    for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+      const uintptr_t sample_uidx = BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
+      if (IsSet(phaseinfo, sample_uidx)) {
+        const int32_t tmp_code = allele_codes[2 * sample_uidx];
+        allele_codes[2 * sample_uidx] = allele_codes[2 * sample_uidx + 1];
+        allele_codes[2 * sample_uidx + 1] = tmp_code;
+      }
+    }
+    return;
+  }
+  for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+    const uintptr_t sample_uidx = BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
+    phasebytes[sample_uidx] = 1;
+    if (IsSet(phaseinfo, sample_uidx)) {
+      const int32_t tmp_code = allele_codes[2 * sample_uidx];
+      allele_codes[2 * sample_uidx] = allele_codes[2 * sample_uidx + 1];
+      allele_codes[2 * sample_uidx + 1] = tmp_code;
     }
   }
 }
@@ -403,6 +492,7 @@ void AlleleCodesToGenoarrUnsafe(const int32_t* allele_codes, const unsigned char
   //   phasepresent and phaseinfo to be nullptr here.
   // - Otherwise, phasepresent and phaseinfo are always updated; neither can be
   //   nullptr.
+  // - Trailing bits of phasepresent/phaseinfo may not be zeroed out.
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   uint32_t subgroup_len = kBitsPerWordD2;
   const uint32_t* read_alias = R_CAST(const uint32_t*, allele_codes);
@@ -487,6 +577,124 @@ void AlleleCodesToGenoarrUnsafe(const int32_t* allele_codes, const unsigned char
     phasepresent_alias[widx] = phasepresent_write_hw;
     phaseinfo_alias[widx] = phaseinfo_write_hw;
     genoarr[widx] = geno_write_word;
+  }
+}
+
+// Does not clear trailing bits of genovec, phasepresent, or phaseinfo.
+// Returns min(2, 1 + max allele code) if allele_codes is valid, -1 if invalid.
+int32_t ConvertMultiAlleleCodesUnsafe(const int32_t* allele_codes, const unsigned char* phasepresent_bytes, uint32_t sample_ct, uintptr_t* genoarr, uintptr_t* patch_01_set, AlleleCode* patch_01_vals, uintptr_t* patch_10_set, AlleleCode* patch_10_vals, uint32_t* patch_01_ctp, uint32_t* patch_10_ctp, uintptr_t* phasepresent, uintptr_t* phaseinfo) {
+  const uint32_t sample_ctl = DivUp(sample_ct, kBitsPerWord);
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  uint32_t subgroup_len = kBitsPerWordD2;
+  const uint32_t* read_alias = R_CAST(const uint32_t*, allele_codes);
+  if (phasepresent_bytes) {
+    BytesToBitsUnsafe(phasepresent_bytes, sample_ct, phasepresent);
+  }
+  Halfword* phasepresent_alias = R_CAST(Halfword*, phasepresent);
+  Halfword* phaseinfo_alias = R_CAST(Halfword*, phaseinfo);
+  // todo: try scanning allele_codes for its maximum value upfront, instead of
+  // checking in inner loops; then mirror PglMultiallelicDenseToSparse() in
+  // valid multiallelic case, and call AlleleCodesToGenoarrUnsafe() otherwise.
+  ZeroWArr(sample_ctl, patch_01_set);
+  ZeroWArr(sample_ctl, patch_10_set);
+  uint32_t max_allele_code = 1;
+  Halfword* patch_01_set_alias = R_CAST(Halfword*, patch_01_set);
+  Halfword* patch_10_set_alias = R_CAST(Halfword*, patch_10_set);
+  AlleleCode* patch_01_iter = patch_01_vals;
+  AlleleCode* patch_10_iter = patch_10_vals;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= word_ct_m1) {
+      if (widx > word_ct_m1) {
+        if (max_allele_code >= kPglMaxAlleleCt) {
+          return -1;
+        }
+        *patch_01_ctp = patch_01_iter - patch_01_vals;
+        *patch_10_ctp = (patch_10_iter - patch_10_vals) >> 1;
+        return S_CAST(int32_t, max_allele_code + 1);
+      }
+      subgroup_len = ModNz(sample_ct, kBitsPerWordD2);
+    }
+    uintptr_t geno_write_word = 0;
+    Halfword phaseinfo_write_hw = 0;
+    Halfword het_2_hw = 0;
+    for (uint32_t uii = 0; uii != subgroup_len; ++uii) {
+      // 0,0 -> 0
+      // 0,x or x,0 -> 1
+      // x,y -> 2
+      // -9,-9 -> 3
+      const uint32_t first_code = *read_alias++;
+      const uint32_t second_code = *read_alias++;
+      uintptr_t cur_geno = 0;
+      if (first_code == 0) {
+        if (second_code != 0) {
+          cur_geno = 1;
+          if (second_code > 1) {
+            if (second_code > max_allele_code) {
+              max_allele_code = second_code;
+            }
+            patch_01_set_alias[widx] |= 1U << uii;
+            // If second_code is actually out-of-range, harmlessly truncate
+            // here, and error out before function return.
+            // (this code is correct without the static-cast, but may as well
+            // be explicit about where truncation could happen.)
+            *patch_01_iter++ = S_CAST(AlleleCode, second_code);
+          }
+        }
+      } else if (first_code == 0xfffffff7U) {
+        if (second_code != 0xfffffff7U) {
+          return -1;
+        }
+        cur_geno = 3;
+      } else {
+        // first_code >= 1
+        if (second_code == 0) {
+          cur_geno = 1;
+          phaseinfo_write_hw |= 1U << uii;
+          if (first_code > 1) {
+            if (first_code > max_allele_code) {
+              max_allele_code = first_code;
+            }
+            patch_01_set_alias[widx] |= 1U << uii;
+            *patch_01_iter++ = S_CAST(AlleleCode, first_code);
+          }
+        } else {
+          cur_geno = 2;
+          if (first_code <= second_code) {
+            if (second_code > 1) {
+              if (second_code > max_allele_code) {
+                max_allele_code = second_code;
+              }
+              patch_10_set_alias[widx] |= 1U << uii;
+              *patch_10_iter++ = S_CAST(AlleleCode, first_code);
+              *patch_10_iter++ = S_CAST(AlleleCode, second_code);
+              if (first_code != second_code) {
+                het_2_hw |= 1U << uii;
+              }
+            }
+          } else {
+            // first_code > second_code
+            if (first_code > max_allele_code) {
+              max_allele_code = first_code;
+            }
+            phaseinfo_write_hw |= 1U << uii;
+            patch_10_set_alias[widx] |= 1U << uii;
+            het_2_hw |= 1U << uii;
+            *patch_10_iter++ = S_CAST(AlleleCode, second_code);
+            *patch_10_iter++ = S_CAST(AlleleCode, first_code);
+          }
+        }
+      }
+      geno_write_word |= (cur_geno << (uii * 2));
+    }
+    genoarr[widx] = geno_write_word;
+    if (phasepresent_bytes) {
+      const uintptr_t het_1_word = geno_write_word & (~(geno_write_word >> 1)) & kMask5555;
+      Halfword het_hw = het_2_hw | PackWordToHalfword(het_1_word);
+      phasepresent_alias[widx] &= het_hw;
+    }
+    if (phaseinfo_alias) {
+      phaseinfo_alias[widx] = phaseinfo_write_hw;
+    }
   }
 }
 

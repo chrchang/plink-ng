@@ -79,7 +79,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1907
+#define PGENLIB_INTERNAL_VERNUM 1908
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -612,6 +612,8 @@ extern const uint16_t kHcToAlleleCodes[1024];
 
 // Permits missing codes, does not remap.
 void PglMultiallelicSparseToDenseMiss(const PgenVariant* pgvp, uint32_t sample_ct, AlleleCode* __restrict wide_codes);
+
+uintptr_t PglComputeMaxAlleleCt(const uintptr_t* allele_idx_offsets, uint32_t variant_ct);
 
 // The actual format:
 // 1. 2 magic bytes 0x6c 0x1b.

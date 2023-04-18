@@ -2885,6 +2885,25 @@ void PglMultiallelicSparseToDenseMiss(const PgenVariant* pgvp, uint32_t sample_c
   }
 }
 
+uintptr_t PglComputeMaxAlleleCt(const uintptr_t* allele_idx_offsets, uint32_t variant_ct) {
+  if ((!allele_idx_offsets) || (allele_idx_offsets[variant_ct] == 2 * variant_ct)) {
+    return 2;
+  }
+  // todo: try vectorizing this
+  uintptr_t max_allele_ct = 2;
+  uintptr_t prev_offset = allele_idx_offsets[0];
+  const uintptr_t* shifted_offsets = &(allele_idx_offsets[1]);
+  for (uintptr_t uii = 0; uii != variant_ct; ++uii) {
+    const uintptr_t cur_offset = shifted_offsets[uii];
+    const uintptr_t cur_allele_ct = cur_offset - prev_offset;
+    if (cur_allele_ct > max_allele_ct) {
+      max_allele_ct = cur_allele_ct;
+    }
+    prev_offset = cur_offset;
+  }
+  return max_allele_ct;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
