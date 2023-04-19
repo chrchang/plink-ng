@@ -82,6 +82,7 @@ cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
 
     uintptr_t RoundUpPow2(uintptr_t val, uintptr_t alignment)
     uintptr_t DivUp(uintptr_t val, uintptr_t divisor)
+    void ZeroTrailingNyps(uintptr_t nyp_ct, uintptr_t* bitarr)
     void ZeroWArr(uintptr_t entry_ct, uintptr_t* ularr)
     # void BitvecAnd(const uintptr_t* arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec)
     void FillInterleavedMaskVec(const uintptr_t* subset_mask, uint32_t base_vec_ct, uintptr_t* interleaved_mask_vec)
@@ -91,6 +92,7 @@ cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
     void TransposeNypblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf)
     void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf)
 
+    void GenoarrCountFreqsUnsafe(const uintptr_t* genoarr, uint32_t sample_ct, uint32_t* genocounts)
     void GenovecInvertUnsafe(uint32_t sample_ct, uintptr_t* genovec)
     void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_main)
 
@@ -122,7 +124,6 @@ cdef extern from "../plink2/pgenlib_ffi_support.h" namespace "plink2":
     void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* genobytes)
     void GenoarrToInt32sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* geno_int32)
     void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t* geno_int64)
-    void GenoarrPhasedToAlleleCodesMinus9(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes)
     void GenoarrMPToAlleleCodesMinus9(const PgenVariantStruct* pgv, uint32_t sample_ct, unsigned char* phasebytes, int32_t* allele_codes)
     void GenoarrPhasedToHapCodes(const uintptr_t* genoarr, const uintptr_t* phaseinfo, uint32_t variant_batch_size, int32_t* hap0_codes_iter, int32_t* hap1_codes_iter)
     void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float)
@@ -172,6 +173,8 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
     PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, PgenReaderStruct* pgr_ptr, unsigned char* pgr_alloc)
 
     PglErr PgrGet1(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderStruct* pgr_ptr, uintptr_t* allele_countvec)
+
+    PglErr PgrGetM(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgr_ptr, PgenVariantStruct* pgvp)
 
     PglErr PgrGetP(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgr_ptr, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uint32_t* phasepresent_ct_ptr)
 
@@ -989,7 +992,6 @@ cdef class PgenReader:
         cdef uint32_t subset_size = self._subset_size
         cdef int32_t* main_data_ptr
         cdef uint32_t variant_idx
-        cdef uint32_t phasepresent_ct
         cdef PglErr reterr
         if hap_maj == 0:
             if allele_int32_out.shape[0] < variant_idx_ct:
@@ -997,12 +999,11 @@ cdef class PgenReader:
             if allele_int32_out.shape[1] < 2 * subset_size:
                 raise RuntimeError("Variant-major read_alleles_range() allele_int32_out buffer has too few columns (" + str(allele_int32_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ", and column count should be twice that)")
             for variant_idx in range(variant_idx_start, variant_idx_end):
-                # upgrade to multiallelic version of this function later
-                reterr = PgrGetP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct)
+                reterr = PgrGetMP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("variant_idx " + str(variant_idx) + " read_alleles_range() error " + str(reterr))
                 main_data_ptr = <int32_t*>(&(allele_int32_out[(variant_idx - variant_idx_start), 0]))
-                GenoarrPhasedToAlleleCodesMinus9(genovec, phasepresent, phaseinfo, subset_size, phasepresent_ct, NULL, main_data_ptr)
+                GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, NULL, main_data_ptr)
             return
         if variant_idx_start >= variant_idx_end:
             raise RuntimeError("read_alleles_range() variant_idx_start >= variant_idx_end (" + str(variant_idx_start) + ", " + str(variant_idx_end) + ")")
@@ -1010,6 +1011,10 @@ cdef class PgenReader:
             raise RuntimeError("Haplotype-major read_alleles_range() allele_int32_out buffer has too few rows (" + str(allele_int32_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ", and row count should be twice that)")
         if allele_int32_out.shape[1] < variant_idx_ct:
             raise RuntimeError("Haplotype-major read_alleles_range() allele_int32_out buffer has too few columns (" + str(allele_int32_out.shape[1]) + "; (variant_idx_end - variant_idx_start) is " + str(variant_idx_ct) + ")")
+        cdef uintptr_t* allele_idx_offsets = self._info_ptr[0].allele_idx_offsets
+        if allele_idx_offsets != NULL:
+            if allele_idx_offsets[variant_idx_end] - allele_idx_offsets[variant_idx_start] != (variant_idx_end - variant_idx_start) * k1LU * 2:
+                raise RuntimeError("Haplotype-major read_alleles_range() doesn't support multiallelic variants yet.")
         cdef uint32_t variant_batch_ct = DivUp(variant_idx_ct, kPglNypTransposeBatch)
         cdef uint32_t variant_batch_size = kPglNypTransposeBatch
         cdef uint32_t variant_batch_sizel = DivUp(variant_batch_size, kBitsPerWord)
@@ -1030,6 +1035,7 @@ cdef class PgenReader:
         cdef uint32_t variant_batch_idx
         cdef uint32_t sample_batch_size
         cdef uint32_t sample_batch_idx
+        cdef uint32_t phasepresent_ct
         cdef uint32_t uii
         for variant_batch_idx in range(variant_batch_ct):
             if variant_batch_idx == (variant_batch_ct - 1):
@@ -1089,7 +1095,6 @@ cdef class PgenReader:
         cdef int32_t* main_data_ptr
         cdef uint32_t variant_list_idx
         cdef uint32_t variant_idx
-        cdef uint32_t phasepresent_ct
         cdef PglErr reterr
         if hap_maj == 0:
             if allele_int32_out.shape[0] < variant_idx_ct:
@@ -1100,12 +1105,11 @@ cdef class PgenReader:
                 variant_idx = variant_idxs[variant_list_idx]
                 if variant_idx >= raw_variant_ct:
                     raise RuntimeError("read_alleles_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
-                # upgrade to multiallelic version of this function later
-                reterr = PgrGetP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct)
+                reterr = PgrGetMP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_alleles_list() error " + str(reterr))
                 main_data_ptr = <int32_t*>(&(allele_int32_out[variant_list_idx, 0]))
-                GenoarrPhasedToAlleleCodesMinus9(genovec, phasepresent, phaseinfo, subset_size, phasepresent_ct, NULL, main_data_ptr)
+                GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, NULL, main_data_ptr)
             return
         if allele_int32_out.shape[0] < 2 * subset_size:
             raise RuntimeError("Haplotype-major read_alleles_list() allele_int32_out buffer has too few rows (" + str(allele_int32_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ", and row count should be twice that)")
@@ -1122,6 +1126,7 @@ cdef class PgenReader:
         cdef uintptr_t* multivar_vmaj_phaseinfo_buf = self._multivar_vmaj_phaseinfo_buf
         cdef uintptr_t* multivar_smaj_geno_batch_buf = self._multivar_smaj_geno_batch_buf
         cdef uintptr_t* multivar_smaj_phaseinfo_batch_buf = self._multivar_smaj_phaseinfo_batch_buf
+        cdef uintptr_t* allele_idx_offsets = self._info_ptr[0].allele_idx_offsets
         cdef uintptr_t* vmaj_geno_iter
         cdef uintptr_t* vmaj_phaseinfo_iter
         cdef uintptr_t* smaj_geno_iter
@@ -1130,6 +1135,7 @@ cdef class PgenReader:
         cdef uint32_t variant_batch_idx
         cdef uint32_t sample_batch_size
         cdef uint32_t sample_batch_idx
+        cdef uint32_t phasepresent_ct
         cdef uint32_t uii
         for variant_batch_idx in range(variant_batch_ct):
             if variant_batch_idx == (variant_batch_ct - 1):
@@ -1141,6 +1147,9 @@ cdef class PgenReader:
                 variant_idx = variant_idxs[variant_list_idx]
                 if variant_idx >= raw_variant_ct:
                     raise RuntimeError("read_alleles_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
+                if allele_idx_offsets != NULL:
+                    if allele_idx_offsets[variant_idx + 1] - allele_idx_offsets[variant_idx] != 2:
+                        raise RuntimeError("Haplotype-major read_alleles_list() doesn't support multiallelic variants yet.")
                 reterr = PgrGetP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, vmaj_geno_iter, phasepresent, vmaj_phaseinfo_iter, &phasepresent_ct)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_alleles_list() error " + str(reterr))
@@ -1183,15 +1192,11 @@ cdef class PgenReader:
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
         cdef PgenReaderStruct* pgrp = self._state_ptr
-        cdef uintptr_t* genovec = self._pgv.genovec
-        cdef uintptr_t* phasepresent = self._pgv.phasepresent
-        cdef uintptr_t* phaseinfo = self._pgv.phaseinfo
         cdef uint32_t variant_idx_ct = variant_idx_end - variant_idx_start
         cdef uint32_t subset_size = self._subset_size
         cdef int32_t* main_data_ptr
         cdef unsigned char* phasepresent_data_ptr
         cdef uint32_t variant_idx
-        cdef uint32_t phasepresent_ct
         cdef PglErr reterr
         if hap_maj == 0:
             if allele_int32_out.shape[0] < variant_idx_ct:
@@ -1203,13 +1208,12 @@ cdef class PgenReader:
             if phasepresent_out.shape[1] < subset_size:
                 raise RuntimeError("Variant-major read_alleles_and_phasepresent_range() phasepresent_out buffer has too few columns (" + str(allele_int32_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ")")
             for variant_idx in range(variant_idx_start, variant_idx_end):
-                # upgrade to multiallelic version of this function later
-                reterr = PgrGetP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct)
+                reterr = PgrGetMP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
                 if reterr != kPglRetSuccess:
-                    raise RuntimeError("variant_idx " + str(variant_idx) + " read_alleles_range() error " + str(reterr))
+                    raise RuntimeError("variant_idx " + str(variant_idx) + " read_alleles_and_phasepresent_range() error " + str(reterr))
                 main_data_ptr = <int32_t*>(&(allele_int32_out[(variant_idx - variant_idx_start), 0]))
                 phasepresent_data_ptr = <unsigned char*>(&(phasepresent_out[(variant_idx - variant_idx_start), 0]))
-                GenoarrPhasedToAlleleCodesMinus9(genovec, phasepresent, phaseinfo, subset_size, phasepresent_ct, phasepresent_data_ptr, main_data_ptr)
+                GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, phasepresent_data_ptr, main_data_ptr)
             return
         raise RuntimeError("read_alleles_and_phasepresent_range() does not support hap_maj == 1 yet.")
 
@@ -1232,7 +1236,6 @@ cdef class PgenReader:
         cdef unsigned char* phasepresent_data_ptr
         cdef uint32_t variant_list_idx
         cdef uint32_t variant_idx
-        cdef uint32_t phasepresent_ct
         cdef PglErr reterr
         if hap_maj == 0:
             if allele_int32_out.shape[0] < variant_idx_ct:
@@ -1247,13 +1250,12 @@ cdef class PgenReader:
                 variant_idx = variant_idxs[variant_list_idx]
                 if variant_idx >= raw_variant_ct:
                     raise RuntimeError("read_alleles_and_phasepresent_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
-                # upgrade to multiallelic version of this function later
-                reterr = PgrGetP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct)
+                reterr = PgrGetMP(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_alleles_and_phasepresent_list() error " + str(reterr))
                 main_data_ptr = <int32_t*>(&(allele_int32_out[variant_list_idx, 0]))
                 phasepresent_data_ptr = <unsigned char*>(&(phasepresent_out[variant_list_idx, 0]))
-                GenoarrPhasedToAlleleCodesMinus9(genovec, phasepresent, phaseinfo, subset_size, phasepresent_ct, phasepresent_data_ptr, main_data_ptr)
+                GenoarrMPToAlleleCodesMinus9(&self._pgv, subset_size, phasepresent_data_ptr, main_data_ptr)
             return
         raise RuntimeError("read_alleles_and_phasepresent_list() does not support hap_maj == 1 yet.")
 
@@ -1394,11 +1396,61 @@ cdef class PgenReader:
         return
 
     cpdef count(self, uint32_t variant_idx, np.ndarray[np.uint32_t,mode="c"] genocount_uint32_out, object allele_idx = 1):
-        # todo: multiallelic variants
-        if allele_idx is None:
-            allele_idx = 1
+        cdef const uintptr_t* subset_include_vec = self._subset_include_vec
+        cdef PgrSampleSubsetIndexStruct subset_index = self._subset_index
+        cdef uint32_t subset_size = self._subset_size
+        cdef PgenReaderStruct* pgrp = self._state_ptr
         cdef uint32_t* data_ptr = <uint32_t*>(&(genocount_uint32_out[0]))
-        cdef PglErr reterr = PgrGetCounts(self._subset_include_vec, self._subset_include_interleaved_vec, self._subset_index, self._subset_size, variant_idx, self._state_ptr, data_ptr)
+        cdef uintptr_t* allele_idx_offsets
+        cdef uintptr_t* genovec
+        cdef AlleleCode* patch_01_vals
+        cdef AlleleCode* patch_10_vals
+        cdef uintptr_t type_ct
+        cdef uintptr_t allele_ct
+        cdef uint32_t patch_01_ct
+        cdef uint32_t patch_10_ct
+        cdef uintptr_t ac0
+        cdef uintptr_t ac1
+        cdef PglErr reterr
+        if allele_idx is None:
+            allele_ct = 2
+            allele_idx_offsets = self._info_ptr[0].allele_idx_offsets
+            if allele_idx_offsets != NULL:
+                allele_ct = allele_idx_offsets[variant_idx + 1] - allele_idx_offsets[variant_idx]
+            if allele_ct > 2:
+                # Multiallelic special case.
+                type_ct = (allele_ct * (allele_ct + 1)) >> 1
+                if genocount_uint32_out.shape[0] <= type_ct:
+                    raise RuntimeError("count() genocount_uint32_out buffer is too small for multiallelic variant")
+                reterr = PgrGetM(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
+                if reterr != kPglRetSuccess:
+                    raise RuntimeError("count() error " + str(reterr))
+                genovec = self._pgv.genovec
+                ZeroTrailingNyps(subset_size, genovec)
+                GenoarrCountFreqsUnsafe(genovec, subset_size, data_ptr)
+                data_ptr[type_ct] = data_ptr[3]
+                for i in range(3, type_ct):
+                    data_ptr[i] = 0
+                # Now correct for patch_01 and patch_10.
+                patch_01_ct = self._pgv.patch_01_ct
+                if patch_01_ct > 0:
+                    data_ptr[1] -= patch_01_ct
+                    patch_01_vals = self._pgv.patch_01_vals
+                    # could special-case allele_ct == 3, etc.
+                    for i in range(patch_01_ct):
+                        ac1 = patch_01_vals[i]
+                        data_ptr[(ac1 * (ac1 + 1)) >> 1] += 1
+                patch_10_ct = self._pgv.patch_10_ct
+                if patch_10_ct > 0:
+                    data_ptr[2] -= patch_10_ct
+                    patch_10_vals = self._pgv.patch_10_vals
+                    for i in range(patch_10_ct):
+                        ac0 = patch_10_vals[2*i]
+                        ac1 = patch_10_vals[2*i+1]
+                        data_ptr[ac0 + ((ac1 * (ac1 + 1)) >> 1)] += 1
+                return
+            allele_idx = 1
+        reterr = PgrGetCounts(subset_include_vec, self._subset_include_interleaved_vec, subset_index, subset_size, variant_idx, pgrp, data_ptr)
         if reterr != kPglRetSuccess:
             raise RuntimeError("count() error " + str(reterr))
         if allele_idx != 0:

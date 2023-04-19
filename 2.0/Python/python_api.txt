@@ -16,16 +16,16 @@ class PgenReader:
     increasing order, telling the reader to only consider the specified samples
     when loading or counting genotypes.  For example, if your .fam file looks
     something like
-      40184_187545456 40184_187545456 0       0       1       -9
-      40195_187545457 40195_187545457 0       0       1       -9
-      40206_187545458 40206_187545458 0       0       1       -9
-      40217_187545459 40217_187545459 0       0       2       -9
-      40228_187545460 40228_187545460 0       0       1       -9
-      40239_187545461 40239_187545461 0       0       1       -9
-      40250_187520807 40250_187520807 0       0       1       -9
-      40261_187520806 40261_187520806 0       0       1       -9
-      40272_187520805 40272_187520805 0       0       2       -9
-      40283_187520804 40283_187520804 0       0       1       -9
+      0       40184_187545456 0       0       1       -9
+      0       40195_187545457 0       0       1       -9
+      0       40206_187545458 0       0       1       -9
+      0       40217_187545459 0       0       2       -9
+      0       40228_187545460 0       0       1       -9
+      0       40239_187545461 0       0       1       -9
+      0       40250_187520807 0       0       1       -9
+      0       40261_187520806 0       0       1       -9
+      0       40272_187520805 0       0       2       -9
+      0       40283_187520804 0       0       1       -9
     then a [1, 4, 5, 6] array specifies samples 40195_187545457,
     40228_187545460, 40239_187545461, and 40250_187520807.
     None indicates that all samples should be included.  Otherwise, an
@@ -127,7 +127,9 @@ class PgenReader:
   unsorted, or for duplicates to be present, but that may not remain true.
 
   The sample/haplotype-major modes of read_dosages_{range,list} and
-  read_alleles_and_phasepresent_{range,list} are not implemented yet.
+  read_alleles_and_phasepresent_{range,list} are not implemented yet.  The
+  haplotype-major modes of read_alleles_{range,list} don't yet support
+  multiallelic variants.
 
 * count(uint32_t variant_idx, np.ndarray[np.uint32_t] genocount_uint32_out,
         uint32_t allele_idx = 1)

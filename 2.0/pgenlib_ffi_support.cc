@@ -581,7 +581,7 @@ void AlleleCodesToGenoarrUnsafe(const int32_t* allele_codes, const unsigned char
 }
 
 // Does not clear trailing bits of genovec, phasepresent, or phaseinfo.
-// Returns min(2, 1 + max allele code) if allele_codes is valid, -1 if invalid.
+// Returns max(2, 1 + max allele code) if allele_codes is valid, -1 if invalid.
 int32_t ConvertMultiAlleleCodesUnsafe(const int32_t* allele_codes, const unsigned char* phasepresent_bytes, uint32_t sample_ct, uintptr_t* genoarr, uintptr_t* patch_01_set, AlleleCode* patch_01_vals, uintptr_t* patch_10_set, AlleleCode* patch_10_vals, uint32_t* patch_01_ctp, uint32_t* patch_10_ctp, uintptr_t* phasepresent, uintptr_t* phaseinfo) {
   const uint32_t sample_ctl = DivUp(sample_ct, kBitsPerWord);
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
