@@ -11,6 +11,8 @@ include src/plink2/include/plink2_base.cc
 include src/plink2/include/plink2_base.h
 include src/plink2/include/plink2_bits.cc
 include src/plink2/include/plink2_bits.h
+include src/plink2/include/check.h
+include src/plink2/include/debug-trap.h
 include src/plink2/include/hedley.h
 include src/plink2/include/simde-common.h
 include src/plink2/include/simde-detect-clang.h
