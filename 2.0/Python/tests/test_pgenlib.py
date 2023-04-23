@@ -62,13 +62,13 @@ def check_unphased_biallelic_read_concordance(r, raw_nsample, nvariant, test_gen
     assert raw_nsample == r.get_raw_sample_ct()
     assert nvariant == r.get_variant_ct()
 
-    got_geno = np.empty([cur_nsample], np.int8)
+    got_genotypes = np.empty([cur_nsample], np.int8)
     vidx = random.randrange(nvariant)
-    r.read(vidx, got_geno)
-    assert np.array_equal(got_geno, want_genotypes[vidx])
-    r.read(vidx, got_geno, allele_idx=0)
+    r.read(vidx, got_genotypes)
+    assert np.array_equal(got_genotypes, want_genotypes[vidx])
+    r.read(vidx, got_genotypes, allele_idx=0)
     for i in range(cur_nsample):
-        assert ((got_geno[i] == -9) and (want_genotypes[vidx][i] == -9)) or (got_geno[i] == 2 - want_genotypes[vidx][i])
+        assert ((got_genotypes[i] == -9) and (want_genotypes[vidx][i] == -9)) or (got_genotypes[i] == 2 - want_genotypes[vidx][i])
 
     got_acodes = np.empty([2 * cur_nsample], np.int32)
     vidx = random.randrange(nvariant)
@@ -86,20 +86,20 @@ def check_unphased_biallelic_read_concordance(r, raw_nsample, nvariant, test_gen
         vidx_start = random.randrange(nvariant - tmp_nvariant)
     vidx_end = vidx_start + tmp_nvariant
     vidx_list = np.asarray(sorted(random.sample(range(nvariant), k=tmp_nvariant)), np.uint32)
-    got_geno_2d = np.empty([tmp_nvariant, cur_nsample], np.int8)
+    got_genotypes_2d = np.empty([tmp_nvariant, cur_nsample], np.int8)
     got_acodes_2d = np.empty([tmp_nvariant, 2 * cur_nsample], np.int32)
-    got_geno_t = np.empty([cur_nsample, tmp_nvariant], np.int8)
+    got_genotypes_t = np.empty([cur_nsample, tmp_nvariant], np.int8)
 
-    r.read_range(vidx_start, vidx_end, got_geno_2d)
-    assert np.array_equal(got_geno_2d, want_genotypes[vidx_start:vidx_end])
-    r.read_range(vidx_start, vidx_end, got_geno_t, sample_maj=True)
-    assert np.array_equal(got_geno_2d, np.transpose(got_geno_t))
+    r.read_range(vidx_start, vidx_end, got_genotypes_2d)
+    assert np.array_equal(got_genotypes_2d, want_genotypes[vidx_start:vidx_end])
+    r.read_range(vidx_start, vidx_end, got_genotypes_t, sample_maj=True)
+    assert np.array_equal(got_genotypes_2d, np.transpose(got_genotypes_t))
 
-    r.read_list(vidx_list, got_geno_2d)
+    r.read_list(vidx_list, got_genotypes_2d)
     for i in range(tmp_nvariant):
-        assert np.array_equal(got_geno_2d[i], want_genotypes[vidx_list[i]])
-    r.read_list(vidx_list, got_geno_t, sample_maj=True)
-    assert np.array_equal(got_geno_2d, np.transpose(got_geno_t))
+        assert np.array_equal(got_genotypes_2d[i], want_genotypes[vidx_list[i]])
+    r.read_list(vidx_list, got_genotypes_t, sample_maj=True)
+    assert np.array_equal(got_genotypes_2d, np.transpose(got_genotypes_t))
 
     # fewer variants since we're not testing transpose, and this is relatively
     # slow
@@ -165,7 +165,7 @@ def unphased_biallelic_case(tmp_path, case_idx, nsample_min, nsample_limit, nvar
             w.append_biallelic(test_genotypes[vidx])
     with pgenlib.PgenReader(test_pgen_path) as r:
         check_unphased_biallelic_read_concordance(r, nsample, nvariant, test_genotypes, None)
-        sample_subset = sorted(random.sample(range(nsample), k=nsample // 2))
+        sample_subset = sorted(random.sample(range(nsample), k=(nsample+1) // 2))
         r.change_sample_subset(np.asarray(sample_subset, np.uint32))
         check_unphased_biallelic_read_concordance(r, nsample, nvariant, test_genotypes, sample_subset)
 
@@ -253,6 +253,26 @@ def generate_phased_multiallelic_test_acodes(nsample, nvariant, allele_ct_limit)
     return allele_codes, phasepresent_bytes, allele_idx_offsets
 
 
+def make_allele_cts(allele_idx_offsets):
+    nvariant = len(allele_idx_offsets) - 1
+    allele_cts = np.empty([nvariant], np.uint32)
+    for i in range(nvariant):
+        allele_cts[i] = allele_idx_offsets[i+1] - allele_idx_offsets[i]
+    return allele_cts
+
+
+def assert_geno(a0, a1, got_geno, aidx):
+    if got_geno == -9:
+        assert (a0 == -9) and (a1 == -9)
+    elif got_geno == 0:
+        assert (a0 != aidx) and (a1 != aidx)
+    elif got_geno == 1:
+        assert (a0 == aidx) != (a1 == aidx)
+    else:
+        assert (got_geno == 2)
+        assert (a0 == aidx) and (a1 == aidx)
+
+
 def check_phased_multiallelic_read_concordance(r, raw_nsample, nvariant, test_acodes, test_phasepresent_bytes, allele_idx_offsets, sample_subset):
     want_acodes = test_acodes
     want_phasepresent = test_phasepresent_bytes
@@ -269,10 +289,17 @@ def check_phased_multiallelic_read_concordance(r, raw_nsample, nvariant, test_ac
                 want_phasepresent[vidx][i] = test_phasepresent_bytes[vidx][src_i]
     assert raw_nsample == r.get_raw_sample_ct()
     assert nvariant == r.get_variant_ct()
+    if r.hardcall_phase_present() == False:
+        assert (~want_phasepresent).all()
 
+    got_genotypes = np.empty([cur_nsample], np.int8)
     got_acodes = np.empty([2 * cur_nsample], np.int32)
     got_phasepresent = np.empty([cur_nsample], np.uint8)
     vidx = random.randrange(nvariant)
+    aidx = random.randrange(allele_idx_offsets[vidx+1] - allele_idx_offsets[vidx])
+    r.read(vidx, got_genotypes, aidx)
+    for i in range(cur_nsample):
+        assert_geno(want_acodes[vidx][2*i], want_acodes[vidx][2*i+1], got_genotypes[i], aidx)
     r.read_alleles_and_phasepresent(vidx, got_acodes, got_phasepresent)
     assert np.array_equal(got_acodes, want_acodes[vidx])
     assert np.array_equal(got_phasepresent, want_phasepresent[vidx])
@@ -325,11 +352,16 @@ def phased_multiallelic_case(tmp_path, case_idx, nsample_min, nsample_limit, nva
     # 2. Use a mix of append_alleles(), append_partially_phased(),
     #    append_alleles_batch(), and append_partially_phased_batch() to write
     #    these genotypes to a .pgen.
-    # 3. Verify that get_raw_sample_ct(), get_variant_ct(),
-    #    read_alleles[_and_phasepresent](),
-    #    read_alleles[_and_phasepresent]_range(),
-    #    read_alleles[_and_phasepresent]_list(), and count() return expected
-    #    results.
+    # 3. Verify that
+    #      get_raw_sample_ct(),
+    #      get_variant_ct()
+    #      hardcall_phase_present()
+    #      read()
+    #      read_alleles[_and_phasepresent]()
+    #      read_alleles[_and_phasepresent]_range()
+    #      read_alleles[_and_phasepresent]_list()
+    #      count()
+    #    return expected results.
     # 4. Call change_sample_subset(), and repeat step 3.
     random.seed(case_idx)
     nsample = random.randrange(nsample_min, nsample_limit)
@@ -339,23 +371,23 @@ def phased_multiallelic_case(tmp_path, case_idx, nsample_min, nsample_limit, nva
     test_pgen_path = bytes(tmp_path / ("phased_multiallelic_" + str(case_idx) + ".pgen"))
     with pgenlib.PgenWriter(test_pgen_path, nsample, variant_ct=nvariant, nonref_flags=False, allele_ct_limit=allele_ct_limit, hardcall_phase_present=True) as w:
         for vidx in range(nvariant // 6):
-            w.append_alleles(test_acodes[vidx])
-        w.append_alleles_batch(test_acodes[nvariant // 6 : nvariant // 3])
+            w.append_alleles(test_acodes[vidx], allele_ct = test_allele_idx_offsets[vidx+1] - test_allele_idx_offsets[vidx])
+        w.append_alleles_batch(test_acodes[nvariant // 6 : nvariant // 3], allele_cts = make_allele_cts(test_allele_idx_offsets[nvariant // 6 : (nvariant // 3) + 1]))
         for vidx in range(nvariant // 3, nvariant // 2):
-            w.append_alleles(test_acodes[vidx], all_phased=True)
-        w.append_alleles_batch(test_acodes[nvariant // 2 : (2 * nvariant) // 3], all_phased=True)
+            w.append_alleles(test_acodes[vidx], all_phased=True, allele_ct = test_allele_idx_offsets[vidx+1] - test_allele_idx_offsets[vidx])
+        w.append_alleles_batch(test_acodes[nvariant // 2 : (2 * nvariant) // 3], all_phased=True, allele_cts = make_allele_cts(test_allele_idx_offsets[nvariant // 2 : ((2 * nvariant) // 3) + 1]))
         for vidx in range((2 * nvariant) // 3, (5 * nvariant) // 6):
-            w.append_partially_phased(test_acodes[vidx], test_phasepresent_bytes[vidx])
-        w.append_partially_phased_batch(test_acodes[(5 * nvariant) // 6 : nvariant], test_phasepresent_bytes[(5 * nvariant) // 6 : nvariant])
+            w.append_partially_phased(test_acodes[vidx], test_phasepresent_bytes[vidx], allele_ct = test_allele_idx_offsets[vidx+1] - test_allele_idx_offsets[vidx])
+        w.append_partially_phased_batch(test_acodes[(5 * nvariant) // 6 : nvariant], test_phasepresent_bytes[(5 * nvariant) // 6 : nvariant], allele_cts = make_allele_cts(test_allele_idx_offsets[(5 * nvariant) // 6 : nvariant + 1]))
     with pgenlib.PgenReader(test_pgen_path, allele_idx_offsets=test_allele_idx_offsets) as r:
         check_phased_multiallelic_read_concordance(r, nsample, nvariant, test_acodes, test_phasepresent_bytes, test_allele_idx_offsets, None)
-        sample_subset = sorted(random.sample(range(nsample), k=nsample // 2))
+        sample_subset = sorted(random.sample(range(nsample), k=(nsample+1) // 2))
         r.change_sample_subset(np.asarray(sample_subset, np.uint32))
         check_phased_multiallelic_read_concordance(r, nsample, nvariant, test_acodes, test_phasepresent_bytes, test_allele_idx_offsets, sample_subset)
 
 
 def test_phased_multiallelic(tmp_path):
-    ncase = 5
+    ncase = 500
     for case_idx in range(0, ncase):
         phased_multiallelic_case(tmp_path, case_idx, 1, 100, 1, 100, 2)
     for case_idx in range(ncase, 2*ncase):

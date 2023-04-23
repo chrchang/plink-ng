@@ -190,8 +190,8 @@ class PgenWriter:
   Takes a numpy int8 array with sample_ct {0, 1, 2, -9} elements, and appends
   it to the .pgen.  Ok to use 3 in place of -9.
 
-* append_alleles(allele_codes, all_phased = False)
-  append_partially_phased(allele_codes, np.ndarray[np.uint8_t,cast=True] phasepresent)
+* append_alleles(allele_codes, all_phased = False, allele_ct = None)
+  append_partially_phased(allele_codes, np.ndarray[np.uint8_t,cast=True] phasepresent, allele_ct = None)
   Takes a numpy int32 array with (2 * sample_ct) allele codes (0 = ref,
   1 = alt1, -9 = missing), and appends it to the .pgen.  -9s must occur in
   pairs.
@@ -202,6 +202,10 @@ class PgenWriter:
     array of length sample_ct.  Entries for non-heterozygous calls are ignored.
   - It's fine for an unphased het call to be stored in 1/0 instead of 0/1
     order.
+  - The number of ALT alleles is inferred to be max(1, <max observed code>).
+    When this is inaccurate (i.e. the last ALT allele in the .pvar file is
+    unobserved), you must specify allele_ct for the variant to be encoded
+    properly.
 
 * append_dosages(floatarr)
   Takes a numpy float32 or float64 array of dosages, and appends it to the
@@ -214,13 +218,14 @@ class PgenWriter:
 
 * append_biallelic_batch(np.ndarray[np.int8_t,mode="c",ndim=2] genobytes_batch)
   append_alleles_batch(np.ndarray[np.int32_t,mode="c",ndim=2] allele_codes_batch,
-                       all_phased = False)
+                       all_phased = False, allele_cts = None)
   append_partially_phased_batch(np.ndarray[np.int32_t,mode="c",ndim=2] allele_codes_batch,
-                                np.ndarray[np.{int8,uint8}_t,mode="c",ndim=2] phasepresent_batch)
+                                np.ndarray[np.{int8,uint8}_t,mode="c",ndim=2] phasepresent_batch,
+                                allele_cts = None)
   append_dosages_batch(np.ndarray[np.float{32,64}_t] floatarr_batch)
   Multi-variant forms of append_biallelic(), append_alleles(),
   append_partially_phased(), and append_dosages().  Input matrices must be
-  variant-major.
+  variant-major.  When allele_cts is provided, it must be an np.uint32 array.
 
 * close()
   Backfills the header and closes the file; no further append operations can be
