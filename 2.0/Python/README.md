@@ -2,15 +2,14 @@ This provides a basic Python API for pgenlib  (See [python_api.txt](python_api.t
 
 
 ### Build instructions
-To build this library you will first need to clone the repository:
+To build from GitHub, clone the repository:
 
 ```
 # clone repo
 git clone https://github.com/chrchang/plink-ng
 # go to python folder
-cd plink-ng/2.0/Python 
+cd plink-ng/2.0/Python
 ```
-
 
 Then install Cython and NumPy:
 ```
@@ -30,9 +29,11 @@ python3 setup.py install
 import numpy as np
 import pgenlib as pg
 
-with pg.PgenWriter("test.pgen".encode("utf-8"), 2, 3, False) as writer:
+with pg.PgenWriter("test.pgen".encode("utf-8"), 2, variant_ct=3, nonref_flags=False) as writer:
 	writer.append_alleles(np.array([0,1,1,1],dtype=np.int32))
 	writer.append_alleles(np.array([0,1,0,0],dtype=np.int32))
 	writer.append_alleles(np.array([0,0,0,0],dtype=np.int32))
 
 ```
+
+See tests/test_pgenlib.py for more sophisticated examples.
