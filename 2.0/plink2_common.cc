@@ -2017,7 +2017,7 @@ uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen
   // does not perform exhaustive error-checking
   // UINT32_MAX = --allow-extra-chr ok, UINT32_MAXM1 = total fail
   uint32_t chr_code_raw = GetChrCodeRaw(chr_name);
-  if (chr_code_raw <= cip->max_code) {
+  if (chr_code_raw <= cip->max_numeric_code) {
     return chr_code_raw;
   }
   if (chr_code_raw != UINT32_MAX) {
@@ -2058,7 +2058,7 @@ void ChrError(const char* chr_name, const char* file_descrip, const ChrInfo* cip
   } else {
     logerrprintfww("Error: Invalid chromosome code '%s' in %s.\n", chr_name, file_descrip);
   }
-  if ((S_CAST(int32_t, raw_code) > S_CAST(int32_t, cip->max_code)) && ((raw_code <= kMaxChrTextnum + kChrOffsetCt) || (raw_code >= kMaxContigs))) {
+  if ((S_CAST(int32_t, raw_code) > S_CAST(int32_t, cip->max_numeric_code)) && ((raw_code <= kMaxChrTextnum + kChrOffsetCt) || (raw_code >= kMaxContigs))) {
     // numeric code or X/Y/MT/PAR
     if (cip->chrset_source == kChrsetSourceDefault) {
       logerrputs("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
