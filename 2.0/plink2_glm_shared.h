@@ -99,7 +99,7 @@ FLAGSET_DEF_START()
   kfGlmColErr = (1 << 25),
 
   kfGlmColAx = (1 << 26),
-  kfGlmColDefault = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColFirthYn | kfGlmColTest | kfGlmColNobs | kfGlmColOrbeta | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP | kfGlmColErr),
+  kfGlmColDefault = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColProvref | kfGlmColOmitted | kfGlmColA1freq | kfGlmColFirthYn | kfGlmColTest | kfGlmColNobs | kfGlmColOrbeta | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP | kfGlmColErr),
   kfGlmColGwasSsfReq = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColOmitted | kfGlmColA1freq | kfGlmColTest | kfGlmColNobs | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP)
 FLAGSET_DEF_END(GlmColFlags);
 

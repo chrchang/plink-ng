@@ -106,7 +106,7 @@ FLAGSET_DEF_START()
   kfPgenDiffColMaybesid = (1 << 11),
   kfPgenDiffColSid = (1 << 12),
   kfPgenDiffColGeno = (1 << 13),
-  kfPgenDiffColDefault = (kfPgenDiffColId | kfPgenDiffColMaybefid | kfPgenDiffColMaybesid | kfPgenDiffColGeno),
+  kfPgenDiffColDefault = (kfPgenDiffColId | kfPgenDiffColMaybeprovref | kfPgenDiffColMaybefid | kfPgenDiffColMaybesid | kfPgenDiffColGeno),
   kfPgenDiffColAll = ((kfPgenDiffColGeno * 2) - kfPgenDiffColPos)
 FLAGSET_DEF_END(PgenDiffFlags);
 

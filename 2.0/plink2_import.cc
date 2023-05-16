@@ -3572,8 +3572,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     const uint32_t can_fail_on_ds_only = strequal_k(dosage_import_field, "DS", dosage_import_field_slen) && (!require_gt);
     uint32_t fail_on_ds_only = 0;
 
-    // If --lax-chrx-import wasn't specified, we now print a warning when
-    // all of the following conditions hold:
+    // If --lax-chrx-import wasn't specified, we now error out when all of the
+    // following conditions hold:
     // 1. At least one sample is present.
     // 2a. Either no .fam/.psam or --update-sex file was provided and there's
     //     at least one chrX variant, or
@@ -3581,29 +3581,27 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     //     specified, and there's a variant in the intersection of the b37 and
     //     b38 PARs.
     //
-    // Without this warning, which will be upgraded to an error in the future,
-    // it's way too easy for users to process chrX incorrectly without
-    // realizing it, especially since VCF files directly encode ploidy
-    // information and it's not immediately obvious why plink2 fails to read
-    // that.
+    // Without this error, it's way too easy for users to process chrX
+    // incorrectly without realizing it, especially since VCF files directly
+    // encode ploidy information and it's not immediately obvious why plink2
+    // fails to read that.
     //
     // If --lax-chrx-import wasn't specified, and conditions (1) and (2a) hold,
-    // we can set print_chrx_warning immediately.
+    // we can error out immediately.
     // If conditions (1) holds, (2a) doesn't hold, and (2b) might hold, we
-    // initialize par_warn_code, and in the main loop we set print_chrx_warning
-    // (and clear par_warn_code) if we encounter a chrX POS in the intersection
-    // of the b37 and b38 PARs.
+    // initialize par_warn_code, and in the main loop we error out if we
+    // encounter a chrX POS in the intersection of the b37 and b38 PARs.
 
     // Could also require the .fam/.psam to contain non-NA sex information?
     // But this should already be enough to address the main footgun.
     const uint32_t sex_info_avail = preexisting_psamname || is_update_sex;
     uint32_t par_warn_code = UINT32_MAX;
-    uint32_t print_chrx_warning = 0;
     if ((!(import_flags & kfImportLaxChrX)) && sample_ct) {
       const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
       if ((!IsI32Neg(x_code)) && IsSet(base_chr_present, x_code)) {
-        if (!sex_info_avail) {
-          print_chrx_warning = 1;
+        if (unlikely(!sex_info_avail)) {
+          logerrputs("Error: chrX is present in the input file, but no sex information was provided;\nrerun this import with --psam or --update-sex.  --split-par may also be\nappropriate.\n");
+          goto VcfToPgen_ret_INCONSISTENT_INPUT;
         } else if (IsHumanChrset(cip) && (!is_splitpar)) {
           par_warn_code = x_code;
         }
@@ -3761,9 +3759,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             pvar_cswritep = memcpya(pvar_cswritep, line_iter, chr_code_end - line_iter);
           } else {
             if (par_warn_code == chr_code_base) {
-              if ((cur_bp <= kPAR1IntersectionLast) || (cur_bp >= kPAR2IntersectionFirst)) {
-                print_chrx_warning = 1;
-                par_warn_code = UINT32_MAX;
+              if (unlikely((cur_bp <= kPAR1IntersectionLast) || (cur_bp >= kPAR2IntersectionFirst))) {
+                putc_unlocked('\n', stdout);
+                logerrputs("Error: Human chrX pseudoautosomal variant(s) appear to be present in the input\nVCF, but --split-par was not specified.\n");
+                goto VcfToPgen_ret_INCONSISTENT_INPUT;
               }
             }
             pvar_cswritep = chrtoa(cip, chr_code_base, pvar_cswritep);
@@ -3929,13 +3928,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     strcpy_k(write_iter, ".\n");
     WordWrapB(0);
     logputsb();
-    if (print_chrx_warning) {
-      if (!sex_info_avail) {
-        logerrputs("Warning: chrX is present in the input file, but no sex information was\nprovided; many commands will produce inaccurate results.  You are strongly\nencouraged to rerun this import with --psam or --update-sex.  --split-par may\nalso be appropriate.\n");
-      } else {
-        logerrputs("Warning: Human chrX pseudoautosomal variant(s) appear to be present in the\ninput VCF, but --split-par was not specified; many commands will produce\ninaccurate results.  You are strongly encouraged to rerun this import with\n--split-par.\n");
-      }
-    }
   }
   while (0) {
   VcfToPgen_ret_NOMEM:
@@ -8405,13 +8397,12 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
 
     // See the analogous code in VcfToPgen().
     const uint32_t sex_info_avail = preexisting_psamname || is_update_sex;
-    uint32_t print_chrx_warning = 0;
     if (par_warn_bcf_chrom != UINT32_MAX) {
       if ((import_flags & kfImportLaxChrX) || (!sample_ct)) {
         par_warn_bcf_chrom = UINT32_MAX;
-      } else if (!sex_info_avail) {
-        par_warn_bcf_chrom = UINT32_MAX;
-        print_chrx_warning = 1;
+      } else if (unlikely(!sex_info_avail)) {
+        logerrputs("Error: chrX is present in the input file, but no sex information was provided;\nrerun this import with --psam or --update-sex.  --split-par may also be\nappropriate.\n");
+        goto BcfToPgen_ret_INCONSISTENT_INPUT;
       } else if ((!IsHumanChrset(cip)) || is_splitpar) {
         par_warn_bcf_chrom = UINT32_MAX;
       }
@@ -8771,9 +8762,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             goto BcfToPgen_ret_WRITE_FAIL;
           }
           if (par_warn_bcf_chrom == chrom) {
-            if ((pos1 <= kPAR1IntersectionLast) || (pos1 >= kPAR2IntersectionFirst)) {
-              print_chrx_warning = 1;
-              par_warn_bcf_chrom = UINT32_MAX;
+            if (unlikely((pos1 <= kPAR1IntersectionLast) || (pos1 >= kPAR2IntersectionFirst))) {
+              putc_unlocked('\n', stdout);
+              logerrputs("Error: Human chrX pseudoautosomal variant(s) appear to be present in the input\nBCF, but --split-par was not specified.\n");
+              goto BcfToPgen_ret_INCONSISTENT_INPUT;
             }
           }
 
@@ -9143,13 +9135,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     strcpy_k(write_iter, ".\n");
     WordWrapB(0);
     logputsb();
-    if (print_chrx_warning) {
-      if (!sex_info_avail) {
-        logerrputs("Warning: chrX is present in the input file, but no sex information was\nprovided; many commands will produce inaccurate results.  You are strongly\nencouraged to rerun this import with --psam or --update-sex.  --split-par may\nalso be appropriate.\n");
-      } else {
-        logerrputs("Warning: Human chrX pseudoautosomal variant(s) appear to be present in the\ninput BCF, but --split-par was not specified; many commands will produce\ninaccurate results.  You are strongly encouraged to rerun this import with\n--split-par.\n");
-      }
-    }
   }
   while (0) {
   BcfToPgen_ret_NOMEM:
@@ -10206,7 +10191,6 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
     }
     // sex_info_avail guaranteed to be true since .sample is required
     uint32_t par_warn_code = UINT32_MAX;
-    uint32_t print_chrx_warning = 0;
     if (!(import_flags & kfImportLaxChrX)) {
       const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
       if ((!IsI32Neg(x_code)) && IsHumanChrset(cip) && (!is_splitpar)) {
@@ -10264,9 +10248,10 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
 
       pvar_cswritep = u32toa_x(cur_bp, '\t', pvar_cswritep);
       if (par_warn_code == cur_chr_code) {
-        if ((cur_bp <= kPAR1IntersectionLast) || (cur_bp >= kPAR2IntersectionFirst)) {
-          print_chrx_warning = 1;
-          par_warn_code = UINT32_MAX;
+        if (unlikely((cur_bp <= kPAR1IntersectionLast) || (cur_bp >= kPAR2IntersectionFirst))) {
+          putc_unlocked('\n', stdout);
+          logerrputs("Error: Human chrX pseudoautosomal variant(s) appear to be present in the input\n.gen, but --split-par was not specified.\n");
+          goto OxGenToPgen_ret_INCONSISTENT_INPUT;
         }
       }
       const uint32_t variant_id_slen = variant_id_end - variant_id_str;
@@ -10606,9 +10591,6 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
     snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, " written.\n");
     WordWrapB(0);
     logputsb();
-    if (print_chrx_warning) {
-      logerrputs("Warning: Human chrX pseudoautosomal variant(s) appear to be present in the\ninput .gen, but --split-par was not specified; many commands will produce\ninaccurate results.  You are strongly encouraged to rerun this import with\n--split-par.\n");
-    }
   }
   while (0) {
   OxGenToPgen_ret_TSTREAM_FAIL:
@@ -12094,6 +12076,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   FILE* psamfile = nullptr;
 
   char* pvar_cswritep = nullptr;
+  const uint32_t sex_info_avail = samplename[0] || is_update_sex;
   CompressStreamState pvar_css;
   PreinitCstream(&pvar_css);
   ThreadGroup tg;
@@ -12422,9 +12405,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     common.sample_ct = sample_ct;
     common.dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
     common.compression_mode = compression_mode;
-    const uint32_t sex_info_avail = samplename[0] || is_update_sex;
     uint32_t par_warn_code = UINT32_MAX;
-    uint32_t print_chrx_warning = 0;
     if (!(import_flags & kfImportLaxChrX)) {
       const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
       if ((!IsI32Neg(x_code)) && ((!sex_info_avail) || (IsHumanChrset(cip) && (!is_splitpar)))) {
@@ -12955,9 +12936,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             if (par_warn_code == cur_chr_code) {
-              if ((!sex_info_avail) || (cur_bp <= kPAR1IntersectionLast) || (cur_bp >= kPAR2IntersectionFirst)) {
-                print_chrx_warning = 1;
-                par_warn_code = UINT32_MAX;
+              if (unlikely((!sex_info_avail) || (cur_bp <= kPAR1IntersectionLast) || (cur_bp >= kPAR2IntersectionFirst))) {
+                logputs("\n");
+                goto OxBgenToPgen_ret_SLOPPY_CHRX;
               }
             }
             pvar_cswritep = u32toa_x(cur_bp, '\t', pvar_cswritep);
@@ -13406,9 +13387,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         if (par_warn_code == cur_chr_code) {
-          if ((!sex_info_avail) || (cur_bp <= kPAR1IntersectionLast) || (cur_bp >= kPAR2IntersectionFirst)) {
-            print_chrx_warning = 1;
-            par_warn_code = UINT32_MAX;
+          if (unlikely((!sex_info_avail) || (cur_bp <= kPAR1IntersectionLast) || (cur_bp >= kPAR2IntersectionFirst))) {
+            logputs("\n");
+            goto OxBgenToPgen_ret_SLOPPY_CHRX;
           }
         }
         pvar_cswritep = u32toa_x(cur_bp, '\t', pvar_cswritep);
@@ -13992,13 +13973,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, ".\n");
     WordWrapB(0);
     logputsb();
-    if (print_chrx_warning) {
-      if (!sex_info_avail) {
-        logerrputs("Warning: chrX is present in the input file, but no sex information was\nprovided; many commands will produce inaccurate results.  You are strongly\nencouraged to rerun this import with --sample or --update-sex.  --split-par may\nalso be appropriate.\n");
-      } else {
-        logerrputs("Warning: Human chrX pseudoautosomal variant(s) appear to be present in the\ninput .bgen, but --split-par was not specified; many commands will produce\ninaccurate results.  You are strongly encouraged to rerun this import with\n--split-par.\n");
-      }
-    }
   }
   while (0) {
   OxBgenToPgen_ret_NOMEM:
@@ -14031,6 +14005,14 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     break;
   OxBgenToPgen_ret_DEGENERATE_DATA:
     reterr = kPglRetDegenerateData;
+    break;
+  OxBgenToPgen_ret_SLOPPY_CHRX:
+    if (!sex_info_avail) {
+      logerrputs("Error: chrX is present in the input file, but no sex information was provided;\nrerun this import with --sample or --update-sex.  --split-par may also be\nappropriate.\n");
+    } else {
+      logerrputs("Error: Human chrX pseudoautosomal variant(s) appear to be present in the\ninput .bgen, but --split-par was not specified.\n");
+    }
+    reterr = kPglRetInconsistentInput;
     break;
   OxBgenToPgen_ret_bgen13_thread_fail:
     if (reterr == kPglRetMalformedInput) {
@@ -14303,7 +14285,6 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     uintptr_t variant_skip_ct = 0;
     const uint32_t sex_info_avail = sfile_sample_ct || is_update_sex;
     uint32_t par_warn_code = UINT32_MAX;
-    uint32_t print_chrx_warning = 0;
     if (!(import_flags & kfImportLaxChrX)) {
       const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
       if ((!IsI32Neg(x_code)) && ((!sex_info_avail) || (IsHumanChrset(cip) && (!is_splitpar)))) {
@@ -14409,9 +14390,14 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
       }
       if (par_warn_code == cur_chr_code) {
-        if ((!sex_info_avail) || (cur_bp <= kPAR1IntersectionLast) || (cur_bp >= kPAR2IntersectionFirst)) {
-          print_chrx_warning = 1;
-          par_warn_code = UINT32_MAX;
+        if (unlikely((!sex_info_avail) || (cur_bp <= kPAR1IntersectionLast) || (cur_bp >= kPAR2IntersectionFirst))) {
+          putc_unlocked('\n', stdout);
+          if (!sex_info_avail) {
+            logerrputs("Error: chrX is present in the input, but no sex information was provided; rerun\nthis import with --sample or --update-sex.  --split-par may also be\nappropriate.\n");
+          } else {
+            logerrputs("Error: Human chrX pseudoautosomal variant(s) appear to be present in the input,\nbut --split-par was not specified.\n");
+          }
+          goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT;
         }
       }
       pvar_cswritep = u32toa_x(cur_bp, '\t', pvar_cswritep);
@@ -14650,13 +14636,6 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     snprintf(write_iter, kLogbufSize - 3 * kPglFnamesize - 64, " written.\n");
     WordWrapB(0);
     logputsb();
-    if (print_chrx_warning) {
-      if (!sex_info_avail) {
-        logerrputs("Warning: chrX is present in the input, but no sex information was provided;\nmany commands will produce inaccurate results.  You are strongly encouraged to\nrerun this import with --sample or --update-sex.  --split-par may also be\nappropriate.\n");
-      } else {
-        logerrputs("Warning: Human chrX pseudoautosomal variant(s) appear to be present in the\ninput, but --split-par was not specified; many commands will produce inaccurate\nresults.  You are strongly encouraged to rerun this import with --split-par.\n");
-      }
-    }
   }
   while (0) {
   OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS:
@@ -14702,6 +14681,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     putc_unlocked('\n', stdout);
     WordWrapB(0);
     logerrputsb();
+  OxHapslegendToPgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   }

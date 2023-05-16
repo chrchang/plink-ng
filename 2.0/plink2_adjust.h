@@ -48,7 +48,7 @@ FLAGSET_DEF_START()
   kfAdjustColSidaksd = (1 << 18),
   kfAdjustColFdrbh = (1 << 19),
   kfAdjustColFdrby = (1 << 20),
-  kfAdjustColDefault = (kfAdjustColChrom | kfAdjustColA1 | kfAdjustColUnadj | kfAdjustColGc | kfAdjustColBonf | kfAdjustColHolm | kfAdjustColSidakss | kfAdjustColSidaksd | kfAdjustColFdrbh | kfAdjustColFdrby),
+  kfAdjustColDefault = (kfAdjustColChrom | kfAdjustColMaybeprovref | kfAdjustColA1 | kfAdjustColUnadj | kfAdjustColGc | kfAdjustColBonf | kfAdjustColHolm | kfAdjustColSidakss | kfAdjustColSidaksd | kfAdjustColFdrbh | kfAdjustColFdrby),
   kfAdjustColAll = ((kfAdjustColFdrby * 2) - kfAdjustColChrom)
 FLAGSET_DEF_END(AdjustFlags);
 

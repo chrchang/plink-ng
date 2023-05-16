@@ -93,7 +93,7 @@ FLAGSET_DEF_START()
   kfAlleleFreqColMachR2 = (1 << 22),
   kfAlleleFreqColMinimac3R2 = (1 << 23),
   kfAlleleFreqColNobs = (1 << 24),
-  kfAlleleFreqColDefault = (kfAlleleFreqColChrom | kfAlleleFreqColRef | kfAlleleFreqColAlt | kfAlleleFreqColAltfreq | kfAlleleFreqColNobs),
+  kfAlleleFreqColDefault = (kfAlleleFreqColChrom | kfAlleleFreqColRef | kfAlleleFreqColAlt | kfAlleleFreqColMaybeprovref | kfAlleleFreqColAltfreq | kfAlleleFreqColNobs),
   kfAlleleFreqColAll = ((kfAlleleFreqColNobs * 2) - kfAlleleFreqColChrom),
   // only mutual exclusion is altfreq/freq/eq/eqz/alteq/alteqz/numeq/numeqz
   // don't force alt1freq/altfreq mutual exclusion since the former plays a bit
@@ -141,7 +141,7 @@ FLAGSET_DEF_START()
   kfMissingRptVcolFmiss = (1 << 29),
   kfMissingRptVcolFmissHh = (1 << 30),
   kfMissingRptVcolFhethap = (1U << 31),
-  kfMissingRptVcolDefault = (kfMissingRptVcolChrom | kfMissingRptVcolNmiss | kfMissingRptVcolNobs | kfMissingRptVcolFmiss),
+  kfMissingRptVcolDefault = (kfMissingRptVcolChrom | kfMissingRptVcolMaybeprovref | kfMissingRptVcolNmiss | kfMissingRptVcolNobs | kfMissingRptVcolFmiss),
   kfMissingRptVcolAll = ((kfMissingRptVcolFhethap * 2U) - kfMissingRptVcolChrom)
 FLAGSET_DEF_END(MissingRptFlags);
 
@@ -169,7 +169,7 @@ FLAGSET_DEF_START()
   kfGenoCountsColNumeq = (1 << 18),
   kfGenoCountsColMissing = (1 << 19),
   kfGenoCountsColNobs = (1 << 20),
-  kfGenoCountsColDefault = (kfGenoCountsColChrom | kfGenoCountsColRef | kfGenoCountsColAlt | kfGenoCountsColHomref | kfGenoCountsColRefalt | kfGenoCountsColAltxy | kfGenoCountsColHapref | kfGenoCountsColHapalt | kfGenoCountsColMissing),
+  kfGenoCountsColDefault = (kfGenoCountsColChrom | kfGenoCountsColRef | kfGenoCountsColAlt | kfGenoCountsColMaybeprovref | kfGenoCountsColHomref | kfGenoCountsColRefalt | kfGenoCountsColAltxy | kfGenoCountsColHapref | kfGenoCountsColHapalt | kfGenoCountsColMissing),
   kfGenoCountsColAll = ((kfGenoCountsColNobs * 2) - kfGenoCountsColChrom),
 
   kfGenoCountsColPairex = (kfGenoCountsColHapalt | kfGenoCountsColHap),
@@ -196,7 +196,7 @@ FLAGSET_DEF_START()
   kfHardyColSexaf = (1 << 14),
   kfHardyColFemalep = (1 << 15),
   kfHardyColP = (1 << 16),
-  kfHardyColDefault = (kfHardyColChrom | kfHardyColAx | kfHardyColGcounts | kfHardyColHetfreq | kfHardyColSexaf | kfHardyColP),
+  kfHardyColDefault = (kfHardyColChrom | kfHardyColMaybeprovref | kfHardyColAx | kfHardyColGcounts | kfHardyColHetfreq | kfHardyColSexaf | kfHardyColP),
   kfHardyColAll = ((kfHardyColP * 2) - kfHardyColChrom)
 FLAGSET_DEF_END(HardyFlags);
 
@@ -284,7 +284,7 @@ FLAGSET_DEF_START()
   kfSdiffColMaybesid = (1 << 14),
   kfSdiffColSid = (1 << 15),
   kfSdiffColGeno = (1 << 16),
-  kfSdiffColPairwiseDefault = (kfSdiffColChrom | kfSdiffColPos | kfSdiffColRef | kfSdiffColAlt | kfSdiffColGeno),
+  kfSdiffColPairwiseDefault = (kfSdiffColChrom | kfSdiffColPos | kfSdiffColRef | kfSdiffColAlt | kfSdiffColMaybeprovref | kfSdiffColGeno),
   kfSdiffColDefault = (kfSdiffColPairwiseDefault | kfSdiffColMaybefid | kfSdiffColId | kfSdiffColMaybesid),
   kfSdiffColAll = ((kfSdiffColGeno * 2) - kfSdiffColChrom),
 
@@ -337,7 +337,7 @@ FLAGSET_DEF_START()
   kfFstVcolNallele = (1 << 14),
   kfFstVcolFstfrac = (1 << 15),
   kfFstVcolFst = (1 << 16),
-  kfFstVcolDefault = (kfFstVcolChrom | kfFstVcolPos | kfFstVcolNobs | kfFstVcolFst),
+  kfFstVcolDefault = (kfFstVcolChrom | kfFstVcolPos | kfFstVcolMaybeprovref | kfFstVcolNobs | kfFstVcolFst),
   kfFstVcolAll = ((kfFstVcolFst * 2) - kfFstVcolChrom),
 FLAGSET_DEF_END(FstFlags);
 

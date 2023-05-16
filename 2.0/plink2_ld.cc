@@ -28,7 +28,7 @@ namespace plink2 {
 #endif
 
 void InitLd(LdInfo* ldip) {
-  ldip->prune_flags = kfLdPrunePlink1Order; // kfLdPrune0 in alpha 5
+  ldip->prune_flags = kfLdPrune0;
   ldip->prune_window_size = 0;
   ldip->prune_window_incr = 0;
   ldip->prune_last_param = 0.0;

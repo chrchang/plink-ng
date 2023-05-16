@@ -344,10 +344,11 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           lambda = (lambda + sortbuf[valid_allele_ct_d2 - 1].chisq) * 0.5;
         }
         lambda = lambda / 0.456;
+        logprintf("--adjust: Genomic inflation est. lambda (based on median chisq) = %g.\n", lambda);
         if (lambda < 1.0) {
+          logprintf("(Treating lambda as 1 in GC-corrected p-value calculation.)\n");
           lambda = 1.0;
         }
-        logprintf("--adjust: Genomic inflation est. lambda (based on median chisq) = %g.\n", lambda);
         lambda_recip = 1.0 / lambda;
       }
     }

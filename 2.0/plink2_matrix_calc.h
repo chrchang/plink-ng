@@ -100,8 +100,8 @@ FLAGSET_DEF_START()
   kfPcaVcolAx = (1 << 16),
   kfPcaVcolMaj = (1 << 17),
   kfPcaVcolNonmaj = (1 << 18),
-  kfPcaVcolDefaultA = (kfPcaVcolChrom | kfPcaVcolRef | kfPcaVcolAlt),
-  kfPcaVcolDefaultB = (kfPcaVcolChrom | kfPcaVcolMaj | kfPcaVcolNonmaj),
+  kfPcaVcolDefaultA = (kfPcaVcolChrom | kfPcaVcolRef | kfPcaVcolAlt | kfPcaVcolMaybeprovref),
+  kfPcaVcolDefaultB = (kfPcaVcolChrom | kfPcaVcolMaybeprovref | kfPcaVcolMaj | kfPcaVcolNonmaj),
   kfPcaVcolAll = ((kfPcaVcolNonmaj * 2) - kfPcaVcolChrom)
 FLAGSET_DEF_END(PcaFlags);
 
@@ -155,7 +155,7 @@ FLAGSET_DEF_START()
   kfVscoreColAltfreq = (1 << 11),
   kfVscoreColNmiss = (1 << 12),
   kfVscoreColNobs = (1 << 13),
-  kfVscoreColDefault = (kfVscoreColChrom | kfVscoreColPos | kfVscoreColRef | kfVscoreColAlt),
+  kfVscoreColDefault = (kfVscoreColChrom | kfVscoreColPos | kfVscoreColRef | kfVscoreColAlt | kfVscoreColMaybeprovref),
   kfVscoreColAll = ((kfVscoreColNobs * 2) - kfVscoreColChrom)
 FLAGSET_DEF_END(VscoreFlags);
 

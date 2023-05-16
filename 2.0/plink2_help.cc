@@ -568,7 +568,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      machr2: Unphased MaCH imputation quality metric.\n"
 "      minimac3r2: Phased Minimac3 imputation quality.\n"
 "      nobs: Number of allele observations.\n"
-"    The default is chrom,ref,alt,altfreq,nobs.\n"
+"    The default is chrom,ref,alt,maybeprovref,altfreq,nobs.\n"
 "    Additional .afreq.{ref,alt1}.bins (or .acount.{ref,alt1}.bins with\n"
 "    'counts') file(s) are generated when 'refbins='/'refbins-file=' or\n"
 "    'alt1bins='/'alt1bins-file=' is present; these report the total number of\n"
@@ -610,7 +610,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "             column contains a single '.'.)\n"
 "      missing: Number of missing genotypes.\n"
 "      nobs: Number of (nonmissing) genotype observations.\n"
-"    The default is chrom,ref,alt,homref,refalt,altxy,hapref,hapalt,missing.\n\n"
+"    The default is chrom,ref,alt,maybeprovref,homref,refalt,altxy,hapref,\n"
+"    hapalt,missing.\n\n"
               );
     // All weirdnesses in the default column-set are for the sake of minimizing
     // differences from the PSC section of bcftools stats -s.
@@ -714,7 +715,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      fmiss: Missing hardcall rate, not counting het haploids.\n"
 "      fmisshh: Missing hardcall rate, counting het haploids.\n"
 "      fhethap: Heterozygous haploid rate.\n"
-"    The default is chrom,nmiss,nobs,fmiss.\n\n"
+"    The default is chrom,maybeprovref,nmiss,nobs,fmiss.\n\n"
               );
     HelpPrint("hardy\0", &help_ctrl, 1,
 "  --hardy ['zs'] ['midp'] ['redundant'] ['cols='<column set descriptor>]\n"
@@ -752,7 +753,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      sexaf: Female and male A1 observed allele frequencies (chrX only).\n"
 "      femalep: Female-only p/midp-value (chrX only).\n"
 "      p: Hardy-Weinberg equilibrium exact test p/midp-value.\n"
-"    The default is chrom,ax,gcounts,hetfreq,sexaf,p.\n\n"
+"    The default is chrom,maybeprovref,ax,gcounts,hetfreq,sexaf,p.\n\n"
                );
     HelpPrint("het\0", &help_ctrl, 1,
 "  --het ['zs'] ['small-sample'] ['cols='<column set descriptor>]\n"
@@ -819,7 +820,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        nallele: Number of nonmissing alleles.\n"
 "        fstfrac: Numerator and denominator of Fst estimate.\n"
 "        fst: Fst estimate.\n"
-"      The default is chrom,pos,nobs,fst.\n"
+"      The default is chrom,pos,maybeprovref,nobs,fst.\n"
 "    * By default, all pairs of populations are compared.  If you only want to\n"
 "      compare some pairs, there are three ways to do this.\n"
 "      * base= specifies one base population to be compared with all others; or\n"
@@ -915,8 +916,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      maybesid: SID1/SID2, if that column was in the input.  Requires 'id'.\n"
 "      sid: Force SID1/SID2 even when SID was absent in the input.\n"
 "      geno: Unphased GT or DS for the two samples.\n"
-"    The default is usually chrom,pos,ref,alt,maybefid,id,maybesid,geno; the\n"
-"    sample IDs are removed from the default in 'pairwise' mode.\n"
+"    The default is usually chrom,pos,ref,alt,maybeprovref,maybefid,id,maybesid,\n"
+"    geno; the sample IDs are removed from the default in 'pairwise' mode.\n"
 "    Supported discordance-count-summary column sets are:\n"
 "      maybefid: FID1/FID2, if that column was in the input.\n"
 "      fid: Force FID1/FID2 even when FID was absent in the input.\n"
@@ -1062,7 +1063,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        (A1 is always present, and positioned here.)\n"
 "        ax: Non-A1 alleles, comma-separated.\n"
 "        (PCs are always present, and positioned here.)\n"
-"      Default is chrom,ref,alt.\n"
+"      Default is chrom,ref,alt,maybeprovref.\n"
 "    * For datasets with no multiallelic variants, the 'biallelic-var-wts'\n"
 "      modifier requests the old .eigenvec.var format, which only reports\n"
 "      weights for major alleles.  (These weights are 2x the corresponding\n"
@@ -1081,7 +1082,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        nonmaj: Minor allele.\n"
 "        (PCs are always present, and positioned here.  Signs are w.r.t. the\n"
 "        major, not necessarily reference, allele.)\n"
-"      Default is chrom,maj,nonmaj.\n\n"
+"      Default is chrom,maybeprovref,maj,nonmaj.\n\n"
                );
 #endif
     HelpPrint("king-cutoff\0make-king\0make-king-table\0rel-cutoff\0grm-cutoff\0", &help_ctrl, 1,
@@ -1167,7 +1168,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      maybesid: SID, if that column was present in the input.\n"
 "      sid: Force SID column to be written even when absent in the input.\n"
 "      geno: Unphased GT or DS.\n"
-"    The default is id,maybefid,maybesid,geno.\n\n"
+"    The default is id,maybeprovref,maybefid,maybesid,geno.\n\n"
               );
     HelpPrint("write-samples\0write-snplist\0", &help_ctrl, 1,
 "  --write-samples\n"
@@ -1321,7 +1322,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      tz: T-statistic for linear regression, Wald Z-score for logistic/Firth.\n"
 "      p: Asymptotic p-value (or -log10(p)) for T/Z-statistic.\n"
 "      err: Error code for NA results.\n"
-"    The default is chrom,pos,ref,alt,firth,test,nobs,orbeta,se,ci,tz,p,err.\n\n"
+"    The default is chrom,pos,ref,alt,provref,omitted,a1freq,firth,test,nobs,orbeta,se,ci,tz,p,err.\n\n"
                );
     HelpPrint("gwas-ssf\0glm\0linear\0logistic\0assoc\0", &help_ctrl, 1,
 "  --gwas-ssf ['zs'] ['delete-orig-glm'] ['a1freq-lower-limit='<bound>]\n"
@@ -1456,7 +1457,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      nmiss: Number of missing (and thus mean-imputed) dosages.\n"
 "      nobs: Number of (nonmissing) sample observations.\n"
 "      (Variant scores are always present, and positioned here.)\n"
-"    Default is chrom,pos,ref,alt.\n"
+"    Default is chrom,pos,ref,alt,maybeprovref.\n"
 "    If binary output is requested instead, the main .vscore.bin matrix contains\n"
 "    floating-point values, column (score) ID(s) are saved to\n"
 "    <output prefix>.vscore.cols, and variant IDs are saved to\n"
@@ -1503,7 +1504,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      sidaksd: Sidak step-down adjusted p-value.\n"
 "      fdrbh: Benjamini & Hochberg (1995) step-up false discovery control.\n"
 "      fdrby: Benjamini & Yekutieli (2001) step-up false discovery control.\n"
-"    Default set is chrom,a1,unadj,gc,bonf,holm,sidakss,sidaksd,fdrbh,fdrby.\n\n"
+"    Default set is chrom,maybeprovref,a1,unadj,gc,bonf,holm,sidakss,sidaksd,\n"
+"    fdrbh,fdrby.\n\n"
                );
     // todo: reimplement most/all of PLINK 1.x's other automatic checks (het
     // haploids, missing sex, etc. with corresponding output files) and have a

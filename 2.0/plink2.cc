@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a4"
+static const char ver_str[] = "PLINK v2.00a5"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a4"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (26 Apr 2023)";
+  " (16 May 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1874,7 +1874,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         if ((sample_ct != founder_ct) && (pcp->min_allele_ddosage || (pcp->max_allele_ddosage != (~0LLU)) || ((!pcp->read_freq_fname) && (pcp->freq_rpt_flags & kfAlleleFreqCounts))) && (!nonfounders) && (!(pcp->misc_flags & kfMiscAcFounders))) {
-          logerrputs("Warning: --mac/--max-mac/\"--freq counts\" specified, but with neither\n--ac-founders nor --nonfounders; and nonfounders are present.  (This will be\nupgraded to an error in the future.)\n");
+          logerrputs("Error: --mac/--max-mac/\"--freq counts\" specified, but with neither\n--ac-founders nor --nonfounders; and nonfounders are present.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
         uint32_t x_start = 0;
         uint32_t x_len = 0;
@@ -5900,7 +5901,7 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (unlikely(((pc.glm_info.cols & (kfGlmColGwasSsfReq | kfGlmColProvref)) != (kfGlmColGwasSsfReq | kfGlmColProvref)) || (!(pc.glm_info.cols & (kfGlmColBeta | kfGlmColOrbeta))))) {
-              logerrputs("Error: --glm column set is inappropriate for --gwas-ssf.  Set e.g.\ncols=+provref,+omitted,+a1freq instead.\n");
+              logerrputs("Error: --glm column set is inappropriate for --gwas-ssf.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (pc.gwas_ssf_info.flags & kfGwasSsfDeleteOrigGlm) {
@@ -6256,10 +6257,9 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
-          // TODO: flip default in alpha 5
-          if (strequal_k(cur_modif, "2", cur_modif_slen)) {
+          if (strequal_k(cur_modif, "1", cur_modif_slen)) {
             pc.ld_info.prune_flags ^= kfLdPrunePlink1Order;
-          } else if (unlikely(!strequal_k(cur_modif, "1", cur_modif_slen))) {
+          } else if (unlikely(!strequal_k(cur_modif, "2", cur_modif_slen))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --indep-order mode '%s' ('1' or '2' expected).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
