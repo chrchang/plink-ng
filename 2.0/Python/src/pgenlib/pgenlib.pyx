@@ -119,6 +119,24 @@ cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
     uintptr_t PglComputeMaxAlleleCt(const uintptr_t* allele_idx_offsets, uint32_t variant_ct)
 
 
+cdef extern from "../plink2/pvar_ffi_support.h" namespace "plink2":
+
+    cdef struct RefcountedWptrStruct:
+        uintptr_t ref_ct
+        uintptr_t p[0]
+
+    cdef struct MinimalPvarStruct:
+        const char** variant_ids
+        const char** allele_storage
+        RefcountedWptrStruct* allele_idx_offsetsp
+        uint32_t variant_ct
+        uint32_t max_allele_ct
+
+    void PreinitMinimalPvar(MinimalPvarStruct* mpp)
+    PglErr LoadMinimalPvar(const char* fname, MinimalPvarStruct* mpp, char* errstr_buf)
+    void CleanupMinimalPvar(MinimalPvarStruct* mpp)
+
+
 cdef extern from "../plink2/pgenlib_ffi_support.h" namespace "plink2":
 
     void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* genobytes)
@@ -224,6 +242,91 @@ cdef extern from "../plink2/include/pgenlib_write.h" namespace "plink2":
     BoolErr CleanupSpgw(STPgenWriter* spgwp, PglErr* reterrp)
 
 
+cdef class PvarReader:
+    cdef MinimalPvarStruct _mp
+
+    def __cinit__(self, bytes filename):
+        PreinitMinimalPvar(&self._mp)
+        cdef const char* fname = <const char*>filename
+        cdef char errstr_buf[kPglErrstrBufBlen]
+        if LoadMinimalPvar(fname, &self._mp, errstr_buf) != kPglRetSuccess:
+            raise RuntimeError(errstr_buf[7:])
+        return
+
+
+    cpdef __enter__(self):
+        return self
+
+
+    cpdef get_variant_ct(self):
+        return self._mp.variant_ct
+
+
+    cpdef get_variant_id(self, uint32_t variant_idx):
+        cdef uint32_t variant_ct = self._mp.variant_ct
+        if variant_idx >= variant_ct:
+            raise RuntimeError("0-based variant idx too large (" + str(variant_idx) + "; only " + str(variant_ct) + " in file).")
+        cdef py_string = self._mp.variant_ids[variant_idx]
+        return py_string
+
+
+    cpdef get_allele_ct(self, uint32_t variant_idx):
+        cdef uint32_t variant_ct = self._mp.variant_ct
+        if variant_idx >= variant_ct:
+            raise RuntimeError("0-based variant idx too large (" + str(variant_idx) + "; only " + str(variant_ct) + " in file).")
+        if self._mp.allele_idx_offsetsp == NULL:
+            return 2
+        cdef const uintptr_t* allele_idx_offsets = self._mp.allele_idx_offsetsp.p
+        return allele_idx_offsets[variant_idx + 1] - allele_idx_offsets[variant_idx]
+
+
+    cpdef get_allele_code(self, uint32_t variant_idx, uint32_t allele_idx):
+        cdef uint32_t variant_ct = self._mp.variant_ct
+        if variant_idx >= variant_ct:
+            raise RuntimeError("0-based variant idx too large (" + str(variant_idx) + "; only " + str(variant_ct) + " in file).")
+        cdef uintptr_t allele_idx_offset_base = 2 * variant_idx
+        cdef uint32_t allele_ct = 2
+        cdef const uintptr_t* allele_idx_offsets
+        if self._mp.allele_idx_offsetsp != NULL:
+            allele_idx_offsets = self._mp.allele_idx_offsetsp.p
+            allele_idx_offset_base = allele_idx_offsets[variant_idx]
+            allele_ct = allele_idx_offsets[variant_idx + 1] - allele_idx_offset_base
+        if allele_idx >= allele_ct:
+            raise RuntimeError("0-based allele idx too large (" + str(allele_idx) + "; only " + str(allele_ct) + " for this variant).")
+        cdef bytes py_string = self._mp.allele_storage[allele_idx_offset_base + allele_idx]
+        return py_string
+
+
+    cpdef get_allele_idx_offsets(self):
+        cdef uint32_t variant_ct_p1 = 1 + self._mp.variant_ct
+        cdef np.ndarray[np.uintp_t,mode="c",ndim=1] allele_idx_offsets = np.zeros([variant_ct_p1], dtype=np.uintp)
+        if self._mp.allele_idx_offsetsp == NULL:
+            for variant_idx in range(variant_ct_p1):
+                allele_idx_offsets[variant_idx] = 2 * variant_idx
+        else:
+            memcpy(&(allele_idx_offsets[0]), self._mp.allele_idx_offsetsp.p, variant_ct_p1 * sizeof(uintptr_t))
+        return allele_idx_offsets
+
+
+    cpdef get_max_allele_ct(self):
+        return self._mp.max_allele_ct
+
+
+    cpdef close(self):
+        CleanupMinimalPvar(&self._mp)
+        return
+
+
+    cpdef __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return
+
+
+    def __dealloc__(self):
+        CleanupMinimalPvar(&self._mp)
+        return
+
+
 cdef class PgenReader:
     cdef PgenFileInfo* _info_ptr
     cdef PgenReaderStruct* _state_ptr
@@ -296,7 +399,7 @@ cdef class PgenReader:
 
     def __cinit__(self, bytes filename, object raw_sample_ct = None,
                   object variant_ct = None, object sample_subset = None,
-                  object allele_idx_offsets = None):
+                  object allele_idx_offsets = None, object pvar = None):
         self._info_ptr = <PgenFileInfo*>PyMem_Malloc(sizeof(PgenFileInfo))
         if not self._info_ptr:
             raise MemoryError()
@@ -308,6 +411,16 @@ cdef class PgenReader:
         if raw_sample_ct is not None:
             cur_sample_ct = raw_sample_ct
         cdef uint32_t cur_variant_ct = 0xffffffffU
+        cdef PvarReader pr
+        if pvar is not None:
+            if (variant_ct is not None) or (allele_idx_offsets is not None):
+                raise RuntimeError("pvar cannot be specified at the same time as variant_ct and/or allele_idx_offsets")
+            pr = pvar
+            variant_ct = pr.get_variant_ct()
+            if pr.get_max_allele_ct() == 2:
+                allele_idx_offsets = None
+            else:
+                allele_idx_offsets = pr.get_allele_idx_offsets()
         if variant_ct is not None:
             cur_variant_ct = variant_ct
         cdef const char* fname = <const char*>filename
@@ -344,8 +457,6 @@ cdef class PgenReader:
                 aligned_free(pgfi_alloc)
             raise RuntimeError(errstr_buf[7:])
         if self._info_ptr[0].gflags & kfPgenGlobalMultiallelicHardcallFound:
-            # todo: support easy initialization of allele_idx_offsets by
-            # wrapping pvar loader the same way as the R interface
             if self._info_ptr[0].allele_idx_offsets == NULL:
                 raise RuntimeError("PgenReader: multiallelic variants present, but allele_idx_offsets not provided")
 
@@ -1420,7 +1531,7 @@ cdef class PgenReader:
             if allele_ct > 2:
                 # Multiallelic special case.
                 type_ct = (allele_ct * (allele_ct + 1)) >> 1
-                if genocount_uint32_out.shape[0] <= type_ct:
+                if <uintptr_t>(genocount_uint32_out.shape[0]) <= type_ct:
                     raise RuntimeError("count() genocount_uint32_out buffer is too small for multiallelic variant")
                 reterr = PgrGetM(subset_include_vec, subset_index, subset_size, variant_idx, pgrp, &self._pgv)
                 if reterr != kPglRetSuccess:

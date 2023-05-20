@@ -411,7 +411,7 @@ HEADER_INLINE bool isfinite_f(float fxx) {
   return (fxx == fxx) && (fxx != INFINITY) && (fxx != -INFINITY);
 }
 
-HEADER_INLINE bool isfinite_d(double fxx) {
+HEADER_INLINE bool isfinite_d(double dxx) {
   return (dxx == dxx) && (dxx != S_CAST(double, INFINITY)) && (dxx != S_CAST(double, -INFINITY));
 }
 #    endif

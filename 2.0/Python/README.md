@@ -18,7 +18,7 @@ pip3 install "cython>=0.29.21" "numpy>=1.19.0"
 
 and then build and install the package
 ```
-python3 setup.py build_ext
+python3 setup.py build_clib build_ext -i
 python3 setup.py install
 ```
 

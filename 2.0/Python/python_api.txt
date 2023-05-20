@@ -1,9 +1,42 @@
-Pgenlib Python API specification, v0.83
+Pgenlib Python API specification, v0.90
 ("import numpy as np" assumed)
+
+class PvarReader:
+* PvarReader(bytes filename)
+  Constructor, opens the .pvar or .bim file.
+
+* get_variant_ct()
+  Returns the number of variants in the .pvar file.
+
+* get_variant_id(uint32_t variant_idx)
+  Returns a variant's ID, given 0-based index.
+
+* get_allele_ct(uint32_t variant_idx)
+  Returns max(2, <number of alleles>) for a variant, given 0-based index.
+
+* get_allele_code(uint32_t variant_idx, uint32_t allele_idx)
+  Returns the specified allele code for a variant, given 0-based variant index
+  and 0-based allele index (0=REF, 1=first ALT, etc.).  Note that, for .bim
+  files, the *last* column is treated as REF, and the second-to-last is treated
+  as ALT.
+
+* get_allele_idx_offsets()
+  Returns a np.uintp array of length (variant_ct+1), where
+  allele_idx_offsets[i+1] - allele_idx_offsets[i] is get_allele_ct(i).
+
+* get_max_allele_ct()
+  Returns max(2, <highest number of alleles for any variant in the file>).
+
+* close()
+  Closes the file, no further read operations can be performed.
+  - Not strictly necessary when e.g. a with-statement is used, but still a good
+    idea in longer scripts since otherwise object cleanup/file close may be
+    delayed.
+
 
 class PgenReader:
 * PgenReader(bytes filename, raw_sample_ct = None, variant_ct = None,
-             sample_subset = None, allele_idx_offsets = None)
+             sample_subset = None, allele_idx_offsets = None, pvar = None)
   Constructor, opens the .pgen or .bed file.  Requires a filename (exception is
   thrown if file doesn't exist or it's invalid).
   - raw_sample_ct is required for a .bed file (otherwise an exception will be
@@ -36,6 +69,9 @@ class PgenReader:
     When provided, it should be a np.uintp array of length (variant_ct+1),
     where allele_idx_offsets[i+1] - allele_idx_offsets[i] is max(2, number of
     alleles for 0-based variant i).
+  - If pvar is provided, variant_ct and allele_idx_offsets are scraped from it.
+    (You are not allowed to provide both pvar and
+    variant_ct/allele_idx_offsets directly.)
 
 * get_raw_sample_ct()
   Returns the number of samples in the .pgen file.
