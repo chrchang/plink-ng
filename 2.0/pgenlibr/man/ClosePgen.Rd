@@ -7,7 +7,7 @@
 ClosePgen(pgen)
 }
 \arguments{
-\item{pvar}{Object returned by NewPgen().}
+\item{pgen}{Object returned by NewPgen().}
 }
 \description{
 Closes a pgen object, releasing resources.

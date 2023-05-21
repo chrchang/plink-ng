@@ -9,9 +9,9 @@ provided to the NewPgen() call.}
 GetAlleleCt(pvar_or_pgen, variant_num)
 }
 \arguments{
-\item{variant_num}{Variant index (1-based).}
+\item{pvar_or_pgen}{Object returned by NewPvar() or NewPgen().}
 
-\item{pgen}{Object returned by NewPgen().}
+\item{variant_num}{Variant index (1-based).}
 }
 \description{
 Returns max(2, <number of alleles the variant_numth variant is known to

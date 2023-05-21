@@ -13,7 +13,7 @@
     \code{NewPvar} and \code{NewPgen} initialize the respective readers.  Then,
     you can either iterate through one variant at a time (\code{Read},
     \code{ReadAlleles}) or perform a multi-variant matrix load
-    (\code{ReadIntList}, \read{ReadList}).  When you're done, \code{ClosePgen}
+    (\code{ReadIntList}, \code{ReadList}).  When you're done, \code{ClosePgen}
     and \code{ClosePvar} free resources.
 }
 \author{

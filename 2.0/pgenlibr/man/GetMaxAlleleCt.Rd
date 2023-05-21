@@ -9,7 +9,7 @@ NewPgen() call.}
 GetMaxAlleleCt(pvar_or_pgen)
 }
 \arguments{
-\item{pgen}{Object returned by NewPgen().}
+\item{pvar_or_pgen}{Object returned by NewPvar() or NewPgen().}
 }
 \description{
 Returns max(2, <maximum number of alleles any variant is known to have>).
