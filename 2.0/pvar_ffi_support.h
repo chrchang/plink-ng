@@ -23,10 +23,10 @@
 namespace plink2 {
 #endif
 
-// "[0]" instead of "[]" needed to silence CRAN warning
+// "[1]" instead of "[]" needed to silence CRAN warning
 struct RefcountedWptrStruct {
   uintptr_t ref_ct;
-  uintptr_t p[0];
+  uintptr_t p[1];
 };
 
 typedef struct RefcountedWptrStruct RefcountedWptr;

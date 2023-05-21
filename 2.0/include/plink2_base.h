@@ -111,6 +111,10 @@
 
 #define _FILE_OFFSET_BITS 64
 
+#ifdef _WIN32
+// msvcrt "I64" format specifiers interfere with CRAN submission.
+#  define __USE_MINGW_ANSI_STDIO 1
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -135,8 +139,6 @@
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
 #  endif
-// msvcrt "I64" format specifiers interfere with CRAN submission.
-#  define __USE_MINGW_ANSI_STDIO 1
 #  include <windows.h>
 #endif
 
