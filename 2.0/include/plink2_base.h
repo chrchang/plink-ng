@@ -126,7 +126,7 @@
 #include <assert.h>
 
 #ifdef _WIN32
-  // needed for EnterCriticalSection, etc.
+// needed for EnterCriticalSection, etc.
 #  ifndef _WIN64
 #    define WINVER 0x0501
 #  else
@@ -135,6 +135,8 @@
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
 #  endif
+// msvcrt "I64" format specifiers interfere with CRAN submission.
+#  define __USE_MINGW_ANSI_STDIO 1
 #  include <windows.h>
 #endif
 
@@ -529,16 +531,9 @@ typedef uint32_t BoolErr;
 #  endif
 #endif
 
-#ifdef _WIN32
-#  undef PRId64
-#  undef PRIu64
-#  define PRId64 "I64d"
-#  define PRIu64 "I64u"
-#else
-#  ifdef __cplusplus
-#    ifndef PRId64
-#      define PRId64 "lld"
-#    endif
+#ifdef __cplusplus
+#  ifndef PRId64
+#    define PRId64 "lld"
 #  endif
 #endif
 
