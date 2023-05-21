@@ -743,7 +743,7 @@ int GetRawSampleCt(List pgen) {
 
 //' Returns the number of variants in the file.
 //'
-//' @param pgen Object returned by NewPgen().
+//' @param pvar_or_pgen Object returned by NewPvar() or NewPgen().
 //' @export
 // [[Rcpp::export]]
 int GetVariantCt(List pvar_or_pgen) {
@@ -762,7 +762,7 @@ int GetVariantCt(List pvar_or_pgen) {
 //' have>).  Could be smaller than the actual number of alleles if no pvar was
 //' provided to the NewPgen() call.
 //'
-//' @param pgen Object returned by NewPgen().
+//' @param pvar_or_pgen Object returned by NewPvar() or NewPgen().
 //' @param variant_num Variant index (1-based).
 //' @export
 // [[Rcpp::export]]
@@ -783,7 +783,7 @@ int GetAlleleCt(List pvar_or_pgen, int variant_num) {
 //' Could be smaller than the true number if no pvar was provided to the
 //' NewPgen() call.
 //'
-//' @param pgen Object returned by NewPgen().
+//' @param pvar_or_pgen Object returned by NewPvar() or NewPgen().
 //' @export
 // [[Rcpp::export]]
 int GetMaxAlleleCt(List pvar_or_pgen) {
@@ -1056,7 +1056,7 @@ NumericVector VariantScores(List pgen, NumericVector weights,
 
 //' Closes a pgen object, releasing resources.
 //'
-//' @param pvar Object returned by NewPgen().
+//' @param pgen Object returned by NewPgen().
 //' @export
 // [[Rcpp::export]]
 void ClosePgen(List pgen) {

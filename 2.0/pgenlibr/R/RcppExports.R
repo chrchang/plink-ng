@@ -25,7 +25,7 @@ GetRawSampleCt <- function(pgen) {
 
 #' Returns the number of variants in the file.
 #'
-#' @param pgen Object returned by NewPgen().
+#' @param pvar_or_pgen Object returned by NewPvar() or NewPgen().
 #' @export
 GetVariantCt <- function(pvar_or_pgen) {
     .Call(`_pgenlibr_GetVariantCt`, pvar_or_pgen)
@@ -35,7 +35,7 @@ GetVariantCt <- function(pvar_or_pgen) {
 #' have>).  Could be smaller than the actual number of alleles if no pvar was
 #' provided to the NewPgen() call.
 #'
-#' @param pgen Object returned by NewPgen().
+#' @param pvar_or_pgen Object returned by NewPvar() or NewPgen().
 #' @param variant_num Variant index (1-based).
 #' @export
 GetAlleleCt <- function(pvar_or_pgen, variant_num) {
@@ -46,7 +46,7 @@ GetAlleleCt <- function(pvar_or_pgen, variant_num) {
 #' Could be smaller than the true number if no pvar was provided to the
 #' NewPgen() call.
 #'
-#' @param pgen Object returned by NewPgen().
+#' @param pvar_or_pgen Object returned by NewPvar() or NewPgen().
 #' @export
 GetMaxAlleleCt <- function(pvar_or_pgen) {
     .Call(`_pgenlibr_GetMaxAlleleCt`, pvar_or_pgen)
@@ -105,6 +105,9 @@ BoolBuf <- function(pgen) {
 #' values indicating the number of copies of the first ALT (or user-specified)
 #' allele each sample has.
 #'
+#' This function treats the data as diploid; you can divide by 2, and then
+#' treat 0.5 as NA, if it's actually haploid.
+#'
 #' @param pgen Object returned by NewPgen().
 #' @param buf Buffer returned by Buf() or IntBuf().
 #' @param variant_num Variant index (1-based).
@@ -116,26 +119,100 @@ ReadHardcalls <- function(pgen, buf, variant_num, allele_num = 2L) {
     invisible(.Call(`_pgenlibr_ReadHardcalls`, pgen, buf, variant_num, allele_num))
 }
 
+#' Loads the variant_numth variant, and then fills buf with numeric dosages
+#' in [0, 2] indicating the dosages of the first ALT (or user-specified)
+#' allele for each sample, with missing values represented by NA.
+#'
+#' This function treats the data as diploid; divide by 2 to obtain haploid
+#' dosages.
+#'
+#' @param pgen Object returned by NewPgen().
+#' @param buf Buffer returned by Buf().
+#' @param variant_num Variant index (1-based).
+#' @param allele_num Allele index; 1 corresponds to REF, 2 to the first ALT
+#' allele, 3 to the second ALT allele if it exists, etc.  Optional, defaults
+#' 2.
+#' @export
 Read <- function(pgen, buf, variant_num, allele_num = 2L) {
     invisible(.Call(`_pgenlibr_Read`, pgen, buf, variant_num, allele_num))
 }
 
+#' Loads the variant_numth variant, and then fills acbuf with integer allele
+#' codes, where each column of the buffer corresponds to a sample.  An allele
+#' code of 0 corresponds to the REF allele, 1 to the first ALT, 2 to the
+#' second ALT, etc.  Missing hardcalls are represented by a pair of NA codes.
+#'
+#' This function treats the data as diploid.  If it's really haploid, you may
+#' want to compare the two rows, and then treat samples where the allele codes
+#' differ as missing values.
+#'
+#' @param pgen Object returned by NewPgen().
+#' @param acbuf Buffer returned by AlleleCodeBuf() or IntAlleleCodeBuf().
+#' @param variant_num Variant index (1-based).
+#' @param phasepresent_buf Buffer returned by BoolBuf().  Optional; if
+#' provided, elements are set to true when the sample has known phase.  Most
+#' of these values will be TRUE even when the raw data is unphased, because
+#' homozygous genotypes always have known phase.  (Missing genotypes are
+#' considered to have unknown phase.)
+#' @export
 ReadAlleles <- function(pgen, acbuf, variant_num, phasepresent_buf = NULL) {
     invisible(.Call(`_pgenlibr_ReadAlleles`, pgen, acbuf, variant_num, phasepresent_buf))
 }
 
+#' Returns an integer matrix, where rows correspond to variant_subset, columns
+#' correspond to samples, and values are in {0, 1, 2, NA} indicating the
+#' number of hardcall ALT allele copies.  For multiallelic variants, all ALT
+#' alleles are combined.
+#'
+#' This function treats the data as diploid; you can divide by 2, and then
+#' treat 0.5 as NA, if it's actually haploid.
+#'
+#' @param pgen Object returned by NewPgen().
+#' @param variant_subset Integer vector containing 1-based indexes of variants
+#' to load.
+#' @export
 ReadIntList <- function(pgen, variant_subset) {
     .Call(`_pgenlibr_ReadIntList`, pgen, variant_subset)
 }
 
+#' Returns a numeric matrix, where rows correspond to variant_subset, columns
+#' correspond to samples, and values are in [0, 2] indicating ALT allele
+#' dosages, or NA for missing dosages.  For multiallelic variants, all ALT
+#' alleles are combined.
+#'
+#' This function treats the data as diploid; divide by 2 to obtain haploid
+#' dosages.
+#'
+#' @param pgen Object returned by NewPgen().
+#' @param variant_subset Integer vector containing 1-based indexes of variants
+#' to load.
+#' @param meanimpute Optional; if true, missing values are mean-imputed
+#' instead of being represented by NA.
+#' @export
 ReadList <- function(pgen, variant_subset, meanimpute = FALSE) {
     .Call(`_pgenlibr_ReadList`, pgen, variant_subset, meanimpute)
 }
 
+#' Multiplies the provided sample-weight vector by the dosage matrix,
+#' returning a vector of variant scores.
+#'
+#' This function treats the data as diploid; divide by 2 to obtain scores
+#' based on a haploid dosage matrix.
+#'
+#' @param pgen Object returned by NewPgen().
+#' @param weights Sample weights.
+#' @param variant_subset Integer vector containing 1-based indexes of variants
+#' to include in the dosage matrix.  Optional; by default, all variants are
+#' included.
+#' @export
 VariantScores <- function(pgen, weights, variant_subset = NULL) {
     .Call(`_pgenlibr_VariantScores`, pgen, weights, variant_subset)
 }
 
+#' Closes a pgen object, releasing resources.
+#'
+#' @param pgen Object returned by NewPgen().
+#' @export
 ClosePgen <- function(pgen) {
     invisible(.Call(`_pgenlibr_ClosePgen`, pgen))
 }
