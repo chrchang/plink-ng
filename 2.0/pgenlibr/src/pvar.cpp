@@ -104,6 +104,11 @@ RPvar::~RPvar() {
   plink2::CleanupMinimalPvar(&_mp);
 }
 
+//' Loads variant IDs and allele codes from a .pvar or .bim file (which can be
+//' compressed with gzip or Zstd).
+//'
+//' @param filename .pvar/.bim file path.
+//' @export
 // [[Rcpp::export]]
 SEXP NewPvar(String filename) {
   XPtr<class RPvar> pvar(new RPvar(), true);
@@ -111,6 +116,11 @@ SEXP NewPvar(String filename) {
   return List::create(_["class"] = "pvar", _["pvar"] = pvar);
 }
 
+//' Returns the variant_numth variant ID.
+//'
+//' @param pvar Object returned by NewPvar().
+//' @param variant_num Variant index (1-based).
+//' @export
 // [[Rcpp::export]]
 String GetVariantId(List pvar, int variant_num) {
   if (strcmp_r_c(pvar[0], "pvar")) {
@@ -121,6 +131,11 @@ String GetVariantId(List pvar, int variant_num) {
   return ss;
 }
 
+//' Returns a list of all (1-based) variant indices with the given variant ID.
+//'
+//' @param pvar Object returned by NewPvar().
+//' @param id Variant ID to look up.
+//' @export
 // [[Rcpp::export]]
 IntegerVector GetVariantsById(List pvar, String id) {
   if (strcmp_r_c(pvar[0], "pvar")) {
@@ -139,6 +154,15 @@ IntegerVector GetVariantsById(List pvar, String id) {
   return iv;
 }
 
+//' Returns the allele_numth allele code for the variant_numth variant.
+//' allele_num=1 corresponds to the REF allele, allele_num=2 corresponds to the
+//' first ALT allele, allele_num=3 corresponds to the second ALT allele if it
+//' exists and errors out otherwise, etc.
+//'
+//' @param pvar Object returned by NewPvar().
+//' @param variant_num Variant index (1-based).
+//' @param allele_num Allele index (1-based).
+//' @export
 // [[Rcpp::export]]
 String GetAlleleCode(List pvar, int variant_num, int allele_num) {
   if (strcmp_r_c(pvar[0], "pvar")) {
@@ -149,6 +173,10 @@ String GetAlleleCode(List pvar, int variant_num, int allele_num) {
   return ss;
 }
 
+//' Closes a pvar object, releasing memory.
+//'
+//' @param pvar Object returned by NewPvar().
+//' @export
 // [[Rcpp::export]]
 void ClosePvar(List pvar) {
   if (strcmp_r_c(pvar[0], "pvar")) {

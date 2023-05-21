@@ -42,3 +42,4 @@ Copyright: This package includes sources of the libdeflate library owned by
 BugReports: https://github.com/chrchang/plink-ng/issues
 Imports: Rcpp (>= 1.0.1)
 LinkingTo: Rcpp
+RoxygenNote: 7.2.3
