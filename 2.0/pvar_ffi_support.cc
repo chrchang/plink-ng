@@ -14,6 +14,10 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
+#ifdef _WIN32
+// msvcrt "I64" format specifiers interfere with CRAN submission.
+#  define __USE_MINGW_ANSI_STDIO 1
+#endif
 #include <errno.h>
 #include <zlib.h>
 #include "pvar_ffi_support.h"
@@ -22,7 +26,9 @@
 namespace plink2 {
 
 RefcountedWptr* CreateRefcountedWptr(uintptr_t size) {
-  RefcountedWptr* rwp = S_CAST(RefcountedWptr*, malloc(sizeof(RefcountedWptr) + size * sizeof(intptr_t)));
+  // "- sizeof(uintptr_t) + size * sizeof(uintptr_t)" because p[1] is intended
+  // as a flexible array member
+  RefcountedWptr* rwp = S_CAST(RefcountedWptr*, malloc(sizeof(RefcountedWptr) - sizeof(uintptr_t) + size * sizeof(intptr_t)));
   if (!rwp) {
     return nullptr;
   }

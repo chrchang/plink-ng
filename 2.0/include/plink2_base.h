@@ -602,26 +602,13 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 #endif
 
 #ifdef __LP64__
-#  ifdef _WIN32 // i.e. Win64
-
-#    undef PRIuPTR
-#    undef PRIdPTR
-#    define PRIuPTR PRIu64
-#    define PRIdPTR PRId64
-#    define PRIxPTR2 "016I64x"
-
-#  else  // not _WIN32
-
-#    ifndef PRIuPTR
-#      define PRIuPTR "lu"
-#    endif
-#    ifndef PRIdPTR
-#      define PRIdPTR "ld"
-#    endif
-#    define PRIxPTR2 "016lx"
-
-#  endif  // Win64
-
+#  ifndef PRIuPTR
+#    define PRIuPTR "lu"
+#  endif
+#  ifndef PRIdPTR
+#    define PRIdPTR "ld"
+#  endif
+#  define PRIxPTR2 "016lx"
 #else  // not __LP64__
 
   // without this, we get ridiculous warning spew...
