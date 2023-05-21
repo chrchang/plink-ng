@@ -1,4 +1,4 @@
-This provides a basic Python API for pgenlib  (See [python_api.txt](python_api.txt) for details.)
+This provides a basic Python API for pgenlib; see [python_api.txt](python_api.txt) for details.
 
 
 ### Build instructions

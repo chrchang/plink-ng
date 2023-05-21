@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import pgenlib
 import numpy as np
-import random
+import csv
 import os
+import random
 
 def generate_unphased_biallelic_test_genotypes(nsample, nvariant):
     geno_buf = np.zeros([nvariant, nsample], dtype=np.int8)
@@ -356,7 +357,8 @@ def phased_multiallelic_case(tmp_path, case_idx, nsample_min, nsample_limit, nva
     # 2. Use a mix of append_alleles(), append_partially_phased(),
     #    append_alleles_batch(), and append_partially_phased_batch() to write
     #    these genotypes to a .pgen.
-    # 3. Verify that
+    # 3. Write companion .pvar.
+    # 4. Verify that
     #      get_raw_sample_ct(),
     #      get_variant_ct()
     #      hardcall_phase_present()
@@ -366,7 +368,7 @@ def phased_multiallelic_case(tmp_path, case_idx, nsample_min, nsample_limit, nva
     #      read_alleles[_and_phasepresent]_list()
     #      count()
     #    return expected results.
-    # 4. Call change_sample_subset(), and repeat step 3.
+    # 5. Call change_sample_subset(), and repeat step 4.
     random.seed(case_idx)
     nsample = random.randrange(nsample_min, nsample_limit)
     nvariant = random.randrange(nvariant_min, nvariant_limit)
@@ -383,11 +385,19 @@ def phased_multiallelic_case(tmp_path, case_idx, nsample_min, nsample_limit, nva
         for vidx in range((2 * nvariant) // 3, (5 * nvariant) // 6):
             w.append_partially_phased(test_acodes[vidx], test_phasepresent_bools[vidx], allele_ct = test_allele_idx_offsets[vidx+1] - test_allele_idx_offsets[vidx])
         w.append_partially_phased_batch(test_acodes[(5 * nvariant) // 6 : nvariant], test_phasepresent_bools[(5 * nvariant) // 6 : nvariant], allele_cts = make_allele_cts(test_allele_idx_offsets[(5 * nvariant) // 6 : nvariant + 1]))
-    with pgenlib.PgenReader(test_pgen_path, allele_idx_offsets=test_allele_idx_offsets) as r:
-        check_phased_multiallelic_read_concordance(r, nsample, nvariant, test_acodes, test_phasepresent_bools, test_allele_idx_offsets, None)
-        sample_subset = sorted(random.sample(range(nsample), k=(nsample+1) // 2))
-        r.change_sample_subset(np.asarray(sample_subset, np.uint32))
-        check_phased_multiallelic_read_concordance(r, nsample, nvariant, test_acodes, test_phasepresent_bools, test_allele_idx_offsets, sample_subset)
+    test_pvar_path = bytes(tmp_path / ("phased_multiallelic_" + str(case_idx) + ".pvar"))
+    with open(test_pvar_path, 'w', newline='') as pvarfile:
+        w = csv.writer(pvarfile, delimiter='\t')
+        w.writerow(['#CHROM', 'POS', 'ID', 'REF', 'ALT'])
+        for vidx in range(nvariant):
+            altstr = ",".join(['A'+str(aidx) for aidx in range(1, test_allele_idx_offsets[vidx+1] - test_allele_idx_offsets[vidx])])
+            w.writerow(['chr1', str(vidx + 1), 'var' + str(vidx + 1), 'A0', altstr])
+    with pgenlib.PvarReader(test_pvar_path) as pvar:
+        with pgenlib.PgenReader(test_pgen_path, pvar=pvar) as r:
+            check_phased_multiallelic_read_concordance(r, nsample, nvariant, test_acodes, test_phasepresent_bools, test_allele_idx_offsets, None)
+            sample_subset = sorted(random.sample(range(nsample), k=(nsample+1) // 2))
+            r.change_sample_subset(np.asarray(sample_subset, np.uint32))
+            check_phased_multiallelic_read_concordance(r, nsample, nvariant, test_acodes, test_phasepresent_bools, test_allele_idx_offsets, sample_subset)
 
 
 def test_phased_multiallelic(tmp_path):
