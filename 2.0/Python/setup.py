@@ -45,7 +45,7 @@ clib = ('clib',
                      'src/plink2/zstd/lib/decompress/zstd_ddict.c',
                      'src/plink2/zstd/lib/decompress/zstd_decompress.c',
                      'src/plink2/zstd/lib/decompress/zstd_decompress_block.c'],
-         'extra_compile_args': ["-DSTATIC_ZSTD", "-DZSTD_DISABLE_ASM", "-DLIBDEFLATE_STATIC"],
+         'macros': [('STATIC_ZSTD', None), ('ZSTD_DISABLE_ASM', None), ('LIBDEFLATE_STATIC', None)],
          'include_dirs': ['src/plink2/zstd/lib', 'src/plink2/zstd/lib/common', 'src/plink2/libdeflate']
          })
 
