@@ -593,7 +593,7 @@ void RPgenReader::FillVariantScores(NumericVector result, NumericVector weights,
   }
   if (weights.size() != _subset_size) {
     char errstr_buf[256];
-    snprintf(errstr_buf, 256, "weights.size()=%td doesn't match pgen sample-subset size=%d", weights.size(), _subset_size);
+    snprintf(errstr_buf, 256, "weights.size()=%" PRIdPTR " doesn't match pgen sample-subset size=%d", weights.size(), _subset_size);
     stop(errstr_buf);
   }
   const int raw_variant_ct = _info_ptr->raw_variant_ct;
