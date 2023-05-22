@@ -14,14 +14,9 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
-#ifdef _WIN32
-// msvcrt "I64" format specifiers interfere with CRAN submission.
-#  define __USE_MINGW_ANSI_STDIO 1
-#endif
-#include <errno.h>
-#include <zlib.h>
 #include "pvar_ffi_support.h"
 #include "include/plink2_text.h"
+#include <errno.h>
 
 namespace plink2 {
 
@@ -150,7 +145,14 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
           col_types[relevant_postchr_col_ct++] = cur_col_type;
         }
         if (relevant_postchr_col_ct != 3) {
-          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Missing column header(s) on line %" PRIuPTR " of %s. (ID, REF, and ALT are required.)\n", line_idx, fname);
+          // PRIuPTR does not seem to be working as intended on CRAN
+          // win-builder, so we can't have nice things.
+          // snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Missing column header(s) on line %" PRIuPTR " of %s. (ID, REF, and ALT are required.)\n", line_idx, fname);
+          char* write_iter = strcpya_k(errstr_buf, "Error: Missing column header(s) on line ");
+          write_iter = wtoa(line_idx, write_iter);
+          write_iter = strcpya_k(write_iter, " of ");
+          write_iter = strcpya(write_iter, fname);
+          strcpy_k(write_iter, ". (ID, REF, and ALT are required.)\n");
           goto LoadMinimalPvar_ret_MALFORMED_INPUT;
         }
         col_skips[2] -= col_skips[1];
@@ -227,7 +229,12 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
       goto LoadMinimalPvar_ret_MALFORMED_INPUT;
     }
     if (variant_ct > kPglMaxVariantCt) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Too many variants in %s (%" PRIuPTR "; max 2^31 - 3).\n", fname, variant_ct);
+      // snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Too many variants in %s (%" PRIuPTR "; max 2^31 - 3).\n", fname, variant_ct);
+      char* write_iter = strcpya_k(errstr_buf, "Error: Too many variants in ");
+      write_iter = strcpya(write_iter, fname);
+      write_iter = strcpya_k(write_iter, " (");
+      write_iter = wtoa(variant_ct, write_iter);
+      strcpy_k(write_iter, "; max 2^31 - 3).\n");
       goto LoadMinimalPvar_ret_MALFORMED_INPUT;
     }
     allele_ct += 2 * variant_ct;
@@ -376,11 +383,25 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     reterr = kPglRetMalformedInput;
     break;
   LoadMinimalPvar_ret_MISSING_TOKENS:
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Fewer tokens than expected on line %" PRIuPTR " of %s.\n", line_idx, fname);
+    // snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Fewer tokens than expected on line %" PRIuPTR " of %s.\n", line_idx, fname);
+    {
+      char* write_iter = strcpya_k(errstr_buf, "Error: Fewer tokens than expected on line ");
+      write_iter = wtoa(line_idx, write_iter);
+      write_iter = strcpya_k(write_iter, " of ");
+      write_iter = strcpya(write_iter, fname);
+      memcpy_k(write_iter, ".\n\0", 4);
+    }
     reterr = kPglRetMalformedInput;
     break;
   LoadMinimalPvar_ret_EMPTY_ALLELE_CODE:
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Empty allele code on line %" PRIuPTR " of %s.\n", line_idx, fname);
+    // snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Empty allele code on line %" PRIuPTR " of %s.\n", line_idx, fname);
+    {
+      char* write_iter = strcpya_k(errstr_buf, "Error: Empty allele code on line ");
+      write_iter = wtoa(line_idx, write_iter);
+      write_iter = strcpya_k(write_iter, " of ");
+      write_iter = strcpya(write_iter, fname);
+      memcpy_k(write_iter, ".\n\0", 4);
+    }
     reterr = kPglRetMalformedInput;
     break;
   }
