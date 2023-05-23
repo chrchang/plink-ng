@@ -2,38 +2,37 @@ Package: pgenlibr
 Type: Package
 Title: PLINK 2 Binary (.pgen) Reader
 Version: 0.3.3
-Date: 2023-05-22
-Authors@R:
-    c(person(given = "Christopher",
-             family = "Chang",
-             role = c("aut", "cre"),
-             email = "chrchang@alumni.caltech.edu"),
-      person(given = "Eric",
-             family = "Biggers",
-             role = c("ctb", "cph"),
-             comment = "Author of included libdeflate library"),
-      person(given = "Yann",
-             family = "Collet",
-             role = c("ctb"),
-             comment = "Author of included Zstd library"),
-      person(given = "Meta Platforms, Inc.",
-             role = c("cph"),
-             comment = "Zstd library"),
-      person(given = "Evan",
-             family = "Nemerson",
-             role = c("ctb", "cph"),
-             comment = "Author of included SIMDe library"),
-      person(given = "Przemyslaw",
-             family = "Skibinski",
-             role = c("ctb"),
-             comment = "Author of included Zstd library"),
-      person(given = "Nick",
-             family = "Terrell",
-             role = c("ctb"),
-             comment = "Author of included Zstd library"))
+Date: 2023-05-23
+Authors@R: c(person(given = "Christopher",
+                    family = "Chang",
+                    role = c("aut", "cre"),
+                    email = "chrchang@alumni.caltech.edu"),
+             person(given = "Eric",
+                    family = "Biggers",
+                    role = c("ctb", "cph"),
+                    comment = "Author of included libdeflate library"),
+             person(given = "Yann",
+                    family = "Collet",
+                    role = c("ctb"),
+                    comment = "Author of included Zstd library"),
+             person(given = "Meta Platforms, Inc.",
+                    role = c("cph"),
+                    comment = "Zstd library"),
+             person(given = "Evan",
+                    family = "Nemerson",
+                    role = c("ctb", "cph"),
+                    comment = "Author of included SIMDe library"),
+             person(given = "Przemyslaw",
+                    family = "Skibinski",
+                    role = c("ctb"),
+                    comment = "Author of included Zstd library"),
+             person(given = "Nick",
+                    family = "Terrell",
+                    role = c("ctb"),
+                    comment = "Author of included Zstd library"))
 Description: A thin wrapper over PLINK 2's core libraries which provides an R
     interface for reading .pgen files.  A minimal .pvar loader is also
-    included.
+    included.  Chang et al. (2015) <doi:10.1186/s13742-015-0047-8>.
 License: LGPL (>= 3)
 Copyright: This package includes sources of the libdeflate library owned by
     Eric Biggers, sources of the SIMDe library owned by Evan Nemerson, sources

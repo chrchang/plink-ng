@@ -9,6 +9,9 @@ ClosePgen(pgen)
 \arguments{
 \item{pgen}{Object returned by NewPgen().}
 }
+\value{
+No return value, called for side-effect.
+}
 \description{
 Closes a pgen object, releasing resources.
 }

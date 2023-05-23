@@ -9,6 +9,9 @@ ClosePvar(pvar)
 \arguments{
 \item{pvar}{Object returned by NewPvar().}
 }
+\value{
+No return value, called for side-effect.
+}
 \description{
 Closes a pvar object, releasing memory.
 }

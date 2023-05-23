@@ -22,6 +22,9 @@ of these values will be TRUE even when the raw data is unphased, because
 homozygous genotypes always have known phase.  (Missing genotypes are
 considered to have unknown phase.)}
 }
+\value{
+No return value, called for acbuf-filling side-effect.
+}
 \description{
 This function treats the data as diploid.  If it's really haploid, you may
 want to compare the two rows, and then treat samples where the allele codes

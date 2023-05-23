@@ -9,6 +9,10 @@ Buf(pgen)
 \arguments{
 \item{pgen}{Object returned by NewPgen().}
 }
+\value{
+Numeric vector with appropriate length for Read() and
+ReadHardcalls().
+}
 \description{
 Returns a numeric buffer that Read() or ReadHardcalls() can load to.
 }

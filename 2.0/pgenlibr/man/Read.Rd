@@ -19,6 +19,9 @@ Read(pgen, buf, variant_num, allele_num = 2L)
 allele, 3 to the second ALT allele if it exists, etc.  Optional, defaults
 2.}
 }
+\value{
+No return value, called for buf-filling side-effect.
+}
 \description{
 This function treats the data as diploid; divide by 2 to obtain haploid
 dosages.

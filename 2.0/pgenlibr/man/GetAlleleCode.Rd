@@ -2,10 +2,7 @@
 % Please edit documentation in R/RcppExports.R
 \name{GetAlleleCode}
 \alias{GetAlleleCode}
-\title{Returns the allele_numth allele code for the variant_numth variant.
-allele_num=1 corresponds to the REF allele, allele_num=2 corresponds to the
-first ALT allele, allele_num=3 corresponds to the second ALT allele if it
-exists and errors out otherwise, etc.}
+\title{Look up an allele code.}
 \usage{
 GetAlleleCode(pvar, variant_num, allele_num)
 }
@@ -16,9 +13,12 @@ GetAlleleCode(pvar, variant_num, allele_num)
 
 \item{allele_num}{Allele index (1-based).}
 }
-\description{
-Returns the allele_numth allele code for the variant_numth variant.
+\value{
+The allele_numth allele code for the variant_numth variant.
 allele_num=1 corresponds to the REF allele, allele_num=2 corresponds to the
 first ALT allele, allele_num=3 corresponds to the second ALT allele if it
 exists and errors out otherwise, etc.
+}
+\description{
+Look up an allele code.
 }

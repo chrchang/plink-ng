@@ -27,40 +27,48 @@
 }
 \keyword{ package }
 \examples{
-  \dontrun{
-    # This is modified from https://yosuketanigawa.com/posts/2020/09/PLINK2 .
-    library(pgenlibr)
+  # This is modified from https://yosuketanigawa.com/posts/2020/09/PLINK2 .
+  library(pgenlibr)
 
-    # These files can be downloaded from
-    # https://www.cog-genomics.org/plink/2.0/resources#phase3_1kg .
-    # The .pgen file must be decompressed before use, but both pgenlibr and
-    # the PLINK 2 program can handle compressed .pvar files.
-    pfile <- 'chr21_hg38'
+  # These files are subsetted from downloads available at
+  #   https://www.cog-genomics.org/plink/2.0/resources#phase3_1kg .
+  # Note that, after downloading the original files, the .pgen file must be
+  # decompressed before use; but both pgenlibr and the PLINK 2 program can
+  # handle compressed .pvar files.
+  pvar_path <- system.file("extdata", "chr21_phase3_start.pvar.zst", package="pgenlibr")
+  pgen_path <- system.file("extdata", "chr21_phase3_start.pgen", package="pgenlibr")
 
-    pvar <- pgenlibr::NewPvar(paste0(pfile, '.pvar.zst'))
-    pgen <- pgenlibr::NewPgen(paste0(pfile, '.pgen'), pvar=pvar)
+  pvar <- pgenlibr::NewPvar(pvar_path)
+  pgen <- pgenlibr::NewPgen(pgen_path, pvar=pvar)
 
-    # Check the number of variants and samples.
-    pgenlibr::GetVariantCt(pgen)
-    pgenlibr::GetRawSampleCt(pgen)
+  # Check the number of variants and samples.
+  pgenlibr::GetVariantCt(pgen)
+  pgenlibr::GetRawSampleCt(pgen)
 
-    # Get the ID of the first variant.
-    GetVariantId(pvar, 1)
+  # Get the ID of the first variant.
+  GetVariantId(pvar, 1)
 
-    # Read the first variant.
-    buf <- pgenlibr::Buf(pgen)
-    pgenlibr::Read(pgen, buf, 1)
+  # Read the 14th variant.
+  buf <- pgenlibr::Buf(pgen)
+  pgenlibr::Read(pgen, buf, 14)
 
-    # Get the index of the variant with ID "21:5031194:G:A".
-    var_id <- pgenlibr::GetVariantsById(pvar, "21:5031194:G:A")
+  # Get the index of the variant with ID "rs569225703".
+  var_id <- pgenlibr::GetVariantsById(pvar, "rs569225703")
 
-    # Read that variant.
-    pgenlibr::Read(pgen, buf, var_id)
+  # Get allele count.
+  pgenlibr::GetAlleleCt(pvar, var_id)
 
-    # Read a matrix with both variants.
-    geno_mat <- pgenlibr::ReadList(pgen, c(1, var_id))
+  # It has three alleles, i.e. two ALT alleles.
+  # Read first-ALT-allele dosages for that variant.
+  pgenlibr::Read(pgen, buf, var_id)
 
-    pgenlibr::ClosePgen(pgen)
-    pgenlibr::ClosePvar(pvar)
-  }
+  # Read second-ALT-allele dosages.
+  pgenlibr::Read(pgen, buf, var_id, allele_num=3)
+
+  # Read a matrix with both variants.  Note that, for the multiallelic variant,
+  # the dosages of both ALT alleles are summed here.
+  geno_mat <- pgenlibr::ReadList(pgen, c(14, var_id))
+
+  pgenlibr::ClosePgen(pgen)
+  pgenlibr::ClosePvar(pvar)
 }

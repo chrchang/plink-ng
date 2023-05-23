@@ -10,13 +10,18 @@ NewPgen(filename, pvar = NULL, raw_sample_ct = NULL, sample_subset = NULL)
 \item{filename}{.pgen/.bed file path.}
 
 \item{pvar}{Object (see NewPvar()) corresponding to the .pgen's companion
-.pvar; technically optional, but necessary for some functionality.}
+.pvar; technically optional, but necessary for some functionality.  In
+particular, at multiallelic variants, all ALT alleles may be collapsed
+together when .pvar information is not available.}
 
 \item{raw_sample_ct}{Number of samples in file; required if it's a PLINK 1
 .bed file, otherwise optional.}
 
 \item{sample_subset}{List of 1-based positions of samples to load;
 optional, all samples are loaded if this is not specified.}
+}
+\value{
+A pgen object, which can be queried for genotype/dosage data.
 }
 \description{
 Opens a .pgen or PLINK 1 .bed file.

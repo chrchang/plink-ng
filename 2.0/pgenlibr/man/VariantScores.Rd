@@ -2,8 +2,7 @@
 % Please edit documentation in R/RcppExports.R
 \name{VariantScores}
 \alias{VariantScores}
-\title{Multiplies the provided sample-weight vector by the dosage matrix,
-returning a vector of variant scores.}
+\title{Compute variant scores.}
 \usage{
 VariantScores(pgen, weights, variant_subset = NULL)
 }
@@ -15,6 +14,10 @@ VariantScores(pgen, weights, variant_subset = NULL)
 \item{variant_subset}{Integer vector containing 1-based indexes of variants
 to include in the dosage matrix.  Optional; by default, all variants are
 included.}
+}
+\value{
+Numeric vector, containing product of sample-weight vector and the
+specified subset of the dosage matrix.
 }
 \description{
 This function treats the data as diploid; divide by 2 to obtain scores

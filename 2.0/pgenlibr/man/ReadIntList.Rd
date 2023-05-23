@@ -2,10 +2,7 @@
 % Please edit documentation in R/RcppExports.R
 \name{ReadIntList}
 \alias{ReadIntList}
-\title{Returns an integer matrix, where rows correspond to variant_subset, columns
-correspond to samples, and values are in {0, 1, 2, NA} indicating the
-number of hardcall ALT allele copies.  For multiallelic variants, all ALT
-alleles are combined.}
+\title{Load hardcalls for multiple variants as an integer matrix.}
 \usage{
 ReadIntList(pgen, variant_subset)
 }
@@ -14,6 +11,12 @@ ReadIntList(pgen, variant_subset)
 
 \item{variant_subset}{Integer vector containing 1-based indexes of variants
 to load.}
+}
+\value{
+Integer matrix, where rows correspond to samples, columns
+correspond to variant_subset, and values are in {0, 1, 2, NA} indicating
+the number of hardcall ALT allele copies.  For multiallelic variants, all
+ALT alleles are combined.
 }
 \description{
 This function treats the data as diploid; you can divide by 2, and then

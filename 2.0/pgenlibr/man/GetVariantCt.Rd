@@ -9,6 +9,9 @@ GetVariantCt(pvar_or_pgen)
 \arguments{
 \item{pvar_or_pgen}{Object returned by NewPvar() or NewPgen().}
 }
+\value{
+Number of variants.
+}
 \description{
 Returns the number of variants in the file.
 }

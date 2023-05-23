@@ -2,7 +2,7 @@
 % Please edit documentation in R/RcppExports.R
 \name{GetVariantsById}
 \alias{GetVariantsById}
-\title{Returns a list of all (1-based) variant indices with the given variant ID.}
+\title{Convert variant ID string to variant index(es).}
 \usage{
 GetVariantsById(pvar, id)
 }
@@ -11,6 +11,9 @@ GetVariantsById(pvar, id)
 
 \item{id}{Variant ID to look up.}
 }
+\value{
+A list of all (1-based) variant indices with the given variant ID.
+}
 \description{
-Returns a list of all (1-based) variant indices with the given variant ID.
+Convert variant ID string to variant index(es).
 }

@@ -9,6 +9,9 @@ GetRawSampleCt(pgen)
 \arguments{
 \item{pgen}{Object returned by NewPgen().}
 }
+\value{
+Number of samples.
+}
 \description{
 Returns the number of samples in the file.
 }

@@ -2,15 +2,17 @@
 % Please edit documentation in R/RcppExports.R
 \name{HardcallPhasePresent}
 \alias{HardcallPhasePresent}
-\title{Returns true iff the file contains at least one phased heterozygous
-hardcall.}
+\title{Returns whether explicitly phased hardcalls are present.}
 \usage{
 HardcallPhasePresent(pgen)
 }
 \arguments{
 \item{pgen}{Object returned by NewPgen().}
 }
+\value{
+TRUE if the file contains at least one phased heterozygous
+hardcall, FALSE otherwise.
+}
 \description{
-Returns true iff the file contains at least one phased heterozygous
-hardcall.
+Returns whether explicitly phased hardcalls are present.
 }

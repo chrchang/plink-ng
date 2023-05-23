@@ -2,17 +2,16 @@
 % Please edit documentation in R/RcppExports.R
 \name{GetMaxAlleleCt}
 \alias{GetMaxAlleleCt}
-\title{Returns max(2, <maximum number of alleles any variant is known to have>).
-Could be smaller than the true number if no pvar was provided to the
-NewPgen() call.}
+\title{Returns the maximum GetAlleleCt() value across all variants in the file.}
 \usage{
 GetMaxAlleleCt(pvar_or_pgen)
 }
 \arguments{
 \item{pvar_or_pgen}{Object returned by NewPvar() or NewPgen().}
 }
+\value{
+Maximum GetAlleleCt() value across all variants.
+}
 \description{
-Returns max(2, <maximum number of alleles any variant is known to have>).
-Could be smaller than the true number if no pvar was provided to the
-NewPgen() call.
+Returns the maximum GetAlleleCt() value across all variants in the file.
 }

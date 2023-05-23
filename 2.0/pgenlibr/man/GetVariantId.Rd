@@ -2,7 +2,7 @@
 % Please edit documentation in R/RcppExports.R
 \name{GetVariantId}
 \alias{GetVariantId}
-\title{Returns the variant_numth variant ID.}
+\title{Convert variant index to variant ID string.}
 \usage{
 GetVariantId(pvar, variant_num)
 }
@@ -11,6 +11,9 @@ GetVariantId(pvar, variant_num)
 
 \item{variant_num}{Variant index (1-based).}
 }
+\value{
+The variant_numth variant ID string.
+}
 \description{
-Returns the variant_numth variant ID.
+Convert variant index to variant ID string.
 }

@@ -10,6 +10,10 @@ NewPvar(filename)
 \arguments{
 \item{filename}{.pvar/.bim file path.}
 }
+\value{
+A pvar object, which can be queried for variant IDs and allele
+codes.
+}
 \description{
 Loads variant IDs and allele codes from a .pvar or .bim file (which can be
 compressed with gzip or Zstd).

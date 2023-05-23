@@ -9,6 +9,10 @@ AlleleCodeBuf(pgen)
 \arguments{
 \item{pgen}{Object returned by NewPgen().}
 }
+\value{
+Numeric matrix with two rows, and appropriate number of columns for
+ReadAlleles().
+}
 \description{
 Returns an empty two-row numeric matrix that ReadAlleles() can load to.
 }

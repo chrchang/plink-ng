@@ -2,10 +2,7 @@
 % Please edit documentation in R/RcppExports.R
 \name{ReadList}
 \alias{ReadList}
-\title{Returns a numeric matrix, where rows correspond to variant_subset, columns
-correspond to samples, and values are in [0, 2] indicating ALT allele
-dosages, or NA for missing dosages.  For multiallelic variants, all ALT
-alleles are combined.}
+\title{Load dosages for multiple variants as a numeric matrix.}
 \usage{
 ReadList(pgen, variant_subset, meanimpute = FALSE)
 }
@@ -17,6 +14,12 @@ to load.}
 
 \item{meanimpute}{Optional; if true, missing values are mean-imputed
 instead of being represented by NA.}
+}
+\value{
+Numeric matrix, where rows correspond to samples, and columns
+correspond to variant_subset.  Values are in [0, 2] indicating ALT
+allele dosages, or NA for missing dosages.  For multiallelic variants, all
+ALT alelles are combined.
 }
 \description{
 This function treats the data as diploid; divide by 2 to obtain haploid

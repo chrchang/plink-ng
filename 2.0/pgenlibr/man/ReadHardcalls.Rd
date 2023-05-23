@@ -19,6 +19,9 @@ ReadHardcalls(pgen, buf, variant_num, allele_num = 2L)
 allele, 3 to the second ALT allele if it exists, etc.  Optional, defaults
 2.}
 }
+\value{
+No return value, called for buf-filling side-effect.
+}
 \description{
 This function treats the data as diploid; you can divide by 2, and then
 treat 0.5 as NA, if it's actually haploid.

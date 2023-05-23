@@ -9,6 +9,9 @@ BoolBuf(pgen)
 \arguments{
 \item{pgen}{Object returned by NewPgen().}
 }
+\value{
+Logical vector with appropriate length for ReadAlleles().
+}
 \description{
 Returns a bool buffer that ReadAlleles() can load phasing information to.
 }

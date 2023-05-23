@@ -2,9 +2,10 @@
 % Please edit documentation in R/RcppExports.R
 \name{GetAlleleCt}
 \alias{GetAlleleCt}
-\title{Returns max(2, <number of alleles the variant_numth variant is known to
-have>).  Could be smaller than the actual number of alleles if no pvar was
-provided to the NewPgen() call.}
+\title{Returns the effective number of alleles for a variant.  Note that if no
+pvar was provided to the NewPgen() call, this function may return 2 even at
+multiallelic variants, since the .pgen may not store allele-count
+information.}
 \usage{
 GetAlleleCt(pvar_or_pgen, variant_num)
 }
@@ -13,8 +14,13 @@ GetAlleleCt(pvar_or_pgen, variant_num)
 
 \item{variant_num}{Variant index (1-based).}
 }
+\value{
+max(2, <number of alleles the variant_numth variant is known to
+have>).  Note that if no
+}
 \description{
-Returns max(2, <number of alleles the variant_numth variant is known to
-have>).  Could be smaller than the actual number of alleles if no pvar was
-provided to the NewPgen() call.
+Returns the effective number of alleles for a variant.  Note that if no
+pvar was provided to the NewPgen() call, this function may return 2 even at
+multiallelic variants, since the .pgen may not store allele-count
+information.
 }

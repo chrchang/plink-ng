@@ -108,6 +108,8 @@ RPvar::~RPvar() {
 //' compressed with gzip or Zstd).
 //'
 //' @param filename .pvar/.bim file path.
+//' @return A pvar object, which can be queried for variant IDs and allele
+//' codes.
 //' @export
 // [[Rcpp::export]]
 SEXP NewPvar(String filename) {
@@ -116,10 +118,11 @@ SEXP NewPvar(String filename) {
   return List::create(_["class"] = "pvar", _["pvar"] = pvar);
 }
 
-//' Returns the variant_numth variant ID.
+//' Convert variant index to variant ID string.
 //'
 //' @param pvar Object returned by NewPvar().
 //' @param variant_num Variant index (1-based).
+//' @return The variant_numth variant ID string.
 //' @export
 // [[Rcpp::export]]
 String GetVariantId(List pvar, int variant_num) {
@@ -131,10 +134,11 @@ String GetVariantId(List pvar, int variant_num) {
   return ss;
 }
 
-//' Returns a list of all (1-based) variant indices with the given variant ID.
+//' Convert variant ID string to variant index(es).
 //'
 //' @param pvar Object returned by NewPvar().
 //' @param id Variant ID to look up.
+//' @return A list of all (1-based) variant indices with the given variant ID.
 //' @export
 // [[Rcpp::export]]
 IntegerVector GetVariantsById(List pvar, String id) {
@@ -154,14 +158,15 @@ IntegerVector GetVariantsById(List pvar, String id) {
   return iv;
 }
 
-//' Returns the allele_numth allele code for the variant_numth variant.
-//' allele_num=1 corresponds to the REF allele, allele_num=2 corresponds to the
-//' first ALT allele, allele_num=3 corresponds to the second ALT allele if it
-//' exists and errors out otherwise, etc.
+//' Look up an allele code.
 //'
 //' @param pvar Object returned by NewPvar().
 //' @param variant_num Variant index (1-based).
 //' @param allele_num Allele index (1-based).
+//' @return The allele_numth allele code for the variant_numth variant.
+//' allele_num=1 corresponds to the REF allele, allele_num=2 corresponds to the
+//' first ALT allele, allele_num=3 corresponds to the second ALT allele if it
+//' exists and errors out otherwise, etc.
 //' @export
 // [[Rcpp::export]]
 String GetAlleleCode(List pvar, int variant_num, int allele_num) {
@@ -176,6 +181,7 @@ String GetAlleleCode(List pvar, int variant_num, int allele_num) {
 //' Closes a pvar object, releasing memory.
 //'
 //' @param pvar Object returned by NewPvar().
+//' @return No return value, called for side-effect.
 //' @export
 // [[Rcpp::export]]
 void ClosePvar(List pvar) {
