@@ -1,1 +1,1 @@
-See https://cran.r-project.org/web/packages/pgenlibr/index.html .
+See https://CRAN.R-project.org/package=pgenlibr .
