@@ -2,7 +2,9 @@ This provides a basic Python API for pgenlib; see [python_api.txt](python_api.tx
 
 
 ### Build instructions
-To build from GitHub, clone the repository:
+PyPI: `pip install Pgenlib`
+
+To build from GitHub instead, clone the repository:
 
 ```
 # clone repo
