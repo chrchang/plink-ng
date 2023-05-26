@@ -23,8 +23,13 @@ namespace plink2 {
 RefcountedWptr* CreateRefcountedWptr(uintptr_t size) {
   // "- sizeof(uintptr_t) + size * sizeof(uintptr_t)" because p[1] is intended
   // as a flexible array member
-  RefcountedWptr* rwp = S_CAST(RefcountedWptr*, malloc(sizeof(RefcountedWptr) - sizeof(uintptr_t) + size * sizeof(intptr_t)));
+  RefcountedWptr* rwp = S_CAST(RefcountedWptr*, malloc(sizeof(RefcountedWptr)));
   if (!rwp) {
+    return nullptr;
+  }
+  rwp->p = S_CAST(uintptr_t*, malloc(size * sizeof(intptr_t)));
+  if (!rwp->p) {
+    free(rwp);
     return nullptr;
   }
   rwp->ref_ct = 1;
@@ -38,6 +43,7 @@ void CondReleaseRefcountedWptr(RefcountedWptr** rwpp) {
   }
   --rwp->ref_ct;
   if (!rwp->ref_ct) {
+    free(rwp->p);
     free(rwp);
   }
   *rwpp = nullptr;

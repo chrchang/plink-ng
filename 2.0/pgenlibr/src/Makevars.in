@@ -1,0 +1,17 @@
+PKG_CFLAGS = -DZSTD_DISABLE_ASM -DLIBDEFLATE_STATIC -Ilibdeflate -I. @ZSTD_INCLUDE_PATH@
+PKG_CPPFLAGS = -DZSTD_DISABLE_ASM -DLIBDEFLATE_STATIC -DPGENLIB_NOPRINT -Ilibdeflate -Isimde -I. @ZSTD_INCLUDE_PATH@
+PKG_LIBS = -lz -lpthread -L. @ZSTD_LIBS@
+
+ZSTD_SOURCES = zstd/lib/compress/zstdmt_compress.c zstd/lib/compress/zstd_opt.c zstd/lib/compress/zstd_ldm.c zstd/lib/compress/zstd_lazy.c zstd/lib/compress/zstd_fast.c zstd/lib/compress/zstd_double_fast.c zstd/lib/compress/zstd_compress_superblock.c zstd/lib/compress/zstd_compress_sequences.c zstd/lib/compress/zstd_compress_literals.c zstd/lib/compress/zstd_compress.c zstd/lib/compress/huf_compress.c zstd/lib/compress/hist.c zstd/lib/compress/fse_compress.c zstd/lib/decompress/zstd_decompress_block.c zstd/lib/decompress/zstd_decompress.c zstd/lib/decompress/zstd_ddict.c zstd/lib/decompress/huf_decompress.c zstd/lib/common/zstd_common.c zstd/lib/common/xxhash.c zstd/lib/common/threading.c zstd/lib/common/pool.c zstd/lib/common/fse_decompress.c zstd/lib/common/error_private.c zstd/lib/common/entropy_common.c zstd/lib/common/debug.c
+LIBZSTD = $(ZSTD_SOURCES:.c=.o)
+
+$(SHLIB): @ZSTD_SHLIB@
+
+libPGZSTD.a: $(LIBZSTD)
+	$(AR) rcs libPGZSTD.a $(LIBZSTD)
+
+clean:
+	rm -f $(SHLIB) $(OBJECTS) @ZSTD_CLEAN@
+
+SOURCES = libdeflate/lib/zlib_decompress.c libdeflate/lib/zlib_compress.c libdeflate/lib/utils.c libdeflate/lib/gzip_compress.c libdeflate/lib/crc32.c libdeflate/lib/adler32.c libdeflate/lib/deflate_decompress.c libdeflate/lib/deflate_compress.c libdeflate/lib/gzip_decompress.c libdeflate/lib/arm/arm_cpu_features.c libdeflate/lib/x86/x86_cpu_features.c
+OBJECTS = include/plink2_base.o include/plink2_bits.o include/pgenlib_misc.o include/pgenlib_read.o pvar_ffi_support.o pgenlib_ffi_support.o include/plink2_bgzf.o include/plink2_string.o include/plink2_text.o include/plink2_thread.o include/plink2_zstfile.o pvar.o pgenlibr.o RcppExports.o $(SOURCES:.c=.o)

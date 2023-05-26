@@ -23,10 +23,11 @@
 namespace plink2 {
 #endif
 
-// "[1]" instead of "[]" needed to silence CRAN warning
+// Would prefer to make p a flexible array member, but that doesn't adhere to
+// current CRAN coding standards, so we have an extra dereference here.
 struct RefcountedWptrStruct {
   uintptr_t ref_ct;
-  uintptr_t p[1];
+  uintptr_t* p;
 };
 
 typedef struct RefcountedWptrStruct RefcountedWptr;

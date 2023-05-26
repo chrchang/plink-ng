@@ -24,6 +24,7 @@ python3 setup.py build_clib build_ext -i
 python3 setup.py install
 ```
 
+You can test the package with `pytest`.
 
 ##### Example usage:
 ```

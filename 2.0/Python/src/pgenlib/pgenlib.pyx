@@ -123,7 +123,7 @@ cdef extern from "../plink2/pvar_ffi_support.h" namespace "plink2":
 
     cdef struct RefcountedWptrStruct:
         uintptr_t ref_ct
-        uintptr_t p[0]
+        uintptr_t* p
 
     cdef struct MinimalPvarStruct:
         const char** variant_ids
