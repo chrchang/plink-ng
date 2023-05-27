@@ -108,10 +108,10 @@ PLINK2LIB_OBJ2 = $(notdir $(PLINK2LIB_OBJ))
 
 OBJ3 = $(CSRC2:.c=.o) $(ZCSRC2:.c=.o) $(ZSSRC2:.S=.o) $(CCSRC2:.cc=.o)
 
-CINCLUDE = -Ilibdeflate -Isimde
-CINCLUDE2 = -I../libdeflate -I../simde
-CXXINCLUDE = -Isimde
-CXXINCLUDE2 = -I../simde
+CINCLUDE = -Ilibdeflate -I.
+CINCLUDE2 = -I../libdeflate -I..
+CXXINCLUDE = -I.
+CXXINCLUDE2 = -I..
 ZSTD_INCLUDE = -Izstd/lib -Izstd/lib/common
 ZSTD_INCLUDE2 = -I../zstd/lib -I../zstd/lib/common
 
@@ -127,7 +127,9 @@ CLEAN = *.o \
         zstd/lib/common/*.o \
         zstd/lib/compress/*.o \
         zstd/lib/decompress/*.o \
+        pgenlibr/src/*.a \
         pgenlibr/src/*.o \
+        pgenlibr/src/Makevars \
         pgenlibr/src/pgenlibr.so \
         bin/plink2 bin/pgen_compress
 CLEAN3 = $(foreach expr,$(CLEAN),../$(expr))

@@ -24,7 +24,7 @@
 #    include <emmintrin.h>
 #  else
 #    define SIMDE_ENABLE_NATIVE_ALIASES
-#    include "x86/sse2.h"
+#    include "simde/x86/sse2.h"
 #  endif
 #endif
 
