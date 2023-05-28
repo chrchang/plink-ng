@@ -3708,10 +3708,14 @@ PglErr LoadMultiallelicCenteredVarmaj(const uintptr_t* sample_include, PgrSample
         InitLookup16x8bx2(lookup_vals);
         GenoarrLookup16x8bx2(genovec_buf, lookup_vals, sample_ct, &(normed_dosages0[sample_ct]));
       } else {
+        // bugfix (28 May 2023): missing genotypes in multiallelic variants
+        // were not handled correctly here
+        lookup_vals[0] = intercept;
+        lookup_vals[2] = intercept;
+        lookup_vals[4] = intercept;
+        lookup_vals[6] = 0.0;
         double* normed_dosages_cur_allele = &(normed_dosages0[allele_idx * S_CAST(uintptr_t, sample_ct)]);
-        for (uint32_t uii = 0; uii != sample_ct; ++uii) {
-          normed_dosages_cur_allele[uii] = intercept;
-        }
+        GenoarrLookup16x8bx2(genovec_buf, lookup_vals, sample_ct, normed_dosages_cur_allele);
       }
     }
     const uintptr_t* patch_01_set = pgvp->patch_01_set;
