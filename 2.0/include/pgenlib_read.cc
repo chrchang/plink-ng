@@ -716,7 +716,9 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       if ((raw_sample_ct != UINT32_MAX) && (raw_variant_ct != UINT32_MAX)) {
         const uint64_t fsize_expected = 3 + S_CAST(uint64_t, raw_sample_ct) * NypCtToByteCt(raw_variant_ct);
         if (fsize != fsize_expected) {
-          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Unexpected PLINK 1 sample-major .bed file size (%" PRIu64 " bytes expected).\n", fsize_expected);
+          char* write_iter = strcpya_k(errstr_buf, "Error: Unexpected PLINK 1 sample-major .bed file size (");
+          write_iter = i64toa(fsize_expected, write_iter);
+          strcpy_k(write_iter, " bytes expected).\n");
           return kPglRetMalformedInput;
         }
       }
@@ -739,7 +741,9 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       raw_variant_ct = quotient;
     } else {
       if (unlikely(S_CAST(uint64_t, raw_variant_ct) * const_vrec_width + 3 != fsize)) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Unexpected PLINK 1 .bed file size (expected %" PRIu64 " bytes).\n", S_CAST(uint64_t, raw_variant_ct) * const_vrec_width + 3);
+        char* write_iter = strcpya_k(errstr_buf, "Error: Unexpected PLINK 1 .bed file size (expected ");
+        write_iter = i64toa(S_CAST(uint64_t, raw_variant_ct) * const_vrec_width + 3, write_iter);
+        strcpy_k(write_iter, " bytes).\n");
         return kPglRetMalformedInput;
       }
     }
@@ -864,7 +868,9 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       pgfip->gflags |= kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent;
     }
     if (unlikely(S_CAST(uint64_t, raw_variant_ct) * const_vrec_width + pgfip->const_fpos_offset != fsize)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Unexpected .pgen file size (expected %" PRIu64 " bytes).\n", S_CAST(uint64_t, raw_variant_ct) * const_vrec_width + pgfip->const_fpos_offset);
+      char* write_iter = strcpya_k(errstr_buf, "Error: Unexpected .pgen file size (expected ");
+      write_iter = i64toa(S_CAST(uint64_t, raw_variant_ct) * const_vrec_width + pgfip->const_fpos_offset, write_iter);
+      strcpy_k(write_iter, " bytes).\n");
       return kPglRetMalformedInput;
     }
     pgfip->const_vrtype = vrtype;
@@ -10041,7 +10047,11 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
   // todo: modify this check when phase sets are implemented
   const uint64_t expected_fsize = pgrp->fi.var_fpos[variant_ct];
   if (unlikely(expected_fsize != fsize)) {
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen header indicates that file size should be %" PRIu64 " bytes, but actual file size is %" PRIu64 " bytes.\n", expected_fsize, fsize);
+    char* write_iter = strcpya_k(errstr_buf, "Error: .pgen header indicates that file size should be ");
+    write_iter = i64toa(expected_fsize, write_iter);
+    write_iter = strcpya_k(write_iter, " bytes, but actual file size is ");
+    write_iter = i64toa(fsize, write_iter);
+    strcpy_k(write_iter, " bytes.\n");
     return kPglRetMalformedInput;
   }
   const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
@@ -10172,7 +10182,15 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
     }
     if (unlikely(fread_ptr != fread_end)) {
       // possible todo: tolerate this at the end of a vblock.
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Extra byte(s) in (0-based) variant record #%u. (record type = %u; expected length = %" PRIuPTR ", actual = %" PRIuPTR ")\n", vidx, vrtype, S_CAST(uintptr_t, fread_ptr - fread_ptr_start), S_CAST(uintptr_t, fread_end - fread_ptr_start));
+      char* write_iter = strcpya_k(errstr_buf, "Error: Extra byte(s) in (0-based) variant record #");
+      write_iter = u32toa(vidx, write_iter);
+      write_iter = strcpya_k(write_iter, ". (record type = ");
+      write_iter = u32toa(vrtype, write_iter);
+      write_iter = strcpya_k(write_iter, "; expected length = ");
+      write_iter = wtoa(S_CAST(uintptr_t, fread_ptr - fread_ptr_start), write_iter);
+      write_iter = strcpya_k(write_iter, ", actual = ");
+      write_iter = wtoa(S_CAST(uintptr_t, fread_end - fread_ptr_start), write_iter);
+      memcpy_k(write_iter, ")\n\0", 4);
       return kPglRetMalformedInput;
     }
   }

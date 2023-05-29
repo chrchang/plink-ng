@@ -106,7 +106,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 805
+#define PLINK2_BASE_VERNUM 806
 
 
 #define _FILE_OFFSET_BITS 64
@@ -3018,6 +3018,11 @@ HEADER_INLINE unsigned char* memcpyuao_k(void* __restrict dst, const void* __res
 
 #endif
 
+HEADER_INLINE char* strcpya(char* __restrict dst, const void* __restrict src) {
+  const uintptr_t slen = strlen(S_CAST(const char*, src));
+  return memcpya(dst, src, slen);
+}
+
 #if defined(__LP64__) && (__cplusplus >= 201103L)
 
 constexpr uint32_t CompileTimeSlen(const char* k_str) {
@@ -3026,12 +3031,60 @@ constexpr uint32_t CompileTimeSlen(const char* k_str) {
 
 #  define strcpy_k(dst, src) plink2::MemcpyKImpl<plink2::CompileTimeSlen(src) + 1>::MemcpyK(dst, src);
 
+#  define strcpya_k(dst, src) plink2::MemcpyaoK<plink2::CompileTimeSlen(src)>(dst, src);
+
 #else
 
 HEADER_INLINE void strcpy_k(char* __restrict dst, const void* __restrict src) {
   strcpy(dst, S_CAST(const char*, src));
 }
 
+HEADER_INLINE char* strcpya_k(char* __restrict dst, const void* __restrict src) {
+  return strcpya(dst, src);
+}
+
+#endif
+
+// A few more string-rendering functions that would normally live in
+// plink2_string, to work around PRI{d,u}PTR and PRI{d,u}64 warning on CRAN
+// Windows builds.
+
+extern const uint16_t kDigitPair[];
+
+char* u32toa(uint32_t uii, char* start);
+
+HEADER_INLINE char* uitoa_z4(uint32_t uii, char* start) {
+  uint32_t quotient = uii / 100;
+  assert(quotient < 100);
+  uii -= 100 * quotient;
+  start = memcpya_k(start, &(kDigitPair[quotient]), 2);
+  return memcpya_k(start, &(kDigitPair[uii]), 2);
+}
+
+HEADER_INLINE char* u32toa_z6(uint32_t uii, char* start) {
+  uint32_t quotient = uii / 10000;
+  start = memcpya_k(start, &(kDigitPair[quotient]), 2);
+  return uitoa_z4(uii - 10000 * quotient, start);
+}
+
+HEADER_INLINE char* uitoa_z8(uint32_t uii, char* start) {
+  uint32_t quotient = uii / 1000000;
+  start = memcpya_k(start, &(kDigitPair[quotient]), 2);
+  return u32toa_z6(uii - 1000000 * quotient, start);
+}
+
+char* i64toa(int64_t llii, char* start);
+
+#ifdef __LP64__
+// really just for printing line numbers
+// must be less than 2^63
+HEADER_INLINE char* wtoa(uintptr_t ulii, char* start) {
+  return i64toa(ulii, start);
+}
+#else
+HEADER_INLINE char* wtoa(uintptr_t ulii, char* start) {
+  return u32toa(ulii, start);
+}
 #endif
 
 #ifdef __LP64__

@@ -306,11 +306,6 @@ HEADER_INLINE void memcpyx(void* __restrict dst, const void* __restrict src, uin
   S_CAST(char*, dst)[ct] = extra_char;
 }
 
-HEADER_INLINE char* strcpya(char* __restrict dst, const void* __restrict src) {
-  const uintptr_t slen = strlen(S_CAST(const char*, src));
-  return memcpya(dst, src, slen);
-}
-
 HEADER_INLINE char* strcpyax(char* __restrict dst, const void* __restrict src, char extra_char) {
   const uintptr_t slen = strlen(S_CAST(const char*, src));
   memcpy(dst, src, slen);
@@ -345,7 +340,8 @@ template <uint32_t N> int32_t StrequalK(const char* s1, const char* k_s2, uint32
   return (s1_slen == N) && memequal_k(s1, k_s2, N);
 };
 
-// CompileTimeSlen and strcpy_k moved to plink2_base
+// strcpya, CompileTimeSlen, strcpy_k, strcpya_k, u32toa, i64toa, wtoa moved to
+// plink2_base
 
 // can also use sizeof(k_s2) - 1, but that's less safe
 #  define strequal_k(s1, k_s2, s1_slen) plink2::StrequalK<plink2::CompileTimeSlen(k_s2)>(s1, k_s2, s1_slen)
@@ -354,7 +350,6 @@ template <uint32_t N> int32_t StrequalK(const char* s1, const char* k_s2, uint32
 
 #  define memequal_sk(s1, k_s2) memequal_k(s1, k_s2, plink2::CompileTimeSlen(k_s2))
 
-#  define strcpya_k(dst, src) plink2::MemcpyaoK<plink2::CompileTimeSlen(src)>(dst, src);
 #else  // !(defined(__LP64__) && (__cplusplus >= 201103L))
 HEADER_INLINE char* memcpyax_k(void* __restrict dst, const void* __restrict src, uint32_t ct, char extra_char) {
   return memcpyax(dst, src, ct, extra_char);
@@ -377,10 +372,6 @@ HEADER_INLINE int32_t strequal_k_unsafe(const char* s1, const char* k_s2) {
 HEADER_INLINE int32_t memequal_sk(const void* s1, const char* k_s2) {
   const uint32_t s2_slen = strlen(k_s2);
   return memequal(s1, k_s2, s2_slen);
-}
-
-HEADER_INLINE char* strcpya_k(char* __restrict dst, const void* __restrict src) {
-  return strcpya(dst, src);
 }
 #endif
 
@@ -1385,29 +1376,11 @@ uint32_t CountTokens(const char* str_iter);
 // empty multistr ok
 uint32_t CountAndMeasureMultistr(const char* multistr, uintptr_t* max_blen_ptr);
 
-extern const uint16_t kDigitPair[];
-
-char* u32toa(uint32_t uii, char* start);
-
 char* i32toa(int32_t ii, char* start);
 
 char* u32toa_z5(uint32_t uii, char* start);
 
 char* u32toa_z6(uint32_t uii, char* start);
-
-char* i64toa(int64_t llii, char* start);
-
-#ifdef __LP64__
-// really just for printing line numbers
-// must be less than 2^63
-HEADER_INLINE char* wtoa(uintptr_t ulii, char* start) {
-  return i64toa(ulii, start);
-}
-#else
-HEADER_INLINE char* wtoa(uintptr_t ulii, char* start) {
-  return u32toa(ulii, start);
-}
-#endif
 
 char* u32toa_trunc4(uint32_t uii, char* start);
 

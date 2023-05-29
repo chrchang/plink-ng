@@ -307,8 +307,13 @@ void RPgenReader::ReadIntHardcalls(IntegerVector buf, int variant_idx, int allel
     stop(errstr_buf);
   }
   if (buf.size() != _subset_size) {
+    using namespace plink2;
     char errstr_buf[256];
-    snprintf(errstr_buf, 256, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
+    char* write_iter = strcpya_k(errstr_buf, "buf has wrong length (");
+    write_iter = wtoa(buf.size(), write_iter);
+    write_iter = strcpya_k(write_iter, "; ");
+    write_iter = u32toa(_subset_size, write_iter);
+    strcpy_k(write_iter, " expected)");
     stop(errstr_buf);
   }
   plink2::PglErr reterr = PgrGet1(_subset_include_vec, _subset_index, _subset_size, variant_idx, allele_idx, _state_ptr, _pgv.genovec);
@@ -332,8 +337,13 @@ void RPgenReader::ReadHardcalls(NumericVector buf, int variant_idx, int allele_i
     stop(errstr_buf);
   }
   if (buf.size() != _subset_size) {
+    using namespace plink2;
     char errstr_buf[256];
-    snprintf(errstr_buf, 256, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
+    char* write_iter = strcpya_k(errstr_buf, "buf has wrong length (");
+    write_iter = wtoa(buf.size(), write_iter);
+    write_iter = strcpya_k(write_iter, "; ");
+    write_iter = u32toa(_subset_size, write_iter);
+    strcpy_k(write_iter, " expected)");
     stop(errstr_buf);
   }
   plink2::PglErr reterr = PgrGet1(_subset_include_vec, _subset_index, _subset_size, variant_idx, allele_idx, _state_ptr, _pgv.genovec);
@@ -355,8 +365,13 @@ void RPgenReader::Read(NumericVector buf, int variant_idx, int allele_idx) {
     stop(errstr_buf);
   }
   if (buf.size() != _subset_size) {
+    using namespace plink2;
     char errstr_buf[256];
-    snprintf(errstr_buf, 256, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
+    char* write_iter = strcpya_k(errstr_buf, "buf has wrong length (");
+    write_iter = wtoa(buf.size(), write_iter);
+    write_iter = strcpya_k(write_iter, "; ");
+    write_iter = u32toa(_subset_size, write_iter);
+    strcpy_k(write_iter, " expected)");
     stop(errstr_buf);
   }
   uint32_t dosage_ct;
@@ -592,8 +607,13 @@ void RPgenReader::FillVariantScores(NumericVector result, NumericVector weights,
     stop("pgen is closed");
   }
   if (weights.size() != _subset_size) {
+    using namespace plink2;
     char errstr_buf[256];
-    snprintf(errstr_buf, 256, "weights.size()=%" PRIdPTR " doesn't match pgen sample-subset size=%d", weights.size(), _subset_size);
+    char* write_iter = strcpya_k(errstr_buf, "weights.size()=");
+    write_iter = wtoa(weights.size(), write_iter);
+    write_iter = strcpya_k(write_iter, " doesn't match pgen sample-subset size=");
+    write_iter = wtoa(_subset_size, write_iter);
+    *write_iter = '\0';
     stop(errstr_buf);
   }
   const int raw_variant_ct = _info_ptr->raw_variant_ct;
