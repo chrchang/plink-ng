@@ -1550,7 +1550,7 @@ void GenoarrLookup4x16b(const uintptr_t* genoarr, const void* table4x16b, uint32
     geno_word = genoarr[widx];
     for (uint32_t uii = 0; uii != loop_len; ++uii) {
       _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[geno_word & 3]);
-      result_biter += kBytesPerVec;
+      result_biter += 16;
       geno_word >>= 2;
     }
   }
@@ -1576,7 +1576,7 @@ void GenoarrLookup16x8bx2(const uintptr_t* genoarr, const void* table16x8bx2, ui
     for (uint32_t uii = 0; uii != loop_len; ++uii) {
       const uintptr_t cur_2geno = geno_word & 15;
       _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[cur_2geno]);
-      result_biter += kBytesPerVec;
+      result_biter += 16;
       geno_word >>= 4;
     }
   }
@@ -1588,11 +1588,11 @@ void GenoarrLookup256x4bx4(const uintptr_t* genoarr, const void* table256x4bx4, 
   unsigned char* resultb = S_CAST(unsigned char*, result);
   const uint32_t full_byte_ct = sample_ct / 4;
   for (uint32_t byte_idx = 0; byte_idx != full_byte_ct; ++byte_idx) {
-    _mm_storeu_si128(R_CAST(__m128i*, &(resultb[byte_idx * kBytesPerVec])), table_alias[genoarr_alias[byte_idx]]);
+    _mm_storeu_si128(R_CAST(__m128i*, &(resultb[byte_idx * 16])), table_alias[genoarr_alias[byte_idx]]);
   }
   const uint32_t remainder = sample_ct % 4;
   if (remainder) {
-    unsigned char* result_last = &(resultb[full_byte_ct * kBytesPerVec]);
+    unsigned char* result_last = &(resultb[full_byte_ct * 16]);
     uintptr_t geno_byte = genoarr_alias[full_byte_ct];
     for (uint32_t uii = 0; uii != remainder; ++uii) {
       UnalignedCopyDstOffsetU32(result_last, &(table_alias[geno_byte & 3]), uii);

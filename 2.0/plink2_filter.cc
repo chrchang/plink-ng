@@ -2757,7 +2757,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         }
         ZeroWArr(BitCtToWordCt(cur_allele_ct), matched_internal_alleles);
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-        uint32_t loaded_allele_ct = 0;
+        uint32_t loaded_allele_idx_end = 0;
         {
           uint32_t unmatched_allele_ct = cur_allele_ct;
           uint32_t cur_loaded_allele_code_slen;
@@ -2790,11 +2790,13 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             loaded_allele_code_iter = S_CAST(char*, memchr(loaded_allele_code_iter, ',', loaded_allele_code_end - cur_loaded_allele_code));
             cur_loaded_allele_code_slen = loaded_allele_code_iter - cur_loaded_allele_code;
             *loaded_allele_code_iter++ = '\0';
+            loaded_allele_idx_end = 1;
+            matched_loaded_alleles[0] = 0;
           }
           uint32_t widx = 0;
           while (1) {
-            if (!(loaded_allele_ct % kBitsPerWord)) {
-              widx = loaded_allele_ct / kBitsPerWord;
+            if (!(loaded_allele_idx_end % kBitsPerWord)) {
+              widx = loaded_allele_idx_end / kBitsPerWord;
               matched_loaded_alleles[widx] = 0;
             }
             if (cur_loaded_allele_code_slen <= max_allele_slen) {
@@ -2809,17 +2811,17 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                     goto ReadAlleleFreqs_ret_MALFORMED_INPUT_2;
                   }
                   SetBit(internal_allele_idx, matched_internal_alleles);
-                  SetBit(loaded_allele_ct, matched_loaded_alleles);
-                  loaded_to_internal_allele_idx[loaded_allele_ct] = internal_allele_idx;
+                  SetBit(loaded_allele_idx_end, matched_loaded_alleles);
+                  loaded_to_internal_allele_idx[loaded_allele_idx_end] = internal_allele_idx;
                   break;
                 }
               }
             }
-            ++loaded_allele_ct;
+            ++loaded_allele_idx_end;
             if (loaded_allele_code_iter == loaded_allele_code_end) {
               break;
             }
-            if (unlikely(loaded_allele_ct == kMaxReadFreqAlleles)) {
+            if (unlikely(loaded_allele_idx_end == kMaxReadFreqAlleles)) {
               snprintf(g_logbuf, kLogbufSize, "Error: --read-freq file entry for variant ID '%s' has more than %u ALT alleles.\n", variant_ids[variant_uidx], kMaxReadFreqAlleles - 1);
               goto ReadAlleleFreqs_ret_MALFORMED_INPUT_WW;
             }
@@ -2831,8 +2833,12 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         }
         // bugfix (31 May 2023): forgot to skip variant when not enough alleles
         // were loaded.
-        if (PopcountWords(matched_loaded_alleles, BitCtToWordCt(kMaxReadFreqAlleles)) + infer_one_freq < cur_allele_ct) {
-          goto ReadAlleleFreqs_skip_variant;
+        {
+          const uint32_t matched_allele_ct = PopcountWords(matched_loaded_alleles, BitCtToWordCt(loaded_allele_idx_end));
+          if (matched_allele_ct != cur_allele_ct) {
+            assert(matched_allele_ct < cur_allele_ct);
+            goto ReadAlleleFreqs_skip_variant;
+          }
         }
 
         double* allele_freqs_write = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
@@ -2846,19 +2852,19 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               const char* geno_num_cts_iter = geno_num_cts;
               const char* geno_num_cts_end = &(geno_num_cts[full_slen]);
 #ifndef __LP64__
-              const uint32_t cap_div_10 = (loaded_allele_ct - 1) / 10;
-              const uint32_t cap_mod_10 = (loaded_allele_ct - 1) % 10;
+              const uint32_t cap_div_10 = (loaded_allele_idx_end - 1) / 10;
+              const uint32_t cap_mod_10 = (loaded_allele_idx_end - 1) % 10;
 #endif
               while (1) {
                 uint32_t second_loaded_allele_idx = UINT32_MAX;
                 uint32_t first_loaded_allele_idx;
 #ifdef __LP64__
-                if (unlikely(ScanmovUintCapped(loaded_allele_ct - 1, &geno_num_cts_iter, &first_loaded_allele_idx))) {
+                if (unlikely(ScanmovUintCapped(loaded_allele_idx_end - 1, &geno_num_cts_iter, &first_loaded_allele_idx))) {
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
                 if (*geno_num_cts_iter == '/') {
                   ++geno_num_cts_iter;
-                  if (unlikely(ScanmovUintCapped(loaded_allele_ct - 1, &geno_num_cts_iter, &second_loaded_allele_idx))) {
+                  if (unlikely(ScanmovUintCapped(loaded_allele_idx_end - 1, &geno_num_cts_iter, &second_loaded_allele_idx))) {
                     goto ReadAlleleFreqs_ret_INVALID_FREQS;
                   }
                 }
@@ -3027,7 +3033,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             if (!main_eq) {
               const char* alt_freq_iter = alt_freq_start;
               const char* alt_freq_end = &(alt_freq_start[full_slen]);
-              for (uint32_t allele_idx = main_allele_idx_start; allele_idx != loaded_allele_ct; ++allele_idx, ++alt_freq_iter) {
+              for (uint32_t allele_idx = main_allele_idx_start; allele_idx != loaded_allele_idx_end; ++allele_idx, ++alt_freq_iter) {
                 if (unlikely(alt_freq_iter >= alt_freq_end)) {
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
@@ -3060,14 +3066,14 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   const char* alt_freq_iter = alt_freq_start;
                   const char* alt_freq_end = &(alt_freq_start[full_slen]);
 #ifndef __LP64__
-                  const uint32_t cap_div_10 = (loaded_allele_ct - 1) / 10;
-                  const uint32_t cap_mod_10 = (loaded_allele_ct - 1) % 10;
+                  const uint32_t cap_div_10 = (loaded_allele_idx_end - 1) / 10;
+                  const uint32_t cap_mod_10 = (loaded_allele_idx_end - 1) % 10;
 #endif
                   while (1) {
                     const char* cur_entry_end = AdvToDelim(alt_freq_iter, ',');
                     uint32_t loaded_allele_idx;
 #ifdef __LP64__
-                    if (unlikely(ScanmovUintCapped(loaded_allele_ct - 1, &alt_freq_iter, &loaded_allele_idx))) {
+                    if (unlikely(ScanmovUintCapped(loaded_allele_idx_end - 1, &alt_freq_iter, &loaded_allele_idx))) {
                       goto ReadAlleleFreqs_ret_INVALID_FREQS;
                     }
 #else
@@ -3159,6 +3165,15 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             }
           }
         }
+        // The IsSet condition is false when the following happens:
+        // - --read-freq file has multiple ALT alleles.
+        // - These ALT alleles collectively match *all* alleles in the main
+        //   dataset's version of the variant, including the main dataset's
+        //   REF.  The --read-freq file's REF allele is not in the main
+        //   dataset at all.
+        // - So, while we normally infer the REF frequency by subtracting the
+        //   sum of the other frequencies from 1, in this subcase there is
+        //   nothing to infer.
         if (infer_one_freq && IsSet(matched_loaded_alleles, infer_freq_loaded_idx)) {
           double adj_obs_ct_recip = 1.0;
           if (header_cols & kfReadFreqColsetObsCt) {
