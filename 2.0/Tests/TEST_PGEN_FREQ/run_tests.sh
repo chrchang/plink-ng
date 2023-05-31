@@ -29,3 +29,12 @@ $1/plink2 $2 $3 --bpfile tmp_data --output-chr 26 --geno-counts cols=-provref
 
 cat plink2.gcount | tail -n +2 > plink2.gcount.headerless2
 diff -q plink.frqx.headerless plink2.gcount.headerless2
+
+# Select a random subset of samples.
+$1/plink2 $2 $3 --bfile tmp_data --thin-indiv 0.5 --write-samples --out subset
+
+plink --bfile tmp_data --a2-allele tmp_data.bim 5 2 --keep subset.id --freqx --out plink_subset
+$1/plink2 $2 $3 --bfile tmp_data --output-chr 26 --keep subset.id --geno-counts cols=-provref --out plink2_subset
+cat plink_subset.frqx | tail -n +2 > plink_subset.frqx.headerless
+cat plink2_subset.gcount | tail -n +2 > plink2_subset.gcount.headerless1
+diff -q plink_subset.frqx.headerless plink2_subset.gcount.headerless1

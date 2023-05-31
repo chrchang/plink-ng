@@ -1509,9 +1509,6 @@ HEADER_INLINE BoolErr SortedIdboxFind(const char* idbuf, const char* sorted_idbo
   return 0;
 }
 
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in IsNanStr()."
-#endif
 // This returns 1 on any capitalization of 'na' or 'nan', 0 otherwise.
 // todo: check whether there's actually any point to the uint16_t type-pun
 HEADER_INLINE uint32_t IsNanStr(const char* ss, uint32_t slen) {
@@ -1521,7 +1518,12 @@ HEADER_INLINE uint32_t IsNanStr(const char* ss, uint32_t slen) {
   if (!slen) {
     return 1;
   }
+#ifndef NO_UNALIGNED
   const uint32_t first_two_chars_code = R_CAST(const uint16_t*, ss)[0];
+#else
+  uint32_t first_two_chars_code;
+  memcpy_k(&first_two_chars_code, ss, 2);
+#endif
   // assumes little-endian
   if ((first_two_chars_code & 0xdfdf) != 0x414e) {
     return 0;

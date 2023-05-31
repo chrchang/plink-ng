@@ -106,7 +106,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 806
+#define PLINK2_BASE_VERNUM 807
 
 
 #define _FILE_OFFSET_BITS 64
@@ -143,6 +143,9 @@
 #endif
 
 #ifdef __LP64__
+// TODO: working no-SSE2 fallback on 64-bit little-endian platforms unsupported
+// by simde.  Can perform early test by compiling on M1/M2 without simde.
+#  define USE_SSE2
 #  ifdef __x86_64__
 #    include <emmintrin.h>
 #  else
@@ -2446,14 +2449,76 @@ HEADER_INLINE void VecAlignUp64(__maybe_unused void* pp) {
 }
 #endif
 
+HEADER_INLINE void UnalignedCopyOffsetW(uintptr_t* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy(dst, &(src[offset * kBytesPerWord]), kBytesPerWord);
+}
+
+HEADER_INLINE void UnalignedCopyOffsetHW(Halfword* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy(dst, &(src[offset * sizeof(Halfword)]), sizeof(Halfword));
+}
+
+HEADER_INLINE void UnalignedCopyOffsetQW(Quarterword* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy(dst, &(src[offset * sizeof(Quarterword)]), sizeof(Quarterword));
+}
+
+HEADER_INLINE void UnalignedCopyOffsetU32(uint32_t* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy(dst, &(src[offset * sizeof(int32_t)]), sizeof(int32_t));
+}
+
+HEADER_INLINE void UnalignedCopyOffsetU16(uint16_t* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy(dst, &(src[offset * sizeof(int16_t)]), sizeof(int16_t));
+}
+
+HEADER_INLINE void UnalignedCopyOffsetI16(int16_t* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy(dst, &(src[offset * sizeof(int16_t)]), sizeof(int16_t));
+}
+
+HEADER_INLINE void UnalignedCopyDstOffsetU64(unsigned char* dst, const void* src, uintptr_t offset) {
+  memcpy(&(dst[offset * sizeof(int64_t)]), src, sizeof(int64_t));
+}
+
+HEADER_INLINE void UnalignedCopyDstOffsetU32(unsigned char* dst, const void* src, uintptr_t offset) {
+  memcpy(&(dst[offset * sizeof(int32_t)]), src, sizeof(int32_t));
+}
+
+HEADER_INLINE void UnalignedCopyDstOffsetU16(unsigned char* dst, const void* src, uintptr_t offset) {
+  memcpy(&(dst[offset * sizeof(int16_t)]), src, sizeof(int16_t));
+}
+
+HEADER_INLINE void UnalignedCopyIncrW(uintptr_t* dst, const unsigned char** srcp) {
+  memcpy(dst, *srcp, kBytesPerWord);
+  *srcp += kBytesPerWord;
+}
+
+HEADER_INLINE void UnalignedCopyIncrU16(uint16_t* dst, const unsigned char** srcp) {
+  memcpy(dst, *srcp, sizeof(int16_t));
+  *srcp += sizeof(int16_t);
+}
+
+HEADER_INLINE void UnalignedCopyIncrI16(int16_t* dst, const unsigned char** srcp) {
+  memcpy(dst, *srcp, sizeof(int16_t));
+  *srcp += sizeof(int16_t);
+}
+
+HEADER_INLINE void UnalignedCopyDstIncrW(unsigned char** dstp, const void* src) {
+  memcpy(*dstp, src, kBytesPerWord);
+  *dstp += kBytesPerWord;
+}
+
+HEADER_INLINE void UnalignedCopyDstIncrU64(unsigned char** dstp, const void* src) {
+  memcpy(*dstp, src, sizeof(int64_t));
+  *dstp += sizeof(int64_t);
+}
+
 // Turns out memcpy(&cur_word, bytearr, ct) can't be trusted to be fast when ct
 // isn't known at compile time.
 //
 // ct must be less than sizeof(intptr_t).  ct == 0 handled correctly, albeit
 // inefficiently.
+#ifndef NO_UNALIGNED
 HEADER_INLINE uintptr_t ProperSubwordLoad(const void* bytearr, uint32_t ct) {
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
-#ifdef __LP64__
+#  ifdef __LP64__
   if (ct >= 4) {
     const uint32_t remainder = ct - 4;
     bytearr_uc = &(bytearr_uc[remainder]);
@@ -2464,7 +2529,7 @@ HEADER_INLINE uintptr_t ProperSubwordLoad(const void* bytearr, uint32_t ct) {
     }
     return cur_word;
   }
-#endif
+#  endif
   if (ct >= 2) {
     const uint32_t remainder = ct & 1;
     uintptr_t cur_word = *R_CAST(const uint16_t*, &(bytearr_uc[remainder]));
@@ -2504,7 +2569,7 @@ HEADER_INLINE uint32_t SubU32Load(const void* bytearr, uint32_t ct) {
 // tried making this non-inline, loop took more than 50% longer
 HEADER_INLINE void ProperSubwordStore(uintptr_t cur_word, uint32_t byte_ct, void* target) {
   unsigned char* target_iter = S_CAST(unsigned char*, target);
-#ifdef __LP64__
+#  ifdef __LP64__
   if (byte_ct >= 4) {
     *R_CAST(uint32_t*, target_iter) = cur_word;
     if (byte_ct == 4) {
@@ -2516,7 +2581,7 @@ HEADER_INLINE void ProperSubwordStore(uintptr_t cur_word, uint32_t byte_ct, void
     *R_CAST(uint32_t*, target_iter) = cur_word;
     return;
   }
-#endif
+#  endif
   if (byte_ct & 1) {
     *target_iter++ = cur_word;
     cur_word >>= 8;
@@ -2524,11 +2589,6 @@ HEADER_INLINE void ProperSubwordStore(uintptr_t cur_word, uint32_t byte_ct, void
   if (byte_ct & 2) {
     *R_CAST(uint16_t*, target_iter) = cur_word;
   }
-}
-
-HEADER_INLINE void ProperSubwordStoreMov(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
-  ProperSubwordStore(cur_word, byte_ct, *targetp);
-  *targetp += byte_ct;
 }
 
 HEADER_INLINE void SubwordStore(uintptr_t cur_word, uint32_t byte_ct, void* target) {
@@ -2562,17 +2622,54 @@ HEADER_INLINE void SubU32Store(uint32_t cur_uint, uint32_t byte_ct, void* target
   *S_CAST(uint32_t*, target) = cur_uint;
   return;
 }
+#else  // NO_UNALIGNED
+HEADER_INLINE uintptr_t ProperSubwordLoad(const void* bytearr, uint32_t ct) {
+  uintptr_t cur_word = 0;
+  memcpy(&cur_word, bytearr, ct);
+  return cur_word;
+}
+
+HEADER_INLINE uintptr_t SubwordLoad(const void* bytearr, uint32_t ct) {
+  uintptr_t cur_word = 0;
+  memcpy(&cur_word, bytearr, ct);
+  return cur_word;
+}
+
+HEADER_INLINE uint32_t SubU32Load(const void* bytearr, uint32_t ct) {
+  uint32_t cur_uint = 0;
+  memcpy(&cur_uint, bytearr, ct);
+  return cur_uint;
+}
+
+HEADER_INLINE void ProperSubwordStore(uintptr_t cur_word, uint32_t byte_ct, void* target) {
+  memcpy(target, &cur_word, byte_ct);
+}
+
+HEADER_INLINE void SubwordStore(uintptr_t cur_word, uint32_t byte_ct, void* target) {
+  memcpy(target, &cur_word, byte_ct);
+}
+
+HEADER_INLINE void SubU32Store(uint32_t cur_uint, uint32_t byte_ct, void* target) {
+  memcpy(target, &cur_uint, byte_ct);
+}
+#endif // NO_UNALIGNED
+
+HEADER_INLINE void ProperSubwordStoreMov(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
+  ProperSubwordStore(cur_word, byte_ct, *targetp);
+  *targetp += byte_ct;
+}
 
 HEADER_INLINE void SubU32StoreMov(uint32_t cur_uint, uint32_t byte_ct, unsigned char** targetp) {
   SubU32Store(cur_uint, byte_ct, *targetp);
   *targetp += byte_ct;
 }
 
-#ifdef __LP64__
+#ifndef NO_UNALIGNED
+#  ifdef __LP64__
 HEADER_INLINE void SubU64StoreMov(uint64_t cur_u64, uint32_t byte_ct, unsigned char** targetp) {
   return SubwordStoreMov(cur_u64, byte_ct, targetp);
 }
-#else
+#  else
 HEADER_INLINE void SubU64StoreMov(uint64_t cur_u64, uint32_t byte_ct, unsigned char** targetp) {
   if (byte_ct > 4) {
     *R_CAST(uint32_t*, *targetp) = cur_u64;
@@ -2582,7 +2679,22 @@ HEADER_INLINE void SubU64StoreMov(uint64_t cur_u64, uint32_t byte_ct, unsigned c
   }
   return SubU32StoreMov(cur_u64, byte_ct, targetp);
 }
+#  endif
+#else
+HEADER_INLINE void SubU64StoreMov(uint64_t cur_u64, uint32_t byte_ct, unsigned char** targetp) {
+  memcpy(*targetp, &cur_u64, byte_ct);
+  *targetp += byte_ct;
+}
 #endif
+
+// Downcasts don't risk alignment issues.
+HEADER_INLINE unsigned char* DowncastToUc(void* pp) {
+  return R_CAST(unsigned char*, pp);
+}
+
+HEADER_INLINE const unsigned char* DowncastKToUc(const void* pp) {
+  return R_CAST(const unsigned char*, pp);
+}
 
 
 HEADER_INLINE BoolErr vecaligned_malloc(uintptr_t size, void* aligned_pp) {
@@ -2653,13 +2765,24 @@ HEADER_INLINE void vecaligned_free_cond(void* aligned_ptr) {
 #endif
 
 
-#ifdef __LP64__
+#if defined(__LP64__) && !defined(NO_UNALIGNED)
 int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct);
+
+// This is also better than the June 2018 OS X/LLVM stock implementation,
+// especially for small values of ct.
+// (gcc 7.1 and clang 6.0.0 should have better stock implementations;
+// re-benchmark this once Linux build machine is upgraded to Ubuntu 18.04.)
+int32_t Memcmp(const void* m1, const void* m2, uintptr_t ct);
 #else
 HEADER_INLINE int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct) {
   return !memcmp(m1, m2, byte_ct);
 }
+
+HEADER_INLINE int32_t Memcmp(const void* m1, const void* m2, uintptr_t ct) {
+  return memcmp(m1, m2, ct);
+}
 #endif
+
 
 HEADER_INLINE char* memcpya(void* __restrict target, const void* __restrict source, uintptr_t ct) {
   memcpy(target, source, ct);
@@ -2684,7 +2807,7 @@ HEADER_INLINE void AppendU32(uint32_t uii, unsigned char** targetp) {
 // Tried beating memcpy for usually-small strings not known to have length <=
 // 8, gave up.
 
-#if defined(__LP64__) && defined(__cplusplus)
+#if defined(__LP64__) && defined(__cplusplus) && !defined(NO_UNALIGNED)
 // See https://stackoverflow.com/questions/9510514/integer-range-based-template-specialisation .
 
 template <bool> struct TRange;
@@ -2946,7 +3069,7 @@ template <uint32_t N> char* MemcpyaK(void* __restrict dst, const void* __restric
 }
 
 #  define memcpya_k(dst, src, ct) plink2::MemcpyaK<ct>(dst, src)
-#  define memcpyua_k(dst, src, ct) R_CAST(unsigned char*, plink2::MemcpyaK<ct>(dst, src))
+#  define memcpyua_k(dst, src, ct) DowncastToUc(plink2::MemcpyaK<ct>(dst, src))
 
 template <uint32_t N> struct MemcpyoKImpl {
   static void MemcpyoK(void* __restrict dst, const void* __restrict src) {
@@ -2984,9 +3107,9 @@ template <uint32_t N> char* MemcpyaoK(void* __restrict dst, const void* __restri
 }
 
 #  define memcpyao_k(dst, src, ct) plink2::MemcpyaoK<ct>(dst, src)
-#  define memcpyuao_k(dst, src, ct) R_CAST(unsigned char*, plink2::MemcpyaoK<ct>(dst, src))
+#  define memcpyuao_k(dst, src, ct) DowncastToUc(plink2::MemcpyaoK<ct>(dst, src))
 
-#  else  // !(defined(__LP64__) && defined(__cplusplus))
+#  else  // !(defined(__LP64__) && defined(__cplusplus) && !defined(NO_UNALIGNED))
 
 HEADER_INLINE int32_t memequal_k(const void* m1, const void* m2, uintptr_t ct) {
   return !memcmp(m1, m2, ct);
@@ -3084,18 +3207,6 @@ HEADER_INLINE char* wtoa(uintptr_t ulii, char* start) {
 #else
 HEADER_INLINE char* wtoa(uintptr_t ulii, char* start) {
   return u32toa(ulii, start);
-}
-#endif
-
-#ifdef __LP64__
-// This is also better than the June 2018 OS X/LLVM stock implementation,
-// especially for small values of ct.
-// (gcc 7.1 and clang 6.0.0 should have better stock implementations;
-// re-benchmark this once Linux build machine is upgraded to Ubuntu 18.04.)
-int32_t Memcmp(const void* m1, const void* m2, uintptr_t ct);
-#else
-HEADER_INLINE int32_t Memcmp(const void* m1, const void* m2, uintptr_t ct) {
-  return memcmp(m1, m2, ct);
 }
 #endif
 
@@ -3231,7 +3342,8 @@ HEADER_INLINE uintptr_t DetectAllZeroNybbles(uintptr_t ww) {
   return (kMask1111 * 8) & (~(ww | ((ww | (kMask1111 * 8)) - kMask1111)));
 }
 
-// This requires len >= 4.
+#if defined(USE_SSE2) && !defined(NO_UNALIGNED)
+// This requires nbytes >= 4.
 uintptr_t FirstUnequal4(const void* arr1, const void* arr2, uintptr_t nbytes);
 
 HEADER_INLINE uintptr_t FirstUnequal(const void* arr1, const void* arr2, uintptr_t nbytes) {
@@ -3248,6 +3360,26 @@ HEADER_INLINE uintptr_t FirstUnequal(const void* arr1, const void* arr2, uintptr
   }
   return nbytes;
 }
+#else // !(defined(USE_SSE2) && !defined(NO_UNALIGNED))
+// This requires nbytes >= kBytesPerWord.
+uintptr_t FirstUnequalW(const void* arr1, const void* arr2, uintptr_t nbytes);
+
+HEADER_INLINE uintptr_t FirstUnequal(const void* arr1, const void* arr2, uintptr_t nbytes) {
+  // Returns position of first byte mismatch, or nbytes if none was found.
+  if (nbytes >= kBytesPerWord) {
+    return FirstUnequalW(arr1, arr2, nbytes);
+  }
+  const char* s1 = S_CAST(const char*, arr1);
+  const char* s2 = S_CAST(const char*, arr2);
+  for (uintptr_t pos = 0; pos != nbytes; ++pos) {
+    if (s1[pos] != s2[pos]) {
+      return pos;
+    }
+  }
+  return nbytes;
+}
+#endif
+
 
 HEADER_INLINE uintptr_t FirstUnequalFrom(const void* arr1, const void* arr2, uintptr_t start, uintptr_t nbytes) {
   const char* s1 = S_CAST(const char*, arr1);

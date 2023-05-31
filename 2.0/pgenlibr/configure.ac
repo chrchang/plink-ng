@@ -75,13 +75,17 @@ elif test "xx$PKGCONF" != "xx"; then
   if "${PKGCONF}" --exists libzstd; then
     VERSION_STRING=`${PKGCONF} --modversion libzstd`
     VER=`getVersion3 ${VERSION_STRING}`
-    if test "${VER}" -ge 100505; then
+    # The bundled 1.5.5 includes a compression bugfix, but the Python/R
+    # interfaces only use zstd for decompression, so we don't need it.
+    # The release notes for 1.5.4 mention 32-bit bugfixes, so it is more
+    # reasonable to refuse to go below it.
+    if test "${VER}" -ge 100504; then
       echo "zstd ${VERSION_STRING} library detected -- skipping zstd compilation"
       ZSTD_LIBS=`"${PKGCONF}" --libs libzstd`
       ZSTD_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I libzstd`
       COMPILE_ZSTD="false"
     else
-      echo "zstd ${VERSION_STRING} library detected but is lower than bundled version (1.5.5) -- compiling from source"
+      echo "zstd ${VERSION_STRING} library detected but is too old (<1.5.4) -- compiling from source"
       COMPILE_ZSTD="true"
     fi
   else

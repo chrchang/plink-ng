@@ -297,7 +297,7 @@ BoolErr aligned_malloc(uintptr_t size, uintptr_t alignment, void* aligned_pp) {
   return 0;
 }
 
-#ifdef __LP64__
+#if defined(__LP64__) && !defined(NO_UNALIGNED)
 int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct) {
   const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
   const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
@@ -375,6 +375,104 @@ int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct) {
   }
   return 1;
 }
+
+// clang/gcc memcmp is not that well-optimized for the short strings we usually
+// compare.
+int32_t Memcmp(const void* m1, const void* m2, uintptr_t byte_ct) {
+  const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
+  const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
+  // tried larger crossover threshold, doesn't help
+  if (byte_ct < kBytesPerVec) {
+    if (byte_ct < kBytesPerWord) {
+      if (byte_ct < 4) {
+        for (uintptr_t pos = 0; pos != byte_ct; ++pos) {
+          const unsigned char ucc1 = m1_uc[pos];
+          const unsigned char ucc2 = m2_uc[pos];
+          if (ucc1 != ucc2) {
+            return (ucc1 < ucc2)? -1 : 1;
+          }
+        }
+        return 0;
+      }
+      uint32_t m1_u32 = *S_CAST(const uint32_t*, m1);
+      uint32_t m2_u32 = *S_CAST(const uint32_t*, m2);
+      if (m1_u32 != m2_u32) {
+        return (__builtin_bswap32(m1_u32) < __builtin_bswap32(m2_u32))? -1 : 1;
+      }
+      if (byte_ct > 4) {
+        const uintptr_t final_offset = byte_ct - 4;
+        m1_u32 = *R_CAST(const uint32_t*, &(m1_uc[final_offset]));
+        m2_u32 = *R_CAST(const uint32_t*, &(m2_uc[final_offset]));
+        if (m1_u32 != m2_u32) {
+          return (__builtin_bswap32(m1_u32) < __builtin_bswap32(m2_u32))? -1 : 1;
+        }
+      }
+      return 0;
+    }
+    const uintptr_t* m1_alias = R_CAST(const uintptr_t*, m1_uc);
+    const uintptr_t* m2_alias = R_CAST(const uintptr_t*, m2_uc);
+    uintptr_t m1_word = m1_alias[0];
+    uintptr_t m2_word = m2_alias[0];
+    if (m1_word != m2_word) {
+      return (__builtin_bswap64(m1_word) < __builtin_bswap64(m2_word))? -1 : 1;
+    }
+#  ifdef USE_AVX2
+    if (byte_ct >= 16) {
+      m1_word = m1_alias[1];
+      m2_word = m2_alias[1];
+      if (m1_word != m2_word) {
+        return (__builtin_bswap64(m1_word) < __builtin_bswap64(m2_word))? -1 : 1;
+      }
+      if (byte_ct >= 24) {
+        m1_word = m1_alias[2];
+        m2_word = m2_alias[2];
+        if (m1_word != m2_word) {
+          return (__builtin_bswap64(m1_word) < __builtin_bswap64(m2_word))? -1 : 1;
+        }
+      }
+    }
+#  endif
+    if (byte_ct % kBytesPerWord) {
+      const uintptr_t final_offset = byte_ct - kBytesPerWord;
+      m1_word = *R_CAST(const uintptr_t*, &(m1_uc[final_offset]));
+      m2_word = *R_CAST(const uintptr_t*, &(m2_uc[final_offset]));
+      if (m1_word != m2_word) {
+        return (__builtin_bswap64(m1_word) < __builtin_bswap64(m2_word))? -1 : 1;
+      }
+    }
+    return 0;
+  }
+  const VecUc* m1_alias = S_CAST(const VecUc*, m1);
+  const VecUc* m2_alias = S_CAST(const VecUc*, m2);
+  const uintptr_t fullvec_ct = byte_ct / kBytesPerVec;
+  // uh, clang/LLVM -O2 optimizes this better when comparison is != instead of
+  // <?  ugh, time to change all of the for loops...
+  // (and yes, both -O3 configurations generate worse code here)
+  // at least for loop is better than do-while loop even when 1 iteration is
+  // guaranteed...
+  for (uintptr_t vidx = 0; vidx != fullvec_ct; ++vidx) {
+    const VecUc v1 = vecuc_loadu(&(m1_alias[vidx]));
+    const VecUc v2 = vecuc_loadu(&(m2_alias[vidx]));
+    // is this even worthwhile now in non-AVX2 case?
+    const uint32_t movemask_result = vecuc_movemask(v1 == v2);
+    if (movemask_result != kVec8thUintMax) {
+      const uintptr_t diff_pos = vidx * kBytesPerVec + ctzu32(~movemask_result);
+      return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
+    }
+  }
+  if (byte_ct % kBytesPerVec) {
+    const uintptr_t final_offset = byte_ct - kBytesPerVec;
+    const VecUc v1 = vecuc_loadu(&(m1_uc[final_offset]));
+    const VecUc v2 = vecuc_loadu(&(m2_uc[final_offset]));
+    const uint32_t movemask_result = vecuc_movemask(v1 == v2);
+    if (movemask_result != kVec8thUintMax) {
+      const uintptr_t diff_pos = final_offset + ctzu32(~movemask_result);
+      return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
+    }
+  }
+  return 0;
+}
+#endif // defined(__LP64__) && !defined(NO_UNALIGNED)
 
 const uint16_t kDigitPair[] = {
   0x3030, 0x3130, 0x3230, 0x3330, 0x3430, 0x3530, 0x3630, 0x3730, 0x3830, 0x3930,
@@ -489,107 +587,9 @@ char* i64toa(int64_t llii, char* start) {
   return uitoa_z8(bottom_eight, start);
 }
 
-// clang/gcc memcmp is not that well-optimized for the short strings we usually
-// compare.
-int32_t Memcmp(const void* m1, const void* m2, uintptr_t byte_ct) {
-  const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
-  const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
-  // tried larger crossover threshold, doesn't help
-  if (byte_ct < kBytesPerVec) {
-    if (byte_ct < kBytesPerWord) {
-      if (byte_ct < 4) {
-        for (uintptr_t pos = 0; pos != byte_ct; ++pos) {
-          const unsigned char ucc1 = m1_uc[pos];
-          const unsigned char ucc2 = m2_uc[pos];
-          if (ucc1 != ucc2) {
-            return (ucc1 < ucc2)? -1 : 1;
-          }
-        }
-        return 0;
-      }
-      uint32_t m1_u32 = *S_CAST(const uint32_t*, m1);
-      uint32_t m2_u32 = *S_CAST(const uint32_t*, m2);
-      if (m1_u32 != m2_u32) {
-        return (__builtin_bswap32(m1_u32) < __builtin_bswap32(m2_u32))? -1 : 1;
-      }
-      if (byte_ct > 4) {
-        const uintptr_t final_offset = byte_ct - 4;
-        m1_u32 = *R_CAST(const uint32_t*, &(m1_uc[final_offset]));
-        m2_u32 = *R_CAST(const uint32_t*, &(m2_uc[final_offset]));
-        if (m1_u32 != m2_u32) {
-          return (__builtin_bswap32(m1_u32) < __builtin_bswap32(m2_u32))? -1 : 1;
-        }
-      }
-      return 0;
-    }
-    const uintptr_t* m1_alias = R_CAST(const uintptr_t*, m1_uc);
-    const uintptr_t* m2_alias = R_CAST(const uintptr_t*, m2_uc);
-    uintptr_t m1_word = m1_alias[0];
-    uintptr_t m2_word = m2_alias[0];
-    if (m1_word != m2_word) {
-      return (__builtin_bswap64(m1_word) < __builtin_bswap64(m2_word))? -1 : 1;
-    }
-#  ifdef USE_AVX2
-    if (byte_ct >= 16) {
-      m1_word = m1_alias[1];
-      m2_word = m2_alias[1];
-      if (m1_word != m2_word) {
-        return (__builtin_bswap64(m1_word) < __builtin_bswap64(m2_word))? -1 : 1;
-      }
-      if (byte_ct >= 24) {
-        m1_word = m1_alias[2];
-        m2_word = m2_alias[2];
-        if (m1_word != m2_word) {
-          return (__builtin_bswap64(m1_word) < __builtin_bswap64(m2_word))? -1 : 1;
-        }
-      }
-    }
-#  endif
-    if (byte_ct % kBytesPerWord) {
-      const uintptr_t final_offset = byte_ct - kBytesPerWord;
-      m1_word = *R_CAST(const uintptr_t*, &(m1_uc[final_offset]));
-      m2_word = *R_CAST(const uintptr_t*, &(m2_uc[final_offset]));
-      if (m1_word != m2_word) {
-        return (__builtin_bswap64(m1_word) < __builtin_bswap64(m2_word))? -1 : 1;
-      }
-    }
-    return 0;
-  }
-  const VecUc* m1_alias = S_CAST(const VecUc*, m1);
-  const VecUc* m2_alias = S_CAST(const VecUc*, m2);
-  const uintptr_t fullvec_ct = byte_ct / kBytesPerVec;
-  // uh, clang/LLVM -O2 optimizes this better when comparison is != instead of
-  // <?  ugh, time to change all of the for loops...
-  // (and yes, both -O3 configurations generate worse code here)
-  // at least for loop is better than do-while loop even when 1 iteration is
-  // guaranteed...
-  for (uintptr_t vidx = 0; vidx != fullvec_ct; ++vidx) {
-    const VecUc v1 = vecuc_loadu(&(m1_alias[vidx]));
-    const VecUc v2 = vecuc_loadu(&(m2_alias[vidx]));
-    // is this even worthwhile now in non-AVX2 case?
-    const uint32_t movemask_result = vecuc_movemask(v1 == v2);
-    if (movemask_result != kVec8thUintMax) {
-      const uintptr_t diff_pos = vidx * kBytesPerVec + ctzu32(~movemask_result);
-      return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
-    }
-  }
-  if (byte_ct % kBytesPerVec) {
-    const uintptr_t final_offset = byte_ct - kBytesPerVec;
-    const VecUc v1 = vecuc_loadu(&(m1_uc[final_offset]));
-    const VecUc v2 = vecuc_loadu(&(m2_uc[final_offset]));
-    const uint32_t movemask_result = vecuc_movemask(v1 == v2);
-    if (movemask_result != kVec8thUintMax) {
-      const uintptr_t diff_pos = final_offset + ctzu32(~movemask_result);
-      return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
-    }
-  }
-  return 0;
-}
-#endif
-
+#if defined(USE_SSE2) && !defined(NO_UNALIGNED)
 uintptr_t FirstUnequal4(const void* arr1, const void* arr2, uintptr_t nbytes) {
   // Similar to memequal().
-#ifdef __LP64__
   if (nbytes < kBytesPerVec) {
     if (nbytes < kBytesPerWord) {
       uint32_t xor_result = (*S_CAST(const uint32_t*, arr1)) ^ (*S_CAST(const uint32_t*, arr2));
@@ -649,28 +649,37 @@ uintptr_t FirstUnequal4(const void* arr1, const void* arr2, uintptr_t nbytes) {
       return final_offset + ctzu32(~eq_result);
     }
   }
-#else  // !__LP64__
-  const uintptr_t* arr1_alias = S_CAST(const uintptr_t*, arr1);
-  const uintptr_t* arr2_alias = S_CAST(const uintptr_t*, arr2);
+  return nbytes;
+}
+#else // !(defined(USE_SSE2) && !defined(NO_UNALIGNED))
+uintptr_t FirstUnequalW(const void* arr1, const void* arr2, uintptr_t nbytes) {
+  const unsigned char* arr1b = S_CAST(const unsigned char*, arr1);
+  const unsigned char* arr2b = S_CAST(const unsigned char*, arr2);
   const uintptr_t word_ct = nbytes / kBytesPerWord;
   for (uintptr_t widx = 0; widx != word_ct; ++widx) {
-    const uintptr_t xor_result = arr1_alias[widx] ^ arr2_alias[widx];
+    uintptr_t arr1_word;
+    uintptr_t arr2_word;
+    UnalignedCopyOffsetW(&arr1_word, arr1b, widx);
+    UnalignedCopyOffsetW(&arr2_word, arr2b, widx);
+    const uintptr_t xor_result = arr1_word ^ arr2_word;
     if (xor_result) {
       return widx * kBytesPerWord + ctzw(xor_result) / CHAR_BIT;
     }
   }
   if (nbytes % kBytesPerWord) {
     const uintptr_t final_offset = nbytes - kBytesPerWord;
-    const char* s1 = S_CAST(const char*, arr1);
-    const char* s2 = S_CAST(const char*, arr2);
-    const uintptr_t xor_result = (*R_CAST(const uintptr_t*, &(s1[final_offset]))) ^ (*R_CAST(const uintptr_t*, &(s2[final_offset])));
+    uintptr_t arr1_word;
+    uintptr_t arr2_word;
+    memcpy(&arr1_word, &(arr1b[final_offset]), kBytesPerWord);
+    memcpy(&arr2_word, &(arr2b[final_offset]), kBytesPerWord);
+    const uintptr_t xor_result = arr1_word ^ arr2_word;
     if (xor_result) {
       return final_offset + ctzw(xor_result) / CHAR_BIT;
     }
   }
-#endif
   return nbytes;
 }
+#endif
 
 #ifdef __cplusplus
 }  // namespace plink2

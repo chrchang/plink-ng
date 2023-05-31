@@ -303,6 +303,11 @@ HEADER_INLINE uintptr_t IsSet(const uintptr_t* bitarr, uintptr_t idx) {
   return (bitarr[idx / kBitsPerWord] >> (idx % kBitsPerWord)) & 1;
 }
 
+HEADER_INLINE uintptr_t IsSetUnaligned(const void* bitarr, uintptr_t idx) {
+  const unsigned char* bitarr_uc = DowncastKToUc(bitarr);
+  return (bitarr_uc[idx / CHAR_BIT] >> (idx % CHAR_BIT)) & 1;
+}
+
 HEADER_INLINE void SetBit(uintptr_t idx, uintptr_t* bitarr) {
   bitarr[idx / kBitsPerWord] |= k1LU << (idx % kBitsPerWord);
 }

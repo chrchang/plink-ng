@@ -2758,24 +2758,38 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         ZeroWArr(BitCtToWordCt(cur_allele_ct), matched_internal_alleles);
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
         uint32_t loaded_allele_ct = 0;
-        if (header_cols & kfReadFreqColsetRefAllele) {
-          uint32_t cur_loaded_allele_code_slen = token_slens[kReadFreqColRefAllele];
+        {
           uint32_t unmatched_allele_ct = cur_allele_ct;
-          char* cur_loaded_allele_code = token_ptrs[kReadFreqColRefAllele];
-          // No special handling of missing allele code needed (if the fileset
-          // is valid).
-          cur_loaded_allele_code[cur_loaded_allele_code_slen] = '\0';
+          uint32_t cur_loaded_allele_code_slen;
+          char* cur_loaded_allele_code;
           char* loaded_allele_code_iter;
           char* loaded_allele_code_end;
-          if (header_cols & kfReadFreqColsetAltAlleles) {
+          if (header_cols & kfReadFreqColsetRefAllele) {
+            cur_loaded_allele_code_slen = token_slens[kReadFreqColRefAllele];
+            cur_loaded_allele_code = token_ptrs[kReadFreqColRefAllele];
+            // No special handling of missing allele code needed (if the
+            // fileset is valid).
+            cur_loaded_allele_code[cur_loaded_allele_code_slen] = '\0';
+            if (header_cols & kfReadFreqColsetAltAlleles) {
+              loaded_allele_code_iter = token_ptrs[kReadFreqColAltAlleles];
+              loaded_allele_code_end = &(loaded_allele_code_iter[token_slens[kReadFreqColAltAlleles]]);
+              *loaded_allele_code_end++ = ',';
+            } else {
+              // special case: with --freq alteq or alteqz column, we only need
+              // to scrape REF here
+              loaded_allele_code_iter = &(cur_loaded_allele_code[cur_loaded_allele_code_slen + 1]);
+              loaded_allele_code_end = loaded_allele_code_iter;
+            }
+          } else {
+            // no REF, only ALT.  skip the first iteration of the loop.
             loaded_allele_code_iter = token_ptrs[kReadFreqColAltAlleles];
             loaded_allele_code_end = &(loaded_allele_code_iter[token_slens[kReadFreqColAltAlleles]]);
             *loaded_allele_code_end++ = ',';
-          } else {
-            // special case: with --freq alteq or alteqz column, we only need
-            // to scrape REF here
-            loaded_allele_code_iter = &(cur_loaded_allele_code[cur_loaded_allele_code_slen + 1]);
-            loaded_allele_code_end = loaded_allele_code_iter;
+
+            cur_loaded_allele_code = loaded_allele_code_iter;
+            loaded_allele_code_iter = S_CAST(char*, memchr(loaded_allele_code_iter, ',', loaded_allele_code_end - cur_loaded_allele_code));
+            cur_loaded_allele_code_slen = loaded_allele_code_iter - cur_loaded_allele_code;
+            *loaded_allele_code_iter++ = '\0';
           }
           uint32_t widx = 0;
           while (1) {
@@ -2814,6 +2828,11 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             cur_loaded_allele_code_slen = loaded_allele_code_iter - cur_loaded_allele_code;
             *loaded_allele_code_iter++ = '\0';
           }
+        }
+        // bugfix (31 May 2023): forgot to skip variant when not enough alleles
+        // were loaded.
+        if (PopcountWords(matched_loaded_alleles, BitCtToWordCt(kMaxReadFreqAlleles)) + infer_one_freq < cur_allele_ct) {
+          goto ReadAlleleFreqs_skip_variant;
         }
 
         double* allele_freqs_write = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
