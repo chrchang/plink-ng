@@ -18,7 +18,7 @@ CXX ?= g++
 FC ?= gfortran
 
 OPENBLAS_ROOT = ../../openblas
-ZLIB_STATIC = ../../zlib-1.2.12/libz.a
+ZLIB_STATIC = ../../zlib-1.2.13/libz.a
 
 BASEFLAGS=
 # ***** end configuration *****
