@@ -96,7 +96,7 @@
   #endif
 #endif
 
-#include "../zlib-1.2.12/zlib.h"
+#include "../zlib-1.2.13/zlib.h"
 
 #ifdef __APPLE__
   #include <sys/sysctl.h>

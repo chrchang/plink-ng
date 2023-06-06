@@ -19,7 +19,7 @@ CXX		?= g++
 CFLAGS		?= -O3
 CXXFLAGS	?= -O2
 ZLIB		?= -lz
-# ZLIB		?= -L. ../zlib-1.2.12/libz-64.a
+# ZLIB		?= -L. ../zlib-1.2.13/libz.a
 
 # dynamic zstd: remove -DSTATIC_ZSTD above, change this to -lzstd, replace
 # OBJ with OBJ_NO_ZSTD below

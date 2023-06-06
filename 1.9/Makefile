@@ -47,7 +47,7 @@ ifeq ($(SYS), MAC)
   CXXFLAGS += $(MACFLAGS)
   BLASFLAGS ?= -framework Accelerate
   LDFLAGS ?= -ldl
-  ZLIB ?= -L. ../zlib-1.2.12/libz.a
+  ZLIB ?= -L. ../zlib-1.2.13/libz.a
 endif
 
 ifeq ($(SYS), WIN)
@@ -58,13 +58,13 @@ ifeq ($(SYS), WIN)
 # NO_LAPACK.
   BLASFLAGS ?= -L. lapack/liblapack.a -L. lapack/librefblas.a
   LDFLAGS ?= -lm -static-libgcc
-  ZLIB ?= -L. ../zlib-1.2.12/libz.a
+  ZLIB ?= -L. ../zlib-1.2.13/libz.a
 endif
 
 # These must appear after the MAC/WIN-specific ?= statements.
 BLASFLAGS ?=	-L/usr/lib64/atlas -llapack -lblas -lcblas -latlas
 LDFLAGS ?=	-lm -lpthread -ldl
-ZLIB ?=		-L. ../zlib-1.2.12/libz.so.1.2.12
+ZLIB ?=		-L. ../zlib-1.2.13/libz.so.1.2.13
 
 ifdef NO_LAPACK
   BLASFLAGS=

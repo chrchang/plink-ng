@@ -100,7 +100,7 @@
 // - A simpler single-threaded (no decompress-ahead) reader.
 
 #ifdef STATIC_ZLIB
-#  include "../../zlib-1.2.12/zlib.h"
+#  include "../../zlib-1.2.13/zlib.h"
 #else
 #  include <zlib.h>
 #  if !defined(ZLIB_VERNUM) || (ZLIB_VERNUM < 0x1240)

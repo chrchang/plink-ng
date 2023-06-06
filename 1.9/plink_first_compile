@@ -2,24 +2,24 @@
 
 # Download zlib into parent directory, and verify
 cd ..
-curl -Of http://zlib.net/zlib-1.2.12.tar.gz
+curl -Of http://zlib.net/zlib-1.2.13.tar.gz
 last_exit_code=$?
 if [ $last_exit_code -ne 0 ]; then
     # There's a newer zlib, and we might want to update this script.  But
     # download the hardcoded version for now to make the static build work...
-    curl -O http://zlib.net/fossils/zlib-1.2.12.tar.gz
+    curl -O http://zlib.net/fossils/zlib-1.2.13.tar.gz
 fi
 
-EXPECTEDCHECKSUM=207ba741d387e2c1607104cf0bd8cff27deb2605
-CHECKSUM=$(shasum zlib-1.2.12.tar.gz | cut -b-40)
+EXPECTEDCHECKSUM=55eaa84906f31ac20d725aa26cd20839196b6ba6
+CHECKSUM=$(shasum zlib-1.2.13.tar.gz | cut -b-40)
 if [ "$EXPECTEDCHECKSUM" != "$CHECKSUM" ]; then
     echo "Zlib checksum verification failure"
     exit 1
 fi;
 
 # Unpack and compile zlib
-tar -xzvf zlib-1.2.12.tar.gz
-cd zlib-1.2.12
+tar -xzvf zlib-1.2.13.tar.gz
+cd zlib-1.2.13
 ./configure
 make
 
