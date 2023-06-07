@@ -412,17 +412,17 @@ void RPgenReader::ReadAlleles(IntegerMatrix acbuf, Nullable<LogicalVector> phase
   uintptr_t sample_uidx_base = 0;
   uintptr_t cur_bits = phasepresent[0];
   if (!phasepresent_buf.isNotNull()) {
+    int32_t* allele_codes = &acbuf[0];
     if (cur_allele_ct == 2) {
-      uint64_t* allele_codes_alias64 = R_CAST(uint64_t*, &acbuf[0]);
+      const uint64_t one = 1;
       for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
         const uintptr_t sample_uidx = plink2::BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
         if (plink2::IsSet(phaseinfo, sample_uidx)) {
           // 1|0
-          allele_codes_alias64[sample_uidx] = 1;
+          memcpy(&(allele_codes[2 * sample_uidx]), &one, sizeof(int64_t));
         }
       }
     } else {
-      int32_t* allele_codes = &acbuf[0];
       for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
         const uintptr_t sample_uidx = plink2::BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
         if (plink2::IsSet(phaseinfo, sample_uidx)) {
@@ -444,17 +444,17 @@ void RPgenReader::ReadAlleles(IntegerMatrix acbuf, Nullable<LogicalVector> phase
   //      over phasepresent.
   int32_t* phasepresent_wbuf = &(as<LogicalVector>(phasepresent_buf)[0]);
   plink2::GenoarrLookup256x4bx4(_pgv.genovec, kGenoToLogicalPhaseQuads, _subset_size, phasepresent_wbuf);
+  int32_t* allele_codes = &acbuf[0];
   if (cur_allele_ct == 2) {
-    uint64_t* allele_codes_alias64 = R_CAST(uint64_t*, &acbuf[0]);
+    const uint64_t one = 1;
     for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
       const uintptr_t sample_uidx = plink2::BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
       phasepresent_wbuf[sample_uidx] = 1;
       if (plink2::IsSet(phaseinfo, sample_uidx)) {
-        allele_codes_alias64[sample_uidx] = 1;
+        memcpy(&(allele_codes[2 * sample_uidx]), &one, sizeof(int64_t));
       }
     }
   } else {
-    int32_t* allele_codes = &acbuf[0];
     for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
       const uintptr_t sample_uidx = plink2::BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
       phasepresent_wbuf[sample_uidx] = 1;

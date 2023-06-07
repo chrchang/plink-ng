@@ -8079,7 +8079,7 @@ void CountAllAux1aDense(const void* patch_01_fvals, uint32_t allele_ct, uint32_t
 #ifndef NO_UNALIGNED
       GenoarrCountFreqs(R_CAST(const uintptr_t*, patch_01_fvals), rare01_ct, rare0het_counts);
 #else
-      GenoarrbCountFreqs(patch_01_fvals, rare01_ct, rare0het_counts);
+      GenoarrbCountFreqs(S_CAST(const unsigned char*, patch_01_fvals), rare01_ct, rare0het_counts);
 #endif
       for (uint32_t allele_idx_p2 = 2; allele_idx_p2 != allele_ct; ++allele_idx_p2) {
         one_cts[allele_idx_p2] = rare0het_counts[allele_idx_p2 - 2];
@@ -8273,7 +8273,7 @@ void CountAllAux1bDense(const void* __restrict patch_10_fvals, uint32_t allele_c
 #ifndef NO_UNALIGNED
     GenoarrCountFreqs(R_CAST(const uintptr_t*, patch_10_fvals), rare10_ct * 2, alt_counts);
 #else
-    GenoarrbCountFreqs(patch_10_fvals, rare10_ct * 2, alt_counts);
+    GenoarrbCountFreqs(S_CAST(const unsigned char*, patch_10_fvals), rare10_ct * 2, alt_counts);
 #endif
     one_cts_offset1[0] += alt_counts[0];
     for (uint32_t allele_idx_m1 = 1; allele_idx_m1 != allele_ct_m1; ++allele_idx_m1) {

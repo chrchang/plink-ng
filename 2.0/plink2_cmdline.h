@@ -1827,9 +1827,10 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
 // outname (no null-terminator needed).  outname_end must be initialized to
 // nullptr.
 // This sorts the flag names so they're processed in a predictable order,
-// handles --d and --out if present, initializes the log, and determines the
-// number of processors the OS wants us to think the machine has.
-PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const char* const* argvk, uint32_t prog_name_str_slen, uint32_t max_flag_blen, int32_t argc, uint32_t flag_ct, Plink2CmdlineMeta* pcmp, char* outname, char** outname_end_ptr, char* range_delim_ptr, int32_t* known_procs_ptr, uint32_t* max_thread_ct_ptr);
+// handles --d/--out/--strict-extra-chr if present, initializes the log, and
+// determines the number of processors the OS wants us to think the machine
+// has.
+PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const char* const* argvk, uint32_t prog_name_str_slen, uint32_t max_flag_blen, int32_t argc, uint32_t flag_ct, Plink2CmdlineMeta* pcmp, char* outname, char** outname_end_ptr, char* range_delim_ptr, uint32_t* strict_extra_chr_ptr, int32_t* known_procs_ptr, uint32_t* max_thread_ct_ptr);
 
 HEADER_INLINE void InvalidArg(const char* cur_arg) {
   logpreprintfww("Error: Unrecognized flag ('%s').\n", cur_arg);

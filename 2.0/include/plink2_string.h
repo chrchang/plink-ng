@@ -460,6 +460,7 @@ HEADER_INLINE int32_t StrEndsWith(const char* s_read, const char* s_suffix_const
 
 // May read (kBytesPerWord - 1) bytes past the end of each string.
 HEADER_INLINE int32_t strequal_overread(const char* s1, const char* s2) {
+#ifndef NO_UNALIGNED
   const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
   const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
   for (uintptr_t widx = 0; ; ++widx) {
@@ -476,6 +477,9 @@ HEADER_INLINE int32_t strequal_overread(const char* s1, const char* s2) {
       return 0;
     }
   }
+#else
+  return (strcmp(s1, s2) == 0);
+#endif
 }
 
 int32_t strcmp_overread(const char* s1, const char* s2);
@@ -532,6 +536,7 @@ typedef struct StrSortDerefStruct {
 } StrSortDeref;
 
 HEADER_INLINE bool strcmp_overread_lt(const char* s1, const char* s2) {
+#  ifndef NO_UNALIGNED
   const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
   const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
   for (uintptr_t widx = 0; ; ++widx) {
@@ -557,13 +562,16 @@ HEADER_INLINE bool strcmp_overread_lt(const char* s1, const char* s2) {
     }
     if (w1 != w2) {
     strcmp_overread_lt_finish:
-#  ifdef __LP64__
+#    ifdef __LP64__
       return __builtin_bswap64(w1) < __builtin_bswap64(w2);
-#  else
+#    else
       return __builtin_bswap32(w1) < __builtin_bswap32(w2);
-#  endif
+#    endif
     }
   }
+#  else // NO_UNALIGNED
+  return strcmp(s1, s2) < 0;
+#  endif
 }
 
 typedef struct StrSortDerefOverreadStruct {
@@ -1521,8 +1529,9 @@ HEADER_INLINE uint32_t IsNanStr(const char* ss, uint32_t slen) {
 #ifndef NO_UNALIGNED
   const uint32_t first_two_chars_code = R_CAST(const uint16_t*, ss)[0];
 #else
-  uint32_t first_two_chars_code;
-  memcpy_k(&first_two_chars_code, ss, 2);
+  uint16_t first_two_chars_code_u16;
+  memcpy_k(&first_two_chars_code_u16, ss, 2);
+  const uint32_t first_two_chars_code = first_two_chars_code_u16;
 #endif
   // assumes little-endian
   if ((first_two_chars_code & 0xdfdf) != 0x414e) {

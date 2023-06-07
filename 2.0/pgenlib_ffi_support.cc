@@ -23,7 +23,7 @@ namespace plink2 {
 void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* genobytes) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBytesPerWord;
   const Quarterword* read_alias = R_CAST(const Quarterword*, genoarr);
-  uintptr_t* write_walias = R_CAST(uintptr_t*, genobytes);
+  unsigned char* genobytes_uc = DowncastToUc(genobytes);
   for (uint32_t widx = 0; ; ++widx) {
     uintptr_t qw = Unpack0303(read_alias[widx]);
     // now each byte is in {0, 1, 2, 3}.  Convert the 3s to -9s in a branchless
@@ -32,10 +32,10 @@ void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* 
     const uintptr_t geno_missing = qw & (qw >> 1) & kMask0101;
     qw += geno_missing * 244;
     if (widx == word_ct_m1) {
-      SubwordStore(qw, ModNz(sample_ct, kBytesPerWord), &(write_walias[widx]));
+      SubwordStore(qw, ModNz(sample_ct, kBytesPerWord), &(genobytes_uc[widx * kBytesPerWord]));
       return;
     }
-    write_walias[widx] = qw;
+    UnalignedCopyDstOffsetW(genobytes_uc, &qw, widx);
   }
 }
 
@@ -75,6 +75,7 @@ const uint64_t kGenoToIntcodeDPairs[32] ALIGNV16 = PAIR_TABLE16(0, 0x100000000LL
 void GenoarrPhasedToAlleleCodes(const uint64_t* genoarr_to_intcode_dpair_table, const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes) {
   // phasebytes can be nullptr, phasepresent cannot
   GenoarrToAlleleCodes(genoarr_to_intcode_dpair_table, genoarr, sample_ct, allele_codes);
+  // should be safe to assume allele_codes are 8-byte aligned?
   uint64_t* allele_codes_alias64 = R_CAST(uint64_t*, allele_codes);
   uintptr_t sample_uidx_base = 0;
   uintptr_t cur_bits = phasepresent[0];
@@ -141,15 +142,14 @@ void GenoarrMPToAlleleCodes(const uint64_t* geno_to_intcode_dpair_table, const P
     // Initialize 0/2 phasebytes before processing patch_10.
     const uint32_t word_ct_m1 = (sample_ct - 1) / kBytesPerWord;
     const Quarterword* read_alias = R_CAST(const Quarterword*, genoarr);
-    uintptr_t* write_walias = R_CAST(uintptr_t*, phasebytes);
     for (uint32_t widx = 0; ; ++widx) {
       uintptr_t qw = Unpack0303(read_alias[widx]);
       qw = (~qw) & kMask0101;
       if (widx == word_ct_m1) {
-        SubwordStore(qw, ModNz(sample_ct, kBytesPerWord), &(write_walias[widx]));
+        SubwordStore(qw, ModNz(sample_ct, kBytesPerWord), &(phasebytes[widx * kBytesPerWord]));
         break;
       }
-      write_walias[widx] = qw;
+      UnalignedCopyDstOffsetW(phasebytes, &qw, widx);
     }
   }
   if (patch_10_ct) {
@@ -445,17 +445,17 @@ double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoa
 
 void BytesToBitsUnsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* bitarr) {
   const uint32_t ull_ct_m1 = (sample_ct - 1) / 8;
-  const uint64_t* read_alias = R_CAST(const uint64_t*, boolbytes);
-  unsigned char* write_alias = R_CAST(unsigned char*, bitarr);
+  const unsigned char* boolbytes_uc = DowncastKToUc(boolbytes);
+  unsigned char* write_alias = DowncastToUc(bitarr);
   for (uint32_t ullidx = 0; ; ++ullidx) {
     uint64_t cur_ull;
     if (ullidx >= ull_ct_m1) {
       if (ullidx > ull_ct_m1) {
         return;
       }
-      cur_ull = SubwordLoad(&(read_alias[ullidx]), ModNz(sample_ct, 8));
+      cur_ull = SubU64Load(&(boolbytes_uc[ullidx * sizeof(int64_t)]), ModNz(sample_ct, 8));
     } else {
-      cur_ull = read_alias[ullidx];
+      UnalignedCopyOffsetU64(&cur_ull, boolbytes_uc, ullidx);
     }
     // assuming boolbytes is 0/1-valued, this multiply-and-shift maps binary
     //  h0000000g0000000f... to binary hgfedcba.
@@ -470,7 +470,7 @@ void BytesToBitsUnsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* 
 
 void BytesToGenoarrUnsafe(const int8_t* genobytes, uint32_t sample_ct, uintptr_t* genoarr) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBytesPerWord;
-  const uintptr_t* read_walias = R_CAST(const uintptr_t*, genobytes);
+  const unsigned char* genobytes_uc = DowncastKToUc(genobytes);
   Quarterword* write_alias = R_CAST(Quarterword*, genoarr);
   for (uint32_t widx = 0; ; ++widx) {
     uintptr_t ww;
@@ -478,9 +478,9 @@ void BytesToGenoarrUnsafe(const int8_t* genobytes, uint32_t sample_ct, uintptr_t
       if (widx > word_ct_m1) {
         return;
       }
-      ww = SubwordLoad(&(read_walias[widx]), ModNz(sample_ct, kBytesPerWord));
+      ww = SubwordLoad(&(genobytes_uc[widx * kBytesPerWord]), ModNz(sample_ct, kBytesPerWord));
     } else {
-      ww = read_walias[widx];
+      UnalignedCopyOffsetW(&ww, genobytes_uc, widx);
     }
     write_alias[widx] = Pack0303Mask(ww);
   }

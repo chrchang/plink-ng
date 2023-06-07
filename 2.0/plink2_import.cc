@@ -2727,7 +2727,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     if (unlikely(reterr)) {
       goto VcfToPgen_ret_TSTREAM_FAIL;
     }
-    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
     uint32_t dosage_import_field_slen = 0;
 
     // == 2 when searched for and found in header
@@ -3156,7 +3156,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // add a contig name to the hash table unless at least one variant on
       // that contig wasn't filtered out for other reasons.
       uint32_t cur_chr_code;
-      reterr = GetOrAddChrCodeDestructive("--vcf file", line_idx, allow_extra_chrs, line_iter, chr_code_end, cip, &cur_chr_code);
+      reterr = GetOrAddChrCodeDestructive("--vcf file", line_idx, prohibit_extra_chr, line_iter, chr_code_end, cip, &cur_chr_code);
       if (unlikely(reterr)) {
         goto VcfToPgen_ret_1;
       }
@@ -7217,7 +7217,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       goto BcfToPgen_ret_MALFORMED_TEXT_HEADER;
     }
     char* vcf_header_end = &(vcf_header[header_size - 1]);
-    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
     uint32_t dosage_import_field_slen = 0;
 
     uint32_t format_hds_search = 0;
@@ -7857,7 +7857,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         // Don't want to mutate cip in require_gt case until we know the contig
         // is being kept.
         uint32_t cur_chr_code;
-        reterr = GetOrAddChrCode(contig_names[chrom], "--bcf file", 0, contig_slen, allow_extra_chrs, cip, &cur_chr_code);
+        reterr = GetOrAddChrCode(contig_names[chrom], "--bcf file", 0, contig_slen, prohibit_extra_chr, cip, &cur_chr_code);
         if (unlikely(reterr)) {
           goto BcfToPgen_ret_1;
         }
@@ -7941,7 +7941,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         }
         if (!IsSet(bcf_contig_seen, chrom)) {
           uint32_t cur_chr_code;
-          reterr = GetOrAddChrCode(contig_names[chrom], "--bcf file", 0, strlen(contig_names[chrom]), allow_extra_chrs, cip, &cur_chr_code);
+          reterr = GetOrAddChrCode(contig_names[chrom], "--bcf file", 0, strlen(contig_names[chrom]), prohibit_extra_chr, cip, &cur_chr_code);
           if (unlikely(reterr)) {
             goto BcfToPgen_ret_1;
           }
@@ -10025,7 +10025,7 @@ void Bgen11DosageImportUpdate(uint32_t dosage_int_sum_thresh, uint32_t import_do
 PglErr InitOxfordSingleChr(const char* ox_single_chr_str, const char* file_descrip, const char** single_chr_str_ptr, uint32_t* single_chr_slen_ptr, uint32_t* cur_chr_code_ptr, ChrInfo* cip) {
   const uint32_t chr_code_raw = GetChrCodeRaw(ox_single_chr_str);
   if (chr_code_raw == UINT32_MAX) {
-    // command-line parser guarantees that allow_extra_chrs is true here
+    // command-line parser guarantees that prohibit_extra_chr is false here
     const uint32_t chr_slen = strlen(ox_single_chr_str);
     if (single_chr_str_ptr) {
       *single_chr_str_ptr = ox_single_chr_str;
@@ -10033,7 +10033,7 @@ PglErr InitOxfordSingleChr(const char* ox_single_chr_str, const char* file_descr
     }
     PglErr reterr = kPglRetSuccess;
     if (cur_chr_code_ptr) {
-      if (TryToAddChrName(ox_single_chr_str, file_descrip, 0, chr_slen, 1, cur_chr_code_ptr, cip) != kPglRetSuccess) {
+      if (TryToAddChrName(ox_single_chr_str, file_descrip, 0, chr_slen, 0, cur_chr_code_ptr, cip) != kPglRetSuccess) {
         reterr = kPglRetInvalidCmdline;
       }
     }
@@ -10126,7 +10126,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
     if (unlikely(reterr)) {
       goto OxGenToPgen_ret_TSTREAM_FAIL;
     }
-    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
     FinalizeChrset(misc_flags, cip);
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
@@ -10215,7 +10215,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
       }
 
       if (!single_chr_str) {
-        reterr = GetOrAddChrCodeDestructive(".gen file", line_idx, allow_extra_chrs, chr_code_str, chr_code_end, cip, &cur_chr_code);
+        reterr = GetOrAddChrCodeDestructive(".gen file", line_idx, prohibit_extra_chr, chr_code_str, chr_code_end, cip, &cur_chr_code);
         if (unlikely(reterr)) {
           if (strequal_k(chr_code_str, "---", chr_code_end - chr_code_str)) {
             logerrputs("(Did you forget --oxford-single-chr?)\n");
@@ -12347,10 +12347,10 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     if (unlikely(fseeko(bgenfile, initial_uints[0] + 4, SEEK_SET))) {
       goto OxBgenToPgen_ret_READ_FAIL;
     }
-    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
     FinalizeChrset(misc_flags, cip);
     const uint32_t autosome_ct_p1 = cip->autosome_ct + 1;
-    uint32_t chr_filter_exists = (PopcountBitRange(cip->chr_mask, 0, autosome_ct_p1) != autosome_ct_p1) || (allow_extra_chrs && (cip->is_include_stack || cip->incl_excl_name_stack));
+    uint32_t chr_filter_exists = (PopcountBitRange(cip->chr_mask, 0, autosome_ct_p1) != autosome_ct_p1) || ((!prohibit_extra_chr) && (cip->is_include_stack || cip->incl_excl_name_stack));
     if (!chr_filter_exists) {
       for (uint32_t xymt_idx = 0; xymt_idx != kChrOffsetCt; ++xymt_idx) {
         if (!IsI32Neg(cip->xymt_codes[xymt_idx])) {
@@ -12602,7 +12602,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             chr_name_slen = snpid_slen;
           }
           loadbuf[chr_name_slen] = '\0';
-          reterr = GetOrAddChrCode(R_CAST(char*, loadbuf), "--bgen file", 0, chr_name_slen, allow_extra_chrs, cip, &cur_chr_code);
+          reterr = GetOrAddChrCode(R_CAST(char*, loadbuf), "--bgen file", 0, chr_name_slen, prohibit_extra_chr, cip, &cur_chr_code);
           if (unlikely(reterr)) {
             goto OxBgenToPgen_ret_1;
           }
@@ -13285,7 +13285,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           // chromosome ID length restriction enforced here, so we don't check
           // earlier
           chr_name_start[chr_name_slen] = '\0';
-          reterr = GetOrAddChrCode(chr_name_start, "--bgen file", 0, chr_name_slen, allow_extra_chrs, cip, &cur_chr_code);
+          reterr = GetOrAddChrCode(chr_name_start, "--bgen file", 0, chr_name_slen, prohibit_extra_chr, cip, &cur_chr_code);
           if (unlikely(reterr)) {
             goto OxBgenToPgen_ret_1;
           }
@@ -14277,7 +14277,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
     const uint32_t prov_ref_allele_second = !(oxford_import_flags & kfOxfordImportRefFirst);
     const uint32_t phaseinfo_match_4char = prov_ref_allele_second? 0x20312030 : 0x20302031;
     const uint32_t phaseinfo_match = 1 + prov_ref_allele_second;
@@ -14346,7 +14346,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         if (unlikely(IsEolnKns(*linebuf_iter))) {
           goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
         }
-        reterr = GetOrAddChrCodeDestructive("--haps file", line_idx_haps, allow_extra_chrs, haps_line_iter, chr_code_end, cip, &cur_chr_code);
+        reterr = GetOrAddChrCodeDestructive("--haps file", line_idx_haps, prohibit_extra_chr, haps_line_iter, chr_code_end, cip, &cur_chr_code);
         if (unlikely(reterr)) {
           goto OxHapslegendToPgen_ret_1;
         }
@@ -14993,7 +14993,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     if (unlikely(reterr)) {
       goto Plink1DosageToPgen_ret_1;
     }
-    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
     const char* single_chr_str = nullptr;
     uint32_t single_chr_slen = 0;
     const uint32_t chr_col_idx = pdip->chr_col_idx;
@@ -15002,7 +15002,8 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       if (import_single_chr_str) {
         uint32_t chr_code_raw = GetChrCodeRaw(import_single_chr_str);
         if (chr_code_raw == UINT32_MAX) {
-          // command-line parser guarantees that allow_extra_chrs is true here
+          // command-line parser guarantees that prohibit_extra_chr is false
+          // here
           single_chr_str = import_single_chr_str;
           single_chr_slen = strlen(import_single_chr_str);
         } else {
@@ -15155,7 +15156,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
           char* chr_code_str = token_ptrs[0];
           char* chr_code_end = &(chr_code_str[token_slens[0]]);
           uint32_t cur_chr_code;
-          reterr = GetOrAddChrCodeDestructive("--import-dosage file", line_idx, allow_extra_chrs, chr_code_str, chr_code_end, cip, &cur_chr_code);
+          reterr = GetOrAddChrCodeDestructive("--import-dosage file", line_idx, prohibit_extra_chr, chr_code_str, chr_code_end, cip, &cur_chr_code);
           if (unlikely(reterr)) {
             goto Plink1DosageToPgen_ret_1;
           }

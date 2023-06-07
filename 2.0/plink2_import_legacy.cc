@@ -88,7 +88,7 @@ PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
       }
     }
 
-    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
     uint32_t at_least_one_nzero_cm = 0;
     uint32_t raw_variant_ct = 0;
     uint32_t variant_ct = 0;
@@ -108,7 +108,7 @@ PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
         char* chr_code_end = CurTokenEnd(line_iter);
         char* variant_id_start = FirstNonTspace(chr_code_end);
         uint32_t cur_chr_code;
-        reterr = GetOrAddChrCodeDestructive(".map file", line_idx, allow_extra_chrs, line_iter, chr_code_end, cip, &cur_chr_code);
+        reterr = GetOrAddChrCodeDestructive(".map file", line_idx, prohibit_extra_chr, line_iter, chr_code_end, cip, &cur_chr_code);
         if (unlikely(reterr)) {
           goto ScanMap_ret_1;
         }
@@ -427,7 +427,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
       }
     }
 
-    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
     uint32_t max_variant_id_slen = *max_variant_id_slen_ptr;
     unsigned char* tmp_alloc_base = g_bigstack_base;
     unsigned char* tmp_alloc_end = bigstack_end_mark;
@@ -448,7 +448,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
           goto LoadMap_ret_MISSING_TOKENS;
         }
         uint32_t cur_chr_code;
-        reterr = GetOrAddChrCodeDestructive(".map file", line_idx, allow_extra_chrs, line_iter, chr_code_end, cip, &cur_chr_code);
+        reterr = GetOrAddChrCodeDestructive(".map file", line_idx, prohibit_extra_chr, line_iter, chr_code_end, cip, &cur_chr_code);
         if (unlikely(reterr)) {
           goto LoadMap_ret_1;
         }
@@ -767,7 +767,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
       logprintf("--tped: %u sample%s present.\n", sample_ct, (sample_ct == 1)? "" : "s");
     }
     FinalizeChrset(misc_flags, cip);
-    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
     uint32_t max_line_blen = TextLineEnd(&tped_txs) - tped_line_start;
     uint32_t variant_ct = 0;
     uint32_t at_least_one_nzero_cm = 0;
@@ -782,7 +782,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
       }
 
       uint32_t cur_chr_code;
-      reterr = GetOrAddChrCodeDestructive(".tped file", line_idx, allow_extra_chrs, tped_line_start, chr_code_end, cip, &cur_chr_code);
+      reterr = GetOrAddChrCodeDestructive(".tped file", line_idx, prohibit_extra_chr, tped_line_start, chr_code_end, cip, &cur_chr_code);
       if (unlikely(reterr)) {
         goto TpedToPgen_ret_1;
       }

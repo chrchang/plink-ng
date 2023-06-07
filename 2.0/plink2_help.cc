@@ -1632,8 +1632,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                 also is; you can change this second missing\n"
 "                                 code with --input-missing-genotype.\n"
                );
-    HelpPrint("allow-extra-chr\0aec\0", &help_ctrl, 0,
-"  --allow-extra-chr  : Permit unrecognized chromosome codes (alias --aec).\n"
+    HelpPrint("strict-extra-chr\0allow-extra-chr\0aec\0", &help_ctrl, 0,
+"  --strict-extra-chr      : Prohibit unrecognized chromosome codes, unless\n"
+"                            --allow-extra-chr is also specified.  (Always on\n"
+"                            for now, but this will change in a future build.)\n"
+"  --allow-extra-chr ['0'] : Permit unrecognized chromosome codes (alias --aec).\n"
+"                            The '0' modifier causes these codes to be converted\n"
+"                            to \"0\".\n"
                );
     // possible todo: nonhuman PARs?
     HelpPrint("chr-set\0cow\0dog\0horse\0hound\0mouse\0rice\0sheep\0autosome-num\0human\0chr-override\0", &help_ctrl, 0,

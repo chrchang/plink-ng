@@ -2475,7 +2475,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
       //   null-terminated REF
       //   null-terminated ALT, internally still comma-separated
       unsigned char* arena_bottom_mark = arena_bottom;
-      const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+      const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
       const uint32_t filter_count_needed = (pmip->merge_filter_mode == kMergeFilterModeNonpassUnion) || (pmip->merge_filter_mode == kMergeFilterModeNmMatch);
       const uintptr_t line_idx_body_start = line_idx;
       uint32_t nonwrite_variant_ct = 0;
@@ -2518,7 +2518,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, cha
           goto ScanPvarsAndMergeHeader_ret_MISSING_TOKENS;
         }
         uint32_t cur_chr_code;
-        reterr = GetOrAddChrCodeDestructive(cur_fname, line_idx, allow_extra_chrs, line_start, first_token_end, cip, &cur_chr_code);
+        reterr = GetOrAddChrCodeDestructive(cur_fname, line_idx, prohibit_extra_chr, line_start, first_token_end, cip, &cur_chr_code);
         if (unlikely(reterr)) {
           goto ScanPvarsAndMergeHeader_ret_1;
         }

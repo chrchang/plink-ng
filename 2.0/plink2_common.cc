@@ -2075,12 +2075,12 @@ void ChrError(const char* chr_name, const char* file_descrip, const ChrInfo* cip
   }
 }
 
-PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chrs, uint32_t* chr_idx_ptr, ChrInfo* cip) {
+PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t prohibit_extra_chrs, uint32_t* chr_idx_ptr, ChrInfo* cip) {
   // assumes chr_name is either nonstandard (i.e. not "2", "chr2", "chrX",
   // etc.), or a rejected xymt.
   // requires chr_name to be null-terminated
   // assumes chr_idx currently has the return value of GetChrCode()
-  if (unlikely((!allow_extra_chrs) || ((*chr_idx_ptr) == UINT32_MAXM1))) {
+  if (unlikely(prohibit_extra_chrs || ((*chr_idx_ptr) == UINT32_MAXM1))) {
     ChrError(chr_name, file_descrip, cip, line_idx, *chr_idx_ptr);
     return kPglRetMalformedInput;
   }
@@ -2987,7 +2987,7 @@ void CleanupPhenoCols(uint32_t pheno_ct, PhenoCol* pheno_cols) {
   }
 }
 
-PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t allow_extra_chrs, uint32_t xymt_subtract, char range_delim, ChrInfo* cip, uintptr_t* chr_mask) {
+PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t prohibit_extra_chrs, uint32_t xymt_subtract, char range_delim, ChrInfo* cip, uintptr_t* chr_mask) {
   PglErr reterr = kPglRetSuccess;
   {
     const char* cur_arg_ptr = argvk[1];
@@ -3013,7 +3013,7 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
       memcpyx(token_buf, range_start, rs_len, '\0');
       uint32_t chr_code_start = GetChrCodeRaw(token_buf);
       if (IsI32Neg(chr_code_start)) {
-        if (unlikely(!allow_extra_chrs)) {
+        if (unlikely(prohibit_extra_chrs)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, token_buf);
           goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
         }
@@ -3031,7 +3031,7 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
           memcpyx(token_buf, range_end, re_len, '\0');
           uint32_t chr_code_end = GetChrCodeRaw(token_buf);
           if (unlikely(IsI32Neg(chr_code_end))) {
-            if (!allow_extra_chrs) {
+            if (prohibit_extra_chrs) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, range_end);
               goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
             }

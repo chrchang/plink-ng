@@ -1248,7 +1248,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     if (R_CAST(const char*, tmp_alloc_end) > (&(g_one_char_strs[512 - kMaxIdSlen]))) {
       tmp_alloc_end = R_CAST(unsigned char*, K_CAST(char*, &(g_one_char_strs[512 - kMaxIdSlen])));
     }
-    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
     const uint32_t merge_par = ((misc_flags & (kfMiscMergePar | kfMiscMergeX)) != 0);
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     uint32_t parx_code = cip->xymt_codes[kChrOffsetPAR1];
@@ -1393,7 +1393,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         goto LoadPvar_ret_MISSING_TOKENS;
       }
       uint32_t cur_chr_code;
-      reterr = GetOrAddChrCodeDestructive(".pvar file", line_idx, allow_extra_chrs, line_iter, linebuf_iter, cip, &cur_chr_code);
+      reterr = GetOrAddChrCodeDestructive(".pvar file", line_idx, prohibit_extra_chr, line_iter, linebuf_iter, cip, &cur_chr_code);
       if (unlikely(reterr)) {
         goto LoadPvar_ret_1;
       }
@@ -2108,6 +2108,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         logerrputs("Warning: --merge-x had no effect (no XY chromosome codes present).\n");
       }
     }
+    // if nonstandard chromosome codes present, add note about this in alpha 6
     const uint32_t last_chr_code = cip->max_code + cip->name_ct;
     const uint32_t chr_word_ct = BitCtToWordCt(last_chr_code + 1);
     BitvecAnd(loaded_chr_mask, chr_word_ct, chr_mask);

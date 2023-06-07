@@ -1,6 +1,6 @@
 # Modeled on https://github.com/traversc/qs/blob/master/configure.ac .
 
-AC_INIT([pgenlibr],[0.3.4],[chrchang@alumni.caltech.edu])
+AC_INIT([pgenlibr],[0.3.5],[chrchang@alumni.caltech.edu])
 AC_PATH_PROG([PKGCONF],[pkg-config],[],[$PATH:/usr/local/bin:ext/bin:ext:/sw/bin:/opt/bin:/opt/local/bin])
 
 ########################################################
@@ -67,7 +67,7 @@ LIBDEFLATE_CLEAN=""
 SIMDE_INCLUDE_PATH=""
 
 if test "xx$zstd_include_path" != "xx"; then
-  echo "Using user-defined zstd install paths"
+  AC_MSG_NOTICE([Using user-defined zstd install paths])
     ZSTD_LIBS="-L${zstd_lib_path}"
     ZSTD_INCLUDE_PATH="-I${zstd_include_path}"
     COMPILE_ZSTD="false"
@@ -80,20 +80,20 @@ elif test "xx$PKGCONF" != "xx"; then
     # The release notes for 1.5.4 mention 32-bit bugfixes, so it is more
     # reasonable to refuse to go below it.
     if test "${VER}" -ge 100504; then
-      echo "zstd ${VERSION_STRING} library detected -- skipping zstd compilation"
+      AC_MSG_NOTICE([zstd ${VERSION_STRING} library detected -- skipping zstd compilation])
       ZSTD_LIBS=`"${PKGCONF}" --libs libzstd`
       ZSTD_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I libzstd`
       COMPILE_ZSTD="false"
     else
-      echo "zstd ${VERSION_STRING} library detected but is too old (<1.5.4) -- compiling from source"
+      AC_MSG_NOTICE([zstd ${VERSION_STRING} library detected but is too old (<1.5.4) -- compiling from source])
       COMPILE_ZSTD="true"
     fi
   else
-    echo "zstd library not detected -- compiling from source"
+    AC_MSG_NOTICE([zstd library not detected -- compiling from source])
     COMPILE_ZSTD="true"
   fi
 else
-  echo "pkg-config not detected -- compiling zstd from source"
+  AC_MSG_NOTICE([pkg-config not detected -- compiling zstd from source])
   COMPILE_ZSTD="true"
 fi
 
@@ -105,7 +105,7 @@ if test xx$COMPILE_ZSTD = "xxtrue"; then
 fi
 
 if test "xx$libdeflate_include_path" != "xx"; then
-  echo "Using user-defined libdeflate install paths"
+  AC_MSG_NOTICE([Using user-defined libdeflate install paths])
     LIBDEFLATE_LIBS="-L${libdeflate_lib_path}"
     LIBDEFLATE_INCLUDE_PATH="-I${libdeflate_include_path}"
     COMPILE_LIBDEFLATE="false"
@@ -114,20 +114,20 @@ elif test "xx$PKGCONF" != "xx"; then
     VERSION_STRING=`${PKGCONF} --modversion libdeflate`
     VER=`getVersion2 ${VERSION_STRING}`
     if test "${VER}" -ge 1014; then
-      echo "libdeflate ${VERSION_STRING} library detected -- skipping libdeflate compilation"
+      AC_MSG_NOTICE([libdeflate ${VERSION_STRING} library detected -- skipping libdeflate compilation])
       LIBDEFLATE_LIBS=`"${PKGCONF}" --libs libdeflate`
       LIBDEFLATE_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I libdeflate`
       COMPILE_LIBDEFLATE="false"
     else
-      echo "libdeflate ${VERSION_STRING} library detected but is lower than bundled version (1.14) -- compiling from source"
+      AC_MSG_NOTICE([libdeflate ${VERSION_STRING} library detected but is lower than bundled version (1.14) -- compiling from source])
       COMPILE_LIBDEFLATE="true"
     fi
   else
-    echo "libdeflate library not detected -- compiling from source"
+    AC_MSG_NOTICE([libdeflate library not detected -- compiling from source])
     COMPILE_LIBDEFLATE="true"
   fi
 else
-  echo "pkg-config not detected -- compiling libdeflate from source"
+  AC_MSG_NOTICE([pkg-config not detected -- compiling libdeflate from source])
   COMPILE_LIBDEFLATE="true"
 fi
 
@@ -139,7 +139,7 @@ if test xx$COMPILE_LIBDEFLATE = "xxtrue"; then
 fi
 
 if test "xx$simde_include_path" != "xx"; then
-  echo "Using user-defined simde install paths"
+  AC_MSG_NOTICE([Using user-defined simde install paths])
     SIMDE_INCLUDE_PATH="-I${simde_include_path}"
     USE_BUNDLED_SIMDE="false"
 elif test "xx$PKGCONF" != "xx"; then
@@ -147,19 +147,19 @@ elif test "xx$PKGCONF" != "xx"; then
     VERSION_STRING=`${PKGCONF} --modversion simde`
     VER=`getVersion3 ${VERSION_STRING}`
     if test "${VER}" -ge 702; then
-      echo "simde ${VERSION_STRING} library detected -- ignoring bundled simde header files"
+      AC_MSG_NOTICE([simde ${VERSION_STRING} library detected -- ignoring bundled simde header files])
       SIMDE_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I simde`
       USE_BUNDLED_SIMDE="false"
     else
-      echo "simde ${VERSION_STRING} library detected but is lower than bundled version (0.7.2) -- using bundled header files"
+      AC_MSG_NOTICE([simde ${VERSION_STRING} library detected but is lower than bundled version (0.7.2) -- using bundled header files])
       USE_BUNDLED_SIMDE="true"
     fi
   else
-    echo "simde library not detected -- using bundled header files"
+    AC_MSG_NOTICE([simde library not detected -- using bundled header files])
     USE_BUNDLED_SIMDE="true"
   fi
 else
-  echo "pkg-config not detected -- using bundled simde header files"
+  AC_MSG_NOTICE([pkg-config not detected -- using bundled simde header files])
   USE_BUNDLED_SIMDE="true"
 fi
 

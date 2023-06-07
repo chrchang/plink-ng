@@ -263,6 +263,7 @@ uint32_t UintSlen(uint32_t num) {
 // benchmarking is necessary in general (compiler may perform its own strcmp
 // optimizations).
 int32_t strcmp_overread(const char* s1, const char* s2) {
+#ifndef NO_UNALIGNED
   const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
   const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
   for (uintptr_t widx = 0; ; ++widx) {
@@ -282,12 +283,15 @@ int32_t strcmp_overread(const char* s1, const char* s2) {
     }
     // bugfix (30 Jun 2018): forgot to adhere to strcmp instead of std::sort
     // interface
-#ifdef __LP64__
+#  ifdef __LP64__
     return (__builtin_bswap64(w1) < __builtin_bswap64(w2))? -1 : 1;
-#else
+#  else
     return (__builtin_bswap32(w1) < __builtin_bswap32(w2))? -1 : 1;
-#endif
+#  endif
   }
+#else // NO_UNALIGNED
+  return strcmp(s1, s2);
+#endif
 }
 
 int32_t strcmp_casted(const void* s1, const void* s2) {

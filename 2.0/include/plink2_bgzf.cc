@@ -144,10 +144,9 @@ PglErr BgzfReadJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream*
           if (unlikely(!IsBgzfHeader(in_iter))) {
             goto BgzfReadJoinAndRespawn_ret_INVALID_BGZF;
           }
-#  ifdef NO_UNALIGNED
-#    error "Unaligned accesses in BgzfReadJoinAndRespawn()."
-#  endif
-          const uint32_t bsize_minus1 = *R_CAST(uint16_t*, &(in_iter[16]));
+          uint16_t bsize_minus1_u16;
+          memcpy(&bsize_minus1_u16, &(in_iter[16]), 2);
+          const uint32_t bsize_minus1 = bsize_minus1_u16;
           if (unlikely(bsize_minus1 < 25)) {
             goto BgzfReadJoinAndRespawn_ret_INVALID_BGZF;
           }
@@ -158,7 +157,8 @@ PglErr BgzfReadJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream*
             break;
           }
           const uint32_t in_size = bsize_minus1 - 25;
-          const uint32_t out_size = *R_CAST(uint32_t*, &(in_iter[in_size + 22]));
+          uint32_t out_size;
+          memcpy(&out_size, &(in_iter[in_size + 22]), 4);
           if (unlikely(out_size > 65536)) {
             goto BgzfReadJoinAndRespawn_ret_INVALID_BGZF;
           }
@@ -187,9 +187,12 @@ PglErr BgzfReadJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream*
         out_offsets[out_tidx] = write_offset;
         const uint32_t nblocks = n_blocks_per_thread + (n_eof_blocks > out_tidx);
         for (uint32_t uii = 0; uii != nblocks; ++uii) {
-          const uint32_t bsize_minus1 = *R_CAST(uint16_t*, &(in_iter[16]));
+          uint16_t bsize_minus1_u16;
+          memcpy(&bsize_minus1_u16, &(in_iter[16]), 2);
+          const uint32_t bsize_minus1 = bsize_minus1_u16;
           const uint32_t in_size = bsize_minus1 - 25;
-          const uint32_t out_size = *R_CAST(uint32_t*, &(in_iter[in_size + 22]));
+          uint32_t out_size;
+          memcpy(&out_size, &(in_iter[in_size + 22]), 4);
           in_iter = &(in_iter[bsize_minus1 + 1]);
           write_offset += out_size;
         }
@@ -327,8 +330,12 @@ THREAD_FUNC_DECL BgzfRawMtStreamThread(void* raw_arg) {
       uint32_t out_offset = cwd->out_offsets[tidx];
       const uint32_t out_capacity = cwd->target_capacity;
       while (in_offset != in_offset_stop) {
-        const uint32_t in_size = (*R_CAST(uint16_t*, &(in[in_offset + 16]))) - 25;
-        const uint32_t out_size = *R_CAST(uint32_t*, &(in[in_offset + in_size + 22]));
+        uint16_t in_size_plus25_u16;
+        memcpy(&in_size_plus25_u16, &(in[in_offset + 16]), 2);
+        uint32_t in_size = in_size_plus25_u16;
+        in_size -= 25;
+        uint32_t out_size;
+        memcpy(&out_size, &(in[in_offset + in_size + 22]), 4);
         const uint32_t out_offset_end = out_offset + out_size;
         unsigned char* dst;
         if (out_offset_end > out_capacity) {

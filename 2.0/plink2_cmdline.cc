@@ -3915,9 +3915,10 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
 // outname (no null-terminator needed).  outname_end must be initialized to
 // nullptr.
 // This sorts the flag names so they're processed in a predictable order,
-// handles --out if present, initializes the log, and determines the number of
-// processors the OS wants us to think the machine has.
-PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const char* const* argvk, uint32_t prog_name_str_slen, uint32_t max_flag_blen, int32_t argc, uint32_t flag_ct, Plink2CmdlineMeta* pcmp, char* outname, char** outname_end_ptr, char* range_delim_ptr, int32_t* known_procs_ptr, uint32_t* max_thread_ct_ptr) {
+// handles --d/--out/--strict-extra-chr if present, initializes the log, and
+// determines the number of processors the OS wants us to think the machine
+// has.
+PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const char* const* argvk, uint32_t prog_name_str_slen, uint32_t max_flag_blen, int32_t argc, uint32_t flag_ct, Plink2CmdlineMeta* pcmp, char* outname, char** outname_end_ptr, char* range_delim_ptr, uint32_t* strict_extra_chr_ptr, int32_t* known_procs_ptr, uint32_t* max_thread_ct_ptr) {
   PglErr reterr = kPglRetSuccess;
   {
     char* flag_buf = pcmp->flag_buf;
@@ -3931,6 +3932,7 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
     }
 
     *range_delim_ptr = '-';
+    *strict_extra_chr_ptr = 0;
     for (uint32_t cur_flag_idx = 0; cur_flag_idx != flag_ct; ++cur_flag_idx) {
       char* cur_flag = &(flag_buf[cur_flag_idx * max_flag_blen]);
       if (strequal_k_unsafe(cur_flag, "d")) {
@@ -3959,24 +3961,31 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
         continue;
       }
       const int32_t memcmp_out_result = Memcmp("out", cur_flag, 4);
-      if (!memcmp_out_result) {
-        const uint32_t arg_idx = flag_map[cur_flag_idx];
-        const uint32_t param_ct = GetParamCt(argvk, argc, arg_idx);
-        if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
-          fputs(g_logbuf, stderr);
-          fputs(errstr_append, stderr);
-          goto CmdlineParsePhase2_ret_INVALID_CMDLINE;
+      if (memcmp_out_result >= 0) {
+        if (!memcmp_out_result) {
+          const uint32_t arg_idx = flag_map[cur_flag_idx];
+          const uint32_t param_ct = GetParamCt(argvk, argc, arg_idx);
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            fputs(g_logbuf, stderr);
+            fputs(errstr_append, stderr);
+            goto CmdlineParsePhase2_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(strlen(argvk[arg_idx + 1]) > (kPglFnamesize - kMaxOutfnameExtBlen))) {
+            fflush(stdout);
+            fputs("Error: --out argument too long.\n", stderr);
+            goto CmdlineParsePhase2_ret_OPEN_FAIL;
+          }
+          const uint32_t slen = strlen(argvk[arg_idx + 1]);
+          memcpy(outname, argvk[arg_idx + 1], slen + 1);
+          *outname_end_ptr = &(outname[slen]);
         }
-        if (unlikely(strlen(argvk[arg_idx + 1]) > (kPglFnamesize - kMaxOutfnameExtBlen))) {
-          fflush(stdout);
-          fputs("Error: --out argument too long.\n", stderr);
-          goto CmdlineParsePhase2_ret_OPEN_FAIL;
-        }
-        const uint32_t slen = strlen(argvk[arg_idx + 1]);
-        memcpy(outname, argvk[arg_idx + 1], slen + 1);
-        *outname_end_ptr = &(outname[slen]);
+        continue;
       }
-      if (memcmp_out_result <= 0) {
+      const int32_t strict_extra_chr_result = Memcmp("strict-extra-chr", cur_flag, 17);
+      if (!strict_extra_chr_result) {
+        *strict_extra_chr_ptr = 1;
+      }
+      if (strict_extra_chr_result <= 0) {
         break;
       }
     }

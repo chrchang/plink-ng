@@ -189,6 +189,7 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
     trbp->consume_iter = dst;
     trbp->consume_stop = dst;
     if (nbytes >= 4) {
+      // assumes aligned dst; this should be safe?
       const uint32_t magic4 = *R_CAST(uint32_t*, dst);
       if (IsZstdFrame(magic4)) {
         trbp->dst_len = 0;
@@ -562,10 +563,9 @@ PglErr TextFileAdvance(textFILE* txf_ptr) {
               if (unlikely(!IsBgzfHeader(in_iter))) {
                 goto TextFileAdvance_ret_INVALID_BGZF;
               }
-#  ifdef NO_UNALIGNED
-#    error "Unaligned accesses in TextFileAdvance()."
-#  endif
-              const uint32_t bsize_minus1 = *R_CAST(uint16_t*, &(in_iter[16]));
+              uint16_t bsize_minus1_u16;
+              memcpy(&bsize_minus1_u16, &(in_iter[16]), 2);
+              const uint32_t bsize_minus1 = bsize_minus1_u16;
               if (unlikely(bsize_minus1 < 25)) {
                 goto TextFileAdvance_ret_INVALID_BGZF;
               }
@@ -573,7 +573,8 @@ PglErr TextFileAdvance(textFILE* txf_ptr) {
                 // We have at least one fully-loaded compressed block.
                 // Decompress it if we have enough space.
                 const uint32_t in_size = bsize_minus1 - 25;
-                const uint32_t out_size = *R_CAST(uint32_t*, &(in_iter[in_size + 22]));
+                uint32_t out_size;
+                memcpy(&out_size, &(in_iter[in_size + 22]), 4);
                 if (unlikely(out_size > 65536)) {
                   goto TextFileAdvance_ret_INVALID_BGZF;
                 }

@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a5"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (31 May 2023)";
+  " (7 Jun 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -1301,7 +1301,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       if (variant_ct) {
         if (pcp->update_map_flag) {
-          reterr = UpdateVarBps(cip, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->update_map_flag, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, variant_bps, &variant_ct, &vpos_sortstatus);
+          reterr = UpdateVarBps(cip, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->update_map_flag, (pcp->sort_vars_mode > kSortNone), raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, variant_bps, &variant_ct, &vpos_sortstatus);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -3615,11 +3615,14 @@ int main(int argc, char** argv) {
     memcpy_k(outname, "plink2", 6);
     char* outname_end = nullptr;
     char range_delim;
+    uint32_t strict_extra_chr;
     int32_t known_procs;
-    reterr = CmdlineParsePhase2(ver_str, errstr_append, argvk, 6, kMaxFlagBlen, argc, flag_ct, &pcm, outname, &outname_end, &range_delim, &known_procs, &pc.max_thread_ct);
+    reterr = CmdlineParsePhase2(ver_str, errstr_append, argvk, 6, kMaxFlagBlen, argc, flag_ct, &pcm, outname, &outname_end, &range_delim, &strict_extra_chr, &known_procs, &pc.max_thread_ct);
     if (unlikely(reterr)) {
       goto main_ret_NOLOG;
     }
+    // remove this in alpha 6
+    strict_extra_chr = 1;
 
     char pgenname[kPglFnamesize];
     char psamname[kPglFnamesize];
@@ -3633,7 +3636,7 @@ int main(int argc, char** argv) {
     cur_flag_idx = 0;
     pc.command_flags1 = kfCommand10;
     // uint64_t command_flags2 = 0;
-    pc.misc_flags = kfMisc0;
+    pc.misc_flags = strict_extra_chr? kfMiscProhibitExtraChr : kfMisc0;
     pc.pvar_psam_flags = kfPvarPsam0;
     pc.sample_sort_mode = kSort0;
     pc.sort_vars_mode = kSort0;
@@ -3770,7 +3773,7 @@ int main(int argc, char** argv) {
             }
             chr_info.zero_extra_chrs = 1;
           }
-          pc.misc_flags |= kfMiscAllowExtraChrs;
+          pc.misc_flags &= ~kfMiscProhibitExtraChr;
         } else if (strequal_k_unsafe(flagname_p2, "utosome")) {
           pc.misc_flags |= kfMiscAutosomeOnly;
           chr_info.is_include_stack = 1;
@@ -4285,7 +4288,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = ParseChrRanges(&(argvk[arg_idx]), flagname_p, errstr_append, param_ct, (pc.misc_flags / kfMiscAllowExtraChrs) & 1, 0, '-', &chr_info, chr_info.chr_mask);
+          reterr = ParseChrRanges(&(argvk[arg_idx]), flagname_p, errstr_append, param_ct, (pc.misc_flags / kfMiscProhibitExtraChr) & 1, 0, '-', &chr_info, chr_info.chr_mask);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -6380,8 +6383,9 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* chr_code = &(cur_modif[strlen("single-chr=")]);
-              if (!(pc.misc_flags & kfMiscAllowExtraChrs)) {
+              if (pc.misc_flags & kfMiscProhibitExtraChr) {
                 if (unlikely(IsI32Neg(GetChrCodeRaw(chr_code)))) {
+                  // change in alpha 6
                   snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage single-chr= chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", chr_code);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }
@@ -6720,8 +6724,9 @@ int main(int argc, char** argv) {
           }
           memcpy(pvarname, cur_fname, slen + 1);
           const char* chr_code = argvk[arg_idx + 2];
-          if (!(pc.misc_flags & kfMiscAllowExtraChrs)) {
+          if (pc.misc_flags & kfMiscProhibitExtraChr) {
             if (unlikely(IsI32Neg(GetChrCodeRaw(chr_code)))) {
+              // change in alpha 6
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --legend chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", chr_code);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -8300,13 +8305,15 @@ int main(int argc, char** argv) {
           //   --allow-extra-chr --not-chr 12-17 bobs_chrom
           // does not make sense, disallowed:
           //   --allow-extra-chr --chr 5-22 --not-chr bobs_chrom
+          // i.e. don't see a practical reason to make --not-chr accept
+          // arbitrary chromosome codes when --chr or --autosome[-par] is
+          // present
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
 
-          // --allow-extra-chr present, --chr/--autosome[-par] not present
-          const uint32_t aec_and_no_chr_include = ((pc.misc_flags / kfMiscAllowExtraChrs) & 1) && (!chr_info.is_include_stack);
-          reterr = ParseChrRanges(&(argvk[arg_idx]), flagname_p, errstr_append, param_ct, aec_and_no_chr_include, kChrRawEnd - (kChrExcludeWords * kBitsPerWord), '-', &chr_info, chr_info.chr_exclude);
+          const uint32_t extra_chrs_prohibited_or_chr_include = (pc.misc_flags & kfMiscProhibitExtraChr) || chr_info.is_include_stack;
+          reterr = ParseChrRanges(&(argvk[arg_idx]), flagname_p, errstr_append, param_ct, extra_chrs_prohibited_or_chr_include, kChrRawEnd - (kChrExcludeWords * kBitsPerWord), '-', &chr_info, chr_info.chr_exclude);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -8459,8 +8466,9 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (!(pc.misc_flags & kfMiscAllowExtraChrs)) {
+          if (pc.misc_flags & kfMiscProhibitExtraChr) {
             if (unlikely(IsI32Neg(GetChrCodeRaw(cur_modif)))) {
+              // change in alpha 6
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --oxford-single-chr chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }

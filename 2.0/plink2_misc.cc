@@ -62,7 +62,7 @@ void CleanupFst(FstInfo* fst_info_ptr) {
   free_cond(fst_info_ptr->other_ids_flattened);
 }
 
-PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp) {
+PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t sort_vars_in_cmd, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -192,7 +192,11 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
         if (last_bp > cur_bp) {
           vpos_sortstatus |= kfUnsortedVarBp;
           if (!((*vpos_sortstatusp) & kfUnsortedVarBp)) {
-            logerrputs("Warning: Base-pair positions are now unsorted!\n");
+            if (sort_vars_in_cmd) {
+              logerrputs("Note: Base-pair positions are now unsorted.\n");
+            } else {
+              logerrputs("Warning: Base-pair positions are now unsorted!\n");
+            }
           }
           break;
         }
@@ -279,7 +283,8 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
       ++line_idx;
       const char* line_start = TextGet(&txs);
       if (!line_start) {
-        if (likely(TextStreamErrcode2(&txs, &reterr))) {
+        // bugfix (7 Jun 2023): this condition was flipped
+        if (likely(!TextStreamErrcode2(&txs, &reterr))) {
           break;
         }
         goto UpdateVarNames_ret_TSTREAM_FAIL;

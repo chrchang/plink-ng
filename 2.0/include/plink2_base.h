@@ -2461,6 +2461,10 @@ HEADER_INLINE void UnalignedCopyOffsetQW(Quarterword* dst, const unsigned char* 
   memcpy(dst, &(src[offset * sizeof(Quarterword)]), sizeof(Quarterword));
 }
 
+HEADER_INLINE void UnalignedCopyOffsetU64(uint64_t* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy(dst, &(src[offset * sizeof(int64_t)]), sizeof(int64_t));
+}
+
 HEADER_INLINE void UnalignedCopyOffsetU32(uint32_t* dst, const unsigned char* src, uintptr_t offset) {
   memcpy(dst, &(src[offset * sizeof(int32_t)]), sizeof(int32_t));
 }
@@ -2471,6 +2475,10 @@ HEADER_INLINE void UnalignedCopyOffsetU16(uint16_t* dst, const unsigned char* sr
 
 HEADER_INLINE void UnalignedCopyOffsetI16(int16_t* dst, const unsigned char* src, uintptr_t offset) {
   memcpy(dst, &(src[offset * sizeof(int16_t)]), sizeof(int16_t));
+}
+
+HEADER_INLINE void UnalignedCopyDstOffsetW(unsigned char* dst, const void* src, uintptr_t offset) {
+  memcpy(&(dst[offset * sizeof(intptr_t)]), src, sizeof(intptr_t));
 }
 
 HEADER_INLINE void UnalignedCopyDstOffsetU64(unsigned char* dst, const void* src, uintptr_t offset) {
@@ -2653,6 +2661,16 @@ HEADER_INLINE void SubU32Store(uint32_t cur_uint, uint32_t byte_ct, void* target
   memcpy(target, &cur_uint, byte_ct);
 }
 #endif // NO_UNALIGNED
+
+HEADER_INLINE uint64_t SubU64Load(const void* bytearr, uint32_t ct) {
+#ifdef __LP64__
+  return SubwordLoad(bytearr, ct);
+#else
+  uint64_t cur_u64 = 0;
+  memcpy(&cur_u64, bytearr, ct);
+  return cur_u64;
+#endif
+}
 
 HEADER_INLINE void ProperSubwordStoreMov(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
   ProperSubwordStore(cur_word, byte_ct, *targetp);
@@ -3147,10 +3165,12 @@ HEADER_INLINE char* strcpya(char* __restrict dst, const void* __restrict src) {
 }
 
 #if defined(__LP64__) && (__cplusplus >= 201103L)
-
 constexpr uint32_t CompileTimeSlen(const char* k_str) {
   return k_str[0]? (1 + CompileTimeSlen(&(k_str[1]))) : 0;
 }
+#endif
+
+#if defined(__LP64__) && (__cplusplus >= 201103L) && !defined(NO_UNALIGNED)
 
 #  define strcpy_k(dst, src) plink2::MemcpyKImpl<plink2::CompileTimeSlen(src) + 1>::MemcpyK(dst, src);
 

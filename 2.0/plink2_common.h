@@ -108,7 +108,7 @@ CONSTI32(kParallelMax, 32768);
 FLAGSET64_DEF_START()
   kfMisc0,
   kfMiscAffection01 = (1 << 0),
-  kfMiscAllowExtraChrs = (1 << 1),
+  kfMiscProhibitExtraChr = (1 << 1),
   kfMiscRealRefAlleles = (1 << 2),
   kfMiscMajRef = (1 << 3),
   kfMiscMajRefForce = (1 << 4),
@@ -884,19 +884,19 @@ HEADER_INLINE void GetXymtCodeStartAndEndUnsafe(const ChrInfo* cip, uint32_t xym
 }
 
 // now assumes chr_name is null-terminated
-PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chrs, uint32_t* chr_idx_ptr, ChrInfo* cip);
+PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t prohibit_extra_chrs, uint32_t* chr_idx_ptr, ChrInfo* cip);
 
-HEADER_INLINE PglErr GetOrAddChrCode(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chrs, ChrInfo* cip, uint32_t* chr_idx_ptr) {
+HEADER_INLINE PglErr GetOrAddChrCode(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t prohibit_extra_chrs, ChrInfo* cip, uint32_t* chr_idx_ptr) {
   *chr_idx_ptr = GetChrCode(chr_name, cip, name_slen);
   if (!IsI32Neg(*chr_idx_ptr)) {
     return kPglRetSuccess;
   }
-  return TryToAddChrName(chr_name, file_descrip, line_idx, name_slen, allow_extra_chrs, chr_idx_ptr, cip);
+  return TryToAddChrName(chr_name, file_descrip, line_idx, name_slen, prohibit_extra_chrs, chr_idx_ptr, cip);
 }
 
-HEADER_INLINE PglErr GetOrAddChrCodeDestructive(const char* file_descrip, uintptr_t line_idx, uint32_t allow_extra_chrs, char* chr_name, char* chr_name_end, ChrInfo* cip, uint32_t* chr_idx_ptr) {
+HEADER_INLINE PglErr GetOrAddChrCodeDestructive(const char* file_descrip, uintptr_t line_idx, uint32_t prohibit_extra_chrs, char* chr_name, char* chr_name_end, ChrInfo* cip, uint32_t* chr_idx_ptr) {
   *chr_name_end = '\0';
-  return GetOrAddChrCode(chr_name, file_descrip, line_idx, chr_name_end - chr_name, allow_extra_chrs, cip, chr_idx_ptr);
+  return GetOrAddChrCode(chr_name, file_descrip, line_idx, chr_name_end - chr_name, prohibit_extra_chrs, cip, chr_idx_ptr);
 }
 
 // Assumes sample_ct positive.  Does not require trailing bits to be clear.
@@ -1125,7 +1125,7 @@ uint32_t RemoveExcludedCats(const uint32_t* data_cat, const uintptr_t* cat_keep_
 // simple free_cond().
 void CleanupPhenoCols(uint32_t pheno_ct, PhenoCol* pheno_cols);
 
-PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t allow_extra_chrs, uint32_t xymt_subtract, char range_delim, ChrInfo* cip, uintptr_t* chr_mask);
+PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t prohibit_extra_chrs, uint32_t xymt_subtract, char range_delim, ChrInfo* cip, uintptr_t* chr_mask);
 
 
 // uint32_t MultiallelicVariantPresent(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_ct);
