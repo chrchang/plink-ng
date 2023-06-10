@@ -279,7 +279,8 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
       ++line_idx;
       const char* line_start = TextGet(&txs);
       if (!line_start) {
-        if (likely(TextStreamErrcode2(&txs, &reterr))) {
+        // bugfix (10 Jun 2023): this condition was flipped
+        if (likely(!TextStreamErrcode2(&txs, &reterr))) {
           break;
         }
         goto UpdateVarNames_ret_TSTREAM_FAIL;
