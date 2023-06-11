@@ -26,13 +26,14 @@
 
 #include "plink2_base.h"
 
-#ifdef STATIC_ZSTD
-#  include "../zstd/lib/zstd.h"
-#else
+#ifdef TRY_SYSTEM_ZSTD
 #  include <zstd.h>
 #  if !defined(ZSTD_VERSION_NUMBER) || (ZSTD_VERSION_NUMBER < 10404)
 #    error "plink2_zstfile requires zstd 1.4.4 or later."
 #  endif
+#else
+// Usually requires ../zstd/lib to be in include path.
+#  include "zstd.h"
 #endif
 
 #ifdef __cplusplus

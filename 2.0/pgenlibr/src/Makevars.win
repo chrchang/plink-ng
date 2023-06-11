@@ -1,15 +1,21 @@
 PKG_CPPFLAGS = -DLIBDEFLATE_STATIC -DPGENLIB_NOPRINT -I. -Ilibdeflate
-PKG_LIBS = -lz -lpthread -lzstd -L. -lPGDEFLATE
+PKG_LIBS = -L. -lPGDEFLATE -lPLINK2 -lz -lpthread -lzstd
 
 LIBDEFLATE_SOURCES = libdeflate/lib/zlib_decompress.c libdeflate/lib/zlib_compress.c libdeflate/lib/utils.c libdeflate/lib/gzip_compress.c libdeflate/lib/crc32.c libdeflate/lib/adler32.c libdeflate/lib/deflate_decompress.c libdeflate/lib/deflate_compress.c libdeflate/lib/gzip_decompress.c libdeflate/lib/arm/arm_cpu_features.c libdeflate/lib/x86/x86_cpu_features.c
 LIBDEFLATE = $(LIBDEFLATE_SOURCES:.c=.o)
 
-$(SHLIB): libPGDEFLATE.a
+LIBPLINK2_SOURCES = include/plink2_base.cc include/plink2_bits.cc include/pgenlib_misc.cc include/pgenlib_read.cc include/plink2_bgzf.cc include/plink2_string.cc include/plink2_text.cc include/plink2_thread.cc include/plink2_zstfile.cc
+LIBPLINK2 = $(LIBPLINK2_SOURCES:.cc=.o)
+
+$(SHLIB): libPGDEFLATE.a libPLINK2.a
 
 libPGDEFLATE.a: $(LIBDEFLATE)
 	$(AR) rcs libPGDEFLATE.a $(LIBDEFLATE)
 
-clean:
-	rm -f $(SHLIB) $(OBJECTS) $(LIBDEFLATE) libPGDEFLATE.a
+libPLINK2.a: $(LIBPLINK2)
+	$(AR) rcs libPLINK2.a $(LIBPLINK2)
 
-OBJECTS = include/plink2_base.o include/plink2_bits.o include/pgenlib_misc.o include/pgenlib_read.o pvar_ffi_support.o pgenlib_ffi_support.o include/plink2_bgzf.o include/plink2_string.o include/plink2_text.o include/plink2_thread.o include/plink2_zstfile.o pvar.o pgenlibr.o RcppExports.o
+clean:
+	rm -f $(SHLIB) $(OBJECTS) $(LIBDEFLATE) $(LIBPLINK2) libPGDEFLATE.a libPLINK2.a
+
+OBJECTS = pvar_ffi_support.o pgenlib_ffi_support.o pvar.o pgenlibr.o RcppExports.o

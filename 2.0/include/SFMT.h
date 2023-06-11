@@ -133,7 +133,11 @@ extern "C" {
     #include <emmintrin.h>
   #else
     #define SIMDE_ENABLE_NATIVE_ALIASES
-    #include "simde/x86/sse2.h"
+    #ifdef USE_SYSTEM_SIMDE
+      #include <simde/x86/sse2.h>
+    #else
+      #include "simde/x86/sse2.h"
+    #endif
   #endif
 
 /** 128-bit data structure */

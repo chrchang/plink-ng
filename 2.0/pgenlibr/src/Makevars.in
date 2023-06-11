@@ -1,5 +1,5 @@
-PKG_CPPFLAGS = -DZSTD_DISABLE_ASM -DLIBDEFLATE_STATIC -DNO_UNALIGNED -DPGENLIB_NOPRINT -I. @ZSTD_INCLUDE_PATH@ @LIBDEFLATE_INCLUDE_PATH@ @SIMDE_INCLUDE_PATH@
-PKG_LIBS = -lz -lpthread -L. @ZSTD_LIBS@ @LIBDEFLATE_LIBS@
+PKG_CPPFLAGS = -DNO_UNALIGNED -DPGENLIB_NOPRINT @ZSTD_COMPILE_FLAG@ @LIBDEFLATE_COMPILE_FLAG@ @SIMDE_COMPILE_FLAG@ -I. @ZSTD_INCLUDE_PATH@ @LIBDEFLATE_INCLUDE_PATH@ @SIMDE_INCLUDE_PATH@
+PKG_LIBS = -lPLINK2 -L. @ZSTD_LIBS@ @LIBDEFLATE_LIBS@ -lz -lpthread
 
 ZSTD_SOURCES = zstd/lib/compress/zstdmt_compress.c zstd/lib/compress/zstd_opt.c zstd/lib/compress/zstd_ldm.c zstd/lib/compress/zstd_lazy.c zstd/lib/compress/zstd_fast.c zstd/lib/compress/zstd_double_fast.c zstd/lib/compress/zstd_compress_superblock.c zstd/lib/compress/zstd_compress_sequences.c zstd/lib/compress/zstd_compress_literals.c zstd/lib/compress/zstd_compress.c zstd/lib/compress/huf_compress.c zstd/lib/compress/hist.c zstd/lib/compress/fse_compress.c zstd/lib/decompress/zstd_decompress_block.c zstd/lib/decompress/zstd_decompress.c zstd/lib/decompress/zstd_ddict.c zstd/lib/decompress/huf_decompress.c zstd/lib/common/zstd_common.c zstd/lib/common/xxhash.c zstd/lib/common/threading.c zstd/lib/common/pool.c zstd/lib/common/fse_decompress.c zstd/lib/common/error_private.c zstd/lib/common/entropy_common.c zstd/lib/common/debug.c
 LIBZSTD = $(ZSTD_SOURCES:.c=.o)
@@ -7,7 +7,10 @@ LIBZSTD = $(ZSTD_SOURCES:.c=.o)
 LIBDEFLATE_SOURCES = libdeflate/lib/zlib_decompress.c libdeflate/lib/zlib_compress.c libdeflate/lib/utils.c libdeflate/lib/gzip_compress.c libdeflate/lib/crc32.c libdeflate/lib/adler32.c libdeflate/lib/deflate_decompress.c libdeflate/lib/deflate_compress.c libdeflate/lib/gzip_decompress.c libdeflate/lib/arm/arm_cpu_features.c libdeflate/lib/x86/x86_cpu_features.c
 LIBDEFLATE = $(LIBDEFLATE_SOURCES:.c=.o)
 
-$(SHLIB): @ZSTD_SHLIB@ @LIBDEFLATE_SHLIB@
+LIBPLINK2_SOURCES = include/plink2_base.cc include/plink2_bits.cc include/pgenlib_misc.cc include/pgenlib_read.cc include/plink2_bgzf.cc include/plink2_string.cc include/plink2_text.cc include/plink2_thread.cc include/plink2_zstfile.cc
+LIBPLINK2 = $(LIBPLINK2_SOURCES:.cc=.o)
+
+$(SHLIB): @ZSTD_SHLIB@ @LIBDEFLATE_SHLIB@ libPLINK2.a
 
 libPGZSTD.a: $(LIBZSTD)
 	$(AR) rcs libPGZSTD.a $(LIBZSTD)
@@ -15,7 +18,10 @@ libPGZSTD.a: $(LIBZSTD)
 libPGDEFLATE.a: $(LIBDEFLATE)
 	$(AR) rcs libPGDEFLATE.a $(LIBDEFLATE)
 
-clean:
-	rm -f $(SHLIB) $(OBJECTS) @ZSTD_CLEAN@ @LIBDEFLATE_CLEAN@
+libPLINK2.a: $(LIBPLINK2)
+	$(AR) rcs libPLINK2.a $(LIBPLINK2)
 
-OBJECTS = include/plink2_base.o include/plink2_bits.o include/pgenlib_misc.o include/pgenlib_read.o pvar_ffi_support.o pgenlib_ffi_support.o include/plink2_bgzf.o include/plink2_string.o include/plink2_text.o include/plink2_thread.o include/plink2_zstfile.o pvar.o pgenlibr.o RcppExports.o
+clean:
+	rm -f $(SHLIB) $(OBJECTS) @ZSTD_CLEAN@ @LIBDEFLATE_CLEAN@ $(LIBPLINK2)
+
+OBJECTS = pvar_ffi_support.o pgenlib_ffi_support.o pvar.o pgenlibr.o RcppExports.o

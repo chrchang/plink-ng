@@ -17,17 +17,16 @@ CC ?= gcc
 CXX ?= g++
 FC ?= gfortran
 
+include ../Makefile.src
 OPENBLAS_ROOT = ../../openblas
-ZLIB_STATIC = ../../zlib-1.2.13/libz.a
+ZLIB_STATIC = ../../zlib-${ZLIB_VER}/libz.a
 
 BASEFLAGS=
 # ***** end configuration *****
 
 BASEFLAGS += ${DEBUG}
 
-include ../Makefile.src
-
-BASEFLAGS += -DLIBDEFLATE_STATIC -DSTATIC_ZLIB -DSTATIC_ZSTD -fno-exceptions
+BASEFLAGS += -DLIBDEFLATE_STATIC -DSTATIC_ZLIB -fno-exceptions
 LINKFLAGS=${DEBUG} -lm -static-libgcc -L. ${ZLIB_STATIC}
 ifdef NO_OPENBLAS
   BASEFLAGS += -DNOLAPACK

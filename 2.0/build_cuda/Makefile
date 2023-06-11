@@ -98,15 +98,14 @@ endif
 
 ifdef STATIC_ZLIB
   BASEFLAGS += -DSTATIC_ZLIB
-  LINKFLAGS += -L. ../../zlib-1.2.13/libz.a
+  LINKFLAGS += -L. ../../zlib-${ZLIB_VER}/libz.a
 else
   LINKFLAGS += -lz
 endif
 
 SKIP_STATIC_ZSTD =
-ifdef STATIC_ZSTD
-  BASEFLAGS += -DSTATIC_ZSTD
-else
+ifndef STATIC_ZSTD
+  BASEFLAGS += -DTRY_SYSTEM_ZSTD
   ZCSRC2 =
   ZSSRC2 =
   SKIP_STATIC_ZSTD = echo

@@ -91,6 +91,8 @@ CCSRC = $(PLINK2LIB_CCSRC) \
         plink2_random.cc \
         plink2_set.cc
 
+ZLIB_VER = 1.2.13
+
 OBJ_NO_ZSTD = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
 OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(CCSRC:.cc=.o)
 PGENLIB_OBJ = $(PGENLIB_CCSRC:.cc=.o)
@@ -110,8 +112,8 @@ OBJ3 = $(CSRC2:.c=.o) $(ZCSRC2:.c=.o) $(ZSSRC2:.S=.o) $(CCSRC2:.cc=.o)
 
 CINCLUDE = -Ilibdeflate -I.
 CINCLUDE2 = -I../libdeflate -I..
-CXXINCLUDE = -I.
-CXXINCLUDE2 = -I..
+CXXINCLUDE = -I. -Izstd/lib -Ilibdeflate
+CXXINCLUDE2 = -I.. -I../zstd/lib -I../libdeflate
 ZSTD_INCLUDE = -Izstd/lib -Izstd/lib/common
 ZSTD_INCLUDE2 = -I../zstd/lib -I../zstd/lib/common
 

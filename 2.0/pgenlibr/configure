@@ -618,14 +618,17 @@ PACKAGE_URL=''
 ac_subst_vars='LTLIBOBJS
 LIBOBJS
 SIMDE_INCLUDE_PATH
+SIMDE_COMPILE_FLAG
 LIBDEFLATE_CLEAN
 LIBDEFLATE_SHLIB
 LIBDEFLATE_LIBS
 LIBDEFLATE_INCLUDE_PATH
+LIBDEFLATE_COMPILE_FLAG
 ZSTD_CLEAN
 ZSTD_SHLIB
 ZSTD_LIBS
 ZSTD_INCLUDE_PATH
+ZSTD_COMPILE_FLAG
 OBJEXT
 EXEEXT
 ac_ct_CXX
@@ -2074,7 +2077,7 @@ fi
 
 
 
-########################################################
+# Find the compiler and compiler flags to use for fallback version checks
 ac_ext=cpp
 ac_cpp='$CXXCPP $CPPFLAGS'
 ac_compile='$CXX -c $CXXFLAGS $CPPFLAGS conftest.$ac_ext >&5'
@@ -2713,10 +2716,12 @@ ac_compile='$CXX -c $CXXFLAGS $CPPFLAGS conftest.$ac_ext >&5'
 ac_link='$CXX -o conftest$ac_exeext $CXXFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
 ac_compiler_gnu=$ac_cv_cxx_compiler_gnu
 
-echo "C++ compiler: $PATH_TO_CPP_COMPILER"
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: C++ compiler: $PATH_TO_CPP_COMPILER" >&5
+printf "%s\n" "$as_me: C++ compiler: $PATH_TO_CPP_COMPILER" >&6;}
+CPPFLAGS=`"${R_HOME}/bin/R" CMD config CPPFLAGS`
+CXXFLAGS=`"${R_HOME}/bin/R" CMD config CXXFLAGS`
 
-########################################################
-### Configure args
+# Configure args
 
 
 # Check whether --with-zstd-include was given.
@@ -2758,9 +2763,7 @@ then :
 fi
 
 
-########################################################
-#### Version value function
-
+# pkg-config version value functions
 getVersion2()
 {
 VERSION_STRING=$1
@@ -2778,58 +2781,72 @@ RELEASE=`echo $VERSION_STRING | cut -d. -f3`
 echo $(($MAJOR*100000+$MINOR*100+$RELEASE))
 }
 
-########################################################
-#### Compile zstd/libdeflate/simde checks
-
+# Compile zstd/libdeflate/simde checks
+ZSTD_COMPILE_FLAG=""
 ZSTD_INCLUDE_PATH=""
 ZSTD_LIBS=""
 ZSTD_SHLIB=""
 ZSTD_CLEAN=""
+COMPILE_ZSTD=""
+LIBDEFLATE_INCLUDE_FLAG=""
 LIBDEFLATE_INCLUDE_PATH=""
 LIBDEFLATE_LIBS=""
 LIBDEFLATE_SHLIB=""
 LIBDEFLATE_CLEAN=""
+COMPILE_LIBDEFLATE=""
+SIMDE_COMPILE_FLAG=""
 SIMDE_INCLUDE_PATH=""
+USE_BUNDLED_SIMDE=""
 
 if test "xx$zstd_include_path" != "xx"; then
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: Using user-defined zstd install paths" >&5
 printf "%s\n" "$as_me: Using user-defined zstd install paths" >&6;}
-    ZSTD_LIBS="-L${zstd_lib_path}"
-    ZSTD_INCLUDE_PATH="-I${zstd_include_path}"
-    COMPILE_ZSTD="false"
-elif test "xx$PKGCONF" != "xx"; then
-  if "${PKGCONF}" --exists libzstd; then
-    VERSION_STRING=`${PKGCONF} --modversion libzstd`
-    VER=`getVersion3 ${VERSION_STRING}`
-    # The bundled 1.5.5 includes a compression bugfix, but the Python/R
-    # interfaces only use zstd for decompression, so we don't need it.
-    # The release notes for 1.5.4 mention 32-bit bugfixes, so it is more
-    # reasonable to refuse to go below it.
-    if test "${VER}" -ge 100504; then
-      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: zstd ${VERSION_STRING} library detected -- skipping zstd compilation" >&5
+  ZSTD_INCLUDE_PATH="-I${zstd_include_path}"
+  ZSTD_LIBS="-L${zstd_lib_path}"
+  COMPILE_ZSTD="false"
+else
+  if test "xx$PKGCONF" != "xx"; then
+    if "${PKGCONF}" --exists libzstd; then
+      VERSION_STRING=`${PKGCONF} --modversion libzstd`
+      VER=`getVersion3 ${VERSION_STRING}`
+      # The bundled 1.5.5 includes a compression bugfix, but the Python/R
+      # interfaces only use zstd for decompression, so we don't need it.
+      # The release notes for 1.5.4 mention 32-bit bugfixes, so we'd like to
+      # require it in 2024.
+      if test "${VER}" -ge 100502; then
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: zstd ${VERSION_STRING} library detected -- skipping zstd compilation" >&5
 printf "%s\n" "$as_me: zstd ${VERSION_STRING} library detected -- skipping zstd compilation" >&6;}
-      ZSTD_LIBS=`"${PKGCONF}" --libs libzstd`
-      ZSTD_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I libzstd`
+        ZSTD_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I libzstd`
+        ZSTD_LIBS=`"${PKGCONF}" --libs libzstd`
+        COMPILE_ZSTD="false"
+      else
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: zstd ${VERSION_STRING} library detected but is too old (<1.5.2) -- compiling from source" >&5
+printf "%s\n" "$as_me: zstd ${VERSION_STRING} library detected but is too old (<1.5.2) -- compiling from source" >&6;}
+        COMPILE_ZSTD="true"
+      fi
+    fi
+  fi
+  if test "xx$COMPILE_ZSTD" == "xx"; then
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: zstd not detected by pkg-config; falling back on system header file check" >&5
+printf "%s\n" "$as_me: zstd not detected by pkg-config; falling back on system header file check" >&6;}
+    zstd_ver_ok=no
+    ${PATH_TO_CPP_COMPILER} ${CPPFLAGS} ${CXXFLAGS} -E tools/zstd_version.cpp >/dev/null 2>&1 && zstd_ver_ok=yes
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: ${zstd_ver_ok}" >&5
+printf "%s\n" "${zstd_ver_ok}" >&6; }
+    if test "xx${zstd_ver_ok}" == "xxyes"; then
+      ZSTD_COMPILE_FLAG="-DTRY_SYSTEM_ZSTD"
+      ZSTD_LIBS="-lzstd"
       COMPILE_ZSTD="false"
     else
-      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: zstd ${VERSION_STRING} library detected but is too old (<1.5.4) -- compiling from source" >&5
-printf "%s\n" "$as_me: zstd ${VERSION_STRING} library detected but is too old (<1.5.4) -- compiling from source" >&6;}
       COMPILE_ZSTD="true"
     fi
-  else
-    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: zstd library not detected -- compiling from source" >&5
-printf "%s\n" "$as_me: zstd library not detected -- compiling from source" >&6;}
-    COMPILE_ZSTD="true"
   fi
-else
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: pkg-config not detected -- compiling zstd from source" >&5
-printf "%s\n" "$as_me: pkg-config not detected -- compiling zstd from source" >&6;}
-  COMPILE_ZSTD="true"
 fi
 
 if test xx$COMPILE_ZSTD = "xxtrue"; then
-  ZSTD_LIBS="${LIBS} -lPGZSTD"
+  ZSTD_COMPILE_FLAG="-DZSTD_DISABLE_ASM"
   ZSTD_INCLUDE_PATH="-Izstd/lib -Izstd/lib/common"
+  ZSTD_LIBS="${LIBS} -lPGZSTD"
   ZSTD_SHLIB="libPGZSTD.a"
   ZSTD_CLEAN="\$(LIBZSTD) libPGZSTD.a"
 fi
@@ -2837,38 +2854,49 @@ fi
 if test "xx$libdeflate_include_path" != "xx"; then
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: Using user-defined libdeflate install paths" >&5
 printf "%s\n" "$as_me: Using user-defined libdeflate install paths" >&6;}
-    LIBDEFLATE_LIBS="-L${libdeflate_lib_path}"
     LIBDEFLATE_INCLUDE_PATH="-I${libdeflate_include_path}"
+    LIBDEFLATE_LIBS="-L${libdeflate_lib_path}"
     COMPILE_LIBDEFLATE="false"
-elif test "xx$PKGCONF" != "xx"; then
-  if "${PKGCONF}" --exists libdeflate; then
-    VERSION_STRING=`${PKGCONF} --modversion libdeflate`
-    VER=`getVersion2 ${VERSION_STRING}`
-    if test "${VER}" -ge 1014; then
-      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: libdeflate ${VERSION_STRING} library detected -- skipping libdeflate compilation" >&5
+else
+  if test "xx$PKGCONF" != "xx"; then
+    if "${PKGCONF}" --exists libdeflate; then
+      VERSION_STRING=`${PKGCONF} --modversion libdeflate`
+      VER=`getVersion2 ${VERSION_STRING}`
+      # 1.14 has significant performance improvements, so we'd like to require
+      # it in 2024.
+      if test "${VER}" -ge 1009; then
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: libdeflate ${VERSION_STRING} library detected -- skipping libdeflate compilation" >&5
 printf "%s\n" "$as_me: libdeflate ${VERSION_STRING} library detected -- skipping libdeflate compilation" >&6;}
-      LIBDEFLATE_LIBS=`"${PKGCONF}" --libs libdeflate`
-      LIBDEFLATE_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I libdeflate`
+        LIBDEFLATE_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I libdeflate`
+        LIBDEFLATE_LIBS=`"${PKGCONF}" --libs libdeflate`
+        COMPILE_LIBDEFLATE="false"
+      else
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: libdeflate ${VERSION_STRING} library detected but is too old (<1.9) -- compiling from source" >&5
+printf "%s\n" "$as_me: libdeflate ${VERSION_STRING} library detected but is too old (<1.9) -- compiling from source" >&6;}
+        COMPILE_LIBDEFLATE="true"
+      fi
+    fi
+  fi
+  if test "xx$COMPILE_LIBDEFLATE" == "xx"; then
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: libdeflate not detected by pkg-config; falling back on system header file check" >&5
+printf "%s\n" "$as_me: libdeflate not detected by pkg-config; falling back on system header file check" >&6;}
+    libdeflate_ver_ok=no
+    ${PATH_TO_CPP_COMPILER} ${CPPFLAGS} ${CXXFLAGS} -E tools/libdeflate_version.cpp >/dev/null 2>&1 && libdeflate_ver_ok=yes
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: ${libdeflate_ver_ok}" >&5
+printf "%s\n" "${libdeflate_ver_ok}" >&6; }
+    if test "xx${libdeflate_ver_ok}" == "xxyes"; then
+      LIBDEFLATE_COMPILE_FLAG="-DTRY_SYSTEM_LIBDEFLATE"
+      LIBDEFLATE_LIBS="-ldeflate"
       COMPILE_LIBDEFLATE="false"
     else
-      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: libdeflate ${VERSION_STRING} library detected but is lower than bundled version (1.14) -- compiling from source" >&5
-printf "%s\n" "$as_me: libdeflate ${VERSION_STRING} library detected but is lower than bundled version (1.14) -- compiling from source" >&6;}
       COMPILE_LIBDEFLATE="true"
     fi
-  else
-    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: libdeflate library not detected -- compiling from source" >&5
-printf "%s\n" "$as_me: libdeflate library not detected -- compiling from source" >&6;}
-    COMPILE_LIBDEFLATE="true"
   fi
-else
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: pkg-config not detected -- compiling libdeflate from source" >&5
-printf "%s\n" "$as_me: pkg-config not detected -- compiling libdeflate from source" >&6;}
-  COMPILE_LIBDEFLATE="true"
 fi
 
 if test xx$COMPILE_LIBDEFLATE = "xxtrue"; then
-  LIBDEFLATE_LIBS="${LIBS} -lPGDEFLATE"
   LIBDEFLATE_INCLUDE_PATH="-Ilibdeflate"
+  LIBDEFLATE_LIBS="${LIBS} -lPGDEFLATE"
   LIBDEFLATE_SHLIB="libPGDEFLATE.a"
   LIBDEFLATE_CLEAN="\$(LIBDEFLATE) libPGDEFLATE.a"
 fi
@@ -2878,34 +2906,40 @@ if test "xx$simde_include_path" != "xx"; then
 printf "%s\n" "$as_me: Using user-defined simde install paths" >&6;}
     SIMDE_INCLUDE_PATH="-I${simde_include_path}"
     USE_BUNDLED_SIMDE="false"
-elif test "xx$PKGCONF" != "xx"; then
-  if "${PKGCONF}" --exists simde; then
-    VERSION_STRING=`${PKGCONF} --modversion simde`
-    VER=`getVersion3 ${VERSION_STRING}`
-    if test "${VER}" -ge 702; then
-      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: simde ${VERSION_STRING} library detected -- ignoring bundled simde header files" >&5
+else
+  if test "xx$PKGCONF" != "xx"; then
+    if "${PKGCONF}" --exists simde; then
+      VERSION_STRING=`${PKGCONF} --modversion simde`
+      VER=`getVersion3 ${VERSION_STRING}`
+      if test "${VER}" -ge 702; then
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: simde ${VERSION_STRING} library detected -- ignoring bundled simde header files" >&5
 printf "%s\n" "$as_me: simde ${VERSION_STRING} library detected -- ignoring bundled simde header files" >&6;}
-      SIMDE_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I simde`
+        SIMDE_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I simde`
+        USE_BUNDLED_SIMDE="false"
+      else
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: simde ${VERSION_STRING} library detected but is too old (<0.7.2) -- using bundled header files" >&5
+printf "%s\n" "$as_me: simde ${VERSION_STRING} library detected but is too old (<0.7.2) -- using bundled header files" >&6;}
+        USE_BUNDLED_SIMDE="true"
+      fi
+    fi
+  fi
+  if test "xx$USE_BUNDLED_SIMDE" == "xx"; then
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: simde not detected by pkg-config; falling back on system header file check" >&5
+printf "%s\n" "$as_me: simde not detected by pkg-config; falling back on system header file check" >&6;}
+    simde_ver_ok=no
+    ${PATH_TO_CPP_COMPILER} ${CPPFLAGS} ${CXXFLAGS} -E tools/simde_version.cpp >/dev/null 2>&1 && simde_ver_ok=yes
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: ${simde_ver_ok}" >&5
+printf "%s\n" "${simde_ver_ok}" >&6; }
+    if test "xx${simde_ver_ok}" == "xxyes"; then
+      SIMDE_COMPILE_FLAG="-DTRY_SYSTEM_SIMDE"
       USE_BUNDLED_SIMDE="false"
     else
-      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: simde ${VERSION_STRING} library detected but is lower than bundled version (0.7.2) -- using bundled header files" >&5
-printf "%s\n" "$as_me: simde ${VERSION_STRING} library detected but is lower than bundled version (0.7.2) -- using bundled header files" >&6;}
       USE_BUNDLED_SIMDE="true"
     fi
-  else
-    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: simde library not detected -- using bundled header files" >&5
-printf "%s\n" "$as_me: simde library not detected -- using bundled header files" >&6;}
-    USE_BUNDLED_SIMDE="true"
   fi
-else
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: pkg-config not detected -- using bundled simde header files" >&5
-printf "%s\n" "$as_me: pkg-config not detected -- using bundled simde header files" >&6;}
-  USE_BUNDLED_SIMDE="true"
 fi
 
-if test xx$USE_BUNDLED_SIMDE = "xxtrue"; then
-  SIMDE_INCLUDE_PATH="-Isimde"
-fi
+ZSTD_COMPILE_FLAG=$ZSTD_COMPILE_FLAG
 
 ZSTD_INCLUDE_PATH=$ZSTD_INCLUDE_PATH
 
@@ -2915,6 +2949,8 @@ ZSTD_SHLIB=$ZSTD_SHLIB
 
 ZSTD_CLEAN=$ZSTD_CLEAN
 
+LIBDEFLATE_COMPILE_FLAG=$LIBDEFLATE_COMPILE_FLAG
+
 LIBDEFLATE_INCLUDE_PATH=$LIBDEFLATE_INCLUDE_PATH
 
 LIBDEFLATE_LIBS=$LIBDEFLATE_LIBS
@@ -2922,6 +2958,8 @@ LIBDEFLATE_LIBS=$LIBDEFLATE_LIBS
 LIBDEFLATE_SHLIB=$LIBDEFLATE_SHLIB
 
 LIBDEFLATE_CLEAN=$LIBDEFLATE_CLEAN
+
+SIMDE_COMPILE_FLAG=$SIMDE_COMPILE_FLAG
 
 SIMDE_INCLUDE_PATH=$SIMDE_INCLUDE_PATH
 

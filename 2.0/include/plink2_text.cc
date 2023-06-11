@@ -1449,26 +1449,23 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
       goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
     syncp->sync_init_state = 3;
-#  ifndef __cplusplus
+#  ifdef __cplusplus
+    if (unlikely(pthread_create(&syncp->read_thread,
+                                &g_thread_startup.smallstack_thread_attr,
+                                TextStreamThread, txsp))) {
+      goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
+    }
+#  else
     pthread_attr_t smallstack_thread_attr;
     if (unlikely(pthread_attr_init(&smallstack_thread_attr))) {
       goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
     pthread_attr_setstacksize(&smallstack_thread_attr, kDefaultThreadStack);
-#  endif
-    if (unlikely(pthread_create(&syncp->read_thread,
-#  ifdef __cplusplus
-                                &g_thread_startup.smallstack_thread_attr,
-#  else
-                                &smallstack_thread_attr,
-#  endif
+    if (unlikely(pthread_create(&syncp->read_thread, &smallstack_thread_attr,
                                 TextStreamThread, txsp))) {
-#  ifndef __cplusplus
       pthread_attr_destroy(&smallstack_thread_attr);
-#  endif
       goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
-#  ifndef __cplusplus
     pthread_attr_destroy(&smallstack_thread_attr);
 #  endif
     syncp->sync_init_state = 4;

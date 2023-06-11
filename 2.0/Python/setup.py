@@ -45,7 +45,7 @@ clib = ('clib',
                      'src/plink2/zstd/lib/decompress/zstd_ddict.c',
                      'src/plink2/zstd/lib/decompress/zstd_decompress.c',
                      'src/plink2/zstd/lib/decompress/zstd_decompress_block.c'],
-         'macros': [('STATIC_ZSTD', None), ('ZSTD_DISABLE_ASM', None), ('LIBDEFLATE_STATIC', None)],
+         'macros': [('ZSTD_DISABLE_ASM', None), ('LIBDEFLATE_STATIC', None)],
          'include_dirs': ['src/plink2/zstd/lib', 'src/plink2/zstd/lib/common', 'src/plink2/libdeflate']
          })
 
@@ -69,9 +69,9 @@ ext_modules = [
               # overload of uint32_t operator
               # extra_compile_args = ["-std=c++11", "-Wno-unused-function"],
               # extra_link_args = ["-std=c++11"],
-              extra_compile_args = ["-std=c++98", "-Wno-unused-function", "-Wno-macro-redefined", "-DSTATIC_ZSTD", "-DZSTD_DISABLE_ASM", "-DLIBDEFLATE_STATIC"],
-              extra_link_args = ["-std=c++98"],
-              include_dirs = [np.get_include()]
+              extra_compile_args = ["-std=c++98", "-Wno-unused-function", "-Wno-macro-redefined", "-DZSTD_DISABLE_ASM", "-DLIBDEFLATE_STATIC", "-DNO_UNALIGNED", "-fsanitize=undefined"],
+              extra_link_args = ["-std=c++98", "-fsanitize=undefined"],
+              include_dirs = [np.get_include()] + ['src/plink2', 'src/plink2/zstd/lib', 'src/plink2/libdeflate']
               )
     ]
 

@@ -263,13 +263,15 @@ BoolErr SpawnThreads(ThreadGroup* tg_ptr) {
       ThreadGroupFuncArg* arg_slot = &(tgp->thread_args[tidx]);
       arg_slot->sharedp = &(tgp->shared);
       arg_slot->tidx = tidx;
-      if (unlikely(pthread_create(&(threads[tidx]),
+      const int32_t pthread_create_result =
+        pthread_create(&(threads[tidx]),
 #  ifdef __cplusplus
-                                  &g_thread_startup.smallstack_thread_attr,
+                       &g_thread_startup.smallstack_thread_attr,
 #  else
-                                  &smallstack_thread_attr,
+                       &smallstack_thread_attr,
 #  endif
-                                  tgp->thread_func_ptr, arg_slot))) {
+                       tgp->thread_func_ptr, arg_slot);
+      if (unlikely(pthread_create_result)) {
         if (tidx) {
           if (!is_last_block) {
             JoinThreadsInternal(tidx, tgp);

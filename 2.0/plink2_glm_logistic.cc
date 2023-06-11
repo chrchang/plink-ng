@@ -19,15 +19,6 @@
 #include "plink2_compress_stream.h"
 #include "plink2_glm_logistic.h"
 
-#ifdef __LP64__
-#  ifdef __x86_64__
-#    include <emmintrin.h>
-#  else
-#    define SIMDE_ENABLE_NATIVE_ALIASES
-#    include "simde/x86/sse2.h"
-#  endif
-#endif
-
 #ifdef __cplusplus
 namespace plink2 {
 #endif

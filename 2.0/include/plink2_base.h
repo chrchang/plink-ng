@@ -106,7 +106,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 807
+#define PLINK2_BASE_VERNUM 808
 
 
 #define _FILE_OFFSET_BITS 64
@@ -150,7 +150,17 @@
 #    include <emmintrin.h>
 #  else
 #    define SIMDE_ENABLE_NATIVE_ALIASES
-#    include "simde/x86/sse2.h"
+// Since e.g. an old zstd system header breaks the build, and plink2 is
+// expected to remain under active development for the next few years, we
+// currently default to using vendored copies of zstd/libdeflate/simde, which
+// are manually updated as necessary.
+// To use system headers, define TRY_SYSTEM_{ZSTD,LIBDEFLATE.SIMDE}.
+#    ifdef TRY_SYSTEM_SIMDE
+#      include <simde/x86/sse2.h>
+#    else
+// Usually requires .. to be in include path.
+#      include "simde/x86/sse2.h"
+#    endif
 #  endif
 #  ifdef __SSE4_2__
 #    define USE_SSE42
@@ -2607,11 +2617,6 @@ HEADER_INLINE void SubwordStore(uintptr_t cur_word, uint32_t byte_ct, void* targ
   ProperSubwordStore(cur_word, byte_ct, target);
 }
 
-HEADER_INLINE void SubwordStoreMov(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
-  SubwordStore(cur_word, byte_ct, *targetp);
-  *targetp += byte_ct;
-}
-
 // byte_ct must be in 1..4.
 HEADER_INLINE void SubU32Store(uint32_t cur_uint, uint32_t byte_ct, void* target) {
   if (byte_ct & 1) {
@@ -2674,6 +2679,11 @@ HEADER_INLINE uint64_t SubU64Load(const void* bytearr, uint32_t ct) {
 
 HEADER_INLINE void ProperSubwordStoreMov(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
   ProperSubwordStore(cur_word, byte_ct, *targetp);
+  *targetp += byte_ct;
+}
+
+HEADER_INLINE void SubwordStoreMov(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
+  SubwordStore(cur_word, byte_ct, *targetp);
   *targetp += byte_ct;
 }
 

@@ -6,7 +6,7 @@
 
 # Does not currently support -DCPU_CHECK_...
 
-BASEFLAGS=-g -DZSTD_MULTITHREAD -DSTATIC_ZSTD
+BASEFLAGS=-g -DZSTD_MULTITHREAD -DIGNORE_SYSTEM_ZSTD -DIGNORE_SYSTEM_SIMDE
 # BASEFLAGS=-g -mavx2 -mbmi -mbmi2 -mfma -mlzcnt -DZSTD_MULTITHREAD
 # BASEFLAGS=-g -msse4.2 -DZSTD_MULTITHREAD
 
@@ -19,10 +19,10 @@ CXX		?= g++
 CFLAGS		?= -O3
 CXXFLAGS	?= -O2
 ZLIB		?= -lz
-# ZLIB		?= -L. ../zlib-1.2.13/libz.a
+# ZLIB		?= -L. ../zlib-${ZLIB_VER}/libz.a
 
-# dynamic zstd: remove -DSTATIC_ZSTD above, change this to -lzstd, replace
-# OBJ with OBJ_NO_ZSTD below
+# dynamic zstd: remove -DIGNORE_SYSTEM_ZSTD above, change this to -lzstd,
+# replace OBJ with OBJ_NO_ZSTD below
 ZSTD		?=
 
 BLASFLAGS64	?= -llapack -lf77blas -latlas
