@@ -133,10 +133,10 @@ extern "C" {
     #include <emmintrin.h>
   #else
     #define SIMDE_ENABLE_NATIVE_ALIASES
-    #ifdef USE_SYSTEM_SIMDE
+    #ifdef IGNORE_BUNDLED_SIMDE
       #include <simde/x86/sse2.h>
     #else
-      #include "simde/x86/sse2.h"
+      #include "../simde/x86/sse2.h"
     #endif
   #endif
 

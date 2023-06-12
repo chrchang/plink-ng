@@ -35,11 +35,10 @@
 
 #include "plink2_string.h"
 #include "plink2_thread.h"
-#ifdef TRY_SYSTEM_LIBDEFLATE
+#ifdef IGNORE_BUNDLED_LIBDEFLATE
 #  include <libdeflate.h>
 #else
-// Usually requires ../libdeflate to be in include path.
-#  include "libdeflate.h"
+#  include "../libdeflate/libdeflate.h"
 #endif
 
 #ifdef __cplusplus

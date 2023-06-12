@@ -1,4 +1,4 @@
-PKG_CPPFLAGS = -DLIBDEFLATE_STATIC -DPGENLIB_NOPRINT -I. -Ilibdeflate
+PKG_CPPFLAGS = -DLIBDEFLATE_STATIC -DPGENLIB_NOPRINT -Ilibdeflate
 PKG_LIBS = -L. -lPGDEFLATE -lPLINK2 -lz -lpthread -lzstd
 
 LIBDEFLATE_SOURCES = libdeflate/lib/zlib_decompress.c libdeflate/lib/zlib_compress.c libdeflate/lib/utils.c libdeflate/lib/gzip_compress.c libdeflate/lib/crc32.c libdeflate/lib/adler32.c libdeflate/lib/deflate_decompress.c libdeflate/lib/deflate_compress.c libdeflate/lib/gzip_decompress.c libdeflate/lib/arm/arm_cpu_features.c libdeflate/lib/x86/x86_cpu_features.c

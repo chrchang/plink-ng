@@ -2723,7 +2723,6 @@ CXXFLAGS=`"${R_HOME}/bin/R" CMD config CXXFLAGS`
 
 # Configure args
 
-
 # Check whether --with-zstd-include was given.
 if test ${with_zstd_include+y}
 then :
@@ -2788,7 +2787,7 @@ ZSTD_LIBS=""
 ZSTD_SHLIB=""
 ZSTD_CLEAN=""
 COMPILE_ZSTD=""
-LIBDEFLATE_INCLUDE_FLAG=""
+LIBDEFLATE_COMPILE_FLAG=""
 LIBDEFLATE_INCLUDE_PATH=""
 LIBDEFLATE_LIBS=""
 LIBDEFLATE_SHLIB=""
@@ -2834,7 +2833,6 @@ printf "%s\n" "$as_me: zstd not detected by pkg-config; falling back on system h
     { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: ${zstd_ver_ok}" >&5
 printf "%s\n" "${zstd_ver_ok}" >&6; }
     if test "xx${zstd_ver_ok}" == "xxyes"; then
-      ZSTD_COMPILE_FLAG="-DTRY_SYSTEM_ZSTD"
       ZSTD_LIBS="-lzstd"
       COMPILE_ZSTD="false"
     else
@@ -2843,12 +2841,14 @@ printf "%s\n" "${zstd_ver_ok}" >&6; }
   fi
 fi
 
-if test xx$COMPILE_ZSTD = "xxtrue"; then
+if test xx$COMPILE_ZSTD == "xxtrue"; then
   ZSTD_COMPILE_FLAG="-DZSTD_DISABLE_ASM"
   ZSTD_INCLUDE_PATH="-Izstd/lib -Izstd/lib/common"
   ZSTD_LIBS="${LIBS} -lPGZSTD"
   ZSTD_SHLIB="libPGZSTD.a"
   ZSTD_CLEAN="\$(LIBZSTD) libPGZSTD.a"
+else
+  ZSTD_COMPILE_FLAG="-DIGNORE_BUNDLED_ZSTD"
 fi
 
 if test "xx$libdeflate_include_path" != "xx"; then
@@ -2885,7 +2885,6 @@ printf "%s\n" "$as_me: libdeflate not detected by pkg-config; falling back on sy
     { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: ${libdeflate_ver_ok}" >&5
 printf "%s\n" "${libdeflate_ver_ok}" >&6; }
     if test "xx${libdeflate_ver_ok}" == "xxyes"; then
-      LIBDEFLATE_COMPILE_FLAG="-DTRY_SYSTEM_LIBDEFLATE"
       LIBDEFLATE_LIBS="-ldeflate"
       COMPILE_LIBDEFLATE="false"
     else
@@ -2894,18 +2893,20 @@ printf "%s\n" "${libdeflate_ver_ok}" >&6; }
   fi
 fi
 
-if test xx$COMPILE_LIBDEFLATE = "xxtrue"; then
+if test xx$COMPILE_LIBDEFLATE == "xxtrue"; then
   LIBDEFLATE_INCLUDE_PATH="-Ilibdeflate"
   LIBDEFLATE_LIBS="${LIBS} -lPGDEFLATE"
   LIBDEFLATE_SHLIB="libPGDEFLATE.a"
   LIBDEFLATE_CLEAN="\$(LIBDEFLATE) libPGDEFLATE.a"
+else
+  LIBDEFLATE_COMPILE_FLAG="-DIGNORE_BUNDLED_LIBDEFLATE"
 fi
 
 if test "xx$simde_include_path" != "xx"; then
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: Using user-defined simde install paths" >&5
 printf "%s\n" "$as_me: Using user-defined simde install paths" >&6;}
-    SIMDE_INCLUDE_PATH="-I${simde_include_path}"
-    USE_BUNDLED_SIMDE="false"
+  SIMDE_INCLUDE_PATH="-I${simde_include_path}"
+  USE_BUNDLED_SIMDE="false"
 else
   if test "xx$PKGCONF" != "xx"; then
     if "${PKGCONF}" --exists simde; then
@@ -2931,13 +2932,17 @@ printf "%s\n" "$as_me: simde not detected by pkg-config; falling back on system 
     { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: ${simde_ver_ok}" >&5
 printf "%s\n" "${simde_ver_ok}" >&6; }
     if test "xx${simde_ver_ok}" == "xxyes"; then
-      SIMDE_COMPILE_FLAG="-DTRY_SYSTEM_SIMDE"
       USE_BUNDLED_SIMDE="false"
     else
       USE_BUNDLED_SIMDE="true"
     fi
   fi
 fi
+
+if test xx$USE_BUNDLED_SIMDE != "xxtrue"; then
+  SIMDE_COMPILE_FLAG="-DIGNORE_BUNDLED_SIMDE"
+fi
+
 
 ZSTD_COMPILE_FLAG=$ZSTD_COMPILE_FLAG
 

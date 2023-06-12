@@ -110,12 +110,12 @@ PLINK2LIB_OBJ2 = $(notdir $(PLINK2LIB_OBJ))
 
 OBJ3 = $(CSRC2:.c=.o) $(ZCSRC2:.c=.o) $(ZSSRC2:.S=.o) $(CCSRC2:.cc=.o)
 
-CINCLUDE = -Ilibdeflate -I.
-CINCLUDE2 = -I../libdeflate -I..
-CXXINCLUDE = -I. -Izstd/lib -Ilibdeflate
-CXXINCLUDE2 = -I.. -I../zstd/lib -I../libdeflate
-ZSTD_INCLUDE = -Izstd/lib -Izstd/lib/common
-ZSTD_INCLUDE2 = -I../zstd/lib -I../zstd/lib/common
+CINCLUDE = -Ilibdeflate
+CINCLUDE2 = -I../libdeflate
+CXXINCLUDE = -Ilibdeflate
+CXXINCLUDE2 = -I../libdeflate
+ZSTD_INCLUDE =
+ZSTD_INCLUDE2 =
 
 PGCSRC = $(PGENLIB_CCSRC) pgen_compress.cc
 PGCOBJ = $(PGCSRC:.cc=.o)

@@ -154,12 +154,11 @@
 // expected to remain under active development for the next few years, we
 // currently default to using vendored copies of zstd/libdeflate/simde, which
 // are manually updated as necessary.
-// To use system headers, define TRY_SYSTEM_{ZSTD,LIBDEFLATE.SIMDE}.
-#    ifdef TRY_SYSTEM_SIMDE
+// To use system headers, define IGNORE_BUNDLED_{ZSTD,LIBDEFLATE.SIMDE}.
+#    ifdef IGNORE_BUNDLED_SIMDE
 #      include <simde/x86/sse2.h>
 #    else
-// Usually requires .. to be in include path.
-#      include "simde/x86/sse2.h"
+#      include "../simde/x86/sse2.h"
 #    endif
 #  endif
 #  ifdef __SSE4_2__
