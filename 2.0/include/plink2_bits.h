@@ -26,25 +26,29 @@
 namespace plink2 {
 #endif
 
-#if defined(__LP64__) && !defined(USE_AVX2)
+#if defined(USE_SSE2) && !defined(USE_AVX2)
 // may also want a version which doesn't always apply kMask5555
-void Pack32bTo16bMask(const void* words, uintptr_t ct_32b, void* dest);
+void Pack32bTo16bMask(const void* words_vec, uintptr_t ct_32b, void* dest);
 
-HEADER_INLINE void PackWordsToHalfwordsMask(const uintptr_t* words, uintptr_t word_ct, Halfword* dest) {
+HEADER_INLINE void PackWordsToHalfwordsMask(const uintptr_t* words_vec, uintptr_t word_ct, void* dest) {
   uintptr_t widx = 0;
   if (word_ct >= (32 / kBytesPerWord)) {
     const uintptr_t ct_32b = word_ct / (32 / kBytesPerWord);
-    Pack32bTo16bMask(words, ct_32b, dest);
+    Pack32bTo16bMask(words_vec, ct_32b, dest);
     widx = ct_32b * (32 / kBytesPerWord);
   }
+  unsigned char* dest_uc = S_CAST(unsigned char*, dest);
   for (; widx != word_ct; ++widx) {
-    dest[widx] = PackWordToHalfwordMask5555(words[widx]);
+    const Halfword hw = PackWordToHalfwordMask5555(words_vec[widx]);
+    CopyToUnalignedOffsetHW(dest_uc, &hw, widx);
   }
 }
 #else
-HEADER_INLINE void PackWordsToHalfwordsMask(const uintptr_t* words, uintptr_t word_ct, Halfword* dest) {
+HEADER_INLINE void PackWordsToHalfwordsMask(const uintptr_t* words_vec, uintptr_t word_ct, void* dest) {
+  unsigned char* dest_uc = S_CAST(unsigned char*, dest);
   for (uintptr_t widx = 0; widx != word_ct; ++widx) {
-    dest[widx] = PackWordToHalfwordMask5555(words[widx]);
+    const Halfword hw = PackWordToHalfwordMask5555(words_vec[widx]);
+    CopyToUnalignedOffsetHW(dest_uc, &hw, widx);
   }
 }
 #endif
@@ -220,7 +224,7 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
   // index.
   uintptr_t tot = 0;
   if (word_ct >= 76) {
-    assert(VecIsAligned(bitvec));
+    assert(IsVecAligned(bitvec));
     const uintptr_t remainder = word_ct % kWordsPerVec;
     const uintptr_t main_block_word_ct = word_ct - remainder;
     tot = PopcountVecsAvx2(R_CAST(const VecW*, bitvec), main_block_word_ct / kWordsPerVec);
@@ -236,7 +240,7 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
   return tot;
 }
 #else  // !USE_AVX2
-#  ifdef __LP64__
+#  ifdef USE_SSE2
 HEADER_INLINE uintptr_t HsumW(VecW vv) {
   UniVec vu;
   vu.vw = vv;
@@ -258,7 +262,7 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
     // This has an asymptotic ~10% advantage in the SSE4.2 case, but word_ct
     // needs to be in the hundreds before the initial comparison even starts to
     // pay for itself.
-    assert(VecIsAligned(bitvec));
+    assert(IsVecAligned(bitvec));
     const uintptr_t remainder = word_ct % (3 * kWordsPerVec);
     const uintptr_t main_block_word_ct = word_ct - remainder;
     tot = PopcountVecsNoAvx2(R_CAST(const VecW*, bitvec), main_block_word_ct / kWordsPerVec);
@@ -290,9 +294,9 @@ void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative
 
 // These functions do not overread, but may write extra bytes up to the word
 // boundary.
-void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, uintptr_t* __restrict dst);
+void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst_vec);
 
-void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, uintptr_t* __restrict dst);
+void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst_vec);
 
 
 // might rename this to IsSet01 (guaranteeing 0/1 return value), and change
@@ -304,7 +308,7 @@ HEADER_INLINE uintptr_t IsSet(const uintptr_t* bitarr, uintptr_t idx) {
 }
 
 HEADER_INLINE uintptr_t IsSetUnaligned(const void* bitarr, uintptr_t idx) {
-  const unsigned char* bitarr_uc = DowncastKToUc(bitarr);
+  const unsigned char* bitarr_uc = S_CAST(const unsigned char*, bitarr);
   return (bitarr_uc[idx / CHAR_BIT] >> (idx % CHAR_BIT)) & 1;
 }
 
@@ -450,7 +454,7 @@ HEADER_INLINE void ZeroTrailingBits(uintptr_t bit_ct, uintptr_t* bitarr) {
   }
 }
 
-#ifdef __LP64__
+#ifdef USE_SSE2
 HEADER_INLINE void ZeroTrailingWords(uint32_t word_ct, uintptr_t* bitvec) {
   const uint32_t remainder = word_ct % kWordsPerVec;
   if (remainder) {
@@ -498,7 +502,7 @@ CONSTI32(kPglBitTransposeWords, kWordsPerCacheline);
 //   avoid breaking strict-aliasing rules, while the restrict qualifiers should
 //   tell the compiler it doesn't need to be paranoid about writes to one of
 //   the buffers screwing with reads from the other.
-#ifdef __LP64__
+#ifdef USE_SSE2
 CONSTI32(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / (CHAR_BIT / 2));
 void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, uintptr_t write_ul_stride, uint32_t read_row_ct, uint32_t write_row_ct, uintptr_t* write_iter, VecW* __restrict buf0, VecW* __restrict buf1);
 
@@ -506,7 +510,10 @@ HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uintptr_t read_
   TransposeBitblock64(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf, &(vecaligned_buf[kPglBitTransposeBufbytes / (2 * kBytesPerVec)]));
 }
 
-#else  // !__LP64__
+#else  // !USE_SSE2
+#  ifdef __LP64__
+#    error "TransposeBitblock64 not written yet for this case"
+#  else
 CONSTI32(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / (CHAR_BIT / 2));
 void TransposeBitblock32(const uintptr_t* read_iter, uintptr_t read_ul_stride, uintptr_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* __restrict buf0, VecW* __restrict buf1);
 
@@ -516,6 +523,7 @@ void TransposeBitblock32(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
 HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uintptr_t read_ul_stride, uintptr_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf) {
   TransposeBitblock32(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf, &(vecaligned_buf[kPglBitTransposeBufbytes / (2 * kBytesPerVec)]));
 }
+#  endif
 #endif
 
 CONSTI32(kPglBitTransposeBufwords, kPglBitTransposeBufbytes / kBytesPerWord);
@@ -530,7 +538,7 @@ CONSTI32(kPglNybbleTransposeBufbytes, (kPglNybbleTransposeBatch * kPglNybbleTran
 // now ok for write_iter to not be padded when write_batch_size odd
 void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf);
 
-#ifdef __LP64__
+#ifdef USE_SSE2
 #  ifdef USE_AVX2
 extern const unsigned char kLeadMask[2 * kBytesPerVec] __attribute__ ((aligned (64)));
 #  else

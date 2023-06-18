@@ -5698,14 +5698,14 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           cur_vrec_end = &(cur_vrec_end[raw_sample_ctl]);
           read_patch_01_vals = R_CAST(AlleleCode*, cur_vrec_end);
           cur_vrec_end = &(cur_vrec_end[DivUp(read_rare01_ct, kBytesPerWord / sizeof(AlleleCode))]);
-          VecAlignUp64(&cur_vrec_end);
+          AlignWToVec(&cur_vrec_end);
         }
         if (read_rare10_ct) {
           read_patch_10_set = cur_vrec_end;
           cur_vrec_end = &(cur_vrec_end[raw_sample_ctl]);
           read_patch_10_vals = R_CAST(AlleleCode*, cur_vrec_end);
           cur_vrec_end = &(cur_vrec_end[DivUp(read_rare10_ct, kBytesPerWord / (2 * sizeof(AlleleCode)))]);
-          VecAlignUp64(&cur_vrec_end);
+          AlignWToVec(&cur_vrec_end);
         }
       }
       uint32_t is_hphase = loaded_vrtype & 0x10;
@@ -7045,7 +7045,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                   assert(regular_idx == UINT32_MAX);
                   *regular_stop = orig_regular_end;
                   *invphase_stop = orig_invphase_end;
-                  VecAlignUp(&loadbuf_iter);
+                  AlignWToVec(&loadbuf_iter);
                   if (cur_loaded_vrtypes) {
                     cur_loaded_vrtypes[block_widx] = 0x10;
                   }

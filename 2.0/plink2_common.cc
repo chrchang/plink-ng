@@ -2217,7 +2217,7 @@ uintptr_t count_11_vecs(const VecW* geno_vvec, uintptr_t vec_ct) {
 uintptr_t count_11_longs(const uintptr_t* genovec, uintptr_t word_ct) {
   uintptr_t tot = 0;
   if (word_ct >= (6 * kWordsPerVec)) {
-    assert(VecIsAligned(genovec));
+    assert(IsVecAligned(genovec));
     const uintptr_t remainder = word_ct % (6 * kWordsPerVec);
     const uintptr_t main_block_word_ct = word_ct - remainder;
     tot = count_11_vecs((const VecW*)genovec, main_block_word_ct / kWordsPerVec);
@@ -3396,7 +3396,7 @@ void ExpandMhc(uint32_t sample_ct, uintptr_t* mhc, uintptr_t** patch_01_set_ptr,
   AlleleCode* patch_01_vals = R_CAST(AlleleCode*, &(mhc[sample_ctl]));
   *patch_01_vals_ptr = patch_01_vals;
   AlleleCode* patch_01_vals_end = &(patch_01_vals[sample_ct]);
-  VecAlignUp(&patch_01_vals_end);
+  AlignACToVec(&patch_01_vals_end);
   uintptr_t* patch_10_set = R_CAST(uintptr_t*, patch_01_vals_end);
   *patch_10_set_ptr = patch_10_set;
   *patch_10_vals_ptr = R_CAST(AlleleCode*, &(patch_10_set[sample_ctl]));

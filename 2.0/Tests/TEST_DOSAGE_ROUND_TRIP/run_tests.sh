@@ -28,3 +28,18 @@ diff -q tmp_data.pgen tmp_data6.pgen
 $1/plink2 $2 $3 --pfile tmp_data --export A-transpose --out tmp_data7
 $1/plink2 $2 $3 --import-dosage tmp_data7.traw id-delim=_ skip0=1 skip1=2 chr-col-num=1 pos-col-num=4 ref-first --psam tmp_data.psam --out tmp_data7
 diff -q tmp_data.pgen tmp_data7.pgen
+
+# $1/plink2 $2 $3 --seed 1 --dummy 33 65537 0.1 acgt phase-freq=0.1 dosage-freq=0.1 --out tmp_data8
+$1/plink2 $2 $3 --dummy 33 65537 0.1 acgt phase-freq=0.1 dosage-freq=0.1 --out tmp_data8
+
+$1/plink2 $2 $3 --pfile tmp_data8 --export vcf vcf-dosage=HDS --out tmp_data8
+$1/plink2 $2 $3 --vcf tmp_data8.vcf dosage=HDS --make-pgen --export vcf vcf-dosage=HDS --out tmp_data9
+# Can't compare .pgens for equality for now, because --dummy (and
+# MakePgenThread) don't yet try their best to omit inferrable HDS values.
+# Probably want to clean this up before beta testing begins.
+diff -q tmp_data8.vcf tmp_data9.vcf
+
+$1/plink2 $2 $3 --pfile tmp_data8 --export bcf vcf-dosage=HDS-force --out tmp_data8
+$1/plink2 $2 $3 --bcf tmp_data8.bcf dosage=HDS --out tmp_data10
+# VCF-import and BCF-import are both smart about inferrable HDS.
+diff -q tmp_data9.pgen tmp_data10.pgen

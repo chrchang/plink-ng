@@ -4116,7 +4116,7 @@ static inline BoolErr ScanBcfTypeAligned(const unsigned char** vrec_iterp, uint3
 #else
   *vrec_iterp += 1;
   BoolErr ret_boolerr = ScanBcfTypedInt(vrec_iterp, value_ct_ptr);
-  VecAlignUp(vrec_iterp);
+  AlignKUcToVec(vrec_iterp);
   return ret_boolerr;
 #endif
 }
@@ -6841,14 +6841,20 @@ BcfParseErr BcfConvertPhasedBiallelicDosage(const BcfImportContext* bicp, const 
           const uint32_t dphase_halfdist1 = DphaseHalfdist(dosage_int + cur_dphase_delta);
           const uint32_t dphase_halfdist2 = DphaseHalfdist(dosage_int - cur_dphase_delta);
           if ((dphase_halfdist1 < dphase_erase_halfdist) || (dphase_halfdist2 < dphase_erase_halfdist)) {
-            // No need to fill cur_geno here, since it'll get corrected by
-            // --hard-call-threshold.
-            dosage_present_hw |= shifted_bit;
-            *dosage_main_iter++ = dosage_int;
+            // Usually no need to fill cur_geno here, since it'll get corrected
+            // by --hard-call-threshold.
             if (cur_dphase_delta) {
               dphase_present_hw |= shifted_bit;
               *dphase_delta_iter++ = cur_dphase_delta;
+            } else if (dosage_int == kDosageMid) {
+              // quasi-bugfix (18 Jun 2023): if dosage_int == kDosageMid and
+              // cur_dphase_delta == 0, we shouldn't save an explicit dosage at
+              // all; this is just an ordinary unphased het.
+              cur_geno = 1;
+              goto BcfConvertPhasedBiallelicDosage_geno_done;
             }
+            dosage_present_hw |= shifted_bit;
+            *dosage_main_iter++ = dosage_int;
           } else {
             // Not saving dosage, since it's too close to an integer
             // (--dosage-erase-threshold).  Just directly synthesize the

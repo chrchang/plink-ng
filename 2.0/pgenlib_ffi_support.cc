@@ -35,7 +35,7 @@ void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* 
       SubwordStore(qw, ModNz(sample_ct, kBytesPerWord), &(genobytes_uc[widx * kBytesPerWord]));
       return;
     }
-    UnalignedCopyDstOffsetW(genobytes_uc, &qw, widx);
+    CopyToUnalignedOffsetW(genobytes_uc, &qw, widx);
   }
 }
 
@@ -149,7 +149,7 @@ void GenoarrMPToAlleleCodes(const uint64_t* geno_to_intcode_dpair_table, const P
         SubwordStore(qw, ModNz(sample_ct, kBytesPerWord), &(phasebytes[widx * kBytesPerWord]));
         break;
       }
-      UnalignedCopyDstOffsetW(phasebytes, &qw, widx);
+      CopyToUnalignedOffsetW(phasebytes, &qw, widx);
     }
   }
   if (patch_10_ct) {
@@ -455,7 +455,7 @@ void BytesToBitsUnsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* 
       }
       cur_ull = SubU64Load(&(boolbytes_uc[ullidx * sizeof(int64_t)]), ModNz(sample_ct, 8));
     } else {
-      UnalignedCopyOffsetU64(&cur_ull, boolbytes_uc, ullidx);
+      CopyFromUnalignedOffsetU64(&cur_ull, boolbytes_uc, ullidx);
     }
     // assuming boolbytes is 0/1-valued, this multiply-and-shift maps binary
     //  h0000000g0000000f... to binary hgfedcba.
@@ -480,7 +480,7 @@ void BytesToGenoarrUnsafe(const int8_t* genobytes, uint32_t sample_ct, uintptr_t
       }
       ww = SubwordLoad(&(genobytes_uc[widx * kBytesPerWord]), ModNz(sample_ct, kBytesPerWord));
     } else {
-      UnalignedCopyOffsetW(&ww, genobytes_uc, widx);
+      CopyFromUnalignedOffsetW(&ww, genobytes_uc, widx);
     }
     write_alias[widx] = Pack0303Mask(ww);
   }

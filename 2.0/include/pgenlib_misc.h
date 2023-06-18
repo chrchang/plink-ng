@@ -112,6 +112,11 @@ HEADER_INLINE uintptr_t AlleleCodeCtToAlignedWordCt(uintptr_t val) {
   return kWordsPerVec * AlleleCodeCtToVecCt(val);
 }
 
+HEADER_INLINE void AlignACToVec(AlleleCode** pp) {
+  const uintptr_t addr = R_CAST(uintptr_t, *pp);
+  *pp = R_CAST(AlleleCode*, RoundUpPow2(addr, kBytesPerVec));
+}
+
 // returns a word with low bit in each pair set at each 00.
 HEADER_INLINE uintptr_t Word00(uintptr_t ww) {
   return (~(ww | (ww >> 1))) & kMask5555;
@@ -176,7 +181,7 @@ void CopyNyparrNonemptySubset(const uintptr_t* __restrict raw_nyparr, const uint
 
 // Copies a bit from raw_bitarr for each genoarr entry matching match_word.
 // (match_word must be a multiple of kMask5555.)
-void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genoarr, uintptr_t match_word, uint32_t write_bit_idx_start, uint32_t bit_ct, uintptr_t* __restrict output_bitarr);
+void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genoarr, uintptr_t match_word, uint32_t write_bit_idx_start, uint32_t bit_ct, void* __restrict output);
 
 void ExpandBytearrFromGenoarr(const void* __restrict compact_bitarr, const uintptr_t* __restrict genoarr, uintptr_t match_word, uint32_t genoword_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target);
 

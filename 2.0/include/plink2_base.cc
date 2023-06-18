@@ -297,7 +297,7 @@ BoolErr aligned_malloc(uintptr_t size, uintptr_t alignment, void* aligned_pp) {
   return 0;
 }
 
-#if defined(__LP64__) && !defined(NO_UNALIGNED)
+#if defined(USE_SSE2) && !defined(NO_UNALIGNED)
 int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct) {
   const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
   const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
@@ -472,7 +472,7 @@ int32_t Memcmp(const void* m1, const void* m2, uintptr_t byte_ct) {
   }
   return 0;
 }
-#endif // defined(__LP64__) && !defined(NO_UNALIGNED)
+#endif // defined(USE_SSE2) && !defined(NO_UNALIGNED)
 
 const uint16_t kDigitPair[] = {
   0x3030, 0x3130, 0x3230, 0x3330, 0x3430, 0x3530, 0x3630, 0x3730, 0x3830, 0x3930,
@@ -659,8 +659,8 @@ uintptr_t FirstUnequalW(const void* arr1, const void* arr2, uintptr_t nbytes) {
   for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     uintptr_t arr1_word;
     uintptr_t arr2_word;
-    UnalignedCopyOffsetW(&arr1_word, arr1b, widx);
-    UnalignedCopyOffsetW(&arr2_word, arr2b, widx);
+    CopyFromUnalignedOffsetW(&arr1_word, arr1b, widx);
+    CopyFromUnalignedOffsetW(&arr2_word, arr2b, widx);
     const uintptr_t xor_result = arr1_word ^ arr2_word;
     if (xor_result) {
       return widx * kBytesPerWord + ctzw(xor_result) / CHAR_BIT;
@@ -670,8 +670,8 @@ uintptr_t FirstUnequalW(const void* arr1, const void* arr2, uintptr_t nbytes) {
     const uintptr_t final_offset = nbytes - kBytesPerWord;
     uintptr_t arr1_word;
     uintptr_t arr2_word;
-    memcpy(&arr1_word, &(arr1b[final_offset]), kBytesPerWord);
-    memcpy(&arr2_word, &(arr2b[final_offset]), kBytesPerWord);
+    CopyFromUnalignedW(&arr1_word, &(arr1b[final_offset]));
+    CopyFromUnalignedW(&arr2_word, &(arr2b[final_offset]));
     const uintptr_t xor_result = arr1_word ^ arr2_word;
     if (xor_result) {
       return final_offset + ctzw(xor_result) / CHAR_BIT;

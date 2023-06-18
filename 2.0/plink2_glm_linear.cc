@@ -237,7 +237,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
     pgv.patch_01_set = common->thread_mhc[tidx];
     pgv.patch_01_vals = R_CAST(AlleleCode*, &(pgv.patch_01_set[max_sample_ctl]));
     AlleleCode* patch_01_vals_end = &(pgv.patch_01_vals[max_sample_ct]);
-    VecAlignUp(&patch_01_vals_end);
+    AlignACToVec(&patch_01_vals_end);
     pgv.patch_10_set = R_CAST(uintptr_t*, patch_01_vals_end);
     pgv.patch_10_vals = R_CAST(AlleleCode*, &(pgv.patch_10_set[max_sample_ctl]));
   }
@@ -2340,7 +2340,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
     pgv.patch_01_set = common->thread_mhc[tidx];
     pgv.patch_01_vals = R_CAST(AlleleCode*, &(pgv.patch_01_set[max_sample_ctl]));
     AlleleCode* patch_01_vals_end = &(pgv.patch_01_vals[max_sample_ct]);
-    VecAlignUp(&patch_01_vals_end);
+    AlignACToVec(&patch_01_vals_end);
     pgv.patch_10_set = R_CAST(uintptr_t*, patch_01_vals_end);
     pgv.patch_10_vals = R_CAST(AlleleCode*, &(pgv.patch_10_set[max_sample_ctl]));
   }

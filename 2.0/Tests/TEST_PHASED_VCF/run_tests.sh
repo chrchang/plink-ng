@@ -168,3 +168,9 @@ cat pheno_qt.txt | tr '\t' ',' >> pheno_qt_commas.txt
 cat plink2_pca.eigenvec | tr '\t' ',' > plink2_pca_commas.eigenvec
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt_commas.txt --glm --covar plink2_pca_commas.eigenvec --tests 1,3,5 --out plink2_glm_commas
 diff -q plink2_glm.PHENO1.glm.linear plink2_glm_commas.PHENO1.glm.linear
+
+# Multiallelic-variant / mixed-phase round trip test.
+# (It may be necessary to update mt_mixed_phase.pgen when the encoder is tweaked.)
+$1/plink2 $2 $3 --pfile mt_mixed_phase vzs --export vcf bgz --out plink2_mt
+$1/plink2 $2 $3 --vcf plink2_mt.vcf.gz --psam mt_mixed_phase.psam --make-pgen --out plink2_mt2
+diff -q mt_mixed_phase.pgen plink2_mt2.pgen
