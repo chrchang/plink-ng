@@ -106,7 +106,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 809
+#define PLINK2_BASE_VERNUM 810
 
 
 #define _FILE_OFFSET_BITS 64
@@ -754,6 +754,62 @@ typedef short VecI16 __attribute__ ((vector_size (32)));
 typedef int8_t VecI8 __attribute__ ((vector_size (32)));
 typedef unsigned char VecUc __attribute__ ((vector_size (32)));
 
+HEADER_INLINE VecW VecToW(__m256i vv) {
+  return R_CAST(VecW, vv);
+}
+
+HEADER_INLINE VecU32 VecToU32(__m256i vv) {
+  return R_CAST(VecU32, vv);
+}
+
+HEADER_INLINE VecI32 VecToI32(__m256i vv) {
+  return R_CAST(VecI32, vv);
+}
+
+HEADER_INLINE VecU16 VecToU16(__m256i vv) {
+  return R_CAST(VecU16, vv);
+}
+
+HEADER_INLINE VecI16 VecToI16(__m256i vv) {
+  return R_CAST(VecI16, vv);
+}
+
+HEADER_INLINE VecUc VecToUc(__m256i vv) {
+  return R_CAST(VecUc, vv);
+}
+
+HEADER_INLINE VecI8 VecToI8(__m256i vv) {
+  return R_CAST(VecI8, vv);
+}
+
+HEADER_INLINE __m256i WToVec(VecW vv) {
+  return R_CAST(__m256i, vv);
+}
+
+HEADER_INLINE __m256i U32ToVec(VecU32 vv) {
+  return R_CAST(__m256i, vv);
+}
+
+HEADER_INLINE __m256i I32ToVec(VecI32 vv) {
+  return R_CAST(__m256i, vv);
+}
+
+HEADER_INLINE __m256i U16ToVec(VecU16 vv) {
+  return R_CAST(__m256i, vv);
+}
+
+HEADER_INLINE __m256i I16ToVec(VecI16 vv) {
+  return R_CAST(__m256i, vv);
+}
+
+HEADER_INLINE __m256i UcToVec(VecUc vv) {
+  return R_CAST(__m256i, vv);
+}
+
+HEADER_INLINE __m256i I8ToVec(VecI8 vv) {
+  return R_CAST(__m256i, vv);
+}
+
 // _mm256_set1_... seems to have the same performance; could use that instead.
 #    define VCONST_W(xx) {xx, xx, xx, xx}
 #    define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
@@ -762,262 +818,262 @@ typedef unsigned char VecUc __attribute__ ((vector_size (32)));
 
 // vv = VCONST_W(k0LU) doesn't work (only ok for initialization)
 HEADER_INLINE VecW vecw_setzero() {
-  return R_CAST(VecW, _mm256_setzero_si256());
+  return VecToW(_mm256_setzero_si256());
 }
 
 HEADER_INLINE VecU32 vecu32_setzero() {
-  return R_CAST(VecU32, _mm256_setzero_si256());
+  return VecToU32(_mm256_setzero_si256());
 }
 
 HEADER_INLINE VecU16 vecu16_setzero() {
-  return R_CAST(VecU16, _mm256_setzero_si256());
+  return VecToU16(_mm256_setzero_si256());
 }
 
 HEADER_INLINE VecI16 veci16_setzero() {
-  return R_CAST(VecI16, _mm256_setzero_si256());
+  return VecToI16(_mm256_setzero_si256());
 }
 
 HEADER_INLINE VecUc vecuc_setzero() {
-  return R_CAST(VecUc, _mm256_setzero_si256());
+  return VecToUc(_mm256_setzero_si256());
 }
 
 HEADER_INLINE VecI8 veci8_setzero() {
-  return R_CAST(VecI8, _mm256_setzero_si256());
+  return VecToI8(_mm256_setzero_si256());
 }
 
 // "vv >> ct" doesn't work, and Scientific Linux gcc 4.4 might not optimize
 // VCONST_W shift properly (todo: test this)
 HEADER_INLINE VecW vecw_srli(VecW vv, uint32_t ct) {
-  return R_CAST(VecW, _mm256_srli_epi64(R_CAST(__m256i, vv), ct));
+  return VecToW(_mm256_srli_epi64(WToVec(vv), ct));
 }
 
 HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
-  return R_CAST(VecW, _mm256_slli_epi64(R_CAST(__m256i, vv), ct));
+  return VecToW(_mm256_slli_epi64(WToVec(vv), ct));
 }
 
 HEADER_INLINE VecU32 vecu32_srli(VecU32 vv, uint32_t ct) {
-  return R_CAST(VecU32, _mm256_srli_epi32(R_CAST(__m256i, vv), ct));
+  return VecToU32(_mm256_srli_epi32(U32ToVec(vv), ct));
 }
 
 HEADER_INLINE VecU32 vecu32_slli(VecU32 vv, uint32_t ct) {
-  return R_CAST(VecU32, _mm256_slli_epi32(R_CAST(__m256i, vv), ct));
+  return VecToU32(_mm256_slli_epi32(U32ToVec(vv), ct));
 }
 
 HEADER_INLINE VecU16 vecu16_srli(VecU16 vv, uint32_t ct) {
-  return R_CAST(VecU16, _mm256_srli_epi16(R_CAST(__m256i, vv), ct));
+  return VecToU16(_mm256_srli_epi16(U16ToVec(vv), ct));
 }
 
 HEADER_INLINE VecU16 vecu16_slli(VecU16 vv, uint32_t ct) {
-  return R_CAST(VecU16, _mm256_slli_epi16(R_CAST(__m256i, vv), ct));
+  return VecToU16(_mm256_slli_epi16(U16ToVec(vv), ct));
 }
 
 // Compiler still doesn't seem to be smart enough to use andnot properly.
 HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
-  return R_CAST(VecW, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
+  return VecToW(_mm256_andnot_si256(WToVec(excl), WToVec(main)));
 }
 
 HEADER_INLINE VecU32 vecu32_and_notfirst(VecU32 excl, VecU32 main) {
-  return R_CAST(VecU32, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
+  return VecToU32(_mm256_andnot_si256(U32ToVec(excl), U32ToVec(main)));
 }
 
 HEADER_INLINE VecI32 veci32_and_notfirst(VecI32 excl, VecI32 main) {
-  return R_CAST(VecI32, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
+  return VecToI32(_mm256_andnot_si256(I32ToVec(excl), I32ToVec(main)));
 }
 
 HEADER_INLINE VecU16 vecu16_and_notfirst(VecU16 excl, VecU16 main) {
-  return R_CAST(VecU16, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
+  return VecToU16(_mm256_andnot_si256(U16ToVec(excl), U16ToVec(main)));
 }
 
 HEADER_INLINE VecI16 veci16_and_notfirst(VecI16 excl, VecI16 main) {
-  return R_CAST(VecI16, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
+  return VecToI16(_mm256_andnot_si256(I16ToVec(excl), I16ToVec(main)));
 }
 
 HEADER_INLINE VecUc vecuc_and_notfirst(VecUc excl, VecUc main) {
-  return R_CAST(VecUc, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
+  return VecToUc(_mm256_andnot_si256(UcToVec(excl), UcToVec(main)));
 }
 
 HEADER_INLINE VecI8 veci8_and_notfirst(VecI8 excl, VecI8 main) {
-  return R_CAST(VecI8, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
+  return VecToI8(_mm256_andnot_si256(I8ToVec(excl), I8ToVec(main)));
 }
 
 HEADER_INLINE VecW vecw_set1(uintptr_t ulii) {
-  return R_CAST(VecW, _mm256_set1_epi64x(ulii));
+  return VecToW(_mm256_set1_epi64x(ulii));
 }
 
 HEADER_INLINE VecU32 vecu32_set1(uint32_t uii) {
-  return R_CAST(VecU32, _mm256_set1_epi32(uii));
+  return VecToU32(_mm256_set1_epi32(uii));
 }
 
 HEADER_INLINE VecI32 veci32_set1(int32_t ii) {
-  return R_CAST(VecI32, _mm256_set1_epi32(ii));
+  return VecToI32(_mm256_set1_epi32(ii));
 }
 
 HEADER_INLINE VecU16 vecu16_set1(unsigned short usi) {
-  return R_CAST(VecU16, _mm256_set1_epi16(usi));
+  return VecToU16(_mm256_set1_epi16(usi));
 }
 
 HEADER_INLINE VecI16 veci16_set1(short si) {
-  return R_CAST(VecI16, _mm256_set1_epi16(si));
+  return VecToI16(_mm256_set1_epi16(si));
 }
 
 HEADER_INLINE VecUc vecuc_set1_epi16(unsigned short usi) {
-  return R_CAST(VecUc, _mm256_set1_epi16(usi));
+  return VecToUc(_mm256_set1_epi16(usi));
 }
 
 HEADER_INLINE VecUc vecuc_set1(unsigned char ucc) {
-  return R_CAST(VecUc, _mm256_set1_epi8(ucc));
+  return VecToUc(_mm256_set1_epi8(ucc));
 }
 
 HEADER_INLINE VecI8 veci8_set1(char cc) {
-  return R_CAST(VecI8, _mm256_set1_epi8(cc));
+  return VecToI8( _mm256_set1_epi8(cc));
 }
 
 HEADER_INLINE uint32_t vecw_movemask(VecW vv) {
-  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+  return _mm256_movemask_epi8(WToVec(vv));
 }
 
 HEADER_INLINE uint32_t vecu32_movemask(VecU32 vv) {
-  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+  return _mm256_movemask_epi8(U32ToVec(vv));
 }
 
 HEADER_INLINE uint32_t veci32_movemask(VecI32 vv) {
-  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+  return _mm256_movemask_epi8(I32ToVec(vv));
 }
 
 HEADER_INLINE uint32_t vecu16_movemask(VecU16 vv) {
-  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+  return _mm256_movemask_epi8(U16ToVec(vv));
 }
 
 HEADER_INLINE uint32_t veci16_movemask(VecI16 vv) {
-  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+  return _mm256_movemask_epi8(I16ToVec(vv));
 }
 
 HEADER_INLINE uint32_t veci8_movemask(VecI8 vv) {
-  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+  return _mm256_movemask_epi8(I8ToVec(vv));
 }
 
 HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
-  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+  return _mm256_movemask_epi8(UcToVec(vv));
 }
 
 // Repeats elements in second lane in AVX2 case.
 HEADER_INLINE VecW vecw_setr8(char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
-  return R_CAST(VecW, _mm256_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
+  return VecToW(_mm256_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
 HEADER_INLINE VecU16 vecu16_setr8(char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
-  return R_CAST(VecU16, _mm256_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
+  return VecToU16(_mm256_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
 HEADER_INLINE VecUc vecuc_setr8(char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
-  return R_CAST(VecUc, _mm256_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
+  return VecToUc(_mm256_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
 // Discards last 16 arguments in SSE2/SSE4.2 case.
 HEADER_INLINE VecW vecw_setr8x(char e31, char e30, char e29, char e28, char e27, char e26, char e25, char e24, char e23, char e22, char e21, char e20, char e19, char e18, char e17, char e16, char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
-  return R_CAST(VecW, _mm256_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
+  return VecToW(_mm256_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
 HEADER_INLINE VecUc vecuc_setr8x(char e31, char e30, char e29, char e28, char e27, char e26, char e25, char e24, char e23, char e22, char e21, char e20, char e19, char e18, char e17, char e16, char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
-  return R_CAST(VecUc, _mm256_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
+  return VecToUc(_mm256_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
 HEADER_INLINE VecW vecw_unpacklo8(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm256_unpacklo_epi8(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+  return VecToW(_mm256_unpacklo_epi8(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_unpackhi8(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm256_unpackhi_epi8(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+  return VecToW(_mm256_unpackhi_epi8(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecI8 veci8_unpacklo8(VecI8 evens, VecI8 odds) {
-  return R_CAST(VecI8, _mm256_unpacklo_epi8(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+  return VecToI8(_mm256_unpacklo_epi8(I8ToVec(evens), I8ToVec(odds)));
 }
 
 HEADER_INLINE VecI8 veci8_unpackhi8(VecI8 evens, VecI8 odds) {
-  return R_CAST(VecI8, _mm256_unpackhi_epi8(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+  return VecToI8(_mm256_unpackhi_epi8(I8ToVec(evens), I8ToVec(odds)));
 }
 
 HEADER_INLINE VecUc vecuc_unpacklo8(VecUc evens, VecUc odds) {
-  return R_CAST(VecUc, _mm256_unpacklo_epi8(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+  return VecToUc(_mm256_unpacklo_epi8(UcToVec(evens), UcToVec(odds)));
 }
 
 HEADER_INLINE VecUc vecuc_unpackhi8(VecUc evens, VecUc odds) {
-  return R_CAST(VecUc, _mm256_unpackhi_epi8(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+  return VecToUc(_mm256_unpackhi_epi8(UcToVec(evens), UcToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_unpacklo16(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm256_unpacklo_epi16(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+  return VecToW(_mm256_unpacklo_epi16(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_unpackhi16(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm256_unpackhi_epi16(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+  return VecToW(_mm256_unpackhi_epi16(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_unpacklo32(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm256_unpacklo_epi32(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+  return VecToW(_mm256_unpacklo_epi32(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_unpackhi32(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm256_unpackhi_epi32(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+  return VecToW(_mm256_unpackhi_epi32(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_permute0xd8_if_avx2(VecW vv) {
-  return R_CAST(VecW, _mm256_permute4x64_epi64(R_CAST(__m256i, vv), 0xd8));
+  return VecToW(_mm256_permute4x64_epi64(WToVec(vv), 0xd8));
 }
 
 HEADER_INLINE VecI8 veci8_permute0xd8_if_avx2(VecI8 vv) {
-  return R_CAST(VecI8, _mm256_permute4x64_epi64(R_CAST(__m256i, vv), 0xd8));
+  return VecToI8(_mm256_permute4x64_epi64(I8ToVec(vv), 0xd8));
 }
 
 HEADER_INLINE VecUc vecuc_permute0xd8_if_avx2(VecUc vv) {
-  return R_CAST(VecUc, _mm256_permute4x64_epi64(R_CAST(__m256i, vv), 0xd8));
+  return VecToUc(_mm256_permute4x64_epi64(UcToVec(vv), 0xd8));
 }
 
 // Could have a single-src gather_even function, but that should wait until
 // there is a clear SSE2 use case.
 HEADER_INLINE VecW vecw_gather_even(VecW src_lo, VecW src_hi, VecW m8) {
-  const VecW gathered_laneswapped = R_CAST(VecW, _mm256_packus_epi16(R_CAST(__m256i, src_lo & m8), R_CAST(__m256i, src_hi & m8)));
+  const VecW gathered_laneswapped = VecToW(_mm256_packus_epi16(WToVec(src_lo & m8), WToVec(src_hi & m8)));
   return vecw_permute0xd8_if_avx2(gathered_laneswapped);
 }
 
 HEADER_INLINE VecUc vecuc_gather_even(VecUc src_lo, VecUc src_hi, VecUc m8) {
-  const VecUc gathered_laneswapped = R_CAST(VecUc, _mm256_packus_epi16(R_CAST(__m256i, src_lo & m8), R_CAST(__m256i, src_hi & m8)));
+  const VecUc gathered_laneswapped = VecToUc(_mm256_packus_epi16(UcToVec(src_lo & m8), UcToVec(src_hi & m8)));
   return vecuc_permute0xd8_if_avx2(gathered_laneswapped);
 }
 
 HEADER_INLINE VecUc vecuc_gather_odd(VecUc src_lo, VecUc src_hi) {
-  const VecUc gathered_laneswapped = R_CAST(VecUc, _mm256_packus_epi16(_mm256_srli_epi16(R_CAST(__m256i, src_lo), 8), _mm256_srli_epi16(R_CAST(__m256i, src_hi), 8)));
+  const VecUc gathered_laneswapped = VecToUc(_mm256_packus_epi16(_mm256_srli_epi16(UcToVec(src_lo), 8), _mm256_srli_epi16(UcToVec(src_hi), 8)));
   return vecuc_permute0xd8_if_avx2(gathered_laneswapped);
 }
 
 HEADER_INLINE VecW vecw_shuffle8(VecW table, VecW indexes) {
-  return R_CAST(VecW, _mm256_shuffle_epi8(R_CAST(__m256i, table), R_CAST(__m256i, indexes)));
+  return VecToW(_mm256_shuffle_epi8(WToVec(table), WToVec(indexes)));
 }
 
 HEADER_INLINE VecU16 vecu16_shuffle8(VecU16 table, VecU16 indexes) {
-  return R_CAST(VecU16, _mm256_shuffle_epi8(R_CAST(__m256i, table), R_CAST(__m256i, indexes)));
+  return VecToU16(_mm256_shuffle_epi8(U16ToVec(table), U16ToVec(indexes)));
 }
 
 HEADER_INLINE VecUc vecuc_shuffle8(VecUc table, VecUc indexes) {
-  return R_CAST(VecUc, _mm256_shuffle_epi8(R_CAST(__m256i, table), R_CAST(__m256i, indexes)));
+  return VecToUc(_mm256_shuffle_epi8(UcToVec(table), UcToVec(indexes)));
 }
 
 HEADER_INLINE uintptr_t vecw_extract64_0(VecW vv) {
-  return _mm256_extract_epi64(R_CAST(__m256i, vv), 0);
+  return _mm256_extract_epi64(WToVec(vv), 0);
 }
 
 HEADER_INLINE uintptr_t vecw_extract64_1(VecW vv) {
-  return _mm256_extract_epi64(R_CAST(__m256i, vv), 1);
+  return _mm256_extract_epi64(WToVec(vv), 1);
 }
 
 // *** AVX2-only section ***
 HEADER_INLINE uintptr_t vecw_extract64_2(VecW vv) {
-  return _mm256_extract_epi64(R_CAST(__m256i, vv), 2);
+  return _mm256_extract_epi64(WToVec(vv), 2);
 }
 
 HEADER_INLINE uintptr_t vecw_extract64_3(VecW vv) {
-  return _mm256_extract_epi64(R_CAST(__m256i, vv), 3);
+  return _mm256_extract_epi64(WToVec(vv), 3);
 }
 
 // todo: permute
@@ -1031,7 +1087,7 @@ typedef uint32_t Vec8thUint;
 typedef uint64_t Vec4thUint;
 
 HEADER_INLINE VecW vecw_load(const void* mem_addr) {
-  return R_CAST(VecW, _mm256_load_si256(S_CAST(const __m256i*, mem_addr)));
+  return VecToW(_mm256_load_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
 // There may be some value in adding a 4-consecutive-vector load function when
@@ -1039,95 +1095,95 @@ HEADER_INLINE VecW vecw_load(const void* mem_addr) {
 //   https://www.agner.org/optimize/blog/read.php?i=627&v=t
 
 HEADER_INLINE VecW vecw_loadu(const void* mem_addr) {
-  return R_CAST(VecW, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+  return VecToW(_mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
 HEADER_INLINE VecU32 vecu32_loadu(const void* mem_addr) {
-  return R_CAST(VecU32, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+  return VecToU32(_mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
 HEADER_INLINE VecI32 veci32_loadu(const void* mem_addr) {
-  return R_CAST(VecI32, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+  return VecToI32(_mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
 HEADER_INLINE VecU16 vecu16_loadu(const void* mem_addr) {
-  return R_CAST(VecU16, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+  return VecToU16(_mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
 HEADER_INLINE VecI16 veci16_loadu(const void* mem_addr) {
-  return R_CAST(VecI16, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+  return VecToI16(_mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
 HEADER_INLINE VecUc vecuc_loadu(const void* mem_addr) {
-  return R_CAST(VecUc, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+  return VecToUc(_mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
 HEADER_INLINE VecI8 veci8_loadu(const void* mem_addr) {
-  return R_CAST(VecI8, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+  return VecToI8(_mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
 HEADER_INLINE void vecw_storeu(void* mem_addr, VecW vv) {
-  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
+  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), WToVec(vv));
 }
 
 HEADER_INLINE void vecu32_storeu(void* mem_addr, VecU32 vv) {
-  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
+  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), U32ToVec(vv));
 }
 
 HEADER_INLINE void veci32_storeu(void* mem_addr, VecI32 vv) {
-  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
+  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), I32ToVec(vv));
 }
 
 HEADER_INLINE void vecu16_storeu(void* mem_addr, VecU16 vv) {
-  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
+  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), U16ToVec(vv));
 }
 
 HEADER_INLINE void veci16_storeu(void* mem_addr, VecI16 vv) {
-  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
+  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), I16ToVec(vv));
 }
 
 HEADER_INLINE void vecuc_storeu(void* mem_addr, VecUc vv) {
-  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
+  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), UcToVec(vv));
 }
 
 HEADER_INLINE VecI32 veci32_max(VecI32 v1, VecI32 v2) {
-  return R_CAST(VecI32, _mm256_max_epi32(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+  return VecToI32(_mm256_max_epi32(I32ToVec(v1), I32ToVec(v2)));
 }
 
 HEADER_INLINE VecI16 veci16_max(VecI16 v1, VecI16 v2) {
-  return R_CAST(VecI16, _mm256_max_epi16(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+  return VecToI16(_mm256_max_epi16(I16ToVec(v1), I16ToVec(v2)));
 }
 
 HEADER_INLINE VecW vecw_sad(VecW v1, VecW v2) {
-  return R_CAST(VecW, _mm256_sad_epu8(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+  return VecToW(_mm256_sad_epu8(WToVec(v1), WToVec(v2)));
 }
 
 HEADER_INLINE VecUc vecuc_adds(VecUc v1, VecUc v2) {
-  return R_CAST(VecUc, _mm256_adds_epu8(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+  return VecToUc(_mm256_adds_epu8(UcToVec(v1), UcToVec(v2)));
 }
 
 HEADER_INLINE VecU16 vecu16_min8(VecU16 v1, VecU16 v2) {
-  return R_CAST(VecU16, _mm256_min_epu8(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+  return VecToU16(_mm256_min_epu8(U16ToVec(v1), U16ToVec(v2)));
 }
 
 HEADER_INLINE VecUc vecuc_min(VecUc v1, VecUc v2) {
-  return R_CAST(VecUc, _mm256_min_epu8(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+  return VecToUc(_mm256_min_epu8(UcToVec(v1), UcToVec(v2)));
 }
 
 HEADER_INLINE VecW vecw_blendv(VecW aa, VecW bb, VecW mask) {
-  return R_CAST(VecW, _mm256_blendv_epi8(R_CAST(__m256i, aa), R_CAST(__m256i, bb), R_CAST(__m256i, mask)));
+  return VecToW(_mm256_blendv_epi8(WToVec(aa), WToVec(bb), WToVec(mask)));
 }
 
 HEADER_INLINE VecU32 vecu32_blendv(VecU32 aa, VecU32 bb, VecU32 mask) {
-  return R_CAST(VecU32, _mm256_blendv_epi8(R_CAST(__m256i, aa), R_CAST(__m256i, bb), R_CAST(__m256i, mask)));
+  return VecToU32(_mm256_blendv_epi8(U32ToVec(aa), U32ToVec(bb), U32ToVec(mask)));
 }
 
 HEADER_INLINE VecU16 vecu16_blendv(VecU16 aa, VecU16 bb, VecU16 mask) {
-  return R_CAST(VecU16, _mm256_blendv_epi8(R_CAST(__m256i, aa), R_CAST(__m256i, bb), R_CAST(__m256i, mask)));
+  return VecToU16(_mm256_blendv_epi8(U16ToVec(aa), U16ToVec(bb), U16ToVec(mask)));
 }
 
 HEADER_INLINE VecUc vecuc_blendv(VecUc aa, VecUc bb, VecUc mask) {
-  return R_CAST(VecUc, _mm256_blendv_epi8(R_CAST(__m256i, aa), R_CAST(__m256i, bb), R_CAST(__m256i, mask)));
+  return VecToUc(_mm256_blendv_epi8(UcToVec(aa), UcToVec(bb), UcToVec(mask)));
 }
 
 #  else  // USE_SSE2, !USE_AVX2
@@ -1141,133 +1197,190 @@ typedef short VecI16 __attribute__ ((vector_size (16)));
 typedef int8_t VecI8 __attribute__ ((vector_size (16)));
 typedef unsigned char VecUc __attribute__ ((vector_size (16)));
 
+HEADER_INLINE VecW VecToW(__m128i vv) {
+  return R_CAST(VecW, vv);
+}
+
+HEADER_INLINE VecU32 VecToU32(__m128i vv) {
+  return R_CAST(VecU32, vv);
+}
+
+HEADER_INLINE VecI32 VecToI32(__m128i vv) {
+  return R_CAST(VecI32, vv);
+}
+
+HEADER_INLINE VecU16 VecToU16(__m128i vv) {
+  return R_CAST(VecU16, vv);
+}
+
+HEADER_INLINE VecI16 VecToI16(__m128i vv) {
+  return R_CAST(VecI16, vv);
+}
+
+HEADER_INLINE VecUc VecToUc(__m128i vv) {
+  return R_CAST(VecUc, vv);
+}
+
+HEADER_INLINE VecI8 VecToI8(__m128i vv) {
+  return R_CAST(VecI8, vv);
+}
+
+HEADER_INLINE __m128i WToVec(VecW vv) {
+  return R_CAST(__m128i, vv);
+}
+
+HEADER_INLINE __m128i U32ToVec(VecU32 vv) {
+  return R_CAST(__m128i, vv);
+}
+
+HEADER_INLINE __m128i I32ToVec(VecI32 vv) {
+  return R_CAST(__m128i, vv);
+}
+
+HEADER_INLINE __m128i U16ToVec(VecU16 vv) {
+  return R_CAST(__m128i, vv);
+}
+
+HEADER_INLINE __m128i I16ToVec(VecI16 vv) {
+  return R_CAST(__m128i, vv);
+}
+
+HEADER_INLINE __m128i UcToVec(VecUc vv) {
+  return R_CAST(__m128i, vv);
+}
+
+HEADER_INLINE __m128i I8ToVec(VecI8 vv) {
+  return R_CAST(__m128i, vv);
+}
+
 #    define VCONST_W(xx) {xx, xx}
 #    define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
 #    define VCONST_C(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
 #    define VCONST_UC VCONST_C
 
 HEADER_INLINE VecW vecw_setzero() {
-  return R_CAST(VecW, _mm_setzero_si128());
+  return VecToW(_mm_setzero_si128());
 }
 
 HEADER_INLINE VecU32 vecu32_setzero() {
-  return R_CAST(VecU32, _mm_setzero_si128());
+  return VecToU32(_mm_setzero_si128());
 }
 
 HEADER_INLINE VecU16 vecu16_setzero() {
-  return R_CAST(VecU16, _mm_setzero_si128());
+  return VecToU16(_mm_setzero_si128());
 }
 
 HEADER_INLINE VecI16 veci16_setzero() {
-  return R_CAST(VecI16, _mm_setzero_si128());
+  return VecToI16(_mm_setzero_si128());
 }
 
 HEADER_INLINE VecUc vecuc_setzero() {
-  return R_CAST(VecUc, _mm_setzero_si128());
+  return VecToUc(_mm_setzero_si128());
 }
 
 HEADER_INLINE VecI8 veci8_setzero() {
-  return R_CAST(VecI8, _mm_setzero_si128());
+  return VecToI8(_mm_setzero_si128());
 }
 
-#    define vecw_srli(vv, ct) R_CAST(VecW, _mm_srli_epi64(R_CAST(__m128i, vv), ct))
+// simde is incompatible with defining these as inline functions
+#    define vecw_srli(vv, ct) VecToW(_mm_srli_epi64(WToVec(vv), ct))
 
-#    define vecw_slli(vv, ct) R_CAST(VecW, _mm_slli_epi64(R_CAST(__m128i, vv), ct))
+#    define vecw_slli(vv, ct) VecToW(_mm_slli_epi64(WToVec(vv), ct))
 
-#    define vecu32_srli(vv, ct) R_CAST(VecU32, _mm_srli_epi32(R_CAST(__m128i, vv), ct))
+#    define vecu32_srli(vv, ct) VecToU32(_mm_srli_epi32(U32ToVec(vv), ct))
 
-#    define vecu32_slli(vv, ct) R_CAST(VecU32, _mm_slli_epi32(R_CAST(__m128i, vv), ct))
+#    define vecu32_slli(vv, ct) VecToU32(_mm_slli_epi32(U32ToVec(vv), ct))
 
-#    define vecu16_srli(vv, ct) R_CAST(VecU16, _mm_srli_epi16(R_CAST(__m128i, vv), ct))
+#    define vecu16_srli(vv, ct) VecToU16(_mm_srli_epi16(U16ToVec(vv), ct))
 
-#    define vecu16_slli(vv, ct) R_CAST(VecU16, _mm_slli_epi16(R_CAST(__m128i, vv), ct))
+#    define vecu16_slli(vv, ct) VecToU16(_mm_slli_epi16(U16ToVec(vv), ct))
 
 HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
-  return R_CAST(VecW, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
+  return VecToW(_mm_andnot_si128(WToVec(excl), WToVec(main)));
 }
 
 HEADER_INLINE VecU32 vecu32_and_notfirst(VecU32 excl, VecU32 main) {
-  return R_CAST(VecU32, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
+  return VecToU32(_mm_andnot_si128(U32ToVec(excl), U32ToVec(main)));
 }
 
 HEADER_INLINE VecI32 veci32_and_notfirst(VecI32 excl, VecI32 main) {
-  return R_CAST(VecI32, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
+  return VecToI32(_mm_andnot_si128(I32ToVec(excl), I32ToVec(main)));
 }
 
 HEADER_INLINE VecU16 vecu16_and_notfirst(VecU16 excl, VecU16 main) {
-  return R_CAST(VecU16, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
+  return VecToU16(_mm_andnot_si128(U16ToVec(excl), U16ToVec(main)));
 }
 
 HEADER_INLINE VecI16 veci16_and_notfirst(VecI16 excl, VecI16 main) {
-  return R_CAST(VecI16, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
+  return VecToI16(_mm_andnot_si128(I16ToVec(excl), I16ToVec(main)));
 }
 
 HEADER_INLINE VecUc vecuc_and_notfirst(VecUc excl, VecUc main) {
-  return R_CAST(VecUc, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
+  return VecToUc(_mm_andnot_si128(UcToVec(excl), UcToVec(main)));
 }
 
 HEADER_INLINE VecI8 veci8_and_notfirst(VecI8 excl, VecI8 main) {
-  return R_CAST(VecI8, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
+  return VecToI8(_mm_andnot_si128(I8ToVec(excl), I8ToVec(main)));
 }
 
 HEADER_INLINE VecW vecw_set1(uintptr_t ulii) {
-  return R_CAST(VecW, _mm_set1_epi64x(ulii));
+  return VecToW(_mm_set1_epi64x(ulii));
 }
 
 HEADER_INLINE VecU32 vecu32_set1(uint32_t uii) {
-  return R_CAST(VecU32, _mm_set1_epi32(uii));
+  return VecToU32(_mm_set1_epi32(uii));
 }
 
 HEADER_INLINE VecI32 veci32_set1(int32_t ii) {
-  return R_CAST(VecI32, _mm_set1_epi32(ii));
+  return VecToI32(_mm_set1_epi32(ii));
 }
 
 HEADER_INLINE VecU16 vecu16_set1(unsigned short usi) {
-  return R_CAST(VecU16, _mm_set1_epi16(usi));
+  return VecToU16(_mm_set1_epi16(usi));
 }
 
 HEADER_INLINE VecI16 veci16_set1(short si) {
-  return R_CAST(VecI16, _mm_set1_epi16(si));
+  return VecToI16(_mm_set1_epi16(si));
 }
 
 HEADER_INLINE VecUc vecuc_set1_epi16(unsigned short usi) {
-  return R_CAST(VecUc, _mm_set1_epi16(usi));
+  return VecToUc(_mm_set1_epi16(usi));
 }
 
 HEADER_INLINE VecUc vecuc_set1(unsigned char ucc) {
-  return R_CAST(VecUc, _mm_set1_epi8(ucc));
+  return VecToUc(_mm_set1_epi8(ucc));
 }
 
 HEADER_INLINE VecI8 veci8_set1(char cc) {
-  return R_CAST(VecI8, _mm_set1_epi8(cc));
+  return VecToI8(_mm_set1_epi8(cc));
 }
 
 HEADER_INLINE uint32_t vecw_movemask(VecW vv) {
-  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+  return _mm_movemask_epi8(WToVec(vv));
 }
 
 HEADER_INLINE uint32_t vecu32_movemask(VecU32 vv) {
-  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+  return _mm_movemask_epi8(U32ToVec(vv));
 }
 
 HEADER_INLINE uint32_t veci32_movemask(VecI32 vv) {
-  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+  return _mm_movemask_epi8(I32ToVec(vv));
 }
 
 HEADER_INLINE uint32_t vecu16_movemask(VecU16 vv) {
-  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+  return _mm_movemask_epi8(U16ToVec(vv));
 }
 
 HEADER_INLINE uint32_t veci16_movemask(VecI16 vv) {
-  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+  return _mm_movemask_epi8(I16ToVec(vv));
 }
 
 HEADER_INLINE uint32_t veci8_movemask(VecI8 vv) {
-  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+  return _mm_movemask_epi8(I8ToVec(vv));
 }
 
 HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
-  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+  return _mm_movemask_epi8(UcToVec(vv));
 }
 
 CONSTI32(kVec8thUintMax, 65535);
@@ -1279,72 +1392,72 @@ typedef uint16_t Vec8thUint;
 typedef uint32_t Vec4thUint;
 
 HEADER_INLINE VecW vecw_load(const void* mem_addr) {
-  return R_CAST(VecW, _mm_load_si128(S_CAST(const __m128i*, mem_addr)));
+  return VecToW(_mm_load_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
 HEADER_INLINE VecW vecw_loadu(const void* mem_addr) {
-  return R_CAST(VecW, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+  return VecToW(_mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
 HEADER_INLINE VecU32 vecu32_loadu(const void* mem_addr) {
-  return R_CAST(VecU32, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+  return VecToU32(_mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
 HEADER_INLINE VecI32 veci32_loadu(const void* mem_addr) {
-  return R_CAST(VecI32, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+  return VecToI32(_mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
 HEADER_INLINE VecU16 vecu16_loadu(const void* mem_addr) {
-  return R_CAST(VecU16, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+  return VecToU16(_mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
 HEADER_INLINE VecI16 veci16_loadu(const void* mem_addr) {
-  return R_CAST(VecI16, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+  return VecToI16(_mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
 HEADER_INLINE VecUc vecuc_loadu(const void* mem_addr) {
-  return R_CAST(VecUc, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+  return VecToUc(_mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
 HEADER_INLINE VecI8 veci8_loadu(const void* mem_addr) {
-  return R_CAST(VecI8, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+  return VecToI8(_mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
 HEADER_INLINE void vecw_storeu(void* mem_addr, VecW vv) {
-  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
+  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), WToVec(vv));
 }
 
 HEADER_INLINE void vecu32_storeu(void* mem_addr, VecU32 vv) {
-  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
+  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), U32ToVec(vv));
 }
 
 HEADER_INLINE void veci32_storeu(void* mem_addr, VecI32 vv) {
-  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
+  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), I32ToVec(vv));
 }
 
 HEADER_INLINE void vecu16_storeu(void* mem_addr, VecU16 vv) {
-  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
+  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), U16ToVec(vv));
 }
 
 HEADER_INLINE void veci16_storeu(void* mem_addr, VecI16 vv) {
-  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
+  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), I16ToVec(vv));
 }
 
 HEADER_INLINE void vecuc_storeu(void* mem_addr, VecUc vv) {
-  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
+  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), UcToVec(vv));
 }
 
 // Repeats arguments in AVX2 case.
 HEADER_INLINE VecW vecw_setr8(char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
-  return R_CAST(VecW, _mm_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
+  return VecToW(_mm_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
 HEADER_INLINE VecU16 vecu16_setr8(char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
-  return R_CAST(VecU16, _mm_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
+  return VecToU16(_mm_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
 HEADER_INLINE VecUc vecuc_setr8(char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
-  return R_CAST(VecUc, _mm_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
+  return VecToUc(_mm_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
 // Discards last 16 arguments in SSE2/SSE4.2 case.
@@ -1361,7 +1474,7 @@ HEADER_INLINE VecW vecw_setr8x(
     __maybe_unused char e5, __maybe_unused char e4,
     __maybe_unused char e3, __maybe_unused char e2,
     __maybe_unused char e1, __maybe_unused char e0) {
-  return R_CAST(VecW, _mm_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16));
+  return VecToW(_mm_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16));
 }
 
 HEADER_INLINE VecUc vecuc_setr8x(
@@ -1377,55 +1490,55 @@ HEADER_INLINE VecUc vecuc_setr8x(
     __maybe_unused char e5, __maybe_unused char e4,
     __maybe_unused char e3, __maybe_unused char e2,
     __maybe_unused char e1, __maybe_unused char e0) {
-  return R_CAST(VecUc, _mm_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16));
+  return VecToUc(_mm_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16));
 }
 
 HEADER_INLINE VecW vecw_unpacklo8(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm_unpacklo_epi8(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+  return VecToW(_mm_unpacklo_epi8(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_unpackhi8(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm_unpackhi_epi8(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+  return VecToW(_mm_unpackhi_epi8(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecI8 veci8_unpacklo8(VecI8 evens, VecI8 odds) {
-  return R_CAST(VecI8, _mm_unpacklo_epi8(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+  return VecToI8(_mm_unpacklo_epi8(I8ToVec(evens), I8ToVec(odds)));
 }
 
 HEADER_INLINE VecI8 veci8_unpackhi8(VecI8 evens, VecI8 odds) {
-  return R_CAST(VecI8, _mm_unpackhi_epi8(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+  return VecToI8(_mm_unpackhi_epi8(I8ToVec(evens), I8ToVec(odds)));
 }
 
 HEADER_INLINE VecUc vecuc_unpacklo8(VecUc evens, VecUc odds) {
-  return R_CAST(VecUc, _mm_unpacklo_epi8(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+  return VecToUc(_mm_unpacklo_epi8(UcToVec(evens), UcToVec(odds)));
 }
 
 HEADER_INLINE VecUc vecuc_unpackhi8(VecUc evens, VecUc odds) {
-  return R_CAST(VecUc, _mm_unpackhi_epi8(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+  return VecToUc(_mm_unpackhi_epi8(UcToVec(evens), UcToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_unpacklo16(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm_unpacklo_epi16(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+  return VecToW(_mm_unpacklo_epi16(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_unpackhi16(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm_unpackhi_epi16(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+  return VecToW(_mm_unpackhi_epi16(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_unpacklo32(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm_unpacklo_epi32(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+  return VecToW(_mm_unpacklo_epi32(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_unpackhi32(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm_unpackhi_epi32(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+  return VecToW(_mm_unpackhi_epi32(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_unpacklo64(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm_unpacklo_epi64(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+  return VecToW(_mm_unpacklo_epi64(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_unpackhi64(VecW evens, VecW odds) {
-  return R_CAST(VecW, _mm_unpackhi_epi64(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+  return VecToW(_mm_unpackhi_epi64(WToVec(evens), WToVec(odds)));
 }
 
 HEADER_INLINE VecW vecw_permute0xd8_if_avx2(VecW vv) {
@@ -1441,64 +1554,64 @@ HEADER_INLINE VecUc vecuc_permute0xd8_if_avx2(VecUc vv) {
 }
 
 HEADER_INLINE VecW vecw_gather_even(VecW src_lo, VecW src_hi, VecW m8) {
-  return R_CAST(VecW, _mm_packus_epi16(R_CAST(__m128i, src_lo & m8), R_CAST(__m128i, src_hi & m8)));
+  return VecToW(_mm_packus_epi16(WToVec(src_lo & m8), WToVec(src_hi & m8)));
 }
 
 HEADER_INLINE VecUc vecuc_gather_even(VecUc src_lo, VecUc src_hi, VecUc m8) {
-  return R_CAST(VecUc, _mm_packus_epi16(R_CAST(__m128i, src_lo & m8), R_CAST(__m128i, src_hi & m8)));
+  return VecToUc(_mm_packus_epi16(UcToVec(src_lo & m8), UcToVec(src_hi & m8)));
 }
 
 HEADER_INLINE VecUc vecuc_gather_odd(VecUc src_lo, VecUc src_hi) {
-  return R_CAST(VecUc, _mm_packus_epi16(_mm_srli_epi16(R_CAST(__m128i, src_lo), 8), _mm_srli_epi16(R_CAST(__m128i, src_hi), 8)));
+  return VecToUc(_mm_packus_epi16(_mm_srli_epi16(UcToVec(src_lo), 8), _mm_srli_epi16(UcToVec(src_hi), 8)));
 }
 
 #    ifdef USE_SSE42
 HEADER_INLINE VecI32 veci32_max(VecI32 v1, VecI32 v2) {
-  return R_CAST(VecI32, _mm_max_epi32(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+  return VecToI32(_mm_max_epi32(I32ToVec(v1), I32ToVec(v2)));
 }
 
 HEADER_INLINE VecW vecw_shuffle8(VecW table, VecW indexes) {
-  return R_CAST(VecW, _mm_shuffle_epi8(R_CAST(__m128i, table), R_CAST(__m128i, indexes)));
+  return VecToW(_mm_shuffle_epi8(WToVec(table), WToVec(indexes)));
 }
 
 HEADER_INLINE VecU16 vecu16_shuffle8(VecU16 table, VecU16 indexes) {
-  return R_CAST(VecU16, _mm_shuffle_epi8(R_CAST(__m128i, table), R_CAST(__m128i, indexes)));
+  return VecToU16(_mm_shuffle_epi8(U16ToVec(table), U16ToVec(indexes)));
 }
 
 HEADER_INLINE VecUc vecuc_shuffle8(VecUc table, VecUc indexes) {
-  return R_CAST(VecUc, _mm_shuffle_epi8(R_CAST(__m128i, table), R_CAST(__m128i, indexes)));
+  return VecToUc(_mm_shuffle_epi8(UcToVec(table), UcToVec(indexes)));
 }
 
 HEADER_INLINE uintptr_t vecw_extract64_0(VecW vv) {
-  return _mm_extract_epi64(R_CAST(__m128i, vv), 0);
+  return _mm_extract_epi64(WToVec(vv), 0);
 }
 
 HEADER_INLINE uintptr_t vecw_extract64_1(VecW vv) {
-  return _mm_extract_epi64(R_CAST(__m128i, vv), 1);
+  return _mm_extract_epi64(WToVec(vv), 1);
 }
 
 HEADER_INLINE VecW vecw_blendv(VecW aa, VecW bb, VecW mask) {
-  return R_CAST(VecW, _mm_blendv_epi8(R_CAST(__m128i, aa), R_CAST(__m128i, bb), R_CAST(__m128i, mask)));
+  return VecToW(_mm_blendv_epi8(WToVec(aa), WToVec(bb), WToVec(mask)));
 }
 
 HEADER_INLINE VecU32 vecu32_blendv(VecU32 aa, VecU32 bb, VecU32 mask) {
-  return R_CAST(VecU32, _mm_blendv_epi8(R_CAST(__m128i, aa), R_CAST(__m128i, bb), R_CAST(__m128i, mask)));
+  return VecToU32(_mm_blendv_epi8(U32ToVec(aa), U32ToVec(bb), U32ToVec(mask)));
 }
 
 HEADER_INLINE VecU16 vecu16_blendv(VecU16 aa, VecU16 bb, VecU16 mask) {
-  return R_CAST(VecU16, _mm_blendv_epi8(R_CAST(__m128i, aa), R_CAST(__m128i, bb), R_CAST(__m128i, mask)));
+  return VecToU16(_mm_blendv_epi8(U16ToVec(aa), U16ToVec(bb), U16ToVec(mask)));
 }
 
 HEADER_INLINE VecUc vecuc_blendv(VecUc aa, VecUc bb, VecUc mask) {
-  return R_CAST(VecUc, _mm_blendv_epi8(R_CAST(__m128i, aa), R_CAST(__m128i, bb), R_CAST(__m128i, mask)));
+  return VecToUc(_mm_blendv_epi8(UcToVec(aa), UcToVec(bb), UcToVec(mask)));
 }
 #    else // USE_SSE2, !USE_SSE42
 HEADER_INLINE uintptr_t vecw_extract64_0(VecW vv) {
-  return R_CAST(uintptr_t, _mm_movepi64_pi64(R_CAST(__m128i, vv)));
+  return R_CAST(uintptr_t, _mm_movepi64_pi64(WToVec(vv)));
 }
 
 HEADER_INLINE uintptr_t vecw_extract64_1(VecW vv) {
-  const __m128i v0 = _mm_srli_si128(R_CAST(__m128i, vv), 8);
+  const __m128i v0 = _mm_srli_si128(WToVec(vv), 8);
   return R_CAST(uintptr_t, _mm_movepi64_pi64(v0));
 }
 
@@ -1522,23 +1635,23 @@ HEADER_INLINE VecUc vecuc_blendv(VecUc aa, VecUc bb, VecUc mask) {
 #    endif
 
 HEADER_INLINE VecI16 veci16_max(VecI16 v1, VecI16 v2) {
-  return R_CAST(VecI16, _mm_max_epi16(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+  return VecToI16(_mm_max_epi16(I16ToVec(v1), I16ToVec(v2)));
 }
 
 HEADER_INLINE VecW vecw_sad(VecW v1, VecW v2) {
-  return R_CAST(VecW, _mm_sad_epu8(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+  return VecToW(_mm_sad_epu8(WToVec(v1), WToVec(v2)));
 }
 
 HEADER_INLINE VecUc vecuc_adds(VecUc v1, VecUc v2) {
-  return R_CAST(VecUc, _mm_adds_epu8(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+  return VecToUc(_mm_adds_epu8(UcToVec(v1), UcToVec(v2)));
 }
 
 HEADER_INLINE VecU16 vecu16_min8(VecU16 v1, VecU16 v2) {
-  return R_CAST(VecU16, _mm_min_epu8(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+  return VecToU16(_mm_min_epu8(U16ToVec(v1), U16ToVec(v2)));
 }
 
 HEADER_INLINE VecUc vecuc_min(VecUc v1, VecUc v2) {
-  return R_CAST(VecUc, _mm_min_epu8(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+  return VecToUc(_mm_min_epu8(UcToVec(v1), UcToVec(v2)));
 }
 #  endif  // USE_SSE2, !USE_AVX2
 
@@ -1589,6 +1702,18 @@ HEADER_INLINE VecD vecd_setzero() {
 }
 
 #  endif  // !FVEC_32
+
+HEADER_INLINE VecUc VecWToUc(VecW vv) {
+  return R_CAST(VecUc, vv);
+}
+
+HEADER_INLINE VecW VecU16ToW(VecU16 vv) {
+  return R_CAST(VecW, vv);
+}
+
+HEADER_INLINE VecW VecUcToW(VecUc vv) {
+  return R_CAST(VecW, vv);
+}
 
 #else  // !USE_SSE2
 #  ifdef __LP64__
@@ -1923,12 +2048,32 @@ HEADER_INLINE Halfword PackWordToHalfwordMaskAAAA(uintptr_t ww) {
   return _pext_u64(ww, kMaskAAAA);
 }
 
+HEADER_INLINE uintptr_t PackTwo5555Mask(uintptr_t lo, uintptr_t hi) {
+  const Halfword lo_packed = PackWordToHalfwordMask5555(lo);
+  const uintptr_t hi_packed = _pext_u64(hi, kMask5555);
+  return lo_packed | (hi_packed << kBitsPerWordD2);
+}
+
 HEADER_INLINE Vec8thUint PackVec4thUintTo8th(Vec4thUint ww) {
   return _pext_u64(ww, kMask5555);
 }
 
 HEADER_INLINE Vec16thUint PackVec8thUintTo16th(Vec8thUint ww) {
   return _pext_u64(ww, kMask5555);
+}
+
+HEADER_INLINE Halfword Pack3333(uintptr_t ww) {
+  return _pext_u64(ww, kMask3333);
+}
+
+HEADER_INLINE Halfword Pack3333Mask(uintptr_t ww) {
+  return _pext_u64(ww, kMask3333);
+}
+
+HEADER_INLINE uintptr_t PackTwo3333Mask(uintptr_t lo, uintptr_t hi) {
+  const Halfword lo_packed = Pack3333Mask(lo);
+  const uintptr_t hi_packed = _pext_u64(hi, kMask3333);
+  return lo_packed | (hi_packed << kBitsPerWordD2);
 }
 
 HEADER_INLINE uintptr_t Unpack0F0F(uintptr_t hw) {
@@ -1941,6 +2086,16 @@ HEADER_INLINE Halfword Pack0F0F(uintptr_t ww) {
 
 HEADER_INLINE Halfword Pack0F0FMask(uintptr_t ww) {
   return _pext_u64(ww, kMask0F0F);
+}
+
+HEADER_INLINE uintptr_t PackTwo0F0F(uintptr_t lo, uintptr_t hi) {
+  const Halfword lo_packed = _pext_u64(lo, kMask0F0F);
+  const uintptr_t hi_packed = _pext_u64(hi, kMask0F0F);
+  return lo_packed | (hi_packed << kBitsPerWordD2);
+}
+
+HEADER_INLINE uintptr_t PackTwo0F0FMask(uintptr_t lo, uintptr_t hi) {
+  return PackTwo0F0F(lo, hi);
 }
 
 HEADER_INLINE uintptr_t Unpack0303(uintptr_t qw) {
@@ -2010,6 +2165,48 @@ HEADER_INLINE Halfword PackWordToHalfwordMaskAAAA(uintptr_t ww) {
   return PackWordToHalfword((ww >> 1) & kMask5555);
 }
 
+HEADER_INLINE uintptr_t PackTwo5555Mask(uintptr_t lo, uintptr_t hi) {
+  const Halfword lo_packed = PackWordToHalfwordMask5555(lo);
+
+  // Avoid Halfword cast here.
+  hi = hi & kMask5555;
+  hi = (hi | (hi >> 1)) & kMask3333;
+  hi = (hi | (hi >> 2)) & kMask0F0F;
+  hi = (hi | (hi >> 4)) & kMask00FF;
+#  ifdef __LP64__
+  hi = (hi | (hi >> 8)) & kMask0000FFFF;
+#  endif
+  const uintptr_t hi_packed = hi | (hi >> kBitsPerWordD4);
+  return lo_packed | (hi_packed << kBitsPerWordD2);
+}
+
+HEADER_INLINE Halfword Pack3333(uintptr_t ww) {
+  ww = (ww | (ww >> 2)) & kMask0F0F;
+  ww = (ww | (ww >> 4)) & kMask00FF;
+#  ifdef __LP64__
+  ww = (ww | (ww >> 8)) & kMask0000FFFF;
+#  endif
+  return S_CAST(Halfword, ww | (ww >> kBitsPerWordD4));
+}
+
+HEADER_INLINE Halfword Pack3333Mask(uintptr_t ww) {
+  return Pack3333(ww & kMask3333);
+}
+
+HEADER_INLINE uintptr_t PackTwo3333Mask(uintptr_t lo, uintptr_t hi) {
+  const Halfword lo_packed = Pack3333Mask(lo);
+
+  // Avoid Halfword cast here.
+  hi = hi & kMask3333;
+  hi = (hi | (hi >> 2)) & kMask0F0F;
+  hi = (hi | (hi >> 4)) & kMask00FF;
+#  ifdef __LP64__
+  hi = (hi | (hi >> 8)) & kMask0000FFFF;
+#  endif
+  const uintptr_t hi_packed = hi | (hi >> kBitsPerWordD4);
+  return lo_packed | (hi_packed << kBitsPerWordD2);
+}
+
 HEADER_INLINE uintptr_t Unpack0F0F(uintptr_t hw) {
 #  ifdef __LP64__
   hw = (hw | (hw << 16)) & kMask0000FFFF;
@@ -2029,6 +2226,32 @@ HEADER_INLINE Halfword Pack0F0F(uintptr_t ww) {
 HEADER_INLINE Halfword Pack0F0FMask(uintptr_t ww) {
   return Pack0F0F(ww & kMask0F0F);
 }
+
+HEADER_INLINE uintptr_t PackTwo0F0F(uintptr_t lo, uintptr_t hi) {
+  const Halfword lo_packed = Pack0F0F(lo);
+
+  // Avoid Halfword cast here.
+  hi = (hi | (hi >> 4)) & kMask00FF;
+#  ifdef __LP64__
+  hi = (hi | (hi >> 8)) & kMask0000FFFF;
+#  endif
+  const uintptr_t hi_packed = hi | (hi >> kBitsPerWordD4);
+  return lo_packed | (hi_packed << kBitsPerWordD2);
+}
+
+HEADER_INLINE uintptr_t PackTwo0F0FMask(uintptr_t lo, uintptr_t hi) {
+  const Halfword lo_packed = Pack0F0FMask(lo);
+
+  // Avoid Halfword cast here.
+  hi = hi & kMask0F0F;
+  hi = (hi | (hi >> 4)) & kMask00FF;
+#  ifdef __LP64__
+  hi = (hi | (hi >> 8)) & kMask0000FFFF;
+#  endif
+  const uintptr_t hi_packed = hi | (hi >> kBitsPerWordD4);
+  return lo_packed | (hi_packed << kBitsPerWordD2);
+}
+
 
 HEADER_INLINE uintptr_t Unpack0303(uintptr_t qw) {
   // ................................................fedcba9876543210
@@ -2461,6 +2684,20 @@ HEADER_INLINE uintptr_t* DowncastVecWToW(VecW* pp) {
 
 HEADER_INLINE uint32_t* DowncastVecWToU32(VecW* pp) {
   return R_CAST(uint32_t*, pp);
+}
+
+HEADER_INLINE Halfword* DowncastWToHW(uintptr_t* pp) {
+  return R_CAST(Halfword*, pp);
+}
+
+#ifdef USE_SSE2
+HEADER_INLINE Vec8thUint* DowncastWToV8(uintptr_t* pp) {
+  return R_CAST(Vec8thUint*, pp);
+}
+#endif
+
+HEADER_INLINE const Halfword* DowncastKWToHW(const uintptr_t* pp) {
+  return R_CAST(const Halfword*, pp);
 }
 
 HEADER_INLINE const uint32_t* DowncastKWToU32(const uintptr_t* pp) {

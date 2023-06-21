@@ -81,7 +81,7 @@ void CopyNyparrNonemptySubset(const uintptr_t* __restrict raw_nyparr, const uint
 void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genoarr, uintptr_t match_word, uint32_t write_bit_idx_start, uint32_t bit_ct, void* __restrict output) {
   const uint32_t bit_idx_end = bit_ct + write_bit_idx_start;
   const uint32_t bit_idx_end_lowbits = bit_idx_end % kBitsPerWord;
-  const Halfword* raw_bitarr_alias = R_CAST(const Halfword*, raw_bitarr);
+  const Halfword* raw_bitarr_alias = DowncastKWToHW(raw_bitarr);
   unsigned char* output_biter = S_CAST(unsigned char*, output);
   unsigned char* output_last = &(output_biter[(bit_idx_end / kBitsPerWord) * kBytesPerWord]);
   uintptr_t cur_output_word = 0;
@@ -280,7 +280,7 @@ void CopyNyparrNonemptySubset(const uintptr_t* __restrict raw_nyparr, const uint
 void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uintptr_t match_word, uint32_t write_bit_idx_start, uint32_t bit_ct, void* __restrict output) {
   const uint32_t bit_idx_end = write_bit_idx_start + bit_ct;
   const uint32_t bit_idx_end_lowbits = bit_idx_end % kBitsPerWord;
-  const Halfword* raw_bitarr_alias = R_CAST(const Halfword*, raw_bitarr);
+  const Halfword* raw_bitarr_alias = DowncastKWToHW(raw_bitarr);
   unsigned char* output_biter = S_CAST(unsigned char*, output);
   unsigned char* output_last = &(output_biter[(bit_idx_end / kBitsPerWord) * kBytesPerWord]);
   uintptr_t cur_output_word = 0;
@@ -313,7 +313,7 @@ void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t
 }
 
 void ExpandBytearrFromGenoarr(const void* __restrict compact_bitarr, const uintptr_t* __restrict genoarr, uintptr_t match_word, uint32_t genoword_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
-  Halfword* target_alias = R_CAST(Halfword*, target);
+  Halfword* target_alias = DowncastWToHW(target);
   ZeroHwArr(RoundUpPow2(genoword_ct, 2), target_alias);
   const unsigned char* compact_bitarr_alias = S_CAST(const unsigned char*, compact_bitarr);
   const uint32_t expand_sizex_m1 = expand_size + read_start_bit - 1;
@@ -619,7 +619,7 @@ void Count3FreqVec6(const void* genoarr, uint32_t vec_ct, uint32_t* __restrict e
 }
 
 void FillInterleavedMaskVec(const uintptr_t* __restrict subset_mask, uint32_t base_vec_ct, uintptr_t* interleaved_mask_vec) {
-#ifdef __LP64__
+#ifdef USE_SSE2
   // This is a cousin of github.com/KWillets/simd_interleave , which was
   // written in response to
   //   https://lemire.me/blog/2018/01/09/how-fast-can-you-bit-interleave-32-bit-integers-simd-edition/
@@ -660,11 +660,11 @@ void FillInterleavedMaskVec(const uintptr_t* __restrict subset_mask, uint32_t ba
 #  endif
     interleaved_mask_valias[vidx] = vec_lo | vec_hi;
   }
-#else  // !__LP64__
+#else  // !USE_SSE2
   for (uint32_t widx = 0; widx != base_vec_ct; ++widx) {
     const uintptr_t orig_word = subset_mask[widx];
-    uintptr_t ww_even = S_CAST(uint16_t, orig_word);
-    uintptr_t ww_odd = orig_word >> 16;
+    uintptr_t ww_even = S_CAST(Halfword, orig_word);
+    uintptr_t ww_odd = orig_word >> kBitsPerWordD2;
     ww_even = UnpackHalfwordToWord(ww_even);
     ww_odd = UnpackHalfwordToWord(ww_odd);
     interleaved_mask_vec[widx] = ww_even | (ww_odd << 1);
@@ -845,7 +845,7 @@ void GenoarrCountSubsetFreqs(const uintptr_t* __restrict genoarr, const uintptr_
   uint32_t even_ct;
   uint32_t odd_ct;
   uint32_t bothset_ct;
-#ifdef __LP64__
+#ifdef USE_SSE2
   uint32_t vec_idx = raw_sample_ctv2 - (raw_sample_ctv2 % 6);
   CountSubset3FreqVec6(genoarr, R_CAST(const VecW*, sample_include_interleaved_vec), vec_idx, &even_ct, &odd_ct, &bothset_ct);
   const uintptr_t* genoarr_iter = &(genoarr[kWordsPerVec * vec_idx]);
@@ -920,7 +920,7 @@ void GenoarrCountSubsetFreqs(const uintptr_t* __restrict genoarr, const uintptr_
 #    endif
   }
 #  endif  // not USE_AVX2
-#else  // not __LP64__
+#else  // not USE_SSE2
   uint32_t word_idx = raw_sample_ctv2 - (raw_sample_ctv2 % 6);
   CountSubset3FreqVec6(genoarr, R_CAST(const VecW*, sample_include_interleaved_vec), word_idx, &even_ct, &odd_ct, &bothset_ct);
   const uintptr_t* interleaved_mask_iter = &(sample_include_interleaved_vec[word_idx / 2]);
@@ -1110,11 +1110,8 @@ void DifflistCountSubsetFreqs(const uintptr_t* __restrict sample_include, const 
 }
 
 
+#ifdef USE_SSE2
 static_assert(kPglNypTransposeBatch == S_CAST(uint32_t, kNypsPerCacheline), "TransposeNypblock64() needs to be updated.");
-#ifdef __LP64__
-#  ifndef USE_SSE2
-#    error "Non-vectorized TransposeNypblock64() not implemented yet."
-#  endif
 void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
   // buf0 and buf1 must each be vector-aligned and have size 16k
   // Tried using previous AVX2 small-buffer approach, but that was a bit
@@ -1126,7 +1123,7 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
     // removes the need for the second loop, halving the workspace requirement.
     // Benchmark results of that approach are slightly but consistently worse,
     // though.
-    const uintptr_t* initial_read_iter = R_CAST(const uintptr_t*, read_iter);
+    const uintptr_t* initial_read_iter = read_iter;
     const uintptr_t* initial_read_end = &(initial_read_iter[buf0_row_ct]);
     uintptr_t* initial_target_iter = R_CAST(uintptr_t*, buf0);
     const uint32_t read_batch_rem = kNypsPerCacheline - read_batch_size;
@@ -1285,7 +1282,64 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
     target_iter0[vidx] = vecw_movemask(target_0123);
   }
 }
-#else  // !__LP64__
+#else  // !USE_SSE2
+#  ifdef __LP64__
+static_assert(kWordsPerVec == 1, "TransposeNypblock64() needs to be updated.");
+void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
+  // buf0 and buf1 must each be vector-aligned and have size 16k
+  // defining them as unsigned char* might prevent a strict-aliasing issue?
+  // (might need to go through greater contortions to actually be safe?)
+  const uint32_t buf_row_ct = NypCtToByteCt(write_batch_size);
+  // fold the first 6 shuffles into the initial ingestion loop
+  const unsigned char* initial_read_iter = DowncastKToUc(read_iter);
+  const unsigned char* initial_read_end = &(initial_read_iter[buf_row_ct]);
+  unsigned char* initial_target_iter = buf0;
+  const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
+  const uint32_t read_batch_rem = kNypsPerCacheline - read_batch_size;
+  for (; initial_read_iter != initial_read_end; ++initial_read_iter) {
+    const unsigned char* read_iter_tmp = initial_read_iter;
+    for (uint32_t ujj = 0; ujj != read_batch_size; ++ujj) {
+      *initial_target_iter++ = *read_iter_tmp;
+      read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
+    }
+    initial_target_iter = memsetua(initial_target_iter, 0, read_batch_rem);
+  }
+
+  // second-to-last shuffle, 8 bit spacing -> 4
+  const uintptr_t* source_iter = R_CAST(uintptr_t*, buf0);
+  uintptr_t* target_iter0 = R_CAST(uintptr_t*, buf1);
+  const uint32_t write_word_ct = NypCtToWordCt(read_batch_size);
+  const uint32_t penult_inner_loop_iter_ct = 2 * write_word_ct;
+  const uint32_t cur_write_skip = 2 * kWordsPerCacheline - penult_inner_loop_iter_ct;
+  for (uint32_t uii = 0; uii != buf_row_ct; ++uii) {
+    uintptr_t* target_iter1 = &(target_iter0[kWordsPerCacheline * 2]);
+    for (uint32_t ujj = 0; ujj != penult_inner_loop_iter_ct; ++ujj) {
+      const uintptr_t source_word_lo = *source_iter++;
+      const uintptr_t source_word_hi = *source_iter++;
+      *target_iter0++ = PackTwo0F0FMask(source_word_lo, source_word_hi);
+      *target_iter1++ = PackTwo0F0FMask(source_word_lo >> 4, source_word_hi >> 4);
+    }
+    source_iter = &(source_iter[2 * cur_write_skip]);
+    target_iter0 = &(target_iter1[cur_write_skip]);
+  }
+
+  // last shuffle, 4 bit spacing -> 2
+  source_iter = R_CAST(uintptr_t*, buf1);
+  target_iter0 = write_iter;
+  const uint32_t last_loop_iter_ct = DivUp(write_batch_size, 2);
+  for (uint32_t uii = 0; uii != last_loop_iter_ct; ++uii) {
+    uintptr_t* target_iter1 = &(target_iter0[write_ul_stride]);
+    for (uint32_t ujj = 0; ujj != write_word_ct; ++ujj) {
+      const uintptr_t source_word_lo = *source_iter++;
+      const uintptr_t source_word_hi = *source_iter++;
+      target_iter0[ujj] = PackTwo3333Mask(source_word_lo, source_word_hi);
+      target_iter1[ujj] = PackTwo3333Mask(source_word_lo >> 2, source_word_hi >> 2);
+    }
+    source_iter = &(source_iter[2 * (kWordsPerCacheline - write_word_ct)]);
+    target_iter0 = &(target_iter1[write_ul_stride]);
+  }
+}
+#  else
 static_assert(kWordsPerVec == 1, "TransposeNypblock32() needs to be updated.");
 void TransposeNypblock32(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
   // buf0 and buf1 must each be vector-aligned and have size 16k
@@ -1318,20 +1372,8 @@ void TransposeNypblock32(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
     for (uint32_t ujj = 0; ujj != penult_inner_loop_iter_ct; ++ujj) {
       const uintptr_t source_word_lo = *source_iter++;
       const uintptr_t source_word_hi = *source_iter++;
-      uintptr_t target_word0_lo = source_word_lo & kMask0F0F;
-      uintptr_t target_word1_lo = (source_word_lo >> 4) & kMask0F0F;
-      uintptr_t target_word0_hi = source_word_hi & kMask0F0F;
-      uintptr_t target_word1_hi = (source_word_hi >> 4) & kMask0F0F;
-      target_word0_lo = (target_word0_lo | (target_word0_lo >> 4)) & kMask00FF;
-      target_word1_lo = (target_word1_lo | (target_word1_lo >> 4)) & kMask00FF;
-      target_word0_hi = (target_word0_hi | (target_word0_hi >> 4)) & kMask00FF;
-      target_word1_hi = (target_word1_hi | (target_word1_hi >> 4)) & kMask00FF;
-      target_word0_lo = target_word0_lo | (target_word0_lo >> kBitsPerWordD4);
-      target_word1_lo = target_word1_lo | (target_word1_lo >> kBitsPerWordD4);
-      target_word0_hi = target_word0_hi | (target_word0_hi >> kBitsPerWordD4);
-      target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
-      *target_iter0++ = S_CAST(Halfword, target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
-      *target_iter1++ = S_CAST(Halfword, target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
+      *target_iter0++ = PackTwo0F0FMask(source_word_lo, source_word_hi);
+      *target_iter1++ = PackTwo0F0FMask(source_word_lo >> 4, source_word_hi >> 4);
     }
     source_iter = &(source_iter[2 * cur_write_skip]);
     target_iter0 = &(target_iter1[cur_write_skip]);
@@ -1346,30 +1388,15 @@ void TransposeNypblock32(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
     for (uint32_t ujj = 0; ujj != write_word_ct; ++ujj) {
       const uintptr_t source_word_lo = *source_iter++;
       const uintptr_t source_word_hi = *source_iter++;
-      uintptr_t target_word0_lo = source_word_lo & kMask3333;
-      uintptr_t target_word1_lo = (source_word_lo >> 2) & kMask3333;
-      uintptr_t target_word0_hi = source_word_hi & kMask3333;
-      uintptr_t target_word1_hi = (source_word_hi >> 2) & kMask3333;
-      target_word0_lo = (target_word0_lo | (target_word0_lo >> 2)) & kMask0F0F;
-      target_word1_lo = (target_word1_lo | (target_word1_lo >> 2)) & kMask0F0F;
-      target_word0_hi = (target_word0_hi | (target_word0_hi >> 2)) & kMask0F0F;
-      target_word1_hi = (target_word1_hi | (target_word1_hi >> 2)) & kMask0F0F;
-      target_word0_lo = (target_word0_lo | (target_word0_lo >> 4)) & kMask00FF;
-      target_word1_lo = (target_word1_lo | (target_word1_lo >> 4)) & kMask00FF;
-      target_word0_hi = (target_word0_hi | (target_word0_hi >> 4)) & kMask00FF;
-      target_word1_hi = (target_word1_hi | (target_word1_hi >> 4)) & kMask00FF;
-      target_word0_lo = target_word0_lo | (target_word0_lo >> kBitsPerWordD4);
-      target_word1_lo = target_word1_lo | (target_word1_lo >> kBitsPerWordD4);
-      target_word0_hi = target_word0_hi | (target_word0_hi >> kBitsPerWordD4);
-      target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
-      target_iter0[ujj] = S_CAST(Halfword, target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
-      target_iter1[ujj] = S_CAST(Halfword, target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
+      target_iter0[ujj] = PackTwo3333Mask(source_word_lo, source_word_hi);
+      target_iter1[ujj] = PackTwo3333Mask(source_word_lo >> 2, source_word_hi >> 2);
     }
     source_iter = &(source_iter[2 * (kWordsPerCacheline - write_word_ct)]);
     target_iter0 = &(target_iter1[write_ul_stride]);
   }
 }
-#endif  // !__LP64__
+#  endif  // !__LP64__
+#endif  // !USE_SSE2
 
 void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_main) {
   // replace each x with (32768 - x).
@@ -1387,7 +1414,7 @@ void BiallelicDphase16Invert(uint32_t dphase_ct, int16_t* dphase_delta) {
 
 void GenoarrToMissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict missingness) {
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-  Halfword* missingness_alias = R_CAST(Halfword*, missingness);
+  Halfword* missingness_alias = DowncastWToHW(missingness);
   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
     const uintptr_t cur_geno_word = genoarr[widx];
     missingness_alias[widx] = PackWordToHalfwordMask5555(cur_geno_word & (cur_geno_word >> 1));
@@ -1399,7 +1426,7 @@ void GenoarrToMissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sa
 
 void GenoarrToNonmissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict nonmissingness) {
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-  Halfword* nonmissingness_alias = R_CAST(Halfword*, nonmissingness);
+  Halfword* nonmissingness_alias = DowncastWToHW(nonmissingness);
   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
     const uintptr_t cur_geno_word = genoarr[widx];
     nonmissingness_alias[widx] = PackWordToHalfwordMask5555(~(cur_geno_word & (cur_geno_word >> 1)));
@@ -1438,8 +1465,8 @@ void SparseToMissingness(const uintptr_t* __restrict raregeno, const uint32_t* d
 }
 
 void SplitHomRef2hetUnsafeW(const uintptr_t* genoarr, uint32_t inword_ct, uintptr_t* __restrict hom_buf, uintptr_t* __restrict ref2het_buf) {
-  Halfword* hom_alias = R_CAST(Halfword*, hom_buf);
-  Halfword* ref2het_alias = R_CAST(Halfword*, ref2het_buf);
+  Halfword* hom_alias = DowncastWToHW(hom_buf);
+  Halfword* ref2het_alias = DowncastWToHW(ref2het_buf);
   for (uint32_t widx = 0; widx != inword_ct; ++widx) {
     const uintptr_t geno_word = genoarr[widx];
     hom_alias[widx] = PackWordToHalfwordMask5555(~geno_word);
@@ -1789,8 +1816,8 @@ void InitLookup256x4bx4(void* table256x4bx4) {
 void PhaseLookup4b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const void* table56x4bx2, uint32_t sample_ct, void* __restrict result) {
   const uint64_t* table_alias = S_CAST(const uint64_t*, table56x4bx2);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const Halfword* phasepresent_alias = R_CAST(const Halfword*, phasepresent);
-  const Halfword* phaseinfo_alias = R_CAST(const Halfword*, phaseinfo);
+  const Halfword* phasepresent_alias = DowncastKWToHW(phasepresent);
+  const Halfword* phaseinfo_alias = DowncastKWToHW(phaseinfo);
   unsigned char* result_biter = S_CAST(unsigned char*, result);
   uint32_t loop_len = kBitsPerWordD4;
   uintptr_t geno_word = 0;
@@ -1898,8 +1925,8 @@ void InitPhaseLookup4b(void* table56x4bx2) {
 void PhaseLookup8b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const void* table56x8bx2, uint32_t sample_ct, void* __restrict result) {
   const __m128i* table_alias = S_CAST(const __m128i*, table56x8bx2);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const Halfword* phasepresent_alias = R_CAST(const Halfword*, phasepresent);
-  const Halfword* phaseinfo_alias = R_CAST(const Halfword*, phaseinfo);
+  const Halfword* phasepresent_alias = DowncastKWToHW(phasepresent);
+  const Halfword* phaseinfo_alias = DowncastKWToHW(phaseinfo);
   unsigned char* result_biter = S_CAST(unsigned char*, result);
   uint32_t loop_len = kBitsPerWordD4;
   uintptr_t geno_word = 0;
@@ -1923,7 +1950,7 @@ void PhaseLookup8b(const uintptr_t* genoarr, const uintptr_t* phasepresent, cons
     phasepresent_hw_shifted = phasepresent_alias[widx];
     if (!phasepresent_hw_shifted) {
       for (uint32_t uii = 0; uii != loop_len; ++uii) {
-        _mm_storeu_si128(result_biter, table_alias[geno_word & 15]);
+        _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[geno_word & 15]);
         result_biter += 16;
         geno_word >>= 4;
       }
@@ -1933,7 +1960,7 @@ void PhaseLookup8b(const uintptr_t* genoarr, const uintptr_t* phasepresent, cons
       phaseinfo_hw_shifted = phaseinfo_hw_shifted << 1;
       for (uint32_t uii = 0; uii != loop_len; ++uii) {
         const uintptr_t cur_idx = ((geno_word & 15) | (phasepresent_hw_shifted & 48)) ^ (phaseinfo_hw_shifted & 6);
-        _mm_storeu_si128(result_biter, table_alias[cur_idx]);
+        _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[cur_idx]);
         result_biter += 16;
         geno_word >>= 4;
         phasepresent_hw_shifted >>= 2;
@@ -1946,8 +1973,8 @@ void PhaseLookup8b(const uintptr_t* genoarr, const uintptr_t* phasepresent, cons
 void PhaseLookup8b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const void* table56x8bx2, uint32_t sample_ct, void* __restrict result) {
   const uint64_t* table_alias = S_CAST(const uint64_t*, table56x8bx2);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const Halfword* phasepresent_alias = R_CAST(const Halfword*, phasepresent);
-  const Halfword* phaseinfo_alias = R_CAST(const Halfword*, phaseinfo);
+  const Halfword* phasepresent_alias = DowncastKWToHW(phasepresent);
+  const Halfword* phaseinfo_alias = DowncastKWToHW(phaseinfo);
   unsigned char* result_biter = S_CAST(unsigned char*, result);
   uint32_t loop_len = kBitsPerWordD4;
   uintptr_t geno_word = 0;
@@ -2055,9 +2082,9 @@ void InitPhaseLookup8b(void* table56x8bx2) {
 void PhaseXNohhLookup4b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* sex_male, const void* table64x4bx2, uint32_t sample_ct, void* result) {
   const uint64_t* table_alias = S_CAST(const uint64_t*, table64x4bx2);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const Halfword* phasepresent_alias = R_CAST(const Halfword*, phasepresent);
-  const Halfword* phaseinfo_alias = R_CAST(const Halfword*, phaseinfo);
-  const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
+  const Halfword* phasepresent_alias = DowncastKWToHW(phasepresent);
+  const Halfword* phaseinfo_alias = DowncastKWToHW(phaseinfo);
+  const Halfword* sex_male_alias = DowncastKWToHW(sex_male);
   unsigned char* result_biter = S_CAST(unsigned char*, result);
   uint32_t loop_len = kBitsPerWordD4;
   uintptr_t geno_word_xored = 0;
@@ -2149,7 +2176,7 @@ void InitPhaseXNohhLookup4b(void* table64x4bx2) {
 void GenoarrSexLookup4b(const uintptr_t* genoarr, const uintptr_t* sex_male, const void* table64x4bx2, uint32_t sample_ct, void* result) {
   const uint64_t* table_alias = S_CAST(const uint64_t*, table64x4bx2);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
+  const Halfword* sex_male_alias = DowncastKWToHW(sex_male);
   unsigned char* result_biter = S_CAST(unsigned char*, result);
   uint32_t loop_len = kBitsPerWordD4;
   uintptr_t geno_word = 0;
@@ -2230,7 +2257,7 @@ void InitPhaseXNohhLookup8b(void* table64x8bx2) {
 void GenoarrSexLookup8b(const uintptr_t* genoarr, const uintptr_t* sex_male, const void* table64x8bx2, uint32_t sample_ct, void* result) {
   const __m128i* table_alias = S_CAST(const __m128i*, table64x8bx2);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
+  const Halfword* sex_male_alias = DowncastKWToHW(sex_male);
   unsigned char* result_biter = S_CAST(unsigned char*, result);
   uint32_t loop_len = kBitsPerWordD4;
   uintptr_t geno_word = 0;
@@ -2250,7 +2277,7 @@ void GenoarrSexLookup8b(const uintptr_t* genoarr, const uintptr_t* sex_male, con
     male_hw_shifted = sex_male_alias[widx];
     male_hw_shifted <<= 4;
     for (uint32_t uii = 0; uii != loop_len; ++uii) {
-      _mm_storeu_si128(result_biter, table_alias[(geno_word & 15) | (male_hw_shifted & 48)]);
+      _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[(geno_word & 15) | (male_hw_shifted & 48)]);
       result_biter += 16;
       geno_word >>= 4;
       male_hw_shifted >>= 2;
@@ -2261,7 +2288,7 @@ void GenoarrSexLookup8b(const uintptr_t* genoarr, const uintptr_t* sex_male, con
 void GenoarrSexLookup8b(const uintptr_t* genoarr, const uintptr_t* sex_male, const void* table64x8bx2, uint32_t sample_ct, void* result) {
   const uint64_t* table_alias = S_CAST(const uint64_t*, table64x8bx2);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
+  const Halfword* sex_male_alias = DowncastKWToHW(sex_male);
   unsigned char* result_biter = S_CAST(unsigned char*, result);
   uint32_t loop_len = kBitsPerWordD4;
   uintptr_t geno_word = 0;
@@ -2293,8 +2320,8 @@ void GenoarrSexLookup8b(const uintptr_t* genoarr, const uintptr_t* sex_male, con
 void VcfPhaseLookup4b(const uintptr_t* genoarr, const uintptr_t* cur_phased, const uintptr_t* phaseinfo, const void* table246x4bx2, uint32_t sample_ct, void* __restrict result) {
   const uint64_t* table_alias = S_CAST(const uint64_t*, table246x4bx2);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const Halfword* cur_phased_alias = R_CAST(const Halfword*, cur_phased);
-  const Halfword* phaseinfo_alias = R_CAST(const Halfword*, phaseinfo);
+  const Halfword* cur_phased_alias = DowncastKWToHW(cur_phased);
+  const Halfword* phaseinfo_alias = DowncastKWToHW(phaseinfo);
   unsigned char* result_biter = S_CAST(unsigned char*, result);
   uint32_t loop_len = kBitsPerWordD4;
   uintptr_t geno_word = 0;
@@ -2429,8 +2456,8 @@ void InitVcfPhaseLookup4b(void* table246x4bx2) {
 void VcfPhaseLookup2b(const uintptr_t* genoarr, const uintptr_t* cur_phased, const uintptr_t* phaseinfo, const void* table246x2bx2, uint32_t sample_ct, void* __restrict result) {
   const uint32_t* table_alias = S_CAST(const uint32_t*, table246x2bx2);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const Halfword* cur_phased_alias = R_CAST(const Halfword*, cur_phased);
-  const Halfword* phaseinfo_alias = R_CAST(const Halfword*, phaseinfo);
+  const Halfword* cur_phased_alias = DowncastKWToHW(cur_phased);
+  const Halfword* phaseinfo_alias = DowncastKWToHW(phaseinfo);
   unsigned char* result_biter = S_CAST(unsigned char*, result);
   uint32_t loop_len = kBitsPerWordD4;
   uintptr_t geno_word = 0;
@@ -2565,7 +2592,7 @@ void InitVcfPhaseLookup2b(void* table246x2bx2) {
 
 void ClearGenoarrMissing1bit8Unsafe(const uintptr_t* __restrict genoarr, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals) {
   const uint32_t orig_subset_size = *subset_sizep;
-  Halfword* subset_alias = R_CAST(Halfword*, subset);
+  Halfword* subset_alias = DowncastWToHW(subset);
   uint32_t read_idx = 0;
   // deliberate overflow
   for (uint32_t read_widx = UINT32_MAX; ; ) {
@@ -2636,7 +2663,7 @@ void ClearGenoarrMissing1bit8Unsafe(const uintptr_t* __restrict genoarr, uint32_
 
 void ClearGenoarrMissing1bit16Unsafe(const uintptr_t* __restrict genoarr, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals) {
   const uint32_t orig_subset_size = *subset_sizep;
-  Halfword* subset_alias = R_CAST(Halfword*, subset);
+  Halfword* subset_alias = DowncastWToHW(subset);
   uint32_t read_idx = 0;
   // deliberate overflow
   for (uint32_t read_widx = UINT32_MAX; ; ) {

@@ -451,6 +451,9 @@ uint32_t AllBytesAreX(const unsigned char* bytes, unsigned char match, uintptr_t
     }
     return 1;
   }
+#ifdef NO_UNALIGNED
+#  error "Unaligned accesses in AllBytesAreX()."
+#endif
   const uintptr_t* bytes_alias = R_CAST(const uintptr_t*, bytes);
   const uintptr_t word_match = S_CAST(uintptr_t, match) * kMask0101;
   uintptr_t word_ct_m1 = (byte_ct - 1) / kBytesPerWord;
@@ -1608,27 +1611,30 @@ void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative
 void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst_vec) {
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
   const uint32_t input_bit_ct_plus = input_bit_ct + kBytesPerWord - 1;
+#ifdef NO_UNALIGNED
+#  error "Unaligned accesses in Expand1bitTo8()."
+#endif
 #ifdef USE_SSE42
   const uint32_t input_byte_ct = input_bit_ct_plus / 8;
   const uint32_t fullvec_ct = input_byte_ct / (kBytesPerVec / 8);
   uint32_t byte_idx = 0;
   if (fullvec_ct) {
-    const Vec8thUint* bytearr_alias = R_CAST(const Vec8thUint*, bytearr);
+    const Vec8thUint* bytearr_alias = R_CAST(const Vec8thUint*, bytearr_uc);
 #  ifdef USE_AVX2
-    const VecUc byte_gather = R_CAST(VecUc, _mm256_setr_epi64x(0, kMask0101, 2 * kMask0101, 3 * kMask0101));
-    const VecUc bit_mask = R_CAST(VecUc, _mm256_set1_epi64x(0x7fbfdfeff7fbfdfeLL));
+    const VecUc byte_gather = VecToUc(_mm256_setr_epi64x(0, kMask0101, 2 * kMask0101, 3 * kMask0101));
+    const VecUc bit_mask = VecToUc(_mm256_set1_epi64x(0x7fbfdfeff7fbfdfeLL));
 #  else
-    const VecUc byte_gather = R_CAST(VecUc, _mm_setr_epi32(0, 0, 0x01010101, 0x01010101));
-    const VecUc bit_mask = R_CAST(VecUc, _mm_set1_epi64x(0x7fbfdfeff7fbfdfeLL));
+    const VecUc byte_gather = VecToUc(_mm_setr_epi32(0, 0, 0x01010101, 0x01010101));
+    const VecUc bit_mask = VecToUc(_mm_set1_epi64x(0x7fbfdfeff7fbfdfeLL));
 #  endif
     const VecUc all1 = vecuc_set1(255);
     const VecUc subfrom = vecuc_set1(incr);
     VecUc* dst_alias = S_CAST(VecUc*, dst_vec);
     for (uint32_t vec_idx = 0; vec_idx != fullvec_ct; ++vec_idx) {
 #  ifdef USE_AVX2
-      VecUc vmask = R_CAST(VecUc, _mm256_set1_epi32(bytearr_alias[vec_idx]));
+      VecUc vmask = VecToUc(_mm256_set1_epi32(bytearr_alias[vec_idx]));
 #  else
-      VecUc vmask = R_CAST(VecUc, _mm_set1_epi16(bytearr_alias[vec_idx]));
+      VecUc vmask = VecToUc(_mm_set1_epi16(bytearr_alias[vec_idx]));
 #  endif
       vmask = vecuc_shuffle8(vmask, byte_gather);
       vmask = vmask | bit_mask;
@@ -1694,18 +1700,21 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32
 
 void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst_vec) {
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
+#ifdef NO_UNALIGNED
+#  error "Unaligned accesses in Expand1bitTo16()."
+#endif
 #ifdef USE_SSE42
   const uint32_t input_nybble_ct = DivUp(input_bit_ct, 4);
   const uint32_t fullvec_ct = input_nybble_ct / (kBytesPerVec / 8);
   uint32_t byte_idx = 0;
   if (fullvec_ct) {
-    const Vec16thUint* bytearr_alias = R_CAST(const Vec16thUint*, bytearr);
+    const Vec16thUint* bytearr_alias = R_CAST(const Vec16thUint*, bytearr_uc);
 #  ifdef USE_AVX2
-    const VecU16 byte_gather = R_CAST(VecU16, _mm256_setr_epi64x(0, 0, kMask0101, kMask0101));
-    const VecU16 bit_mask = R_CAST(VecU16, _mm256_set_epi32(0xff7fffbfU, 0xffdfffefU, 0xfff7fffbU, 0xfffdfffeU, 0xff7fffbfU, 0xffdfffefU, 0xfff7fffbU, 0xfffdfffeU));
+    const VecU16 byte_gather = VecToU16(_mm256_setr_epi64x(0, 0, kMask0101, kMask0101));
+    const VecU16 bit_mask = VecToU16(_mm256_set_epi32(0xff7fffbfU, 0xffdfffefU, 0xfff7fffbU, 0xfffdfffeU, 0xff7fffbfU, 0xffdfffefU, 0xfff7fffbU, 0xfffdfffeU));
 #  else
     const VecU16 byte_gather = VCONST_S(0);
-    const VecU16 bit_mask = R_CAST(VecU16, _mm_set_epi32(0xff7fffbfU, 0xffdfffefU, 0xfff7fffbU, 0xfffdfffeU));
+    const VecU16 bit_mask = VecToU16(_mm_set_epi32(0xff7fffbfU, 0xffdfffefU, 0xfff7fffbU, 0xfffdfffeU));
 #  endif
     const VecU16 all1 = VCONST_S(0xffff);
     const VecU16 subfrom = vecu16_set1(incr);
@@ -1714,9 +1723,9 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
     // loop
     for (uint32_t vec_idx = 0; vec_idx != fullvec_ct; ++vec_idx) {
 #  ifdef USE_AVX2
-      VecU16 vmask = R_CAST(VecU16, _mm256_set1_epi16(bytearr_alias[vec_idx]));
+      VecU16 vmask = VecToU16(_mm256_set1_epi16(bytearr_alias[vec_idx]));
 #  else
-      VecU16 vmask = R_CAST(VecU16, _mm_set1_epi8(bytearr_alias[vec_idx]));
+      VecU16 vmask = VecToU16(_mm_set1_epi8(bytearr_alias[vec_idx]));
 #  endif
       vmask = vecu16_shuffle8(vmask, byte_gather);
       vmask = vmask | bit_mask;
@@ -1929,7 +1938,7 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
   const uint32_t write_v8ui_stride = kVec8thUintPerWord * write_ul_stride;
   const uint32_t buf1_fullrow_ct = write_row_ct / 8;
   const uint32_t buf1_row_vecwidth = buf_row_xwidth * (8 / kWordsPerVec);
-  Vec8thUint* write_iter0 = R_CAST(Vec8thUint*, write_iter);
+  Vec8thUint* write_iter0 = DowncastWToV8(write_iter);
   for (uint32_t bidx = 0; bidx != buf1_fullrow_ct; ++bidx) {
     Vec8thUint* write_iter1 = &(write_iter0[write_v8ui_stride]);
     Vec8thUint* write_iter2 = &(write_iter1[write_v8ui_stride]);
@@ -1978,7 +1987,78 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
 }
 #else  // !USE_SSE2
 #  ifdef __LP64__
-// TODO
+static_assert(kWordsPerVec == 1, "TransposeBitblock64() needs to be updated.");
+void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, uintptr_t write_ul_stride, uint32_t read_row_ct, uint32_t write_row_ct, uintptr_t* write_iter, VecW* __restrict buf0, VecW* __restrict buf1) {
+  // buf must be vector-aligned and have size 64k
+  const uint32_t initial_read_byte_ct = DivUp(write_row_ct, CHAR_BIT);
+  // fold the first 6 shuffles into the initial ingestion loop
+  const unsigned char* initial_read_iter = DowncastKToUc(read_iter);
+  const unsigned char* initial_read_end = &(initial_read_iter[initial_read_byte_ct]);
+  unsigned char* initial_target_iter = DowncastToUc(buf0);
+  const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
+  const uint32_t read_batch_rem = kBitsPerCacheline - read_row_ct;
+  for (; initial_read_iter != initial_read_end; ++initial_read_iter) {
+    const unsigned char* read_iter_tmp = initial_read_iter;
+    for (uint32_t ujj = 0; ujj != read_row_ct; ++ujj) {
+      *initial_target_iter++ = *read_iter_tmp;
+      read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
+    }
+    initial_target_iter = memsetua(initial_target_iter, 0, read_batch_rem);
+  }
+
+  // third-to-last shuffle, 8 bit spacing -> 4
+  const VecW* source_iter = buf0;
+  uintptr_t* target_iter0 = buf1;
+  const uint32_t write_word_ct = BitCtToWordCt(read_row_ct);
+  const uint32_t first_inner_loop_iter_ct = 4 * write_word_ct;
+  uint32_t cur_write_skip = 4 * kWordsPerCacheline - first_inner_loop_iter_ct;
+  // coincidentally, this also needs to run DivUp(write_row_ct, CHAR_BIT)
+  // times
+  for (uint32_t uii = 0; uii != initial_read_byte_ct; ++uii) {
+    uintptr_t* target_iter1 = &(target_iter0[kWordsPerCacheline * 4]);
+    for (uint32_t ujj = 0; ujj != first_inner_loop_iter_ct; ++ujj) {
+      const uintptr_t source_word_lo = *source_iter++;
+      const uintptr_t source_word_hi = *source_iter++;
+      *target_iter0++ = PackTwo0F0FMask(source_word_lo, source_word_hi);
+      *target_iter1++ = PackTwo0F0FMask(source_word_lo >> 4, source_word_hi >> 4);
+    }
+    source_iter = &(source_iter[2 * cur_write_skip]);
+    target_iter0 = &(target_iter1[cur_write_skip]);
+  }
+
+  // second-to-last shuffle, 4 bit spacing -> 2
+  source_iter = buf1;
+  target_iter0 = buf0;
+  const uint32_t second_outer_loop_iter_ct = DivUp(write_row_ct, 4);
+  const uint32_t second_inner_loop_iter_ct = 2 * write_word_ct;
+  cur_write_skip = 2 * kWordsPerCacheline - second_inner_loop_iter_ct;
+  for (uint32_t uii = 0; uii != second_outer_loop_iter_ct; ++uii) {
+    uintptr_t* target_iter1 = &(target_iter0[kWordsPerCacheline * 2]);
+    for (uint32_t ujj = 0; ujj != second_inner_loop_iter_ct; ++ujj) {
+      const uintptr_t source_word_lo = *source_iter++;
+      const uintptr_t source_word_hi = *source_iter++;
+      *target_iter0++ = PackTwo3333Mask(source_word_lo, source_word_hi);
+      *target_iter1++ = PackTwo3333Mask(source_word_lo >> 2, source_word_hi >> 2);
+    }
+    source_iter = &(source_iter[2 * cur_write_skip]);
+    target_iter0 = &(target_iter1[cur_write_skip]);
+  }
+  // last shuffle, 2 bit spacing -> 1
+  source_iter = buf0;
+  target_iter0 = write_iter;
+  const uint32_t last_loop_iter_ct = DivUp(write_row_ct, 2);
+  for (uint32_t uii = 0; uii != last_loop_iter_ct; ++uii) {
+    uintptr_t* target_iter1 = &(target_iter0[write_ul_stride]);
+    for (uint32_t ujj = 0; ujj != write_word_ct; ++ujj) {
+      const uintptr_t source_word_lo = S_CAST(uintptr_t, *source_iter++);
+      const uintptr_t source_word_hi = S_CAST(uintptr_t, *source_iter++);
+      target_iter0[ujj] = PackTwo5555Mask(source_word_lo, source_word_hi);
+      target_iter1[ujj] = PackTwo5555Mask(source_word_lo >> 1, source_word_hi >> 1);
+    }
+    source_iter = &(source_iter[2 * (kWordsPerCacheline - write_word_ct)]);
+    target_iter0 = &(target_iter1[write_ul_stride]);
+  }
+}
 #  else
 static_assert(kWordsPerVec == 1, "TransposeBitblock32() needs to be updated.");
 void TransposeBitblock32(const uintptr_t* read_iter, uintptr_t read_ul_stride, uintptr_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* __restrict buf0, VecW* __restrict buf1) {
@@ -2012,20 +2092,8 @@ void TransposeBitblock32(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
     for (uint32_t ujj = 0; ujj != first_inner_loop_iter_ct; ++ujj) {
       const uintptr_t source_word_lo = *source_iter++;
       const uintptr_t source_word_hi = *source_iter++;
-      uintptr_t target_word0_lo = source_word_lo & kMask0F0F;
-      uintptr_t target_word1_lo = (source_word_lo >> 4) & kMask0F0F;
-      uintptr_t target_word0_hi = source_word_hi & kMask0F0F;
-      uintptr_t target_word1_hi = (source_word_hi >> 4) & kMask0F0F;
-      target_word0_lo = (target_word0_lo | (target_word0_lo >> 4)) & kMask00FF;
-      target_word1_lo = (target_word1_lo | (target_word1_lo >> 4)) & kMask00FF;
-      target_word0_hi = (target_word0_hi | (target_word0_hi >> 4)) & kMask00FF;
-      target_word1_hi = (target_word1_hi | (target_word1_hi >> 4)) & kMask00FF;
-      target_word0_lo = target_word0_lo | (target_word0_lo >> kBitsPerWordD4);
-      target_word1_lo = target_word1_lo | (target_word1_lo >> kBitsPerWordD4);
-      target_word0_hi = target_word0_hi | (target_word0_hi >> kBitsPerWordD4);
-      target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
-      *target_iter0++ = S_CAST(Halfword, target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
-      *target_iter1++ = S_CAST(Halfword, target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
+      *target_iter0++ = PackTwo0F0FMask(source_word_lo, source_word_hi);
+      *target_iter1++ = PackTwo0F0FMask(source_word_lo >> 4, source_word_hi >> 4);
     }
     source_iter = &(source_iter[2 * cur_write_skip]);
     target_iter0 = &(target_iter1[cur_write_skip]);
@@ -2042,24 +2110,8 @@ void TransposeBitblock32(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
     for (uint32_t ujj = 0; ujj != second_inner_loop_iter_ct; ++ujj) {
       const uintptr_t source_word_lo = *source_iter++;
       const uintptr_t source_word_hi = *source_iter++;
-      uintptr_t target_word0_lo = source_word_lo & kMask3333;
-      uintptr_t target_word1_lo = (source_word_lo >> 2) & kMask3333;
-      uintptr_t target_word0_hi = source_word_hi & kMask3333;
-      uintptr_t target_word1_hi = (source_word_hi >> 2) & kMask3333;
-      target_word0_lo = (target_word0_lo | (target_word0_lo >> 2)) & kMask0F0F;
-      target_word1_lo = (target_word1_lo | (target_word1_lo >> 2)) & kMask0F0F;
-      target_word0_hi = (target_word0_hi | (target_word0_hi >> 2)) & kMask0F0F;
-      target_word1_hi = (target_word1_hi | (target_word1_hi >> 2)) & kMask0F0F;
-      target_word0_lo = (target_word0_lo | (target_word0_lo >> 4)) & kMask00FF;
-      target_word1_lo = (target_word1_lo | (target_word1_lo >> 4)) & kMask00FF;
-      target_word0_hi = (target_word0_hi | (target_word0_hi >> 4)) & kMask00FF;
-      target_word1_hi = (target_word1_hi | (target_word1_hi >> 4)) & kMask00FF;
-      target_word0_lo = target_word0_lo | (target_word0_lo >> kBitsPerWordD4);
-      target_word1_lo = target_word1_lo | (target_word1_lo >> kBitsPerWordD4);
-      target_word0_hi = target_word0_hi | (target_word0_hi >> kBitsPerWordD4);
-      target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
-      *target_iter0++ = S_CAST(Halfword, target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
-      *target_iter1++ = S_CAST(Halfword, target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
+      *target_iter0++ = PackTwo3333Mask(source_word_lo, source_word_hi);
+      *target_iter1++ = PackTwo3333Mask(source_word_lo >> 2, source_word_hi >> 2);
     }
     source_iter = &(source_iter[2 * cur_write_skip]);
     target_iter0 = &(target_iter1[cur_write_skip]);
@@ -2073,28 +2125,8 @@ void TransposeBitblock32(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
     for (uint32_t ujj = 0; ujj != write_word_ct; ++ujj) {
       const uintptr_t source_word_lo = S_CAST(uintptr_t, *source_iter++);
       const uintptr_t source_word_hi = S_CAST(uintptr_t, *source_iter++);
-      uintptr_t target_word0_lo = source_word_lo & kMask5555;
-      uintptr_t target_word1_lo = (source_word_lo >> 1) & kMask5555;
-      uintptr_t target_word0_hi = source_word_hi & kMask5555;
-      uintptr_t target_word1_hi = (source_word_hi >> 1) & kMask5555;
-      target_word0_lo = (target_word0_lo | (target_word0_lo >> 1)) & kMask3333;
-      target_word1_lo = (target_word1_lo | (target_word1_lo >> 1)) & kMask3333;
-      target_word0_hi = (target_word0_hi | (target_word0_hi >> 1)) & kMask3333;
-      target_word1_hi = (target_word1_hi | (target_word1_hi >> 1)) & kMask3333;
-      target_word0_lo = (target_word0_lo | (target_word0_lo >> 2)) & kMask0F0F;
-      target_word1_lo = (target_word1_lo | (target_word1_lo >> 2)) & kMask0F0F;
-      target_word0_hi = (target_word0_hi | (target_word0_hi >> 2)) & kMask0F0F;
-      target_word1_hi = (target_word1_hi | (target_word1_hi >> 2)) & kMask0F0F;
-      target_word0_lo = (target_word0_lo | (target_word0_lo >> 4)) & kMask00FF;
-      target_word1_lo = (target_word1_lo | (target_word1_lo >> 4)) & kMask00FF;
-      target_word0_hi = (target_word0_hi | (target_word0_hi >> 4)) & kMask00FF;
-      target_word1_hi = (target_word1_hi | (target_word1_hi >> 4)) & kMask00FF;
-      target_word0_lo = target_word0_lo | (target_word0_lo >> kBitsPerWordD4);
-      target_word1_lo = target_word1_lo | (target_word1_lo >> kBitsPerWordD4);
-      target_word0_hi = target_word0_hi | (target_word0_hi >> kBitsPerWordD4);
-      target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
-      target_iter0[ujj] = S_CAST(Halfword, target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
-      target_iter1[ujj] = S_CAST(Halfword, target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
+      target_iter0[ujj] = PackTwo5555Mask(source_word_lo, source_word_hi);
+      target_iter1[ujj] = PackTwo5555Mask(source_word_lo >> 1, source_word_hi >> 1);
     }
     source_iter = &(source_iter[2 * (kWordsPerCacheline - write_word_ct)]);
     target_iter0 = &(target_iter1[write_ul_stride]);
@@ -2358,13 +2390,10 @@ void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
 #  endif  // !USE_AVX2
 }
 #else  // !USE_SSE2
-#  ifdef __LP64__
-// TODO
-#  else
 static_assert(kWordsPerVec == 1, "TransposeNybbleblock() needs to be updated.");
 void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf) {
-  // Very similar to TransposeNypblock32() in pgenlib_internal.
-  // vecaligned_buf must be vector-aligned and have size 8k
+  // Very similar to unvectorized TransposeNypblock{32,64}() in pgenlib_misc.
+  // vecaligned_buf must have size 8k
   const uint32_t buf_row_ct = NybbleCtToByteCt(write_batch_size);
   // fold the first 6 shuffles into the initial ingestion loop
   const unsigned char* initial_read_iter = DowncastKToUc(read_iter);
@@ -2391,20 +2420,8 @@ void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
     for (uint32_t ujj = 0; ujj != write_word_ct; ++ujj) {
       const uintptr_t source_word_lo = *source_iter++;
       const uintptr_t source_word_hi = *source_iter++;
-      uintptr_t target_word0_lo = source_word_lo & kMask0F0F;
-      uintptr_t target_word1_lo = (source_word_lo >> 4) & kMask0F0F;
-      uintptr_t target_word0_hi = source_word_hi & kMask0F0F;
-      uintptr_t target_word1_hi = (source_word_hi >> 4) & kMask0F0F;
-      target_word0_lo = (target_word0_lo | (target_word0_lo >> 4)) & kMask00FF;
-      target_word1_lo = (target_word1_lo | (target_word1_lo >> 4)) & kMask00FF;
-      target_word0_hi = (target_word0_hi | (target_word0_hi >> 4)) & kMask00FF;
-      target_word1_hi = (target_word1_hi | (target_word1_hi >> 4)) & kMask00FF;
-      target_word0_lo = target_word0_lo | (target_word0_lo >> kBitsPerWordD4);
-      target_word1_lo = target_word1_lo | (target_word1_lo >> kBitsPerWordD4);
-      target_word0_hi = target_word0_hi | (target_word0_hi >> kBitsPerWordD4);
-      target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
-      target_iter0[ujj] = S_CAST(Halfword, target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
-      target_iter1[ujj] = S_CAST(Halfword, target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
+      target_iter0[ujj] = PackTwo0F0FMask(source_word_lo, source_word_hi);
+      target_iter1[ujj] = PackTwo0F0FMask(source_word_lo >> 4, source_word_hi >> 4);
     }
     source_iter = &(source_iter[2 * (kWordsPerCacheline - write_word_ct)]);
     target_iter0 = &(target_iter1[write_ul_stride]);
@@ -2416,16 +2433,9 @@ void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
   for (uint32_t ujj = 0; ujj != write_word_ct; ++ujj) {
     const uintptr_t source_word_lo = *source_iter++;
     const uintptr_t source_word_hi = *source_iter++;
-    uintptr_t target_word0_lo = source_word_lo & kMask0F0F;
-    uintptr_t target_word0_hi = source_word_hi & kMask0F0F;
-    target_word0_lo = (target_word0_lo | (target_word0_lo >> 4)) & kMask00FF;
-    target_word0_hi = (target_word0_hi | (target_word0_hi >> 4)) & kMask00FF;
-    target_word0_lo = target_word0_lo | (target_word0_lo >> kBitsPerWordD4);
-    target_word0_hi = target_word0_hi | (target_word0_hi >> kBitsPerWordD4);
-    target_iter0[ujj] = S_CAST(Halfword, target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
+    target_iter0[ujj] = PackTwo0F0FMask(source_word_lo, source_word_hi);
   }
 }
-#  endif
 #endif  // !USE_SSE2
 
 #ifdef USE_SSE2
@@ -2471,7 +2481,8 @@ uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
 uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
   // Assumes sum is representable by uintptr_t.
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
-  uint32_t lead_byte_ct = (-R_CAST(uintptr_t, bytearr_uc)) % kBytesPerWord;
+  const uintptr_t* bytearr_alias_iter;
+  uint32_t lead_byte_ct = AlignKToAW(bytearr_uc, &bytearr_alias_iter);
   uintptr_t tot = 0;
   if (lead_byte_ct) {
     if (lead_byte_ct > byte_ct) {
@@ -2484,10 +2495,8 @@ uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
     if (!byte_ct) {
       return tot;
     }
-    bytearr_uc = &(bytearr_uc[lead_byte_ct]);
   }
   const uint32_t fullword_ct = byte_ct / kBytesPerWord;
-  const uintptr_t* bytearr_alias_iter = R_CAST(const uintptr_t*, bytearr_uc);
   const uint32_t wordblock_idx_trail = fullword_ct / 256;
   const uint32_t wordblock_idx_end = DivUp(fullword_ct, 256);
   uint32_t wordblock_len = 256;
@@ -2540,7 +2549,7 @@ uintptr_t CountByte(const void* bytearr, unsigned char ucc, uintptr_t byte_ct) {
       bytearr_uc_iter = &(bytearr_uc_iter[kBytesPerVec]);
       inner_acc = inner_acc - (cur_vvec == match_vvec);
     }
-    acc = acc + vecw_sad(R_CAST(VecW, inner_acc), m0);
+    acc = acc + vecw_sad(VecUcToW(inner_acc), m0);
     byte_ct -= 255 * kBytesPerVec;
   }
   const unsigned char* bytearr_uc_final = &(bytearr_uc_iter[byte_ct - kBytesPerVec]);
@@ -2555,7 +2564,7 @@ uintptr_t CountByte(const void* bytearr, unsigned char ucc, uintptr_t byte_ct) {
   const VecUc mask_vvec = vecuc_loadu(&(kLeadMask[kBytesPerVec - overlap_byte_ct]));
   cur_vvec = (cur_vvec == match_vvec) & mask_vvec;
   inner_acc = inner_acc - cur_vvec;
-  acc = acc + vecw_sad(R_CAST(VecW, inner_acc), m0);
+  acc = acc + vecw_sad(VecUcToW(inner_acc), m0);
   return HsumW(acc);
 #endif  // USE_SSE2
 }
@@ -2587,7 +2596,7 @@ uintptr_t CountU16(const void* u16arr, uint16_t usii, uintptr_t u16_ct) {
       u16arr_biter = &(u16arr_biter[kBytesPerVec]);
       inner_acc = inner_acc - (cur_vvec == match_vvec);
     }
-    acc = acc + vecw_sad(R_CAST(VecW, inner_acc), m0);
+    acc = acc + vecw_sad(VecU16ToW(inner_acc), m0);
     u16_ct -= 255 * (kBytesPerVec / 2);
   }
   const unsigned char* u16arr_final = &(u16arr_biter[u16_ct * sizeof(int16_t) - kBytesPerVec]);
@@ -2602,7 +2611,7 @@ uintptr_t CountU16(const void* u16arr, uint16_t usii, uintptr_t u16_ct) {
   const VecU16 mask_vvec = vecu16_loadu(&(kLeadMask[kBytesPerVec - overlap_byte_ct]));
   cur_vvec = (cur_vvec == match_vvec) & mask_vvec;
   inner_acc = inner_acc - cur_vvec;
-  acc = acc + vecw_sad(R_CAST(VecW, inner_acc), m0);
+  acc = acc + vecw_sad(VecU16ToW(inner_acc), m0);
   return HsumW(acc);
 #endif  // USE_SSE2
 }
@@ -2671,26 +2680,9 @@ void Reduce8to4bitInplaceUnsafe(uintptr_t entry_ct, uintptr_t* arr) {
   const uintptr_t write_idx_last = (entry_ct - 1) / (kBytesPerWord * 2);
   uintptr_t write_word;
   for (; ; ++write_idx) {
-    uintptr_t inword0 = arr[2 * write_idx];
-    uintptr_t inword1 = arr[2 * write_idx + 1];
-#ifdef USE_AVX2
-    inword0 = _pext_u64(inword0, kMask0F0F);
-    inword1 = _pext_u64(inword1, kMask0F0F);
-#else
-    // 0 . 1 . 2 . 3 . 4 . 5 . 6 . 7 .
-    // (or just 0 . 1 . 2 . 3 . in 32-bit case)
-    inword0 = (inword0 | (inword0 >> 4)) & kMask00FF;
-    inword1 = (inword1 | (inword1 >> 4)) & kMask00FF;
-    // 0 1 . . 2 3 . . 4 5 . . 6 7 . .
-#  ifdef __LP64__
-    inword0 = (inword0 | (inword0 >> 8)) & kMask0000FFFF;
-    inword1 = (inword1 | (inword1 >> 8)) & kMask0000FFFF;
-    // 0 1 2 3 . . . . 4 5 6 7 . . . .
-#  endif
-    inword0 = S_CAST(Halfword, inword0 | (inword0 >> kBitsPerWordD4));
-    inword1 = S_CAST(Halfword, inword1 | (inword1 >> kBitsPerWordD4));
-#endif
-    write_word = inword0 | (inword1 << kBitsPerWordD2);
+    const uintptr_t inword0 = arr[2 * write_idx];
+    const uintptr_t inword1 = arr[2 * write_idx + 1];
+    write_word = PackTwo0F0F(inword0, inword1);
     if (write_idx == write_idx_last) {
       break;
     }
