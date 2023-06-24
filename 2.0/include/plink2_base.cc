@@ -181,7 +181,7 @@ BoolErr ScanIntAbsBounded(const char* str_iter, uint64_t bound, int32_t* valp) {
       return 1;
     }
   }
-  if (unlikely(ScanUintCappedFinish(str_iter, bound, R_CAST(uint32_t*, valp)))) {
+  if (unlikely(ScanUintCappedFinish(str_iter, bound, I32ToU32(valp)))) {
     return 1;
   }
   *valp *= sign;

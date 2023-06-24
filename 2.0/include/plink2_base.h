@@ -1122,28 +1122,8 @@ HEADER_INLINE VecI8 veci8_loadu(const void* mem_addr) {
   return VecToI8(_mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
-HEADER_INLINE void vecw_storeu(void* mem_addr, VecW vv) {
-  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), WToVec(vv));
-}
-
-HEADER_INLINE void vecu32_storeu(void* mem_addr, VecU32 vv) {
-  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), U32ToVec(vv));
-}
-
-HEADER_INLINE void veci32_storeu(void* mem_addr, VecI32 vv) {
-  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), I32ToVec(vv));
-}
-
-HEADER_INLINE void vecu16_storeu(void* mem_addr, VecU16 vv) {
-  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), U16ToVec(vv));
-}
-
-HEADER_INLINE void veci16_storeu(void* mem_addr, VecI16 vv) {
-  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), I16ToVec(vv));
-}
-
-HEADER_INLINE void vecuc_storeu(void* mem_addr, VecUc vv) {
-  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), UcToVec(vv));
+HEADER_INLINE void vec_storeu(void* mem_addr, __m256i vv) {
+  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), vv);
 }
 
 HEADER_INLINE VecI32 veci32_max(VecI32 v1, VecI32 v2) {
@@ -1423,28 +1403,8 @@ HEADER_INLINE VecI8 veci8_loadu(const void* mem_addr) {
   return VecToI8(_mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
-HEADER_INLINE void vecw_storeu(void* mem_addr, VecW vv) {
-  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), WToVec(vv));
-}
-
-HEADER_INLINE void vecu32_storeu(void* mem_addr, VecU32 vv) {
-  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), U32ToVec(vv));
-}
-
-HEADER_INLINE void veci32_storeu(void* mem_addr, VecI32 vv) {
-  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), I32ToVec(vv));
-}
-
-HEADER_INLINE void vecu16_storeu(void* mem_addr, VecU16 vv) {
-  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), U16ToVec(vv));
-}
-
-HEADER_INLINE void veci16_storeu(void* mem_addr, VecI16 vv) {
-  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), I16ToVec(vv));
-}
-
-HEADER_INLINE void vecuc_storeu(void* mem_addr, VecUc vv) {
-  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), UcToVec(vv));
+HEADER_INLINE void vec_storeu(void* mem_addr, __m128i vv) {
+  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), vv);
 }
 
 // Repeats arguments in AVX2 case.
@@ -1655,6 +1615,30 @@ HEADER_INLINE VecUc vecuc_min(VecUc v1, VecUc v2) {
 }
 #  endif  // USE_SSE2, !USE_AVX2
 
+HEADER_INLINE void vecw_storeu(void* mem_addr, VecW vv) {
+  vec_storeu(mem_addr, WToVec(vv));
+}
+
+HEADER_INLINE void vecu32_storeu(void* mem_addr, VecU32 vv) {
+  vec_storeu(mem_addr, U32ToVec(vv));
+}
+
+HEADER_INLINE void veci32_storeu(void* mem_addr, VecI32 vv) {
+  vec_storeu(mem_addr, I32ToVec(vv));
+}
+
+HEADER_INLINE void vecu16_storeu(void* mem_addr, VecU16 vv) {
+  vec_storeu(mem_addr, U16ToVec(vv));
+}
+
+HEADER_INLINE void veci16_storeu(void* mem_addr, VecI16 vv) {
+  vec_storeu(mem_addr, I16ToVec(vv));
+}
+
+HEADER_INLINE void vecuc_storeu(void* mem_addr, VecUc vv) {
+  vec_storeu(mem_addr, UcToVec(vv));
+}
+
 HEADER_INLINE VecW vecw_bytesum(VecW src, VecW m0) {
   return vecw_sad(src, m0);
 }
@@ -1772,6 +1756,10 @@ HEADER_INLINE VecU32 vecu32_and_notfirst(VecU32 excl, VecU32 main) {
   return (~excl) & main;
 }
 #endif  // !USE_SSE2
+
+HEADER_INLINE uint32_t* I32ToU32(int32_t* pp) {
+  return R_CAST(uint32_t*, pp);
+}
 
 // Unfortunately, we need to spell out S_CAST(uintptr_t, 0) instead of just
 // typing k0LU in C99.

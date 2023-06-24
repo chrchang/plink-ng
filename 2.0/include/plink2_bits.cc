@@ -467,7 +467,7 @@ uint32_t AllBytesAreX(const unsigned char* bytes, unsigned char match, uintptr_t
   }
   return 1;
 }
-#else // !NO_UNALIGNED
+#else // NO_UNALIGNED
 uint32_t AllBytesAreX(const unsigned char* bytes, unsigned char match, uintptr_t byte_ct) {
   if (byte_ct < 2 * kBytesPerWord - 1) {
     // use simple loop instead of main algorithm unless byte_ct guarantees
@@ -487,6 +487,7 @@ uint32_t AllBytesAreX(const unsigned char* bytes, unsigned char match, uintptr_t
       return 0;
     }
   }
+  bytes = &(bytes[lead_byte_ct]);
   byte_ct -= lead_byte_ct;
   const uintptr_t fullword_ct = byte_ct / kBytesPerWord;
   const uintptr_t word_match = S_CAST(uintptr_t, match) * kMask0101;
@@ -2683,17 +2684,17 @@ uint32_t Copy1bit16Subset(const uintptr_t* __restrict src_subset, const void* __
 }
 
 // 'Unsafe' because it assumes high bits of every byte are 0.
-void Reduce8to4bitInplaceUnsafe(uintptr_t entry_ct, uintptr_t* arr) {
+void Reduce8to4bitInplaceUnsafe(uintptr_t entry_ct, uintptr_t* mainvec) {
 #ifdef USE_SSE2
   const uintptr_t fullvec_ct = entry_ct / (kBytesPerVec * 2);
   const VecW m8 = VCONST_W(kMask00FF);
-  VecW* varr = R_CAST(VecW*, arr);
+  VecW* vmainvec = R_CAST(VecW*, mainvec);
   for (uintptr_t write_vidx = 0; write_vidx != fullvec_ct; ++write_vidx) {
-    VecW v0 = varr[write_vidx * 2];
-    VecW v1 = varr[write_vidx * 2 + 1];
+    VecW v0 = vmainvec[write_vidx * 2];
+    VecW v1 = vmainvec[write_vidx * 2 + 1];
     v0 = v0 | vecw_srli(v0, 4);
     v1 = v1 | vecw_srli(v1, 4);
-    varr[write_vidx] = vecw_gather_even(v0, v1, m8);
+    vmainvec[write_vidx] = vecw_gather_even(v0, v1, m8);
   }
   uintptr_t write_idx = fullvec_ct * kWordsPerVec;
   if (write_idx == entry_ct * 2) {
@@ -2708,16 +2709,16 @@ void Reduce8to4bitInplaceUnsafe(uintptr_t entry_ct, uintptr_t* arr) {
   const uintptr_t write_idx_last = (entry_ct - 1) / (kBytesPerWord * 2);
   uintptr_t write_word;
   for (; ; ++write_idx) {
-    const uintptr_t inword0 = arr[2 * write_idx];
-    const uintptr_t inword1 = arr[2 * write_idx + 1];
+    const uintptr_t inword0 = mainvec[2 * write_idx];
+    const uintptr_t inword1 = mainvec[2 * write_idx + 1];
     write_word = PackTwo0F0F(inword0, inword1);
     if (write_idx == write_idx_last) {
       break;
     }
-    arr[write_idx] = write_word;
+    mainvec[write_idx] = write_word;
   }
   const uint32_t remaining_entry_ct = ModNz(entry_ct, kBytesPerWord * 2);
-  arr[write_idx] = bzhi_max(write_word, remaining_entry_ct * 4);
+  mainvec[write_idx] = bzhi_max(write_word, remaining_entry_ct * 4);
 }
 
 #ifdef __cplusplus

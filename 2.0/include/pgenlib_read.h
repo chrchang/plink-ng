@@ -599,7 +599,7 @@ void DetectGenoarrHetsHw(const uintptr_t*__restrict genoarr, uint32_t raw_sample
 
 // requires trailing bits of genoarr to be zeroed out.
 HEADER_INLINE void PgrDetectGenoarrHetsUnsafe(const uintptr_t*__restrict genoarr, uint32_t raw_sample_ctl2, uintptr_t* __restrict all_hets) {
-  Halfword* all_hets_alias = R_CAST(Halfword*, all_hets);
+  Halfword* all_hets_alias = DowncastWToHW(all_hets);
   DetectGenoarrHetsHw(genoarr, raw_sample_ctl2, all_hets_alias);
   if (raw_sample_ctl2 % 2) {
     all_hets_alias[raw_sample_ctl2] = 0;
@@ -607,7 +607,7 @@ HEADER_INLINE void PgrDetectGenoarrHetsUnsafe(const uintptr_t*__restrict genoarr
 }
 
 HEADER_INLINE void PgrDetectGenoarrHets(const uintptr_t* __restrict genoarr, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets) {
-  DetectGenoarrHetsHw(genoarr, NypCtToWordCt(raw_sample_ct), R_CAST(Halfword*, all_hets));
+  DetectGenoarrHetsHw(genoarr, NypCtToWordCt(raw_sample_ct), DowncastWToHW(all_hets));
   ZeroTrailingBits(raw_sample_ct, all_hets);
 }
 

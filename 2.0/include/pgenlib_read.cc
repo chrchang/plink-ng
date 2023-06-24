@@ -70,10 +70,10 @@ void GenoarrbCountFreqs(const unsigned char* genoarrb, uint32_t sample_ct, STD_A
   uint32_t odd_ct = 0;
   uint32_t bothset_ct = 0;
 #ifndef USE_SSE2
-  const uint32_t lead_byte_ct = (-R_CAST(uintptr_t, genoarrb)) % kBytesPerWord;
+  const uintptr_t* geno_firstw_start;
+  const uint32_t lead_byte_ct = AlignKToW(genoarrb, &geno_firstw_start);
   uint32_t byte_ct = NypCtToByteCt(sample_ct);
   uintptr_t cur_geno_word;
-  const uintptr_t* geno_firstw_start;
   uint32_t fullword_ct;
   uint32_t trail_byte_ct;
   if (lead_byte_ct) {
@@ -86,10 +86,8 @@ void GenoarrbCountFreqs(const unsigned char* genoarrb, uint32_t sample_ct, STD_A
     even_ct += Popcount01Word(cur_geno_word & kMask5555);
     odd_ct += Popcount01Word(cur_geno_word_high);
     bothset_ct += Popcount01Word(cur_geno_word & cur_geno_word_high);
-    genoarrb = &(genoarrb[lead_byte_ct]);
     byte_ct -= lead_byte_ct;
   }
-  geno_firstw_start = R_CAST(const uintptr_t*, genoarrb);
   fullword_ct = byte_ct / kBytesPerWord;
   for (uint32_t widx = 0; widx != fullword_ct; ++widx) {
     cur_geno_word = geno_firstw_start[widx];

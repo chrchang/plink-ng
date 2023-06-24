@@ -1171,8 +1171,8 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
         loader1 = vecw_permute0xd8_if_avx2(loader1);
         // -> (0,0) ... (7,1) (0,2) ... (7,3) (0,4) ... (7,7) (8,0) ... (15,7)
         //      (16,0) ... (23,7) (24,0) ... (31,7)
-        const __m256i vec_lo = _mm256_shuffle_epi32(R_CAST(__m256i, loader0), 0xd8);
-        const __m256i vec_hi = _mm256_shuffle_epi32(R_CAST(__m256i, loader1), 0xd8);
+        const __m256i vec_lo = _mm256_shuffle_epi32(WToVec(loader0), 0xd8);
+        const __m256i vec_hi = _mm256_shuffle_epi32(WToVec(loader1), 0xd8);
         const __m256i final0145 = _mm256_unpacklo_epi64(vec_lo, vec_hi);
         const __m256i final2367 = _mm256_unpackhi_epi64(vec_lo, vec_hi);
         // GCC doesn't support _mm256_storeu_si128i as of this writing.
@@ -1207,10 +1207,10 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
         const VecW lo_16_31 = vecw_unpackhi32(loader0, loader1);
         const VecW hi_0_15 = vecw_unpacklo32(loader2, loader3);
         const VecW hi_16_31 = vecw_unpackhi32(loader2, loader3);
-        write_iter0[clidx] = R_CAST(__m128i, vecw_unpacklo64(lo_0_15, hi_0_15));
-        write_iter1[clidx] = R_CAST(__m128i, vecw_unpackhi64(lo_0_15, hi_0_15));
-        write_iter2[clidx] = R_CAST(__m128i, vecw_unpacklo64(lo_16_31, hi_16_31));
-        write_iter3[clidx] = R_CAST(__m128i, vecw_unpackhi64(lo_16_31, hi_16_31));
+        write_iter0[clidx] = WToVec(vecw_unpacklo64(lo_0_15, hi_0_15));
+        write_iter1[clidx] = WToVec(vecw_unpackhi64(lo_0_15, hi_0_15));
+        write_iter2[clidx] = WToVec(vecw_unpacklo64(lo_16_31, hi_16_31));
+        write_iter3[clidx] = WToVec(vecw_unpackhi64(lo_16_31, hi_16_31));
 #  endif
       }
       buf0_read_iter = &(buf0_read_iter[2048 / kBytesPerVec]);
@@ -1227,7 +1227,7 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
 
   const uint32_t write_v8ui_stride = kVec8thUintPerWord * write_ul_stride;
   const uint32_t vec_ct = DivUp(read_batch_size, (kBytesPerVec / 2));
-  Vec8thUint* target_iter0 = R_CAST(Vec8thUint*, write_iter);
+  Vec8thUint* target_iter0 = DowncastWToV8(write_iter);
   for (uint32_t uii = 0; uii != buf1_fullrow_ct; ++uii) {
     Vec8thUint* target_iter1 = &(target_iter0[write_v8ui_stride]);
     Vec8thUint* target_iter2 = &(target_iter1[write_v8ui_stride]);
@@ -1578,7 +1578,7 @@ void GenoarrLookup4x16b(const uintptr_t* genoarr, const void* table4x16b, uint32
     }
     geno_word = genoarr[widx];
     for (uint32_t uii = 0; uii != loop_len; ++uii) {
-      _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[geno_word & 3]);
+      vec_storeu(result_biter, table_alias[geno_word & 3]);
       result_biter += 16;
       geno_word >>= 2;
     }
@@ -1604,7 +1604,7 @@ void GenoarrLookup16x8bx2(const uintptr_t* genoarr, const void* table16x8bx2, ui
     geno_word = genoarr[widx];
     for (uint32_t uii = 0; uii != loop_len; ++uii) {
       const uintptr_t cur_2geno = geno_word & 15;
-      _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[cur_2geno]);
+      vec_storeu(result_biter, table_alias[cur_2geno]);
       result_biter += 16;
       geno_word >>= 4;
     }
@@ -1617,7 +1617,7 @@ void GenoarrLookup256x4bx4(const uintptr_t* genoarr, const void* table256x4bx4, 
   unsigned char* resultb = S_CAST(unsigned char*, result);
   const uint32_t full_byte_ct = sample_ct / 4;
   for (uint32_t byte_idx = 0; byte_idx != full_byte_ct; ++byte_idx) {
-    _mm_storeu_si128(R_CAST(__m128i*, &(resultb[byte_idx * 16])), table_alias[genoarr_alias[byte_idx]]);
+    vec_storeu(&(resultb[byte_idx * 16]), table_alias[genoarr_alias[byte_idx]]);
   }
   const uint32_t remainder = sample_ct % 4;
   if (remainder) {
@@ -1950,7 +1950,7 @@ void PhaseLookup8b(const uintptr_t* genoarr, const uintptr_t* phasepresent, cons
     phasepresent_hw_shifted = phasepresent_alias[widx];
     if (!phasepresent_hw_shifted) {
       for (uint32_t uii = 0; uii != loop_len; ++uii) {
-        _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[geno_word & 15]);
+        vec_storeu(result_biter, table_alias[geno_word & 15]);
         result_biter += 16;
         geno_word >>= 4;
       }
@@ -1960,7 +1960,7 @@ void PhaseLookup8b(const uintptr_t* genoarr, const uintptr_t* phasepresent, cons
       phaseinfo_hw_shifted = phaseinfo_hw_shifted << 1;
       for (uint32_t uii = 0; uii != loop_len; ++uii) {
         const uintptr_t cur_idx = ((geno_word & 15) | (phasepresent_hw_shifted & 48)) ^ (phaseinfo_hw_shifted & 6);
-        _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[cur_idx]);
+        vec_storeu(result_biter, table_alias[cur_idx]);
         result_biter += 16;
         geno_word >>= 4;
         phasepresent_hw_shifted >>= 2;
@@ -2277,7 +2277,7 @@ void GenoarrSexLookup8b(const uintptr_t* genoarr, const uintptr_t* sex_male, con
     male_hw_shifted = sex_male_alias[widx];
     male_hw_shifted <<= 4;
     for (uint32_t uii = 0; uii != loop_len; ++uii) {
-      _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[(geno_word & 15) | (male_hw_shifted & 48)]);
+      vec_storeu(result_biter, table_alias[(geno_word & 15) | (male_hw_shifted & 48)]);
       result_biter += 16;
       geno_word >>= 4;
       male_hw_shifted >>= 2;
