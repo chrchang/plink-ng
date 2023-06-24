@@ -2740,6 +2740,13 @@ HEADER_INLINE uint32_t AlignKToAW(const void* prestart, const uintptr_t** result
   return lead_byte_ct;
 }
 
+HEADER_INLINE uint32_t AlignKToW(const void* prestart, const uintptr_t** result_ptr) {
+  const unsigned char* prestart_uc = S_CAST(const unsigned char*, prestart);
+  const uint32_t lead_byte_ct = (-R_CAST(uintptr_t, prestart_uc)) % kBytesPerWord;
+  *result_ptr = R_CAST(const uintptr_t*, &(prestart_uc[lead_byte_ct]));
+  return lead_byte_ct;
+}
+
 
 HEADER_INLINE void CopyFromUnalignedW(uintptr_t* dst, const unsigned char* src) {
   memcpy(dst, src, kBytesPerWord);

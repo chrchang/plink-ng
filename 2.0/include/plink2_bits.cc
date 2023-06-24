@@ -442,6 +442,7 @@ uint32_t FindLast1BitBefore(const uintptr_t* bitarr, uint32_t loc) {
   return S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + bsrw(ulii);
 }
 
+#ifndef NO_UNALIGNED
 uint32_t AllBytesAreX(const unsigned char* bytes, unsigned char match, uintptr_t byte_ct) {
   if (byte_ct < kBytesPerWord) {
     for (uint32_t uii = 0; uii != byte_ct; ++uii) {
@@ -451,9 +452,6 @@ uint32_t AllBytesAreX(const unsigned char* bytes, unsigned char match, uintptr_t
     }
     return 1;
   }
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in AllBytesAreX()."
-#endif
   const uintptr_t* bytes_alias = R_CAST(const uintptr_t*, bytes);
   const uintptr_t word_match = S_CAST(uintptr_t, match) * kMask0101;
   uintptr_t word_ct_m1 = (byte_ct - 1) / kBytesPerWord;
@@ -469,6 +467,42 @@ uint32_t AllBytesAreX(const unsigned char* bytes, unsigned char match, uintptr_t
   }
   return 1;
 }
+#else // !NO_UNALIGNED
+uint32_t AllBytesAreX(const unsigned char* bytes, unsigned char match, uintptr_t byte_ct) {
+  if (byte_ct < 2 * kBytesPerWord - 1) {
+    // use simple loop instead of main algorithm unless byte_ct guarantees
+    // fullword_ct >= 1
+    for (uint32_t uii = 0; uii != byte_ct; ++uii) {
+      if (bytes[uii] != match) {
+        return 0;
+      }
+    }
+    return 1;
+  }
+  // todo: try movemask in AVX2 case
+  const uintptr_t* bytes_alias;
+  const uint32_t lead_byte_ct = AlignKToW(bytes, &bytes_alias);
+  for (uint32_t uii = 0; uii != lead_byte_ct; ++uii) {
+    if (bytes[uii] != match) {
+      return 0;
+    }
+  }
+  byte_ct -= lead_byte_ct;
+  const uintptr_t fullword_ct = byte_ct / kBytesPerWord;
+  const uintptr_t word_match = S_CAST(uintptr_t, match) * kMask0101;
+  for (uintptr_t widx = 0; widx != fullword_ct; ++widx) {
+    if (bytes_alias[widx] != word_match) {
+      return 0;
+    }
+  }
+  for (uintptr_t ulii = fullword_ct * kBytesPerWord; ulii != byte_ct; ++ulii) {
+    if (bytes[ulii] != match) {
+      return 0;
+    }
+  }
+  return 1;
+}
+#endif
 
 #ifdef USE_AVX2
 // void CopyBitarrSubsetEx(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_start, uint32_t output_bit_idx_end, uintptr_t* __restrict output_bitarr) {
@@ -1611,10 +1645,7 @@ void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative
 void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst_vec) {
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
   const uint32_t input_bit_ct_plus = input_bit_ct + kBytesPerWord - 1;
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in Expand1bitTo8()."
-#endif
-#ifdef USE_SSE42
+#if defined(USE_SSE42) && !defined(NO_UNALIGNED)
   const uint32_t input_byte_ct = input_bit_ct_plus / 8;
   const uint32_t fullvec_ct = input_byte_ct / (kBytesPerVec / 8);
   uint32_t byte_idx = 0;
@@ -1655,7 +1686,7 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32
 #  endif
     dst_w[byte_idx] = incr_word + input_byte_scatter;
   }
-#else // !USE_SSE42
+#else // NO_UNALIGNED || (!USE_SSE42)
   const uintptr_t incr_word = incr * kMask0101;
   uintptr_t* dst_w = S_CAST(uintptr_t*, dst_vec);
 #  ifdef __LP64__
@@ -1700,10 +1731,7 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32
 
 void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst_vec) {
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in Expand1bitTo16()."
-#endif
-#ifdef USE_SSE42
+#if defined(USE_SSE42) && (!(defined(USE_AVX2) && defined(NO_UNALIGNED)))
   const uint32_t input_nybble_ct = DivUp(input_bit_ct, 4);
   const uint32_t fullvec_ct = input_nybble_ct / (kBytesPerVec / 8);
   uint32_t byte_idx = 0;
@@ -1751,7 +1779,7 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
     const uintptr_t write0 = (input_byte * 0x200040008001LLU) & kMask0001;
     dst_w[input_nybble_ct - 1] = incr_word + write0;
   }
-#else // !USE_SSE42
+#else // (!USE_SSE42) || (NO_UNALIGNED && USE_AVX2)
   const uintptr_t incr_word = incr * kMask0001;
   uintptr_t* dst_w = S_CAST(uintptr_t*, dst_vec);
 #  ifdef __LP64__
