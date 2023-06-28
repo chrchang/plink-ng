@@ -546,6 +546,47 @@ void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* _
   }
 }
 
+#  ifdef NO_UNALIGNED
+void CopyBitarrSubsetToUnaligned(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t output_bit_idx_end, void* __restrict output_bitarr) {
+  const uint32_t output_bit_idx_end_lowbits = output_bit_idx_end % kBitsPerWord;
+  unsigned char* output_bitarr_iter = S_CAST(unsigned char*, output_bitarr);
+  unsigned char* output_bitarr_last = &(output_bitarr_iter[(output_bit_idx_end / kBitsPerWord) * kBytesPerWord]);
+  uintptr_t cur_output_word = 0;
+  uint32_t read_widx = UINT32_MAX;  // deliberate overflow
+  uint32_t write_idx_lowbits = 0;
+  while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != output_bit_idx_end_lowbits)) {
+    uintptr_t cur_mask_word;
+    // sparse subset_mask optimization
+    // guaranteed to terminate since there's at least one more set bit
+    do {
+      cur_mask_word = subset_mask[++read_widx];
+    } while (!cur_mask_word);
+    uintptr_t extracted_bits = raw_bitarr[read_widx];
+    uint32_t set_bit_ct = kBitsPerWord;
+    if (cur_mask_word != ~k0LU) {
+      extracted_bits = _pext_u64(extracted_bits, cur_mask_word);
+      set_bit_ct = PopcountWord(cur_mask_word);
+    }
+    cur_output_word |= extracted_bits << write_idx_lowbits;
+    const uint32_t new_write_idx_lowbits = write_idx_lowbits + set_bit_ct;
+    if (new_write_idx_lowbits >= kBitsPerWord) {
+      AppendW(cur_output_word, &output_bitarr_iter);
+      // ...and these are the bits that fell off
+      // bugfix: unsafe to right-shift 64
+      if (write_idx_lowbits) {
+        cur_output_word = extracted_bits >> (kBitsPerWord - write_idx_lowbits);
+      } else {
+        cur_output_word = 0;
+      }
+    }
+    write_idx_lowbits = new_write_idx_lowbits % kBitsPerWord;
+  }
+  if (write_idx_lowbits) {
+    CopyToUnalignedW(output_bitarr_iter, &cur_output_word);
+  }
+}
+#  endif
+
 uintptr_t PopcountVecsAvx2(const VecW* bit_vvec, uintptr_t vec_ct) {
   // See popcnt_avx2() in libpopcnt.
   VecW cnt = vecw_setzero();
@@ -1097,6 +1138,56 @@ void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* _
     *output_bitarr_iter = cur_output_word;
   }
 }
+
+#  ifdef NO_UNALIGNED
+void CopyBitarrSubsetToUnaligned(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t output_bit_idx_end, void* __restrict output_bitarr) {
+  const uint32_t output_bit_idx_end_lowbits = output_bit_idx_end % kBitsPerWord;
+  unsigned char* output_bitarr_iter = S_CAST(unsigned char*, output_bitarr);
+  unsigned char* output_bitarr_last = &(output_bitarr_iter[(output_bit_idx_end / kBitsPerWord) * kBytesPerWord]);
+  uintptr_t cur_output_word = 0;
+  uint32_t read_widx = UINT32_MAX;  // deliberate overflow
+  uint32_t write_idx_lowbits = 0;
+  while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != output_bit_idx_end_lowbits)) {
+    uintptr_t cur_mask_word;
+    // sparse subset_mask optimization
+    // guaranteed to terminate since there's at least one more set bit
+    do {
+      cur_mask_word = subset_mask[++read_widx];
+    } while (!cur_mask_word);
+    uintptr_t cur_masked_input_word = raw_bitarr[read_widx] & cur_mask_word;
+    const uint32_t cur_mask_popcount = PopcountWord(cur_mask_word);
+    uintptr_t subsetted_input_word = 0;
+    while (cur_masked_input_word) {
+      const uintptr_t mask_word_high = (cur_mask_word | (cur_masked_input_word ^ (cur_masked_input_word - 1))) + 1;
+      if (!mask_word_high) {
+        subsetted_input_word |= cur_masked_input_word >> (kBitsPerWord - cur_mask_popcount);
+        break;
+      }
+      const uint32_t cur_read_end = ctzw(mask_word_high);
+      const uintptr_t bits_to_copy = cur_masked_input_word & (~mask_word_high);
+      cur_masked_input_word ^= bits_to_copy;
+      const uint32_t cur_write_end = PopcountWord(cur_mask_word & (~mask_word_high));
+      subsetted_input_word |= bits_to_copy >> (cur_read_end - cur_write_end);
+    }
+    cur_output_word |= subsetted_input_word << write_idx_lowbits;
+    const uint32_t new_write_idx_lowbits = write_idx_lowbits + cur_mask_popcount;
+    if (new_write_idx_lowbits >= kBitsPerWord) {
+      AppendW(cur_output_word, &output_bitarr_iter);
+      // ...and these are the bits that fell off
+      // bugfix: unsafe to right-shift 64
+      if (write_idx_lowbits) {
+        cur_output_word = subsetted_input_word >> (kBitsPerWord - write_idx_lowbits);
+      } else {
+        cur_output_word = 0;
+      }
+    }
+    write_idx_lowbits = new_write_idx_lowbits % kBitsPerWord;
+  }
+  if (write_idx_lowbits) {
+    CopyToUnalignedW(output_bitarr_iter, &cur_output_word);
+  }
+}
+#  endif
 
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
 uintptr_t PopcountVecsNoAvx2(const VecW* bit_vvec, uintptr_t vec_ct) {
@@ -2603,6 +2694,7 @@ uintptr_t CountU16(const void* u16arr, uint16_t usii, uintptr_t u16_ct) {
 #ifdef USE_SSE2
   if (u16_ct < (kBytesPerVec / 2)) {
 #endif
+    // todo: benchmark this vs. zero-extend in a non-SSE2 setting
     uintptr_t tot = 0;
     for (uintptr_t ulii = 0; ulii != u16_ct; ++ulii) {
       uint16_t cur_u16;

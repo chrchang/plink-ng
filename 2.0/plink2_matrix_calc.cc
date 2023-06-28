@@ -1931,12 +1931,9 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
                   const uint32_t wct = DivUp(zcount, kBytesPerWord / 2);
                   // assumes little-endian
                   const uintptr_t tabzero_word = 0x3009 * kMask0001;
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in CalcKing()."
-#endif
-                  uintptr_t* writep_alias = R_CAST(uintptr_t*, cswritep);
+                  unsigned char* tabzero_write_iter = R_CAST(unsigned char*, cswritep);
                   for (uintptr_t widx = 0; widx != wct; ++widx) {
-                    *writep_alias++ = tabzero_word;
+                    AppendW(tabzero_word, &tabzero_write_iter);
                   }
                   cswritep = &(cswritep[zcount * 2]);
                 } else {
@@ -4573,12 +4570,9 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               const uint32_t wct = DivUp(zcount, kBytesPerWord / 2);
               // assumes little-endian
               const uintptr_t zerotab_word = 0x930 * kMask0001;
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in CalcGrm()."
-#endif
-              uintptr_t* writep_alias = R_CAST(uintptr_t*, cswritep);
+              unsigned char* zerotab_write_iter = R_CAST(unsigned char*, cswritep);
               for (uintptr_t widx = 0; widx != wct; ++widx) {
-                *writep_alias++ = zerotab_word;
+                AppendW(zerotab_word, &zerotab_write_iter);
               }
               cswritep = &(cswritep[zcount * 2]);
             } else if (matrix_shape == kfGrmMatrixSq) {

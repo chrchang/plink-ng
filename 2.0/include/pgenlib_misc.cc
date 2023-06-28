@@ -1556,7 +1556,7 @@ void GenoarrLookup256x2bx4(const uintptr_t* genoarr, const void* table256x2bx4, 
     unsigned char* result_last = &(resultb[full_byte_ct * sizeof(int64_t)]);
     uintptr_t geno_byte = genoarr_alias[full_byte_ct];
     for (uint32_t uii = 0; uii != remainder; ++uii) {
-      CopyToUnalignedOffsetU16(result_last, &(table_alias[geno_byte & 3]), uii);
+      CopyToUnalignedOffsetU16(result_last, DowncastKU64ToU16(&(table_alias[geno_byte & 3])), uii);
       geno_byte >>= 2;
     }
   }
@@ -1578,7 +1578,7 @@ void GenoarrLookup4x16b(const uintptr_t* genoarr, const void* table4x16b, uint32
     }
     geno_word = genoarr[widx];
     for (uint32_t uii = 0; uii != loop_len; ++uii) {
-      vec_storeu(result_biter, table_alias[geno_word & 3]);
+      _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[geno_word & 3]);
       result_biter += 16;
       geno_word >>= 2;
     }
@@ -1604,7 +1604,7 @@ void GenoarrLookup16x8bx2(const uintptr_t* genoarr, const void* table16x8bx2, ui
     geno_word = genoarr[widx];
     for (uint32_t uii = 0; uii != loop_len; ++uii) {
       const uintptr_t cur_2geno = geno_word & 15;
-      vec_storeu(result_biter, table_alias[cur_2geno]);
+      _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[cur_2geno]);
       result_biter += 16;
       geno_word >>= 4;
     }
@@ -1617,14 +1617,14 @@ void GenoarrLookup256x4bx4(const uintptr_t* genoarr, const void* table256x4bx4, 
   unsigned char* resultb = S_CAST(unsigned char*, result);
   const uint32_t full_byte_ct = sample_ct / 4;
   for (uint32_t byte_idx = 0; byte_idx != full_byte_ct; ++byte_idx) {
-    vec_storeu(&(resultb[byte_idx * 16]), table_alias[genoarr_alias[byte_idx]]);
+    _mm_storeu_si128(R_CAST(__m128i*, &(resultb[byte_idx * 16])), table_alias[genoarr_alias[byte_idx]]);
   }
   const uint32_t remainder = sample_ct % 4;
   if (remainder) {
     unsigned char* result_last = &(resultb[full_byte_ct * 16]);
     uintptr_t geno_byte = genoarr_alias[full_byte_ct];
     for (uint32_t uii = 0; uii != remainder; ++uii) {
-      CopyToUnalignedOffsetU32(result_last, &(table_alias[geno_byte & 3]), uii);
+      CopyToUnalignedOffsetU32(result_last, R_CAST(const uint32_t*, &(table_alias[geno_byte & 3])), uii);
       geno_byte >>= 2;
     }
   }
@@ -1950,7 +1950,7 @@ void PhaseLookup8b(const uintptr_t* genoarr, const uintptr_t* phasepresent, cons
     phasepresent_hw_shifted = phasepresent_alias[widx];
     if (!phasepresent_hw_shifted) {
       for (uint32_t uii = 0; uii != loop_len; ++uii) {
-        vec_storeu(result_biter, table_alias[geno_word & 15]);
+        _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[geno_word & 15]);
         result_biter += 16;
         geno_word >>= 4;
       }
@@ -1960,7 +1960,7 @@ void PhaseLookup8b(const uintptr_t* genoarr, const uintptr_t* phasepresent, cons
       phaseinfo_hw_shifted = phaseinfo_hw_shifted << 1;
       for (uint32_t uii = 0; uii != loop_len; ++uii) {
         const uintptr_t cur_idx = ((geno_word & 15) | (phasepresent_hw_shifted & 48)) ^ (phaseinfo_hw_shifted & 6);
-        vec_storeu(result_biter, table_alias[cur_idx]);
+        _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[cur_idx]);
         result_biter += 16;
         geno_word >>= 4;
         phasepresent_hw_shifted >>= 2;
@@ -2277,7 +2277,7 @@ void GenoarrSexLookup8b(const uintptr_t* genoarr, const uintptr_t* sex_male, con
     male_hw_shifted = sex_male_alias[widx];
     male_hw_shifted <<= 4;
     for (uint32_t uii = 0; uii != loop_len; ++uii) {
-      vec_storeu(result_biter, table_alias[(geno_word & 15) | (male_hw_shifted & 48)]);
+      _mm_storeu_si128(R_CAST(__m128i*, result_biter), table_alias[(geno_word & 15) | (male_hw_shifted & 48)]);
       result_biter += 16;
       geno_word >>= 4;
       male_hw_shifted >>= 2;

@@ -144,10 +144,18 @@ namespace plink2 {
 #  define CXXCONST_CP const char*
 #  define CXXCONST_VOIDP const void*
 #  define TO_CONSTCPCONSTP(char_pp) (char_pp)
+
+HEADER_INLINE const char* DowncastToXC(const void* pp) {
+  return S_CAST(const char*, pp);
+}
 #else
 #  define CXXCONST_CP char*
 #  define CXXCONST_VOIDP void*
 #  define TO_CONSTCPCONSTP(char_pp) ((const char* const*)(char_pp))
+
+HEADER_INLINE char* DowncastToXC(const void* pp) {
+  return R_CAST(char*, pp);
+}
 #endif
 
 #ifdef _GNU_SOURCE

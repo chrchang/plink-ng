@@ -747,7 +747,7 @@ PglErr BitmapWriterFinish(BitmapWriter* bw_ptr) {
   }
   const uint32_t rblock_ct = DivUp(row_ct, kPglRblockSize);
   fwrite_unlocked(bwp->rblock_fpos, rblock_ct * sizeof(int64_t), 1, ff);
-  const unsigned char* rrtype_buf_iter = R_CAST(unsigned char*, bwp->rrtype_buf);
+  const unsigned char* rrtype_buf_iter = DowncastToUc(bwp->rrtype_buf);
   const uint32_t rrec_len_byte_ct = bwp->rrec_len_byte_ct;
   const unsigned char* rrec_len_buf_iter = bwp->rrec_len_buf;
   uint32_t rrec_iter_incr = kPglRblockSize * rrec_len_byte_ct;

@@ -527,10 +527,7 @@ PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const ui
         geno_to_text32[1] = ctou32(exportf_delim) * 0x10001 + ctou32(alt_allele[0]) * 0x100 + ctou32(ref_allele[0]) * 0x1000000;
 
         geno_to_text32[2] = (ctou32(exportf_delim) + 0x100 * ctou32(alt_allele[0])) * 0x10001;
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in ExportTped()."
-#endif
-        uint32_t* write_iter_alias = R_CAST(uint32_t*, write_iter);
+        unsigned char* write_iter_uc = R_CAST(unsigned char*, write_iter);
         for (uint32_t widx = 0; ; ++widx) {
           if (widx >= sample_ctl2_m1) {
             if (widx > sample_ctl2_m1) {
@@ -541,11 +538,11 @@ PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const ui
           uintptr_t geno_word = genovec[widx];
           for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
             const uintptr_t cur_geno = geno_word & 3;
-            *write_iter_alias++ = geno_to_text32[cur_geno];
+            AppendU32(geno_to_text32[cur_geno], &write_iter_uc);
             geno_word >>= 2;
           }
         }
-        write_iter = R_CAST(char*, write_iter_alias);
+        write_iter = R_CAST(char*, write_iter_uc);
         line_blen += sample_ct * (4 * k1LU);
         if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
           goto ExportTped_ret_WRITE_FAIL;

@@ -112,6 +112,10 @@ HEADER_INLINE uintptr_t AlleleCodeCtToAlignedWordCt(uintptr_t val) {
   return kWordsPerVec * AlleleCodeCtToVecCt(val);
 }
 
+HEADER_INLINE AlleleCode* DowncastWToAC(uintptr_t* pp) {
+  return R_CAST(AlleleCode*, pp);
+}
+
 HEADER_INLINE void AlignACToVec(AlleleCode** pp) {
   const uintptr_t addr = R_CAST(uintptr_t, *pp);
   *pp = R_CAST(AlleleCode*, RoundUpPow2(addr, kBytesPerVec));

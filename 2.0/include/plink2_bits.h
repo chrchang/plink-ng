@@ -473,6 +473,14 @@ HEADER_INLINE void CopyBitarr(const uintptr_t* __restrict src, uintptr_t bit_ct,
 // output_bit_idx_end is practically always subset_size
 void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t output_bit_idx_end, uintptr_t* __restrict output_bitarr);
 
+#ifndef NO_UNALIGNED
+HEADER_INLINE void CopyBitarrSubsetToUnaligned(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t output_bit_idx_end, void* __restrict output_bitarr) {
+  CopyBitarrSubset(raw_bitarr, subset_mask, output_bit_idx_end, S_CAST(uintptr_t*, output_bitarr));
+}
+#else
+void CopyBitarrSubsetToUnaligned(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t output_bit_idx_end, void* __restrict output_bitarr);
+#endif
+
 // expand_size + read_start_bit must be positive.
 void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target);
 

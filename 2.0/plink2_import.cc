@@ -8023,9 +8023,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             }
           }
         } else if (value_type_m1 == 1) {
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in BcfToPgen()."
-#endif
           const uint16_t* filter_vec_alias = R_CAST(const uint16_t*, parse_iter);
           for (uint32_t filter_idx = 0; filter_idx != value_ct; ++filter_idx) {
             const uint32_t cur_val = filter_vec_alias[filter_idx];
@@ -8849,9 +8846,8 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
                   *pvar_cswritep++ = ';';
                 }
               } else if (value_type_m1 == 1) {
-                const uint16_t* filter_vec_alias = R_CAST(const uint16_t*, parse_iter);
                 for (uint32_t filter_idx = 0; filter_idx != value_ct; ++filter_idx) {
-                  const uint32_t cur_sidx = filter_vec_alias[filter_idx];
+                  const uint32_t cur_sidx = CopyFromUnalignedOffsetU16ZX(parse_iter, filter_idx);
                   if (cur_sidx == 0x8000) {
                     *pvar_cswritep++ = '.';
                   } else {
@@ -8860,9 +8856,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
                   *pvar_cswritep++ = ';';
                 }
               } else {
-                const uint32_t* filter_vec_alias = R_CAST(const uint32_t*, parse_iter);
                 for (uint32_t filter_idx = 0; filter_idx != value_ct; ++filter_idx) {
-                  const uint32_t cur_sidx = filter_vec_alias[filter_idx];
+                  uint32_t cur_sidx;
+                  CopyFromUnalignedOffsetU32(&cur_sidx, parse_iter, filter_idx);
                   if (cur_sidx == 0x80000000U) {
                     *pvar_cswritep++ = '.';
                   } else {
@@ -8927,9 +8923,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
                       }
                     } else if (value_type == 2) {
                       // int16
-                      const int16_t* cur_vec_alias = R_CAST(const int16_t*, cur_vec_start);
                       for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
-                        const int16_t cur_val = cur_vec_alias[value_idx];
+                        int16_t cur_val;
+                        CopyFromUnalignedOffsetI16(&cur_val, cur_vec_start, value_idx);
                         if (cur_val != -32768) {
                           pvar_cswritep = i32toa(cur_val, pvar_cswritep);
                         } else {
@@ -8939,9 +8935,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
                       }
                     } else if (value_type == 3) {
                       // int32
-                      const int32_t* cur_vec_alias = R_CAST(const int32_t*, cur_vec_start);
                       for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
-                        const int32_t cur_val = cur_vec_alias[value_idx];
+                        int32_t cur_val;
+                        CopyFromUnalignedOffsetI32(&cur_val, cur_vec_start, value_idx);
                         if (cur_val != (-2147483647 - 1)) {
                           pvar_cswritep = i32toa(cur_val, pvar_cswritep);
                         } else {
@@ -8951,9 +8947,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
                       }
                     } else {
                       // float
-                      const uint32_t* cur_vec_alias = R_CAST(const uint32_t*, cur_vec_start);
                       for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
-                        uint32_t cur_bits = cur_vec_alias[value_idx];
+                        uint32_t cur_bits;
+                        CopyFromUnalignedOffsetU32(&cur_bits, cur_vec_start, value_idx);
                         if (cur_bits != 0x7f800001) {
                           float cur_float;
                           memcpy(&cur_float, &cur_bits, 4);
@@ -10873,9 +10869,6 @@ THREAD_FUNC_DECL Bgen11GenoToPgenThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in Bgen13GetOneVal()."
-#endif
 HEADER_INLINE uintptr_t Bgen13GetOneVal(const unsigned char* prob_start, uint64_t prob_offset, uint32_t bit_precision, uintptr_t numer_mask) {
   const uint64_t bit_offset = prob_offset * bit_precision;
   uint64_t relevant_bits;
@@ -10884,9 +10877,6 @@ HEADER_INLINE uintptr_t Bgen13GetOneVal(const unsigned char* prob_start, uint64_
   return (relevant_bits >> (bit_offset % CHAR_BIT)) & numer_mask;
 }
 
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in Bgen13GetTwoVals()."
-#endif
 HEADER_INLINE void Bgen13GetTwoVals(const unsigned char* prob_start, uint64_t prob_offset, uint32_t bit_precision, uintptr_t numer_mask, uintptr_t* first_val_ptr, uintptr_t* second_val_ptr) {
   const uint64_t bit_offset = prob_offset * bit_precision;
   uint64_t relevant_bits;
@@ -14105,9 +14095,6 @@ PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t s
   return reterr;
 }
 
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in OxHapslegendToPgen()."
-#endif
 PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_sex, uint32_t is_splitpar, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgi_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* psamfile = nullptr;
@@ -14427,8 +14414,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       if ((!is_haploid) && IsEoln(linebuf_iter[sample_ct * 4 - 1])) {
         haps_line_iter = AdvPastDelim(&(linebuf_iter[sample_ct * 4 - 1]), '\n');
         linebuf_iter[sample_ct * 4 - 1] = ' ';
-#ifdef __LP64__
-        const VecU16* linebuf_viter = R_CAST(const VecU16*, linebuf_iter);
+#ifdef USE_SSE2
         const VecU16 all0 = vecu16_set1(0x2030);
         const VecU16 all1 = vecu16_set1(0x2031);
         const uint32_t fullword_ct = sample_ct / kBitsPerWordD2;
@@ -14436,21 +14422,21 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         for (uint32_t widx = 0; widx != fullword_ct; ++widx) {
           uintptr_t geno_first = 0;
           for (uint32_t uii = 0; uii != 2; ++uii) {
-            VecU16 cur_chars = vecu16_loadu(linebuf_viter);
-            ++linebuf_viter;
+            VecU16 cur_chars = vecu16_loadu(linebuf_iter);
+            linebuf_iter += kBytesPerVec;
             uintptr_t zero_mm = vecu16_movemask(cur_chars == all0);
             uintptr_t one_mm = vecu16_movemask(cur_chars == all1);
-            cur_chars = vecu16_loadu(linebuf_viter);
-            ++linebuf_viter;
+            cur_chars = vecu16_loadu(linebuf_iter);
+            linebuf_iter += kBytesPerVec;
             zero_mm |= S_CAST(uintptr_t, vecu16_movemask(cur_chars == all0)) << kBytesPerVec;
             one_mm |= S_CAST(uintptr_t, vecu16_movemask(cur_chars == all1)) << kBytesPerVec;
 #  ifndef USE_AVX2
-            cur_chars = vecu16_loadu(linebuf_viter);
-            ++linebuf_viter;
+            cur_chars = vecu16_loadu(linebuf_iter);
+            linebuf_iter += kBytesPerVec;
             zero_mm |= S_CAST(uintptr_t, vecu16_movemask(cur_chars == all0)) << 32;
             one_mm |= S_CAST(uintptr_t, vecu16_movemask(cur_chars == all1)) << 32;
-            cur_chars = vecu16_loadu(linebuf_viter);
-            ++linebuf_viter;
+            cur_chars = vecu16_loadu(linebuf_iter);
+            linebuf_iter += kBytesPerVec;
             zero_mm |= S_CAST(uintptr_t, vecu16_movemask(cur_chars == all0)) << 48;
             one_mm |= S_CAST(uintptr_t, vecu16_movemask(cur_chars == all1)) << 48;
 #  endif
@@ -14475,11 +14461,12 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         }
         const uint32_t remainder = sample_ct % kBitsPerWordD2;
         if (remainder) {
-          const uint32_t* linebuf_alias32_iter = R_CAST(const uint32_t*, linebuf_viter);
+          const unsigned char* linebuf_iter_uc = R_CAST(const unsigned char*, linebuf_iter);
           uintptr_t genovec_word = 0;
           Halfword phaseinfo_hw = 0;
           for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != remainder; ++sample_idx_lowbits) {
-            uint32_t cur_hap_4char = *linebuf_alias32_iter++;
+            uint32_t cur_hap_4char;
+            CopyFromUnalignedIncrU32(&cur_hap_4char, &linebuf_iter_uc);
             if (unlikely((cur_hap_4char & 0xfffefffeU) != 0x20302030)) {
               // todo: other error messages
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
@@ -14497,8 +14484,8 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           genovec_word_or |= genovec_word;
           phaseinfo_alias[fullword_ct] = phaseinfo_hw;
         }
-#else  // !__LP64__
-        const uint32_t* linebuf_alias32_iter = R_CAST(const uint32_t*, linebuf_iter);
+#else  // !USE_SSE2
+        const unsigned char* linebuf_iter_uc = R_CAST(const unsigned char*, linebuf_iter);
         for (uint32_t widx = 0; ; ++widx) {
           if (widx >= sample_ctl2_m1) {
             if (widx > sample_ctl2_m1) {
@@ -14510,7 +14497,8 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           uint32_t phaseinfo_hw = 0;
           for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
             // assumes little-endian
-            uint32_t cur_hap_4char = *linebuf_alias32_iter++;
+            uint32_t cur_hap_4char;
+            CopyFromUnalignedIncrU32(&cur_hap_4char, &linebuf_iter_uc);
             if (unlikely((cur_hap_4char & 0xfffefffeU) != 0x20302030)) {
               if ((cur_hap_4char & 0xfffffffeU) == 0x202d2030) {
                 // "0 - ", "1 - "
@@ -14531,9 +14519,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           }
           genovec[widx] = genovec_word;
           genovec_word_or |= genovec_word;
-          R_CAST(Halfword*, phaseinfo)[widx] = phaseinfo_hw;
+          DowncastWToHW(phaseinfo)[widx] = phaseinfo_hw;
         }
-#endif  // !__LP64__
+#endif  // !USE_SSE2
       } else {
         for (uint32_t widx = 0; ; ++widx) {
           if (widx >= sample_ctl2_m1) {

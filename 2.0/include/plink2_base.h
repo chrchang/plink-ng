@@ -322,6 +322,10 @@ HEADER_INLINE uint64_t ctou64(char cc) {
   return S_CAST(unsigned char, cc);
 }
 
+HEADER_INLINE unsigned char* CToUc(char* pp) {
+  return R_CAST(unsigned char*, pp);
+}
+
 // Error return types.  All of these evaluate to true on error and false on
 // success, but otherwise they have slightly different semantics:
 // * PglErr is the general-purpose enum.  Unlike an enum, implicit conversion
@@ -713,7 +717,6 @@ static const uintptr_t k0LU = S_CAST(uintptr_t, 0);
 // (1 << 32) is undefined.  also used as a quicker-to-type way of casting
 // numbers/expressions to uintptr_t (via multiplication).
 static const uintptr_t k1LU = S_CAST(uintptr_t, 1);
-
 
 #ifdef __LP64__
 CONSTI32(kBitsPerWord, 64);
@@ -1659,12 +1662,28 @@ typedef double VecD __attribute__ ((vector_size (32)));
 #    define VCONST_F(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
 #    define VCONST_D(xx) {xx, xx, xx, xx}
 
+HEADER_INLINE VecF VecToF(__m256 xxv) {
+  return R_CAST(VecF, xxv);
+}
+
+HEADER_INLINE VecD VecToD(__m256d xxv) {
+  return R_CAST(VecD, xxv);
+}
+
+HEADER_INLINE __m256 FToVec(VecF xxv) {
+  return R_CAST(__m256, xxv);
+}
+
+HEADER_INLINE __m256d DToVec(VecD xxv) {
+  return R_CAST(__m256d, xxv);
+}
+
 HEADER_INLINE VecF vecf_setzero() {
-  return R_CAST(VecF, _mm256_setzero_ps());
+  return VecToF(_mm256_setzero_ps());
 }
 
 HEADER_INLINE VecD vecd_setzero() {
-  return R_CAST(VecD, _mm256_setzero_pd());
+  return VecToD(_mm256_setzero_pd());
 }
 
 #  else  // !FVEC_32
@@ -1677,12 +1696,28 @@ typedef double VecD __attribute__ ((vector_size (16)));
 #    define VCONST_F(xx) {xx, xx, xx, xx}
 #    define VCONST_D(xx) {xx, xx}
 
+HEADER_INLINE VecF VecToF(__m128 xxv) {
+  return R_CAST(VecF, xxv);
+}
+
+HEADER_INLINE VecD VecToD(__m128d xxv) {
+  return R_CAST(VecD, xxv);
+}
+
+HEADER_INLINE __m128 FToVec(VecF xxv) {
+  return R_CAST(__m128, xxv);
+}
+
+HEADER_INLINE __m128d DToVec(VecD xxv) {
+  return R_CAST(__m128d, xxv);
+}
+
 HEADER_INLINE VecF vecf_setzero() {
-  return R_CAST(VecF, _mm_setzero_ps());
+  return VecToF(_mm_setzero_ps());
 }
 
 HEADER_INLINE VecD vecd_setzero() {
-  return R_CAST(VecD, _mm_setzero_pd());
+  return VecToD(_mm_setzero_pd());
 }
 
 #  endif  // !FVEC_32
@@ -2662,8 +2697,16 @@ HEADER_INLINE unsigned char* DowncastToUc(void* pp) {
   return S_CAST(unsigned char*, pp);
 }
 
+HEADER_INLINE char* DowncastToC(void* pp) {
+  return S_CAST(char*, pp);
+}
+
 HEADER_INLINE const unsigned char* DowncastKToUc(const void* pp) {
   return S_CAST(const unsigned char*, pp);
+}
+
+HEADER_INLINE const char* DowncastKToC(const void* pp) {
+  return S_CAST(const char*, pp);
 }
 
 HEADER_INLINE uintptr_t* DowncastVecWToW(VecW* pp) {
@@ -2678,11 +2721,35 @@ HEADER_INLINE Halfword* DowncastWToHW(uintptr_t* pp) {
   return R_CAST(Halfword*, pp);
 }
 
+HEADER_INLINE uint32_t* DowncastWToU32(uintptr_t* pp) {
+  return R_CAST(uint32_t*, pp);
+}
+
+HEADER_INLINE uint16_t* DowncastWToU16(uintptr_t* pp) {
+  return R_CAST(uint16_t*, pp);
+}
+
+HEADER_INLINE int16_t* DowncastWToI16(uintptr_t* pp) {
+  return R_CAST(int16_t*, pp);
+}
+
 #ifdef USE_SSE2
 HEADER_INLINE Vec8thUint* DowncastWToV8(uintptr_t* pp) {
   return R_CAST(Vec8thUint*, pp);
 }
 #endif
+
+HEADER_INLINE uint16_t* DowncastU32ToU16(uint32_t* pp) {
+  return R_CAST(uint16_t*, pp);
+}
+
+HEADER_INLINE const uintptr_t* DowncastKVecWToW(const VecW* pp) {
+  return R_CAST(const uintptr_t*, pp);
+}
+
+HEADER_INLINE const uint16_t* DowncastKVecWToU16(const VecW* pp) {
+  return R_CAST(const uint16_t*, pp);
+}
 
 HEADER_INLINE const Halfword* DowncastKWToHW(const uintptr_t* pp) {
   return R_CAST(const Halfword*, pp);
@@ -2690,6 +2757,14 @@ HEADER_INLINE const Halfword* DowncastKWToHW(const uintptr_t* pp) {
 
 HEADER_INLINE const uint32_t* DowncastKWToU32(const uintptr_t* pp) {
   return R_CAST(const uint32_t*, pp);
+}
+
+HEADER_INLINE const uint16_t* DowncastKWToU16(const uintptr_t* pp) {
+  return R_CAST(const uint16_t*, pp);
+}
+
+HEADER_INLINE const uint16_t* DowncastKU64ToU16(const uint64_t* pp) {
+  return R_CAST(const uint16_t*, pp);
 }
 
 
@@ -2735,122 +2810,6 @@ HEADER_INLINE uint32_t AlignKToW(const void* prestart, const uintptr_t** result_
   return lead_byte_ct;
 }
 
-
-HEADER_INLINE void CopyFromUnalignedW(uintptr_t* dst, const unsigned char* src) {
-  memcpy(dst, src, kBytesPerWord);
-}
-
-HEADER_INLINE void CopyFromUnalignedU32(uint32_t* dst, const unsigned char* src) {
-  memcpy(dst, src, sizeof(int32_t));
-}
-
-HEADER_INLINE void CopyFromUnalignedU16(uint16_t* dst, const unsigned char* src) {
-  memcpy(dst, src, sizeof(int16_t));
-}
-
-HEADER_INLINE void CopyFromUnalignedI16(int16_t* dst, const unsigned char* src) {
-  memcpy(dst, src, sizeof(int16_t));
-}
-
-HEADER_INLINE void CopyToUnalignedW(unsigned char* dst, const uintptr_t* src) {
-  memcpy(dst, src, kBytesPerWord);
-}
-
-HEADER_INLINE void CopyToUnalignedU64(unsigned char* dst, const uint64_t* src) {
-  memcpy(dst, src, sizeof(int64_t));
-}
-
-HEADER_INLINE void CopyFromUnalignedOffsetW(uintptr_t* dst, const unsigned char* src, uintptr_t offset) {
-  memcpy(dst, &(src[offset * kBytesPerWord]), kBytesPerWord);
-}
-
-HEADER_INLINE void CopyFromUnalignedOffsetHW(Halfword* dst, const unsigned char* src, uintptr_t offset) {
-  memcpy(dst, &(src[offset * sizeof(Halfword)]), sizeof(Halfword));
-}
-
-HEADER_INLINE void CopyFromUnalignedOffsetQW(Quarterword* dst, const unsigned char* src, uintptr_t offset) {
-  memcpy(dst, &(src[offset * sizeof(Quarterword)]), sizeof(Quarterword));
-}
-
-HEADER_INLINE void CopyFromUnalignedOffsetU64(uint64_t* dst, const unsigned char* src, uintptr_t offset) {
-  memcpy(dst, &(src[offset * sizeof(int64_t)]), sizeof(int64_t));
-}
-
-HEADER_INLINE void CopyFromUnalignedOffsetU32(uint32_t* dst, const unsigned char* src, uintptr_t offset) {
-  memcpy(dst, &(src[offset * sizeof(int32_t)]), sizeof(int32_t));
-}
-
-HEADER_INLINE void CopyFromUnalignedOffsetU16(uint16_t* dst, const unsigned char* src, uintptr_t offset) {
-  memcpy(dst, &(src[offset * sizeof(int16_t)]), sizeof(int16_t));
-}
-
-HEADER_INLINE void CopyFromUnalignedOffsetI16(int16_t* dst, const unsigned char* src, uintptr_t offset) {
-  memcpy(dst, &(src[offset * sizeof(int16_t)]), sizeof(int16_t));
-}
-
-HEADER_INLINE void CopyToUnalignedOffsetW(unsigned char* dst, const void* src, uintptr_t offset) {
-  memcpy(&(dst[offset * sizeof(intptr_t)]), src, sizeof(intptr_t));
-}
-
-HEADER_INLINE void CopyToUnalignedOffsetHW(unsigned char* dst, const void* src, uintptr_t offset) {
-  memcpy(&(dst[offset * sizeof(Halfword)]), src, sizeof(Halfword));
-}
-
-HEADER_INLINE void CopyToUnalignedOffsetU64(unsigned char* dst, const void* src, uintptr_t offset) {
-  memcpy(&(dst[offset * sizeof(int64_t)]), src, sizeof(int64_t));
-}
-
-HEADER_INLINE void CopyToUnalignedOffsetU32(unsigned char* dst, const void* src, uintptr_t offset) {
-  memcpy(&(dst[offset * sizeof(int32_t)]), src, sizeof(int32_t));
-}
-
-HEADER_INLINE void CopyToUnalignedOffsetU16(unsigned char* dst, const void* src, uintptr_t offset) {
-  memcpy(&(dst[offset * sizeof(int16_t)]), src, sizeof(int16_t));
-}
-
-HEADER_INLINE void CopyFromUnalignedIncrW(uintptr_t* dst, const unsigned char** srcp) {
-  memcpy(dst, *srcp, kBytesPerWord);
-  *srcp += kBytesPerWord;
-}
-
-HEADER_INLINE void CopyFromUnalignedIncrU16(uint16_t* dst, const unsigned char** srcp) {
-  memcpy(dst, *srcp, sizeof(int16_t));
-  *srcp += sizeof(int16_t);
-}
-
-HEADER_INLINE void CopyFromUnalignedIncrI16(int16_t* dst, const unsigned char** srcp) {
-  memcpy(dst, *srcp, sizeof(int16_t));
-  *srcp += sizeof(int16_t);
-}
-
-// no need to spell out 'CopyToUnalignedIncr' here; and we append constants
-// often enough to justify no src pointer
-
-HEADER_INLINE void AppendW(uintptr_t ulii, unsigned char** targetp) {
-  memcpy(*targetp, &ulii, kBytesPerWord);
-  *targetp += kBytesPerWord;
-}
-
-HEADER_INLINE void AppendU64(uint64_t ullii, unsigned char** targetp) {
-  memcpy(*targetp, &ullii, sizeof(int64_t));
-  *targetp += sizeof(int64_t);
-}
-
-HEADER_INLINE void AppendU32(uint32_t uii, unsigned char** targetp) {
-  memcpy(*targetp, &uii, sizeof(int32_t));
-  *targetp += sizeof(int32_t);
-}
-
-HEADER_INLINE void AppendU16(uint16_t usii, unsigned char** targetp) {
-  memcpy(*targetp, &usii, sizeof(int16_t));
-  *targetp += sizeof(int16_t);
-}
-
-#ifdef USE_SSE2
-HEADER_INLINE void CopyToUnalignedOffsetV8(unsigned char* dst, const void* src, uintptr_t offset) {
-  memcpy(&(dst[offset * sizeof(Vec8thUint)]), src, sizeof(Vec8thUint));
-}
-#endif
 
 // Turns out memcpy(&cur_word, bytearr, ct) can't be trusted to be fast when ct
 // isn't known at compile time.
@@ -2907,6 +2866,26 @@ HEADER_INLINE uint32_t SubU32Load(const void* bytearr, uint32_t ct) {
   }
   return *S_CAST(const uint32_t*, bytearr);
 }
+
+// ct must be 1 or 2.
+HEADER_INLINE uint16_t SubU16Load(const void* bytearr, uint32_t ct) {
+  if (ct == 1) {
+    const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
+    return bytearr_uc[0];
+  }
+  return *S_CAST(const uint16_t*, bytearr);
+}
+
+// ct must be in 1..sizeof(Halfword).
+#ifdef __LP64__
+HEADER_INLINE Halfword SubHWLoad(const void* bytearr, uint32_t ct) {
+  return SubU32Load(bytearr, ct);
+}
+#else
+HEADER_INLINE Halfword SubHWLoad(const void* bytearr, uint32_t ct) {
+  return SubU16Load(bytearr, ct);
+}
+#endif
 
 // tried making this non-inline, loop took more than 50% longer
 HEADER_INLINE void ProperSubwordStore(uintptr_t cur_word, uint32_t byte_ct, void* target) {
@@ -2974,6 +2953,12 @@ HEADER_INLINE uintptr_t SubwordLoad(const void* bytearr, uint32_t ct) {
 
 HEADER_INLINE uint32_t SubU32Load(const void* bytearr, uint32_t ct) {
   uint32_t cur_uint = 0;
+  memcpy(&cur_uint, bytearr, ct);
+  return cur_uint;
+}
+
+HEADER_INLINE Halfword SubHWLoad(const void* bytearr, uint32_t ct) {
+  Halfword cur_uint = 0;
   memcpy(&cur_uint, bytearr, ct);
   return cur_uint;
 }
@@ -3544,6 +3529,222 @@ HEADER_INLINE char* wtoa(uintptr_t ulii, char* start) {
   return u32toa(ulii, start);
 }
 #endif
+
+HEADER_INLINE void CopyFromUnalignedW(uintptr_t* dst, const unsigned char* src) {
+  memcpy_k(dst, src, kBytesPerWord);
+}
+
+HEADER_INLINE void CopyFromUnalignedU32(uint32_t* dst, const unsigned char* src) {
+  memcpy_k(dst, src, sizeof(int32_t));
+}
+
+HEADER_INLINE void CopyFromUnalignedU16(uint16_t* dst, const unsigned char* src) {
+  memcpy_k(dst, src, sizeof(int16_t));
+}
+
+HEADER_INLINE void CopyFromUnalignedI16(int16_t* dst, const unsigned char* src) {
+  memcpy_k(dst, src, sizeof(int16_t));
+}
+
+// [u]int16_t (and unsigned char) arithmetic is slower than uint32_t/uint64_t
+// arithmetic on some CPUs.
+// todo: check whether uint32_t vs. uintptr_t return value matters
+HEADER_INLINE uint32_t CopyFromUnalignedU16ZX(const unsigned char* src) {
+#ifndef NO_UNALIGNED
+  return *R_CAST(const uint16_t*, src);
+#else
+  uint16_t cur_u16;
+  memcpy_k(&cur_u16, src, sizeof(int16_t));
+  return cur_u16;
+#endif
+}
+
+HEADER_INLINE int32_t CopyFromUnalignedI16ZX(const unsigned char* src) {
+#ifndef NO_UNALIGNED
+  return *R_CAST(const int16_t*, src);
+#else
+  int16_t cur_i16;
+  memcpy_k(&cur_i16, src, sizeof(int16_t));
+  return cur_i16;
+#endif
+}
+
+HEADER_INLINE void CopyToUnalignedW(unsigned char* dst, const uintptr_t* src) {
+  memcpy_k(dst, src, kBytesPerWord);
+}
+
+HEADER_INLINE void CopyToUnalignedU64(unsigned char* dst, const uint64_t* src) {
+  memcpy_k(dst, src, sizeof(int64_t));
+}
+
+HEADER_INLINE void CopyToUnalignedU32(unsigned char* dst, const uint32_t* src) {
+  memcpy_k(dst, src, sizeof(int32_t));
+}
+
+HEADER_INLINE void CopyToUnalignedF(unsigned char* dst, const float* src) {
+  memcpy_k(dst, src, sizeof(float));
+}
+
+HEADER_INLINE void CopyFromUnalignedOffsetW(uintptr_t* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy_k(dst, &(src[offset * kBytesPerWord]), kBytesPerWord);
+}
+
+HEADER_INLINE void CopyFromUnalignedOffsetHW(Halfword* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy_k(dst, &(src[offset * sizeof(Halfword)]), sizeof(Halfword));
+}
+
+HEADER_INLINE void CopyFromUnalignedOffsetQW(Quarterword* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy_k(dst, &(src[offset * sizeof(Quarterword)]), sizeof(Quarterword));
+}
+
+HEADER_INLINE void CopyFromUnalignedOffsetU64(uint64_t* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy_k(dst, &(src[offset * sizeof(int64_t)]), sizeof(int64_t));
+}
+
+HEADER_INLINE void CopyFromUnalignedOffsetU32(uint32_t* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy_k(dst, &(src[offset * sizeof(int32_t)]), sizeof(int32_t));
+}
+
+HEADER_INLINE void CopyFromUnalignedOffsetI32(int32_t* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy_k(dst, &(src[offset * sizeof(int32_t)]), sizeof(int32_t));
+}
+
+HEADER_INLINE void CopyFromUnalignedOffsetU16(uint16_t* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy_k(dst, &(src[offset * sizeof(int16_t)]), sizeof(int16_t));
+}
+
+HEADER_INLINE void CopyFromUnalignedOffsetI16(int16_t* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy_k(dst, &(src[offset * sizeof(int16_t)]), sizeof(int16_t));
+}
+
+HEADER_INLINE uint32_t CopyFromUnalignedOffsetU16ZX(const unsigned char* src, uintptr_t offset) {
+#ifndef NO_UNALIGNED
+  return R_CAST(const uint16_t*, src)[offset];
+#else
+  uint16_t cur_u16;
+  memcpy_k(&cur_u16, &(src[offset * sizeof(int16_t)]), sizeof(int16_t));
+  return cur_u16;
+#endif
+}
+
+HEADER_INLINE int32_t CopyFromUnalignedOffsetI16ZX(const unsigned char* src, uintptr_t offset) {
+#ifndef NO_UNALIGNED
+  return R_CAST(const int16_t*, src)[offset];
+#else
+  int16_t cur_i16;
+  memcpy_k(&cur_i16, &(src[offset * sizeof(int16_t)]), sizeof(int16_t));
+  return cur_i16;
+#endif
+}
+
+HEADER_INLINE void CopyToUnalignedOffsetW(unsigned char* dst, const uintptr_t* src, uintptr_t offset) {
+  memcpy_k(&(dst[offset * sizeof(intptr_t)]), src, sizeof(intptr_t));
+}
+
+HEADER_INLINE void CopyToUnalignedOffsetHW(unsigned char* dst, const Halfword* src, uintptr_t offset) {
+  memcpy_k(&(dst[offset * sizeof(Halfword)]), src, sizeof(Halfword));
+}
+
+HEADER_INLINE void CopyToUnalignedOffsetU64(unsigned char* dst, const uint64_t* src, uintptr_t offset) {
+  memcpy_k(&(dst[offset * sizeof(int64_t)]), src, sizeof(int64_t));
+}
+
+HEADER_INLINE void CopyToUnalignedOffsetU32(unsigned char* dst, const uint32_t* src, uintptr_t offset) {
+  memcpy_k(&(dst[offset * sizeof(int32_t)]), src, sizeof(int32_t));
+}
+
+HEADER_INLINE void CopyToUnalignedOffsetU16(unsigned char* dst, const uint16_t* src, uintptr_t offset) {
+  memcpy_k(&(dst[offset * sizeof(int16_t)]), src, sizeof(int16_t));
+}
+
+HEADER_INLINE void CopyToUnalignedOffsetF(unsigned char* dst, const float* src, uintptr_t offset) {
+  memcpy_k(&(dst[offset * sizeof(float)]), src, sizeof(float));
+}
+
+#ifdef USE_SSE2
+HEADER_INLINE void CopyToUnalignedOffsetV8(unsigned char* dst, const Vec8thUint* src, uintptr_t offset) {
+  memcpy_k(&(dst[offset * sizeof(Vec8thUint)]), src, sizeof(Vec8thUint));
+}
+
+HEADER_INLINE void CopyToUnalignedOffsetV16(unsigned char* dst, const Vec16thUint* src, uintptr_t offset) {
+  memcpy_k(&(dst[offset * sizeof(Vec16thUint)]), src, sizeof(Vec16thUint));
+}
+#endif
+
+HEADER_INLINE void CopyFromUnalignedIncrW(uintptr_t* dst, const unsigned char** srcp) {
+  memcpy_k(dst, *srcp, kBytesPerWord);
+  *srcp += kBytesPerWord;
+}
+
+HEADER_INLINE void CopyFromUnalignedIncrU32(uint32_t* dst, const unsigned char** srcp) {
+  memcpy_k(dst, *srcp, sizeof(int32_t));
+  *srcp += sizeof(int32_t);
+}
+
+HEADER_INLINE void CopyFromUnalignedIncrU16(uint16_t* dst, const unsigned char** srcp) {
+  memcpy_k(dst, *srcp, sizeof(int16_t));
+  *srcp += sizeof(int16_t);
+}
+
+HEADER_INLINE void CopyFromUnalignedIncrI16(int16_t* dst, const unsigned char** srcp) {
+  memcpy_k(dst, *srcp, sizeof(int16_t));
+  *srcp += sizeof(int16_t);
+}
+
+HEADER_INLINE uint32_t CopyFromUnalignedIncrU16ZX(const unsigned char** srcp) {
+#ifndef NO_UNALIGNED
+  const uint32_t result = *R_CAST(const uint16_t*, *srcp);
+#else
+  uint16_t result;
+  memcpy_k(&result, *srcp, sizeof(int16_t));
+#endif
+  *srcp += sizeof(int16_t);
+  return result;
+}
+
+HEADER_INLINE int32_t CopyFromUnalignedIncrI16ZX(const unsigned char** srcp) {
+#ifndef NO_UNALIGNED
+  const int32_t result = *R_CAST(const int16_t*, *srcp);
+#else
+  int16_t result;
+  memcpy_k(&result, *srcp, sizeof(int16_t));
+#endif
+  *srcp += sizeof(int16_t);
+  return result;
+}
+
+// no need to spell out 'CopyToUnalignedIncr' here; and we append constants
+// often enough to justify no src pointer
+
+HEADER_INLINE void AppendW(uintptr_t ulii, unsigned char** targetp) {
+  memcpy_k(*targetp, &ulii, kBytesPerWord);
+  *targetp += kBytesPerWord;
+}
+
+HEADER_INLINE void AppendU64(uint64_t ullii, unsigned char** targetp) {
+  memcpy_k(*targetp, &ullii, sizeof(int64_t));
+  *targetp += sizeof(int64_t);
+}
+
+HEADER_INLINE void AppendU32(uint32_t uii, unsigned char** targetp) {
+  memcpy_k(*targetp, &uii, sizeof(int32_t));
+  *targetp += sizeof(int32_t);
+}
+
+HEADER_INLINE void AppendU16(uint16_t usii, unsigned char** targetp) {
+  memcpy_k(*targetp, &usii, sizeof(int16_t));
+  *targetp += sizeof(int16_t);
+}
+
+HEADER_INLINE void CAppendU32(uint32_t uii, char** targetp) {
+  memcpy_k(*targetp, &uii, sizeof(int32_t));
+  *targetp += sizeof(int32_t);
+}
+
+HEADER_INLINE void CAppendU16(uint16_t usii, char** targetp) {
+  memcpy_k(*targetp, &usii, sizeof(int16_t));
+  *targetp += sizeof(int16_t);
+}
 
 
 // now compiling with gcc >= 4.4 (or clang equivalent) on all platforms, so

@@ -1552,21 +1552,26 @@ void PopcountWordsIntersect3val(const uintptr_t* __restrict bitvec1, const uintp
 uint32_t AllBitsAreZero(const uintptr_t* bitarr, uintptr_t start_idx, uintptr_t end_idx);
 
 // does not assume relevant bits of target_bitarr are zero
-HEADER_INLINE void CopyBits(uintptr_t src_word, uint64_t target_start_bitidx, uint32_t len, uintptr_t* target_bitarr) {
-  uintptr_t* update_ptr = &(target_bitarr[target_start_bitidx / kBitsPerWord]);
-  uintptr_t target_word = *update_ptr;
+HEADER_INLINE void CopyBits(uintptr_t src_word, uint64_t target_start_bitidx, uint32_t len, void* target_bitarr) {
+  unsigned char* target_bitarr_uc = S_CAST(unsigned char*, target_bitarr);
+  unsigned char* update_ptr = &(target_bitarr_uc[(target_start_bitidx / kBitsPerWord) * kBytesPerWord]);
+  uintptr_t target_word;
+  CopyFromUnalignedW(&target_word, update_ptr);
   const uint32_t bit_idx_start = target_start_bitidx % kBitsPerWord;
   const uintptr_t shifted_new_bits = src_word << bit_idx_start;
   const uint32_t bit_idx_end = bit_idx_start + len;
   if (bit_idx_end <= kBitsPerWord) {
     const uintptr_t invmask = bzhi_max((~k0LU) << bit_idx_start, bit_idx_end);
-    *update_ptr = (target_word & (~invmask)) | shifted_new_bits;
+    target_word = (target_word & (~invmask)) | shifted_new_bits;
+    CopyToUnalignedW(update_ptr, &target_word);
     return;
   }
-  *update_ptr++ = bzhi(target_word, bit_idx_start) | shifted_new_bits;
-  target_word = *update_ptr;
+  AppendW(bzhi(target_word, bit_idx_start) | shifted_new_bits, &update_ptr);
+
+  CopyFromUnalignedW(&target_word, update_ptr);
   const uint32_t remainder = bit_idx_end - kBitsPerWord;
-  *update_ptr = (target_word & ((~k0LU) << remainder)) | (src_word >> (len - remainder));
+  target_word = (target_word & ((~k0LU) << remainder)) | (src_word >> (len - remainder));
+  CopyToUnalignedW(update_ptr, &target_word);
 }
 
 // assumes len is positive, and relevant bits of target_bitarr are zero

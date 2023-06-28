@@ -64,7 +64,7 @@ CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2
     matching_bytes = veci8_movemask(ucc1_match_vvec | ucc2_match_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
-  return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
+  return &(DowncastToXC(ss_viter)[byte_offset_in_vec]);
 }
 
 CXXCONST_VOIDP rawmemchr3(const void* ss, unsigned char ucc1, unsigned char ucc2, unsigned char ucc3) {
@@ -89,7 +89,7 @@ CXXCONST_VOIDP rawmemchr3(const void* ss, unsigned char ucc1, unsigned char ucc2
     matching_bytes = veci8_movemask(ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
-  return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
+  return &(DowncastToXC(ss_viter)[byte_offset_in_vec]);
 }
 
 CXXCONST_CP strchrnul3(const char* ss, unsigned char ucc1, unsigned char ucc2, unsigned char ucc3) {
@@ -117,7 +117,7 @@ CXXCONST_CP strchrnul3(const char* ss, unsigned char ucc1, unsigned char ucc2, u
     matching_bytes = veci8_movemask(zero_match_vvec | ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
-  return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
+  return &(DowncastToXC(ss_viter)[byte_offset_in_vec]);
 }
 #else
 CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2) {
@@ -510,7 +510,7 @@ void SortStrboxIndexed2Fallback(uintptr_t str_ct, uintptr_t max_str_blen, uint32
     for (uint32_t new_idx = 0; new_idx != str_ct; ++new_idx) {
       const char* strptr = wkspace_alias[new_idx].strptr;
       // todo: check whether memcpy(., ., max_str_blen) tends to be better
-      strcpy(&(R_CAST(char*, wkspace_alias)[new_idx * max_str_blen]), strptr);
+      strcpy(&(DowncastToC(wkspace_alias)[new_idx * max_str_blen]), strptr);
     }
   } else {
 #endif
@@ -519,7 +519,7 @@ void SortStrboxIndexed2Fallback(uintptr_t str_ct, uintptr_t max_str_blen, uint32
     do {
       --new_idx;
       const char* strptr = wkspace_alias[new_idx].strptr;
-      strcpy(&(R_CAST(char*, wkspace_alias)[new_idx * max_str_blen]), strptr);
+      strcpy(&(DowncastToC(wkspace_alias)[new_idx * max_str_blen]), strptr);
     } while (new_idx);
 #ifndef __cplusplus
   }
@@ -714,7 +714,7 @@ CXXCONST_CP FirstPrecharFar(const char* str_iter, uint32_t char_code) {
     matching_bytes = ~vecuc_movemask(non_prechar_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
-  return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
+  return &(DowncastToXC(str_viter)[byte_offset_in_vec]);
 }
 #endif
 */
@@ -1034,7 +1034,7 @@ BoolErr ScanmovIntBounded(uint64_t abs_floor, uint64_t cap, const char** str_ite
     }
   }
   *str_iterp = str_iter;
-  if (ScanmovUintCappedFinish(cap, str_iterp, R_CAST(uint32_t*, valp))) {
+  if (ScanmovUintCappedFinish(cap, str_iterp, I32ToU32(valp))) {
     return 1;
   }
   *valp *= sign;
@@ -1742,7 +1742,7 @@ CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
       if (terminating_bytes << (31 - byte_offset_in_vec)) {
         return nullptr;
       }
-      return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
+      return &(DowncastToXC(str_viter)[byte_offset_in_vec]);
     }
     if (terminating_bytes) {
       return nullptr;
@@ -1791,7 +1791,7 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
     while (cur_transition_ct >= transition_bits_to_skip_p1) {
       cur_transitions = ClearBottomSetBits(transition_bits_to_skip_p1 - 1, cur_transitions);
       uint32_t byte_offset_in_vec = ctzu32(cur_transitions);
-      const char* token_start = &(R_CAST(const char*, str_viter)[byte_offset_in_vec]);
+      const char* token_start = &(DowncastKToC(str_viter)[byte_offset_in_vec]);
       const uint32_t cur_col_type = col_types[relevant_col_idx];
       token_ptrs[cur_col_type] = token_start;
       // Find end of token.
@@ -1816,7 +1816,7 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
           cur_transitions = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec));
         }
         byte_offset_in_vec = ctzu32(cur_transitions);
-        const char* token_end = &(R_CAST(const char*, str_viter)[byte_offset_in_vec]);
+        const char* token_end = &(DowncastKToC(str_viter)[byte_offset_in_vec]);
         token_slens[cur_col_type] = token_end - token_start;
         return token_end;
       }
@@ -1840,7 +1840,7 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
         cur_transitions &= cur_transitions - 1;
       }
       byte_offset_in_vec = ctzu32(cur_transitions);
-      const char* token_end = &(R_CAST(const char*, str_viter)[byte_offset_in_vec]);
+      const char* token_end = &(DowncastKToC(str_viter)[byte_offset_in_vec]);
       token_slens[cur_col_type] = token_end - token_start;
       ++relevant_col_idx;
       transition_bits_to_skip_p1 = 2 * col_skips[relevant_col_idx];
@@ -3040,7 +3040,7 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
     const VecI8 match_vvec = (*str_rev_viter == vvec_all_needle);
     uint32_t matching_bytes = veci8_movemask(match_vvec);
     matching_bytes &= (1U << (trailing_byte_ct % kBytesPerVec)) - 1;
-    if (str_start > R_CAST(const char*, str_rev_viter)) {
+    if (str_start > DowncastKToC(str_rev_viter)) {
       const uint32_t leading_byte_ct = R_CAST(uintptr_t, str_start) % kBytesPerVec;
       matching_bytes &= -(1U << leading_byte_ct);
       // Special-case this, since main_loop_iter_ct below would underflow.
@@ -3050,7 +3050,7 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
     }
     if (matching_bytes) {
       const uint32_t byte_offset_in_vec = bsru32(matching_bytes);
-      return &(R_CAST(CXXCONST_CP, str_rev_viter)[byte_offset_in_vec]);
+      return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
   }
   const uintptr_t main_loop_iter_ct = (R_CAST(uintptr_t, str_rev_viter) - R_CAST(uintptr_t, str_start)) / (2 * kBytesPerVec);
@@ -3066,10 +3066,10 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
       const uint32_t matching_bytes1 = veci8_movemask(match_vvec1);
       if (matching_bytes1) {
         const uint32_t byte_offset_in_vec = bsru32(matching_bytes1);
-        return &(R_CAST(CXXCONST_CP, &(str_rev_viter[1]))[byte_offset_in_vec]);
+        return &(DowncastToXC(&(str_rev_viter[1]))[byte_offset_in_vec]);
       }
       const uint32_t byte_offset_in_vec = bsru32(matching_bytes);
-      return &(R_CAST(CXXCONST_CP, str_rev_viter)[byte_offset_in_vec]);
+      return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
   }
   while (1) {
@@ -3085,7 +3085,7 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
       if (byte_offset_in_vec + remaining_byte_ct_underflow < kBytesPerVec) {
         return nullptr;
       }
-      return &(R_CAST(CXXCONST_CP, str_rev_viter)[byte_offset_in_vec]);
+      return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
   }
 }
@@ -3103,7 +3103,7 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
     const VecUc postspace_vvec = vecuc_adds(*str_rev_viter, vvec_all95);
     uint32_t nontoken_bytes = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec));
     nontoken_bytes &= (1U << (trailing_byte_ct % kBytesPerVec)) - 1;
-    if (str_start > R_CAST(const char*, str_rev_viter)) {
+    if (str_start > DowncastKToC(str_rev_viter)) {
       const uint32_t leading_byte_ct = R_CAST(uintptr_t, str_start) % kBytesPerVec;
       nontoken_bytes &= -(1U << leading_byte_ct);
       // Special-case this, since main_loop_iter_ct below would underflow.
@@ -3113,7 +3113,7 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
     }
     if (nontoken_bytes) {
       const uint32_t byte_offset_in_vec = bsru32(nontoken_bytes);
-      return &(R_CAST(CXXCONST_CP, str_rev_viter)[byte_offset_in_vec]);
+      return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
   }
   const uintptr_t main_loop_iter_ct = (R_CAST(uintptr_t, str_rev_viter) - R_CAST(uintptr_t, str_start)) / (2 * kBytesPerVec);
@@ -3127,10 +3127,10 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
       const uint32_t nontoken_bytes1 = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec1));
       if (nontoken_bytes1) {
         const uint32_t byte_offset_in_vec = bsru32(nontoken_bytes1);
-        return &(R_CAST(CXXCONST_CP, &(str_rev_viter[1]))[byte_offset_in_vec]);
+        return &(DowncastToXC(&(str_rev_viter[1]))[byte_offset_in_vec]);
       }
       const uint32_t byte_offset_in_vec = bsru32(nontoken_bytes);
-      return &(R_CAST(CXXCONST_CP, str_rev_viter)[byte_offset_in_vec]);
+      return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
   }
   while (1) {
@@ -3146,7 +3146,7 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
       if (byte_offset_in_vec + remaining_byte_ct_underflow < kBytesPerVec) {
         return nullptr;
       }
-      return &(R_CAST(CXXCONST_CP, str_rev_viter)[byte_offset_in_vec]);
+      return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
   }
 }

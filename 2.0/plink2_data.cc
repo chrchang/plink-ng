@@ -1420,9 +1420,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Sam
 }
 
 /*
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in BitvecPermute()."
-#endif
+// unaligned accesses here.
 void BitvecPermute(const uintptr_t* bitvec, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, unsigned char* writebuf) {
   const uint32_t sample_ctl_m1 = BitCtToWordCt(sample_ct) - 1;
   uint32_t widx = 0;
@@ -1449,20 +1447,16 @@ void BitvecPermute(const uintptr_t* bitvec, const uint32_t* new_sample_idx_to_ol
 
 // Now assumes trailing bits of genovec have been zeroed out.
 // writebuf need not be word-aligned.
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in GenovecPermute()."
-#endif
-void GenovecPermute(const uintptr_t* genovec, const uint32_t* old_sample_idx_to_new, uint32_t sample_ct, void* writebuf) {
+void GenovecPermute(const uintptr_t* genovec, const uint32_t* old_sample_idx_to_new, uint32_t sample_ct, unsigned char* writebuf) {
   const uintptr_t most_common_geno_word = MostCommonGenoUnsafe(genovec, sample_ct) * kMask5555;
   const uint32_t sample_ctl2_m1 = NypCtToWordCt(sample_ct) - 1;
-  uintptr_t* writebuf_walias = S_CAST(uintptr_t*, writebuf);
+  // er, this is probably suboptimal in no-unaligned case...
   for (uint32_t widx = 0; widx != sample_ctl2_m1; ++widx) {
-    writebuf_walias[widx] = most_common_geno_word;
+    CopyToUnalignedOffsetW(writebuf, &most_common_geno_word, widx);
   }
   const uint32_t trailing_bit_ct = 2 * ModNz(sample_ct, kBitsPerWordD2);
-  SubwordStore(bzhi_max(most_common_geno_word, trailing_bit_ct), DivUp(trailing_bit_ct, CHAR_BIT), &(writebuf_walias[sample_ctl2_m1]));
+  SubwordStore(bzhi_max(most_common_geno_word, trailing_bit_ct), DivUp(trailing_bit_ct, CHAR_BIT), &(writebuf[sample_ctl2_m1 * kBytesPerWord]));
 
-  unsigned char* writebuf_b = S_CAST(unsigned char*, writebuf);
   for (uint32_t widx = 0; ; ++widx) {
     uintptr_t geno_word_xor;
     if (widx >= sample_ctl2_m1) {
@@ -1485,15 +1479,16 @@ void GenovecPermute(const uintptr_t* genovec, const uint32_t* old_sample_idx_to_
       const uint32_t bit_write_shift_ct = 2 * (new_sample_idx % 4);
       // Value has been preset to most_common_geno, so if we xor it with
       // (most_common_geno ^ actual_geno), the result is actual_geno.
-      writebuf_b[new_byte_idx] ^= cur_geno_xor << bit_write_shift_ct;
+      writebuf[new_byte_idx] ^= cur_geno_xor << bit_write_shift_ct;
       geno_word_xor &= (~(3 * k1LU)) << bit_read_shift_ct;
     } while (geno_word_xor);
   }
 }
 
 void GenovecPermuteSubset(const uintptr_t* genovec, const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, const uint32_t* old_sample_idx_to_new, uint32_t raw_sample_ct, uint32_t sample_ct, void* writebuf) {
+  unsigned char* writebuf_uc = S_CAST(unsigned char*, writebuf);
   if (sample_ct == raw_sample_ct) {
-    GenovecPermute(genovec, old_sample_idx_to_new, sample_ct, writebuf);
+    GenovecPermute(genovec, old_sample_idx_to_new, sample_ct, writebuf_uc);
     return;
   }
   STD_ARRAY_DECL(uint32_t, 4, genocounts);
@@ -1510,19 +1505,17 @@ void GenovecPermuteSubset(const uintptr_t* genovec, const uintptr_t* sample_incl
   }
   const uintptr_t most_common_geno_word = most_common_geno * kMask5555;
   const uint32_t sample_ctl2_m1 = NypCtToWordCt(sample_ct) - 1;
-  uintptr_t* writebuf_walias = S_CAST(uintptr_t*, writebuf);
   for (uint32_t widx = 0; widx != sample_ctl2_m1; ++widx) {
-    writebuf_walias[widx] = most_common_geno_word;
+    CopyToUnalignedOffsetW(writebuf_uc, &most_common_geno_word, widx);
   }
   const uint32_t write_trailing_bit_ct = 2 * ModNz(sample_ct, kBitsPerWordD2);
-  SubwordStore(bzhi_max(most_common_geno_word, write_trailing_bit_ct), DivUp(write_trailing_bit_ct, CHAR_BIT), &(writebuf_walias[sample_ctl2_m1]));
+  SubwordStore(bzhi_max(most_common_geno_word, write_trailing_bit_ct), DivUp(write_trailing_bit_ct, CHAR_BIT), &(writebuf_uc[sample_ctl2_m1 * kBytesPerWord]));
   if (most_common_geno_ct == sample_ct) {
     return;
   }
 
   const uint32_t raw_sample_ctl2_m1 = NypCtToWordCt(raw_sample_ct) - 1;
-  const Halfword* sample_include_alias = R_CAST(const Halfword*, sample_include);
-  unsigned char* writebuf_b = S_CAST(unsigned char*, writebuf);
+  const Halfword* sample_include_alias = DowncastKWToHW(sample_include);
   for (uint32_t widx = 0; ; ++widx) {
     uintptr_t geno_word_xor;
     if (widx >= raw_sample_ctl2_m1) {
@@ -1547,7 +1540,7 @@ void GenovecPermuteSubset(const uintptr_t* genovec, const uintptr_t* sample_incl
       const uint32_t new_sample_idx = cur_old_sample_idx_to_new[bit_read_shift_ct / 2];
       const uint32_t new_byte_idx = new_sample_idx / 4;
       const uint32_t bit_write_shift_ct = 2 * (new_sample_idx % 4);
-      writebuf_b[new_byte_idx] ^= cur_geno_xor << bit_write_shift_ct;
+      writebuf_uc[new_byte_idx] ^= cur_geno_xor << bit_write_shift_ct;
       geno_word_xor &= (~(3 * k1LU)) << bit_read_shift_ct;
     } while (geno_word_xor);
   }
