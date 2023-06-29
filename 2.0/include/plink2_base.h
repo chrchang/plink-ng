@@ -3546,6 +3546,10 @@ HEADER_INLINE void CopyFromUnalignedI16(int16_t* dst, const unsigned char* src) 
   memcpy_k(dst, src, sizeof(int16_t));
 }
 
+HEADER_INLINE void CopyFromUnalignedF(float* dst, const unsigned char* src) {
+  memcpy_k(dst, src, sizeof(float));
+}
+
 // [u]int16_t (and unsigned char) arithmetic is slower than uint32_t/uint64_t
 // arithmetic on some CPUs.
 // todo: check whether uint32_t vs. uintptr_t return value matters
@@ -3617,6 +3621,10 @@ HEADER_INLINE void CopyFromUnalignedOffsetI16(int16_t* dst, const unsigned char*
   memcpy_k(dst, &(src[offset * sizeof(int16_t)]), sizeof(int16_t));
 }
 
+HEADER_INLINE void CopyFromUnalignedOffsetF(float* dst, const unsigned char* src, uintptr_t offset) {
+  memcpy_k(dst, &(src[offset * sizeof(float)]), sizeof(float));
+}
+
 HEADER_INLINE uint32_t CopyFromUnalignedOffsetU16ZX(const unsigned char* src, uintptr_t offset) {
 #ifndef NO_UNALIGNED
   return R_CAST(const uint16_t*, src)[offset];
@@ -3654,6 +3662,10 @@ HEADER_INLINE void CopyToUnalignedOffsetU32(unsigned char* dst, const uint32_t* 
 }
 
 HEADER_INLINE void CopyToUnalignedOffsetU16(unsigned char* dst, const uint16_t* src, uintptr_t offset) {
+  memcpy_k(&(dst[offset * sizeof(int16_t)]), src, sizeof(int16_t));
+}
+
+HEADER_INLINE void CopyToUnalignedOffsetI16(unsigned char* dst, const int16_t* src, uintptr_t offset) {
   memcpy_k(&(dst[offset * sizeof(int16_t)]), src, sizeof(int16_t));
 }
 

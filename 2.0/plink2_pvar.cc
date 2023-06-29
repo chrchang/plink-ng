@@ -1133,7 +1133,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 
     // this way, we only need to check allele_storage_iter against this (i)
     // when processing a multiallelic variant or (ii) at the end of a block
-    const char** allele_storage_limit = R_CAST(const char**, &(rlstream_start[kLoadPvarBlockSize * (-2) * sizeof(intptr_t)]));
+    const char** allele_storage_limit = R_CAST(const char**, &(rlstream_start[-S_CAST(intptr_t, kLoadPvarBlockSize * 2 * sizeof(intptr_t))]));
 
     uintptr_t* loaded_chr_mask = R_CAST(uintptr_t*, tmp_alloc_base);
     unsigned char* tmp_alloc_end = bigstack_end_mark;

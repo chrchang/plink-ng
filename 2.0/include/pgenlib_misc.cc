@@ -1515,6 +1515,7 @@ void GenoarrLookup256x1bx4(const uintptr_t* genoarr, const void* table256x1bx4, 
   }
 }
 
+#ifndef NO_UNALIGNED
 void GenoarrLookup16x4bx2(const uintptr_t* genoarr, const void* table16x4bx2, uint32_t sample_ct, void* __restrict result) {
   const uint64_t* table_alias = S_CAST(const uint64_t*, table16x4bx2);
   unsigned char* result_biter = S_CAST(unsigned char*, result);
@@ -1541,6 +1542,36 @@ void GenoarrLookup16x4bx2(const uintptr_t* genoarr, const void* table16x4bx2, ui
     }
   }
 }
+#else
+// plink2_glm_logistic does not guarantee 8 byte table alignment.
+void GenoarrLookup16x4bx2(const uintptr_t* genoarr, const void* table16x4bx2, uint32_t sample_ct, void* __restrict result) {
+  const uint32_t* table_u32 = S_CAST(const uint32_t*, table16x4bx2);
+  unsigned char* result_biter = S_CAST(unsigned char*, result);
+  const uint32_t sample_ctl2m1 = (sample_ct - 1) / kBitsPerWordD2;
+  uint32_t loop_len = kBitsPerWordD4;
+  uintptr_t geno_word = 0;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2m1) {
+      if (widx > sample_ctl2m1) {
+        if (sample_ct % 2) {
+          // not a regular CopyToUnaligned, we're only copying the bottom half
+          // of the element
+          memcpy(result_biter, &(table_u32[(geno_word & 3) * 2]), 4);
+        }
+        return;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2) / 2;
+    }
+    geno_word = genoarr[widx];
+    for (uint32_t uii = 0; uii != loop_len; ++uii) {
+      const uintptr_t cur_2geno = geno_word & 15;
+      memcpy(result_biter, &(table_u32[cur_2geno * 2]), 8);
+      result_biter += 8;
+      geno_word >>= 4;
+    }
+  }
+}
+#endif
 
 // this might be important for genovec -> AlleleCode expansion
 void GenoarrLookup256x2bx4(const uintptr_t* genoarr, const void* table256x2bx4, uint32_t sample_ct, void* __restrict result) {

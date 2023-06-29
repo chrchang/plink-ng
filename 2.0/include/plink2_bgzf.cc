@@ -336,22 +336,25 @@ THREAD_FUNC_DECL BgzfRawMtStreamThread(void* raw_arg) {
         in_size -= 25;
         uint32_t out_size;
         memcpy(&out_size, &(in[in_offset + in_size + 22]), 4);
-        const uint32_t out_offset_end = out_offset + out_size;
-        unsigned char* dst;
-        if (out_offset_end > out_capacity) {
-          dst = &(overflow[S_CAST(int32_t, out_offset - out_capacity)]);
-        } else {
-          dst = &(target[out_offset]);
-        }
-        if (unlikely(libdeflate_deflate_decompress(ldc, &(in[in_offset + 18]), in_size, dst, out_size, nullptr))) {
-          cwd->invalid_bgzf = 1;
-          break;
-        }
-        if ((out_offset_end > out_capacity) && (out_offset < out_capacity)) {
-          memcpy(&(target[out_offset]), dst, out_capacity - out_offset);
+        if (out_size) {
+          // avoid undefined behavior when target == nullptr
+          const uint32_t out_offset_end = out_offset + out_size;
+          unsigned char* dst;
+          if (out_offset_end > out_capacity) {
+            dst = &(overflow[S_CAST(int32_t, out_offset - out_capacity)]);
+          } else {
+            dst = &(target[out_offset]);
+          }
+          if (unlikely(libdeflate_deflate_decompress(ldc, &(in[in_offset + 18]), in_size, dst, out_size, nullptr))) {
+            cwd->invalid_bgzf = 1;
+            break;
+          }
+          if ((out_offset_end > out_capacity) && (out_offset < out_capacity)) {
+            memcpy(&(target[out_offset]), dst, out_capacity - out_offset);
+          }
+          out_offset = out_offset_end;
         }
         in_offset += in_size + 26;
-        out_offset = out_offset_end;
       }
       parity = 1 - parity;
     } while (!THREAD_BLOCK_FINISH(arg));

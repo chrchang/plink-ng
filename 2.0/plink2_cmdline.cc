@@ -1233,10 +1233,6 @@ CSINLINE uint32_t rotl32(uint32_t x, int8_t r) {
   return (x << r) | (x >> (32 - r));
 }
 
-static inline uint32_t getblock32(const uint32_t* p, int i) {
-  return p[i];
-}
-
 //-----------------------------------------------------------------------------
 // Finalization mix - force all bits of a hash block to avalanche
 
@@ -1251,7 +1247,7 @@ CSINLINE2 uint32_t fmix32(uint32_t h) {
 }
 
 uint32_t Hash32(const void* key, uint32_t len) {
-  const uint8_t* data = S_CAST(const uint8_t*, key);
+  const unsigned char* data = S_CAST(const unsigned char*, key);
   const int32_t nblocks = len / 4;
 
   uint32_t h1 = 0;
@@ -1263,26 +1259,24 @@ uint32_t Hash32(const void* key, uint32_t len) {
   //----------
   // body
 
-  const uint32_t* blocks = R_CAST(const uint32_t*, data + nblocks*4);
+  const unsigned char* tail = data + nblocks*4;
 
   int32_t i;
   uint32_t k1;
   for(i = -nblocks; i; i++) {
-      k1 = getblock32(blocks,i);
+    memcpy_k(&k1, &(tail[i * 4]), 4);
 
-      k1 *= c1;
-      k1 = rotl32(k1,15);
-      k1 *= c2;
+    k1 *= c1;
+    k1 = rotl32(k1,15);
+    k1 *= c2;
 
-      h1 ^= k1;
-      h1 = rotl32(h1,13);
-      h1 = h1*5+0xe6546b64;
+    h1 ^= k1;
+    h1 = rotl32(h1,13);
+    h1 = h1*5+0xe6546b64;
   }
 
   //----------
   // tail
-
-  const uint8_t* tail = R_CAST(const uint8_t*, data + nblocks*4);
 
   k1 = 0;
 

@@ -1651,29 +1651,35 @@ uintptr_t PopcountBytesMasked(const void* bitarr, const uintptr_t* mask_arr, uin
   // main loop to call it.
   const uintptr_t word_ct = byte_ct / kBytesPerWord;
 #ifdef USE_SSE42
-  const uintptr_t* bitarr_w = S_CAST(const uintptr_t*, bitarr);
+  const unsigned char* bitarr_uc = S_CAST(const unsigned char*, bitarr);
   uintptr_t tot = 0;
   for (uintptr_t widx = 0; widx != word_ct; ++widx) {
-    tot += PopcountWord(bitarr_w[widx] & mask_arr[widx]);
+    uintptr_t cur_word;
+    CopyFromUnalignedOffsetW(&cur_word, bitarr_uc, widx);
+    tot += PopcountWord(cur_word & mask_arr[widx]);
   }
   const uint32_t trail_byte_ct = byte_ct % kBytesPerWord;
   if (trail_byte_ct) {
-    uintptr_t cur_word = ProperSubwordLoad(&(bitarr_w[word_ct]), trail_byte_ct);
+    const uintptr_t cur_word = ProperSubwordLoad(&(bitarr_uc[word_ct * kBytesPerWord]), trail_byte_ct);
     tot += PopcountWord(cur_word & mask_arr[word_ct]);
   }
   return tot;
 #else
-  const uintptr_t* bitarr_iter = S_CAST(const uintptr_t*, bitarr);
+  const unsigned char* bitarr_biter = S_CAST(const unsigned char*, bitarr);
   const uintptr_t mainblock_word_ct = word_ct - (word_ct % (24 / kBytesPerWord));
-  const uintptr_t* bitarr_24b_end = &(bitarr_iter[mainblock_word_ct]);
+  const unsigned char* bitarr_24b_end = &(bitarr_biter[mainblock_word_ct * kBytesPerWord]);
   const uintptr_t* mask_arr_iter = mask_arr;
   uintptr_t tot = 0;
-  while (bitarr_iter < bitarr_24b_end) {
-    uintptr_t loader = (*bitarr_iter++) & (*mask_arr_iter++);
+  while (bitarr_biter < bitarr_24b_end) {
+    uintptr_t loader;
+    CopyFromUnalignedIncrW(&loader, &bitarr_biter);
+    loader &= (*mask_arr_iter++);
     uintptr_t ulii = loader - ((loader >> 1) & kMask5555);
-    loader = (*bitarr_iter++) & (*mask_arr_iter++);
+    CopyFromUnalignedIncrW(&loader, &bitarr_biter);
+    loader &= (*mask_arr_iter++);
     uintptr_t uljj = loader - ((loader >> 1) & kMask5555);
-    loader = (*bitarr_iter++) & (*mask_arr_iter++);
+    CopyFromUnalignedIncrW(&loader, &bitarr_biter);
+    loader &= (*mask_arr_iter++);
     ulii += (loader >> 1) & kMask5555;
     uljj += loader & kMask5555;
     ulii = (ulii & kMask3333) + ((ulii >> 2) & kMask3333);
@@ -1681,11 +1687,14 @@ uintptr_t PopcountBytesMasked(const void* bitarr, const uintptr_t* mask_arr, uin
     uintptr_t tmp_stor = (ulii & kMask0F0F) + ((ulii >> 4) & kMask0F0F);
 
 #  ifndef __LP64__
-    loader = (*bitarr_iter++) & (*mask_arr_iter++);
+    CopyFromUnalignedIncrW(&loader, &bitarr_biter);
+    loader &= (*mask_arr_iter++);
     ulii = loader - ((loader >> 1) & kMask5555);
-    loader = (*bitarr_iter++) & (*mask_arr_iter++);
+    CopyFromUnalignedIncrW(&loader, &bitarr_biter);
+    loader &= (*mask_arr_iter++);
     uljj = loader - ((loader >> 1) & kMask5555);
-    loader = (*bitarr_iter++) & (*mask_arr_iter++);
+    CopyFromUnalignedIncrW(&loader, &bitarr_biter);
+    loader &= (*mask_arr_iter++);
     ulii += (loader >> 1) & kMask5555;
     uljj += loader & kMask5555;
     ulii = (ulii & kMask3333) + ((ulii >> 2) & kMask3333);
@@ -1705,10 +1714,10 @@ uintptr_t PopcountBytesMasked(const void* bitarr, const uintptr_t* mask_arr, uin
       if (!trail_byte_ct) {
         return tot;
       }
-      cur_word = ProperSubwordLoad(bitarr_iter, trail_byte_ct);
+      cur_word = ProperSubwordLoad(bitarr_biter, trail_byte_ct);
       trail_byte_ct = 0;
     } else {
-      cur_word = *bitarr_iter++;
+      CopyFromUnalignedIncrW(&cur_word, &bitarr_biter);
       trail_byte_ct -= kBytesPerWord;
     }
     tot += PopcountWord(cur_word & (*mask_arr_iter++));

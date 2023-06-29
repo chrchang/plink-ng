@@ -5045,7 +5045,7 @@ BoolErr ParseBcfBiallelicDosage(const float* cur_dosage_start, uint32_t is_haplo
   return 0;
 }
 
-BoolErr ParseBcfBiallelicHds(const float* dosage_main, const float* hds_main, uint32_t dosage_value_ct, uint32_t hds_value_ct, uint32_t sample_idx, uint32_t is_haploid_or_0ploid, uint32_t dosage_is_gp, double import_dosage_certainty, DosageParseResult* dpr_ptr, uint32_t* dosage_int_ptr, int32_t* cur_dphase_delta_ptr, uint32_t* hds_valid_ptr) {
+BoolErr ParseBcfBiallelicHds(const float* dosage_main, const unsigned char* hds_main, uint32_t dosage_value_ct, uint32_t hds_value_ct, uint32_t sample_idx, uint32_t is_haploid_or_0ploid, uint32_t dosage_is_gp, double import_dosage_certainty, DosageParseResult* dpr_ptr, uint32_t* dosage_int_ptr, int32_t* cur_dphase_delta_ptr, uint32_t* hds_valid_ptr) {
   // See ParseVcfBiallelicHds().
   // assumes dpr initialized to kDosageParseOk
   // assumes cur_dphase_delta initialized to 0
@@ -5053,12 +5053,14 @@ BoolErr ParseBcfBiallelicHds(const float* dosage_main, const float* hds_main, ui
   // assumes dosage_main != nullptr and/or hds_main != nullptr
   // returns 1 if missing OR parsing error.  error: dpr still kDosageParseOk.
   if (hds_main) {
-    const float* cur_hds_start = &(hds_main[sample_idx * hds_value_ct]);
+    const unsigned char* cur_hds_start = &(hds_main[sample_idx * hds_value_ct * sizeof(float)]);
     // search for HDS first, then DS
     int32_t first_bits;
     memcpy(&first_bits, cur_hds_start, 4);
     if (first_bits <= 0x7f800000) {
-      double dosage1 = S_CAST(double, cur_hds_start[0]);
+      float fxx;
+      CopyFromUnalignedF(&fxx, cur_hds_start);
+      double dosage1 = S_CAST(double, fxx);
       if (unlikely((dosage1 < 0.0) || (dosage1 > 1.0))) {
         return 1;
       }
@@ -5066,7 +5068,7 @@ BoolErr ParseBcfBiallelicHds(const float* dosage_main, const float* hds_main, ui
       // hardcall-phase
       *hds_valid_ptr = 1;
       int32_t second_bits;
-      memcpy(&second_bits, &(cur_hds_start[1]), 4);
+      CopyFromUnalignedOffsetI32(&second_bits, cur_hds_start, 1);
       if (second_bits > 0x7f800000) {
         // haploid ok, half-call not ok
         // 0x7f800002 == END_OF_VECTOR
@@ -5082,7 +5084,8 @@ BoolErr ParseBcfBiallelicHds(const float* dosage_main, const float* hds_main, ui
         *dosage_int_ptr = S_CAST(int32_t, dosage1 * kDosageMax + 0.5);
         return 0;
       }
-      double dosage2 = S_CAST(double, cur_hds_start[1]);
+      CopyFromUnalignedOffsetF(&fxx, cur_hds_start, 1);
+      double dosage2 = S_CAST(double, fxx);
       if (unlikely((dosage2 < 0.0) || (dosage2 > 1.0))) {
         return 1;
       }
@@ -5132,7 +5135,7 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
   // quickly (when we don't, it's essentially user error), so (unlike scanning
   // GT for a phased call) there's little point in spending much effort on
   // optimizing this.
-  const float* hds_main = nullptr;
+  const unsigned char* hds_main = nullptr;
   uint32_t hds_value_ct = 0;
   if (hds_start) {
     const unsigned char* hds_main_raw = hds_start;
@@ -5144,7 +5147,7 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
       return kBcfParseNonfloatDosage;
     }
     if (hds_value_ct) {
-      hds_main = R_CAST(const float*, hds_main_raw);
+      hds_main = hds_main_raw;
     }
   }
   const float* dosage_main = nullptr;
@@ -6751,16 +6754,15 @@ BcfParseErr BcfConvertPhasedBiallelicDosage(const BcfImportContext* bicp, const 
   if (unlikely(bcf_parse_err != kBcfParseOk)) {
     return bcf_parse_err;
   }
-  const float* hds_main = nullptr;
+  const unsigned char* hds_main = nullptr;
   uint32_t hds_value_ct = 0;
   if (metap->hds_vec_offset != UINT32_MAX) {
-    const unsigned char* hds_main_raw = &(record_start[metap->hds_vec_offset * S_CAST(uintptr_t, kBytesPerVec)]);
+    hds_main = &(record_start[metap->hds_vec_offset * S_CAST(uintptr_t, kBytesPerVec)]);
     uint32_t hds_value_type;
-    ScanBcfTypeAligned(&hds_main_raw, &hds_value_type, &hds_value_ct);
+    ScanBcfTypeAligned(&hds_main, &hds_value_type, &hds_value_ct);
     if (unlikely(hds_value_type != 5)) {
       return kBcfParseNonfloatDosage;
     }
-    hds_main = R_CAST(const float*, hds_main_raw);
   }
   const float* dosage_main = nullptr;
   uint32_t dosage_value_ct = 0;

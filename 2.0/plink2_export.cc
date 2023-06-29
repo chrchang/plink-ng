@@ -6887,10 +6887,6 @@ void FillBcf3allelicPhasedGt(const PgenVariant* pgvp, uint32_t sample_ct, uint32
     gt_base[3] = 0x8100;
   }
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in FillBcf3allelicPhasedGt()."
-#endif
-  uint16_t* gt_alias = R_CAST(uint16_t*, gt_start);
   Halfword* prev_phased_alias = DowncastWToHW(prev_phased);
   uint32_t loop_len = kBitsPerWordD2;
   for (uint32_t widx = 0; ; ++widx) {
@@ -6906,7 +6902,7 @@ void FillBcf3allelicPhasedGt(const PgenVariant* pgvp, uint32_t sample_ct, uint32
     const uint32_t phasepresent_hw = phasepresent_alias[widx];
     const uint32_t phaseinfo_hw = phaseinfo_alias[widx];
     uint32_t prev_phased_hw = prev_phased_alias[widx];
-    uint16_t* cur_gt = &(gt_alias[widx * kBitsPerWordD2]);
+    unsigned char* cur_gt = CToUc(&(gt_start[widx * kBitsPerWord]));
     for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
       const uintptr_t cur_geno = geno_word & 3;
       uint32_t cur_gt_base = gt_base[cur_geno];
@@ -6948,7 +6944,8 @@ void FillBcf3allelicPhasedGt(const PgenVariant* pgvp, uint32_t sample_ct, uint32
           }
         }
       }
-      cur_gt[sample_idx_lowbits] = cur_gt_base | (((prev_phased_hw >> sample_idx_lowbits) & 1) << 8);
+      const uint16_t cur_u16 = cur_gt_base | (((prev_phased_hw >> sample_idx_lowbits) & 1) << 8);
+      CopyToUnalignedOffsetU16(cur_gt, &cur_u16, sample_idx_lowbits);
       geno_word >>= 2;
     }
     prev_phased_alias[widx] = prev_phased_hw;
@@ -6970,10 +6967,6 @@ void FillBcf64allelicPhasedGt(const PgenVariant* pgvp, uint32_t sample_ct, uint3
     gt_base[3] = 0x80010000U;
   }
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in FillBcf64allelicPhasedGt()."
-#endif
-  uint32_t* gt_alias = R_CAST(uint32_t*, gt_start);
   Halfword* prev_phased_alias = DowncastWToHW(prev_phased);
   uint32_t loop_len = kBitsPerWordD2;
   for (uint32_t widx = 0; ; ++widx) {
@@ -6989,7 +6982,7 @@ void FillBcf64allelicPhasedGt(const PgenVariant* pgvp, uint32_t sample_ct, uint3
     const uint32_t phasepresent_hw = phasepresent_alias[widx];
     const uint32_t phaseinfo_hw = phaseinfo_alias[widx];
     uint32_t prev_phased_hw = prev_phased_alias[widx];
-    uint32_t* cur_gt = &(gt_alias[widx * kBitsPerWordD2]);
+    unsigned char* cur_gt = CToUc(&(gt_start[widx * (kBitsPerWord * 2)]));
     for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
       const uintptr_t cur_geno = geno_word & 3;
       uint32_t cur_gt_base = gt_base[cur_geno];
@@ -7031,7 +7024,8 @@ void FillBcf64allelicPhasedGt(const PgenVariant* pgvp, uint32_t sample_ct, uint3
           }
         }
       }
-      cur_gt[sample_idx_lowbits] = cur_gt_base | (((prev_phased_hw >> sample_idx_lowbits) & 1) << 16);
+      const uint32_t cur_u32 = cur_gt_base | (((prev_phased_hw >> sample_idx_lowbits) & 1) << 16);
+      CopyToUnalignedOffsetU32(cur_gt, &cur_u32, sample_idx_lowbits);
       geno_word >>= 2;
     }
     prev_phased_alias[widx] = prev_phased_hw;
@@ -8448,16 +8442,13 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                   write_iter = memcpya(write_iter, info_int_buf, value_ct * sizeof(int32_t));
                 } else if (encode_as_small_ints == 1) {
                   // int16
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in ExportBcf()."
-#endif
-                  int16_t* write_alias = R_CAST(int16_t*, write_iter);
                   for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
                     int32_t cur_val = info_int_buf[value_idx];
                     if (cur_val == (-2147483647 - 1)) {
                       cur_val = -32768;
                     }
-                    write_alias[value_idx] = cur_val;
+                    const int16_t cur_i16 = cur_val;
+                    CopyToUnalignedOffsetI16(CToUc(write_iter), &cur_i16, value_idx);
                   }
                   write_iter = &(write_iter[value_ct * sizeof(int16_t)]);
                 } else {
@@ -8497,12 +8488,12 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                 // Permit nan and +/-inf, but prohibit floating-point overflow.
                 write_iter = AppendBcfVecType(5, value_ct, write_iter);
                 const char* value_iter = value_start;
-                float* write_alias = R_CAST(float*, write_iter);
                 const uint32_t missing_bits = 0x7f800001;
                 const uint32_t nan_bits = 0x7fc00000;
+                unsigned char* write_uc = CToUc(write_iter);
                 for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
                   if (*value_iter == '.') {
-                    memcpy(&(write_alias[value_idx]), &missing_bits, 4);
+                    CopyToUnalignedOffsetU32(write_uc, &missing_bits, value_idx);
                     ++value_iter;
                   } else {
                     double dxx;
@@ -8512,20 +8503,21 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                         snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an out-of-range INFO/%s value.\n", variant_id, fif_keys[fif_idx]);
                         goto ExportBcf_ret_MALFORMED_INPUT_WW;
                       }
-                      write_alias[value_idx] = S_CAST(float, dxx);
+                      const float fxx = S_CAST(float, dxx);
+                      CopyToUnalignedOffsetF(write_uc, &fxx, value_idx);
                       value_iter = floatstr_end;
                     } else {
                       const char* next_comma = S_CAST(const char*, rawmemchr(value_iter, ','));
                       const uint32_t slen = next_comma - value_iter;
                       if (IsNanStr(value_iter, slen)) {
-                        memcpy(&(write_alias[value_idx]), &nan_bits, 4);
+                        CopyToUnalignedOffsetU32(write_uc, &nan_bits, value_idx);
                       } else {
                         uint32_t is_neg = 0;
                         if (unlikely(!IsInfStr(value_iter, slen, &is_neg))) {
                           snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an invalid INFO/%s value.\n", variant_id, fif_keys[fif_idx]);
                           goto ExportBcf_ret_MALFORMED_INPUT_WW;
                         }
-                        memcpy(&(write_alias[value_idx]), &(inf_bits[is_neg]), 4);
+                        CopyToUnalignedOffsetU32(write_uc, &(inf_bits[is_neg]), value_idx);
                       }
                       value_iter = &(next_comma[1]);
                       continue;
@@ -8649,43 +8641,41 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                 write_iter = AppendBcfTypedInt(hds_key_idx, write_iter);
                 if (!is_haploid) {
                   *write_iter++ = 0x25;
-                  float* hds_f = R_CAST(float*, write_iter);
-                  GenoarrLookup16x8bx2(pgv.genovec, hds_genobytes2, sample_ct, hds_f);
+                  GenoarrLookup16x8bx2(pgv.genovec, hds_genobytes2, sample_ct, write_iter);
                   uint32_t widx = 0;
                   for (uint32_t dosage_idx = 0; dosage_idx != pgv.dosage_ct; ) {
                     uintptr_t dosage_present_word;
                     do {
                       dosage_present_word = pgv.dosage_present[widx++];
                     } while (!dosage_present_word);
-                    float* cur_hds = &(hds_f[widx * kBitsPerWord * 2]);
+                    unsigned char* cur_hds = CToUc(&(write_iter[widx * (kBitsPerWord * 8 * k1LU)]));
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(dosage_present_word);
                       const uint32_t dosage_int = pgv.dosage_main[dosage_idx++];
                       const float dosage_f = S_CAST(float, dosage_int) * S_CAST(float, kRecipDosageMid);
-                      cur_hds[2 * sample_idx_lowbits] = dosage_f;
-                      cur_hds[2 * sample_idx_lowbits + 1] = dosage_f;
+                      CopyToUnalignedOffsetF(cur_hds, &dosage_f, 2 * sample_idx_lowbits);
+                      CopyToUnalignedOffsetF(cur_hds, &dosage_f, 2 * sample_idx_lowbits + 1);
                       dosage_present_word &= dosage_present_word - 1;
                     } while (dosage_present_word);
                   }
                   write_iter = &(write_iter[sample_ct * sizeof(int32_t) * 2]);
                 } else if (is_x) {
                   *write_iter++ = 0x25;
-                  float* hds_f = R_CAST(float*, write_iter);
                   // male dosages 0..1
-                  GenoarrSexLookup8b(pgv.genovec, sex_male_collapsed, hds_unphased_x_genobytes2, sample_ct, hds_f);
+                  GenoarrSexLookup8b(pgv.genovec, sex_male_collapsed, hds_unphased_x_genobytes2, sample_ct, write_iter);
                   uint32_t widx = 0;
                   for (uint32_t dosage_idx = 0; dosage_idx != pgv.dosage_ct; ) {
                     uintptr_t dosage_present_word;
                     do {
                       dosage_present_word = pgv.dosage_present[widx++];
                     } while (!dosage_present_word);
-                    float* cur_hds = &(hds_f[widx * kBitsPerWord * 2]);
+                    unsigned char* cur_hds = CToUc(&(write_iter[widx * (kBitsPerWord * 8 * k1LU)]));
                     do {
                       const uint32_t sample_idx_lowbits = ctzw(dosage_present_word);
                       const uint32_t dosage_int = pgv.dosage_main[dosage_idx++];
                       const float dosage_f = S_CAST(float, dosage_int) * S_CAST(float, kRecipDosageMid);
-                      cur_hds[2 * sample_idx_lowbits] = dosage_f;
-                      cur_hds[2 * sample_idx_lowbits + 1] = dosage_f;
+                      CopyToUnalignedOffsetF(cur_hds, &dosage_f, 2 * sample_idx_lowbits);
+                      CopyToUnalignedOffsetF(cur_hds, &dosage_f, 2 * sample_idx_lowbits + 1);
                       dosage_present_word &= dosage_present_word - 1;
                     } while (dosage_present_word);
                   }
@@ -8785,9 +8775,9 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                 if ((!is_haploid) || is_x) {
                   *write_iter++ = 0x25;
                   if (!hds_force) {
-                    uint64_t* hds_pair_u64 = R_CAST(uint64_t*, write_iter);
+                    const uint64_t end_of_vector = 0x7f8000027f800002LLU;
                     for (uint32_t uii = 0; uii != sample_ct; ++uii) {
-                      hds_pair_u64[uii] = 0x7f8000027f800002LLU;
+                      CopyToUnalignedOffsetU64(CToUc(write_iter), &end_of_vector, uii);
                     }
                   } else {
                     PhaseLookup8b(pgv.genovec, pgv.phasepresent, pgv.phaseinfo, hds_genobytes2, sample_ct, write_iter);
@@ -8802,7 +8792,6 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                     const Dosage* dosage_main_stop = &(pgv.dosage_main[pgv.dosage_ct]);
                     const uintptr_t* dphase_present = pgv.dphase_present;
                     const SDosage* dphase_delta_iter = pgv.dphase_delta;
-                    float* hds_f = R_CAST(float*, write_iter);
                     uint32_t widx = UINT32_MAX;  // deliberate overflow
                     for (const Dosage* dosage_main_iter = pgv.dosage_main; dosage_main_iter != dosage_main_stop; ) {
                       uintptr_t dosage_present_word;
@@ -8814,7 +8803,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                       if (dphase_ct) {
                         dphase_present_word = dphase_present[widx];
                       }
-                      float* cur_hds = &(hds_f[widx * kBitsPerWord * 2]);
+                      unsigned char* cur_hds = CToUc(&(write_iter[widx * (kBitsPerWord * 8 * k1LU)]));
                       do {
                         const uint32_t sample_idx_lowbits = ctzw(dosage_present_word);
                         const uintptr_t lowbit = dosage_present_word & (-dosage_present_word);
@@ -8840,8 +8829,8 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                           dosage0 += dosage0_incr_f;
                           dosage1 -= dosage0_incr_f;
                         }
-                        cur_hds[2 * sample_idx_lowbits] = dosage0;
-                        cur_hds[2 * sample_idx_lowbits + 1] = dosage1;
+                        CopyToUnalignedOffsetF(cur_hds, &dosage0, 2 * sample_idx_lowbits);
+                        CopyToUnalignedOffsetF(cur_hds, &dosage1, 2 * sample_idx_lowbits + 1);
                         dosage_present_word ^= lowbit;
                       } while (dosage_present_word);
                     }
@@ -8856,9 +8845,9 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                   // probable todo: merge this with the regular diploid case.
                   *write_iter++ = 0x25;
                   if (!hds_force) {
-                    uint64_t* hds_pair_u64 = R_CAST(uint64_t*, write_iter);
+                    const uint64_t end_of_vector = 0x7f8000027f800002LLU;
                     for (uint32_t uii = 0; uii != sample_ct; ++uii) {
-                      hds_pair_u64[uii] = 0x7f8000027f800002LLU;
+                      CopyToUnalignedOffsetU64(CToUc(write_iter), &end_of_vector, uii);
                     }
                   } else {
                     PhaseLookup8b(pgv.genovec, pgv.phasepresent, pgv.phaseinfo, hds_hh_genobytes2, sample_ct, write_iter);
@@ -8870,7 +8859,6 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                     const Dosage* dosage_main_stop = &(pgv.dosage_main[pgv.dosage_ct]);
                     const uintptr_t* dphase_present = pgv.dphase_present;
                     const SDosage* dphase_delta_iter = pgv.dphase_delta;
-                    float* hds_f = R_CAST(float*, write_iter);
                     const uint32_t eov_bits = 0x7f800002;
                     uint32_t widx = UINT32_MAX;  // deliberate overflow
                     for (const Dosage* dosage_main_iter = pgv.dosage_main; dosage_main_iter != dosage_main_stop; ) {
@@ -8883,7 +8871,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                       if (dphase_ct) {
                         dphase_present_word = dphase_present[widx];
                       }
-                      float* cur_hds = &(hds_f[widx * kBitsPerWord * 2]);
+                      unsigned char* cur_hds = CToUc(&(write_iter[widx * (kBitsPerWord * 8 * k1LU)]));
                       do {
                         const uint32_t sample_idx_lowbits = ctzw(dosage_present_word);
                         const uintptr_t lowbit = dosage_present_word & (-dosage_present_word);
@@ -8905,11 +8893,13 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                             }
                           }
                           const float dosage0_incr_f = S_CAST(float, cur_dphase_delta) * S_CAST(float, kRecipDosageMax);
-                          cur_hds[2 * sample_idx_lowbits] = dosage0 + dosage0_incr_f;
-                          cur_hds[2 * sample_idx_lowbits + 1] = dosage0 - dosage0_incr_f;
+                          const float fxx = dosage0 + dosage0_incr_f;
+                          const float fyy = dosage0 - dosage0_incr_f;
+                          CopyToUnalignedOffsetF(cur_hds, &fxx, 2 * sample_idx_lowbits);
+                          CopyToUnalignedOffsetF(cur_hds, &fyy, 2 * sample_idx_lowbits + 1);
                         } else {
-                          cur_hds[2 * sample_idx_lowbits] = dosage0;
-                          memcpy(&(cur_hds[2 * sample_idx_lowbits + 1]), &eov_bits, 4);
+                          CopyToUnalignedOffsetF(cur_hds, &dosage0, 2 * sample_idx_lowbits);
+                          CopyToUnalignedOffsetU32(cur_hds, &eov_bits, 2 * sample_idx_lowbits + 1);
                         }
                         dosage_present_word ^= lowbit;
                       } while (dosage_present_word);
