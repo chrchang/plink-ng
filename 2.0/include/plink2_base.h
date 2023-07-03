@@ -3387,7 +3387,7 @@ template <uint32_t N> char* MemcpyaK(void* __restrict dst, const void* __restric
 }
 
 #  define memcpya_k(dst, src, ct) plink2::MemcpyaK<ct>(dst, src)
-#  define memcpyua_k(dst, src, ct) DowncastToUc(plink2::MemcpyaK<ct>(dst, src))
+#  define memcpyua_k(dst, src, ct) CToUc(plink2::MemcpyaK<ct>(dst, src))
 
 template <uint32_t N> struct MemcpyoKImpl {
   static void MemcpyoK(void* __restrict dst, const void* __restrict src) {

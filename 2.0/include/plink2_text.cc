@@ -191,7 +191,7 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
     if (nbytes >= 4) {
       // assumes aligned dst; this should be safe?
       uint32_t magic4;
-      CopyFromUnalignedU32(&magic4, DowncastToUc(dst));
+      CopyFromUnalignedU32(&magic4, CToUc(dst));
       if (IsZstdFrame(magic4)) {
         trbp->dst_len = 0;
         trbp->file_type = kFileZstd;
@@ -335,7 +335,7 @@ PglErr GzRawStreamRead(char* dst_end, FILE* ff, GzRawDecompressStream* gzp, char
   do {
     if (dsp->avail_in) {  // can be zero after TextRewind()
       while (1) {
-        dsp->next_out = DowncastToUc(dst_iter);
+        dsp->next_out = CToUc(dst_iter);
         dsp->avail_out = dst_end - dst_iter;
         int zerr = inflate(dsp, Z_SYNC_FLUSH);
         if (unlikely((zerr < 0) || (zerr == Z_NEED_DICT))) {
@@ -401,7 +401,7 @@ PglErr ZstRawStreamRead(char* dst_end, FILE* ff, ZstRawDecompressStream* zstp, c
   // Sequentially dependent blocks limited to ~128 KiB.
   char* dst_iter = *dst_iterp;
   while (1) {
-    ZSTD_outBuffer zob = {DowncastToUc(dst_iter), S_CAST(size_t, dst_end - dst_iter), 0};
+    ZSTD_outBuffer zob = {CToUc(dst_iter), S_CAST(size_t, dst_end - dst_iter), 0};
     // ib.size == 0 ok, no need to special-case rewind.
     const uintptr_t read_size_hint = ZSTD_decompressStream(zstp->ds, &zob, &zstp->ib);
     if (unlikely(ZSTD_isError(read_size_hint))) {
@@ -1002,7 +1002,7 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
         }
       case kFileBgzf:
         {
-          reterr = BgzfRawMtStreamRead(DowncastToUc(cur_read_stop), &rdsp->bgzf, R_CAST(unsigned char**, &cur_read_end), &syncp->errmsg);
+          reterr = BgzfRawMtStreamRead(CToUc(cur_read_stop), &rdsp->bgzf, R_CAST(unsigned char**, &cur_read_end), &syncp->errmsg);
           if (unlikely(reterr)) {
             goto TextStreamThread_MISC_FAIL;
           }
@@ -1231,7 +1231,7 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
       FileCompressionType next_file_type = kFileUncompressed;
       if (nbytes >= 4) {
         uint32_t magic4;
-        CopyFromUnalignedU32(&magic4, DowncastToUc(buf));
+        CopyFromUnalignedU32(&magic4, CToUc(buf));
         if (IsZstdFrame(magic4)) {
           next_file_type = kFileZstd;
         } else if ((magic4 << 8) == 0x088b1f00) {

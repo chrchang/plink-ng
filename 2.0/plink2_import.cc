@@ -9326,6 +9326,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
         }
         missing_code_iter = token_end;
       }
+      DPrintf("mc_ct: %u  max_mc_blen: %" PRIuPTR"\n", mc_ct, max_mc_blen);
       if (mc_ct) {
         if (unlikely(bigstack_alloc_c(mc_ct * max_mc_blen, &sorted_mc))) {
           goto OxSampleToPsam_ret_NOMEM;
@@ -9366,6 +9367,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
     char* linebuf_iter = FirstNonTspace(token_end);
     uint32_t token_slen = strlen_se(linebuf_iter);
     const uint32_t id2_exists = strequal_k(linebuf_iter, "ID_2", token_slen);
+    DPrintf("id2_exists: %u\n", id2_exists);
     uint32_t col_ct = 1;
     if (id2_exists) {
       linebuf_iter = FirstNonTspace(&(linebuf_iter[token_slen]));
@@ -9442,6 +9444,13 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
         goto OxSampleToPsam_ret_MALFORMED_INPUT;
       }
       goto OxSampleToPsam_ret_TSTREAM_FAIL;
+    }
+    if (g_debug_on && (line_idx == 2)) {
+      logputs(".sample types: ");
+      char* line_end = TextLineEnd(&sample_txs);
+      char* write_iter = memcpya(g_logbuf, linebuf_iter, line_end - linebuf_iter);
+      *write_iter = '\0';
+      logputsb();
     }
     uint32_t at_least_one_binary_pheno = 0;
     uint32_t initial_skip_col_ct = 0;
@@ -9537,6 +9546,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
     unsigned char* tmp_alloc_end = BigstackEndRoundedDown();
     char* all_ids_start = R_CAST(char*, tmp_alloc_base);
     const uint32_t parental_col_exists = father_col || mother_col;
+    DPrintf("missing_col: %u  father_col: %u  mother_col: %u  sex_col: %u\n", missing_col, father_col, mother_col, sex_col);
     // doesn't include ID
     const uint32_t first_pass_main_col_ct = PopcountWords(col_first_pass_remaining, col_ctl);
     uint32_t first_pass_finished_col_ct = 0;
@@ -9771,6 +9781,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
       }
       token_end = CurTokenEnd(linebuf_iter);
       const OxSampleCol cur_col_type = S_CAST(OxSampleCol, col_types[col_idx]);
+      DPrintf("col_types[%u]: %u\n", col_idx, cur_col_type);
       if (cur_col_type > kOxSampleColSex) {
         if (IsSet(col_nm, col_idx)) {
           *write_iter++ = '\t';
@@ -9793,6 +9804,13 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
     line_start = TextGet(&sample_txs);
     for (; line_start; line_start = TextGet(&sample_txs)) {
       ++line_idx;
+      if (g_debug_on && ((line_idx == 4) || (line_idx == 5))) {
+        logprintf(".sample line %" PRIuPTR ": ", line_idx);
+        char* line_end = TextLineEnd(&sample_txs);
+        char* write_iter2 = memcpya(g_logbuf, line_start, line_end - line_start);
+        *write_iter2 = '\0';
+        logputsb();
+      }
       write_iter = writebuf;
       const char* sample_id_end = strnul(all_ids_iter);
       reterr = ImportSampleId(all_ids_iter, sample_id_end, &isic, &write_iter);
