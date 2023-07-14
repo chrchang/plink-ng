@@ -8223,6 +8223,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     reterr = BgzfRawMtStreamRewind(&bgzf, &bgzf_errmsg);
     if (unlikely(reterr)) {
       if (reterr == kPglRetDecompressFail) {
+        DPrintf("DecompressFail during initial rewind");
         goto BcfToPgen_ret_REWIND_FAIL;
       }
       goto BcfToPgen_ret_BGZF_FAIL;
@@ -8627,6 +8628,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
               goto BcfToPgen_ret_BGZF_FAIL_N;
             }
             if (&(loadbuf[32]) != loadbuf_read_iter) {
+              DPrintf("read only %" PRIdPTR " out of 32 initial bytes, vrec_idx=%" PRIuPTR "\n", loadbuf_read_iter - loadbuf, vrec_idx);
               goto BcfToPgen_ret_REWIND_FAIL_N;
             }
             // [0]: l_shared
@@ -8655,6 +8657,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
               goto BcfToPgen_ret_BGZF_FAIL_N;
             }
             if (unlikely(indiv_end != loadbuf_read_iter)) {
+              DPrintf("read only %" PRIdPTR " out of %" PRIu64 " later bytes, vrec_idx=%" PRIuPTR "\n", loadbuf_read_iter - &(loadbuf[32]), second_load_size - 32, vrec_idx);
               goto BcfToPgen_ret_REWIND_FAIL_N;
             }
 
