@@ -851,6 +851,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     // todo: implement --indep-pairphase with new --ld approach.  (eventually
     // add an option to take dosages into account?  but not a priority.)
+    // ...or, that's overkill?  new plan: simply require all-phased for
+    // --indep-pairphase.  that adds the most valuable functionality, and
+    // creates the right incentives.  can do the same for phased side of
+    // initial (dosage-ignoring) --r/--r2 implementation.
     HelpPrint("ld\0", &help_ctrl, 1,
 "  --ld <variant ID> <variant ID> ['dosage'] ['hwe-midp']\n"
 "    This displays diplotype frequencies, r^2, and D' for a single pair of\n"
@@ -2145,6 +2149,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            * 'b36'/'hg18' = NCBI 36, 2709521/154584237\n"
 "                            * 'b37'/'hg19' = GRCh37, 2699520/154931044\n"
 "                            * 'b38'/'hg38' = GRCh38, 2781479/155701383\n"
+"                            * 'chm13' = T2T-CHM13, 2394410/153925835\n"
 "  --merge-par             : Merge PAR1/PAR2 back with X.  Requires PAR1 to be\n"
 "                            positioned immediately before X, and PAR2 to be\n"
 "                            immediately after X.  (Should *not* be used with\n"
@@ -2156,8 +2161,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("lax-chrx-import\0vcf\0bcf\0gen\0bgen\0data\0haps\0", &help_ctrl, 0,
 "  --lax-chrx-import       : During import of non-PLINK-format data that appears\n"
-"                            to contain chrX, suppress the usual warning (which\n"
-"                            (will be upgraded to an error in the future) if\n"
+"                            to contain chrX, suppress the usual error if\n"
 "                            --split-par and/or a .fam/.psam/--update-sex file\n"
 "                            is expected and not present.\n"
               );

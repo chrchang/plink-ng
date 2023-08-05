@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a5"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (14 Jul 2023)";
+  " (4 Aug 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -4666,7 +4666,7 @@ int main(int argc, char** argv) {
               for (uint32_t mfreq_idx = 0; ; ) {
                 double dxx;
                 cur_modif_iter = ScanadvDouble(cur_modif_iter, &dxx);
-                if (unlikely((dxx < 0.0) || (dxx > 1.0) || ((*cur_modif_iter != ',') && (*cur_modif_iter != '\0')))) {
+                if (unlikely((!cur_modif_iter) || (dxx < 0.0) || (dxx > 1.0) || ((*cur_modif_iter != ',') && (*cur_modif_iter != '\0')))) {
                   snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy argument '%s'.\n", cur_modif);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }
@@ -9493,7 +9493,10 @@ int main(int argc, char** argv) {
           if (param_ct == 1) {
             const char* build_code = argvk[arg_idx + 1];
             const uint32_t code_slen = strlen(build_code);
-            if (strequal_k(build_code, "b38", code_slen) ||
+            if (strequal_k(build_code, "chm13", code_slen)) {
+              pc.splitpar_bound1 = 2394410;
+              pc.splitpar_bound2 = 153925835;
+            } else if (strequal_k(build_code, "b38", code_slen) ||
                 strequal_k(build_code, "hg38", code_slen)) {
               pc.splitpar_bound1 = 2781479;
               pc.splitpar_bound2 = 155701383;
