@@ -3974,8 +3974,8 @@ THREAD_FUNC_DECL CalcGrmPartThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-CONSTI32(kDblMissingBlockWordCt, 2);
-CONSTI32(kDblMissingBlockSize, kDblMissingBlockWordCt * kBitsPerWord);
+CONSTI32(kDblMissingBlockWordCt, 128 / kBitsPerWord);
+CONSTI32(kDblMissingBlockSize, 128);
 
 typedef struct CalcDblMissingCtxStruct {
   uint32_t* thread_start;
