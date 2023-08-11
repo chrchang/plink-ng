@@ -1602,7 +1602,7 @@ PglErr InitChrInfo(ChrInfo* cip) {
 // human: 22, X, Y, XY, MT, PAR1, PAR2 (PAR1/PAR2 added, XY deprecated in plink
 //   2.0)
 // cow: 29, X, Y, MT
-// dog: 38, X, Y, XY, MT
+// dog: 38, X, Y, XY, MT, PAR1, PAR2 (updated 11 Aug 2023)
 // horse: 31, X, Y
 // mouse: 19, X, Y
 // rice: 12

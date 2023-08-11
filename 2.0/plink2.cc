@@ -4461,11 +4461,10 @@ int main(int argc, char** argv) {
             const uint32_t autosome_ct = signed_autosome_ct;
             chr_info.autosome_ct = autosome_ct;
             // assumes first four codes are x, y, xy, mt
-            for (uint32_t xymt_idx = 0; xymt_idx != 4; ++xymt_idx) {
+            // update (11 Aug 2023): unless no-xy is specified, PARs are now
+            // enabled.
+            for (uint32_t xymt_idx = 0; xymt_idx != kChrOffsetCt; ++xymt_idx) {
               chr_info.xymt_codes[xymt_idx] = autosome_ct + 1 + xymt_idx;
-            }
-            for (uint32_t xymt_idx = 4; xymt_idx != kChrOffsetCt; ++xymt_idx) {
-              chr_info.xymt_codes[xymt_idx] = UINT32_MAXM1;
             }
             SetBit(autosome_ct + 1, chr_info.haploid_mask);
             SetBit(autosome_ct + 2, chr_info.haploid_mask);
@@ -4474,15 +4473,17 @@ int main(int argc, char** argv) {
               cur_modif = argvk[arg_idx + param_idx];
               const uint32_t cur_modif_slen = strlen(cur_modif);
               if (strequal_k(cur_modif, "no-x", cur_modif_slen)) {
-                chr_info.xymt_codes[0] = UINT32_MAXM1;
+                chr_info.xymt_codes[kChrOffsetX] = UINT32_MAXM1;
                 ClearBit(autosome_ct + 1, chr_info.haploid_mask);
               } else if (strequal_k(cur_modif, "no-y", cur_modif_slen)) {
-                chr_info.xymt_codes[1] = UINT32_MAXM1;
+                chr_info.xymt_codes[kChrOffsetY] = UINT32_MAXM1;
                 ClearBit(autosome_ct + 2, chr_info.haploid_mask);
               } else if (strequal_k(cur_modif, "no-xy", cur_modif_slen)) {
-                chr_info.xymt_codes[2] = UINT32_MAXM1;
+                chr_info.xymt_codes[kChrOffsetXY] = UINT32_MAXM1;
+                chr_info.xymt_codes[kChrOffsetPAR1] = UINT32_MAXM1;
+                chr_info.xymt_codes[kChrOffsetPAR2] = UINT32_MAXM1;
               } else if (likely(strequal_k(cur_modif, "no-mt", cur_modif_slen))) {
-                chr_info.xymt_codes[3] = UINT32_MAXM1;
+                chr_info.xymt_codes[kChrOffsetMT] = UINT32_MAXM1;
                 ClearBit(autosome_ct + 4, chr_info.haploid_mask);
               } else {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --chr-set argument '%s'.\n", cur_modif);
@@ -4713,8 +4714,8 @@ int main(int argc, char** argv) {
           chr_info.xymt_codes[1] = 40;
           chr_info.xymt_codes[2] = 41;
           chr_info.xymt_codes[3] = 42;
-          chr_info.xymt_codes[4] = UINT32_MAXM1;
-          chr_info.xymt_codes[5] = UINT32_MAXM1;
+          chr_info.xymt_codes[4] = 43;
+          chr_info.xymt_codes[5] = 44;
 #ifdef __LP64__
           chr_info.haploid_mask[0] = 0x58000000000LLU;
 #else
