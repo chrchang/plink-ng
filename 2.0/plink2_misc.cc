@@ -870,9 +870,6 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
         is_unsorted = 1;
       }
       if (!is_unsorted) {
-        if (prev_vidx_end == prev_chr_vidx_end) {
-          continue;
-        }
         if (is_rigid || (cur_bp > prev_bp)) {
           const uint32_t arr_length = prev_chr_vidx_end - prev_vidx_end;
           const uint32_t incr = ExpsearchU32(&(variant_bps[prev_vidx_end]), arr_length, cur_bp);
