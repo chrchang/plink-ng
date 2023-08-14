@@ -778,6 +778,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
       }
       strict_allele_order = (flags / kfRecoverVarIdsStrictBimOrder) & 1;
       line_iter = line_start;
+      --line_idx;
     }
     // Only nonzero if we're actually replacing existing IDs with the missing
     // ID in the conflict case.
@@ -802,7 +803,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
     uintptr_t record_uidx = ~k0LU;  // deliberate overflow
     uint32_t cur_allele_ct = 2;
     for (; TextGetUnsafe2(&txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n')) {
-      if (!(line_idx % 1000000)) {
+      if ((!(line_idx % 1000000)) && line_idx) {
         printf("\r--recover-var-ids: %" PRIuPTR "m lines scanned.", line_idx / 1000000);
         fflush(stdout);
       }

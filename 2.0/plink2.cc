@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a5"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (13 Aug 2023)";
+  " (14 Aug 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
