@@ -9895,6 +9895,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
               // same (could make that conditional on keep_autoconv?)
               write_iter = dtoa_g(dxx, write_iter);
             }
+          } else {
+            // bugfix (7 Jul 2023): forgot this branch
+            write_iter = strcpya_k(write_iter, "NA");
           }
         } else {
           // sex

@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a4.4"
+static const char ver_str[] = "PLINK v2.00a4.5"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a4.4"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (21 Jun 2023)";
+  " (13 Aug 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4662,7 +4662,7 @@ int main(int argc, char** argv) {
               for (uint32_t mfreq_idx = 0; ; ) {
                 double dxx;
                 cur_modif_iter = ScanadvDouble(cur_modif_iter, &dxx);
-                if (unlikely((dxx < 0.0) || (dxx > 1.0) || ((*cur_modif_iter != ',') && (*cur_modif_iter != '\0')))) {
+                if (unlikely((!cur_modif_iter) || (dxx < 0.0) || (dxx > 1.0) || ((*cur_modif_iter != ',') && (*cur_modif_iter != '\0')))) {
                   snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy argument '%s'.\n", cur_modif);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }

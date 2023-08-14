@@ -254,7 +254,7 @@ PglErr LoadPmergeList(const char* list_fname, const char* list_base_dir, PmergeL
         if (base_dir_slen) {
           fname_iter = memcpya(fname_iter, list_base_dir, base_dir_slen);
         }
-        fname_iter = memcpyax(fname_iter, second_token_start, third_token_slen, '\0');
+        fname_iter = memcpyax(fname_iter, second_token_start, second_token_slen, '\0');
         cur_entry->psam_fname = fname_iter;
         if (base_dir_slen) {
           fname_iter = memcpya(fname_iter, list_base_dir, base_dir_slen);
