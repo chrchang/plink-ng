@@ -152,7 +152,10 @@ FLAGSET64_DEF_START()
   kfMiscAllowBadLd = (1LLU << 42),
   kfMiscErrorOnFreqCalc = (1LLU << 43),
   kfMiscNoCategorical = (1LLU << 44),
-  kfMiscAcFounders = (1LLU << 45)
+  kfMiscAcFounders = (1LLU << 45),
+  kfMiscMakeFoundersFirst = (1LLU << 46),
+  kfMiscMakeFoundersNotfirst = (1LLU << 47),
+  kfMiscMakeFoundersRequire2Missing = (1LLU << 48)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -260,7 +263,7 @@ typedef struct SampleIdInfoStruct {
   NONCOPYABLE(SampleIdInfoStruct);
   char* sample_ids;
   char* sids;
-  uintptr_t max_sample_id_blen;
+  uintptr_t max_sample_id_blen; // FID+IID only, does not count SID
   uintptr_t max_sid_blen;
   SampleIdFlags flags;
 } SampleIdInfo;

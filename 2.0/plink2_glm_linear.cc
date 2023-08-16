@@ -2563,6 +2563,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
       for (; variant_bidx != cur_variant_bidx_end; ++variant_bidx) {
         const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+        DPrintf("\nWorker thread %" PRIuPTR " starting unfiltered variant %u", tidx, variant_uidx);
         if (allele_idx_offsets) {
           allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
           if (!beta_se_multiallelic_fused) {
@@ -3188,6 +3189,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
 
             // bugfix (12 Sep 2017): forgot to implement per-variant VIF and
             // max-corr checks
+            DPrintf("\nWorker thread %" PRIuPTR " starting main regression for %u", tidx, variant_uidx);
             if (xtx_image && prev_nm && (!allele_ct_m2)) {
               // only need to fill in additive and possibly domdev dot
               // products
@@ -3318,6 +3320,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                 goto GlmLinearSubbatchThread_skip_regression;
               }
             }
+            DPrintf("\nWorker thread %" PRIuPTR " finished main regression for %u", tidx, variant_uidx);
             // RSS = y^T y - y^T X (X^T X)^{-1} X^T y
             //     = cur_pheno_ssq - xt_y * fitted_coefs
             // s^2 = RSS / df
@@ -4031,6 +4034,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           }
         }
         if (variant_idx) {
+          DPrintf("\nWaiting for worker threads up to filtered variant %u", variant_idx);
           JoinThreads(&tg);
           reterr = S_CAST(PglErr, common->err_info);
           if (unlikely(reterr)) {
@@ -4048,6 +4052,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           if (variant_idx + cur_block_variant_ct == variant_ct) {
             DeclareLastThreadBlock(&tg);
           }
+          DPrintf("\nLaunching worker threads for filtered variants [%u,%u)", variant_idx, variant_idx + cur_block_variant_ct);
           if (unlikely(SpawnThreads(&tg))) {
             goto GlmLinearBatch_ret_THREAD_CREATE_FAIL;
           }

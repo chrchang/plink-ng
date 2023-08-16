@@ -1426,6 +1426,8 @@ uint32_t StrboxHtableAdd(const char* cur_id, const char* strbox, uintptr_t max_s
 // of a duplicate pair if they're present
 uint32_t PopulateStrboxHtable(const char* strbox, uint32_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable);
 
+uint32_t PopulateStrboxSubsetHtableDup(const char* strbox, const uintptr_t* subset_mask, uint32_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable);
+
 // last variant_ids entry must be at least kMaxIdBlen bytes before end of
 // bigstack
 uint32_t VariantIdDupflagHtableFind(const char* idbuf, const char* const* variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen);

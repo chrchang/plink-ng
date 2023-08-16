@@ -4508,6 +4508,85 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
   return reterr;
 }
 
+PglErr MakeFounders(const uintptr_t* sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t require_two, PedigreeIdInfo* piip, uintptr_t* founder_info) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    const uintptr_t max_sample_id_blen = piip->sii.max_sample_id_blen;
+    char* idbuf;
+    uintptr_t* nf_bitvec;
+    if (bigstack_alloc_c(max_sample_id_blen, &idbuf) ||
+        bigstack_alloc_w(raw_sample_ctl, &nf_bitvec)) {
+      goto MakeFounders_ret_NOMEM;
+    }
+    BitvecInvmaskCopy(sample_include, founder_info, raw_sample_ctl, nf_bitvec);
+    uint32_t sample_uidx = AdvBoundedTo1Bit(nf_bitvec, 0, raw_sample_ct);
+    if (sample_uidx == raw_sample_ct) {
+      logputs("Note: Skipping --make-founders since there are no nonfounders.\n");
+      goto MakeFounders_ret_1;
+    }
+    const char* sample_ids = piip->sii.sample_ids;
+    uint32_t* id_htable;
+    uint32_t id_htable_size;
+    if (unlikely(HtableGoodSizeAlloc(sample_ct, bigstack_left(), &id_htable, &id_htable_size))) {
+      goto MakeFounders_ret_NOMEM;
+    }
+    PopulateStrboxSubsetHtableDup(sample_ids, sample_include, sample_ct, max_sample_id_blen, id_htable_size, id_htable);
+    const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
+    const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
+    char* paternal_ids = piip->parental_id_info.paternal_ids;
+    char* maternal_ids = piip->parental_id_info.maternal_ids;
+    uint32_t new_founder_ct = 0;
+    do {
+      const char* fid_start = &(sample_ids[sample_uidx * max_sample_id_blen]);
+      const char* fid_postend = AdvPastDelim(fid_start, '\t');
+      const uint32_t fid_blen = fid_postend - fid_start;
+      char* iid_write_start = memcpya(idbuf, fid_start, fid_blen);
+
+      uint32_t missing_parent_ct = 0;
+      char* pat_ptr = &(paternal_ids[sample_uidx * max_paternal_id_blen]);
+      const uint32_t pat_slen = strlen(pat_ptr);
+      if (fid_blen + pat_slen >= max_sample_id_blen) {
+        ++missing_parent_ct;
+      } else {
+        memcpy(iid_write_start, pat_ptr, pat_slen + 1);
+        const uint32_t uii = StrboxHtableFind(idbuf, sample_ids, id_htable, max_sample_id_blen, fid_blen + pat_slen, id_htable_size);
+        if (uii == UINT32_MAX) {
+          ++missing_parent_ct;
+        }
+      }
+      char* mat_ptr = &(maternal_ids[sample_uidx * max_maternal_id_blen]);
+      const uint32_t mat_slen = strlen(mat_ptr);
+      if (fid_blen + mat_slen >= max_sample_id_blen) {
+        ++missing_parent_ct;
+      } else {
+        memcpy(iid_write_start, mat_ptr, mat_slen + 1);
+        const uint32_t uii = StrboxHtableFind(idbuf, sample_ids, id_htable, max_sample_id_blen, fid_blen + mat_slen, id_htable_size);
+        if (uii == UINT32_MAX) {
+          ++missing_parent_ct;
+        }
+      }
+      if (missing_parent_ct > require_two) {
+        SetBit(sample_uidx, founder_info);
+        strcpy_k(pat_ptr, "0");
+        strcpy_k(mat_ptr, "0");
+        ++new_founder_ct;
+      }
+      sample_uidx = AdvBoundedTo1Bit(nf_bitvec, sample_uidx + 1, raw_sample_ct);
+    } while (sample_uidx != raw_sample_ct);
+    logprintf("--make-founders: %u sample%s affected.\n", new_founder_ct, (new_founder_ct == 1)? "" : "s");
+  }
+  while (0) {
+  MakeFounders_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  }
+ MakeFounders_ret_1:
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

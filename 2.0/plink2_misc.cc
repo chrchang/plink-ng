@@ -9675,7 +9675,7 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     }
     const uint32_t small_sample = (flags / kfHetSmallSample) & 1;
     if (small_sample && (!founder_ct)) {
-      logerrputs("Error: '--het small-sample' requires founders.  (PLINK 1.9 --make-founders may\ncome in handy here.\n)");
+      logerrputs("Error: '--het small-sample' requires founders.  (--make-founders may come in\nhandy here.\n)");
       goto HetReport_ret_INCONSISTENT_INPUT;
     }
 

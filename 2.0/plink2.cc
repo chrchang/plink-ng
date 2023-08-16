@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a5"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (14 Aug 2023)";
+  " (16 Aug 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1144,6 +1144,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       pgfi.gflags = S_CAST(PgenGlobalFlags, ((info_flags / kfInfoPrNonrefDefault) & 1) * kfPgenGlobalAllNonref);
       pgfi.nonref_flags = nonref_flags;
     }
+    if (pcp->misc_flags & kfMiscMakeFoundersFirst) {
+      reterr = MakeFounders(sample_include, raw_sample_ct, sample_ct, (pcp->misc_flags / kfMiscMakeFoundersRequire2Missing) & 1, &pii, founder_info);
+      if (unlikely(reterr)) {
+        goto Plink2Core_ret_1;
+      }
+    }
     if (pcp->pheno_fname) {
       reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, &pii.sii, pcp->missing_catname, raw_sample_ct, sample_ct, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscNoCategorical) & 1, (pcp->misc_flags / kfMiscPhenoIidOnly) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (unlikely(reterr)) {
@@ -1557,6 +1563,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         // this results in a small "memory leak" when a regular missingness
         // report is requested, not a big deal
       }
+      if (pcp->misc_flags & kfMiscMakeFoundersNotfirst) {
+        reterr = MakeFounders(sample_include, raw_sample_ct, sample_ct, (pcp->misc_flags / kfMiscMakeFoundersRequire2Missing) & 1, &pii, founder_info);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
       if (pcp->covar_fname || pcp->covar_range_list.name_ct) {
         const char* cur_covar_fname = pcp->covar_fname? pcp->covar_fname : (pcp->pheno_fname? pcp->pheno_fname : psamname);
         reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, &pii.sii, pcp->missing_catname, raw_sample_ct, sample_ct, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscNoCategorical) & 1, (pcp->misc_flags / kfMiscCovarIidOnly) & 1, (pcp->misc_flags / kfMiscCovarColNums) & 1, pcp->max_thread_ct, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
@@ -1840,7 +1852,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (sample_ct < 50) {
             logerrputs("Error: This run estimates linkage disequilibrium between variants, but there\nare less than 50 samples to estimate from.  You should perform this operation\non a larger dataset.\n(Strictly speaking, you can also override this error with --bad-ld, but this is\nalmost always a bad idea.)\n");
           } else {
-            logerrputs("Error: This run estimates linkage disequilibrium between variants, but there\nare less than 50 founders to estimate from.  PLINK 1.9 --make-founders may\nhelp.\n(Strictly speaking, you can also override this error with --bad-ld, but this is\nalmost always a bad idea.)\n");
+            logerrputs("Error: This run estimates linkage disequilibrium between variants, but there\nare less than 50 founders to estimate from.  --make-founders may help.\n(Strictly speaking, you can also override this error with --bad-ld, but this is\nalmost always a bad idea.)\n");
           }
           goto Plink2Core_ret_DEGENERATE_DATA;
         }
@@ -8233,6 +8245,25 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "ultiallelics-already-joined")) {
           pmerge_info.flags |= kfPmergeMultiallelicsAlreadyJoined;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "ake-founders")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t is_first = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "require-2-missing", cur_modif_slen)) {
+              pc.misc_flags |= kfMiscMakeFoundersRequire2Missing;
+            } else if (likely(strequal_k(cur_modif, "first", cur_modif_slen))) {
+              is_first = 1;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-founders argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          pc.misc_flags |= is_first? kfMiscMakeFoundersFirst : kfMiscMakeFoundersNotfirst;
+          pc.filter_flags |= kfFilterPsamReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "pheno"))) {
           logerrputs("Warning: --mpheno flag deprecated.  Use --pheno-col-nums instead.  (Note that\n--pheno-col-nums does not add 2 to the column number(s).)\n");
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {

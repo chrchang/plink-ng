@@ -1530,6 +1530,19 @@ uint32_t PopulateStrboxHtable(const char* strbox, uint32_t str_ct, uintptr_t max
   return 0;
 }
 
+uint32_t PopulateStrboxSubsetHtableDup(const char* strbox, const uintptr_t* subset_mask, uint32_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable) {
+  SetAllU32Arr(str_htable_size, str_htable);
+  uintptr_t str_uidx_base = 0;
+  uintptr_t subset_mask_bits = subset_mask[0];
+  for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
+    const uint32_t str_uidx = BitIter1(subset_mask, &str_uidx_base, &subset_mask_bits);
+    const char* strptr = &(strbox[str_uidx * max_str_blen]);
+    const uint32_t slen = strlen(strptr);
+    StrboxHtableAdd(strptr, strbox, max_str_blen, slen, str_htable_size, str_uidx, str_htable);
+  }
+  return 0;
+}
+
 uint32_t VariantIdDupflagHtableFind(const char* idbuf, const char* const* variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen) {
   // assumes duplicate variant IDs are flagged, but full variant_uidx linked
   // lists are not stored

@@ -1889,15 +1889,20 @@ PglErr RescanOnePos(unsigned char* arena_top, uint32_t batch_size, uint32_t prev
               }
             }
             if (unlikely(variant_idx == variant_idx_end)) {
+              const uint32_t variant_id_slen = variant_id_blen - 1;
               char* write_iter = strcpya_k(g_logbuf, "Error: The biallelic variants with ID '");
-              write_iter = strcpya(write_iter, cur_variant_id);
+              write_iter = memcpya(write_iter, cur_variant_id, variant_id_slen);
               write_iter = strcpya_k(write_iter, "' at position ");
               write_iter = chrtoa(ctxp->cip, prev_chr_code, write_iter);
               *write_iter++ = ':';
               write_iter = u32toa(prev_bp, write_iter);
               write_iter = strcpya_k(write_iter, " in ");
               write_iter = strcpya(write_iter, ctxp->cur_fname);
-              strcpy_k(write_iter, " appear to be the components of a 'split' multiallelic variant; if so, it must be 'joined' (with e.g. \"bcftools norm -m\") before a correct merge can occur. If you are SURE that your data does not contain any same-position same-ID variant groups that should be joined, you can suppress this error with --multiallelics-already-joined.\n");
+              write_iter = strcpya_k(write_iter, " appear to be the components of a 'split' multiallelic variant; if so, it must be 'joined' (with e.g. \"bcftools norm -m\") before a correct merge can occur. If you are SURE that your data does not contain any same-position same-ID variant groups that should be joined, you can suppress this error with --multiallelics-already-joined. Alternatively, you can keep the variants separate by first assigning unique IDs with e.g. --set-all-var-ids");
+              if (strequal_k(cur_variant_id, ".", variant_id_slen)) {
+                write_iter = strcpya(write_iter, "or --set-missing-var-ids");
+              }
+              strcpy_k(write_iter, ".\n");
               WordWrapB(0);
               logerrputsb();
               return kPglRetInconsistentInput;

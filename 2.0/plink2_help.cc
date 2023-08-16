@@ -834,7 +834,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("indep\0indep-pairwise\0", &help_ctrl, 1,
 "  --indep-pairwise <window size>['kb'] [step size (variant ct)]\n"
 "                   <unphased-hardcall-r^2 threshold>\n"
+"  --indep-pairphase <window size>['kb'] [step size (variant ct)]\n"
+"                    <haplotype r^2 threshold>\n"
 "    Generate a list of variants in approximate linkage equilibrium.\n"
+"    * --indep-pairphase requires all genotypes to be phased, and performs a\n"
+"      haplotype- instead of genotype-based calculation.\n"
 "    * For multiallelic variants, major allele counts are used in the r^2\n"
 "      computation.\n"
 "    * With the 'kb' modifier, the window size is in kilobase instead of variant\n"
@@ -2079,6 +2083,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("ac-founders\0nonfounders\0freq\0mac\0min-ac\0max-mac\0max-ac\0", &help_ctrl, 0,
 "  --ac-founders      : Confirm that nonfounders should be excluded from\n"
 "                       --mac/--max-mac/\"--freq counts\".\n"
+              );
+    HelpPrint("make-founders\0", &help_ctrl, 0,
+"  --make-founders ['require-2-missing'] ['first'] :\n"
+"    Clear parental IDs for those with 1+ missing parent(s).\n"
               );
     HelpPrint("bad-freqs\0", &help_ctrl, 0,
 "  --bad-freqs        : When PLINK 2 needs decent allele frequencies, it\n"
