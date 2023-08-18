@@ -1493,6 +1493,80 @@ void SplitHomRef2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* __
   }
 }
 
+BoolErr HapsplitMustPhased(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phase_exists, uintptr_t* hap_arr, uintptr_t* nm_arr) {
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  uintptr_t detect_unphased = 0;
+  if (!phase_exists) {
+    // error out if het encountered
+    for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+      const uintptr_t geno_word = genoarr[widx];
+      const uintptr_t nm_word = 3 * (kMask5555 & (~(geno_word & (geno_word >> 1))));
+      const uintptr_t geno_nm = geno_word & nm_word;
+      // geno_nm is now {00, 01, 10, 00}.  In particular, if we ever see 01, we
+      // error out.
+      const uintptr_t geno_nm_hi = (geno_nm >> 1) & kMask5555;
+      nm_arr[widx] = nm_word;
+      hap_arr[widx] = geno_nm | geno_nm_hi;
+      detect_unphased |= geno_nm;
+    }
+    detect_unphased &= kMask5555;
+  } else {
+    // error out if het encountered, and not covered by phasepresent
+    const Halfword* phasepresent_alias = DowncastKWToHW(phasepresent);
+    const Halfword* phaseinfo_alias = DowncastKWToHW(phaseinfo);
+    for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+      const uintptr_t geno_word = genoarr[widx];
+      const uintptr_t geno_rshift = geno_word >> 1;
+      const uintptr_t nm_word = 3 * (kMask5555 & (~(geno_word & geno_rshift)));
+      const uintptr_t geno_nm = geno_word & nm_word;
+      const uintptr_t geno_nm_hi = (geno_nm >> 1) & kMask5555;
+      const uintptr_t het_word = geno_nm & kMask5555;
+      const uintptr_t phasepresent_word = UnpackHalfwordToWord(phasepresent_alias[widx]);
+      const uintptr_t phaseinfo_word = phasepresent_word & UnpackHalfwordToWord(phaseinfo_alias[widx]);
+      nm_arr[widx] = nm_word;
+      hap_arr[widx] = geno_nm + geno_nm_hi + phaseinfo_word;
+      detect_unphased |= het_word & (~phasepresent_word);
+    }
+  }
+  const uint32_t trailing_nyp_ct = sample_ct % kBitsPerWordD2;
+  if (trailing_nyp_ct) {
+    const uint32_t trailing_bit_ct = trailing_nyp_ct * 2;
+    const uint32_t last_word_idx = sample_ctl2 - 1;
+    nm_arr[last_word_idx] = bzhi(nm_arr[last_word_idx], trailing_bit_ct);
+    hap_arr[last_word_idx] = bzhi(hap_arr[last_word_idx], trailing_bit_ct);
+  }
+  return (detect_unphased != 0);
+}
+
+void HapsplitHaploid(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* hap_arr, uintptr_t* nm_arr) {
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  const uint32_t sample_ctl2_is_odd = NypCtToWordCt(sample_ct) & 1;
+  const uint32_t wordpair_ct = sample_ctl - sample_ctl2_is_odd;
+  for (uint32_t widx = 0; widx != wordpair_ct; ++widx) {
+    const uintptr_t geno_word0 = genoarr[widx * 2];
+    const uintptr_t geno_word1 = genoarr[widx * 2 + 1];
+    const uintptr_t nm_word0 = ~geno_word0;
+    const uintptr_t nm_word1 = ~geno_word1;
+    const uintptr_t hap_word0 = nm_word0 & (geno_word0 >> 1);
+    const uintptr_t hap_word1 = nm_word1 & (geno_word1 >> 1);
+    nm_arr[widx] = PackTwo5555Mask(nm_word0, nm_word1);
+    hap_arr[widx] = PackTwo5555Mask(hap_word0, hap_word1);
+  }
+  if (sample_ctl2_is_odd) {
+    const uintptr_t geno_word0 = genoarr[wordpair_ct * 2];
+    const uintptr_t nm_word0 = ~geno_word0;
+    const uintptr_t hap_word0 = nm_word0 & (geno_word0 >> 1);
+    nm_arr[wordpair_ct] = PackWordToHalfwordMask5555(nm_word0);
+    hap_arr[wordpair_ct] = PackWordToHalfwordMask5555(hap_word0);
+  }
+  const uint32_t trailing_bit_ct = sample_ct % kBitsPerWord;
+  if (trailing_bit_ct) {
+    const uint32_t last_word_idx = sample_ctl - 1;
+    nm_arr[last_word_idx] = bzhi(nm_arr[last_word_idx], trailing_bit_ct);
+    hap_arr[last_word_idx] = bzhi(hap_arr[last_word_idx], trailing_bit_ct);
+  }
+}
+
 // Note that once the result elements are only 4 bits wide, shuffle8 should
 // beat a 256x4 lookup table when SSE4 is available.  (possible todo: see if
 // shuffle8-based loop also wins here.)

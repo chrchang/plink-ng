@@ -5138,10 +5138,22 @@ PglErr GetAux1bHets(const unsigned char* fread_end, const uintptr_t* __restrict 
   return kPglRetSuccess;
 }
 
-PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict all_hets, uintptr_t* __restrict allele_countvec, uintptr_t** subsetted_10hetp) {
+void SuppressHets00(const uintptr_t* allele_countvec, const uintptr_t* subsetted_all_hets, uint32_t sample_ct, uintptr_t* subsetted_suppressed_hets) {
+  const Halfword* all_hets_alias = DowncastKWToHW(subsetted_all_hets);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  Halfword* write_alias = DowncastWToHW(subsetted_suppressed_hets);
+  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+    const Halfword cur_count0 = Pack00ToHalfword(allele_countvec[widx]);
+    const Halfword cur_hets = all_hets_alias[widx];
+    write_alias[widx] = cur_count0 & cur_hets;
+  }
+}
+
+PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict all_hets, uintptr_t* __restrict allele_countvec, uintptr_t** subsetted_suppressed_hetp) {
   // sample_ct > 0; either allele_idx > 1 or ((allele_idx == 1) &&
   // multiallelic_hc_present)
-  // subsetted_10het assumed to be initialized to nullptr, if present at all
+  // subsetted_suppressed_het assumed to be initialized to nullptr, if present
+  // at all
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
   const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
   uintptr_t* raw_genovec = pgrp->workspace_vec;
@@ -5224,13 +5236,22 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
     }
     if (aux1b_het_present) {
       BitvecOr(aux1b_hets, BitCtToWordCt(raw_sample_ct), all_hets);
-      if (!sample_include) {
-        *subsetted_10hetp = aux1b_hets;
-      } else {
-        // Don't need raw_genovec any more.
-        CopyBitarrSubset(aux1b_hets, sample_include, sample_ct, raw_genovec);
-        *subsetted_10hetp = raw_genovec;
+    }
+    // We now want to make subsetted_suppressed_het flag all hets where neither
+    // allele is equal to allele_idx, i.e. the allele_countvec value is 0 yet
+    // the all_hets bit is set.
+    // This was done incorrectly before 17 Aug 2023.
+    if ((allele_idx > 1) || aux1b_het_present) {
+      // We can now clobber the contents of pgrp->workspace_vec (raw_genovec)
+      // and pgrp->workspace_aux1x_present (aux1b_hets).
+      // We use the former as the subsetted_suppressed_het return buffer.
+      uintptr_t* all_hets_subsetted = all_hets;
+      if (subsetting_required) {
+        all_hets_subsetted = aux1b_hets;
+        CopyBitarrSubset(all_hets, sample_include, sample_ct, all_hets_subsetted);
       }
+      *subsetted_suppressed_hetp = raw_genovec;
+      SuppressHets00(allele_countvec, all_hets_subsetted, sample_ct, raw_genovec);
     }
   }
   return kPglRetSuccess;
@@ -6453,12 +6474,12 @@ PglErr SkipAux1(const unsigned char* fread_end, const uintptr_t* __restrict raw_
 }
 
 // sample_include assumed to be nullptr if no subsetting required
-// subsetted_10het should only be provided when you explicitly want to exclude
-// those phase entries
+// subsetted_suppressed_het should only be provided when you explicitly want to
+// exclude those phase entries
 // set phasepresent == phaseinfo == nullptr if you want to skip the entire
 // track; ok for phasepresent_ct_ptr to be nullptr too in that case
 // (also see SkipAux2() and GetPhasepresentAndSkipPhaseinfo() below)
-PglErr ParseAux2Subset(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uintptr_t* __restrict all_hets, const uintptr_t* __restrict subsetted_10het, uint32_t raw_sample_ct, uint32_t sample_ct, const unsigned char** fread_pp, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr, uintptr_t* __restrict workspace_subset) {
+PglErr ParseAux2Subset(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uintptr_t* __restrict all_hets, const uintptr_t* __restrict subsetted_suppressed_het, uint32_t raw_sample_ct, uint32_t sample_ct, const unsigned char** fread_pp, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr, uintptr_t* __restrict workspace_subset) {
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
   const uint32_t het_ct = PopcountWords(all_hets, raw_sample_ctl);
   if (unlikely(!het_ct)) {
@@ -6480,7 +6501,7 @@ PglErr ParseAux2Subset(const unsigned char* fread_end, const uintptr_t* __restri
     if (!sample_include) {
       memcpy(phasepresent, all_hets, raw_sample_ctl * kBytesPerWord);
       ExpandBytearr(aux2_start, all_hets, raw_sample_ctl, het_ct, 1, phaseinfo);
-      if (!subsetted_10het) {
+      if (!subsetted_suppressed_het) {
         *phasepresent_ct_ptr = het_ct;
         return kPglRetSuccess;
       }
@@ -6494,7 +6515,7 @@ PglErr ParseAux2Subset(const unsigned char* fread_end, const uintptr_t* __restri
       }
       ExpandThenSubsetBytearr(aux2_start, all_hets, sample_include, het_ct, sample_ct, 1, phaseinfo);
     }
-    // bugfix (25 Feb 2020): forgot to mask out subsetted_10het here
+    // bugfix (25 Feb 2020): forgot to mask out subsetted_suppressed_het here
   } else {
     const uint32_t het_ctdl = het_ct / kBitsPerWord;
 
@@ -6517,7 +6538,7 @@ PglErr ParseAux2Subset(const unsigned char* fread_end, const uintptr_t* __restri
     }
     if (!sample_include) {
       ExpandBytearrNested(aux2_second_part, aux2_first_part_copy, all_hets, sample_ctl, raw_phasepresent_ct, 1, phasepresent, phaseinfo);
-      if (!subsetted_10het) {
+      if (!subsetted_suppressed_het) {
         *phasepresent_ct_ptr = raw_phasepresent_ct;
         return kPglRetSuccess;
       }
@@ -6527,8 +6548,8 @@ PglErr ParseAux2Subset(const unsigned char* fread_end, const uintptr_t* __restri
       ExpandThenSubsetBytearrNested(aux2_second_part, aux2_first_part_copy, all_hets, sample_include, sample_ct, raw_phasepresent_ct, 1, phasepresent, phaseinfo);
     }
   }
-  if (subsetted_10het) {
-    BitvecInvmask(subsetted_10het, sample_ctl, phasepresent);
+  if (subsetted_suppressed_het) {
+    BitvecInvmask(subsetted_suppressed_het, sample_ctl, phasepresent);
   }
   *phasepresent_ct_ptr = PopcountWords(phasepresent, sample_ctl);
   return kPglRetSuccess;
@@ -6596,7 +6617,7 @@ PglErr ReadGenovecHphaseSubsetUnsafe(const uintptr_t* __restrict sample_include,
   }
   uintptr_t* all_hets = pgrp->workspace_all_hets;
   PgrDetectGenoarrHets(raw_genovec, raw_sample_ct, all_hets);
-  uintptr_t* subsetted_10het = nullptr;
+  uintptr_t* subsetted_suppressed_het = nullptr;
   if (VrtypeMultiallelicHc(vrtype)) {
     const uint32_t aux1_first_byte = *fread_ptr++;
     const uint32_t aux1a_mode = aux1_first_byte & 15;
@@ -6613,7 +6634,7 @@ PglErr ReadGenovecHphaseSubsetUnsafe(const uintptr_t* __restrict sample_include,
     // 1. fill workspace_aux1x_present with aux1b
     // 2. clear bit for each hom-altx call in aux1b
     // 3. bitvec-or to set new workspace_all_hets bits
-    // 4. if not subsetting, set subsetted_10het := workspace_all_hets
+    // 4. if not subsetting, set subsetted_suppressed_het := workspace_all_hets
     //    if subsetting, copy-subset to pgrp->workspace_vec and set to that
     //    if AllWordsAreZero, keep as nullptr
     uintptr_t* aux1b_hets = pgrp->workspace_aux1x_present;
@@ -6626,15 +6647,15 @@ PglErr ReadGenovecHphaseSubsetUnsafe(const uintptr_t* __restrict sample_include,
     if (aux1b_het_present) {
       BitvecOr(aux1b_hets, BitCtToWordCt(raw_sample_ct), all_hets);
       if (!subsetting_required) {
-        subsetted_10het = aux1b_hets;
+        subsetted_suppressed_het = aux1b_hets;
       } else {
         // Don't need raw_genovec any more.
         CopyBitarrSubset(aux1b_hets, sample_include, sample_ct, raw_genovec);
-        subsetted_10het = raw_genovec;
+        subsetted_suppressed_het = raw_genovec;
       }
     }
   }
-  reterr = ParseAux2Subset(fread_end, subsetting_required? sample_include : nullptr, all_hets, subsetted_10het, raw_sample_ct, sample_ct, &fread_ptr, phasepresent, phaseinfo, phasepresent_ct_ptr, pgrp->workspace_subset);
+  reterr = ParseAux2Subset(fread_end, subsetting_required? sample_include : nullptr, all_hets, subsetted_suppressed_het, raw_sample_ct, sample_ct, &fread_ptr, phasepresent, phaseinfo, phasepresent_ct_ptr, pgrp->workspace_subset);
   if (fread_pp) {
     *fread_pp = fread_ptr;
     *fread_endp = fread_end;
@@ -6663,15 +6684,15 @@ PglErr Get1MP(const uintptr_t* __restrict sample_include, const uint32_t* __rest
     return IMPLPgrGet1(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_countvec);
   }
   uintptr_t* all_hets = pgrp->workspace_all_hets;
-  uintptr_t* subsetted_10het = nullptr;
+  uintptr_t* subsetted_suppressed_het = nullptr;
   const unsigned char* fread_ptr;
   const unsigned char* fread_end;
-  PglErr reterr = Get1Multiallelic(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, &fread_ptr, &fread_end, all_hets, allele_countvec, &subsetted_10het);
+  PglErr reterr = Get1Multiallelic(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, &fread_ptr, &fread_end, all_hets, allele_countvec, &subsetted_suppressed_het);
   if (unlikely(reterr)) {
     return reterr;
   }
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
-  reterr = ParseAux2Subset(fread_end, (sample_ct != raw_sample_ct)? sample_include : nullptr, all_hets, subsetted_10het, raw_sample_ct, sample_ct, &fread_ptr, phasepresent, phaseinfo, phasepresent_ct_ptr, pgrp->workspace_subset);
+  reterr = ParseAux2Subset(fread_end, (sample_ct != raw_sample_ct)? sample_include : nullptr, all_hets, subsetted_suppressed_het, raw_sample_ct, sample_ct, &fread_ptr, phasepresent, phaseinfo, phasepresent_ct_ptr, pgrp->workspace_subset);
   // bugfix (7 Sep 2018): Need to postprocess phasepresent when collapsing
   // multiple alleles.
   if (reterr || (!(*phasepresent_ct_ptr))) {
@@ -6739,6 +6760,17 @@ PglErr IMPLPgrGetInv1P(const uintptr_t* __restrict sample_include, const uint32_
   return kPglRetSuccess;
 }
 
+void SuppressHets11(const uintptr_t* genovec, const uintptr_t* subsetted_all_hets, uint32_t sample_ct, uintptr_t* subsetted_suppressed_hets) {
+  const Halfword* all_hets_alias = DowncastKWToHW(subsetted_all_hets);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  Halfword* write_alias = DowncastWToHW(subsetted_suppressed_hets);
+  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+    const Halfword cur_count0 = Pack11ToHalfword(genovec[widx]);
+    const Halfword cur_hets = all_hets_alias[widx];
+    write_alias[widx] = cur_count0 & cur_hets;
+  }
+}
+
 PglErr PgrGet2P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr) {
   PgenReaderMain* pgrp = GetPgrp(pgr_ptr);
   const uint32_t* sample_include_cumulative_popcounts = GetSicp(pssi);
@@ -6792,7 +6824,7 @@ PglErr PgrGet2P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
   }
   uintptr_t* all_hets = pgrp->workspace_all_hets;
   PgrDetectGenoarrHets(raw_genovec, raw_sample_ct, all_hets);
-  uintptr_t* subsetted_10het = nullptr;
+  uintptr_t* subsetted_suppressed_het = nullptr;
   if (!subsetting_required) {
     sample_include = nullptr;
   }
@@ -6837,16 +6869,21 @@ PglErr PgrGet2P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
     }
     if (aux1b_het_present) {
       BitvecOr(aux1b_hets, BitCtToWordCt(raw_sample_ct), all_hets);
-      if (!subsetting_required) {
-        subsetted_10het = aux1b_hets;
-      } else {
-        // Don't need raw_genovec any more.
-        CopyBitarrSubset(aux1b_hets, sample_include, sample_ct, raw_genovec);
-        subsetted_10het = raw_genovec;
+    }
+    if ((allele_idx0 + allele_idx1 != 1) || aux1b_het_present) {
+      // We can now clobber the contents of pgrp->workspace_vec (raw_genovec)
+      // and pgrp->workspace_aux1x_present (aux1b_hets).
+      // We use the former as the subsetted_suppressed_het return buffer.
+      uintptr_t* all_hets_subsetted = all_hets;
+      if (sample_include) {
+        all_hets_subsetted = aux1b_hets;
+        CopyBitarrSubset(all_hets, sample_include, sample_ct, all_hets_subsetted);
       }
+      subsetted_suppressed_het = raw_genovec;
+      SuppressHets11(genovec, all_hets_subsetted, sample_ct, raw_genovec);
     }
   }
-  reterr = ParseAux2Subset(fread_end, sample_include, all_hets, subsetted_10het, raw_sample_ct, sample_ct, &fread_ptr, phasepresent, phaseinfo, phasepresent_ct_ptr, pgrp->workspace_subset);
+  reterr = ParseAux2Subset(fread_end, sample_include, all_hets, subsetted_suppressed_het, raw_sample_ct, sample_ct, &fread_ptr, phasepresent, phaseinfo, phasepresent_ct_ptr, pgrp->workspace_subset);
   if (unlikely(reterr)) {
     return reterr;
   }

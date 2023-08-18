@@ -79,7 +79,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1908
+#define PGENLIB_INTERNAL_VERNUM 1910
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -137,6 +137,10 @@ HEADER_INLINE uintptr_t Word10(uintptr_t ww) {
 
 HEADER_INLINE uintptr_t Word11(uintptr_t ww) {
   return ww & (ww >> 1) & kMask5555;
+}
+
+HEADER_INLINE Halfword Pack00ToHalfword(uintptr_t ww) {
+  return PackWordToHalfwordMask5555(~(ww | (ww >> 1)));
 }
 
 HEADER_INLINE Halfword Pack01ToHalfword(uintptr_t ww) {
@@ -398,8 +402,15 @@ void SparseToMissingness(const uintptr_t* __restrict raregeno, const uint32_t* d
 // Also takes genoarr word count instead of sample count.
 void SplitHomRef2hetUnsafeW(const uintptr_t* genoarr, uint32_t inword_ct, uintptr_t* __restrict hom_buf, uintptr_t* __restrict ref2het_buf);
 
-
 void SplitHomRef2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* __restrict hom_buf, uintptr_t* __restrict ref2het_buf);
+
+
+// Support for 1-bit-per-haplotype representation.
+// Ok for genoarr to have garbage trailing bits.
+BoolErr HapsplitMustPhased(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, uintptr_t* hap_arr, uintptr_t* nm_arr);
+
+// Only 1 haplotype per genotype, rather than 2; het treated as missing.
+void HapsplitHaploid(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* hap_arr, uintptr_t* nm_arr);
 
 
 // These functions use 16- or 256-element lookup tables to apply functions of

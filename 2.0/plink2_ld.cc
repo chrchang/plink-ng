@@ -459,7 +459,7 @@ void SumSsqNmWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintp
 }
 
 // er, subcontig_info probably deserves its own type...
-void LdPruneNextSubcontig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t x_start, uint32_t x_len, uint32_t y_start, uint32_t y_len, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t prune_window_size, uint32_t thread_idx, uint32_t* subcontig_idx_ptr, uint32_t* subcontig_end_tvidx_ptr, uint32_t* next_window_end_tvidx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* cur_founder_ct_ptr, uint32_t* cur_founder_ctaw_ptr, uint32_t* cur_founder_ctl_ptr, uintptr_t* entire_variant_buf_word_ct_ptr, uint32_t* variant_uidx_winstart_ptr, uint32_t* variant_uidx_winend_ptr) {
+void LdPruneNextSubcontig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t prune_window_size, uint32_t thread_idx, uint32_t* subcontig_idx_ptr, uint32_t* subcontig_end_tvidx_ptr, uint32_t* next_window_end_tvidx_ptr, uint32_t* variant_uidx_winstart_ptr, uint32_t* variant_uidx_winend_ptr) {
   uint32_t subcontig_idx = *subcontig_idx_ptr;
   do {
     ++subcontig_idx;
@@ -487,22 +487,6 @@ void LdPruneNextSubcontig(const uintptr_t* variant_include, const uint32_t* vari
   }
 
   *variant_uidx_winstart_ptr = variant_uidx_winstart;
-  // _len is better than _end here since we can exploit unsignedness
-  const uint32_t is_x = ((variant_uidx_winstart - x_start) < x_len);
-  const uint32_t is_y = ((variant_uidx_winstart - y_start) < y_len);
-  if ((is_x != (*is_x_ptr)) || (is_y != (*is_y_ptr))) {
-    *is_x_ptr = is_x;
-    *is_y_ptr = is_y;
-    const uint32_t cur_founder_ct = (is_x || is_y)? founder_male_ct : founder_ct;
-    const uint32_t cur_founder_ctaw = BitCtToAlignedWordCt(cur_founder_ct);
-    *cur_founder_ct_ptr = cur_founder_ct;
-    *cur_founder_ctaw_ptr = cur_founder_ctaw;
-    *cur_founder_ctl_ptr = BitCtToWordCt(cur_founder_ct);
-    *entire_variant_buf_word_ct_ptr = 2 * cur_founder_ctaw;
-    if (is_x) {
-      *entire_variant_buf_word_ct_ptr += 2 * BitCtToAlignedWordCt(founder_ct - founder_male_ct);
-    }
-  }
 }
 
 void LdPruneNextWindow(const uintptr_t* __restrict variant_include, const uint32_t* __restrict variant_bps, const uint32_t* __restrict tvidxs, const uintptr_t* __restrict cur_window_removed, uint32_t prune_window_size, uint32_t window_incr, uint32_t window_maxl, uint32_t subcontig_end_tvidx, uint32_t* cur_window_size_ptr, uint32_t* __restrict window_start_tvidx_ptr, uint32_t* __restrict variant_uidx_winstart_ptr, uint32_t* __restrict next_window_end_tvidx_ptr, uint32_t* __restrict variant_uidx_winend_ptr, uintptr_t* __restrict occupied_window_slots, uint32_t* winpos_to_slot_idx) {
@@ -567,6 +551,8 @@ typedef struct VariantAggsStruct {
   uint32_t ssq;
 } VariantAggs;
 
+// On entry, {cur_nm_ct, cur_first_sum, cur_first_ssq} must be initialized to
+// first_vaggs values.
 void ComputeIndepPairwiseR2Components(const uintptr_t* __restrict first_genobufs, const uintptr_t* __restrict second_genobufs, const VariantAggs* second_vaggs, uint32_t founder_ct, uint32_t* cur_nm_ct_ptr, int32_t* cur_first_sum_ptr, uint32_t* cur_first_ssq_ptr, int32_t* second_sum_ptr, uint32_t* second_ssq_ptr, int32_t* cur_dotprod_ptr) {
   const uint32_t founder_ctaw = BitCtToAlignedWordCt(founder_ct);
   const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
@@ -583,8 +569,6 @@ void ComputeIndepPairwiseR2Components(const uintptr_t* __restrict first_genobufs
   }
   const uint32_t second_nm_ct = second_vaggs->nm_ct;
   if (second_nm_ct == founder_ct) {
-    // assumed that cur_first_nm initialized to first_vaggs[0], cur_first_sum
-    // initialized to first_vaggs[1], cur_first_ssq to first_vaggs[2]
     return;
   }
   if (*cur_nm_ct_ptr != founder_ct) {
@@ -608,6 +592,25 @@ void FillVaggs(const uintptr_t* hom_vec, const uintptr_t* ref2het_vec, uintptr_t
   *nm_ct_ptr = nm_ct;
   *plusone_ct_ptr = ref2_ct;
   *minusone_ct_ptr = alt2_ct;
+}
+
+void IndepPairwiseUpdateSubcontig(uint32_t variant_uidx_winstart, uint32_t x_start, uint32_t x_len, uint32_t y_start, uint32_t y_len, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* cur_founder_ct_ptr, uint32_t* cur_founder_ctaw_ptr, uint32_t* cur_founder_ctl_ptr, uintptr_t* entire_variant_buf_word_ct_ptr) {
+  // _len is better than _end here since we can exploit unsignedness
+  const uint32_t is_x = ((variant_uidx_winstart - x_start) < x_len);
+  const uint32_t is_y = ((variant_uidx_winstart - y_start) < y_len);
+  if ((is_x != (*is_x_ptr)) || (is_y != (*is_y_ptr))) {
+    *is_x_ptr = is_x;
+    *is_y_ptr = is_y;
+    const uint32_t cur_founder_ct = (is_x || is_y)? founder_male_ct : founder_ct;
+    const uint32_t cur_founder_ctaw = BitCtToAlignedWordCt(cur_founder_ct);
+    *cur_founder_ct_ptr = cur_founder_ct;
+    *cur_founder_ctaw_ptr = cur_founder_ctaw;
+    *cur_founder_ctl_ptr = BitCtToWordCt(cur_founder_ct);
+    *entire_variant_buf_word_ct_ptr = 2 * cur_founder_ctaw;
+    if (is_x) {
+      *entire_variant_buf_word_ct_ptr += 2 * BitCtToAlignedWordCt(founder_ct - founder_male_ct);
+    }
+  }
 }
 
 typedef struct IndepPairwiseCtxStruct {
@@ -642,6 +645,7 @@ typedef struct IndepPairwiseCtxStruct {
   uint32_t** winpos_to_slot_idx;
   uint32_t** tvidxs;
   uint32_t** first_unchecked_tvidx;
+  // 't' stands for thread here
   uintptr_t** raw_tgenovecs[2];
 } IndepPairwiseCtx;
 
@@ -715,7 +719,8 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* raw_arg) {
     const uintptr_t* raw_tgenovecs = ctx->raw_tgenovecs[parity][tidx];
     for (uint32_t cur_tvidx = tvidx_start; cur_tvidx < tvidx_stop; ) {
       if (cur_tvidx == subcontig_end_tvidx) {
-        LdPruneNextSubcontig(variant_include, variant_bps, subcontig_info, subcontig_thread_assignments, x_start, x_len, y_start, y_len, founder_ct, founder_male_ct, prune_window_size, tidx, &subcontig_idx, &subcontig_end_tvidx, &next_window_end_tvidx, &is_x, &is_y, &cur_founder_ct, &cur_founder_ctaw, &cur_founder_ctl, &entire_variant_buf_word_ct, &variant_uidx_winstart, &variant_uidx_winend);
+        LdPruneNextSubcontig(variant_include, variant_bps, subcontig_info, subcontig_thread_assignments, prune_window_size, tidx, &subcontig_idx, &subcontig_end_tvidx, &next_window_end_tvidx, &variant_uidx_winstart, &variant_uidx_winend);
+        IndepPairwiseUpdateSubcontig(variant_uidx_winstart, x_start, x_len, y_start, y_len, founder_ct, founder_male_ct, &is_x, &is_y, &cur_founder_ct, &cur_founder_ctaw, &cur_founder_ctl, &entire_variant_buf_word_ct);
         BitIter1Start(variant_include, variant_uidx_winstart, &variant_uidx_base, &variant_include_bits);
         winpos_split = 0;
       }
@@ -811,12 +816,12 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* raw_arg) {
                 }
                 second_slot_idx = winpos_to_slot_idx[second_winpos];
               } while (tvidxs[second_slot_idx] < cur_first_unchecked_tvidx);
-              uintptr_t* first_genobufs = &(genobufs[first_slot_idx * entire_variant_buf_word_ct]);
+              const uintptr_t* first_genobufs = &(genobufs[first_slot_idx * entire_variant_buf_word_ct]);
               const uint32_t first_nm_ct = vaggs[first_slot_idx].nm_ct;
               const int32_t first_sum = vaggs[first_slot_idx].sum;
               const uint32_t first_ssq = vaggs[first_slot_idx].ssq;
               while (1) {
-                uintptr_t* second_genobufs = &(genobufs[second_slot_idx * entire_variant_buf_word_ct]);
+                const uintptr_t* second_genobufs = &(genobufs[second_slot_idx * entire_variant_buf_word_ct]);
                 uint32_t cur_nm_ct = first_nm_ct;
                 int32_t cur_first_sum = first_sum;
                 uint32_t cur_first_ssq = first_ssq;
@@ -1015,7 +1020,8 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
                  bigstack_alloc_wp(calc_thread_ct, &(ctx.raw_tgenovecs[1])))) {
       goto IndepPairwise_ret_NOMEM;
     }
-    if (ldip->prune_flags & kfLdPrunePlink1Order) {
+    const uint32_t plink1_order = (ldip->prune_flags / kfLdPrunePlink1Order) & 1;
+    if (plink1_order) {
       if (unlikely(bigstack_alloc_u32p(calc_thread_ct, &ctx.first_unchecked_tvidx))) {
         goto IndepPairwise_ret_NOMEM;
       }
@@ -1038,10 +1044,10 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     // two of these
     const uintptr_t vaggs_alloc = RoundUpPow2(window_max * sizeof(VariantAggs), kCacheline);
 
-    // three of these
+    // (2 + plink1_order) of these
     const uintptr_t window_int32_alloc = RoundUpPow2(window_max * sizeof(int32_t), kCacheline);
 
-    const uintptr_t thread_alloc_base = genobuf_alloc + occupied_window_slots_alloc + cur_window_removed_alloc + cur_maj_freqs_alloc + removed_variants_write_alloc + 2 * vaggs_alloc + 3 * window_int32_alloc;
+    const uintptr_t thread_alloc_base = genobuf_alloc + occupied_window_slots_alloc + cur_window_removed_alloc + cur_maj_freqs_alloc + removed_variants_write_alloc + 2 * vaggs_alloc + (2 + plink1_order) * window_int32_alloc;
 
     const uint32_t founder_ctl2 = NypCtToWordCt(founder_ct);
     const uint32_t founder_male_ctl2 = NypCtToWordCt(founder_male_ct);
@@ -1097,11 +1103,6 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     ctx.prune_ld_thresh = ldip->prune_last_param * (1 + kSmallEpsilon);
     ctx.window_incr = ldip->prune_window_incr;
     ctx.cur_batch_size = tvidx_batch_size;
-    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
-      goto IndepPairwise_ret_NOMEM;
-    }
-    SetThreadFuncAndData(IndepPairwiseThread, &ctx, &tg);
-
     const uint32_t all_haploid = IsSet(cip->haploid_mask, 0);
     uint32_t x_start = 0;
     uint32_t x_end = 0;
@@ -1115,6 +1116,11 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     ctx.x_len = x_len;
     ctx.y_start = y_start;
     ctx.y_len = y_len;
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto IndepPairwise_ret_NOMEM;
+    }
+    SetThreadFuncAndData(IndepPairwiseThread, &ctx, &tg);
+
     // Main workflow:
     // 1. Set n=0, load batch 0
 
@@ -1284,7 +1290,67 @@ typedef struct VariantHapAggsStruct {
   uint32_t sum;
 } VariantHapAggs;
 
+// On entry, {cur_nm_ct, cur_first_sum} must be initialized to first_vhaggs
+// values.
+void ComputeIndepPairphaseR2Components(const uintptr_t* __restrict first_hap_vec, const uintptr_t* __restrict second_hap_vec, const VariantHapAggs* second_vhaggs, uint32_t nm_vec_woffset, uint32_t cur_hap_ct, uint32_t* cur_nm_ct_ptr, uint32_t* cur_first_sum_ptr, uint32_t* second_sum_ptr, uint32_t* cur_dotprod_ptr) {
+  const uint32_t cur_hap_ctl = BitCtToWordCt(cur_hap_ct);
+  // Three cases:
+  // 1. Just need dot product.
+  // 2. Also need first_sum xor second_sum.
+  // 3. Need all four variables.
+  *cur_dotprod_ptr = PopcountWordsIntersect(first_hap_vec, second_hap_vec, cur_hap_ctl);
+  const uintptr_t* first_nm_vec = &(first_hap_vec[nm_vec_woffset]);
+  if (*cur_nm_ct_ptr != cur_hap_ct) {
+    *second_sum_ptr = PopcountWordsIntersect(first_nm_vec, second_hap_vec, cur_hap_ctl);
+  } else {
+    *second_sum_ptr = second_vhaggs->sum;
+  }
+  const uint32_t second_nm_ct = second_vhaggs->nm_ct;
+  if (second_nm_ct == cur_hap_ct) {
+    return;
+  }
+  const uintptr_t* second_nm_vec = &(second_hap_vec[nm_vec_woffset]);
+  *cur_first_sum_ptr = PopcountWordsIntersect(first_hap_vec, second_nm_vec, cur_hap_ctl);
+  if (*cur_nm_ct_ptr != cur_hap_ct) {
+    *cur_nm_ct_ptr = PopcountWordsIntersect(first_nm_vec, second_nm_vec, cur_hap_ctl);
+  } else {
+    *cur_nm_ct_ptr = second_nm_ct;
+  }
+}
+
+// Returns 1 if monomorphic, 0 otherwise.
+uint32_t FillVhaggs(const uintptr_t* hap_vec, const uintptr_t* nm_vec, uintptr_t word_ct, VariantHapAggs* vhaggs) {
+  const uint32_t nm_ct = PopcountWords(nm_vec, word_ct);
+  const uint32_t sum = PopcountWords(hap_vec, word_ct);
+  vhaggs->nm_ct = nm_ct;
+  vhaggs->sum = sum;
+  return (!sum) || (sum == nm_ct);
+}
+
+void IndepPairphaseUpdateSubcontig(const ChrInfo* cip, uint32_t variant_uidx_winstart, uint32_t x_start, uint32_t x_len, uint32_t y_start, uint32_t y_len, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_haploid_ptr, uint32_t* cur_hap_ct_ptr, uint32_t* cur_hap_ctl_ptr) {
+  // _len is better than _end here since we can exploit unsignedness
+  const uint32_t is_x = ((variant_uidx_winstart - x_start) < x_len);
+  const uint32_t is_y = ((variant_uidx_winstart - y_start) < y_len);
+  const uint32_t is_haploid = IsSet(cip->haploid_mask, GetVariantChr(cip, variant_uidx_winstart));
+  if ((is_x != (*is_x_ptr)) || (is_y != (*is_y_ptr)) || (is_haploid != (*is_haploid_ptr))) {
+    *is_x_ptr = is_x;
+    *is_y_ptr = is_y;
+    *is_haploid_ptr = is_haploid;
+    uint32_t cur_hap_ct;
+    if (is_x) {
+      cur_hap_ct = 2 * founder_ct - founder_male_ct;
+    } else if (is_y) {
+      cur_hap_ct = founder_male_ct;
+    } else {
+      cur_hap_ct = founder_ct * (2 - is_haploid);
+    }
+    *cur_hap_ct_ptr = cur_hap_ct;
+    *cur_hap_ctl_ptr = BitCtToWordCt(cur_hap_ct);
+  }
+}
+
 typedef struct IndepPairphaseCtxStruct {
+  const ChrInfo* cip;
   const uint32_t* subcontig_info;
   const uint32_t* subcontig_thread_assignments;
   const uintptr_t* variant_include;
@@ -1306,28 +1372,24 @@ typedef struct IndepPairphaseCtxStruct {
   uint32_t window_incr;
   uint32_t cur_batch_size;
 
-  uintptr_t** hap_vecs;
-  uint32_t** hap_cts;
-  uintptr_t** nm_vecs;
+  uintptr_t** hap_then_nm_vecs;
   uintptr_t** occupied_window_slots;
   uintptr_t** cur_window_removed;
   double** cur_maj_freqs;
   uintptr_t** removed_variants_write;
-  VariantHapAggs** vaggs;
+  VariantHapAggs** vhaggs;
   uint32_t** winpos_to_slot_idx;
   uint32_t** tvidxs;
   uint32_t** first_unchecked_tvidx;
-  uintptr_t** loader_hap_vecs[2];
-  uint32_t** loader_hap_cts[2];
-  uintptr_t** loader_nm_vecs[2];
+  uintptr_t** loader_hap_then_nm_vecs[2];
 } IndepPairphaseCtx;
 
-  /*
 THREAD_FUNC_DECL IndepPairphaseThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uintptr_t tidx = arg->tidx;
-  IndepPairwiseCtx* ctx = S_CAST(IndepPairphaseCtx*, arg->sharedp->context);
+  IndepPairphaseCtx* ctx = S_CAST(IndepPairphaseCtx*, arg->sharedp->context);
 
+  const ChrInfo* cip = ctx->cip;
   const uint32_t* subcontig_info = ctx->subcontig_info;
   const uint32_t* subcontig_thread_assignments = ctx->subcontig_thread_assignments;
   const uintptr_t* variant_include = ctx->variant_include;
@@ -1342,20 +1404,19 @@ THREAD_FUNC_DECL IndepPairphaseThread(void* raw_arg) {
   const uint32_t* variant_bps = ctx->variant_bps;
   const uint32_t founder_ct = ctx->founder_ct;
   const uint32_t founder_male_ct = ctx->founder_male_ct;
-  const uintptr_t stride = BitCtToAlignedWordCt(founder_ct * 2);
+  const uint32_t max_hap_ctaw = BitCtToAlignedWordCt(founder_ct * 2);
+  const uintptr_t max_hap_ctaw_x2 = max_hap_ctaw * 2;
   const uint32_t prune_window_size = ctx->prune_window_size;
   const uint32_t window_maxl = ctx->window_maxl;
   const double prune_ld_thresh = ctx->prune_ld_thresh;
   const uint32_t window_incr = ctx->window_incr;
   const uint32_t tvidx_end = ctx->tvidx_end[tidx];
-  uintptr_t* hap_vecs = ctx->hap_vecs[tidx];
-  uint32_t* hap_cts = ctx->hap_cts[tidx];
-  uintptr_t* nm_vecs = ctx->nm_vecs[tidx];
+  uintptr_t* hap_then_nm_vecs = ctx->hap_then_nm_vecs[tidx];
   uintptr_t* occupied_window_slots = ctx->occupied_window_slots[tidx];
   uintptr_t* cur_window_removed = ctx->cur_window_removed[tidx];
   uintptr_t* removed_variants_write = ctx->removed_variants_write[tidx];
   double* cur_maj_freqs = ctx->cur_maj_freqs[tidx];
-  VariantHapAggs* vaggs = ctx->vaggs[tidx];
+  VariantHapAggs* vhaggs = ctx->vhaggs[tidx];
   uint32_t* winpos_to_slot_idx = ctx->winpos_to_slot_idx[tidx];
   uint32_t* tvidxs = ctx->tvidxs[tidx];
   uint32_t* first_unchecked_tvidx = ctx->first_unchecked_tvidx? ctx->first_unchecked_tvidx[tidx] : nullptr;
@@ -1367,17 +1428,16 @@ THREAD_FUNC_DECL IndepPairphaseThread(void* raw_arg) {
   uint32_t write_slot_idx = 0;
   uint32_t is_x = 0;
   uint32_t is_y = 0;
+  uint32_t is_haploid = IsSet(cip->haploid_mask, 0);
   uint32_t cur_window_size = 0;
   uint32_t winpos_split = 0;
   uint32_t tvidx_start = 0;
-  uint32_t cur_founder_ct = founder_ct;
-  uint32_t cur_founder_ctaw = BitCtToAlignedWordCt(founder_ct);
-  uint32_t cur_founder_ctl = BitCtToWordCt(founder_ct);
+  uint32_t cur_hap_ct = founder_ct * (2 - is_haploid);
+  uint32_t cur_hap_ctl = BitCtToWordCt(cur_hap_ct);
   uintptr_t variant_uidx_base = 0;
   uintptr_t variant_include_bits = variant_include[0];
   uint32_t variant_uidx_winstart = 0;
   uint32_t variant_uidx_winend = 0;
-  uintptr_t entire_variant_buf_word_ct = 2 * cur_founder_ctaw;
   uint32_t cur_allele_ct = 2;
   uint32_t parity = 0;
   do {
@@ -1387,58 +1447,42 @@ THREAD_FUNC_DECL IndepPairphaseThread(void* raw_arg) {
     // large to fit in memory are handled: we may have to halt in the middle of
     // unpacking data for a window, waiting until the current I/O pass is
     // complete before proceeding
-    const uintptr_t* raw_tgenovecs = ctx->raw_tgenovecs[parity][tidx];
+    const uintptr_t* loader_hap_then_nm_vecs = ctx->loader_hap_then_nm_vecs[parity][tidx];
     for (uint32_t cur_tvidx = tvidx_start; cur_tvidx < tvidx_stop; ) {
       if (cur_tvidx == subcontig_end_tvidx) {
-        LdPruneNextSubcontig(variant_include, variant_bps, subcontig_info, subcontig_thread_assignments, x_start, x_len, y_start, y_len, founder_ct, founder_male_ct, prune_window_size, tidx, &subcontig_idx, &subcontig_end_tvidx, &next_window_end_tvidx, &is_x, &is_y, &cur_founder_ct, &cur_founder_ctaw, &cur_founder_ctl, &entire_variant_buf_word_ct, &variant_uidx_winstart, &variant_uidx_winend);
+        LdPruneNextSubcontig(variant_include, variant_bps, subcontig_info, subcontig_thread_assignments, prune_window_size, tidx, &subcontig_idx, &subcontig_end_tvidx, &next_window_end_tvidx, &variant_uidx_winstart, &variant_uidx_winend);
+        IndepPairphaseUpdateSubcontig(cip, variant_uidx_winstart, x_start, x_len, y_start, y_len, founder_ct, founder_male_ct, &is_x, &is_y, &is_haploid, &cur_hap_ct, &cur_hap_ctl);
         BitIter1Start(variant_include, variant_uidx_winstart, &variant_uidx_base, &variant_include_bits);
         winpos_split = 0;
       }
-      ;;;
       const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
       write_slot_idx = AdvTo0Bit(occupied_window_slots, write_slot_idx);
       uintptr_t tvidx_offset = cur_tvidx - tvidx_start;
-      const uintptr_t* cur_raw_tgenovecs = &(raw_tgenovecs[tvidx_offset * raw_tgenovec_single_variant_word_ct]);
-      uintptr_t* cur_genobuf = &(genobufs[write_slot_idx * entire_variant_buf_word_ct]);
-      uintptr_t* cur_genobuf_ref2het = &(cur_genobuf[cur_founder_ctaw]);
-      // need local genobuf anyway due to halts, so may as well perform split
-      // here.
-      SplitHomRef2het(cur_raw_tgenovecs, cur_founder_ct, cur_genobuf, cur_genobuf_ref2het);
-      uint32_t nm_ct;
-      uint32_t plusone_ct;
-      uint32_t minusone_ct;
-      FillVaggs(cur_genobuf, cur_genobuf_ref2het, cur_founder_ctl, &(vaggs[write_slot_idx]), &nm_ct, &plusone_ct, &minusone_ct);
-      if (is_x) {
-        cur_genobuf = &(cur_genobuf[2 * cur_founder_ctaw]);
-        cur_genobuf_ref2het = &(cur_genobuf[nonmale_ctaw]);
-        SplitHomRef2het(&(cur_raw_tgenovecs[founder_male_ctl2]), nonmale_ct, cur_genobuf, cur_genobuf_ref2het);
-        uint32_t x_nonmale_nm_ct;
-        uint32_t x_nonmale_plusone_ct;
-        uint32_t x_nonmale_minusone_ct;
-        FillVaggs(cur_genobuf, cur_genobuf_ref2het, nonmale_ctl, &(nonmale_vaggs[write_slot_idx]), &x_nonmale_nm_ct, &x_nonmale_plusone_ct, &x_nonmale_minusone_ct);
-        nm_ct += 2 * x_nonmale_nm_ct;
-        plusone_ct += 2 * x_nonmale_plusone_ct;
-        minusone_ct += 2 * x_nonmale_minusone_ct;
-      }
-      if (((!plusone_ct) && (!minusone_ct)) || (plusone_ct == nm_ct) || (minusone_ct == nm_ct)) {
-        SetBit(cur_window_size, cur_window_removed);
-        SetBit(cur_tvidx, removed_variants_write);
-      } else {
-        tvidxs[write_slot_idx] = cur_tvidx;
-        uintptr_t allele_idx_base;
-        if (!allele_idx_offsets) {
-          allele_idx_base = variant_uidx;
+      {
+        const uintptr_t* cur_loader_hap_then_nm_vecs = &(loader_hap_then_nm_vecs[tvidx_offset * max_hap_ctaw_x2]);
+        uintptr_t* cur_hap_vec = &(hap_then_nm_vecs[write_slot_idx * max_hap_ctaw_x2]);
+        memcpy(cur_hap_vec, cur_loader_hap_then_nm_vecs, max_hap_ctaw_x2 * sizeof(intptr_t));
+        uintptr_t* cur_nm_vec = &(cur_hap_vec[max_hap_ctaw]);
+        if (FillVhaggs(cur_hap_vec, cur_nm_vec, cur_hap_ctl, &(vhaggs[write_slot_idx]))) {
+          SetBit(cur_window_size, cur_window_removed);
+          SetBit(cur_tvidx, removed_variants_write);
         } else {
-          allele_idx_base = allele_idx_offsets[variant_uidx];
-          cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_base;
-          allele_idx_base -= variant_uidx;
-        }
-        cur_maj_freqs[write_slot_idx] = GetAlleleFreq(&(all_allele_freqs[allele_idx_base]), maj_alleles[variant_uidx], cur_allele_ct);
-        if (preferred_variants && IsSet(preferred_variants, variant_uidx)) {
-          cur_maj_freqs[write_slot_idx] -= 1.0;
-        }
-        if (first_unchecked_tvidx) {
-          first_unchecked_tvidx[write_slot_idx] = cur_tvidx + 1;
+          tvidxs[write_slot_idx] = cur_tvidx;
+          uintptr_t allele_idx_base;
+          if (!allele_idx_offsets) {
+            allele_idx_base = variant_uidx;
+          } else {
+            allele_idx_base = allele_idx_offsets[variant_uidx];
+            cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_base;
+            allele_idx_base -= variant_uidx;
+          }
+          cur_maj_freqs[write_slot_idx] = GetAlleleFreq(&(all_allele_freqs[allele_idx_base]), maj_alleles[variant_uidx], cur_allele_ct);
+          if (preferred_variants && IsSet(preferred_variants, variant_uidx)) {
+            cur_maj_freqs[write_slot_idx] -= 1.0;
+          }
+          if (first_unchecked_tvidx) {
+            first_unchecked_tvidx[write_slot_idx] = cur_tvidx + 1;
+          }
         }
       }
       SetBit(write_slot_idx, occupied_window_slots);
@@ -1458,7 +1502,6 @@ THREAD_FUNC_DECL IndepPairphaseThread(void* raw_arg) {
         uint32_t prev_removed_ct;
         do {
           prev_removed_ct = cur_removed_ct;
-          // const uint32_t debug_print = (!IsSet(cur_window_removed, 0)) && (tvidxs[winpos_to_slot_idx[0]] == 0);
           for (uint32_t first_winpos = 0; ; ++first_winpos) {
             // can't use BitIter0 since we care about changes in this loop to
             // cur_window_removed
@@ -1483,51 +1526,28 @@ THREAD_FUNC_DECL IndepPairphaseThread(void* raw_arg) {
                 second_winpos = BitIter0(cur_window_removed, &second_winpos_base, &cur_window_removed_inv_bits);
                 if (second_winpos == cur_window_size) {
                   first_unchecked_tvidx[first_slot_idx] = cur_tvidx;
-                  goto IndepPairwiseThread_next_first;
+                  goto IndepPairphaseThread_next_first;
                 }
                 second_slot_idx = winpos_to_slot_idx[second_winpos];
               } while (tvidxs[second_slot_idx] < cur_first_unchecked_tvidx);
-              uintptr_t* first_genobufs = &(genobufs[first_slot_idx * entire_variant_buf_word_ct]);
-              const uint32_t first_nm_ct = vaggs[first_slot_idx].nm_ct;
-              const int32_t first_sum = vaggs[first_slot_idx].sum;
-              const uint32_t first_ssq = vaggs[first_slot_idx].ssq;
+              const uintptr_t* first_hap_vec = &(hap_then_nm_vecs[first_slot_idx * max_hap_ctaw_x2]);
+              const uint32_t first_nm_ct = vhaggs[first_slot_idx].nm_ct;
+              const uint32_t first_sum = vhaggs[first_slot_idx].sum;
               while (1) {
-                uintptr_t* second_genobufs = &(genobufs[second_slot_idx * entire_variant_buf_word_ct]);
+                const uintptr_t* second_hap_vec = &(hap_then_nm_vecs[second_slot_idx * max_hap_ctaw_x2]);
                 uint32_t cur_nm_ct = first_nm_ct;
-                int32_t cur_first_sum = first_sum;
-                uint32_t cur_first_ssq = first_ssq;
-                int32_t second_sum;
-                uint32_t second_ssq;
-                int32_t cur_dotprod;
-                ComputeIndepPairwiseR2Components(first_genobufs, second_genobufs, &(vaggs[second_slot_idx]), cur_founder_ct, &cur_nm_ct, &cur_first_sum, &cur_first_ssq, &second_sum, &second_ssq, &cur_dotprod);
-                if (is_x) {
-                  uint32_t nonmale_nm_ct = nonmale_vaggs[first_slot_idx].nm_ct;
-                  int32_t nonmale_first_sum = nonmale_vaggs[first_slot_idx].sum;
-                  uint32_t nonmale_first_ssq = nonmale_vaggs[first_slot_idx].ssq;
-                  int32_t nonmale_dotprod;
-                  int32_t nonmale_second_sum;
-                  uint32_t nonmale_second_ssq;
-                  ComputeIndepPairwiseR2Components(&(first_genobufs[2 * cur_founder_ctaw]), &(second_genobufs[2 * cur_founder_ctaw]), &(nonmale_vaggs[second_slot_idx]), nonmale_ct, &nonmale_nm_ct, &nonmale_first_sum, &nonmale_first_ssq, &nonmale_second_sum, &nonmale_second_ssq, &nonmale_dotprod);
-                  // only --ld-xchr 3 for now
-                  // assumes founder_ct < 2^30
-                  cur_nm_ct += 2 * nonmale_nm_ct;
-                  cur_first_sum += 2 * nonmale_first_sum;
-                  cur_first_ssq += 2 * nonmale_first_ssq;
-                  second_sum += 2 * nonmale_second_sum;
-                  second_ssq += 2 * nonmale_second_ssq;
-                  cur_dotprod += 2 * nonmale_dotprod;
-                }
+                uint32_t cur_first_sum = first_sum;
+                uint32_t second_sum;
+                uint32_t cur_dotprod;
+                ComputeIndepPairphaseR2Components(first_hap_vec, second_hap_vec, &(vhaggs[second_slot_idx]), max_hap_ctaw, cur_hap_ct, &cur_nm_ct, &cur_first_sum, &second_sum, &cur_dotprod);
                 // these three values are actually cur_nm_ct times their
                 // true values, but that cancels out
-                const double cov12 = S_CAST(double, cur_dotprod * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, cur_first_sum) * second_sum);
-                const double variance1 = S_CAST(double, cur_first_ssq * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, cur_first_sum) * cur_first_sum);
-                const double variance2 = S_CAST(double, second_ssq * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, second_sum) * second_sum);
+                const double cov12 = S_CAST(double, S_CAST(int64_t, cur_dotprod * S_CAST(uint64_t, cur_nm_ct) - S_CAST(uint64_t, cur_first_sum) * second_sum));
+                const double variance1 = S_CAST(double, cur_first_sum * S_CAST(int64_t, cur_nm_ct - cur_first_sum));
+                const double variance2 = S_CAST(double, second_sum * S_CAST(int64_t, cur_nm_ct - second_sum));
                 // > instead of >=, so we don't prune from a pair of
                 // variants with zero common observations
                 if (cov12 * cov12 > prune_ld_thresh * variance1 * variance2) {
-                  // this has a surprisingly large ~3% speed penalty on my
-                  // main test scenario, but that's an acceptable price to
-                  // pay for reproducibility.
                   if (cur_maj_freqs[first_slot_idx] > cur_maj_freqs[second_slot_idx] * (1 + kSmallEpsilon)) {
                     SetBit(first_winpos, cur_window_removed);
                     SetBit(tvidxs[first_slot_idx], removed_variants_write);
@@ -1551,7 +1571,7 @@ THREAD_FUNC_DECL IndepPairphaseThread(void* raw_arg) {
                 second_slot_idx = winpos_to_slot_idx[second_winpos];
               }  // while (1)
             }
-          IndepPairwiseThread_next_first:
+          IndepPairphaseThread_next_first:
             ;
           }
           cur_removed_ct = PopcountWords(cur_window_removed, BitCtToWordCt(cur_window_size));
@@ -1564,10 +1584,9 @@ THREAD_FUNC_DECL IndepPairphaseThread(void* raw_arg) {
         for (uint32_t second_winpos = cur_window_size; second_winpos != second_winpos_stop; ) {
           --second_winpos;
           const uint32_t second_slot_idx = winpos_to_slot_idx[second_winpos];
-          const uintptr_t* second_genobufs = &(genobufs[second_slot_idx * entire_variant_buf_word_ct]);
-          const uint32_t second_nm_ct = vaggs[second_slot_idx].nm_ct;
-          const int32_t second_sum = vaggs[second_slot_idx].sum;
-          const uint32_t second_ssq = vaggs[second_slot_idx].ssq;
+          const uintptr_t* second_hap_vec = &(hap_then_nm_vecs[second_slot_idx * max_hap_ctaw_x2]);
+          const uint32_t second_nm_ct = vhaggs[second_slot_idx].nm_ct;
+          const int32_t second_sum = vhaggs[second_slot_idx].sum;
           for (uint32_t first_winpos = second_winpos; first_winpos; ) {
             --first_winpos;
             // possible todo: faster unset-bit reverse-iterator.  but probably
@@ -1576,38 +1595,21 @@ THREAD_FUNC_DECL IndepPairphaseThread(void* raw_arg) {
               continue;
             }
             const uint32_t first_slot_idx = winpos_to_slot_idx[first_winpos];
-            const uintptr_t* first_genobufs = &(genobufs[first_slot_idx * entire_variant_buf_word_ct]);
+            const uintptr_t* first_hap_vec = &(hap_then_nm_vecs[first_slot_idx * max_hap_ctaw_x2]);
             uint32_t cur_nm_ct = second_nm_ct;
-            int32_t cur_second_sum = second_sum;
-            uint32_t cur_second_ssq = second_ssq;
-            int32_t first_sum;
-            uint32_t first_ssq;
-            int32_t cur_dotprod;
-            ComputeIndepPairwiseR2Components(second_genobufs, first_genobufs, &(vaggs[first_slot_idx]), cur_founder_ct, &cur_nm_ct, &cur_second_sum, &cur_second_ssq, &first_sum, &first_ssq, &cur_dotprod);
-            if (is_x) {
-              uint32_t nonmale_nm_ct = nonmale_vaggs[second_slot_idx].nm_ct;
-              int32_t nonmale_second_sum = nonmale_vaggs[second_slot_idx].sum;
-              uint32_t nonmale_second_ssq = nonmale_vaggs[second_slot_idx].ssq;
-              int32_t nonmale_dotprod;
-              int32_t nonmale_first_sum;
-              uint32_t nonmale_first_ssq;
-              ComputeIndepPairwiseR2Components(&(second_genobufs[2 * cur_founder_ctaw]), &(first_genobufs[2 * cur_founder_ctaw]), &(nonmale_vaggs[first_slot_idx]), nonmale_ct, &nonmale_nm_ct, &nonmale_second_sum, &nonmale_second_ssq, &nonmale_first_sum, &nonmale_first_ssq, &nonmale_dotprod);
-              // only --ld-xchr 3 for now
-              // assumes founder_ct < 2^30
-              cur_nm_ct += 2 * nonmale_nm_ct;
-              first_sum += 2 * nonmale_first_sum;
-              first_ssq += 2 * nonmale_first_ssq;
-              cur_second_sum += 2 * nonmale_second_sum;
-              cur_second_ssq += 2 * nonmale_second_ssq;
-              cur_dotprod += 2 * nonmale_dotprod;
-            }
+            uint32_t cur_second_sum = second_sum;
+            uint32_t first_sum;
+            uint32_t cur_dotprod;
+            ComputeIndepPairphaseR2Components(second_hap_vec, first_hap_vec, &(vhaggs[first_slot_idx]), max_hap_ctaw, cur_hap_ct, &cur_nm_ct, &cur_second_sum, &first_sum, &cur_dotprod);
             // these three values are actually cur_nm_ct times their
             // true values, but that cancels out
-            const double cov12 = S_CAST(double, cur_dotprod * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, first_sum) * cur_second_sum);
-            const double variance1 = S_CAST(double, first_ssq * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, first_sum) * first_sum);
-            const double variance2 = S_CAST(double, cur_second_ssq * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, cur_second_sum) * cur_second_sum);
+            const double cov12 = S_CAST(double, S_CAST(int64_t, cur_dotprod * S_CAST(uint64_t, cur_nm_ct) - S_CAST(uint64_t, first_sum) * cur_second_sum));
+            const double variance1 = S_CAST(double, first_sum * S_CAST(int64_t, cur_nm_ct - first_sum));
+            const double variance2 = S_CAST(double, cur_second_sum * S_CAST(int64_t, cur_nm_ct - cur_second_sum));
             // > instead of >=, so we don't prune from a pair of
             // variants with zero common observations
+            // printf("cur_dotprod: %u  cur_nm_ct: %u  first_sum: %u  cur_second_sum: %u\n", cur_dotprod, cur_nm_ct, first_sum, cur_second_sum);
+            // printf("vidx1: %u  vidx2: %u  r^2: %g\n", tvidxs[first_slot_idx], tvidxs[second_slot_idx], cov12 * cov12 / (variance1 * variance2));
             if (cov12 * cov12 > prune_ld_thresh * variance1 * variance2) {
               if (cur_maj_freqs[first_slot_idx] <= cur_maj_freqs[second_slot_idx] * (1 + kSmallEpsilon)) {
                 SetBit(second_winpos, cur_window_removed);
@@ -1639,25 +1641,21 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
   PreinitThreads(&tg);
   PglErr reterr = kPglRetSuccess;
   {
-    const uint32_t all_haploid = IsSet(cip->haploid_mask, 0);
-    // TODO: handle doubled-haploid-with-chrX special case correctly
-    const uint32_t max_hap_ct = founder_ct * (2 - all_haploid);
+    const uint32_t max_hap_ct = founder_ct * 2;
     const uint32_t hap_ctaw = BitCtToAlignedWordCt(max_hap_ct);
+    const uintptr_t hap_ctaw_x2 = hap_ctaw * 2;
 
     // Per-thread allocations:
-    // - tvidx_batch_size * raw_tgenovec_single_variant_word_ct *
-    //     sizeof(intptr_t) for raw genotype data (raw_tgenovecs)
+    // - tvidx_batch_size * hap_ctaw_x2 * sizeof(intptr_t) for loaded haplotype
+    //     data (hap_then_nm_vecs)
     // - tvidx_batch_size * sizeof(double) for cur_maj_freqs
     // - if pos-based window, tvidx_batch_size * sizeof(int32_t)
     // - All of the above again, to allow loader thread to operate
     //     independently
-    // - window_max * 2 * (hap_ctaw) *
-    //     kBytesPerVec for split genotype data
+    // - window_max * hap_ctaw_x2 * kBytesPerVec for current-window haplotype
+    //     data
     // - max_loadl * sizeof(intptr_t) for removed-variant bitarray
-    // - window_max * 3 * sizeof(int32_t) for main missing_ct, sum(x_i),
-    //     sum(x_i^2) array
-    // - window_max * 3 * sizeof(int32_t) for chrX founder_male missing_ct,
-    //     sum(x_i), sum(x_i^2) array
+    // - window_max * 2 * sizeof(int32_t) for main missing_ct, sum(x_i) array
     // - window_max * sizeof(int32_t) for indexes into genotype data bitarrays
     //     (for now, anyway)
     // - window_max * sizeof(int32_t) for live_indices (variant_idxs?)
@@ -1689,25 +1687,20 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
                  bigstack_calloc_u32(calc_thread_ct, &thread_subcontig_start_tvidx) ||
                  bigstack_calloc_u32(calc_thread_ct, &thread_last_tvidx) ||
                  bigstack_calloc_u32(calc_thread_ct, &thread_last_uidx) ||
-                 bigstack_alloc_wp(calc_thread_ct, &ctx.hap_vecs) ||
-                 bigstack_alloc_u32p(calc_thread_ct, &ctx.hap_cts) ||
-                 bigstack_alloc_wp(calc_thread_ct, &ctx.nm_vecs) ||
+                 bigstack_alloc_wp(calc_thread_ct, &ctx.hap_then_nm_vecs) ||
                  bigstack_alloc_wp(calc_thread_ct, &ctx.occupied_window_slots) ||
                  bigstack_alloc_wp(calc_thread_ct, &ctx.cur_window_removed) ||
                  bigstack_alloc_dp(calc_thread_ct, &ctx.cur_maj_freqs) ||
                  bigstack_alloc_wp(calc_thread_ct, &ctx.removed_variants_write) ||
-                 BIGSTACK_ALLOC_X(VariantHapAggs*, calc_thread_ct, &ctx.vaggs) ||
+                 BIGSTACK_ALLOC_X(VariantHapAggs*, calc_thread_ct, &ctx.vhaggs) ||
                  bigstack_alloc_u32p(calc_thread_ct, &ctx.winpos_to_slot_idx) ||
                  bigstack_alloc_u32p(calc_thread_ct, &ctx.tvidxs) ||
-                 bigstack_alloc_wp(calc_thread_ct, &(ctx.loader_hap_vecs[0])) ||
-                 bigstack_alloc_wp(calc_thread_ct, &(ctx.loader_hap_vecs[1])) ||
-                 bigstack_alloc_u32p(calc_thread_ct, &(ctx.loader_hap_cts[0])) ||
-                 bigstack_alloc_u32p(calc_thread_ct, &(ctx.loader_hap_cts[1])) ||
-                 bigstack_alloc_wp(calc_thread_ct, &(ctx.loader_nm_vecs[0])) ||
-                 bigstack_alloc_wp(calc_thread_ct, &(ctx.loader_nm_vecs[1])))) {
+                 bigstack_alloc_wp(calc_thread_ct, &(ctx.loader_hap_then_nm_vecs[0])) ||
+                 bigstack_alloc_wp(calc_thread_ct, &(ctx.loader_hap_then_nm_vecs[1])))) {
       goto IndepPairphase_ret_NOMEM;
     }
-    if (ldip->prune_flags & kfLdPrunePlink1Order) {
+    const uint32_t plink1_order = (ldip->prune_flags / kfLdPrunePlink1Order) & 1;
+    if (plink1_order) {
       if (unlikely(bigstack_alloc_u32p(calc_thread_ct, &ctx.first_unchecked_tvidx))) {
         goto IndepPairphase_ret_NOMEM;
       }
@@ -1720,23 +1713,22 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
     }
     const uint32_t window_maxl = BitCtToWordCt(window_max);
     const uint32_t max_loadl = BitCtToWordCt(max_load);
-    // two of these
-    const uintptr_t variant_vec_alloc = RoundUpPow2(window_max * hap_ctaw * sizeof(intptr_t), kCacheline);
+    const uintptr_t variant_vec_alloc = RoundUpPow2(window_max * hap_ctaw_x2 * sizeof(intptr_t), kCacheline);
 
     const uintptr_t occupied_window_slots_alloc = RoundUpPow2(window_maxl * sizeof(intptr_t), kCacheline);
     const uintptr_t cur_window_removed_alloc = RoundUpPow2((1 + window_max / kBitsPerWord) * sizeof(intptr_t), kCacheline);
     const uintptr_t cur_maj_freqs_alloc = RoundUpPow2(window_max * sizeof(double), kCacheline);
     const uintptr_t removed_variants_write_alloc = RoundUpPow2(max_loadl * sizeof(intptr_t), kCacheline);
-    const uintptr_t vaggs_alloc = RoundUpPow2(window_max * sizeof(VariantHapAggs), kCacheline);
+    const uintptr_t vhaggs_alloc = RoundUpPow2(window_max * sizeof(VariantHapAggs), kCacheline);
 
-    // four of these
+    // (2 + plink1_order) of these
     const uintptr_t window_int32_alloc = RoundUpPow2(window_max * sizeof(int32_t), kCacheline);
 
-    const uintptr_t thread_alloc_base = 2 * variant_vec_alloc + occupied_window_slots_alloc + cur_window_removed_alloc + cur_maj_freqs_alloc + removed_variants_write_alloc + vaggs_alloc + 4 * window_int32_alloc;
+    const uintptr_t thread_alloc_base = variant_vec_alloc + occupied_window_slots_alloc + cur_window_removed_alloc + cur_maj_freqs_alloc + removed_variants_write_alloc + vhaggs_alloc + (2 + plink1_order) * window_int32_alloc;
 
     // round down
     uintptr_t bigstack_avail_per_thread = RoundDownPow2(bigstack_left() / calc_thread_ct, kCacheline);
-    const uintptr_t loader_single_variant_byte_ct = 2 * (2 * hap_ctaw * sizeof(intptr_t) + sizeof(int32_t));
+    const uintptr_t loader_single_variant_byte_ct = 2 * (hap_ctaw_x2 * sizeof(intptr_t));
     // may as well require capacity for >= 256 variants per thread per pass
     if (unlikely(bigstack_avail_per_thread <= thread_alloc_base + 256 * loader_single_variant_byte_ct)) {
       goto IndepPairphase_ret_NOMEM;
@@ -1749,14 +1741,10 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
     }
     // tvidx_batch_size = max_load;  // temporary debugging
     if (tvidx_batch_size * loader_single_variant_byte_ct > bigstack_avail_per_thread) {
-      // force to multiple of kInt32PerCacheline so we don't have to worry
-      // about rounding
-      tvidx_batch_size = kInt32PerCacheline * bigstack_avail_per_thread / (loader_single_variant_byte_ct * kInt32PerCacheline);
+      tvidx_batch_size = bigstack_avail_per_thread / loader_single_variant_byte_ct;
     }
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-      ctx.hap_vecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(variant_vec_alloc));
-      ctx.hap_cts[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
-      ctx.nm_vecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(variant_vec_alloc));
+      ctx.hap_then_nm_vecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(variant_vec_alloc));
       ctx.occupied_window_slots[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(occupied_window_slots_alloc));
       ZeroWArr(window_maxl, ctx.occupied_window_slots[tidx]);
       ctx.cur_window_removed[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(cur_window_removed_alloc));
@@ -1764,19 +1752,16 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
       ctx.cur_maj_freqs[tidx] = S_CAST(double*, bigstack_alloc_raw(cur_maj_freqs_alloc));
       ctx.removed_variants_write[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(removed_variants_write_alloc));
       ZeroWArr(max_loadl, ctx.removed_variants_write[tidx]);
-      ctx.vaggs[tidx] = S_CAST(VariantHapAggs*, bigstack_alloc_raw(vaggs_alloc));
+      ctx.vhaggs[tidx] = S_CAST(VariantHapAggs*, bigstack_alloc_raw(vhaggs_alloc));
       ctx.winpos_to_slot_idx[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
       ctx.tvidxs[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
       if (ctx.first_unchecked_tvidx) {
         ctx.first_unchecked_tvidx[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
       }
-      ctx.loader_hap_vecs[0][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(tvidx_batch_size * hap_ctaw * sizeof(intptr_t)));
-      ctx.loader_hap_vecs[1][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(tvidx_batch_size * hap_ctaw * sizeof(intptr_t)));
-      ctx.loader_hap_cts[0][tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(tvidx_batch_size * sizeof(int32_t)));
-      ctx.loader_hap_cts[1][tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(tvidx_batch_size * sizeof(int32_t)));
-      ctx.loader_nm_vecs[0][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(tvidx_batch_size * hap_ctaw * sizeof(intptr_t)));
-      ctx.loader_nm_vecs[1][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(tvidx_batch_size * hap_ctaw * sizeof(intptr_t)));
+      ctx.loader_hap_then_nm_vecs[0][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(tvidx_batch_size * hap_ctaw_x2 * sizeof(intptr_t)));
+      ctx.loader_hap_then_nm_vecs[1][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(tvidx_batch_size * hap_ctaw_x2 * sizeof(intptr_t)));
     }
+    ctx.cip = cip;
     ctx.subcontig_info = subcontig_info;
     ctx.subcontig_thread_assignments = subcontig_thread_assignments;
     ctx.variant_include = variant_include;
@@ -1792,11 +1777,7 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
     ctx.prune_ld_thresh = ldip->prune_last_param * (1 + kSmallEpsilon);
     ctx.window_incr = ldip->prune_window_incr;
     ctx.cur_batch_size = tvidx_batch_size;
-    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
-      goto IndepPairphase_ret_NOMEM;
-    }
-    SetThreadFuncAndData(IndepPairphaseThread, &ctx, &tg);
-
+    const uint32_t all_haploid = IsSet(cip->haploid_mask, 0);
     uint32_t x_start = 0;
     uint32_t x_end = 0;
     uint32_t y_start = 0;
@@ -1809,6 +1790,11 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
     ctx.x_len = x_len;
     ctx.y_start = y_start;
     ctx.y_len = y_len;
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto IndepPairphase_ret_NOMEM;
+    }
+    SetThreadFuncAndData(IndepPairphaseThread, &ctx, &tg);
+
     const uint32_t founder_nonmale_ct = founder_ct - founder_male_ct;
     const uint32_t founder_nonmale_ctl = BitCtToWordCt(founder_nonmale_ct);
     uintptr_t hap_vec_overflow = 0;
@@ -1833,9 +1819,7 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
       if (!IsLastBlock(&tg)) {
         PgrSampleSubsetIndex pssi;
         PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
-        uintptr_t** cur_loader_hap_vecs = ctx.loader_hap_vecs[parity];
-        uint32_t** cur_loader_hap_cts = ctx.loader_hap_cts[parity];
-        uintptr_t** cur_loader_nm_vecs = ctx.loader_nm_vecs[parity];
+        uintptr_t** cur_loader_hap_then_nm_vecs = ctx.loader_hap_then_nm_vecs[parity];
         const uint32_t cur_tvidx_end = cur_tvidx_start + tvidx_batch_size;
         uint32_t is_x_or_y = 0;
         for (uint32_t subcontig_idx = 0; subcontig_idx != subcontig_ct; ++subcontig_idx) {
@@ -1877,18 +1861,15 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
               PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
             }
           }
-          uintptr_t* cur_thread_loader_hap_vecs = cur_loader_hap_vecs[cur_thread_idx];
-          uint32_t* cur_thread_loader_hap_cts = cur_loader_hap_cts[cur_thread_idx];
-          uintptr_t* cur_thread_loader_nm_vecs = cur_loader_nm_vecs[cur_thread_idx];
+          uintptr_t* cur_thread_loader_hap_then_nm_vecs = cur_loader_hap_then_nm_vecs[cur_thread_idx];
           uintptr_t variant_uidx_base;
           uintptr_t cur_bits;
           BitIter1Start(variant_include, variant_uidx, &variant_uidx_base, &cur_bits);
           --variant_uidx;
           for (uintptr_t tvidx_offset = cur_tvidx - cur_tvidx_start; tvidx_offset < tvidx_offset_end; ++tvidx_offset) {
             variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-            uintptr_t* cur_loader_hap_vec = &(cur_thread_loader_hap_vecs[tvidx_offset * hap_ctaw]);
-            uint32_t* cur_loader_hap_ct_ptr = &(cur_thread_loader_hap_cts[tvidx_offset]);
-            uintptr_t* cur_loader_nm_vec = &(cur_thread_loader_nm_vecs[tvidx_offset * hap_ctaw]);
+            uintptr_t* cur_loader_hap_vec = &(cur_thread_loader_hap_then_nm_vecs[tvidx_offset * hap_ctaw_x2]);
+            uintptr_t* cur_loader_nm_vec = &(cur_loader_hap_vec[hap_ctaw]);
             if (!is_x_or_y) {
               uint32_t phasepresent_ct;
               reterr = PgrGetInv1P(founder_info, pssi, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct);
@@ -1897,34 +1878,34 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
                 goto IndepPairphase_ret_1;
               }
               if (!is_haploid) {
-                if (!phasepresent_ct) {
-                  ZeroWArr(founder_ctl, phasepresent);
-                }
-                if (unlikely(HapsplitMustPhased(genovec, phasepresent, phaseinfo, founder_ct, cur_loader_hap_vec, cur_loader_hap_ct_ptr, cur_loader_nm_vec))) {
+                if (unlikely(HapsplitMustPhased(genovec, phasepresent, phaseinfo, founder_ct, phasepresent_ct, cur_loader_hap_vec, cur_loader_nm_vec))) {
+                  logputs("\n");
                   logerrprintf("Error: --indep-pairphase: 0-based variant #%u is not fully phased.\n", variant_uidx);
-                  goto IndepPairphase_ret_1;
+                  goto IndepPairphase_ret_INCONSISTENT_INPUT;
                 }
               } else {
-                HapsplitHaploid(genovec, founder_ct, cur_loader_hap_vec, &cur_loader_hap_ct, cur_loader_nm_vec);
+                HapsplitHaploid(genovec, founder_ct, cur_loader_hap_vec, cur_loader_nm_vec);
               }
             } else {
-              uint32_t phasepresent_ct;
-              reterr = PgrGetInv1P(nullptr, pssi, raw_sample_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, raw_genovec, raw_phasepresent, raw_phaseinfo, &phasepresent_ct);
+              uint32_t phase_exists;
+              reterr = PgrGetInv1P(nullptr, pssi, raw_sample_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, raw_genovec, raw_phasepresent, raw_phaseinfo, &phase_exists);
               if (unlikely(reterr)) {
                 PgenErrPrintNV(reterr, variant_uidx);
                 goto IndepPairphase_ret_1;
               }
               if (founder_male_ct) {
                 CopyNyparrNonemptySubset(raw_genovec, founder_male, raw_sample_ct, founder_male_ct, genovec);
-                HapsplitHaploid(genovec, founder_male_ct, cur_loader_hap_vec, cur_loader_hap_ct_ptr, cur_loader_nm_vec);
+                HapsplitHaploid(genovec, founder_male_ct, cur_loader_hap_vec, cur_loader_nm_vec);
               }
               if (is_x) {
                 CopyNyparrNonemptySubset(raw_genovec, founder_nonmale, raw_sample_ct, founder_nonmale_ct, genovec);
-                if (!phasepresent_ct) {
-                  ZeroWArr(founder_nonmale_ctl, phasepresent);
-                } else {
+                if (all_haploid) {
+                  SetHetMissing(NypCtToWordCt(founder_nonmale_ct), genovec);
+                }
+                if (phase_exists) {
                   CopyBitarrSubset(raw_phasepresent, founder_nonmale, founder_nonmale_ct, phasepresent);
                   CopyBitarrSubset(raw_phaseinfo, founder_nonmale, founder_nonmale_ct, phaseinfo);
+                  phase_exists = !AllWordsAreZero(phasepresent, founder_nonmale_ctl);
                 }
                 const uint32_t founder_male_fullword_ct = founder_male_ct / kBitsPerWord;
                 const uint32_t founder_male_ct_rem = founder_male_ct % kBitsPerWord;
@@ -1932,9 +1913,11 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
                   hap_vec_overflow = cur_loader_hap_vec[founder_male_fullword_ct];
                   nm_vec_overflow = cur_loader_nm_vec[founder_male_fullword_ct];
                 }
-                const uint32_t male_hap_ct = *cur_loader_hap_ct_ptr;
-                HapsplitMustPhased(genovec, founder_nonmale_ct, &(cur_loader_hap_vec[founder_male_fullword_ct]), cur_loader_hap_ct_ptr, &(cur_loader_nm_vec[founder_male_fullword_ct]));
-                *cur_loader_hap_ct_ptr += male_hap_ct;
+                if (unlikely(HapsplitMustPhased(genovec, phasepresent, phaseinfo, founder_nonmale_ct, phase_exists, &(cur_loader_hap_vec[founder_male_fullword_ct]), &(cur_loader_nm_vec[founder_male_fullword_ct])))) {
+                  logputs("\n");
+                  logerrprintf("Error: --indep-pairphase: 0-based variant #%u is not fully phased.\n", variant_uidx);
+                  goto IndepPairphase_ret_INCONSISTENT_INPUT;
+                }
                 if (founder_male_ct_rem) {
                   const uint32_t word_idx = founder_male_fullword_ct + ((founder_nonmale_ct * 2) / kBitsPerWord);
                   const uint32_t lshift_ct = (founder_nonmale_ct * 2) % kBitsPerWord;
@@ -1994,11 +1977,11 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
   IndepPairphase_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  IndepPairphase_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
   IndepPairphase_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
-    break;
-  IndepPairphase_ret_NOT_YET_SUPPORTED:
-    reterr = kPglRetNotYetSupported;
     break;
   }
  IndepPairphase_ret_1:
@@ -2006,7 +1989,6 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
   // caller will free memory
   return reterr;
 }
-  */
 
 PglErr LdPruneSubcontigSplitAll(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, uint32_t prune_window_size, uint32_t* window_max_ptr, uint32_t** subcontig_info_ptr, uint32_t* subcontig_ct_ptr) {
   // variant_bps must be nullptr if window size is not bp-based
@@ -2146,7 +2128,7 @@ void Minheap64ReplaceRoot(uint32_t heap_size, uint64_t new_root, uint64_t* minhe
 }
 
 /*
-void minheap64_delete_root(uint64_t* minheap64_preroot, uint32_t* heap_size_ptr) {
+void Minheap64DeleteRoot(uint64_t* minheap64_preroot, uint32_t* heap_size_ptr) {
   uint32_t heap_size = *heap_size_ptr;
   const uint64_t new_root = minheap64_preroot[heap_size];
   Minheap64ReplaceRoot(--heap_size, new_root, minheap64_preroot);
@@ -2494,8 +2476,30 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     }
 
     // initial window_max-based memory requirement estimate
+    const uint32_t plink1_order = (ldip->prune_flags / kfLdPrunePlink1Order) & 1;
     if (is_pairphase) {
-      // TODO
+      const uint32_t max_hap_ct = founder_ct * 2;
+      const uintptr_t hap_ctaw_x2 = 2 * BitCtToAlignedWordCt(max_hap_ct);
+      // reserve ~1/2 of space for main variant data buffer,
+      //   removed_variant_write
+      // everything else:
+      //   hap_vecs + nm_vecs: thread_ct * window_max * hap_ctaw_x2 * word
+      //   occupied_window_slots: thread_ct * window_maxl * word
+      //   cur_window_removed: thread_ct * (1 + window_max / kBitsPerWord) *
+      //     word
+      //   (ignore removed_variant_write)
+      //   maj_freqs: thread_ct * window_max * 8
+      //   vhaggs: thread_ct * window_max * VariantHapAggs
+      //   winpos_to_slot_idx, tvidxs: window_max * 2 * int32
+      //   first_unchecked_tvidx: window_max * int32 if plink1_order
+      uintptr_t per_thread_alloc = RoundUpPow2(window_max * hap_ctaw_x2 * sizeof(intptr_t), kCacheline) + 2 * RoundUpPow2((1 + window_max / kBitsPerWord) * sizeof(intptr_t), kCacheline) + RoundUpPow2(window_max * sizeof(double), kCacheline) + RoundUpPow2(window_max * sizeof(VariantHapAggs), kCacheline) + (2 + plink1_order) * RoundUpPow2(window_max * sizeof(int32_t), kCacheline);
+      uintptr_t bigstack_left2 = bigstack_left();
+      if (per_thread_alloc * max_thread_ct > bigstack_left2) {
+        if (unlikely(per_thread_alloc > bigstack_left2)) {
+          goto LdPrune_ret_NOMEM;
+        }
+        max_thread_ct = bigstack_left2 / per_thread_alloc;
+      }
     } else {
       const uintptr_t entire_variant_buf_word_ct = 2 * (BitCtToAlignedWordCt(founder_ct - founder_male_ct) + BitCtToAlignedWordCt(founder_male_ct));
       // reserve ~1/2 of space for main variant data buffer,
@@ -2507,11 +2511,10 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       //     word
       //   (ignore removed_variant_write)
       //   maj_freqs: thread_ct * window_max * 8
-      //   vstats, nonmale_vstats: thread_ct * window_max * 3 * int32
+      //   vaggs, nonmale_vaggs: thread_ct * window_max * VariantAggs
       //   winpos_to_slot_idx, tvidxs: window_max * 2 * int32
       //   first_unchecked_tvidx: window_max * int32 if plink1_order
-      const uint32_t plink1_order = (ldip->prune_flags / kfLdPrunePlink1Order) & 1;
-      uintptr_t per_thread_alloc = RoundUpPow2(window_max * entire_variant_buf_word_ct * sizeof(intptr_t), kCacheline) + 2 * RoundUpPow2((1 + window_max / kBitsPerWord) * sizeof(intptr_t), kCacheline) + RoundUpPow2(window_max * sizeof(double), kCacheline) + 2 * RoundUpPow2(window_max * (3 * sizeof(int32_t)), kCacheline) + (2 + plink1_order) * RoundUpPow2(window_max * sizeof(int32_t), kCacheline);
+      uintptr_t per_thread_alloc = RoundUpPow2(window_max * entire_variant_buf_word_ct * sizeof(intptr_t), kCacheline) + 2 * RoundUpPow2((1 + window_max / kBitsPerWord) * sizeof(intptr_t), kCacheline) + RoundUpPow2(window_max * sizeof(double), kCacheline) + 2 * RoundUpPow2(window_max * sizeof(VariantAggs), kCacheline) + (2 + plink1_order) * RoundUpPow2(window_max * sizeof(int32_t), kCacheline);
       uintptr_t bigstack_left2 = bigstack_left();
       if (per_thread_alloc * max_thread_ct > bigstack_left2) {
         if (unlikely(per_thread_alloc > bigstack_left2)) {
@@ -2534,9 +2537,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     BigstackEndReset(bigstack_end_mark);
 
     if (is_pairphase) {
-      logerrputs("Error: --indep-pairphase is currently under development.\n");
-      reterr = kPglRetNotYetSupported;
-      // reterr = IndepPairphase(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
+      reterr = IndepPairphase(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
     } else {
       reterr = IndepPairwise(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
     }
