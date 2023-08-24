@@ -899,6 +899,28 @@ void llstr_free_cond(LlStr* llstr_head) {
   }
 }
 
+/*
+BoolErr CountAndMeasureMultistrAlloc(const char* multistr, uintptr_t max_str_ct, const char** strptr_arr, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr) {
+  // assumes multistr is nonempty
+  assert(multistr[0]);
+  uintptr_t ct = 0;
+  uintptr_t max_blen = *max_blen_ptr;
+  do {
+    if (unlikely(ct == max_str_ct)) {
+      return 1;
+    }
+    const uintptr_t blen = strlen(multistr) + 1;
+    if (blen > max_blen) {
+      max_blen = blen;
+    }
+    strptr_arr[ct++] = multistr;
+    multistr = &(multistr[blen]);
+  } while (*multistr);
+  *str_ct_ptr = ct;
+  *max_blen_ptr = max_blen;
+  return 0;
+}
+*/
 
 BoolErr CountAndMeasureMultistrReverseAlloc(const char* multistr, uintptr_t max_str_ct, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr, const char*** strptr_arrp) {
   // assumes multistr is nonempty

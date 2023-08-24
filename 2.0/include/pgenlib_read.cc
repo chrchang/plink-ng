@@ -1585,6 +1585,16 @@ uint32_t GetLdbaseVidx(const unsigned char* vrtypes, uint32_t cur_vidx) {
 #endif
 }
 
+uint64_t GetPgfiLdbaseFpos(const PgenFileInfo* pgfip, uintptr_t vidx) {
+  if (!pgfip->var_fpos) {
+    return pgfip->const_fpos_offset + pgfip->const_vrec_width * S_CAST(uint64_t, vidx);
+  }
+  if (pgfip->vrtypes && ((pgfip->vrtypes[vidx] & 6) == 2)) {
+    vidx = GetLdbaseVidx(pgfip->vrtypes, vidx);
+  }
+  return pgfip->var_fpos[vidx];
+}
+
 uint64_t PgfiMultireadGetCachelineReq(const uintptr_t* variant_include, const PgenFileInfo* pgfip, uint32_t variant_ct, uint32_t block_size) {
   // if block_size < kPglVblockSize, it's ideal for it to be a power of 2 (to
   // avoid unnecessary vblock crossing), but that's not required.

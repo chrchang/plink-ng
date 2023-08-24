@@ -1381,6 +1381,33 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * You can use the 'a1freq-lower-limit=' modifier to mask very low allele\n"
 "      frequencies, when the raw values would compromise privacy.\n\n"
               );
+    HelpPrint("clump\0", &help_ctrl, 1,
+"  --clump ['zs'] ['cols='<col set desc>] <PLINK report filename(s)...>\n"
+"    Postprocess --glm and similar association analysis report(s), organizing\n"
+"    results into LD-based clumps.  Multiple filenames can be separated by\n"
+"    spaces or commas.  Dosages are used in the LD computations.\n"
+"    Supported column sets are:\n"
+"      chrom: Chromosome ID.\n"
+"      pos: Base-pair coordinate.\n"
+"      (ID is always present, and positioned here.)\n"
+"      ref: Reference allele.\n"
+"      alt1: Alternate allele 1.\n"
+"      alt: All alternate alleles, comma-separated.\n"
+"      maybeprovref: Reports whether REF allele is marked as known or\n"
+"                    provisional, when at least one of the latter is present,\n"
+"                    and the REF column is present.\n"
+"      provref: Force provref column even if all-'N'.\n"
+"      maybea1: A1 allele, if at least 1 multiallelic index variant is present.\n"
+"      a1: Force A1 column even if all index variants are biallelic.\n"
+"      maybef: 1-based file number, if more than one file is provided.\n"
+"      f: Force F column (and SP2 entry) even when only one file is provided.\n"
+"      (P is always present, and positioned here.)\n"
+"      total: Number of other variants in clump.\n"
+"      bins: Number of clumped variants in each p-value bin.\n"
+"      sp2: IDs, and possibly A1 allele and/or file number, of members with p <\n"
+"           --clump-p2 threshold.\n"
+"    The default is chrom,pos,maybeprovref,maybea1,maybef,total,bins,sp2.\n\n"
+              );
     HelpPrint("score\0", &help_ctrl, 1,
 "  --score <filename> [i] [j] [k] [{header | header-read}]\n"
 "          [{center | variance-standardize | dominant | recessive}]\n"
@@ -2464,6 +2491,30 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --mperm-save-all   : Save all max(T) permutation test statistics.\n"
                );
     */
+    HelpPrint("clump-p1\0clump-p2\0clump-r2\0clump-kb\0clump-unphased\0clump-log10\0clump-bins\0clump-id-field\0clump-p-field\0clump-a1-field\0clump-test-field\0clump-force-a1\0clump-test\0clump-snp-field\0clump-field\0clump\0", &help_ctrl, 0,
+"  --clump-p1 <pval> : Set --clump index var. p-value ceiling (default 1e-4).\n"
+"  --clump-p2 <pval> : Set --clump secondary p-value threshold (default 0.01).\n"
+"  --clump-r2 <r^2>  : Set --clump r^2 threshold (default 0.5).\n"
+"  --clump-kb <# kb> : Set --clump kb radius (default 250).\n"
+"  --clump-unphased  : Make --clump use unphased rather than phased r^2.\n"
+"  --clump-log10 ['input-only' | 'output-only'] : Read and/or write p-values in\n"
+"                                                 -log10 form.\n"
+"  --clump-bins <bndries...> : Set --clump p-value bin boundaries (default\n"
+"                              0.0001,0.001,0.01,0.05).\n"
+"  --clump-id-field <nm...>  : Set --clump variant ID (default 'ID SNP'),\n"
+"  --clump-p-field <nm...>     p-value (default 'P', unless -log10), effect\n"
+"  --clump-a1-field [nm...]    allele (default 'A1'), and/or test (default\n"
+"  --clump-test-field [n...]   'TEST') field name search orders.\n"
+"                              With multiple field names, earlier names take\n"
+"                              precedence over later ones.\n"
+"  --clump-force-a1          : Force A1 alleles to be included in --clump report\n"
+"                              for biallelic variants.\n"
+"  --clump-test [test ID...] : When the --clump-test-field column exists, only\n"
+"                              consider these test value(s) (default 'ADD').\n"
+              );
+    HelpPrint("clump-allow-overlap\0clump\0", &help_ctrl, 0,
+"  --clump-allow-overlap     : Let --clump non-index vars. join multiple clumps.\n"
+              );
     HelpPrint("score-col-nums\0score\0", &help_ctrl, 0,
 "  --score-col-nums <...> : Process all the specified coefficient columns in the\n"
 "                           --score file, identified by 1-based indexes and/or\n"

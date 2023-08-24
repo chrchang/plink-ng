@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a5"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (18 Aug 2023)";
+  " (24 Aug 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -194,7 +194,8 @@ FLAGSET64_DEF_START()
   kfCommand1Het = (1 << 24),
   kfCommand1Fst = (1 << 25),
   kfCommand1Pmerge = (1 << 26),
-  kfCommand1PgenDiff = (1 << 27)
+  kfCommand1PgenDiff = (1 << 27),
+  kfCommand1Clump = (1 << 28)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -345,6 +346,7 @@ typedef struct Plink2CmdlineStruct {
   ExtractColCondInfo extract_col_cond_info;
   ExportfInfo exportf_info;
   GwasSsfInfo gwas_ssf_info;
+  ClumpInfo clump_info;
   double ci_size;
   float var_min_qual;
   uint32_t splitpar_bound1;
@@ -2756,6 +2758,14 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
     }
+    if (pcp->command_flags1 & kfCommand1Clump) {
+      logerrputs("Error: --clump is under development.\n");
+      return kPglRetNotYetSupported;
+      // reterr = ClumpReports(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, founder_info, sex_male, &(pcp->clump_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, max_allele_slen, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
+      if (unlikely(reterr)) {
+        goto Plink2Core_ret_1;
+      }
+    }
   }
   while (0) {
   Plink2Core_ret_NOMEM:
@@ -3353,6 +3363,7 @@ int main(int argc, char** argv) {
   InitExtractColCond(&pc.extract_col_cond_info);
   InitExportf(&pc.exportf_info);
   InitGwasSsf(&pc.gwas_ssf_info);
+  InitClump(&pc.clump_info);
   GenDummyInfo gendummy_info;
   InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
@@ -3431,6 +3442,10 @@ int main(int argc, char** argv) {
         case 'c':
           if (strequal_k(flagname_p, "covarExcludeList", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "not-covar");
+          } else if (strequal_k(flagname_p, "clump-snp-field", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "clump-id-field");
+          } else if (strequal_k(flagname_p, "clump-field", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "clump-p-field");
           } else {
             goto main_flag_copy;
           }
@@ -4505,7 +4520,7 @@ int main(int argc, char** argv) {
           }
         } else if (strequal_k_unsafe(flagname_p2, "hr-override")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
-            goto main_ret_INVALID_CMDLINE_WWA;
+            goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
             const char* cur_modif = argvk[arg_idx + 1];
@@ -4518,6 +4533,272 @@ int main(int argc, char** argv) {
           } else {
             pc.misc_flags |= kfMiscChrOverrideCmdline;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "lump")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t first_fname_param_idx = 0;
+          uint32_t explicit_cols = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              if (unlikely(first_fname_param_idx)) {
+                logerrputs("Error: Invalid --clump argument sequence ('zs' must come before filename(s)).\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.clump_info.flags |= kfClumpZs;
+            } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
+              if (unlikely(first_fname_param_idx)) {
+                logerrputs("Error: Invalid --clump argument sequence ('cols=' must come before\nfilename(s)).\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely(explicit_cols)) {
+                logerrputs("Error: Multiple --clump cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              explicit_cols = 1;
+              reterr = ParseColDescriptor(&(cur_modif[strlen("cols=")]), "chrom\0pos\0ref\0alt1\0alt\0maybeprovref\0provref\0maybea1\0a1\0maybef\0f\0total\0bins\0sp2\0", "clump cols=", kfClumpColChrom, kfClumpColDefault, 0, &pc.clump_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              if (!first_fname_param_idx) {
+                first_fname_param_idx = param_idx;
+              }
+            }
+          }
+          if (unlikely(!first_fname_param_idx)) {
+            logerrputs("Error: --clump requires at least one filename.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          reterr = AllocAndFlattenCommaDelim(&(argvk[arg_idx + first_fname_param_idx]), param_ct + 1 - first_fname_param_idx, &pc.clump_info.fnames_flattened);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          if (!explicit_cols) {
+            pc.clump_info.flags |= kfClumpColDefault;
+          }
+          pc.command_flags1 |= kfCommand1Clump;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "lump-id-field")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-id-field must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.clump_info.id_field);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-p-field")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-p-field must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.clump_info.p_field);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-kb")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-kb must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.001))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --clump-kb argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          dxx *= 1000;
+          if (dxx > 2147483647.0) {
+            pc.clump_info.bp_radius = 0x7ffffffe;
+          } else {
+            pc.clump_info.bp_radius = S_CAST(int32_t, dxx * (1.0 + kSmallEpsilon) - 1);
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-p1")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-p1 must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double ln_p1;
+          if (unlikely((!ScantokLn(argvk[arg_idx + 1], &ln_p1)) || (ln_p1 > 0.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --clump-p1 argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.clump_info.ln_p1 = ln_p1 * (1.0 - kSmallEpsilon);
+        } else if (strequal_k_unsafe(flagname_p2, "lump-p2")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-p2 must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double ln_p2;
+          if (unlikely((!ScantokLn(argvk[arg_idx + 1], &ln_p2)) || (ln_p2 > 0.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --clump-p2 argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.clump_info.ln_p2 = ln_p2 * (1.0 - kSmallEpsilon);
+        } else if (strequal_k_unsafe(flagname_p2, "lump-r2")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-r2 must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx >= 1.0 - kSmallEpsilon))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --clump-r2 argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.clump_info.r2 = dxx * (1.0 + kSmallEpsilon);
+        } else if (strequal_k_unsafe(flagname_p2, "lump-a1-field")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-a1-field must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (!param_ct) {
+            pc.clump_info.flags |= kfClumpNoA1;
+          } else {
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.clump_info.a1_field);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-test")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-test must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (!param_ct) {
+            pc.clump_info.flags |= kfClumpNoTest;
+          } else {
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.clump_info.test_name);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-test-field")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-test-field must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (!param_ct) {
+            pc.clump_info.flags |= kfClumpNoTest;
+          } else {
+            if (unlikely(pc.clump_info.flags & kfClumpNoTest)) {
+              logerrputs("Error: Nonempty --clump-test-field does not make sense with empty --clump-test\nargument.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.clump_info.test_field);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-bins")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-bins must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(!(pc.clump_info.flags & kfClumpColBins))) {
+            logerrputs("Error: --clump-bins does not make sense when --clump 'bins' column set has been\nexcluded.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t comma_ct = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            comma_ct += CountByteInStr(argvk[arg_idx], ',');
+          }
+          const uint32_t bin_bound_ct = comma_ct + param_ct;
+          pc.clump_info.bin_bound_ct = bin_bound_ct;
+          if (unlikely(pgl_malloc(sizeof(double) * bin_bound_ct, &pc.clump_info.ln_bin_boundaries))) {
+            goto main_ret_NOMEM;
+          }
+          double* ln_bin_boundaries_iter = pc.clump_info.ln_bin_boundaries;
+          double prev_ln = -DBL_MAX;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* arg_iter = &(argvk[arg_idx + param_idx][0]);
+            while (1) {
+              double cur_ln;
+              arg_iter = ScanadvLn(arg_iter, &cur_ln);
+              if (unlikely((!arg_iter) || ((*arg_iter != '\0') && (*arg_iter != ',')))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --clump-bins argument '%s'.\n", argvk[arg_idx + param_idx]);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              if (cur_ln <= prev_ln) {
+                logerrputs("Error: --clump-bins values are not in increasing order.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              *ln_bin_boundaries_iter++ = cur_ln * (1.0 + kSmallEpsilon);
+              if (*arg_iter == '\0') {
+                break;
+              }
+              ++arg_iter;
+            }
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-allow-overlap")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-allow-overlap must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          pc.clump_info.flags |= kfClumpAllowOverlap;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "lump-force-a1")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-force-a1 must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(pc.clump_info.flags & kfClumpNoA1)) {
+            logerrputs("Error: --clump-force-a1 does not make sense with empty --clump-a1-field\nargument.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.clump_info.flags |= kfClumpForceA1;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "lump-log10")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-log10 must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (param_ct) {
+            const char* cur_modif = argvk[arg_idx + 1];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "input-only", cur_modif_slen)) {
+              pc.clump_info.flags |= kfClumpInputLog10;
+            } else if (likely(strequal_k(cur_modif, "output-only", cur_modif_slen))) {
+              pc.clump_info.flags |= kfClumpOutputLog10;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --clump-log10 argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          } else {
+            pc.clump_info.flags |= kfClumpInputLog10 | kfClumpOutputLog10;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-unphased")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-unphased must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          pc.clump_info.flags |= kfClumpUnphased;
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ovar-quantile-normalize")) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.covar_quantnorm_flattened);
@@ -6750,6 +7031,10 @@ int main(int argc, char** argv) {
           }
           xload |= kfXloadOxLegend;
         } else if (strequal_k_unsafe(flagname_p2, "oop-cats")) {
+          if (unlikely(pc.command_flags1 & kfCommand1Clump)) {
+            logerrputs("Error: --loop-cats cannot currently be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -11453,6 +11738,7 @@ int main(int argc, char** argv) {
   }
   CleanupChrInfo(&chr_info);
   CleanupGenDummy(&gendummy_info);
+  CleanupClump(&pc.clump_info);
   CleanupGwasSsf(&pc.gwas_ssf_info);
   CleanupExportf(&pc.exportf_info);
   CleanupExtractColCond(&pc.extract_col_cond_info);

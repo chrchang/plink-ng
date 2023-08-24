@@ -1055,10 +1055,13 @@ typedef struct L32StrStruct {
   char str[];
 } L32Str;
 
+// assumes multistr is nonempty
+// BoolErr CountAndMeasureMultistrAlloc(const char* multistr, uintptr_t max_str_ct, const char** strptr_arr, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr);
 
 // assumes multistr is nonempty
 BoolErr CountAndMeasureMultistrReverseAlloc(const char* multistr, uintptr_t max_str_ct, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr, const char*** strptr_arrp);
 
+// er, should benchmark this against hash table and InMultistr()
 BoolErr MultistrToStrboxDedupArenaAlloc(unsigned char* arena_top, const char* multistr, unsigned char** arena_bottom_ptr, char** sorted_strbox_ptr, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr);
 
 HEADER_INLINE BoolErr MultistrToStrboxDedupAlloc(const char* multistr, char** sorted_strbox_ptr, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr) {

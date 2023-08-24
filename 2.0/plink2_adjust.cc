@@ -247,7 +247,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t unadj_col = flags & kfAdjustColUnadj;
     if (unadj_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a5
+        // TODO: change to NEG_LOG10_ for a6
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "UNADJ\t");
@@ -255,7 +255,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t gc_col = (flags & kfAdjustColGc) && (!skip_gc);
     if (gc_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a5
+        // TODO: change to NEG_LOG10_ for a6
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "GC\t");
@@ -263,7 +263,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t qq_col = flags & kfAdjustColQq;
     if (qq_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a5
+        // TODO: change to NEG_LOG10_ for a6
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "QQ\t");
@@ -271,7 +271,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t bonf_col = flags & kfAdjustColBonf;
     if (bonf_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a5
+        // TODO: change to NEG_LOG10_ for a6
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "BONF\t");
@@ -279,7 +279,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t holm_col = flags & kfAdjustColHolm;
     if (holm_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a5
+        // TODO: change to NEG_LOG10_ for a6
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "HOLM\t");
@@ -287,7 +287,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t sidakss_col = flags & kfAdjustColSidakss;
     if (sidakss_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a5
+        // TODO: change to NEG_LOG10_ for a6
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "SIDAK_SS\t");
@@ -295,7 +295,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t sidaksd_col = flags & kfAdjustColSidaksd;
     if (sidaksd_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a5
+        // TODO: change to NEG_LOG10_ for a6
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "SIDAK_SD\t");
@@ -303,7 +303,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t fdrbh_col = flags & kfAdjustColFdrbh;
     if (fdrbh_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a5
+        // TODO: change to NEG_LOG10_ for a6
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "FDR_BH\t");
@@ -314,7 +314,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         goto Multcomp_ret_NOMEM;
       }
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a5
+        // TODO: change to NEG_LOG10_ for a6
         cswritep = strcpya_k(cswritep, "LOG10_");
       }
       cswritep = strcpya_k(cswritep, "FDR_BY\t");
@@ -700,7 +700,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       snprintf(g_logbuf, kLogbufSize, "Error: No PROVISIONAL_REF? column in %s.\n", in_fname);
       goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
-    if (unlikely(check_a1 && (!(found_type_bitset & 0x40)))) {
+    if (check_a1 && (!(found_type_bitset & 0x40))) {
       snprintf(g_logbuf, kLogbufSize, "Warning: No A1 column in %s. Omitting from output.\n", in_fname);
       check_a1 = 0;
     }
