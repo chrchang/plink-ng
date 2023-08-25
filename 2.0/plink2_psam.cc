@@ -365,13 +365,6 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
     uintptr_t* total_catname_blens = nullptr;
     uint32_t fid_slen = 1;
     for (; TextGetUnsafe2K(&psam_txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
-      if (g_debug_on && ((line_idx == 3) || (line_idx == 4))) {
-        const char* line_end = AdvPastDelim(line_iter, '\n');
-        logprintf(".psam line %" PRIuPTR ": ", line_idx);
-        char* write_iter = memcpya(g_logbuf, line_iter, line_end - line_iter);
-        *write_iter = '\0';
-        logputsb();
-      }
       if (unlikely(line_iter[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, psamname);
         goto LoadPsam_ret_MALFORMED_INPUT_WW;

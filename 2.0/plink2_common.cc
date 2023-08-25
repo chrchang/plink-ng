@@ -16,6 +16,7 @@
 
 
 #include "plink2_common.h"
+#include "plink2_compress_stream.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -3947,6 +3948,53 @@ PglErr HkvlineForceIdFirst(uintptr_t workspace_size, char* hline_kv_start, void*
   memcpy(hline_kv_start, workspace_c, tmp_nbyte);
   hline_kv_start[tmp_nbyte] = ',';
   return kPglRetSuccess;
+}
+
+PglErr NsortDedupAndWrite(const char* outname, uintptr_t str_ct, uint32_t max_slen, uint32_t output_zst, uint32_t max_thread_ct, const char** strptr_arr, uintptr_t* nwrite_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
+  {
+    StrptrArrNsort(str_ct, strptr_arr);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + strlen(EOLN_STR) + max_slen;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto NsortDedupAndWrite_ret_1;
+    }
+    const char* prev_id = nullptr;
+    uintptr_t dup_ct = 0;
+    uint32_t prev_slen = 0;
+    for (uintptr_t ulii = 0; ulii != str_ct; ++ulii) {
+      const char* cur_id = strptr_arr[ulii];
+      const uint32_t cur_slen = strlen(cur_id);
+      if ((cur_slen == prev_slen) && memequal(prev_id, cur_id, prev_slen)) {
+        ++dup_ct;
+        continue;
+      }
+      cswritep = memcpya(cswritep, cur_id, cur_slen);
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto NsortDedupAndWrite_ret_WRITE_FAIL;
+      }
+      prev_id = cur_id;
+      prev_slen = cur_slen;
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto NsortDedupAndWrite_ret_WRITE_FAIL;
+    }
+    *nwrite_ptr = str_ct - dup_ct;
+  }
+  while (0) {
+  NsortDedupAndWrite_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ NsortDedupAndWrite_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
 }
 
 #ifdef __cplusplus

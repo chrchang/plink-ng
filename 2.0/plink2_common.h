@@ -1421,6 +1421,8 @@ HEADER_INLINE uint32_t ProvrefCol(const uintptr_t* variant_include, const uintpt
   return !IntersectionIsEmpty(variant_include, nonref_flags, BitCtToWordCt(raw_variant_ct));
 }
 
+PglErr NsortDedupAndWrite(const char* outname, uintptr_t str_ct, uint32_t max_slen, uint32_t output_zst, uint32_t max_thread_ct, const char** strptr_arr, uintptr_t* nwrite_ptr);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

@@ -288,7 +288,7 @@ uintptr_t PopcountWordsXor(const uintptr_t* __restrict bitvec1_iter, const uintp
 // use entry_ct once multiallelic/dosage implementation is done)
 void FillCumulativePopcounts(const uintptr_t* subset_mask, uint32_t word_ct, uint32_t* cumulative_popcounts);
 
-// void FillCumulativePopcountsW(const uintptr_t* subset_mask, uintptr_t word_ct, uintptr_t* cumulative_popcounts_w);
+void FillCumulativePopcountsW(const uintptr_t* subset_mask, uintptr_t word_ct, uintptr_t* cumulative_popcounts_w);
 
 // If idx_list is a list of valid unfiltered indexes, this converts them
 // in-place to corresponding filtered indexes.

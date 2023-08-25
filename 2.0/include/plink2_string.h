@@ -1402,7 +1402,6 @@ uint32_t CountTokens(const char* str_iter);
 
 // uint32_t CommaOrSpaceCountTokens(const char* str_iter, uint32_t comma_delim);
 
-/*
 HEADER_INLINE uint32_t CountMultistr(const char* multistr) {
   uint32_t ct = 0;
   while (*multistr) {
@@ -1412,7 +1411,6 @@ HEADER_INLINE uint32_t CountMultistr(const char* multistr) {
   }
   return ct;
 }
-*/
 
 // empty multistr ok
 uint32_t CountAndMeasureMultistr(const char* multistr, uintptr_t* max_blen_ptr);

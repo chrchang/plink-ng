@@ -18,6 +18,9 @@
 #include "include/plink2_stats.h"
 #include "plink2_filter.h"
 #include "plink2_ld.h"
+#include "plink2_compress_stream.h"
+
+#include <unistd.h>  // unlink()
 
 #ifdef __cplusplus
 #  include <functional>  // std::greater
@@ -2478,17 +2481,16 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
     const uint32_t founder_male_ct = PopcountWordsIntersect(founder_info, sex_male, raw_sample_ctl);
-    const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
     uint32_t* founder_info_cumulative_popcounts;
-    // bugfix (25 Mar 2023): founder_nonmale/founder_male are NOT supposed to
-    // be "collapsed".
+    // bugfix (25 Mar 2023, 25 Aug 2023): founder_nonmale/founder_male are NOT
+    // supposed to be "collapsed".
     uintptr_t* founder_nonmale;
     uintptr_t* founder_male;
     uintptr_t* removed_variants_collapsed;
     uint32_t* subcontig_thread_assignments;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
-                 bigstack_alloc_w(founder_ctl, &founder_nonmale) ||
-                 bigstack_alloc_w(founder_ctl, &founder_male) ||
+                 bigstack_alloc_w(raw_sample_ctl, &founder_nonmale) ||
+                 bigstack_alloc_w(raw_sample_ctl, &founder_male) ||
                  bigstack_calloc_w(variant_ctl, &removed_variants_collapsed) ||
                  bigstack_alloc_u32(subcontig_ct, &subcontig_thread_assignments))) {
       goto LdPrune_ret_NOMEM;
@@ -4418,9 +4420,9 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
 
 /*
 typedef struct ClumpEntryStruct {
-  double ln_pval;
   struct ClumpEntryStruct* next;
-  uint32_t maybe_fidx[]; // if only one file, don't spend memory here
+  uint32_t pval_bin_x2; // low bit indicates >= --clump-p2 threshold
+  uint32_t file_idx1;
 } ClumpEntry;
 
 typedef struct ClumpPvalStruct {
@@ -4460,7 +4462,8 @@ ENUM_U31_DEF_START()
   kClumpJobNone,
   kClumpJobHighmemUnpack,
   kClumpJobHighmemR2,
-  kClumpJobMidmemR2
+  kClumpJobMidmemR2,
+  kClumpJobLowmemR2,
 ENUM_U31_DEF_END(ClumpJob);
 
 typedef struct ClumpCtxStruct {
@@ -4475,12 +4478,22 @@ typedef struct ClumpCtxStruct {
 } ClumpCtx;
 
 void ClumpHighmemUnpack(uintptr_t tidx, ClumpCtx* ctx) {
+  // Unpack an island-shard's worth of (variant, aidx)s.
 }
 
 void ClumpHighmemR2(uintptr_t tidx, ClumpCtx* ctx) {
+  // Compute r^2 of a window-shard's worth of non-index (variant, aidx)s
+  // against the index variant, with everything already unpacked.
 }
 
 void ClumpMidmemR2(uintptr_t tidx, ClumpCtx* ctx) {
+  // Process a window-shard's worth of non-index (variant, aidx)s, read then
+  // unpack then r^2 against the unpacked index-(variant, aidx).
+}
+
+void ClumpLowmemR2(uintptr_t tidx, ClumpCtx* ctx) {
+  // Unpack a few non-index PgenVariants that were read by the main thread,
+  // then compute r^2 between them and the index-(variant, aidx).
 }
 
 THREAD_FUNC_DECL ClumpThread(void* raw_arg) {
@@ -4496,19 +4509,28 @@ THREAD_FUNC_DECL ClumpThread(void* raw_arg) {
       ClumpHighmemR2(tidx, ctx);
     } else if (job == kClumpJobMidmemR2) {
       ClumpMidmemR2(tidx, ctx);
+    } else if (job == kClumpJobLowmemR2) {
+      ClumpLowmemR2(tidx, ctx);
     }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
   THREAD_RETURN;
 }
 
-PglErr ClumpReports(const uintptr_t* variant_include, __attribute__((unused)) const ChrInfo* cip, __attribute__((unused)) const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, __attribute__((unused)) const uintptr_t* founder_info, __attribute__((unused)) const uintptr_t* sex_male, const ClumpInfo* clump_ip, uint32_t raw_variant_ct, uint32_t variant_ct, __attribute__((unused)) uint32_t raw_sample_ct, __attribute__((unused)) uint32_t founder_ct, __attribute__((unused)) uintptr_t max_variant_id_slen, __attribute__((unused)) uint32_t max_allele_slen, __attribute__((unused)) double output_min_ln, uint32_t max_thread_ct, __attribute__((unused)) uintptr_t pgr_alloc_cacheline_ct, __attribute__((unused)) PgenFileInfo* pgfip, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end) {
-  logerrputs("Error: --clump is under development.\n");
-  return kPglRetNotYetSupported;
+// 0.0001, 0.001, 0.01, 0.05 with appropriate epsilons
+static const double kClumpDefaultLnBinBounds[4] = {
+  -9.210340371976706,
+  -6.907755278982529,
+  -4.605170185988353,
+  -2.995732273554161
+};
+
+PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attribute__((unused)) const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_male, const ClumpInfo* clump_ip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, __attribute__((unused)) uint32_t founder_ct, uint32_t max_variant_id_slen, __attribute__((unused)) uint32_t max_allele_slen, __attribute__((unused)) double output_min_ln, uint32_t max_thread_ct, __attribute__((unused)) uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   char* fname_iter = clump_ip->fnames_flattened;
   uintptr_t line_idx = 0;
+  FILE* clump_overlap_tmp = nullptr;
   PglErr reterr = kPglRetSuccess;
   ClumpCtx ctx;
   TextStream txs;
@@ -4519,21 +4541,55 @@ PglErr ClumpReports(const uintptr_t* variant_include, __attribute__((unused)) co
     const uintptr_t raw_allele_ctl = BitCtToWordCt(raw_allele_ct);
     uintptr_t* observed_variants;
     uintptr_t* observed_alleles;
-    uint32_t* observed_alleles_cumulative_popcounts;
-    ClumpEntry** clump_entries;
+    uintptr_t* observed_alleles_cumulative_popcounts_w;
+    double* best_ln_pvals;
     if (unlikely(bigstack_calloc_w(raw_variant_ctl, &observed_variants) ||
                  bigstack_calloc_w(raw_allele_ctl, &observed_alleles) ||
-                 bigstack_alloc_u32(raw_allele_ctl, &observed_alleles_cumulative_popcounts) ||
-                 BIGSTACK_ALLOC_X(ClumpEntry*, raw_allele_ct, &clump_entries))) {
+                 bigstack_alloc_w(raw_allele_ctl, &observed_alleles_cumulative_popcounts_w) ||
+                 bigstack_end_calloc_d(raw_allele_ct, &best_ln_pvals))) {
       goto ClumpReports_ret_NOMEM;
     }
-    ZeroPtrArr(raw_allele_ct, clump_entries);
+    unsigned char* bigstack_mark2 = g_bigstack_base;
+    unsigned char* bigstack_end_mark2 = g_bigstack_end;
+    uint32_t file_ct = 0;
+    do {
+      char* fname_end = strnul(fname_iter);
+      ++file_ct;
+      fname_iter = &(fname_end[1]);
+    } while (*fname_iter);
     const ClumpFlags flags = clump_ip->flags;
+    uint32_t* best_fidxs = nullptr;
+    if ((file_ct > 1) && (flags & (kfClumpColMaybeF | kfClumpColF))) {
+      if (unlikely(bigstack_alloc_u32(raw_allele_ct, &best_fidxs))) {
+        goto ClumpReports_ret_NOMEM;
+      }
+    }
+    const double* ln_bin_boundaries = nullptr;
+    uint32_t bin_bound_ct = 0;
+    if (flags & kfClumpColBins) {
+      bin_bound_ct = clump_ip->bin_bound_ct;
+      if (!bin_bound_ct) {
+        ln_bin_boundaries = kClumpDefaultLnBinBounds;
+        bin_bound_ct = 4;
+      } else {
+        assert(bin_bound_ct < 0x40000000U);
+        ln_bin_boundaries = clump_ip->ln_bin_boundaries;
+      }
+    }
+    const uint32_t sp2_col = flags & kfClumpColSp2;
     const double ln_p1 = clump_ip->ln_p1;
-    const double ln_p2 = clump_ip->ln_p2;
-    const double load_ln_pthresh = MAXV(ln_p1, ln_p2);
+    const double ln_p2 = sp2_col? clump_ip->ln_p2 : -DBL_MAX;
+    double load_ln_pthresh = MAXV(ln_p1, ln_p2);
+    if (bin_bound_ct && (load_ln_pthresh < ln_bin_boundaries[bin_bound_ct - 1])) {
+      load_ln_pthresh = ln_bin_boundaries[bin_bound_ct - 1];
+    }
+    ClumpEntry** clump_entries = nullptr;
     uintptr_t* nonsig_arr = nullptr;
-    {
+    if (flags & (kfClumpColTotal | kfClumpColBins | kfClumpColSp2)) {
+      if (unlikely(BIGSTACK_ALLOC_X(ClumpEntry*, raw_allele_ct + 1, &clump_entries))) {
+        goto ClumpReports_ret_NOMEM;
+      }
+      ZeroPtrArr(raw_allele_ct, clump_entries);
       const uint32_t nonsig_needed = ((flags & (kfClumpColTotal | kfClumpColBins)) != 0) && (load_ln_pthresh < 0.0);
       if (nonsig_needed) {
         if (unlikely(bigstack_calloc_w(raw_allele_ct, &nonsig_arr))) {
@@ -4542,7 +4598,6 @@ PglErr ClumpReports(const uintptr_t* variant_include, __attribute__((unused)) co
       }
     }
 
-    unsigned char* bigstack_mark2 = g_bigstack_base;
     uint32_t* variant_id_htable;
     uint32_t variant_id_htable_size;
     reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, bigstack_left() / 2, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
@@ -4557,28 +4612,23 @@ PglErr ClumpReports(const uintptr_t* variant_include, __attribute__((unused)) co
     col_search_order[0] = clump_ip->id_field? clump_ip->id_field : "ID\0SNP\0";
     col_search_order[1] = search_a1? (clump_ip->a1_field? clump_ip->a1_field : "A1\0") : "";
     col_search_order[2] = search_test? (clump_ip->test_field? clump_ip->test_field : "TEST\0") : "";
-    const uint32_t input_log10 = (flags & kfClumpInputLog10);
+    const uint32_t input_log10 = flags & kfClumpInputLog10;
     col_search_order[3] = clump_ip->p_field? clump_ip->p_field : (input_log10? "LOG10_P\0NEG_LOG10_P\0P\0" : "P\0");
     const char* test_name_flattened = clump_ip->test_name? clump_ip->test_name : "ADD\0";
+    const uint32_t save_all_fidxs = (file_ct > 1) && sp2_col;
 
     LlStr* missing_variant_ids = nullptr;
     LlStr* missing_variant_allele_pairs = nullptr;
     uintptr_t missing_variant_id_ct = 0;
+    uintptr_t missing_variant_id_max_slen = 0;
     uintptr_t missing_variant_allele_pair_ct = 0;
+    uintptr_t missing_variant_allele_pair_max_slen = 0;
     // A1 allele normally doesn't matter for biallelic variants, so we default
     // to treating it as always-REF (may as well avoid a few +1s in the code).
     unsigned char* tmp_alloc_base = nullptr;
-    unsigned char* tmp_alloc_end = bigstack_end_mark;
+    unsigned char* tmp_alloc_end = bigstack_end_mark2;
     const uint32_t two_minus_force_a1 = 2 - force_a1;
     uint32_t cur_allele_ct = 2;
-    uint32_t file_ct = 0;
-    do {
-      char* fname_end = strnul(fname_iter);
-      ++file_ct;
-      fname_iter = &(fname_end[1]);
-    } while (*fname_iter);
-    const uint32_t fidx_store = (file_ct > 1) && (flags & (kfClumpColMaybeF | kfClumpColF | kfClumpColSp2));
-    const uint32_t clump_entry_byte_ct = RoundUpPow2(sizeof(ClumpEntry) + fidx_store * sizeof(int32_t), sizeof(intptr_t));
     for (uint32_t file_idx1 = file_ct; file_idx1; --file_idx1) {
       if (file_idx1 == 1) {
         fname_iter = clump_ip->fnames_flattened;
@@ -4649,11 +4699,11 @@ PglErr ClumpReports(const uintptr_t* variant_include, __attribute__((unused)) co
         }
         const char* token_ptrs[4];
         uint32_t token_slens[4];
-        if (unlikely(TokenLexK0(line_start, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens))) {
+        if (unlikely(!TokenLexK0(line_start, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens))) {
           goto ClumpReports_ret_MISSING_TOKENS;
         }
         if (found_type_bitset & 0x4) {
-          if (InMultistr(test_name_flattened, token_ptrs[2], token_slens[2])) {
+          if (!InMultistr(test_name_flattened, token_ptrs[2], token_slens[2])) {
             continue;
           }
         }
@@ -4669,6 +4719,7 @@ PglErr ClumpReports(const uintptr_t* variant_include, __attribute__((unused)) co
             }
             if (likely(strequal_k(pval_str, "INF", cur_slen) ||
                        (input_log10 && strequal_k(pval_str, "inf", cur_slen)))) {
+              // PLINK 1.x underflow
               ln_pval = kLnNormalMin;
             } else {
               goto ClumpReports_ret_INVALID_PVAL;
@@ -4686,8 +4737,12 @@ PglErr ClumpReports(const uintptr_t* variant_include, __attribute__((unused)) co
         }
         const char* variant_id = token_ptrs[0];
         const uint32_t variant_id_slen = token_slens[0];
-        const uint32_t variant_uidx = IdHtableFindNnt(token_ptrs[0], variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size);
-        if (variant_uidx == UINT32_MAX) {
+        const uint32_t variant_uidx = VariantIdDupflagHtableFind(token_ptrs[0], variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
+        if (variant_uidx & 0x80000000U) {
+          if (unlikely(variant_uidx != UINT32_MAX)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: --clump variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
+            goto ClumpReports_ret_INCONSISTENT_INPUT_WW;
+          }
           if (ln_pval <= ln_p1) {
             if (unlikely(PtrWSubCk(tmp_alloc_base, sizeof(LlStr) + RoundUpPow2(variant_id_slen + 1, sizeof(intptr_t)), &tmp_alloc_end))) {
               goto ClumpReports_ret_NOMEM;
@@ -4696,6 +4751,10 @@ PglErr ClumpReports(const uintptr_t* variant_include, __attribute__((unused)) co
             new_entry->next = missing_variant_ids;
             memcpyx(new_entry->str, variant_id, variant_id_slen, '\0');
             missing_variant_ids = new_entry;
+            ++missing_variant_id_ct;
+            if (variant_id_slen > missing_variant_id_max_slen) {
+              missing_variant_id_max_slen = variant_id_slen;
+            }
           }
           continue;
         }
@@ -4720,7 +4779,8 @@ PglErr ClumpReports(const uintptr_t* variant_include, __attribute__((unused)) co
           }
           if (aidx == cur_allele_ct) {
             if (ln_pval <= ln_p1) {
-              if (unlikely(PtrWSubCk(tmp_alloc_base, sizeof(LlStr) + RoundUpPow2(variant_id_slen + allele_slen + 2, sizeof(intptr_t)), &tmp_alloc_end))) {
+              const uint32_t variant_allele_pair_slen = variant_id_slen + allele_slen + 1;
+              if (unlikely(PtrWSubCk(tmp_alloc_base, sizeof(LlStr) + RoundUpPow2(variant_allele_pair_slen + 1, sizeof(intptr_t)), &tmp_alloc_end))) {
                 goto ClumpReports_ret_NOMEM;
               }
               LlStr* new_entry = R_CAST(LlStr*, tmp_alloc_end);
@@ -4728,86 +4788,313 @@ PglErr ClumpReports(const uintptr_t* variant_include, __attribute__((unused)) co
               char* write_iter = memcpyax(new_entry->str, variant_id, variant_id_slen, '\t');
               memcpyx(write_iter, allele_code, allele_slen, '\0');
               missing_variant_allele_pairs = new_entry;
+              ++missing_variant_allele_pair_ct;
+              if (variant_allele_pair_slen > missing_variant_allele_pair_max_slen) {
+                missing_variant_allele_pair_max_slen = variant_allele_pair_slen;
+              }
             }
             continue;
           }
         }
+        const uintptr_t allele_uidx = allele_idx_offset_base + aidx;
         if (ln_pval > load_ln_pthresh) {
           if (unlikely(ln_pval > 0.0)) {
             snprintf(g_logbuf, kLogbufSize, "Error: p-value > 1 on line %" PRIuPTR " of %s.\n", line_idx, fname_iter);
             goto ClumpReports_ret_MALFORMED_INPUT_WW;
           }
+          if (nonsig_arr && (ln_pval > ln_bin_boundaries[bin_bound_ct - 1])) {
+            nonsig_arr[allele_uidx] += 1;
+          }
+          continue;
         }
-        if (unlikely(PtrWSubCk(tmp_alloc_base, clump_entry_byte_ct, &tmp_alloc_end))) {
-          goto ClumpReports_ret_NOMEM;
+        // >= rather than >, to break ties in favor of file_idx1 == 1
+        if (best_ln_pvals[allele_uidx] >= ln_pval) {
+          best_ln_pvals[allele_uidx] = ln_pval;
+          if (best_fidxs) {
+            best_fidxs[allele_uidx] = file_idx1;
+          }
         }
-        const uintptr_t allele_uidx = allele_idx_offset_base + aidx;
-        ClumpEntry* new_entry = R_CAST(ClumpEntry*, tmp_alloc_end);
-        new_entry->ln_pval = ln_pval;
-        new_entry->next = clump_entries[allele_uidx];
-        if (fidx_store) {
-          new_entry->maybe_fidx[0] = file_idx1;
-        }
-        clump_entries[allele_uidx] = new_entry;
         SetBit(allele_uidx, observed_alleles);
+        SetBit(variant_uidx, observed_variants); // could defer this?
+        if (clump_entries) {
+          if (unlikely(PtrWSubCk(tmp_alloc_base, RoundUpPow2(sizeof(ClumpEntry), sizeof(intptr_t)), &tmp_alloc_end))) {
+            goto ClumpReports_ret_NOMEM;
+          }
+          uint32_t pval_bin_x2 = (ln_pval > ln_p2);
+          if (bin_bound_ct) {
+            pval_bin_x2 |= CountSortedSmallerD(ln_bin_boundaries, bin_bound_ct, ln_pval) << 1;
+          }
+          ClumpEntry* new_entry = R_CAST(ClumpEntry*, tmp_alloc_end);
+          new_entry->next = clump_entries[allele_uidx];
+          new_entry->pval_bin_x2 = pval_bin_x2;
+          new_entry->file_idx1 = file_idx1;
+          clump_entries[allele_uidx] = new_entry;
+        }
       }
     }
     if (unlikely(CleanupTextStream2(fname_iter, &txs, &reterr))) {
       goto ClumpReports_ret_1;
     }
-    BigstackReset(bigstack_mark2);
 
     BigstackEndSet(tmp_alloc_end);
 
-#ifdef __LP64__
-    const uintptr_t global_allele_ct_w = PopcountWords(observed_alleles, raw_allele_ctl);
-    if (unlikely(global_allele_ct_w > 0xffffffffU)) {
-      logerrputs("Error: --clump does not support >= 2^32 distinct (variant, A1 allele) pairs.\n");
-      reterr = kPglRetNotYetSupported;
-      goto ClumpReports_ret_1;
-    }
-    const uint32_t global_allele_ct = global_allele_ct_w;
-    FillCumulativePopcounts(observed_alleles, raw_allele_ctl, observed_alleles_cumulative_popcounts);
-#else
-    FillCumulativePopcounts(observed_alleles, raw_allele_ctl, observed_alleles_cumulative_popcounts);
-    const uint32_t global_allele_ct = observed_alleles_cumulative_popcounts[raw_allele_ctl - 1] + PopcountWord(observed_alleles[raw_allele_ctl - 1]);
-#endif
+    FillCumulativePopcountsW(observed_alleles, raw_allele_ctl, observed_alleles_cumulative_popcounts_w);
+    const uintptr_t global_allele_ct = observed_alleles_cumulative_popcounts_w[raw_allele_ctl - 1] + PopcountWord(observed_alleles[raw_allele_ctl - 1]);
+    const uint32_t output_zst = (flags / kfClumpZs) & 1;
     // Now we have efficient (variant_uidx, aidx) -> global_allele_idx lookup.
-    // Free some memory by compacting the information in clump_entries and
-    // nonsig_arr.
-    uintptr_t* clump_entry_offsets;
+    // Free some memory by compacting the information in best_ln_pvals, etc. to
+    // exclude unused (variant_uidx, aidx) slots.
+    BigstackReset(bigstack_mark2);
+    unsigned char** clump_entry_varints = nullptr;
     {
-      uintptr_t allele_uidx_base = 0;
-      uintptr_t cur_bits = observed_alleles[0];
-      for (uintptr_t global_allele_idx = 0; global_allele_idx != global_allele_ct; ++global_allele_idx) {
-        const uintptr_t allele_uidx = BitIter1(observed_alleles, &allele_uidx_base, &cur_bits);
-        clump_entries[global_allele_idx] = clump_entries[allele_uidx];
-      }
-      BigstackShrinkTop(clump_entries, global_allele_ct * sizeof(intptr_t));
-
-      if (nonsig_arr) {
-        const uintptr_t* nonsig_arr_dying = nonsig_arr;
-        nonsig_arr = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(global_allele_ct * sizeof(intptr_t)));
-        allele_uidx_base = 0;
-        cur_bits = observed_alleles[0];
+      if (best_fidxs) {
+        const uint32_t* best_fidxs_dying = best_fidxs;
+        best_fidxs = S_CAST(uint32_t*, bigstack_alloc_raw_rd(global_allele_ct * sizeof(int32_t)));
+        uintptr_t allele_uidx_base = 0;
+        uintptr_t cur_bits = observed_alleles[0];
         for (uintptr_t global_allele_idx = 0; global_allele_idx != global_allele_ct; ++global_allele_idx) {
           const uintptr_t allele_uidx = BitIter1(observed_alleles, &allele_uidx_base, &cur_bits);
-          clump_entries[global_allele_idx] = clump_entries[allele_uidx];
-          nonsig_arr[global_allele_idx] = nonsig_arr_dying[allele_uidx];
+          best_fidxs[global_allele_idx] = best_fidxs_dying[allele_uidx];
         }
       }
 
-      // TODO
+      if (clump_entries) {
+        ClumpEntry** clump_entries_dying = clump_entries;
+        clump_entries = S_CAST(ClumpEntry**, bigstack_alloc_raw_rd((global_allele_ct + 1) * sizeof(intptr_t)));
+        uintptr_t allele_uidx_base = 0;
+        uintptr_t cur_bits = observed_alleles[0];
+        for (uintptr_t global_allele_idx = 0; global_allele_idx != global_allele_ct; ++global_allele_idx) {
+          const uintptr_t allele_uidx = BitIter1(observed_alleles, &allele_uidx_base, &cur_bits);
+          clump_entries[global_allele_idx] = clump_entries_dying[allele_uidx];
+        }
 
-      // defensive
-      clump_entries = nullptr;
+        if (nonsig_arr) {
+          const uintptr_t* nonsig_arr_dying = nonsig_arr;
+          nonsig_arr = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(global_allele_ct * sizeof(intptr_t)));
+          allele_uidx_base = 0;
+          cur_bits = observed_alleles[0];
+          for (uintptr_t global_allele_idx = 0; global_allele_idx != global_allele_ct; ++global_allele_idx) {
+            const uintptr_t allele_uidx = BitIter1(observed_alleles, &allele_uidx_base, &cur_bits);
+            nonsig_arr[global_allele_idx] = nonsig_arr_dying[allele_uidx];
+          }
+        }
+      }
+
+      if (missing_variant_ids) {
+        // natural-sort, deduplicate, and write
+        bigstack_mark2 = g_bigstack_base;
+
+        const char** strptr_arr;
+        if (unlikely(bigstack_alloc_kcp(missing_variant_id_ct, &strptr_arr))) {
+          goto ClumpReports_ret_NOMEM;
+        }
+        for (uintptr_t ulii = 0; ulii != missing_variant_id_ct; ++ulii) {
+          strptr_arr[ulii] = missing_variant_ids->str;
+          missing_variant_ids = missing_variant_ids->next;
+        }
+        assert(missing_variant_ids == nullptr);
+        OutnameZstSet(".clumps.missing_id", output_zst, outname_end);
+        uintptr_t nwrite;
+        reterr = NsortDedupAndWrite(outname, missing_variant_id_ct, missing_variant_id_max_slen, output_zst, max_thread_ct, strptr_arr, &nwrite);
+        if (unlikely(reterr)) {
+          goto ClumpReports_ret_1;
+        }
+        logerrprintfww("Warning: %" PRIuPTR " top variant ID%s in --clump file%s missing from main dataset.  ID%s written to %s .\n", nwrite, (nwrite == 1)? "" : "s", (file_ct == 1)? "" : "s", (nwrite == 1)? "" : "s", outname);
+        BigstackReset(bigstack_mark2);
+      }
+
+      if (missing_variant_allele_pairs) {
+        bigstack_mark2 = g_bigstack_base;
+
+        const char** strptr_arr;
+        if (unlikely(bigstack_alloc_kcp(missing_variant_allele_pair_ct, &strptr_arr))) {
+          goto ClumpReports_ret_NOMEM;
+        }
+        for (uintptr_t ulii = 0; ulii != missing_variant_allele_pair_ct; ++ulii) {
+          strptr_arr[ulii] = missing_variant_allele_pairs->str;
+          missing_variant_allele_pairs = missing_variant_allele_pairs->next;
+        }
+        assert(missing_variant_allele_pairs == nullptr);
+        OutnameZstSet(".clumps.missing_allele", output_zst, outname_end);
+        uintptr_t nwrite;
+        reterr = NsortDedupAndWrite(outname, missing_variant_allele_pair_ct, missing_variant_allele_pair_max_slen, output_zst, max_thread_ct, strptr_arr, &nwrite);
+        if (unlikely(reterr)) {
+          goto ClumpReports_ret_1;
+        }
+        logerrprintfww("Warning: %" PRIuPTR " top (variant ID, A1 allele) pair%s in --clump file%s missing from main dataset due to allele rather than variant ID.  (Variant ID, A1 allele) pair%s written to %s .\n", nwrite, (nwrite == 1)? "" : "s", (file_ct == 1)? "" : "s", (nwrite == 1)? "" : "s", outname);
+        BigstackReset(bigstack_mark2);
+      }
+
+      if (clump_entries) {
+        // Now save pval_bin_x2 values, as well as fidxs if necessary, as
+        // varints.
+        unsigned char* varint_write_iter = g_bigstack_base;
+        for (uintptr_t global_allele_idx = 0; global_allele_idx != global_allele_ct; ++global_allele_idx) {
+          ClumpEntry* ll_iter = clump_entries[global_allele_idx];
+          // assign to clump_entries instead of clump_entry_varints, so we
+          // don't break strict-aliasing rule
+          clump_entries[global_allele_idx] = R_CAST(ClumpEntry*, varint_write_iter);
+          do {
+            varint_write_iter = Vint32Append(ll_iter->pval_bin_x2, varint_write_iter);
+            if (save_all_fidxs) {
+              varint_write_iter = Vint32Append(ll_iter->file_idx1, varint_write_iter);
+            }
+            if (unlikely(varint_write_iter > tmp_alloc_end)) {
+              goto ClumpReports_ret_NOMEM;
+            }
+            ll_iter = ll_iter->next;
+          } while (ll_iter);
+        }
+        clump_entry_varints = R_CAST(unsigned char**, clump_entries);
+        clump_entry_varints[global_allele_ct] = varint_write_iter;
+        if (unlikely(BigstackBaseSetChecked(varint_write_iter))) {
+          goto ClumpReports_ret_NOMEM;
+        }
+        // defensive
+        clump_entries = nullptr;
+      }
+    }
+    // We're done processing all the linked lists allocated next to
+    // g_bigstack_end.
+    BigstackEndReset(bigstack_end_mark2);
+    // Create sorted list of index-variant candidates, then free best_ln_pvals.
+    uintptr_t* index_candidate_bitvec;
+    ClumpPval* index_candidates;
+    if (unlikely(bigstack_calloc_w(raw_variant_ctl, &index_candidate_bitvec) ||
+                 BIGSTACK_ALLOC_X(ClumpPval, global_allele_ct, &index_candidates))) {
+      goto ClumpReports_ret_NOMEM;
+    }
+    uint32_t index_candidate_ct;
+    {
+      uintptr_t index_candidate_ct_w = 0;
+      for (uint32_t variant_uidx = 0; ; ++variant_uidx) {
+        variant_uidx = AdvBoundedTo1Bit(observed_variants, variant_uidx, raw_variant_ct);
+        if (variant_uidx == raw_variant_ct) {
+          break;
+        }
+        uintptr_t allele_idx_offset_base = variant_uidx * 2;
+        if (allele_idx_offsets) {
+          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+          cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+        }
+        const uintptr_t allele_uidx_stop = allele_idx_offset_base + cur_allele_ct;
+        for (uintptr_t allele_uidx = allele_idx_offset_base; allele_uidx != allele_uidx_stop; ++allele_uidx) {
+          if (!IsSet(observed_alleles, allele_uidx)) {
+            continue;
+          }
+          const double cur_ln_pval = best_ln_pvals[allele_uidx];
+          if (cur_ln_pval <= ln_p1) {
+            index_candidates[index_candidate_ct_w].ln_pval = cur_ln_pval;
+            index_candidates[index_candidate_ct_w].aidx = allele_uidx - allele_idx_offset_base;
+            index_candidates[index_candidate_ct_w].variant_uidx = variant_uidx;
+            ++index_candidate_ct_w;
+            SetBit(variant_uidx, index_candidate_bitvec);
+          }
+        }
+        if (force_a1 && (cur_allele_ct == 2) && (index_candidate_ct_w >= 2) && (index_candidates[index_candidate_ct_w - 2].variant_uidx == variant_uidx)) {
+          // special case: only keep one of these two entries
+          --index_candidate_ct_w;
+          const double ref_ln_pval = index_candidates[index_candidate_ct_w - 1].ln_pval;
+          const double alt_ln_pval = index_candidates[index_candidate_ct_w].ln_pval;
+          if (ref_ln_pval > alt_ln_pval) {
+            index_candidates[index_candidate_ct_w - 1] = index_candidates[index_candidate_ct_w];
+          }
+        }
+      }
+      if (!index_candidate_ct_w) {
+        logerrputs("Warning: No significant --clump results.  Skipping.\n");
+        goto ClumpReports_ret_1;
+      }
+#ifdef __LP64__
+      if (unlikely(index_candidate_ct_w > 0xffffffffU)) {
+        logerrputs("Error: --clump does not support >= 2^32 index-variant candidates.\n");
+        reterr = kPglRetNotYetSupported;
+        goto ClumpReports_ret_1;
+      }
+#endif
+      index_candidate_ct = index_candidate_ct_w;
+      BigstackShrinkTop(index_candidates, sizeof(ClumpPval) * index_candidate_ct);
+      BigstackEndReset(bigstack_end_mark);
+      ClumpPvalSorter* sorter = R_CAST(ClumpPvalSorter*, index_candidates);
+      STD_SORT_PAR_UNSEQ(index_candidate_ct, ClumpPvalCmp, sorter);
     }
 
+    // Main algorithm:
+    // - Identify independent "islands", induced by the --clump-kb setting.
+    // - Process one island at a time.
+    //   - Usually, all we need to determine is: for each remaining (variant
+    //     ID, aidx) pair, what clump was it assigned to?  (clump-index is
+    //     defined by index_candidates[] position.  Some clump-indexes are
+    //     skipped.)
+    //   - If --clump-allow-overlap is in effect, this doesn't work since
+    //     non-index variants can belong to multiple clumps.  We spill a
+    //     temporary to disk tracking, for each clump, which (variant ID, aidx)
+    //     pairs are a member.  This file could be very big, so we use varints
+    //     and delta encoding to reduce waste.
+    //     (In principle, seekable zstd should be useful here as well, but I
+    //     won't investigate that unless/until I decide to use seekable zstd in
+    //     other applications.)
+    // - After we're done processing all islands, we have the information
+    //   needed to write the final p-value sorted report.
+    uint32_t* allele_uidx_to_clump_idx = nullptr;
+    uint64_t* clump_idx_to_overlap_fpos = nullptr;
+    const uint32_t allow_overlap = flags & kfClumpAllowOverlap;
+    if (!allow_overlap) {
+      if (unlikely(bigstack_alloc_u32(global_allele_ct, &allele_uidx_to_clump_idx))) {
+        goto ClumpReports_ret_NOMEM;
+      }
+      for (uintptr_t ulii = 0; ulii != global_allele_ct; ++ulii) {
+        allele_uidx_to_clump_idx[ulii] = UINT32_MAX;
+      }
+    } else {
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".clumps.tmp");
+      if (unlikely(fopen_checked(outname, FOPEN_WB, &clump_overlap_tmp))) {
+        goto ClumpReports_ret_OPEN_FAIL;
+      }
+      if (unlikely(bigstack_alloc_u64(index_candidate_ct, &clump_idx_to_overlap_fpos))) {
+        goto ClumpReports_ret_NOMEM;
+      }
+    }
+
+    // We switch between three parallelization strategies, depending on
+    // available memory.
+    // 1. In the best case, we can load the entire set of (variant ID, aidx)
+    //    pairs on the island into memory, and encode them in an
+    //    LD-computation-friendly form.  In that case, we parallelize that
+    //    operation first, and then iterate through the on-island index-variant
+    //    candidates.
+    // 2. Failing that, we iterate through one on-island index-variant
+    //    candidate at a time.  Main thread tries to perform a PgfiMultiread
+    //    covering all the raw data we need in the window, and unpacks just the
+    //    index variant; then we parallelize unpacking / r^2-computation for
+    //    all the clumping candidates in the window.
+    // 3. If we don't even have enough memory for PgfiMultiread, the main
+    //    thread reads and unpacks the index-variant, then reads <affordable
+    //    multiple of worker thread ct> other variants at a time for the worker
+    //    threads to unpack / r^2-compute with.
+    //
+    // We choose the worker thread count to ensure at least strategy #3 works.
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    const uint32_t founder_male_ct = PopcountWordsIntersect(founder_info, sex_male, raw_sample_ctl);
     ;;;
+    const uint32_t force_unphased = flags & kfClumpUnphased;
+    const uint32_t all_haploid = IsSet(cip->haploid_mask, 0);
+    const uint32_t load_phase = (!force_unphased) && (!all_haploid) && (pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent));
+    const uint32_t load_dosage = (pgfip->gflags / kfPgenGlobalDosagePresent) & 1;
+
+    // Usual (i.e. not --clump-allow-overlap) postprocessing algorithm:
+    // 1. Count the number of (variant, aidx)s associated with each clump.
+    // 2. Allocate ordered_members[]; partial count-sums give each clump's
+    //    starting position within ordered_members[].
+    // 3. Fill ordered_members.
+
   }
   while (0) {
   ClumpReports_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  ClumpReports_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
     break;
   ClumpReports_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--clump file", &txs);
@@ -4832,6 +5119,7 @@ PglErr ClumpReports(const uintptr_t* variant_include, __attribute__((unused)) co
   }
  ClumpReports_ret_1:
   CleanupTextStream2("--clump file", &txs, &reterr);
+  fclose_cond(clump_overlap_tmp);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

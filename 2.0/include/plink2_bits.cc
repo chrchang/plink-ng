@@ -1736,7 +1736,6 @@ void FillCumulativePopcounts(const uintptr_t* subset_mask, uint32_t word_ct, uin
   cumulative_popcounts[word_ct_m1] = cur_sum;
 }
 
-/*
 void FillCumulativePopcountsW(const uintptr_t* subset_mask, uintptr_t word_ct, uintptr_t* cumulative_popcounts_w) {
   assert(word_ct);
   const uintptr_t word_ct_m1 = word_ct - 1;
@@ -1747,7 +1746,6 @@ void FillCumulativePopcountsW(const uintptr_t* subset_mask, uintptr_t word_ct, u
   }
   cumulative_popcounts_w[word_ct_m1] = cur_sum;
 }
-*/
 
 void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, const uintptr_t idx_list_len, uint32_t* idx_list) {
   uint32_t* idx_list_end = &(idx_list[idx_list_len]);

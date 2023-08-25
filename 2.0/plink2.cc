@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a5"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (24 Aug 2023)";
+  " (25 Aug 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4741,8 +4741,12 @@ int main(int argc, char** argv) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --clump-bins argument '%s'.\n", argvk[arg_idx + param_idx]);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
-              if (cur_ln <= prev_ln) {
+              if (unlikely(cur_ln <= prev_ln)) {
                 logerrputs("Error: --clump-bins values are not in increasing order.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely(cur_ln >= 0.0)) {
+                logerrputs("Error: --clump-bins values >= 1 do not make sense.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               *ln_bin_boundaries_iter++ = cur_ln * (1.0 + kSmallEpsilon);
