@@ -1746,7 +1746,6 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
     const uint32_t founder_male_ct = PopcountWordsIntersect(founder_info, sex_male, raw_sample_ctl);
-    const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
     uint32_t* founder_info_cumulative_popcounts;
     // bugfix (25 Mar 2023, 25 Aug 2023): founder_nonmale/founder_male are NOT
     // supposed to be "collapsed".
