@@ -469,12 +469,16 @@ char* InfoPrStart(uint32_t info_slen, char* info_token) {
   if (memequal_sk(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR")) {
     return &(info_token[info_slen - 2]);
   }
+  // bugfix (29 Aug 2023): need this function to be nondestructive
+  const char token_end_char = info_token[info_slen];
   info_token[info_slen] = '\0';
   char* first_info_end = strchr(info_token, ';');
   if (!first_info_end) {
+    info_token[info_slen] = token_end_char;
     return nullptr;
   }
   char* pr_prestart = strstr(first_info_end, ";PR;");
+  info_token[info_slen] = token_end_char;
   // bugfix (27 Sep 2019): had this backward
   return pr_prestart? (&(pr_prestart[1])) : nullptr;
 }

@@ -1748,15 +1748,15 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     const uint32_t founder_male_ct = PopcountWordsIntersect(founder_info, sex_male, raw_sample_ctl);
     const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
     uint32_t* founder_info_cumulative_popcounts;
-    // bugfix (25 Mar 2023): founder_nonmale/founder_male are NOT supposed to
-    // be "collapsed".
+    // bugfix (25 Mar 2023, 25 Aug 2023): founder_nonmale/founder_male are NOT
+    // supposed to be "collapsed".
     uintptr_t* founder_nonmale;
     uintptr_t* founder_male;
     uintptr_t* removed_variants_collapsed;
     uint32_t* subcontig_thread_assignments;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
-                 bigstack_alloc_w(founder_ctl, &founder_nonmale) ||
-                 bigstack_alloc_w(founder_ctl, &founder_male) ||
+                 bigstack_alloc_w(raw_sample_ctl, &founder_nonmale) ||
+                 bigstack_alloc_w(raw_sample_ctl, &founder_male) ||
                  bigstack_calloc_w(variant_ctl, &removed_variants_collapsed) ||
                  bigstack_alloc_u32(subcontig_ct, &subcontig_thread_assignments))) {
       goto LdPrune_ret_NOMEM;
