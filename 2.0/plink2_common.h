@@ -345,6 +345,22 @@ HEADER_INLINE BoolErr bigstack_alloc_dphasep(uintptr_t ct, SDosage*** dphasep_ar
 }
 
 
+HEADER_INLINE BoolErr bigstack_allocv_ac(uintptr_t ct, AlleleCode** allele_arr_ptr) {
+  *allele_arr_ptr = S_CAST(AlleleCode*, bigstack_allocv(ct * sizeof(AlleleCode)));
+  return !(*allele_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_allocv_dosage(uintptr_t ct, Dosage** dosage_arr_ptr) {
+  *dosage_arr_ptr = S_CAST(Dosage*, bigstack_allocv(ct * sizeof(Dosage)));
+  return !(*dosage_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_allocv_dphase(uintptr_t ct, SDosage** dphase_arr_ptr) {
+  *dphase_arr_ptr = S_CAST(SDosage*, bigstack_allocv(ct * sizeof(SDosage)));
+  return !(*dphase_arr_ptr);
+}
+
+
 HEADER_INLINE BoolErr bigstack_end_alloc_dosage(uintptr_t ct, Dosage** dosage_arr_ptr) {
   *dosage_arr_ptr = S_CAST(Dosage*, bigstack_end_alloc(ct * sizeof(Dosage)));
   return !(*dosage_arr_ptr);
@@ -878,7 +894,7 @@ HEADER_INLINE void GetXymtStartAndEnd(const ChrInfo* cip, uint32_t xymt_offset, 
 }
 
 HEADER_INLINE void GetXymtCodeStartAndEndUnsafe(const ChrInfo* cip, uint32_t xymt_offset, uint32_t* xymt_code_ptr, uint32_t* xymt_start_ptr, uint32_t* xymt_end_ptr) {
-  // assumes xymt_exists was previously called, and is true
+  // assumes XymtExists was previously called, and is true
   const uint32_t xymt_code = cip->xymt_codes[xymt_offset];
   *xymt_code_ptr = xymt_code;
   const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[xymt_code];

@@ -464,6 +464,16 @@ HEADER_INLINE void* bigstack_alloc(uintptr_t size) {
   return bigstack_alloc_raw(size);
 }
 
+// When we only want vector-alignment.
+HEADER_INLINE void* bigstack_allocv(uintptr_t size) {
+  size = RoundUpPow2(size, kCacheline);
+  if (unlikely(bigstack_left() < size)) {
+    g_failed_alloc_attempt_size = size;
+    return nullptr;
+  }
+  return bigstack_alloc_raw(size);
+}
+
 
 // Typesafe, return-0-iff-success interfaces.  (See also bigstack_calloc_...
 // further below.)
@@ -617,6 +627,11 @@ HEADER_INLINE BoolErr bigstack_alloc_u32pp(uintptr_t ct, uint32_t**** u32pp_arr_
 HEADER_INLINE BoolErr bigstack_alloc_vpp(uintptr_t ct, VecW**** vpp_arr_ptr) {
   *vpp_arr_ptr = S_CAST(VecW***, bigstack_alloc(ct * sizeof(VecW)));
   return !(*vpp_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_allocv_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
+  *w_arr_ptr = S_CAST(uintptr_t*, bigstack_allocv(ct * sizeof(intptr_t)));
+  return !(*w_arr_ptr);
 }
 
 BoolErr bigstack_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr);

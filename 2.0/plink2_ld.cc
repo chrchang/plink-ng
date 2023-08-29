@@ -71,6 +71,45 @@ void CleanupClump(ClumpInfo* clump_ip) {
   free_cond(clump_ip->ln_bin_boundaries);
 }
 
+// Move to plink2_common if any users outside plink2_ld.
+const uintptr_t* StripUnplaced(const uintptr_t* orig_variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uint32_t* skipped_variant_ctp) {
+  uint32_t skipped_variant_ct = 0;
+  if (IsSet(cip->chr_mask, 0)) {
+    skipped_variant_ct = CountChrVariantsUnsafe(orig_variant_include, cip, 0);
+  }
+  const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
+  if (cip->zero_extra_chrs) {
+    for (uint32_t chr_idx = cip->max_code + 1; chr_idx != chr_code_end; ++chr_idx) {
+      if (IsSet(cip->chr_mask, chr_idx)) {
+        skipped_variant_ct += CountChrVariantsUnsafe(orig_variant_include, cip, cip->chr_idx_to_foidx[chr_idx]);
+      }
+    }
+  }
+  *skipped_variant_ctp = skipped_variant_ct;
+  if (!skipped_variant_ct) {
+    return orig_variant_include;
+  }
+  const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+  uintptr_t* new_variant_include;
+  if (unlikely(bigstack_alloc_w(raw_variant_ctl, &new_variant_include))) {
+    return nullptr;
+  }
+  memcpy(new_variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+  if (IsSet(cip->chr_mask, 0)) {
+    const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[0];
+    const uint32_t start_uidx = cip->chr_fo_vidx_start[chr_fo_idx];
+    ClearBitsNz(start_uidx, cip->chr_fo_vidx_start[chr_fo_idx + 1], new_variant_include);
+  }
+  if (cip->zero_extra_chrs) {
+    for (uint32_t chr_idx = cip->max_code + 1; chr_idx != chr_code_end; ++chr_idx) {
+      const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
+      const uint32_t start_uidx = cip->chr_fo_vidx_start[chr_fo_idx];
+      ClearBitsNz(start_uidx, cip->chr_fo_vidx_start[chr_fo_idx + 1], new_variant_include);
+    }
+  }
+  return new_variant_include;
+}
+
 
 #ifdef USE_AVX2
 // todo: see if either approach in avx_jaccard_index.c in
@@ -2395,43 +2434,14 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       logerrprintfww("Error: --indep-pair%s requires at least two founders. (--make-founders may come in handy here.)\n", is_pairphase? "phase" : "wise");
       goto LdPrune_ret_INCONSISTENT_INPUT;
     }
-    uint32_t skipped_variant_ct = 0;
-    if (IsSet(cip->chr_mask, 0)) {
-      skipped_variant_ct = CountChrVariantsUnsafe(orig_variant_include, cip, 0);
+    uint32_t skipped_variant_ct;
+    const uintptr_t* variant_include = StripUnplaced(orig_variant_include, cip, raw_variant_ct, &skipped_variant_ct);
+    if (unlikely(variant_include == nullptr)) {
+      goto LdPrune_ret_NOMEM;
     }
-    const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
-    if (cip->zero_extra_chrs) {
-      for (uint32_t chr_idx = cip->max_code + 1; chr_idx != chr_code_end; ++chr_idx) {
-        if (IsSet(cip->chr_mask, chr_idx)) {
-          skipped_variant_ct += CountChrVariantsUnsafe(orig_variant_include, cip, cip->chr_idx_to_foidx[chr_idx]);
-        }
-      }
-    }
-    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    const uintptr_t* variant_include;
     if (skipped_variant_ct) {
-      uintptr_t* new_variant_include;
-      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &new_variant_include))) {
-        goto LdPrune_ret_NOMEM;
-      }
-      memcpy(new_variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
-      if (IsSet(cip->chr_mask, 0)) {
-        const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[0];
-        const uint32_t start_uidx = cip->chr_fo_vidx_start[chr_fo_idx];
-        ClearBitsNz(start_uidx, cip->chr_fo_vidx_start[chr_fo_idx + 1], new_variant_include);
-      }
-      if (cip->zero_extra_chrs) {
-        for (uint32_t chr_idx = cip->max_code + 1; chr_idx != chr_code_end; ++chr_idx) {
-          const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
-          const uint32_t start_uidx = cip->chr_fo_vidx_start[chr_fo_idx];
-          ClearBitsNz(start_uidx, cip->chr_fo_vidx_start[chr_fo_idx + 1], new_variant_include);
-        }
-      }
-      variant_include = new_variant_include;
-      variant_ct -= skipped_variant_ct;
       logprintf("--indep-pair%s: Ignoring %u chromosome 0 variant%s.\n", is_pairphase? "phase" : "wise", skipped_variant_ct, (skipped_variant_ct == 1)? "" : "s");
-    } else {
-      variant_include = orig_variant_include;
+      variant_ct -= skipped_variant_ct;
     }
 
     if (!(ldip->prune_flags & kfLdPruneWindowBp)) {
@@ -2449,6 +2459,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       goto LdPrune_ret_1;
     }
 
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* preferred_variants = nullptr;
     uint32_t dup_found;
     if (!indep_preferred_fname) {
@@ -4419,6 +4430,102 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
 }
 
 /*
+uint32_t GetNextIsland(const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* icandidate_vbitvec, const uintptr_t* observed_variants, uint32_t raw_variant_ct, uint32_t bp_radius, uint32_t* last_vidxp, uint32_t* chr_fo_idxp) {
+  uint32_t first_vidx = (*last_vidxp) + 1;
+  uint32_t index_vidx = AdvBoundedTo1Bit(icandidate_vbitvec, first_vidx, raw_variant_ct);
+  if (index_vidx == raw_variant_ct) {
+    return raw_variant_ct;
+  }
+  uint32_t chr_fo_idx = *chr_fo_idxp;
+  uint32_t chr_end_vidx = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+  if (index_vidx >= chr_end_vidx) {
+    chr_fo_idx = GetVariantChrFoIdx(cip, index_vidx);
+    *chr_fo_idxp = chr_fo_idx;
+    chr_end_vidx = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+  }
+  uint32_t index_variant_bp = variant_bps[index_vidx];
+  const uint32_t chr_start_vidx = cip->chr_fo_vidx_start[chr_fo_idx];
+
+  // Locate the left end of the island.  This is straightforward since we
+  // already have the leftmost index variant.
+  uint32_t search_bp = (index_variant_bp < bp_radius)? 0 : (index_variant_bp - bp_radius);
+  const uint32_t first_vidx_in_range = chr_start_vidx + CountSortedSmallerU32(&(variant_bps[chr_start_vidx]), chr_end_vidx - chr_start_vidx, search_bp);
+  first_vidx = AdvTo1Bit(observed_variants, first_vidx_in_range);
+
+  // Now locate the right end of the island.  This requires either
+  // - identifying a pair of index variants > bp_radius bp apart from each
+  //   other, which also don't share a non-index variant candidate; or
+  // - reaching the end of the chromosome without observing such a gap.
+  uint32_t last_known_bp = index_variant_bp;
+  for (uint32_t end_vidx = index_vidx + 1; ; ++end_vidx) {
+    // Jump (bp_radius + 1) bp to the right, and identify the index variants
+    // flanking that spot.  (We know the end of the island cannot come before
+    // this boundary.)
+    end_vidx += ExpsearchU32(&(variant_bps[end_vidx]), chr_end_vidx - end_vidx, last_known_bp + bp_radius + 1);
+    const uint32_t last_index_vidx = FindLast1BitBefore(icandidate_vbitvec, end_vidx);
+    const uint32_t last_index_bp = variant_bps[last_index_vidx];
+    end_vidx = AdvBoundedTo1Bit(icandidate_vbitvec, end_vidx, chr_end_vidx);
+    // Now end_vidx is either the first possibly-out-of-island index variant,
+    // or equal to chr_end_vidx (which indicates end-of-chromosome).
+    if (end_vidx < chr_end_vidx) {
+      const uint32_t later_index_bp = variant_bps[end_vidx];
+      const uint32_t delta = later_index_bp - last_index_bp;
+      if (delta <= bp_radius) {
+        // Obviously no gap here.
+        last_known_bp = later_index_bp;
+        continue;
+      }
+    }
+    // Either the next index variant is separated by > bp_radius bp from the
+    // last confirmed on-island index variant, or no such next index variant
+    // exists at all.
+    // In both cases, we want to locate the rightmost index-or-non-index
+    // variant in range of the last confirmed on-island index variant.
+    const uint32_t search_start_vidx = last_index_vidx + 1;
+    const uint32_t first_out_of_range_vidx = search_start_vidx + ExpsearchU32(&(variant_bps[search_start_vidx]), chr_end_vidx - search_start_vidx, last_index_bp + bp_radius + 1);
+    const uint32_t last_in_range_vidx = FindLast1BitBefore(observed_variants, first_out_of_range_vidx);
+    if ((end_vidx == chr_end_vidx) || (variant_bps[end_vidx] - variant_bps[last_in_range_vidx] <= bp_radius)) {
+      *last_vidxp = last_in_range_vidx;
+      return first_vidx;
+    }
+    last_known_bp = variant_bps[end_vidx];
+  }
+}
+
+void ScanPhaseDosage(const uintptr_t* observed_variants, PgenFileInfo* pgfip, uint32_t vidx_start, uint32_t vidx_ct, uint32_t check_phase, uint32_t check_dosage, uint32_t* load_phasep, uint32_t* load_dosagep) {
+  uint32_t vrtype_mask = 0;
+  if (*load_phasep != check_phase) {
+    vrtype_mask |= 0x90;
+  }
+  if (*load_dosagep != check_dosage) {
+    vrtype_mask |= 0x60;
+  }
+  if (!vrtype_mask) {
+    return;
+  }
+  uintptr_t variant_uidx_base;
+  uintptr_t cur_bits;
+  BitIter1Start(observed_variants, vidx_start, &variant_uidx_base, &cur_bits);
+  for (uint32_t uii = 0; uii != vidx_ct; ++uii) {
+    const uintptr_t variant_uidx = BitIter1(observed_variants, &variant_uidx_base, &cur_bits);
+    const uint32_t vrtype = GetPgfiVrtype(pgfip, variant_uidx);
+    const uint32_t vrtype_masked = vrtype & vrtype_mask;
+    if (vrtype_masked) {
+      if (vrtype_masked & 0x90) {
+        *load_phasep = 1;
+        vrtype_mask &= ~0x90;
+      }
+      if (vrtype_masked & 0x60) {
+        *load_dosagep = 1;
+        vrtype_mask &= ~0x60;
+      }
+      if (!vrtype_mask) {
+        return;
+      }
+    }
+  }
+}
+
 typedef struct ClumpEntryStruct {
   struct ClumpEntryStruct* next;
   uint32_t pval_bin_x2; // low bit indicates >= --clump-p2 threshold
@@ -4464,34 +4571,145 @@ ENUM_U31_DEF_START()
   kClumpJobHighmemR2,
   kClumpJobMidmemR2,
   kClumpJobLowmemR2,
-ENUM_U31_DEF_END(ClumpJob);
+ENUM_U31_DEF_END(ClumpJobType);
+
+// Unpacked representations:
+// 1. If not loading dosage:
+//    a. If not loading phase: {one_bitvec, two_bitvec, nm_bitvec},
+//                             founder_ctaw words each, i.e. 3 * bitvec_byte_ct
+//    b. If loading phase, also need phasepresent and phaseinfo, founder_ctaw
+//       words each, for a total of 5 * bitvec_byte_ct
+// 2. If loading dosage:
+//    a. If not loading phase: {dosage_vec, dosage_uhet} founder_dosagev_ct
+//                             vectors each; plus nm_bitvec, i.e.
+//                             2 * dosagevec_byte_ct + bitvec_byte_ct
+//    b. If loading phase, also need main_dphase_deltas, for a total of
+//       3 * dosagevec_byte_ct + bitvec_byte_ct
+// 3. If chrX, entire nonmale part first, then unphased male part
+//
+// Probable todo: Unpack the index variant in a way that allows r^2 to be
+// computed efficiently against other variants *without* unpacking them.
+
+// Execution instructions and result buffers which change between jobs.
+typedef struct ClumpCtxAlternating {
+  // Instructions.
+  ClumpJobType job_type;
+  uint32_t cur_variant_uidx_first;
+  uint32_t cur_variant_uidx_last;
+  AlleleCode cur_aidx_first;
+  AlleleCode cur_aidx_last;
+  unsigned char is_x;
+  unsigned char is_y;
+  unsigned char load_phase;
+  unsigned char load_dosage;
+  // Precomputed for convenience.
+  uintptr_t unpacked_byte_stride;
+
+  // Result buffers.
+  // (calc_thread_ct + 1) of these, since in midmem case, main thread joins in
+  uint32_t** ld_allele_idx_found;
+
+  unsigned char padding[kCacheline];
+} ClumpCtxAlternating;
 
 typedef struct ClumpCtxStruct {
-  const uintptr_t* variant_include;
-  const uint32_t* variant_bps;
+  // Shared constants.
+  const uintptr_t* observed_variants;
   const uintptr_t* allele_idx_offsets;
+  const uintptr_t* observed_alleles;
+  const uintptr_t* observed_alleles_cumulative_popcounts_w;
+  const uintptr_t* founder_info;
+  const uint32_t* founder_info_cumulative_popcounts;
+  const uintptr_t* founder_nonmale;
+  const uintptr_t* founder_male;
+  uint32_t founder_ct;
+  uint32_t founder_male_ct;
+  // Precomputed for convenience.
+  uintptr_t pgv_byte_stride;
+  uintptr_t bitvec_byte_ct;
+  uintptr_t dosagevec_byte_ct;
+  uintptr_t male_bitvec_byte_ct;
+  uintptr_t male_dosagevec_byte_ct;
+  uintptr_t nonmale_bitvec_byte_ct;
+  uintptr_t nonmale_dosagevec_byte_ct;
+  // --clump-allow-overlap status currently inferred from
+  // allele_idx_to_clump_idx != nullptr
+  double r2_thresh;
 
-  uintptr_t* allele_include;
+  // Nonconstant bitvectors describing current clumping progress.
+  uintptr_t* candidate_oabitvec;
+  // --clump-allow-overlap case only.
+  uintptr_t* icandidate_vbitvec;
 
-  ClumpJob job[2];
+  // Main workspace has space for a sequence of >= 2 * calc_thread_ct
+  // PgenVariant buffer groups, offset by pgv_byte_stride bytes from each
+  // other.
+  // HighmemUnpack, MidmemR2: these buffers are filled by per-thread PgrGetDp()
+  //                          calls.  Only use the first (calc_thread_ct + 1)
+  //                          slots in this case.
+  // LowmemR2: these buffers are filled by main-thread PgrGetDp() calls, and
+  //           interpreted by the worker threads.
+  PgenVariant pgv_base;
+
+  // Other per-thread resources.
+
+  // (calc_thread_ct + 1) of these, for midmem case.
+  PgenReader** pgr_ptrs;
+  // Highmem: HighmemUnpack unpacks all current-island(-group) variants to this
+  //          memory region, then HighmemR2 reads from here.  Could have
+  //          thousands, or even millions of variants here.
+  // MidmemR2, LowmemR2: each thread just needs workspace for one variant here.
+  //                     Index variant unpacked into slot 0.
+  // Unpacked variant representation can vary based on is_x, is_y, load_phase,
+  // and load_dosage.
+  unsigned char* unpacked_variants;
+
+  ClumpCtxAlternating a[2];
+
   uint64_t err_info;
 } ClumpCtx;
 
-void ClumpHighmemUnpack(uintptr_t tidx, ClumpCtx* ctx) {
-  // Unpack an island-shard's worth of (variant, aidx)s.
+uintptr_t UnpackedByteStride(const ClumpCtx* ctx, uint32_t parity) {
+  const ClumpCtxAlternating* ctx_alt = &(ctx->a[parity]);
+  const uint32_t load_phase = ctx_alt->load_phase;
+  const uint32_t load_dosage = ctx_alt->load_dosage;
+  if (ctx_alt->is_x) {
+    const uintptr_t nonmale_bitvec_byte_ct = ctx->nonmale_bitvec_byte_ct;
+    const uintptr_t male_bitvec_byte_ct = ctx->male_bitvec_byte_ct;
+    if (load_dosage) {
+      return (2 + load_phase) * ctx->nonmale_dosagevec_byte_ct + 2 * ctx->male_dosagevec_byte_ct + nonmale_bitvec_byte_ct + male_bitvec_byte_ct;
+    }
+    return (3 + 2 * load_phase) * nonmale_bitvec_byte_ct + 3 * male_bitvec_byte_ct;
+  } else if (ctx_alt->is_y) {
+    assert(!load_phase);
+    const uintptr_t male_bitvec_byte_ct = ctx->male_bitvec_byte_ct;
+    if (load_dosage) {
+      return 2 * ctx->dosagevec_byte_ct + male_bitvec_byte_ct;
+    }
+    return 3 * male_bitvec_byte_ct;
+  }
+  const uintptr_t bitvec_byte_ct = ctx->bitvec_byte_ct;
+  if (load_dosage) {
+    return (2 + load_phase) * ctx->dosagevec_byte_ct + bitvec_byte_ct;
+  }
+  return (3 + 2 * load_phase) * bitvec_byte_ct;
 }
 
-void ClumpHighmemR2(uintptr_t tidx, ClumpCtx* ctx) {
+void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
+  // Unpack at least an island-shard's worth of (variant, aidx)s.
+}
+
+void ClumpHighmemR2(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
   // Compute r^2 of a window-shard's worth of non-index (variant, aidx)s
   // against the index variant, with everything already unpacked.
 }
 
-void ClumpMidmemR2(uintptr_t tidx, ClumpCtx* ctx) {
-  // Process a window-shard's worth of non-index (variant, aidx)s, read then
+void ClumpMidmemR2(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
+  // Process a window-shard's worth of non-index (variant, aidx)s: read then
   // unpack then r^2 against the unpacked index-(variant, aidx).
 }
 
-void ClumpLowmemR2(uintptr_t tidx, ClumpCtx* ctx) {
+void ClumpLowmemR2(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
   // Unpack a few non-index PgenVariants that were read by the main thread,
   // then compute r^2 between them and the index-(variant, aidx).
 }
@@ -4502,15 +4720,15 @@ THREAD_FUNC_DECL ClumpThread(void* raw_arg) {
   ClumpCtx* ctx = S_CAST(ClumpCtx*, arg->sharedp->context);
   uint32_t parity = 0;
   do {
-    const ClumpJob job = ctx->job[parity];
-    if (job == kClumpJobHighmemUnpack) {
-      ClumpHighmemUnpack(tidx, ctx);
-    } else if (job == kClumpJobHighmemR2) {
-      ClumpHighmemR2(tidx, ctx);
-    } else if (job == kClumpJobMidmemR2) {
-      ClumpMidmemR2(tidx, ctx);
-    } else if (job == kClumpJobLowmemR2) {
-      ClumpLowmemR2(tidx, ctx);
+    const ClumpJobType job_type = ctx->a[parity].job_type;
+    if (job_type == kClumpJobHighmemUnpack) {
+      ClumpHighmemUnpack(tidx, parity, ctx);
+    } else if (job_type == kClumpJobHighmemR2) {
+      ClumpHighmemR2(tidx, parity, ctx);
+    } else if (job_type == kClumpJobMidmemR2) {
+      ClumpMidmemR2(tidx, parity, ctx);
+    } else if (job_type == kClumpJobLowmemR2) {
+      ClumpLowmemR2(tidx, parity, ctx);
     }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
@@ -4525,7 +4743,7 @@ static const double kClumpDefaultLnBinBounds[4] = {
   -2.995732273554161
 };
 
-PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attribute__((unused)) const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_male, const ClumpInfo* clump_ip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, __attribute__((unused)) uint32_t founder_ct, uint32_t max_variant_id_slen, __attribute__((unused)) uint32_t max_allele_slen, __attribute__((unused)) double output_min_ln, uint32_t max_thread_ct, __attribute__((unused)) uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
+PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_male, const ClumpInfo* clump_ip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, __attribute__((unused)) uint32_t max_allele_slen, __attribute__((unused)) double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   char* fname_iter = clump_ip->fnames_flattened;
@@ -4534,8 +4752,23 @@ PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attr
   PglErr reterr = kPglRetSuccess;
   ClumpCtx ctx;
   TextStream txs;
+  ThreadGroup tg;
   PreinitTextStream(&txs);
+  PreinitThreads(&tg);
   {
+    if (unlikely(!founder_ct)) {
+      logerrputs("Error: --clump requires at least 1 founder.  (--make-founders may come in handy\nhere.)\n");
+      goto ClumpReports_ret_INCONSISTENT_INPUT;
+    }
+    uint32_t skipped_variant_ct;
+    const uintptr_t* variant_include = StripUnplaced(orig_variant_include, cip, raw_variant_ct, &skipped_variant_ct);
+    if (unlikely(variant_include == nullptr)) {
+      goto ClumpReports_ret_NOMEM;
+    }
+    if (skipped_variant_ct) {
+      logprintf("--clump: Ignoring %u chromosome 0 variant%s.\n", skipped_variant_ct, (skipped_variant_ct == 1)? "" : "s");
+      variant_ct -= skipped_variant_ct;
+    }
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     const uintptr_t raw_allele_ct = allele_idx_offsets? allele_idx_offsets[raw_variant_ct] : (2 * raw_variant_ct);
     const uintptr_t raw_allele_ctl = BitCtToWordCt(raw_allele_ct);
@@ -4839,7 +5072,7 @@ PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attr
     BigstackEndSet(tmp_alloc_end);
 
     FillCumulativePopcountsW(observed_alleles, raw_allele_ctl, observed_alleles_cumulative_popcounts_w);
-    const uintptr_t global_allele_ct = observed_alleles_cumulative_popcounts_w[raw_allele_ctl - 1] + PopcountWord(observed_alleles[raw_allele_ctl - 1]);
+    const uintptr_t observed_allele_ct = observed_alleles_cumulative_popcounts_w[raw_allele_ctl - 1] + PopcountWord(observed_alleles[raw_allele_ctl - 1]);
     const uint32_t output_zst = (flags / kfClumpZs) & 1;
     // Now we have efficient (variant_uidx, aidx) -> global_allele_idx lookup.
     // Free some memory by compacting the information in best_ln_pvals, etc. to
@@ -4849,10 +5082,10 @@ PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attr
     {
       if (best_fidxs) {
         const uint32_t* best_fidxs_dying = best_fidxs;
-        best_fidxs = S_CAST(uint32_t*, bigstack_alloc_raw_rd(global_allele_ct * sizeof(int32_t)));
+        best_fidxs = S_CAST(uint32_t*, bigstack_alloc_raw_rd(observed_allele_ct * sizeof(int32_t)));
         uintptr_t allele_uidx_base = 0;
         uintptr_t cur_bits = observed_alleles[0];
-        for (uintptr_t global_allele_idx = 0; global_allele_idx != global_allele_ct; ++global_allele_idx) {
+        for (uintptr_t global_allele_idx = 0; global_allele_idx != observed_allele_ct; ++global_allele_idx) {
           const uintptr_t allele_uidx = BitIter1(observed_alleles, &allele_uidx_base, &cur_bits);
           best_fidxs[global_allele_idx] = best_fidxs_dying[allele_uidx];
         }
@@ -4860,20 +5093,20 @@ PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attr
 
       if (clump_entries) {
         ClumpEntry** clump_entries_dying = clump_entries;
-        clump_entries = S_CAST(ClumpEntry**, bigstack_alloc_raw_rd((global_allele_ct + 1) * sizeof(intptr_t)));
+        clump_entries = S_CAST(ClumpEntry**, bigstack_alloc_raw_rd((observed_allele_ct + 1) * sizeof(intptr_t)));
         uintptr_t allele_uidx_base = 0;
         uintptr_t cur_bits = observed_alleles[0];
-        for (uintptr_t global_allele_idx = 0; global_allele_idx != global_allele_ct; ++global_allele_idx) {
+        for (uintptr_t global_allele_idx = 0; global_allele_idx != observed_allele_ct; ++global_allele_idx) {
           const uintptr_t allele_uidx = BitIter1(observed_alleles, &allele_uidx_base, &cur_bits);
           clump_entries[global_allele_idx] = clump_entries_dying[allele_uidx];
         }
 
         if (nonsig_arr) {
           const uintptr_t* nonsig_arr_dying = nonsig_arr;
-          nonsig_arr = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(global_allele_ct * sizeof(intptr_t)));
+          nonsig_arr = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(observed_allele_ct * sizeof(intptr_t)));
           allele_uidx_base = 0;
           cur_bits = observed_alleles[0];
-          for (uintptr_t global_allele_idx = 0; global_allele_idx != global_allele_ct; ++global_allele_idx) {
+          for (uintptr_t global_allele_idx = 0; global_allele_idx != observed_allele_ct; ++global_allele_idx) {
             const uintptr_t allele_uidx = BitIter1(observed_alleles, &allele_uidx_base, &cur_bits);
             nonsig_arr[global_allele_idx] = nonsig_arr_dying[allele_uidx];
           }
@@ -4929,7 +5162,7 @@ PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attr
         // Now save pval_bin_x2 values, as well as fidxs if necessary, as
         // varints.
         unsigned char* varint_write_iter = g_bigstack_base;
-        for (uintptr_t global_allele_idx = 0; global_allele_idx != global_allele_ct; ++global_allele_idx) {
+        for (uintptr_t global_allele_idx = 0; global_allele_idx != observed_allele_ct; ++global_allele_idx) {
           ClumpEntry* ll_iter = clump_entries[global_allele_idx];
           // assign to clump_entries instead of clump_entry_varints, so we
           // don't break strict-aliasing rule
@@ -4946,7 +5179,7 @@ PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attr
           } while (ll_iter);
         }
         clump_entry_varints = R_CAST(unsigned char**, clump_entries);
-        clump_entry_varints[global_allele_ct] = varint_write_iter;
+        clump_entry_varints[observed_allele_ct] = varint_write_iter;
         if (unlikely(BigstackBaseSetChecked(varint_write_iter))) {
           goto ClumpReports_ret_NOMEM;
         }
@@ -4958,10 +5191,10 @@ PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attr
     // g_bigstack_end.
     BigstackEndReset(bigstack_end_mark2);
     // Create sorted list of index-variant candidates, then free best_ln_pvals.
-    uintptr_t* index_candidate_bitvec;
+    uintptr_t* icandidate_vbitvec;
     ClumpPval* index_candidates;
-    if (unlikely(bigstack_calloc_w(raw_variant_ctl, &index_candidate_bitvec) ||
-                 BIGSTACK_ALLOC_X(ClumpPval, global_allele_ct, &index_candidates))) {
+    if (unlikely(bigstack_calloc_w(raw_variant_ctl, &icandidate_vbitvec) ||
+                 BIGSTACK_ALLOC_X(ClumpPval, observed_allele_ct, &index_candidates))) {
       goto ClumpReports_ret_NOMEM;
     }
     uint32_t index_candidate_ct;
@@ -4988,7 +5221,7 @@ PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attr
             index_candidates[index_candidate_ct_w].aidx = allele_uidx - allele_idx_offset_base;
             index_candidates[index_candidate_ct_w].variant_uidx = variant_uidx;
             ++index_candidate_ct_w;
-            SetBit(variant_uidx, index_candidate_bitvec);
+            SetBit(variant_uidx, icandidate_vbitvec);
           }
         }
         if (force_a1 && (cur_allele_ct == 2) && (index_candidate_ct_w >= 2) && (index_candidates[index_candidate_ct_w - 2].variant_uidx == variant_uidx)) {
@@ -5014,14 +5247,18 @@ PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attr
 #endif
       index_candidate_ct = index_candidate_ct_w;
       BigstackShrinkTop(index_candidates, sizeof(ClumpPval) * index_candidate_ct);
+      // About to make a bunch of cacheline-aligned allocations at end of
+      // bigstack.
+      // (This is awkward, should be a single function call...)
       BigstackEndReset(bigstack_end_mark);
+      BigstackEndReset(BigstackEndRoundedDown());
       ClumpPvalSorter* sorter = R_CAST(ClumpPvalSorter*, index_candidates);
       STD_SORT_PAR_UNSEQ(index_candidate_ct, ClumpPvalCmp, sorter);
     }
-
     // Main algorithm:
     // - Identify independent "islands", induced by the --clump-kb setting.
-    // - Process one island at a time.
+    // - Process one island (or island-group, if the island is inefficiently
+    //   small) at a time.
     //   - Usually, all we need to determine is: for each remaining (variant
     //     ID, aidx) pair, what clump was it assigned to?  (clump-index is
     //     defined by index_candidates[] position.  Some clump-indexes are
@@ -5036,15 +5273,36 @@ PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attr
     //     other applications.)
     // - After we're done processing all islands, we have the information
     //   needed to write the final p-value sorted report.
-    uint32_t* allele_uidx_to_clump_idx = nullptr;
+
+    // Create an icandidate_idx -> index_candidates lookup table, to support
+    // island-based processing.
+    // "_destructive" because the main loop modifies this array in-place.
+    uint32_t* icandidate_idx_to_rank0_destructive;
+    {
+      uint32_t* icandidate_popcounts;
+      uint64_t* icandidate_sorter;
+      if (unlikely(bigstack_alloc_u32(index_candidate_ct, &icandidate_idx_to_rank0_destructive) ||
+                   bigstack_alloc_u32(raw_variant_ctl, &icandidate_popcounts))) {
+        goto ClumpReports_ret_NOMEM;
+      }
+      FillCumulativePopcounts(icandidate_vbitvec, raw_variant_ctl, icandidate_popcounts);
+      for (uint32_t rank0 = 0; rank0 != index_candidate_ct; ++rank0) {
+        const uint32_t variant_uidx = index_candidates[rank0].variant_uidx;
+        const uint32_t icandidate_idx = RawToSubsettedPos(icandidate_vbitvec, icandidate_popcounts, variant_uidx);
+        icandidate_idx_to_rank0_destructive[icandidate_idx] = rank0;
+      }
+      BigstackReset(icandidate_popcounts);
+    }
+
+    uint32_t* allele_idx_to_clump_idx = nullptr;
     uint64_t* clump_idx_to_overlap_fpos = nullptr;
     const uint32_t allow_overlap = flags & kfClumpAllowOverlap;
     if (!allow_overlap) {
-      if (unlikely(bigstack_alloc_u32(global_allele_ct, &allele_uidx_to_clump_idx))) {
+      if (unlikely(bigstack_alloc_u32(observed_allele_ct, &allele_idx_to_clump_idx))) {
         goto ClumpReports_ret_NOMEM;
       }
-      for (uintptr_t ulii = 0; ulii != global_allele_ct; ++ulii) {
-        allele_uidx_to_clump_idx[ulii] = UINT32_MAX;
+      for (uintptr_t ulii = 0; ulii != observed_allele_ct; ++ulii) {
+        allele_idx_to_clump_idx[ulii] = UINT32_MAX;
       }
     } else {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".clumps.tmp");
@@ -5059,28 +5317,277 @@ PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attr
     // We switch between three parallelization strategies, depending on
     // available memory.
     // 1. In the best case, we can load the entire set of (variant ID, aidx)
-    //    pairs on the island into memory, and encode them in an
+    //    pairs on at least one island into memory, and encode them in an
     //    LD-computation-friendly form.  In that case, we parallelize that
-    //    operation first, and then iterate through the on-island index-variant
+    //    operation first, and then iterate through the on-island index
     //    candidates.
-    // 2. Failing that, we iterate through one on-island index-variant
-    //    candidate at a time.  Main thread tries to perform a PgfiMultiread
-    //    covering all the raw data we need in the window, and unpacks just the
-    //    index variant; then we parallelize unpacking / r^2-computation for
-    //    all the clumping candidates in the window.
+    // 2. Failing that, we iterate through one on-island index candidate at a
+    //    time.  Main thread tries to perform a PgfiMultiread covering all the
+    //    raw data we need in the window, and unpacks just the index (variant,
+    //    aidx); then we parallelize unpacking / r^2-computation for all the
+    //    clumping candidates in the window.
     // 3. If we don't even have enough memory for PgfiMultiread, the main
-    //    thread reads and unpacks the index-variant, then reads <affordable
-    //    multiple of worker thread ct> other variants at a time for the worker
-    //    threads to unpack / r^2-compute with.
+    //    thread reads and unpacks the index (variant, aidx), then reads
+    //    <affordable multiple of worker thread ct> other variants at a time
+    //    for the worker threads to unpack / r^2-compute with.
     //
     // We choose the worker thread count to ensure at least strategy #3 works.
+    const uintptr_t observed_allele_ctl = BitCtToWordCt(observed_allele_ct);
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t founder_male_ct = PopcountWordsIntersect(founder_info, sex_male, raw_sample_ctl);
-    ;;;
+    const uint32_t founder_nonmale_ct = founder_ct - founder_male_ct;
+    uintptr_t* candidate_oabitvec;
+    uint32_t* founder_info_cumulative_popcounts;
+    if (unlikely(bigstack_alloc_w(observed_allele_ctl, &candidate_oabitvec) ||
+                 bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts))) {
+      goto ClumpReports_ret_NOMEM;
+    }
+    SetAllBits(observed_allele_ct, candidate_oabitvec);
+    FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
+    uint32_t x_code;
+    if (XymtExists(cip, kChrOffsetX, &x_code)) {
+      const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[x_code];
+      const uint32_t x_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t x_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      if (AllBitsAreZero(icandidate_vbitvec, x_start, x_end)) {
+        x_code = UINT32_MAXM1;
+      }
+    }
+    // If founder_nonmale_ct == 0 or founder_male_ct == 0, main loop sets
+    // is_x to 0 and is_haploid appropriately.
+    const uint32_t x_exists = (x_code < UINT32_MAXM1) && founder_nonmale_ct && founder_male_ct;
+    uint32_t y_code;
+    if (XymtExists(cip, kChrOffsetX, &y_code)) {
+      const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[y_code];
+      const uint32_t y_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t y_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      if (AllBitsAreZero(icandidate_vbitvec, y_start, y_end)) {
+        y_code = UINT32_MAXM1;
+      } else if (unlikely(founder_male_ct == 0)) {
+        // Rather not worry about this case.
+        logerrputs("Error: --clump: chrY index variant(s) are present, but the main dataset\ncontains no male founders.\n");
+        goto ClumpReports_ret_INCONSISTENT_INPUT;
+      }
+    }
+    // If founder_nonmale_ct == 0, we can just treat as is_y=0, is_haploid=1.
+    const uint32_t y_exists = (y_code < UINT32_MAXM1) && founder_nonmale_ct;
+    uintptr_t* founder_male = nullptr;
+    uintptr_t* founder_nonmale = nullptr;
+    uint32_t max_sample_ct = founder_ct;
+    if (x_exists || y_exists) {
+      max_sample_ct = raw_sample_ct;
+      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_male))) {
+        goto ClumpReports_ret_NOMEM;
+      }
+      BitvecAndCopy(founder_info, sex_male, raw_sample_ctl, founder_male);
+      if (x_exists) {
+        if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_nonmale))) {
+          goto ClumpReports_ret_NOMEM;
+        }
+        BitvecInvmaskCopy(founder_info, sex_male, raw_sample_ctl, founder_nonmale);
+      }
+    }
+
+    const uintptr_t bitvec_byte_ct = BitCtToVecCt(founder_ct) * kBytesPerVec;
+    uintptr_t male_bitvec_byte_ct = 0;
+    uintptr_t nonmale_bitvec_byte_ct = 0;
+    if (x_exists || y_exists) {
+      male_bitvec_byte_ct = BitCtToVecCt(founder_male_ct) * kBytesPerVec;
+      if (x_exists) {
+        nonmale_bitvec_byte_ct = BitCtToVecCt(founder_nonmale_ct) * kBytesPerVec;
+      }
+    }
+    const uint32_t check_dosage = (pgfip->gflags / kfPgenGlobalDosagePresent) & 1;
+    uintptr_t dosagevec_byte_ct = 0;
+    uintptr_t male_dosagevec_byte_ct = 0;
+    uintptr_t nonmale_dosagevec_byte_ct = 0;
+    if (check_dosage) {
+      dosagevec_byte_ct = DivUp(founder_ct, kDosagePerVec) * kBytesPerVec;
+      if (x_exists || y_exists) {
+        male_dosagevec_byte_ct = DivUp(founder_male_ct, kDosagePerVec) * kBytesPerVec;
+        if (x_exists) {
+          nonmale_dosagevec_byte_ct = DivUp(founder_nonmale_ct, kDosagePerVec) * kBytesPerVec;
+        }
+      }
+    }
+
+    uint32_t calc_thread_ct = MAXV(1, max_thread_ct);
+    // no big deal if these are slightly overallocated
+    if (unlikely(BIGSTACK_ALLOC_X(PgenReader*, calc_thread_ct + 1, &ctx.pgr_ptrs) ||
+                 bigstack_alloc_u32p(calc_thread_ct + 1, &(ctx.a[0].ld_allele_idx_found)) ||
+                 bigstack_alloc_u32p(calc_thread_ct + 1, &(ctx.a[1].ld_allele_idx_found)))) {
+      goto ClumpReports_ret_NOMEM;
+    }
+    // Now determine real calc_thread_ct.
+    // This function's logic is sufficiently different from the usual
+    // PgfiMultiread use case that we fork PgenMtLoadInit()'s computation here
+    // instead of modifying that function.
+
     const uint32_t force_unphased = flags & kfClumpUnphased;
     const uint32_t all_haploid = IsSet(cip->haploid_mask, 0);
-    const uint32_t load_phase = (!force_unphased) && (!all_haploid) && (pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent));
-    const uint32_t load_dosage = (pgfip->gflags / kfPgenGlobalDosagePresent) & 1;
+    const uint32_t check_phase = (!force_unphased) && (!all_haploid) && (pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent));
+    PgenGlobalFlags effective_gflags = pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
+    if (!check_phase) {
+      effective_gflags &= kfPgenGlobalDosagePresent;
+    }
+
+    if (unlikely(BigstackAllocPgv(max_sample_ct, 0, effective_gflags, &ctx.pgv_base))) {
+      goto ClumpReports_ret_1;
+    }
+    const uintptr_t pgv_byte_stride = g_bigstack_base - R_CAST(unsigned char*, ctx.pgv_base.genovec);
+
+    uintptr_t x_unpacked_byte_stride = 0;
+    uintptr_t nonxy_unpacked_byte_stride;
+    if (check_dosage) {
+      nonxy_unpacked_byte_stride = dosagevec_byte_ct * (2 + check_phase) + bitvec_byte_ct;
+      if (x_exists) {
+        x_unpacked_byte_stride = nonmale_dosagevec_byte_ct * (2 + check_phase) + nonmale_bitvec_byte_ct + male_dosagevec_byte_ct * 2 + male_bitvec_byte_ct;
+      }
+    } else {
+      nonxy_unpacked_byte_stride = bitvec_byte_ct * (3 + 2 * check_phase);
+      if (x_exists) {
+        x_unpacked_byte_stride = nonmale_bitvec_byte_ct * (3 + 2 * check_phase) + male_bitvec_byte_ct * 3;
+      }
+    }
+    const uintptr_t max_unpacked_byte_stride = MAXV(nonxy_unpacked_byte_stride, x_unpacked_byte_stride);
+    const uintptr_t pgr_struct_alloc = RoundUpPow2(sizeof(PgenReader), kCacheline);
+
+    // Haven't counted PgenReader instance, two unpacked_variants slots, or
+    // ld_allele_idx_found slots required by main thread yet.
+    {
+      // FillGaussianDArr() uses a minimum per-thread job size of ~4 MiB of
+      // memory writes.  I'm guessing that is also a reasonable
+      // unpacked_variants shard size to aim for.
+      const uint32_t min_pgv_per_thread = 1 + 4194303 / pgv_byte_stride;
+      const uint32_t min_ld_allele_idx_found_alloc = 2 * RoundUpPow2(min_pgv_per_thread, kInt32PerCacheline) * kCacheline;
+
+      // Don't actually want to count the pgv we just allocated, since that
+      // will already be accounted for by per_thread_target_alloc.
+      BigstackReset(ctx.pgv_base.genovec);
+      uintptr_t bytes_avail = bigstack_left();
+      const uintptr_t more_base_alloc = pgr_struct_alloc + pgr_alloc_cacheline_ct * kCacheline + 2 * max_unpacked_byte_stride + min_ld_allele_idx_found_alloc;
+      if (unlikely(bytes_avail < more_base_alloc)) {
+        goto ClumpReports_ret_NOMEM;
+      }
+      bytes_avail -= more_base_alloc;
+
+      const uintptr_t per_thread_target_alloc = 2 * min_pgv_per_thread * pgv_byte_stride + max_unpacked_byte_stride + pgr_struct_alloc + pgr_alloc_cacheline_ct * kCacheline + min_ld_allele_idx_found_alloc;
+      if (bytes_avail < per_thread_target_alloc * calc_thread_ct) {
+        calc_thread_ct = bytes_avail / per_thread_target_alloc;
+        if (unlikely(!calc_thread_ct)) {
+          goto ClumpReports_ret_NOMEM;
+        }
+      }
+    }
+    // Ready to initialize the rest of ctx.
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto ClumpReports_ret_NOMEM;
+    }
+
+    // Effective end of pgv-buffer allocation, in midmem and highmem cases.
+    g_bigstack_base += (calc_thread_ct + 1) * pgv_byte_stride;
+
+    // Decide on a maximum value upfront, rather than reconfiguring this for
+    // each island-group.
+    // (If 0, always use lowmem mode.)
+    uint32_t read_block_size = kPglVblockSize;
+    {
+      // Allow up to 1/4 of remaining workspace.
+      const uintptr_t cacheline_ct_limit = bigstack_left() / (4 * kCacheline);
+      const uint32_t observed_variant_ct = PopcountWords(observed_variants, raw_variant_ctl);
+      for (; ; read_block_size /= 2) {
+        uint64_t multiread_cacheline_ct = PgfiMultireadGetCachelineReq(observed_variants, pgfip, );
+      }
+    }
+
+    for (uint32_t tidx = 0; tidx <= calc_thread_ct; ++tidx) {
+      ctx.pgr_ptrs[tidx] = S_CAST(PgenReader*, bigstack_end_alloc_raw(pgr_struct_alloc));
+      unsigned char* pgr_alloc = S_CAST(unsigned char*, bigstack_end_alloc_raw(pgr_alloc_cacheline_ct * kCacheline));
+
+      // shouldn't be possible for this to fail
+      PgrInit(nullptr, 0, pgfip, ctx.pgr_ptrs[tidx], pgr_alloc);
+    }
+    ctx.observed_variants = observed_variants;
+    ctx.allele_idx_offsets = allele_idx_offsets;
+    ctx.observed_alleles = observed_alleles;
+    ctx.observed_alleles_cumulative_popcounts_w = observed_alleles_cumulative_popcounts_w;
+    ctx.founder_info = founder_info;
+    ctx.founder_info_cumulative_popcounts = founder_info_cumulative_popcounts;
+    ctx.founder_nonmale = founder_nonmale;
+    ctx.founder_male = founder_male;
+    ctx.founder_ct = founder_ct;
+    ctx.founder_male_ct = founder_male_ct;
+    ctx.pgv_byte_stride = pgv_byte_stride;
+    ctx.bitvec_byte_ct = bitvec_byte_ct;
+    ctx.dosagevec_byte_ct = dosagevec_byte_ct;
+    ctx.male_bitvec_byte_ct = male_bitvec_byte_ct;
+    ctx.male_dosagevec_byte_ct = male_dosagevec_byte_ct;
+    ctx.nonmale_bitvec_byte_ct = nonmale_bitvec_byte_ct;
+    ctx.nonmale_dosagevec_byte_ct = nonmale_dosagevec_byte_ct;
+    ctx.r2_thresh = clump_ip->r2;
+    ctx.candidate_oabitvec = candidate_oabitvec;
+    ctx.icandidate_vbitvec = allow_overlap? icandidate_vbitvec : nullptr;
+    ctx.err_info = 0;
+    SetThreadFuncAndData(ClumpThread, &ctx, &tg);
+
+    // Main loop:
+    // 1. Identify boundaries of next island.  (An island is a set of variants
+    //    that is distant enough from the rest of the variants that it can be
+    //    processed independently.)
+    // 2. Determine highest memory mode that still fits.
+    // 3. Holding the memory mode constant, check if additional small islands
+    //    can be appended to the group.
+    // 4. Process the island-group.
+    const uint32_t bp_radius = clump_ip->bp_radius;
+    uint32_t parity = 0;
+    uint32_t next_last_vidx = 0;
+    uint32_t next_chr_fo_idx = 0;
+    uint32_t next_first_vidx = GetNextIsland(cip, variant_bps, icandidate_vbitvec, observed_variants, raw_variant_ct, bp_radius, &next_last_vidx, &next_chr_fo_idx);
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t is_x = 0;
+    uint32_t is_y = 0;
+    uint32_t is_haploid = 0;
+    for (uint32_t icandidate_idx_start = 0; ; ) {
+      uint32_t first_vidx = next_first_vidx;
+      uint32_t last_vidx = next_last_vidx;
+      if (chr_fo_idx != next_chr_fo_idx) {
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        is_haploid = IsSet(cip->haploid_mask, chr_idx);
+        is_x = (chr_idx == x_code);
+        is_y = (chr_idx == y_code);
+        if (is_x) {
+          if (!founder_nonmale_ct) {
+            is_x = 0;
+          } else if (!founder_male_ct) {
+            is_haploid = 0;
+          }
+        }
+      }
+      chr_fo_idx = next_chr_fo_idx;
+
+      uint32_t candidate_ct = PopcountBitRange(observed_alleles, first_allele_idx, last_allele_idx + 1);
+      uint32_t load_phase = 0;
+      uint32_t load_dosage = 0;
+      ScanPhaseDosage(observed_variants, pgfip, first_vidx, candidate_ct, check_phase && ((!is_haploid) || is_x), check_dosage, &load_phase, &load_dosage);
+      ctx.a[parity].is_x = is_x;
+      ctx.a[parity].is_y = is_y;
+      ctx.a[parity].load_phase = load_phase;
+      ctx.a[parity].load_dosage = load_dosage;
+
+
+      uintptr_t unpacked_variant_byte_stride = UnpackedByteStride(&ctx, parity);
+      // Highmem requirement:
+      //   candidate_ct * unpacked_variant_byte_stride for unpacked variants
+      //   ;;;
+
+      uint32_t icandidate_ct = PopcountBitRange(icandidate_vbitvec, first_vidx, last_vidx + 1);
+
+      next_last_vidx = last_vidx;
+      next_chr_fo_idx = chr_fo_idx;
+
+      // uint32_t next_first_vidx = GetNextIsland(cip, variant_bps, icandidate_vbitvec, observed_variants, raw_variant_ct, bp_radius, &last_vidx, &next_chr_fo_idx);
+      icandidate_idx_start += icandidate_ct;
+    }
 
     // Usual (i.e. not --clump-allow-overlap) postprocessing algorithm:
     // 1. Count the number of (variant, aidx)s associated with each clump.
@@ -5118,6 +5625,7 @@ PglErr ClumpReports(const uintptr_t* variant_include, const ChrInfo* cip, __attr
     break;
   }
  ClumpReports_ret_1:
+  CleanupThreads(&tg);
   CleanupTextStream2("--clump file", &txs, &reterr);
   fclose_cond(clump_overlap_tmp);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);

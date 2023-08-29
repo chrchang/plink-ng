@@ -45,15 +45,15 @@ void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip) {
 
 BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenGlobalFlags gflags, PgenVariant* pgvp) {
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-  if (unlikely(bigstack_alloc_w(sample_ctl2, &(pgvp->genovec)))) {
+  if (unlikely(bigstack_allocv_w(sample_ctl2, &(pgvp->genovec)))) {
     return 1;
   }
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   if (multiallelic_needed) {
-    if (unlikely(bigstack_alloc_w(sample_ctl, &(pgvp->patch_01_set)) ||
-                 bigstack_alloc_ac(sample_ct, &(pgvp->patch_01_vals)) ||
-                 bigstack_alloc_w(sample_ctl, &(pgvp->patch_10_set)) ||
-                 bigstack_alloc_ac(sample_ct * 2, &(pgvp->patch_10_vals)))) {
+    if (unlikely(bigstack_allocv_w(sample_ctl, &(pgvp->patch_01_set)) ||
+                 bigstack_allocv_ac(sample_ct, &(pgvp->patch_01_vals)) ||
+                 bigstack_allocv_w(sample_ctl, &(pgvp->patch_10_set)) ||
+                 bigstack_allocv_ac(sample_ct * 2, &(pgvp->patch_10_vals)))) {
       return 1;
     }
   } else {
@@ -64,8 +64,8 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
     pgvp->patch_10_vals = nullptr;
   }
   if (gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent)) {
-    if (unlikely(bigstack_alloc_w(sample_ctl, &(pgvp->phasepresent)) ||
-                 bigstack_alloc_w(sample_ctl, &(pgvp->phaseinfo)))) {
+    if (unlikely(bigstack_allocv_w(sample_ctl, &(pgvp->phasepresent)) ||
+                 bigstack_allocv_w(sample_ctl, &(pgvp->phaseinfo)))) {
       return 1;
     }
   } else {
@@ -73,16 +73,16 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
     pgvp->phaseinfo = nullptr;
   }
   if (gflags & kfPgenGlobalDosagePresent) {
-    if (unlikely(bigstack_alloc_w(sample_ctl, &(pgvp->dosage_present)) ||
-                 bigstack_alloc_dosage(sample_ct, &(pgvp->dosage_main)))) {
+    if (unlikely(bigstack_allocv_w(sample_ctl, &(pgvp->dosage_present)) ||
+                 bigstack_allocv_dosage(sample_ct, &(pgvp->dosage_main)))) {
       return 1;
     }
     if (multiallelic_needed) {
       // todo
     }
     if (gflags & kfPgenGlobalDosagePhasePresent) {
-      if (unlikely(bigstack_alloc_w(sample_ctl, &(pgvp->dphase_present)) ||
-                   bigstack_alloc_dphase(sample_ct, &(pgvp->dphase_delta)))) {
+      if (unlikely(bigstack_allocv_w(sample_ctl, &(pgvp->dphase_present)) ||
+                   bigstack_allocv_dphase(sample_ct, &(pgvp->dphase_delta)))) {
         return 1;
       }
       if (multiallelic_needed) {
@@ -96,7 +96,7 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
     pgvp->dphase_delta = nullptr;
     // todo: multiallelic-dosage buffers
   }
-  return 0;
+  return BigstackBaseSetChecked(g_bigstack_base);
 }
 
 static_assert(kDosageMid == 16384, "PrintDosageDecimal() needs to be updated.");
