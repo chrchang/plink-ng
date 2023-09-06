@@ -91,7 +91,7 @@ CCSRC = $(PLINK2LIB_CCSRC) \
         plink2_random.cc \
         plink2_set.cc
 
-ZLIB_VER = 1.2.13
+ZLIB_VER = 1.3
 
 OBJ_NO_ZSTD = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
 OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(CCSRC:.cc=.o)

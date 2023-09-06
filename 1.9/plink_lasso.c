@@ -32,7 +32,6 @@ int32_t transpose_covar(const uintptr_t* sample_exclude, const uintptr_t* pheno_
   double ssq = 0.0;
   double* writeptr = writeptr_start;
   uint32_t sample_uidx = 0;
-  uint32_t uii = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_uidx, ++sample_idx) {
     next_unset_unsafe_ck(sample_exclude, &sample_uidx);
     if (IS_SET(pheno_nm, sample_uidx)) {
@@ -40,7 +39,6 @@ int32_t transpose_covar(const uintptr_t* sample_exclude, const uintptr_t* pheno_
       sum += dxx;
       ssq += dxx * dxx;
       *writeptr++ = dxx;
-      ++uii;
     }
   }
   if (ssq * ((double)sample_valid_ct) == sum * sum) {

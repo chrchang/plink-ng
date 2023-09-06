@@ -5442,7 +5442,6 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   uint32_t uii;
   uint32_t row;
   uint32_t col;
-  uint32_t new_row;
   uint32_t pct;
   uintptr_t sample_idx;
   int32_t* rel_ct_arr;
@@ -5862,7 +5861,6 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       pct = 1;
       row = 0;
       col = 0;
-      new_row = 1;
       progress = 0;
       hundredth = 1 + ((((uint64_t)sample_ct) * (sample_ct - 1)) / 200);
       memcpy(outname_end, ".grm.N.bin", 11);
@@ -5923,7 +5921,6 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	      }
 	    }
 	  }
-	  new_row++;
 	}
 	row++;
 	progress += row;
@@ -6700,7 +6697,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       }
       strcpy(outname_end, ".rel.bin");
       if (parallel_tot > 1) {
-	sprintf(&(outname_end[8]), ".%u", parallel_idx + 1);
+	snprintf(&(outname_end[8]), MAX_POST_EXT - 8, ".%u", parallel_idx + 1);
       }
       if (fopen_checked(outname, FOPEN_WB, &outfile)) {
 	goto calc_rel_ret_OPEN_FAIL;
@@ -6793,7 +6790,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       // make this .rel.bin4?
       strcpy(outname_end, ".rel.bin");
       if (parallel_tot > 1) {
-	sprintf(&(outname_end[8]), ".%u", parallel_idx + 1);
+	snprintf(&(outname_end[8]), MAX_POST_EXT - 8, ".%u", parallel_idx + 1);
       }
       if (fopen_checked(outname, FOPEN_WB, &outfile)) {
 	goto calc_rel_ret_OPEN_FAIL;
@@ -6857,7 +6854,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	} else {
 	  strcpy(outname_end, ".grm");
 	  if (parallel_tot > 1) {
-	    sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
+	    snprintf(&(outname_end[4]), MAX_POST_EXT - 4, ".%u", parallel_idx + 1);
 	  }
 	  retval = write_uncompressed(outname, overflow_buf, 0, calc_rel_grm_emitn);
 	  if (retval) {
@@ -6874,7 +6871,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	} else {
 	  strcpy(outname_end, ".rel");
 	  if (parallel_tot > 1) {
-	    sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
+	    snprintf(&(outname_end[4]), MAX_POST_EXT - 4, ".%u", parallel_idx + 1);
 	  }
 	}
 	if (rel_shape == REL_CALC_TRI) {
@@ -6938,7 +6935,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       if (retval) {
 	goto calc_rel_ret_1;
       }
-      sprintf(wptr, " , and IDs written to %s .\n", outname);
+      snprintf(wptr, LOGBUFLEN - (wptr - g_logbuf), " , and IDs written to %s .\n", outname);
     } else {
       snprintf(g_logbuf, LOGBUFLEN, "Relationship matrix component written to %s .\n", outname);
     }
@@ -8066,7 +8063,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       if (retval) {
 	goto calc_distance_ret_1;
       }
-      sprintf(wptr, " , and IDs to %s .\n", outname);
+      snprintf(wptr, LOGBUFLEN - (wptr - g_logbuf), " , and IDs to %s .\n", outname);
     } else {
       snprintf(g_logbuf, LOGBUFLEN, "Distances (proportions) written to %s .\n", outname);
     }
