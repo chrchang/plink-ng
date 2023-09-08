@@ -109,7 +109,7 @@ uint32_t AdvBoundedTo1Bit(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
 uintptr_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
 
-uint32_t FindLast1BitBefore(const uintptr_t* bitarr, uint32_t loc);
+uintptr_t FindLast1BitBefore(const uintptr_t* bitarr, uintptr_t loc);
 
 // possible todo: check if movemask-based solution is better in AVX2 case
 HEADER_INLINE uint32_t AllWordsAreZero(const uintptr_t* word_arr, uintptr_t word_ct) {
@@ -441,11 +441,16 @@ HEADER_INLINE void NextNonmissingUnsafeCk32(const uintptr_t* __restrict genoarr,
 */
 
 // Equivalent to popcount_bit_idx(subset_mask, 0, raw_idx).
-HEADER_INLINE uint32_t RawToSubsettedPos(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, uint32_t raw_idx) {
+HEADER_INLINE uint32_t RawToSubsettedPos(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, uintptr_t raw_idx) {
   // this should be much better than keeping a uidx_to_idx array!
   // (update: there are more compact indexes, but postpone for now, this is
   // is nice and simple and gets us most of what we need.)
-  const uint32_t raw_widx = raw_idx / kBitsPerWord;
+  const uintptr_t raw_widx = raw_idx / kBitsPerWord;
+  return subset_cumulative_popcounts[raw_widx] + PopcountWord(bzhi(subset_mask[raw_widx], raw_idx % kBitsPerWord));
+}
+
+HEADER_INLINE uintptr_t RawToSubsettedPosW(const uintptr_t* subset_mask, const uintptr_t* subset_cumulative_popcounts, uintptr_t raw_idx) {
+  const uintptr_t raw_widx = raw_idx / kBitsPerWord;
   return subset_cumulative_popcounts[raw_widx] + PopcountWord(bzhi(subset_mask[raw_widx], raw_idx % kBitsPerWord));
 }
 

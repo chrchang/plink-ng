@@ -1632,6 +1632,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
   }
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
+  pgfip->block_base = nullptr;
   return reterr;
 }
 
@@ -3268,6 +3269,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
   }
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
+  pgfip->block_base = nullptr;
   return reterr;
 }
 

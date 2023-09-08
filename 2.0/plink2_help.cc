@@ -2156,7 +2156,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                   by --make-[b]pgen/--make-bed/--export\n"
 "                                   (default 'NA' for .psam, -9 for older).\n"
                );
-    HelpPrint("sort-vars\0", &help_ctrl, 0,
+    HelpPrint("sort-vars\0update-chr\0", &help_ctrl, 0,
 "  --sort-vars [mode]      : Sort variants by chromosome, then position, then\n"
 "                            ID.  The following string orders are supported:\n"
 "                            * 'natural'/'n': Natural sort (default).\n"
@@ -2222,7 +2222,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                               --set-{missing|all}-var-ids, and\n"
 "                               --recover-var-ids (default '.').\n"
                );
-    HelpPrint("update-map\0update-name\0", &help_ctrl, 0,
+    HelpPrint("update-chr\0update-map\0update-name\0", &help_ctrl, 0,
+"  --update-chr  <f> [chrcol] [IDcol]  [skip] : Update variant chromosome codes.\n"
+"                                               Now requires --sort-vars.\n"
 "  --update-map  <f> [bpcol]  [IDcol]  [skip] : Update variant bp positions.\n"
 "  --update-name <f> [newcol] [oldcol] [skip] : Update variant IDs.\n"
                );

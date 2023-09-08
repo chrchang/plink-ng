@@ -275,6 +275,8 @@ HEADER_INLINE uint32_t ClipU32(uint32_t val, uint32_t lbound, uint32_t ubound) {
   return MAXV(val, lbound);
 }
 
+int32_t u32cmp(const void* aa, const void* bb);
+
 int32_t double_cmp(const void* aa, const void* bb);
 
 int32_t double_cmp_decr(const void* aa, const void* bb);
@@ -361,12 +363,36 @@ uint32_t CountSortedSmallerU32(const uint32_t* sorted_u32_arr, uint32_t arr_leng
 // front, and tolerates end_idx (== arr_length) == 0.
 uint32_t ExpsearchU32(const uint32_t* sorted_u32_arr, uint32_t end_idx, uint32_t needle);
 
+#ifdef __LP64__
+uintptr_t ExpsearchU64(const uint64_t* sorted_u64_arr, uint64_t end_idx, uint64_t needle);
+
+HEADER_INLINE uintptr_t ExpsearchW(const uintptr_t* sorted_w_arr, uintptr_t end_idx, uintptr_t needle) {
+  return ExpsearchU64(R_CAST(const uint64_t*, sorted_w_arr), end_idx, needle);
+}
+#else
+HEADER_INLINE uintptr_t ExpsearchW(const uintptr_t* sorted_w_arr, uintptr_t end_idx, uintptr_t needle) {
+  return ExpsearchU32(R_CAST(const uint32_t*, sorted_w_arr), end_idx, needle);
+}
+#endif
+
 uintptr_t CountSortedSmallerU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle);
+
+HEADER_INLINE uintptr_t CountSortedSmallerW(const uintptr_t* sorted_w_arr, uintptr_t arr_length, uintptr_t needle) {
+#ifdef __LP64__
+  return CountSortedSmallerU64(R_CAST(const uint64_t*, sorted_w_arr), arr_length, needle);
+#else
+  return CountSortedSmallerU32(R_CAST(const uint32_t*, sorted_w_arr), arr_length, needle);
+#endif
+}
 
 uintptr_t CountSortedSmallerD(const double* sorted_dbl_arr, uintptr_t arr_length, double needle);
 
 
 uintptr_t CountSortedLeqU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle);
+
+uintptr_t IdxToUidxW(const uintptr_t* bitvec, const uintptr_t* cumulative_popcounts, uintptr_t widx_start, uintptr_t widx_end, uintptr_t idx);
+
+uintptr_t ExpsearchIdxToUidxW(const uintptr_t* bitvec, const uintptr_t* cumulative_popcounts, uintptr_t widx_end, uintptr_t idx, uintptr_t* widx_startp);
 
 
 HEADER_INLINE uint32_t IsCmdlineFlag(const char* param) {
@@ -1743,8 +1769,25 @@ HEADER_INLINE uint32_t IdxToUidxBasic(const uintptr_t* bitvec, uint32_t idx) {
   return FindNth1BitFrom(bitvec, 0, idx + 1);
 }
 
-// variant_ct must be positive, but can be smaller than thread_ct
-void ComputeUidxStartPartition(const uintptr_t* variant_include, uint64_t variant_ct, uint32_t thread_ct, uint32_t first_uidx, uint32_t* variant_uidx_starts);
+// These functions assume (bit_ct * (thread_ct - 1)) < 2^64.
+// bit_ct must be positive, but can be smaller than thread_ct
+void FillU32SubsetStarts(const uintptr_t* subset, uint32_t thread_ct, uint32_t start, uint64_t bit_ct, uint32_t* starts);
+
+HEADER_INLINE void ComputeUidxStartPartition(const uintptr_t* variant_include, uint64_t variant_ct, uint32_t thread_ct, uint32_t first_uidx, uint32_t* variant_uidx_starts) {
+  FillU32SubsetStarts(variant_include, thread_ct, first_uidx, variant_ct, variant_uidx_starts);
+}
+
+void FillWStarts(uint32_t thread_ct, uintptr_t start, uint64_t bit_ct, uintptr_t* starts);
+
+#ifdef __LP64__
+void FillWSubsetStarts(const uintptr_t* subset, uint32_t thread_ct, uintptr_t start, uint64_t bit_ct, uintptr_t* starts);
+#else
+HEADER_INLINE void FillWSubsetStarts(const uintptr_t* subset, uint32_t thread_ct, uintptr_t start, uint64_t bit_ct, uintptr_t* starts) {
+  return FillU32SubsetStarts(subset, thread_ct, start, bit_ct, R_CAST(uint32_t*, starts));
+}
+#endif
+
+
 
 // Set multiplier to 0 to only count extra alleles, 1 to also count alt1 for
 // those variants (useful for HWE), 2 to count both ref and alt1 for

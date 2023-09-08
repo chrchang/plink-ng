@@ -7796,6 +7796,138 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
   return reterr;
 }
 
+PglErr UpdateChr(const uintptr_t* variant_include, const char* const* variant_ids, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t prohibit_extra_chrs, uint32_t max_thread_ct, ChrInfo* cip, ChrIdx* chr_idxs) {
+  // See e.g. UpdateVarBps().
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    // possible todo: if cip->name_ct > 0, try to prune here, so we can handle
+    // more new names
+
+    uintptr_t* already_seen;
+    if (unlikely(bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
+      goto UpdateChr_ret_NOMEM;
+    }
+
+    uint32_t* variant_id_htable;
+    uint32_t variant_id_htable_size;
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, bigstack_left() / 8, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
+    if (unlikely(reterr)) {
+      goto UpdateChr_ret_1;
+    }
+
+    // This could be pointed at a file containing allele codes, so don't limit
+    // line length to minimum value.
+    reterr = SizeAndInitTextStream(params->fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto UpdateChr_ret_TSTREAM_FAIL;
+    }
+    reterr = TextSkip(params->skip_ct, &txs);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetEof) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Fewer lines than expected in %s.\n", params->fname);
+        goto UpdateChr_ret_INCONSISTENT_INPUT_WW;
+      }
+      goto UpdateChr_ret_TSTREAM_FAIL;
+    }
+    line_idx = params->skip_ct;
+    const uint32_t colid_first = (params->colid < params->colx);
+    uint32_t colmin;
+    uint32_t coldiff;
+    if (colid_first) {
+      colmin = params->colid - 1;
+      coldiff = params->colx - params->colid;
+    } else {
+      colmin = params->colx - 1;
+      coldiff = params->colid - params->colx;
+    }
+    const char skipchar = params->skipchar;
+    uintptr_t miss_ct = 0;
+    uint32_t hit_ct = 0;
+    while (1) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        if (likely(!TextStreamErrcode2(&txs, &reterr))) {
+          break;
+        }
+        goto UpdateChr_ret_TSTREAM_FAIL;
+      }
+      char cc = *line_start;
+      if (cc == skipchar) {
+        continue;
+      }
+      char* colid_ptr;
+      char* colchr_ptr;
+      if (colid_first) {
+        colid_ptr = NextTokenMult0(line_start, colmin);
+        colchr_ptr = NextTokenMult(colid_ptr, coldiff);
+        if (unlikely(!colchr_ptr)) {
+          goto UpdateChr_ret_MISSING_TOKENS;
+        }
+      } else {
+        colchr_ptr = NextTokenMult0(line_start, colmin);
+        colid_ptr = NextTokenMult(colchr_ptr, coldiff);
+        if (unlikely(!colid_ptr)) {
+          goto UpdateChr_ret_MISSING_TOKENS;
+        }
+      }
+      const uint32_t varid_slen = strlen_se(colid_ptr);
+      const uint32_t variant_uidx = VariantIdDupflagHtableFind(colid_ptr, variant_ids, variant_id_htable, varid_slen, variant_id_htable_size, max_variant_id_slen);
+      if (variant_uidx >> 31) {
+        if (unlikely(variant_uidx != UINT32_MAX)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: --update-chr variant ID '%s' appears multiple times in dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
+          goto UpdateChr_ret_INCONSISTENT_INPUT_WW;
+        }
+        ++miss_ct;
+        continue;
+      }
+      const char* cur_var_id = variant_ids[variant_uidx];
+      if (unlikely(IsSet(already_seen, variant_uidx))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --update-chr file.\n", cur_var_id);
+        goto UpdateChr_ret_INCONSISTENT_INPUT_WW;
+      }
+      SetBit(variant_uidx, already_seen);
+
+      char* chr_code_end = CurTokenEnd(colchr_ptr);
+      uint32_t cur_chr_code;
+      reterr = GetOrAddChrCodeDestructive("--update-chr file", line_idx, prohibit_extra_chrs, colchr_ptr, chr_code_end, cip, &cur_chr_code);
+      if (unlikely(reterr)) {
+        goto UpdateChr_ret_1;
+      }
+      chr_idxs[variant_uidx] = cur_chr_code;
+      ++hit_ct;
+    }
+    if (miss_ct) {
+      snprintf(g_logbuf, kLogbufSize, "--update-chr: %u value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    } else {
+      snprintf(g_logbuf, kLogbufSize, "--update-chr: %u value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+    }
+    logputsb();
+  }
+  while (0) {
+  UpdateChr_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  UpdateChr_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--update-map file", &txs);
+    break;
+  UpdateChr_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-map file has fewer tokens than expected.\n", line_idx);
+  UpdateChr_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ UpdateChr_ret_1:
+  CleanupTextStream2("--update-chr file", &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
 
 BoolErr SortChr(const ChrInfo* cip, const uint32_t* chr_idx_to_size, uint32_t use_nsort, ChrInfo* write_cip) {
   // Finishes initialization of write_cip.  Assumes chr_fo_vidx_start is
@@ -8367,13 +8499,13 @@ PglErr WritePvarResorted(const char* outname, const uintptr_t* variant_include, 
   return reterr;
 }
 
-PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const ChrIdx* chr_idxs, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, uint32_t use_nsort, PvarPsamFlags pvar_psam_flags, char* xheader, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, const TwoColParams* update_chr_flag, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, uint32_t use_nsort, PvarPsamFlags pvar_psam_flags, ChrInfo* cip, char* xheader, ChrIdx* chr_idxs, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
   {
     // Resort the variants.
-    // 1. (todo) Apply --update-chr if necessary.
+    // 1. Apply --update-chr if necessary.
     // 2. Count number of remaining variants in each chromosome, then sort the
     //    chromosomes.
     // 3. Within each chromosome, sort by position.  Could add 0.5 for
@@ -8383,6 +8515,30 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
     // 4. Scan for position ties, sort on ID (according to --sort-vars setting,
     //    defaults to natural-sort but can be ASCII).
     // 5. Fill new_variant_idx_to_old, free sort buffers.
+
+    if (update_chr_flag) {
+      if (!chr_idxs) {
+        if (unlikely(BIGSTACK_ALLOC_X(ChrIdx, raw_variant_ct, &chr_idxs))) {
+          goto MakePlink2Vsort_ret_NOMEM;
+        }
+        const uint32_t chr_ct = cip->chr_ct;
+        uint32_t prev_end_vidx = 0;
+        for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+          const uint32_t cur_end_vidx = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          ChrIdx* chr_idxs_write_base = &(chr_idxs[prev_end_vidx]);
+          const uint32_t vidx_ct = cur_end_vidx - prev_end_vidx;
+          const ChrIdx cur_chr_idx = cip->chr_file_order[chr_fo_idx];
+          for (uint32_t uii = 0; uii != vidx_ct; ++uii) {
+            chr_idxs_write_base[uii] = cur_chr_idx;
+          }
+          prev_end_vidx = cur_end_vidx;
+        }
+      }
+      reterr = UpdateChr(variant_include, variant_ids, update_chr_flag, raw_variant_ct, variant_ct, max_variant_id_slen, (misc_flags / kfMiscProhibitExtraChr) & 1, max_thread_ct, cip, chr_idxs);
+      if (unlikely(reterr)) {
+        goto MakePlink2Vsort_ret_1;
+      }
+    }
 
     // possible todo: put this in a "copy constructor" function
     ChrInfo write_chr_info;

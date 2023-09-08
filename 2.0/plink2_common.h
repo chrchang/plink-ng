@@ -419,9 +419,15 @@ HEADER_INLINE void SetAllDosageArr(uintptr_t entry_ct, Dosage* dosage_arr) {
 // Assumes dense_dosage is allocated up to vector boundary.
 void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage);
 
+void PopulateDenseDosageNonemptySubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage, uintptr_t* workspace);
+
 void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, double slope, double intercept, double missing_val, uint32_t sample_ct, uint32_t dosage_ct, double* expanded_dosages);
 
 void PopulateRescaledDosageF(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, float slope, float intercept, float missing_val, uint32_t sample_ct, uint32_t dosage_ct, float* expanded_dosages);
+
+void PopulateDenseDphase(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, Dosage* dosage_uhet, SDosage* dense_dphase_delta);
+
+void PopulateDenseDphaseSubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, Dosage* dosage_uhet, SDosage* dense_dphase_delta);
 
 // assumes trailing bits of genoarr are zeroed out
 HEADER_INLINE uint32_t AtLeastOneHetUnsafe(const uintptr_t* genoarr, uint32_t sample_ct) {
@@ -1164,6 +1170,7 @@ uintptr_t GetMhcWordCt(uintptr_t sample_ct);
 
 // sample_ct not relevant if genovecs_ptr == nullptr
 // only possible error is kPglRetNomem for now
+// caller should reset pgfip->block_base to nullptr when it exits
 PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, uintptr_t per_alt_allele_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** mhc_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, uintptr_t* max_alt_allele_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr);
 
 // Returns number of variants in current block.  Increases read_block_idx as
@@ -1438,6 +1445,14 @@ HEADER_INLINE uint32_t ProvrefCol(const uintptr_t* variant_include, const uintpt
 }
 
 PglErr NsortDedupAndWrite(const char* outname, uintptr_t str_ct, uint32_t max_slen, uint32_t output_zst, uint32_t max_thread_ct, const char** strptr_arr, uintptr_t* nwrite_ptr);
+
+PglErr AllocAndFillVariantStartAlidxs(const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_thread_ct, const uintptr_t** variant_start_alidxsp, const uint32_t** variant_start_alidxs_cumulative_popcountsp);
+
+
+// Assumes IsSet(variant_include, variant_uidx) is true.
+// [start_vidx, end_vidx) must be initialized to search bounds.  (Could have
+// wrapper that initializes them to variant_uidx's chromosome bounds.)
+void GetBpWindow(const uintptr_t* variant_include, const uint32_t* variant_bps, uint32_t variant_uidx, uint32_t bp_radius, uint32_t* start_vidxp, uint32_t* end_vidxp);
 
 #ifdef __cplusplus
 }  // namespace plink2

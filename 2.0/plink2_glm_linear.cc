@@ -2229,6 +2229,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
   CleanupThreads(&tg);
   CswriteCloseCond(&css, cswritep);
   BigstackReset(bigstack_mark);
+  pgfip->block_base = nullptr;
   return reterr;
 }
 
@@ -4490,6 +4491,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     }
   }
   BigstackReset(bigstack_mark);
+  pgfip->block_base = nullptr;
   return reterr;
 }
 

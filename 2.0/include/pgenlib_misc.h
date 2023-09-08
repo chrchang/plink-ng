@@ -585,7 +585,6 @@ void PgrDifflistToGenovecUnsafe(const uintptr_t* __restrict raregeno, const uint
 // phased hardcalls and unphased dosages are simple enough for this to be
 // overkill, though.)
 typedef struct PgenVariantStruct {
-  MOVABLE_BUT_NONCOPYABLE(PgenVariantStruct);
   uintptr_t* genovec;
   uintptr_t* patch_01_set;
   AlleleCode* patch_01_vals;
@@ -634,6 +633,13 @@ extern const uint16_t kHcToAlleleCodes[1024];
 void PglMultiallelicSparseToDenseMiss(const PgenVariant* pgvp, uint32_t sample_ct, AlleleCode* __restrict wide_codes);
 
 uintptr_t PglComputeMaxAlleleCt(const uintptr_t* allele_idx_offsets, uint32_t variant_ct);
+
+HEADER_INLINE AlleleCode GetAidx(const uintptr_t* allele_idx_offsets, uint32_t variant_uidx, uintptr_t allele_idx) {
+  if (!allele_idx_offsets) {
+    return allele_idx - 2 * variant_uidx;
+  }
+  return allele_idx - allele_idx_offsets[variant_uidx];
+}
 
 // The actual format:
 // 1. 2 magic bytes 0x6c 0x1b.

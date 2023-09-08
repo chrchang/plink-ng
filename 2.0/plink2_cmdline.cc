@@ -169,6 +169,15 @@ BoolErr fclose_flush_null(char* buf_flush, char* write_iter, FILE** outfile_ptr)
 }
 
 
+int32_t u32cmp(const void* aa, const void* bb) {
+  const uint32_t uaa = *S_CAST(const uint32_t*, aa);
+  const uint32_t ubb = *S_CAST(const uint32_t*, bb);
+  if (uaa < ubb) {
+    return -1;
+  }
+  return (uaa > ubb);
+}
+
 int32_t float_cmp(const void* aa, const void* bb) {
   const float fxx = *S_CAST(const float*, aa);
   const float fyy = *S_CAST(const float*, bb);
@@ -394,6 +403,33 @@ uint32_t ExpsearchU32(const uint32_t* sorted_u32_arr, uint32_t end_idx, uint32_t
   return start_idx;
 }
 
+#ifdef __LP64__
+uintptr_t ExpsearchU64(const uint64_t* sorted_u64_arr, uint64_t end_idx, uint64_t needle) {
+  uint64_t next_incr = 1;
+  uint64_t start_idx = 0;
+  uint64_t cur_idx = 0;
+  while (cur_idx < end_idx) {
+    if (sorted_u64_arr[cur_idx] >= needle) {
+      end_idx = cur_idx;
+      break;
+    }
+    start_idx = cur_idx + 1;
+    cur_idx += next_incr;
+    next_incr *= 2;
+  }
+  while (start_idx < end_idx) {
+    const uint64_t mid_idx = (start_idx + end_idx) / 2;
+
+    if (sorted_u64_arr[mid_idx] < needle) {
+      start_idx = mid_idx + 1;
+    } else {
+      end_idx = mid_idx;
+    }
+  }
+  return start_idx;
+}
+#endif
+
 uintptr_t CountSortedSmallerU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle) {
   intptr_t min_idx = 0;
   intptr_t max_idx = arr_length - 1;
@@ -434,6 +470,24 @@ uintptr_t CountSortedLeqU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length
     }
   }
   return min_idx + (needle >= sorted_u64_arr[S_CAST(uintptr_t, min_idx)]);
+}
+
+uintptr_t IdxToUidxW(const uintptr_t* bitvec, const uintptr_t* cumulative_popcounts, uintptr_t widx_start, uintptr_t widx_end, uintptr_t idx) {
+  if (widx_end > widx_start) {
+    widx_start += CountSortedSmallerW(&(cumulative_popcounts[widx_start]), widx_end - widx_start, idx + 1);
+  }
+  const uintptr_t idx_at_widx_start = cumulative_popcounts[widx_start];
+  return widx_start * kBitsPerWord + WordBitIdxToUidx(bitvec[widx_start], idx - idx_at_widx_start);
+}
+
+uintptr_t ExpsearchIdxToUidxW(const uintptr_t* bitvec, const uintptr_t* cumulative_popcounts, uintptr_t widx_end, uintptr_t idx, uintptr_t* widx_startp) {
+  uintptr_t widx_start = *widx_startp;
+  if (widx_end > widx_start) {
+    widx_start += ExpsearchW(&(cumulative_popcounts[widx_start]), widx_end - widx_start, idx + 1);
+    *widx_startp = widx_start;
+  }
+  const uintptr_t idx_at_widx_start = cumulative_popcounts[widx_start];
+  return widx_start * kBitsPerWord + WordBitIdxToUidx(bitvec[widx_start], idx - idx_at_widx_start);
 }
 
 uint32_t GetParamCt(const char* const* argvk, uint32_t argc, uint32_t flag_idx) {
@@ -2214,20 +2268,44 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
   }
 }
 
-void ComputeUidxStartPartition(const uintptr_t* variant_include, uint64_t variant_ct, uint32_t thread_ct, uint32_t first_variant_uidx, uint32_t* variant_uidx_starts) {
-  assert(variant_ct);
-  uint32_t cur_variant_uidx_start = AdvTo1Bit(variant_include, first_variant_uidx);
-  uint32_t cur_variant_idx_start = 0;
-  variant_uidx_starts[0] = cur_variant_uidx_start;
+void FillU32SubsetStarts(const uintptr_t* subset, uint32_t thread_ct, uint32_t start, uint64_t bit_ct, uint32_t* starts) {
+  assert(bit_ct);
+  uint32_t uidx = AdvTo1Bit(subset, start);
+  uint32_t prev_bit_idx = 0;
+  starts[0] = uidx;
   for (uint32_t tidx = 1; tidx != thread_ct; ++tidx) {
-    const uint32_t new_variant_idx_start = (tidx * variant_ct) / thread_ct;
-    if (new_variant_idx_start != cur_variant_idx_start) {
-      cur_variant_uidx_start = FindNth1BitFrom(variant_include, cur_variant_uidx_start + 1, new_variant_idx_start - cur_variant_idx_start);
-      cur_variant_idx_start = new_variant_idx_start;
+    const uint32_t bit_idx = (tidx * bit_ct) / thread_ct;
+    if (bit_idx != prev_bit_idx) {
+      uidx = FindNth1BitFrom(subset, uidx + 1, bit_idx - prev_bit_idx);
+      prev_bit_idx = bit_idx;
     }
-    variant_uidx_starts[tidx] = cur_variant_uidx_start;
+    starts[tidx] = uidx;
   }
 }
+
+void FillWStarts(uint32_t thread_ct, uintptr_t start, uint64_t bit_ct, uintptr_t* starts) {
+  starts[0] = start;
+  for (uint32_t tidx = 1; tidx != thread_ct; ++tidx) {
+    starts[tidx] = start + (bit_ct * tidx) / thread_ct;
+  }
+}
+
+#ifdef __LP64__
+void FillWSubsetStarts(const uintptr_t* subset, uint32_t thread_ct, uintptr_t start, uint64_t bit_ct, uintptr_t* starts) {
+  assert(bit_ct);
+  uintptr_t uidx = AdvTo1Bit(subset, start);
+  uintptr_t prev_bit_idx = 0;
+  starts[0] = uidx;
+  for (uint32_t tidx = 1; tidx != thread_ct; ++tidx) {
+    const uintptr_t bit_idx = (tidx * bit_ct) / thread_ct;
+    if (bit_idx != prev_bit_idx) {
+      uidx = FindNth1BitFrom(subset, uidx + 1, bit_idx - prev_bit_idx);
+      prev_bit_idx = bit_idx;
+    }
+    starts[tidx] = uidx;
+  }
+}
+#endif
 
 // May want to have an multiallelic_set bitarray to accelerate this type of
 // operation?  Probably only want to conditionally initialize it, and only
@@ -2686,16 +2764,7 @@ PglErr MakeDupflagHtable(const uintptr_t* subset_mask, const char* const* item_i
     ctx.id_htable_size = id_htable_size;
     ctx.id_htable = id_htable;
 
-    uint32_t item_uidx = AdvTo1Bit(subset_mask, 0);
-    uint32_t item_idx = 0;
-    ctx.item_uidx_starts[0] = item_uidx;
-    for (uintptr_t tidx = 1; tidx != thread_ct; ++tidx) {
-      const uint32_t item_idx_new = (item_ct * S_CAST(uint64_t, tidx)) / thread_ct;
-      item_uidx = FindNth1BitFrom(subset_mask, item_uidx + 1, item_idx_new - item_idx);
-      ctx.item_uidx_starts[tidx] = item_uidx;
-      item_idx = item_idx_new;
-    }
-
+    FillU32SubsetStarts(subset_mask, thread_ct, 0, item_ct, ctx.item_uidx_starts);
     if (thread_ct > 1) {
       SetThreadFuncAndData(DupflagHtableMakerThread, &ctx, &tg);
       if (unlikely(SpawnThreads(&tg))) {

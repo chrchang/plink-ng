@@ -5598,6 +5598,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
   CleanupThreads(&tg);
   CswriteCloseCond(&css, cswritep);
   BigstackReset(bigstack_mark);
+  pgfip->block_base = nullptr;
   return reterr;
 }
 

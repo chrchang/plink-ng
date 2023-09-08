@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a5"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (29 Aug 2023)";
+  " (8 Sep 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -464,6 +464,7 @@ typedef struct Plink2CmdlineStruct {
   char* indv_str;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt1_allele_flag;
+  TwoColParams* update_chr_flag;
   TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
 } Plink2Cmdline;
@@ -2652,7 +2653,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           // todo: unsorted case (--update-chr, etc.)
           if (pcp->sort_vars_mode > kSortNone) {
-            reterr = MakePlink2Vsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, xheader, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2Vsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->update_chr_flag, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
           } else {
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
@@ -2804,6 +2805,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
   free_cond(pheno_names);
   CleanupPgr2(".pgen file", &simple_pgr, &reterr);
   CleanupPgfi2(".pgen file", &pgfi, &reterr);
+  assert(pgfi.block_base == nullptr);
   // no BigstackReset() needed?
   return reterr;
 }
@@ -3337,6 +3339,7 @@ int main(int argc, char** argv) {
   pc.update_alleles_fname = nullptr;
   pc.ref_allele_flag = nullptr;
   pc.alt1_allele_flag = nullptr;
+  pc.update_chr_flag = nullptr;
   pc.update_map_flag = nullptr;
   pc.update_name_flag = nullptr;
   pc.update_sample_ids_fname = nullptr;
@@ -10626,6 +10629,25 @@ int main(int argc, char** argv) {
             }
           }
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "pdate-chr")) {
+          if (unlikely(pc.sort_vars_mode <= kSortNone)) {
+            logerrputs("Error: --update-chr must be used with --sort-vars.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(chr_info.is_include_stack || notchr_present)) {
+            // too confusing (does the chromosome filter apply before?  after?
+            // both?)
+            logerrputs("Error: --update-chr cannot be used with --autosome[-par] or --[not-]chr.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = Alloc2col(&(argvk[arg_idx + 1]), flagname_p2, param_ct, &pc.update_chr_flag);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "pdate-map")) {
           if (unlikely(pc.recover_var_ids_fname)) {
             logerrputs("Error: --update-map cannot be used with --recover-var-ids or --update-name.\n");
@@ -11209,16 +11231,23 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE;
       }
     }
-    if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf | kfCommand1Pmerge))) {
-      if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
-        logerrputs("Error: Flags which alter REF/ALT1 allele settings (--maj-ref, --ref-allele,\n--alt1-allele, --ref-from-fa) must be used with\n--make-bed/--make-[b]pgen/--export and no other commands.\n");
+    if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Pmerge))) {
+      if (unlikely(pc.sort_vars_mode > kSortNone)) {
+        logerrputs("Error: --sort-vars must be used with --make-[b]pgen/--make-bed and no other\nnon-merge commands.\n");
         goto main_ret_INVALID_CMDLINE;
       }
-      if (unlikely(pc.fa_flags & kfFaNormalize)) {
-        logerrputs("Error: --normalize must be used with --make-bed/--make-[b]pgen/--export and no\nother commands.\n");
-        goto main_ret_INVALID_CMDLINE;
+      if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf | kfCommand1Pmerge))) {
+        if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
+          logerrputs("Error: Flags which alter REF/ALT1 allele settings (--maj-ref, --ref-allele,\n--alt1-allele, --ref-from-fa) must be used with\n--make-bed/--make-[b]pgen/--export and no other non-merge commands.\n");
+          goto main_ret_INVALID_CMDLINE;
+        }
+        if (unlikely(pc.fa_flags & kfFaNormalize)) {
+          logerrputs("Error: --normalize must be used with --make-bed/--make-[b]pgen/--export and no\nother non-merge commands.\n");
+          goto main_ret_INVALID_CMDLINE;
+        }
       }
-    } else if (pc.fa_fname && (((make_plink2_flags & kfMakePvar) && (pc.pvar_psam_flags & (kfPvarColXheader | kfPvarColVcfheader))) || (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf)))) {
+    }
+    if (pc.fa_fname && (((make_plink2_flags & kfMakePvar) && (pc.pvar_psam_flags & (kfPvarColXheader | kfPvarColVcfheader))) || (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf)))) {
       pc.fa_flags |= kfFaScrapeLengths;
     }
     if (pc.keep_cat_phenoname && (!pc.keep_cat_names_flattened) && (!pc.keep_cats_fname)) {
@@ -11678,6 +11707,7 @@ int main(int argc, char** argv) {
   free_cond(pc.update_sample_ids_fname);
   free_cond(pc.update_name_flag);
   free_cond(pc.update_map_flag);
+  free_cond(pc.update_chr_flag);
   free_cond(pc.alt1_allele_flag);
   free_cond(pc.ref_allele_flag);
   free_cond(pc.update_alleles_fname);

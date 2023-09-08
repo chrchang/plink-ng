@@ -236,6 +236,32 @@ void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_prese
   }
 }
 
+// workspace must have at least NypCtToWordCt(sample_ct) words
+void PopulateDenseDosageNonemptySubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage, uintptr_t* workspace) {
+  CopyNyparrNonemptySubset(genoarr, sample_include, raw_sample_ct, sample_ct, workspace);
+  GenoarrLookup256x2bx4(workspace, kHcToDosage, sample_ct, dense_dosage);
+  // fill trailing bits with missing values so vector operations work
+  const uint32_t trailing_entry_ct = (-sample_ct) % kDosagePerVec;
+  if (trailing_entry_ct) {
+    Dosage* dense_dosage_end = &(dense_dosage[sample_ct]);
+    for (uint32_t uii = 0; uii != trailing_entry_ct; ++uii) {
+      dense_dosage_end[uii] = kDosageMissing;
+    }
+  }
+  if (dosage_ct) {
+    uintptr_t widx = 0;
+    uintptr_t cur_bits = dosage_present[0];
+    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+      const uintptr_t shifted_bit = BitIter1y(dosage_present, &widx, &cur_bits);
+      const uintptr_t sample_include_word = sample_include[widx];
+      if (sample_include_word & shifted_bit) {
+        const uint32_t sample_idx = sample_include_cumulative_popcounts[widx] + PopcountWord(sample_include_word & (shifted_bit - 1));
+        dense_dosage[sample_idx] = dosage_main[dosage_idx];
+      }
+    }
+  }
+}
+
 void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, double slope, double intercept, double missing_val, uint32_t sample_ct, uint32_t dosage_ct, double* expanded_dosages) {
   double lookup_vals[32] ALIGNV16;
   lookup_vals[0] = intercept;
@@ -273,6 +299,115 @@ void PopulateRescaledDosageF(const uintptr_t* genoarr, const uintptr_t* dosage_p
   for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
     const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
     expanded_dosages[sample_uidx] = dosage_main[dosage_idx] * slope + intercept;
+  }
+}
+
+void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dosage_vec, const uintptr_t* dphase_present, uint32_t sample_ct, Dosage* dosage_uhet, SDosage* dphase_delta) {
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
+    uintptr_t phasepresent_nodphase_word = phasepresent[widx];
+    if (dphase_present) {
+      phasepresent_nodphase_word &= ~dphase_present[widx];
+    }
+    if (phasepresent_nodphase_word) {
+      const uintptr_t phaseinfo_word = phaseinfo[widx];
+      const uintptr_t dosage_present_word = dosage_present[widx];
+      const uint32_t sample_idx_offset = widx * kBitsPerWord;
+      do {
+        const uint32_t sample_idx_lowbits = ctzw(phasepresent_nodphase_word);
+        const uint32_t sample_idx = sample_idx_offset + sample_idx_lowbits;
+        // should compile to blsi
+        const uintptr_t shifted_bit = phasepresent_nodphase_word & (-phasepresent_nodphase_word);
+        int32_t cur_diff = kDosageMid;
+        if (dosage_present_word & shifted_bit) {
+          cur_diff = DosageHomdist(dosage_vec[sample_idx]);
+        }
+        // todo: verify the compiler optimizes this well
+        if (!(phaseinfo_word & shifted_bit)) {
+          cur_diff = -cur_diff;
+        }
+        dosage_uhet[sample_idx] = 0;
+        dphase_delta[sample_idx] = cur_diff;
+        phasepresent_nodphase_word ^= shifted_bit;
+      } while (phasepresent_nodphase_word);
+    }
+  }
+}
+
+void PopulateDenseDphase(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, Dosage* dosage_uhet, SDosage* dense_dphase_delta) {
+  const uint32_t dosagev_ct = DivUp(sample_ct, kDosagePerVec);
+  ZeroDphaseArr(dosagev_ct * kDosagePerVec, dense_dphase_delta);
+  if (dphase_ct) {
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = dphase_present[0];
+    for (uint32_t dphase_idx = 0; dphase_idx != dphase_ct; ++dphase_idx) {
+      const uintptr_t sample_uidx = BitIter1(dphase_present, &sample_uidx_base, &cur_bits);
+      const uint32_t dosage_int = dense_dosage_vec[sample_uidx];
+      const int32_t dphase_delta_val = dphase_delta[dphase_idx];
+      dosage_uhet[sample_uidx] = DosageHomdist(dosage_int) - abs_i32(dphase_delta_val);
+      dense_dphase_delta[sample_uidx] = dphase_delta_val;
+    }
+  } else {
+    dphase_present = nullptr;
+  }
+  if (phasepresent_ct) {
+    DosagePhaseinfoPatch(phasepresent, phaseinfo, dosage_present, dense_dosage_vec, dphase_present, sample_ct, dosage_uhet, dense_dphase_delta);
+  }
+}
+
+void DosagePhaseinfoPatchSubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dosage_vec, const uintptr_t* dphase_present, uint32_t raw_sample_ct, Dosage* dosage_uhet, SDosage* dphase_delta) {
+  const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+  for (uint32_t widx = 0; widx != raw_sample_ctl; ++widx) {
+    const uintptr_t sample_include_word = sample_include[widx];
+    uintptr_t phasepresent_nodphase_word = phasepresent[widx] & sample_include_word;
+    if (dphase_present) {
+      phasepresent_nodphase_word &= ~dphase_present[widx];
+    }
+    if (phasepresent_nodphase_word) {
+      const uintptr_t phaseinfo_word = phaseinfo[widx];
+      const uintptr_t dosage_present_word = dosage_present[widx];
+      const uint32_t sample_idx_offset = sample_include_cumulative_popcounts[widx];
+      do {
+        const uintptr_t shifted_bit = phasepresent_nodphase_word & (-phasepresent_nodphase_word);
+        const uint32_t sample_idx = sample_idx_offset + PopcountWord(sample_include_word & (shifted_bit - 1));
+        int32_t cur_diff = kDosageMid;
+        if (dosage_present_word & shifted_bit) {
+          cur_diff = DosageHomdist(dosage_vec[sample_idx]);
+        }
+        // todo: verify the compiler optimizes this well
+        if (!(phaseinfo_word & shifted_bit)) {
+          cur_diff = -cur_diff;
+        }
+        dosage_uhet[sample_idx] = 0;
+        dphase_delta[sample_idx] = cur_diff;
+        phasepresent_nodphase_word ^= shifted_bit;
+      } while (phasepresent_nodphase_word);
+    }
+  }
+}
+
+void PopulateDenseDphaseSubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, Dosage* dosage_uhet, SDosage* dense_dphase_delta) {
+  const uint32_t dosagev_ct = DivUp(sample_ct, kDosagePerVec);
+  ZeroDphaseArr(dosagev_ct * kDosagePerVec, dense_dphase_delta);
+  if (dphase_ct) {
+    uintptr_t widx = 0;
+    uintptr_t cur_bits = dphase_present[0];
+    for (uint32_t dphase_idx = 0; dphase_idx != dphase_ct; ++dphase_idx) {
+      const uintptr_t shifted_bit = BitIter1y(dphase_present, &widx, &cur_bits);
+      const uintptr_t sample_include_word = sample_include[widx];
+      if (sample_include_word & shifted_bit) {
+        const uint32_t sample_idx = sample_include_cumulative_popcounts[widx] + PopcountWord(sample_include_word & (shifted_bit - 1));
+        const uint32_t dosage_int = dense_dosage_vec[sample_idx];
+        const int32_t dphase_delta_val = dphase_delta[dphase_idx];
+        dosage_uhet[sample_idx] = DosageHomdist(dosage_int) - abs_i32(dphase_delta_val);
+        dense_dphase_delta[sample_idx] = dphase_delta_val;
+      }
+    }
+  } else {
+    dphase_present = nullptr;
+  }
+  if (phasepresent_ct) {
+    DosagePhaseinfoPatchSubset(sample_include, sample_include_cumulative_popcounts, phasepresent, phaseinfo, dosage_present, dense_dosage_vec, dphase_present, raw_sample_ct, dosage_uhet, dense_dphase_delta);
   }
 }
 
@@ -3995,6 +4130,155 @@ PglErr NsortDedupAndWrite(const char* outname, uintptr_t str_ct, uint32_t max_sl
   CswriteCloseCond(&css, cswritep);
   BigstackReset(bigstack_mark);
   return reterr;
+}
+
+typedef struct VariantStartAlidxMakerStruct {
+  const uintptr_t* allele_idx_offsets;
+  uint32_t raw_variant_ct;
+
+  uintptr_t* variant_start_alidxs;
+  uint32_t* variant_start_alidxs_cumulative_popcounts;
+} VariantStartAlidxMaker;
+
+void VariantStartAlidxMakerMain(uint32_t tidx, uint32_t thread_ct, VariantStartAlidxMaker* ctx) {
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const uint32_t raw_variant_ct = ctx->raw_variant_ct;
+  const uintptr_t raw_allele_ct = allele_idx_offsets[raw_variant_ct];
+  const uintptr_t raw_allele_ctl = BitCtToWordCt(raw_allele_ct);
+  const uintptr_t cacheline_ct = DivUp(raw_allele_ctl, kWordsPerCacheline);
+
+  const uintptr_t widx_start = kWordsPerCacheline * ((cacheline_ct * S_CAST(uint64_t, tidx)) / thread_ct);
+  const uintptr_t widx_stop = (tidx + 1 == thread_ct)? (raw_allele_ctl - 1) : (kWordsPerCacheline * ((cacheline_ct * (S_CAST(uint64_t, tidx) + 1)) / thread_ct));
+  uintptr_t* alidxs = ctx->variant_start_alidxs;
+  uint32_t* alidxs_cumulative_popcounts = ctx->variant_start_alidxs_cumulative_popcounts;
+
+  uint32_t cur_vidx = CountSortedSmallerW(allele_idx_offsets, raw_variant_ct, widx_start * kBitsPerWord);
+  uintptr_t cur_allele_idx = allele_idx_offsets[cur_vidx];
+  uintptr_t cur_allele_widx = cur_allele_idx / kBitsPerWord;
+  for (uintptr_t widx = widx_start; widx != widx_stop; ++widx) {
+    alidxs_cumulative_popcounts[widx] = cur_vidx;
+    uintptr_t cur_word = 0;
+    if (cur_allele_widx == widx) {
+      const uint32_t shift_ct = cur_allele_idx % kBitsPerWord;
+      // fast path when multiallelic variants are rare.
+      const uint32_t speculate_ct = (kBitsPerWord + 1 - shift_ct) / 2;
+      const uint32_t speculative_vidx = cur_vidx + speculate_ct;
+      if ((speculative_vidx <= raw_variant_ct) && (allele_idx_offsets[speculative_vidx] == cur_allele_idx + speculate_ct * 2)) {
+        // next speculate_ct variants must all be biallelic
+        cur_word = kMask5555 << shift_ct;
+        cur_vidx = speculative_vidx;
+        cur_allele_idx += speculate_ct * 2;
+        ++cur_allele_widx;
+      } else {
+        do {
+          cur_word |= k1LU << shift_ct;
+          ++cur_vidx;
+          cur_allele_idx = allele_idx_offsets[cur_vidx];
+          cur_allele_widx = cur_allele_idx / kBitsPerWord;
+        } while (cur_allele_widx == widx);
+      }
+    }
+    alidxs[widx] = cur_word;
+  }
+  if (tidx + 1 == thread_ct) {
+    alidxs_cumulative_popcounts[widx_stop] = cur_vidx;
+    uintptr_t cur_word = 0;
+    if (cur_vidx < raw_variant_ct) {
+      while (1) {
+        cur_word |= k1LU << (cur_allele_idx % kBitsPerWord);
+        ++cur_vidx;
+        if (cur_vidx >= raw_variant_ct) {
+          break;
+        }
+        cur_allele_idx = allele_idx_offsets[cur_vidx];
+      }
+    }
+    alidxs[widx_stop] = cur_word;
+  }
+}
+
+THREAD_FUNC_DECL VariantStartAlidxMakerThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uint32_t tidx = arg->tidx;
+  VariantStartAlidxMaker* ctx = S_CAST(VariantStartAlidxMaker*, arg->sharedp->context);
+
+  const uint32_t thread_ct = GetThreadCt(arg->sharedp) + 1;
+  VariantStartAlidxMakerMain(tidx, thread_ct, ctx);
+  THREAD_RETURN;
+}
+
+PglErr AllocAndFillVariantStartAlidxs(const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_thread_ct, const uintptr_t** variant_start_alidxsp, const uint32_t** variant_start_alidxs_cumulative_popcountsp) {
+  if (!allele_idx_offsets) {
+    *variant_start_alidxsp = nullptr;
+    *variant_start_alidxs_cumulative_popcountsp = nullptr;
+    return kPglRetSuccess;
+  }
+  PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  VariantStartAlidxMaker ctx;
+  {
+    const uintptr_t raw_allele_ct = allele_idx_offsets[raw_variant_ct];
+    const uintptr_t raw_allele_ctl = BitCtToWordCt(raw_allele_ct);
+    if (unlikely(bigstack_alloc_w(raw_allele_ctl, &ctx.variant_start_alidxs) ||
+                 bigstack_alloc_u32(raw_allele_ctl, &ctx.variant_start_alidxs_cumulative_popcounts))) {
+      goto AllocAndFillVariantStartAlidxs_ret_NOMEM;
+    }
+    ctx.allele_idx_offsets = allele_idx_offsets;
+    ctx.raw_variant_ct = raw_variant_ct;
+    uint32_t thread_ct = raw_variant_ct / 65536;
+    if (!thread_ct) {
+      thread_ct = 1;
+    } else if (thread_ct > max_thread_ct) {
+      thread_ct = max_thread_ct;
+    }
+    if (unlikely(SetThreadCt0(thread_ct - 1, &tg))) {
+      goto AllocAndFillVariantStartAlidxs_ret_NOMEM;
+    }
+    if (thread_ct > 1) {
+      SetThreadFuncAndData(VariantStartAlidxMakerThread, &ctx, &tg);
+      DeclareLastThreadBlock(&tg);
+      if (unlikely(SpawnThreads(&tg))) {
+        goto AllocAndFillVariantStartAlidxs_ret_THREAD_CREATE_FAIL;
+      }
+    }
+    VariantStartAlidxMakerMain(thread_ct - 1, thread_ct, &ctx);
+    JoinThreads0(&tg);
+    *variant_start_alidxsp = ctx.variant_start_alidxs;
+    *variant_start_alidxs_cumulative_popcountsp = ctx.variant_start_alidxs_cumulative_popcounts;
+  }
+  while (0) {
+  AllocAndFillVariantStartAlidxs_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  AllocAndFillVariantStartAlidxs_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+  CleanupThreads(&tg);
+  return reterr;
+}
+
+void GetBpWindow(const uintptr_t* variant_include, const uint32_t* variant_bps, uint32_t variant_uidx, uint32_t bp_radius, uint32_t* start_vidxp, uint32_t* end_vidxp) {
+  assert(IsSet(variant_include, variant_uidx));
+  const uint32_t center_bp = variant_bps[variant_uidx];
+  {
+    const uint32_t search_start_vidx = *start_vidxp;
+    if (variant_uidx > search_start_vidx) {
+      uint32_t first_bp = 0;
+      if (center_bp > bp_radius) {
+        first_bp = center_bp - bp_radius;
+      }
+      const uint32_t start_vidx = search_start_vidx + CountSortedSmallerU32(&(variant_bps[search_start_vidx]), variant_uidx - search_start_vidx, first_bp);
+      *start_vidxp = AdvTo1Bit(variant_include, start_vidx);
+    }
+  }
+  const uint32_t search_start_vidx = variant_uidx + 1;
+  const uint32_t search_end_vidx = *end_vidxp;
+  if (search_start_vidx < search_end_vidx) {
+    const uint32_t end_vidx = search_start_vidx + CountSortedSmallerU32(&(variant_bps[search_start_vidx]), search_end_vidx - search_start_vidx, center_bp + bp_radius + 1);
+    *end_vidxp = 1 + FindLast1BitBefore(variant_include, end_vidx);
+  }
 }
 
 #ifdef __cplusplus

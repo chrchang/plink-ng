@@ -3664,6 +3664,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
   }
  LoadSampleMissingCts_ret_1:
   CleanupThreads(&tg);
+  pgfip->block_base = nullptr;
   BigstackReset(bigstack_mark);
   return reterr;
 }

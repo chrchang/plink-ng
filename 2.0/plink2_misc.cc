@@ -7464,6 +7464,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
   CleanupThreads(&tg);
   CswriteCloseCond(&css, cswritep);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  pgfip->block_base = nullptr;
   return reterr;
 }
 
@@ -9958,6 +9959,7 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
   CleanupThreads(&tg);
   CswriteCloseCond(&css, cswritep);
   BigstackReset(bigstack_mark);
+  pgfip->block_base = nullptr;
   return reterr;
 }
 
@@ -11426,6 +11428,7 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
   fclose_cond(s_outfile);
   CleanupTextStream2("--fst file", &txs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  pgfip->block_base = nullptr;
   return reterr;
 }
 

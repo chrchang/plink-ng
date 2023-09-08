@@ -2257,6 +2257,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
   CswriteCloseCond(&css, cswritep);
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
+  pgfip->block_base = nullptr;
   return reterr;
 }
 
@@ -9325,6 +9326,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
   CleanupThreads(&tg);
   CleanupTextStream2("--variant-score file", &txs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  pgfip->block_base = nullptr;
   return reterr;
 }
 

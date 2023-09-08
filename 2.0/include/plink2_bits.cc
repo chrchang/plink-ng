@@ -424,7 +424,7 @@ uintptr_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uintptr_t loc, uintptr_t cei
   return MINV(loc, ceil);
 }
 
-uint32_t FindLast1BitBefore(const uintptr_t* bitarr, uint32_t loc) {
+uintptr_t FindLast1BitBefore(const uintptr_t* bitarr, uintptr_t loc) {
   // unlike the next_{un}set family, this always returns a STRICTLY earlier
   // position
   const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
