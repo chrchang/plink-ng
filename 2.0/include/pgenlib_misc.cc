@@ -2903,44 +2903,28 @@ double MultiallelicDiploidMinimac3R2(const uint64_t* __restrict sums, const uint
     //   expected_variance = (36 * 36 * 4 * 2^28 - 56 * 36 * 2^28) / 2
     return S_CAST(double, observed_variance_times_2n) / S_CAST(double, expected_variance_times_2n);
   }
-  // Need to avoid catastrophic cancellation here.
-  const uint64_t nm_sample_ct_x32768 = nm_sample_ct * 0x8000LLU;
-  double expected_variance_times_2n = 0.0;
-  double observed_variance_times_2n_hi = 0.0;
-  int64_t observed_variance_times_2n_lo = 0;
+  uint64_t ssq_sum_x2 = extra_phased_het_ct * 0x20000000LLU;
+  uint64_t meansq_sum_lo = 0;
+  uint64_t meansq_sum_hi = 0;
   for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
     const uint64_t cur_allele_dosage = sums[allele_idx];
     const uint64_t cur_ssq_x2 = hap_ssqs_x2[allele_idx];
-    const double cur_allele_dosaged = u63tod(cur_allele_dosage);
-    // Restructure expected_variance as sum/product of
-    // guaranteed-nonnegative numbers.
-    //
-    // cur_allele_dosage == 2n * m_k
-    // cur_allele_dosage[k] * ("1" * 2n - cur_allele_dosage[k])
-    // = "1" * 4n^2 * m_k - 4n^2 * m_k^2
-    //
-    // sum_k (cur_allele_dosage[k] * ("1" * 2n - cur_allele_dosage[k]))
-    // = "1" * 4n^2 * sum_k m_k - 4n^2 * sum_k m_k^2
-    // = "1" * 4n^2 * "1" - 4n^2 * sum_k m_k^2
-    // = 4n^2 * ("1"^2 - sum_k m_k^2)
-    // This is 2n times the expected variance.
-    expected_variance_times_2n += cur_allele_dosaged * u63tod(nm_sample_ct_x32768 - cur_allele_dosage);
-    // Emulate 128-bit integers to make observed_variance computation work.
-    // "left" corresponds to the ssq_sum_x2 * nm_sample_ct term, "right"
-    // corresponds to meansq_sum.
-    const uint64_t cur_ssq_x2_hi = cur_ssq_x2 >> 32;
-    uint64_t left_lo = (cur_ssq_x2 & 0xffffffffLLU) * nm_sample_ct;
-    const uint64_t left_hi = (left_lo >> 32) + cur_ssq_x2_hi * nm_sample_ct;
-    left_lo &= 0xffffffffU;
-    const uint64_t cur_allele_dosage_lo = cur_allele_dosage & 0xffffffffLLU;
-    const uint64_t cur_allele_dosage_hi = cur_allele_dosage >> 32;
-    uint64_t right_lo = cur_allele_dosage_lo * cur_allele_dosage_lo;
-    const uint64_t right_hi = (right_lo >> 32) + (cur_allele_dosage_lo + cur_allele_dosage) * cur_allele_dosage_hi;
-    right_lo &= 0xffffffffU;
-    observed_variance_times_2n_hi += u63tod(left_hi - right_hi);
-    observed_variance_times_2n_lo += S_CAST(int64_t, left_lo) - S_CAST(int64_t, right_lo);
+    ssq_sum_x2 += cur_ssq_x2;
+    uint64_t incr_hi;
+    uint64_t incr_lo = multiply64to128(cur_allele_dosage, cur_allele_dosage, &incr_hi);
+    meansq_sum_lo += incr_lo;
+    meansq_sum_hi += incr_hi + (meansq_sum_lo < incr_lo);
   }
-  const double observed_variance_times_2n = (observed_variance_times_2n_hi * 4294967296.0) + (u31tod(extra_phased_het_ct) * 536870912.0) + observed_variance_times_2n_lo;
+  uint64_t prod_hi;
+  uint64_t prod_lo = multiply64to128(ssq_sum_x2, nm_sample_ct, &prod_hi);
+  const uint64_t observed_variance_times_2n_lo = prod_lo - meansq_sum_lo;
+  const uint64_t observed_variance_times_2n_hi = prod_hi - meansq_sum_hi - (prod_lo < meansq_sum_lo);
+  const double observed_variance_times_2n = u127tod(observed_variance_times_2n_hi, observed_variance_times_2n_lo);
+
+  prod_lo = multiply64to128(nm_sample_ct * 0x40000000LLU, nm_sample_ct, &prod_hi);
+  const uint64_t expected_variance_times_2n_lo = prod_lo - meansq_sum_lo;
+  const uint64_t expected_variance_times_2n_hi = prod_hi - meansq_sum_hi - (prod_lo < meansq_sum_lo);
+  const double expected_variance_times_2n = u127tod(expected_variance_times_2n_hi, expected_variance_times_2n_lo);
   return observed_variance_times_2n / expected_variance_times_2n;
 }
 

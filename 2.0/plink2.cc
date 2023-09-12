@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a5"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (8 Sep 2023)";
+  " (11 Sep 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -10640,6 +10640,10 @@ int main(int argc, char** argv) {
             logerrputs("Error: --update-chr cannot be used with --autosome[-par] or --[not-]chr.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (unlikely(pc.recover_var_ids_fname)) {
+            logerrputs("Error: --update-chr cannot be used with --recover-var-ids or --update-name.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -10664,6 +10668,10 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "pdate-name")) {
           if (unlikely(pc.recover_var_ids_fname)) {
             logerrputs("Error: --update-name cannot be used with --recover-var-ids.\n");
+          }
+          if (unlikely(pc.update_chr_flag)) {
+            logerrputs("Error: --update-chr cannot be used with --recover-var-ids or --update-name.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(pc.update_map_flag)) {
             logerrputs("Error: --update-map cannot be used with --recover-var-ids or --update-name.\n");

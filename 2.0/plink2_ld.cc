@@ -3626,10 +3626,10 @@ double EmPhaseUnscaledLnlike(double freq11, double freq12, double freq21, double
 }
 
 ENUM_U31_DEF_START()
-  kPhasedLDErrNone,
-  kPhasedLDMonomorphic0,
-  kPhasedLDMonomorphic1
-ENUM_U31_DEF_END(PhasedLDErr);
+  kLDErrNone,
+  kLDMonomorphic0,
+  kLDMonomorphic1
+ENUM_U31_DEF_END(LDErr);
 
 typedef struct PhasedLDExtraRetStruct {
   uint32_t sol_ct;
@@ -3648,7 +3648,7 @@ typedef struct PhasedLDExtraRetStruct {
 // If extra_retp is non-null, results contains relevant cubic_sols.
 // If extra_retp is nullptr, results[0] contains r2, and if compute_dprime is
 //   true, results[1] = dprime.
-PhasedLDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_hethet_d, double twice_tot_recip, uint32_t compute_dprime, PhasedLDExtraRet* extra_retp, double* results) {
+LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_hethet_d, double twice_tot_recip, uint32_t compute_dprime, PhasedLDExtraRet* extra_retp, double* results) {
   // known-diplotype dosages (sum is 2 * (valid_obs_d - unknown_hethet_d)):
   //   var0  var1
   //     0  -  0 : 2 * valid_obs_d - majsums[0] - majsums[1] + known_dotprod
@@ -3667,10 +3667,10 @@ PhasedLDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double un
   // frequency of ~2^{-46} is actually possible with dosages and 2 billion
   // samples, so set this threshold at 2^{-47}
   if ((freq_majx < (kSmallEpsilon * 0.125)) || (freq_minx < (kSmallEpsilon * 0.125))) {
-    return kPhasedLDMonomorphic0;
+    return kLDMonomorphic0;
   }
   if ((freq_xmaj < (kSmallEpsilon * 0.125)) || (freq_xmin < (kSmallEpsilon * 0.125))) {
-    return kPhasedLDMonomorphic1;
+    return kLDMonomorphic1;
   }
   uint32_t cubic_sol_ct = 0;
   uint32_t first_relevant_sol_idx = 0;
@@ -3774,7 +3774,7 @@ PhasedLDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double un
     extra_retp->freq_xmaj = freq_xmaj;
     extra_retp->freq_xmin = freq_xmin;
   }
-  return kPhasedLDErrNone;
+  return kLDErrNone;
 }
 
 PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const LdInfo* ldip, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, PgenReader* simple_pgrp) {
@@ -4108,7 +4108,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     // this most closely corresponds to freq_majmin here
     PhasedLDExtraRet extra_ret;
     double cubic_sols[3];
-    const PhasedLDErr ld_err = PhasedLD(nmajsums_d, known_dotprod_d, unknown_hethet_d, twice_tot_recip, 1, &extra_ret, cubic_sols);
+    const LDErr ld_err = PhasedLD(nmajsums_d, known_dotprod_d, unknown_hethet_d, twice_tot_recip, 1, &extra_ret, cubic_sols);
     if (ld_err) {
       logerrprintfww("Warning: Skipping --ld since %s is monomorphic across all valid observations.\n", ld_console_varids[ld_err - 1]);
       goto LdConsole_ret_1;
@@ -4453,13 +4453,32 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
   return reterr;
 }
 
+/*
+// distinguish fully-unphased r^2 computation from no-phased-calls subcase in
+// phased-r^2 computation
+ENUM_U31_DEF_START()
+  kR2PhaseTypeUnphased,
+  kR2PhaseTypeOmit,
+  kR2PhaseTypePresent
+ENUM_U31_DEF_END(R2PhaseType);
+
+static inline R2PhaseType R2PhaseOmit(R2PhaseType phase_type) {
+  // convert kR2PhaseTypePresent to kR2PhaseTypeOmit, leave other values
+  // unchanged
+  return S_CAST(R2PhaseType, phase_type != kR2PhaseTypeUnphased);
+}
+
 // ***** --clump implementation starts here *****
 // We want to support --glm's handling of multiallelic variants, where we're
 // working in terms of (variant, allele) pairs rather than just variants.
 // So we maintain variant-based *and* allele-based bitvectors tracking the
 // pairs under consideration.
+//
+// Current multithreading strategies are restricted to a single index variant
+// at a time across all threads.  Possible todo: implement a strategy similar
+// to --indep-pair{phase,wise}, where each thread works on its own island, and
+// benchmark on typical datasets against the existing implementation.
 
-/*
 uint32_t GetNextIsland(const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* icandidate_vbitvec, const uintptr_t* observed_variants, uint32_t raw_variant_ct, uint32_t bp_radius, uint32_t* vidx_endp, uint32_t* chr_fo_idxp) {
   uint32_t vidx_start = *vidx_endp;
   uint32_t index_vidx = AdvBoundedTo1Bit(icandidate_vbitvec, vidx_start, raw_variant_ct);
@@ -4627,7 +4646,7 @@ ENUM_U31_DEF_START()
   kClumpJobHighmemUnpack,
   kClumpJobHighmemR2,
   kClumpJobMidmemR2,
-  kClumpJobLowmemR2,
+  kClumpJobLowmemR2
 ENUM_U31_DEF_END(ClumpJobType);
 
 // Unpacked representations:
@@ -4695,7 +4714,6 @@ typedef struct ClumpCtxStruct {
   uintptr_t nonmale_dosagevec_byte_ct;
   double r2_thresh;
   unsigned char allow_overlap;
-  unsigned char force_unphased;
 
   // Remaining non-index variants.
   uintptr_t* candidate_oabitvec;
@@ -4719,7 +4737,7 @@ typedef struct ClumpCtxStruct {
   //          thousands, or even millions of variants here.
   // MidmemR2, LowmemR2: each thread just needs workspace for one variant here.
   //                     Index variant unpacked into slot 0.
-  // Unpacked variant representation can vary based on is_x, is_y, load_phase,
+  // Unpacked variant representation can vary based on is_x, is_y, phase_type,
   // and load_dosage.
   unsigned char* unpacked_variants;
 
@@ -4736,7 +4754,7 @@ typedef struct ClumpCtxStruct {
   uintptr_t allele_widx_end;
   unsigned char is_x;
   unsigned char is_y;
-  unsigned char load_phase;
+  unsigned char phase_type;
   unsigned char load_dosage;
 
   uintptr_t index_oaidx_offset;
@@ -4746,31 +4764,36 @@ typedef struct ClumpCtxStruct {
   uint64_t err_info;
 } ClumpCtx;
 
-// load_phase and load_dosage are not read from ctx, since they can change as
+// phase_type and load_dosage are not read from ctx, since they can change as
 // we try to extend an island group along a single chromosome.
-uintptr_t UnpackedByteStride(const ClumpCtx* ctx, uint32_t load_phase, uint32_t load_dosage) {
-  const uintptr_t dosage_trail_byte_ct = RoundUpPow2(sizeof(int64_t) + sizeof(int32_t), kBytesPerVec);
-  const uintptr_t nondosage_trail_byte_ct = RoundUpPow2(sizeof(int32_t) + sizeof(int32_t), kBytesPerVec);
+uintptr_t UnpackedByteStride(const ClumpCtx* ctx, R2PhaseType phase_type, uint32_t load_dosage) {
+  uintptr_t trail_byte_ct;
+  if (load_dosage) {
+    trail_byte_ct = (1 + (phase_type == kR2PhaseTypeUnphased)) * sizeof(int64_t) + sizeof(int32_t);
+  } else {
+    trail_byte_ct = (2 + (phase_type == kR2PhaseTypeUnphased)) * sizeof(int32_t);
+  }
+  trail_byte_ct = RoundUpPow2(trail_byte_ct, kBytesPerVec);
   if (ctx->is_x) {
     const uintptr_t nonmale_bitvec_byte_ct = ctx->nonmale_bitvec_byte_ct;
     const uintptr_t male_bitvec_byte_ct = ctx->male_bitvec_byte_ct;
     if (load_dosage) {
-      return (2 + load_phase) * ctx->nonmale_dosagevec_byte_ct + 2 * ctx->male_dosagevec_byte_ct + nonmale_bitvec_byte_ct + male_bitvec_byte_ct + 2 * dosage_trail_byte_ct;
+      return (1 + phase_type) * ctx->nonmale_dosagevec_byte_ct + (1 + (phase_type != kR2PhaseTypeUnphased)) * ctx->male_dosagevec_byte_ct + nonmale_bitvec_byte_ct + male_bitvec_byte_ct + 2 * trail_byte_ct;
     }
-    return (3 + 2 * load_phase) * nonmale_bitvec_byte_ct + 3 * male_bitvec_byte_ct + 2 * nondosage_trail_byte_ct;
+    return (3 + 2 * (phase_type == kR2PhaseTypePresent)) * nonmale_bitvec_byte_ct + 3 * male_bitvec_byte_ct + 2 * trail_byte_ct;
   } else if (ctx->is_y) {
-    assert(!load_phase);
+    assert(phase_type != kR2PhaseTypePresent);
     const uintptr_t male_bitvec_byte_ct = ctx->male_bitvec_byte_ct;
     if (load_dosage) {
-      return 2 * ctx->dosagevec_byte_ct + male_bitvec_byte_ct + dosage_trail_byte_ct;
+      return (1 + (phase_type != kR2PhaseTypeUnphased)) * ctx->dosagevec_byte_ct + male_bitvec_byte_ct + trail_byte_ct;
     }
-    return 3 * male_bitvec_byte_ct + nondosage_trail_byte_ct;
+    return 3 * male_bitvec_byte_ct + trail_byte_ct;
   }
   const uintptr_t bitvec_byte_ct = ctx->bitvec_byte_ct;
   if (load_dosage) {
-    return (2 + load_phase) * ctx->dosagevec_byte_ct + bitvec_byte_ct + dosage_trail_byte_ct;
+    return (1 + phase_type) * ctx->dosagevec_byte_ct + bitvec_byte_ct + trail_byte_ct;
   }
-  return (3 + 2 * load_phase) * bitvec_byte_ct + nondosage_trail_byte_ct;
+  return (3 + 2 * (phase_type == kR2PhaseTypePresent)) * bitvec_byte_ct + trail_byte_ct;
 }
 
 // does not check multiallelic fields
@@ -4792,7 +4815,7 @@ void ClumpPgenVariantIncr(uintptr_t byte_ct, PgenVariant* pgvp) {
   }
 }
 
-void LdUnpackNondosage(const PgenVariant* pgvp, uint32_t sample_ct, uint32_t with_phase, unsigned char* dst_iter) {
+void LdUnpackNondosage(const PgenVariant* pgvp, uint32_t sample_ct, R2PhaseType phase_type, unsigned char* dst_iter) {
   const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   uintptr_t* dst_witer = R_CAST(uintptr_t*, dst_iter);
   uintptr_t* one_bitvec = dst_witer;
@@ -4803,7 +4826,7 @@ void LdUnpackNondosage(const PgenVariant* pgvp, uint32_t sample_ct, uint32_t wit
   dst_witer = &(dst_witer[sample_ctaw]);
   uintptr_t* phasepresent = nullptr;
   uintptr_t* phaseinfo = nullptr;
-  if (with_phase) {
+  if (phase_type == kR2PhaseTypePresent) {
     phasepresent = dst_witer;
     dst_witer = &(dst_witer[sample_ctaw]);
     phaseinfo = dst_witer;
@@ -4813,22 +4836,33 @@ void LdUnpackNondosage(const PgenVariant* pgvp, uint32_t sample_ct, uint32_t wit
   uint32_t* nmaj_ct_ptr = dst_u32iter;
   ++dst_u32iter;
   uint32_t* nm_ct_ptr = dst_u32iter;
-
   GenoarrSplit12Nm(pgvp->genovec, sample_ct, one_bitvec, two_bitvec, nm_bitvec);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   *nmaj_ct_ptr = GenoBitvecSum(one_bitvec, two_bitvec, sample_ctl);
   *nm_ct_ptr = PopcountWords(nm_bitvec, sample_ctl);
-  if (with_phase) {
+  if (phase_type == kR2PhaseTypePresent) {
     if (!pgvp->phasepresent_ct) {
       ZeroWArr(sample_ctl, phasepresent);
     } else {
       memcpy(phasepresent, pgvp->phasepresent, sample_ctl * sizeof(intptr_t));
       memcpy(phaseinfo, pgvp->phaseinfo, sample_ctl * sizeof(intptr_t));
     }
+  } else if (phase_type == kR2PhaseTypeUnphased) {
+    uint32_t* ssq_ptr = &(dst_u32iter[1]);
+    *ssq_ptr = (*nmaj_ct_ptr) + 2 * PopcountWords(two_bitvec, sample_ctl);
   }
 }
 
-unsigned char* LdUnpackNondosageSubset(const PgenVariant* pgvp, const uintptr_t* sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t with_phase, unsigned char* dst_iter, uintptr_t* workspace) {
+// compiler should optimize out the conditional when both values are the same?
+static inline uint32_t LdNondosageTrailAlignedByteCt(R2PhaseType phase_type) {
+  return (phase_type == kR2PhaseTypeUnphased)? RoundUpPow2(3 * sizeof(int32_t), kBytesPerVec) : RoundUpPow2(2 * sizeof(int32_t), kBytesPerVec);
+}
+
+static inline uint32_t LdDosageTrailAlignedByteCt(R2PhaseType phase_type) {
+  return (phase_type == kR2PhaseTypeUnphased)? RoundUpPow2(sizeof(int64_t) + sizeof(double) + sizeof(int32_t), kBytesPerVec) : RoundUpPow2(sizeof(int64_t) + sizeof(int32_t), kBytesPerVec);
+}
+
+unsigned char* LdUnpackNondosageSubset(const PgenVariant* pgvp, const uintptr_t* sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, R2PhaseType phase_type, unsigned char* dst_iter, uintptr_t* workspace) {
   const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   uintptr_t* dst_witer = R_CAST(uintptr_t*, dst_iter);
   uintptr_t* one_bitvec = dst_witer;
@@ -4839,7 +4873,7 @@ unsigned char* LdUnpackNondosageSubset(const PgenVariant* pgvp, const uintptr_t*
   dst_witer = &(dst_witer[sample_ctaw]);
   uintptr_t* phasepresent = nullptr;
   uintptr_t* phaseinfo = nullptr;
-  if (with_phase) {
+  if (phase_type == kR2PhaseTypePresent) {
     phasepresent = dst_witer;
     dst_witer = &(dst_witer[sample_ctaw]);
     phaseinfo = dst_witer;
@@ -4849,7 +4883,7 @@ unsigned char* LdUnpackNondosageSubset(const PgenVariant* pgvp, const uintptr_t*
   uint32_t* nmaj_ct_ptr = &(final_u32s[0]);
   uint32_t* nm_ct_ptr = &(final_u32s[1]);
   dst_iter = R_CAST(unsigned char*, dst_witer);
-  dst_iter = &(dst_iter[RoundUpPow2(2 * sizeof(int32_t), kBytesPerVec)]);
+  dst_iter = &(dst_iter[LdNondosageTrailAlignedByteCt(phase_type)]);
 
   uintptr_t* genovec_collapsed = workspace;
   CopyNyparrNonemptySubset(pgvp->genovec, sample_include, raw_sample_ct, sample_ct, genovec_collapsed);
@@ -4857,79 +4891,107 @@ unsigned char* LdUnpackNondosageSubset(const PgenVariant* pgvp, const uintptr_t*
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   *nmaj_ct_ptr = GenoBitvecSum(one_bitvec, two_bitvec, sample_ctl);
   *nm_ct_ptr = PopcountWords(nm_bitvec, sample_ctl);
-  if (with_phase) {
+  if (phase_type == kR2PhaseTypePresent) {
     if (!pgvp->phasepresent_ct) {
       ZeroWArr(sample_ctl, phasepresent);
     } else {
       CopyBitarrSubset(pgvp->phasepresent, sample_include, sample_ct, phasepresent);
       CopyBitarrSubset(pgvp->phaseinfo, sample_include, sample_ct, phaseinfo);
     }
+  } else if (phase_type == kR2PhaseTypeUnphased) {
+    uint32_t* ssq_ptr = &(final_u32s[2]);
+    *ssq_ptr = (*nm_ct_ptr) + 2 * PopcountWords(two_bitvec, sample_ctl);
   }
   return dst_iter;
 }
 
 // Treat this as two mini-records, one with males and one with nonmales.
 // (This doesn't work for inter-chr case.)
-void LdUnpackChrXNondosage(const PgenVariant* pgvp, const uintptr_t* founder_male, const uintptr_t* founder_nonmale, uint32_t raw_sample_ct, uint32_t founder_male_ct, uint32_t founder_nonmale_ct, uint32_t with_dphase, unsigned char* dst_iter, uintptr_t* workspace) {
+void LdUnpackChrXNondosage(const PgenVariant* pgvp, const uintptr_t* founder_male, const uintptr_t* founder_nonmale, uint32_t raw_sample_ct, uint32_t founder_male_ct, uint32_t founder_nonmale_ct, R2PhaseType phase_type, unsigned char* dst_iter, uintptr_t* workspace) {
   // Unpack male data, ignoring phase.
-  dst_iter = LdUnpackNondosageSubset(pgvp, founder_male, raw_sample_ct, founder_male_ct, 0, dst_iter, workspace);
+  dst_iter = LdUnpackNondosageSubset(pgvp, founder_male, raw_sample_ct, founder_male_ct, R2PhaseOmit(phase_type), dst_iter, workspace);
   // Then unpack nonmale data.
-  LdUnpackNondosageSubset(pgvp, founder_nonmale, raw_sample_ct, founder_nonmale_ct, with_dphase, dst_iter, workspace);
+  LdUnpackNondosageSubset(pgvp, founder_nonmale, raw_sample_ct, founder_nonmale_ct, phase_type, dst_iter, workspace);
 }
 
-void LdUnpackDosage(const PgenVariant* pgvp, uint32_t sample_ct, uint32_t with_dphase, unsigned char* dst_iter) {
+void LdUnpackDosage(const PgenVariant* pgvp, uint32_t sample_ct, R2PhaseType phase_type, unsigned char* dst_iter) {
   const uintptr_t dosagev_ct = DivUp(sample_ct, kDosagePerVec);
   const uintptr_t dosagevec_byte_ct = dosagev_ct * kBytesPerVec;
   Dosage* dosage_vec = R_CAST(Dosage*, dst_iter);
   dst_iter = &(dst_iter[dosagevec_byte_ct]);
-  Dosage* dosage_uhet = R_CAST(Dosage*, dst_iter);
-  dst_iter = &(dst_iter[dosagevec_byte_ct]);
+  Dosage* dosage_uhet = nullptr;
+  if (phase_type != kR2PhaseTypeUnphased) {
+    dosage_uhet = R_CAST(Dosage*, dst_iter);
+    dst_iter = &(dst_iter[dosagevec_byte_ct]);
+  }
   uintptr_t* nm_bitvec = R_CAST(uintptr_t*, dst_iter);
   const uintptr_t bitvec_byte_ct = BitCtToVecCt(sample_ct) * kBytesPerVec;
   dst_iter = &(dst_iter[bitvec_byte_ct]);
   SDosage* dense_dphase_delta = nullptr;
-  if (with_dphase) {
+  if (phase_type == kR2PhaseTypePresent) {
     dense_dphase_delta = R_CAST(SDosage*, dst_iter);
     dst_iter = &(dst_iter[dosagevec_byte_ct]);
   }
-  // In 32-bit build, no alignment guarantee for nmaj_dosage.
+  // In 32-bit build, no alignment guarantee for nmaj_dosage or
+  // nmaj_dosage_ssq.
   unsigned char* nmaj_dosage_uc_ptr = dst_iter;
   dst_iter = &(dst_iter[sizeof(int64_t)]);
+  unsigned char* nmaj_dosage_ssq_uc_ptr = nullptr;
+  if (phase_type == kR2PhaseTypeUnphased) {
+    nmaj_dosage_ssq_uc_ptr = dst_iter;
+    dst_iter = &(dst_iter[sizeof(int64_t)]);
+  }
   uint32_t* nm_ct_ptr = R_CAST(uint32_t*, dst_iter);
 
   PopulateDenseDosage(pgvp->genovec, pgvp->dosage_present, pgvp->dosage_main, sample_ct, pgvp->dosage_ct, dosage_vec);
   const uint64_t nmaj_dosage = DenseDosageSum(dosage_vec, dosagev_ct);
   memcpy(nmaj_dosage_uc_ptr, &nmaj_dosage, sizeof(int64_t));
-  FillDosageUhet(dosage_vec, dosagev_ct, dosage_uhet);
   GenoarrToNonmissingnessUnsafe(pgvp->genovec, sample_ct, nm_bitvec);
   ZeroTrailingBits(sample_ct, nm_bitvec);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   BitvecOr(pgvp->dosage_present, sample_ctl, nm_bitvec);
   *nm_ct_ptr = PopcountWords(nm_bitvec, sample_ctl);
-  if (with_dphase) {
-    PopulateDenseDphase(pgvp->phasepresent, pgvp->phaseinfo, pgvp->dosage_present, dosage_vec, pgvp->dphase_present, pgvp->dphase_delta, sample_ct, pgvp->phasepresent_ct, pgvp->dphase_ct, dosage_uhet, dense_dphase_delta);
+  if (phase_type == kR2PhaseTypeUnphased) {
+    // todo: check if dedicated function is faster
+    const uint64_t nmaj_dosage_ssq = DosageUnsignedDotprod(dosage_vec, dosage_vec, dosagev_ct);
+    memcpy(nmaj_dosage_ssq_uc_ptr, &nmaj_dosage_ssq, sizeof(int64_t));
+  } else {
+    FillDosageUhet(dosage_vec, dosagev_ct, dosage_uhet);
+    if (phase_type == kR2PhaseTypePresent) {
+      PopulateDenseDphase(pgvp->phasepresent, pgvp->phaseinfo, pgvp->dosage_present, dosage_vec, pgvp->dphase_present, pgvp->dphase_delta, sample_ct, pgvp->phasepresent_ct, pgvp->dphase_ct, dosage_uhet, dense_dphase_delta);
+    }
   }
 }
 
-unsigned char* LdUnpackDosageSubset(const PgenVariant* pgvp, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t with_dphase, unsigned char* dst_iter, uintptr_t* workspace) {
+unsigned char* LdUnpackDosageSubset(const PgenVariant* pgvp, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t raw_sample_ct, uint32_t sample_ct, R2PhaseType phase_type, unsigned char* dst_iter, uintptr_t* workspace) {
   const uintptr_t dosagev_ct = DivUp(sample_ct, kDosagePerVec);
   const uintptr_t dosagevec_byte_ct = dosagev_ct * kBytesPerVec;
   Dosage* dosage_vec = R_CAST(Dosage*, dst_iter);
   dst_iter = &(dst_iter[dosagevec_byte_ct]);
-  Dosage* dosage_uhet = R_CAST(Dosage*, dst_iter);
-  dst_iter = &(dst_iter[dosagevec_byte_ct]);
+  Dosage* dosage_uhet = nullptr;
+  if (phase_type != kR2PhaseTypeUnphased) {
+    dosage_uhet = R_CAST(Dosage*, dst_iter);
+    dst_iter = &(dst_iter[dosagevec_byte_ct]);
+  }
   uintptr_t* nm_bitvec = R_CAST(uintptr_t*, dst_iter);
   const uintptr_t bitvec_byte_ct = BitCtToVecCt(sample_ct) * kBytesPerVec;
   dst_iter = &(dst_iter[bitvec_byte_ct]);
   SDosage* dense_dphase_delta = nullptr;
-  if (with_dphase) {
+  if (phase_type == kR2PhaseTypePresent) {
     dense_dphase_delta = R_CAST(SDosage*, dst_iter);
     dst_iter = &(dst_iter[dosagevec_byte_ct]);
   }
   // In 32-bit build, no alignment guarantee for nmaj_dosage.
   unsigned char* nmaj_dosage_uc_ptr = dst_iter;
-  uint32_t* nm_ct_ptr = R_CAST(uint32_t*, &(dst_iter[sizeof(int64_t)]));
-  dst_iter = &(dst_iter[RoundUpPow2(sizeof(int64_t) + sizeof(int32_t), kBytesPerVec)]);
+  uint32_t dst_offset = sizeof(int64_t);
+  unsigned char* nmaj_dosage_ssq_uc_ptr = nullptr;
+  if (phase_type == kR2PhaseTypeUnphased) {
+    nmaj_dosage_ssq_uc_ptr = &(dst_iter[dst_offset]);
+    dst_offset += sizeof(int64_t);
+  }
+  uint32_t* nm_ct_ptr = R_CAST(uint32_t*, &(dst_iter[dst_offset]));
+  dst_offset += sizeof(int32_t);
+  dst_iter = &(dst_iter[RoundUpPow2(dst_offset, kBytesPerVec)]);
 
   const uintptr_t* dosage_present = pgvp->dosage_present;
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
@@ -4938,7 +5000,6 @@ unsigned char* LdUnpackDosageSubset(const PgenVariant* pgvp, const uintptr_t* sa
     PopulateDenseDosageNonemptySubset(sample_include, sample_include_cumulative_popcounts, pgvp->genovec, dosage_present, pgvp->dosage_main, raw_sample_ct, sample_ct, pgvp->dosage_ct, dosage_vec, genovec_collapsed);
     const uint64_t nmaj_dosage = DenseDosageSum(dosage_vec, dosagev_ct);
     memcpy(nmaj_dosage_uc_ptr, &nmaj_dosage, sizeof(int64_t));
-    FillDosageUhet(dosage_vec, dosagev_ct, dosage_uhet);
     GenoarrToNonmissingnessUnsafe(genovec_collapsed, sample_ct, nm_bitvec);
     ZeroTrailingBits(sample_ct, nm_bitvec);
   }
@@ -4946,17 +5007,122 @@ unsigned char* LdUnpackDosageSubset(const PgenVariant* pgvp, const uintptr_t* sa
   CopyBitarrSubset(dosage_present, sample_include, sample_ct, dosage_present_collapsed);
   BitvecOr(dosage_present_collapsed, sample_ctl, nm_bitvec);
   *nm_ct_ptr = PopcountWords(nm_bitvec, sample_ctl);
-  if (with_dphase) {
-    PopulateDenseDphaseSubset(sample_include, sample_include_cumulative_popcounts, pgvp->phasepresent, pgvp->phaseinfo, pgvp->dosage_present, dosage_vec, pgvp->dphase_present, pgvp->dphase_delta, raw_sample_ct, sample_ct, pgvp->phasepresent_ct, pgvp->dphase_ct, dosage_uhet, dense_dphase_delta);
+  if (phase_type == kR2PhaseTypeUnphased) {
+    const uint64_t nmaj_dosage_ssq = DosageUnsignedDotprod(dosage_vec, dosage_vec, dosagev_ct);
+    memcpy(nmaj_dosage_ssq_uc_ptr, &nmaj_dosage_ssq, sizeof(uint64_t));
+  } else {
+    FillDosageUhet(dosage_vec, dosagev_ct, dosage_uhet);
+    if (phase_type == kR2PhaseTypePresent) {
+      PopulateDenseDphaseSubset(sample_include, sample_include_cumulative_popcounts, pgvp->phasepresent, pgvp->phaseinfo, pgvp->dosage_present, dosage_vec, pgvp->dphase_present, pgvp->dphase_delta, raw_sample_ct, sample_ct, pgvp->phasepresent_ct, pgvp->dphase_ct, dosage_uhet, dense_dphase_delta);
+    }
   }
   return dst_iter;
 }
 
-void LdUnpackChrXDosage(const PgenVariant* pgvp, const uintptr_t* founder_male, const uint32_t* founder_male_cumulative_popcounts, const uintptr_t* founder_nonmale, const uint32_t* founder_nonmale_cumulative_popcounts, uint32_t raw_sample_ct, uint32_t founder_male_ct, uint32_t founder_nonmale_ct, uint32_t with_dphase, unsigned char* dst_iter, uintptr_t* workspace) {
+void LdUnpackChrXDosage(const PgenVariant* pgvp, const uintptr_t* founder_male, const uint32_t* founder_male_cumulative_popcounts, const uintptr_t* founder_nonmale, const uint32_t* founder_nonmale_cumulative_popcounts, uint32_t raw_sample_ct, uint32_t founder_male_ct, uint32_t founder_nonmale_ct, R2PhaseType phase_type, unsigned char* dst_iter, uintptr_t* workspace) {
   // Unpack male data, ignoring phase.
-  dst_iter = LdUnpackDosageSubset(pgvp, founder_male, founder_male_cumulative_popcounts, raw_sample_ct, founder_male_ct, 0, dst_iter, workspace);
+  dst_iter = LdUnpackDosageSubset(pgvp, founder_male, founder_male_cumulative_popcounts, raw_sample_ct, founder_male_ct, R2PhaseOmit(phase_type), dst_iter, workspace);
   // Then unpack nonmale data.
-  LdUnpackDosageSubset(pgvp, founder_nonmale, founder_nonmale_cumulative_popcounts, raw_sample_ct, founder_nonmale_ct, with_dphase, dst_iter, workspace);
+  LdUnpackDosageSubset(pgvp, founder_nonmale, founder_nonmale_cumulative_popcounts, raw_sample_ct, founder_nonmale_ct, phase_type, dst_iter, workspace);
+}
+
+typedef struct R2NondosageVariantStruct {
+  const uintptr_t* one_bitvec;
+  const uintptr_t* two_bitvec;
+  const uintptr_t* nm_bitvec;
+  const uintptr_t* phasepresent; // may be uninitialized
+  const uintptr_t* phaseinfo; // may be uninitialized
+  uint32_t nmaj_ct;
+  uint32_t nm_ct;
+  uint32_t ssq; // may be uninitialized
+} R2NondosageVariant;
+
+typedef struct R2DosageVariantStruct {
+  const Dosage* dosage_vec;
+  const Dosage* dosage_uhet; // may be uninitialized
+  const uintptr_t* nm_bitvec;
+  const SDosage* dense_dphase_delta; // may be uninitialized
+  uint64_t nmaj_dosage;
+  uint64_t nmaj_dosage_ssq; // may be uninitialized
+  uint32_t nm_ct;
+} R2DosageVariant;
+
+typedef union {
+  R2NondosageVariant nd;
+  R2DosageVariant d;
+  R2NondosageVariant x_nd[2];
+  R2DosageVariant x_d[2];
+} R2Variant;
+
+const unsigned char* FillR2Nondosage(const unsigned char* src_iter, uint32_t sample_ct, R2PhaseType phase_type, R2NondosageVariant* ndp) {
+  // See LdUnpackNondosage().
+  const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
+  const uintptr_t* src_witer = R_CAST(const uintptr_t*, src_iter);
+  ndp->one_bitvec = src_witer;
+  src_witer = &(src_witer[sample_ctaw]);
+  ndp->two_bitvec = src_witer;
+  src_witer = &(src_witer[sample_ctaw]);
+  ndp->nm_bitvec = src_witer;
+  src_witer = &(src_witer[sample_ctaw]);
+  if (phase_type == kR2PhaseTypePresent) {
+    ndp->phasepresent = src_witer;
+    src_witer = &(src_witer[sample_ctaw]);
+    ndp->phaseinfo = src_witer;
+    src_witer = &(src_witer[sample_ctaw]);
+  }
+  const uint32_t* final_u32s = R_CAST(const uint32_t*, src_witer);
+  ndp->nmaj_ct = final_u32s[0];
+  ndp->nm_ct = final_u32s[1];
+  if (phase_type == kR2PhaseTypeUnphased) {
+    ndp->ssq = final_u32s[2];
+  }
+  src_iter = R_CAST(const unsigned char*, src_witer);
+  return &(src_iter[LdNondosageTrailAlignedByteCt(phase_type)]);
+}
+
+const unsigned char* FillR2Dosage(const unsigned char* src_iter, uint32_t sample_ct, R2PhaseType phase_type, R2DosageVariant* dp) {
+  // See LdUnpackDosage().
+  const uintptr_t dosagev_ct = DivUp(sample_ct, kDosagePerVec);
+  const uintptr_t dosagevec_byte_ct = dosagev_ct * kBytesPerVec;
+  dp->dosage_vec = R_CAST(const Dosage*, src_iter);
+  src_iter = &(src_iter[dosagevec_byte_ct]);
+  if (phase_type != kR2PhaseTypeUnphased) {
+    dp->dosage_uhet = R_CAST(const Dosage*, src_iter);
+    src_iter = &(src_iter[dosagevec_byte_ct]);
+  }
+  dp->nm_bitvec = R_CAST(const uintptr_t*, src_iter);
+  const uintptr_t bitvec_byte_ct = BitCtToVecCt(sample_ct) * kBytesPerVec;
+  src_iter = &(src_iter[bitvec_byte_ct]);
+  if (phase_type == kR2PhaseTypePresent) {
+    dp->dense_dphase_delta = R_CAST(const SDosage*, src_iter);
+    src_iter = &(src_iter[dosagevec_byte_ct]);
+  }
+  memcpy(&(dp->nmaj_dosage), src_iter, sizeof(int64_t));
+  const unsigned char* trail_iter = &(src_iter[sizeof(int64_t)]);
+  if (phase_type == kR2PhaseTypeUnphased) {
+    memcpy(&(dp->nmaj_dosage_ssq), trail_iter, sizeof(int64_t));
+    trail_iter = &(trail_iter[sizeof(int64_t)]);
+  }
+  memcpy(&(dp->nm_ct), trail_iter, sizeof(int32_t));
+  return &(src_iter[LdDosageTrailAlignedByteCt(phase_type)]);
+}
+
+void FillR2V(const unsigned char* src_iter, uint32_t sample_ct, R2PhaseType phase_type, uint32_t load_dosage, R2Variant* r2vp) {
+  if (!load_dosage) {
+    FillR2Nondosage(src_iter, sample_ct, phase_type, &(r2vp->nd));
+  } else {
+    FillR2Dosage(src_iter, sample_ct, phase_type, &(r2vp->d));
+  }
+}
+
+void FillXR2V(const unsigned char* unpacked_variant, uint32_t male_ct, uint32_t nonmale_ct, R2PhaseType phase_type, uint32_t load_dosage, R2Variant* r2vp) {
+  if (!load_dosage) {
+    const unsigned char* src_iter = FillR2Nondosage(unpacked_variant, male_ct, R2PhaseOmit(phase_type), &(r2vp->x_nd[0]));
+    FillR2Nondosage(src_iter, nonmale_ct, phase_type, &(r2vp->x_nd[1]));
+  } else {
+    const unsigned char* src_iter = FillR2Dosage(unpacked_variant, male_ct, R2PhaseOmit(phase_type), &(r2vp->x_d[0]));
+    FillR2Dosage(src_iter, nonmale_ct, phase_type, &(r2vp->x_d[1]));
+  }
 }
 
 void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
@@ -4989,7 +5155,7 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
   const uint32_t* founder_male_cumulative_popcounts = nullptr;
   const uint32_t* founder_nonmale_cumulative_popcounts = nullptr;
   uintptr_t* chrx_workspace = nullptr;
-  const uintptr_t* cur_sample_include;
+  const uintptr_t* cur_sample_include = nullptr;
   PgrSampleSubsetIndex pssi;
   uint32_t cur_sample_ct;
   {
@@ -5016,7 +5182,7 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
       PgrSetSampleSubsetIndex(cur_sample_include_cumulative_popcounts, pgrp, &pssi);
     }
   }
-  const uint32_t load_phase = ctx->load_phase;
+  const R2PhaseType phase_type = S_CAST(R2PhaseType, ctx->phase_type);
   const uint32_t load_dosage = ctx->load_dosage;
   const uintptr_t allele_idx_start = IdxToUidxW(observed_alleles, observed_alleles_cumulative_popcounts_w, ctx->allele_widx_start, ctx->allele_widx_end, oaidx);
   uintptr_t allele_idx_base;
@@ -5037,7 +5203,7 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
     }
     if (!chrx_workspace) {
       if (load_dosage) {
-        if (load_phase) {
+        if (phase_type == kR2PhaseTypePresent) {
           reterr = PgrGetInv1Dp(cur_sample_include, pssi, cur_sample_ct, variant_uidx, aidx, pgrp, &pgv);
         } else {
           reterr = PgrGetInv1D(cur_sample_include, pssi, cur_sample_ct, variant_uidx, aidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
@@ -5045,9 +5211,9 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
         if (unlikely(reterr)) {
           goto ClumpHighmemUnpack_err;
         }
-        LdUnpackDosage(&pgv, cur_sample_ct, load_phase, write_iter);
+        LdUnpackDosage(&pgv, cur_sample_ct, phase_type, write_iter);
       } else {
-        if (load_phase) {
+        if (phase_type == kR2PhaseTypePresent) {
           reterr = PgrGetInv1P(cur_sample_include, pssi, cur_sample_ct, variant_uidx, aidx, pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
         } else {
           reterr = PgrGetInv1(cur_sample_include, pssi, cur_sample_ct, variant_uidx, aidx, pgrp, pgv.genovec);
@@ -5055,12 +5221,12 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
         if (unlikely(reterr)) {
           goto ClumpHighmemUnpack_err;
         }
-        LdUnpackNondosage(&pgv, cur_sample_ct, load_phase, write_iter);
+        LdUnpackNondosage(&pgv, cur_sample_ct, phase_type, write_iter);
       }
     } else {
       // chrX
       if (load_dosage) {
-        if (load_phase) {
+        if (phase_type == kR2PhaseTypePresent) {
           reterr = PgrGetInv1Dp(nullptr, pssi, cur_sample_ct, variant_uidx, aidx, pgrp, &pgv);
         } else {
           reterr = PgrGetInv1D(nullptr, pssi, cur_sample_ct, variant_uidx, aidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
@@ -5068,9 +5234,9 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
         if (unlikely(reterr)) {
           goto ClumpHighmemUnpack_err;
         }
-        LdUnpackChrXDosage(&pgv, founder_male, founder_male_cumulative_popcounts, founder_nonmale, founder_nonmale_cumulative_popcounts, cur_sample_ct, founder_male_ct, founder_nonmale_ct, load_phase, write_iter, chrx_workspace);
+        LdUnpackChrXDosage(&pgv, founder_male, founder_male_cumulative_popcounts, founder_nonmale, founder_nonmale_cumulative_popcounts, cur_sample_ct, founder_male_ct, founder_nonmale_ct, phase_type, write_iter, chrx_workspace);
       } else {
-        if (load_phase) {
+        if (phase_type == kR2PhaseTypePresent) {
           reterr = PgrGetInv1P(nullptr, pssi, cur_sample_ct, variant_uidx, aidx, pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
         } else {
           reterr = PgrGetInv1(nullptr, pssi, cur_sample_ct, variant_uidx, aidx, pgrp, pgv.genovec);
@@ -5078,7 +5244,7 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
         if (unlikely(reterr)) {
           goto ClumpHighmemUnpack_err;
         }
-        LdUnpackChrXNondosage(&pgv, founder_male, founder_nonmale, cur_sample_ct, founder_male_ct, founder_nonmale_ct, load_phase, write_iter, chrx_workspace);
+        LdUnpackChrXNondosage(&pgv, founder_male, founder_nonmale, cur_sample_ct, founder_male_ct, founder_nonmale_ct, phase_type, write_iter, chrx_workspace);
       }
     }
   }
@@ -5089,15 +5255,111 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
   UpdateU64IfSmaller(new_err_info, &ctx->err_info);
 }
 
-double UnphasedR2(const double* nmajsums_d, double known_dotprod_d, double unknown_hethet_d, double twice_tot_recip) {
+// assumes sample_ct < 2^30.
+static inline uint32_t GenoBitvecUnphasedDotprod(const uintptr_t* one_bitvec0, const uintptr_t* two_bitvec0, const uintptr_t* one_bitvec1, const uintptr_t* two_bitvec1, uint32_t word_ct) {
+  uint32_t half_hom_part;
+  uint32_t hethet_ct;
+  GenoBitvecPhasedDotprod(one_bitvec0, two_bitvec0, one_bitvec1, two_bitvec1, word_ct, &half_hom_part, &hethet_ct);
+  return 2 * half_hom_part + hethet_ct;
+}
+
+double ComputeR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_t sample_ct, R2PhaseType phase_type, uint32_t load_dosage) {
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  double nmajsums_d[2];
+  double known_dotprod_d;
+  double unknown_hethet_d;
+  if (!load_dosage) {
+    // See HardcallPhasedR2Stats().
+    const R2NondosageVariant* ndp0 = &(r2vp0->nd);
+    const R2NondosageVariant* ndp1 = &(r2vp1->nd);
+    const uintptr_t* nm_bitvec0 = ndp0->nm_bitvec;
+    const uintptr_t* nm_bitvec1 = ndp1->nm_bitvec;
+    const uint32_t nm_ct0 = ndp0->nm_ct;
+    const uint32_t nm_ct1 = ndp1->nm_ct;
+    uint32_t nm_intersection_ct;
+    if ((nm_ct0 != sample_ct) && (nm_ct1 != sample_ct)) {
+      nm_intersection_ct = PopcountWordsIntersect(nm_bitvec0, nm_bitvec1, sample_ctl);
+      if (!nm_intersection_ct) {
+        return -DBL_MAX;
+      }
+    } else {
+      nm_intersection_ct = MINV(nm_ct0, nm_ct1);
+    }
+    const uintptr_t* one_bitvec0 = ndp0->one_bitvec;
+    const uintptr_t* two_bitvec0 = ndp0->two_bitvec;
+    uint32_t nmaj_ct0 = ndp0->nmaj_ct;
+    if (nm_ct0 != nm_intersection_ct) {
+      nmaj_ct0 = GenoBitvecSumSubset(nm_bitvec1, one_bitvec0, two_bitvec0, sample_ctl);
+    }
+    const uintptr_t* one_bitvec1 = ndp1->one_bitvec;
+    const uintptr_t* two_bitvec1 = ndp1->two_bitvec;
+    uint32_t nmaj_ct1 = ndp1->nmaj_ct;
+    if (nm_ct1 != nm_intersection_ct) {
+      nmaj_ct1 = GenoBitvecSumSubset(nm_bitvec0, one_bitvec1, two_bitvec1, sample_ctl);
+    }
+    if (phase_type == kR2PhaseTypeUnphased) {
+      uint32_t ssq0 = ndp0->ssq;
+      if (nm_ct0 != nm_intersection_ct) {
+        ssq0 = nm_ct0 + 2 * PopcountWordsIntersect(nm_bitvec1, two_bitvec0, sample_ctl);
+      }
+      uint32_t ssq1 = ndp1->ssq;
+      if (nm_ct1 != nm_intersection_ct) {
+        ssq1 = nm_ct1 + 2 * PopcountWordsIntersect(nm_bitvec0, two_bitvec1, sample_ctl);
+      }
+      const uint32_t dotprod = GenoBitvecUnphasedDotprod(one_bitvec0, two_bitvec0, one_bitvec1, two_bitvec1, sample_ctl);
+      // Previously implemented in e.g. IndepPairwiseThread.
+      const int64_t variance0_i64 = ssq0 * S_CAST(int64_t, nm_intersection_ct) - S_CAST(int64_t, nmaj_ct0) * nmaj_ct0;
+      const int64_t variance1_i64 = ssq1 * S_CAST(int64_t, nm_intersection_ct) - S_CAST(int64_t, nmaj_ct1) * nmaj_ct1;
+      if ((variance0_i64 == 0) || (variance1_i64 == 0)) {
+        return -DBL_MAX;
+      }
+      const double cov01 = S_CAST(double, dotprod * S_CAST(int64_t, nm_intersection_ct) - S_CAST(int64_t, nmaj_ct0) * nmaj_ct1);
+      return cov01 * cov01 / (S_CAST(double, variance0_i64) * S_CAST(double, variance1_i64));
+    }
+    uint32_t known_dotprod;
+    uint32_t unknown_hethet_ct;
+    GenoBitvecPhasedDotprod(one_bitvec0, two_bitvec0, one_bitvec1, two_bitvec1, sample_ctl, &known_dotprod, &unknown_hethet_ct);
+    if ((phase_type == kR2PhaseTypePresent) && (unknown_hethet_ct != 0)) {
+      // don't bother with no-phase-here optimization for now
+      HardcallPhasedR2Refine(ndp0->phasepresent, ndp0->phaseinfo, ndp1->phasepresent, ndp1->phaseinfo, sample_ctl, &known_dotprod, &unknown_hethet_ct);
+    }
+    nmajsums_d[0] = u31tod(nmaj_ct0);
+    nmajsums_d[1] = u31tod(nmaj_ct1);
+    known_dotprod_d = S_CAST(double, known_dotprod);
+    unknown_hethet_d = u31tod(unknown_hethet_ct);
+  } else {
+    const R2DosageVariant* dp0 = &(r2vp0->d);
+    const R2DosageVariant* dp1 = &(r2vp1->d);
+    const Dosage* dosage_vec0 = dp0->dosage_vec;
+    const Dosage* dosage_vec1 = dp1->dosage_vec;
+    const uintptr_t* nm_bitvec0 = dp0->nm_bitvec;
+    const uintptr_t* nm_bitvec1 = dp1->nm_bitvec;
+    const uint32_t nm_ct0 = dp0->nm_ct;
+    const uint32_t nm_ct1 = dp1->nm_ct;
+    uint64_t nmaj_dosages[2];
+    nmaj_dosages[0] = dp0->nmaj_dosage;
+    nmaj_dosages[1] = dp1->nmaj_dosage;
+    uint64_t dosageprod;
+    const uint32_t valid_obs_ct = DosagePhasedR2Prod(dosage_vec0, nm_bitvec0, dosage_vec1, nm_bitvec1, sample_ct, nm_ct0, nm_ct1, nmaj_dosages, &dosageprod);
+    if (!valid_obs_ct) {
+      return -DBL_MAX;
+    }
+    const double valid_obs_d = u31tod(valid_obs_ct);
+    if (phase_type == kR2PhaseTypeUnphased) {
+      const uint64_t ssq0 = dp0->nmaj_dosage_ssq;
+      const uint64_t ssq1 = dp1->nmaj_dosage_ssq;
+      // TODO: emulate 128-bit integers to make variance computations work
+      const double cov01 = S_CAST(double, dosageprod) * valid_obs_d - S_CAST(double, nmaj_dosages[0]) * S_CAST(double, nmaj_dosages[1]);
+    }
+    ;;;
+  }
   return 0.0;
 }
 
-double ComputeR2(const unsigned char* v1, const unsigned char* v2, uint32_t sample_ct, uint32_t load_phase, uint32_t load_dosage, uint32_t force_unphased) {
-  return 0.0;
-}
-
-double ComputeXR2(const unsigned char* v1, const unsigned char* v2, uint32_t male_ct, uint32_t nonmale_ct, uint32_t load_phase, uint32_t load_dosage, uint32_t force_unphased) {
+// todo: single-part X, for --r2 inter-chr case
+double ComputeTwoPartXR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_t male_ct, uint32_t nonmale_ct, R2PhaseType phase_type, uint32_t load_dosage) {
+  logerrprintf("not implemented yet\n");
+  exit(1);
   return 0.0;
 }
 
@@ -5124,15 +5386,20 @@ void ClumpHighmemR2(uintptr_t tidx, uint32_t thread_ct_p1, uint32_t parity, Clum
   const uint32_t founder_male_ct = ctx->founder_male_ct;
   const uint32_t founder_nonmale_ct = founder_main_ct - founder_male_ct;
   const uint32_t allow_overlap = ctx->allow_overlap;
-  const uint32_t force_unphased = ctx->force_unphased;
   const uint32_t is_x = ctx->is_x;
   if (ctx->is_y) {
     founder_main_ct = founder_male_ct;
   }
-  const uint32_t load_phase = ctx->load_phase;
+  const R2PhaseType phase_type = S_CAST(R2PhaseType, ctx->phase_type);
   const uint32_t load_dosage = ctx->load_dosage;
   const double r2_thresh = ctx->r2_thresh;
   const unsigned char* unpacked_index_variant = &(unpacked_variants[ctx->index_oaidx_offset * unpacked_byte_stride]);
+  R2Variant index_r2v;
+  if (!is_x) {
+    FillR2V(unpacked_index_variant, founder_main_ct, phase_type, load_dosage, &index_r2v);
+  } else {
+    FillXR2V(unpacked_index_variant, founder_male_ct, founder_nonmale_ct, phase_type, load_dosage, &index_r2v);
+  }
   uintptr_t* write_iter = ctx->a[parity].ld_idx_found[tidx];
   uintptr_t oaidx_base;
   uintptr_t cur_oaidx_bits;
@@ -5143,9 +5410,13 @@ void ClumpHighmemR2(uintptr_t tidx, uint32_t thread_ct_p1, uint32_t parity, Clum
     const unsigned char* unpacked_cur_variant = &(unpacked_variants[oaidx_offset * unpacked_byte_stride]);
     double cur_r2;
     if (!is_x) {
-      cur_r2 = ComputeR2(unpacked_index_variant, unpacked_cur_variant, founder_main_ct, load_phase, load_dosage, force_unphased);
+      R2Variant cur_r2v;
+      FillR2V(unpacked_cur_variant, founder_main_ct, phase_type, load_dosage, &cur_r2v);
+      cur_r2 = ComputeR2(&index_r2v, &cur_r2v, founder_main_ct, phase_type, load_dosage);
     } else {
-      cur_r2 = ComputeXR2(unpacked_index_variant, unpacked_cur_variant, founder_male_ct, founder_nonmale_ct, load_phase, load_dosage, force_unphased);
+      R2Variant cur_r2v;
+      FillXR2V(unpacked_cur_variant, founder_main_ct, founder_nonmale_ct, phase_type, load_dosage, &cur_r2v);
+      cur_r2 = ComputeTwoPartXR2(&index_r2v, &cur_r2v, founder_male_ct, founder_nonmale_ct, phase_type, load_dosage);
     }
     if (cur_r2 > r2_thresh) {
       if (!allow_overlap) {
@@ -5216,6 +5487,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     if (unlikely(!founder_ct)) {
       logerrputs("Error: --clump requires at least 1 founder.  (--make-founders may come in handy\nhere.)\n");
       goto ClumpReports_ret_INCONSISTENT_INPUT;
+    } else if (founder_ct > 0x3fffffff) {
+      logerrputs("Error: --clump does not support >= 2^30 founders.\n");
+      goto ClumpReports_ret_NOT_YET_SUPPORTED;
     }
     uint32_t skipped_variant_ct;
     const uintptr_t* variant_include = StripUnplaced(orig_variant_include, cip, raw_variant_ct, &skipped_variant_ct);
@@ -5703,8 +5977,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
 #ifdef __LP64__
       if (unlikely(index_candidate_ct_w >= 0xffffffffU)) {
         logerrputs("Error: --clump does not support >= 2^32 - 1 index-variant candidates.\n");
-        reterr = kPglRetNotYetSupported;
-        goto ClumpReports_ret_1;
+        goto ClumpReports_ret_NOT_YET_SUPPORTED;
       }
 #endif
       index_candidate_ct = index_candidate_ct_w;
@@ -5757,25 +6030,20 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     }
 
     uint32_t* oallele_idx_to_clump_idx = nullptr;
-    uint64_t* clump_idx_to_overlap_fpos = nullptr;
+    uint64_t* clump_idx_to_overlap_fpos_and_len = nullptr;
     const uint32_t allow_overlap = (flags / kfClumpAllowOverlap) & 1;
     if (!allow_overlap) {
       if (unlikely(bigstack_alloc_u32(observed_allele_ct, &oallele_idx_to_clump_idx))) {
         goto ClumpReports_ret_NOMEM;
       }
-      for (uintptr_t ulii = 0; ulii != observed_allele_ct; ++ulii) {
-        oallele_idx_to_clump_idx[ulii] = UINT32_MAX;
-      }
+      SetAllU32Arr(observed_allele_ct, oallele_idx_to_clump_idx);
     } else {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".clumps.tmp");
       if (unlikely(fopen_checked(outname, FOPEN_WB, &clump_overlap_tmp))) {
         goto ClumpReports_ret_OPEN_FAIL;
       }
-      if (unlikely(bigstack_alloc_u64(index_candidate_ct, &clump_idx_to_overlap_fpos))) {
+      if (unlikely(bigstack_calloc_u64(index_candidate_ct * (2 * k1LU), &clump_idx_to_overlap_fpos_and_len))) {
         goto ClumpReports_ret_NOMEM;
-      }
-      for (uint32_t uii = 0; uii != index_candidate_ct; ++uii) {
-        clump_idx_to_overlap_fpos[uii] = UINT64_MAX;
       }
     }
 
@@ -5908,9 +6176,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     // PgfiMultiread use case that we fork PgenMtLoadInit()'s computation here
     // instead of modifying that function.
 
-    const uint32_t force_unphased = (flags / kfClumpUnphased) & 1;
+    const uint32_t phased_r2 = !(flags & kfClumpUnphased);
     const uint32_t all_haploid = IsSet(cip->haploid_mask, 0);
-    const uint32_t check_phase = (!force_unphased) && (!all_haploid) && (pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent));
+    const uint32_t check_phase = phased_r2 && (!all_haploid) && (pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent));
     PgenGlobalFlags effective_gflags = pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
     if (!check_phase) {
       effective_gflags &= kfPgenGlobalDosagePresent;
@@ -5924,13 +6192,13 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     uintptr_t x_unpacked_byte_stride = 0;
     uintptr_t nonxy_unpacked_byte_stride;
     if (check_dosage) {
-      const uintptr_t dosage_trail_byte_ct = RoundUpPow2(sizeof(int64_t) + sizeof(int32_t), kBytesPerVec);
-      nonxy_unpacked_byte_stride = dosagevec_byte_ct * (2 + check_phase) + bitvec_byte_ct + dosage_trail_byte_ct;
+      const uintptr_t dosage_trail_byte_ct = LdDosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_r2));
+      nonxy_unpacked_byte_stride = dosagevec_byte_ct * (1 + phased_r2 + check_phase) + bitvec_byte_ct + dosage_trail_byte_ct;
       if (x_exists) {
-        x_unpacked_byte_stride = nonmale_dosagevec_byte_ct * (2 + check_phase) + nonmale_bitvec_byte_ct + male_dosagevec_byte_ct * 2 + male_bitvec_byte_ct + 2 * dosage_trail_byte_ct;
+        x_unpacked_byte_stride = nonmale_dosagevec_byte_ct * (1 + phased_r2 + check_phase) + nonmale_bitvec_byte_ct + male_dosagevec_byte_ct * (1 + phased_r2) + male_bitvec_byte_ct + 2 * dosage_trail_byte_ct;
       }
     } else {
-      const uintptr_t nondosage_trail_byte_ct = RoundUpPow2(sizeof(int32_t) + sizeof(int32_t), kBytesPerVec);
+      const uintptr_t nondosage_trail_byte_ct = LdNondosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_r2));
       nonxy_unpacked_byte_stride = bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
       if (x_exists) {
         x_unpacked_byte_stride = nonmale_bitvec_byte_ct * (3 + 2 * check_phase) + male_bitvec_byte_ct * 3 + 2 * nondosage_trail_byte_ct;
@@ -6039,7 +6307,6 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     ctx.nonmale_dosagevec_byte_ct = nonmale_dosagevec_byte_ct;
     ctx.r2_thresh = clump_ip->r2;
     ctx.allow_overlap = allow_overlap;
-    ctx.force_unphased = force_unphased;
     ctx.candidate_oabitvec = candidate_oabitvec;
     ctx.err_info = 0;
     SetThreadFuncAndData(ClumpThread, &ctx, &tg);
@@ -6089,15 +6356,16 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       uintptr_t oaidx_start = next_oaidx_start;
       uintptr_t oaidx_end = next_oaidx_end;
       uintptr_t candidate_ct = oaidx_end - oaidx_start;
-      uint32_t load_phase = 0;
+      uint32_t relevant_phase_exists = 0;
       uint32_t load_dosage = 0;
-      ScanPhaseDosage(observed_variants, pgfip, vidx_start, vidx_end, check_phase && ((!is_haploid) || is_x), check_dosage, &load_phase, &load_dosage);
+      ScanPhaseDosage(observed_variants, pgfip, vidx_start, vidx_end, check_phase && ((!is_haploid) || is_x), check_dosage, &relevant_phase_exists, &load_dosage);
+      R2PhaseType phase_type = S_CAST(R2PhaseType, relevant_phase_exists + phased_r2);
       ctx.is_x = is_x;
       ctx.is_y = is_y;
       ctx.igroup_oaidx_start = oaidx_start;
       ctx.allele_widx_start = allele_idx_first / kBitsPerWord;
 
-      uint64_t unpacked_variant_byte_stride = UnpackedByteStride(&ctx, load_phase, load_dosage);
+      uint64_t unpacked_variant_byte_stride = UnpackedByteStride(&ctx, phase_type, load_dosage);
 
       next_vidx_end = vidx_end;
       next_chr_fo_idx = chr_fo_idx;
@@ -6136,11 +6404,12 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         // chromosome, or the current island-group already appears to be large
         // enough for good worker-thread utilization.
         while ((next_chr_fo_idx == chr_fo_idx) && (candidate_ct * unpacked_variant_byte_stride < (4194304 * k1LU) * calc_thread_ct)) {
-          uint32_t ext_load_phase = load_phase;
+          uint32_t ext_relevant_phase_exists = relevant_phase_exists;
           uint32_t ext_load_dosage = load_dosage;
-          ScanPhaseDosage(observed_variants, pgfip, next_vidx_start, next_vidx_end, check_phase && ((!is_haploid) || is_x), check_dosage, &ext_load_phase, &ext_load_dosage);
+          ScanPhaseDosage(observed_variants, pgfip, next_vidx_start, next_vidx_end, check_phase && ((!is_haploid) || is_x), check_dosage, &ext_relevant_phase_exists, &ext_load_dosage);
+          const R2PhaseType ext_phase_type = S_CAST(R2PhaseType, ext_relevant_phase_exists + phased_r2);
           const uintptr_t ext_candidate_ct = candidate_ct + next_oaidx_end - next_oaidx_start;
-          const uint64_t ext_unpacked_variant_byte_stride = UnpackedByteStride(&ctx, ext_load_phase, ext_load_dosage);
+          const uint64_t ext_unpacked_variant_byte_stride = UnpackedByteStride(&ctx, ext_phase_type, ext_load_dosage);
           if (bytes_avail < ext_candidate_ct * S_CAST(uint64_t, ext_unpacked_variant_byte_stride) + 2 * MAXV(RoundUpPow2((ext_candidate_ct + calc_thread_ct) * sizeof(intptr_t), 2 * kCacheline) / 2, multiread_byte_target)) {
             // Insufficient memory to extend.
             break;
@@ -6149,13 +6418,13 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           allele_idx_last = next_allele_idx_last;
           candidate_ct = ext_candidate_ct;
           unpacked_variant_byte_stride = ext_unpacked_variant_byte_stride;
-          load_phase = ext_load_phase;
+          phase_type = ext_phase_type;
           load_dosage = ext_load_dosage;
           next_vidx_start = GetNextIslandIdxs(cip, variant_bps, allele_idx_offsets, icandidate_vbitvec, observed_variants, observed_alleles, observed_alleles_cumulative_popcounts_w, raw_variant_ct, bp_radius, nullptr, &next_oaidx_end, &next_vidx_end, &next_chr_fo_idx, &next_allele_idx_first, &next_allele_idx_last);
         }
         icandidate_ct = PopcountBitRange(icandidate_abitvec, allele_idx_first, allele_idx_last + 1);
         ctx.unpacked_variants = unpacked_variants;
-        ctx.load_phase = load_phase;
+        ctx.phase_type = phase_type;
         ctx.load_dosage = load_dosage;
         ctx.allele_widx_end = 1 + (allele_idx_last / kBitsPerWord);
         ctx.a[parity].job_type = kClumpJobHighmemUnpack;
@@ -6255,30 +6524,36 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
             oallele_idx_to_clump_idx[index_oaidx] = rank0;
           } else {
             const uint64_t fpos = ftello(clump_overlap_tmp);
-            clump_idx_to_overlap_fpos[rank0] = fpos;
+            clump_idx_to_overlap_fpos_and_len[rank0 * 2] = fpos;
           }
           uintptr_t oaidx_ct = PopcountBitRange(candidate_oabitvec, window_oaidx_start, window_oaidx_end);
           if (!oaidx_ct) {
             // No remaining non-index variants to clump with this.
             continue;
           }
-          const uint32_t calc_thread_ct_p1 = calc_thread_ct + 1;
-          FillWSubsetStarts(candidate_oabitvec, calc_thread_ct_p1, window_oaidx_start, oaidx_ct, ctx.a[parity].oaidx_starts);
+          // If there's exactly one non-index variant to check, there's no
+          // point in waking up the worker threads.
+          const uint32_t cur_thread_ct = (oaidx_ct == 1)? 1 : (calc_thread_ct + 1);
+          FillWSubsetStarts(candidate_oabitvec, cur_thread_ct, window_oaidx_start, oaidx_ct, ctx.a[parity].oaidx_starts);
           ctx.index_oaidx_offset = index_oaidx - oaidx_start;
           uintptr_t* ld_idx_found_base = R_CAST(uintptr_t*, multiread_base[0]);
           ctx.a[parity].ld_idx_found[0] = ld_idx_found_base;
-          for (uint32_t tidx = 1; tidx != calc_thread_ct_p1; ++tidx) {
-            const uintptr_t offset = (tidx * S_CAST(uint64_t, oaidx_ct)) / (calc_thread_ct_p1);
+          for (uint32_t tidx = 1; tidx != cur_thread_ct; ++tidx) {
+            const uintptr_t offset = (tidx * S_CAST(uint64_t, oaidx_ct)) / (cur_thread_ct);
             // These are (~k0LU)-terminated sequences of oaidxs (usual case) or
             // allele_idxs (--clump-allow-overlap case).  Leave enough room for
             // all possible indexes to be included, plus the terminator.
             ctx.a[parity].ld_idx_found[tidx] = &(ld_idx_found_base[offset + tidx]);
           }
-          SpawnThreads(&tg);
-          ClumpHighmemR2(calc_thread_ct, calc_thread_ct_p1, parity, &ctx);
-          JoinThreads(&tg);
+          if (cur_thread_ct > 1) {
+            SpawnThreads(&tg);
+          }
+          ClumpHighmemR2(cur_thread_ct - 1, cur_thread_ct, parity, &ctx);
+          if (cur_thread_ct > 1) {
+            JoinThreads(&tg);
+          }
           if (oallele_idx_to_clump_idx) {
-            for (uint32_t tidx = 0; tidx != calc_thread_ct_p1; ++tidx) {
+            for (uint32_t tidx = 0; tidx != cur_thread_ct; ++tidx) {
               const uintptr_t* read_iter = ctx.a[parity].ld_idx_found[tidx];
               for (; ; ++read_iter) {
                 const uintptr_t oaidx = *read_iter;
@@ -6292,7 +6567,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           } else {
             uintptr_t prev_save_allele_idx = 0;
             unsigned char buf[16];
-            for (uint32_t tidx = 0; tidx != calc_thread_ct_p1; ++tidx) {
+            for (uint32_t tidx = 0; tidx != cur_thread_ct; ++tidx) {
               const uintptr_t* read_iter = ctx.a[parity].ld_idx_found[tidx];
               for (; ; ++read_iter) {
                 const uintptr_t save_allele_idx = *read_iter;
@@ -6308,8 +6583,11 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
                 prev_save_allele_idx = save_allele_idx;
               }
             }
+            clump_idx_to_overlap_fpos_and_len[rank0 * 2 + 1] = ftello(clump_overlap_tmp) - clump_idx_to_overlap_fpos_and_len[rank0 * 2];
           }
-          parity = 1 - parity;
+          if (cur_thread_ct > 1) {
+            parity = 1 - parity;
+          }
         }
       } else if (bytes_avail >= (calc_thread_ct + 1) * unpacked_variant_byte_stride + midhigh_result_byte_req + multiread_byte_target) {
         // midmem loop
@@ -6317,15 +6595,13 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         ctx.a[parity].job_type = kClumpJobMidmemR2;
         logputs("\n");
         logerrputs("Error: --clump midmem branch is under development.\n");
-        reterr = kPglRetNotYetSupported;
-        goto ClumpReports_ret_1;
+        goto ClumpReports_ret_NOT_YET_SUPPORTED;
       } else {
         // lowmem loop
         ctx.a[parity].job_type = kClumpJobLowmemR2;
         logputs("\n");
         logerrputs("Error: --clump lowmem branch is under development.\n");
-        reterr = kPglRetNotYetSupported;
-        goto ClumpReports_ret_1;
+        goto ClumpReports_ret_NOT_YET_SUPPORTED;
       }
 
       icandidate_idx_start += icandidate_ct;
@@ -6371,6 +6647,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
   ClumpReports_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
+  ClumpReports_ret_NOT_YET_SUPPORTED:
+    reterr = kPglRetNotYetSupported;
+    break;
   }
  ClumpReports_ret_1:
   CleanupThreads(&tg);
@@ -6380,7 +6659,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
   pgfip->block_base = nullptr;
   return reterr;
 }
-  */
+*/
 
 #ifdef __cplusplus
 }  // namespace plink2

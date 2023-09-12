@@ -79,7 +79,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1910
+#define PGENLIB_INTERNAL_VERNUM 1911
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -528,6 +528,39 @@ HEADER_INLINE uint32_t GenoIter1x(const uintptr_t* __restrict genoarr, uintptr_t
 void ClearGenoarrMissing1bit8Unsafe(const uintptr_t* __restrict genoarr, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals);
 
 void ClearGenoarrMissing1bit16Unsafe(const uintptr_t* __restrict genoarr, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals);
+
+// See EasyasPi's answer to
+//   https://stackoverflow.com/questions/25095741/how-can-i-multiply-64-bit-operands-and-get-128-bit-result-portably
+HEADER_INLINE uint64_t multiply64to128(uint64_t lhs, uint64_t rhs, uint64_t* high) {
+  // GCC and Clang usually provide __uint128_t on 64-bit targets, although
+  // Clang also defines it on WASM despite having to use builtins for most
+  // purposes -- including multiplication.
+#if defined(__SIZEOF_INT128__) && !defined(__wasm__)
+  __uint128_t product = S_CAST(__uint128_t, lhs) * S_CAST(__uint128_t, rhs);
+  *high = S_CAST(uint64_t, product >> 64);
+  return S_CAST(uint64_t, product & 0xffffffffffffffffLLU);
+#else
+  // Fast yet simple grade school multiply that avoids 64-bit carries with the
+  // properties of multiplying by 11 and takes advantage of UMAAL on ARMv6 to
+  // only need 4 calculations.
+
+  // First calculate all of the cross products.
+  uint64_t lo_lo = (lhs & 0xffffffff) * (rhs & 0xffffffff);
+  uint64_t hi_lo = (lhs >> 32) * (rhs & 0xffffffff);
+  uint64_t lo_hi = (lhs & 0xffffffff) * (rhs >> 32);
+  uint64_t hi_hi = (lhs >> 32) * (rhs >> 32);
+  // Now add the products together.  These will never overflow.
+  uint64_t cross = (lo_lo >> 32) + (hi_lo & 0xffffffff) + lo_hi;
+  uint64_t upper = (hi_lo >> 32) + (cross >> 32) + hi_hi;
+
+  *high = upper;
+  return (cross << 32) | (lo_lo & 0xffffffff);
+#endif
+}
+
+HEADER_INLINE double u127tod(uint64_t hi, uint64_t lo) {
+  return u63tod(hi) * 18446744073709551616.0 + S_CAST(double, lo);
+}
 
 double MultiallelicDiploidMinimac3R2(const uint64_t* __restrict sums, const uint64_t* __restrict hap_ssqs_x2, uint32_t nm_sample_ct, uint32_t allele_ct, uint32_t extra_phased_het_ct);
 
