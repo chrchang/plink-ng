@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a4.6"
+static const char ver_str[] = "PLINK v2.00a4.7"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
