@@ -2805,7 +2805,9 @@ double MultiallelicDiploidMinimac3R2(const uint64_t* __restrict sums, const uint
     observed_variance_times_2n_hi += u63tod(left_hi - right_hi);
     observed_variance_times_2n_lo += S_CAST(int64_t, left_lo) - S_CAST(int64_t, right_lo);
   }
-  const double observed_variance_times_2n = (observed_variance_times_2n_hi * 4294967296.0) + (u31tod(extra_phased_het_ct) * 536870912.0) + observed_variance_times_2n_lo;
+  // bugfix (12 Sep 2023): forgot to multiply extra_phased_het_ct term by
+  // nm_sample_ct
+  const double observed_variance_times_2n = (observed_variance_times_2n_hi * 4294967296.0) + (u63tod(extra_phased_het_ct * S_CAST(uint64_t, nm_sample_ct)) * 536870912.0) + observed_variance_times_2n_lo;
   return observed_variance_times_2n / expected_variance_times_2n;
 }
 
