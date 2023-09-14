@@ -3991,6 +3991,8 @@ HEADER_INLINE uint32_t GetVint31(const unsigned char* buf_end, const unsigned ch
   return 0x80000000U;
 }
 
+uintptr_t CountVints(const unsigned char* buf, const unsigned char* buf_end);
+
 // Flagset conventions:
 // * Each 32-bit and 64-bit flagset has its own type, which is guaranteed to be
 //   the appropriate width.  (Todo: verify that bit 31 works properly in 32-bit

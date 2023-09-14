@@ -474,7 +474,7 @@ uintptr_t CountSortedLeqU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length
 
 uintptr_t IdxToUidxW(const uintptr_t* bitvec, const uintptr_t* cumulative_popcounts, uintptr_t widx_start, uintptr_t widx_end, uintptr_t idx) {
   if (widx_end > widx_start) {
-    widx_start += CountSortedSmallerW(&(cumulative_popcounts[widx_start]), widx_end - widx_start, idx + 1);
+    widx_start += CountSortedSmallerW(&(cumulative_popcounts[widx_start]), widx_end - widx_start, idx + 1) - 1;
   }
   const uintptr_t idx_at_widx_start = cumulative_popcounts[widx_start];
   return widx_start * kBitsPerWord + WordBitIdxToUidx(bitvec[widx_start], idx - idx_at_widx_start);
@@ -483,7 +483,7 @@ uintptr_t IdxToUidxW(const uintptr_t* bitvec, const uintptr_t* cumulative_popcou
 uintptr_t ExpsearchIdxToUidxW(const uintptr_t* bitvec, const uintptr_t* cumulative_popcounts, uintptr_t widx_end, uintptr_t idx, uintptr_t* widx_startp) {
   uintptr_t widx_start = *widx_startp;
   if (widx_end > widx_start) {
-    widx_start += ExpsearchW(&(cumulative_popcounts[widx_start]), widx_end - widx_start, idx + 1);
+    widx_start += ExpsearchW(&(cumulative_popcounts[widx_start]), widx_end - widx_start, idx + 1) - 1;
     *widx_startp = widx_start;
   }
   const uintptr_t idx_at_widx_start = cumulative_popcounts[widx_start];

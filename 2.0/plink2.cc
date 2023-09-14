@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a5"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (11 Sep 2023)";
+  " (13 Sep 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4725,7 +4725,9 @@ int main(int argc, char** argv) {
             logerrputs("Error: --clump-bins does not make sense when --clump 'bins' column set has been\nexcluded.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+          // may as well enforce limit of 2^26 bin-bounds.  this should never
+          // come up, and it lets us remove some bounds-checks.
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, kClumpMaxBinBounds))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t comma_ct = 0;
@@ -4733,6 +4735,11 @@ int main(int argc, char** argv) {
             comma_ct += CountByteInStr(argvk[arg_idx], ',');
           }
           const uint32_t bin_bound_ct = comma_ct + param_ct;
+          if (bin_bound_ct > kClumpMaxBinBounds) {
+            logerrputs("Error: --clump-bins is currently limited to 2^26 bin boundaries.\n");
+            reterr = kPglRetNotYetSupported;
+            goto main_ret_1;
+          }
           pc.clump_info.bin_bound_ct = bin_bound_ct;
           if (unlikely(pgl_malloc(sizeof(double) * bin_bound_ct, &pc.clump_info.ln_bin_boundaries))) {
             goto main_ret_NOMEM;

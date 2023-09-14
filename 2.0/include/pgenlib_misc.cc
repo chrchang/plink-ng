@@ -2837,6 +2837,16 @@ void ClearGenoarrMissing1bit16Unsafe(const uintptr_t* __restrict genoarr, uint32
   }
 }
 
+double u127prod_diff_d(uint64_t plus_term0, uint64_t plus_term1, uint64_t minus_term0, uint64_t minus_term1) {
+  uint64_t plus_hi;
+  const uint64_t plus_lo = multiply64to128(plus_term0, plus_term1, &plus_hi);
+  uint64_t minus_hi;
+  const uint64_t minus_lo = multiply64to128(minus_term0, minus_term1, &minus_hi);
+  const uint64_t result_lo = plus_lo - minus_lo;
+  const uint64_t result_hi = plus_hi - minus_hi - (plus_lo < minus_lo);
+  return u127tod(result_hi, result_lo);
+}
+
 double MultiallelicDiploidMinimac3R2(const uint64_t* __restrict sums, const uint64_t* __restrict hap_ssqs_x2, uint32_t nm_sample_ct, uint32_t allele_ct, uint32_t extra_phased_het_ct) {
   // sums[k] == sum_i [left_dosage_{ik} + right_dosage_{ik}]
   // hap_ssqs_x2[k] ==

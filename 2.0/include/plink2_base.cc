@@ -681,6 +681,16 @@ uintptr_t FirstUnequalW(const void* arr1, const void* arr2, uintptr_t nbytes) {
 }
 #endif
 
+// TODO: obvious movemask optimization
+uintptr_t CountVints(const unsigned char* buf, const unsigned char* buf_end) {
+  const uintptr_t len = buf_end - buf;
+  uintptr_t inv_result = 0;
+  for (uintptr_t ulii = 0; ulii != len; ++ulii) {
+    inv_result += buf[ulii] >> 7;
+  }
+  return len - inv_result;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

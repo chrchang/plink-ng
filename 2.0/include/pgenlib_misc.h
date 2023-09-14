@@ -241,11 +241,10 @@ HEADER_INLINE void SetTrailingNyps(uintptr_t nyp_ct, uintptr_t* bitarr) {
 // GetVint31 and Vint32Append moved to plink2_base.
 
 // Input must be validated, or bufp must be >= 5 characters before the end of
-// the read buffer.  Currently unused.
+// the read buffer.
 // todo: check if this has enough of a speed advantage over GetVint31() to
 // justify using this in the main loops and catching SIGSEGV.  (seems to be no
 // more than 3%?)
-/*
 HEADER_INLINE uint32_t GetVint31Unsafe(const unsigned char** buf_iterp) {
   uint32_t vint32 = *(*buf_iterp)++;
   if (vint32 <= 127) {
@@ -261,7 +260,13 @@ HEADER_INLINE uint32_t GetVint31Unsafe(const unsigned char** buf_iterp) {
   }
   return 0x80000000U;
 }
-*/
+
+HEADER_INLINE void SkipVintUnsafe(const unsigned char** buf_iterp) {
+  uint32_t cur_byte;
+  do {
+    cur_byte = *(*buf_iterp)++;
+  } while (cur_byte & 128);
+}
 
 // Does not update buf_iter.
 HEADER_INLINE uint32_t PeekVint31(const unsigned char* buf_iter, const unsigned char* buf_end) {
@@ -561,6 +566,9 @@ HEADER_INLINE uint64_t multiply64to128(uint64_t lhs, uint64_t rhs, uint64_t* hig
 HEADER_INLINE double u127tod(uint64_t hi, uint64_t lo) {
   return u63tod(hi) * 18446744073709551616.0 + S_CAST(double, lo);
 }
+
+// plus_term0 * plus_term1 - minus_term0 * minus_term1
+double u127prod_diff_d(uint64_t plus_term0, uint64_t plus_term1, uint64_t minus_term0, uint64_t minus_term1);
 
 double MultiallelicDiploidMinimac3R2(const uint64_t* __restrict sums, const uint64_t* __restrict hap_ssqs_x2, uint32_t nm_sample_ct, uint32_t allele_ct, uint32_t extra_phased_het_ct);
 

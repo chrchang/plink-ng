@@ -3208,7 +3208,6 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
   return reterr;
 }
 
-/*
 uint32_t MultiallelicVariantPresent(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_ct) {
   if (!allele_idx_offsets) {
     return 0;
@@ -3223,7 +3222,6 @@ uint32_t MultiallelicVariantPresent(const uintptr_t* variant_include, const uint
   }
   return 0;
 }
-*/
 
 uint32_t CountBiallelicVariants(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_ct) {
   if (!allele_idx_offsets) {
