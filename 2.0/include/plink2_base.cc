@@ -681,8 +681,28 @@ uintptr_t FirstUnequalW(const void* arr1, const void* arr2, uintptr_t nbytes) {
 }
 #endif
 
-// TODO: obvious movemask optimization
+#ifdef __LP64__
+uintptr_t CountVintsNonempty(const unsigned char* buf, const unsigned char* buf_end) {
+  const uintptr_t starting_addr = R_CAST(uintptr_t, buf);
+  const VecUc* buf_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const uintptr_t ending_addr = R_CAST(uintptr_t, buf_end);
+  const VecUc* buf_vlast = R_CAST(const VecUc*, RoundDownPow2(ending_addr - 1, kBytesPerVec));
+  const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, buf_viter);
+  Vec8thUint vint_ends = (UINT32_MAX << leading_byte_ct) & (~vecuc_movemask(*buf_viter));
+  uintptr_t total = 0;
+  while (buf_viter != buf_vlast) {
+    total += PopcountVec8thUint(vint_ends);
+    ++buf_viter;
+    vint_ends = ~vecuc_movemask(*buf_viter);
+  }
+  const uint32_t trailing_byte_ct = ending_addr - R_CAST(uintptr_t, buf_vlast);
+  vint_ends &= (k1LU << trailing_byte_ct) - 1;
+  total += PopcountVec8thUint(vint_ends);
+  return total;
+}
+#else
 uintptr_t CountVints(const unsigned char* buf, const unsigned char* buf_end) {
+  // Could check one word at a time.
   const uintptr_t len = buf_end - buf;
   uintptr_t inv_result = 0;
   for (uintptr_t ulii = 0; ulii != len; ++ulii) {
@@ -690,6 +710,7 @@ uintptr_t CountVints(const unsigned char* buf, const unsigned char* buf_end) {
   }
   return len - inv_result;
 }
+#endif
 
 #ifdef __cplusplus
 }  // namespace plink2

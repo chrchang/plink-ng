@@ -3991,7 +3991,22 @@ HEADER_INLINE uint32_t GetVint31(const unsigned char* buf_end, const unsigned ch
   return 0x80000000U;
 }
 
+#ifdef __LP64__
+uintptr_t CountVintsNonempty(const unsigned char* buf, const unsigned char* buf_end);
+
+HEADER_INLINE uintptr_t CountVints(const unsigned char* buf, const unsigned char* buf_end) {
+  if (buf == buf_end) {
+    return 0;
+  }
+  return CountVintsNonempty(buf, buf_end);
+}
+#else
 uintptr_t CountVints(const unsigned char* buf, const unsigned char* buf_end);
+
+HEADER_INLINE uintptr_t CountVintsNonempty(const unsigned char* buf, const unsigned char* buf_end) {
+  return CountVints(buf, buf_end);
+}
+#endif
 
 // Flagset conventions:
 // * Each 32-bit and 64-bit flagset has its own type, which is guaranteed to be

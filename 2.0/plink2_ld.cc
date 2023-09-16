@@ -3593,7 +3593,6 @@ uint32_t DosageR2Prod(const Dosage* dosage_vec0, const uintptr_t* nm_bitvec0, co
   }
   // could conditionally use dosage_unsigned_nomiss here
   *dosageprod_ptr = DosageUnsignedDotprod(dosage_vec0, dosage_vec1, vec_ct);
-
   return nm_intersection_ct;
 }
 
@@ -3655,10 +3654,13 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
   //     1  -  0 : majsums[0] - known_dotprod - unknown_hethet_d
   //     0  -  1 : majsums[1] - known_dotprod - unknown_hethet_d
   //     1  -  1 : known_dotprod
-  double freq_majmaj = 1.0 - (nmajsums_d[0] + nmajsums_d[1] - known_dotprod_d) * twice_tot_recip;
-  double freq_majmin = (nmajsums_d[1] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
-  double freq_minmaj = (nmajsums_d[0] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
-  double freq_minmin = known_dotprod_d * twice_tot_recip;
+
+  // bugfix (15 Sep 2023): otherwise possible for freq_majmaj to be slightly
+  // less than zero, and this breaks EmPhasedUnscaledLnlike().
+  const double freq_majmaj = MAXV(1.0 - (nmajsums_d[0] + nmajsums_d[1] - known_dotprod_d) * twice_tot_recip, 0.0);
+  const double freq_majmin = (nmajsums_d[1] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
+  const double freq_minmaj = (nmajsums_d[0] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
+  const double freq_minmin = known_dotprod_d * twice_tot_recip;
   const double half_unphased_hethet_share = unknown_hethet_d * twice_tot_recip;
   const double freq_majx = freq_majmaj + freq_majmin + half_unphased_hethet_share;
   const double freq_minx = 1.0 - freq_majx;
@@ -3685,17 +3687,21 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
       // + x^3 - (2K + f12 + f21)x^2 + (K + f12)(K + f21)x = 0
       cubic_sol_ct = CubicRealRoots(0.5 * (freq_majmaj + freq_minmin - freq_majmin - freq_minmaj - 3 * half_unphased_hethet_share), 0.5 * (freq_majmaj * freq_minmin + freq_majmin * freq_minmaj + half_unphased_hethet_share * (freq_majmin + freq_minmaj - freq_majmaj - freq_minmin + half_unphased_hethet_share)), -0.5 * half_unphased_hethet_share * freq_majmaj * freq_minmin, cubic_sols);
       if (cubic_sol_ct > 1) {
-        while (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share + kSmallishEpsilon) {
+        // have encountered 7.9e-11 difference in testing, which is more than
+        // twice kSmallishEpsilon.
+        while (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share + 8 * kSmallishEpsilon) {
           --cubic_sol_ct;
+          if (cubic_sol_ct == 1) {
+            break;
+          }
         }
-        if (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share - kSmallishEpsilon) {
+        if (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share - 8 * kSmallishEpsilon) {
           cubic_sols[cubic_sol_ct - 1] = half_unphased_hethet_share;
         }
-        // todo: document why this is safe (or fix if it isn't)
-        while (cubic_sols[first_relevant_sol_idx] < -kSmallishEpsilon) {
+        while ((cubic_sols[first_relevant_sol_idx] < 8 * -kSmallishEpsilon) && (first_relevant_sol_idx + 1 < cubic_sol_ct)) {
           ++first_relevant_sol_idx;
         }
-        if (cubic_sols[first_relevant_sol_idx] < kSmallishEpsilon) {
+        if (cubic_sols[first_relevant_sol_idx] < 8 * kSmallishEpsilon) {
           cubic_sols[first_relevant_sol_idx] = 0.0;
         }
       }
@@ -4648,7 +4654,6 @@ ENUM_U31_DEF_START()
   kClumpJobNone,
   kClumpJobHighmemUnpack,
   kClumpJobHighmemR2,
-  kClumpJobMidmemR2,
   kClumpJobLowmemR2
 ENUM_U31_DEF_END(ClumpJobType);
 
@@ -4678,13 +4683,11 @@ ENUM_U31_DEF_END(ClumpJobType);
 // Execution instructions and result buffers which change between jobs.
 typedef struct ClumpCtxAlternating {
   // Instructions.
-  ClumpJobType job_type;
-
   uintptr_t* oaidx_starts;
   uintptr_t cur_oaidx_ct;
 
   // Result buffers.
-  // (calc_thread_ct + 1) of these, since in midmem case, main thread joins in
+  // (calc_thread_ct + 1) of these, since in highmem case, main thread joins in
   uintptr_t** ld_idx_found;
 
   unsigned char padding[kCacheline];
@@ -4724,22 +4727,21 @@ typedef struct ClumpCtxStruct {
   // Main workspace has space for a sequence of >= 2 * calc_thread_ct
   // PgenVariant buffer groups, offset by pgv_byte_stride bytes from each
   // other.
-  // HighmemUnpack, MidmemR2: these buffers are filled by per-thread PgrGetDp()
-  //                          calls.  Only use the first (calc_thread_ct + 1)
-  //                          slots in this case.
+  // HighmemUnpack: these buffers are filled by per-thread PgrGetDp() calls.
+  //                Only use the first (calc_thread_ct + 1) slots in this case.
   // LowmemR2: these buffers are filled by main-thread PgrGetDp() calls, and
   //           interpreted by the worker threads.
   PgenVariant pgv_base;
 
   // Other per-thread resources.
 
-  // (calc_thread_ct + 1) of these, for midmem case.
+  // calc_thread_ct of these.
   PgenReader** pgr_ptrs;
   // Highmem: HighmemUnpack unpacks all current-island(-group) variants to this
   //          memory region, then HighmemR2 reads from here.  Could have
   //          thousands, or even millions of variants here.
-  // MidmemR2, LowmemR2: each thread just needs workspace for one variant here.
-  //                     Index variant unpacked into slot 0.
+  // LowmemR2: each thread just needs workspace for one variant here.  Index
+  //           variant unpacked into slot 0.
   // Unpacked variant representation can vary based on is_x, is_y, phase_type,
   // and load_dosage.
   unsigned char* unpacked_variants;
@@ -4759,6 +4761,7 @@ typedef struct ClumpCtxStruct {
   unsigned char is_y;
   unsigned char phase_type;
   unsigned char load_dosage;
+  ClumpJobType job_type;
 
   uintptr_t index_oaidx_offset;
 
@@ -4805,7 +4808,7 @@ void ClumpPgenVariantIncr(uintptr_t byte_ct, PgenVariant* pgvp) {
   pgvp->genovec = &(pgvp->genovec[word_ct]);
   if (pgvp->phasepresent) {
     pgvp->phasepresent = &(pgvp->phasepresent[word_ct]);
-    pgvp->phaseinfo = &(pgvp->phasepresent[word_ct]);
+    pgvp->phaseinfo = &(pgvp->phaseinfo[word_ct]);
   }
   if (pgvp->dosage_present) {
     const uintptr_t u16_ct = byte_ct / sizeof(int16_t);
@@ -5200,7 +5203,7 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
       variant_uidx = allele_idx / 2;
       aidx = allele_idx % 2;
     } else {
-      variant_uidx = RawToSubsettedPos(variant_start_alidxs, variant_start_alidxs_cumulative_popcounts, allele_idx);
+      variant_uidx = RawToSubsettedRoundDown(variant_start_alidxs, variant_start_alidxs_cumulative_popcounts, allele_idx);
       // or FindLast1BitBefore(variant_start_alidxs, allele_idx + 1)
       aidx = allele_idx - allele_idx_offsets[variant_uidx];
     }
@@ -5408,8 +5411,6 @@ uint32_t ComputeR2DosagePhasedStats(const R2DosageVariant* dp0, const R2DosageVa
   *unknown_hethet_d_ptr = u63tod(uhethet_dosageprod) * kRecipDosageMidSq;
   return valid_obs_ct;
 }
-
-static uint32_t g_highmem_r2_debug = 0;
 
 double ComputeR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_t sample_ct, R2PhaseType phase_type, uint32_t load_dosage) {
   double nmajsums_d[2];
@@ -5640,13 +5641,6 @@ void ClumpHighmemR2(uintptr_t tidx, uint32_t thread_ct_p1, uint32_t parity, Clum
   const unsigned char* unpacked_index_variant = &(unpacked_variants[ctx->index_oaidx_offset * unpacked_byte_stride]);
   R2Variant index_r2v;
   if (!is_x) {
-    if (g_highmem_r2_debug) {
-      if (tidx == 1) {
-        return;
-      }
-      printf("unpacked_index_variant: %lx\n", (uintptr_t)unpacked_index_variant);
-      printf("base: %lx  stride: %lu\n", (uintptr_t)unpacked_variants, unpacked_byte_stride);
-    }
     FillR2V(unpacked_index_variant, founder_main_ct, phase_type, load_dosage, &index_r2v);
   } else {
     FillXR2V(unpacked_index_variant, founder_male_ct, founder_nonmale_ct, phase_type, load_dosage, &index_r2v);
@@ -5659,54 +5653,16 @@ void ClumpHighmemR2(uintptr_t tidx, uint32_t thread_ct_p1, uint32_t parity, Clum
     const uintptr_t oaidx_offset = oaidx - igroup_oaidx_start;
     const unsigned char* unpacked_cur_variant = &(unpacked_variants[oaidx_offset * unpacked_byte_stride]);
     double cur_r2;
-    R2Variant cur_r2v;
     if (!is_x) {
-      // R2Variant cur_r2v;
+      R2Variant cur_r2v;
       FillR2V(unpacked_cur_variant, founder_main_ct, phase_type, load_dosage, &cur_r2v);
       cur_r2 = ComputeR2(&index_r2v, &cur_r2v, founder_main_ct, phase_type, load_dosage);
     } else {
-      // R2Variant cur_r2v;
+      R2Variant cur_r2v;
       FillXR2V(unpacked_cur_variant, founder_main_ct, founder_nonmale_ct, phase_type, load_dosage, &cur_r2v);
       cur_r2 = ComputeTwoPartXR2(&index_r2v, &cur_r2v, founder_male_ct, founder_nonmale_ct, phase_type, load_dosage);
     }
     if (cur_r2 > r2_thresh) {
-      if (g_highmem_r2_debug && (tidx == 0)) {
-        printf("found oaidx: %lu  oaidx_offset: %lu\n", oaidx, oaidx_offset);
-        printf("founder_main_ct: %u  phase_type: %u  load_dosage: %u\n", founder_main_ct, phase_type, load_dosage);
-        const uint32_t founder_ctl = BitCtToWordCt(founder_main_ct);
-        printf("index(1):");
-        for (uint32_t widx = 0; widx != founder_ctl; ++widx) {
-          printf(" %lx", index_r2v.nd.one_bitvec[widx]);
-        }
-        printf("\n");
-        printf("index(2):");
-        for (uint32_t widx = 0; widx != founder_ctl; ++widx) {
-          printf(" %lx", index_r2v.nd.two_bitvec[widx]);
-        }
-        printf("\n");
-        printf("index(nm):");
-        for (uint32_t widx = 0; widx != founder_ctl; ++widx) {
-          printf(" %lx", index_r2v.nd.nm_bitvec[widx]);
-        }
-        printf("\n\n");
-        printf("other(1):");
-        for (uint32_t widx = 0; widx != founder_ctl; ++widx) {
-          printf(" %lx", cur_r2v.nd.one_bitvec[widx]);
-        }
-        printf("\n");
-        printf("other(2):");
-        for (uint32_t widx = 0; widx != founder_ctl; ++widx) {
-          printf(" %lx", cur_r2v.nd.two_bitvec[widx]);
-        }
-        printf("\n");
-        printf("other(nm):");
-        for (uint32_t widx = 0; widx != founder_ctl; ++widx) {
-          printf(" %lx", cur_r2v.nd.nm_bitvec[widx]);
-        }
-        printf("\n\n");
-        printf("r2: %g\n", cur_r2);
-        exit(1);
-      }
       if (!allow_overlap) {
         *write_iter = oaidx;
       } else {
@@ -5717,11 +5673,6 @@ void ClumpHighmemR2(uintptr_t tidx, uint32_t thread_ct_p1, uint32_t parity, Clum
     }
   }
   *write_iter = ~k0LU;
-}
-
-void ClumpMidmemR2(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
-  // Process a window-shard's worth of non-index (variant, aidx)s: read then
-  // unpack then r^2 against the unpacked index-(variant, aidx).
 }
 
 void ClumpLowmemR2(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
@@ -5736,13 +5687,11 @@ THREAD_FUNC_DECL ClumpThread(void* raw_arg) {
   ClumpCtx* ctx = S_CAST(ClumpCtx*, arg->sharedp->context);
   uint32_t parity = 0;
   do {
-    const ClumpJobType job_type = ctx->a[parity].job_type;
+    const ClumpJobType job_type = ctx->job_type;
     if (job_type == kClumpJobHighmemUnpack) {
       ClumpHighmemUnpack(tidx, parity, ctx);
     } else if (job_type == kClumpJobHighmemR2) {
       ClumpHighmemR2(tidx, calc_thread_ct + 1, parity, ctx);
-    } else if (job_type == kClumpJobMidmemR2) {
-      ClumpMidmemR2(tidx, parity, ctx);
     } else if (job_type == kClumpJobLowmemR2) {
       ClumpLowmemR2(tidx, parity, ctx);
     }
@@ -6073,8 +6022,11 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
             snprintf(g_logbuf, kLogbufSize, "Error: p-value > 1 on line %" PRIuPTR " of %s.\n", line_idx, fname_iter);
             goto ClumpReports_ret_MALFORMED_INPUT_WW;
           }
-          if (nonsig_arr && (ln_pval > ln_bin_boundaries[bin_bound_ct - 1])) {
+          if (nonsig_arr && ((!bin_bound_ct) || (ln_pval > ln_bin_boundaries[bin_bound_ct - 1]))) {
             nonsig_arr[allele_idx] += 1;
+            // Still need to determine which index-variant this belongs to.
+            SetBit(allele_idx, observed_alleles);
+            SetBit(variant_uidx, observed_variants);
           }
           continue;
         }
@@ -6112,6 +6064,12 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
 
     FillCumulativePopcountsW(observed_alleles, raw_allele_ctl, observed_alleles_cumulative_popcounts_w);
     const uintptr_t observed_allele_ct = observed_alleles_cumulative_popcounts_w[raw_allele_ctl - 1] + PopcountWord(observed_alleles[raw_allele_ctl - 1]);
+    // DEBUG
+    {
+      const uintptr_t index_allele_idx = IdxToUidxW(observed_alleles, observed_alleles_cumulative_popcounts_w, 0, raw_allele_ctl, 14656);
+      const uintptr_t allele_idx = IdxToUidxW(observed_alleles, observed_alleles_cumulative_popcounts_w, 0, raw_allele_ctl, 14191);
+      printf("variant IDs: %s %s\n", variant_ids[index_allele_idx / 2], variant_ids[allele_idx / 2]);
+    }
     const uint32_t output_zst = (flags / kfClumpZs) & 1;
     // Now we have efficient (variant_uidx, aidx) -> oaidx lookup.
     // Free some memory by compacting the information in best_ln_pvals, etc. to
@@ -6206,7 +6164,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           // assign to clump_entries instead of clump_entry_varints, so we
           // don't break strict-aliasing rule
           clump_entries[oaidx] = R_CAST(ClumpEntry*, varint_write_iter);
-          do {
+          while (ll_iter) {
             varint_write_iter = Vint32Append(ll_iter->pval_bin_x2, varint_write_iter);
             if (save_all_fidxs) {
               varint_write_iter = Vint32Append(ll_iter->file_idx1_x2, varint_write_iter);
@@ -6215,7 +6173,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
               goto ClumpReports_ret_NOMEM;
             }
             ll_iter = ll_iter->next;
-          } while (ll_iter);
+          }
         }
         clump_entry_varints = R_CAST(unsigned char**, clump_entries);
         clump_entry_varints[observed_allele_ct] = varint_write_iter;
@@ -6337,6 +6295,10 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       if (unlikely(fopen_checked(outname, FOPEN_WB, &clump_overlap_tmp))) {
         goto ClumpReports_ret_OPEN_FAIL;
       }
+      // make starting fpos > 0, so we know fpos == 0 marks no clump
+      if (unlikely(putc_unlocked(0, clump_overlap_tmp) == EOF)) {
+        goto ClumpReports_ret_WRITE_FAIL;
+      }
       if (unlikely(bigstack_calloc_u64(index_candidate_ct * (2 * k1LU), &clump_idx_to_overlap_fpos_and_len))) {
         goto ClumpReports_ret_NOMEM;
       }
@@ -6454,7 +6416,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
 
     uint32_t calc_thread_ct = MAXV(1, max_thread_ct - 1);
     // no big deal if these are slightly overallocated
-    if (unlikely(BIGSTACK_ALLOC_X(PgenReader*, calc_thread_ct + 1, &ctx.pgr_ptrs) ||
+    if (unlikely(BIGSTACK_ALLOC_X(PgenReader*, calc_thread_ct, &ctx.pgr_ptrs) ||
                  bigstack_alloc_w(calc_thread_ct + 2, &(ctx.a[0].oaidx_starts)) ||
                  bigstack_alloc_w(calc_thread_ct + 2, &(ctx.a[1].oaidx_starts)) ||
                  bigstack_alloc_wp(calc_thread_ct + 1, &(ctx.a[0].ld_idx_found)) ||
@@ -6539,7 +6501,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       goto ClumpReports_ret_NOMEM;
     }
 
-    // Effective end of pgv-buffer allocation, in midmem and highmem cases.
+    // Effective end of pgv-buffer allocation, in highmem case.
     g_bigstack_base += (calc_thread_ct + 1) * pgv_byte_stride;
 
     // make this non-null, value doesn't matter here
@@ -6603,7 +6565,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     ctx.r2_thresh = clump_ip->r2;
     ctx.allow_overlap = allow_overlap;
     ctx.candidate_oabitvec = candidate_oabitvec;
-    ctx.err_info = 0;
+    ctx.err_info = (~0LLU) << 32;
     SetThreadFuncAndData(ClumpThread, &ctx, &tg);
 
     // Main loop:
@@ -6631,8 +6593,6 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     uint32_t is_y = 0;
     uint32_t is_haploid = 0;
     for (uint32_t icandidate_idx_start = 0; icandidate_idx_start < index_candidate_ct; ) {
-      printf("\r--clump: %u/%u index candidate%s processed.", icandidate_idx_start, index_candidate_ct, (index_candidate_ct == 1)? "" : "s");
-      fflush(stdout);
       uint32_t vidx_start = next_vidx_start;
       uint32_t vidx_end = next_vidx_end;
       if (chr_fo_idx != next_chr_fo_idx) {
@@ -6676,12 +6636,6 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       //       (candidate_ct + calc_thread_ct) * sizeof(intptr_t) for
       //       ld_idx_found)
 
-      // Midmem requirement:
-      //   (calc_thread_ct + 1) * unpacked_variant_byte_stride for unpacked
-      //     variants
-      //   (candidate_ct + calc_thread_ct) * sizeof(intptr_t) for ld_idx_found
-      //   multiread_byte_target for PgfiMultiread
-
       // Lowmem setup:
       //   2 * pgv_per_thread * pgv_byte_stride * calc_thread_ct -
       //     (calc_thread_ct + 1) additional PgenVariant slots
@@ -6689,16 +6643,11 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       //   (does not use PgfiMultiread)
       // where pgv_per_thread >= min_pgv_per_thread
 
-      const uintptr_t midhigh_result_byte_req = RoundUpPow2((candidate_ct + calc_thread_ct) * sizeof(intptr_t), 2 * kCacheline);
-      // (this should practically always just be multiread_byte_target)
-      const uintptr_t cur_high_multiread_byte_target = MAXV(midhigh_result_byte_req / 2, multiread_byte_target);
+      const uintptr_t high_result_byte_req = RoundUpPow2((candidate_ct + calc_thread_ct) * sizeof(intptr_t), 2 * kCacheline);
+      uintptr_t cur_high_multiread_byte_target = MAXV(high_result_byte_req / 2, multiread_byte_target);
       uint32_t icandidate_ct;
       if (bytes_avail >= candidate_ct * unpacked_variant_byte_stride + 2 * cur_high_multiread_byte_target) {
         // highmem loop
-        multiread_base[0] = g_bigstack_base;
-        multiread_base[1] = &(g_bigstack_base[cur_high_multiread_byte_target]);
-        unsigned char* unpacked_variants = &(multiread_base[1][cur_high_multiread_byte_target]);
-        pgfip->block_base = multiread_base[parity];
         // Don't continue trying to extend if we've reached the end of the
         // chromosome, or the current island-group already appears to be large
         // enough for good worker-thread utilization.
@@ -6709,7 +6658,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           const R2PhaseType ext_phase_type = S_CAST(R2PhaseType, ext_relevant_phase_exists + phased_r2);
           const uintptr_t ext_candidate_ct = candidate_ct + next_oaidx_end - next_oaidx_start;
           const uint64_t ext_unpacked_variant_byte_stride = UnpackedByteStride(&ctx, ext_phase_type, ext_load_dosage);
-          if (bytes_avail < ext_candidate_ct * S_CAST(uint64_t, ext_unpacked_variant_byte_stride) + 2 * MAXV(RoundUpPow2((ext_candidate_ct + calc_thread_ct) * sizeof(intptr_t), 2 * kCacheline) / 2, multiread_byte_target)) {
+          const uintptr_t ext_high_multiread_byte_target = MAXV(RoundUpPow2((ext_candidate_ct + calc_thread_ct) * sizeof(intptr_t), 2 * kCacheline) / 2, multiread_byte_target);
+          if (bytes_avail < ext_candidate_ct * S_CAST(uint64_t, ext_unpacked_variant_byte_stride) + 2 * ext_high_multiread_byte_target) {
             // Insufficient memory to extend.
             break;
           }
@@ -6717,18 +6667,22 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           allele_idx_last = next_allele_idx_last;
           candidate_ct = ext_candidate_ct;
           unpacked_variant_byte_stride = ext_unpacked_variant_byte_stride;
+          cur_high_multiread_byte_target = ext_high_multiread_byte_target;
           phase_type = ext_phase_type;
           load_dosage = ext_load_dosage;
           next_vidx_start = GetNextIslandIdxs(cip, variant_bps, allele_idx_offsets, icandidate_vbitvec, observed_variants, observed_alleles, observed_alleles_cumulative_popcounts_w, raw_variant_ct, bp_radius, nullptr, &next_oaidx_end, &next_vidx_end, &next_chr_fo_idx, &next_allele_idx_first, &next_allele_idx_last);
         }
+        multiread_base[0] = g_bigstack_base;
+        multiread_base[1] = &(g_bigstack_base[cur_high_multiread_byte_target]);
+        unsigned char* unpacked_variants = &(multiread_base[1][cur_high_multiread_byte_target]);
+        pgfip->block_base = multiread_base[parity];
         icandidate_ct = PopcountBitRange(icandidate_abitvec, allele_idx_first, allele_idx_last + 1);
         ctx.unpacked_variants = unpacked_variants;
         ctx.unpacked_byte_stride = unpacked_variant_byte_stride;
         ctx.phase_type = phase_type;
         ctx.load_dosage = load_dosage;
         ctx.allele_widx_end = 1 + (allele_idx_last / kBitsPerWord);
-        ctx.a[0].job_type = kClumpJobHighmemUnpack;
-        ctx.a[1].job_type = kClumpJobHighmemUnpack;
+        ctx.job_type = kClumpJobHighmemUnpack;
         uint32_t multiread_vidx_start = vidx_start;
         const uint64_t fpos_end = GetPgfiFpos(pgfip, vidx_end);
         while (1) {
@@ -6739,13 +6693,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           uint32_t multiread_vidx_end = vidx_end;
           if (fpos_end - fpos_start > cur_high_multiread_byte_target) {
             if (!pgfip->var_fpos) {
-              if ((raw_variant_ct - multiread_vidx_end) * S_CAST(uint64_t, pgfip->const_vrec_width) <= cur_high_multiread_byte_target) {
-                multiread_vidx_end = raw_variant_ct;
-              } else {
-                multiread_vidx_end += cur_high_multiread_byte_target / pgfip->const_vrec_width;
-              }
+              multiread_vidx_end = multiread_vidx_start + cur_high_multiread_byte_target / pgfip->const_vrec_width;
             } else {
-              multiread_vidx_end = multiread_vidx_start + CountSortedSmallerU64(&(pgfip->var_fpos[multiread_vidx_start]), raw_variant_ct - multiread_vidx_start, fpos_start + cur_high_multiread_byte_target + 1);
+              multiread_vidx_end = multiread_vidx_start + CountSortedSmallerU64(&(pgfip->var_fpos[multiread_vidx_start]), raw_variant_ct - multiread_vidx_start, fpos_start + cur_high_multiread_byte_target + 1) - 1;
             }
             multiread_vidx_end = 1 + FindLast1BitBefore(observed_variants, multiread_vidx_end);
           }
@@ -6796,11 +6746,13 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           goto ClumpReports_ret_1;
         }
         // Now iterate through index variants.
-        ctx.a[0].job_type = kClumpJobHighmemR2;
-        ctx.a[1].job_type = kClumpJobHighmemR2;
+        ctx.job_type = kClumpJobHighmemR2;
         for (uint32_t icandidate_idx = 0; icandidate_idx != icandidate_ct; ++icandidate_idx) {
+          if ((icandidate_idx_start + icandidate_idx) % 1000 == 0) {
+            printf("\r--clump: %u/%u index candidate%s processed.", icandidate_idx_start + icandidate_idx, index_candidate_ct, (index_candidate_ct == 1)? "" : "s");
+            fflush(stdout);
+          }
           const uint32_t rank0 = icandidate_idx_to_rank0_destructive[icandidate_idx_start + icandidate_idx];
-          // g_highmem_r2_debug = (rank0 == 0);
           const uintptr_t allele_idx = index_candidates[rank0].allele_idx;
           const uintptr_t index_oaidx = RawToSubsettedPosW(observed_alleles, observed_alleles_cumulative_popcounts_w, allele_idx);
           if (!IsSet(icandidate_oabitvec, index_oaidx)) {
@@ -6812,11 +6764,10 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           if (!variant_start_alidxs) {
             variant_uidx = allele_idx / 2;
           } else {
-            variant_uidx = RawToSubsettedPos(variant_start_alidxs, variant_start_alidxs_cumulative_popcounts, allele_idx);
+            variant_uidx = RawToSubsettedRoundDown(variant_start_alidxs, variant_start_alidxs_cumulative_popcounts, allele_idx);
           }
-          if (g_highmem_r2_debug) {
-            printf("\n");
-            printf("variant_uidx: %u  variant_id: %s  allele_idx: %lu  index_oaidx: %lu\n", variant_uidx, variant_ids[variant_uidx], allele_idx, index_oaidx);
+          if (!IsSet(observed_variants, variant_uidx)) {
+            printf("allele_idx: %lu  variant_uidx: %u\n", allele_idx, variant_uidx);
           }
           uint32_t window_start_vidx = vidx_start;
           uint32_t window_end_vidx = vidx_end;
@@ -6837,12 +6788,6 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           // Wait till this point to clear the bit, to simplify
           // window_oaidx_start and window_oiadx_end initialization.
           ClearBit(index_oaidx, candidate_oabitvec);
-          if (g_highmem_r2_debug) {
-            printf("window_allele_idx_start: %lu  window_allele_idx_end: %lu\n", window_allele_idx_start, window_allele_idx_end);
-            printf("bps: %u %u\n", variant_bps[window_allele_idx_start / 2], variant_bps[(window_allele_idx_end / 2) - 1]);
-            printf("window_oaidx_start: %lu  window_oaidx_end: %lu\n", window_oaidx_start, window_oaidx_end);
-            printf("observed_allele_ct: %lu\n", observed_allele_ct);
-          }
           if (oallele_idx_to_clump_idx) {
             oallele_idx_to_clump_idx[index_oaidx] = rank0;
           } else {
@@ -6861,20 +6806,6 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           const uint32_t cur_thread_ct = (oaidx_ct == 1)? 1 : (calc_thread_ct + 1);
           FillWSubsetStarts(candidate_oabitvec, cur_thread_ct, window_oaidx_start, oaidx_ct, ctx.a[parity].oaidx_starts);
           ctx.index_oaidx_offset = index_oaidx - oaidx_start;
-          if (g_highmem_r2_debug) {
-            for (uint32_t tidx = 0; tidx != cur_thread_ct; ++tidx) {
-              printf("%lu ", ctx.a[parity].oaidx_starts[tidx]);
-            }
-            printf("\n");
-            printf("index_oaidx_offset: %lu\n", ctx.index_oaidx_offset);
-            printf("igroup_oaidx_start: %lu\n", oaidx_start);
-            printf("oaidx_ct: %lu\n", oaidx_ct);
-
-            const uintptr_t other_allele_idx = IdxToUidxW(observed_alleles, observed_alleles_cumulative_popcounts_w, ctx.allele_widx_start, ctx.allele_widx_end, 783);
-            printf("other_allele_idx: %lu\n", other_allele_idx);
-            printf("other variant_id: %s\n", variant_ids[other_allele_idx / 2]);
-            printf("other_allele_idx invert: %lu\n", RawToSubsettedPosW(observed_alleles, observed_alleles_cumulative_popcounts_w, other_allele_idx));
-          }
           uintptr_t* ld_idx_found_base = R_CAST(uintptr_t*, multiread_base[0]);
           ctx.a[parity].cur_oaidx_ct = oaidx_ct;
           ctx.a[parity].ld_idx_found[0] = ld_idx_found_base;
@@ -6900,7 +6831,6 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
                 if (oaidx == ~k0LU) {
                   break;
                 }
-                // assert(oaidx < observed_allele_ct);
                 ClearBit(oaidx, candidate_oabitvec);
                 oallele_idx_to_clump_idx[oaidx] = rank0;
               }
@@ -6934,20 +6864,10 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           if (cur_thread_ct > 1) {
             parity = 1 - parity;
           }
-          if (g_highmem_r2_debug) {
-            exit(1);
-          }
         }
-      } else if (bytes_avail >= (calc_thread_ct + 1) * unpacked_variant_byte_stride + midhigh_result_byte_req + multiread_byte_target) {
-        // midmem loop
-        // unsigned char* unpacked_variants = &(multiread_base[multiread_byte_target]);
-        ctx.a[parity].job_type = kClumpJobMidmemR2;
-        logputs("\n");
-        logerrputs("Error: --clump midmem branch is under development.\n");
-        goto ClumpReports_ret_NOT_YET_SUPPORTED;
       } else {
         // lowmem loop
-        ctx.a[parity].job_type = kClumpJobLowmemR2;
+        ctx.job_type = kClumpJobLowmemR2;
         logputs("\n");
         logerrputs("Error: --clump lowmem branch is under development.\n");
         goto ClumpReports_ret_NOT_YET_SUPPORTED;
@@ -6955,7 +6875,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
 
       icandidate_idx_start += icandidate_ct;
     }
-    ctx.a[parity].job_type = kClumpJobNone;
+    ctx.job_type = kClumpJobNone;
     DeclareLastThreadBlock(&tg);
     if (unlikely(SpawnThreads(&tg))) {
       goto ClumpReports_ret_THREAD_CREATE_FAIL;
@@ -7130,6 +7050,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         prev_clump_end = cur_clump_end;
       } else {
         const uint64_t fpos = clump_idx_to_overlap_fpos_and_len[clump_idx * 2];
+        if (fpos == 0) {
+          continue;
+        }
         const uint64_t vint_byte_ct = clump_idx_to_overlap_fpos_and_len[clump_idx * 2 + 1];
         if (vint_byte_ct) {
           if (unlikely(fseeko(clump_overlap_tmp, fpos, SEEK_SET) ||
@@ -7142,8 +7065,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         uintptr_t* write_iter = clump_allele_idxs;
         uintptr_t last_allele_idx = 0;
         while (read_iter != read_end) {
-          last_allele_idx = GetVint63(read_end, &read_iter);
-          assert(last_allele_idx != (1LLU << 63));
+          const uintptr_t allele_idx_incr = GetVint64Unsafe(&read_iter);
+          last_allele_idx += allele_idx_incr;
           if (last_allele_idx > index_allele_idx) {
             break;
           }
@@ -7154,9 +7077,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           *write_iter++ = last_allele_idx;
         }
         while (read_iter != read_end) {
-          const uintptr_t allele_idx = GetVint63(read_end, &read_iter);
-          assert(allele_idx != (1LLU << 63));
-          *write_iter++ = allele_idx;
+          const uintptr_t allele_idx_incr = GetVint64Unsafe(&read_iter);
+          last_allele_idx += allele_idx_incr;
+          *write_iter++ = last_allele_idx;
         }
         clump_size_including_self = write_iter - clump_allele_idxs;
       }
@@ -7167,7 +7090,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         index_variant_uidx = index_allele_idx / 2;
         index_allele_idx_offset_base = index_allele_idx & (~1);
       } else {
-        index_variant_uidx = RawToSubsettedPos(variant_start_alidxs, variant_start_alidxs_cumulative_popcounts, index_allele_idx);
+        index_variant_uidx = RawToSubsettedRoundDown(variant_start_alidxs, variant_start_alidxs_cumulative_popcounts, index_allele_idx);
         index_allele_idx_offset_base = allele_idx_offsets[index_variant_uidx];
         index_allele_ct = allele_idx_offsets[index_variant_uidx + 1] - index_allele_idx_offset_base;
       }
@@ -7252,7 +7175,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
             const unsigned char* varint_read_iter = clump_entry_varints[cur_oaidx];
             const unsigned char* varint_read_end = clump_entry_varints[cur_oaidx + 1];
             while (varint_read_iter != varint_read_end) {
-              const uint32_t pval_bin = GetVint31Unsafe(&varint_read_iter) >> 1;
+              const uint32_t pval_bin = GetVint32Unsafe(&varint_read_iter) >> 1;
               cur_bin_counts[pval_bin] += 1;
               if (save_all_fidxs) {
                 SkipVintUnsafe(&varint_read_iter);
@@ -7305,11 +7228,11 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           const unsigned char* varint_read_iter = clump_entry_varints[cur_oaidx];
           const unsigned char* varint_read_end = clump_entry_varints[cur_oaidx + 1];
           while (varint_read_iter != varint_read_end) {
-            const uint32_t pval_too_high = GetVint31Unsafe(&varint_read_iter) & 1;
+            const uint32_t pval_too_high = GetVint32Unsafe(&varint_read_iter) & 1;
             if (!pval_too_high) {
 
               if (save_all_fidxs) {
-                const uint32_t file_idx1_x2 = GetVint31Unsafe(&varint_read_iter) >> 1;
+                const uint32_t file_idx1_x2 = GetVint32Unsafe(&varint_read_iter);
                 file_idx1 = file_idx1_x2 >> 1;
                 biallelic_forced_a1_alt = file_idx1_x2 & 1;
               }
@@ -7324,7 +7247,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
                   cur_variant_uidx = cur_allele_idx / 2;
                   cur_allele_idx_offset_base = cur_allele_idx & (~1);
                 } else {
-                  cur_variant_uidx = RawToSubsettedPos(variant_start_alidxs, variant_start_alidxs_cumulative_popcounts, cur_allele_idx);
+                  cur_variant_uidx = RawToSubsettedRoundDown(variant_start_alidxs, variant_start_alidxs_cumulative_popcounts, cur_allele_idx);
                   cur_allele_idx_offset_base = allele_idx_offsets[cur_variant_uidx];
                   cur_allele_ct = allele_idx_offsets[cur_variant_uidx + 1] - cur_allele_idx_offset_base;
                 }
@@ -7362,6 +7285,15 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       goto ClumpReports_ret_WRITE_FAIL;
     }
     logprintf("Results written to %s .\n", outname);
+    if (clump_overlap_tmp) {
+      if (unlikely(fclose_null(&clump_overlap_tmp))) {
+        goto ClumpReports_ret_READ_FAIL;
+      }
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".clumps.tmp");
+      if (unlikely(unlink(outname))) {
+        goto ClumpReports_ret_WRITE_FAIL;
+      }
+    }
   }
   while (0) {
   ClumpReports_ret_NOMEM:

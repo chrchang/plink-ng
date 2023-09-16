@@ -440,13 +440,21 @@ HEADER_INLINE void NextNonmissingUnsafeCk32(const uintptr_t* __restrict genoarr,
 }
 */
 
-// Equivalent to popcount_bit_idx(subset_mask, 0, raw_idx).
+// Equivalent to PopcountBitRange(subset_mask, 0, raw_idx).
 HEADER_INLINE uint32_t RawToSubsettedPos(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, uintptr_t raw_idx) {
   // this should be much better than keeping a uidx_to_idx array!
   // (update: there are more compact indexes, but postpone for now, this is
   // is nice and simple and gets us most of what we need.)
   const uintptr_t raw_widx = raw_idx / kBitsPerWord;
   return subset_cumulative_popcounts[raw_widx] + PopcountWord(bzhi(subset_mask[raw_widx], raw_idx % kBitsPerWord));
+}
+
+// Equivalent to PopcountBitRange(subset_mask, 0, raw_idx + 1) - 1.  First bit
+// of subset_mask must be set.
+HEADER_INLINE uint32_t RawToSubsettedRoundDown(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, uintptr_t raw_idx) {
+  const uintptr_t raw_p1_idx = raw_idx + 1;
+  const uintptr_t raw_p1_widx = raw_p1_idx / kBitsPerWord;
+  return subset_cumulative_popcounts[raw_p1_widx] + PopcountWord(bzhi(subset_mask[raw_p1_widx], raw_p1_idx % kBitsPerWord)) - 1;
 }
 
 HEADER_INLINE uintptr_t RawToSubsettedPosW(const uintptr_t* subset_mask, const uintptr_t* subset_cumulative_popcounts, uintptr_t raw_idx) {

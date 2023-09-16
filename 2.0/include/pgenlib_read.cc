@@ -7094,12 +7094,10 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
     // phased dosage
     if (allele_ct == 2) {
       if (!is_unconditional_dosage) {
-        if (dphase_ct == raw_dphase_ct) {
+        // bugfix (15 Sep 2023): dphase_ct == raw_dphase_ct doesn't guarantee
+        // dosage_ct == raw_dosage_ct
+        if (dosage_ct == raw_dosage_ct) {
           memcpy(dosage_main_write_iter, dosage_main_read_biter, dosage_ct * sizeof(int16_t));
-          memcpy(dphase_delta, fread_ptr, dphase_ct * sizeof(int16_t));
-          if (dphase_ct_ptr) {
-            *dphase_ct_ptr = dphase_ct;
-          }
         } else {
           uintptr_t widx = ~k0LU;
           uint32_t dosage_entry_idx = 0;
@@ -7119,7 +7117,14 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
               cur_bits ^= low_bit;
             } while (cur_bits);
           } while (dosage_entry_idx != raw_dosage_ct);
-          widx = ~k0LU;
+        }
+        if (dphase_ct == raw_dphase_ct) {
+          memcpy(dphase_delta, fread_ptr, dphase_ct * sizeof(int16_t));
+          if (dphase_ct_ptr) {
+            *dphase_ct_ptr = dphase_ct;
+          }
+        } else {
+          uintptr_t widx = ~k0LU;
           uint32_t dphase_entry_idx = 0;
           const unsigned char* dphase_delta_read = fread_ptr;
           int16_t* dphase_delta_write_iter = dphase_delta;

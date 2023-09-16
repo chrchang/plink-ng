@@ -79,7 +79,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1911
+#define PGENLIB_INTERNAL_VERNUM 1912
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -240,25 +240,20 @@ HEADER_INLINE void SetTrailingNyps(uintptr_t nyp_ct, uintptr_t* bitarr) {
 
 // GetVint31 and Vint32Append moved to plink2_base.
 
-// Input must be validated, or bufp must be >= 5 characters before the end of
-// the read buffer.
-// todo: check if this has enough of a speed advantage over GetVint31() to
-// justify using this in the main loops and catching SIGSEGV.  (seems to be no
-// more than 3%?)
-HEADER_INLINE uint32_t GetVint31Unsafe(const unsigned char** buf_iterp) {
+// Input must be validated.
+HEADER_INLINE uint32_t GetVint32Unsafe(const unsigned char** buf_iterp) {
   uint32_t vint32 = *(*buf_iterp)++;
   if (vint32 <= 127) {
     return vint32;
   }
   vint32 &= 127;
-  for (uint32_t shift = 7; shift != 35; shift += 7) {
+  for (uint32_t shift = 7; ; shift += 7) {
     uint32_t uii = *(*buf_iterp)++;
     vint32 |= (uii & 127) << shift;
     if (uii <= 127) {
       return vint32;
     }
   }
-  return 0x80000000U;
 }
 
 HEADER_INLINE void SkipVintUnsafe(const unsigned char** buf_iterp) {
@@ -327,28 +322,19 @@ HEADER_INLINE unsigned char* Vint64Append(uint64_t ullii, unsigned char* buf) {
   return buf;
 }
 
-// Returns 2^63 on read-past-end, and named GetVint63 to make it more obvious
-// that a 2^63 return value can't be legitimate.
-HEADER_INLINE uint64_t GetVint63(const unsigned char* buf_end, const unsigned char** buf_iterp) {
-  if (likely(buf_end > (*buf_iterp))) {
-    uint64_t vint64 = *((*buf_iterp)++);
-    if (vint64 <= 127) {
+HEADER_INLINE uint64_t GetVint64Unsafe(const unsigned char** buf_iterp) {
+  uint64_t vint64 = *(*buf_iterp)++;
+  if (vint64 <= 127) {
+    return vint64;
+  }
+  vint64 &= 127;
+  for (uint32_t shift = 7; ; shift += 7) {
+    uint64_t ullii = *(*buf_iterp)++;
+    vint64 |= (ullii & 127) << shift;
+    if (ullii <= 127) {
       return vint64;
     }
-    vint64 &= 127;
-    uint32_t shift = 7;
-    while (likely(buf_end > (*buf_iterp))) {
-      uint64_t ullii = *((*buf_iterp)++);
-      vint64 |= (ullii & 127) << shift;
-      if (ullii <= 127) {
-        return vint64;
-      }
-      shift += 7;
-      // currently don't check for shift >= 64 (that's what ValidateVint63()
-      // will be for).
-    }
   }
-  return (1LLU << 63);
 }
 
 // main batch size

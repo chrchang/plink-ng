@@ -4150,6 +4150,7 @@ void VariantStartAlidxMakerMain(uint32_t tidx, uint32_t thread_ct, VariantStartA
   uintptr_t* alidxs = ctx->variant_start_alidxs;
   uint32_t* alidxs_cumulative_popcounts = ctx->variant_start_alidxs_cumulative_popcounts;
 
+  // This corresponds to the first allele_idx >= widx_start * kBitsPerWord.
   uint32_t cur_vidx = CountSortedSmallerW(allele_idx_offsets, raw_variant_ct, widx_start * kBitsPerWord);
   uintptr_t cur_allele_idx = allele_idx_offsets[cur_vidx];
   uintptr_t cur_allele_widx = cur_allele_idx / kBitsPerWord;
@@ -4157,23 +4158,28 @@ void VariantStartAlidxMakerMain(uint32_t tidx, uint32_t thread_ct, VariantStartA
     alidxs_cumulative_popcounts[widx] = cur_vidx;
     uintptr_t cur_word = 0;
     if (cur_allele_widx == widx) {
-      const uint32_t shift_ct = cur_allele_idx % kBitsPerWord;
+      uint32_t shift_ct = cur_allele_idx % kBitsPerWord;
       // fast path when multiallelic variants are rare.
       const uint32_t speculate_ct = (kBitsPerWord + 1 - shift_ct) / 2;
       const uint32_t speculative_vidx = cur_vidx + speculate_ct;
-      if ((speculative_vidx <= raw_variant_ct) && (allele_idx_offsets[speculative_vidx] == cur_allele_idx + speculate_ct * 2)) {
+      if (0) {
+      // if ((speculative_vidx <= raw_variant_ct) && (allele_idx_offsets[speculative_vidx] == cur_allele_idx + speculate_ct * 2)) {
         // next speculate_ct variants must all be biallelic
         cur_word = kMask5555 << shift_ct;
         cur_vidx = speculative_vidx;
         cur_allele_idx += speculate_ct * 2;
         ++cur_allele_widx;
       } else {
-        do {
+        while (1) {
           cur_word |= k1LU << shift_ct;
           ++cur_vidx;
           cur_allele_idx = allele_idx_offsets[cur_vidx];
           cur_allele_widx = cur_allele_idx / kBitsPerWord;
-        } while (cur_allele_widx == widx);
+          if (cur_allele_widx != widx) {
+            break;
+          }
+          shift_ct = cur_allele_idx % kBitsPerWord;
+        }
       }
     }
     alidxs[widx] = cur_word;
