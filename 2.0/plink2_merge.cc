@@ -7580,7 +7580,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
           chr_slen = chr_name_end - chr_buf;
           cur_included_bp = variant_bps[variant_uidx_start];
           const uint32_t search_start = variant_uidx_start + 1;
-          variant_uidx_end = search_start + ExpsearchU32(&(variant_bps[search_start]), chrom_end_variant_uidx - search_start, cur_included_bp + 1);
+          variant_uidx_end = ExpsearchU32(variant_bps, search_start, chrom_end_variant_uidx, cur_included_bp + 1);
           variant_uidx_end = 1 + FindLast1BitBefore(variant_include, variant_uidx_end);
           same_bp_variant_ct = PopcountBitRange(variant_include, variant_uidx_start, variant_uidx_end);
         } else if (!chrom_end_variant_uidx) {
@@ -7609,7 +7609,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
           continue;
         }
         if (new_bp_u32 > cur_included_bp) {
-          variant_uidx_start = variant_uidx_end + ExpsearchU32(&(variant_bps[variant_uidx_end]), chrom_end_variant_uidx - variant_uidx_end, new_bp_u32);
+          variant_uidx_start = ExpsearchU32(variant_bps, variant_uidx_end, chrom_end_variant_uidx, new_bp_u32);
           variant_uidx_start = AdvBoundedTo1Bit(variant_include, variant_uidx_start, chrom_end_variant_uidx);
           if (variant_uidx_start == chrom_end_variant_uidx) {
             variant_uidx_end = variant_uidx_start;
@@ -7618,7 +7618,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
           }
           cur_included_bp = variant_bps[variant_uidx_start];
           const uint32_t search_start = variant_uidx_start + 1;
-          variant_uidx_end = search_start + ExpsearchU32(&(variant_bps[search_start]), chrom_end_variant_uidx - search_start, cur_included_bp + 1);
+          variant_uidx_end = ExpsearchU32(variant_bps, search_start, chrom_end_variant_uidx, cur_included_bp + 1);
           variant_uidx_end = 1 + FindLast1BitBefore(variant_include, variant_uidx_end);
           same_bp_variant_ct = PopcountBitRange(variant_include, variant_uidx_start, variant_uidx_end);
           if (new_bp_u32 < cur_included_bp) {

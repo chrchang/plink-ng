@@ -556,6 +556,8 @@ HEADER_INLINE double u127tod(uint64_t hi, uint64_t lo) {
 // plus_term0 * plus_term1 - minus_term0 * minus_term1
 double u127prod_diff_d(uint64_t plus_term0, uint64_t plus_term1, uint64_t minus_term0, uint64_t minus_term1);
 
+double i127prod_diff_d(uint64_t plus_term0, uint64_t plus_term1, uint64_t minus_term0, uint64_t minus_term1);
+
 double MultiallelicDiploidMinimac3R2(const uint64_t* __restrict sums, const uint64_t* __restrict hap_ssqs_x2, uint32_t nm_sample_ct, uint32_t allele_ct, uint32_t extra_phased_het_ct);
 
 HEADER_INLINE double MultiallelicDiploidMachR2(const uint64_t* __restrict sums, const uint64_t* __restrict ssqs, uint32_t nm_sample_ct, uint32_t allele_ct) {

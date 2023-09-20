@@ -265,8 +265,8 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
       }
       if (variant_bps) {
         // translate to within-chromosome uidx
-        range_first = CountSortedSmallerU32(&(variant_bps[chr_start]), chr_end - chr_start, range_first);
-        range_last = CountSortedSmallerU32(&(variant_bps[chr_start]), chr_end - chr_start, range_last + 1);
+        range_first = LowerBoundNonemptyU32(&(variant_bps[chr_start]), chr_end - chr_start, range_first);
+        range_last = LowerBoundNonemptyU32(&(variant_bps[chr_start]), chr_end - chr_start, range_last + 1);
         if (range_last > range_first) {
           MakeSetRange* msr_tmp = S_CAST(MakeSetRange*, bigstack_end_alloc(sizeof(MakeSetRange)));
           if (unlikely(!msr_tmp)) {

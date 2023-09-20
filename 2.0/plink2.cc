@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a5"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (15 Sep 2023)";
+  " (19 Sep 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -471,7 +471,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -680,12 +680,10 @@ PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* extract_int
     uint32_t variant_uidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
     uint32_t variant_uidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
     if (from_bp != -1) {
-      const uint32_t from_offset = CountSortedSmallerU32(&(variant_bps[variant_uidx_start]), variant_uidx_end - variant_uidx_start, from_bp);
-      variant_uidx_start += from_offset;
+      variant_uidx_start = LowerBoundConstrainedNonemptyU32(variant_bps, variant_uidx_start, variant_uidx_end, from_bp);
     }
     if ((to_bp != -1) && (variant_uidx_start < variant_uidx_end)) {
-      const uint32_t to_offset = CountSortedSmallerU32(&(variant_bps[variant_uidx_start]), variant_uidx_end - variant_uidx_start, 1 + to_bp);
-      variant_uidx_end = variant_uidx_start + to_offset;
+      variant_uidx_end = LowerBoundConstrainedNonemptyU32(variant_bps, variant_uidx_start, variant_uidx_end, 1 + to_bp);
     }
     if (variant_uidx_start) {
       ClearBitsNz(0, variant_uidx_start, variant_include);
@@ -2760,13 +2758,11 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
     }
     if (pcp->command_flags1 & kfCommand1Clump) {
-      logerrputs("Error: --clump is under development.\n");
-      return kPglRetNotYetSupported;
       if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
         logerrputs("Error: --clump requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
         goto Plink2Core_ret_INCONSISTENT_INPUT;
       }
-      // reterr = ClumpReports(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, founder_info, sex_male, &(pcp->clump_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, max_allele_slen, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
+      reterr = ClumpReports(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, founder_info, sex_male, &(pcp->clump_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, max_allele_slen, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -3770,6 +3766,8 @@ int main(int argc, char** argv) {
     uint32_t delete_pmerge_result = 0;
     uint32_t aperm_present = 0;
     uint32_t notchr_present = 0;
+    uint32_t clump_log10_p1_present = 0;
+    uint32_t clump_log10_p2_present = 0;
     uint32_t permit_multiple_inclusion_filters = 0;
     uint32_t memory_require = 0;
 #ifdef USE_MKL
@@ -4631,9 +4629,43 @@ int main(int argc, char** argv) {
           } else {
             pc.clump_info.bp_radius = S_CAST(int32_t, dxx * (1.0 + kSmallEpsilon) - 1);
           }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-log10-p1")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-log10-p1 must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double neglog10_p1;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &neglog10_p1)) || (neglog10_p1 < 0.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --clump-log10-p1 argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.clump_info.ln_p1 = neglog10_p1 * (-kLn10 * (1.0 - kSmallEpsilon));
+          clump_log10_p1_present = 1;
+        } else if (strequal_k_unsafe(flagname_p2, "lump-log10-p2")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-log10-p2 must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double neglog10_p2;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &neglog10_p2)) || (neglog10_p2 < 0.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --clump-log10-p2 argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.clump_info.ln_p2 = neglog10_p2 * (-kLn10 * (1.0 - kSmallEpsilon));
+          clump_log10_p2_present = 1;
         } else if (strequal_k_unsafe(flagname_p2, "lump-p1")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
             logerrputs("Error: --clump-p1 must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(clump_log10_p1_present)) {
+            logerrputs("Error: --clump-p1 cannot be used with --clump-log10-p1.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -4648,6 +4680,10 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "lump-p2")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
             logerrputs("Error: --clump-p2 must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(clump_log10_p2_present)) {
+            logerrputs("Error: --clump-p2 cannot be used with --clump-log10-p2.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {

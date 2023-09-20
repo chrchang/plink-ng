@@ -5662,7 +5662,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         loaded_vrtype = loaded_vrtypes[write_idx];
       }
       if (write_idx >= chr_end_bidx) {
-        const uint32_t chr_fo_idx = CountSortedSmallerU32(&(write_chr_fo_vidx_start[1]), cip->chr_ct, write_idx + variant_idx_offset + 1);
+        const uint32_t chr_fo_idx = LastLeqU32(write_chr_fo_vidx_start, 0, cip->chr_ct, write_idx + variant_idx_offset);
         const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         chr_end_bidx = write_chr_fo_vidx_start[chr_fo_idx + 1] - variant_idx_offset;
         is_x = (chr_idx == x_code);

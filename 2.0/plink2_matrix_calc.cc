@@ -6132,10 +6132,10 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             if (difflist_len) {
               uint32_t difflist_start_idx = 0;
               if (sample_idx_start) {
-                difflist_start_idx = CountSortedSmallerU32(difflist_sample_ids_iter, difflist_len, sample_idx_start);
+                difflist_start_idx = LowerBoundNonemptyU32(difflist_sample_ids_iter, difflist_len, sample_idx_start);
               }
               if (difflist_len > difflist_start_idx) {
-                const uint32_t shard_difflist_len = CountSortedSmallerU32(&(difflist_sample_ids_iter[difflist_start_idx]), difflist_len - difflist_start_idx, sample_idx_start + sample_shard_size);
+                const uint32_t shard_difflist_len = LowerBoundNonemptyU32(&(difflist_sample_ids_iter[difflist_start_idx]), difflist_len - difflist_start_idx, sample_idx_start + sample_shard_size);
                 if (shard_difflist_len) {
                   // Shard contains at least one uncommon genotype, so we have
                   // some work to do.

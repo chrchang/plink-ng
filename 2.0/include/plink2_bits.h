@@ -449,14 +449,6 @@ HEADER_INLINE uint32_t RawToSubsettedPos(const uintptr_t* subset_mask, const uin
   return subset_cumulative_popcounts[raw_widx] + PopcountWord(bzhi(subset_mask[raw_widx], raw_idx % kBitsPerWord));
 }
 
-// Equivalent to PopcountBitRange(subset_mask, 0, raw_idx + 1) - 1.  First bit
-// of subset_mask must be set.
-HEADER_INLINE uint32_t RawToSubsettedRoundDown(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, uintptr_t raw_idx) {
-  const uintptr_t raw_p1_idx = raw_idx + 1;
-  const uintptr_t raw_p1_widx = raw_p1_idx / kBitsPerWord;
-  return subset_cumulative_popcounts[raw_p1_widx] + PopcountWord(bzhi(subset_mask[raw_p1_widx], raw_p1_idx % kBitsPerWord)) - 1;
-}
-
 HEADER_INLINE uintptr_t RawToSubsettedPosW(const uintptr_t* subset_mask, const uintptr_t* subset_cumulative_popcounts, uintptr_t raw_idx) {
   const uintptr_t raw_widx = raw_idx / kBitsPerWord;
   return subset_cumulative_popcounts[raw_widx] + PopcountWord(bzhi(subset_mask[raw_widx], raw_idx % kBitsPerWord));
@@ -581,23 +573,23 @@ uint32_t Copy1bit16Subset(const uintptr_t* __restrict src_subset, const void* __
 // obvious; any explicit DivUp(val, 4) expressions should have a different
 // meaning
 // (not needed for bitct -> bytect, DivUp(val, CHAR_BIT) is clear enough)
-HEADER_INLINE uintptr_t NypCtToByteCt(uintptr_t val) {
+HEADER_CINLINE uintptr_t NypCtToByteCt(uintptr_t val) {
   return DivUp(val, 4);
 }
 
-HEADER_INLINE uintptr_t NypCtToVecCt(uintptr_t val) {
+HEADER_CINLINE uintptr_t NypCtToVecCt(uintptr_t val) {
   return DivUp(val, kNypsPerVec);
 }
 
-HEADER_INLINE uintptr_t NypCtToWordCt(uintptr_t val) {
+HEADER_CINLINE uintptr_t NypCtToWordCt(uintptr_t val) {
   return DivUp(val, kBitsPerWordD2);
 }
 
-HEADER_INLINE uintptr_t NypCtToAlignedWordCt(uintptr_t val) {
+HEADER_CINLINE uintptr_t NypCtToAlignedWordCt(uintptr_t val) {
   return kWordsPerVec * NypCtToVecCt(val);
 }
 
-HEADER_INLINE uintptr_t NypCtToCachelineCt(uintptr_t val) {
+HEADER_CINLINE uintptr_t NypCtToCachelineCt(uintptr_t val) {
   return DivUp(val, kNypsPerCacheline);
 }
 

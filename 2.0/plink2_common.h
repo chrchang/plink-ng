@@ -873,7 +873,7 @@ uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen
 uint32_t GetChrCodeCounted(const ChrInfo* cip, uint32_t name_slen, char* chr_name);
 
 HEADER_INLINE uint32_t GetVariantChrFoIdx(const ChrInfo* cip, uintptr_t variant_uidx) {
-  return CountSortedSmallerU32(&(cip->chr_fo_vidx_start[1]), cip->chr_ct, variant_uidx + 1);
+  return LowerBoundNonemptyU32(&(cip->chr_fo_vidx_start[1]), cip->chr_ct, variant_uidx + 1);
 }
 
 HEADER_INLINE uint32_t GetVariantChr(const ChrInfo* cip, uintptr_t variant_uidx) {
@@ -1446,7 +1446,7 @@ HEADER_INLINE uint32_t ProvrefCol(const uintptr_t* variant_include, const uintpt
 
 PglErr NsortDedupAndWrite(const char* outname, uintptr_t str_ct, uint32_t max_slen, uint32_t output_zst, uint32_t max_thread_ct, const char** strptr_arr, uintptr_t* nwrite_ptr);
 
-PglErr AllocAndFillVariantStartAlidxs(const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_thread_ct, const uintptr_t** variant_start_alidxsp, const uint32_t** variant_start_alidxs_cumulative_popcountsp);
+PglErr AllocAndFillVariantLastAlidxs(const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_thread_ct, const uintptr_t** variant_last_alidxsp, const uint32_t** variant_last_alidxs_cumulative_popcountsp);
 
 
 // Assumes IsSet(variant_include, variant_uidx) is true.

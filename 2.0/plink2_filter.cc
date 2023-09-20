@@ -164,10 +164,10 @@ PglErr SnpFlag(const uint32_t* variant_bps, const char* const* variant_ids, cons
       const uint32_t window_bp_u = window_bp;
       uint32_t vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
       if (center_bp > window_bp_u) {
-        vidx_start += CountSortedSmallerU32(&(variant_bps[vidx_start]), chr_vidx_end - vidx_start, center_bp - window_bp_u);
+        vidx_start = LowerBoundConstrainedNonemptyU32(variant_bps, vidx_start, chr_vidx_end, center_bp - window_bp_u);
       }
       const uint32_t bp_end = 1 + center_bp + window_bp_u;
-      const uint32_t vidx_end = vidx_start + CountSortedSmallerU32(&(variant_bps[vidx_start]), chr_vidx_end - vidx_start, bp_end);
+      const uint32_t vidx_end = LowerBoundConstrainedNonemptyU32(variant_bps, vidx_start, chr_vidx_end, bp_end);
       if (do_exclude) {
         ClearBitsNz(vidx_start, vidx_end, variant_include);
       } else {

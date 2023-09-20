@@ -752,8 +752,8 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
   const uint32_t orig_xchr_fo_idx = cip->chr_idx_to_foidx[x_code];
   const uint32_t orig_x_start = cip->chr_fo_vidx_start[orig_xchr_fo_idx];
   const uint32_t orig_x_end = cip->chr_fo_vidx_start[orig_xchr_fo_idx + 1];
-  const uint32_t par1_end = orig_x_start + CountSortedSmallerU32(&(variant_bps[orig_x_start]), orig_x_end - orig_x_start, splitpar_bound1 + 1);
-  const uint32_t par2_start = par1_end + CountSortedSmallerU32(&(variant_bps[par1_end]), orig_x_end - par1_end, splitpar_bound2);
+  const uint32_t par1_end = LowerBoundConstrainedNonemptyU32(variant_bps, orig_x_start, orig_x_end, splitpar_bound1 + 1);
+  const uint32_t par2_start = LowerBoundConstrainedNonemptyU32(variant_bps, par1_end, orig_x_end, splitpar_bound2);
   uint32_t tot_codes_changed = (par1_end - orig_x_start) + (orig_x_end - par2_start);
   if (!tot_codes_changed) {
     logerrputs("Warning: --split-par had no effect (no X variants were in the PARs).\n");

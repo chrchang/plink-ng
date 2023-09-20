@@ -888,7 +888,7 @@ PglErr ReadRfmix2Block(const GlmCtx* common, const uint32_t* variant_bps, const 
         // At least one variant in [prev pos, current pos) (or [prev pos, end
         // of chromosome) if we're moving on to a new chromosome).  Count how
         // many there are, and fill that many lines of the matrix.
-        const uint32_t next_variant_uidx = variant_uidx + ExpsearchU32(&(variant_bps[variant_uidx]), variant_uidx_chr_end - variant_uidx, backfill_stop_bp);
+        const uint32_t next_variant_uidx = ExpsearchU32(variant_bps, variant_uidx, variant_uidx_chr_end, backfill_stop_bp);
         const uint32_t row_ct = PopcountBitRange(variant_include, variant_uidx, next_variant_uidx);
         DuplicateLocalCovarRow(row_ct, row_width, &variant_bidx, &local_covars_vcmaj_f_iter, &local_covars_vcmaj_d_iter);
         if (variant_bidx == cur_block_variant_ct) {

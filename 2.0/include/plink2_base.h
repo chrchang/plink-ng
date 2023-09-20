@@ -2579,6 +2579,10 @@ HEADER_CINLINE uintptr_t WordCtToVecCt(uintptr_t val) {
   return DivUp(val, kWordsPerVec);
 }
 
+HEADER_CINLINE uintptr_t WordCtToCachelineCt(uintptr_t val) {
+  return DivUp(val, kWordsPerCacheline);
+}
+
 HEADER_CINLINE uint64_t WordCtToCachelineCtU64(uint64_t val) {
   return DivUpU64(val, kWordsPerCacheline);
 }

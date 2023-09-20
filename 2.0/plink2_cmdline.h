@@ -355,40 +355,102 @@ BoolErr SortStrboxIndexed(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use
 // This makes a temporary g_bigstack allocation.
 BoolErr SortStrptrArrIndexed(uint32_t str_ct, uint32_t leave_first_alone, uint32_t overread_ok, uint32_t use_nsort, const char** strptrs, uint32_t* new_to_old_idx, uint32_t* old_to_new_idx);
 
-// Offset of std::lower_bound.
-// Requires 0 < arr_length < 2^31.
-uint32_t CountSortedSmallerU32(const uint32_t* sorted_u32_arr, uint32_t arr_length, uint32_t needle);
+// Offset of std::lower_bound, i.e. # of elements < needle.
+// Requires arr_length > 0.
+uintptr_t LowerBoundNonemptyU32(const uint32_t* sorted_u32_arr, uintptr_t arr_length, uint32_t needle);
+
+HEADER_INLINE uintptr_t LowerBoundU32(const uint32_t* sorted_u32_arr, uintptr_t arr_length, uint32_t needle) {
+  if (!arr_length) {
+    return 0;
+  }
+  return LowerBoundNonemptyU32(sorted_u32_arr, arr_length, needle);
+}
+
+HEADER_INLINE uintptr_t LowerBoundConstrainedNonemptyU32(const uint32_t* sorted_u32_arr, uintptr_t start_idx, uintptr_t end_idx, uint32_t needle) {
+  return start_idx + LowerBoundNonemptyU32(&(sorted_u32_arr[start_idx]), end_idx - start_idx, needle);
+}
 
 // Same as above, but optimized for case where result is probably close to the
 // front, and tolerates end_idx (== arr_length) == 0.
-uint32_t ExpsearchU32(const uint32_t* sorted_u32_arr, uint32_t end_idx, uint32_t needle);
+uintptr_t Expsearch0U32(const uint32_t* sorted_u32_arr, uintptr_t end_idx, uint32_t needle);
+
+HEADER_INLINE uintptr_t ExpsearchU32(const uint32_t* sorted_u32_arr, uintptr_t start_idx, uintptr_t end_idx, uint32_t needle) {
+  return start_idx + Expsearch0U32(&(sorted_u32_arr[start_idx]), end_idx - start_idx, needle);
+}
 
 #ifdef __LP64__
-uintptr_t ExpsearchU64(const uint64_t* sorted_u64_arr, uint64_t end_idx, uint64_t needle);
+uintptr_t Expsearch0U64(const uint64_t* sorted_u64_arr, uintptr_t end_idx, uint64_t needle);
 
-HEADER_INLINE uintptr_t ExpsearchW(const uintptr_t* sorted_w_arr, uintptr_t end_idx, uintptr_t needle) {
-  return ExpsearchU64(R_CAST(const uint64_t*, sorted_w_arr), end_idx, needle);
+HEADER_INLINE uintptr_t ExpsearchU64(const uint64_t* sorted_u64_arr, uintptr_t start_idx, uintptr_t end_idx, uint64_t needle) {
+  return start_idx + Expsearch0U64(&(sorted_u64_arr[start_idx]), end_idx - start_idx, needle);
+}
+
+HEADER_INLINE uintptr_t ExpsearchW(const uintptr_t* sorted_w_arr, uintptr_t start_idx, uintptr_t end_idx, uintptr_t needle) {
+  return ExpsearchU64(R_CAST(const uint64_t*, sorted_w_arr), start_idx, end_idx, needle);
 }
 #else
-HEADER_INLINE uintptr_t ExpsearchW(const uintptr_t* sorted_w_arr, uintptr_t end_idx, uintptr_t needle) {
-  return ExpsearchU32(R_CAST(const uint32_t*, sorted_w_arr), end_idx, needle);
+HEADER_INLINE uintptr_t ExpsearchW(const uintptr_t* sorted_w_arr, uintptr_t start_idx, uintptr_t end_idx, uintptr_t needle) {
+  return ExpsearchU32(R_CAST(const uint32_t*, sorted_w_arr), start_idx, end_idx, needle);
 }
 #endif
 
-uintptr_t CountSortedSmallerU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle);
+uintptr_t LowerBoundNonemptyU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle);
 
-HEADER_INLINE uintptr_t CountSortedSmallerW(const uintptr_t* sorted_w_arr, uintptr_t arr_length, uintptr_t needle) {
+HEADER_INLINE uintptr_t LowerBoundNonemptyW(const uintptr_t* sorted_w_arr, uintptr_t arr_length, uintptr_t needle) {
 #ifdef __LP64__
-  return CountSortedSmallerU64(R_CAST(const uint64_t*, sorted_w_arr), arr_length, needle);
+  return LowerBoundNonemptyU64(R_CAST(const uint64_t*, sorted_w_arr), arr_length, needle);
 #else
-  return CountSortedSmallerU32(R_CAST(const uint32_t*, sorted_w_arr), arr_length, needle);
+  return LowerBoundNonemptyU32(R_CAST(const uint32_t*, sorted_w_arr), arr_length, needle);
 #endif
 }
 
-uintptr_t CountSortedSmallerD(const double* sorted_dbl_arr, uintptr_t arr_length, double needle);
+HEADER_INLINE uintptr_t LowerBoundConstrainedNonemptyW(const uintptr_t* sorted_w_arr, uintptr_t start_idx, uintptr_t end_idx, uintptr_t needle) {
+  return start_idx + LowerBoundNonemptyW(&(sorted_w_arr[start_idx]), end_idx - start_idx, needle);
+}
 
+uintptr_t LowerBoundNonemptyD(const double* sorted_dbl_arr, uintptr_t arr_length, double needle);
 
-uintptr_t CountSortedLeqU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle);
+uintptr_t UpperBoundNonemptyU32(const uint32_t* sorted_u32_arr, uintptr_t arr_length, uint32_t needle);
+
+HEADER_INLINE uintptr_t UpperBoundConstrainedNonemptyU32(const uint32_t* sorted_u32_arr, uintptr_t start_idx, uintptr_t end_idx, uint32_t needle) {
+  return start_idx + UpperBoundNonemptyU32(&(sorted_u32_arr[start_idx]), end_idx - start_idx, needle);
+}
+
+uintptr_t UpperBoundNonemptyU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle);
+
+HEADER_INLINE uintptr_t UpperBoundConstrainedNonemptyU64(const uint64_t* sorted_u64_arr, uintptr_t start_idx, uintptr_t end_idx, uint64_t needle) {
+  return start_idx + UpperBoundNonemptyU64(&(sorted_u64_arr[start_idx]), end_idx - start_idx, needle);
+}
+
+HEADER_INLINE uintptr_t UpperBoundNonemptyW(const uintptr_t* sorted_w_arr, uintptr_t arr_length, uintptr_t needle) {
+#ifdef __LP64__
+  return UpperBoundNonemptyU64(R_CAST(const uint64_t*, sorted_w_arr), arr_length, needle);
+#else
+  return UpperBoundNonemptyU32(R_CAST(const uint32_t*, sorted_w_arr), arr_length, needle);
+#endif
+}
+
+HEADER_INLINE uintptr_t UpperBoundConstrainedNonemptyW(const uintptr_t* sorted_w_arr, uintptr_t start_idx, uintptr_t end_idx, uintptr_t needle) {
+  return start_idx + UpperBoundNonemptyW(&(sorted_w_arr[start_idx]), end_idx - start_idx, needle);
+}
+
+// Requires sorted_w_arr[start_idx] <= needle.
+HEADER_INLINE uintptr_t LastLeqU32(const uint32_t* sorted_u32_arr, uintptr_t start_idx, uintptr_t end_idx, uint32_t needle) {
+  return UpperBoundConstrainedNonemptyU32(sorted_u32_arr, start_idx, end_idx, needle) - 1;
+}
+
+HEADER_INLINE uintptr_t LastLeqU64(const uint64_t* sorted_u64_arr, uintptr_t start_idx, uintptr_t end_idx, uint64_t needle) {
+  return UpperBoundConstrainedNonemptyU64(sorted_u64_arr, start_idx, end_idx, needle) - 1;
+}
+
+HEADER_INLINE uintptr_t LastLeqW(const uintptr_t* sorted_w_arr, uintptr_t start_idx, uintptr_t end_idx, uintptr_t needle) {
+  return UpperBoundConstrainedNonemptyW(sorted_w_arr, start_idx, end_idx, needle) - 1;
+}
+
+// Requires sorted_w_arr[start_idx] <= needle, and needle < maxint.
+HEADER_INLINE uintptr_t ExpsearchLastLeqW(const uintptr_t* sorted_w_arr, uintptr_t start_idx, uintptr_t end_idx, uintptr_t needle) {
+  return ExpsearchW(sorted_w_arr, start_idx, end_idx, needle + 1) - 1;
+}
 
 uintptr_t IdxToUidxW(const uintptr_t* bitvec, const uintptr_t* cumulative_popcounts, uintptr_t widx_start, uintptr_t widx_end, uintptr_t idx);
 

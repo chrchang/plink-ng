@@ -873,7 +873,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
       if (!is_unsorted) {
         if (is_rigid || (cur_bp > prev_bp)) {
           const uint32_t arr_length = prev_chr_vidx_end - prev_vidx_end;
-          const uint32_t incr = ExpsearchU32(&(variant_bps[prev_vidx_end]), arr_length, cur_bp);
+          const uint32_t incr = Expsearch0U32(&(variant_bps[prev_vidx_end]), arr_length, cur_bp);
           if (incr == arr_length) {
             prev_vidx_end = prev_chr_vidx_end;
             continue;
@@ -883,7 +883,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
         prev_bp = cur_bp;
       } else {
         const uint32_t arr_length = prev_chr_vidx_end - prev_chr_vidx_start;
-        const uint32_t incr = CountSortedSmallerU32(&(variant_bps[prev_chr_vidx_start]), arr_length, cur_bp);
+        const uint32_t incr = LowerBoundNonemptyU32(&(variant_bps[prev_chr_vidx_start]), arr_length, cur_bp);
         if (incr == arr_length) {
           continue;
         }
@@ -3483,10 +3483,10 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           }
           const double tot_allele_ddosage_recip = 1.0 / u63tod(tot_allele_ddosage);
           if (ref_histogram) {
-            ref_histogram[CountSortedSmallerD(ref_freq_bounds, ref_boundary_ct, ref_allele_ddosage * tot_allele_ddosage_recip)] += 1;
+            ref_histogram[LowerBoundNonemptyD(ref_freq_bounds, ref_boundary_ct, ref_allele_ddosage * tot_allele_ddosage_recip)] += 1;
           }
           if (alt1_histogram) {
-            alt1_histogram[CountSortedSmallerD(alt1_freq_bounds, alt1_boundary_ct, alt1_allele_ddosage * tot_allele_ddosage_recip)] += 1;
+            alt1_histogram[LowerBoundNonemptyD(alt1_freq_bounds, alt1_boundary_ct, alt1_allele_ddosage * tot_allele_ddosage_recip)] += 1;
           }
         }
       } else {
@@ -3498,10 +3498,10 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           }
           const uint64_t* cur_allele_ddosages = &(founder_allele_ddosages[allele_idx_offset_base]);
           if (ref_histogram) {
-            ref_histogram[CountSortedSmallerU64(ref_ddosage_bounds, ref_boundary_ct, cur_allele_ddosages[0])] += 1;
+            ref_histogram[LowerBoundNonemptyU64(ref_ddosage_bounds, ref_boundary_ct, cur_allele_ddosages[0])] += 1;
           }
           if (alt1_histogram) {
-            alt1_histogram[CountSortedSmallerU64(alt1_ddosage_bounds, alt1_boundary_ct, cur_allele_ddosages[1])] += 1;
+            alt1_histogram[LowerBoundNonemptyU64(alt1_ddosage_bounds, alt1_boundary_ct, cur_allele_ddosages[1])] += 1;
           }
         }
       }

@@ -4130,29 +4130,37 @@ PglErr NsortDedupAndWrite(const char* outname, uintptr_t str_ct, uint32_t max_sl
   return reterr;
 }
 
-typedef struct VariantStartAlidxMakerStruct {
+typedef struct VariantLastAlidxMakerStruct {
   const uintptr_t* allele_idx_offsets;
   uint32_t raw_variant_ct;
 
-  uintptr_t* variant_start_alidxs;
-  uint32_t* variant_start_alidxs_cumulative_popcounts;
-} VariantStartAlidxMaker;
+  // Bit k is set iff it's equal to (allele_idx_offsets[x] - 1) for some x.
+  // This has the property that PopcountBitRange(0, allele_idx) = variant_uidx.
+  uintptr_t* variant_last_alidxs;
+  uint32_t* variant_last_alidxs_cumulative_popcounts;
+} VariantLastAlidxMaker;
 
-void VariantStartAlidxMakerMain(uint32_t tidx, uint32_t thread_ct, VariantStartAlidxMaker* ctx) {
-  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+void VariantLastAlidxMakerMain(uint32_t tidx, uint32_t thread_ct, VariantLastAlidxMaker* ctx) {
+  const uintptr_t* allele_idx_ends = &(ctx->allele_idx_offsets[1]);
   const uint32_t raw_variant_ct = ctx->raw_variant_ct;
-  const uintptr_t raw_allele_ct = allele_idx_offsets[raw_variant_ct];
+  const uintptr_t raw_allele_ct = ctx->allele_idx_offsets[raw_variant_ct];
   const uintptr_t raw_allele_ctl = BitCtToWordCt(raw_allele_ct);
   const uintptr_t cacheline_ct = DivUp(raw_allele_ctl, kWordsPerCacheline);
 
   const uintptr_t widx_start = kWordsPerCacheline * ((cacheline_ct * S_CAST(uint64_t, tidx)) / thread_ct);
   const uintptr_t widx_stop = (tidx + 1 == thread_ct)? (raw_allele_ctl - 1) : (kWordsPerCacheline * ((cacheline_ct * (S_CAST(uint64_t, tidx) + 1)) / thread_ct));
-  uintptr_t* alidxs = ctx->variant_start_alidxs;
-  uint32_t* alidxs_cumulative_popcounts = ctx->variant_start_alidxs_cumulative_popcounts;
+  uintptr_t* alidxs = ctx->variant_last_alidxs;
+  uint32_t* alidxs_cumulative_popcounts = ctx->variant_last_alidxs_cumulative_popcounts;
 
-  // This corresponds to the first allele_idx >= widx_start * kBitsPerWord.
-  uint32_t cur_vidx = CountSortedSmallerW(allele_idx_offsets, raw_variant_ct, widx_start * kBitsPerWord);
-  uintptr_t cur_allele_idx = allele_idx_offsets[cur_vidx];
+  uint32_t cur_vidx = 0;
+  if (tidx) {
+    // How many variants end before or at allele_idx == widx_start *
+    // kBitsPerWord?
+    cur_vidx = UpperBoundNonemptyW(allele_idx_ends, raw_variant_ct, widx_start * kBitsPerWord);
+  }
+  // This is >= widx_start * kBitsPerWord.
+  uintptr_t cur_allele_idx = allele_idx_ends[cur_vidx] - 1;
+
   uintptr_t cur_allele_widx = cur_allele_idx / kBitsPerWord;
   for (uintptr_t widx = widx_start; widx != widx_stop; ++widx) {
     alidxs_cumulative_popcounts[widx] = cur_vidx;
@@ -4162,8 +4170,7 @@ void VariantStartAlidxMakerMain(uint32_t tidx, uint32_t thread_ct, VariantStartA
       // fast path when multiallelic variants are rare.
       const uint32_t speculate_ct = (kBitsPerWord + 1 - shift_ct) / 2;
       const uint32_t speculative_vidx = cur_vidx + speculate_ct;
-      if (0) {
-      // if ((speculative_vidx <= raw_variant_ct) && (allele_idx_offsets[speculative_vidx] == cur_allele_idx + speculate_ct * 2)) {
+      if ((speculative_vidx < raw_variant_ct) && (allele_idx_ends[speculative_vidx] == cur_allele_idx + 1 + speculate_ct * 2)) {
         // next speculate_ct variants must all be biallelic
         cur_word = kMask5555 << shift_ct;
         cur_vidx = speculative_vidx;
@@ -4173,7 +4180,7 @@ void VariantStartAlidxMakerMain(uint32_t tidx, uint32_t thread_ct, VariantStartA
         while (1) {
           cur_word |= k1LU << shift_ct;
           ++cur_vidx;
-          cur_allele_idx = allele_idx_offsets[cur_vidx];
+          cur_allele_idx = allele_idx_ends[cur_vidx] - 1;
           cur_allele_widx = cur_allele_idx / kBitsPerWord;
           if (cur_allele_widx != widx) {
             break;
@@ -4187,46 +4194,44 @@ void VariantStartAlidxMakerMain(uint32_t tidx, uint32_t thread_ct, VariantStartA
   if (tidx + 1 == thread_ct) {
     alidxs_cumulative_popcounts[widx_stop] = cur_vidx;
     uintptr_t cur_word = 0;
-    if (cur_vidx < raw_variant_ct) {
-      while (1) {
-        cur_word |= k1LU << (cur_allele_idx % kBitsPerWord);
-        ++cur_vidx;
-        if (cur_vidx >= raw_variant_ct) {
-          break;
-        }
-        cur_allele_idx = allele_idx_offsets[cur_vidx];
+    while (1) {
+      cur_word |= k1LU << (cur_allele_idx % kBitsPerWord);
+      ++cur_vidx;
+      if (cur_vidx == raw_variant_ct) {
+        break;
       }
+      cur_allele_idx = allele_idx_ends[cur_vidx] - 1;
     }
     alidxs[widx_stop] = cur_word;
   }
 }
 
-THREAD_FUNC_DECL VariantStartAlidxMakerThread(void* raw_arg) {
+THREAD_FUNC_DECL VariantLastAlidxMakerThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uint32_t tidx = arg->tidx;
-  VariantStartAlidxMaker* ctx = S_CAST(VariantStartAlidxMaker*, arg->sharedp->context);
+  VariantLastAlidxMaker* ctx = S_CAST(VariantLastAlidxMaker*, arg->sharedp->context);
 
   const uint32_t thread_ct = GetThreadCt(arg->sharedp) + 1;
-  VariantStartAlidxMakerMain(tidx, thread_ct, ctx);
+  VariantLastAlidxMakerMain(tidx, thread_ct, ctx);
   THREAD_RETURN;
 }
 
-PglErr AllocAndFillVariantStartAlidxs(const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_thread_ct, const uintptr_t** variant_start_alidxsp, const uint32_t** variant_start_alidxs_cumulative_popcountsp) {
+PglErr AllocAndFillVariantLastAlidxs(const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_thread_ct, const uintptr_t** variant_last_alidxsp, const uint32_t** variant_last_alidxs_cumulative_popcountsp) {
   if (!allele_idx_offsets) {
-    *variant_start_alidxsp = nullptr;
-    *variant_start_alidxs_cumulative_popcountsp = nullptr;
+    *variant_last_alidxsp = nullptr;
+    *variant_last_alidxs_cumulative_popcountsp = nullptr;
     return kPglRetSuccess;
   }
   PglErr reterr = kPglRetSuccess;
   ThreadGroup tg;
   PreinitThreads(&tg);
-  VariantStartAlidxMaker ctx;
+  VariantLastAlidxMaker ctx;
   {
     const uintptr_t raw_allele_ct = allele_idx_offsets[raw_variant_ct];
     const uintptr_t raw_allele_ctl = BitCtToWordCt(raw_allele_ct);
-    if (unlikely(bigstack_alloc_w(raw_allele_ctl, &ctx.variant_start_alidxs) ||
-                 bigstack_alloc_u32(raw_allele_ctl, &ctx.variant_start_alidxs_cumulative_popcounts))) {
-      goto AllocAndFillVariantStartAlidxs_ret_NOMEM;
+    if (unlikely(bigstack_alloc_w(raw_allele_ctl, &ctx.variant_last_alidxs) ||
+                 bigstack_alloc_u32(raw_allele_ctl, &ctx.variant_last_alidxs_cumulative_popcounts))) {
+      goto AllocAndFillVariantLastAlidxs_ret_NOMEM;
     }
     ctx.allele_idx_offsets = allele_idx_offsets;
     ctx.raw_variant_ct = raw_variant_ct;
@@ -4237,25 +4242,25 @@ PglErr AllocAndFillVariantStartAlidxs(const uintptr_t* allele_idx_offsets, uint3
       thread_ct = max_thread_ct;
     }
     if (unlikely(SetThreadCt0(thread_ct - 1, &tg))) {
-      goto AllocAndFillVariantStartAlidxs_ret_NOMEM;
+      goto AllocAndFillVariantLastAlidxs_ret_NOMEM;
     }
     if (thread_ct > 1) {
-      SetThreadFuncAndData(VariantStartAlidxMakerThread, &ctx, &tg);
+      SetThreadFuncAndData(VariantLastAlidxMakerThread, &ctx, &tg);
       DeclareLastThreadBlock(&tg);
       if (unlikely(SpawnThreads(&tg))) {
-        goto AllocAndFillVariantStartAlidxs_ret_THREAD_CREATE_FAIL;
+        goto AllocAndFillVariantLastAlidxs_ret_THREAD_CREATE_FAIL;
       }
     }
-    VariantStartAlidxMakerMain(thread_ct - 1, thread_ct, &ctx);
+    VariantLastAlidxMakerMain(thread_ct - 1, thread_ct, &ctx);
     JoinThreads0(&tg);
-    *variant_start_alidxsp = ctx.variant_start_alidxs;
-    *variant_start_alidxs_cumulative_popcountsp = ctx.variant_start_alidxs_cumulative_popcounts;
+    *variant_last_alidxsp = ctx.variant_last_alidxs;
+    *variant_last_alidxs_cumulative_popcountsp = ctx.variant_last_alidxs_cumulative_popcounts;
   }
   while (0) {
-  AllocAndFillVariantStartAlidxs_ret_NOMEM:
+  AllocAndFillVariantLastAlidxs_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  AllocAndFillVariantStartAlidxs_ret_THREAD_CREATE_FAIL:
+  AllocAndFillVariantLastAlidxs_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
   }
@@ -4273,14 +4278,14 @@ void GetBpWindow(const uintptr_t* variant_include, const uint32_t* variant_bps, 
       if (center_bp > bp_radius) {
         first_bp = center_bp - bp_radius;
       }
-      const uint32_t start_vidx = search_start_vidx + CountSortedSmallerU32(&(variant_bps[search_start_vidx]), variant_uidx - search_start_vidx, first_bp);
+      const uint32_t start_vidx = LowerBoundConstrainedNonemptyU32(variant_bps, search_start_vidx, variant_uidx, first_bp);
       *start_vidxp = AdvTo1Bit(variant_include, start_vidx);
     }
   }
   const uint32_t search_start_vidx = variant_uidx + 1;
   const uint32_t search_end_vidx = *end_vidxp;
   if (search_start_vidx < search_end_vidx) {
-    const uint32_t end_vidx = search_start_vidx + CountSortedSmallerU32(&(variant_bps[search_start_vidx]), search_end_vidx - search_start_vidx, center_bp + bp_radius + 1);
+    const uint32_t end_vidx = LowerBoundConstrainedNonemptyU32(variant_bps, search_start_vidx, search_end_vidx, center_bp + bp_radius + 1);
     *end_vidxp = 1 + FindLast1BitBefore(variant_include, end_vidx);
   }
 }

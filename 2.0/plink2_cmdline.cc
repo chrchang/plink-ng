@@ -351,36 +351,30 @@ BoolErr SortStrptrArrIndexed(uint32_t str_ct, uint32_t leave_first_alone, uint32
   return 0;
 }
 
-
-uint32_t CountSortedSmallerU32(const uint32_t* sorted_u32_arr, uint32_t arr_length, uint32_t needle) {
-  // (strangely, this seems to be equal to or better than std::lower_bound with
-  // -O2 optimization, but can become much slower with -O3?)
-
-  // assumes arr_length is nonzero, and sorted_u32_arr is in nondecreasing
-  // order.  (useful for searching variant_bps[].)
-  // needle guaranteed to be larger than sorted_u32_arr[min_idx - 1] if it
-  // exists, but NOT necessarily sorted_u32_arr[min_idx].
-  int32_t min_idx = 0;
-  // similarly, needle guaranteed to be no greater than
-  // sorted_u32_arr[max_idx + 1] if it exists, but not necessarily
-  // sorted_u32_arr[max_idx].  Signed integer since it could become -1, and
-  // min_idx in turn is signed so comparisons are safe.
-  int32_t max_idx = arr_length - 1;
-  while (min_idx < max_idx) {
-    const uint32_t mid_idx = (S_CAST(uint32_t, min_idx) + S_CAST(uint32_t, max_idx)) / 2;
+uintptr_t LowerBoundNonemptyU32(const uint32_t* sorted_u32_arr, uintptr_t arr_length, uint32_t needle) {
+  // This is still benchmarking better than std::lower_bound on macOS as of 16
+  // Sep 2023.  Also beats start/end indexing, by a smaller margin.  I'm
+  // guessing the edge comes from the last-iteration branch that is avoided
+  // (and that's where the "nonempty" restriction comes from).
+  uintptr_t min_idx = 0;
+  // max_idx is either the last index that might compare less than needle, or
+  // -1 if there can't be any.  It can drop to min_idx - 1.
+  uintptr_t max_idx = arr_length - 1;
+  while (S_CAST(intptr_t, min_idx) < S_CAST(intptr_t, max_idx)) {
+    const uintptr_t mid_idx = (min_idx + max_idx) / 2;
     if (needle > sorted_u32_arr[mid_idx]) {
       min_idx = mid_idx + 1;
     } else {
       max_idx = mid_idx - 1;
     }
   }
-  return min_idx + (needle > sorted_u32_arr[S_CAST(uint32_t, min_idx)]);
+  return min_idx + (needle > sorted_u32_arr[min_idx]);
 }
 
-uint32_t ExpsearchU32(const uint32_t* sorted_u32_arr, uint32_t end_idx, uint32_t needle) {
-  uint32_t next_incr = 1;
-  uint32_t start_idx = 0;
-  uint32_t cur_idx = 0;
+uintptr_t Expsearch0U32(const uint32_t* sorted_u32_arr, uintptr_t end_idx, uint32_t needle) {
+  uintptr_t next_incr = 1;
+  uintptr_t start_idx = 0;
+  uintptr_t cur_idx = 0;
   while (cur_idx < end_idx) {
     if (sorted_u32_arr[cur_idx] >= needle) {
       end_idx = cur_idx;
@@ -391,9 +385,7 @@ uint32_t ExpsearchU32(const uint32_t* sorted_u32_arr, uint32_t end_idx, uint32_t
     next_incr *= 2;
   }
   while (start_idx < end_idx) {
-    // this breaks if arr_length > 2^31
-    const uint32_t mid_idx = (start_idx + end_idx) / 2;
-
+    const uintptr_t mid_idx = (start_idx + end_idx) / 2;
     if (sorted_u32_arr[mid_idx] < needle) {
       start_idx = mid_idx + 1;
     } else {
@@ -404,10 +396,10 @@ uint32_t ExpsearchU32(const uint32_t* sorted_u32_arr, uint32_t end_idx, uint32_t
 }
 
 #ifdef __LP64__
-uintptr_t ExpsearchU64(const uint64_t* sorted_u64_arr, uint64_t end_idx, uint64_t needle) {
-  uint64_t next_incr = 1;
-  uint64_t start_idx = 0;
-  uint64_t cur_idx = 0;
+uintptr_t Expsearch0U64(const uint64_t* sorted_u64_arr, uintptr_t end_idx, uint64_t needle) {
+  uintptr_t next_incr = 1;
+  uintptr_t start_idx = 0;
+  uintptr_t cur_idx = 0;
   while (cur_idx < end_idx) {
     if (sorted_u64_arr[cur_idx] >= needle) {
       end_idx = cur_idx;
@@ -418,8 +410,7 @@ uintptr_t ExpsearchU64(const uint64_t* sorted_u64_arr, uint64_t end_idx, uint64_
     next_incr *= 2;
   }
   while (start_idx < end_idx) {
-    const uint64_t mid_idx = (start_idx + end_idx) / 2;
-
+    const uintptr_t mid_idx = (start_idx + end_idx) / 2;
     if (sorted_u64_arr[mid_idx] < needle) {
       start_idx = mid_idx + 1;
     } else {
@@ -430,51 +421,65 @@ uintptr_t ExpsearchU64(const uint64_t* sorted_u64_arr, uint64_t end_idx, uint64_
 }
 #endif
 
-uintptr_t CountSortedSmallerU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle) {
-  intptr_t min_idx = 0;
-  intptr_t max_idx = arr_length - 1;
-  while (min_idx < max_idx) {
-    const uintptr_t mid_idx = (S_CAST(uintptr_t, min_idx) + S_CAST(uintptr_t, max_idx)) / 2;
+uintptr_t LowerBoundNonemptyU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle) {
+  uintptr_t min_idx = 0;
+  uintptr_t max_idx = arr_length - 1;
+  while (S_CAST(intptr_t, min_idx) < S_CAST(intptr_t, max_idx)) {
+    const uintptr_t mid_idx = (min_idx + max_idx) / 2;
     if (needle > sorted_u64_arr[mid_idx]) {
       min_idx = mid_idx + 1;
     } else {
       max_idx = mid_idx - 1;
     }
   }
-  return min_idx + (needle > sorted_u64_arr[S_CAST(uintptr_t, min_idx)]);
+  return min_idx + (needle > sorted_u64_arr[min_idx]);
 }
 
-uintptr_t CountSortedSmallerD(const double* sorted_dbl_arr, uintptr_t arr_length, double needle) {
-  intptr_t min_idx = 0;
-  intptr_t max_idx = arr_length - 1;
-  while (min_idx < max_idx) {
-    const uintptr_t mid_idx = (S_CAST(uintptr_t, min_idx) + S_CAST(uintptr_t, max_idx)) / 2;
+uintptr_t LowerBoundNonemptyD(const double* sorted_dbl_arr, uintptr_t arr_length, double needle) {
+  uintptr_t min_idx = 0;
+  uintptr_t max_idx = arr_length - 1;
+  while (S_CAST(intptr_t, min_idx) < S_CAST(intptr_t, max_idx)) {
+    const uintptr_t mid_idx = (min_idx + max_idx) / 2;
     if (needle > sorted_dbl_arr[mid_idx]) {
       min_idx = mid_idx + 1;
     } else {
       max_idx = mid_idx - 1;
     }
   }
-  return min_idx + (needle > sorted_dbl_arr[S_CAST(uintptr_t, min_idx)]);
+  return min_idx + (needle > sorted_dbl_arr[min_idx]);
 }
 
-uintptr_t CountSortedLeqU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle) {
-  intptr_t min_idx = 0;
-  intptr_t max_idx = arr_length - 1;
-  while (min_idx < max_idx) {
-    const uintptr_t mid_idx = (S_CAST(uintptr_t, min_idx) + S_CAST(uintptr_t, max_idx)) / 2;
+uintptr_t UpperBoundNonemptyU32(const uint32_t* sorted_u32_arr, uintptr_t arr_length, uint32_t needle) {
+  uintptr_t min_idx = 0;
+  uintptr_t max_idx = arr_length - 1;
+  while (S_CAST(intptr_t, min_idx) < S_CAST(intptr_t, max_idx)) {
+    const uintptr_t mid_idx = (min_idx + max_idx) / 2;
+    if (needle >= sorted_u32_arr[mid_idx]) {
+      min_idx = mid_idx + 1;
+    } else {
+      max_idx = mid_idx - 1;
+    }
+  }
+  return min_idx + (needle >= sorted_u32_arr[min_idx]);
+}
+
+uintptr_t UpperBoundNonemptyU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle) {
+  uintptr_t min_idx = 0;
+  uintptr_t max_idx = arr_length - 1;
+  while (S_CAST(intptr_t, min_idx) < S_CAST(intptr_t, max_idx)) {
+    const uintptr_t mid_idx = (min_idx + max_idx) / 2;
     if (needle >= sorted_u64_arr[mid_idx]) {
       min_idx = mid_idx + 1;
     } else {
       max_idx = mid_idx - 1;
     }
   }
-  return min_idx + (needle >= sorted_u64_arr[S_CAST(uintptr_t, min_idx)]);
+  return min_idx + (needle >= sorted_u64_arr[min_idx]);
 }
 
 uintptr_t IdxToUidxW(const uintptr_t* bitvec, const uintptr_t* cumulative_popcounts, uintptr_t widx_start, uintptr_t widx_end, uintptr_t idx) {
   if (widx_end > widx_start) {
-    widx_start += CountSortedSmallerW(&(cumulative_popcounts[widx_start]), widx_end - widx_start, idx + 1) - 1;
+    widx_start = LastLeqW(cumulative_popcounts, widx_start, widx_end, idx);
   }
   const uintptr_t idx_at_widx_start = cumulative_popcounts[widx_start];
   return widx_start * kBitsPerWord + WordBitIdxToUidx(bitvec[widx_start], idx - idx_at_widx_start);
@@ -483,7 +488,7 @@ uintptr_t IdxToUidxW(const uintptr_t* bitvec, const uintptr_t* cumulative_popcou
 uintptr_t ExpsearchIdxToUidxW(const uintptr_t* bitvec, const uintptr_t* cumulative_popcounts, uintptr_t widx_end, uintptr_t idx, uintptr_t* widx_startp) {
   uintptr_t widx_start = *widx_startp;
   if (widx_end > widx_start) {
-    widx_start += ExpsearchW(&(cumulative_popcounts[widx_start]), widx_end - widx_start, idx + 1) - 1;
+    widx_start = ExpsearchLastLeqW(cumulative_popcounts, widx_start, widx_end, idx);
     *widx_startp = widx_start;
   }
   const uintptr_t idx_at_widx_start = cumulative_popcounts[widx_start];

@@ -15873,7 +15873,7 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
           if (phase_is_variable) {
             uint32_t sample_idx_lowbits = 0;
             while (1) {
-              sample_idx_lowbits += CountSortedLeqU64(&phase_geomdist[0], kBitsPerWordD2, sfmt_genrand_uint64(sfmtp));
+              sample_idx_lowbits += UpperBoundNonemptyU64(&phase_geomdist[0], kBitsPerWordD2, sfmt_genrand_uint64(sfmtp));
               if (sample_idx_lowbits >= loop_len) {
                 break;
               }
@@ -15901,7 +15901,7 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
           while (1) {
             ++sample_idx_lowbits;
             if (dosage_geomdist_max) {
-              sample_idx_lowbits += CountSortedLeqU64(&dosage_geomdist[0], dosage_geomdist_max, sfmt_genrand_uint64(sfmtp));
+              sample_idx_lowbits += UpperBoundNonemptyU64(&dosage_geomdist[0], dosage_geomdist_max, sfmt_genrand_uint64(sfmtp));
             }
             if (sample_idx_lowbits >= loop_len) {
               break;

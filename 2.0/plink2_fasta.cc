@@ -42,7 +42,8 @@ PglErr RefFromFaContig(const uintptr_t* variant_include, const uint32_t* variant
       WordWrapB(0);
       logerrputsb();
     }
-    uint32_t offset = CountSortedSmallerU32(&(variant_bps[variant_uidx]), variant_uidx_last - variant_uidx, bp_end);
+    // bugfix (16 Sep 2023): variant_uidx == variant_uidx_last is possible
+    const uint32_t offset = LowerBoundU32(&(variant_bps[variant_uidx]), variant_uidx_last - variant_uidx, bp_end);
 
     const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
     // set all bits in [variant_uidx + offset, chr_vidx_end), and count how
