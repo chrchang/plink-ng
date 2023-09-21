@@ -981,6 +981,11 @@ HEADER_INLINE VecUc vecuc_setr8x(char e31, char e30, char e29, char e28, char e2
   return VecToUc(_mm256_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
+HEADER_INLINE VecW vecw_setr32(uint32_t e3, uint32_t e2, uint32_t e1, uint32_t e0) {
+  return VecToW(_mm256_setr_epi32(e3, e2, e1, e0, e3, e2, e1, e0));
+}
+
+
 HEADER_INLINE VecW vecw_unpacklo8(VecW evens, VecW odds) {
   return VecToW(_mm256_unpacklo_epi8(WToVec(evens), WToVec(odds)));
 }
@@ -1456,6 +1461,10 @@ HEADER_INLINE VecUc vecuc_setr8x(
   return VecToUc(_mm_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16));
 }
 
+HEADER_INLINE VecW vecw_setr32(uint32_t e3, uint32_t e2, uint32_t e1, uint32_t e0) {
+  return VecToW(_mm_setr_epi32(e3, e2, e1, e0));
+}
+
 HEADER_INLINE VecW vecw_unpacklo8(VecW evens, VecW odds) {
   return VecToW(_mm_unpacklo_epi8(WToVec(evens), WToVec(odds)));
 }
@@ -1818,6 +1827,7 @@ CONSTI32(kBitsPerVec, kBytesPerVec * CHAR_BIT);
 // We now use Knuth's Nyp/Nybble vocabulary for 2-bit and 4-bit elements,
 // respectively.
 CONSTI32(kNypsPerVec, kBytesPerVec * 4);
+CONSTI32(kNybblesPerVec, kBytesPerVec * 2);
 
 CONSTI32(kBitsPerWordD2, kBitsPerWord / 2);
 CONSTI32(kBitsPerWordD4, kBitsPerWord / 4);

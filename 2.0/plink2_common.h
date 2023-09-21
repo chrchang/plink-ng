@@ -194,16 +194,19 @@ FLAGSET64_DEF_START()
   kfExportfOxGen = kfExportfOxGenV1 | kfExportfOxGenV2,
   kfExportfPed = (1 << 30),
   kfExportfCompound = (1U << 31),
-  kfExportfStructure = (1LLU << 32),
-  kfExportfTped = (1LLU << 33),
-  kfExportfVcf42 = (1LLU << 34),
-  kfExportfVcf43 = (1LLU << 35),
+  kfExportfPhylip = (1LLU << 32),
+  kfExportfPhylipPhased = (1LLU << 33),
+  kfExportfStructure = (1LLU << 34),
+  kfExportfTped = (1LLU << 35),
+  kfExportfVcf42 = (1LLU << 36),
+  kfExportfVcf43 = (1LLU << 37),
   kfExportfVcf = kfExportfVcf42 | kfExportfVcf43,
   kfExportfTypemask = (2LLU * kfExportfVcf43) - kfExportf23,
-  kfExportfIncludeAlt = (1LLU << 36),
-  kfExportfBgz = (1LLU << 37),
-  kfExportfOmitNonmaleY = (1LLU << 38),
-  kfExportfSampleV2 = (1LLU << 39)
+  kfExportfIncludeAlt = (1LLU << 38),
+  kfExportfBgz = (1LLU << 39),
+  kfExportfOmitNonmaleY = (1LLU << 40),
+  kfExportfSampleV2 = (1LLU << 41),
+  kfExportfPhylipUsedSites = (1LLU << 42)
 FLAGSET64_DEF_END(ExportfFlags);
 
 FLAGSET_DEF_START()

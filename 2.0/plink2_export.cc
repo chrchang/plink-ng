@@ -9791,6 +9791,432 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
   return reterr;
 }
 
+/*
+#ifdef USE_SSE42
+// Assumes outvec_ct is positive.
+void Subst4bitTo8(const void* src_vec, const VecW lookup, uint32_t outvec_ct, void* dst_vec) {
+  // See Expand4bitTo8(); this just applies a substitution operation on top of
+  // that.
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW* src_iter = S_CAST(const VecW*, src_vec);
+  VecW* dst_iter = S_CAST(VecW*, dst_vec);
+  VecW* dst_last = &(dst_iter[outvec_ct - 1]);
+  while (1) {
+    VecW cur_vec = *src_iter++;
+    cur_vec = vecw_permute0xd8_if_avx2(cur_vec);
+    const VecW vec_even = cur_vec & m4;
+    const VecW vec_odd = vecw_srli(cur_vec, 4) & m4;
+    const VecW vec_lo = vecw_unpacklo8(vec_even, vec_odd);
+    const VecW vec_hi = vecw_unpackhi8(vec_even, vec_odd);
+    // vec_lo now contains first half of the nybbles, and vec_hi contains the
+    // second half.
+    const VecW result_lo = vecw_shuffle8(lookup, vec_lo);
+    const VecW result_hi = vecw_shuffle8(lookup, vec_hi);
+    *dst_iter++ = result_lo;
+    if (dst_iter >= dst_last) {
+      if (dst_iter == dst_last) {
+        *dst_iter = result_hi;
+      }
+      return;
+    }
+    *dst_iter++ = result_hi;
+  }
+}
+
+// Maps 0 -> nybble0, 1 -> (nybble0 | nybble2), 2 -> nybble2, 3 -> 15.
+void GenovecToNybblesSSE4(const uintptr_t* genovec, uint32_t sample_ct, uint32_t nybble0, uint32_t nybble2, uintptr_t* result_vec) {
+  const uint32_t lo_u32 = (nybble0 * 0x101) | (nybble2 * 0x10100) | 0xf000000;
+  const uint32_t first_u32 = lo_u32 | (nybble0 * 0x10101010);
+  const uint32_t third_u32 = lo_u32 | (nybble2 * 0x10101010);
+  const VecW lookup = vecw_setr32(first_u32, first_u32 | third_u32, third_u32, lo_u32 | 0xf0f0f0f0U);
+  const uint32_t outvec_ct = NybbleCtToVecCt(sample_ct);
+  Subst4bitTo8(genovec, lookup, outvec_ct, result_vec);
+}
+
+void Subst2bitTo8(const void* src_vec, const VecW lookup, uint32_t outvec_ct, void* dst_vec) {
+  // Similar to Expand2bitTo8().
+  const VecW m03 = VCONST_W(kMask0303);
+  const VecW* src_iter = S_CAST(const VecW*, src_vec);
+  VecW* dst_iter = S_CAST(VecW*, dst_vec);
+  VecW* loop_stop = &(dst_iter[RoundDownPow2(outvec_ct - 1, 4) + 1]);
+  VecW* dst_end = &(dst_iter[outvec_ct]);
+  while (1) {
+    VecW cur_vec = *src_iter++;
+#  ifdef USE_AVX2
+    const __m256i midswapped_vec = _mm256_shuffle_epi32(WToVec(cur_vec), 0xd8);
+    cur_vec = vecw_permute0xd8_if_avx2(VecToW(midswapped_vec));
+#  endif
+    const VecW vec_even = cur_vec;
+    const VecW vec_odd = vecw_srli(cur_vec, 4);
+    const VecW vec01 = vecw_unpacklo8(vec_even, vec_odd);
+    const VecW vec23 = vecw_unpackhi8(vec_even, vec_odd);
+    const VecW vec01_even = vec01 & m03;
+    const VecW vec01_odd = vecw_srli(vec01, 2) & m03;
+    const VecW vec23_even = vec23 & m03;
+    const VecW vec23_odd = vecw_srli(vec23, 2) & m03;
+    VecW vec0 = vecw_unpacklo8(vec01_even, vec01_odd);
+    VecW vec1 = vecw_unpackhi8(vec01_even, vec01_odd);
+    VecW vec2 = vecw_unpacklo8(vec23_even, vec23_odd);
+    VecW vec3 = vecw_unpackhi8(vec23_even, vec23_odd);
+    vec0 = vecw_shuffle8(lookup, vec0);
+    vec1 = vecw_shuffle8(lookup, vec1);
+    vec2 = vecw_shuffle8(lookup, vec2);
+    vec3 = vecw_shuffle8(lookup, vec3);
+    *dst_iter++ = vec0;
+    if (dst_iter >= loop_stop) {
+      if (dst_iter < dst_end) {
+        *dst_iter++ = vec1;
+        if (dst_iter < dst_end) {
+          *dst_iter++ = vec2;
+          if (dst_iter < dst_end) {
+            *dst_iter++ = vec3;
+          }
+        }
+      }
+      return;
+    }
+    *dst_iter++ = vec1;
+    *dst_iter++ = vec2;
+    *dst_iter++ = vec3;
+  }
+}
+
+static inline void NybblesToIupac(const uintptr_t* nybblevec, uint32_t entry_ct, uintptr_t* result_vec) {
+  const VecW lookup = vecw_setr8('.', 'A', 'C', 'M', 'G', 'R', 'S', '.', 'T', 'W', 'Y', '.', 'K', '.', '.', 'N');
+  const uint32_t invec_ct = NybbleCtToVecCt(entry_ct);
+  Subst4bitTo8(nybblevec, lookup, invec_ct, result_vec);
+}
+#else
+// some of this may be moved to pgenlib_misc
+
+void GenovecToNybblesNoSSE4(const uint16_t* const* genovec_to_nybble_tables, const uintptr_t* genovec, uint32_t sample_ct, uint32_t nybble0, uint32_t nybble2, uintptr_t* result_vec) {
+  const uint32_t nybble0_table_idx = ctzu32(nybble0) + 4 * (nybble0 == 15);
+  const uint32_t nybble2_table_idx = ctzu32(nybble2) + 4 * (nybble2 == 15);
+  const uint32_t table_idx = nybble0_table_idx + 5 * nybble2_table_idx;
+  const uint16_t* cur_genovec_to_nybble_table = genovec_to_nybble_tables[table_idx];
+
+  const unsigned char* genovec_alias = DowncastKToUc(genovec);
+  uint16_t* result_alias = DowncastWToU16(result_vec);
+  const uint32_t inbyte_ct = NypCtToByteCt(sample_ct);
+  for (uint32_t inbyte_idx = 0; inbyte_idx != inbyte_ct; ++inbyte_idx) {
+    result_alias[inbyte_idx] = cur_genovec_to_nybble_table[genovec_alias[inbyte_idx]];
+  }
+}
+
+#  define PAIR_TABLE256(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) \
+  {(a), (a), (b), (a), (c), (a), (d), (a), (e), (a), (f), (a), (g), (a), (h), (a), (i), (a), (j), (a), (k), (a), (l), (a), (m), (a), (n), (a), (o), (a), (p), (a), \
+  (a), (b), (b), (b), (c), (b), (d), (b), (e), (b), (f), (b), (g), (b), (h), (b), (i), (b), (j), (b), (k), (b), (l), (b), (m), (b), (n), (b), (o), (b), (p), (b), \
+  (a), (c), (b), (c), (c), (c), (d), (c), (e), (c), (f), (c), (g), (c), (h), (c), (i), (c), (j), (c), (k), (c), (l), (c), (m), (c), (n), (c), (o), (c), (p), (c), \
+  (a), (d), (b), (d), (c), (d), (d), (d), (e), (d), (f), (d), (g), (d), (h), (d), (i), (d), (j), (d), (k), (d), (l), (d), (m), (d), (n), (d), (o), (d), (p), (d), \
+  (a), (e), (b), (e), (c), (e), (d), (e), (e), (e), (f), (e), (g), (e), (h), (e), (i), (e), (j), (e), (k), (e), (l), (e), (m), (e), (n), (e), (o), (e), (p), (e), \
+  (a), (f), (b), (f), (c), (f), (d), (f), (e), (f), (f), (f), (g), (f), (h), (f), (i), (f), (j), (f), (k), (f), (l), (f), (m), (f), (n), (f), (o), (f), (p), (f), \
+  (a), (g), (b), (g), (c), (g), (d), (g), (e), (g), (f), (g), (g), (g), (h), (g), (i), (g), (j), (g), (k), (g), (l), (g), (m), (g), (n), (g), (o), (g), (p), (g), \
+  (a), (h), (b), (h), (c), (h), (d), (h), (e), (h), (f), (h), (g), (h), (h), (h), (i), (h), (j), (h), (k), (h), (l), (h), (m), (h), (n), (h), (o), (h), (p), (h), \
+  (a), (i), (b), (i), (c), (i), (d), (i), (e), (i), (f), (i), (g), (i), (h), (i), (i), (i), (j), (i), (k), (i), (l), (i), (m), (i), (n), (i), (o), (i), (p), (i), \
+  (a), (j), (b), (j), (c), (j), (d), (j), (e), (j), (f), (j), (g), (j), (h), (j), (i), (j), (j), (j), (k), (j), (l), (j), (m), (j), (n), (j), (o), (j), (p), (j), \
+  (a), (k), (b), (k), (c), (k), (d), (k), (e), (k), (f), (k), (g), (k), (h), (k), (i), (k), (j), (k), (k), (k), (l), (k), (m), (k), (n), (k), (o), (k), (p), (k), \
+  (a), (l), (b), (l), (c), (l), (d), (l), (e), (l), (f), (l), (g), (l), (h), (l), (i), (l), (j), (l), (k), (l), (l), (l), (m), (l), (n), (l), (o), (l), (p), (l), \
+  (a), (m), (b), (m), (c), (m), (d), (m), (e), (m), (f), (m), (g), (m), (h), (m), (i), (m), (j), (m), (k), (m), (l), (m), (m), (m), (n), (m), (o), (m), (p), (m), \
+  (a), (n), (b), (n), (c), (n), (d), (n), (e), (n), (f), (n), (g), (n), (h), (n), (i), (n), (j), (n), (k), (n), (l), (n), (m), (n), (n), (n), (o), (n), (p), (n), \
+  (a), (o), (b), (o), (c), (o), (d), (o), (e), (o), (f), (o), (g), (o), (h), (o), (i), (o), (j), (o), (k), (o), (l), (o), (m), (o), (n), (o), (o), (o), (p), (o), \
+  (a), (p), (b), (p), (c), (p), (d), (p), (e), (p), (f), (p), (g), (p), (h), (p), (i), (p), (j), (p), (k), (p), (l), (p), (m), (p), (n), (p), (o), (p), (p), (p)}
+
+void NybblearrLookup256x1bx2(const uintptr_t* nybblearr, const void* table256x1bx2, uint32_t entry_ct, void* __restrict result) {
+  const uint16_t* table_alias = S_CAST(const uint16_t*, table256x1bx2);
+  const unsigned char* nybblearr_alias = DowncastKToUc(nybblearr);
+  unsigned char* resultb = S_CAST(unsigned char*, result);
+  const uint32_t full_byte_ct = entry_ct / 2;
+  for (uint32_t byte_idx = 0; byte_idx != full_byte_ct; ++byte_idx) {
+    CopyToUnalignedOffsetU16(resultb, &(table_alias[nybblearr_alias[byte_idx]]), byte_idx);
+  }
+  if (entry_ct % 2) {
+    resultb[full_byte_ct * sizeof(int16_t)] = table_alias[nybblearr_alias[full_byte_ct]];
+  }
+}
+
+static const unsigned char kNybblePairToIupac[512] = PAIR_TABLE256('.', 'A', 'C', 'M', 'G', 'R', 'S', '.', 'T', 'W', 'Y', '.', 'K', '.', '.', 'N');
+
+void NybblesToIupac(const uintptr_t* nybblevec, uint32_t entry_ct, uintptr_t* result_vec) {
+  NybblearrLookup256x1bx2(nybblevec, kNybblePairToIupac, entry_ct, result_vec);
+}
+
+static inline void NybblesToIupacUnsafe(const uintptr_t* nybblevec, uint32_t entry_ct, uintptr_t* result_vec) {
+  return NybblesToIupac(nybblevec, entry_ct, result_vec);
+}
+#endif
+
+typedef struct PhylipReadCtxStruct {
+  const uintptr_t* variant_include;
+  const uintptr_t* allele_idx_offsets;
+  const char* const* allele_storage;
+  const uintptr_t* sample_include;
+  const uint32_t* sample_include_cumulative_popcounts;
+  const unsigned char* allele_nybble_table;
+#ifndef USE_SSE42
+  // Precomputed 256-entry lookup tables, for use by GenovecToNybblesNoSSE4().
+  const uint16_t* genovec_to_nybble_tables[25];
+#endif
+  uint32_t sample_ct;
+
+  PgenReader** pgr_ptrs;
+  uintptr_t** genovecs;
+  uintptr_t** thread_read_mhc;
+  uintptr_t** phasepresents;
+  uintptr_t** phaseinfos;
+
+  uint32_t* variant_uidx_starts;
+  uint32_t cur_block_write_ct;
+
+  // nybble-encoded IUPAC codes
+  uintptr_t* vmaj_readbuf;
+
+  uint32_t* write_sample_nm_cts;
+
+  uint64_t err_info;
+} PhylipReadCtx;
+
+THREAD_FUNC_DECL PhylipReadThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  PhylipReadCtx* ctx = S_CAST(PhylipReadCtx*, arg->sharedp->context);
+
+  const uintptr_t* variant_include = ctx->variant_include;
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const char* const* allele_storage = ctx->allele_storage;
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
+  const uintptr_t* sample_include = ctx->sample_include;
+  const unsigned char* allele_nybble_table = ctx->allele_nybble_table;
+#ifndef USE_SSE42
+  const uint16_t* const* genovec_to_nybble_tables = ctx->genovec_to_nybble_tables;
+#endif
+  const uint32_t read_sample_ct = ctx->sample_ct;
+  const uintptr_t read_sample_ctaw4 = NybbleCtToAlignedWordCt(read_sample_ct);
+  PgenReader* pgrp = ctx->pgr_ptrs[tidx];
+  PgrSampleSubsetIndex pssi;
+  PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
+  uintptr_t* genovec = ctx->genovecs[tidx];
+  PgenVariant pgv;
+  SetPgvThreadMhcNull(read_sample_ct, tidx, ctx->thread_read_mhc, &pgv);
+  uintptr_t prev_copy_ct = 0;
+  uint64_t new_err_info = 0;
+  uint32_t cur_allele_ct = 2;
+  uint32_t allele_nybbles[4];
+  do {
+    const uintptr_t cur_block_copy_ct = ctx->cur_block_write_ct;
+    const uint32_t cur_idx_end = ((tidx + 1) * cur_block_copy_ct) / calc_thread_ct;
+    uintptr_t variant_uidx_base;
+    uintptr_t cur_bits;
+    BitIter1Start(variant_include, ctx->variant_uidx_starts[tidx], &variant_uidx_base, &cur_bits);
+    const uint32_t cur_idx_start = (tidx * cur_block_copy_ct) / calc_thread_ct;
+    uintptr_t* vmaj_readbuf_iter = &(ctx->vmaj_readbuf[(prev_copy_ct + cur_idx_start) * read_sample_ctaw4]);
+    uint32_t* write_sample_nm_cts_iter = &(ctx->write_sample_nm_cts[prev_copy_ct + cur_idx_start]);
+    for (uint32_t cur_idx = cur_idx_start; cur_idx != cur_idx_end; ++cur_idx) {
+      const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - variant_uidx;
+        if (unlikely(cur_allele_ct > 4)) {
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
+          goto PhylipReadThread_err;
+        }
+      }
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      for (uint32_t aidx = 0; aidx != cur_allele_ct; ++aidx) {
+        const char* cur_allele = cur_alleles[aidx];
+        allele_nybbles[aidx] = allele_nybble_table[S_CAST(unsigned char, cur_allele[0])];
+        if (unlikely((!allele_nybbles[aidx]) || cur_allele[1])) {
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
+          goto PhylipReadThread_err;
+        }
+      }
+      PglErr reterr;
+      if (cur_allele_ct == 2) {
+        reterr = PgrGet(sample_include, pssi, read_sample_ct, variant_uidx, pgrp, genovec);
+      } else {
+        reterr = PgrGetM(sample_include, pssi, read_sample_ct, variant_uidx, pgrp, &pgv);
+      }
+      if (unlikely(reterr)) {
+        new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+        goto PhylipReadThread_err;
+      }
+      ZeroTrailingNyps(read_sample_ct, genovec);
+      if (write_sample_nm_cts_iter) {
+        *write_sample_nm_cts_iter++ = read_sample_ct - GenoarrCountMissingUnsafe(genovec, read_sample_ct);
+      }
+#ifdef USE_SSE42
+      GenovecToNybblesSSE4(genovec, read_sample_ct, allele_nybbles[0], allele_nybbles[1], vmaj_readbuf_iter);
+#else
+      GenovecToNybblesNoSSE4(genovec_to_nybble_tables, genovec, read_sample_ct, allele_nybbles[0], allele_nybbles[1], vmaj_readbuf_iter);
+#endif
+      if (cur_allele_ct > 2) {
+        const uint32_t patch_01_ct = pgv.patch_01_ct;
+        if (patch_01_ct) {
+          uint32_t patch_01_nybbles[4];
+          patch_01_nybbles[2] = allele_nybbles[0] | allele_nybbles[2];
+          if (cur_allele_ct == 4) {
+            patch_01_nybbles[3] = allele_nybbles[0] | allele_nybbles[3];
+          }
+          const uintptr_t* patch_01_set = pgv.patch_01_set;
+          const AlleleCode* patch_01_vals = pgv.patch_01_vals;
+          uintptr_t sample_widx = 0;
+          uintptr_t patch_01_bits = patch_01_set[0];
+          for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+            const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_widx, &patch_01_bits);
+            const AlleleCode ac = patch_01_vals[uii];
+            AssignNybblearrEntry(sample_idx, patch_01_nybbles[ac], vmaj_readbuf_iter);
+          }
+        }
+        const uint32_t patch_10_ct = pgv.patch_10_ct;
+        if (patch_10_ct) {
+          const uintptr_t* patch_10_set = pgv.patch_10_set;
+          const AlleleCode* patch_10_vals = pgv.patch_10_vals;
+          uintptr_t sample_widx = 0;
+          uintptr_t patch_10_bits = patch_10_set[0];
+          for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+            const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_widx, &patch_10_bits);
+            const AlleleCode ac0 = patch_10_vals[uii * 2];
+            const AlleleCode ac1 = patch_10_vals[uii * 2 + 1];
+            AssignNybblearrEntry(sample_idx, allele_nybbles[ac0] | allele_nybbles[ac1], vmaj_readbuf_iter);
+          }
+        }
+      }
+      vmaj_readbuf_iter = &(vmaj_readbuf_iter[read_sample_ctaw4]);
+    }
+    prev_copy_ct += cur_block_copy_ct;
+    while (0) {
+    PhylipReadThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+THREAD_FUNC_DECL PhylipPhasedReadThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  PhylipReadCtx* ctx = S_CAST(PhylipReadCtx*, arg->sharedp->context);
+
+  const uintptr_t* variant_include = ctx->variant_include;
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const char* const* allele_storage = ctx->allele_storage;
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
+  const uintptr_t* sample_include = ctx->sample_include;
+  const unsigned char* allele_nybble_table = ctx->allele_nybble_table;
+  const uint32_t read_sample_ct = ctx->sample_ct;
+  const uintptr_t read_sample_ctaw4 = NybbleCtToAlignedWordCt(read_sample_ct);
+  PgenReader* pgrp = ctx->pgr_ptrs[tidx];
+  PgrSampleSubsetIndex pssi;
+  PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
+  uintptr_t* genovec = ctx->genovecs[tidx];
+  PgenVariant pgv;
+  SetPgvThreadMhcNull(read_sample_ct, tidx, ctx->thread_read_mhc, &pgv);
+  uintptr_t* phasepresent = nullptr;
+  uintptr_t* phaseinfo = nullptr;
+  if (ctx->phasepresents) {
+    phasepresent = ctx->phasepresents[tidx];
+    phaseinfo = ctx->phaseinfos[tidx];
+  }
+  pgv.phasepresent = phasepresent;
+  pgv.phaseinfo = phaseinfo;
+  uintptr_t prev_copy_ct = 0;
+  uint64_t new_err_info = 0;
+  uint32_t cur_allele_ct = 2;
+  uint32_t allele_nybbles[4];
+  do {
+    const uintptr_t cur_block_copy_ct = ctx->cur_block_write_ct;
+    const uint32_t cur_idx_end = ((tidx + 1) * cur_block_copy_ct) / calc_thread_ct;
+    uintptr_t variant_uidx_base;
+    uintptr_t cur_bits;
+    BitIter1Start(variant_include, ctx->variant_uidx_starts[tidx], &variant_uidx_base, &cur_bits);
+    const uint32_t cur_idx_start = (tidx * cur_block_copy_ct) / calc_thread_ct;
+    uintptr_t* vmaj_readbuf_iter = &(ctx->vmaj_readbuf[(prev_copy_ct + cur_idx_start) * read_sample_ctaw4]);
+    uint32_t* write_sample_nm_cts_iter = &(ctx->write_sample_nm_cts[prev_copy_ct + cur_idx_start]);
+    for (uint32_t cur_idx = cur_idx_start; cur_idx != cur_idx_end; ++cur_idx) {
+      const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - variant_uidx;
+        if (unlikely(cur_allele_ct > 4)) {
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
+          goto PhylipPhasedReadThread_err;
+        }
+      }
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      for (uint32_t aidx = 0; aidx != cur_allele_ct; ++aidx) {
+        const char* cur_allele = cur_alleles[aidx];
+        allele_nybbles[aidx] = allele_nybble_table[S_CAST(unsigned char, cur_allele[0])];
+        if (unlikely((!allele_nybbles[aidx]) || cur_allele[1])) {
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
+          goto PhylipPhasedReadThread_err;
+        }
+      }
+      PglErr reterr;
+      if (cur_allele_ct == 2) {
+        reterr = PgrGetP(sample_include, pssi, read_sample_ct, variant_uidx, pgrp, genovec, phasepresent, phaseinfo, &pgv.phasepresent_ct);
+      } else {
+        reterr = PgrGetMP(sample_include, pssi, read_sample_ct, variant_uidx, pgrp, &pgv);
+      }
+      if (unlikely(reterr)) {
+        new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+        goto PhylipPhasedReadThread_err;
+      }
+      ZeroTrailingNyps(read_sample_ct, genovec);
+      if (write_sample_nm_cts_iter) {
+        *write_sample_nm_cts_iter++ = read_sample_ct - GenoarrCountMissingUnsafe(genovec, read_sample_ct);
+      }
+      // TODO
+      // GenovecToNybblePairs, etc.
+      vmaj_readbuf_iter = &(vmaj_readbuf_iter[read_sample_ctaw4]);
+    }
+    prev_copy_ct += cur_block_copy_ct;
+    while (0) {
+    PhylipPhasedReadThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+typedef struct PhylipTransposeCtxStruct {
+  const uintptr_t* variant_include;
+  uint32_t variant_ct;
+  uint32_t write_sample_ct;
+
+  const uintptr_t* vmaj_readbuf;
+
+  VecW** thread_vecaligned_bufs;
+
+  uint32_t sample_batch_size;
+
+  uintptr_t* smaj_writebufs[2];
+} PhylipTransposeCtx;
+
+PglErr ExportPhylip(__attribute__((unused)) const uintptr_t* orig_sample_include, __attribute__((unused)) const SampleIdInfo* siip, __attribute__((unused)) const uintptr_t* sex_male_collapsed, __attribute__((unused)) const uintptr_t* variant_include, __attribute__((unused)) const ChrInfo* cip, __attribute__((unused)) const uint32_t* variant_bps, __attribute__((unused)) const uintptr_t* allele_idx_offsets, __attribute__((unused)) const char* const* allele_storage, __attribute__((unused)) uint32_t raw_sample_ct, __attribute__((unused)) uint32_t sample_ct, __attribute__((unused)) uint32_t raw_variant_ct, __attribute__((unused)) uint32_t variant_ct, __attribute__((unused)) uint32_t export_phased, __attribute__((unused)) uint32_t export_used_sites, __attribute__((unused)) uint32_t max_thread_ct, __attribute__((unused)) uintptr_t pgr_alloc_cacheline_ct, __attribute__((unused)) PgenFileInfo* pgfip, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  ThreadGroup read_tg;
+  ThreadGroup transpose_tg;
+  PreinitThreads(&read_tg);
+  PreinitThreads(&transpose_tg);
+  PhylipReadCtx read_ctx;
+  PhylipTransposeCtx transpose_ctx;
+  {
+    logerrputs("Error: --export phylip[-phased] is under development.\n");
+    return kPglRetNotYetSupported;
+    // todo: if export_phased, error out if any haploid
+  }
+  CleanupThreads(&transpose_tg);
+  CleanupThreads(&read_tg);
+  fclose_cond(outfile);
+  pgfip->block_base = nullptr;
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+*/
+
 PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const ExportfInfo* eip, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char input_missing_geno_char, char output_missing_geno_char, char legacy_output_missing_geno_char, uint32_t max_thread_ct, MakePlink2Flags make_plink2_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -9872,8 +10298,9 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
       allele_storage = subst_allele_storage;
     }
-    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped - kfExportfPed - kfExportfCompound)) {
+    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped - kfExportfPed - kfExportfPhylip - kfExportfPhylipPhased - kfExportfCompound)) {
       logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, ped, tped,\ncompound-genotypes, and ind-major-bed output have been implemented so far.\n");
+      // logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, ped, tped,\ncompound-genotypes, phylip, phylip-phased, and ind-major-bed output have been\nimplemented so far.\n");
       reterr = kPglRetNotYetSupported;
       goto Exportf_ret_1;
     }
@@ -10027,6 +10454,15 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
 
       snprintf(outname_end, kMaxOutfnameExtBlen, ".ped");
       reterr = ExportPed(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, variant_include, allele_idx_offsets, allele_storage, legacy_output_missing_pheno, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, (flags / kfExportfCompound) & 1, max_thread_ct, pgr_alloc_cacheline_ct, exportf_delim, legacy_output_missing_geno_char, pgfip);
+      if (unlikely(reterr)) {
+        goto Exportf_ret_1;
+      }
+    }
+
+    if (flags & (kfExportfPhylip | kfExportfPhylipPhased)) {
+      logerrputs("Error: phylip[-phased] export is under development.\n");
+      reterr = kPglRetNotYetSupported;
+      // reterr = ExportPhylip(sample_include, &(piip->sii), sex_male_collapsed, variant_include, cip, variant_bps, allele_idx_offsets, allele_storage, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, (flags / kfExportfPhylipPhased) & 1, (flags / kfExportfPhylipUsedSites) & 1, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, outname, outname_end);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }

@@ -608,6 +608,20 @@ HEADER_INLINE void ClearNyparrEntry(uint32_t idx, uintptr_t* nyparr) {
   nyparr[idx / kBitsPerWordD2] &= ~((3 * k1LU) << (idx % kBitsPerWordD2));
 }
 
+HEADER_CINLINE uintptr_t NybbleCtToVecCt(uintptr_t val) {
+  return DivUp(val, kNybblesPerVec);
+}
+
+HEADER_CINLINE uintptr_t NybbleCtToAlignedWordCt(uintptr_t val) {
+  return kWordsPerVec * NybbleCtToVecCt(val);
+}
+
+HEADER_INLINE void AssignNybblearrEntry(uint32_t idx, uintptr_t newval, uintptr_t* nybblearr) {
+  const uint32_t bit_shift_ct = 4 * (idx % kBitsPerWordD4);
+  uintptr_t* wordp = &(nybblearr[idx / kBitsPerWordD4]);
+  *wordp = ((*wordp) & (~((15 * k1LU) << bit_shift_ct))) | (newval << bit_shift_ct);
+}
+
 // 'Unsafe' because it assumes high bits of every byte are 0 and entry_ct is
 // positive.
 void Reduce8to4bitInplaceUnsafe(uintptr_t entry_ct, uintptr_t* mainvec);

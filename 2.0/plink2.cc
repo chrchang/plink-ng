@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a5"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (19 Sep 2023)";
+  " (21 Sep 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3103,8 +3103,16 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
       }
       break;
     case 'p':
-      if (!strcmp(cur_modif2, "ed")) {
-        cur_format = kfExportfPed;
+      {
+        const uint32_t cur_modif2_slen = strlen(cur_modif2);
+        if (strequal_k(cur_modif2, "ed", cur_modif2_slen)) {
+          cur_format = kfExportfPed;
+        } else if (strequal_k(cur_modif2, "hylip", cur_modif2_slen)) {
+          cur_format = kfExportfPhylip;
+        } else if (strequal_k(cur_modif2, "hylip-phased", cur_modif2_slen)) {
+          cur_format = kfExportfPhylipPhased;
+        }
+        break;
       }
       break;
     case 'r':
@@ -5178,6 +5186,14 @@ int main(int argc, char** argv) {
             logerrputs("Error: Multiple --export bgen versions.\n");
             goto main_ret_INVALID_CMDLINE;
           }
+          if (unlikely((pc.exportf_info.flags & kfExportfVcf) == kfExportfVcf)) {
+            logerrputs("Error: 'vcf' and 'vcf-4.2' formats cannot be exported simultaneously.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely((pc.exportf_info.flags & kfExportfBcf) == kfExportfBcf)) {
+            logerrputs("Error: 'bcf' and 'bcf-4.2' formats cannot be exported simultaneously.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely((pc.exportf_info.flags & (kfExportfHaps | kfExportfHapsLegend)) == (kfExportfHaps | kfExportfHapsLegend))) {
             logerrputs("Error: 'haps' and 'hapslegend' formats cannot be exported simultaneously.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -5193,6 +5209,10 @@ int main(int argc, char** argv) {
           if (unlikely((pc.exportf_info.flags & (kfExportfPed | kfExportfCompound)) == (kfExportfPed | kfExportfCompound))) {
             logerrputs("Error: 'ped' and 'compound-genotypes' formats cannot be exported\nsimultaneously.\n");
             goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely((pc.exportf_info.flags & (kfExportfPhylip | kfExportfPhylipPhased)) == (kfExportfPhylip | kfExportfPhylipPhased))) {
+            logerrputs("Error: --export 'phylip' and 'phylip-phased' formats cannot be exported\nsimultaneously.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             // could use AdvBoundedTo0Bit()...
@@ -5298,8 +5318,8 @@ int main(int argc, char** argv) {
                 snprintf(g_logbuf, kLogbufSize, "Error: The '%s' modifier does not apply to --export's A and AD output formats.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_2A;
               }
-              if (unlikely(pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf))) {
-                logerrputs("Error: '01'/'12' cannot be used with --export's vcf or bcf output formats.\n");
+              if (unlikely(pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfPhylip | kfExportfPhylipPhased))) {
+                logerrputs("Error: '01'/'12' cannot be used with --export's vcf, bcf, phylip, or\nphylip-phased output formats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               if (cur_modif[0] == '0') {
@@ -5329,6 +5349,12 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.exportf_info.flags |= kfExportfSampleV2;
+            } else if (strequal_k(cur_modif, "used-sites", cur_modif_slen)) {
+              if (unlikely(!(pc.exportf_info.flags & (kfExportfPhylip | kfExportfPhylipPhased)))) {
+                logerrputs("Error: 'used-sites' modifier only applies to --export's phylip and\nphylip-phased output formats.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.exportf_info.flags |= kfExportfPhylipUsedSites;
             } else if (strequal_k(cur_modif, "ref-last", cur_modif_slen)) {
               // do nothing for now
             } else if (likely(strequal_k(cur_modif, "ref-first", cur_modif_slen))) {
@@ -5344,21 +5370,13 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          if ((pc.exportf_info.flags & kfExportfVcf) == kfExportfVcf) {
-            logerrputs("Error: --export 'vcf' and 'vcf-4.2' cannot be used together.\n");
-            goto main_ret_INVALID_CMDLINE_A;
-          }
-          if ((pc.exportf_info.flags & kfExportfBcf) == kfExportfBcf) {
-            logerrputs("Error: --export 'bcf' and 'bcf-4.2' cannot be used together.\n");
-            goto main_ret_INVALID_CMDLINE_A;
-          }
           if (pc.exportf_info.idpaste_flags || pc.exportf_info.id_delim) {
-            if (unlikely(!(pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfBgen12 | kfExportfBgen13 | kfExportfSampleV2)))) {
-              logerrputs("Error: The 'id-delim' and 'id-paste' modifiers only apply to --export's vcf,\nbcf, bgen-1.2, bgen-1.3, and sample-v2 output formats.\n");
+            if (unlikely(!(pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfBgen12 | kfExportfBgen13 | kfExportfSampleV2 | kfExportfPhylip | kfExportfPhylipPhased)))) {
+              logerrputs("Error: The 'id-delim' and 'id-paste' modifiers only apply to --export's vcf,\nbcf, bgen-1.2, bgen-1.3, sample-v2, phylip, and phylip-phased output formats.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
           }
-          if (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfBgen12 | kfExportfBgen13 | kfExportfSampleV2)) {
+          if (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfBgen12 | kfExportfBgen13 | kfExportfSampleV2 | kfExportfPhylip | kfExportfPhylipPhased)) {
             if (!pc.exportf_info.idpaste_flags) {
               pc.exportf_info.idpaste_flags = kfIdpasteDefault;
             }
