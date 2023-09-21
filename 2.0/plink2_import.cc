@@ -9429,7 +9429,8 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
     uintptr_t* col_first_pass_remaining;
     uintptr_t* col_nm;
     unsigned char* col_types;
-    if (unlikely(bigstack_alloc_w(col_ctl, &col_first_pass_remaining) ||
+    // bugfix (21 Sep 2023): forgot to 0-initialize col_first_pass_remaining
+    if (unlikely(bigstack_calloc_w(col_ctl, &col_first_pass_remaining) ||
                  bigstack_calloc_w(col_ctl, &col_nm) ||
                  bigstack_alloc_uc(col_ct, &col_types))) {
       goto OxSampleToPsam_ret_NOMEM;
@@ -9586,6 +9587,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
         const uint32_t col_uidx = BitIter1(col_first_pass_remaining, &col_uidx_base, &cur_bits);
         linebuf_iter = NextTokenMult(token_end, col_uidx - prev_col_uidx);
         if (unlikely(!linebuf_iter)) {
+          printf("fail 2 %u %u %u\n", col_uidx, prev_col_uidx, uii);
           goto OxSampleToPsam_ret_MISSING_TOKENS;
         }
         prev_col_uidx = col_uidx;
