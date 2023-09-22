@@ -3222,6 +3222,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           BitvecInvmask(R_CAST(uintptr_t*, x_male_dosage_invmask), founder_dosagev_ct * kWordsPerVec, R_CAST(uintptr_t*, dosage_uhets[0]));
           const uint64_t invalid_uhethet_dosageprod = DosageUnsignedNomissDotprod(dosage_uhets[0], dosage_uhets[1], founder_dosagev_ct);
           unknown_hethet_d -= S_CAST(int64_t, invalid_uhethet_dosageprod) * kRecipDosageMidSq;
+          known_dotprod_d += u63tod(invalid_uhethet_dosageprod) * (kRecipDosageMidSq * 0.5);
         }
         x_male_nmajsums_d[0] = S_CAST(int64_t, x_male_nmaj_dosages[0]) * kRecipDosageMid;
         x_male_nmajsums_d[1] = S_CAST(int64_t, x_male_nmaj_dosages[1]) * kRecipDosageMid;

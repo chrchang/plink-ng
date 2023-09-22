@@ -9437,7 +9437,8 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
     uintptr_t* col_first_pass_remaining;
     uintptr_t* col_nm;
     unsigned char* col_types;
-    if (unlikely(bigstack_alloc_w(col_ctl, &col_first_pass_remaining) ||
+    // bugfix (22 Sep 2023): forgot to 0-initialize col_first_pass_remaining
+    if (unlikely(bigstack_calloc_w(col_ctl, &col_first_pass_remaining) ||
                  bigstack_calloc_w(col_ctl, &col_nm) ||
                  bigstack_alloc_uc(col_ct, &col_types))) {
       goto OxSampleToPsam_ret_NOMEM;
