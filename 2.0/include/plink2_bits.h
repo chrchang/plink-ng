@@ -615,6 +615,10 @@ HEADER_CINLINE uintptr_t NybbleCtToAlignedWordCt(uintptr_t val) {
   return kWordsPerVec * NybbleCtToVecCt(val);
 }
 
+HEADER_CINLINE uintptr_t NybbleCtToCachelineCt(uintptr_t val) {
+  return DivUp(val, kNybblesPerCacheline);
+}
+
 HEADER_INLINE void AssignNybblearrEntry(uint32_t idx, uintptr_t newval, uintptr_t* nybblearr) {
   const uint32_t bit_shift_ct = 4 * (idx % kBitsPerWordD4);
   uintptr_t* wordp = &(nybblearr[idx / kBitsPerWordD4]);

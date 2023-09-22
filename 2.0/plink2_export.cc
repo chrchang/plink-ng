@@ -2815,10 +2815,18 @@ BoolErr ExportIdpaste(const uintptr_t* sample_include, const SampleIdInfo* siip,
     exported_sample_ids_iter[-1] = '\0';
   }
   if (id_delim_warning && (write_fid + write_iid + write_sid >= 2)) {
-    if (exportf_id_delim) {
-      logerrprintfww("Warning: '%c' present in original sample IDs; --%s will not be able to reconstruct them. Consider rerunning with a different --export id-delim= value.\n", exportf_id_delim, reimport_flagname);
+    if (reimport_flagname) {
+      if (exportf_id_delim) {
+        logerrprintfww("Warning: '%c' present in original sample IDs; --%s will not be able to reconstruct them. Consider rerunning with a different --export id-delim= value.\n", exportf_id_delim, reimport_flagname);
+      } else {
+        logerrprintfww("Warning: '_' present in original sample IDs; --%s will not be able to reconstruct them. Consider rerunning with a suitable --export id-delim= value.\n", reimport_flagname);
+      }
     } else {
-      logerrprintfww("Warning: '_' present in original sample IDs; --%s will not be able to reconstruct them. Consider rerunning with a suitable --export id-delim= value.\n", reimport_flagname);
+      if (exportf_id_delim) {
+        logerrprintfww("Warning: '%c' present in original sample IDs; this may prevent them from being reconstructed. Consider rerunning with a different --export id-delim= value.\n", exportf_id_delim);
+      } else {
+        logerrputs("Warning: '_' present in original sample IDs; this may prevent them from being\nreconstructed. Consider rerunning with a suitable --export id-delim= value.\n");
+      }
     }
   }
   if (PopulateStrboxHtable(exported_sample_ids, sample_ct, max_exported_sample_id_blen, exported_id_htable_size, new_id_htable)) {
@@ -7635,12 +7643,6 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
           if (unlikely(reterr)) {
             goto ExportBcf_ret_1;
           }
-          /*
-          write_iter = memcpya(write_iter, line_start, 10 - 2 * is_info_line);
-          write_iter = strcpya_k(write_iter, "ID=");
-          write_iter = memcpya(write_iter, idval, id_slen);
-          write_iter = WriteRestOfHeaderLine(hkvline_iter, idval, closing_gt, id_slen, write_iter);
-          */
           write_iter = memcpya(write_iter, line_start, closing_gt - line_start);
           write_iter = strcpya_k(write_iter, ",IDX=");
           write_iter = u32toa(cur_idx, write_iter);
@@ -9791,7 +9793,6 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
   return reterr;
 }
 
-/*
 #ifdef USE_SSE42
 // Assumes outvec_ct is positive.
 void Subst4bitTo8(const void* src_vec, const VecW lookup, uint32_t outvec_ct, void* dst_vec) {
@@ -9887,6 +9888,38 @@ void NybblearrLookup256x1bx2(const uintptr_t* nybblearr, const void* table256x1b
   }
 }
 
+void InitLookup256x05bx4(uint32_t nybble0, uint32_t nybble1, uint32_t nybble2, uint32_t nybble3, void* table256x05bx4) {
+  unsigned char* table_iter = S_CAST(unsigned char*, table256x05bx4);
+  const uint32_t nybble0_shifted = nybble0 << 4;
+  const uint32_t nybble1_shifted = nybble1 << 4;
+  const uint32_t nybble2_shifted = nybble2 << 4;
+  const uint32_t nybble3_shifted = nybble3 << 4;
+  unsigned char vals[16];
+  vals[0] = nybble0 | nybble0_shifted;
+  vals[1] = nybble1 | nybble0_shifted;
+  vals[2] = nybble2 | nybble0_shifted;
+  vals[3] = nybble3 | nybble0_shifted;
+  vals[4] = nybble0 | nybble1_shifted;
+  vals[5] = nybble1 | nybble1_shifted;
+  vals[6] = nybble2 | nybble1_shifted;
+  vals[7] = nybble3 | nybble1_shifted;
+  vals[8] = nybble0 | nybble2_shifted;
+  vals[9] = nybble1 | nybble2_shifted;
+  vals[10] = nybble2 | nybble2_shifted;
+  vals[11] = nybble3 | nybble2_shifted;
+  vals[12] = nybble0 | nybble3_shifted;
+  vals[13] = nybble1 | nybble3_shifted;
+  vals[14] = nybble2 | nybble3_shifted;
+  vals[15] = nybble3 | nybble3_shifted;
+  for (uint32_t high_idx = 0; high_idx != 16; ++high_idx) {
+    const uint32_t cur_high = vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 16; ++low_idx) {
+      *table_iter++ = vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+}
+
 static const unsigned char kNybblePairToIupac[512] = PAIR_TABLE256('.', 'A', 'C', 'M', 'G', 'R', 'S', '.', 'T', 'W', 'Y', '.', 'K', '.', '.', 'N');
 
 static inline void NybblesToIupac(const uintptr_t* nybblevec, uint32_t entry_ct, uintptr_t* result_vec) {
@@ -9900,7 +9933,7 @@ typedef struct PhylipReadCtxStruct {
   const char* const* allele_storage;
   const uintptr_t* sample_include;
   const uint32_t* sample_include_cumulative_popcounts;
-  const unsigned char* allele_nybble_table;
+  unsigned char allele_nybble_table[256];
   // Precomputed 256-entry lookup tables.
   // Format depends on phased vs. unphased.  No lookup table needed in unphased
   // SSE4+ case.
@@ -9945,7 +9978,9 @@ THREAD_FUNC_DECL PhylipReadThread(void* raw_arg) {
   PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
   uintptr_t* genovec = ctx->genovecs[tidx];
   PgenVariant pgv;
+  pgv.genovec = genovec;
   SetPgvThreadMhcNull(read_sample_ct, tidx, ctx->thread_read_mhc, &pgv);
+  uint32_t* write_sample_nm_cts_iter = nullptr;
   uintptr_t prev_copy_ct = 0;
   uint64_t new_err_info = 0;
   uint32_t cur_allele_ct = 2;
@@ -9958,13 +9993,15 @@ THREAD_FUNC_DECL PhylipReadThread(void* raw_arg) {
     BitIter1Start(variant_include, ctx->variant_uidx_starts[tidx], &variant_uidx_base, &cur_bits);
     const uint32_t cur_idx_start = (tidx * cur_block_copy_ct) / calc_thread_ct;
     uintptr_t* vmaj_readbuf_iter = &(ctx->vmaj_readbuf[(prev_copy_ct + cur_idx_start) * read_sample_ctaw4]);
-    uint32_t* write_sample_nm_cts_iter = &(ctx->write_sample_nm_cts[prev_copy_ct + cur_idx_start]);
+    if (ctx->write_sample_nm_cts) {
+      write_sample_nm_cts_iter = &(ctx->write_sample_nm_cts[prev_copy_ct + cur_idx_start]);
+    }
     for (uint32_t cur_idx = cur_idx_start; cur_idx != cur_idx_end; ++cur_idx) {
       const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
       if (allele_idx_offsets) {
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - variant_uidx;
+        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
         if (unlikely(cur_allele_ct > 4)) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
           goto PhylipReadThread_err;
@@ -10055,12 +10092,13 @@ THREAD_FUNC_DECL PhylipPhasedReadThread(void* raw_arg) {
   const uint32_t* const* genovec_to_nybblepair_tables = R_CAST(const uint32_t* const*, ctx->genovec_to_nybble_tables);
   const uint32_t read_sample_ct = ctx->sample_ct;
   const uint32_t read_sample_ctl = BitCtToWordCt(read_sample_ct);
-  const uintptr_t read_sample_ctaw4 = NybbleCtToAlignedWordCt(read_sample_ct);
+  const uintptr_t read_sample_ctaw8 = DivUp(read_sample_ct, kBytesPerVec) * kWordsPerVec;
   PgenReader* pgrp = ctx->pgr_ptrs[tidx];
   PgrSampleSubsetIndex pssi;
   PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
   uintptr_t* genovec = ctx->genovecs[tidx];
   PgenVariant pgv;
+  pgv.genovec = genovec;
   SetPgvThreadMhcNull(read_sample_ct, tidx, ctx->thread_read_mhc, &pgv);
   uintptr_t* phasepresent = nullptr;
   uintptr_t* phaseinfo = nullptr;
@@ -10070,6 +10108,7 @@ THREAD_FUNC_DECL PhylipPhasedReadThread(void* raw_arg) {
   }
   pgv.phasepresent = phasepresent;
   pgv.phaseinfo = phaseinfo;
+  uint32_t* write_sample_nm_cts_iter = nullptr;
   uintptr_t prev_copy_ct = 0;
   uint64_t new_err_info = 0;
   uint32_t cur_allele_ct = 2;
@@ -10081,14 +10120,16 @@ THREAD_FUNC_DECL PhylipPhasedReadThread(void* raw_arg) {
     uintptr_t cur_bits;
     BitIter1Start(variant_include, ctx->variant_uidx_starts[tidx], &variant_uidx_base, &cur_bits);
     const uint32_t cur_idx_start = (tidx * cur_block_copy_ct) / calc_thread_ct;
-    uintptr_t* vmaj_readbuf_iter = &(ctx->vmaj_readbuf[(prev_copy_ct + cur_idx_start) * read_sample_ctaw4]);
-    uint32_t* write_sample_nm_cts_iter = &(ctx->write_sample_nm_cts[prev_copy_ct + cur_idx_start]);
+    uintptr_t* vmaj_readbuf_iter = &(ctx->vmaj_readbuf[(prev_copy_ct + cur_idx_start) * read_sample_ctaw8]);
+    if (ctx->write_sample_nm_cts) {
+      write_sample_nm_cts_iter = &(ctx->write_sample_nm_cts[prev_copy_ct + cur_idx_start]);
+    }
     for (uint32_t cur_idx = cur_idx_start; cur_idx != cur_idx_end; ++cur_idx) {
       const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
       if (allele_idx_offsets) {
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - variant_uidx;
+        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
         if (unlikely(cur_allele_ct > 4)) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
           goto PhylipPhasedReadThread_err;
@@ -10097,11 +10138,12 @@ THREAD_FUNC_DECL PhylipPhasedReadThread(void* raw_arg) {
       const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
       for (uint32_t aidx = 0; aidx != cur_allele_ct; ++aidx) {
         const char* cur_allele = cur_alleles[aidx];
-        allele_nybbles[aidx] = allele_nybble_table[S_CAST(unsigned char, cur_allele[0])];
-        if (unlikely((!allele_nybbles[aidx]) || cur_allele[1])) {
+        const uint32_t cur_nybble = allele_nybble_table[S_CAST(unsigned char, cur_allele[0])];
+        if (unlikely((!cur_nybble) || cur_allele[1])) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
           goto PhylipPhasedReadThread_err;
         }
+        allele_nybbles[aidx] = cur_nybble;
       }
       PglErr reterr;
       if (cur_allele_ct == 2) {
@@ -10116,13 +10158,6 @@ THREAD_FUNC_DECL PhylipPhasedReadThread(void* raw_arg) {
       ZeroTrailingNyps(read_sample_ct, genovec);
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
       GenoarrCountFreqsUnsafe(genovec, read_sample_ct, genocounts);
-      const uint32_t phasepresent_ct = pgv.phasepresent_ct;
-      if (unlikely(phasepresent_ct != genocounts[1])) {
-        // another type of InconsistentInput; use a different code here since
-        // we want to print a different error message
-        new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInternalUse1);
-        goto PhylipPhasedReadThread_err;
-      }
       if (write_sample_nm_cts_iter) {
         *write_sample_nm_cts_iter++ = (read_sample_ct - genocounts[3]) * 2;
       }
@@ -10131,8 +10166,10 @@ THREAD_FUNC_DECL PhylipPhasedReadThread(void* raw_arg) {
         const uint32_t nybble1 = allele_nybbles[1];
         const uint32_t allele0_table_idx = ctzu32(nybble0) + 4 * (nybble0 == 15);
         const uint32_t allele1_table_idx = ctzu32(nybble1) + 4 * (nybble1 == 15);
-        GenoarrLookup256x1bx4(genovec, genovec_to_nybblepair_tables[allele0_table_idx + 5 * allele1_table_idx], read_sample_ct, vmaj_readbuf_iter);
+        const uint32_t table_idx = allele0_table_idx + 5 * allele1_table_idx;
+        GenoarrLookup256x1bx4(genovec, genovec_to_nybblepair_tables[table_idx], read_sample_ct, vmaj_readbuf_iter);
       }
+      uint32_t het_ct = genocounts[1];
       if (cur_allele_ct > 2) {
         unsigned char* nybblepairs = DowncastToUc(vmaj_readbuf_iter);
         const uint32_t patch_01_ct = pgv.patch_01_ct;
@@ -10160,9 +10197,17 @@ THREAD_FUNC_DECL PhylipPhasedReadThread(void* raw_arg) {
             const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_widx, &patch_10_bits);
             const AlleleCode ac0 = patch_10_vals[uii * 2];
             const AlleleCode ac1 = patch_10_vals[uii * 2 + 1];
+            het_ct += (ac0 != ac1);
             nybblepairs[sample_idx] = allele_nybbles[ac0] | shifted_nybbles[ac1];
           }
         }
+      }
+      const uint32_t phasepresent_ct = pgv.phasepresent_ct;
+      if (unlikely(phasepresent_ct != het_ct)) {
+        // another type of InconsistentInput; use a different code here since
+        // we want to print a different error message
+        new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInternalUse1);
+        goto PhylipPhasedReadThread_err;
       }
       if (phasepresent_ct) {
         for (uint32_t widx = 0; widx != read_sample_ctl; ++widx) {
@@ -10180,7 +10225,7 @@ THREAD_FUNC_DECL PhylipPhasedReadThread(void* raw_arg) {
           }
         }
       }
-      vmaj_readbuf_iter = &(vmaj_readbuf_iter[read_sample_ctaw4]);
+      vmaj_readbuf_iter = &(vmaj_readbuf_iter[read_sample_ctaw8]);
     }
     prev_copy_ct += cur_block_copy_ct;
     while (0) {
@@ -10236,7 +10281,7 @@ THREAD_FUNC_DECL PhylipTransposeWriteThread(void* raw_arg) {
   do {
     const uint32_t sample_batch_size = ctx->sample_batch_size;
     const uintptr_t* vmaj_readbuf_iter = &(vmaj_readbuf[variant_batch_idx_start * kPglNybbleTransposeBatch * sample_ctaw4 + sample_widx]);
-    uintptr_t* smaj_writebuf_start = &(ctx->smaj_writebufs[parity][variant_batch_idx_start * kPglNybbleTransposeWords]);
+    uintptr_t* smaj_writebuf_start = &(ctx->smaj_writebufs[parity][variant_batch_idx_start * kPglNybbleTransposeWords * 2]);
     uintptr_t* smaj_writebuf_iter = smaj_writebuf_start;
     uint32_t variant_batch_size = kPglNybbleTransposeBatch;
     for (uintptr_t variant_batch_idx = variant_batch_idx_start; ; ++variant_batch_idx) {
@@ -10249,7 +10294,7 @@ THREAD_FUNC_DECL PhylipTransposeWriteThread(void* raw_arg) {
       TransposeNybbleblock(vmaj_readbuf_iter, sample_ctaw4, kPglNybbleTransposeWords, variant_batch_size, sample_batch_size, smaj_nybble_buf, vecaligned_buf);
       const uintptr_t* nybble_read_iter = smaj_nybble_buf;
       uintptr_t* ascii_write_iter = smaj_writebuf_iter;
-      for (uint32_t uii = 0; uii != sample_ct; ++uii) {
+      for (uint32_t uii = 0; uii != sample_batch_size; ++uii) {
         NybblesToIupac(nybble_read_iter, variant_batch_size, ascii_write_iter);
         nybble_read_iter = &(nybble_read_iter[kPglNybbleTransposeWords]);
         ascii_write_iter = &(ascii_write_iter[write_word_stride]);
@@ -10263,7 +10308,9 @@ THREAD_FUNC_DECL PhylipTransposeWriteThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr ExportPhylip(__attribute__((unused)) const uintptr_t* orig_sample_include, __attribute__((unused)) const SampleIdInfo* siip, __attribute__((unused)) const uintptr_t* sex_male_collapsed, __attribute__((unused)) const uintptr_t* variant_include, __attribute__((unused)) const ChrInfo* cip, __attribute__((unused)) const uint32_t* variant_bps, __attribute__((unused)) const uintptr_t* allele_idx_offsets, __attribute__((unused)) const char* const* allele_storage, __attribute__((unused)) uint32_t raw_sample_ct, __attribute__((unused)) uint32_t sample_ct, __attribute__((unused)) uint32_t raw_variant_ct, __attribute__((unused)) uint32_t variant_ct, __attribute__((unused)) uint32_t export_phased, __attribute__((unused)) uint32_t export_used_sites, __attribute__((unused)) uint32_t max_thread_ct, __attribute__((unused)) uintptr_t pgr_alloc_cacheline_ct, __attribute__((unused)) PgenFileInfo* pgfip, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end) {
+static_assert(kTextbufSize >= kMaxMediumLine + 2 * kMaxIdSlen + 385, "ExportPhylip() used-sites writer must be updated.");
+PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t export_phased, uint32_t export_used_sites, char input_missing_geno_char, uint32_t max_thread_ct, IdpasteFlags exportf_id_paste, char exportf_id_delim,  uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
+  // Most similar to ExportPed().
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -10274,10 +10321,438 @@ PglErr ExportPhylip(__attribute__((unused)) const uintptr_t* orig_sample_include
   PhylipReadCtx read_ctx;
   PhylipTransposeCtx transpose_ctx;
   {
-    logerrputs("Error: --export phylip[-phased] is under development.\n");
-    return kPglRetNotYetSupported;
-    // todo: if export_phased, error out if any haploid
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    // 1. Fill genovec_to_nybble_tables, and perform initial validation if
+    //    applicable.
+    const unsigned char acgtn_to_nybble[5] = {1, 2, 4, 8, 15};
+    if (export_phased) {
+      // Verify all data is diploid.  In main loops, we also verify that all
+      // data is phased.
+      const uint32_t males_exist = !AllWordsAreZero(sex_male_collapsed, sample_ctl);
+      if (unlikely((cip->haploid_mask[0] & 1) ||
+                   (males_exist && XymtIsNonempty(variant_include, cip, kChrOffsetX)) ||
+                   XymtIsNonempty(variant_include, cip, kChrOffsetY) ||
+                   XymtIsNonempty(variant_include, cip, kChrOffsetMT))) {
+        logerrputs("Error: --export phylip-phased can only be used with all-diploid data.\n");
+        goto ExportPhylip_ret_INCONSISTENT_INPUT;
+      }
+      uint32_t* genovec_to_nybblepair_iter;
+      if (unlikely(bigstack_alloc_u32(21 * 256, &genovec_to_nybblepair_iter))) {
+        goto ExportPhylip_ret_NOMEM;
+      }
+      for (uint32_t high_acgtn = 0; high_acgtn != 5; ++high_acgtn) {
+        const uint32_t high_nybble = acgtn_to_nybble[high_acgtn];
+        for (uint32_t low_acgtn = 0; low_acgtn != 5; ++low_acgtn) {
+          const uint32_t table_idx = high_acgtn * 5 + low_acgtn;
+          if ((low_acgtn == high_acgtn) && (low_acgtn != 4)) {
+            read_ctx.genovec_to_nybble_tables[table_idx] = nullptr;
+            continue;
+          }
+          const uint32_t low_nybble = acgtn_to_nybble[low_acgtn];
+          genovec_to_nybblepair_iter[0] = low_nybble * 17;
+          genovec_to_nybblepair_iter[1] = low_nybble | (high_nybble << 4);
+          genovec_to_nybblepair_iter[2] = high_nybble * 17;
+          genovec_to_nybblepair_iter[3] = 255;
+          InitLookup256x1bx4(genovec_to_nybblepair_iter);
+          read_ctx.genovec_to_nybble_tables[table_idx] = genovec_to_nybblepair_iter;
+          genovec_to_nybblepair_iter = &(genovec_to_nybblepair_iter[256]);
+        }
+      }
+    } else {
+#ifdef USE_SSE42
+      // defensive
+      for (uint32_t table_idx = 0; table_idx != 25; ++table_idx) {
+        read_ctx.genovec_to_nybble_tables[table_idx] = nullptr;
+      }
+#else
+      uint16_t* genovec_to_nybble_iter;
+      if (unlikely(bigstack_alloc_u16(21 * 256, &genovec_to_nybble_iter))) {
+        goto ExportPhylip_ret_NOMEM;
+      }
+      for (uint32_t low_acgtn = 0; low_acgtn != 5; ++low_acgtn) {
+        const uint32_t low_nybble = acgtn_to_nybble[low_acgtn];
+        for (uint32_t high_acgtn = 0; high_acgtn != 5; ++high_acgtn) {
+          const uint32_t table_idx = high_acgtn * 5 + low_acgtn;
+          if ((low_acgtn == high_acgtn) && (low_acgtn != 4)) {
+            read_ctx.genovec_to_nybble_tables[table_idx] = nullptr;
+            continue;
+          }
+          const uint32_t high_nybble = acgtn_to_nybble[high_acgtn];
+          InitLookup256x05bx4(low_nybble, low_nybble | high_nybble, high_nybble, 15, genovec_to_nybble_iter);
+          read_ctx.genovec_to_nybble_tables[table_idx] = genovec_to_nybble_iter;
+          genovec_to_nybble_iter = &(genovec_to_nybble_iter[256]);
+        }
+      }
+#endif
+    }
+    memset(read_ctx.allele_nybble_table, 0, 256);
+    read_ctx.allele_nybble_table[S_CAST(unsigned char, 'A')] = 1;
+    read_ctx.allele_nybble_table[S_CAST(unsigned char, 'a')] = 1;
+    read_ctx.allele_nybble_table[S_CAST(unsigned char, 'C')] = 2;
+    read_ctx.allele_nybble_table[S_CAST(unsigned char, 'c')] = 2;
+    read_ctx.allele_nybble_table[S_CAST(unsigned char, 'G')] = 4;
+    read_ctx.allele_nybble_table[S_CAST(unsigned char, 'g')] = 4;
+    read_ctx.allele_nybble_table[S_CAST(unsigned char, 'T')] = 8;
+    read_ctx.allele_nybble_table[S_CAST(unsigned char, 't')] = 8;
+    read_ctx.allele_nybble_table[S_CAST(unsigned char, 'N')] = 15;
+    read_ctx.allele_nybble_table[S_CAST(unsigned char, 'n')] = 15;
+    read_ctx.allele_nybble_table[S_CAST(unsigned char, '.')] = 15;
+    read_ctx.allele_nybble_table[S_CAST(unsigned char, input_missing_geno_char)] = 15;
+    read_ctx.write_sample_nm_cts = nullptr;
+    if (export_used_sites) {
+      if (unlikely(bigstack_alloc_u32(variant_ct, &read_ctx.write_sample_nm_cts))) {
+        goto ExportPhylip_ret_NOMEM;
+      }
+    }
+
+    char* exported_sample_ids;
+    uintptr_t max_exported_sample_id_blen;
+    if (unlikely(ExportIdpaste(orig_sample_include, siip, export_phased? "phylip-phased" : "phylip", nullptr, sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids))) {
+      goto ExportPhylip_ret_NOMEM;
+    }
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".phy");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportPhylip_ret_OPEN_FAIL;
+    }
+    // yes, it's trivial to allocate this on bigstack instead
+    char* textbuf = g_textbuf;
+    char* textbuf_line_start;
+    char* write_id_stop;
+    {
+      char* write_iter = u32toa_x(sample_ct << export_phased, ' ', textbuf);
+      write_iter = u32toa(variant_ct, write_iter);
+      if (unlikely(fwrite_checked(textbuf, write_iter - textbuf, outfile))) {
+        goto ExportPhylip_ret_WRITE_FAIL;
+      }
+      textbuf_line_start = textbuf;
+      AppendBinaryEoln(&textbuf_line_start);
+      // vcf2phylip.py pads second column to start after <max ID length>+3
+      // characters.  max_exported_sample_id_blen can be greater than
+      // <max ID length>+1, so we need to determine true max ID length here.
+      uint32_t max_id_slen = 0;
+      const char* exported_sample_ids_iter = exported_sample_ids;
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uint32_t cur_id_slen = strlen(exported_sample_ids_iter);
+        if (cur_id_slen > max_id_slen) {
+          max_id_slen = cur_id_slen;
+        }
+        exported_sample_ids_iter = &(exported_sample_ids_iter[max_exported_sample_id_blen]);
+      }
+      // add 2 for export_phased, since we append _A and _B to the IDs
+      write_id_stop = &(textbuf_line_start[max_id_slen + 2 * export_phased + 3]);
+    }
+
+    const char id_delim = exportf_id_delim? exportf_id_delim : '_';
+
+    // * Read phase: main thread reads raw bytes with MultireadNonempty(),
+    //   while other thread(s) decode to 4-bit IUPAC
+    // * Write phase: most threads transpose and then expand to ASCII, main
+    //   thread flushes ASCII IUPAC codes (and adds the tiny amount of other
+    //   text we need).
+    const uint32_t max_allele_ct = pgfip->max_allele_ct;
+    const uint32_t mhc_needed = (max_allele_ct > 2);
+
+    // todo: check when this saturates for each phase.
+    uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+    STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
+    read_ctx.phasepresents = nullptr;
+    read_ctx.phaseinfos = nullptr;
+    read_ctx.thread_read_mhc = nullptr;
+    uint32_t read_block_size;
+    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left() / 4, pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, &read_ctx.genovecs, mhc_needed? (&read_ctx.thread_read_mhc) : nullptr, export_phased? (&read_ctx.phasepresents) : nullptr, export_phased? (&read_ctx.phaseinfos) : nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &read_ctx.pgr_ptrs, &read_ctx.variant_uidx_starts))) {
+      goto ExportPhylip_ret_NOMEM;
+    }
+    if (unlikely(SetThreadCt(calc_thread_ct, &read_tg))) {
+      goto ExportPhylip_ret_NOMEM;
+    }
+    read_ctx.variant_include = variant_include;
+    read_ctx.allele_idx_offsets = allele_idx_offsets;
+    read_ctx.allele_storage = allele_storage;
+    read_ctx.err_info = (~0LLU) << 32;
+    if (export_phased) {
+      SetThreadFuncAndData(PhylipPhasedReadThread, &read_ctx, &read_tg);
+    } else {
+      SetThreadFuncAndData(PhylipReadThread, &read_ctx, &read_tg);
+    }
+
+    const uintptr_t variant_write_cacheline_ct = DivUp(variant_ct, kCacheline);
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* sample_include;
+    uint32_t* sample_include_cumulative_popcounts;
+    if (unlikely(SetThreadCt(calc_thread_ct, &transpose_tg) ||
+                 bigstack_alloc_w(raw_sample_ctl, &sample_include) ||
+                 bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 bigstack_alloc_vp(calc_thread_ct, &transpose_ctx.thread_vecaligned_bufs) ||
+                 bigstack_alloc_wp(calc_thread_ct, &transpose_ctx.thread_smaj_nybble_bufs))) {
+      goto ExportPhylip_ret_NOMEM;
+    }
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+      // PgenLoadMtInit() call succeeded with just 1/4 of workspace, so these
+      // can't fail
+      transpose_ctx.thread_vecaligned_bufs[tidx] = S_CAST(VecW*, bigstack_alloc_raw(kPglNybbleTransposeBufbytes));
+      transpose_ctx.thread_smaj_nybble_bufs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(kPglNybbleTransposeBufbytes));
+    }
+    // each of the two transpose-result buffers should use <= 1/6 of the
+    // remaining workspace.  (this is more than for ExportPed since
+    // transpose-result buffers are 4x as large, while vmaj_readbuf is only
+    // twice as large.)
+    const uintptr_t smaj_writebuf_cachelines_avail = bigstack_left() / (kCacheline * 6);
+    uint32_t write_sample_batch_size = kPglNybbleTransposeBatch;
+    if (variant_write_cacheline_ct * kPglNybbleTransposeBatch > smaj_writebuf_cachelines_avail) {
+      // Until the final iteration, TransposeNybbleblock must transpose at
+      // least a word's worth of nybbles per variant at a time.
+      write_sample_batch_size = RoundDownPow2(smaj_writebuf_cachelines_avail / variant_write_cacheline_ct, kBitsPerWordD4);
+      if (unlikely(!write_sample_batch_size)) {
+        goto ExportPhylip_ret_NOMEM;
+      }
+    }
+    transpose_ctx.smaj_writebufs[0] = S_CAST(uintptr_t*, bigstack_alloc_raw(variant_write_cacheline_ct * kCacheline * write_sample_batch_size));
+    transpose_ctx.smaj_writebufs[1] = S_CAST(uintptr_t*, bigstack_alloc_raw(variant_write_cacheline_ct * kCacheline * write_sample_batch_size));
+
+    const uintptr_t readbuf_vecs_avail = (bigstack_left() / kCacheline) * kVecsPerCacheline;
+    if (unlikely(readbuf_vecs_avail < variant_ct)) {
+      goto ExportPhylip_ret_NOMEM;
+    }
+    uintptr_t read_sample_ctv4 = readbuf_vecs_avail / variant_ct;
+    uint32_t read_sample_ct;
+    if (read_sample_ctv4 >= NybbleCtToVecCt(sample_ct)) {
+      read_sample_ct = sample_ct;
+    } else {
+      read_sample_ct = read_sample_ctv4 * kNybblesPerVec;
+    }
+    uintptr_t read_sample_ctaw4 = NybbleCtToAlignedWordCt(read_sample_ct);
+    uintptr_t* vmaj_readbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(variant_ct * read_sample_ctaw4 * kBytesPerWord));
+    read_ctx.vmaj_readbuf = vmaj_readbuf;
+    transpose_ctx.variant_include = variant_include;
+    transpose_ctx.variant_ct = variant_ct;
+    transpose_ctx.vmaj_readbuf = vmaj_readbuf;
+    SetThreadFuncAndData(PhylipTransposeWriteThread, &transpose_ctx, &transpose_tg);
+
+    uint32_t sample_uidx_start = AdvTo1Bit(orig_sample_include, 0);
+    const uintptr_t variant_ctaclw8 = variant_write_cacheline_ct * kWordsPerCacheline;
+    const uint32_t pass_ct = 1 + (sample_ct - 1) / read_sample_ct;
+    for (uint32_t pass_idx = 0; pass_idx != pass_ct; ++pass_idx) {
+      memcpy(sample_include, orig_sample_include, raw_sample_ctl * sizeof(intptr_t));
+      if (sample_uidx_start) {
+        ClearBitsNz(0, sample_uidx_start, sample_include);
+      }
+      uint32_t sample_uidx_end;
+      if (pass_idx + 1 == pass_ct) {
+        read_sample_ct = sample_ct - pass_idx * read_sample_ct;
+        read_sample_ctaw4 = NybbleCtToAlignedWordCt(read_sample_ct);
+        sample_uidx_end = raw_sample_ct;
+      } else {
+        sample_uidx_end = FindNth1BitFrom(orig_sample_include, sample_uidx_start + 1, read_sample_ct);
+        ClearBitsNz(sample_uidx_end, raw_sample_ct, sample_include);
+      }
+      FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+      read_ctx.sample_include = sample_include;
+      read_ctx.sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
+      read_ctx.sample_ct = read_sample_ct;
+      const uint32_t write_sample_ct = read_sample_ct << export_phased;
+      transpose_ctx.write_sample_ct = write_sample_ct;
+      if (pass_idx) {
+        pgfip->block_base = main_loadbufs[0];
+        // er, don't need SetBaseAndOffset0?
+        PgrSetBaseAndOffset0(main_loadbufs[0], calc_thread_ct, read_ctx.pgr_ptrs);
+      }
+      uint32_t parity = 0;
+      uint32_t read_block_idx = 0;
+      ReinitThreads(&read_tg);
+      uint32_t pct = 0;
+      uint32_t next_print_idx = variant_ct / 100;
+      putc_unlocked('\r', stdout);
+      printf("--export phylip%s pass %u/%u: loading... 0%%", export_phased? "-phased" : "", pass_idx + 1, pass_ct);
+      fflush(stdout);
+      for (uint32_t variant_idx = 0; ; ) {
+        const uint32_t cur_block_write_ct = MultireadNonempty(variant_include, &read_tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+        if (unlikely(reterr)) {
+          goto ExportPhylip_ret_PGR_FAIL;
+        }
+        if (variant_idx) {
+          JoinThreads(&read_tg);
+          reterr = S_CAST(PglErr, read_ctx.err_info);
+          if (unlikely(reterr)) {
+            const uint32_t variant_uidx = read_ctx.err_info >> 32;
+            if (reterr == kPglRetInternalUse1) {
+              logprintfww("\nError: --export phylip-phased: 0-based variant #%u is not fully phased.\n", variant_uidx);
+              reterr = kPglRetInconsistentInput;
+            } else if (reterr == kPglRetInconsistentInput) {
+              logprintfww("\nError: --export phylip%s: 0-based variant #%u has allele code(s) outside {A,C,G,T,missing}. (Did you forget --snps-only?)\n", export_phased? "-phased" : "", variant_uidx);
+            } else {
+              PgenErrPrintNV(reterr, variant_uidx);
+            }
+            goto ExportPhylip_ret_1;
+          }
+        }
+        if (!IsLastBlock(&read_tg)) {
+          read_ctx.cur_block_write_ct = cur_block_write_ct;
+          ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, read_ctx.variant_uidx_starts);
+          PgrCopyBaseAndOffset(pgfip, calc_thread_ct, read_ctx.pgr_ptrs);
+          if (variant_idx + cur_block_write_ct == variant_ct) {
+            DeclareLastThreadBlock(&read_tg);
+          }
+          if (unlikely(SpawnThreads(&read_tg))) {
+            goto ExportPhylip_ret_THREAD_CREATE_FAIL;
+          }
+        }
+        parity = 1 - parity;
+        if (variant_idx == variant_ct) {
+          break;
+        }
+        if (variant_idx >= next_print_idx) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          pct = (variant_idx * 100LLU) / variant_ct;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          next_print_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        }
+        ++read_block_idx;
+        variant_idx += cur_block_write_ct;
+        pgfip->block_base = main_loadbufs[parity];
+      }
+      // 2. Transpose and write.
+      ReinitThreads(&transpose_tg);
+      transpose_ctx.sample_batch_size = write_sample_batch_size;
+      parity = 0;
+      if (pct > 10) {
+        fputs("\b \b", stdout);
+      }
+      fputs("\b\b\b\b\b\b\b\b\b\b\b\b\bwriting... 0%", stdout);
+      fflush(stdout);
+      pct = 0;
+      uintptr_t sample_uidx_base;
+      uintptr_t sample_include_bits;
+      BitIter1Start(sample_include, sample_uidx_start, &sample_uidx_base, &sample_include_bits);
+      uint32_t flush_write_sample_idx = 0;
+      next_print_idx = write_sample_ct / 100;
+      for (uint32_t flush_write_sample_idx_end = 0; ; ) {
+        if (!IsLastBlock(&transpose_tg)) {
+          if (flush_write_sample_idx_end + write_sample_batch_size >= write_sample_ct) {
+            DeclareLastThreadBlock(&transpose_tg);
+            transpose_ctx.sample_batch_size = write_sample_ct - flush_write_sample_idx_end;
+          }
+          if (unlikely(SpawnThreads(&transpose_tg))) {
+            goto ExportPhylip_ret_THREAD_CREATE_FAIL;
+          }
+        }
+        if (flush_write_sample_idx_end) {
+          const uintptr_t* ascii_iupac_iter = transpose_ctx.smaj_writebufs[1 - parity];
+          for (; flush_write_sample_idx != flush_write_sample_idx_end; ++flush_write_sample_idx) {
+            const uint32_t orig_sample_idx = flush_write_sample_idx >> export_phased;
+            char* write_iter = strcpya(textbuf_line_start, &(exported_sample_ids[orig_sample_idx * max_exported_sample_id_blen]));
+            if (export_phased) {
+              *write_iter++ = id_delim;
+              *write_iter++ = 'A' + (flush_write_sample_idx % 2);
+            }
+            memset(write_iter, ' ', write_id_stop - write_iter);
+            if (unlikely(fwrite_checked(textbuf, write_id_stop - textbuf, outfile) ||
+                         fwrite_checked(ascii_iupac_iter, variant_ct, outfile))) {
+              goto ExportPhylip_ret_WRITE_FAIL;
+            }
+            ascii_iupac_iter = &(ascii_iupac_iter[variant_ctaclw8]);
+          }
+          if (flush_write_sample_idx_end == write_sample_ct) {
+            break;
+          }
+          if (flush_write_sample_idx_end >= next_print_idx) {
+            if (pct > 10) {
+              putc_unlocked('\b', stdout);
+            }
+            pct = (flush_write_sample_idx_end * 100LLU) / write_sample_ct;
+            printf("\b\b%u%%", pct++);
+            fflush(stdout);
+            next_print_idx = (pct * S_CAST(uint64_t, write_sample_ct)) / 100;
+          }
+        }
+        JoinThreads(&transpose_tg);
+        parity = 1 - parity;
+        flush_write_sample_idx_end += write_sample_batch_size;
+        if (flush_write_sample_idx_end > write_sample_ct) {
+          flush_write_sample_idx_end = write_sample_ct;
+        }
+      }
+      sample_uidx_start = sample_uidx_end;
+      if (pct > 10) {
+        fputs("\b \b", stdout);
+      }
+    }
+
+#ifdef _WIN32
+    if (unlikely((putc_unlocked('\r', outfile) == EOF))) {
+      goto ExportPhylip_ret_WRITE_FAIL;
+    }
+#endif
+    if (unlikely((putc_unlocked('\n', outfile) == EOF) ||
+                 fclose_null(&outfile))) {
+      goto ExportPhylip_ret_WRITE_FAIL;
+    }
+    fputs("\b\bdone.\n", stdout);
+    logprintfww("--export phylip%s: %s written.\n", export_phased? "-phased" : "", outname);
+
+    if (export_used_sites) {
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".used_sites.tsv");
+      if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+        goto ExportPhylip_ret_OPEN_FAIL;
+      }
+      const uint32_t* write_sample_nm_cts = read_ctx.write_sample_nm_cts;
+      char* writebuf_flush = &(textbuf[kMaxMediumLine]);
+      char* write_iter = strcpya_k(textbuf, "#CHROM\tPOS\tNUM_SAMPLES" EOLN_STR);
+      uint32_t chr_fo_idx = UINT32_MAX;
+      uint32_t chr_end = 0;
+      uint32_t chr_blen = 0;
+      char* chr_buf = &(writebuf_flush[kMaxIdSlen + 384]);
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t variant_include_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+        if (variant_uidx >= chr_end) {
+          do {
+            ++chr_fo_idx;
+            chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          } while (variant_uidx >= chr_end);
+          const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+          char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
+          *chr_name_end++ = '\t';
+          chr_blen = chr_name_end - chr_buf;
+        }
+        write_iter = memcpya(write_iter, chr_buf, chr_blen);
+        write_iter = u32toa_x(variant_bps[variant_uidx], '\t', write_iter);
+        write_iter = u32toa(write_sample_nm_cts[variant_idx], write_iter);
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportPhylip_ret_WRITE_FAIL;
+        }
+      }
+      if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+        goto ExportPhylip_ret_WRITE_FAIL;
+      }
+      logprintfww("--export phylip%s: %s written.\n", export_phased? "-phased" : "", outname);
+    }
   }
+  while (0) {
+  ExportPhylip_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ExportPhylip_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  ExportPhylip_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
+    break;
+  ExportPhylip_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  ExportPhylip_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  ExportPhylip_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+ ExportPhylip_ret_1:
   CleanupThreads(&transpose_tg);
   CleanupThreads(&read_tg);
   fclose_cond(outfile);
@@ -10285,7 +10760,6 @@ PglErr ExportPhylip(__attribute__((unused)) const uintptr_t* orig_sample_include
   BigstackReset(bigstack_mark);
   return reterr;
 }
-*/
 
 PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const ExportfInfo* eip, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char input_missing_geno_char, char output_missing_geno_char, char legacy_output_missing_geno_char, uint32_t max_thread_ct, MakePlink2Flags make_plink2_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -10530,9 +11004,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
     }
 
     if (flags & (kfExportfPhylip | kfExportfPhylipPhased)) {
-      logerrputs("Error: phylip[-phased] export is under development.\n");
-      reterr = kPglRetNotYetSupported;
-      // reterr = ExportPhylip(sample_include, &(piip->sii), sex_male_collapsed, variant_include, cip, variant_bps, allele_idx_offsets, allele_storage, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, (flags / kfExportfPhylipPhased) & 1, (flags / kfExportfPhylipUsedSites) & 1, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, outname, outname_end);
+      reterr = ExportPhylip(sample_include, &(piip->sii), sex_male_collapsed, variant_include, cip, variant_bps, allele_idx_offsets, allele_storage, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, (flags / kfExportfPhylipPhased) & 1, (flags / kfExportfPhylipUsedSites) & 1, input_missing_geno_char, max_thread_ct, idpaste_flags, id_delim, pgr_alloc_cacheline_ct, pgfip, outname, outname_end);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }

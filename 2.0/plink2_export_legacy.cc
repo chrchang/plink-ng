@@ -1179,7 +1179,6 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
       if (pct > 10) {
         fputs("\b \b", stdout);
       }
-      sample_uidx_start = sample_uidx_end;
     }
 
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
