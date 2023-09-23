@@ -438,7 +438,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
 "    (actually, only A, AD, Av, bcf, bgen-1.x, haps, hapslegend, ind-major-bed,\n"
-"    oxford, ped, tped, and vcf are implemented for now)\n"
+"    oxford, ped, phylip, phylip-phased, tped, and vcf are implemented for now)\n"
 "    * '23': 23andMe 4-column format.  This can only be used on a single\n"
 "            sample's data (--keep may be handy), and does not support\n"
 "            multicharacter allele codes.\n"

@@ -670,6 +670,8 @@ HEADER_INLINE AlleleCode GetAidx(const uintptr_t* allele_idx_offsets, uint32_t v
   return allele_idx - allele_idx_offsets[variant_uidx];
 }
 
+uint32_t CountNybble(const void* nybblearr, uintptr_t nybble_word, uintptr_t nybble_ct);
+
 // The actual format:
 // 1. 2 magic bytes 0x6c 0x1b.
 //

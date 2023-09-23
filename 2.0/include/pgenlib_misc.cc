@@ -3049,6 +3049,71 @@ uintptr_t PglComputeMaxAlleleCt(const uintptr_t* allele_idx_offsets, uint32_t va
   return max_allele_ct;
 }
 
+// Ok for nybble_vvec to be unaligned.
+uint32_t CountNybbleVec(const unsigned char* nybble_vvec_biter, uintptr_t nybble_word, uint32_t vec_ct) {
+  const VecW m0 = vecw_setzero();
+  const VecW alld15 = VCONST_W(kMask1111);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW xor_vvec = vecw_set1(nybble_word);
+  VecW prev_sad_result = vecw_setzero();
+  VecW acc = vecw_setzero();
+  uintptr_t cur_incr = 15;
+  for (; ; vec_ct -= cur_incr) {
+    if (vec_ct < 15) {
+      if (!vec_ct) {
+        acc = acc + prev_sad_result;
+        return HsumW(acc);
+      }
+      cur_incr = vec_ct;
+    }
+    VecW inner_acc = vecw_setzero();
+    const unsigned char* nybble_vvec_stop = &(nybble_vvec_biter[cur_incr * kBytesPerVec]);
+    do {
+      VecW loader = vecw_loadu(nybble_vvec_biter) ^ xor_vvec;
+      nybble_vvec_biter += kBytesPerVec;
+      // DetectAllZeroNybbles() followed by right-shift-3 is the same number of
+      // operations, can see if that's any faster in practice
+      loader = vecw_srli(loader, 1) | loader;
+      loader = vecw_srli(loader, 2) | loader;
+      inner_acc = inner_acc + vecw_and_notfirst(loader, alld15);
+    } while (nybble_vvec_biter < nybble_vvec_stop);
+    inner_acc = (inner_acc & m4) + (vecw_srli(inner_acc, 4) & m4);
+    acc = acc + prev_sad_result;
+    prev_sad_result = vecw_bytesum(inner_acc, m0);
+  }
+}
+
+uint32_t CountNybble(const void* nybblearr, uintptr_t nybble_word, uintptr_t nybble_ct) {
+  const unsigned char* nybblearr_uc = S_CAST(const unsigned char*, nybblearr);
+  const uint32_t fullword_ct = nybble_ct / kBitsPerWordD4;
+  uint32_t tot = CountNybbleVec(nybblearr_uc, nybble_word, fullword_ct / kWordsPerVec);
+#ifdef __LP64__
+  for (uint32_t word_idx = RoundDownPow2(fullword_ct, kWordsPerVec); word_idx != fullword_ct; ++word_idx) {
+    uintptr_t cur_word;
+    CopyFromUnalignedOffsetW(&cur_word, nybblearr_uc, word_idx);
+    cur_word ^= nybble_word;
+    cur_word = cur_word | (cur_word >> 1);
+    cur_word = cur_word | (cur_word >> 2);
+    tot += Popcount0001Word((~cur_word) & kMask1111);
+  }
+#endif
+  const uint32_t trailing_nybble_ct = nybble_ct % kBitsPerWordD4;
+  if (trailing_nybble_ct) {
+    const uint32_t trailing_byte_ct = DivUp(trailing_nybble_ct, (CHAR_BIT / 4));
+    uintptr_t cur_word = SubwordLoad(&(nybblearr_uc[fullword_ct * kBytesPerWord]), trailing_byte_ct) ^ nybble_word;
+    cur_word = cur_word | (cur_word >> 1);
+    cur_word = cur_word | (cur_word >> 2);
+    cur_word = bzhi((~cur_word) & kMask1111, trailing_nybble_ct * 4);
+#if defined(USE_SSE42) || !defined(__LP64__)
+    tot += Popcount0001Word(cur_word);
+#else
+    // minor optimization, can't overflow
+    tot += (cur_word * kMask1111) >> 60;
+#endif
+  }
+  return tot;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

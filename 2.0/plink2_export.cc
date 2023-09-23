@@ -9837,8 +9837,8 @@ void GenovecToNybblesSSE4(const uintptr_t* genovec, uint32_t sample_ct, uint32_t
 // writes up to vector boundary
 static inline void NybblesToIupac(const uintptr_t* nybblevec, uint32_t entry_ct, uintptr_t* result_vec) {
   const VecW lookup = vecw_setr8('.', 'A', 'C', 'M', 'G', 'R', 'S', '.', 'T', 'W', 'Y', '.', 'K', '.', '.', 'N');
-  const uint32_t invec_ct = NybbleCtToVecCt(entry_ct);
-  Subst4bitTo8(nybblevec, lookup, invec_ct, result_vec);
+  const uint32_t outvec_ct = DivUp(entry_ct, kBytesPerVec);
+  Subst4bitTo8(nybblevec, lookup, outvec_ct, result_vec);
 }
 #else
 // some of this may be moved to pgenlib_misc
@@ -10027,21 +10027,23 @@ THREAD_FUNC_DECL PhylipReadThread(void* raw_arg) {
         goto PhylipReadThread_err;
       }
       ZeroTrailingNyps(read_sample_ct, genovec);
-      if (write_sample_nm_cts_iter) {
-        *write_sample_nm_cts_iter++ = read_sample_ct - GenoarrCountMissingUnsafe(genovec, read_sample_ct);
-      }
+      const uint32_t nybble0 = allele_nybbles[0];
+      const uint32_t nybble1 = allele_nybbles[1];
 #ifdef USE_SSE42
-      GenovecToNybblesSSE4(genovec, read_sample_ct, allele_nybbles[0], allele_nybbles[1], vmaj_readbuf_iter);
+      GenovecToNybblesSSE4(genovec, read_sample_ct, nybble0, nybble1, vmaj_readbuf_iter);
 #else
-      GenovecToNybblesNoSSE4(genovec_to_nybble_tables, genovec, read_sample_ct, allele_nybbles[0], allele_nybbles[1], vmaj_readbuf_iter);
+      GenovecToNybblesNoSSE4(genovec_to_nybble_tables, genovec, read_sample_ct, nybble0, nybble1, vmaj_readbuf_iter);
 #endif
+      uint32_t missing_allele_present = (nybble0 == 15) || (nybble1 == 15);
       if (cur_allele_ct > 2) {
         const uint32_t patch_01_ct = pgv.patch_01_ct;
         if (patch_01_ct) {
           uint32_t patch_01_nybbles[4];
-          patch_01_nybbles[2] = allele_nybbles[0] | allele_nybbles[2];
+          patch_01_nybbles[2] = nybble0 | allele_nybbles[2];
+          missing_allele_present |= (allele_nybbles[2] == 15);
           if (cur_allele_ct == 4) {
-            patch_01_nybbles[3] = allele_nybbles[0] | allele_nybbles[3];
+            patch_01_nybbles[3] = nybble0 | allele_nybbles[3];
+            missing_allele_present |= (allele_nybbles[3] == 15);
           }
           const uintptr_t* patch_01_set = pgv.patch_01_set;
           const AlleleCode* patch_01_vals = pgv.patch_01_vals;
@@ -10066,6 +10068,20 @@ THREAD_FUNC_DECL PhylipReadThread(void* raw_arg) {
             AssignNybblearrEntry(sample_idx, allele_nybbles[ac0] | allele_nybbles[ac1], vmaj_readbuf_iter);
           }
         }
+      }
+      if (write_sample_nm_cts_iter) {
+        uint32_t missing_ct;
+        if (missing_allele_present) {
+          // REF=N or ALT=N is possible (see e.g. chrM POS=3107 in the original
+          // 1000 Genomes phase 3 variant calls).  They should also be counted
+          // as missing.
+          // (This is intentionally different from vcf2phylip.py's behavior.)
+          missing_ct = CountNybble(vmaj_readbuf_iter, ~k0LU, read_sample_ct);
+        } else {
+          missing_ct = GenoarrCountMissingUnsafe(genovec, read_sample_ct);
+        }
+        *write_sample_nm_cts_iter += read_sample_ct - missing_ct;
+        ++write_sample_nm_cts_iter;
       }
       vmaj_readbuf_iter = &(vmaj_readbuf_iter[read_sample_ctaw4]);
     }
@@ -10158,24 +10174,26 @@ THREAD_FUNC_DECL PhylipPhasedReadThread(void* raw_arg) {
       ZeroTrailingNyps(read_sample_ct, genovec);
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
       GenoarrCountFreqsUnsafe(genovec, read_sample_ct, genocounts);
-      if (write_sample_nm_cts_iter) {
-        *write_sample_nm_cts_iter++ = (read_sample_ct - genocounts[3]) * 2;
-      }
       const uint32_t nybble0 = allele_nybbles[0];
+      const uint32_t nybble1 = allele_nybbles[1];
       {
-        const uint32_t nybble1 = allele_nybbles[1];
         const uint32_t allele0_table_idx = ctzu32(nybble0) + 4 * (nybble0 == 15);
         const uint32_t allele1_table_idx = ctzu32(nybble1) + 4 * (nybble1 == 15);
         const uint32_t table_idx = allele0_table_idx + 5 * allele1_table_idx;
         GenoarrLookup256x1bx4(genovec, genovec_to_nybblepair_tables[table_idx], read_sample_ct, vmaj_readbuf_iter);
       }
       uint32_t het_ct = genocounts[1];
+      uint32_t missing_allele_present = (nybble0 == 15) || (nybble1 == 15);
       if (cur_allele_ct > 2) {
         unsigned char* nybblepairs = DowncastToUc(vmaj_readbuf_iter);
         const uint32_t patch_01_ct = pgv.patch_01_ct;
         uint32_t shifted_nybbles[4];
         shifted_nybbles[2] = allele_nybbles[2] << 4;
-        shifted_nybbles[3] = allele_nybbles[3] << 4;
+        missing_allele_present |= (allele_nybbles[2] == 15);
+        if (cur_allele_ct == 4) {
+          shifted_nybbles[3] = allele_nybbles[3] << 4;
+          missing_allele_present |= (allele_nybbles[3] == 15);
+        }
         if (patch_01_ct) {
           const uintptr_t* patch_01_set = pgv.patch_01_set;
           const AlleleCode* patch_01_vals = pgv.patch_01_vals;
@@ -10202,10 +10220,19 @@ THREAD_FUNC_DECL PhylipPhasedReadThread(void* raw_arg) {
           }
         }
       }
+      if (write_sample_nm_cts_iter) {
+        uint32_t missing_ct;
+        if (missing_allele_present) {
+          missing_ct = CountNybble(vmaj_readbuf_iter, ~k0LU, read_sample_ct * 2);
+        } else {
+          missing_ct = genocounts[3] * 2;
+        }
+        *write_sample_nm_cts_iter += read_sample_ct * 2 - missing_ct;
+        ++write_sample_nm_cts_iter;
+      }
       const uint32_t phasepresent_ct = pgv.phasepresent_ct;
       if (unlikely(phasepresent_ct != het_ct)) {
-        // another type of InconsistentInput; use a different code here since
-        // we want to print a different error message
+        // another type of InconsistentInput
         new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInternalUse1);
         goto PhylipPhasedReadThread_err;
       }
@@ -10400,7 +10427,7 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
     read_ctx.allele_nybble_table[S_CAST(unsigned char, input_missing_geno_char)] = 15;
     read_ctx.write_sample_nm_cts = nullptr;
     if (export_used_sites) {
-      if (unlikely(bigstack_alloc_u32(variant_ct, &read_ctx.write_sample_nm_cts))) {
+      if (unlikely(bigstack_calloc_u32(variant_ct, &read_ctx.write_sample_nm_cts))) {
         goto ExportPhylip_ret_NOMEM;
       }
     }
@@ -10536,9 +10563,10 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
       if (sample_uidx_start) {
         ClearBitsNz(0, sample_uidx_start, sample_include);
       }
+      const uint32_t read_sample_idx_offset = pass_idx * read_sample_ct;
       uint32_t sample_uidx_end;
       if (pass_idx + 1 == pass_ct) {
-        read_sample_ct = sample_ct - pass_idx * read_sample_ct;
+        read_sample_ct = sample_ct - read_sample_idx_offset;
         read_sample_ctaw4 = NybbleCtToAlignedWordCt(read_sample_ct);
         sample_uidx_end = raw_sample_ct;
       } else {
@@ -10623,9 +10651,6 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\bwriting... 0%", stdout);
       fflush(stdout);
       pct = 0;
-      uintptr_t sample_uidx_base;
-      uintptr_t sample_include_bits;
-      BitIter1Start(sample_include, sample_uidx_start, &sample_uidx_base, &sample_include_bits);
       uint32_t flush_write_sample_idx = 0;
       next_print_idx = write_sample_ct / 100;
       for (uint32_t flush_write_sample_idx_end = 0; ; ) {
@@ -10641,7 +10666,7 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
         if (flush_write_sample_idx_end) {
           const uintptr_t* ascii_iupac_iter = transpose_ctx.smaj_writebufs[1 - parity];
           for (; flush_write_sample_idx != flush_write_sample_idx_end; ++flush_write_sample_idx) {
-            const uint32_t orig_sample_idx = flush_write_sample_idx >> export_phased;
+            const uint32_t orig_sample_idx = read_sample_idx_offset + (flush_write_sample_idx >> export_phased);
             char* write_iter = strcpya(textbuf_line_start, &(exported_sample_ids[orig_sample_idx * max_exported_sample_id_blen]));
             if (export_phased) {
               *write_iter++ = id_delim;
@@ -10703,6 +10728,7 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
       uint32_t chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
       uint32_t chr_blen = 0;
+      uint32_t min_ct = UINT32_MAX;
       char* chr_buf = &(writebuf_flush[kMaxIdSlen + 384]);
       uintptr_t variant_uidx_base = 0;
       uintptr_t variant_include_bits = variant_include[0];
@@ -10720,7 +10746,11 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
         }
         write_iter = memcpya(write_iter, chr_buf, chr_blen);
         write_iter = u32toa_x(variant_bps[variant_uidx], '\t', write_iter);
-        write_iter = u32toa(write_sample_nm_cts[variant_idx], write_iter);
+        const uint32_t cur_ct = write_sample_nm_cts[variant_idx];
+        if (cur_ct < min_ct) {
+          min_ct = cur_ct;
+        }
+        write_iter = u32toa(cur_ct, write_iter);
         AppendBinaryEoln(&write_iter);
         if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
           goto ExportPhylip_ret_WRITE_FAIL;
@@ -10730,6 +10760,7 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
         goto ExportPhylip_ret_WRITE_FAIL;
       }
       logprintfww("--export phylip%s: %s written.\n", export_phased? "-phased" : "", outname);
+      logprintf("Minimum non-N sample count across loci: %u/%u\n", min_ct, sample_ct << export_phased);
     }
   }
   while (0) {
@@ -10843,8 +10874,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       allele_storage = subst_allele_storage;
     }
     if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped - kfExportfPed - kfExportfPhylip - kfExportfPhylipPhased - kfExportfCompound)) {
-      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, ped, tped,\ncompound-genotypes, and ind-major-bed output have been implemented so far.\n");
-      // logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, ped, tped,\ncompound-genotypes, phylip, phylip-phased, and ind-major-bed output have been\nimplemented so far.\n");
+      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, ped, tped,\ncompound-genotypes, phylip, phylip-phased, and ind-major-bed output have been\nimplemented so far.\n");
       reterr = kPglRetNotYetSupported;
       goto Exportf_ret_1;
     }
