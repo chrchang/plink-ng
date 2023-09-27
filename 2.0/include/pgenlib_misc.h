@@ -379,11 +379,30 @@ void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_main);
 // replaces each x with -x
 void BiallelicDphase16Invert(uint32_t dphase_ct, int16_t* dphase_delta);
 
-// currently does zero trailing halfword
-void GenoarrToMissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict missingness);
+void PackWordsToHalfwordsInvmatch(const uintptr_t* __restrict genoarr, uintptr_t inv_match_word, uint32_t inword_ct, uintptr_t* __restrict dst);
 
-// currently does not zero trailing halfword
-void GenoarrToNonmissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict nonmissingness);
+void PackWordsToHalfwordsMismatch(const uintptr_t* __restrict genoarr, uintptr_t mismatch_word, uint32_t inword_ct, uintptr_t* __restrict dst);
+
+// src and dst allowed to be identical; that's why src is not marked const
+// despite not being directly written to.
+void MaskWordsToHalfwordsInvmatch(const uintptr_t* __restrict genoarr, uintptr_t inv_match_word, uint32_t inword_ct, uintptr_t* src, uintptr_t* dst);
+
+// Unsafe since it assumes trailing genoarr bits are cleared.  But if they are,
+// trailing missingness bits will be clear.
+HEADER_INLINE void GenoarrToMissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict missingness) {
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  PackWordsToHalfwordsInvmatch(genoarr, 0, sample_ctl2, missingness);
+  if (sample_ctl2 % 2) {
+    Halfword* missingness_alias = DowncastWToHW(missingness);
+    missingness_alias[sample_ctl2] = 0;
+  }
+}
+
+HEADER_INLINE void GenoarrToNonmissing(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict nonmissingness) {
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  PackWordsToHalfwordsMismatch(genoarr, ~k0LU, sample_ctl2, nonmissingness);
+  ZeroTrailingBits(sample_ct, nonmissingness);
+}
 
 void SparseToMissingness(const uintptr_t* __restrict raregeno, const uint32_t* difflist_sample_ids, uint32_t sample_ct, uint32_t difflist_common_geno, uint32_t difflist_len, uintptr_t* __restrict missingness);
 
@@ -401,7 +420,7 @@ void SplitHomRef2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* __
 BoolErr HapsplitMustPhased(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, uintptr_t* hap_arr, uintptr_t* nm_arr);
 
 // Only 1 haplotype per genotype, rather than 2; het treated as missing.
-void HapsplitHaploid(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* hap_arr, uintptr_t* nm_arr);
+void HapsplitHaploid(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict hap_arr, uintptr_t* __restrict nm_arr);
 
 
 // These functions use 16- or 256-element lookup tables to apply functions of
@@ -457,6 +476,13 @@ void GenoarrLookup256x4bx4(const uintptr_t* genoarr, const void* table256x4bx4, 
 void InitLookup16x4bx2(void* table16x4bx2);
 
 void InitLookup16x8bx2(void* table16x8bx2);
+
+#ifdef USE_SHUFFLE8
+// in bytes
+CONSTI32(kLookup256x1bx4Size, 1024 + 2 * kBytesPerVec);
+#else
+CONSTI32(kLookup256x1bx4Size, 1024);
+#endif
 
 void InitLookup256x1bx4(void* table256x1bx4);
 

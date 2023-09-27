@@ -247,64 +247,53 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t unadj_col = flags & kfAdjustColUnadj;
     if (unadj_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a6
-        cswritep = strcpya_k(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "NEG_LOG10_");
       }
       cswritep = strcpya_k(cswritep, "UNADJ\t");
     }
     const uint32_t gc_col = (flags & kfAdjustColGc) && (!skip_gc);
     if (gc_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a6
-        cswritep = strcpya_k(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "NEG_LOG10_");
       }
       cswritep = strcpya_k(cswritep, "GC\t");
     }
     const uint32_t qq_col = flags & kfAdjustColQq;
     if (qq_col) {
-      if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a6
-        cswritep = strcpya_k(cswritep, "LOG10_");
-      }
       cswritep = strcpya_k(cswritep, "QQ\t");
     }
     const uint32_t bonf_col = flags & kfAdjustColBonf;
     if (bonf_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a6
-        cswritep = strcpya_k(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "NEG_LOG10_");
       }
       cswritep = strcpya_k(cswritep, "BONF\t");
     }
     const uint32_t holm_col = flags & kfAdjustColHolm;
     if (holm_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a6
-        cswritep = strcpya_k(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "NEG_LOG10_");
       }
       cswritep = strcpya_k(cswritep, "HOLM\t");
     }
     const uint32_t sidakss_col = flags & kfAdjustColSidakss;
     if (sidakss_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a6
-        cswritep = strcpya_k(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "NEG_LOG10_");
       }
       cswritep = strcpya_k(cswritep, "SIDAK_SS\t");
     }
     const uint32_t sidaksd_col = flags & kfAdjustColSidaksd;
     if (sidaksd_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a6
-        cswritep = strcpya_k(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "NEG_LOG10_");
       }
       cswritep = strcpya_k(cswritep, "SIDAK_SD\t");
     }
     const uint32_t fdrbh_col = flags & kfAdjustColFdrbh;
     if (fdrbh_col) {
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a6
-        cswritep = strcpya_k(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "NEG_LOG10_");
       }
       cswritep = strcpya_k(cswritep, "FDR_BH\t");
     }
@@ -314,8 +303,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         goto Multcomp_ret_NOMEM;
       }
       if (is_neglog10) {
-        // TODO: change to NEG_LOG10_ for a6
-        cswritep = strcpya_k(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "NEG_LOG10_");
       }
       cswritep = strcpya_k(cswritep, "FDR_BY\t");
     }
@@ -477,9 +465,6 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       if (qq_col) {
         *cswritep++ = '\t';
         double qq_val = (aidx_d + 0.5) * valid_allele_ct_recip;
-        if (is_neglog10) {
-          qq_val = -log10(qq_val);
-        }
         cswritep = dtoa_g(qq_val, cswritep);
       }
       if (bonf_col) {

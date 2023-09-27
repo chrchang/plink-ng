@@ -992,6 +992,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
       if (allele_idx_offsets) {
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
         if (unlikely((!refalt1_select) && (allele_idx_offsets[variant_uidx + 1] != allele_idx_offset_base + 2))) {
+          logputs("\n");
           logerrprintfww("Error: %s cannot contain multiallelic variants.\n", outname);
           goto ExportOxHapslegend_ret_INCONSISTENT_INPUT;
         }
@@ -7986,7 +7987,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uint32_t* ds_haploid_genobytes4;
     uint32_t* hds_haploid_genobytes4;
     if (unlikely(bigstack_alloc_u16(1024, &basic_genobytes4) ||
-                 bigstack_alloc_uc(1024, &haploid_genobytes4) ||
+                 bigstack_alloc_uc(kLookup256x1bx4Size, &haploid_genobytes4) ||
                  bigstack_alloc_u16(1024, &haploid_hh_genobytes4) ||
                  bigstack_alloc_u16(492, &phased_genobytes2) ||
                  bigstack_alloc_u16(492, &phased_hh_genobytes2) ||
@@ -9793,7 +9794,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
   return reterr;
 }
 
-#ifdef USE_SSE42
+#ifdef USE_SHUFFLE8
 // Assumes outvec_ct is positive.
 void Subst4bitTo8(const void* src_vec, const VecW lookup, uint32_t outvec_ct, void* dst_vec) {
   // See Expand4bitTo8(); this just applies a substitution operation on top of
@@ -9804,13 +9805,9 @@ void Subst4bitTo8(const void* src_vec, const VecW lookup, uint32_t outvec_ct, vo
   VecW* dst_last = &(dst_iter[outvec_ct - 1]);
   while (1) {
     VecW cur_vec = *src_iter++;
-    cur_vec = vecw_permute0xd8_if_avx2(cur_vec);
-    const VecW vec_even = cur_vec & m4;
-    const VecW vec_odd = vecw_srli(cur_vec, 4) & m4;
-    const VecW vec_lo = vecw_unpacklo8(vec_even, vec_odd);
-    const VecW vec_hi = vecw_unpackhi8(vec_even, vec_odd);
-    // vec_lo now contains first half of the nybbles, and vec_hi contains the
-    // second half.
+    VecW vec_lo;
+    VecW vec_hi;
+    vecw_lo_and_hi_nybbles(cur_vec, m4, &vec_lo, &vec_hi);
     const VecW result_lo = vecw_shuffle8(lookup, vec_lo);
     const VecW result_hi = vecw_shuffle8(lookup, vec_hi);
     *dst_iter++ = result_lo;
@@ -9968,7 +9965,7 @@ THREAD_FUNC_DECL PhylipReadThread(void* raw_arg) {
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const uintptr_t* sample_include = ctx->sample_include;
   const unsigned char* allele_nybble_table = ctx->allele_nybble_table;
-#ifndef USE_SSE42
+#ifndef USE_SHUFFLE8
   const uint16_t* const* genovec_to_nybble_tables = R_CAST(const uint16_t* const*, ctx->genovec_to_nybble_tables);
 #endif
   const uint32_t read_sample_ct = ctx->sample_ct;
@@ -10029,7 +10026,7 @@ THREAD_FUNC_DECL PhylipReadThread(void* raw_arg) {
       ZeroTrailingNyps(read_sample_ct, genovec);
       const uint32_t nybble0 = allele_nybbles[0];
       const uint32_t nybble1 = allele_nybbles[1];
-#ifdef USE_SSE42
+#ifdef USE_SHUFFLE8
       GenovecToNybblesSSE4(genovec, read_sample_ct, nybble0, nybble1, vmaj_readbuf_iter);
 #else
       GenovecToNybblesNoSSE4(genovec_to_nybble_tables, genovec, read_sample_ct, nybble0, nybble1, vmaj_readbuf_iter);
@@ -10364,7 +10361,7 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
         goto ExportPhylip_ret_INCONSISTENT_INPUT;
       }
       uint32_t* genovec_to_nybblepair_iter;
-      if (unlikely(bigstack_alloc_u32(21 * 256, &genovec_to_nybblepair_iter))) {
+      if (unlikely(bigstack_alloc_u32(21 * (kLookup256x1bx4Size / sizeof(int32_t)), &genovec_to_nybblepair_iter))) {
         goto ExportPhylip_ret_NOMEM;
       }
       for (uint32_t high_acgtn = 0; high_acgtn != 5; ++high_acgtn) {
@@ -10382,11 +10379,11 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
           genovec_to_nybblepair_iter[3] = 255;
           InitLookup256x1bx4(genovec_to_nybblepair_iter);
           read_ctx.genovec_to_nybble_tables[table_idx] = genovec_to_nybblepair_iter;
-          genovec_to_nybblepair_iter = &(genovec_to_nybblepair_iter[256]);
+          genovec_to_nybblepair_iter = &(genovec_to_nybblepair_iter[kLookup256x1bx4Size / sizeof(int32_t)]);
         }
       }
     } else {
-#ifdef USE_SSE42
+#ifdef USE_SHUFFLE8
       // defensive
       for (uint32_t table_idx = 0; table_idx != 25; ++table_idx) {
         read_ctx.genovec_to_nybble_tables[table_idx] = nullptr;

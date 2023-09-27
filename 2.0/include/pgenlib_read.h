@@ -595,21 +595,17 @@ PglErr PgrGetM(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex 
 // low-MAF variants without actually loading the genotype data, since the size
 // of the record puts an upper bound on the alt allele frequency.
 
-// requires trailing bits of genoarr to be zeroed out, AND does not update high
-// bits of last word if raw_sample_ctl2 is odd.
-void DetectGenoarrHetsHw(const uintptr_t*__restrict genoarr, uint32_t raw_sample_ctl2, Halfword* __restrict all_hets_hw);
-
 // requires trailing bits of genoarr to be zeroed out.
 HEADER_INLINE void PgrDetectGenoarrHetsUnsafe(const uintptr_t*__restrict genoarr, uint32_t raw_sample_ctl2, uintptr_t* __restrict all_hets) {
-  Halfword* all_hets_alias = DowncastWToHW(all_hets);
-  DetectGenoarrHetsHw(genoarr, raw_sample_ctl2, all_hets_alias);
+  PackWordsToHalfwordsInvmatch(genoarr, kMaskAAAA, raw_sample_ctl2, all_hets);
   if (raw_sample_ctl2 % 2) {
+    Halfword* all_hets_alias = DowncastWToHW(all_hets);
     all_hets_alias[raw_sample_ctl2] = 0;
   }
 }
 
 HEADER_INLINE void PgrDetectGenoarrHets(const uintptr_t* __restrict genoarr, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets) {
-  DetectGenoarrHetsHw(genoarr, NypCtToWordCt(raw_sample_ct), DowncastWToHW(all_hets));
+  PackWordsToHalfwordsInvmatch(genoarr, kMaskAAAA, NypCtToWordCt(raw_sample_ct), all_hets);
   ZeroTrailingBits(raw_sample_ct, all_hets);
 }
 

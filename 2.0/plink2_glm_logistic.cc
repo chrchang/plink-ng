@@ -1415,8 +1415,8 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
     }
     while (variant_bidx < variant_bidx_end) {
       const uint32_t variant_idx = variant_bidx + variant_idx_offset;
-      // const uint32_t chr_fo_idx = LastLeqU32(subset_chr_fo_vidx_start, 0, cip->chr_ct, variant_idx);
-      const uint32_t chr_fo_idx = LowerBoundNonemptyU32(&(subset_chr_fo_vidx_start[1]), cip->chr_ct, variant_idx + 1);
+      const uint32_t chr_fo_idx = LastLeqU32(subset_chr_fo_vidx_start, 0, cip->chr_ct, variant_idx);
+      // const uint32_t chr_fo_idx = LowerBoundNonemptyU32(&(subset_chr_fo_vidx_start[1]), cip->chr_ct, variant_idx + 1);
       const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
       uint32_t cur_variant_bidx_end = subset_chr_fo_vidx_start[chr_fo_idx + 1] - variant_idx_offset;
       if (cur_variant_bidx_end > variant_bidx_end) {
@@ -3423,8 +3423,8 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
     }
     while (variant_bidx < variant_bidx_end) {
       const uint32_t variant_idx = variant_bidx + variant_idx_offset;
-      // const uint32_t chr_fo_idx = LastLeqU32(subset_chr_fo_vidx_start, 0, cip->chr_ct, variant_idx);
-      const uint32_t chr_fo_idx = LowerBoundNonemptyU32(&(subset_chr_fo_vidx_start[1]), cip->chr_ct, variant_idx + 1);
+      const uint32_t chr_fo_idx = LastLeqU32(subset_chr_fo_vidx_start, 0, cip->chr_ct, variant_idx);
+      // const uint32_t chr_fo_idx = LowerBoundNonemptyU32(&(subset_chr_fo_vidx_start[1]), cip->chr_ct, variant_idx + 1);
       const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
       uint32_t cur_variant_bidx_end = subset_chr_fo_vidx_start[chr_fo_idx + 1] - variant_idx_offset;
       if (cur_variant_bidx_end > variant_bidx_end) {
@@ -5018,8 +5018,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     }
     if (p_col) {
       if (report_neglog10p) {
-        // TODO: change to NEG_LOG10_P for a6
-        cswritep = strcpya_k(cswritep, "\tLOG10_P");
+        cswritep = strcpya_k(cswritep, "\tNEG_LOG10_P");
       } else {
         cswritep = strcpya_k(cswritep, "\tP");
       }

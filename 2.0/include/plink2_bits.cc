@@ -28,7 +28,7 @@ void Pack32bTo16bMask(const void* words_vec, uintptr_t ct_32b, void* dest) {
   // processing one 32-byte vector instead of two 16-byte vectors at a time in
   // the main loop since _mm256_packus_epi16() doesn't do what we want.)
   const VecW m1 = VCONST_W(kMask5555);
-#  ifdef USE_SSE42
+#  ifdef USE_SHUFFLE8
   const VecW swap12 = vecw_setr8(
       0, 1, 4, 5, 2, 3, 6, 7,
       8, 9, 12, 13, 10, 11, 14, 15);
@@ -42,7 +42,7 @@ void Pack32bTo16bMask(const void* words_vec, uintptr_t ct_32b, void* dest) {
   for (uintptr_t vidx = 0; vidx != ct_32b; ++vidx) {
     VecW vec_lo = vecw_loadu(&(words_valias[2 * vidx])) & m1;
     VecW vec_hi = vecw_loadu(&(words_valias[2 * vidx + 1])) & m1;
-#  ifdef USE_SSE42
+#  ifdef USE_SHUFFLE8
     // this right-shift-3 + shuffle shortcut saves two operations.
     vec_lo = (vec_lo | vecw_srli(vec_lo, 3)) & m4;
     vec_hi = (vec_hi | vecw_srli(vec_hi, 3)) & m4;
@@ -1757,7 +1757,7 @@ void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative
 void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst_vec) {
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
   const uint32_t input_bit_ct_plus = input_bit_ct + kBytesPerWord - 1;
-#if defined(USE_SSE42) && !defined(NO_UNALIGNED)
+#if defined(USE_SHUFFLE8) && !defined(NO_UNALIGNED)
   const uint32_t input_byte_ct = input_bit_ct_plus / 8;
   const uint32_t fullvec_ct = input_byte_ct / (kBytesPerVec / 8);
   uint32_t byte_idx = 0;
@@ -1843,7 +1843,7 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32
 
 void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst_vec) {
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
-#if defined(USE_SSE42) && (!(defined(USE_AVX2) && defined(NO_UNALIGNED)))
+#if defined(USE_SHUFFLE8) && (!(defined(USE_AVX2) && defined(NO_UNALIGNED)))
   const uint32_t input_nybble_ct = DivUp(input_bit_ct, 4);
   const uint32_t fullvec_ct = input_nybble_ct / (kBytesPerVec / 8);
   uint32_t byte_idx = 0;
@@ -1891,7 +1891,7 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
     const uintptr_t write0 = (input_byte * 0x200040008001LLU) & kMask0001;
     dst_w[input_nybble_ct - 1] = incr_word + write0;
   }
-#else // (!USE_SSE42) || (NO_UNALIGNED && USE_AVX2)
+#else // (!USE_SHUFFLE8) || (NO_UNALIGNED && USE_AVX2)
   const uintptr_t incr_word = incr * kMask0001;
   uintptr_t* dst_w = S_CAST(uintptr_t*, dst_vec);
 #  ifdef __LP64__
@@ -1983,7 +1983,7 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
   {
     const VecW* buf0_read_iter = buf0;
     uintptr_t* write_iter0 = DowncastVecWToW(buf1);
-#  ifdef USE_SSE42
+#  ifdef USE_SHUFFLE8
     const VecW gather_u16s = vecw_setr8(0, 8, 1, 9, 2, 10, 3, 11,
                                         4, 12, 5, 13, 6, 14, 7, 15);
 #    ifdef USE_AVX2
@@ -2034,7 +2034,7 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
         VecW loader3 = buf0_read_iter[clidx * 4 + 3];
         //    (0,0) (0,1) ... (0,7) (1,0) (1,1) ... (1,7)
         // -> (0,0) (1,0) (0,1) (1,1) (0,2) ... (1,7)
-#    ifdef USE_SSE42
+#    ifdef USE_SHUFFLE8
         loader0 = vecw_shuffle8(loader0, gather_u16s);
         loader1 = vecw_shuffle8(loader1, gather_u16s);
         loader2 = vecw_shuffle8(loader2, gather_u16s);
@@ -2306,7 +2306,7 @@ void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
   const uint32_t eightword_ct = DivUp(read_batch_size, 16);
   uintptr_t* target_iter0 = write_iter;
   uint32_t cur_dst_row_ct = 8;
-#  ifdef USE_SSE42
+#  ifdef USE_SHUFFLE8
   const VecW gather_u16s = vecw_setr8(0, 8, 1, 9, 2, 10, 3, 11,
                                       4, 12, 5, 13, 6, 14, 7, 15);
 #  else
@@ -2461,7 +2461,7 @@ void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       //   (32, 40, 48, 56, 33, 41, 49, 57, 34, 42, 50, 58, 35, 43, 51, 59)
       //
       // finish with _mm_unpack{lo,hi}_epi32
-#    ifdef USE_SSE42
+#    ifdef USE_SHUFFLE8
       even_nybbles0 = vecw_shuffle8(even_nybbles0, gather_u16s);
       odd_nybbles0 = vecw_shuffle8(odd_nybbles0, gather_u16s);
       even_nybbles1 = vecw_shuffle8(even_nybbles1, gather_u16s);

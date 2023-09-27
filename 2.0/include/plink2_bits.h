@@ -51,6 +51,7 @@ HEADER_INLINE void PackWordsToHalfwordsMask(const uintptr_t* words_vec, uintptr_
     CopyToUnalignedOffsetHW(dest_uc, &hw, widx);
   }
 }
+
 #endif
 
 // ok for ct == 0

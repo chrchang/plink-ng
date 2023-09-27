@@ -1963,7 +1963,9 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
               }
               if (founder_male_ct) {
                 CopyNyparrNonemptySubset(raw_genovec, founder_male, raw_sample_ct, founder_male_ct, genovec);
-                HapsplitHaploid(genovec, founder_male_ct, cur_loader_hap_vec, cur_loader_nm_vec);
+                for (uint32_t uii = 0; uii != 500; ++uii) {
+                  HapsplitHaploid(genovec, founder_male_ct, cur_loader_hap_vec, cur_loader_nm_vec);
+                }
               }
               if (is_x) {
                 CopyNyparrNonemptySubset(raw_genovec, founder_nonmale, raw_sample_ct, founder_nonmale_ct, genovec);
@@ -2605,6 +2607,86 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
 
 
 // todo: see if this can also be usefully condensed into two bitarrays
+#if defined(USE_SSE2) && !defined(USE_AVX2)
+void GenoarrSplit12Nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict one_bitarr, uintptr_t* __restrict two_bitarr, uintptr_t* __restrict nm_bitarr) {
+  // ok if trailing bits of genoarr are not zeroed out
+  // trailing bits of {one,two,nm}_bitarr are zeroed out
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  const uint32_t out_fullvec_ct = sample_ctl2 / (kWordsPerVec * 2);
+  const VecW m1 = VCONST_W(kMask5555);
+#  ifdef USE_SHUFFLE8
+  const VecW swap12 = vecw_setr8(
+      0, 1, 4, 5, 2, 3, 6, 7,
+      8, 9, 12, 13, 10, 11, 14, 15);
+#  else
+  const VecW m2 = VCONST_W(kMask3333);
+#  endif
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
+  for (uintptr_t vidx = 0; vidx != out_fullvec_ct; ++vidx) {
+    const VecW vec_lo = vecw_loadu(&(genoarr[2 * kWordsPerVec * vidx]));
+    const VecW vec_hi = vecw_loadu(&(genoarr[2 * kWordsPerVec * vidx + kWordsPerVec]));
+    VecW inv0_lo = vecw_and_notfirst(vec_lo, m1);
+    VecW inv0_hi = vecw_and_notfirst(vec_hi, m1);
+    VecW inv1_lo = vecw_and_notfirst(vecw_srli(vec_lo, 1), m1);
+    VecW inv1_hi = vecw_and_notfirst(vecw_srli(vec_hi, 1), m1);
+#  ifdef USE_SHUFFLE8
+    inv0_lo = (inv0_lo | vecw_srli(inv0_lo, 3)) & m4;
+    inv0_hi = (inv0_hi | vecw_srli(inv0_hi, 3)) & m4;
+    inv1_lo = (inv1_lo | vecw_srli(inv1_lo, 3)) & m4;
+    inv1_hi = (inv1_hi | vecw_srli(inv1_hi, 3)) & m4;
+    inv0_lo = vecw_shuffle8(swap12, inv0_lo);
+    inv0_hi = vecw_shuffle8(swap12, inv0_hi);
+    inv1_lo = vecw_shuffle8(swap12, inv1_lo);
+    inv1_hi = vecw_shuffle8(swap12, inv1_hi);
+#  else
+    inv0_lo = (inv0_lo | vecw_srli(inv0_lo, 1)) & m2;
+    inv0_hi = (inv0_hi | vecw_srli(inv0_hi, 1)) & m2;
+    inv1_lo = (inv1_lo | vecw_srli(inv1_lo, 1)) & m2;
+    inv1_hi = (inv1_hi | vecw_srli(inv1_hi, 1)) & m2;
+    inv0_lo = (inv0_lo | vecw_srli(inv0_lo, 2)) & m4;
+    inv0_hi = (inv0_hi | vecw_srli(inv0_hi, 2)) & m4;
+    inv1_lo = (inv1_lo | vecw_srli(inv1_lo, 2)) & m4;
+    inv1_hi = (inv1_hi | vecw_srli(inv1_hi, 2)) & m4;
+#  endif
+    inv0_lo = inv0_lo | vecw_srli(inv0_lo, 4);
+    inv0_hi = inv0_hi | vecw_srli(inv0_hi, 4);
+    inv1_lo = inv1_lo | vecw_srli(inv1_lo, 4);
+    inv1_hi = inv1_hi | vecw_srli(inv1_hi, 4);
+    const VecW inv0_packed = vecw_gather_even(inv0_lo, inv0_hi, m8);
+    const VecW inv1_packed = vecw_gather_even(inv1_lo, inv1_hi, m8);
+    const VecW one_packed = vecw_and_notfirst(inv0_packed, inv1_packed);
+    const VecW two_packed = vecw_and_notfirst(inv1_packed, inv0_packed);
+    const VecW nm_packed = inv0_packed | inv1_packed;
+    vecw_storeu(&(one_bitarr[kWordsPerVec * vidx]), one_packed);
+    vecw_storeu(&(two_bitarr[kWordsPerVec * vidx]), two_packed);
+    vecw_storeu(&(nm_bitarr[kWordsPerVec * vidx]), nm_packed);
+  }
+  Halfword* one_bitarr_alias = R_CAST(Halfword*, one_bitarr);
+  Halfword* two_bitarr_alias = R_CAST(Halfword*, two_bitarr);
+  Halfword* nm_bitarr_alias = R_CAST(Halfword*, nm_bitarr);
+  for (uint32_t widx = RoundDownPow2(sample_ctl2, kWordsPerVec * 2); widx != sample_ctl2; ++widx) {
+    const uintptr_t cur_geno_word = genoarr[widx];
+    const uint32_t low_halfword = PackWordToHalfwordMask5555(cur_geno_word);
+    const uint32_t high_halfword = PackWordToHalfwordMaskAAAA(cur_geno_word);
+    one_bitarr_alias[widx] = low_halfword & (~high_halfword);
+    two_bitarr_alias[widx] = high_halfword & (~low_halfword);
+    nm_bitarr_alias[widx] = ~(low_halfword & high_halfword);
+  }
+  const uint32_t sample_ct_rem = sample_ct % kBitsPerWordD2;
+  if (sample_ct_rem) {
+    const Halfword trailing_mask = (1U << sample_ct_rem) - 1;
+    one_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
+    two_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
+    nm_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
+  }
+  if (sample_ctl2 % 2) {
+    one_bitarr_alias[sample_ctl2] = 0;
+    two_bitarr_alias[sample_ctl2] = 0;
+    nm_bitarr_alias[sample_ctl2] = 0;
+  }
+}
+#else
 void GenoarrSplit12Nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict one_bitarr, uintptr_t* __restrict two_bitarr, uintptr_t* __restrict nm_bitarr) {
   // ok if trailing bits of genoarr are not zeroed out
   // trailing bits of {one,two,nm}_bitarr are zeroed out
@@ -2634,6 +2716,7 @@ void GenoarrSplit12Nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, u
     nm_bitarr_alias[sample_ctl2] = 0;
   }
 }
+#endif
 
 uint32_t GenoBitvecSumMain(const VecW* one_vvec, const VecW* two_vvec, uint32_t vec_ct) {
   // Analog of popcount_vecs.
@@ -3852,7 +3935,6 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       }
     }
     const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
-    const uint32_t founder_ctl2 = NypCtToWordCt(founder_ct);
     uint32_t* founder_info_cumulative_popcounts;
     PgenVariant pgvs[2];
     PreinitPgv(&(pgvs[0]));
@@ -3865,7 +3947,6 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
 
     const uint32_t x_present = (is_xs[0] || is_xs[1]);
     const uint32_t founder_ctv = BitCtToVecCt(founder_ct);
-    const uint32_t founder_ctv2 = NypCtToVecCt(founder_ct);
     const uint32_t founder_ctaw = founder_ctv * kWordsPerVec;
     uintptr_t* sex_male_collapsed = nullptr;
     uintptr_t* sex_male_collapsed_interleaved = nullptr;
@@ -3881,7 +3962,6 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       x_male_ct = PopcountWords(sex_male_collapsed, founder_ctaw);
     }
     FillCumulativePopcounts(founder_info, founder_ctl, founder_info_cumulative_popcounts);
-    uint32_t use_dosage = ldip->ld_console_flags & kfLdConsoleDosage;
 
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
@@ -3900,17 +3980,9 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       }
       ZeroTrailingNyps(founder_ct, pgvp->genovec);
       if (is_nonx_haploids[var_idx]) {
-        if (!use_dosage) {
-          SetHetMissing(founder_ctl2, pgvp->genovec);
-        }
         pgvp->phasepresent_ct = 0;
         pgvp->dphase_ct = 0;
       } else if (x_male_ct && is_xs[var_idx]) {
-        if (!use_dosage) {
-          // bugfix (23 Feb 2022): need genovec vec count, not
-          // sex_male_collapsed_interleaved vec count.
-          SetMaleHetMissing(sex_male_collapsed_interleaved, founder_ctv2, pgvp->genovec);
-        }
         if (pgvp->phasepresent_ct) {
           BitvecInvmask(sex_male_collapsed, founder_ctl, pgvp->phasepresent);
           pgvp->phasepresent_ct = PopcountWords(pgvp->phasepresent, founder_ctl);
@@ -3922,12 +3994,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     }
     const uint32_t use_phase = is_same_chr && (pgvs[0].phasepresent_ct || pgvs[0].dphase_ct) && (pgvs[1].phasepresent_ct || pgvs[1].dphase_ct);
     const uint32_t ignore_hethet = is_nonx_haploids[0] || is_nonx_haploids[1];
-    if ((!pgvs[0].dosage_ct) && (!pgvs[1].dosage_ct) && (!ignore_hethet)) {
-      // If the 'dosage' modifier was present, no literal dosages are present,
-      // but one or both variants is purely haploid, may as well use the dosage
-      // code path anyway (converting hets to dosage 0.5).
-      use_dosage = 0;
-    }
+    // in haploid case, het -> 0.5
+    const uint32_t use_dosage = pgvs[0].dosage_ct || pgvs[1].dosage_ct || ignore_hethet;
 
     // values of interest:
     //   mutually-nonmissing observation count
@@ -4036,8 +4104,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         PopulateDenseDosage(pgvs[var_idx].genovec, pgvs[var_idx].dosage_present, pgvs[var_idx].dosage_main, founder_ct, pgvs[var_idx].dosage_ct, dosage_vecs[var_idx]);
         nmaj_dosages[var_idx] = DenseDosageSum(dosage_vecs[var_idx], founder_dosagev_ct);
         FillDosageUhet(dosage_vecs[var_idx], founder_dosagev_ct, dosage_uhets[var_idx]);
-        GenoarrToNonmissingnessUnsafe(pgvs[var_idx].genovec, founder_ct, nm_bitvecs[var_idx]);
-        ZeroTrailingBits(founder_ct, nm_bitvecs[var_idx]);
+        GenoarrToNonmissing(pgvs[var_idx].genovec, founder_ct, nm_bitvecs[var_idx]);
         BitvecOr(pgvs[var_idx].dosage_present, founder_ctl, nm_bitvecs[var_idx]);
         nm_cts[var_idx] = PopcountWords(nm_bitvecs[var_idx], founder_ctl);
       }
@@ -4962,8 +5029,7 @@ void LdUnpackDosage(const PgenVariant* pgvp, uint32_t sample_ct, R2PhaseType pha
   PopulateDenseDosage(pgvp->genovec, pgvp->dosage_present, pgvp->dosage_main, sample_ct, pgvp->dosage_ct, dosage_vec);
   const uint64_t nmaj_dosage = DenseDosageSum(dosage_vec, dosagev_ct);
   memcpy(nmaj_dosage_uc_ptr, &nmaj_dosage, sizeof(int64_t));
-  GenoarrToNonmissingnessUnsafe(pgvp->genovec, sample_ct, nm_bitvec);
-  ZeroTrailingBits(sample_ct, nm_bitvec);
+  GenoarrToNonmissing(pgvp->genovec, sample_ct, nm_bitvec);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   BitvecOr(pgvp->dosage_present, sample_ctl, nm_bitvec);
   *nm_ct_ptr = PopcountWords(nm_bitvec, sample_ctl);
@@ -5016,8 +5082,7 @@ unsigned char* LdUnpackDosageSubset(const PgenVariant* pgvp, const uintptr_t* sa
     PopulateDenseDosageNonemptySubset(sample_include, sample_include_cumulative_popcounts, pgvp->genovec, dosage_present, pgvp->dosage_main, raw_sample_ct, sample_ct, pgvp->dosage_ct, dosage_vec, genovec_collapsed);
     const uint64_t nmaj_dosage = DenseDosageSum(dosage_vec, dosagev_ct);
     memcpy(nmaj_dosage_uc_ptr, &nmaj_dosage, sizeof(int64_t));
-    GenoarrToNonmissingnessUnsafe(genovec_collapsed, sample_ct, nm_bitvec);
-    ZeroTrailingBits(sample_ct, nm_bitvec);
+    GenoarrToNonmissing(genovec_collapsed, sample_ct, nm_bitvec);
   }
   uintptr_t* dosage_present_collapsed = workspace;
   CopyBitarrSubset(dosage_present, sample_include, sample_ct, dosage_present_collapsed);

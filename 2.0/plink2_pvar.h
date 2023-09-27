@@ -80,7 +80,9 @@ typedef struct VaridTemplateStruct {
 
 void VaridTemplateInit(const char* varid_template_str, const char* missing_id_match, char* chr_output_name_buf, uint32_t new_id_max_allele_slen, uint32_t overflow_substitute_blen, VaridTemplate* vtp);
 
-char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, char* dst);
+BoolErr VaridInitAll(unsigned char* arena_end, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, MiscFlags misc_flags, uint32_t new_variant_id_max_allele_slen, unsigned char** arena_basep, const char** missing_varid_matchp, char** chr_output_name_bufp, VaridTemplate** varid_templatepp, VaridTemplate** varid_multi_templatepp, VaridTemplate** varid_multi_nonsnp_templatepp, uint32_t* missing_varid_blenp, uint32_t* missing_varid_match_slenp);
+
+char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, uint32_t* allele_overflow_seenp, char* dst);
 
 // These functions assume info_token[-1] is safe to read
 // They may set info_token[info_slen] to \0, since they need to use strstr()

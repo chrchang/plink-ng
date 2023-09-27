@@ -1552,7 +1552,7 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
 #ifdef USE_SSE2
         const uint32_t fullvec_ct = patch_10_ct / (kBytesPerVec / 2);
         if (fullvec_ct) {
-#  if defined(USE_SSE42) && !defined(USE_AVX2)
+#  if defined(USE_SHUFFLE8) && !defined(USE_AVX2)
           // SSE4.2: _mm_shuffle_epi8() to gather even bytes, parallel
           //         equality-to-2 check, movemask
           // (+126 or <<6 followed by movemask also works)
@@ -1866,13 +1866,8 @@ void PglMultiallelicSparseToDense(const uintptr_t* __restrict genoarr, const uin
     if (remap1 < remap0) {
       table4[1] = remap1 + remap0 * 256;
       if (flipped) {
-        // See GenoarrToMissingnessUnsafe().
         const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-        Halfword* flipped_alias = DowncastWToHW(flipped);
-        for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-          const uintptr_t cur_geno_word = genoarr[widx];
-          flipped_alias[widx] = PackWordToHalfwordMask5555(cur_geno_word & (~(cur_geno_word >> 1)));
-        }
+        PackWordsToHalfwordsInvmatch(genoarr, kMaskAAAA, sample_ctl2, flipped);
       }
     }
     // could have an InitLookup16x2bx2 function for this

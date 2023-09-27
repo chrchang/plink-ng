@@ -147,7 +147,8 @@ uintptr_t GetLinearWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predicto
   // dbl_2d_buf = max_predictor_ct * max(max_predictor_ct, 7) doubles
   workspace_size += RoundUpPow2(max_predictor_ct * MAXV(max_predictor_ct, 7) * sizeof(double), kCacheline);
 
-  // inverse_corr_buf = (max_predictor_ct - 1) * max(max_predictor_ct - 1, 4) doubles
+  // inverse_corr_buf = (max_predictor_ct - 1) * max(max_predictor_ct - 1, 4)
+  // doubles
   workspace_size += RoundUpPow2((max_predictor_ct - 1) * MAXV((max_predictor_ct - 1), 4) * sizeof(double), kCacheline);
 
   // semicomputed_biallelic_corr_matrix = (max_predictor_ct - 1)^2 doubles
@@ -279,8 +280,8 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
     }
     while (variant_bidx < variant_bidx_end) {
       const uint32_t variant_idx = variant_bidx + variant_idx_offset;
-      // const uint32_t chr_fo_idx = LastLeqU32(subset_chr_fo_vidx_start, 0, cip->chr_ct, variant_idx);
-      const uint32_t chr_fo_idx = LowerBoundNonemptyU32(&(subset_chr_fo_vidx_start[1]), cip->chr_ct, variant_idx + 1);
+      const uint32_t chr_fo_idx = LastLeqU32(subset_chr_fo_vidx_start, 0, cip->chr_ct, variant_idx);
+      // const uint32_t chr_fo_idx = LowerBoundNonemptyU32(&(subset_chr_fo_vidx_start[1]), cip->chr_ct, variant_idx + 1);
       const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
       uint32_t cur_variant_bidx_end = subset_chr_fo_vidx_start[chr_fo_idx + 1] - variant_idx_offset;
       if (cur_variant_bidx_end > variant_bidx_end) {
@@ -1706,8 +1707,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     }
     if (p_col) {
       if (report_neglog10p) {
-        // TODO: change to NEG_LOG10_P for a6
-        cswritep = strcpya_k(cswritep, "\tLOG10_P");
+        cswritep = strcpya_k(cswritep, "\tNEG_LOG10_P");
       } else {
         cswritep = strcpya_k(cswritep, "\tP");
       }
@@ -2389,8 +2389,8 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
     }
     while (variant_bidx < variant_bidx_end) {
       const uint32_t variant_idx = variant_bidx + variant_idx_offset;
-      // const uint32_t chr_fo_idx = LastLeqU32(subset_chr_fo_vidx_start, 0, cip->chr_ct, variant_idx);
-      const uint32_t chr_fo_idx = LowerBoundNonemptyU32(&(subset_chr_fo_vidx_start[1]), cip->chr_ct, variant_idx + 1);
+      const uint32_t chr_fo_idx = LastLeqU32(subset_chr_fo_vidx_start, 0, cip->chr_ct, variant_idx);
+      // const uint32_t chr_fo_idx = LowerBoundNonemptyU32(&(subset_chr_fo_vidx_start[1]), cip->chr_ct, variant_idx + 1);
       const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
       uint32_t cur_variant_bidx_end = subset_chr_fo_vidx_start[chr_fo_idx + 1] - variant_idx_offset;
       if (cur_variant_bidx_end > variant_bidx_end) {
@@ -3952,8 +3952,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         }
         if (p_col) {
           if (report_neglog10p) {
-            // TODO: change to NEG_LOG10_P for a6
-            cswritep = strcpya_k(cswritep, "\tLOG10_P");
+            cswritep = strcpya_k(cswritep, "\tNEG_LOG10_P");
           } else {
             cswritep = strcpya_k(cswritep, "\tP");
           }

@@ -589,29 +589,6 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, u
   } while (widx);
 }
 
-// todo: try vectorizing this
-void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* nonmissing_bitarr) {
-  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-  const uintptr_t* genoarr_iter = genoarr;
-  Halfword* nonmissing_bitarr_iter = R_CAST(Halfword*, nonmissing_bitarr);
-  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-    uintptr_t ww = ~(*genoarr_iter++);
-    ww = ww | (ww >> 1);
-    *nonmissing_bitarr_iter++ = PackWordToHalfwordMask5555(ww);
-  }
-  // zero trailing bits up to word boundary, in a way that doesn't create
-  // aliasing issues
-  // (if zeroing is needed up to vector boundary, that's the caller's
-  // responsibility)
-  const uint32_t trail_ct = sample_ct % kBitsPerWordD2;
-  if (trail_ct) {
-    nonmissing_bitarr_iter[-1] &= (1U << trail_ct) - 1;
-  }
-  if (sample_ctl2 % 2) {
-    *nonmissing_bitarr_iter = 0;
-  }
-}
-
 // These functions may move to pgenlib_misc later.
 uint32_t CountMissingVec6(const VecW* __restrict geno_vvec, uint32_t vec_ct) {
   assert(!(vec_ct % 6));
@@ -1986,7 +1963,7 @@ uint32_t GetMaxChrSlen(const ChrInfo* cip) {
   // does not include trailing null
   // can be overestimate
   // if more functions start calling this, it should just be built into
-  // load_bim() instead
+  // LoadPvar() instead
   if (cip->zero_extra_chrs) {
     return 3 + kMaxChrTextnum;
   }
@@ -2678,17 +2655,6 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
 // bits of genovec are zero.
 //
 // Similar to PgrDetectGenoarrHetsUnsafe().
-//
-// todo: try vectorizing this
-void MaskGenoarrHetsUnsafe(const uintptr_t* __restrict genoarr, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
-  Halfword* bitarr_alias = R_CAST(Halfword*, bitarr);
-  for (uint32_t widx = 0; widx != raw_sample_ctl2; ++widx) {
-    const uintptr_t cur_word = genoarr[widx];
-    uintptr_t ww = (~(cur_word >> 1)) & cur_word;  // low 1, high 0
-    bitarr_alias[widx] &= PackWordToHalfwordMask5555(ww);
-  }
-}
-
 void MaskGenoarrHetsMultiallelicUnsafe(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
   // Related to PgrDetectGenoarrHetsMultiallelic().
   const Halfword* patch_10_set_alias = R_CAST(const Halfword*, patch_10_set);

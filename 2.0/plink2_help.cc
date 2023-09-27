@@ -858,26 +858,17 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      are a problem.  --indep-pairwise now errors out when duplicate variant\n"
 "      IDs are present.\n\n"
               );
-    // todo: implement --indep-pairphase with new --ld approach.  (eventually
-    // add an option to take dosages into account?  but not a priority.)
-    // ...or, that's overkill?  new plan: simply require all-phased for
-    // --indep-pairphase.  that adds the most valuable functionality, and
-    // creates the right incentives.  can do the same for phased side of
-    // initial (dosage-ignoring) --r/--r2 implementation.
     HelpPrint("ld\0", &help_ctrl, 1,
-"  --ld <variant ID> <variant ID> ['dosage'] ['hwe-midp']\n"
-"    This displays diplotype frequencies, r^2, and D' for a single pair of\n"
-"    variants.\n"
-"    * For multiallelic variants, major allele counts/dosages are used.\n"
+"  --ld <variant ID> <variant ID> ['hwe-midp']\n"
+"    This displays diplotype frequencies, haplotype-based r^2, and D' for a\n"
+"    single pair of variants.\n"
+"    * Dosages are used when present.  (In the diploid case, an unphased dosage\n"
+"      of x is interpreted as P(0/0) = 1 - x, P(0/1) = x when x is in 0..1.)\n"
 "    * Phase information is used when both variants are on the same chromosome.\n"
 "    * When there is at least one sample with unphased het calls for both\n"
 "      variants, diplotype frequencies are estimated using the Hill equation.\n"
 "      If there are multiple biologically possible local maxima, all are\n"
-"      displayed, along with HWE exact test statistics.\n"
-"    * By default, only hardcalls are considered.  Add the 'dosage' modifier if\n"
-"      you want dosages to be taken into account.  (In the diploid case, an\n"
-"      unphased dosage of x is interpreted as P(0/0) = 1 - x, P(0/1) = x when x\n"
-"      is in 0..1.)\n\n"
+"      displayed, along with HWE exact test statistics.\n\n"
               );
     HelpPrint("sample-diff\0sdiff\0", &help_ctrl, 1,
 "  --sample-diff ['id-delim='<char>] ['dosage' | 'dosage='<tolerance>]\n"
@@ -1607,7 +1598,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --iid-sid           : Make --id-delim, --indv, and --sample-diff interpret\n"
 "                        two-token sample IDs as IID-SID instead of FID-IID.\n"
               );
-    HelpPrint("vcf\0bcf\0vcf-half-call\0vcf-min-gq\0vcf-min-dp\0vcf-max-dp\0vcf-require-gt\0vcf-ref-n-missing\0", &help_ctrl, 0,
+    HelpPrint("vcf\0bcf\0vcf-half-call\0vcf-min-gq\0vcf-min-dp\0vcf-max-dp\0vcf-require-gt\0vcf-ploidy\0vcf-ref-n-missing\0", &help_ctrl, 0,
 "  --vcf-require-gt    : Skip variants with no GT field.\n"
 "  --vcf-min-gq <val>  : No-call genotypes when GQ is present and below the\n"
 "                        threshold.\n"
@@ -1672,10 +1663,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                 also is; you can change this second missing\n"
 "                                 code with --input-missing-genotype.\n"
                );
+    // change this for a6
     HelpPrint("strict-extra-chr\0allow-extra-chr\0aec\0", &help_ctrl, 0,
 "  --strict-extra-chr      : Prohibit unrecognized chromosome codes, unless\n"
-"                            --allow-extra-chr is also specified.  (Always on\n"
-"                            for now, but this will change in a future build.)\n"
+"                            --allow-extra-chr is also specified.\n"
 "  --allow-extra-chr ['0'] : Permit unrecognized chromosome codes (alias --aec).\n"
 "                            The '0' modifier causes these codes to be converted\n"
 "                            to \"0\".\n"
@@ -2204,6 +2195,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            to contain chrX, suppress the usual error if\n"
 "                            --split-par and/or a .fam/.psam/--update-sex file\n"
 "                            is expected and not present.\n"
+              );
+    // Probably want a dosage mode, where 0/0/1 gets imported as DS=0.66667,
+    // etc.
+    // Do we need a mode that imports 0/1/. as DS=1?  ('partial-dosage'?
+    // Presumably this would force the --vcf-half-call mode to 'haploid'.)
+    HelpPrint("polyploid-mode\0vcf\0bcf\0bgen\0", &help_ctrl, 0,
+"  --polyploid-mode <mode> : Specify how ploidy > 2 should be handled during\n"
+"                            import.  The following two modes are supported:\n"
+"                            * 'error'/'e' (default) errors out.\n"
+"                            * 'missing'/'m' treats them as missing.\n"
               );
     HelpPrint("set-all-var-ids\0set-missing-var-ids\0var-id-multi\0var-id-multi-nonsnp\0new-id-max-allele-len\0", &help_ctrl, 0,
 "  --set-missing-var-ids <t>  : Given a template string with a '@' where the\n"

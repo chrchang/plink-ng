@@ -65,8 +65,7 @@ CONSTI32(kClumpMaxBinBounds, 0x4000000);
 
 FLAGSET_DEF_START()
   kfLdConsole0,
-  kfLdConsoleDosage = (1 << 0),
-  kfLdConsoleHweMidp = (1 << 1)
+  kfLdConsoleHweMidp = (1 << 0)
 FLAGSET_DEF_END(LdConsoleFlags);
 
 typedef struct LdInfoStruct {

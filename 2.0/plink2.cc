@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a5"
+static const char ver_str[] = "PLINK v2.00a6"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a5"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (23 Sep 2023)";
+  " (27 Sep 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3659,8 +3659,6 @@ int main(int argc, char** argv) {
     if (unlikely(reterr)) {
       goto main_ret_NOLOG;
     }
-    // remove this in alpha 6
-    strict_extra_chr = 1;
 
     char pgenname[kPglFnamesize];
     char psamname[kPglFnamesize];
@@ -6751,8 +6749,7 @@ int main(int argc, char** argv) {
               const char* chr_code = &(cur_modif[strlen("single-chr=")]);
               if (pc.misc_flags & kfMiscProhibitExtraChr) {
                 if (unlikely(IsI32Neg(GetChrCodeRaw(chr_code)))) {
-                  // change in alpha 6
-                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage single-chr= chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", chr_code);
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage single-chr= chromosome code '%s'.\n", chr_code);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }
               }
@@ -7092,8 +7089,7 @@ int main(int argc, char** argv) {
           const char* chr_code = argvk[arg_idx + 2];
           if (pc.misc_flags & kfMiscProhibitExtraChr) {
             if (unlikely(IsI32Neg(GetChrCodeRaw(chr_code)))) {
-              // change in alpha 6
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --legend chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", chr_code);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --legend chromosome code '%s'.\n", chr_code);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -7118,7 +7114,7 @@ int main(int argc, char** argv) {
           import_flags |= kfImportLaxChrX;
           goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "d"))) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 4))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t uii = 0; uii != 2; ++uii) {
@@ -7129,9 +7125,7 @@ int main(int argc, char** argv) {
           }
           for (uint32_t param_idx = 3; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "dosage")) {
-              pc.ld_info.ld_console_flags |= kfLdConsoleDosage;
-            } else if (likely(!strcmp(cur_modif, "hwe-midp"))) {
+            if (likely(!strcmp(cur_modif, "hwe-midp"))) {
               pc.ld_info.ld_console_flags |= kfLdConsoleHweMidp;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --ld argument '%s'.\n", cur_modif);
@@ -8857,8 +8851,7 @@ int main(int argc, char** argv) {
           const char* cur_modif = argvk[arg_idx + 1];
           if (pc.misc_flags & kfMiscProhibitExtraChr) {
             if (unlikely(IsI32Neg(GetChrCodeRaw(cur_modif)))) {
-              // change in alpha 6
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --oxford-single-chr chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --oxford-single-chr chromosome code '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -9501,6 +9494,23 @@ int main(int argc, char** argv) {
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "olyploid-mode")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* mode_str = argvk[arg_idx + 1];
+          const char first_char_upcase_match = mode_str[0] & 0xdf;
+          const uint32_t mode_slen = strlen(mode_str);
+          if (((mode_slen == 1) && (first_char_upcase_match == 'E')) ||
+              strequal_k(mode_str, "error", mode_slen)) {
+            import_flags |= kfImportPolyploidExplicitError;
+          } else if (likely(((mode_slen == 1) && (first_char_upcase_match == 'M')) ||
+                            strequal_k(mode_str, "missing", mode_slen))) {
+            import_flags |= kfImportPolyploidMissing;
+          } else {
+            snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --polyploid-mode.\n", mode_str);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
         } else if (likely(strequal_k_unsafe(flagname_p2, "heno-quantile-normalize"))) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
@@ -9930,7 +9940,9 @@ int main(int argc, char** argv) {
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-          pc.dependency_flags |= kfFilterPvarReq;
+          if (!(pc.command_flags1 & kfCommand1Pmerge)) {
+            pc.dependency_flags |= kfFilterPvarReq;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "et-hh-missing")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
             logerrputs("Error: --set-hh-missing must be used with --make-[b]pgen/--make-bed.\n");
@@ -11666,7 +11678,7 @@ int main(int argc, char** argv) {
         if (make_plink2_flags & (kfMakePgen | kfMakePvar | kfMakePsam)) {
           merge_outname_end = strcpya_k(merge_outname_end, "-merge");
         }
-        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.missing_catname, pc.misc_flags, pc.sample_sort_mode, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, pc.sort_vars_mode, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
+        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.missing_catname, pc.varid_template_str, pc.varid_multi_template_str, pc.varid_multi_nonsnp_template_str, pc.missing_varid_match, pc.misc_flags, pc.sample_sort_mode, pc.fam_cols, pc.missing_pheno, pc.new_variant_id_max_allele_slen, pc.input_missing_geno_char, pc.max_thread_ct, pc.sort_vars_mode, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
         if (unlikely(reterr)) {
           goto main_ret_1;
         }
@@ -11680,6 +11692,11 @@ int main(int argc, char** argv) {
                        PushLlStr(psamname, &file_delete_list))) {
             goto main_ret_NOMEM;
           }
+        }
+        // Don't need to repeat --set-{all,missing}-var-ids.
+        if (pc.varid_template_str) {
+          free(pc.varid_template_str);
+          pc.varid_template_str = nullptr;
         }
         // --real-ref-alleles communicates to --pmerge[-list] that all input
         // .bed filesets have real REF alleles.

@@ -3725,7 +3725,6 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
     if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto WriteBimSplit_ret_NOMEM;
     }
-    const uint32_t new_variant_id_overflow_missing = (misc_flags / kfMiscNewVarIdOverflowMissing) & 1;
     const uint32_t varid_dup_nosplit = varid_dup && (!varid_split);
     VaridTemplate* varid_templatep = nullptr;
     uint32_t missing_varid_slen = 0;
@@ -3741,6 +3740,7 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
       if (unlikely(BIGSTACK_ALLOC_X(VaridTemplate, 1, &varid_templatep))) {
         goto WriteBimSplit_ret_NOMEM;
       }
+      const uint32_t new_variant_id_overflow_missing = (misc_flags / kfMiscNewVarIdOverflowMissing) & 1;
       const uint32_t overflow_substitute_blen = new_variant_id_overflow_missing? (missing_varid_slen + 1) : 0;
       VaridTemplateInit(varid_template_str, missing_varid_match, chr_buf, new_variant_id_max_allele_slen, overflow_substitute_blen, varid_templatep);
       if (varid_dup) {
@@ -3749,6 +3749,7 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
           if ((insert_type == 3) || ((insert_type == 2) && (varid_templatep->alleles_needed & 4))) {
             // Could define what takes precedence here, but simpler to prohibit
             // this combination.
+            logputs("\n");
             logerrputs("Error: 'vid-[split-]dup' cannot be used with a --set-all-var-ids or\n--set-missing-var-ids template string containing a non-REF allele.\n");
             goto WriteBimSplit_ret_INVALID_CMDLINE;
           }
@@ -3763,6 +3764,7 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
 
     const VaridTemplate* cur_varid_templatep = nullptr;
     const char* varid_token_start = nullptr; // for vid-split
+    uint32_t allele_overflow_seen = 0;
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
@@ -3830,14 +3832,14 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
             // Always true in --set-all-var-ids case.  True in
             // --set-missing-var-ids case when vid-split unspecified, or split
             // failed.
-            cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, cswritep);
+            cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &allele_overflow_seen, cswritep);
             *cswritep++ = '\t';
           } else if (varid_token_start) {
             const char* varid_token_end = strchrnul(varid_token_start, ';');
             // If substring matches missing code and --set-missing-var-ids is
             // specified, we replace it.
             if (varid_templatep && (S_CAST(uintptr_t, varid_token_end - varid_token_start) == missing_varid_slen) && memequal(varid_token_start, missing_varid_match, missing_varid_slen)) {
-              cswritep = VaridTemplateWrite(varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, cswritep);
+              cswritep = VaridTemplateWrite(varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &allele_overflow_seen, cswritep);
             } else {
               cswritep = memcpya(cswritep, varid_token_start, varid_token_end - varid_token_start);
             }
@@ -3868,6 +3870,11 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto WriteBimSplit_ret_WRITE_FAIL;
     }
+    if (unlikely(allele_overflow_seen && (!(misc_flags & (kfMiscNewVarIdOverflowMissing | kfMiscNewVarIdOverflowTruncate))))) {
+      logputs("\n");
+      logerrprintfww("Error: Allele code(s) too long for --set-%s-var-ids. (--new-id-max-allele-len may be helpful.)\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+      goto WriteBimSplit_ret_INCONSISTENT_INPUT;
+    }
   }
   while (0) {
   WriteBimSplit_ret_NOMEM:
@@ -3878,6 +3885,9 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
     break;
   WriteBimSplit_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
+    break;
+  WriteBimSplit_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   }
  WriteBimSplit_ret_1:
@@ -4052,6 +4062,7 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
           if ((insert_type == 3) || ((insert_type == 2) && (varid_templatep->alleles_needed & 4))) {
             // Could define what takes precedence here, but simpler to prohibit
             // this combination.
+            logputs("\n");
             logerrputs("Error: 'vid-[split-]dup' cannot be used with a --set-all-var-ids or\n--set-missing-var-ids template string containing a non-REF allele.\n");
             goto WritePvarSplit_ret_INVALID_CMDLINE;
           }
@@ -4170,6 +4181,7 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
     const uint32_t varid_split = (make_plink2_flags / kfMakePlink2VaridSemicolon) & 1;
     const uint32_t varid_dup_nosplit = varid_dup && (!varid_split);
     const uint32_t split_just_snps = ((make_plink2_flags & (kfMakePlink2MSplitBase * 3)) == kfMakePlink2MSplitSnps);
+    uint32_t allele_overflow_seen = 0;
     uint32_t trs_variant_uidx = 0;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
@@ -4350,14 +4362,14 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
             // Always true in --set-all-var-ids case.  True in
             // --set-missing-var-ids case when vid-split unspecified, or split
             // failed.
-            cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, cswritep);
+            cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &allele_overflow_seen, cswritep);
             *cswritep++ = '\t';
           } else if (varid_token_start) {
             const char* varid_token_end = strchrnul(varid_token_start, ';');
             // If substring matches missing code and --set-missing-var-ids is
             // specified, we replace it.
             if (varid_templatep && (S_CAST(uintptr_t, varid_token_end - varid_token_start) == missing_varid_slen) && memequal(varid_token_start, missing_varid_match, missing_varid_slen)) {
-              cswritep = VaridTemplateWrite(varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, cswritep);
+              cswritep = VaridTemplateWrite(varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &allele_overflow_seen, cswritep);
             } else {
               cswritep = memcpya(cswritep, varid_token_start, varid_token_end - varid_token_start);
             }
@@ -4483,6 +4495,11 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
+    if (unlikely(allele_overflow_seen && (!(misc_flags & (kfMiscNewVarIdOverflowMissing | kfMiscNewVarIdOverflowTruncate))))) {
+      logputs("\n");
+      logerrprintfww("Error: Allele code(s) too long for --set-%s-var-ids. (--new-id-max-allele-len may be helpful.)\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+      goto WritePvarSplit_ret_INCONSISTENT_INPUT;
+    }
   }
   while (0) {
   WritePvarSplit_ret_NOMEM:

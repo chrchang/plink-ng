@@ -160,9 +160,19 @@
 #    else
 #      include "../simde/x86/sse2.h"
 #    endif
+#    ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+// For Apple M1, we effectively use SSE2 + constrained _mm_shuffle_epi8().
+// - We don't want to use simde's emulated _mm_shuffle_epi8 since it has an
+//   extra and-with-0x8f step that we never need.
+//   In the event the and-with-0x8f is actually needed, we'll define
+//   vec..._x86_shuffle8() helper functions.
+// - M1 also doesn't have efficient word-popcount.
+#      define USE_SHUFFLE8
+#    endif
 #  endif
 #  ifdef __SSE4_2__
 #    define USE_SSE42
+#    define USE_SHUFFLE8
 #    include <smmintrin.h>
 #    ifdef __AVX2__
 #      if defined(__BMI__) && defined(__BMI2__) && defined(__LZCNT__)
@@ -1539,11 +1549,18 @@ HEADER_INLINE VecUc vecuc_gather_odd(VecUc src_lo, VecUc src_hi) {
   return VecToUc(_mm_packus_epi16(_mm_srli_epi16(UcToVec(src_lo), 8), _mm_srli_epi16(UcToVec(src_hi), 8)));
 }
 
-#    ifdef USE_SSE42
-HEADER_INLINE VecI32 veci32_max(VecI32 v1, VecI32 v2) {
-  return VecToI32(_mm_max_epi32(I32ToVec(v1), I32ToVec(v2)));
+#    ifdef USE_SHUFFLE8
+#      ifdef SIMDE_ARM_NEON_A64V8_NATIVE
+// See simde_mm_shuffle_epi8().
+// This may need to be written more carefully in the IGNORE_BUNDLED_SIMDE case.
+SIMDE_FUNCTION_ATTRIBUTES simde__m128i _mm_shuffle_epi8(simde__m128i a, simde__m128i b) {
+  simde__m128i_private a_ = simde__m128i_to_private(a);
+  simde__m128i_private b_ = simde__m128i_to_private(b);
+  simde__m128i_private r_;
+  r_.neon_i8 = vqtbl1q_s8(a_.neon_i8, b_.neon_u8);
+  return simde__m128i_from_private(r_);
 }
-
+#      endif
 HEADER_INLINE VecW vecw_shuffle8(VecW table, VecW indexes) {
   return VecToW(_mm_shuffle_epi8(WToVec(table), WToVec(indexes)));
 }
@@ -1554,6 +1571,11 @@ HEADER_INLINE VecU16 vecu16_shuffle8(VecU16 table, VecU16 indexes) {
 
 HEADER_INLINE VecUc vecuc_shuffle8(VecUc table, VecUc indexes) {
   return VecToUc(_mm_shuffle_epi8(UcToVec(table), UcToVec(indexes)));
+}
+#    endif
+#    ifdef USE_SSE42
+HEADER_INLINE VecI32 veci32_max(VecI32 v1, VecI32 v2) {
+  return VecToI32(_mm_max_epi32(I32ToVec(v1), I32ToVec(v2)));
 }
 
 HEADER_INLINE uintptr_t vecw_extract64_0(VecW vv) {
@@ -1745,6 +1767,30 @@ HEADER_INLINE VecW VecUcToW(VecUc vv) {
   return R_CAST(VecW, vv);
 }
 
+HEADER_INLINE void vecw_lo_and_hi_nybbles(VecW cur_vec, VecW m4, VecW* vec_lo_ptr, VecW* vec_hi_ptr) {
+  // Assumes m4 is VCONST_W(kMask0F0F).
+  // Returned vec_lo and vec_hi have top nybble of each byte zeroed out.
+  cur_vec = vecw_permute0xd8_if_avx2(cur_vec);
+  // AVX2:
+  //   vec_even contains {0, 2, 4, ..., 14, 32, 34, ..., 46,
+  //                      16, 18, ..., 30, 48, ... 62}
+  //   vec_odd contains {1, 3, 5, ..., 15, 33, 35, ..., 47,
+  //                     17, 19, ..., 31, 49, ..., 63}
+  // SSE2:
+  //   vec_even contains {0, 2, 4, ..., 30}
+  //   vec_odd contains {1, 3, 5, ..., 31}
+  const VecW vec_even = cur_vec & m4;
+  const VecW vec_odd = vecw_srli(cur_vec, 4) & m4;
+
+  // AVX2:
+  //   vec_lo contains {0, 1, 2, ..., 31}
+  //   vec_hi contains {32, 33, 34, ..., 63}
+  // SSE2:
+  //   vec_lo contains {0, 1, 2, ..., 15}
+  //   vec_hi contains {16, 17, 18, ..., 31}
+  *vec_lo_ptr = vecw_unpacklo8(vec_even, vec_odd);
+  *vec_hi_ptr = vecw_unpackhi8(vec_even, vec_odd);
+}
 #else  // !USE_SSE2
 #  ifdef __LP64__
 CONSTI32(kBytesPerVec, 8);

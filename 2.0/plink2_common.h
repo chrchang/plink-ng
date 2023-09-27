@@ -452,8 +452,6 @@ void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* w
 
 void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* dosagepresent, Dosage* dosage_main);
 
-void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ctl2, uintptr_t* nonmissing_bitarr);
-
 uint32_t GenoarrCountMissingUnsafe(const uintptr_t* genoarr, uint32_t sample_ct);
 
 uint32_t GenoarrCountMissingSubset(const uintptr_t* genoarr, const uintptr_t* interleaved_vec, uint32_t sample_ct);
@@ -952,7 +950,9 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
 // Clears each bit in bitarr which doesn't correspond to a genovec het.
 // Assumes that either trailing bits of bitarr are already zero, or trailing
 // bits of genovec are zero.
-void MaskGenoarrHetsUnsafe(const uintptr_t* __restrict genoarr, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr);
+HEADER_INLINE void MaskGenoarrHetsUnsafe(const uintptr_t* __restrict genoarr, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
+  MaskWordsToHalfwordsInvmatch(genoarr, kMaskAAAA, raw_sample_ctl2, bitarr, bitarr);
+}
 
 void MaskGenoarrHetsMultiallelicUnsafe(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr);
 

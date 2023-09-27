@@ -627,7 +627,7 @@ void FillInterleavedMaskVec(const uintptr_t* __restrict subset_mask, uint32_t ba
   // ~65% less.  This also avoids the Ryzen-screwing _pdep_u64()/_pext_u64()
   // operations.
   const VecW m4 = VCONST_W(kMask0F0F);
-#  ifdef USE_SSE42
+#  ifdef USE_SHUFFLE8
   const VecW lookup0 = vecw_setr8(
       0, 1, 4, 5, 16, 17, 20, 21,
       64, 65, 68, 69, 80, 81, 84, 85);
@@ -641,14 +641,10 @@ void FillInterleavedMaskVec(const uintptr_t* __restrict subset_mask, uint32_t ba
 
   for (uint32_t vidx = 0; vidx != base_vec_ct; ++vidx) {
     // I'll assume the compiler can handle this register allocation job.
-    VecW cur_vec = subset_mask_valias[vidx];
-
-    cur_vec = vecw_permute0xd8_if_avx2(cur_vec);
-    const VecW vec_even = cur_vec & m4;
-    const VecW vec_odd = vecw_srli(cur_vec, 4) & m4;
-    VecW vec_lo = vecw_unpacklo8(vec_even, vec_odd);
-    VecW vec_hi = vecw_unpackhi8(vec_even, vec_odd);
-#  ifdef USE_SSE42
+    VecW vec_lo;
+    VecW vec_hi;
+    vecw_lo_and_hi_nybbles(subset_mask_valias[vidx], m4, &vec_lo, &vec_hi);
+#  ifdef USE_SHUFFLE8
     vec_lo = vecw_shuffle8(lookup0, vec_lo);
     vec_hi = vecw_shuffle8(lookup1, vec_hi);
 #  else
@@ -1147,7 +1143,7 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
     const VecW* buf0_read_iter = R_CAST(const VecW*, buf0);
     __m128i* write_iter0 = R_CAST(__m128i*, buf1);
     const uint32_t buf0_row_clwidth = DivUp(read_batch_size, 8);
-#  ifdef USE_SSE42
+#  ifdef USE_SHUFFLE8
     const VecW gather_u32s = vecw_setr8(0, 1, 8, 9, 2, 3, 10, 11,
                                         4, 5, 12, 13, 6, 7, 14, 15);
 #  else
@@ -1185,7 +1181,7 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
         VecW loader1 = buf0_read_iter[clidx * 4 + 1];
         VecW loader2 = buf0_read_iter[clidx * 4 + 2];
         VecW loader3 = buf0_read_iter[clidx * 4 + 3];
-#    ifdef USE_SSE42
+#    ifdef USE_SHUFFLE8
         loader0 = vecw_shuffle8(loader0, gather_u32s);
         loader1 = vecw_shuffle8(loader1, gather_u32s);
         loader2 = vecw_shuffle8(loader2, gather_u32s);
@@ -1412,26 +1408,168 @@ void BiallelicDphase16Invert(uint32_t dphase_ct, int16_t* dphase_delta) {
   }
 }
 
-void GenoarrToMissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict missingness) {
-  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-  Halfword* missingness_alias = DowncastWToHW(missingness);
-  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-    const uintptr_t cur_geno_word = genoarr[widx];
-    missingness_alias[widx] = PackWordToHalfwordMask5555(cur_geno_word & (cur_geno_word >> 1));
+#if defined(USE_SSE2) && !defined(USE_AVX2)
+void PackWordsToHalfwordsInvmatch(const uintptr_t* __restrict genoarr, uintptr_t inv_match_word, uint32_t inword_ct, uintptr_t* __restrict dst) {
+  // In shuffle8 case, this takes ~30% less time than a
+  // PackWordToHalfwordMask5555 loop.
+  const uint32_t out_fullvec_ct = inword_ct / (kWordsPerVec * 2);
+  const VecW xor_vec = vecw_set1(inv_match_word);
+  const VecW m1 = VCONST_W(kMask5555);
+#  ifdef USE_SHUFFLE8
+  const VecW swap12 = vecw_setr8(
+      0, 1, 4, 5, 2, 3, 6, 7,
+      8, 9, 12, 13, 10, 11, 14, 15);
+#  else
+  const VecW m2 = VCONST_W(kMask3333);
+#  endif
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
+  for (uintptr_t vidx = 0; vidx != out_fullvec_ct; ++vidx) {
+    VecW vec_lo = vecw_loadu(&(genoarr[2 * kWordsPerVec * vidx])) ^ xor_vec;
+    VecW vec_hi = vecw_loadu(&(genoarr[2 * kWordsPerVec * vidx + kWordsPerVec])) ^ xor_vec;
+    vec_lo = vec_lo & vecw_srli(vec_lo, 1) & m1;
+    vec_hi = vec_hi & vecw_srli(vec_hi, 1) & m1;
+#  ifdef USE_SHUFFLE8
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 3)) & m4;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 3)) & m4;
+    vec_lo = vecw_shuffle8(swap12, vec_lo);
+    vec_hi = vecw_shuffle8(swap12, vec_hi);
+#  else
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 1)) & m2;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 1)) & m2;
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 2)) & m4;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 2)) & m4;
+#  endif
+    vec_lo = vec_lo | vecw_srli(vec_lo, 4);
+    vec_hi = vec_hi | vecw_srli(vec_hi, 4);
+    const VecW vec_packed = vecw_gather_even(vec_lo, vec_hi, m8);
+    vecw_storeu(&(dst[kWordsPerVec * vidx]), vec_packed);
   }
-  if (sample_ctl2 % 2) {
-    missingness_alias[sample_ctl2] = 0;
+  Halfword* dst_alias = DowncastWToHW(dst);
+  uint32_t widx = RoundDownPow2(inword_ct, kWordsPerVec * 2);
+  for (; widx != inword_ct; ++widx) {
+    const uintptr_t cur_word = genoarr[widx] ^ inv_match_word;
+    const Halfword hw = PackWordToHalfwordMask5555(cur_word & (cur_word >> 1));
+    dst_alias[widx] = hw;
   }
 }
 
-void GenoarrToNonmissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict nonmissingness) {
-  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-  Halfword* nonmissingness_alias = DowncastWToHW(nonmissingness);
-  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-    const uintptr_t cur_geno_word = genoarr[widx];
-    nonmissingness_alias[widx] = PackWordToHalfwordMask5555(~(cur_geno_word & (cur_geno_word >> 1)));
+void PackWordsToHalfwordsMismatch(const uintptr_t* __restrict genoarr, uintptr_t mismatch_word, uint32_t inword_ct, uintptr_t* __restrict dst) {
+  const uint32_t out_fullvec_ct = inword_ct / (kWordsPerVec * 2);
+  const VecW xor_vec = vecw_set1(mismatch_word);
+  const VecW m1 = VCONST_W(kMask5555);
+#  ifdef USE_SHUFFLE8
+  const VecW swap12 = vecw_setr8(
+      0, 1, 4, 5, 2, 3, 6, 7,
+      8, 9, 12, 13, 10, 11, 14, 15);
+#  else
+  const VecW m2 = VCONST_W(kMask3333);
+#  endif
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
+  for (uintptr_t vidx = 0; vidx != out_fullvec_ct; ++vidx) {
+    VecW vec_lo = vecw_loadu(&(genoarr[2 * kWordsPerVec * vidx])) ^ xor_vec;
+    VecW vec_hi = vecw_loadu(&(genoarr[2 * kWordsPerVec * vidx + kWordsPerVec])) ^ xor_vec;
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 1)) & m1;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 1)) & m1;
+#  ifdef USE_SHUFFLE8
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 3)) & m4;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 3)) & m4;
+    vec_lo = vecw_shuffle8(swap12, vec_lo);
+    vec_hi = vecw_shuffle8(swap12, vec_hi);
+#  else
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 1)) & m2;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 1)) & m2;
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 2)) & m4;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 2)) & m4;
+#  endif
+    vec_lo = vec_lo | vecw_srli(vec_lo, 4);
+    vec_hi = vec_hi | vecw_srli(vec_hi, 4);
+    const VecW vec_packed = vecw_gather_even(vec_lo, vec_hi, m8);
+    vecw_storeu(&(dst[kWordsPerVec * vidx]), vec_packed);
+  }
+  Halfword* dst_alias = DowncastWToHW(dst);
+  uint32_t widx = RoundDownPow2(inword_ct, kWordsPerVec * 2);
+  for (; widx != inword_ct; ++widx) {
+    const uintptr_t cur_word = genoarr[widx] ^ mismatch_word;
+    const Halfword hw = PackWordToHalfwordMask5555(cur_word | (cur_word >> 1));
+    dst_alias[widx] = hw;
   }
 }
+
+void MaskWordsToHalfwordsInvmatch(const uintptr_t* __restrict genoarr, uintptr_t inv_match_word, uint32_t inword_ct, uintptr_t* src, uintptr_t* dst) {
+  const uint32_t out_fullvec_ct = inword_ct / (kWordsPerVec * 2);
+  const VecW xor_vec = vecw_set1(inv_match_word);
+  const VecW m1 = VCONST_W(kMask5555);
+#  ifdef USE_SHUFFLE8
+  const VecW swap12 = vecw_setr8(
+      0, 1, 4, 5, 2, 3, 6, 7,
+      8, 9, 12, 13, 10, 11, 14, 15);
+#  else
+  const VecW m2 = VCONST_W(kMask3333);
+#  endif
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
+  for (uintptr_t vidx = 0; vidx != out_fullvec_ct; ++vidx) {
+    VecW vec_lo = vecw_loadu(&(genoarr[2 * kWordsPerVec * vidx])) ^ xor_vec;
+    VecW vec_hi = vecw_loadu(&(genoarr[2 * kWordsPerVec * vidx + kWordsPerVec])) ^ xor_vec;
+    VecW src_vec = vecw_loadu(&(src[kWordsPerVec * vidx]));
+    vec_lo = vec_lo & vecw_srli(vec_lo, 1) & m1;
+    vec_hi = vec_hi & vecw_srli(vec_hi, 1) & m1;
+#  ifdef USE_SHUFFLE8
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 3)) & m4;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 3)) & m4;
+    vec_lo = vecw_shuffle8(swap12, vec_lo);
+    vec_hi = vecw_shuffle8(swap12, vec_hi);
+#  else
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 1)) & m2;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 1)) & m2;
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 2)) & m4;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 2)) & m4;
+#  endif
+    vec_lo = vec_lo | vecw_srli(vec_lo, 4);
+    vec_hi = vec_hi | vecw_srli(vec_hi, 4);
+    const VecW vec_packed = vecw_gather_even(vec_lo, vec_hi, m8);
+    vecw_storeu(&(dst[kWordsPerVec * vidx]), src_vec & vec_packed);
+  }
+  Halfword* src_alias = DowncastWToHW(src);
+  Halfword* dst_alias = DowncastWToHW(dst);
+  uint32_t widx = RoundDownPow2(inword_ct, kWordsPerVec * 2);
+  for (; widx != inword_ct; ++widx) {
+    const uintptr_t cur_word = genoarr[widx] ^ inv_match_word;
+    const Halfword hw = PackWordToHalfwordMask5555(cur_word & (cur_word >> 1));
+    dst_alias[widx] = src_alias[widx] & hw;
+  }
+}
+#else
+void PackWordsToHalfwordsInvmatch(const uintptr_t* __restrict genoarr, uintptr_t inv_match_word, uint32_t inword_ct, uintptr_t* __restrict dst) {
+  Halfword* dst_alias = DowncastWToHW(dst);
+  for (uint32_t widx = 0; widx != inword_ct; ++widx) {
+    const uintptr_t cur_word = genoarr[widx] ^ inv_match_word;
+    const Halfword hw = PackWordToHalfwordMask5555(cur_word & (cur_word >> 1));
+    dst_alias[widx] = hw;
+  }
+}
+
+void PackWordsToHalfwordsMismatch(const uintptr_t* __restrict genoarr, uintptr_t mismatch_word, uint32_t inword_ct, uintptr_t* __restrict dst) {
+  Halfword* dst_alias = DowncastWToHW(dst);
+  for (uint32_t widx = 0; widx != inword_ct; ++widx) {
+    const uintptr_t cur_word = genoarr[widx] ^ mismatch_word;
+    const Halfword hw = PackWordToHalfwordMask5555(cur_word | (cur_word >> 1));
+    dst_alias[widx] = hw;
+  }
+}
+
+void MaskWordsToHalfwordsInvmatch(const uintptr_t* __restrict genoarr, uintptr_t inv_match_word, uint32_t inword_ct, uintptr_t* src, uintptr_t* dst) {
+  Halfword* src_alias = DowncastWToHW(src);
+  Halfword* dst_alias = DowncastWToHW(dst);
+  for (uint32_t widx = 0; widx != inword_ct; ++widx) {
+    const uintptr_t cur_word = genoarr[widx] ^ inv_match_word;
+    const Halfword hw = PackWordToHalfwordMask5555(cur_word & (cur_word >> 1));
+    dst_alias[widx] = src_alias[widx] & hw;
+  }
+}
+#endif
 
 void SparseToMissingness(const uintptr_t* __restrict raregeno, const uint32_t* difflist_sample_ids, uint32_t sample_ct, uint32_t difflist_common_geno, uint32_t difflist_len, uintptr_t* __restrict missingness) {
   if (difflist_common_geno != 3) {
@@ -1464,15 +1602,77 @@ void SparseToMissingness(const uintptr_t* __restrict raregeno, const uint32_t* d
   }
 }
 
+#if defined(USE_SSE2) && !defined(USE_AVX2)
+void SplitHomRef2hetUnsafeW(const uintptr_t* __restrict genoarr, uint32_t inword_ct, uintptr_t* __restrict hom_buf, uintptr_t* __restrict ref2het_buf) {
+  const uint32_t out_fullvec_ct = inword_ct / (kWordsPerVec * 2);
+  // In shuffle8 case, this takes ~55% less time than unvectorized loop.
+  // homozygous: geno = 0 or 2
+  // ref2het: geno = 0 or 1
+  const VecW m1 = VCONST_W(kMask5555);
+#  ifdef USE_SHUFFLE8
+  const VecW swap12 = vecw_setr8(
+      0, 1, 4, 5, 2, 3, 6, 7,
+      8, 9, 12, 13, 10, 11, 14, 15);
+#  else
+  const VecW m2 = VCONST_W(kMask3333);
+#  endif
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
+  for (uintptr_t vidx = 0; vidx != out_fullvec_ct; ++vidx) {
+    const VecW vec_lo = vecw_loadu(&(genoarr[2 * kWordsPerVec * vidx]));
+    const VecW vec_hi = vecw_loadu(&(genoarr[2 * kWordsPerVec * vidx + kWordsPerVec]));
+    VecW hom_lo = vecw_and_notfirst(vec_lo, m1);
+    VecW r2h_lo = vecw_and_notfirst(vecw_srli(vec_lo, 1), m1);
+    VecW hom_hi = vecw_and_notfirst(vec_hi, m1);
+    VecW r2h_hi = vecw_and_notfirst(vecw_srli(vec_hi, 1), m1);
+#  ifdef USE_SHUFFLE8
+    hom_lo = (hom_lo | vecw_srli(hom_lo, 3)) & m4;
+    r2h_lo = (r2h_lo | vecw_srli(r2h_lo, 3)) & m4;
+    hom_hi = (hom_hi | vecw_srli(hom_hi, 3)) & m4;
+    r2h_hi = (r2h_hi | vecw_srli(r2h_hi, 3)) & m4;
+    hom_lo = vecw_shuffle8(swap12, hom_lo);
+    r2h_lo = vecw_shuffle8(swap12, r2h_lo);
+    hom_hi = vecw_shuffle8(swap12, hom_hi);
+    r2h_hi = vecw_shuffle8(swap12, r2h_hi);
+#  else
+    hom_lo = (hom_lo | vecw_srli(hom_lo, 1)) & m2;
+    r2h_lo = (r2h_lo | vecw_srli(r2h_lo, 1)) & m2;
+    hom_hi = (hom_hi | vecw_srli(hom_hi, 1)) & m2;
+    r2h_hi = (r2h_hi | vecw_srli(r2h_hi, 1)) & m2;
+    hom_lo = (hom_lo | vecw_srli(hom_lo, 2)) & m4;
+    r2h_lo = (r2h_lo | vecw_srli(r2h_lo, 2)) & m4;
+    hom_hi = (hom_hi | vecw_srli(hom_hi, 2)) & m4;
+    r2h_hi = (r2h_hi | vecw_srli(r2h_hi, 2)) & m4;
+#  endif
+    hom_lo = hom_lo | vecw_srli(hom_lo, 4);
+    r2h_lo = r2h_lo | vecw_srli(r2h_lo, 4);
+    hom_hi = hom_hi | vecw_srli(hom_hi, 4);
+    r2h_hi = r2h_hi | vecw_srli(r2h_hi, 4);
+    const VecW hom_packed = vecw_gather_even(hom_lo, hom_hi, m8);
+    const VecW r2h_packed = vecw_gather_even(r2h_lo, r2h_hi, m8);
+    vecw_storeu(&(hom_buf[kWordsPerVec * vidx]), hom_packed);
+    vecw_storeu(&(ref2het_buf[kWordsPerVec * vidx]), r2h_packed);
+  }
+  Halfword* hom_alias = DowncastWToHW(hom_buf);
+  Halfword* r2h_alias = DowncastWToHW(ref2het_buf);
+  uint32_t widx = RoundDownPow2(inword_ct, kWordsPerVec * 2);
+  for (; widx != inword_ct; ++widx) {
+    const uintptr_t inv_geno_word = ~genoarr[widx];
+    hom_alias[widx] = PackWordToHalfwordMask5555(inv_geno_word);
+    r2h_alias[widx] = PackWordToHalfwordMaskAAAA(inv_geno_word);
+  }
+}
+#else
 void SplitHomRef2hetUnsafeW(const uintptr_t* genoarr, uint32_t inword_ct, uintptr_t* __restrict hom_buf, uintptr_t* __restrict ref2het_buf) {
   Halfword* hom_alias = DowncastWToHW(hom_buf);
   Halfword* ref2het_alias = DowncastWToHW(ref2het_buf);
   for (uint32_t widx = 0; widx != inword_ct; ++widx) {
-    const uintptr_t geno_word = genoarr[widx];
-    hom_alias[widx] = PackWordToHalfwordMask5555(~geno_word);
-    ref2het_alias[widx] = PackWordToHalfwordMaskAAAA(~geno_word);
+    const uintptr_t inv_geno_word = ~genoarr[widx];
+    hom_alias[widx] = PackWordToHalfwordMask5555(inv_geno_word);
+    ref2het_alias[widx] = PackWordToHalfwordMaskAAAA(inv_geno_word);
   }
 }
+#endif
 
 void SplitHomRef2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* __restrict hom_buf, uintptr_t* __restrict ref2het_buf) {
   const uint32_t full_outword_ct = sample_ct / kBitsPerWord;
@@ -1538,7 +1738,85 @@ BoolErr HapsplitMustPhased(const uintptr_t* genoarr, const uintptr_t* phaseprese
   return (detect_unphased != 0);
 }
 
-void HapsplitHaploid(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* hap_arr, uintptr_t* nm_arr) {
+#if defined(USE_SSE2) && !defined(USE_AVX2)
+void HapsplitHaploid(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict hap_arr, uintptr_t* __restrict nm_arr) {
+  // In shuffle8 case, this takes ~40% less time than unvectorized loop.
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  const uint32_t sample_ctl2_is_odd = NypCtToWordCt(sample_ct) & 1;
+  const uint32_t wordpair_ct = sample_ctl - sample_ctl2_is_odd;
+  const uint32_t out_fullvec_ct = wordpair_ct / 2;
+  const VecW m1 = VCONST_W(kMask5555);
+#  ifdef USE_SHUFFLE8
+  const VecW swap12 = vecw_setr8(
+      0, 1, 4, 5, 2, 3, 6, 7,
+      8, 9, 12, 13, 10, 11, 14, 15);
+#  else
+  const VecW m2 = VCONST_W(kMask3333);
+#  endif
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
+  for (uintptr_t vidx = 0; vidx != out_fullvec_ct; ++vidx) {
+    const VecW vec_lo = vecw_loadu(&(genoarr[2 * kWordsPerVec * vidx]));
+    const VecW vec_hi = vecw_loadu(&(genoarr[2 * kWordsPerVec * vidx + kWordsPerVec]));
+    VecW nm_lo = vecw_and_notfirst(vec_lo, m1);
+    VecW nm_hi = vecw_and_notfirst(vec_hi, m1);
+    VecW hap_lo = nm_lo & vecw_srli(vec_lo, 1);
+    VecW hap_hi = nm_hi & vecw_srli(vec_hi, 1);
+#  ifdef USE_SHUFFLE8
+    nm_lo = (nm_lo | vecw_srli(nm_lo, 3)) & m4;
+    nm_hi = (nm_hi | vecw_srli(nm_hi, 3)) & m4;
+    hap_lo = (hap_lo | vecw_srli(hap_lo, 3)) & m4;
+    hap_hi = (hap_hi | vecw_srli(hap_hi, 3)) & m4;
+    nm_lo = vecw_shuffle8(swap12, nm_lo);
+    nm_hi = vecw_shuffle8(swap12, nm_hi);
+    hap_lo = vecw_shuffle8(swap12, hap_lo);
+    hap_hi = vecw_shuffle8(swap12, hap_hi);
+#  else
+    nm_lo = (nm_lo | vecw_srli(nm_lo, 1)) & m2;
+    nm_hi = (nm_hi | vecw_srli(nm_hi, 1)) & m2;
+    hap_lo = (hap_lo | vecw_srli(hap_lo, 1)) & m2;
+    hap_hi = (hap_hi | vecw_srli(hap_hi, 1)) & m2;
+    nm_lo = (nm_lo | vecw_srli(nm_lo, 2)) & m4;
+    nm_hi = (nm_hi | vecw_srli(nm_hi, 2)) & m4;
+    hap_lo = (hap_lo | vecw_srli(hap_lo, 2)) & m4;
+    hap_hi = (hap_hi | vecw_srli(hap_hi, 2)) & m4;
+#  endif
+    nm_lo = nm_lo | vecw_srli(nm_lo, 4);
+    nm_hi = nm_hi | vecw_srli(nm_hi, 4);
+    hap_lo = hap_lo | vecw_srli(hap_lo, 4);
+    hap_hi = hap_hi | vecw_srli(hap_hi, 4);
+    const VecW nm_packed = vecw_gather_even(nm_lo, nm_hi, m8);
+    const VecW hap_packed = vecw_gather_even(hap_lo, hap_hi, m8);
+    vecw_storeu(&(nm_arr[kWordsPerVec * vidx]), nm_packed);
+    vecw_storeu(&(hap_arr[kWordsPerVec * vidx]), hap_packed);
+  }
+  if (wordpair_ct % 2) {
+    const uint32_t widx = wordpair_ct - 1;
+    const uintptr_t geno_word0 = genoarr[widx * 2];
+    const uintptr_t geno_word1 = genoarr[widx * 2 + 1];
+    const uintptr_t nm_word0 = ~geno_word0;
+    const uintptr_t nm_word1 = ~geno_word1;
+    const uintptr_t hap_word0 = nm_word0 & (geno_word0 >> 1);
+    const uintptr_t hap_word1 = nm_word1 & (geno_word1 >> 1);
+    nm_arr[widx] = PackTwo5555Mask(nm_word0, nm_word1);
+    hap_arr[widx] = PackTwo5555Mask(hap_word0, hap_word1);
+  }
+  if (sample_ctl2_is_odd) {
+    const uintptr_t geno_word0 = genoarr[wordpair_ct * 2];
+    const uintptr_t nm_word0 = ~geno_word0;
+    const uintptr_t hap_word0 = nm_word0 & (geno_word0 >> 1);
+    nm_arr[wordpair_ct] = PackWordToHalfwordMask5555(nm_word0);
+    hap_arr[wordpair_ct] = PackWordToHalfwordMask5555(hap_word0);
+  }
+  const uint32_t trailing_bit_ct = sample_ct % kBitsPerWord;
+  if (trailing_bit_ct) {
+    const uint32_t last_word_idx = sample_ctl - 1;
+    nm_arr[last_word_idx] = bzhi(nm_arr[last_word_idx], trailing_bit_ct);
+    hap_arr[last_word_idx] = bzhi(hap_arr[last_word_idx], trailing_bit_ct);
+  }
+}
+#else
+void HapsplitHaploid(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict hap_arr, uintptr_t* __restrict nm_arr) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   const uint32_t sample_ctl2_is_odd = NypCtToWordCt(sample_ct) & 1;
   const uint32_t wordpair_ct = sample_ctl - sample_ctl2_is_odd;
@@ -1566,10 +1844,70 @@ void HapsplitHaploid(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* ha
     hap_arr[last_word_idx] = bzhi(hap_arr[last_word_idx], trailing_bit_ct);
   }
 }
+#endif
 
-// Note that once the result elements are only 4 bits wide, shuffle8 should
-// beat a 256x4 lookup table when SSE4 is available.  (possible todo: see if
-// shuffle8-based loop also wins here.)
+#ifdef USE_SHUFFLE8
+// ~70% less time than per-byte lookup.
+void GenoarrLookup256x1bx4(const uintptr_t* genoarr, const void* table256x1bx4, uint32_t sample_ct, void* __restrict result) {
+  const uint32_t* table_alias = S_CAST(const uint32_t*, table256x1bx4);
+  const unsigned char* genoarr_alias = DowncastKToUc(genoarr);
+  unsigned char* resultb = S_CAST(unsigned char*, result);
+  const uint32_t full_byte_ct = sample_ct / 4;
+  if (full_byte_ct >= kBytesPerVec) {
+    const uint32_t last_genoarr_offset = full_byte_ct - kBytesPerVec;
+    const VecW lookup_even = vecw_loadu(&(table_alias[256]));
+    const VecW lookup_odd = vecw_loadu(&(table_alias[256 + kInt32PerVec]));
+    const VecW m4 = VCONST_W(kMask0F0F);
+    for (uint32_t genoarr_offset = 0; ; genoarr_offset += kBytesPerVec) {
+      if (genoarr_offset >= last_genoarr_offset) {
+        if (genoarr_offset == full_byte_ct) {
+          break;
+        }
+        genoarr_offset = last_genoarr_offset;
+      }
+      VecW cur_vec = vecw_loadu(&(genoarr_alias[genoarr_offset]));
+      VecW vec_lo;
+      VecW vec_hi;
+      vecw_lo_and_hi_nybbles(cur_vec, m4, &vec_lo, &vec_hi);
+      VecW result_lo_even = vecw_shuffle8(lookup_even, vec_lo);
+      VecW result_hi_even = vecw_shuffle8(lookup_even, vec_hi);
+      VecW result_lo_odd = vecw_shuffle8(lookup_odd, vec_lo);
+      VecW result_hi_odd = vecw_shuffle8(lookup_odd, vec_hi);
+      // In AVX2 case, result_lo_even has (0, 2, 4, ..., 62), and result_lo_odd
+      // has (1, 3, 5, ..., 63).
+      //   even -> (0, 2, 4, ..., 14, 32, ..., 46, 16, ..., 30, 48, ..., 62)
+      //   odd ->  (1, 3, 5, ..., 15, 33, ..., 47, 17, ..., 31, 49, ..., 63)
+      // Then unpacklo yields (0, 1, 2, ..., 31).
+      result_lo_even = vecw_permute0xd8_if_avx2(result_lo_even);
+      result_lo_odd = vecw_permute0xd8_if_avx2(result_lo_odd);
+      result_hi_even = vecw_permute0xd8_if_avx2(result_hi_even);
+      result_hi_odd = vecw_permute0xd8_if_avx2(result_hi_odd);
+      const VecW result0 = vecw_unpacklo8(result_lo_even, result_lo_odd);
+      const VecW result1 = vecw_unpackhi8(result_lo_even, result_lo_odd);
+      const VecW result2 = vecw_unpacklo8(result_hi_even, result_hi_odd);
+      const VecW result3 = vecw_unpackhi8(result_hi_even, result_hi_odd);
+      unsigned char* cur_resultb = &(resultb[genoarr_offset * 4]);
+      vecw_storeu(cur_resultb, result0);
+      vecw_storeu(&(cur_resultb[kBytesPerVec]), result1);
+      vecw_storeu(&(cur_resultb[2 * kBytesPerVec]), result2);
+      vecw_storeu(&(cur_resultb[3 * kBytesPerVec]), result3);
+    }
+  } else {
+    for (uint32_t byte_idx = 0; byte_idx != full_byte_ct; ++byte_idx) {
+      CopyToUnalignedOffsetU32(resultb, &(table_alias[genoarr_alias[byte_idx]]), byte_idx);
+    }
+  }
+  const uint32_t remainder = sample_ct % 4;
+  if (remainder) {
+    unsigned char* result_last = &(resultb[full_byte_ct * 4]);
+    uintptr_t geno_byte = genoarr_alias[full_byte_ct];
+    for (uint32_t uii = 0; uii != remainder; ++uii) {
+      result_last[uii] = table_alias[geno_byte & 3];
+      geno_byte >>= 2;
+    }
+  }
+}
+#else
 void GenoarrLookup256x1bx4(const uintptr_t* genoarr, const void* table256x1bx4, uint32_t sample_ct, void* __restrict result) {
   const uint32_t* table_alias = S_CAST(const uint32_t*, table256x1bx4);
   const unsigned char* genoarr_alias = DowncastKToUc(genoarr);
@@ -1588,6 +1926,7 @@ void GenoarrLookup256x1bx4(const uintptr_t* genoarr, const void* table256x1bx4, 
     }
   }
 }
+#endif
 
 #ifndef NO_UNALIGNED
 void GenoarrLookup16x4bx2(const uintptr_t* genoarr, const void* table16x4bx2, uint32_t sample_ct, void* __restrict result) {
@@ -1868,6 +2207,23 @@ void InitLookup256x1bx4(void* table256x1bx4) {
       }
     }
   }
+#ifdef USE_SHUFFLE8
+  // first vector: 0, 1, 2, 3
+  // second vector: 0, 4, 8, 12
+  uint32_t* final_u32s = R_CAST(uint32_t*, table_iter);
+  uint32_t val0123;
+  memcpy(&val0123, vals, 4);
+  for (uint32_t uii = 0; uii != kInt32PerVec; ++uii) {
+    final_u32s[uii] = val0123;
+  }
+  final_u32s[kInt32PerVec] = S_CAST(uint32_t, vals[0]) * 0x1010101;
+  final_u32s[kInt32PerVec + 1] = S_CAST(uint32_t, vals[1]) * 0x1010101;
+  final_u32s[kInt32PerVec + 2] = S_CAST(uint32_t, vals[2]) * 0x1010101;
+  final_u32s[kInt32PerVec + 3] = S_CAST(uint32_t, vals[3]) * 0x1010101;
+#  ifdef USE_AVX2
+  memcpy(&(final_u32s[12]), &(final_u32s[8]), 16);
+#  endif
+#endif
 }
 
 void InitLookup256x2bx4(void* table256x2bx4) {

@@ -237,6 +237,48 @@ void VaridTemplateInit(const char* varid_template_str, const char* missing_id_ma
   vtp->missing_id_match = missing_id_match;
 }
 
+static_assert((!(kMaxIdSlen % kCacheline)), "VaridInitAll() must be updated.");
+BoolErr VaridInitAll(unsigned char* arena_end, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, MiscFlags misc_flags, uint32_t new_variant_id_max_allele_slen, unsigned char** arena_basep, const char** missing_varid_matchp, char** chr_output_name_bufp, VaridTemplate** varid_templatepp, VaridTemplate** varid_multi_templatepp, VaridTemplate** varid_multi_nonsnp_templatepp, uint32_t* missing_varid_blenp, uint32_t* missing_varid_match_slenp) {
+  unsigned char* arena_base = *arena_basep;
+  if (unlikely(S_CAST(uintptr_t, arena_end - arena_base) < (chr_output_name_bufp != nullptr) * kMaxIdSlen + 3 * RoundUpPow2(sizeof(VaridTemplate), kCacheline))) {
+    return 1;
+  }
+  char* chr_output_name_buf = nullptr;
+  if (chr_output_name_bufp) {
+    chr_output_name_buf = R_CAST(char*, arena_base);
+    *chr_output_name_bufp = chr_output_name_buf;
+    arena_base = &(arena_base[kMaxIdSlen]);
+  }
+  if (!(*missing_varid_matchp)) {
+    *missing_varid_matchp = &(g_one_char_strs[92]);  // '.'
+  }
+  uint32_t missing_varid_blen = strlen(*missing_varid_matchp);
+  if (misc_flags & kfMiscSetMissingVarIds) {
+    *missing_varid_match_slenp = missing_varid_blen;
+  }
+  ++missing_varid_blen;
+  if (missing_varid_blenp) {
+    *missing_varid_blenp = missing_varid_blen;
+  }
+  *varid_templatepp = R_CAST(VaridTemplate*, arena_base);
+  arena_base = &(arena_base[RoundUpPow2(sizeof(VaridTemplate), kCacheline)]);
+  const uint32_t new_variant_id_overflow_missing = (misc_flags / kfMiscNewVarIdOverflowMissing) & 1;
+  const uint32_t overflow_substitute_blen = new_variant_id_overflow_missing? missing_varid_blen : 0;
+  VaridTemplateInit(varid_template_str, *missing_varid_matchp, chr_output_name_buf, new_variant_id_max_allele_slen, overflow_substitute_blen, *varid_templatepp);
+  if (varid_multi_template_str) {
+    *varid_multi_templatepp = R_CAST(VaridTemplate*, arena_base);
+    arena_base = &(arena_base[RoundUpPow2(sizeof(VaridTemplate), kCacheline)]);
+    VaridTemplateInit(varid_multi_template_str, *missing_varid_matchp, chr_output_name_buf, new_variant_id_max_allele_slen, overflow_substitute_blen, *varid_multi_templatepp);
+  }
+  if (varid_multi_nonsnp_template_str) {
+    *varid_multi_nonsnp_templatepp = R_CAST(VaridTemplate*, arena_base);
+    arena_base = &(arena_base[RoundUpPow2(sizeof(VaridTemplate), kCacheline)]);
+    VaridTemplateInit(varid_multi_nonsnp_template_str, *missing_varid_matchp, chr_output_name_buf, new_variant_id_max_allele_slen, overflow_substitute_blen, *varid_multi_nonsnp_templatepp);
+  }
+  *arena_basep = arena_base;
+  return 0;
+}
+
 // alt1_end currently allowed to be nullptr in biallelic case
 BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, unsigned char** tmp_alloc_endp, uintptr_t* new_id_allele_len_overflowp, uint32_t* id_slen_ptr) {
   uint32_t insert_slens[4];
@@ -340,7 +382,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
 
 // Exported variant of VaridTemplateApply() which appends to a buffer.
 // Probable todo: pull out the common parts of the functions.
-char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, char* dst) {
+char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, uint32_t* allele_overflow_seenp, char* dst) {
   uint32_t insert_slens[4];
   const uint32_t alleles_needed = vtp->alleles_needed;
   const uint32_t new_id_max_allele_slen = vtp->new_id_max_allele_slen;
@@ -396,9 +438,12 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
       tmp_allele_ptrs[0] = alt1_start;
     }
   }
-  const uint32_t overflow_substitute_blen = vtp->overflow_substitute_blen;
-  if (overflow_substitute_blen && cur_overflow) {
-    return memcpya(dst, vtp->missing_id_match, overflow_substitute_blen);
+  if (cur_overflow) {
+    *allele_overflow_seenp = 1;
+    const uint32_t overflow_substitute_blen = vtp->overflow_substitute_blen;
+    if (overflow_substitute_blen) {
+      return memcpya(dst, vtp->missing_id_match, overflow_substitute_blen);
+    }
   }
   char* id_iter = dst;
   const uint32_t insert_ct = vtp->insert_ct;
@@ -806,7 +851,6 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
   return kPglRetSuccess;
 }
 
-static_assert((!(kMaxIdSlen % kCacheline)), "LoadPvar() must be updated.");
 PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr* extract_if_info_exprp, const CmpExpr* exclude_if_info_exprp, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, uint32_t xheader_needed, uint32_t qualfilter_needed, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, uint32_t filter_min_allele_ct, uint32_t filter_max_allele_ct, char input_missing_geno_char, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** allele_idx_offsets_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
@@ -1207,7 +1251,6 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         goto LoadPvar_ret_NOMEM;
       }
     }
-    const uint32_t new_variant_id_overflow_missing = (misc_flags / kfMiscNewVarIdOverflowMissing) & 1;
     char* chr_output_name_buf = nullptr;
     VaridTemplate* varid_templatep = nullptr;
     VaridTemplate* varid_multi_templatep = nullptr;
@@ -1215,32 +1258,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t missing_varid_blen = 0;
     uint32_t missing_varid_match_slen = 0;
     if (varid_template_str) {
-      if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kMaxIdSlen + 3 * RoundUpPow2(sizeof(VaridTemplate), kCacheline))) {
+      if (unlikely(VaridInitAll(tmp_alloc_end, varid_template_str, varid_multi_template_str, varid_multi_nonsnp_template_str, misc_flags, new_variant_id_max_allele_slen, &tmp_alloc_base, &missing_varid_match, &chr_output_name_buf, &varid_templatep, &varid_multi_templatep, &varid_multi_nonsnp_templatep, &missing_varid_blen, &missing_varid_match_slen))) {
         goto LoadPvar_ret_NOMEM;
-      }
-      chr_output_name_buf = R_CAST(char*, tmp_alloc_base);
-      tmp_alloc_base = &(tmp_alloc_base[kMaxIdSlen]);
-      if (!missing_varid_match) {
-        missing_varid_match = &(g_one_char_strs[92]);  // '.'
-      }
-      missing_varid_blen = strlen(missing_varid_match);
-      if (misc_flags & kfMiscSetMissingVarIds) {
-        missing_varid_match_slen = missing_varid_blen;
-      }
-      ++missing_varid_blen;
-      varid_templatep = R_CAST(VaridTemplate*, tmp_alloc_base);
-      tmp_alloc_base = &(tmp_alloc_base[RoundUpPow2(sizeof(VaridTemplate), kCacheline)]);
-      const uint32_t overflow_substitute_blen = new_variant_id_overflow_missing? missing_varid_blen : 0;
-      VaridTemplateInit(varid_template_str, missing_varid_match, chr_output_name_buf, new_variant_id_max_allele_slen, overflow_substitute_blen, varid_templatep);
-      if (varid_multi_template_str) {
-        varid_multi_templatep = R_CAST(VaridTemplate*, tmp_alloc_base);
-        tmp_alloc_base = &(tmp_alloc_base[RoundUpPow2(sizeof(VaridTemplate), kCacheline)]);
-        VaridTemplateInit(varid_multi_template_str, missing_varid_match, chr_output_name_buf, new_variant_id_max_allele_slen, overflow_substitute_blen, varid_multi_templatep);
-      }
-      if (varid_multi_nonsnp_template_str) {
-        varid_multi_nonsnp_templatep = R_CAST(VaridTemplate*, tmp_alloc_base);
-        tmp_alloc_base = &(tmp_alloc_base[RoundUpPow2(sizeof(VaridTemplate), kCacheline)]);
-        VaridTemplateInit(varid_multi_nonsnp_template_str, missing_varid_match, chr_output_name_buf, new_variant_id_max_allele_slen, overflow_substitute_blen, varid_multi_nonsnp_templatep);
       }
     }
 
@@ -1865,6 +1884,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       goto LoadPvar_ret_MALFORMED_INPUT;
     }
     if (new_variant_id_allele_len_overflow) {
+      const uint32_t new_variant_id_overflow_missing = (misc_flags / kfMiscNewVarIdOverflowMissing) & 1;
       if (new_variant_id_overflow_missing) {
         logerrprintfww("Warning: %" PRIuPTR " variant ID%s %s due to allele code length.\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? "" : "s", missing_varid_match_slen? "unchanged by --set-missing-var-ids" : "erased by --set-all-var-ids");
         if (max_variant_id_slen < missing_varid_blen - 1) {
@@ -2126,8 +2146,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         logerrputs("Warning: --merge-x had no effect (no XY chromosome codes present).\n");
       }
     }
-    // if nonstandard chromosome codes present, add note about this in alpha 6
-    const uint32_t last_chr_code = cip->max_code + cip->name_ct;
+    const uint32_t name_ct = cip->name_ct;
+    if (name_ct) {
+      logprintf("Note: %u nonstandard chromosome code%s present.\n", name_ct, (name_ct == 1)? "" : "s");
+    }
+    const uint32_t last_chr_code = cip->max_code + name_ct;
     const uint32_t chr_word_ct = BitCtToWordCt(last_chr_code + 1);
     BitvecAnd(loaded_chr_mask, chr_word_ct, chr_mask);
     BigstackEndSet(tmp_alloc_end);

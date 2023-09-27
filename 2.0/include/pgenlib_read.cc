@@ -470,6 +470,7 @@ void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_nyp_ct, uint32
       // SSE2:
       //   vec01 contains {0-1, 2-3, 4-5, 6-7, ..., 30-31}
       //   vec23 contains {32-33, 34-35, 36-37, 38-39, ..., 62-63}
+      // There's no m4 masking here, so we don't use vecw_lo_and_hi_nybbles.
       const VecW vec01 = vecw_unpacklo8(vec_even, vec_odd);
       const VecW vec23 = vecw_unpackhi8(vec_even, vec_odd);
 
@@ -541,28 +542,11 @@ void Expand4bitTo8(const void* __restrict bytearr, uint32_t input_nybble_ct, uin
     const VecW mincr = VecUcToW(vecuc_set1(incr));
     const VecW m4 = VCONST_W(kMask0F0F);
     for (uint32_t vec_idx = 0; vec_idx != input_vec_ct; ++vec_idx) {
-      VecW cur_vec = vecw_loadu(src_iter);
+      const VecW cur_vec = vecw_loadu(src_iter);
       src_iter = &(src_iter[kBytesPerVec]);
-      cur_vec = vecw_permute0xd8_if_avx2(cur_vec);
-      // AVX2:
-      //   vec_even contains {0, 2, 4, ..., 14, 32, 34, ..., 46,
-      //                      16, 18, ..., 30, 48, ... 62}
-      //   vec_odd contains {1, 3, 5, ..., 15, 33, 35, ..., 47,
-      //                     17, 19, ..., 31, 49, ..., 63}
-      // SSE2:
-      //   vec_even contains {0, 2, 4, ..., 30}
-      //   vec_odd contains {1, 3, 5, ..., 31}
-      const VecW vec_even = cur_vec & m4;
-      const VecW vec_odd = vecw_srli(cur_vec, 4) & m4;
-
-      // AVX2:
-      //   vec_lo contains {0, 1, ..., 31}
-      //   vec_hi contains {32, 33, ..., 63}
-      // SSE2:
-      //   vec_lo contains {0, 1, 2, ..., 15}
-      //   vec_hi contains {16, 17, 18, ..., 31}
-      const VecW vec_lo = vecw_unpacklo8(vec_even, vec_odd);
-      const VecW vec_hi = vecw_unpackhi8(vec_even, vec_odd);
+      VecW vec_lo;
+      VecW vec_hi;
+      vecw_lo_and_hi_nybbles(cur_vec, m4, &vec_lo, &vec_hi);
       *dst_iter++ = mincr + vec_lo;
       *dst_iter++ = mincr + vec_hi;
     }
@@ -2311,7 +2295,7 @@ PglErr ParseOnebitUnsafe(const unsigned char* fread_end, const unsigned char** f
   if (read_hw_ct >= 2 * kWordsPerVec) {
     const uint32_t read_vec_ct = raw_sample_ct / kBitsPerVec;
     const VecW m4 = VCONST_W(kMask0F0F);
-#  ifdef USE_SSE42
+#  ifdef USE_SHUFFLE8
     // 0, 1, 4, 5, 16, 17, 20, 21, 64, 65, 68, 69, 80, 81, 84, 85 if the codes
     // are 0 and 1
     const VecW lookup = {word_base + common_code_delta * 0x1514111005040100LLU,
@@ -2324,11 +2308,10 @@ PglErr ParseOnebitUnsafe(const unsigned char* fread_end, const unsigned char** f
 #  endif
     for (uint32_t vidx = 0; vidx != read_vec_ct; ++vidx) {
       const VecW cur_vec = vecw_loadu(&(onebit_main_iter[vidx * kBytesPerVec]));
-      const VecW vec_even = cur_vec & m4;
-      const VecW vec_odd = vecw_srli(cur_vec, 4) & m4;
-      VecW vec_lo = vecw_unpacklo8(vec_even, vec_odd);
-      VecW vec_hi = vecw_unpackhi8(vec_even, vec_odd);
-#  ifdef USE_SSE42
+      VecW vec_lo;
+      VecW vec_hi;
+      vecw_lo_and_hi_nybbles(cur_vec, m4, &vec_lo, &vec_hi);
+#  ifdef USE_SHUFFLE8
       vec_lo = vecw_shuffle8(lookup, vec_lo);
       vec_hi = vecw_shuffle8(lookup, vec_hi);
 #  else
@@ -5084,15 +5067,9 @@ PglErr GetAux1bHets(const unsigned char* fread_end, const uintptr_t* __restrict 
   return kPglRetSuccess;
 }
 
-void SuppressHets00(const uintptr_t* allele_countvec, const uintptr_t* subsetted_all_hets, uint32_t sample_ct, uintptr_t* subsetted_suppressed_hets) {
-  const Halfword* all_hets_alias = DowncastKWToHW(subsetted_all_hets);
+static inline void SuppressHets00(const uintptr_t* allele_countvec, uintptr_t* subsetted_all_hets, uint32_t sample_ct, uintptr_t* subsetted_suppressed_hets) {
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-  Halfword* write_alias = DowncastWToHW(subsetted_suppressed_hets);
-  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-    const Halfword cur_count0 = Pack00ToHalfword(allele_countvec[widx]);
-    const Halfword cur_hets = all_hets_alias[widx];
-    write_alias[widx] = cur_count0 & cur_hets;
-  }
+  MaskWordsToHalfwordsInvmatch(allele_countvec, ~k0LU, sample_ctl2, subsetted_all_hets, subsetted_suppressed_hets);
 }
 
 PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict all_hets, uintptr_t* __restrict allele_countvec, uintptr_t** subsetted_suppressed_hetp) {
@@ -6331,16 +6308,6 @@ PglErr PgrGetM(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex 
   return GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, nullptr, pgvp);
 }
 
-void DetectGenoarrHetsHw(const uintptr_t*__restrict genoarr, uint32_t raw_sample_ctl2, Halfword* all_hets_hw) {
-  // requires trailing bits of genoarr to be zeroed out.  does not update last
-  // all_hets[] halfword if raw_sample_ctl2 is odd.
-  for (uint32_t widx = 0; widx != raw_sample_ctl2; ++widx) {
-    const uintptr_t cur_word = genoarr[widx];
-    uintptr_t ww = (~(cur_word >> 1)) & cur_word;  // low 1, high 0
-    all_hets_hw[widx] = PackWordToHalfwordMask5555(ww);
-  }
-}
-
 void PgrDetectGenoarrHetsMultiallelic(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets) {
   const Halfword* patch_10_set_alias = DowncastKWToHW(patch_10_set);
   const AlleleCode* patch_10_vals_iter = patch_10_vals;
@@ -6647,10 +6614,7 @@ PglErr Get1MP(const uintptr_t* __restrict sample_include, const uint32_t* __rest
 
   // Might want to make this its own function.
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-  Halfword* phasepresent_alias = DowncastWToHW(phasepresent);
-  for (uint32_t hwidx = 0; hwidx != sample_ctl2; ++hwidx) {
-    phasepresent_alias[hwidx] &= Pack01ToHalfword(allele_countvec[hwidx]);
-  }
+  MaskWordsToHalfwordsInvmatch(allele_countvec, kMaskAAAA, sample_ctl2, phasepresent, phasepresent);
   *phasepresent_ct_ptr = PopcountWords(phasepresent, BitCtToWordCt(sample_ct));
 
   return kPglRetSuccess;
@@ -6706,15 +6670,9 @@ PglErr IMPLPgrGetInv1P(const uintptr_t* __restrict sample_include, const uint32_
   return kPglRetSuccess;
 }
 
-void SuppressHets11(const uintptr_t* genovec, const uintptr_t* subsetted_all_hets, uint32_t sample_ct, uintptr_t* subsetted_suppressed_hets) {
-  const Halfword* all_hets_alias = DowncastKWToHW(subsetted_all_hets);
+void SuppressHets11(const uintptr_t* genovec, uintptr_t* subsetted_all_hets, uint32_t sample_ct, uintptr_t* subsetted_suppressed_hets) {
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-  Halfword* write_alias = DowncastWToHW(subsetted_suppressed_hets);
-  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-    const Halfword cur_count0 = Pack11ToHalfword(genovec[widx]);
-    const Halfword cur_hets = all_hets_alias[widx];
-    write_alias[widx] = cur_count0 & cur_hets;
-  }
+  MaskWordsToHalfwordsInvmatch(genovec, 0, sample_ctl2, subsetted_all_hets, subsetted_suppressed_hets);
 }
 
 PglErr PgrGet2P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr) {
@@ -6835,10 +6793,7 @@ PglErr PgrGet2P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
   }
   if (VrtypeMultiallelicHc(vrtype) && (*phasepresent_ct_ptr)) {
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-    Halfword* phasepresent_alias = DowncastWToHW(phasepresent);
-    for (uint32_t hwidx = 0; hwidx != sample_ctl2; ++hwidx) {
-      phasepresent_alias[hwidx] &= Pack01ToHalfword(genovec[hwidx]);
-    }
+    MaskWordsToHalfwordsInvmatch(genovec, kMaskAAAA, sample_ctl2, phasepresent, phasepresent);
     *phasepresent_ct_ptr = PopcountWords(phasepresent, BitCtToWordCt(sample_ct));
   }
   if (invert) {
