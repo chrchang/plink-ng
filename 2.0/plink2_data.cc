@@ -3764,7 +3764,7 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
 
     const VaridTemplate* cur_varid_templatep = nullptr;
     const char* varid_token_start = nullptr; // for vid-split
-    uint32_t allele_overflow_seen = 0;
+    uint32_t max_allele_overflow_slen = 0;
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
@@ -3832,14 +3832,14 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
             // Always true in --set-all-var-ids case.  True in
             // --set-missing-var-ids case when vid-split unspecified, or split
             // failed.
-            cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &allele_overflow_seen, cswritep);
+            cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
             *cswritep++ = '\t';
           } else if (varid_token_start) {
             const char* varid_token_end = strchrnul(varid_token_start, ';');
             // If substring matches missing code and --set-missing-var-ids is
             // specified, we replace it.
             if (varid_templatep && (S_CAST(uintptr_t, varid_token_end - varid_token_start) == missing_varid_slen) && memequal(varid_token_start, missing_varid_match, missing_varid_slen)) {
-              cswritep = VaridTemplateWrite(varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &allele_overflow_seen, cswritep);
+              cswritep = VaridTemplateWrite(varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
             } else {
               cswritep = memcpya(cswritep, varid_token_start, varid_token_end - varid_token_start);
             }
@@ -3870,9 +3870,16 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto WriteBimSplit_ret_WRITE_FAIL;
     }
-    if (unlikely(allele_overflow_seen && (!(misc_flags & (kfMiscNewVarIdOverflowMissing | kfMiscNewVarIdOverflowTruncate))))) {
+    if (unlikely(max_allele_overflow_slen && (!(misc_flags & (kfMiscNewVarIdOverflowMissing | kfMiscNewVarIdOverflowTruncate))))) {
       logputs("\n");
-      logerrprintfww("Error: Allele code(s) too long for --set-%s-var-ids. (--new-id-max-allele-len may be helpful.)\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+      logerrprintf("Error: Allele code(s) too long for --set-%s-var-ids.\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+      // Not a precise bound, but in practice this should print the more useful
+      // message >99% of the time.
+      if (max_allele_overflow_slen < kMaxIdSlen / 2) {
+        logerrprintfww("The longest observed allele code in this dataset has length %u. If you're fine with the corresponding ID length, rerun with \"--new-id-max-allele-len %u\" added to your command line.\n", max_allele_overflow_slen, max_allele_overflow_slen);
+      } else {
+        logerrprintfww("The longest observed allele code in this dataset has length %u. We recommend deciding on a length-limit, and then adding \"--new-id-max-allele-len <limit> missing\" to your command line to cause variants with longer allele codes to be assigned '.' IDs. (You can then process just those variants with another script, if necessary.)\n", max_allele_overflow_slen);
+      }
       goto WriteBimSplit_ret_INCONSISTENT_INPUT;
     }
   }
@@ -4181,7 +4188,7 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
     const uint32_t varid_split = (make_plink2_flags / kfMakePlink2VaridSemicolon) & 1;
     const uint32_t varid_dup_nosplit = varid_dup && (!varid_split);
     const uint32_t split_just_snps = ((make_plink2_flags & (kfMakePlink2MSplitBase * 3)) == kfMakePlink2MSplitSnps);
-    uint32_t allele_overflow_seen = 0;
+    uint32_t max_allele_overflow_slen = 0;
     uint32_t trs_variant_uidx = 0;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
@@ -4362,14 +4369,14 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
             // Always true in --set-all-var-ids case.  True in
             // --set-missing-var-ids case when vid-split unspecified, or split
             // failed.
-            cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &allele_overflow_seen, cswritep);
+            cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
             *cswritep++ = '\t';
           } else if (varid_token_start) {
             const char* varid_token_end = strchrnul(varid_token_start, ';');
             // If substring matches missing code and --set-missing-var-ids is
             // specified, we replace it.
             if (varid_templatep && (S_CAST(uintptr_t, varid_token_end - varid_token_start) == missing_varid_slen) && memequal(varid_token_start, missing_varid_match, missing_varid_slen)) {
-              cswritep = VaridTemplateWrite(varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &allele_overflow_seen, cswritep);
+              cswritep = VaridTemplateWrite(varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
             } else {
               cswritep = memcpya(cswritep, varid_token_start, varid_token_end - varid_token_start);
             }
@@ -4495,9 +4502,16 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
-    if (unlikely(allele_overflow_seen && (!(misc_flags & (kfMiscNewVarIdOverflowMissing | kfMiscNewVarIdOverflowTruncate))))) {
+    if (unlikely(max_allele_overflow_slen && (!(misc_flags & (kfMiscNewVarIdOverflowMissing | kfMiscNewVarIdOverflowTruncate))))) {
       logputs("\n");
-      logerrprintfww("Error: Allele code(s) too long for --set-%s-var-ids. (--new-id-max-allele-len may be helpful.)\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+      logerrprintf("Error: Allele code(s) too long for --set-%s-var-ids.\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+      // Not a precise bound, but in practice this should print the more useful
+      // message >99% of the time.
+      if (max_allele_overflow_slen < kMaxIdSlen / 2) {
+        logerrprintfww("The longest observed allele code in this dataset has length %u. If you're fine with the corresponding ID length, rerun with \"--new-id-max-allele-len %u\" added to your command line.\n", max_allele_overflow_slen, max_allele_overflow_slen);
+      } else {
+        logerrprintfww("The longest observed allele code in this dataset has length %u. We recommend deciding on a length-limit, and then adding \"--new-id-max-allele-len <limit> missing\" to your command line to cause variants with longer allele codes to be assigned '.' IDs. (You can then process just those variants with another script, if necessary.)\n", max_allele_overflow_slen);
+      }
       goto WritePvarSplit_ret_INCONSISTENT_INPUT;
     }
   }

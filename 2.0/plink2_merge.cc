@@ -2115,7 +2115,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
     uint32_t info_pr_nonflag_exists = 0;
     uint32_t max_xheader_line_blen = 0;
     uint32_t at_least_one_info_exists = 0;
-    uint32_t allele_overflow_seen = 0;
+    uint32_t max_allele_overflow_slen = 0;
     uintptr_t info_conflict_ct = 0;
     for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
       PmergeInputFilesetLl* cur_fileset = *filesets_iterp;
@@ -2667,7 +2667,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
             }
           }
           variant_id = variant_id_buf;
-          char* variant_id_end = VaridTemplateWrite(cur_varid_templatep, token_ptrs[2], alt_start, cur_bp, ref_slen, extra_alt_ct, alt_slen, &allele_overflow_seen, variant_id);
+          char* variant_id_end = VaridTemplateWrite(cur_varid_templatep, token_ptrs[2], alt_start, cur_bp, ref_slen, extra_alt_ct, alt_slen, &max_allele_overflow_slen, variant_id);
           id_slen = variant_id_end - variant_id;
         }
         if (unlikely(id_slen > kMaxIdSlen)) {
@@ -3125,8 +3125,16 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
       logerrputs("Error: Chromosomes are not in a consistent order.  Retry --pmerge[-list] after\nusing --make-pgen/--make-bed + --sort-vars to sort your variants in a\nconsistent manner.\n");
       goto ScanPvarsAndMergeHeader_ret_INCONSISTENT_INPUT;
     }
-    if (unlikely(allele_overflow_seen && (!(misc_flags & (kfMiscNewVarIdOverflowMissing | kfMiscNewVarIdOverflowTruncate))))) {
-      logerrprintfww("Error: Allele code(s) too long for --set-%s-var-ids. (--new-id-max-allele-len may be helpful.)\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+    if (unlikely(max_allele_overflow_slen && (!(misc_flags & (kfMiscNewVarIdOverflowMissing | kfMiscNewVarIdOverflowTruncate))))) {
+      logputs("\n");
+      logerrprintf("Error: Allele code(s) too long for --set-%s-var-ids.\n", (misc_flags & kfMiscSetMissingVarIds)? "missing" : "all");
+      // Not a precise bound, but in practice this should print the more useful
+      // message >99% of the time.
+      if (max_allele_overflow_slen < kMaxIdSlen / 2) {
+        logerrprintfww("The longest observed allele code across these datasets has length %u. If you're fine with the corresponding ID length, rerun with \"--new-id-max-allele-len %u\" added to your command line.\n", max_allele_overflow_slen, max_allele_overflow_slen);
+      } else {
+        logerrprintfww("The longest observed allele code across these datasets has length %u. We recommend deciding on a length-limit, and then adding \"--new-id-max-allele-len <limit> missing\" to your command line to cause variants with longer allele codes to be assigned '.' IDs. (You can then process just those variants with another script, if necessary.)\n", max_allele_overflow_slen);
+      }
       goto ScanPvarsAndMergeHeader_ret_INCONSISTENT_INPUT;
     }
     cip->chr_ct = chr_ct;

@@ -1070,12 +1070,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       if (pcp->misc_flags & kfMiscRealRefAlleles) {
         if (unlikely(nonref_flags && (!AllBitsAreOne(nonref_flags, raw_variant_ct)))) {
-          // technically a lie, it's okay if a .bed is first converted to .pgen
-          // without this flag, and then the user remembers the existence of
-          // --real-ref-alleles later.  but to reduce the ease of
-          // foot-shooting, we don't allow this to clobber arbitrary
-          // nonref_flags arrays.
-          logerrputs("Error: --real-ref-alleles must be used on a plink1 fileset.\n");
+          // To reduce the ease of foot-shooting, we don't allow this to
+          // clobber arbitrary nonref_flags arrays.
+          logerrputs("Error: --real-ref-alleles must be used on a plink1 or similar fileset.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
 
@@ -9597,6 +9594,10 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           pc.misc_flags |= kfMiscRealRefAlleles;
+          // --real-ref-alleles applies to --pmerge[-list] input.
+          if (!(pc.command_flags1 & kfCommand1Pmerge)) {
+            pc.dependency_flags |= kfFilterAllReq;
+          }
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "emove")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
@@ -11509,6 +11510,7 @@ int main(int argc, char** argv) {
       }
       reterr = PgenInfoStandalone(pgenname, pc.pginame);
     } else {
+      // --real-ref-alleles is an exception since it applies to merge.
       if (unlikely(pc.dependency_flags && (!(pc.command_flags1 & (~kfCommand1Pmerge))))) {
         logerrputs("Error: Basic file conversions do not support regular filter or transform\noperations.  Rerun your command with --make-bed/--make-[b]pgen.\n");
         goto main_ret_INVALID_CMDLINE;

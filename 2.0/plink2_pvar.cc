@@ -382,7 +382,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
 
 // Exported variant of VaridTemplateApply() which appends to a buffer.
 // Probable todo: pull out the common parts of the functions.
-char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, uint32_t* allele_overflow_seenp, char* dst) {
+char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, uint32_t* max_overflow_slenp, char* dst) {
   uint32_t insert_slens[4];
   const uint32_t alleles_needed = vtp->alleles_needed;
   const uint32_t new_id_max_allele_slen = vtp->new_id_max_allele_slen;
@@ -391,13 +391,13 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
   insert_slens[1] = id_slen;
   id_slen += vtp->base_len;
   uint32_t ref_slen = 0;
-  uint32_t cur_overflow = 0;
+  uint32_t cur_max_overflow_slen = 0;
   const char* tmp_allele_ptrs[2];
   if (alleles_needed & 1) {
     ref_slen = ref_token_slen;
     if (ref_slen > new_id_max_allele_slen) {
+      cur_max_overflow_slen = ref_slen;
       ref_slen = new_id_max_allele_slen;
-      cur_overflow = 1;
     }
     insert_slens[2] = ref_slen;
     id_slen += ref_slen;
@@ -411,8 +411,10 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
       alt1_slen = AdvToDelim(alt1_start, ',') - alt1_start;
     }
     if (alt1_slen > new_id_max_allele_slen) {
+      if (alt1_slen > cur_max_overflow_slen) {
+        cur_max_overflow_slen = alt1_slen;
+      }
       alt1_slen = new_id_max_allele_slen;
-      cur_overflow = 1;
     }
     id_slen += alt1_slen;
     if (alleles_needed <= 3) {
@@ -438,8 +440,10 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
       tmp_allele_ptrs[0] = alt1_start;
     }
   }
-  if (cur_overflow) {
-    *allele_overflow_seenp = 1;
+  if (cur_max_overflow_slen) {
+    if (cur_max_overflow_slen > *max_overflow_slenp) {
+      *max_overflow_slenp = cur_max_overflow_slen;
+    }
     const uint32_t overflow_substitute_blen = vtp->overflow_substitute_blen;
     if (overflow_substitute_blen) {
       return memcpya(dst, vtp->missing_id_match, overflow_substitute_blen);
