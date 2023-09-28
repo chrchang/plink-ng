@@ -31,8 +31,9 @@
  */
 
 #ifdef __APPLE__
-#undef _ANSI_SOURCE
-#define _DARWIN_C_SOURCE /* for sysctlbyname() */
+#  undef _ANSI_SOURCE
+#  undef _DARWIN_C_SOURCE
+#  define _DARWIN_C_SOURCE /* for sysctlbyname() */
 #endif
 
 #include "../cpu_features_common.h" /* must be included first */
@@ -79,7 +80,7 @@ static void scan_auxv(unsigned long *hwcap, unsigned long *hwcap2)
 				goto out;
 			}
 			filled += ret;
-		} while (filled < (long)(2 * sizeof(long)));
+		} while (filled < 2 * sizeof(long));
 
 		i = 0;
 		do {
@@ -92,7 +93,7 @@ static void scan_auxv(unsigned long *hwcap, unsigned long *hwcap2)
 				*hwcap2 = value;
 			i += 2;
 			filled -= 2 * sizeof(long);
-		} while (filled >= (long)(2 * sizeof(long)));
+		} while (filled >= 2 * sizeof(long));
 
 		memmove(auxbuf, &auxbuf[i], filled);
 	}
@@ -108,7 +109,7 @@ static u32 query_arm_cpu_features(void)
 
 	scan_auxv(&hwcap, &hwcap2);
 
-#ifdef __arm__
+#ifdef ARCH_ARM32
 	STATIC_ASSERT(sizeof(long) == 4);
 	if (hwcap & (1 << 12))	/* HWCAP_NEON */
 		features |= ARM_CPU_FEATURE_NEON;
@@ -165,6 +166,23 @@ static u32 query_arm_cpu_features(void)
 		    valsize == sizeof(val) && val == 1)
 			features |= feature_sysctls[i].feature;
 	}
+	return features;
+}
+#elif defined(_WIN32)
+
+#include <windows.h>
+
+static u32 query_arm_cpu_features(void)
+{
+	u32 features = ARM_CPU_FEATURE_NEON;
+
+	if (IsProcessorFeaturePresent(PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE))
+		features |= ARM_CPU_FEATURE_PMULL;
+	if (IsProcessorFeaturePresent(PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE))
+		features |= ARM_CPU_FEATURE_CRC32;
+
+	/* FIXME: detect SHA3 and DOTPROD support too. */
+
 	return features;
 }
 #else

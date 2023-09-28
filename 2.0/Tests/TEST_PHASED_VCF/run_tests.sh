@@ -91,7 +91,7 @@ diff -q plink2_pca.eigenvec plink2_pca_rfreq.eigenvec
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pca 3 approx biallelic-var-wts --out plink2_pca_approx
 python3 pca_compare.py -1 plink1_pca -2 plink2_pca_approx -t 0.009
 
-# Test --glm.
+# Test --glm and --clump.
 # Generate random binary and quantitative phenotypes for 1kg_phase3_chr21
 # samples, and verify regression results are consistent with plink 1.9 within a
 # tolerance (tbd: see if we can generate new phenotypes each time, or if it's
@@ -120,9 +120,23 @@ $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --glm allow-
 python3 glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm.PHENO1.glm.logistic -t 0.1
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --glm allow-no-covars no-firth --out plink2_glm_dbl
 python3 glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm_dbl.PHENO1.glm.logistic -t 0.3
+plink --bfile plink1_data --clump plink2_glm_dbl.PHENO1.glm.logistic --clump-snp-field ID --clump-p1 0.1 --clump-p2 0.2 --out plink1_test
+# Extract SNP, TOTAL, NSIG, S05, S01, S001, S0001, and SP2 columns.
+# ($12 != "") check needed because plink 1.x puts two blank lines at the end of
+# the .clumped file.
+cat plink1_test.clumped | tail -n +2 | awk '{if ($12 == "NONE") $12 = "."; if ($12 != "") print $3"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12}' > plink1_test.clump_compare
+plink2 --bfile plink1_data --clump cols=+f plink2_glm_dbl.PHENO1.glm.logistic --clump-p1 0.1 --clump-p2 0.2 --out plink2_test
+cat plink2_test.clumps | tail -n +2 | awk '{print $3"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12}' > plink2_test.clump_compare
+diff -q plink1_test.clump_compare plink2_test.clump_compare
+
 plink --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --linear --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --glm allow-no-covars --out plink2_glm
 python3 glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
+plink --bfile plink1_data --clump plink2_glm.PHENO1.glm.linear --clump-snp-field ID --clump-p1 0.1 --clump-p2 0.2 --out plink1_test
+cat plink1_test.clumped | tail -n +2 | awk '{if ($12 == "NONE") $12 = "."; if ($12 != "") print $3"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12}' > plink1_test.clump_compare
+plink2 --bfile plink1_data --clump cols=+f plink2_glm.PHENO1.glm.linear --clump-p1 0.1 --clump-p2 0.2 --out plink2_test
+cat plink2_test.clumps | tail -n +2 | awk '{print $3"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12}' > plink2_test.clump_compare
+diff -q plink1_test.clump_compare plink2_test.clump_compare
 
 plink --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --logistic genotypic --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --glm allow-no-covars no-firth single-prec-cc genotypic --out plink2_glm
@@ -132,6 +146,7 @@ python3 glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm_dbl.PHENO1.glm
 plink --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --linear genotypic --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --glm allow-no-covars genotypic --out plink2_glm
 python3 glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
+# don't test --clump here since plink 1.x ignores TEST column
 
 plink --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --logistic --covar plink1_pca.eigenvec --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --glm no-firth single-prec-cc --covar plink2_pca.eigenvec --out plink2_glm
@@ -141,6 +156,13 @@ python3 glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm_dbl.PHENO1.glm
 plink --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --linear --covar plink1_pca.eigenvec --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --glm --covar plink2_pca.eigenvec --out plink2_glm
 python3 glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
+# hide-covar allows --clump test here
+$1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --glm hide-covar --covar plink2_pca.eigenvec --out plink2_glm
+plink --bfile plink1_data --clump plink2_glm.PHENO1.glm.linear --clump-snp-field ID --clump-p1 0.1 --clump-p2 0.2 --out plink1_test
+cat plink1_test.clumped | tail -n +2 | awk '{if ($12 == "NONE") $12 = "."; if ($12 != "") print $3"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12}' > plink1_test.clump_compare
+plink2 --bfile plink1_data --clump cols=+f plink2_glm.PHENO1.glm.linear --clump-p1 0.1 --clump-p2 0.2 --out plink2_test
+cat plink2_test.clumps | tail -n +2 | awk '{print $3"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12}' > plink2_test.clump_compare
+diff -q plink1_test.clump_compare plink2_test.clump_compare
 
 plink --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --logistic genotypic --covar plink1_pca.eigenvec --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --glm no-firth single-prec-cc genotypic --covar plink2_pca.eigenvec --out plink2_glm

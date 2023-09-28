@@ -42,10 +42,10 @@
 #  if HAVE_NEON_NATIVE
 #    define ATTRIBUTES
 #  else
-#    ifdef __arm__
-#      define ATTRIBUTES	__attribute__((target("fpu=neon")))
+#    ifdef ARCH_ARM32
+#      define ATTRIBUTES	_target_attribute("fpu=neon")
 #    else
-#      define ATTRIBUTES	__attribute__((target("+simd")))
+#      define ATTRIBUTES	_target_attribute("+simd")
 #    endif
 #  endif
 #  include <arm_neon.h>
@@ -53,29 +53,35 @@ static forceinline ATTRIBUTES void
 adler32_neon_chunk(const uint8x16_t *p, const uint8x16_t * const end,
 		   u32 *s1, u32 *s2)
 {
-	const uint16x8_t mults_a = { 64, 63, 62, 61, 60, 59, 58, 57, };
-	const uint16x8_t mults_b = { 56, 55, 54, 53, 52, 51, 50, 49, };
-	const uint16x8_t mults_c = { 48, 47, 46, 45, 44, 43, 42, 41, };
-	const uint16x8_t mults_d = { 40, 39, 38, 37, 36, 35, 34, 33, };
-	const uint16x8_t mults_e = { 32, 31, 30, 29, 28, 27, 26, 25, };
-	const uint16x8_t mults_f = { 24, 23, 22, 21, 20, 19, 18, 17, };
-	const uint16x8_t mults_g = { 16, 15, 14, 13, 12, 11, 10,  9, };
-	const uint16x8_t mults_h = {  8,  7,  6,  5,  4,  3,  2,  1, };
+	static const u16 _aligned_attribute(16) mults[64] = {
+		64, 63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49,
+		48, 47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33,
+		32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17,
+		16, 15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,
+	};
+	const uint16x8_t mults_a = vld1q_u16(&mults[0]);
+	const uint16x8_t mults_b = vld1q_u16(&mults[8]);
+	const uint16x8_t mults_c = vld1q_u16(&mults[16]);
+	const uint16x8_t mults_d = vld1q_u16(&mults[24]);
+	const uint16x8_t mults_e = vld1q_u16(&mults[32]);
+	const uint16x8_t mults_f = vld1q_u16(&mults[40]);
+	const uint16x8_t mults_g = vld1q_u16(&mults[48]);
+	const uint16x8_t mults_h = vld1q_u16(&mults[56]);
 
-	uint32x4_t v_s1 = { 0, 0, 0, 0 };
-	uint32x4_t v_s2 = { 0, 0, 0, 0 };
+	uint32x4_t v_s1 = vdupq_n_u32(0);
+	uint32x4_t v_s2 = vdupq_n_u32(0);
 	/*
 	 * v_byte_sums_* contain the sum of the bytes at index i across all
 	 * 64-byte segments, for each index 0..63.
 	 */
-	uint16x8_t v_byte_sums_a = { 0, 0, 0, 0, 0, 0, 0, 0 };
-	uint16x8_t v_byte_sums_b = { 0, 0, 0, 0, 0, 0, 0, 0 };
-	uint16x8_t v_byte_sums_c = { 0, 0, 0, 0, 0, 0, 0, 0 };
-	uint16x8_t v_byte_sums_d = { 0, 0, 0, 0, 0, 0, 0, 0 };
-	uint16x8_t v_byte_sums_e = { 0, 0, 0, 0, 0, 0, 0, 0 };
-	uint16x8_t v_byte_sums_f = { 0, 0, 0, 0, 0, 0, 0, 0 };
-	uint16x8_t v_byte_sums_g = { 0, 0, 0, 0, 0, 0, 0, 0 };
-	uint16x8_t v_byte_sums_h = { 0, 0, 0, 0, 0, 0, 0, 0 };
+	uint16x8_t v_byte_sums_a = vdupq_n_u16(0);
+	uint16x8_t v_byte_sums_b = vdupq_n_u16(0);
+	uint16x8_t v_byte_sums_c = vdupq_n_u16(0);
+	uint16x8_t v_byte_sums_d = vdupq_n_u16(0);
+	uint16x8_t v_byte_sums_e = vdupq_n_u16(0);
+	uint16x8_t v_byte_sums_f = vdupq_n_u16(0);
+	uint16x8_t v_byte_sums_g = vdupq_n_u16(0);
+	uint16x8_t v_byte_sums_h = vdupq_n_u16(0);
 
 	do {
 		/* Load the next 64 bytes. */
@@ -89,7 +95,7 @@ adler32_neon_chunk(const uint8x16_t *p, const uint8x16_t * const end,
 		 * Accumulate the previous s1 counters into the s2 counters.
 		 * The needed multiplication by 64 is delayed to later.
 		 */
-		v_s2 += v_s1;
+		v_s2 = vaddq_u32(v_s2, v_s1);
 
 		/*
 		 * Add the 64 bytes to their corresponding v_byte_sums counters,
@@ -113,7 +119,7 @@ adler32_neon_chunk(const uint8x16_t *p, const uint8x16_t * const end,
 	} while (p != end);
 
 	/* s2 = 64*s2 + (64*bytesum0 + 63*bytesum1 + ... + 1*bytesum63) */
-#ifdef __arm__
+#ifdef ARCH_ARM32
 #  define umlal2(a, b, c)  vmlal_u16((a), vget_high_u16(b), vget_high_u16(c))
 #else
 #  define umlal2	   vmlal_high_u16
@@ -138,8 +144,15 @@ adler32_neon_chunk(const uint8x16_t *p, const uint8x16_t * const end,
 #undef umlal2
 
 	/* Horizontal sum to finish up */
-	*s1 += v_s1[0] + v_s1[1] + v_s1[2] + v_s1[3];
-	*s2 += v_s2[0] + v_s2[1] + v_s2[2] + v_s2[3];
+#ifdef ARCH_ARM32
+	*s1 += vgetq_lane_u32(v_s1, 0) + vgetq_lane_u32(v_s1, 1) +
+	       vgetq_lane_u32(v_s1, 2) + vgetq_lane_u32(v_s1, 3);
+	*s2 += vgetq_lane_u32(v_s2, 0) + vgetq_lane_u32(v_s2, 1) +
+	       vgetq_lane_u32(v_s2, 2) + vgetq_lane_u32(v_s2, 3);
+#else
+	*s1 += vaddvq_u32(v_s1);
+	*s2 += vaddvq_u32(v_s2);
+#endif
 }
 #  include "../adler32_vec_template.h"
 #endif /* Regular NEON implementation */
@@ -156,16 +169,16 @@ adler32_neon_chunk(const uint8x16_t *p, const uint8x16_t * const end,
 #    define ATTRIBUTES
 #  else
 #    ifdef __clang__
-#      define ATTRIBUTES  __attribute__((target("dotprod")))
+#      define ATTRIBUTES  _target_attribute("dotprod")
      /*
       * With gcc, arch=armv8.2-a is needed for dotprod intrinsics, unless the
       * default target is armv8.3-a or later in which case it must be omitted.
       * armv8.3-a or later can be detected by checking for __ARM_FEATURE_JCVT.
       */
 #    elif defined(__ARM_FEATURE_JCVT)
-#      define ATTRIBUTES  __attribute__((target("+dotprod")))
+#      define ATTRIBUTES  _target_attribute("+dotprod")
 #    else
-#      define ATTRIBUTES  __attribute__((target("arch=armv8.2-a+dotprod")))
+#      define ATTRIBUTES  _target_attribute("arch=armv8.2-a+dotprod")
 #    endif
 #  endif
 #  include <arm_neon.h>
@@ -173,35 +186,32 @@ static forceinline ATTRIBUTES void
 adler32_neon_dotprod_chunk(const uint8x16_t *p, const uint8x16_t * const end,
 			   u32 *s1, u32 *s2)
 {
-	const uint8x16_t mults_a = {
+	static const u8 _aligned_attribute(16) mults[64] = {
 		64, 63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49,
-	};
-	const uint8x16_t mults_b = {
 		48, 47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33,
-	};
-	const uint8x16_t mults_c = {
 		32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17,
-	};
-	const uint8x16_t mults_d = {
 		16, 15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,
 	};
-	const uint8x16_t ones = {
-		 1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1 , 1,  1,
-	};
-	uint32x4_t v_s1_a = { 0, 0, 0, 0 };
-	uint32x4_t v_s1_b = { 0, 0, 0, 0 };
-	uint32x4_t v_s1_c = { 0, 0, 0, 0 };
-	uint32x4_t v_s1_d = { 0, 0, 0, 0 };
-	uint32x4_t v_s2_a = { 0, 0, 0, 0 };
-	uint32x4_t v_s2_b = { 0, 0, 0, 0 };
-	uint32x4_t v_s2_c = { 0, 0, 0, 0 };
-	uint32x4_t v_s2_d = { 0, 0, 0, 0 };
-	uint32x4_t v_s1_sums_a = { 0, 0, 0, 0 };
-	uint32x4_t v_s1_sums_b = { 0, 0, 0, 0 };
-	uint32x4_t v_s1_sums_c = { 0, 0, 0, 0 };
-	uint32x4_t v_s1_sums_d = { 0, 0, 0, 0 };
+	const uint8x16_t mults_a = vld1q_u8(&mults[0]);
+	const uint8x16_t mults_b = vld1q_u8(&mults[16]);
+	const uint8x16_t mults_c = vld1q_u8(&mults[32]);
+	const uint8x16_t mults_d = vld1q_u8(&mults[48]);
+	const uint8x16_t ones = vdupq_n_u8(1);
+	uint32x4_t v_s1_a = vdupq_n_u32(0);
+	uint32x4_t v_s1_b = vdupq_n_u32(0);
+	uint32x4_t v_s1_c = vdupq_n_u32(0);
+	uint32x4_t v_s1_d = vdupq_n_u32(0);
+	uint32x4_t v_s2_a = vdupq_n_u32(0);
+	uint32x4_t v_s2_b = vdupq_n_u32(0);
+	uint32x4_t v_s2_c = vdupq_n_u32(0);
+	uint32x4_t v_s2_d = vdupq_n_u32(0);
+	uint32x4_t v_s1_sums_a = vdupq_n_u32(0);
+	uint32x4_t v_s1_sums_b = vdupq_n_u32(0);
+	uint32x4_t v_s1_sums_c = vdupq_n_u32(0);
+	uint32x4_t v_s1_sums_d = vdupq_n_u32(0);
 	uint32x4_t v_s1;
 	uint32x4_t v_s2;
+	uint32x4_t v_s1_sums;
 
 	do {
 		uint8x16_t bytes_a = *p++;
@@ -209,29 +219,31 @@ adler32_neon_dotprod_chunk(const uint8x16_t *p, const uint8x16_t * const end,
 		uint8x16_t bytes_c = *p++;
 		uint8x16_t bytes_d = *p++;
 
-		v_s1_sums_a += v_s1_a;
+		v_s1_sums_a = vaddq_u32(v_s1_sums_a, v_s1_a);
 		v_s1_a = vdotq_u32(v_s1_a, bytes_a, ones);
 		v_s2_a = vdotq_u32(v_s2_a, bytes_a, mults_a);
 
-		v_s1_sums_b += v_s1_b;
+		v_s1_sums_b = vaddq_u32(v_s1_sums_b, v_s1_b);
 		v_s1_b = vdotq_u32(v_s1_b, bytes_b, ones);
 		v_s2_b = vdotq_u32(v_s2_b, bytes_b, mults_b);
 
-		v_s1_sums_c += v_s1_c;
+		v_s1_sums_c = vaddq_u32(v_s1_sums_c, v_s1_c);
 		v_s1_c = vdotq_u32(v_s1_c, bytes_c, ones);
 		v_s2_c = vdotq_u32(v_s2_c, bytes_c, mults_c);
 
-		v_s1_sums_d += v_s1_d;
+		v_s1_sums_d = vaddq_u32(v_s1_sums_d, v_s1_d);
 		v_s1_d = vdotq_u32(v_s1_d, bytes_d, ones);
 		v_s2_d = vdotq_u32(v_s2_d, bytes_d, mults_d);
 	} while (p != end);
 
-	v_s1 = v_s1_a + v_s1_b + v_s1_c + v_s1_d;
-	v_s2 = v_s2_a + v_s2_b + v_s2_c + v_s2_d +
-	       vqshlq_n_u32(v_s1_sums_a + v_s1_sums_b +
-			    v_s1_sums_c + v_s1_sums_d, 6);
-	*s1 += v_s1[0] + v_s1[1] + v_s1[2] + v_s1[3];
-	*s2 += v_s2[0] + v_s2[1] + v_s2[2] + v_s2[3];
+	v_s1 = vaddq_u32(vaddq_u32(v_s1_a, v_s1_b), vaddq_u32(v_s1_c, v_s1_d));
+	v_s2 = vaddq_u32(vaddq_u32(v_s2_a, v_s2_b), vaddq_u32(v_s2_c, v_s2_d));
+	v_s1_sums = vaddq_u32(vaddq_u32(v_s1_sums_a, v_s1_sums_b),
+			      vaddq_u32(v_s1_sums_c, v_s1_sums_d));
+	v_s2 = vaddq_u32(v_s2, vqshlq_n_u32(v_s1_sums, 6));
+
+	*s1 += vaddvq_u32(v_s1);
+	*s2 += vaddvq_u32(v_s2);
 }
 #  include "../adler32_vec_template.h"
 #endif /* NEON+dotprod implementation */

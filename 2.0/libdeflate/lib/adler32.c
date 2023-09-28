@@ -26,7 +26,6 @@
  */
 
 #include "lib_common.h"
-#include "libdeflate.h"
 
 /* The Adler-32 divisor, or "base", value */
 #define DIVISOR 65521
@@ -91,9 +90,9 @@ adler32_generic(u32 adler, const u8 *p, size_t len)
 #undef DEFAULT_IMPL
 #undef arch_select_adler32_func
 typedef u32 (*adler32_func_t)(u32 adler, const u8 *p, size_t len);
-#if defined(__arm__) || defined(__aarch64__)
+#if defined(ARCH_ARM32) || defined(ARCH_ARM64)
 #  include "arm/adler32_impl.h"
-#elif defined(__i386__) || defined(__x86_64__)
+#elif defined(ARCH_X86_32) || defined(ARCH_X86_64)
 #  include "x86/adler32_impl.h"
 #endif
 
@@ -122,7 +121,7 @@ static u32 dispatch_adler32(u32 adler, const u8 *p, size_t len)
 #define adler32_impl DEFAULT_IMPL
 #endif
 
-LIBDEFLATEEXPORT u32 LIBDEFLATEAPI
+LIBDEFLATEAPI u32
 libdeflate_adler32(u32 adler, const void *buffer, size_t len)
 {
 	if (buffer == NULL) /* Return initial value. */

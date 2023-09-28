@@ -28,14 +28,63 @@
 #ifndef COMMON_DEFS_H
 #define COMMON_DEFS_H
 
+#include "libdeflate.h"
+
 #include <stdbool.h>
 #include <stddef.h>	/* for size_t */
 #include <stdint.h>
 #ifdef _MSC_VER
+#  include <intrin.h>	/* for _BitScan*() and other intrinsics */
 #  include <stdlib.h>	/* for _byteswap_*() */
+   /* Disable MSVC warnings that are expected. */
+   /* /W2 */
+#  pragma warning(disable : 4146) /* unary minus on unsigned type */
+   /* /W3 */
+#  pragma warning(disable : 4018) /* signed/unsigned mismatch */
+#  pragma warning(disable : 4244) /* possible loss of data */
+#  pragma warning(disable : 4267) /* possible loss of precision */
+#  pragma warning(disable : 4310) /* cast truncates constant value */
+   /* /W4 */
+#  pragma warning(disable : 4100) /* unreferenced formal parameter */
+#  pragma warning(disable : 4127) /* conditional expression is constant */
+#  pragma warning(disable : 4189) /* local variable initialized but not referenced */
+#  pragma warning(disable : 4232) /* nonstandard extension used */
+#  pragma warning(disable : 4245) /* conversion from 'int' to 'unsigned int' */
+#  pragma warning(disable : 4295) /* array too small to include terminating null */
 #endif
 #ifndef FREESTANDING
 #  include <string.h>	/* for memcpy() */
+#endif
+
+/* ========================================================================== */
+/*                             Target architecture                            */
+/* ========================================================================== */
+
+/* If possible, define a compiler-independent ARCH_* macro. */
+#undef ARCH_X86_64
+#undef ARCH_X86_32
+#undef ARCH_ARM64
+#undef ARCH_ARM32
+#ifdef _MSC_VER
+#  if defined(_M_X64)
+#    define ARCH_X86_64
+#  elif defined(_M_IX86)
+#    define ARCH_X86_32
+#  elif defined(_M_ARM64)
+#    define ARCH_ARM64
+#  elif defined(_M_ARM)
+#    define ARCH_ARM32
+#  endif
+#else
+#  if defined(__x86_64__)
+#    define ARCH_X86_64
+#  elif defined(__i386__)
+#    define ARCH_X86_32
+#  elif defined(__aarch64__)
+#    define ARCH_ARM64
+#  elif defined(__arm__)
+#    define ARCH_ARM32
+#  endif
 #endif
 
 /* ========================================================================== */
@@ -111,22 +160,13 @@ typedef size_t machine_word_t;
 #  define __has_builtin(builtin)	0
 #endif
 
-/* LIBEXPORT - export a function from a shared library */
-#ifdef _WIN32
-#  define LIBEXPORT		__declspec(dllexport)
-#elif defined(__GNUC__)
-#  define LIBEXPORT		__attribute__((visibility("default")))
-#else
-#  define LIBEXPORT
-#endif
-
 /* inline - suggest that a function be inlined */
 #ifdef _MSC_VER
 #  define inline		__inline
 #endif /* else assume 'inline' is usable as-is */
 
 /* forceinline - force a function to be inlined, if possible */
-#ifdef __GNUC__
+#if defined(__GNUC__) || __has_attribute(always_inline)
 #  define forceinline		inline __attribute__((always_inline))
 #elif defined(_MSC_VER)
 #  define forceinline		__forceinline
@@ -135,54 +175,71 @@ typedef size_t machine_word_t;
 #endif
 
 /* MAYBE_UNUSED - mark a function or variable as maybe unused */
-#ifdef __GNUC__
+#if defined(__GNUC__) || __has_attribute(unused)
 #  define MAYBE_UNUSED		__attribute__((unused))
 #else
 #  define MAYBE_UNUSED
 #endif
 
-/* restrict - hint that writes only occur through the given pointer */
-#ifdef __GNUC__
-#  define restrict		__restrict__
-#elif defined(_MSC_VER)
-    /*
-     * Don't use MSVC's __restrict; it has nonstandard behavior.
-     * Standard restrict is okay, if it is supported.
-     */
-#  if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
-#    define restrict		restrict
+/*
+ * restrict - hint that writes only occur through the given pointer.
+ *
+ * Don't use MSVC's __restrict, since it has nonstandard behavior.
+ * Standard restrict is okay, if it is supported.
+ */
+#if !defined(__STDC_VERSION__) || (__STDC_VERSION__ < 201112L)
+#  if defined(__GNUC__) || defined(__clang__)
+#    define restrict		__restrict__
 #  else
 #    define restrict
 #  endif
-#else
-#  define restrict
-#endif
+#endif /* else assume 'restrict' is usable as-is */
 
 /* likely(expr) - hint that an expression is usually true */
-#ifdef __GNUC__
+#if defined(__GNUC__) || __has_builtin(__builtin_expect)
 #  define likely(expr)		__builtin_expect(!!(expr), 1)
 #else
 #  define likely(expr)		(expr)
 #endif
 
 /* unlikely(expr) - hint that an expression is usually false */
-#ifdef __GNUC__
+#if defined(__GNUC__) || __has_builtin(__builtin_expect)
 #  define unlikely(expr)	__builtin_expect(!!(expr), 0)
 #else
 #  define unlikely(expr)	(expr)
 #endif
 
 /* prefetchr(addr) - prefetch into L1 cache for read */
-#ifdef __GNUC__
+#undef prefetchr
+#if defined(__GNUC__) || __has_builtin(__builtin_prefetch)
 #  define prefetchr(addr)	__builtin_prefetch((addr), 0)
-#else
+#elif defined(_MSC_VER)
+#  if defined(ARCH_X86_32) || defined(ARCH_X86_64)
+#    define prefetchr(addr)	_mm_prefetch((addr), _MM_HINT_T0)
+#  elif defined(ARCH_ARM64)
+#    define prefetchr(addr)	__prefetch2((addr), 0x00 /* prfop=PLDL1KEEP */)
+#  elif defined(ARCH_ARM32)
+#    define prefetchr(addr)	__prefetch(addr)
+#  endif
+#endif
+#ifndef prefetchr
 #  define prefetchr(addr)
 #endif
 
 /* prefetchw(addr) - prefetch into L1 cache for write */
-#ifdef __GNUC__
+#undef prefetchw
+#if defined(__GNUC__) || __has_builtin(__builtin_prefetch)
 #  define prefetchw(addr)	__builtin_prefetch((addr), 1)
-#else
+#elif defined(_MSC_VER)
+#  if defined(ARCH_X86_32) || defined(ARCH_X86_64)
+#    define prefetchw(addr)	_m_prefetchw(addr)
+#  elif defined(ARCH_ARM64)
+#    define prefetchw(addr)	__prefetch2((addr), 0x10 /* prfop=PSTL1KEEP */)
+#  elif defined(ARCH_ARM32)
+#    define prefetchw(addr)	__prefetchw(addr)
+#  endif
+#endif
+#ifndef prefetchw
 #  define prefetchw(addr)
 #endif
 
@@ -191,13 +248,28 @@ typedef size_t machine_word_t;
  * the annotated type, must be aligned on n-byte boundaries.
  */
 #undef _aligned_attribute
-#ifdef __GNUC__
+#if defined(__GNUC__) || __has_attribute(aligned)
 #  define _aligned_attribute(n)	__attribute__((aligned(n)))
+#elif defined(_MSC_VER)
+#  define _aligned_attribute(n)	__declspec(align(n))
 #endif
 
-/* Does the compiler support the 'target' function attribute? */
-#define COMPILER_SUPPORTS_TARGET_FUNCTION_ATTRIBUTE \
-	(GCC_PREREQ(4, 4) || __has_attribute(target))
+/*
+ * _target_attribute(attrs) - override the compilation target for a function.
+ *
+ * This accepts one or more comma-separated suffixes to the -m prefix jointly
+ * forming the name of a machine-dependent option.  On gcc-like compilers, this
+ * enables codegen for the given targets, including arbitrary compiler-generated
+ * code as well as the corresponding intrinsics.  On other compilers this macro
+ * expands to nothing, though MSVC allows intrinsics to be used anywhere anyway.
+ */
+#if GCC_PREREQ(4, 4) || __has_attribute(target)
+#  define _target_attribute(attrs)	__attribute__((target(attrs)))
+#  define COMPILER_SUPPORTS_TARGET_FUNCTION_ATTRIBUTE	1
+#else
+#  define _target_attribute(attrs)
+#  define COMPILER_SUPPORTS_TARGET_FUNCTION_ATTRIBUTE	0
+#endif
 
 /* ========================================================================== */
 /*                          Miscellaneous macros                              */
@@ -299,8 +371,8 @@ static forceinline u64 bswap64(u64 v)
  * UNALIGNED_ACCESS_IS_FAST() - 1 if unaligned memory accesses can be performed
  * efficiently on the target platform, otherwise 0.
  */
-#if defined(__GNUC__) && \
-	(defined(__x86_64__) || defined(__i386__) || \
+#if (defined(__GNUC__) || defined(__clang__)) && \
+	(defined(ARCH_X86_64) || defined(ARCH_X86_32) || \
 	 defined(__ARM_FEATURE_UNALIGNED) || defined(__powerpc64__) || \
 	 /*
 	  * For all compilation purposes, WebAssembly behaves like any other CPU
@@ -520,7 +592,7 @@ put_unaligned_leword(machine_word_t v, u8 *p)
 static forceinline unsigned
 bsr32(u32 v)
 {
-#ifdef __GNUC__
+#if defined(__GNUC__) || __has_builtin(__builtin_clz)
 	return 31 - __builtin_clz(v);
 #elif defined(_MSC_VER)
 	unsigned long i;
@@ -539,7 +611,7 @@ bsr32(u32 v)
 static forceinline unsigned
 bsr64(u64 v)
 {
-#ifdef __GNUC__
+#if defined(__GNUC__) || __has_builtin(__builtin_clzll)
 	return 63 - __builtin_clzll(v);
 #elif defined(_MSC_VER) && defined(_WIN64)
 	unsigned long i;
@@ -574,7 +646,7 @@ bsrw(machine_word_t v)
 static forceinline unsigned
 bsf32(u32 v)
 {
-#ifdef __GNUC__
+#if defined(__GNUC__) || __has_builtin(__builtin_ctz)
 	return __builtin_ctz(v);
 #elif defined(_MSC_VER)
 	unsigned long i;
@@ -593,7 +665,7 @@ bsf32(u32 v)
 static forceinline unsigned
 bsf64(u64 v)
 {
-#ifdef __GNUC__
+#if defined(__GNUC__) || __has_builtin(__builtin_ctzll)
 	return __builtin_ctzll(v);
 #elif defined(_MSC_VER) && defined(_WIN64)
 	unsigned long i;
@@ -624,7 +696,7 @@ bsfw(machine_word_t v)
  * fallback implementation; use '#ifdef rbit32' to check if this is available.
  */
 #undef rbit32
-#if defined(__GNUC__) && defined(__arm__) && \
+#if (defined(__GNUC__) || defined(__clang__)) && defined(ARCH_ARM32) && \
 	(__ARM_ARCH >= 7 || (__ARM_ARCH == 6 && defined(__ARM_ARCH_6T2__)))
 static forceinline u32
 rbit32(u32 v)
@@ -633,7 +705,7 @@ rbit32(u32 v)
 	return v;
 }
 #define rbit32 rbit32
-#elif defined(__GNUC__) && defined(__aarch64__)
+#elif (defined(__GNUC__) || defined(__clang__)) && defined(ARCH_ARM64)
 static forceinline u32
 rbit32(u32 v)
 {

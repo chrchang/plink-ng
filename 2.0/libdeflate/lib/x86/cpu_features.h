@@ -32,9 +32,9 @@
 
 #define HAVE_DYNAMIC_X86_CPU_FEATURES	0
 
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(ARCH_X86_32) || defined(ARCH_X86_64)
 
-#if COMPILER_SUPPORTS_TARGET_FUNCTION_ATTRIBUTE
+#if COMPILER_SUPPORTS_TARGET_FUNCTION_ATTRIBUTE || defined(_MSC_VER)
 #  undef HAVE_DYNAMIC_X86_CPU_FEATURES
 #  define HAVE_DYNAMIC_X86_CPU_FEATURES	1
 #endif
@@ -73,55 +73,36 @@ static inline u32 get_x86_cpu_features(void) { return 0; }
  * functions.  Unfortunately clang has no feature test macro for this, so we
  * have to check its version.
  */
-#define HAVE_TARGET_INTRINSICS \
-	(HAVE_DYNAMIC_X86_CPU_FEATURES && \
-	 (GCC_PREREQ(4, 9) || CLANG_PREREQ(3, 8, 7030000)))
-
-/*
- * Before gcc 5.1 and clang 3.9, emmintrin.h only defined vectors of signed
- * integers (e.g. __v4si), not vectors of unsigned integers (e.g. __v4su).  We
- * need the unsigned ones to avoid signed integer overflow, which is undefined
- * behavior.  Add the missing definitions for the unsigned ones if needed.
- */
-#if (GCC_PREREQ(4, 0) && !GCC_PREREQ(5, 1)) || \
-	(defined(__clang__) && !CLANG_PREREQ(3, 9, 8020000)) || \
-	defined(__INTEL_COMPILER)
-typedef unsigned long long  __v2du __attribute__((__vector_size__(16)));
-typedef unsigned int        __v4su __attribute__((__vector_size__(16)));
-typedef unsigned short      __v8hu __attribute__((__vector_size__(16)));
-typedef unsigned char      __v16qu __attribute__((__vector_size__(16)));
-typedef unsigned long long  __v4du __attribute__((__vector_size__(32)));
-typedef unsigned int        __v8su __attribute__((__vector_size__(32)));
-typedef unsigned short     __v16hu __attribute__((__vector_size__(32)));
-typedef unsigned char      __v32qu __attribute__((__vector_size__(32)));
-#endif
-#ifdef __INTEL_COMPILER
-typedef int   __v16si __attribute__((__vector_size__(64)));
-typedef short __v32hi __attribute__((__vector_size__(64)));
-typedef char  __v64qi __attribute__((__vector_size__(64)));
+#if HAVE_DYNAMIC_X86_CPU_FEATURES && \
+	(GCC_PREREQ(4, 9) || CLANG_PREREQ(3, 8, 7030000) || defined(_MSC_VER))
+#  define HAVE_TARGET_INTRINSICS	1
+#else
+#  define HAVE_TARGET_INTRINSICS	0
 #endif
 
 /* SSE2 */
-#ifdef __SSE2__
+#if defined(__SSE2__) || \
+	(defined(_MSC_VER) && \
+	 (defined(ARCH_X86_64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)))
 #  define HAVE_SSE2_NATIVE	1
 #else
 #  define HAVE_SSE2_NATIVE	0
 #endif
-#define HAVE_SSE2_TARGET	HAVE_DYNAMIC_X86_CPU_FEATURES
-#define HAVE_SSE2_INTRIN \
-	(HAVE_SSE2_NATIVE || (HAVE_SSE2_TARGET && HAVE_TARGET_INTRINSICS))
+#define HAVE_SSE2_INTRIN	(HAVE_SSE2_NATIVE || HAVE_TARGET_INTRINSICS)
 
 /* PCLMUL */
-#ifdef __PCLMUL__
+#if defined(__PCLMUL__) || (defined(_MSC_VER) && defined(__AVX2__))
 #  define HAVE_PCLMUL_NATIVE	1
 #else
 #  define HAVE_PCLMUL_NATIVE	0
 #endif
-#define HAVE_PCLMUL_TARGET \
-	(HAVE_DYNAMIC_X86_CPU_FEATURES && \
-	 (GCC_PREREQ(4, 4) || __has_builtin(__builtin_ia32_pclmulqdq128)))
-#define HAVE_PCLMUL_INTRIN \
-	(HAVE_PCLMUL_NATIVE || (HAVE_PCLMUL_TARGET && HAVE_TARGET_INTRINSICS))
+#if HAVE_PCLMUL_NATIVE || (HAVE_TARGET_INTRINSICS && \
+			   (GCC_PREREQ(4, 4) || CLANG_PREREQ(3, 2, 0) || \
+			    defined(_MSC_VER)))
+#  define HAVE_PCLMUL_INTRIN	1
+#else
+#  define HAVE_PCLMUL_INTRIN	0
+#endif
 
 /* AVX */
 #ifdef __AVX__
@@ -129,11 +110,13 @@ typedef char  __v64qi __attribute__((__vector_size__(64)));
 #else
 #  define HAVE_AVX_NATIVE	0
 #endif
-#define HAVE_AVX_TARGET \
-	(HAVE_DYNAMIC_X86_CPU_FEATURES && \
-	 (GCC_PREREQ(4, 6) || __has_builtin(__builtin_ia32_maxps256)))
-#define HAVE_AVX_INTRIN \
-	(HAVE_AVX_NATIVE || (HAVE_AVX_TARGET && HAVE_TARGET_INTRINSICS))
+#if HAVE_AVX_NATIVE || (HAVE_TARGET_INTRINSICS && \
+			(GCC_PREREQ(4, 6) || CLANG_PREREQ(3, 0, 0) || \
+			 defined(_MSC_VER)))
+#  define HAVE_AVX_INTRIN	1
+#else
+#  define HAVE_AVX_INTRIN	0
+#endif
 
 /* AVX2 */
 #ifdef __AVX2__
@@ -141,24 +124,38 @@ typedef char  __v64qi __attribute__((__vector_size__(64)));
 #else
 #  define HAVE_AVX2_NATIVE	0
 #endif
-#define HAVE_AVX2_TARGET \
-	(HAVE_DYNAMIC_X86_CPU_FEATURES && \
-	 (GCC_PREREQ(4, 7) || __has_builtin(__builtin_ia32_psadbw256)))
-#define HAVE_AVX2_INTRIN \
-	(HAVE_AVX2_NATIVE || (HAVE_AVX2_TARGET && HAVE_TARGET_INTRINSICS))
+#if HAVE_AVX2_NATIVE || (HAVE_TARGET_INTRINSICS && \
+			 (GCC_PREREQ(4, 7) || CLANG_PREREQ(3, 1, 0) || \
+			  defined(_MSC_VER)))
+#  define HAVE_AVX2_INTRIN	1
+#else
+#  define HAVE_AVX2_INTRIN	0
+#endif
 
 /* BMI2 */
-#ifdef __BMI2__
+#if defined(__BMI2__) || (defined(_MSC_VER) && defined(__AVX2__))
 #  define HAVE_BMI2_NATIVE	1
 #else
 #  define HAVE_BMI2_NATIVE	0
 #endif
-#define HAVE_BMI2_TARGET \
-	(HAVE_DYNAMIC_X86_CPU_FEATURES && \
-	 (GCC_PREREQ(4, 7) || __has_builtin(__builtin_ia32_pdep_di)))
-#define HAVE_BMI2_INTRIN \
-	(HAVE_BMI2_NATIVE || (HAVE_BMI2_TARGET && HAVE_TARGET_INTRINSICS))
+#if HAVE_BMI2_NATIVE || (HAVE_TARGET_INTRINSICS && \
+			 (GCC_PREREQ(4, 7) || CLANG_PREREQ(3, 1, 0) || \
+			  defined(_MSC_VER)))
+#  define HAVE_BMI2_INTRIN	1
+#else
+#  define HAVE_BMI2_INTRIN	0
+#endif
+/*
+ * MSVC from VS2017 (toolset v141) apparently miscompiles the _bzhi_*()
+ * intrinsics.  It seems to be fixed in VS2022.
+ */
+#if defined(_MSC_VER) && _MSC_VER < 1930 /* older than VS2022 (toolset v143) */
+#  undef HAVE_BMI2_NATIVE
+#  undef HAVE_BMI2_INTRIN
+#  define HAVE_BMI2_NATIVE	0
+#  define HAVE_BMI2_INTRIN	0
+#endif
 
-#endif /* __i386__ || __x86_64__ */
+#endif /* ARCH_X86_32 || ARCH_X86_64 */
 
 #endif /* LIB_X86_CPU_FEATURES_H */

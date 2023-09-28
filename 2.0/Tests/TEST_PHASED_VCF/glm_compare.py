@@ -61,6 +61,7 @@ def main():
         a1_col2 = first_line2.index('A1')
         test_col2 = first_line2.index('TEST')
         obsct_col2 = first_line2.index('OBS_CT')
+        errcode_col2 = first_line2.index('ERRCODE')
         betaor_col2 = -1
         stat_col2 = -1
         is_odds_ratio = False
@@ -102,16 +103,24 @@ def main():
                row1[5] != row2[obsct_col2]:
                 eprint('Header column mismatch between association files.')
                 sys.exit(1)
-            if row1[6] != 'NA' and row2[betaor_col2] != 'NA':
-                val1 = float(row1[6])
-                val2 = float(row2[betaor_col2])
-                if is_odds_ratio:
-                    # this is a more appropriate scale
-                    val1 = math.log(val1)
-                    val2 = math.log(val2)
-                if not float_compare_ok(val1, val2, tol):
-                    eprint('BETA/OR mismatch.')
+            if row1[6] != 'NA':
+                # Apple clang 15.0.0 apparent-miscompilation issue is likely to
+                # manifest as an inappropriate ERRCODE=INVALID_RESULT.  This is
+                # very unlikely to happen on random data, so error out and then
+                # manually pass if necessary.
+                if row2[errcode_col2] == 'INVALID_RESULT':
+                    eprint('Unexpected INVALID_RESULT.')
                     sys.exit(1)
+                if row2[betaor_col2] != 'NA':
+                    val1 = float(row1[6])
+                    val2 = float(row2[betaor_col2])
+                    if is_odds_ratio:
+                        # this is a more appropriate scale
+                        val1 = math.log(val1)
+                        val2 = math.log(val2)
+                    if not float_compare_ok(val1, val2, tol):
+                        eprint('BETA/OR mismatch.')
+                        sys.exit(1)
             if row1[7] != 'NA' and row1[7] != 'inf' and row2[stat_col2] != 'NA':
                 val1 = float(row1[7])
                 val2 = float(row2[stat_col2])
