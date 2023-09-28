@@ -22,3 +22,20 @@ do
     diff -q plink2x_c$c.bed plink2_c$c.bed
     diff -q plink2x_c$c.bim plink2_c$c.bim
 done
+
+# tmp_data is also suitable for ind-major-bed, ped, and tped round-trip tests.
+$1/plink2 $2 $3 --bfile tmp_data --export ind-major-bed --out plink2_roundtrip
+$1/plink2 $2 $3 --bfile plink2_roundtrip --make-bed --out plink2_test
+diff -q tmp_data.bed plink2_test.bed
+diff -q tmp_data.bim plink2_test.bim
+# .fam files aren't byte-for-byte identical due to spaces -> tabs.
+
+$1/plink2 $2 $3 --bfile tmp_data --export ped --out plink2_roundtrip
+$1/plink2 $2 $3 --pedmap plink2_roundtrip --make-bed --out plink2_test
+diff -q tmp_data.bed plink2_test.bed
+diff -q tmp_data.bim plink2_test.bim
+
+$1/plink2 $2 $3 --bfile tmp_data --export tped --out plink2_roundtrip
+$1/plink2 $2 $3 --tfile plink2_roundtrip --make-bed --out plink2_test
+diff -q tmp_data.bed plink2_test.bed
+diff -q tmp_data.bim plink2_test.bim

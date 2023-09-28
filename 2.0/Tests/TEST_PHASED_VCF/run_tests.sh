@@ -14,6 +14,13 @@ $1/plink2 $2 $3 --vcf 1kg_phase3_chr21_start.vcf.gz --double-id --out plink2_dat
 $1/plink2 $2 $3 --pfile plink2_data --export bcf --out plink2_roundtrip
 $1/plink2 $2 $3 --bcf plink2_roundtrip.bcf --out plink2_roundtrip
 diff -q plink2_data.pgen plink2_roundtrip.pgen
+# Verify haps and hapslegend roundtrip.
+$1/plink2 $2 $3 --pfile plink2_data --export haps sample-v2 --out plink2_roundtrip
+$1/plink2 $2 $3 --haps plink2_roundtrip.haps --sample plink2_roundtrip.sample --real-ref-alleles --make-pgen --out plink2_roundtrip
+diff -q plink2_data.pgen plink2_roundtrip.pgen
+$1/plink2 $2 $3 --pfile plink2_data --export hapslegend sample-v2 --out plink2_roundtrip
+$1/plink2 $2 $3 --haps plink2_roundtrip.haps --legend plink2_roundtrip.legend 21 --sample plink2_roundtrip.sample --real-ref-alleles --make-pgen --out plink2_roundtrip
+diff -q plink2_data.pgen plink2_roundtrip.pgen
 
 $1/plink2 $2 $3 --pfile plink2_data --export vcf --out plink2_data
 
