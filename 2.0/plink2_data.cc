@@ -8432,7 +8432,8 @@ PglErr WritePvarResorted(const char* outname, const uintptr_t* variant_include, 
       // subtract kCacheline to allow for rounding
       uintptr_t bytes_left = bigstack_left() - kCacheline;
       uint32_t single_variant_byte_ct = info_reload_slen + 1 + sizeof(intptr_t);
-      if (variant_ct * single_variant_byte_ct > bytes_left) {
+      // bugfix (2 Oct 2023): left term needs to be uintptr_t, not uint32_t
+      if (S_CAST(uintptr_t, variant_ct) * single_variant_byte_ct > bytes_left) {
         batch_size = bytes_left / single_variant_byte_ct;
         batch_ct = 1 + (variant_ct - 1) / batch_size;
       }

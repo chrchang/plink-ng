@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a5"
+static const char ver_str[] = "PLINK v2.00a5.1"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -100,7 +100,7 @@ static const char ver_str2[] =
 #  endif
 #endif
 
-  "     www.cog-genomics.org/plink/2.0/\n"
+  "   www.cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2023 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
