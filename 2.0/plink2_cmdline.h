@@ -618,6 +618,11 @@ HEADER_INLINE BoolErr bigstack_alloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
   return !(*w_arr_ptr);
 }
 
+HEADER_INLINE BoolErr bigstack_alloc_hw(uintptr_t ct, Halfword** hw_arr_ptr) {
+  *hw_arr_ptr = S_CAST(Halfword*, bigstack_alloc(ct * sizeof(Halfword)));
+  return !(*hw_arr_ptr);
+}
+
 HEADER_INLINE BoolErr bigstack_alloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
   *i64_arr_ptr = S_CAST(int64_t*, bigstack_alloc(ct * sizeof(int64_t)));
   return !(*i64_arr_ptr);

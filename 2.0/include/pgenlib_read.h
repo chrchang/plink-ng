@@ -599,7 +599,7 @@ PglErr PgrGetM(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex 
 HEADER_INLINE void PgrDetectGenoarrHetsUnsafe(const uintptr_t*__restrict genoarr, uint32_t raw_sample_ctl2, uintptr_t* __restrict all_hets) {
   PackWordsToHalfwordsInvmatch(genoarr, kMaskAAAA, raw_sample_ctl2, all_hets);
   if (raw_sample_ctl2 % 2) {
-    Halfword* all_hets_alias = DowncastWToHW(all_hets);
+    Halfword* __attribute__((may_alias)) all_hets_alias = DowncastWToHW(all_hets);
     all_hets_alias[raw_sample_ctl2] = 0;
   }
 }

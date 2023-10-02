@@ -393,7 +393,7 @@ HEADER_INLINE void GenoarrToMissingnessUnsafe(const uintptr_t* __restrict genoar
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   PackWordsToHalfwordsInvmatch(genoarr, 0, sample_ctl2, missingness);
   if (sample_ctl2 % 2) {
-    Halfword* missingness_alias = DowncastWToHW(missingness);
+    Halfword* __attribute__((may_alias)) missingness_alias = DowncastWToHW(missingness);
     missingness_alias[sample_ctl2] = 0;
   }
 }

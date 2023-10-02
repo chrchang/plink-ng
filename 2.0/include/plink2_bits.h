@@ -479,6 +479,8 @@ HEADER_INLINE void CopyBitarr(const uintptr_t* __restrict src, uintptr_t bit_ct,
 }
 
 // output_bit_idx_end is practically always subset_size
+// if not, it currently must correspond to PopcountWords(subset_mask, word_ct)
+// for some word_ct
 void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t output_bit_idx_end, uintptr_t* __restrict output_bitarr);
 
 #ifndef NO_UNALIGNED

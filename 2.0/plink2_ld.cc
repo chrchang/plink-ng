@@ -2673,17 +2673,16 @@ void GenoarrSplit12Nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, u
     two_bitarr_alias[widx] = high_halfword & (~low_halfword);
     nm_bitarr_alias[widx] = ~(low_halfword & high_halfword);
   }
-  const uint32_t sample_ct_rem = sample_ct % kBitsPerWordD2;
+  const uint32_t sample_ct_rem = sample_ct % kBitsPerWord;
   if (sample_ct_rem) {
-    const Halfword trailing_mask = (1U << sample_ct_rem) - 1;
-    one_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
-    two_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
-    nm_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
-  }
-  if (sample_ctl2 % 2) {
-    one_bitarr_alias[sample_ctl2] = 0;
-    two_bitarr_alias[sample_ctl2] = 0;
-    nm_bitarr_alias[sample_ctl2] = 0;
+    const uint32_t last_widx = sample_ct / kBitsPerWord;
+    const uintptr_t trailing_mask = (k1LU << sample_ct_rem) - 1;
+    uintptr_t* __attribute__((may_alias)) one_bitarr_last = &(one_bitarr[last_widx]);
+    uintptr_t* __attribute__((may_alias)) two_bitarr_last = &(two_bitarr[last_widx]);
+    uintptr_t* __attribute__((may_alias)) nm_bitarr_last = &(nm_bitarr[last_widx]);
+    *one_bitarr_last &= trailing_mask;
+    *two_bitarr_last &= trailing_mask;
+    *nm_bitarr_last &= trailing_mask;
   }
 }
 #else
@@ -2703,17 +2702,16 @@ void GenoarrSplit12Nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, u
     nm_bitarr_alias[widx] = ~(low_halfword & high_halfword);
   }
 
-  const uint32_t sample_ct_rem = sample_ct % kBitsPerWordD2;
+  const uint32_t sample_ct_rem = sample_ct % kBitsPerWord;
   if (sample_ct_rem) {
-    const Halfword trailing_mask = (1U << sample_ct_rem) - 1;
-    one_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
-    two_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
-    nm_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
-  }
-  if (sample_ctl2 % 2) {
-    one_bitarr_alias[sample_ctl2] = 0;
-    two_bitarr_alias[sample_ctl2] = 0;
-    nm_bitarr_alias[sample_ctl2] = 0;
+    const uint32_t last_widx = sample_ct / kBitsPerWord;
+    const uintptr_t trailing_mask = (k1LU << sample_ct_rem) - 1;
+    uintptr_t* __attribute__((may_alias)) one_bitarr_last = &(one_bitarr[last_widx]);
+    uintptr_t* __attribute__((may_alias)) two_bitarr_last = &(two_bitarr[last_widx]);
+    uintptr_t* __attribute__((may_alias)) nm_bitarr_last = &(nm_bitarr[last_widx]);
+    *one_bitarr_last &= trailing_mask;
+    *two_bitarr_last &= trailing_mask;
+    *nm_bitarr_last &= trailing_mask;
   }
 }
 #endif

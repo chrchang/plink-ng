@@ -10515,10 +10515,10 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* genovec;
-    uintptr_t* dosage_present;
+    Halfword* dosage_present_hwarr;
     // if we weren't using bigstack_alloc, this would need to be sample_ctaw2
     if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
-                 bigstack_alloc_w(sample_ctl, &dosage_present))) {
+                 bigstack_alloc_hw(2 * sample_ctl, &dosage_present_hwarr))) {
       goto OxGenToPgen_ret_NOMEM;
     }
     Dosage* dosage_main = nullptr;
@@ -10639,7 +10639,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
           Bgen11DosageImportUpdate(dosage_int_sum_thresh, import_dosage_certainty_int, hard_call_halfdist, dosage_erase_halfdist, sample_idx_lowbits, dosage_int0, dosage_int1, dosage_int2, &genovec_word, &dosage_present_hw, &dosage_main_iter);
         }
         genovec[widx] = genovec_word;
-        R_CAST(Halfword*, dosage_present)[widx] = dosage_present_hw;
+        dosage_present_hwarr[widx] = dosage_present_hw;
       }
       if (prov_ref_allele_second) {
         GenovecInvertUnsafe(sample_ct, genovec);
@@ -10650,7 +10650,8 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
         if (prov_ref_allele_second) {
           BiallelicDosage16Invert(dosage_ct, dosage_main);
         }
-        reterr = SpgwAppendBiallelicGenovecDosage16(genovec, dosage_present, dosage_main, dosage_ct, &spgw);
+        uintptr_t* __attribute__((may_alias)) dosage_present_warr = R_CAST(uintptr_t*, dosage_present_hwarr);
+        reterr = SpgwAppendBiallelicGenovecDosage16(genovec, dosage_present_warr, dosage_main, dosage_ct, &spgw);
         if (unlikely(reterr)) {
           goto OxGenToPgen_ret_1;
         }
@@ -10874,7 +10875,7 @@ THREAD_FUNC_DECL Bgen11GenoToPgenThread(void* raw_arg) {
     unsigned char* compressed_geno_iter = bicp->compressed_geno_starts[parity][vidx];
     uintptr_t* write_genovec_iter = &(ctx->write_genovecs[parity][vidx * sample_ctaw2]);
     uint32_t* write_dosage_ct_iter = &(ctx->write_dosage_cts[parity][vidx]);
-    uintptr_t* write_dosage_present_iter = &(ctx->write_dosage_presents[parity][vidx * sample_ctaw]);
+    Halfword* write_dosage_present_iter = DowncastWToHW(&(ctx->write_dosage_presents[parity][vidx * sample_ctaw]));
     Dosage* write_dosage_main_iter = &(ctx->write_dosage_mains[parity][vidx * sample_ct]);
     uint16_t* bgen_probs = bgen_geno_buf;
     for (; vidx != vidx_end; ++vidx) {
@@ -10934,7 +10935,7 @@ THREAD_FUNC_DECL Bgen11GenoToPgenThread(void* raw_arg) {
           *cur_dosage_main_iter++ = write_dosage_int;
         }
         write_genovec_iter[widx] = genovec_word;
-        R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
+        write_dosage_present_iter[widx] = dosage_present_hw;
       }
       const uint32_t dosage_ct = cur_dosage_main_iter - write_dosage_main_iter;
       if (prov_ref_allele_second) {
@@ -10946,7 +10947,7 @@ THREAD_FUNC_DECL Bgen11GenoToPgenThread(void* raw_arg) {
       }
       *write_dosage_ct_iter++ = dosage_ct;
       write_genovec_iter = &(write_genovec_iter[sample_ctaw2]);
-      write_dosage_present_iter = &(write_dosage_present_iter[sample_ctaw]);
+      write_dosage_present_iter = &(write_dosage_present_iter[2 * sample_ctaw]);
       write_dosage_main_iter = &(write_dosage_main_iter[sample_ct]);
     }
     if (unlikely(vidx != vidx_end)) {
@@ -11700,11 +11701,11 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
   AlleleCode* patch_01_vals = nullptr;
   uintptr_t* patch_10_set = nullptr;
   AlleleCode* patch_10_vals = nullptr;
-  uintptr_t* phasepresent = nullptr;
-  uintptr_t* phaseinfo = nullptr;
-  uintptr_t* dosage_present = nullptr;
+  uintptr_t* __attribute__((may_alias)) phasepresent = nullptr;
+  uintptr_t* __attribute__((may_alias)) phaseinfo = nullptr;
+  uintptr_t* __attribute__((may_alias)) dosage_present = nullptr;
   Dosage* dosage_main = nullptr;
-  uintptr_t* dphase_present = nullptr;
+  uintptr_t* __attribute__((may_alias)) dphase_present = nullptr;
   SDosage* dphase_delta = nullptr;
   uint32_t cur_allele_ct = 2;
   uint32_t parity = 0;
@@ -12122,7 +12123,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
           }
         }
         if (!(sample_ctl2_m1 % 2)) {
-          // do we actually need this?  well, play it safe for now
+          // needed for dosage_present.  don't think it's needed for
+          // dphase_present, but play that safe for now
           R_CAST(Halfword*, dosage_present)[sample_ctl2_m1 + 1] = 0;
           R_CAST(Halfword*, dphase_present)[sample_ctl2_m1 + 1] = 0;
         }
@@ -14403,9 +14405,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       }
     }
     uintptr_t* genovec;
-    uintptr_t* phaseinfo;
+    Halfword* phaseinfo_hwarr;
     if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
-                 bigstack_alloc_w(sample_ctl, &phaseinfo))) {
+                 bigstack_alloc_hw(2 * sample_ctl, &phaseinfo_hwarr))) {
       goto OxHapslegendToPgen_ret_NOMEM;
     }
     goto OxHapslegendToPgen_first_line;
@@ -14536,7 +14538,6 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         const VecU16 all0 = vecu16_set1(0x2030);
         const VecU16 all1 = vecu16_set1(0x2031);
         const uint32_t fullword_ct = sample_ct / kBitsPerWordD2;
-        Halfword* phaseinfo_alias = R_CAST(Halfword*, phaseinfo);
         for (uint32_t widx = 0; widx != fullword_ct; ++widx) {
           uintptr_t geno_first = 0;
           for (uint32_t uii = 0; uii != 2; ++uii) {
@@ -14575,7 +14576,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
             phaseinfo_hw = geno_first & (~geno_second);
           }
           phaseinfo_hw = PackWordToHalfword(phaseinfo_hw);
-          phaseinfo_alias[widx] = phaseinfo_hw;
+          phaseinfo_hwarr[widx] = phaseinfo_hw;
         }
         const uint32_t remainder = sample_ct % kBitsPerWordD2;
         if (remainder) {
@@ -14600,7 +14601,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           }
           genovec[fullword_ct] = genovec_word;
           genovec_word_or |= genovec_word;
-          phaseinfo_alias[fullword_ct] = phaseinfo_hw;
+          phaseinfo_hwarr[fullword_ct] = phaseinfo_hw;
         }
 #else  // !USE_SSE2
         const unsigned char* linebuf_iter_uc = R_CAST(const unsigned char*, linebuf_iter);
@@ -14637,7 +14638,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           }
           genovec[widx] = genovec_word;
           genovec_word_or |= genovec_word;
-          DowncastWToHW(phaseinfo)[widx] = phaseinfo_hw;
+          phaseinfo_hwarr[widx] = phaseinfo_hw;
         }
 #endif  // !USE_SSE2
       } else {
@@ -14693,7 +14694,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           }
           genovec[widx] = genovec_word;
           genovec_word_or |= genovec_word;
-          R_CAST(Halfword*, phaseinfo)[widx] = phaseinfo_hw;
+          phaseinfo_hwarr[widx] = phaseinfo_hw;
         }
         haps_line_iter = AdvPastDelim(linebuf_iter, '\n');
       }
@@ -14702,7 +14703,8 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         ZeroTrailingNyps(sample_ct, genovec);
       }
       if (genovec_word_or & kMask5555) {
-        if (unlikely(SpgwAppendBiallelicGenovecHphase(genovec, nullptr, phaseinfo, &spgw))) {
+        uintptr_t* __attribute__((may_alias)) phaseinfo_warr = R_CAST(uintptr_t*, phaseinfo_hwarr);
+        if (unlikely(SpgwAppendBiallelicGenovecHphase(genovec, nullptr, phaseinfo_warr, &spgw))) {
           goto OxHapslegendToPgen_ret_WRITE_FAIL;
         }
       } else {
@@ -15465,9 +15467,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* genovec;
-    uintptr_t* dosage_present;
+    Halfword* dosage_present_hwarr;
     if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
-                 bigstack_alloc_w(sample_ctl, &dosage_present))) {
+                 bigstack_alloc_hw(2 * sample_ctl, &dosage_present_hwarr))) {
       goto Plink1DosageToPgen_ret_NOMEM;
     }
     Dosage* dosage_main = nullptr;
@@ -15631,7 +15633,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
           }
         }
         genovec[widx] = genovec_word;
-        R_CAST(Halfword*, dosage_present)[widx] = dosage_present_hw;
+        dosage_present_hwarr[widx] = dosage_present_hw;
       }
       if (!prov_ref_allele_second) {
         GenovecInvertUnsafe(sample_ct, genovec);
@@ -15642,7 +15644,8 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         if (!prov_ref_allele_second) {
           BiallelicDosage16Invert(dosage_ct, dosage_main);
         }
-        reterr = SpgwAppendBiallelicGenovecDosage16(genovec, dosage_present, dosage_main, dosage_ct, &spgw);
+        uintptr_t* __attribute__((may_alias)) dosage_present_warr = R_CAST(uintptr_t*, dosage_present_hwarr);
+        reterr = SpgwAppendBiallelicGenovecDosage16(genovec, dosage_present_warr, dosage_main, dosage_ct, &spgw);
         if (unlikely(reterr)) {
           goto Plink1DosageToPgen_ret_1;
         }
@@ -15818,13 +15821,13 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
     uint32_t vidx = (tidx * cur_block_write_ct) / calc_thread_ct;
     const uint32_t vidx_end = ((tidx + 1) * cur_block_write_ct) / calc_thread_ct;
     uintptr_t* write_genovec_iter = &(ctx->write_genovecs[parity][vidx * sample_ctaw2]);
-    uintptr_t* write_phasepresent_iter = &(ctx->write_phasepresents[parity][vidx * sample_ctaw]);
-    uintptr_t* write_phaseinfo_iter = &(ctx->write_phaseinfos[parity][vidx * sample_ctaw]);
+    Halfword* write_phasepresent_iter = DowncastWToHW(&(ctx->write_phasepresents[parity][vidx * sample_ctaw]));
+    Halfword* write_phaseinfo_iter = DowncastWToHW(&(ctx->write_phaseinfos[parity][vidx * sample_ctaw]));
     uint32_t* write_dosage_ct_iter = &(ctx->write_dosage_cts[parity][vidx]);
-    uintptr_t* write_dosage_present_iter = &(ctx->write_dosage_presents[parity][vidx * sample_ctaw]);
+    Halfword* write_dosage_present_iter = DowncastWToHW(&(ctx->write_dosage_presents[parity][vidx * sample_ctaw]));
     Dosage* write_dosage_main_iter = &(ctx->write_dosage_mains[parity][vidx * sample_ct]);
     uint32_t* write_dphase_ct_iter = &(ctx->write_dphase_cts[parity][vidx]);
-    uintptr_t* write_dphase_present_iter = &(ctx->write_dphase_presents[parity][vidx * sample_ctaw]);
+    Halfword* write_dphase_present_iter = DowncastWToHW(&(ctx->write_dphase_presents[parity][vidx * sample_ctaw]));
     SDosage* write_dphase_delta_iter = &(ctx->write_dphase_deltas[parity][vidx * sample_ct]);
     uintptr_t* prev_genovec = nullptr;
     for (; vidx != vidx_end; ++vidx) {
@@ -16068,25 +16071,29 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
         write_genovec_iter[widx] = genovec_word;
         const uint32_t cur_hets = Pack01ToHalfword(genovec_word);
         const uint32_t phasepresent_hw = phasepresent_possible_hw & cur_hets;
-        R_CAST(Halfword*, write_phasepresent_iter)[widx] = phasepresent_hw;
-        R_CAST(Halfword*, write_phaseinfo_iter)[widx] = phaseinfo_hw & phasepresent_hw;
-        R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
-        R_CAST(Halfword*, write_dphase_present_iter)[widx] = dphase_present_hw;
+        write_phasepresent_iter[widx] = phasepresent_hw;
+        write_phaseinfo_iter[widx] = phaseinfo_hw & phasepresent_hw;
+        write_dosage_present_iter[widx] = dosage_present_hw;
+        write_dphase_present_iter[widx] = dphase_present_hw;
       }
       ZeroTrailingNyps(sample_ct, write_genovec_iter);
-      ZeroTrailingBits(sample_ct, write_phasepresent_iter);
-      ZeroTrailingBits(sample_ct, write_phaseinfo_iter);
+      uintptr_t* __attribute__((may_alias)) write_phasepresent_warr = R_CAST(uintptr_t*, write_phasepresent_iter);
+      uintptr_t* __attribute__((may_alias)) write_phaseinfo_warr = R_CAST(uintptr_t*, write_phaseinfo_iter);
+      uintptr_t* __attribute__((may_alias)) write_dosage_present_warr = R_CAST(uintptr_t*, write_dosage_present_iter);
+      ZeroTrailingBits(sample_ct, write_phasepresent_warr);
+      ZeroTrailingBits(sample_ct, write_phaseinfo_warr);
+      ZeroTrailingBits(sample_ct, write_dosage_present_warr);
       const uint32_t dosage_ct = cur_dosage_main_iter - write_dosage_main_iter;
       *write_dosage_ct_iter++ = dosage_ct;
       const uint32_t dphase_ct = cur_dphase_delta_iter - write_dphase_delta_iter;
       *write_dphase_ct_iter++ = dphase_ct;
       prev_genovec = write_genovec_iter;
       write_genovec_iter = &(write_genovec_iter[sample_ctaw2]);
-      write_phasepresent_iter = &(write_phasepresent_iter[sample_ctaw]);
-      write_phaseinfo_iter = &(write_phaseinfo_iter[sample_ctaw]);
-      write_dosage_present_iter = &(write_dosage_present_iter[sample_ctaw]);
+      write_phasepresent_iter = &(write_phasepresent_iter[2 * sample_ctaw]);
+      write_phaseinfo_iter = &(write_phaseinfo_iter[2 * sample_ctaw]);
+      write_dosage_present_iter = &(write_dosage_present_iter[2 * sample_ctaw]);
       write_dosage_main_iter = &(write_dosage_main_iter[sample_ct]);
-      write_dphase_present_iter = &(write_dphase_present_iter[sample_ctaw]);
+      write_dphase_present_iter = &(write_dphase_present_iter[2 * sample_ctaw]);
       write_dphase_delta_iter = &(write_dphase_delta_iter[sample_ct]);
     }
     parity = 1 - parity;

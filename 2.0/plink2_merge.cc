@@ -5363,7 +5363,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             genovec[hwidx] = most_common_geno_word;
           }
         } else {
-          const Halfword* sample_span_hw = R_CAST(const Halfword*, sample_span);
+          const Halfword* sample_span_hw = DowncastKWToHW(sample_span);
           for (uint32_t hwidx = 0; hwidx != write_sample_ctl2; ++hwidx) {
             // Initialize each genotype outside the single source's sample-span
             // to missing (both bits set).

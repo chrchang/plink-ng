@@ -20,7 +20,8 @@
 #include "plink2_data.h"
 #include "plink2_pvar.h"
 
-#include <time.h>
+#include <time.h>  // time()
+#include <unistd.h>  // unlink()
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -8145,36 +8146,29 @@ PglErr WriteBimResorted(const char* outname, const ChrInfo* write_cip, const uin
   return reterr;
 }
 
-PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t variant_idx_start, uint32_t variant_idx_end, TextStream* pvar_reload_txsp, char** pvar_info_strs) {
-  // We assume the batch size was chosen such that there's no risk of
-  // scribbling past g_bigstack_end (barring pathological cases like another
-  // process modifying the .pvar file after initial load).
-  // We also assume no more dynamic allocations are needed after this;
-  // otherwise, str_store_iter should be returned.
-  char* line_iter;
-  // probable todo: avoid rewind when one batch is entirely after the previous
-  // batch (this is likely when input was already almost-sorted, and just a few
-  // coordinates changed due to e.g. --normalize)
+PglErr PvarInfoLoadAll(const uint32_t* old_variant_uidx_to_new, uint32_t variant_ct, TextStream* pvar_reload_txsp, char** pvar_info_strs) {
+  // We assume no more dynamic allocations are needed after this; otherwise,
+  // str_store_iter should be returned.
   PglErr reterr = TextRewind(pvar_reload_txsp);
   if (unlikely(reterr)) {
     return reterr;
   }
-  const uint32_t cur_batch_size = variant_idx_end - variant_idx_start;
   char* str_store_iter = R_CAST(char*, g_bigstack_base);
+  char* line_iter;
   uint32_t info_col_idx;
   reterr = PvarInfoReloadHeader(pvar_reload_txsp, &line_iter, &info_col_idx);
   if (unlikely(reterr)) {
     return reterr;
   }
-  uint32_t variant_idx = 0;
+  uint32_t old_variant_idx = 0;
   for (uint32_t variant_uidx = 0; ; ++variant_uidx) {
     reterr = TextNextLineLstrip(pvar_reload_txsp, &line_iter);
     if (unlikely(reterr)) {
       return reterr;
     }
-    const uint32_t new_variant_idx_offset = old_variant_uidx_to_new[variant_uidx] - variant_idx_start;
+    const uint32_t new_variant_idx_offset = old_variant_uidx_to_new[variant_uidx];
     // exploit wraparound, UINT32_MAX null value
-    if (new_variant_idx_offset >= cur_batch_size) {
+    if (new_variant_idx_offset >= variant_ct) {
       continue;
     }
     line_iter = NextTokenMultFar(line_iter, info_col_idx);
@@ -8186,11 +8180,140 @@ PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t 
     pvar_info_strs[new_variant_idx_offset] = str_store_iter;
     str_store_iter = memcpyax(str_store_iter, line_iter, info_slen, '\0');
     line_iter = info_end;
-    if (++variant_idx == cur_batch_size) {
+    if (++old_variant_idx == variant_ct) {
       break;
     }
   }
-  assert(str_store_iter <= R_CAST(char*, g_bigstack_end));
+  assert(str_store_iter <= R_CAST(const char*, old_variant_uidx_to_new));
+  return kPglRetSuccess;
+}
+
+typedef struct InfoWriteTmpStruct {
+  char* cswritep;
+  CompressStreamState css;
+} InfoWriteTmp;
+
+PglErr PvarInfoSplitTmp(const uint32_t* old_variant_uidx_to_new, uint32_t variant_ct, uint32_t batch_size, uint32_t batch_ct, uint32_t info_reload_blen, TextStream* pvar_reload_txsp, char* outname, char* outname_end) {
+  InfoWriteTmp* info_write_tmps = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    char* line_iter;
+    uint32_t info_col_idx;
+    reterr = PvarInfoReloadHeader(pvar_reload_txsp, &line_iter, &info_col_idx);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    uint64_t mult;
+    uint32_t pre_shift;
+    uint32_t post_shift;
+    uint32_t incr;
+    DivisionMagicNums(batch_size, &mult, &pre_shift, &post_shift, &incr);
+    if (batch_ct > kMaxOpenFiles - 12) {
+      // todo: recurse
+      logerrputs("Error: INFO column is too large for current --sort-vars implementation and\nworkspace size.\n");
+      reterr = kPglRetNotYetSupported;
+      goto PvarInfoSplitTmp_ret_1;
+    }
+    if (unlikely(BIGSTACK_ALLOC_X(InfoWriteTmp, batch_ct, &info_write_tmps))) {
+      goto PvarInfoSplitTmp_ret_NOMEM;
+    }
+    for (uint32_t batch_idx = 0; batch_idx != batch_ct; ++batch_idx) {
+      PreinitCstream(&(info_write_tmps[batch_idx].css));
+      info_write_tmps[batch_idx].cswritep = nullptr;
+    }
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + info_reload_blen;
+    char* outname_continued = strcpya(outname_end, ".info.tmp.");
+    for (uint32_t batch_idx = 0; batch_idx != batch_ct; ++batch_idx) {
+      char* outname_iter = u32toa(batch_idx + 1, outname_continued);
+      strcpy_k(outname_iter, ".zst");
+      reterr = InitCstreamAlloc(outname, 0, 1, 1, overflow_buf_size, &(info_write_tmps[batch_idx].css), &(info_write_tmps[batch_idx].cswritep));
+      if (unlikely(reterr)) {
+        goto PvarInfoSplitTmp_ret_1;
+      }
+    }
+
+    uint32_t old_variant_idx = 0;
+    for (uint32_t variant_uidx = 0; ; ++variant_uidx) {
+      reterr = TextNextLineLstrip(pvar_reload_txsp, &line_iter);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
+      const uint32_t new_variant_idx = old_variant_uidx_to_new[variant_uidx];
+      // UINT32_MAX serves as null value
+      if (new_variant_idx >= variant_ct) {
+        continue;
+      }
+      line_iter = NextTokenMultFar(line_iter, info_col_idx);
+      if (!line_iter) {
+        return kPglRetRewindFail;
+      }
+      char* info_end = CurTokenEnd(line_iter);
+      const uint32_t info_slen = info_end - line_iter;
+      const uint32_t batch_idx = (mult * ((new_variant_idx >> pre_shift) + incr)) >> post_shift;
+      // these are temporary files, so don't bother writing \r\n on Windows
+      info_write_tmps[batch_idx].cswritep = memcpyax(info_write_tmps[batch_idx].cswritep, line_iter, info_slen, '\n');
+      if (unlikely(Cswrite(&(info_write_tmps[batch_idx].css), &(info_write_tmps[batch_idx].cswritep)))) {
+        goto PvarInfoSplitTmp_ret_WRITE_FAIL;
+      }
+      line_iter = info_end;
+      if (++old_variant_idx == variant_ct) {
+        break;
+      }
+    }
+    for (uint32_t batch_idx = 0; batch_idx != batch_ct; ++batch_idx) {
+      if (unlikely(CswriteCloseNull(&(info_write_tmps[batch_idx].css), info_write_tmps[batch_idx].cswritep))) {
+        goto PvarInfoSplitTmp_ret_WRITE_FAIL;
+      }
+    }
+  }
+  while (0) {
+  PvarInfoSplitTmp_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  PvarInfoSplitTmp_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ PvarInfoSplitTmp_ret_1:
+  if (info_write_tmps) {
+    for (uint32_t batch_idx = 0; batch_idx != batch_ct; ++batch_idx) {
+      CswriteCloseCond(&(info_write_tmps[batch_idx].css), info_write_tmps[batch_idx].cswritep);
+    }
+  }
+  // caller expected to reset wkspace
+  return reterr;
+}
+
+PglErr PvarInfoReloadInterval(const uint32_t* new_variant_idx_to_old, uint32_t variant_idx_start, uint32_t variant_idx_end, TextStream* pvar_reload_txsp, char** pvar_info_strs, uint32_t* variant_order_in_shard) {
+  // We assume the batch size was chosen such that there's no risk of
+  // scribbling past g_bigstack_end (barring pathological cases like another
+  // process modifying the temporary file).
+  // We assume no more dynamic allocations are needed after this; otherwise,
+  // str_store_iter should be returned.
+  uint64_t* old_variant_idx_map = R_CAST(uint64_t*, g_bigstack_base);
+  const uintptr_t shard_variant_ct = variant_idx_end - variant_idx_start;
+  const uint32_t* shard_new_variant_idx_to_old = &(new_variant_idx_to_old[variant_idx_start]);
+  for (uintptr_t shard_new_variant_idx = 0; shard_new_variant_idx != shard_variant_ct; ++shard_new_variant_idx) {
+    const uint64_t old_variant_uidx = shard_new_variant_idx_to_old[shard_new_variant_idx];
+    old_variant_idx_map[shard_new_variant_idx] = (old_variant_uidx << 32) | shard_new_variant_idx;
+  }
+
+  STD_SORT(shard_variant_ct, u64cmp, old_variant_idx_map);
+  for (uintptr_t shard_old_variant_idx = 0; shard_old_variant_idx != shard_variant_ct; ++shard_old_variant_idx) {
+    variant_order_in_shard[shard_old_variant_idx] = S_CAST(uint32_t, old_variant_idx_map[shard_old_variant_idx]);
+  }
+  // now we can scribble over old_variant_idx_map
+  char* str_store_iter = R_CAST(char*, g_bigstack_base);
+  char* line_iter;
+  for (uintptr_t shard_old_variant_idx = 0; shard_old_variant_idx != shard_variant_ct; ++shard_old_variant_idx) {
+    PglErr reterr = TextNextLine(pvar_reload_txsp, &line_iter);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    char* line_end = TextLineEnd(pvar_reload_txsp);
+    pvar_info_strs[variant_order_in_shard[shard_old_variant_idx]] = str_store_iter;
+    str_store_iter = memcpya(str_store_iter, line_iter, line_end - line_iter);
+  }
   return kPglRetSuccess;
 }
 
@@ -8332,7 +8455,7 @@ PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* varia
 // allocation of buffers, and generating the header line occurs directly in
 // this function, while loading the next pvar_info_strs batch and writing the
 // next .pvar line batch are one level down.
-PglErr WritePvarResorted(const char* outname, const uintptr_t* variant_include, const ChrInfo* write_cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, const uint32_t* new_variant_idx_to_old, const uint32_t* contig_lens, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, PvarPsamFlags pvar_psam_flags, char output_missing_geno_char, uint32_t thread_ct, char* xheader) {
+PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, const uint32_t* new_variant_idx_to_old, const uint32_t* contig_lens, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, PvarPsamFlags pvar_psam_flags, char output_missing_geno_char, uint32_t thread_ct, char* xheader, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -8434,19 +8557,31 @@ PglErr WritePvarResorted(const char* outname, const uintptr_t* variant_include, 
     }
     AppendBinaryEoln(&cswritep);
 
-    uint32_t* old_variant_uidx_to_new = nullptr;
     char** pvar_info_strs = nullptr;
+    uint32_t* variant_order_in_shard = nullptr;
+    const uint32_t info_reload_blen = info_reload_slen + 1;
     uint32_t batch_size = variant_ct;
     uint32_t batch_ct = 1;
+    // Original algorithm for handling an INFO column too large to fit in
+    // memory was to re-iterate through the .pvar/VCF many times, scraping only
+    // the INFO entries needed for the current batch each time.
+    // This was done because it reused existing INFO-reloading code, but
+    // unfortunately it has a quadratic cost, and this matters since huge INFO
+    // columns are pretty common (see e.g. gnomAD).  So it's time to rework
+    // this.
+    // New approach:
+    // - If, knowing info_reload_slen, we know all relevant INFO strings will
+    //   fit in 3/4 of remaining memory, fill pvar_info_strs upfront.
+    // - Otherwise, scrape the INFO strings in order and append them to
+    //   compressed temporary files, each sized to fit in remaining memory
+    //   after decompression.  (If more than 240 shards are required, then we
+    //   shard recursively to avoid having too many files open at once.)  Then
+    //   process the shards in order.
     if (pvar_info_reload) {
-      if (unlikely(bigstack_alloc_u32(raw_variant_ct, &old_variant_uidx_to_new))) {
-        goto WritePvarResorted_ret_NOMEM;
-      }
-      SetAllU32Arr(raw_variant_ct, old_variant_uidx_to_new);
-      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-        const uint32_t old_variant_uidx = new_variant_idx_to_old[variant_idx];
-        old_variant_uidx_to_new[old_variant_uidx] = variant_idx;
-      }
+      uintptr_t bytes_left = bigstack_left();
+      // 1. array of uint64s, old_uidx in high bits, new_idx in low
+      // 2. sort this
+      // 3. extract new_idx sequence
 
       uint32_t decompress_thread_ct = 1;
       if (!output_zst) {
@@ -8455,19 +8590,65 @@ PglErr WritePvarResorted(const char* outname, const uintptr_t* variant_include, 
           decompress_thread_ct = 1;
         }
       }
-      reterr = SizeAndInitTextStream(pvar_info_reload, bigstack_left() / 4, decompress_thread_ct, &pvar_reload_txs);
+      unsigned char* bigstack_mark2 = g_bigstack_base;
+      // Long line-length limit, because with e.g. "plink2 --vcf <filename>
+      // --make-just-pvar", the VCF is simply reinterpreted as a .pvar even if
+      // it's multisample.
+      reterr = SizeAndInitTextStream(pvar_info_reload, bytes_left / 4, decompress_thread_ct, &pvar_reload_txs);
       if (unlikely(reterr)) {
         goto WritePvarResorted_ret_TSTREAM_FAIL;
       }
 
-      // subtract kCacheline to allow for rounding
-      uintptr_t bytes_left = bigstack_left() - kCacheline;
-      uint32_t single_variant_byte_ct = info_reload_slen + 1 + sizeof(intptr_t);
-      if (variant_ct * single_variant_byte_ct > bytes_left) {
-        batch_size = bytes_left / single_variant_byte_ct;
-        batch_ct = 1 + (variant_ct - 1) / batch_size;
+      uint32_t* old_variant_uidx_to_new = S_CAST(uint32_t*, bigstack_alloc_raw_rd(raw_variant_ct * sizeof(int32_t)));
+      SetAllU32Arr(raw_variant_ct, old_variant_uidx_to_new);
+      for (uint32_t new_variant_idx = 0; new_variant_idx != variant_ct; ++new_variant_idx) {
+        const uint32_t old_variant_uidx = new_variant_idx_to_old[new_variant_idx];
+        old_variant_uidx_to_new[old_variant_uidx] = new_variant_idx;
       }
-      pvar_info_strs = S_CAST(char**, bigstack_alloc_raw_rd(batch_size * sizeof(intptr_t)));
+
+      const uintptr_t no_reload_bytes_left = bigstack_left();
+      uint32_t single_variant_byte_ct = info_reload_blen + sizeof(intptr_t);
+      // bugfix (2 Oct 2023): left term needs to be uintptr_t, not uint32_t
+      if (S_CAST(uintptr_t, variant_ct) * single_variant_byte_ct + kCacheline <= no_reload_bytes_left) {
+        pvar_info_strs = S_CAST(char**, bigstack_alloc_raw_rd(batch_size * sizeof(intptr_t)));
+        reterr = PvarInfoLoadAll(old_variant_uidx_to_new, variant_ct, &pvar_reload_txs, pvar_info_strs);
+        if (unlikely(reterr)) {
+          goto WritePvarResorted_ret_TSTREAM_FAIL;
+        }
+      } else {
+        if (info_reload_blen < sizeof(int64_t) + sizeof(int32_t)) {
+          single_variant_byte_ct = sizeof(int64_t) + sizeof(int32_t) + sizeof(intptr_t);
+        }
+        const uintptr_t expected_text_stream_alloc = MAXV(RoundUpPow2(info_reload_blen + kDecompressChunkSize, kCacheline), kTextStreamBlenFast + kDecompressChunkSize);
+        if (unlikely(bytes_left < expected_text_stream_alloc + 2 * kCacheline + single_variant_byte_ct)) {
+          goto WritePvarResorted_ret_NOMEM;
+        }
+        bytes_left -= expected_text_stream_alloc + 2 * kCacheline;
+        if (S_CAST(uintptr_t, variant_ct) * single_variant_byte_ct > bytes_left) {
+          batch_size = bytes_left / single_variant_byte_ct;
+          batch_ct = 1 + (variant_ct - 1) / batch_size;
+        }
+        const uint32_t usual_zst_level = g_zst_level;
+        g_zst_level = 1;
+        reterr = PvarInfoSplitTmp(old_variant_uidx_to_new, variant_ct, batch_size, batch_ct, info_reload_blen, &pvar_reload_txs, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto WritePvarResorted_ret_1;
+        }
+        g_zst_level = usual_zst_level;
+      }
+      if (unlikely(CleanupTextStream2(pvar_info_reload, &pvar_reload_txs, &reterr))) {
+        goto WritePvarResorted_ret_1;
+      }
+      BigstackReset(bigstack_mark2);
+      if (!pvar_info_strs) {
+        snprintf(outname_end, kMaxOutfnameExtBlen, ".info.tmp.1.zst");
+        reterr = InitTextStream(outname, MAXV(info_reload_blen, kTextStreamBlenFast), 1, &pvar_reload_txs);
+        if (unlikely(reterr)) {
+          goto WritePvarResorted_ret_TSTREAM_FAIL_2;
+        }
+        variant_order_in_shard = S_CAST(uint32_t*, bigstack_alloc_raw_rd(batch_size * sizeof(int32_t)));
+        pvar_info_strs = S_CAST(char**, bigstack_alloc_raw_rd(batch_size * sizeof(intptr_t)));
+      }
     }
 
     uint32_t variant_idx_start = 0;
@@ -8489,10 +8670,22 @@ PglErr WritePvarResorted(const char* outname, const uintptr_t* variant_include, 
         next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
       }
       uint32_t variant_idx_end = MINV(variant_idx_start + batch_size, variant_ct);
-      if (pvar_info_reload) {
-        reterr = PvarInfoReloadInterval(old_variant_uidx_to_new, variant_idx_start, variant_idx_end, &pvar_reload_txs, pvar_info_strs);
+      if (pvar_info_reload && variant_order_in_shard) {
+        reterr = PvarInfoReloadInterval(new_variant_idx_to_old, variant_idx_start, variant_idx_end, &pvar_reload_txs, pvar_info_strs, variant_order_in_shard);
         if (unlikely(reterr)) {
           goto WritePvarResorted_ret_TSTREAM_FAIL;
+        }
+        const uint32_t fname_slen = S_CAST(uintptr_t, outname_end - outname) + strlen(outname_end);
+        memcpy(g_textbuf, outname, fname_slen + 1);
+        if (batch_idx + 1 < batch_ct) {
+          char* write_iter = strcpya(outname_end, ".info.tmp.");
+          write_iter = u32toa(batch_idx + 2, write_iter);
+          strcpy_k(write_iter, ".zst");
+          TextRetarget(outname, &pvar_reload_txs);
+        }
+        if (unlikely(unlink(g_textbuf))) {
+          logerrprintfww("Error: Failed to delete %s .\n", g_textbuf);
+          goto WritePvarResorted_ret_WRITE_FAIL;
         }
       }
       reterr = WritePvarResortedInterval(write_cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, qual_present, quals, filter_present, filter_npass, filter_storage, nonref_flags, variant_cms, new_variant_idx_to_old, variant_idx_start, variant_idx_end, info_pr_flag_present, write_qual, write_filter, write_info, all_nonref, write_cm, output_missing_geno_char, pvar_info_strs, &css, &cswritep, &chr_fo_idx, &chr_end, &chr_buf_blen, chr_buf);
@@ -8516,6 +8709,9 @@ PglErr WritePvarResorted(const char* outname, const uintptr_t* variant_include, 
     break;
   WritePvarResorted_ret_TSTREAM_FAIL:
     TextStreamErrPrint(pvar_info_reload, &pvar_reload_txs);
+    break;
+  WritePvarResorted_ret_TSTREAM_FAIL_2:
+    TextStreamErrPrint(outname, &pvar_reload_txs);
     break;
   WritePvarResorted_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -8759,7 +8955,7 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
       if (!PgrGetNonrefFlags(simple_pgrp)) {
         nonref_flags_storage = (PgrGetGflags(simple_pgrp) & kfPgenGlobalAllNonref)? 2 : 1;
       }
-      reterr = WritePvarResorted(outname, variant_include, &write_chr_info, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, PgrGetNonrefFlags(simple_pgrp), pvar_info_reload, variant_cms, new_variant_idx_to_old, contig_lens, raw_variant_ct, variant_ct, max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, pvar_psam_flags, output_missing_geno_char, max_thread_ct, xheader);
+      reterr = WritePvarResorted(variant_include, &write_chr_info, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, PgrGetNonrefFlags(simple_pgrp), pvar_info_reload, variant_cms, new_variant_idx_to_old, contig_lens, raw_variant_ct, variant_ct, max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, pvar_psam_flags, output_missing_geno_char, max_thread_ct, xheader, outname, outname_end);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }
