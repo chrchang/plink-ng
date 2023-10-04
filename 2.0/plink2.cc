@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (2 Oct 2023)";
+  " (3 Oct 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -1141,6 +1141,10 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // bugfix (10-11 Feb 2018): these variables may still be accessed
       pgfi.gflags = S_CAST(PgenGlobalFlags, ((info_flags / kfInfoPrNonrefDefault) & 1) * kfPgenGlobalAllNonref);
       pgfi.nonref_flags = nonref_flags;
+      // dirty hack (3 Oct 2023): this is needed for --sort-vars
+      // --make-just-pvar to work
+      GET_PRIVATE(simple_pgr, m).fi.gflags = pgfi.gflags;
+      GET_PRIVATE(simple_pgr, m).fi.nonref_flags = nonref_flags;
     }
     if (pcp->misc_flags & kfMiscMakeFoundersFirst) {
       reterr = MakeFounders(sample_include, raw_sample_ct, sample_ct, (pcp->misc_flags / kfMiscMakeFoundersRequire2Missing) & 1, &pii, founder_info);

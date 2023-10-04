@@ -5585,6 +5585,12 @@ typedef struct MakePgenCtxStruct {
 // of the work is usually being done in the initial PgrGetRaw() call, so just
 // fall back on single-threaded invocation of the same function; only
 // difference is that the worker thread owns the writer object.
+//
+// Possible todo: it doesn't come up frequently, but sorting a .pgen that is
+// thoroughly out of order can be very slow due to all the nonsequential I/O.
+// That could be accelerated with the pvar-INFO temporary-file strategy (split
+// into remaining-workspace-sized original-order shard files, then load one
+// entire shard at a time and write it out in the correct order).
 THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uintptr_t tidx = arg->tidx;
@@ -8193,8 +8199,11 @@ typedef struct InfoWriteTmpStruct {
   CompressStreamState css;
 } InfoWriteTmp;
 
+CONSTI32(kMaxPvarInfoTmp, kMaxOpenFiles - 12);
+
 PglErr PvarInfoSplitTmp(const uint32_t* old_variant_uidx_to_new, uint32_t variant_ct, uint32_t batch_size, uint32_t batch_ct, uint32_t info_reload_blen, TextStream* pvar_reload_txsp, char* outname, char* outname_end) {
   InfoWriteTmp* info_write_tmps = nullptr;
+  uint32_t outfile_ct = 0;
   PglErr reterr = kPglRetSuccess;
   {
     char* line_iter;
@@ -8203,33 +8212,45 @@ PglErr PvarInfoSplitTmp(const uint32_t* old_variant_uidx_to_new, uint32_t varian
     if (unlikely(reterr)) {
       return reterr;
     }
+    // fast division by batch_size
     uint64_t mult;
     uint32_t pre_shift;
     uint32_t post_shift;
     uint32_t incr;
     DivisionMagicNums(batch_size, &mult, &pre_shift, &post_shift, &incr);
-    if (batch_ct > kMaxOpenFiles - 12) {
-      // todo: recurse
-      logerrputs("Error: INFO column is too large for current --sort-vars implementation and\nworkspace size.\n");
-      reterr = kPglRetNotYetSupported;
-      goto PvarInfoSplitTmp_ret_1;
-    }
-    if (unlikely(BIGSTACK_ALLOC_X(InfoWriteTmp, batch_ct, &info_write_tmps))) {
+
+    outfile_ct = MINV(batch_ct, kMaxPvarInfoTmp);
+    uint32_t* batch_offset_to_outfile_idx;
+    if (unlikely(BIGSTACK_ALLOC_X(InfoWriteTmp, outfile_ct, &info_write_tmps) ||
+                 bigstack_alloc_u32(batch_ct, &batch_offset_to_outfile_idx))) {
       goto PvarInfoSplitTmp_ret_NOMEM;
     }
     for (uint32_t batch_idx = 0; batch_idx != batch_ct; ++batch_idx) {
-      PreinitCstream(&(info_write_tmps[batch_idx].css));
-      info_write_tmps[batch_idx].cswritep = nullptr;
+      batch_offset_to_outfile_idx[batch_idx] = (batch_idx * S_CAST(uint64_t, outfile_ct)) / batch_ct;
+    }
+    for (uint32_t outfile_idx = 0; outfile_idx != outfile_ct; ++outfile_idx) {
+      PreinitCstream(&(info_write_tmps[outfile_idx].css));
+      info_write_tmps[outfile_idx].cswritep = nullptr;
     }
     const uintptr_t overflow_buf_size = kCompressStreamBlock + info_reload_blen;
     char* outname_continued = strcpya(outname_end, ".info.tmp.");
-    for (uint32_t batch_idx = 0; batch_idx != batch_ct; ++batch_idx) {
-      char* outname_iter = u32toa(batch_idx + 1, outname_continued);
+    uint32_t prev_batch_idx_end = 0;
+    for (uintptr_t outfile_idx = 0; outfile_idx != outfile_ct; ++outfile_idx) {
+      const uint32_t batch_idx_end = (S_CAST(uint64_t, outfile_idx + 1) * batch_ct) / outfile_ct;
+      for (uint32_t batch_idx = prev_batch_idx_end; batch_idx != batch_idx_end; ++batch_idx) {
+        batch_offset_to_outfile_idx[batch_idx] = outfile_idx;
+      }
+      char* outname_iter = u32toa(prev_batch_idx_end, outname_continued);
+      if (prev_batch_idx_end + 1 < batch_idx_end) {
+        *outname_iter++ = '-';
+        outname_iter = u32toa(batch_idx_end - 1, outname_iter);
+      }
       strcpy_k(outname_iter, ".zst");
-      reterr = InitCstreamAlloc(outname, 0, 1, 1, overflow_buf_size, &(info_write_tmps[batch_idx].css), &(info_write_tmps[batch_idx].cswritep));
+      reterr = InitCstreamAlloc(outname, 0, 1, 1, overflow_buf_size, &(info_write_tmps[outfile_idx].css), &(info_write_tmps[outfile_idx].cswritep));
       if (unlikely(reterr)) {
         goto PvarInfoSplitTmp_ret_1;
       }
+      prev_batch_idx_end = batch_idx_end;
     }
 
     uint32_t old_variant_idx = 0;
@@ -8250,9 +8271,10 @@ PglErr PvarInfoSplitTmp(const uint32_t* old_variant_uidx_to_new, uint32_t varian
       char* info_end = CurTokenEnd(line_iter);
       const uint32_t info_slen = info_end - line_iter;
       const uint32_t batch_idx = (mult * ((new_variant_idx >> pre_shift) + incr)) >> post_shift;
+      const uint32_t outfile_idx = batch_offset_to_outfile_idx[batch_idx];
       // these are temporary files, so don't bother writing \r\n on Windows
-      info_write_tmps[batch_idx].cswritep = memcpyax(info_write_tmps[batch_idx].cswritep, line_iter, info_slen, '\n');
-      if (unlikely(Cswrite(&(info_write_tmps[batch_idx].css), &(info_write_tmps[batch_idx].cswritep)))) {
+      info_write_tmps[outfile_idx].cswritep = memcpyax(info_write_tmps[outfile_idx].cswritep, line_iter, info_slen, '\n');
+      if (unlikely(Cswrite(&(info_write_tmps[outfile_idx].css), &(info_write_tmps[outfile_idx].cswritep)))) {
         goto PvarInfoSplitTmp_ret_WRITE_FAIL;
       }
       line_iter = info_end;
@@ -8260,8 +8282,8 @@ PglErr PvarInfoSplitTmp(const uint32_t* old_variant_uidx_to_new, uint32_t varian
         break;
       }
     }
-    for (uint32_t batch_idx = 0; batch_idx != batch_ct; ++batch_idx) {
-      if (unlikely(CswriteCloseNull(&(info_write_tmps[batch_idx].css), info_write_tmps[batch_idx].cswritep))) {
+    for (uint32_t outfile_idx = 0; outfile_idx != outfile_ct; ++outfile_idx) {
+      if (unlikely(CswriteCloseNull(&(info_write_tmps[outfile_idx].css), info_write_tmps[outfile_idx].cswritep))) {
         goto PvarInfoSplitTmp_ret_WRITE_FAIL;
       }
     }
@@ -8276,11 +8298,144 @@ PglErr PvarInfoSplitTmp(const uint32_t* old_variant_uidx_to_new, uint32_t varian
   }
  PvarInfoSplitTmp_ret_1:
   if (info_write_tmps) {
-    for (uint32_t batch_idx = 0; batch_idx != batch_ct; ++batch_idx) {
-      CswriteCloseCond(&(info_write_tmps[batch_idx].css), info_write_tmps[batch_idx].cswritep);
+    for (uint32_t outfile_idx = 0; outfile_idx != outfile_ct; ++outfile_idx) {
+      CswriteCloseCond(&(info_write_tmps[outfile_idx].css), info_write_tmps[outfile_idx].cswritep);
     }
   }
   // caller expected to reset wkspace
+  return reterr;
+}
+
+PglErr PvarInfoResplitTmp(const uint32_t* new_variant_idx_to_old, uint32_t variant_ct, uint32_t batch_size, uint32_t batch_ct, uint32_t info_reload_blen, TextStream* pvar_reload_txsp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  InfoWriteTmp* info_write_tmps = nullptr;
+  uint32_t max_outfile_ct = 0;
+  PglErr reterr = kPglRetSuccess;
+  {
+    max_outfile_ct = 1 + (batch_ct - 1) / kMaxPvarInfoTmp;
+    // could implement recursion below this level, but I don't expect batch_ct
+    // > 57600 to actually come up.
+    if (max_outfile_ct > kMaxPvarInfoTmp) {
+      logputs("\n");
+      logerrputs("Error: INFO column is too large for current --sort-vars implementation and\nworkspace size.\n");
+      reterr = kPglRetNotYetSupported;
+      goto PvarInfoResplitTmp_ret_1;
+    }
+
+    uint64_t* old_variant_idx_map = nullptr;
+    unsigned char* bigstack_mark2 = nullptr;
+    char* outname_continued = strcpya(outname_end, ".info.tmp.");
+    char* prev_inname = g_textbuf;
+    char* prev_inname_continued = memcpya(prev_inname, outname, outname_continued - outname);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + info_reload_blen;
+    uint32_t prev_batch_idx_end = 0;
+    for (uint32_t outer_outfile_idx = 0; outer_outfile_idx != kMaxPvarInfoTmp; ++outer_outfile_idx) {
+      const uint32_t batch_idx_end = (S_CAST(uint64_t, outer_outfile_idx + 1) * batch_ct) / kMaxPvarInfoTmp;
+      const uint32_t cur_outfile_ct = batch_idx_end - prev_batch_idx_end;
+      if (cur_outfile_ct > 1) {
+        char* inname_iter = u32toa_x(prev_batch_idx_end, '-', outname_continued);
+        inname_iter = u32toa(batch_idx_end - 1, inname_iter);
+        inname_iter = memcpya(inname_iter, ".zst", strlen(".zst") + 1);
+        if (!info_write_tmps) {
+          // pvar_reload_txs, info_write_tmps uninitialized.
+          // We wait until this point so we can initialize pvar_reload_txs to
+          // the first temporary file we need to resplit, and then make
+          // temporary allocations on top of it.
+          reterr = InitTextStream(outname, MAXV(info_reload_blen, kTextStreamBlenFast), 1, pvar_reload_txsp);
+          if (unlikely(reterr)) {
+            goto PvarInfoResplitTmp_ret_TSTREAM_FAIL;
+          }
+          bigstack_mark = g_bigstack_base;
+          if (unlikely(bigstack_alloc_u64(max_outfile_ct * batch_size, &old_variant_idx_map) ||
+                       BIGSTACK_ALLOC_X(InfoWriteTmp, max_outfile_ct, &info_write_tmps))) {
+            goto PvarInfoResplitTmp_ret_NOMEM;
+          }
+          bigstack_mark2 = g_bigstack_base;
+          for (uint32_t outfile_idx = 0; outfile_idx != max_outfile_ct; ++outfile_idx) {
+            PreinitCstream(&(info_write_tmps[outfile_idx].css));
+            info_write_tmps[outfile_idx].cswritep = nullptr;
+          }
+        } else {
+          BigstackReset(bigstack_mark2);
+          reterr = TextRetarget(outname, pvar_reload_txsp);
+          if (unlikely(reterr)) {
+            goto PvarInfoResplitTmp_ret_TSTREAM_FAIL;
+          }
+          if (unlikely(unlink(prev_inname))) {
+            logputs("\n");
+            logerrprintfww("Error: Failed to delete %s .\n", prev_inname);
+            goto PvarInfoResplitTmp_ret_WRITE_FAIL;
+          }
+        }
+        // Save filename so we can unlink it later.
+        memcpy(prev_inname_continued, outname_continued, inname_iter - outname_continued);
+        for (uint32_t outfile_idx = 0; outfile_idx != cur_outfile_ct; ++outfile_idx) {
+          char* outname_iter = u32toa(outfile_idx + prev_batch_idx_end, outname_continued);
+          strcpy_k(outname_iter, ".zst");
+          reterr = InitCstreamAlloc(outname, 0, 1, 1, overflow_buf_size, &(info_write_tmps[outfile_idx].css), &(info_write_tmps[outfile_idx].cswritep));
+          if (unlikely(reterr)) {
+            goto PvarInfoResplitTmp_ret_1;
+          }
+        }
+        // Determine ordering of variants in the temporary input file.
+        const uint32_t variant_idx_start = prev_batch_idx_end * batch_size;
+        uint32_t variant_idx_end = MINV(batch_idx_end * batch_size, variant_ct);
+        const uintptr_t shard_variant_ct = variant_idx_end - variant_idx_start;
+        const uint32_t* shard_new_variant_idx_to_old = &(new_variant_idx_to_old[variant_idx_start]);
+        uint32_t shard_variant_idx = 0;
+        for (uintptr_t outfile_idx = 0; outfile_idx != cur_outfile_ct; ++outfile_idx) {
+          const uint32_t shard_variant_idx_stop = MINV(shard_variant_idx + batch_size, shard_variant_ct);
+          for (; shard_variant_idx != shard_variant_idx_stop; ++shard_variant_idx) {
+            const uint64_t old_variant_uidx = shard_new_variant_idx_to_old[shard_variant_idx];
+            old_variant_idx_map[shard_variant_idx] = (old_variant_uidx << 32) | outfile_idx;
+          }
+        }
+        STD_SORT_PAR_UNSEQ(shard_variant_ct, u64cmp, old_variant_idx_map);
+
+        // Now we know how to split them.
+        char* line_iter;
+        for (uintptr_t shard_old_variant_idx = 0; shard_old_variant_idx != shard_variant_ct; ++shard_old_variant_idx) {
+          reterr = TextNextLine(pvar_reload_txsp, &line_iter);
+          if (unlikely(reterr)) {
+            goto PvarInfoResplitTmp_ret_TSTREAM_FAIL;
+          }
+          char* line_end = TextLineEnd(pvar_reload_txsp);
+          const uint32_t info_slen = line_end - line_iter;
+          const uint32_t outfile_idx = S_CAST(uint32_t, old_variant_idx_map[shard_old_variant_idx]);
+          info_write_tmps[outfile_idx].cswritep = memcpya(info_write_tmps[outfile_idx].cswritep, line_iter, info_slen);
+          if (unlikely(Cswrite(&(info_write_tmps[outfile_idx].css), &(info_write_tmps[outfile_idx].cswritep)))) {
+            goto PvarInfoResplitTmp_ret_WRITE_FAIL;
+          }
+        }
+
+        for (uint32_t outfile_idx = 0; outfile_idx != cur_outfile_ct; ++outfile_idx) {
+          if (unlikely(CswriteCloseNull(&(info_write_tmps[outfile_idx].css), info_write_tmps[outfile_idx].cswritep))) {
+            goto PvarInfoResplitTmp_ret_WRITE_FAIL;
+          }
+        }
+      }
+      prev_batch_idx_end = batch_idx_end;
+    }
+  }
+  while (0) {
+  PvarInfoResplitTmp_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  PvarInfoResplitTmp_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  PvarInfoResplitTmp_ret_TSTREAM_FAIL:
+    logputs("\n");
+    TextStreamErrPrint("--sort-vars temporary INFO file", pvar_reload_txsp);
+    break;
+  }
+ PvarInfoResplitTmp_ret_1:
+  if (info_write_tmps) {
+    for (uint32_t outfile_idx = 0; outfile_idx != max_outfile_ct; ++outfile_idx) {
+      CswriteCloseCond(&(info_write_tmps[outfile_idx].css), info_write_tmps[outfile_idx].cswritep);
+    }
+  }
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 
@@ -8298,7 +8453,7 @@ PglErr PvarInfoReloadInterval(const uint32_t* new_variant_idx_to_old, uint32_t v
     old_variant_idx_map[shard_new_variant_idx] = (old_variant_uidx << 32) | shard_new_variant_idx;
   }
 
-  STD_SORT(shard_variant_ct, u64cmp, old_variant_idx_map);
+  STD_SORT_PAR_UNSEQ(shard_variant_ct, u64cmp, old_variant_idx_map);
   for (uintptr_t shard_old_variant_idx = 0; shard_old_variant_idx != shard_variant_ct; ++shard_old_variant_idx) {
     variant_order_in_shard[shard_old_variant_idx] = S_CAST(uint32_t, old_variant_idx_map[shard_old_variant_idx]);
   }
@@ -8641,10 +8796,28 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
       }
       BigstackReset(bigstack_mark2);
       if (!pvar_info_strs) {
-        snprintf(outname_end, kMaxOutfnameExtBlen, ".info.tmp.1.zst");
-        reterr = InitTextStream(outname, MAXV(info_reload_blen, kTextStreamBlenFast), 1, &pvar_reload_txs);
-        if (unlikely(reterr)) {
-          goto WritePvarResorted_ret_TSTREAM_FAIL_2;
+        if (batch_ct > kMaxPvarInfoTmp) {
+          reterr = PvarInfoResplitTmp(new_variant_idx_to_old, variant_ct, batch_size, batch_ct, info_reload_blen, &pvar_reload_txs, outname, outname_end);
+          if (unlikely(reterr)) {
+            goto WritePvarResorted_ret_1;
+          }
+        }
+        snprintf(outname_end, kMaxOutfnameExtBlen, ".info.tmp.0.zst");
+        if (batch_ct <= kMaxPvarInfoTmp) {
+          reterr = InitTextStream(outname, MAXV(info_reload_blen, kTextStreamBlenFast), 1, &pvar_reload_txs);
+          if (unlikely(reterr)) {
+            goto WritePvarResorted_ret_TSTREAM_FAIL_2;
+          }
+        } else {
+          reterr = TextRetarget(outname, &pvar_reload_txs);
+          if (unlikely(reterr)) {
+            goto WritePvarResorted_ret_TSTREAM_FAIL_2;
+          }
+          if (unlikely(unlink(g_textbuf))) {
+            logputs("\n");
+            logerrprintfww("Error: Failed to delete %s .\n", g_textbuf);
+            goto WritePvarResorted_ret_WRITE_FAIL;
+          }
         }
         variant_order_in_shard = S_CAST(uint32_t*, bigstack_alloc_raw_rd(batch_size * sizeof(int32_t)));
         pvar_info_strs = S_CAST(char**, bigstack_alloc_raw_rd(batch_size * sizeof(intptr_t)));
@@ -8679,11 +8852,15 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
         memcpy(g_textbuf, outname, fname_slen + 1);
         if (batch_idx + 1 < batch_ct) {
           char* write_iter = strcpya(outname_end, ".info.tmp.");
-          write_iter = u32toa(batch_idx + 2, write_iter);
+          write_iter = u32toa(batch_idx + 1, write_iter);
           strcpy_k(write_iter, ".zst");
-          TextRetarget(outname, &pvar_reload_txs);
+          reterr = TextRetarget(outname, &pvar_reload_txs);
+          if (unlikely(reterr)) {
+            goto WritePvarResorted_ret_TSTREAM_FAIL_2;
+          }
         }
         if (unlikely(unlink(g_textbuf))) {
+          logputs("\n");
           logerrprintfww("Error: Failed to delete %s .\n", g_textbuf);
           goto WritePvarResorted_ret_WRITE_FAIL;
         }
@@ -8708,9 +8885,11 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
     reterr = kPglRetNomem;
     break;
   WritePvarResorted_ret_TSTREAM_FAIL:
+    logputs("\n");
     TextStreamErrPrint(pvar_info_reload, &pvar_reload_txs);
     break;
   WritePvarResorted_ret_TSTREAM_FAIL_2:
+    logputs("\n");
     TextStreamErrPrint(outname, &pvar_reload_txs);
     break;
   WritePvarResorted_ret_WRITE_FAIL:
