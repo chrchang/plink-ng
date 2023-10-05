@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (3 Oct 2023)";
+  " (5 Oct 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -105,10 +105,10 @@ static const char ver_str2[] =
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--gwas-ssf, --clump, --score, --variant-score, --genotyping-rate, --pgen-info,\n--validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--gwas-ssf, --clump, --score-list, --variant-score, --genotyping-rate,\n--pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #else
 // no --pca
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--gwas-ssf, --clump, --score, --variant-score, --genotyping-rate, --pgen-info,\n--validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--gwas-ssf, --clump, --score-list, --variant-score, --genotyping-rate,\n--pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #endif
 
 // multiallelics-already-joined + terminating null
@@ -2050,7 +2050,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // VariantMissingHcCtsAreNeeded(),
             // VariantMissingDosageCtsAreNeeded(),
             // [Founder]RawGenoCtsAreNeeded(), TrimAlts, and is_minimac3_r2.
-            logerrputs("Error: --error-on-freq-calc specified, but allele frequency calculation is\nneeded.\nFlags which may invoke the allele frequency calculation include --freq, --geno,\n--geno-counts, --genotyping-rate, --glm (unless 'omit-ref' is specified),\n--hardy, --het (unless 'small-sample' is specified), --hwe, --indep-pairwise,\nthe 'trim-alts' modifier of --make-[b]pgen/--make-bed, --make-grm-{bin,list},\n--make-rel, --[max-]mac, --[max-]maf, --minimac3-r2-filter, --missing, --pca,\n--score (unless 'no-mean-imputation' is specified, and neither 'center' nor\n'variance-standardize' are), and --variant-score.\n");
+            logerrputs("Error: --error-on-freq-calc specified, but allele frequency calculation is\nneeded.\nFlags which may invoke the allele frequency calculation include --freq, --geno,\n--geno-counts, --genotyping-rate, --glm (unless 'omit-ref' is specified),\n--hardy, --het (unless 'small-sample' is specified), --hwe, --indep-pairwise,\nthe 'trim-alts' modifier of --make-[b]pgen/--make-bed, --make-grm-{bin,list},\n--make-rel, --[max-]mac, --[max-]maf, --minimac3-r2-filter, --missing, --pca,\n--score[-list] (unless 'no-mean-imputation' is specified, and neither 'center'\nnor 'variance-standardize' are), and --variant-score.\n");
             goto Plink2Core_ret_INVALID_CMDLINE;
           }
           // note that --geno depends on different handling of X/Y than --maf.
@@ -3775,6 +3775,7 @@ int main(int argc, char** argv) {
     uint32_t notchr_present = 0;
     uint32_t clump_log10_p1_present = 0;
     uint32_t clump_log10_p2_present = 0;
+    uint32_t score_col_nums_present = 0;
     uint32_t permit_multiple_inclusion_filters = 0;
     uint32_t memory_require = 0;
 #ifdef USE_MKL
@@ -10060,7 +10061,15 @@ int main(int argc, char** argv) {
             }
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterSnpsOnly;
-        } else if (strequal_k_unsafe(flagname_p2, "core")) {
+        } else if (strequal_k_unsafe(flagname_p2, "core") || strequal_k_unsafe(flagname_p2, "core-list")) {
+          const uint32_t multi_input = (flagname_p2[4] == '-');
+          if (multi_input) {
+            if (unlikely(pc.command_flags1 & kfCommand1Score)) {
+              logerrputs("Error: --score-list cannot be used with --score.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
+            pc.score_info.flags |= kfScoreMultiInput;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 12))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -10088,7 +10097,7 @@ int main(int argc, char** argv) {
             } else if (strequal_k(cur_modif, "variance-standardize", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreVarianceStandardize;
             } else if (strequal_k(cur_modif, "variance-normalize", cur_modif_slen)) {
-              logerrputs("Note: --score's 'variance-normalize' modifier has been renamed to the more\nprecise 'variance-standardize'.\n");
+              logerrputs("Note: --score[-list]'s 'variance-normalize' modifier has been renamed to the\nmore precise 'variance-standardize'.\n");
               pc.score_info.flags |= kfScoreVarianceStandardize;
             } else if (strequal_k(cur_modif, "se", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreSe;
@@ -10102,25 +10111,29 @@ int main(int argc, char** argv) {
               pc.score_info.flags |= kfScoreListVariants | kfScoreListVariantsZs;
             } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
               if (unlikely(pc.score_info.flags & kfScoreColAll)) {
-                logerrputs("Error: Multiple --score cols= modifiers.\n");
+                logerrputs("Error: Multiple --score[-list] cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0pheno1\0phenos\0nallele\0denom\0dosagesum\0scoreavgs\0scoresums\0", "score", kfScoreColMaybefid, kfScoreColDefault, 1, &pc.score_info.flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0pheno1\0phenos\0nallele\0denom\0dosagesum\0scoreavgs\0scoresums\0", "score", kfScoreColMaybefid, multi_input? kfScoreListColDefault : kfScoreColDefault, 1, &pc.score_info.flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
+              if (unlikely(multi_input && (pc.score_info.flags & (kfScoreColNallele | kfScoreColDenom | kfScoreColDosageSum)))) {
+                logerrputs("Error: --score-list cannot be used with the nallele, denom, or dosagesum\ncolumn-sets.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
             } else {
               if (unlikely(ScanPosintCappedx(cur_modif, kMaxLongLine / 2, &(score_cols[numeric_param_ct])))) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --score argument '%s'.\n", cur_modif);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --score[-list] argument '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               if (unlikely(numeric_param_ct == 3)) {
-                logerrputs("Error: --score takes at most three numeric arguments.\n");
+                logerrputs("Error: --score[-list] takes at most three numeric arguments.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               for (uint32_t uii = 0; uii != numeric_param_ct; ++uii) {
                 if (unlikely(score_cols[uii] == score_cols[numeric_param_ct])) {
-                  logerrputs("Error: Identical --score column indexes.\n");
+                  logerrputs("Error: Identical --score[-list] column indexes.\n");
                   goto main_ret_INVALID_CMDLINE_A;
                 }
               }
@@ -10128,16 +10141,20 @@ int main(int argc, char** argv) {
             }
           }
           if (unlikely((pc.score_info.flags & (kfScoreHeaderIgnore | kfScoreHeaderRead)) == (kfScoreHeaderIgnore | kfScoreHeaderRead))) {
-            logerrputs("Error: --score 'header' and 'header-read' modifiers cannot be used together.\n");
+            logerrputs("Error: --score[-list] 'header' and 'header-read' modifiers cannot be used\ntogether.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           uint32_t model_flags_u = S_CAST(uint32_t, pc.score_info.flags & (kfScoreDominant | kfScoreRecessive | kfScoreCenter | kfScoreVarianceStandardize));
           if (unlikely(model_flags_u & (model_flags_u - 1))) {
-            logerrputs("Error: --score 'dominant', 'recessive', 'center', and 'variance-standardize'\nmodifiers are mutually exclusive.\n");
+            logerrputs("Error: --score[-list] 'dominant', 'recessive', 'center', and\n'variance-standardize' modifiers are mutually exclusive.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely((pc.score_info.flags & (kfScoreListVariants | kfScoreMultiInput)) == (kfScoreListVariants | kfScoreMultiInput))) {
+            logerrputs("Error: 'list-variants[-zs]' modifier can only be used with --score, not\n--score-list.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (!(pc.score_info.flags & kfScoreColAll)) {
-            pc.score_info.flags |= kfScoreColDefault;
+            pc.score_info.flags |= multi_input? kfScoreListColDefault : kfScoreColDefault;
           }
           if (numeric_param_ct) {
             pc.score_info.varid_col_p1 = score_cols[0];
@@ -10165,10 +10182,6 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1Score;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "core-col-nums")) {
-          if (unlikely(!(pc.command_flags1 & kfCommand1Score))) {
-            logerrputs("Error: --score-col-nums must be used with --score.\n");
-            goto main_ret_INVALID_CMDLINE_A;
-          }
           if (unlikely(pc.score_info.input_col_idx_range_list.name_ct)) {
             logerrputs("Error: --score-col-nums cannot be used when three numeric arguments are\nprovided to --score.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -10177,6 +10190,7 @@ int main(int argc, char** argv) {
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
+          score_col_nums_present = 1;
         } else if (strequal_k_unsafe(flagname_p2, "plit-cat-pheno")) {
           uint32_t first_phenoname_idx = 1;
           for (; first_phenoname_idx <= param_ct; ++first_phenoname_idx) {
@@ -10218,8 +10232,8 @@ int main(int argc, char** argv) {
           pc.pheno_transform_flags |= kfPhenoTransformSplitCat;
           pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "ort-vars")) {
-          if (unlikely(!(pc.command_flags1 & (kfCommand1MakePlink2 | kfCommand1Pmerge)))) {
-            logerrputs("Error: --sort-vars must be used with --make-[b]pgen/--make-bed or dataset\nmerging.\n");
+          if (unlikely(!(((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & (kfMakeBed | kfMakeBim | kfMakePgen | kfMakePvar))) || (pc.command_flags1 & kfCommand1Pmerge)))) {
+            logerrputs("Error: --sort-vars must be used with --make-[b]pgen/--make-bed,\n--make-just-{bim,pvar}, or dataset\nmerging.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
@@ -11212,7 +11226,7 @@ int main(int argc, char** argv) {
       case 'x':
         if (likely(strequal_k_unsafe(flagname_p2, "chr-model"))) {
           if (unlikely(!(pc.command_flags1 & (kfCommand1Glm | kfCommand1Score | kfCommand1Vscore)))) {
-            logerrputs("Error: --xchr-model must be used with --glm, --score, or --variant-score.\n");
+            logerrputs("Error: --xchr-model must be used with --glm, --score[-list], or\n--variant-score.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           // quasi-bugfix (18 Sep 2021): nothing wrong with combining
@@ -11388,7 +11402,11 @@ int main(int argc, char** argv) {
       pc.grm_flags |= kfGrmNoIdHeader;
     }
     if (unlikely(pc.score_info.qsr_range_fname && (!pc.score_info.input_fname))) {
-      logerrputs("Error: --q-score-range cannot be used without --score.\n");
+      logerrputs("Error: --q-score-range cannot be used without --score[-list].\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely(score_col_nums_present && (!(pc.command_flags1 & kfCommand1Score)))) {
+      logerrputs("Error: --score-col-nums must be used with --score[-list].\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (pc.extract_col_cond_info.params) {

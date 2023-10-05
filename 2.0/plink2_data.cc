@@ -5591,6 +5591,9 @@ typedef struct MakePgenCtxStruct {
 // That could be accelerated with the pvar-INFO temporary-file strategy (split
 // into remaining-workspace-sized original-order shard files, then load one
 // entire shard at a time and write it out in the correct order).
+// May want to benchmark on Linux first to see if this is a real problem; the
+// horrible benchmark result motivating this comment was on macOS, which is
+// known to have a sketchy filesystem.
 THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uintptr_t tidx = arg->tidx;

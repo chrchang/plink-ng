@@ -1841,6 +1841,27 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
   return 0;
 }
 
+uint32_t NumericRangeListMax(const RangeList* range_list_ptr) {
+  const char* names = range_list_ptr->names;
+  const unsigned char* starts_range = range_list_ptr->starts_range;
+  const uint32_t name_ct = range_list_ptr->name_ct;
+  const uint32_t name_max_blen = range_list_ptr->name_max_blen;
+  uint32_t max_idx = 0;
+  for (uint32_t name_idx = 0; name_idx != name_ct; ++name_idx) {
+    if (starts_range[name_idx]) {
+      ++name_idx;
+    }
+    uint32_t idx;
+    if (ScanUintDefcap(&(names[name_idx * name_max_blen]), &idx)) {
+      return UINT32_MAX;
+    }
+    if (idx > max_idx) {
+      max_idx = idx;
+    }
+  }
+  return max_idx;
+}
+
 PglErr StringRangeListToBitarr(const char* header_line, const RangeList* range_list_ptr, const char* __restrict sorted_ids, const uint32_t* __restrict id_map, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t* bitarr, int32_t* __restrict seen_idxs) {
   // bitarr assumed to be zero-initialized
   // if fixed_len is zero, header_line is assumed to be a list of
@@ -2430,7 +2451,7 @@ BoolErr ParseNextRange(const char* const* argvk, uint32_t param_ct, char range_d
   // next, range_start + rs_len + range_end + re_len are updated.  If only a
   // single item is next, range_end is set to nullptr and range_start + rs_len
   // are updated.  If there are no items left, range_start is set to nullptr.
-  // If the input is not well-formed, -1 is returned instead of 0.
+  // If the input is not well-formed, 1 is returned instead of 0.
   uint32_t cur_param_idx = *cur_param_idx_ptr;
   if (cur_param_idx > param_ct) {
     *cur_arg_pptr = nullptr;

@@ -8035,7 +8035,6 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         }
       }
       uint32_t diff_ct = 0;
-      ;;;
       if (merged_allele_ct == 2) {
         // Note that these two conditions aren't necessarily synonymous, due to
         // missing alleles.

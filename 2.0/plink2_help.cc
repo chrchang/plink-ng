@@ -1404,15 +1404,24 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "           --clump-p2 threshold.\n"
 "    The default is chrom,pos,maybeprovref,maybea1,maybef,total,bins,sp2.\n\n"
               );
-    HelpPrint("score\0", &help_ctrl, 1,
+    HelpPrint("score\0score-list\0", &help_ctrl, 1,
 "  --score <filename> [i] [j] [k] [{header | header-read}]\n"
-"          [{center | variance-standardize | dominant | recessive}]\n"
-"          ['no-mean-imputation'] ['se'] ['zs'] ['ignore-dup-ids']\n"
-"          [{list-variants | list-variants-zs}] ['cols='<col set descriptor>]\n"
+"                     [{center | variance-standardize | dominant | recessive}]\n"
+"                     ['no-mean-imputation'] ['se'] ['zs'] ['ignore-dup-ids']\n"
+"                     [{list-variants | list-variants-zs}]\n"
+"                     ['cols='<col set descriptor>]\n"
+"  --score-list <fnm> [i] [j] [k] [{header | header-read}]\n"
+"                     [{center | variance-standardize | dominant | recessive}]\n"
+"                     ['no-mean-imputation'] ['se'] ['zs'] ['ignore-dup-ids']\n"
+"                     ['cols='<col set descriptor>]\n"
 "    Apply linear scoring system(s) to each sample.\n"
-"    The input file should have one line per scored (variant, allele) pair.\n"
-"    Variant IDs are read from column #i and allele codes are read from column\n"
-"    #j, where i defaults to 1 and j defaults to i+1.\n"
+"    For --score-list, the input file should contain a list of filenames; each\n"
+"    of those files is then processed as if it were passed to --score, then\n"
+"    results are merged together.\n"
+"    The rest of this section describes --score.\n"
+"    * The input file should have one line per scored (variant, allele) pair.\n"
+"      Variant IDs are read from column #i and allele codes are read from column\n"
+"      #j, where i defaults to 1 and j defaults to i+1.\n"
 "    * By default, a single column of input coefficients is read from column #k,\n"
 "      where k defaults to j+1.  (--score-col-nums can be used to specify\n"
 "      multiple columns.)\n"
@@ -1443,7 +1452,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      present).\n"
 "    * The 'list-variants[-zs]' modifier causes variant IDs used for scoring to\n"
 "      be written to <output prefix>.sscore.vars[.zst].\n"
-"    The main report supports the following column sets:\n"
+"    The main --score report supports the following column sets:\n"
 "      maybefid: FID, if that column was in the input.\n"
 "      fid: Force FID column to be written even when absent in the input.\n"
 "      (IID is always present, and positioned here.)\n"
@@ -1458,6 +1467,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      scoreavgs: Score averages.\n"
 "      scoresums: Score sums.\n"
 "    The default is maybefid,maybesid,phenos,nallele,dosagesum,scoreavgs.\n"
+"    --score-list is the same, except the nallele/denom/dosagesum column sets\n"
+"    are unavailable.\n"
 "    For more sophisticated polygenic risk scoring, we recommend looking at the\n"
 "    LDpred2 (https://privefl.github.io/bigsnpr/articles/LDpred2.html ) and\n"
 "    PRSice-2 (https://www.prsice.info/ ) software packages.\n\n"
@@ -2157,8 +2168,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            ID.  The following string orders are supported:\n"
 "                            * 'natural'/'n': Natural sort (default).\n"
 "                            * 'ascii'/'a': ASCII.\n"
-"                            This must be used with --pmerge[-list] or\n"
-"                            --make-[b]pgen/--make-bed.\n"
+"                            This must be used with --pmerge[-list],\n"
+"                            --make-[b]pgen/--make-bed, or\n"
+"                            --make-just-{bim,pvar}.\n"
                );
     HelpPrint("set-hh-missing\0set-mixed-mt-missing\0", &help_ctrl, 0,
 "  --set-hh-missing ['keep-dosage'] : Make --make-[b]pgen/--make-bed set non-MT\n"
@@ -2444,8 +2456,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       correlation between two predictors exceeds this value\n"
 "                       (default 0.999).\n"
                );
-    HelpPrint("xchr-model\0glm\0linear\0logistic\0score\0vscore\0", &help_ctrl, 0,
-"  --xchr-model <m>   : Set the chrX --glm/--condition[-list]/--[v]score model.\n"
+    HelpPrint("xchr-model\0glm\0linear\0logistic\0score\0score-list\0vscore\0", &help_ctrl, 0,
+"  --xchr-model <m>   : Set the chrX model for --glm, --condition[-list],\n"
+"                       --score[-list], and --vscore.\n"
 "                       * '0' = skip chrX.\n"
 "                       * '1' = add sex as a covar on chrX, code males 0..1.\n"
 "                       * '2' (default) = chrX sex covar, code males 0..2.\n"
@@ -2459,7 +2472,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    way as they do on --adjust-file.\n"
                );
     HelpPrint("adjust\0adjust-file\0lambda\0", &help_ctrl, 0,
-"  --lambda                   : Set genomic control lambda for --adjust[-file].\n"
+"  --lambda           : Set genomic control lambda for --adjust[-file].\n"
                );
     HelpPrint("adjust-chr-field\0adjust-pos-field\0adjust-id-field\0adjust-ref-field\0adjust-alt-field\0adjust-a1-field\0adjust-test-field\0adjust-p-field\0adjust-file\0", &help_ctrl, 0,
 "  --adjust-chr-field <n...>     : Set --adjust-file input field names.  When\n"
@@ -2526,15 +2539,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --clump-allow-overlap      : Let --clump non-index variants join multiple\n"
 "                               clumps.\n"
               );
-    HelpPrint("score-col-nums\0score\0", &help_ctrl, 0,
+    HelpPrint("score-col-nums\0score\0score-list\0", &help_ctrl, 0,
 "  --score-col-nums <...> : Process all the specified coefficient columns in the\n"
-"                           --score file, identified by 1-based indexes and/or\n"
-"                           ranges of them.\n"
+"                           --score[-list] file(s), identified by 1-based\n"
+"                           indexes and/or ranges of them.\n"
                );
-    HelpPrint("q-score-range\0score\0", &help_ctrl, 0,
+    HelpPrint("q-score-range\0score\0score-list\0", &help_ctrl, 0,
 "  --q-score-range <range file> <data file> [i] [j] ['header'] ['min'] :\n"
-"    Apply --score to subset(s) of variants in the primary score list(s) based\n"
-"    on e.g. p-value ranges.\n"
+"    Apply --score[-list] to subset(s) of variants in the primary score list(s)\n"
+"    based on e.g. p-value ranges.\n"
 "    * The first file should have range labels in the first column, p-value\n"
 "      lower bounds in the second column, and upper bounds in the third column.\n"
 "      Lines with too few entries, or nonnumeric values in the second or third\n"
