@@ -31,7 +31,7 @@ CC ?=		gcc
 CXX ?=		g++
 CFLAGS ?=	-Wall -O2 -g -I../2.0/simde
 CXXFLAGS ?=	-Wall -O2 -g -I../2.0/simde
-MACFLAGS ?=
+MACFLAGS ?=	-DACCELERATE_NEW_LAPACK
 
 PREFIX ?=	/usr/local
 DESTDIR ?=	.

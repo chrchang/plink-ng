@@ -33,6 +33,9 @@
 #  ifdef __APPLE__
 #    include <Accelerate/Accelerate.h>
 #    define USE_CBLAS_XGEMM
+#    ifdef ACCELERATE_NEW_LAPACK
+typedef int32_t __CLPK_integer;
+#    endif
 #  endif
 
 #  ifndef __APPLE__
