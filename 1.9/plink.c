@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (5 Oct 2023)";
+  " (9 Oct 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -13172,12 +13172,14 @@ int32_t main(int32_t argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_A;
       }
     } else if ((ld_info.window_r2 != 0.2) && (!(ld_info.modifier & LD_INTER_CHR))) {
-      if (!(ld_info.modifier & LD_R2)) {
-        logerrprint("Error: --ld-window-r2 flag must be used with --r2.\n");
-        goto main_ret_INVALID_CMDLINE;
+      if (calculation_type & CALC_LD) {
+        // error-message logic incorrectly distinguished between --r and --r2
+        // before 9 Oct 2023
+        logerrprint("Error: --ld-window-r2 flag cannot be used with the --r/--r2 matrix output\nmodifiers.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       } else {
-	logerrprint("Error: --ld-window-r2 flag cannot be used with the --r2 matrix output modifiers.\n");
-	goto main_ret_INVALID_CMDLINE_A;
+        logerrprint("Error: --ld-window-r2 flag must be used with --r/--r2.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       }
     }
   } else {
