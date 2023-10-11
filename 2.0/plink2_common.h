@@ -428,9 +428,9 @@ void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_pr
 
 void PopulateRescaledDosageF(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, float slope, float intercept, float missing_val, uint32_t sample_ct, uint32_t dosage_ct, float* expanded_dosages);
 
-void PopulateDenseDphase(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, Dosage* dosage_uhet, SDosage* dense_dphase_delta);
+void PopulateDenseDphase(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, SDosage* dense_dphase_delta);
 
-void PopulateDenseDphaseSubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, Dosage* dosage_uhet, SDosage* dense_dphase_delta);
+void PopulateDenseDphaseSubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, SDosage* dense_dphase_delta);
 
 // assumes trailing bits of genoarr are zeroed out
 HEADER_INLINE uint32_t AtLeastOneHetUnsafe(const uintptr_t* genoarr, uint32_t sample_ct) {
@@ -1456,6 +1456,12 @@ PglErr AllocAndFillVariantLastAlidxs(const uintptr_t* allele_idx_offsets, uint32
 // [start_vidx, end_vidx) must be initialized to search bounds.  (Could have
 // wrapper that initializes them to variant_uidx's chromosome bounds.)
 void GetBpWindow(const uintptr_t* variant_include, const uint32_t* variant_bps, uint32_t variant_uidx, uint32_t bp_radius, uint32_t* start_vidxp, uint32_t* end_vidxp);
+
+PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned char* vrtypes, uint32_t raw_variant_ct, PgenGlobalFlags input_gflags);
+
+uint32_t TriangleDivide(int64_t cur_prod_x2, int32_t modif);
+
+void ParallelBounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t parallel_tot, int32_t* __restrict bound_start_ptr, int32_t* __restrict bound_end_ptr);
 
 #ifdef __cplusplus
 }  // namespace plink2

@@ -858,6 +858,58 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      are a problem.  --indep-pairwise now errors out when duplicate variant\n"
 "      IDs are present.\n\n"
               );
+    HelpPrint("r-phased\0r-unphased\0r2-phased\0r2-unphased\0r\0r2\0", &help_ctrl, 1,
+"  --r[2]-[un]phased [{square | square0 | triangle | inter-chr}] ['yes-really']\n"
+"                    [{zs | bin | bin4}] ['cols='<column set descriptor>]\n"
+"    LD statistic reports.\n"
+"    --r2-phased computes the textbook haplotype-frequency-based r^2, and\n"
+"    corresponds to PLINK 1.9 --r2's behavior when the 'd', 'dprime', or\n"
+"    'dprime-signed' modifier was present.  --r2-unphased computes the simpler\n"
+"    r^2 squared-correlation between (unphased) dosage vectors, and corresponds\n"
+"    to how PLINK 1.x --r2 behaved without a D'-related modifier.  You are now\n"
+"    required to explicitly specify which of these r^2 statistics you want.\n"
+"    --r-phased and --r-unphased report signed (and of course unsquared) values,\n"
+"    with positive sign when the two major alleles are positively correlated\n"
+"    with each other.\n"
+"    By default, tabular output is written to <output prefix>.vcor.\n"
+"    * In this mode, the --ld-... flags filter the output.  \"--ld-window-kb\n"
+"      1000\" and \"--ld-window-r2 0.2\" are active unless explicitly overridden.\n"
+"    * To process inter-chromosomal as well as intra-chromosomal variant-pairs,\n"
+"      use the 'inter-chr' modifier.\n"
+"    * Supported column sets are:\n"
+"        chrom: Two chromosome ID columns.\n"
+"        pos: Two base-pair coordinate columns.\n"
+"        id: Two variant ID columns.\n"
+"        ref: Two reference-allele columns.\n"
+"        alt1: Two alternate-allele-1 columns.\n"
+"        alt: Two comma-separated-alternate-alleles columns.\n"
+"        maybeprovref: Reports whether REF alleles are marked as known or\n"
+"                      provisional, when at least one of the latter is present,\n"
+"                      and the REF column-set is present.\n"
+"        provref: Force provref columns even if all-'N'.\n"
+"        maj: Two major-allele columns.\n"
+"        nonmaj: Two comma-separated-nonmajor-alleles columns.\n"
+"        freq: Two (1 - <major allele frequency>) columns.\n"
+"        (r or r^2 is always present, and positioned here.)\n"
+"        d: Coefficient of linkage disequilibrium (phased only).\n"
+"        dprime: Lewontin's D' (phased only).\n"
+"        dprimeabs: Absolute value of Lewontin's D' (phased only).\n"
+"      The default is chrom,pos,id,maybeprovref for --r2-[un]phased; maj is also\n"
+"      included for --r-[un]phased.\n"
+"    To request all-pairs matrix output instead, specify a matrix shape\n"
+"    ('square', 'square0', 'triangle') and/or encoding ('bin', 'bin4') modifier.\n"
+"    * As with --make-rel and similar commands, if a shape is specified without\n"
+"      an encoding, encoding defaults to text; and if an encoding is specified\n"
+"      without a shape, shape defaults to square.\n"
+"    * Since there is no header line specifying phased vs. unphased, r vs. r^2,\n"
+"      or text vs. binary vs. Zstd-compressed-text, this information is embedded\n"
+"      in the main matrix filename's extension.\n"
+"      \".[un]phased.vcor{1,2}{|.bin|.zst}\" summarizes the twelve possibilities.\n"
+"    * Since the resulting file can easily be huge, you're required to add the\n"
+"      'yes-really' modifier when requesting an unfiltered, non-distributed\n"
+"      all-pairs computation on more than 400k variants.\n"
+"    With either output type, the computation can be subdivided with --parallel.\n\n"
+              );
     HelpPrint("ld\0", &help_ctrl, 1,
 "  --ld <variant ID> <variant ID> ['hwe-midp']\n"
 "    This displays diplotype frequencies, haplotype-based r^2, and D' for a\n"
@@ -1946,7 +1998,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --to-mb   <pos>      * The --to-bp(/-kb/-mb) position is no longer permitted\n"
 "                         to be smaller than the --from-bp position.\n"
                );
-    HelpPrint("snps\0exclude-snps\0", &help_ctrl, 0,
+    HelpPrint("snps\0exclude-snps\0ld-snps\0", &help_ctrl, 0,
 "  --snps <var IDs...>  : Use IDs to specify variant range(s) to load or\n"
 "  --exclude-snps <...>   exclude.  E.g. '--snps rs1111-rs2222, rs3333, rs4444'.\n"
                );
@@ -2406,6 +2458,23 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                         * '1' = replicate PLINK 1.x (current default, will be\n"
 "                                 changed soon)\n"
 "                         * '2' = within each window, scan backwards (faster)\n"
+              );
+    HelpPrint("ld-window\0ld-window-kb\0ld-window-cm\0ld-window-r2\0r-phased\0r-unphased\0r2-phased\0r2-unphased\0r\0r2\0", &help_ctrl, 0,
+"  --ld-window <#var+1> : Restrict --r[2]-[un]phased max variant-ct distance.\n"
+"  --ld-window-kb <#kb> : Change tabular --r[2]-[un]phased max kb distance\n"
+"                         (default 1000).\n"
+"  --ld-window-cm <#cm> : Restrict --r[2]-[un]phased max centimorgan distance.\n"
+              );
+    HelpPrint("ld-window-r2\0r-phased\0r-unphased\0r2-phased\0r2-unphased\0r\0r2\0", &help_ctrl, 0,
+"  --ld-window-r2 <min> : Change tabular --r[2]-[un]phased minimum r^2 (default\n"
+"                         0.2).\n"
+              );
+    HelpPrint("ld-snp\0ld-snps\0ld-snp-list\0r-phased\0r-unphased\0r2-phased\0r2-unphased\0r\0r2\0", &help_ctrl, 0,
+"  --ld-snp <var. ID>   : Restrict the first variant in --r[2]-[un]phased\n"
+"  --ld-snps <varID...>   variant-pairs to a limited set.  --ld-snp specifies\n"
+"  --ld-snp-list <file>   a single ID, --ld-snps accepts one or more ranges\n"
+"                         (same syntax as --snps), and --ld-snp-list specifies a\n"
+"                         file to load variant IDs from.\n"
               );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,

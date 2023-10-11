@@ -302,7 +302,7 @@ void PopulateRescaledDosageF(const uintptr_t* genoarr, const uintptr_t* dosage_p
   }
 }
 
-void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dosage_vec, const uintptr_t* dphase_present, uint32_t sample_ct, Dosage* dosage_uhet, SDosage* dphase_delta) {
+void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dosage_vec, const uintptr_t* dphase_present, uint32_t sample_ct, SDosage* dphase_delta) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
     uintptr_t phasepresent_nodphase_word = phasepresent[widx];
@@ -326,7 +326,6 @@ void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phasei
         if (!(phaseinfo_word & shifted_bit)) {
           cur_diff = -cur_diff;
         }
-        dosage_uhet[sample_idx] = 0;
         dphase_delta[sample_idx] = cur_diff;
         phasepresent_nodphase_word ^= shifted_bit;
       } while (phasepresent_nodphase_word);
@@ -334,7 +333,7 @@ void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phasei
   }
 }
 
-void PopulateDenseDphase(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, Dosage* dosage_uhet, SDosage* dense_dphase_delta) {
+void PopulateDenseDphase(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, SDosage* dense_dphase_delta) {
   const uint32_t dosagev_ct = DivUp(sample_ct, kDosagePerVec);
   ZeroDphaseArr(dosagev_ct * kDosagePerVec, dense_dphase_delta);
   if (dphase_ct) {
@@ -342,20 +341,18 @@ void PopulateDenseDphase(const uintptr_t* phasepresent, const uintptr_t* phasein
     uintptr_t cur_bits = dphase_present[0];
     for (uint32_t dphase_idx = 0; dphase_idx != dphase_ct; ++dphase_idx) {
       const uintptr_t sample_uidx = BitIter1(dphase_present, &sample_uidx_base, &cur_bits);
-      const uint32_t dosage_int = dense_dosage_vec[sample_uidx];
       const int32_t dphase_delta_val = dphase_delta[dphase_idx];
-      dosage_uhet[sample_uidx] = DosageHomdist(dosage_int) - abs_i32(dphase_delta_val);
       dense_dphase_delta[sample_uidx] = dphase_delta_val;
     }
   } else {
     dphase_present = nullptr;
   }
   if (phasepresent_ct) {
-    DosagePhaseinfoPatch(phasepresent, phaseinfo, dosage_present, dense_dosage_vec, dphase_present, sample_ct, dosage_uhet, dense_dphase_delta);
+    DosagePhaseinfoPatch(phasepresent, phaseinfo, dosage_present, dense_dosage_vec, dphase_present, sample_ct, dense_dphase_delta);
   }
 }
 
-void DosagePhaseinfoPatchSubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dosage_vec, const uintptr_t* dphase_present, uint32_t raw_sample_ct, Dosage* dosage_uhet, SDosage* dphase_delta) {
+void DosagePhaseinfoPatchSubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dosage_vec, const uintptr_t* dphase_present, uint32_t raw_sample_ct, SDosage* dphase_delta) {
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
   for (uint32_t widx = 0; widx != raw_sample_ctl; ++widx) {
     const uintptr_t sample_include_word = sample_include[widx];
@@ -378,7 +375,6 @@ void DosagePhaseinfoPatchSubset(const uintptr_t* sample_include, const uint32_t*
         if (!(phaseinfo_word & shifted_bit)) {
           cur_diff = -cur_diff;
         }
-        dosage_uhet[sample_idx] = 0;
         dphase_delta[sample_idx] = cur_diff;
         phasepresent_nodphase_word ^= shifted_bit;
       } while (phasepresent_nodphase_word);
@@ -386,7 +382,7 @@ void DosagePhaseinfoPatchSubset(const uintptr_t* sample_include, const uint32_t*
   }
 }
 
-void PopulateDenseDphaseSubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, Dosage* dosage_uhet, SDosage* dense_dphase_delta) {
+void PopulateDenseDphaseSubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, SDosage* dense_dphase_delta) {
   const uint32_t dosagev_ct = DivUp(sample_ct, kDosagePerVec);
   ZeroDphaseArr(dosagev_ct * kDosagePerVec, dense_dphase_delta);
   if (dphase_ct) {
@@ -397,9 +393,7 @@ void PopulateDenseDphaseSubset(const uintptr_t* sample_include, const uint32_t* 
       const uintptr_t sample_include_word = sample_include[widx];
       if (sample_include_word & shifted_bit) {
         const uint32_t sample_idx = sample_include_cumulative_popcounts[widx] + PopcountWord(sample_include_word & (shifted_bit - 1));
-        const uint32_t dosage_int = dense_dosage_vec[sample_idx];
         const int32_t dphase_delta_val = dphase_delta[dphase_idx];
-        dosage_uhet[sample_idx] = DosageHomdist(dosage_int) - abs_i32(dphase_delta_val);
         dense_dphase_delta[sample_idx] = dphase_delta_val;
       }
     }
@@ -407,7 +401,7 @@ void PopulateDenseDphaseSubset(const uintptr_t* sample_include, const uint32_t* 
     dphase_present = nullptr;
   }
   if (phasepresent_ct) {
-    DosagePhaseinfoPatchSubset(sample_include, sample_include_cumulative_popcounts, phasepresent, phaseinfo, dosage_present, dense_dosage_vec, dphase_present, raw_sample_ct, dosage_uhet, dense_dphase_delta);
+    DosagePhaseinfoPatchSubset(sample_include, sample_include_cumulative_popcounts, phasepresent, phaseinfo, dosage_present, dense_dosage_vec, dphase_present, raw_sample_ct, dense_dphase_delta);
   }
 }
 
@@ -4254,6 +4248,103 @@ void GetBpWindow(const uintptr_t* variant_include, const uint32_t* variant_bps, 
     const uint32_t end_vidx = LowerBoundConstrainedNonemptyU32(variant_bps, search_start_vidx, search_end_vidx, center_bp + bp_radius + 1);
     *end_vidxp = 1 + FindLast1BitBefore(variant_include, end_vidx);
   }
+}
+
+PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned char* vrtypes, uint32_t raw_variant_ct, PgenGlobalFlags input_gflags) {
+  PgenGlobalFlags read_gflags = kfPgenGlobal0;
+  const uintptr_t* vrtypes_alias = R_CAST(const uintptr_t*, vrtypes);
+  const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+  uint32_t mask_multiply = ((input_gflags & kfPgenGlobalHardcallPhasePresent)? 0x10 : 0) + ((input_gflags & kfPgenGlobalDosagePresent)? 0x60 : 0) + ((input_gflags & kfPgenGlobalDosagePhasePresent)? 0x80 : 0);
+  uintptr_t vrtypes_or = 0;
+  // todo: try changing loop to be vec-based, use movemask to extract
+  // information from vrtypes in 64-bit cases
+  for (uint32_t widx = 0; widx != raw_variant_ctl; ++widx) {
+    uintptr_t cur_variant_include_word = variant_include[widx];
+    if (cur_variant_include_word) {
+      // bugfix (20 Aug 2018): this needs to advance on every variant_include
+      // word, not just the nonzero ones
+      const uintptr_t* cur_vrtypes = &(vrtypes_alias[8 * widx]);
+#ifdef __LP64__
+      for (uint32_t vi_byte_idx = 0; vi_byte_idx != 8; ++vi_byte_idx) {
+#  ifdef USE_AVX2
+        // this doesn't seem to be much faster than non-AVX2 code on my Mac...
+        // inverse-movemask shouldn't be better than regular movemask here
+        const uintptr_t cur_mask = _pdep_u64(cur_variant_include_word, kMask0101);
+#  else
+        // this operation maps binary hgfedcba to h0000000g0000000f...
+        //                                        ^       ^       ^
+        //                                        |       |       |
+        //                                       56      48      40
+        // 1. (cur_variant_include_word & 0xfe) gives us hgfedcb0;
+        //    necessary to avoid carryover.
+        // 2. multiply by the number with bits 7, 14, 21, ..., 49 set, to
+        //    get hgfedcbhgfedcbhgf...
+        //        ^       ^       ^
+        //        |       |       |
+        //       56      48      40
+        // 3. mask out all but bits 8, 16, 24, ..., 56
+        // todo: test if this actually beats the per-character loop...
+        const uintptr_t cur_mask = (((cur_variant_include_word & 0xfe) * 0x2040810204080LLU) & kMask0101) | (cur_variant_include_word & 1);
+#  endif
+        vrtypes_or |= cur_vrtypes[vi_byte_idx] & (cur_mask * mask_multiply);
+        cur_variant_include_word >>= 8;
+      }
+#else
+      for (uint32_t vi_hexa_idx = 0; vi_hexa_idx != 8; ++vi_hexa_idx) {
+        // dcba -> d0000000c0000000b0000000a
+        const uintptr_t cur_mask = ((cur_variant_include_word & 0xf) * 0x204081) & kMask0101;
+        vrtypes_or |= cur_vrtypes[vi_hexa_idx] & (cur_mask * mask_multiply);
+        cur_variant_include_word >>= 4;
+      }
+#endif
+      if (vrtypes_or) {
+        // bugfix (8 Oct 2017): forgot to multiply by kMask0101
+        if (vrtypes_or & (0x10 * kMask0101)) {
+          read_gflags |= kfPgenGlobalHardcallPhasePresent;
+          mask_multiply -= 0x10;
+        }
+        if (vrtypes_or & (0x60 * kMask0101)) {
+          read_gflags |= kfPgenGlobalDosagePresent;
+          mask_multiply -= 0x60;
+        }
+        if (vrtypes_or & (0x80 * kMask0101)) {
+          read_gflags |= kfPgenGlobalDosagePhasePresent;
+          mask_multiply -= 0x80;
+        }
+        if (!mask_multiply) {
+          return read_gflags;
+        }
+      }
+    }
+  }
+  return read_gflags;
+}
+
+uint32_t TriangleDivide(int64_t cur_prod_x2, int32_t modif) {
+  // return smallest integer vv for which (vv * (vv + modif)) is no smaller
+  // than cur_prod_x2, and neither term in the product is negative.
+  int64_t vv;
+  if (cur_prod_x2 == 0) {
+    if (modif < 0) {
+      return -modif;
+    }
+    return 0;
+  }
+  vv = S_CAST(int64_t, sqrt(S_CAST(double, cur_prod_x2)));
+  while ((vv - 1) * (vv + modif - 1) >= cur_prod_x2) {
+    vv--;
+  }
+  while (vv * (vv + modif) < cur_prod_x2) {
+    vv++;
+  }
+  return vv;
+}
+
+void ParallelBounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t parallel_tot, int32_t* __restrict bound_start_ptr, int32_t* __restrict bound_end_ptr) {
+  int32_t modif = 1 - start * 2;
+  int64_t ct_tot = S_CAST(int64_t, ct) * (ct + modif);
+  *bound_start_ptr = TriangleDivide((ct_tot * parallel_idx) / parallel_tot, modif);
+  *bound_end_ptr = TriangleDivide((ct_tot * (parallel_idx + 1)) / parallel_tot, modif);
 }
 
 #ifdef __cplusplus

@@ -52,33 +52,6 @@ void CleanupScore(ScoreInfo* score_info_ptr) {
 }
 
 
-uint32_t TriangleDivide(int64_t cur_prod_x2, int32_t modif) {
-  // return smallest integer vv for which (vv * (vv + modif)) is no smaller
-  // than cur_prod_x2, and neither term in the product is negative.
-  int64_t vv;
-  if (cur_prod_x2 == 0) {
-    if (modif < 0) {
-      return -modif;
-    }
-    return 0;
-  }
-  vv = S_CAST(int64_t, sqrt(S_CAST(double, cur_prod_x2)));
-  while ((vv - 1) * (vv + modif - 1) >= cur_prod_x2) {
-    vv--;
-  }
-  while (vv * (vv + modif) < cur_prod_x2) {
-    vv++;
-  }
-  return vv;
-}
-
-void ParallelBounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t parallel_tot, int32_t* __restrict bound_start_ptr, int32_t* __restrict bound_end_ptr) {
-  int32_t modif = 1 - start * 2;
-  int64_t ct_tot = S_CAST(int64_t, ct) * (ct + modif);
-  *bound_start_ptr = TriangleDivide((ct_tot * parallel_idx) / parallel_tot, modif);
-  *bound_end_ptr = TriangleDivide((ct_tot * (parallel_idx + 1)) / parallel_tot, modif);
-}
-
 // Cost function for thread load-balancing: (max - min) * ((max + min)/2)
 // i.e. we don't waste any time processing entries in the irrelevant
 // upper-right triangle
@@ -6847,7 +6820,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
     } else {
       const uint32_t fname_blen = strlen(score_info_ptr->input_fname) + 1;
-      if (unlikely(bigstack_end_alloc_llstr(fname_blen, &fname_iter))) {
+      if (unlikely(bigstack_alloc_llstr(fname_blen, &fname_iter))) {
         goto ScoreReport_ret_NOMEM;
       }
       fname_iter->next = nullptr;
@@ -6958,8 +6931,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                  bigstack_alloc_dp(sample_shard_ct, &ctx.sharded_final_scores_cmaj) ||
                  bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
                  bigstack_alloc_w(sample_ctl, &sex_nonmale_collapsed) ||
-                 bigstack_alloc_v(11 * acc4_vec_ct * qsr_ct_nz, &missing_accx) ||
-                 bigstack_alloc_v(11 * acc4_vec_ct * qsr_ct_nz, &missing_male_accx) ||
+                 bigstack_end_clalloc_v(11 * acc4_vec_ct * qsr_ct_nz, &missing_accx) ||
+                 bigstack_end_clalloc_v(11 * acc4_vec_ct * qsr_ct_nz, &missing_male_accx) ||
                  bigstack_alloc_u32(qsr_ct_nz, &allele_ct_bases) ||
                  bigstack_alloc_i32(qsr_ct_nz, &male_allele_ct_deltas) ||
                  bigstack_alloc_u32(qsr_ct_nz * 2, &variant_ct_rems) ||
@@ -6969,8 +6942,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                  bigstack_alloc_u64(qsr_ct_nz * sample_ct, &ctx.ddosage_sums) ||
                  bigstack_alloc_w(raw_variant_ctl, &already_seen_variants) ||
                  bigstack_alloc_w(raw_allele_ctl, &already_seen_alleles) ||
-                 bigstack_alloc_d(score_col_ct, &tmpfile_buf) ||
-                 bigstack_alloc_c(overflow_buf_alloc, &overflow_buf))) {
+                 bigstack_end_clalloc_d(score_col_ct, &tmpfile_buf) ||
+                 bigstack_end_clalloc_c(overflow_buf_alloc, &overflow_buf))) {
       goto ScoreReport_ret_NOMEM;
     }
     {
@@ -7103,7 +7076,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     }
 
     char** score_col_names;
-    if (unlikely(bigstack_alloc_cp(global_score_col_ct, &score_col_names))) {
+    if (unlikely(bigstack_end_clalloc_cp(global_score_col_ct, &score_col_names))) {
       goto ScoreReport_ret_NOMEM;
     }
     if (!(flags & kfScoreHeaderRead)) {
@@ -7142,7 +7115,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     uint32_t dosage_ct = 0;
     double geno_slope = kRecipDosageMax;
     double geno_intercept = 0.0;
-    char* score_name_write_iter = R_CAST(char*, g_bigstack_base);
+    char* score_name_write_iter = R_CAST(char*, g_bigstack_end);
     for (uint32_t file_idx1 = 1; file_idx1 <= infile_ct; ++file_idx1, fname_iter = fname_iter->next) {
       cur_input_fname = fname_iter->str;
       if (file_idx1 > 1) {
@@ -7208,17 +7181,44 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             if (unlikely(!read_iter)) {
               goto ScoreReport_ret_MISSING_TOKENS;
             }
-            cur_score_col_names[score_col_idx] = score_name_write_iter;
             char* token_end = CurTokenEnd(read_iter);
             const uint32_t slen = token_end - read_iter;
-            score_name_write_iter = memcpyax(score_name_write_iter, read_iter, slen, '\0');
+            score_name_write_iter -= 1 + slen;
+            cur_score_col_names[score_col_idx] = score_name_write_iter;
+            memcpyx(score_name_write_iter, read_iter, slen, '\0');
+          }
+          if (file_idx1 == infile_ct) {
+            BigstackEndSet(score_name_write_iter);
+            bigstack_end_clalign();
+            unsigned char* bigstack_mark2 = g_bigstack_base;
+            uintptr_t* col_subset_mask;
+            if (unlikely(bigstack_alloc_w(BitCtToWordCt(score_col_ct), &col_subset_mask))) {
+              goto ScoreReport_ret_NOMEM;
+            }
+            SetAllBits(score_col_ct, col_subset_mask);
+            uint32_t dup_found;
+            reterr = CheckIdUniqueness(g_bigstack_base, g_bigstack_end, col_subset_mask, TO_CONSTCPCONSTP(score_col_names), score_col_ct, max_thread_ct, &dup_found);
+            if (unlikely(reterr)) {
+              goto ScoreReport_ret_1;
+            }
+            if (unlikely(dup_found)) {
+              logerrprintf("Error: --score%s: Score IDs are not unique.\n", multi_input? "-list" : "");
+              goto ScoreReport_ret_MALFORMED_INPUT;
+            }
+            BigstackReset(bigstack_mark2);
           }
         } else {
           const uintptr_t col_idx_stop = global_score_col_idx_start + score_col_ct;
           for (uintptr_t global_score_col_idx = global_score_col_idx_start; global_score_col_idx != col_idx_stop; ++global_score_col_idx) {
+            const uint32_t str_blen = 6 + UintSlen(global_score_col_idx + 1);
+            score_name_write_iter -= str_blen;
             score_col_names[global_score_col_idx] = score_name_write_iter;
-            score_name_write_iter = strcpya_k(score_name_write_iter, "SCORE");
-            score_name_write_iter = u32toa_x(global_score_col_idx + 1, '\0', score_name_write_iter);
+            char* tmp_write_iter = strcpya_k(score_name_write_iter, "SCORE");
+            u32toa_x(global_score_col_idx + 1, '\0', tmp_write_iter);
+          }
+          if (file_idx1 == infile_ct) {
+            BigstackEndSet(score_name_write_iter);
+            bigstack_end_clalign();
           }
         }
       }
@@ -7973,40 +7973,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       logprintf("--score: Variant list written to %s .\n", outname);
     }
 
-    BigstackBaseSet(score_name_write_iter);
-    if (flags & kfScoreHeaderRead) {
-      unsigned char* bigstack_mark2 = g_bigstack_base;
-      uintptr_t* col_subset_mask;
-      if (unlikely(bigstack_alloc_w(BitCtToWordCt(score_col_ct), &col_subset_mask))) {
-        goto ScoreReport_ret_NOMEM;
-      }
-      SetAllBits(score_col_ct, col_subset_mask);
-      uint32_t dup_found;
-      reterr = CheckIdUniqueness(g_bigstack_base, g_bigstack_end, col_subset_mask, TO_CONSTCPCONSTP(score_col_names), score_col_ct, max_thread_ct, &dup_found);
-      if (unlikely(reterr)) {
-        goto ScoreReport_ret_1;
-      }
-      if (unlikely(dup_found)) {
-        logerrprintf("Error: --score%s: Score IDs are not unique.\n", multi_input? "-list" : "");
-        goto ScoreReport_ret_MALFORMED_INPUT;
-      }
-      BigstackReset(bigstack_mark2);
-    }
-
     snprintf(outname_end, kMaxOutfnameExtBlen, ".sscore.tmp");
     if (unlikely(fopen_checked(outname, FOPEN_RB, &score_tmpfile))) {
       goto ScoreReport_ret_OPEN_FAIL;
-    }
-    double* saved_scores = nullptr;
-    const uint32_t write_type_ct = write_score_avgs + write_score_sums;
-    const uint64_t saved_scores_byte_ct = S_CAST(uint64_t, score_final_col_ct) * infile_ct * sample_ct * write_type_ct * sizeof(double);
-    if (saved_scores_byte_ct <= bigstack_left()) {
-      // this isn't allocated up-front since we may not know size of
-      // score_col_names.
-      saved_scores = S_CAST(double*, bigstack_alloc_raw_rd(saved_scores_byte_ct));
-      if (unlikely(fread_checked(saved_scores, saved_scores_byte_ct, score_tmpfile))) {
-        goto ScoreReport_ret_READ_TMP_FAIL;
-      }
     }
 
     // major: file_idx
@@ -8014,12 +7983,15 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     // then sample_idx (out of sample_ct)
     // then score_avgs vs. score_sums (out of write_type_ct)
     // then score_col_idx within a single input (out of score_col_ct doubles)
+    const uint32_t write_type_ct = write_score_avgs + write_score_sums;
     const uint64_t sample_idx_stride = write_type_ct * score_col_ct;
     const uint64_t file_idx_stride = sample_idx_stride * sample_ct * qsr_ct_nz;
     const uint32_t* scrambled_missing_diploid_cts = nullptr;
     const uint32_t* scrambled_missing_haploid_cts = nullptr;
+    double* saved_scores = nullptr;
     double* cur_saved_scores = tmpfile_buf;
     for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct_nz; ++qsr_idx) {
+      BigstackReset(bigstack_mark);
       char* outname_end2 = outname_end;
       if (range_names) {
         *outname_end2++ = '.';
@@ -8031,6 +8003,19 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         goto ScoreReport_ret_1;
       }
       cswritep = overflow_buf;
+
+      if (!qsr_idx) {
+        const uint64_t saved_scores_byte_ct = S_CAST(uint64_t, score_final_col_ct) * infile_ct * sample_ct * write_type_ct * sizeof(double);
+        if (saved_scores_byte_ct <= bigstack_left()) {
+          // Guaranteed to not exhaust memory, since there are no allocations
+          // after this point, and if qsr_ct > 1 the subsequent InitCstream()
+          // calls will allocate the same memory as the first one.
+          saved_scores = S_CAST(double*, bigstack_end_alloc_raw_rd(saved_scores_byte_ct));
+          if (unlikely(fread_checked(saved_scores, saved_scores_byte_ct, score_tmpfile))) {
+            goto ScoreReport_ret_READ_TMP_FAIL;
+          }
+        }
+      }
       const uint32_t write_fid = FidColIsRequired(siip, flags / kfScoreColMaybefid);
       const char* sample_ids = siip->sample_ids;
       const char* sids = siip->sids;

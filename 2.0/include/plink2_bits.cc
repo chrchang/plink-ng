@@ -1853,7 +1853,6 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
     const VecU16 byte_gather = VecToU16(_mm256_setr_epi64x(0, 0, kMask0101, kMask0101));
     const VecU16 bit_mask = VecToU16(_mm256_set_epi32(0xff7fffbfU, 0xffdfffefU, 0xfff7fffbU, 0xfffdfffeU, 0xff7fffbfU, 0xffdfffefU, 0xfff7fffbU, 0xfffdfffeU));
 #  else
-    const VecU16 byte_gather = VCONST_S(0);
     const VecU16 bit_mask = VecToU16(_mm_set_epi32(0xff7fffbfU, 0xffdfffefU, 0xfff7fffbU, 0xfffdfffeU));
 #  endif
     const VecU16 all1 = VCONST_S(0xffff);
@@ -1864,10 +1863,10 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
     for (uint32_t vec_idx = 0; vec_idx != fullvec_ct; ++vec_idx) {
 #  ifdef USE_AVX2
       VecU16 vmask = VecToU16(_mm256_set1_epi16(bytearr_alias[vec_idx]));
+      vmask = vecu16_shuffle8(vmask, byte_gather);
 #  else
       VecU16 vmask = VecToU16(_mm_set1_epi8(bytearr_alias[vec_idx]));
 #  endif
-      vmask = vecu16_shuffle8(vmask, byte_gather);
       vmask = vmask | bit_mask;
       vmask = (vmask == all1);
       const VecU16 result = subfrom - vmask;

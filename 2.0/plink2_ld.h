@@ -61,6 +61,39 @@ FLAGSET_DEF_START()
   kfClumpColDefault = (kfClumpColChrom | kfClumpColPos | kfClumpColMaybeprovref | kfClumpColMaybeA1 | kfClumpColMaybeF | kfClumpColTotal | kfClumpColBins | kfClumpColSp2)
 FLAGSET_DEF_END(ClumpFlags);
 
+FLAGSET_DEF_START()
+  kfVcor0,
+  kfVcorZs = (1 << 0),
+  kfVcorBin8 = (1 << 1),
+  kfVcorBin4 = (1 << 2),
+  kfVcorEncodemask = (kfVcorZs | kfVcorBin8 | kfVcorBin4),
+  kfVcorMatrixSq = (1 << 3),
+  kfVcorMatrixSq0 = (1 << 4),
+  kfVcorMatrixTri = (1 << 5),
+  kfVcorMatrixShapemask = (kfVcorMatrixSq | kfVcorMatrixSq0 | kfVcorMatrixTri),
+  kfVcorPhased = (1 << 6),
+  kfVcorUnsquared = (1 << 7),
+  kfVcorYesReally = (1 << 8),
+  kfVcorInterChr = (1 << 9),
+
+  kfVcorColChrom = (1 << 10),
+  kfVcorColPos = (1 << 11),
+  kfVcorColId = (1 << 12),
+  kfVcorColRef = (1 << 13),
+  kfVcorColAlt1 = (1 << 14),
+  kfVcorColAlt = (1 << 15),
+  kfVcorColMaybeprovref = (1 << 16),
+  kfVcorColProvref = (1 << 17),
+  kfVcorColMaj = (1 << 18),
+  kfVcorColNonmaj = (1 << 19),
+  kfVcorColFreq = (1 << 20),
+  kfVcorColD = (1 << 21),
+  kfVcorColDprime = (1 << 22),
+  kfVcorColDprimeAbs = (1 << 23),
+  kfVcorColDefault = (kfVcorColChrom | kfVcorColPos | kfVcorColId | kfVcorColMaybeprovref),
+  kfVcorUnsquaredColDefault = (kfVcorColDefault | kfVcorColMaj)
+FLAGSET_DEF_END(VcorFlags);
+
 CONSTI32(kClumpMaxBinBounds, 0x4000000);
 
 FLAGSET_DEF_START()
@@ -95,6 +128,17 @@ typedef struct ClumpInfoStruct {
   ClumpFlags flags;
 } ClumpInfo;
 
+typedef struct VcorInfoStruct {
+  NONCOPYABLE(VcorInfoStruct);
+  char* ld_snp_list_fname;
+  RangeList ld_snp_range_list;
+  uint32_t var_ct_radius;
+  uint32_t bp_radius;
+  double cm_radius;
+  double min_r2;
+  VcorFlags flags;
+} VcorInfo;
+
 void InitLd(LdInfo* ldip);
 
 void CleanupLd(LdInfo* ldip);
@@ -103,11 +147,17 @@ void InitClump(ClumpInfo* clump_ip);
 
 void CleanupClump(ClumpInfo* clump_ip);
 
+void InitVcor(VcorInfo* vcip);
+
+void CleanupVcor(VcorInfo* vcip);
+
 PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const LdInfo* ldip, const char* indep_preferred_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
-PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const LdInfo* ldip, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, PgenReader* simple_pgrp);
+PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const LdInfo* ldip, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, PgenReader* simple_pgrp);
 
 PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_male, const ClumpInfo* clump_ip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end);
+
+PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const VcorInfo* vcip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 }  // namespace plink2

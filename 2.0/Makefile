@@ -44,7 +44,7 @@ UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
   # argh
   CFLAGS += -I/opt/homebrew/include -I/usr/local/include
-  CXXFLAGS += -I/opt/homebrew/include -I/usr/local/include
+  CXXFLAGS += -I/opt/homebrew/include -I/usr/local/include -DACCELERATE_NEW_LAPACK
   BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
   LDFLAGS=-ldl -lpthread -lz -lzstd -L/opt/homebrew/lib -L/usr/local/lib

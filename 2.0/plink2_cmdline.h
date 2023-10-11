@@ -727,6 +727,18 @@ HEADER_INLINE BoolErr bigstack_allocv_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
   return !(*w_arr_ptr);
 }
 
+typedef struct LlStrStruct {
+  NONCOPYABLE(LlStrStruct);
+  struct LlStrStruct* next;
+  char str[];
+} LlStr;
+
+// bigstack_end_alloc_llstr is usually better for small allocations like this.
+HEADER_INLINE BoolErr bigstack_alloc_llstr(uintptr_t str_blen, LlStr** llstr_arr_ptr) {
+  *llstr_arr_ptr = S_CAST(LlStr*, bigstack_alloc(str_blen + sizeof(LlStr)));
+  return !(*llstr_arr_ptr);
+}
+
 BoolErr bigstack_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr);
 
 BoolErr bigstack_calloc_d(uintptr_t ct, double** d_arr_ptr);
@@ -895,10 +907,6 @@ HEADER_INLINE void* bigstack_end_alloc(uintptr_t size) {
   return bigstack_end_alloc_presized(size);
 }
 
-HEADER_INLINE void* bigstack_end_aligned_alloc(uintptr_t size) {
-  return bigstack_end_alloc(size);
-}
-
 HEADER_INLINE BoolErr bigstack_end_alloc_c(uintptr_t ct, char** c_arr_ptr) {
   *c_arr_ptr = S_CAST(char*, bigstack_end_alloc(ct));
   return !(*c_arr_ptr);
@@ -944,14 +952,8 @@ HEADER_INLINE BoolErr bigstack_end_alloc_u64(uintptr_t ct, uint64_t** u64_arr_pt
   return !(*u64_arr_ptr);
 }
 
-typedef struct LlStrStruct {
-  NONCOPYABLE(LlStrStruct);
-  struct LlStrStruct* next;
-  char str[];
-} LlStr;
-
-HEADER_INLINE BoolErr bigstack_end_alloc_llstr(uintptr_t str_bytes, LlStr** llstr_arr_ptr) {
-  *llstr_arr_ptr = S_CAST(LlStr*, bigstack_end_alloc(str_bytes + sizeof(LlStr)));
+HEADER_INLINE BoolErr bigstack_end_alloc_llstr(uintptr_t str_blen, LlStr** llstr_arr_ptr) {
+  *llstr_arr_ptr = S_CAST(LlStr*, bigstack_end_alloc(str_blen + sizeof(LlStr)));
   return !(*llstr_arr_ptr);
 }
 
@@ -1000,6 +1002,37 @@ HEADER_INLINE BoolErr bigstack_end_calloc_i64(uintptr_t ct, int64_t** i64_arr_pt
 
 HEADER_INLINE BoolErr bigstack_end_calloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr) {
   return bigstack_end_calloc_cp(ct, K_CAST(char***, kcp_arr_ptr));
+}
+
+HEADER_INLINE void bigstack_end_clalign() {
+  g_bigstack_end = BigstackEndRoundedDown();
+}
+
+HEADER_INLINE void* bigstack_end_clalloc(uintptr_t size) {
+  // assumes g_bigstack_end is cacheline-aligned by e.g. a
+  // bigstack_end_clalign() call.
+  size = RoundUpPow2(size, kCacheline);
+  return bigstack_end_alloc_presized(size);
+}
+
+HEADER_INLINE BoolErr bigstack_end_clalloc_c(uintptr_t ct, char** c_arr_ptr) {
+  *c_arr_ptr = S_CAST(char*, bigstack_end_clalloc(ct));
+  return !(*c_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_end_clalloc_d(uintptr_t ct, double** d_arr_ptr) {
+  *d_arr_ptr = S_CAST(double*, bigstack_end_clalloc(ct * sizeof(double)));
+  return !(*d_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_end_clalloc_v(uintptr_t ct, VecW** v_arr_ptr) {
+  *v_arr_ptr = S_CAST(VecW*, bigstack_end_clalloc(ct * sizeof(VecW)));
+  return !(*v_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_end_clalloc_cp(uintptr_t ct, char*** cp_arr_ptr) {
+  *cp_arr_ptr = S_CAST(char**, bigstack_end_clalloc(ct * sizeof(intptr_t)));
+  return !(*cp_arr_ptr);
 }
 
 // and here's the interface for a non-global arena (necessary for some
