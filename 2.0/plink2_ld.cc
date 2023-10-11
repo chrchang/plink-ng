@@ -3312,7 +3312,6 @@ uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* do
   }
 }
 
-/*
 int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_delta1, uint32_t vec_ct) {
   const __m256i* dphase_delta0_iter = R_CAST(const __m256i*, dphase_delta0);
   const __m256i* dphase_delta1_iter = R_CAST(const __m256i*, dphase_delta1);
@@ -3362,7 +3361,6 @@ int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
 }
-*/
 #  else  // !USE_AVX2
 void FillDosageHet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage_het) {
   const __m128i* dosage_vvec_iter = R_CAST(const __m128i*, dosage_vec);
@@ -3552,7 +3550,6 @@ uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* do
   }
 }
 
-/*
 int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_delta1, uint32_t vec_ct) {
   const __m128i* dphase_delta0_iter = R_CAST(const __m128i*, dphase_delta0);
   const __m128i* dphase_delta1_iter = R_CAST(const __m128i*, dphase_delta1);
@@ -3597,7 +3594,6 @@ int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
 }
-*/
 #  endif  // !USE_AVX2
 #else  // !__LP64__
 void FillDosageHet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage_het) {
@@ -3665,34 +3661,22 @@ uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* do
   return dotprod;
 }
 
-/*
 int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_delta1, uint32_t vec_ct) {
-  const uint32_t sample_cta2 = vec_ct * 2;
+  const uint32_t sample_ctav = vec_ct * kDosagePerVec;
   int64_t dotprod = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ctav; ++sample_idx) {
     const int32_t cur_diff0 = dphase_delta0[sample_idx];
     const int32_t cur_diff1 = dphase_delta1[sample_idx];
     dotprod += cur_diff0 * cur_diff1;
   }
   return dotprod;
 }
-*/
 #endif
-int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_delta1, uint32_t vec_ct) {
-  const uint32_t sample_cta2 = vec_ct * 2;
-  int64_t dotprod = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
-    const int32_t cur_diff0 = dphase_delta0[sample_idx];
-    const int32_t cur_diff1 = dphase_delta1[sample_idx];
-    dotprod += cur_diff0 * cur_diff1;
-  }
-  return dotprod;
-}
 // todo: optimize this
 uint64_t DosageAbsDotprod(const SDosage* dphase_delta0, const SDosage* dphase_delta1, uint32_t vec_ct) {
-  const uint32_t sample_cta2 = vec_ct * 2;
+  const uint32_t sample_ctav = vec_ct * kDosagePerVec;
   uint64_t dotprod = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ctav; ++sample_idx) {
     const int32_t cur_diff0 = dphase_delta0[sample_idx];
     const int32_t cur_diff1 = dphase_delta1[sample_idx];
     dotprod += abs_i32(cur_diff0 * cur_diff1);
