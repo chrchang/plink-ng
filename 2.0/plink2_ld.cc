@@ -4045,6 +4045,9 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       main_dphase_deltas[0] = nullptr;
       main_dphase_deltas[1] = nullptr;
       if (use_phase) {
+        logerrputs("Error: Alpha 5 --ld's handling of phased dosages is incorrect, and has been\ndisabled.  Use an alpha 6 or later build for this functionality.\n");
+        reterr = kPglRetNotYetSupported;
+        goto LdConsole_ret_1;
         if (unlikely(bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[0]) ||
                      bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[1]))) {
           goto LdConsole_ret_NOMEM;
@@ -6578,6 +6581,11 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     uintptr_t x_unpacked_byte_stride = 0;
     uintptr_t nonxy_unpacked_byte_stride;
     if (check_dosage) {
+      if (phased_r2) {
+        logerrputs("Error: Alpha 5 --clump's handling of phased dosages is incorrect, and has been\ndisabled.  Use an alpha 6 or later build for this functionality.\n");
+        reterr = kPglRetNotYetSupported;
+        goto ClumpReports_ret_1;
+      }
       const uintptr_t dosage_trail_byte_ct = LdDosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_r2));
       nonxy_unpacked_byte_stride = dosagevec_byte_ct * (1 + phased_r2 + check_phase) + bitvec_byte_ct + dosage_trail_byte_ct;
       if (x_exists) {

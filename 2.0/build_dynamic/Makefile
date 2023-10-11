@@ -125,7 +125,7 @@ ifeq ($(UNAME), Darwin)
   endif
   BLASFLAGS=-framework Accelerate
   CFLAGS += -I/usr/local/include
-  CXXFLAGS += -I/usr/local/include -stdlib=libc++
+  CXXFLAGS += -I/usr/local/include -stdlib=libc++ -DACCELERATE_NEW_LAPACK
   LINKFLAGS += -L/usr/local/lib
   LIBTOOL=libtool
   STATIC=-static

@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a5.1"
+static const char ver_str[] = "PLINK v2.00a5.2"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a5.1"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (3 Oct 2023)";
+  " (11 Oct 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -10201,7 +10201,9 @@ int main(int argc, char** argv) {
           pc.pheno_transform_flags |= kfPhenoTransformSplitCat;
           pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "ort-vars")) {
-          if (unlikely(!(pc.command_flags1 & (kfCommand1MakePlink2 | kfCommand1Pmerge)))) {
+          // update (11 Oct 2023): forgot to block e.g. --sort-vars +
+          // --make-just-pvar.
+          if (unlikely(!(((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & (kfMakeBed | kfMakePgen))) || (pc.command_flags1 & kfCommand1Pmerge)))) {
             logerrputs("Error: --sort-vars must be used with --make-[b]pgen/--make-bed or dataset\nmerging.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
