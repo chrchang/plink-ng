@@ -13195,13 +13195,19 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       goto clump_reports_ret_READ_FAIL;
     }
     if (file_idx > 1) {
-      fname_ptr = &(fname_ptr[-3]);
-      while (*fname_ptr) {
-	fname_ptr--;
-      }
-      fname_ptr++;
-      if (clump_index_first && (file_idx == 2)) {
-	index_eligible = 1;
+      if (file_idx == 2) {
+        // bugfix (18 Oct 2023): first filename may not be preceded by null
+        // character
+        fname_ptr = clump_ip->fnames_flattened;
+        if (clump_index_first) {
+          index_eligible = 1;
+        }
+      } else {
+        fname_ptr = &(fname_ptr[-3]);
+        while (*fname_ptr) {
+          fname_ptr--;
+        }
+        fname_ptr++;
       }
     }
   }
