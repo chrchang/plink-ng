@@ -8912,6 +8912,8 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
         ctx.tmp_f_result_bufs = nullptr;
       }
       CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_male_collapsed);
+      // bugfix (18 Oct 2023): forgot to clear trailing words
+      ZeroTrailingWords(sample_ctl, sex_male_collapsed);
       FillInterleavedMaskVec(sex_male_collapsed, sample_ctv, sex_male_interleaved_vec);
       ctx.sex_male_collapsed = sex_male_collapsed;
       ctx.sex_male_interleaved_vec = sex_male_interleaved_vec;

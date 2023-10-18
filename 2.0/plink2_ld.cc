@@ -4263,7 +4263,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
             goto LdConsole_ret_NOMEM;
           }
           CopyBitarrSubset(sex_nm, founder_info, founder_ct, nosex_collapsed);
-          AlignedBitarrInvert(founder_ctl, nosex_collapsed);
+          // bugfix (18 Oct 2023): need to pass bit count, not word count
+          AlignedBitarrInvert(founder_ct, nosex_collapsed);
         }
       }
       // Unlike plink 1.9, we don't restrict these HWE computations to the
