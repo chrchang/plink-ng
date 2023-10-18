@@ -2073,23 +2073,29 @@ typedef struct LoadAlleleAndGenoCountsCtxStruct {
   uintptr_t* sample_include_interleaved_vec;
   uint32_t* sample_include_cumulative_popcounts;
   const uintptr_t* sex_male;
+  const uintptr_t* sex_nonfemale;
   uintptr_t* sex_male_interleaved_vec;
-  uint32_t* sex_male_cumulative_popcounts;
+  uintptr_t* sex_nonfemale_interleaved_vec;
+  uint32_t* sex_nonfemale_cumulative_popcounts;
   uintptr_t* nosex_interleaved_vec;
   const uintptr_t* founder_info;
   uintptr_t* founder_info_interleaved_vec;
   uint32_t* founder_info_cumulative_popcounts;
   uintptr_t* founder_male;
+  uintptr_t* founder_nonfemale;
   uintptr_t* founder_male_interleaved_vec;
-  uint32_t* founder_male_cumulative_popcounts;
+  uintptr_t* founder_nonfemale_interleaved_vec;
+  uint32_t* founder_nonfemale_cumulative_popcounts;
   uintptr_t* founder_nosex_interleaved_vec;
   uint32_t raw_sample_ct;
   uint32_t sample_ct;
   uint32_t founder_ct;
   uint32_t male_ct;
   uint32_t nosex_ct;
+  uint32_t chry_missingstat_sample_ct;
   uint32_t founder_male_ct;
   uint32_t founder_nosex_ct;
+  uint32_t founder_chry_missingstat_sample_ct;
   uint32_t first_hap_uidx;
   uint32_t is_minimac3_r2;
 
@@ -2171,11 +2177,15 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
     const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
     const uintptr_t* sex_male = ctx->sex_male;
     const uintptr_t* sex_male_interleaved_vec = ctx->sex_male_interleaved_vec;
-    const uint32_t* sex_male_cumulative_popcounts = ctx->sex_male_cumulative_popcounts;
+    const uintptr_t* sex_nonfemale = ctx->sex_nonfemale;
+    const uintptr_t* sex_nonfemale_interleaved_vec = ctx->sex_nonfemale_interleaved_vec;
+    const uint32_t* sex_nonfemale_cumulative_popcounts = ctx->sex_nonfemale_cumulative_popcounts;
     const uintptr_t* nosex_interleaved_vec = ctx->nosex_interleaved_vec;
     uint32_t sample_ct = ctx->sample_ct;
     uint32_t male_ct = ctx->male_ct;
     uint32_t nosex_ct = ctx->nosex_ct;
+    uint32_t nonfemale_ct = male_ct + nosex_ct;
+    uint32_t chry_missingstat_sample_ct = ctx->chry_missingstat_sample_ct;
     unsigned char* allele_presents_bytearr = ctx->allele_presents_bytearr;
     uint64_t* allele_ddosages = ctx->allele_ddosages;
     STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts) = ctx->raw_geno_cts;
@@ -2214,8 +2224,8 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             is_x_or_y = 1;
             is_y = 1;
             // ugh
-            if ((!allele_presents_bytearr) || (sample_ct == male_ct)) {
-              PgrSetSampleSubsetIndex(sex_male_cumulative_popcounts, pgrp, &pssi);
+            if ((nonfemale_ct == chry_missingstat_sample_ct) && ((!allele_presents_bytearr) || (sample_ct == nonfemale_ct))) {
+              PgrSetSampleSubsetIndex(sex_nonfemale_cumulative_popcounts, pgrp, &pssi);
             } else {
               PgrClearSampleSubsetIndex(pgrp, &pssi);
             }
@@ -2274,15 +2284,15 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               }
             }
           } else if (is_y) {
-            if ((!allele_presents_bytearr) || (sample_ct == male_ct)) {
-              const PglErr reterr = PgrGetDCounts(sex_male, sex_male_interleaved_vec, pssi, male_ct, variant_uidx, 0, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
+            if ((nonfemale_ct == chry_missingstat_sample_ct) && ((!allele_presents_bytearr) || (sample_ct == nonfemale_ct))) {
+              const PglErr reterr = PgrGetDCounts(sex_nonfemale, sex_nonfemale_interleaved_vec, pssi, nonfemale_ct, variant_uidx, 0, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
               if (unlikely(reterr)) {
                 new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
                 goto LoadAlleleAndGenoCountsThread_err;
               }
               hethap_ct = genocounts[1];
               if (imp_r2_vals && (!is_minimac3_r2)) {
-                // note that female/unknown-sex are not counted here
+                // note that female is not counted here
                 imp_r2_vals[variant_uidx] *= 0.5;
               }
               if (allele_presents_bytearr) {
@@ -2297,39 +2307,49 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                 allele_ddosages[cur_allele_idx_offset] = cur_dosages[0];
                 allele_ddosages[cur_allele_idx_offset + 1] = cur_dosages[1];
               }
+              if (raw_geno_cts) {
+                STD_ARRAY_REF(uint32_t, 3) cur_raw_geno_cts = raw_geno_cts[variant_uidx];
+                cur_raw_geno_cts[0] = genocounts[0];
+                cur_raw_geno_cts[1] = genocounts[1];
+                cur_raw_geno_cts[2] = genocounts[2];
+              }
             } else {
-              // ugh, need to count female/unknown-sex for allele_presents and
-              // ignore elsewhere
+              // females need to be counted for allele_presents, and ignored
+              // elsewhere.
+              // unknown-sex might need to be excluded from missing-genotype
+              // and hethap counts.
               const PglErr reterr = PgrGetD(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
               if (unlikely(reterr)) {
                 new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
                 goto LoadAlleleAndGenoCountsThread_err;
               }
               const uint32_t dosage_is_relevant = pgv.dosage_ct && ((sample_ct == raw_sample_ct) || (!IntersectionIsEmpty(sample_include, pgv.dosage_present, raw_sample_ctl)));
-              if (dosage_is_relevant) {
-                // at least one dosage value is present, that's all we need to
-                // know
-                allele_presents_bytearr[cur_allele_idx_offset] = 128;
-                allele_presents_bytearr[cur_allele_idx_offset + 1] = 128;
-              } else {
-                // only hardcalls matter
-                // bugfix (31 Jul 2018): forgot to initialize genocounts here
-                // possible todo: use a specialized function which just checks
-                // which alleles exist
-                if (sample_ct == raw_sample_ct) {
-                  ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
-                  GenoarrCountFreqsUnsafe(pgv.genovec, sample_ct, genocounts);
-                } else {
-                  GenoarrCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
-                }
-                if (genocounts[0] || genocounts[1]) {
+              if (allele_presents_bytearr) {
+                if (dosage_is_relevant) {
+                  // at least one dosage value is present, that's all we need
+                  // to know
                   allele_presents_bytearr[cur_allele_idx_offset] = 128;
-                }
-                if (genocounts[1] || genocounts[2]) {
                   allele_presents_bytearr[cur_allele_idx_offset + 1] = 128;
+                } else {
+                  // only hardcalls matter
+                  // bugfix (31 Jul 2018): forgot to initialize genocounts here
+                  // possible todo: use a specialized function which just
+                  // checks which alleles exist
+                  if (sample_ct == raw_sample_ct) {
+                    ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
+                    GenoarrCountFreqsUnsafe(pgv.genovec, sample_ct, genocounts);
+                  } else {
+                    GenoarrCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
+                  }
+                  if (genocounts[0] || genocounts[1]) {
+                    allele_presents_bytearr[cur_allele_idx_offset] = 128;
+                  }
+                  if (genocounts[1] || genocounts[2]) {
+                    allele_presents_bytearr[cur_allele_idx_offset + 1] = 128;
+                  }
                 }
               }
-              GenoarrCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, genocounts);
+              GenoarrCountSubsetFreqs(pgv.genovec, sex_nonfemale_interleaved_vec, raw_sample_ct, nonfemale_ct, genocounts);
               hethap_ct = genocounts[1];
               // x2, x4 since this is haploid
               uintptr_t alt1_ct_x2 = genocounts[2] * 2 + hethap_ct;
@@ -2357,7 +2377,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                   }
                 }
               }
-              const uintptr_t obs_ct = male_ct + additional_dosage_ct - genocounts[3];
+              const uintptr_t obs_ct = nonfemale_ct + additional_dosage_ct - genocounts[3];
               alt1_ddosage += alt1_ct_x2 * S_CAST(uint64_t, kDosageMid);
               alt1_ddosage_sq_sum += alt1_sq_sum_x4 * 0x10000000LLU;
               cur_dosages[0] = obs_ct * S_CAST(uint64_t, kDosageMax) - alt1_ddosage;
@@ -2372,6 +2392,40 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               if (allele_ddosages) {
                 allele_ddosages[cur_allele_idx_offset] = cur_dosages[0];
                 allele_ddosages[cur_allele_idx_offset + 1] = alt1_ddosage;
+              }
+              // argh, these values must be saved before potential male-only
+              // clobber.
+              if (raw_geno_cts) {
+                STD_ARRAY_REF(uint32_t, 3) cur_raw_geno_cts = raw_geno_cts[variant_uidx];
+                cur_raw_geno_cts[0] = genocounts[0];
+                cur_raw_geno_cts[1] = genocounts[1];
+                cur_raw_geno_cts[2] = genocounts[2];
+              }
+              if (chry_missingstat_sample_ct != nonfemale_ct) {
+                // By default, we include unknown-sex samples in
+                // allele-frequency and imputation-r2 computations, but exclude
+                // them from missing-rate stats (and hethap stats because they
+                // can't be cleanly separated out)
+                GenoarrCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, genocounts);
+                hethap_ct = genocounts[1];
+                // cur_dosages[0] + cur_dosages[1] used later to compute
+                // missing-dosage rate.
+                uint32_t male_missing_ct = genocounts[3];
+                if (dosage_is_relevant && male_missing_ct) {
+                  const uint32_t raw_sample_ctl2 = NypCtToWordCt(raw_sample_ct);
+                  const uintptr_t* genovec = pgv.genovec;
+                  const Halfword* sex_male_hwalias = DowncastKWToHW(sex_male);
+                  const Halfword* dosage_present_hwalias = DowncastWToHW(pgv.dosage_present);
+                  for (uint32_t widx = 0; widx != raw_sample_ctl2; ++widx) {
+                    const Halfword hw = Pack11ToHalfword(genovec[widx]) & sex_male_hwalias[widx] & dosage_present_hwalias[widx];
+                    if (hw) {
+                      male_missing_ct -= PopcountHW(hw);
+                    }
+                  }
+                }
+                const uintptr_t male_dosage_obs_ct = male_ct - male_missing_ct;
+                cur_dosages[0] = male_dosage_obs_ct * S_CAST(uint64_t, kDosageMax);
+                cur_dosages[1] = 0;
               }
             }
           } else {
@@ -2482,7 +2536,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             if (!is_x_or_y) {
               missing_dosage_ct = sample_ct - ((cur_dosages[0] + cur_dosages[1]) / kDosageMax);
             } else if (is_y) {
-              missing_dosage_ct = male_ct - ((cur_dosages[0] + cur_dosages[1]) / kDosageMax);
+              missing_dosage_ct = chry_missingstat_sample_ct - ((cur_dosages[0] + cur_dosages[1]) / kDosageMax);
             } else {
               if (pgv.dosage_ct) {
                 ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
@@ -2524,8 +2578,8 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               }
             }
           } else if (is_y) {
-            if ((!allele_presents_bytearr) || (sample_ct == male_ct)) {
-              const PglErr reterr = PgrGetMDCounts(sex_male, sex_male_interleaved_vec, pssi, male_ct, variant_uidx, 0, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, &hethap_ct, genocounts, all_dosages);
+            if ((nonfemale_ct == chry_missingstat_sample_ct) && ((!allele_presents_bytearr) || (sample_ct == nonfemale_ct))) {
+              const PglErr reterr = PgrGetMDCounts(sex_nonfemale, sex_nonfemale_interleaved_vec, pssi, nonfemale_ct, variant_uidx, 0, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, &hethap_ct, genocounts, all_dosages);
               if (unlikely(reterr)) {
                 new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
                 goto LoadAlleleAndGenoCountsThread_err;
@@ -2543,9 +2597,17 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               if (allele_ddosages) {
                 memcpy(&(allele_ddosages[cur_allele_idx_offset]), all_dosages, allele_ct * sizeof(int64_t));
               }
+              if (raw_geno_cts) {
+                STD_ARRAY_REF(uint32_t, 3) cur_raw_geno_cts = raw_geno_cts[variant_uidx];
+                cur_raw_geno_cts[0] = genocounts[0];
+                cur_raw_geno_cts[1] = genocounts[1];
+                cur_raw_geno_cts[2] = genocounts[2];
+              }
             } else {
-              // need to count female/unknown-sex for allele_presents and
-              // ignore elsewhere
+              // females need to be counted for allele_presents, and ignored
+              // elsewhere.
+              // unknown-sex might need to be excluded from missing-genotype
+              // and hethap counts.
               const PglErr reterr = PgrGetM(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, &pgv);
               if (unlikely(reterr)) {
                 new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
@@ -2555,19 +2617,16 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               // which alleles exist
               ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
               GetMFlatCounts64(sample_include, sample_include_interleaved_vec, &pgv, raw_sample_ct, sample_ct, allele_ct, genocounts, all_dosages);
-              for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
-                if (all_dosages[aidx]) {
-                  allele_presents_bytearr[cur_allele_idx_offset + aidx] = 128;
+              if (allele_presents_bytearr) {
+                for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
+                  if (all_dosages[aidx]) {
+                    allele_presents_bytearr[cur_allele_idx_offset + aidx] = 128;
+                  }
                 }
               }
 
               uint64_t* two_cts = &(all_dosages[allele_ct]);
-              GetMCounts64(sex_male, sex_male_interleaved_vec, &pgv, raw_sample_ct, male_ct, allele_ct, genocounts, all_dosages, two_cts);
-              uintptr_t hethap_x2 = 0;
-              for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
-                hethap_x2 += all_dosages[aidx];
-              }
-              hethap_ct = hethap_x2 / 2;
+              GetMCounts64(sex_nonfemale, sex_nonfemale_interleaved_vec, &pgv, raw_sample_ct, nonfemale_ct, allele_ct, genocounts, all_dosages, two_cts);
               if (allele_ddosages) {
                 for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
                   allele_ddosages[cur_allele_idx_offset + aidx] = all_dosages[aidx] * kDosageMid + two_cts[aidx] * kDosageMax;
@@ -2582,8 +2641,23 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                   // now ssqs
                   two_cts[aidx] = one_ct * kDosageMid * kDosageMid + two_ct * kDosageMax * kDosageMax;
                 }
-                imp_r2_vals[variant_uidx] = 0.5 * MultiallelicDiploidMachR2(all_dosages, two_cts, male_ct - genocounts[3], allele_ct);
+                imp_r2_vals[variant_uidx] = 0.5 * MultiallelicDiploidMachR2(all_dosages, two_cts, nonfemale_ct - genocounts[3], allele_ct);
               }
+              // argh
+              if (raw_geno_cts) {
+                STD_ARRAY_REF(uint32_t, 3) cur_raw_geno_cts = raw_geno_cts[variant_uidx];
+                cur_raw_geno_cts[0] = genocounts[0];
+                cur_raw_geno_cts[1] = genocounts[1];
+                cur_raw_geno_cts[2] = genocounts[2];
+              }
+              if (nonfemale_ct != chry_missingstat_sample_ct) {
+                GetMCounts64(sex_male, sex_male_interleaved_vec, &pgv, raw_sample_ct, male_ct, allele_ct, genocounts, all_dosages, two_cts);
+              }
+              uintptr_t hethap_x2 = 0;
+              for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+                hethap_x2 += all_dosages[aidx];
+              }
+              hethap_ct = hethap_x2 / 2;
             }
           } else {
             // chrX
@@ -2672,7 +2746,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             variant_missing_dosage_cts[variant_uidx] = genocounts[3];
           }
         }
-        if (raw_geno_cts) {
+        if (raw_geno_cts && (!is_y)) {
           STD_ARRAY_REF(uint32_t, 3) cur_raw_geno_cts = raw_geno_cts[variant_uidx];
           cur_raw_geno_cts[0] = genocounts[0];
           cur_raw_geno_cts[1] = genocounts[1];
@@ -2693,13 +2767,17 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
       sample_include_cumulative_popcounts = ctx->founder_info_cumulative_popcounts;
       sex_male = ctx->founder_male;
       sex_male_interleaved_vec = ctx->founder_male_interleaved_vec;
-      sex_male_cumulative_popcounts = ctx->founder_male_cumulative_popcounts;
+      sex_nonfemale = ctx->founder_nonfemale;
+      sex_nonfemale_interleaved_vec = ctx->founder_nonfemale_interleaved_vec;
+      sex_nonfemale_cumulative_popcounts = ctx->founder_nonfemale_cumulative_popcounts;
 
       nosex_interleaved_vec = ctx->founder_nosex_interleaved_vec;
 
       sample_ct = ctx->founder_ct;
       male_ct = ctx->founder_male_ct;
       nosex_ct = ctx->founder_nosex_ct;
+      nonfemale_ct = male_ct + nosex_ct;
+      chry_missingstat_sample_ct = ctx->founder_chry_missingstat_sample_ct;
       allele_presents_bytearr = nullptr;
       allele_ddosages = ctx->founder_allele_ddosages;
       variant_missing_hc_cts = nullptr;
@@ -2717,7 +2795,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t is_minimac3_r2, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uintptr_t* allele_presents, uint64_t* allele_ddosages, uint64_t* founder_allele_ddosages, uint32_t* variant_missing_hc_cts, uint32_t* variant_missing_dosage_cts, uint32_t* variant_hethap_cts, STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_nosex_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), double* imp_r2_vals) {
+PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t is_minimac3_r2, uint32_t y_nosex_missing_stats, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uintptr_t* allele_presents, uint64_t* allele_ddosages, uint64_t* founder_allele_ddosages, uint32_t* variant_missing_hc_cts, uint32_t* variant_missing_dosage_cts, uint32_t* variant_hethap_cts, STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_nosex_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), double* imp_r2_vals) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
@@ -2744,7 +2822,6 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     ctx.sample_include = only_founder_cts_required? founder_info : sample_include;
     ctx.raw_sample_ct = raw_sample_ct;
     ctx.sample_ct = only_founder_cts_required? founder_ct : sample_ct;
-    ctx.male_ct = male_ct;
     ctx.allele_ddosages = only_founder_cts_required? founder_allele_ddosages : allele_ddosages;
     ctx.raw_geno_cts = only_founder_cts_required? founder_raw_geno_cts : raw_geno_cts;
     ctx.x_male_geno_cts = only_founder_cts_required? founder_x_male_geno_cts : x_male_geno_cts;
@@ -2755,7 +2832,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sample_include_interleaved_vec) ||
                  bigstack_alloc_u32(raw_sample_ctl, &ctx.sample_include_cumulative_popcounts) ||
                  bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sex_male_interleaved_vec) ||
-                 bigstack_alloc_u32(raw_sample_ctl, &ctx.sex_male_cumulative_popcounts))) {
+                 bigstack_alloc_u32(raw_sample_ctl, &ctx.sex_nonfemale_cumulative_popcounts))) {
       goto LoadAlleleAndGenoCounts_ret_NOMEM;
     }
     FillInterleavedMaskVec(ctx.sample_include, raw_sample_ctv, ctx.sample_include_interleaved_vec);
@@ -2765,7 +2842,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     } else {
       // no nonfounder counts required
       uintptr_t* new_sex_male;
-      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &new_sex_male))) {
+      if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &new_sex_male))) {
         goto LoadAlleleAndGenoCounts_ret_NOMEM;
       }
       BitvecAndCopy(sex_male, founder_info, raw_sample_ctl, new_sex_male);
@@ -2773,14 +2850,35 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
       ctx.sex_male = new_sex_male;
     }
     FillInterleavedMaskVec(ctx.sex_male, raw_sample_ctv, ctx.sex_male_interleaved_vec);
-    FillCumulativePopcounts(ctx.sex_male, raw_sample_ctl, ctx.sex_male_cumulative_popcounts);
-    if (!(x_nosex_geno_cts || founder_x_nosex_geno_cts)) {
-      nosex_ct = 0;
+    // slightly wasteful, but founder_male_ct isn't precomputed
+    ctx.male_ct = PopcountWords(ctx.sex_male, raw_sample_ctl);
+    ctx.nosex_ct = 0;
+    if (nosex_ct) {
+      uintptr_t* sex_nonfemale;
+      if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &sex_nonfemale) ||
+                   bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sex_nonfemale_interleaved_vec))) {
+        goto LoadAlleleAndGenoCounts_ret_NOMEM;
+      }
+      if ((founder_ct == sample_ct) || (!only_founder_cts_required)) {
+        AlignedBitarrOrnotCopy(ctx.sex_male, sex_nm, raw_sample_ct, sex_nonfemale);
+      } else {
+        BitvecInvmaskCopy(founder_info, sex_nm, raw_sample_ctl, sex_nonfemale);
+        BitvecOr(ctx.sex_male, raw_sample_ctl, sex_nonfemale);
+      }
+      ZeroTrailingWords(raw_sample_ctl, sex_nonfemale);
+      ctx.sex_nonfemale = sex_nonfemale;
+      const uint32_t nonfemale_ct = PopcountWords(sex_nonfemale, raw_sample_ctl);
+      ctx.nosex_ct = nonfemale_ct - ctx.male_ct;
+      FillInterleavedMaskVec(sex_nonfemale, raw_sample_ctv, ctx.sex_nonfemale_interleaved_vec);
+    } else {
+      ctx.sex_nonfemale = ctx.sex_male;
+      ctx.sex_nonfemale_interleaved_vec = ctx.sex_male_interleaved_vec;
     }
-    ctx.nosex_ct = nosex_ct;
+    FillCumulativePopcounts(ctx.sex_nonfemale, raw_sample_ctl, ctx.sex_nonfemale_cumulative_popcounts);
+    ctx.chry_missingstat_sample_ct = y_nosex_missing_stats? (ctx.male_ct + ctx.nosex_ct) : ctx.male_ct;
     ctx.nosex_interleaved_vec = nullptr;
     uintptr_t* nosex_buf = nullptr;
-    if (nosex_ct) {
+    if (x_nosex_geno_cts || founder_x_nosex_geno_cts) {
       if (unlikely(bigstack_end_alloc_w(raw_sample_ctl, &nosex_buf) ||
                    bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.nosex_interleaved_vec))) {
         goto LoadAlleleAndGenoCounts_ret_NOMEM;
@@ -2801,11 +2899,14 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     ctx.founder_info_cumulative_popcounts = nullptr;
     ctx.founder_male = nullptr;
     ctx.founder_male_interleaved_vec = nullptr;
-    ctx.founder_male_cumulative_popcounts = nullptr;
+    ctx.founder_nonfemale = nullptr;
+    ctx.founder_nonfemale_interleaved_vec = nullptr;
+    ctx.founder_nonfemale_cumulative_popcounts = nullptr;
     ctx.founder_nosex_interleaved_vec = nullptr;
     ctx.founder_ct = 0;
     ctx.founder_male_ct = 0;
     ctx.founder_nosex_ct = 0;
+    ctx.founder_chry_missingstat_sample_ct = 0;
     ctx.founder_allele_ddosages = nullptr;
     ctx.founder_raw_geno_cts = nullptr;
     ctx.founder_x_male_geno_cts = nullptr;
@@ -2815,9 +2916,9 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
         ctx.founder_info = founder_info;
         if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.founder_info_interleaved_vec) ||
                      bigstack_alloc_u32(raw_sample_ctl, &ctx.founder_info_cumulative_popcounts) ||
-                     bigstack_alloc_w(raw_sample_ctl, &ctx.founder_male) ||
+                     bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.founder_male) ||
                      bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.founder_male_interleaved_vec) ||
-                     bigstack_alloc_u32(raw_sample_ctl, &ctx.founder_male_cumulative_popcounts))) {
+                     bigstack_alloc_u32(raw_sample_ctl, &ctx.founder_nonfemale_cumulative_popcounts))) {
           goto LoadAlleleAndGenoCounts_ret_NOMEM;
         }
         FillInterleavedMaskVec(founder_info, raw_sample_ctv, ctx.founder_info_interleaved_vec);
@@ -2825,26 +2926,41 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
         BitvecAndCopy(sex_male, founder_info, raw_sample_ctl, ctx.founder_male);
         ZeroTrailingWords(raw_sample_ctl, ctx.founder_male);
         FillInterleavedMaskVec(ctx.founder_male, raw_sample_ctv, ctx.founder_male_interleaved_vec);
-        FillCumulativePopcounts(ctx.founder_male, raw_sample_ctl, ctx.founder_male_cumulative_popcounts);
+        ctx.founder_male_ct = PopcountWords(ctx.founder_male, raw_sample_ctl);
+        if (ctx.nosex_ct) {
+          if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.founder_nonfemale) ||
+                       bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.founder_nonfemale_interleaved_vec))) {
+            goto LoadAlleleAndGenoCounts_ret_NOMEM;
+          }
+          BitvecInvmaskCopy(founder_info, sex_nm, raw_sample_ctl, ctx.founder_nonfemale);
+          BitvecOr(ctx.founder_male, raw_sample_ctl, ctx.founder_nonfemale);
+          ZeroTrailingWords(raw_sample_ctl, ctx.founder_nonfemale);
+          const uint32_t founder_nonfemale_ct = PopcountWords(ctx.founder_nonfemale, raw_sample_ctl);
+          ctx.founder_nosex_ct = founder_nonfemale_ct - ctx.founder_male_ct;
+          FillInterleavedMaskVec(ctx.founder_nonfemale, raw_sample_ctv, ctx.founder_nonfemale_interleaved_vec);
+        } else {
+          ctx.founder_nonfemale = ctx.founder_male;
+          ctx.founder_nonfemale_interleaved_vec = ctx.founder_male_interleaved_vec;
+        }
+        FillCumulativePopcounts(ctx.founder_nonfemale, raw_sample_ctl, ctx.founder_nonfemale_cumulative_popcounts);
+        ctx.founder_chry_missingstat_sample_ct = y_nosex_missing_stats? (ctx.founder_male_ct + ctx.founder_nosex_ct) : ctx.founder_male_ct;
+        if (ctx.founder_nosex_ct) {
+          // caller currently responsible for ensuring that when
+          // founder_nosex_ct is zero, founder_x_nosex_geno_cts == nullptr
+          if (founder_x_nosex_geno_cts) {
+            if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.founder_nosex_interleaved_vec))) {
+              goto LoadAlleleAndGenoCounts_ret_NOMEM;
+            }
+            BitvecAnd(founder_info, raw_sample_ctl, nosex_buf);
+            ZeroTrailingWords(raw_sample_ctl, nosex_buf);
+            FillInterleavedMaskVec(nosex_buf, raw_sample_ctv, ctx.founder_nosex_interleaved_vec);
+            ctx.founder_x_nosex_geno_cts = founder_x_nosex_geno_cts;
+          }
+        }
         ctx.founder_ct = founder_ct;
-        ctx.founder_male_ct = ctx.founder_male_cumulative_popcounts[raw_sample_ctl - 1] + PopcountWord(ctx.founder_male[raw_sample_ctl - 1]);
         ctx.founder_allele_ddosages = founder_allele_ddosages;
         ctx.founder_raw_geno_cts = founder_raw_geno_cts;
         ctx.founder_x_male_geno_cts = founder_x_male_geno_cts;
-        if (nosex_ct) {
-          // caller currently responsible for ensuring that when
-          // founder_nosex_ct is zero, founder_x_nosex_geno_cts ==
-          // nullptr
-          if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.founder_nosex_interleaved_vec))) {
-            goto LoadAlleleAndGenoCounts_ret_NOMEM;
-          }
-          BitvecAnd(founder_info, raw_sample_ctl, nosex_buf);
-          ctx.founder_nosex_ct = PopcountWords(nosex_buf, raw_sample_ctl);
-          assert(ctx.founder_nosex_ct);
-          ZeroTrailingWords(raw_sample_ctl, nosex_buf);
-          FillInterleavedMaskVec(nosex_buf, raw_sample_ctv, ctx.founder_nosex_interleaved_vec);
-          ctx.founder_x_nosex_geno_cts = founder_x_nosex_geno_cts;
-        }
       } else {
         if (founder_allele_ddosages) {
           ZeroU64Arr(allele_idx_offsets? allele_idx_offsets[raw_variant_ct] : (2 * raw_variant_ct), founder_allele_ddosages);
@@ -2866,11 +2982,6 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
       }
       if ((!ctx.x_nosex_geno_cts) && founder_x_nosex_geno_cts) {
         ctx.x_nosex_geno_cts = founder_x_nosex_geno_cts;
-      }
-    } else if (only_founder_cts_required) {
-      ctx.male_ct = ctx.sex_male_cumulative_popcounts[raw_sample_ctl - 1] + PopcountWord(ctx.sex_male[raw_sample_ctl - 1]);
-      if (nosex_ct) {
-        ctx.nosex_ct = PopcountWords(nosex_buf, raw_sample_ctl);
       }
     }
     const uintptr_t raw_allele_ct = allele_idx_offsets? allele_idx_offsets[raw_variant_ct] : (2 * raw_variant_ct);
@@ -2902,7 +3013,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
 
     uint32_t unused_chr_code;
     uint32_t unused_chr_code2;
-    uint32_t xy_complications_present = ((allele_presents || allele_ddosages || founder_allele_ddosages || variant_missing_dosage_cts) && XymtExists(cip, kChrOffsetX, &unused_chr_code)) || (allele_presents && (sample_ct != male_ct) && XymtExists(cip, kChrOffsetY, &unused_chr_code2));
+    uint32_t xy_complications_present = ((allele_presents || allele_ddosages || founder_allele_ddosages || variant_missing_dosage_cts) && XymtExists(cip, kChrOffsetX, &unused_chr_code)) || (((ctx.chry_missingstat_sample_ct != ctx.male_ct + ctx.nosex_ct) || (allele_presents && (sample_ct != male_ct))) && XymtExists(cip, kChrOffsetY, &unused_chr_code2));
     const uint32_t xy_dosages_needed = (pgfip->gflags & kfPgenGlobalDosagePresent) && xy_complications_present;
 
     // todo: check when this saturates
@@ -5115,8 +5226,8 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
 
 FLAGSET_DEF_START()
   kfPlink2Write0,
-  kfPlink2WriteSetHhMissing = (1 << 0),
-  kfPlink2WriteSetHhMissingKeepDosage = (1 << 1),
+  kfPlink2WriteSetInvalidHaploidMissing = (1 << 0),
+  kfPlink2WriteSetInvalidHaploidMissingKeepDosage = (1 << 1),
   kfPlink2WriteSetMixedMtMissing = (1 << 2),
   kfPlink2WriteSetMixedMtMissingKeepDosage = (1 << 3),
   kfPlink2WriteMeMissing = (1 << 4),
@@ -5188,7 +5299,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
   const uintptr_t* sex_female_collapsed_interleaved = mcp->sex_female_collapsed_interleaved;
   const uint32_t* old_sample_idx_to_new = ctx->old_sample_idx_to_new;
   const Plink2WriteFlags plink2_write_flags = mcp->plink2_write_flags;
-  const uint32_t set_hh_missing = plink2_write_flags & kfPlink2WriteSetHhMissing;
+  const uint32_t set_invalid_haploid_missing = plink2_write_flags & kfPlink2WriteSetInvalidHaploidMissing;
   const uint32_t set_mixed_mt_missing = plink2_write_flags & kfPlink2WriteSetMixedMtMissing;
   const uint32_t write_plink1 = plink2_write_flags & kfPlink2WritePlink1;
   const uint32_t sample_ct = mcp->sample_ct;
@@ -5271,7 +5382,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
       if (refalt1_select && (refalt1_select[variant_uidx][0] == 1)) {
         GenovecInvertUnsafe(sample_ct, genovec);
       }
-      if (set_hh_missing && is_haploid_nonmt) {
+      if (set_invalid_haploid_missing && is_haploid_nonmt) {
         if (is_x) {
           SetMaleHetMissing(sex_male_collapsed_interleaved, sample_ctv2, genovec);
         } else {
@@ -5286,7 +5397,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
         SetHetMissing(sample_ctl2, genovec);
       }
       // todo: --set-me-missing, --zero-cluster, --fill-missing-with-ref
-      // (--set-me-missing should happen after --set-hh-missing)
+      // (--set-me-missing should happen after --set-invalid-haploid-missing)
       if (write_plink1) {
         PgrPlink2ToPlink1InplaceUnsafe(sample_ct, genovec);
       }
@@ -5626,8 +5737,8 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
 
   const Plink2WriteFlags plink2_write_flags = mcp->plink2_write_flags;
-  const uint32_t set_hh_missing = plink2_write_flags & kfPlink2WriteSetHhMissing;
-  const uint32_t set_hh_missing_keep_dosage = plink2_write_flags & kfPlink2WriteSetHhMissingKeepDosage;
+  const uint32_t set_invalid_haploid_missing = plink2_write_flags & kfPlink2WriteSetInvalidHaploidMissing;
+  const uint32_t set_invalid_haploid_missing_keep_dosage = plink2_write_flags & kfPlink2WriteSetInvalidHaploidMissingKeepDosage;
   const uint32_t set_mixed_mt_missing = plink2_write_flags & kfPlink2WriteSetMixedMtMissing;
   const uint32_t set_mixed_mt_missing_keep_dosage = plink2_write_flags & kfPlink2WriteSetMixedMtMissingKeepDosage;
   const uint32_t late_dosage_erase = plink2_write_flags & kfPlink2WriteLateDosageErase;
@@ -6032,10 +6143,10 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       }
       // moved after --hard-call-threshold, since it makes sense to
       // immediately erase fresh het haploid calls
-      if (set_hh_missing && is_haploid_nonmt) {
+      if (set_invalid_haploid_missing && is_haploid_nonmt) {
         if (is_x) {
           EraseMaleDphases(sex_male_collapsed, &write_dphase_ct, write_dphasepresent, write_dphasedeltas);
-          if (!set_hh_missing_keep_dosage) {
+          if (!set_invalid_haploid_missing_keep_dosage) {
             // need to erase dosages associated with the hardcalls we're
             // about to clear
 
@@ -6097,7 +6208,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         } else {
           // all hets to missing
           // may want to move is_hphase zeroing in front
-          if (!set_hh_missing_keep_dosage) {
+          if (!set_invalid_haploid_missing_keep_dosage) {
             SetHetMissingCleardosage(sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
           } else {
             SetHetMissingKeepdosage(sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
@@ -6298,7 +6409,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uint32_t read_or_write_dosage_present = read_dosage_present;
       if (mcp->plink2_write_flags & kfPlink2WriteLateDosageErase) {
         write_gflags &= ~(kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
-      } else if (mcp->plink2_write_flags & (kfPlink2WriteSetHhMissingKeepDosage | kfPlink2WriteSetMixedMtMissingKeepDosage)) {
+      } else if (mcp->plink2_write_flags & (kfPlink2WriteSetInvalidHaploidMissingKeepDosage | kfPlink2WriteSetMixedMtMissingKeepDosage)) {
         // bugfix (25 Jul 2018): this needs to check plink2_write_flags, not
         // make_plink2_flags
 
@@ -7227,7 +7338,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
     mc.plink2_write_flags = kfPlink2Write0;
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     ctx.sex_male_collapsed = nullptr;  // defensive
-    if (make_plink2_flags & kfMakePlink2SetHhMissing) {
+    if (make_plink2_flags & kfMakePlink2SetInvalidHaploidMissing) {
       const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
       uintptr_t* new_sex_male;
       if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_male) ||
@@ -7246,9 +7357,9 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       ZeroTrailingWords(sample_ctl, ctx.sex_female_collapsed);
       FillInterleavedMaskVec(ctx.sex_female_collapsed, sample_ctv, mc.sex_female_collapsed_interleaved);
 
-      mc.plink2_write_flags |= kfPlink2WriteSetHhMissing;
-      if (make_plink2_flags & kfMakePlink2SetHhMissingKeepDosage) {
-        mc.plink2_write_flags |= kfPlink2WriteSetHhMissingKeepDosage;
+      mc.plink2_write_flags |= kfPlink2WriteSetInvalidHaploidMissing;
+      if (make_plink2_flags & kfMakePlink2SetInvalidHaploidMissingKeepDosage) {
+        mc.plink2_write_flags |= kfPlink2WriteSetInvalidHaploidMissingKeepDosage;
       }
     } else {
       // defensive
@@ -7333,7 +7444,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       uint32_t read_or_write_dosage_present = read_dosage_present;
       if (mc.plink2_write_flags & kfPlink2WriteLateDosageErase) {
         write_gflags &= ~(kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
-      } else if (mc.plink2_write_flags & (kfPlink2WriteSetHhMissingKeepDosage | kfPlink2WriteSetMixedMtMissingKeepDosage)) {
+      } else if (mc.plink2_write_flags & (kfPlink2WriteSetInvalidHaploidMissingKeepDosage | kfPlink2WriteSetMixedMtMissingKeepDosage)) {
         read_or_write_dosage_present = 1;
         write_gflags |= kfPgenGlobalDosagePresent;
       }
@@ -9106,7 +9217,7 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
       mc.sample_ct = sample_ct;
       uintptr_t* sex_male_collapsed = nullptr;
       uintptr_t* sex_female_collapsed = nullptr;
-      if (make_plink2_flags & kfMakePlink2SetHhMissing) {
+      if (make_plink2_flags & kfMakePlink2SetInvalidHaploidMissing) {
         const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
         const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
         uintptr_t* new_sex_male;
@@ -9126,7 +9237,7 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
         ZeroTrailingWords(sample_ctl, sex_female_collapsed);
         FillInterleavedMaskVec(sex_female_collapsed, sample_ctv, mc.sex_female_collapsed_interleaved);
 
-        mc.plink2_write_flags |= kfPlink2WriteSetHhMissing;
+        mc.plink2_write_flags |= kfPlink2WriteSetInvalidHaploidMissing;
       } else {
         // defensive
         mc.sex_male_collapsed_interleaved = nullptr;

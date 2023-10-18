@@ -527,7 +527,7 @@ BoolErr bgzfclose_flush(char* buf_flush, char* write_iter, BgzfCompressStream* b
   return CleanupBgzfCompressStream(bgzfp, reterrp);
 }
 
-PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, __maybe_unused uint32_t max_thread_ct, ExportfFlags exportf_flags, PgenReader* simple_pgrp, char* outname, char* outname_end, uint32_t* sample_missing_geno_cts) {
+PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_nonfemale_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, __maybe_unused uint32_t max_thread_ct, ExportfFlags exportf_flags, PgenReader* simple_pgrp, char* outname, char* outname_end, uint32_t* sample_missing_geno_cts) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   BgzfCompressStream bgzf;
@@ -536,13 +536,10 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* genovec;
-    uintptr_t* sex_male_collapsed;
     // if we weren't using bigstack_alloc, this would need to be sample_ctaw2
-    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
-                 bigstack_alloc_w(sample_ctl, &sex_male_collapsed))) {
+    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec))) {
       goto ExportOxGen_ret_NOMEM;
     }
-    CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_male_collapsed);
 
     // See LoadSampleMissingCtsThread() in plink2_filter.cc.
     // Yes, this is overkill, but the obvious alternative of incrementing
@@ -756,7 +753,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
         BitvecInvmask(dosage_present, sample_ctl, missing_acc1);
       }
       if (is_y) {
-        BitvecAnd(sex_male_collapsed, sample_ctl, missing_acc1);
+        BitvecAnd(sex_nonfemale_collapsed, sample_ctl, missing_acc1);
       }
       VcountIncr1To4(missing_acc1, acc1_vec_ct, missing_acc4);
       if (!(--vidx_rem15)) {
@@ -916,7 +913,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
                  bigstack_alloc_w(sample_ctl, &phaseinfo))) {
       goto ExportOxHapslegend_ret_NOMEM;
     }
-    // sex_male_collapsed had trailing bits zeroed out
+    // sex_male_collapsed had trailing words zeroed out
     FillInterleavedMaskVec(sex_male_collapsed, sample_ctv, sex_male_collapsed_interleaved);
     // these could also be compile-time constants
     uint32_t genotext_haploid[32];
@@ -1110,7 +1107,7 @@ typedef struct ExportBgen11CtxStruct {
   const uintptr_t* sample_include;
   const uint32_t* sample_include_cumulative_popcounts;
   const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select);
-  uintptr_t* sex_male_collapsed;
+  const uintptr_t* sex_nonfemale_collapsed;
   uint32_t sample_ct;
   uint32_t y_start;
   uint32_t y_end;
@@ -1161,7 +1158,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
   const uintptr_t* sample_include = ctx->sample_include;
   PgrSampleSubsetIndex pssi;
   PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
-  const uintptr_t* sex_male_collapsed = ctx->sex_male_collapsed;
+  const uintptr_t* sex_nonfemale_collapsed = ctx->sex_nonfemale_collapsed;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const uint32_t sample_ctl2_m1 = NypCtToWordCt(sample_ct) - 1;
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
@@ -1289,7 +1286,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
         BitvecInvmask(dosage_present, sample_ctl, missing_acc1);
       }
       if (is_y) {
-        BitvecAnd(sex_male_collapsed, sample_ctl, missing_acc1);
+        BitvecAnd(sex_nonfemale_collapsed, sample_ctl, missing_acc1);
       }
       VcountIncr1To4(missing_acc1, acc1_vec_ct, missing_acc4);
       if (!(--vidx_rem15)) {
@@ -1316,7 +1313,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, ExportfFlags exportf_flags, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_geno_cts) {
+PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_nonfemale_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, ExportfFlags exportf_flags, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_geno_cts) {
   // isomorphic to ExportOxGen().
   assert(sample_ct);
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -1346,16 +1343,14 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     }
 #endif
     ctx.bgen_compressed_buf_max = bgen_compressed_buf_max;
-    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     const uintptr_t writebuf_len = bgen_compressed_buf_max + 2 * max_allele_slen + 2 * kMaxIdSlen + 32;
     char* chr_buf;
     unsigned char* writebuf;
     if (unlikely(bigstack_alloc_c(max_chr_slen, &chr_buf) ||
-                 bigstack_alloc_uc(writebuf_len, &writebuf) ||
-                 bigstack_alloc_w(sample_ctl, &ctx.sex_male_collapsed))) {
+                 bigstack_alloc_uc(writebuf_len, &writebuf))) {
       goto ExportBgen11_ret_NOMEM;
     }
-    CopyBitarrSubset(sex_male, sample_include, sample_ct, ctx.sex_male_collapsed);
+    ctx.sex_nonfemale_collapsed = sex_nonfemale_collapsed;
 
     const uintptr_t max_write_block_byte_ct = bigstack_left() / 4;
     uint32_t max_write_block_size = kPglVblockSize;
@@ -1896,8 +1891,8 @@ typedef struct ExportBgen13CtxStruct {
   const uintptr_t* sample_include;
   const uint32_t* sample_include_cumulative_popcounts;
   const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select);
-  uintptr_t* sex_male_collapsed;
-  uintptr_t* sex_female_collapsed;
+  const uintptr_t* sex_male_collapsed;
+  const uintptr_t* sex_female_collapsed;
   Bgen13Tables tables;
   uint32_t sample_ct;
   uint32_t ref_allele_last;
@@ -1996,6 +1991,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
   // Unlike VCF, chrY female (but not unknown-sex) ploidy is 0 when genotype is
   // missing.
   const uint32_t male_ct = PopcountWords(sex_male_collapsed, sample_ctl);
+  ;;;
   const uint32_t female_ct = PopcountWords(sex_female_collapsed, sample_ctl);
   const uint32_t x_code = (male_ct != sample_ct)? cip->xymt_codes[kChrOffsetX] : UINT32_MAXM1;
   const uint32_t y_code = female_ct? cip->xymt_codes[kChrOffsetY] : UINT32_MAXM1;
@@ -2723,8 +2719,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
         BitvecInvmask(pgv.dosage_present, sample_ctl, missing_acc1);
       }
       if (is_y) {
-        BitvecAnd(sex_male_collapsed, sample_ctl, missing_acc1);
-        // ignore missingness state of unknown-sex chrY calls for now
+        BitvecInvmask(sex_female_collapsed, sample_ctl, missing_acc1);
       }
       VcountIncr1To4(missing_acc1, acc1_vec_ct, missing_acc4);
       if (!(--vidx_rem15)) {
@@ -2837,7 +2832,7 @@ BoolErr ExportIdpaste(const uintptr_t* sample_include, const SampleIdInfo* siip,
   return 0;
 }
 
-PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, ExportfFlags exportf_flags, uint32_t exportf_bits, IdpasteFlags exportf_id_paste, char exportf_id_delim, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_geno_cts) {
+PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_male_collapsed, const uintptr_t* sex_female_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, ExportfFlags exportf_flags, uint32_t exportf_bits, IdpasteFlags exportf_id_paste, char exportf_id_delim, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_geno_cts) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -2908,18 +2903,14 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
       writebuf_len = bgen_compressed_buf_max;
     }
     writebuf_len += kMaxMediumLine;
-    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     char* chr_buf;
     unsigned char* writebuf;
     if (unlikely(bigstack_alloc_c(max_chr_slen, &chr_buf) ||
-                 bigstack_alloc_uc(writebuf_len, &writebuf) ||
-                 bigstack_alloc_w(sample_ctl, &ctx.sex_male_collapsed) ||
-                 bigstack_alloc_w(sample_ctl, &ctx.sex_female_collapsed))) {
+                 bigstack_alloc_uc(writebuf_len, &writebuf))) {
       goto ExportBgen13_ret_NOMEM;
     }
-    CopyBitarrSubset(sex_male, sample_include, sample_ct, ctx.sex_male_collapsed);
-    CopyBitarrSubset(sex_nm, sample_include, sample_ct, ctx.sex_female_collapsed);
-    BitvecInvmask(ctx.sex_male_collapsed, sample_ctl, ctx.sex_female_collapsed);
+    ctx.sex_male_collapsed = sex_male_collapsed;
+    ctx.sex_female_collapsed = sex_female_collapsed;
 
     if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto ExportBgen13_ret_OPEN_FAIL;
@@ -10808,14 +10799,29 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
     CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_male_collapsed);
     ZeroTrailingWords(sample_ctl, sex_male_collapsed);
+    // possible todo: remove one of {sex_female_collapsed,
+    // sex_nonfemale_collapsed}
+    // unfortunately, the awkward sex_nonfemale is a slightly more convenient
+    // representation (sex_nonfemale_cumulative_popcounts for chrY).
     uintptr_t* sex_female_collapsed = nullptr;
     ExportfFlags flags = eip->flags;
-    if (flags & kfExportfBcf) {
+    if (flags & (kfExportfBcf | kfExportfBgen12 | kfExportfBgen13)) {
       if (unlikely(bigstack_alloc_w(sample_ctl, &sex_female_collapsed))) {
         goto Exportf_ret_NOMEM;
       }
       CopyBitarrSubset(sex_nm, sample_include, sample_ct, sex_female_collapsed);
       BitvecInvmask(sex_male_collapsed, sample_ctl, sex_female_collapsed);
+    }
+    uintptr_t* sex_nonfemale_collapsed = nullptr;
+    if (flags & (kfExportfOxGen | kfExportfBgen11)) {
+      uintptr_t* sex_nonfemale_tmp;
+      if (unlikely(bigstack_alloc_w(sample_ctl, &sex_nonfemale_collapsed) ||
+                   bigstack_alloc_w(raw_sample_ctl, &sex_nonfemale_tmp))) {
+        goto Exportf_ret_NOMEM;
+      }
+      AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, sex_nonfemale_tmp);
+      CopyBitarrSubset(sex_nonfemale_tmp, sample_include, sample_ct, sex_nonfemale_collapsed);
+      BigstackReset(sex_nonfemale_tmp);
     }
     uint32_t* sample_missing_geno_cts = nullptr;
     if (flags & (kfExportfOxGen | kfExportfHaps | kfExportfHapsLegend | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13)) {
@@ -10925,7 +10931,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
     }
     if (flags & kfExportfOxGen) {
       // multiallelic really not ok
-      reterr = ExportOxGen(sample_include, sample_include_cumulative_popcounts, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, sample_ct, variant_ct, max_allele_slen, max_thread_ct, flags, simple_pgrp, outname, outname_end, sample_missing_geno_cts);
+      reterr = ExportOxGen(sample_include, sample_include_cumulative_popcounts, sex_nonfemale_collapsed, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, sample_ct, variant_ct, max_allele_slen, max_thread_ct, flags, simple_pgrp, outname, outname_end, sample_missing_geno_cts);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }
@@ -10944,14 +10950,14 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       // multiallelic not ok
       assert(PopcountWords(sample_include, raw_sample_ctl) == sample_ct);
       snprintf(outname_end, kMaxOutfnameExtBlen, ".bgen");
-      reterr = ExportBgen11(outname, sample_include, sample_include_cumulative_popcounts, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_thread_ct, flags, pgr_alloc_cacheline_ct, pgfip, sample_missing_geno_cts);
+      reterr = ExportBgen11(outname, sample_include, sample_include_cumulative_popcounts, sex_nonfemale_collapsed, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_thread_ct, flags, pgr_alloc_cacheline_ct, pgfip, sample_missing_geno_cts);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }
     } else if (flags & (kfExportfBgen12 | kfExportfBgen13)) {
       // multiallelic ok... in the future, anyway.
       snprintf(outname_end, kMaxOutfnameExtBlen, ".bgen");
-      reterr = ExportBgen13(outname, sample_include, sample_include_cumulative_popcounts, &(piip->sii), sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_thread_ct, flags, eip->bgen_bits, idpaste_flags, id_delim, pgr_alloc_cacheline_ct, pgfip, sample_missing_geno_cts);
+      reterr = ExportBgen13(outname, sample_include, sample_include_cumulative_popcounts, &(piip->sii), sex_male_collapsed, sex_female_collapsed, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_thread_ct, flags, eip->bgen_bits, idpaste_flags, id_delim, pgr_alloc_cacheline_ct, pgfip, sample_missing_geno_cts);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }

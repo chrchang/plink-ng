@@ -684,14 +684,19 @@ void FillVaggs(const uintptr_t* hom_vec, const uintptr_t* ref2het_vec, uintptr_t
   *minusone_ct_ptr = alt2_ct;
 }
 
-void IndepPairwiseUpdateSubcontig(uint32_t variant_uidx_winstart, uint32_t x_start, uint32_t x_len, uint32_t y_start, uint32_t y_len, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* cur_founder_ct_ptr, uint32_t* cur_founder_ctaw_ptr, uint32_t* cur_founder_ctl_ptr, uintptr_t* entire_variant_buf_word_ct_ptr) {
+void IndepPairwiseUpdateSubcontig(uint32_t variant_uidx_winstart, uint32_t x_start, uint32_t x_len, uint32_t y_start, uint32_t y_len, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t founder_nonfemale_ct, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* cur_founder_ct_ptr, uint32_t* cur_founder_ctaw_ptr, uint32_t* cur_founder_ctl_ptr, uintptr_t* entire_variant_buf_word_ct_ptr) {
   // _len is better than _end here since we can exploit unsignedness
   const uint32_t is_x = ((variant_uidx_winstart - x_start) < x_len);
   const uint32_t is_y = ((variant_uidx_winstart - y_start) < y_len);
   if ((is_x != (*is_x_ptr)) || (is_y != (*is_y_ptr))) {
     *is_x_ptr = is_x;
     *is_y_ptr = is_y;
-    const uint32_t cur_founder_ct = (is_x || is_y)? founder_male_ct : founder_ct;
+    uint32_t cur_founder_ct = founder_ct;
+    if (is_x) {
+      cur_founder_ct = founder_male_ct;
+    } else if (is_y) {
+      cur_founder_ct = founder_nonfemale_ct;
+    }
     const uint32_t cur_founder_ctaw = BitCtToAlignedWordCt(cur_founder_ct);
     *cur_founder_ct_ptr = cur_founder_ct;
     *cur_founder_ctaw_ptr = cur_founder_ctaw;
@@ -719,6 +724,7 @@ typedef struct IndepPairwiseCtxStruct {
   uint32_t y_len;
   uint32_t founder_ct;
   uint32_t founder_male_ct;
+  uint32_t founder_nonfemale_ct;
   uint32_t prune_window_size;
   uint32_t window_maxl;
   double prune_ld_thresh;
@@ -759,6 +765,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* raw_arg) {
   const uint32_t founder_ct = ctx->founder_ct;
   const uint32_t founder_male_ct = ctx->founder_male_ct;
   const uint32_t founder_male_ctl2 = NypCtToWordCt(founder_male_ct);
+  const uint32_t founder_nonfemale_ct = ctx->founder_nonfemale_ct;
   const uint32_t nonmale_ct = founder_ct - founder_male_ct;
   const uint32_t nonmale_ctaw = BitCtToAlignedWordCt(nonmale_ct);
   const uint32_t nonmale_ctl = BitCtToWordCt(nonmale_ct);
@@ -810,7 +817,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* raw_arg) {
     for (uint32_t cur_tvidx = tvidx_start; cur_tvidx < tvidx_stop; ) {
       if (cur_tvidx == subcontig_end_tvidx) {
         LdPruneNextSubcontig(variant_include, variant_bps, subcontig_info, subcontig_thread_assignments, prune_window_size, tidx, &subcontig_idx, &subcontig_end_tvidx, &next_window_end_tvidx, &variant_uidx_winstart, &variant_uidx_winend);
-        IndepPairwiseUpdateSubcontig(variant_uidx_winstart, x_start, x_len, y_start, y_len, founder_ct, founder_male_ct, &is_x, &is_y, &cur_founder_ct, &cur_founder_ctaw, &cur_founder_ctl, &entire_variant_buf_word_ct);
+        IndepPairwiseUpdateSubcontig(variant_uidx_winstart, x_start, x_len, y_start, y_len, founder_ct, founder_male_ct, founder_nonfemale_ct, &is_x, &is_y, &cur_founder_ct, &cur_founder_ctaw, &cur_founder_ctl, &entire_variant_buf_word_ct);
         BitIter1Start(variant_include, variant_uidx_winstart, &variant_uidx_base, &variant_include_bits);
         winpos_split = 0;
       }
@@ -1053,7 +1060,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const LdInfo* ldip, const uintptr_t* preferred_variants, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
+PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const uintptr_t* founder_nonfemale, const LdInfo* ldip, const uintptr_t* preferred_variants, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t founder_nonfemale_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
   ThreadGroup tg;
   PreinitThreads(&tg);
   PglErr reterr = kPglRetSuccess;
@@ -1142,6 +1149,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     const uint32_t founder_ctl2 = NypCtToWordCt(founder_ct);
     const uint32_t founder_male_ctl2 = NypCtToWordCt(founder_male_ct);
     const uint32_t founder_nonmale_ctl2 = NypCtToWordCt(founder_nonmale_ct);
+    const uint32_t founder_nonfemale_ctl2 = NypCtToWordCt(founder_nonfemale_ct);
     const uintptr_t raw_tgenovec_single_variant_word_ct = RoundUpPow2(founder_nonmale_ctl2 + founder_male_ctl2, kWordsPerVec);
     // round down
     uintptr_t bigstack_avail_per_thread = RoundDownPow2(bigstack_left() / calc_thread_ct, kCacheline);
@@ -1188,6 +1196,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     ctx.preferred_variants = preferred_variants;
     ctx.founder_ct = founder_ct;
     ctx.founder_male_ct = founder_male_ct;
+    ctx.founder_nonfemale_ct = founder_nonfemale_ct;
     ctx.prune_window_size = ldip->prune_window_size;
     ctx.window_maxl = window_maxl;
     ctx.prune_ld_thresh = ldip->prune_last_param * (1 + kSmallEpsilon);
@@ -1293,16 +1302,24 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
             // out the lowest-MAF variants before starting the LD-prune job.
             if (!is_x_or_y) {
               reterr = PgrGetInv1(founder_info, pssi, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_raw_tgenovec);
+              if (unlikely(reterr)) {
+                PgenErrPrintNV(reterr, variant_uidx);
+                goto IndepPairwise_ret_1;
+              }
               if (is_haploid) {
                 SetHetMissing(founder_ctl2, cur_raw_tgenovec);
               }
             } else {
               reterr = PgrGetInv1(nullptr, pssi, raw_sample_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, tmp_genovec);
-              if (founder_male_ct) {
-                CopyNyparrNonemptySubset(tmp_genovec, founder_male, raw_sample_ct, founder_male_ct, cur_raw_tgenovec);
-                SetHetMissing(founder_male_ctl2, cur_raw_tgenovec);
+              if (unlikely(reterr)) {
+                PgenErrPrintNV(reterr, variant_uidx);
+                goto IndepPairwise_ret_1;
               }
               if (is_x) {
+                if (founder_male_ct) {
+                  CopyNyparrNonemptySubset(tmp_genovec, founder_male, raw_sample_ct, founder_male_ct, cur_raw_tgenovec);
+                  SetHetMissing(founder_male_ctl2, cur_raw_tgenovec);
+                }
                 CopyNyparrNonemptySubset(tmp_genovec, founder_nonmale, raw_sample_ct, founder_nonmale_ct, &(cur_raw_tgenovec[founder_male_ctl2]));
                 if (all_haploid) {
                   // don't just treat chrX identically to autosomes, since for
@@ -1310,11 +1327,12 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
                   // weight of males.  I think.
                   SetHetMissing(founder_nonmale_ctl2, &(cur_raw_tgenovec[founder_male_ctl2]));
                 }
+              } else {
+                if (founder_nonfemale_ct) {
+                  CopyNyparrNonemptySubset(tmp_genovec, founder_nonfemale, raw_sample_ct, founder_nonfemale_ct, cur_raw_tgenovec);
+                  SetHetMissing(founder_nonfemale_ctl2, cur_raw_tgenovec);
+                }
               }
-            }
-            if (unlikely(reterr)) {
-              PgenErrPrintNV(reterr, variant_uidx);
-              goto IndepPairwise_ret_1;
             }
           }
           thread_last_tvidx[cur_thread_idx] = tvidx_end;
@@ -1417,7 +1435,7 @@ uint32_t FillVhaggs(const uintptr_t* hap_vec, const uintptr_t* nm_vec, uintptr_t
   return (!sum) || (sum == nm_ct);
 }
 
-void IndepPairphaseUpdateSubcontig(const ChrInfo* cip, uint32_t variant_uidx_winstart, uint32_t x_start, uint32_t x_len, uint32_t y_start, uint32_t y_len, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_haploid_ptr, uint32_t* cur_hap_ct_ptr, uint32_t* cur_hap_ctl_ptr) {
+void IndepPairphaseUpdateSubcontig(const ChrInfo* cip, uint32_t variant_uidx_winstart, uint32_t x_start, uint32_t x_len, uint32_t y_start, uint32_t y_len, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t founder_nonfemale_ct, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_haploid_ptr, uint32_t* cur_hap_ct_ptr, uint32_t* cur_hap_ctl_ptr) {
   // _len is better than _end here since we can exploit unsignedness
   const uint32_t is_x = ((variant_uidx_winstart - x_start) < x_len);
   const uint32_t is_y = ((variant_uidx_winstart - y_start) < y_len);
@@ -1430,7 +1448,7 @@ void IndepPairphaseUpdateSubcontig(const ChrInfo* cip, uint32_t variant_uidx_win
     if (is_x) {
       cur_hap_ct = 2 * founder_ct - founder_male_ct;
     } else if (is_y) {
-      cur_hap_ct = founder_male_ct;
+      cur_hap_ct = founder_nonfemale_ct;
     } else {
       cur_hap_ct = founder_ct * (2 - is_haploid);
     }
@@ -1456,6 +1474,7 @@ typedef struct IndepPairphaseCtxStruct {
   uint32_t y_len;
   uint32_t founder_ct;
   uint32_t founder_male_ct;
+  uint32_t founder_nonfemale_ct;
   uint32_t prune_window_size;
   uint32_t window_maxl;
   double prune_ld_thresh;
@@ -1494,6 +1513,7 @@ THREAD_FUNC_DECL IndepPairphaseThread(void* raw_arg) {
   const uint32_t* variant_bps = ctx->variant_bps;
   const uint32_t founder_ct = ctx->founder_ct;
   const uint32_t founder_male_ct = ctx->founder_male_ct;
+  const uint32_t founder_nonfemale_ct = ctx->founder_nonfemale_ct;
   const uint32_t max_hap_ctaw = BitCtToAlignedWordCt(founder_ct * 2);
   const uintptr_t max_hap_ctaw_x2 = max_hap_ctaw * 2;
   const uint32_t prune_window_size = ctx->prune_window_size;
@@ -1541,7 +1561,7 @@ THREAD_FUNC_DECL IndepPairphaseThread(void* raw_arg) {
     for (uint32_t cur_tvidx = tvidx_start; cur_tvidx < tvidx_stop; ) {
       if (cur_tvidx == subcontig_end_tvidx) {
         LdPruneNextSubcontig(variant_include, variant_bps, subcontig_info, subcontig_thread_assignments, prune_window_size, tidx, &subcontig_idx, &subcontig_end_tvidx, &next_window_end_tvidx, &variant_uidx_winstart, &variant_uidx_winend);
-        IndepPairphaseUpdateSubcontig(cip, variant_uidx_winstart, x_start, x_len, y_start, y_len, founder_ct, founder_male_ct, &is_x, &is_y, &is_haploid, &cur_hap_ct, &cur_hap_ctl);
+        IndepPairphaseUpdateSubcontig(cip, variant_uidx_winstart, x_start, x_len, y_start, y_len, founder_ct, founder_male_ct, founder_nonfemale_ct, &is_x, &is_y, &is_haploid, &cur_hap_ct, &cur_hap_ctl);
         BitIter1Start(variant_include, variant_uidx_winstart, &variant_uidx_base, &variant_include_bits);
         winpos_split = 0;
       }
@@ -1726,7 +1746,7 @@ THREAD_FUNC_DECL IndepPairphaseThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const LdInfo* ldip, const uintptr_t* preferred_variants, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
+PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const uintptr_t* founder_nonfemale, const LdInfo* ldip, const uintptr_t* preferred_variants, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t founder_nonfemale_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
   ThreadGroup tg;
   PreinitThreads(&tg);
   PglErr reterr = kPglRetSuccess;
@@ -1862,6 +1882,7 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
     ctx.preferred_variants = preferred_variants;
     ctx.founder_ct = founder_ct;
     ctx.founder_male_ct = founder_male_ct;
+    ctx.founder_nonfemale_ct = founder_nonfemale_ct;
     ctx.prune_window_size = ldip->prune_window_size;
     ctx.window_maxl = window_maxl;
     ctx.prune_ld_thresh = ldip->prune_last_param * (1 + kSmallEpsilon);
@@ -1983,13 +2004,13 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
                 PgenErrPrintNV(reterr, variant_uidx);
                 goto IndepPairphase_ret_1;
               }
-              if (founder_male_ct) {
-                CopyNyparrNonemptySubset(raw_genovec, founder_male, raw_sample_ct, founder_male_ct, genovec);
-                for (uint32_t uii = 0; uii != 500; ++uii) {
+              if (is_x) {
+                if (founder_male_ct) {
+                  CopyNyparrNonemptySubset(raw_genovec, founder_male, raw_sample_ct, founder_male_ct, genovec);
+                  // quasi-bugfix (17 Oct 2023): forgot to remove benchmarking
+                  // loop
                   HapsplitHaploid(genovec, founder_male_ct, cur_loader_hap_vec, cur_loader_nm_vec);
                 }
-              }
-              if (is_x) {
                 CopyNyparrNonemptySubset(raw_genovec, founder_nonmale, raw_sample_ct, founder_nonmale_ct, genovec);
                 if (all_haploid) {
                   SetHetMissing(NypCtToWordCt(founder_nonmale_ct), genovec);
@@ -2020,6 +2041,12 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
                     cur_loader_hap_vec[word_idx + 1] = hap_vec_overflow >> rshift_ct;
                     cur_loader_nm_vec[word_idx + 1] = nm_vec_overflow >> rshift_ct;
                   }
+                }
+              } else {
+                // chrY
+                if (founder_nonfemale_ct) {
+                  CopyNyparrNonemptySubset(raw_genovec, founder_nonfemale, raw_sample_ct, founder_nonfemale_ct, genovec);
+                  HapsplitHaploid(genovec, founder_nonfemale_ct, cur_loader_hap_vec, cur_loader_nm_vec);
                 }
               }
             }
@@ -2447,7 +2474,7 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
   return reterr;
 }
 
-PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const LdInfo* ldip, const char* indep_preferred_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const LdInfo* ldip, const char* indep_preferred_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t nosex_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   // common initialization between --indep-pairwise and --indep-pairphase
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -2515,7 +2542,6 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
-    const uint32_t founder_male_ct = PopcountWordsIntersect(founder_info, sex_male, raw_sample_ctl);
     uint32_t* founder_info_cumulative_popcounts;
     // bugfix (25 Mar 2023, 25 Aug 2023): founder_nonmale/founder_male are NOT
     // supposed to be "collapsed".
@@ -2533,6 +2559,17 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
     BitvecAndCopy(founder_info, sex_male, raw_sample_ctl, founder_male);
     BitvecInvmaskCopy(founder_info, sex_male, raw_sample_ctl, founder_nonmale);
+    const uint32_t founder_male_ct = PopcountWords(founder_male, raw_sample_ctl);
+    uintptr_t* founder_nonfemale = founder_male;
+    uint32_t founder_nonfemale_ct = founder_male_ct;
+    if (nosex_ct) {
+      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_nonfemale))) {
+        goto LdPrune_ret_NOMEM;
+      }
+      AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, founder_nonfemale);
+      BitvecAnd(founder_info, raw_sample_ctl, founder_nonfemale);
+      founder_nonfemale_ct = PopcountWords(founder_nonfemale, raw_sample_ctl);
+    }
     uint32_t* subcontig_weights;
     if (unlikely(bigstack_end_alloc_u32(subcontig_ct, &subcontig_weights))) {
       goto LdPrune_ret_NOMEM;
@@ -2600,9 +2637,9 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     BigstackEndReset(bigstack_end_mark);
 
     if (is_pairphase) {
-      reterr = IndepPairphase(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
+      reterr = IndepPairphase(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, founder_nonfemale, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, founder_nonfemale_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
     } else {
-      reterr = IndepPairwise(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
+      reterr = IndepPairwise(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, founder_nonfemale, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, founder_nonfemale_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
     }
     if (unlikely(reterr)) {
       goto LdPrune_ret_1;
@@ -3848,7 +3885,7 @@ typedef struct PhasedLDExtraRetStruct {
 // If extra_retp is non-null, results contains relevant cubic_sols.
 // If extra_retp is nullptr, results[0] contains r2, and if compute_dprime is
 //   true, results[1] = dprime.
-LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_hethet_d, double twice_tot_recip, uint32_t compute_dprime, PhasedLDExtraRet* extra_retp, double* results) {
+LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_hethet_d, double twice_tot_recip, uint32_t compute_dprime, PhasedLDExtraRet* extra_retp, double* results, uint32_t* is_neg_ptr) {
   // known-diplotype dosages (sum is 2 * (valid_obs_d - unknown_hethet_d)):
   //   var0  var1
   //     0  -  0 : 2 * valid_obs_d - majsums[0] - majsums[1] + known_dotprod
@@ -3959,6 +3996,7 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
       dd = 0.0;
     }
     results[0] = dd * dd / (freq_majx * freq_xmaj * freq_minx * freq_xmin);
+    *is_neg_ptr = (dd < 0.0);
     if (compute_dprime) {
       // maybe this should just always be computed since it's such a small
       // fraction of the total cost?
@@ -4039,16 +4077,24 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     // if both unplaced, don't count as same-chromosome
     const uint32_t is_same_chr = chr_idxs[0] && (chr_idxs[0] == chr_idxs[1]);
     if (y_ct) {
-      // only keep male founders
+      // only keep non-female founders
+      // (relaxed on 12 Oct 2023 to be consistent with plink2 --set-hh-missing
+      // behavior)
       uintptr_t* founder_info_tmp;
       if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_info_tmp))) {
         goto LdConsole_ret_NOMEM;
       }
-      BitvecAndCopy(founder_info, sex_male, raw_sample_ctl, founder_info_tmp);
+      // female = sex_nm & (~sex_male)
+
+      // this leaves trailing bits set, but BitvecAnd with founder_info clears
+      // them
+      BitvecInvertCopy(sex_nm, raw_sample_ctl, founder_info_tmp);
+      BitvecOr(sex_male, raw_sample_ctl, founder_info_tmp);
+      BitvecAnd(founder_info, raw_sample_ctl, founder_info_tmp);
       founder_info = founder_info_tmp;
       founder_ct = PopcountWords(founder_info, raw_sample_ctl);
       if (unlikely(founder_ct < 2)) {
-        logerrputs("Error: --ld requires at least two male founders when a chrY variant is\nspecified.  (--make-founders may come in handy here.)\n");
+        logerrputs("Error: --ld requires at least two non-female founders when a chrY variant is\nspecified.  (--make-founders may come in handy here.)\n");
         goto LdConsole_ret_INCONSISTENT_INPUT;
       }
     }
@@ -4318,7 +4364,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     // this most closely corresponds to freq_majmin here
     PhasedLDExtraRet extra_ret;
     double cubic_sols[3];
-    const LDErr ld_err = PhasedLD(nmajsums_d, known_dotprod_d, unknown_hethet_d, twice_tot_recip, 1, &extra_ret, cubic_sols);
+    const LDErr ld_err = PhasedLD(nmajsums_d, known_dotprod_d, unknown_hethet_d, twice_tot_recip, 1, &extra_ret, cubic_sols, nullptr);
     if (ld_err) {
       logerrprintfww("Warning: Skipping --ld since %s is monomorphic across all valid observations.\n", ld_console_varids[ld_err - 1]);
       goto LdConsole_ret_1;
@@ -4461,7 +4507,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
             goto LdConsole_ret_NOMEM;
           }
           CopyBitarrSubset(sex_nm, founder_info, founder_ct, nosex_collapsed);
-          AlignedBitarrInvert(founder_ctl, nosex_collapsed);
+          // bugfix (17 Oct 2023): need to pass bit count, not word count
+          AlignedBitarrInvert(founder_ct, nosex_collapsed);
         }
       }
       // Unlike plink 1.9, we don't restrict these HWE computations to the
@@ -4887,7 +4934,7 @@ ENUM_U31_DEF_END(ClumpJobType);
 //    b. If loading phase, also need main_dphase_deltas, for a total of
 //       3 * dosagevec_byte_ct + bitvec_byte_ct
 // 3. If chrX, entire nonmale part first, then unphased male part
-// 4. If chrY, just unphased male part
+// 4. If chrY, just unphased nonfemale part
 //
 // Probable todo: Unpack the index variant in a way that allows r^2 to be
 // computed efficiently against other variants *without* unpacking them.
@@ -4914,9 +4961,12 @@ typedef struct ClumpCtxStruct {
   const uint32_t* founder_male_cumulative_popcounts;
   const uintptr_t* founder_nonmale;
   const uint32_t* founder_nonmale_cumulative_popcounts;
+  const uintptr_t* founder_nonfemale;
+  const uint32_t* founder_nonfemale_cumulative_popcounts;
   uint32_t raw_sample_ct;
   uint32_t founder_ct;
   uint32_t founder_male_ct;
+  uint32_t founder_nonfemale_ct;
   // Precomputed for convenience.
   uintptr_t pgv_byte_stride;
   uintptr_t bitvec_byte_ct;
@@ -4925,6 +4975,8 @@ typedef struct ClumpCtxStruct {
   uintptr_t male_dosagevec_byte_ct;
   uintptr_t nonmale_bitvec_byte_ct;
   uintptr_t nonmale_dosagevec_byte_ct;
+  uintptr_t nonfemale_bitvec_byte_ct;
+  uintptr_t nonfemale_dosagevec_byte_ct;
   double r2_thresh;
   unsigned char allow_overlap;
 
@@ -5006,11 +5058,11 @@ uintptr_t UnpackedByteStride(const ClumpCtx* ctx, R2PhaseType phase_type, uint32
     return (3 + 2 * (phase_type == kR2PhaseTypePresent)) * nonmale_bitvec_byte_ct + 3 * male_bitvec_byte_ct + 2 * trail_byte_ct;
   } else if (ctx->is_y) {
     assert(phase_type != kR2PhaseTypePresent);
-    const uintptr_t male_bitvec_byte_ct = ctx->male_bitvec_byte_ct;
+    const uintptr_t nonfemale_bitvec_byte_ct = ctx->nonfemale_bitvec_byte_ct;
     if (load_dosage) {
-      return (1 + (phase_type != kR2PhaseTypeUnphased)) * ctx->dosagevec_byte_ct + male_bitvec_byte_ct + trail_byte_ct;
+      return (1 + (phase_type != kR2PhaseTypeUnphased)) * ctx->nonfemale_dosagevec_byte_ct + nonfemale_bitvec_byte_ct + trail_byte_ct;
     }
-    return 3 * male_bitvec_byte_ct + trail_byte_ct;
+    return 3 * nonfemale_bitvec_byte_ct + trail_byte_ct;
   }
   const uintptr_t bitvec_byte_ct = ctx->bitvec_byte_ct;
   if (load_dosage) {
@@ -5392,9 +5444,9 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
     } else {
       const uint32_t* cur_sample_include_cumulative_popcounts;
       if (is_y) {
-        cur_sample_include = ctx->founder_male;
-        cur_sample_include_cumulative_popcounts = ctx->founder_male_cumulative_popcounts;
-        cur_sample_ct = founder_male_ct;
+        cur_sample_include = ctx->founder_nonfemale;
+        cur_sample_include_cumulative_popcounts = ctx->founder_nonfemale_cumulative_popcounts;
+        cur_sample_ct = ctx->founder_nonfemale_ct;
       } else {
         cur_sample_include = ctx->founder_info;
         cur_sample_include_cumulative_popcounts = ctx->founder_info_cumulative_popcounts;
@@ -5635,7 +5687,7 @@ uint32_t ComputeR2DosagePhasedStats(const R2DosageVariant* dp0, const R2DosageVa
   return valid_obs_ct;
 }
 
-double ComputeR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_t sample_ct, R2PhaseType phase_type, uint32_t load_dosage) {
+double ComputeR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_t sample_ct, R2PhaseType phase_type, uint32_t load_dosage, uint32_t* is_neg_ptr) {
   double nmajsums_d[2];
   double known_dotprod_d;
   double unknown_hethet_d;
@@ -5661,6 +5713,7 @@ double ComputeR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_t sample
         return -DBL_MAX;
       }
       const double cov01 = S_CAST(double, dotprod * S_CAST(int64_t, valid_obs_ct) - S_CAST(int64_t, nmaj_ct0) * nmaj_ct1);
+      *is_neg_ptr = (cov01 < 0.0);
       return cov01 * cov01 / variance_prod;
     }
     valid_obs_ct = ComputeR2NondosagePhasedStats(ndp0, ndp1, sample_ct, phase_type, nmajsums_d, &known_dotprod_d, &unknown_hethet_d);
@@ -5683,6 +5736,7 @@ double ComputeR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_t sample
         return -DBL_MAX;
       }
       const double cov01 = i127prod_diff_d(dosageprod, valid_obs_ct, nmaj_dosages[0], nmaj_dosages[1]);
+      *is_neg_ptr = (cov01 < 0.0);
       return cov01 * cov01 / variance_prod;
     }
     valid_obs_ct = ComputeR2DosagePhasedStats(dp0, dp1, sample_ct, phase_type, nmajsums_d, &known_dotprod_d, &unknown_hethet_d);
@@ -5692,7 +5746,7 @@ double ComputeR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_t sample
   }
   const double twice_tot_recip = 0.5 / u31tod(valid_obs_ct);
   double r2;
-  const LDErr ld_err = PhasedLD(nmajsums_d, known_dotprod_d, unknown_hethet_d, twice_tot_recip, 0, nullptr, &r2);
+  const LDErr ld_err = PhasedLD(nmajsums_d, known_dotprod_d, unknown_hethet_d, twice_tot_recip, 0, nullptr, &r2, is_neg_ptr);
   return (ld_err == kLDErrNone)? r2 : -DBL_MAX;
 }
 
@@ -5826,7 +5880,8 @@ double ComputeTwoPartXR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_
   }
   const double twice_tot_recip = 0.5 / u31tod(weighted_obs_ct);
   double r2;
-  const LDErr ld_err = PhasedLD(nmajsums_d, known_dotprod_d, unknown_hethet_d, twice_tot_recip, 0, nullptr, &r2);
+  uint32_t is_neg;
+  const LDErr ld_err = PhasedLD(nmajsums_d, known_dotprod_d, unknown_hethet_d, twice_tot_recip, 0, nullptr, &r2, &is_neg);
   return (ld_err == kLDErrNone)? r2 : -DBL_MAX;
 }
 
@@ -5857,7 +5912,7 @@ void ClumpHighmemR2(uintptr_t tidx, uint32_t thread_ct_p1, uint32_t parity, Clum
   const uint32_t allow_overlap = ctx->allow_overlap;
   const uint32_t is_x = ctx->is_x;
   if (ctx->is_y) {
-    founder_main_ct = founder_male_ct;
+    founder_main_ct = ctx->founder_nonfemale_ct;
   }
   const R2PhaseType phase_type = S_CAST(R2PhaseType, ctx->phase_type);
   const uint32_t load_dosage = ctx->load_dosage;
@@ -5880,7 +5935,8 @@ void ClumpHighmemR2(uintptr_t tidx, uint32_t thread_ct_p1, uint32_t parity, Clum
     if (!is_x) {
       R2Variant cur_r2v;
       FillR2V(unpacked_cur_variant, founder_main_ct, phase_type, load_dosage, &cur_r2v);
-      cur_r2 = ComputeR2(&index_r2v, &cur_r2v, founder_main_ct, phase_type, load_dosage);
+      uint32_t is_neg;
+      cur_r2 = ComputeR2(&index_r2v, &cur_r2v, founder_main_ct, phase_type, load_dosage, &is_neg);
     } else {
       R2Variant cur_r2v;
       FillXR2V(unpacked_cur_variant, founder_male_ct, founder_nonmale_ct, phase_type, load_dosage, &cur_r2v);
@@ -5938,7 +5994,7 @@ void ClumpLowmemR2(uintptr_t tidx, uint32_t thread_ct_p1, uint32_t parity, Clump
     chrx_workspace = ctx->chrx_workspaces[tidx];
     founder_main_ct = ctx->raw_sample_ct;
   } else if (ctx->is_y) {
-    founder_main_ct = founder_male_ct;
+    founder_main_ct = ctx->founder_nonfemale_ct;
   }
   const R2PhaseType phase_type = S_CAST(R2PhaseType, ctx->phase_type);
   const uint32_t load_dosage = ctx->load_dosage;
@@ -5978,7 +6034,8 @@ void ClumpLowmemR2(uintptr_t tidx, uint32_t thread_ct_p1, uint32_t parity, Clump
       }
       R2Variant cur_r2v;
       FillR2V(unpacked_cur_variant, founder_main_ct, phase_type, load_dosage, &cur_r2v);
-      cur_r2 = ComputeR2(&index_r2v, &cur_r2v, founder_main_ct, phase_type, load_dosage);
+      uint32_t is_neg;
+      cur_r2 = ComputeR2(&index_r2v, &cur_r2v, founder_main_ct, phase_type, load_dosage, &is_neg);
     } else {
       if (load_dosage) {
         LdUnpackChrXDosage(&pgv, founder_male, founder_male_cumulative_popcounts, founder_nonmale, founder_nonmale_cumulative_popcounts, founder_main_ct, founder_male_ct, founder_nonmale_ct, phase_type, unpacked_cur_variant, chrx_workspace);
@@ -6057,7 +6114,7 @@ static const double kClumpDefaultLnBinBounds[4] = {
 };
 
 static_assert(kClumpMaxBinBounds * (kMaxLnGSlen + 1) + 256 <= kMaxLongLine, "ClumpReports() needs to be updated.");
-PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_male, const ClumpInfo* clump_ip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const ClumpInfo* clump_ip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t nosex_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   char* fname_iter = clump_ip->fnames_flattened;
@@ -6662,6 +6719,16 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t founder_male_ct = PopcountWordsIntersect(founder_info, sex_male, raw_sample_ctl);
     const uint32_t founder_nonmale_ct = founder_ct - founder_male_ct;
+    uint32_t founder_nonfemale_ct = founder_male_ct;
+    if (nosex_ct) {
+      uintptr_t* nonfemale_tmp;
+      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &nonfemale_tmp))) {
+        goto ClumpReports_ret_NOMEM;
+      }
+      AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, nonfemale_tmp);
+      founder_nonfemale_ct = PopcountWordsIntersect(founder_info, nonfemale_tmp, raw_sample_ctl);
+      BigstackReset(nonfemale_tmp);
+    }
     uintptr_t* candidate_oabitvec;
     uint32_t* founder_info_cumulative_popcounts;
     if (unlikely(bigstack_alloc_w(observed_allele_ctl, &candidate_oabitvec) ||
@@ -6696,57 +6763,69 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       const uint32_t y_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
       if (AllBitsAreZero(icandidate_vbitvec, y_start, y_end)) {
         y_code = UINT32_MAXM1;
-      } else if (unlikely(founder_male_ct == 0)) {
+      } else if (unlikely(founder_nonfemale_ct == 0)) {
         // Rather not worry about this case.
-        logerrputs("Error: --clump: chrY index variant(s) are present, but the main dataset\ncontains no male founders.\n");
+        logerrputs("Error: --clump: chrY index variant(s) are present, but all founders in the main\ndataset are females.\n");
         goto ClumpReports_ret_INCONSISTENT_INPUT;
       }
     }
-    // If founder_nonmale_ct == 0, we can just treat as is_y=0, is_haploid=1.
-    const uint32_t y_exists = (y_code < UINT32_MAXM1) && founder_nonmale_ct;
+    // If founder_nonfemale_ct == founder_ct, we can just treat as is_y=0,
+    // is_haploid=1.
+    const uint32_t y_exists = (y_code < UINT32_MAXM1) && (founder_nonfemale_ct != founder_ct);
+    const uintptr_t bitvec_byte_ct = BitCtToVecCt(founder_ct) * kBytesPerVec;
     uintptr_t* founder_male = nullptr;
     uintptr_t* founder_nonmale = nullptr;
     uint32_t* founder_male_cumulative_popcounts = nullptr;
     uint32_t* founder_nonmale_cumulative_popcounts = nullptr;
     uint32_t max_sample_ct = founder_ct;
-    if (x_exists || y_exists) {
+    uintptr_t male_bitvec_byte_ct = 0;
+    uintptr_t nonmale_bitvec_byte_ct = 0;
+    if (x_exists) {
+      max_sample_ct = raw_sample_ct;
       if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_male) ||
-                   bigstack_alloc_u32(raw_sample_ctl, &founder_male_cumulative_popcounts))) {
+                   bigstack_alloc_u32(raw_sample_ctl, &founder_male_cumulative_popcounts) ||
+                   bigstack_alloc_w(raw_sample_ctl, &founder_nonmale) ||
+                   bigstack_alloc_u32(raw_sample_ctl, &founder_nonmale_cumulative_popcounts))) {
         goto ClumpReports_ret_NOMEM;
       }
       BitvecAndCopy(founder_info, sex_male, raw_sample_ctl, founder_male);
       FillCumulativePopcounts(founder_male, raw_sample_ctl, founder_male_cumulative_popcounts);
-      if (x_exists) {
-        max_sample_ct = raw_sample_ct;
-        if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_nonmale) ||
-                     bigstack_alloc_u32(raw_sample_ctl, &founder_nonmale_cumulative_popcounts))) {
+      BitvecInvmaskCopy(founder_info, sex_male, raw_sample_ctl, founder_nonmale);
+      FillCumulativePopcounts(founder_nonmale, raw_sample_ctl, founder_nonmale_cumulative_popcounts);
+      male_bitvec_byte_ct = BitCtToVecCt(founder_male_ct) * kBytesPerVec;
+      nonmale_bitvec_byte_ct = BitCtToVecCt(founder_nonmale_ct) * kBytesPerVec;
+    }
+    uintptr_t* founder_nonfemale = nullptr;
+    uint32_t* founder_nonfemale_cumulative_popcounts = nullptr;
+    uintptr_t nonfemale_bitvec_byte_ct = 0;
+    if (y_exists) {
+      if (founder_male && (!nosex_ct)) {
+        founder_nonfemale = founder_male;
+        founder_nonfemale_cumulative_popcounts = founder_male_cumulative_popcounts;
+      } else {
+        if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_nonfemale) ||
+                     bigstack_alloc_u32(raw_sample_ctl, &founder_nonfemale_cumulative_popcounts))) {
           goto ClumpReports_ret_NOMEM;
         }
-        BitvecInvmaskCopy(founder_info, sex_male, raw_sample_ctl, founder_nonmale);
-        FillCumulativePopcounts(founder_nonmale, raw_sample_ctl, founder_nonmale_cumulative_popcounts);
+        AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, founder_nonfemale);
+        BitvecAnd(founder_info, raw_sample_ctl, founder_nonfemale);
+        FillCumulativePopcounts(founder_nonfemale, raw_sample_ctl, founder_nonfemale_cumulative_popcounts);
       }
-    }
-
-    const uintptr_t bitvec_byte_ct = BitCtToVecCt(founder_ct) * kBytesPerVec;
-    uintptr_t male_bitvec_byte_ct = 0;
-    uintptr_t nonmale_bitvec_byte_ct = 0;
-    if (x_exists || y_exists) {
-      male_bitvec_byte_ct = BitCtToVecCt(founder_male_ct) * kBytesPerVec;
-      if (x_exists) {
-        nonmale_bitvec_byte_ct = BitCtToVecCt(founder_nonmale_ct) * kBytesPerVec;
-      }
+      nonfemale_bitvec_byte_ct = BitCtToVecCt(founder_nonfemale_ct) * kBytesPerVec;
     }
     const uint32_t check_dosage = (pgfip->gflags / kfPgenGlobalDosagePresent) & 1;
     uintptr_t dosagevec_byte_ct = 0;
     uintptr_t male_dosagevec_byte_ct = 0;
     uintptr_t nonmale_dosagevec_byte_ct = 0;
+    uintptr_t nonfemale_dosagevec_byte_ct = 0;
     if (check_dosage) {
       dosagevec_byte_ct = DivUp(founder_ct, kDosagePerVec) * kBytesPerVec;
-      if (x_exists || y_exists) {
+      if (x_exists) {
         male_dosagevec_byte_ct = DivUp(founder_male_ct, kDosagePerVec) * kBytesPerVec;
-        if (x_exists) {
-          nonmale_dosagevec_byte_ct = DivUp(founder_nonmale_ct, kDosagePerVec) * kBytesPerVec;
-        }
+        nonmale_dosagevec_byte_ct = DivUp(founder_nonmale_ct, kDosagePerVec) * kBytesPerVec;
+      }
+      if (y_exists) {
+        nonfemale_dosagevec_byte_ct = DivUp(founder_nonfemale_ct, kDosagePerVec) * kBytesPerVec;
       }
     }
 
@@ -6890,6 +6969,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     ctx.founder_male_cumulative_popcounts = founder_male_cumulative_popcounts;
     ctx.founder_nonmale = founder_nonmale;
     ctx.founder_nonmale_cumulative_popcounts = founder_nonmale_cumulative_popcounts;
+    ctx.founder_nonfemale = founder_nonfemale;
+    ctx.founder_nonfemale_cumulative_popcounts = founder_nonfemale_cumulative_popcounts;
     ctx.raw_sample_ct = raw_sample_ct;
     ctx.founder_ct = founder_ct;
     ctx.founder_male_ct = founder_male_ct;
@@ -6900,6 +6981,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     ctx.male_dosagevec_byte_ct = male_dosagevec_byte_ct;
     ctx.nonmale_bitvec_byte_ct = nonmale_bitvec_byte_ct;
     ctx.nonmale_dosagevec_byte_ct = nonmale_dosagevec_byte_ct;
+    ctx.nonfemale_bitvec_byte_ct = nonfemale_bitvec_byte_ct;
+    ctx.nonfemale_dosagevec_byte_ct = nonfemale_dosagevec_byte_ct;
     ctx.r2_thresh = clump_ip->r2;
     ctx.allow_overlap = allow_overlap;
     ctx.candidate_oabitvec = candidate_oabitvec;
@@ -7240,9 +7323,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         } else {
           const uint32_t* cur_sample_include_cumulative_popcounts;
           if (is_y) {
-            cur_sample_include = founder_male;
-            cur_sample_include_cumulative_popcounts = founder_male_cumulative_popcounts;
-            cur_sample_ct = founder_male_ct;
+            cur_sample_include = founder_nonfemale;
+            cur_sample_include_cumulative_popcounts = founder_nonfemale_cumulative_popcounts;
+            cur_sample_ct = founder_nonfemale_ct;
           } else {
             cur_sample_include = founder_info;
             cur_sample_include_cumulative_popcounts = founder_info_cumulative_popcounts;
@@ -7937,10 +8020,11 @@ typedef struct VcorMatrixCtxStruct {
   // Shared constants.
   const uintptr_t* founder_male_collapsed;
   const Dosage* male_dosage_invmask;
+  const uint32_t* chr_fo_idx_end;
+  uint32_t chr_ct;
+  uint32_t chrx_idx; // UINT32_MAX if not present
   uint32_t founder_ct;
   uint32_t founder_male_ct;
-  uint32_t x_start_collapsed;
-  uint32_t x_end_collapsed;
   unsigned char is_unsquared;
   unsigned char triangle_calc; // true for both square0 and triangle
   unsigned char phase_type;
@@ -7950,7 +8034,6 @@ typedef struct VcorMatrixCtxStruct {
 
   // Input data.
   unsigned char* unpacked_row_variants[2];  // read from [row_parity]
-
   unsigned char* unpacked_col_variants[2];  // read from [col_parity]
   uint32_t cur_row_variant_idx_start;
   uint32_t row_window_size;
@@ -7962,25 +8045,143 @@ typedef struct VcorMatrixCtxStruct {
   float* results_f[2];
 } VcorMatrixCtx;
 
-/*
 THREAD_FUNC_DECL VcorMatrixThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uint32_t tidx = arg->tidx;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   VcorMatrixCtx* ctx = S_CAST(VcorMatrixCtx*, arg->sharedp->context);
-  uint32_t row_parity = 0;  // only flips when moving to next row-window
-  uint32_t col_parity = 0;  // always flips
+  // const uintptr_t* founder_male_collapsed = ctx->founder_male_collapsed;
+  // const Dosage* male_dosage_invmask = ctx->male_dosage_invmask;
+  const uint32_t* chr_fo_idx_end = ctx->chr_fo_idx_end;
+  const uint32_t chr_ct = ctx->chr_ct;
+  const uint32_t chrx_idx = ctx->chrx_idx;
+  const uint32_t founder_ct = ctx->founder_ct;
+  // const uint32_t founder_male_ct = ctx->founder_male_ct;
+  const uint32_t is_unsquared = ctx->is_unsquared;
+  const uint32_t triangle_calc = ctx->triangle_calc;
+  const R2PhaseType unpack_phase_type = S_CAST(R2PhaseType, ctx->phase_type);
+  const uint32_t check_dosage = ctx->check_dosage;
+  const uintptr_t variant_ct = ctx->variant_ct;
+  const uintptr_t unpacked_byte_stride = ctx->unpacked_byte_stride;
+  // only flips when moving to next row-window.  detect this with
+  // (cur_col_variant_idx_start == 0).
+  // initialize to 1 instead of 0 so we don't need to special-case first row.
+  uint32_t row_parity = 1;
+
+  // always flips
+  uint32_t col_parity = 0;
   do {
-    ;;;
+    const uint32_t cur_row_variant_idx_start = ctx->cur_row_variant_idx_start;
+    const uint32_t cur_col_variant_idx_start = ctx->cur_col_variant_idx_start;
+    if (cur_col_variant_idx_start == 0) {
+      row_parity = 1 - row_parity;
+    }
+    const uint64_t row_window_size = ctx->row_window_size;
+    const uint32_t row_start_offset = (row_window_size * tidx) / calc_thread_ct;
+    const uint32_t row_end_offset = (row_window_size * (tidx + 1)) / calc_thread_ct;
+    const uintptr_t shard_row_variant_idx_end = cur_row_variant_idx_start + row_end_offset;
+    uintptr_t shard_row_variant_idx_start = cur_row_variant_idx_start + row_start_offset;
+    uint64_t start_coord;
+    if (triangle_calc) {
+      start_coord = (cur_row_variant_idx_start * S_CAST(uint64_t, cur_row_variant_idx_start + 1)) / 2;
+      if (cur_col_variant_idx_start > shard_row_variant_idx_start) {
+        // shards are rectangle-shaped.  we're computing the lower-left
+        // half-triangle of the matrix.
+        // so shards closer to the upper-right may have truncated or even empty
+        // intersection with the region we're computing.
+        shard_row_variant_idx_start = cur_col_variant_idx_start;
+      }
+    } else {
+      start_coord = cur_row_variant_idx_start * S_CAST(uint64_t, variant_ct);
+    }
+    if (shard_row_variant_idx_start >= shard_row_variant_idx_end) {
+      const unsigned char* unpacked_row_variants_iter = &(ctx->unpacked_row_variants[row_parity][row_start_offset * unpacked_byte_stride]);
+      const unsigned char* unpacked_col_variants = ctx->unpacked_col_variants[col_parity];
+      double* results_d = ctx->results_d[row_parity];
+      float* results_f = ctx->results_f[row_parity];
+      double* results_d_row = nullptr;
+      float* results_f_row = nullptr;
+      const uint32_t col_initial_chr_idx = LowerBoundNonemptyU32(chr_fo_idx_end, chr_ct, cur_col_variant_idx_start + 1);
+      uint32_t row_chr_idx = LowerBoundNonemptyU32(chr_fo_idx_end, chr_ct, shard_row_variant_idx_start + 1);
+      uint32_t row_chr_end = chr_fo_idx_end[row_chr_idx];
+      uint32_t row_is_chrx = (row_chr_idx == chrx_idx);
+      const uint32_t shard_col_variant_idx_end = cur_col_variant_idx_start + ctx->col_window_size;
+      uint32_t col_variant_idx_stop = shard_col_variant_idx_end;
+      for (uint32_t row_variant_idx = shard_row_variant_idx_start; row_variant_idx != shard_row_variant_idx_end; ++row_variant_idx, unpacked_row_variants_iter = &(unpacked_row_variants_iter[unpacked_byte_stride])) {
+        if (row_variant_idx == row_chr_end) {
+          ++row_chr_idx;
+          row_chr_end = chr_fo_idx_end[row_chr_idx];
+          row_is_chrx = (row_chr_idx == chrx_idx);
+        }
+        uint64_t row_start_coord;
+        if (triangle_calc) {
+          row_start_coord = (row_variant_idx * S_CAST(uint64_t, row_variant_idx + 1)) / 2;
+          col_variant_idx_stop = MINV(row_variant_idx + 1, shard_col_variant_idx_end);
+        } else {
+          row_start_coord = row_variant_idx * S_CAST(uint64_t, variant_ct);
+        }
+        {
+          const uintptr_t row_start_coord_offset = row_start_coord - start_coord;
+          if (results_d) {
+            results_d_row = &(results_d[row_start_coord_offset]);
+          } else {
+            results_f_row = &(results_f[row_start_coord_offset]);
+          }
+        }
+        R2Variant row_r2v;
+        FillR2V(unpacked_row_variants_iter, founder_ct, unpack_phase_type, check_dosage, &row_r2v);
+        uint32_t col_chr_idx = col_initial_chr_idx;
+        uint32_t col_chr_end = chr_fo_idx_end[col_chr_idx];
+        uint32_t col_is_chrx = (col_chr_idx == chrx_idx);
+        uint32_t either_is_chrx = row_is_chrx || col_is_chrx;
+        uint32_t same_chr = (row_chr_idx == col_chr_idx);
+        R2PhaseType compare_phase_type = same_chr? unpack_phase_type : R2PhaseHaploid(unpack_phase_type);
+        const unsigned char* unpacked_col_variants_iter = unpacked_col_variants;
+        for (uint32_t col_variant_idx = cur_col_variant_idx_start; col_variant_idx != col_variant_idx_stop; ++col_variant_idx, unpacked_col_variants_iter = &(unpacked_col_variants_iter[unpacked_byte_stride])) {
+          if (col_variant_idx == col_chr_end) {
+            ++col_chr_idx;
+            col_chr_end = chr_fo_idx_end[col_chr_idx];
+            col_is_chrx = (col_chr_idx == chrx_idx);
+            either_is_chrx = row_is_chrx || col_is_chrx;
+            same_chr = (row_chr_idx == col_chr_idx);
+            compare_phase_type = same_chr? unpack_phase_type : R2PhaseHaploid(unpack_phase_type);
+          }
+          R2Variant col_r2v;
+          FillR2V(unpacked_col_variants_iter, founder_ct, unpack_phase_type, check_dosage, &col_r2v);
+          double result;
+          uint32_t is_neg;
+          if (!either_is_chrx) {
+            result = ComputeR2(&row_r2v, &col_r2v, founder_ct, compare_phase_type, check_dosage, &is_neg);
+          } else {
+            logerrputs("--r[2]-[un]phased chrX-handling not implemented yet.\n");
+            exit(1);
+          }
+          if (result == -DBL_MAX) {
+            result = 0.0 / 0.0;
+          } else if (is_unsquared) {
+            result = sqrt(result) ;
+            if (is_neg) {
+              result = -result;
+            }
+          }
+          if (results_d_row) {
+            results_d_row[col_variant_idx] = result;
+          } else {
+            results_f_row[col_variant_idx] = S_CAST(float, result);
+          }
+        }
+      }
+    }
     col_parity = 1 - col_parity;
   } while (!THREAD_BLOCK_FINISH(arg));
   THREAD_RETURN;
 }
 
-PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const uintptr_t* sex_male, const VcorInfo* vcip, const char* flagname, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, const char* flagname, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   // todo: in unphased, dosage-present, no-missing-genotype, no-chrX-mixed-sex,
   // no-chrY-nonmale case, try dsyrk() instead (see CalcGrm[Part]Thread()).
   unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -8000,7 +8201,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       goto VcorMatrix_ret_INCONSISTENT_INPUT;
     }
     const uint32_t triangle_calc = ((flags & (kfVcorMatrixSq0 | kfVcorMatrixTri)) != 0);
-    const uint32_t is_square0 = (flags / kfVcorMatrixSq0) & 1;
+    // const uint32_t is_square0 = (flags / kfVcorMatrixSq0) & 1;
     const uint32_t first_variant_uidx = FindNth1BitFrom(orig_variant_include, 0, 1);
     uint32_t row_variant_uidx_start = first_variant_uidx;
     uint32_t row_variant_idx_start = 0;
@@ -8105,62 +8306,11 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       }
     }
 
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
-    uintptr_t* founder_male_collapsed;
-    if (unlikely(bigstack_alloc_w(founder_ctl, &founder_male_collapsed))) {
-      goto VcorMatrix_ret_NOMEM;
-    }
-    CopyBitarrSubset(sex_male, founder_info, founder_ct, founder_male_collapsed);
-    const uint32_t founder_male_ct = PopcountWords(founder_male_collapsed, founder_ctl);
-    uint32_t x_start;
-    uint32_t x_end;
-    GetXymtStartAndEnd(cip, kChrOffsetX, &x_start, &x_end);
-    ctx.male_dosage_invmask = nullptr;
-    if (x_end) {
-      if (x_end > variant_uidx_stop) {
-        x_end = variant_uidx_stop;
-      }
-      if ((founder_male_ct == 0) || (founder_male_ct == founder_ct) || (x_start >= variant_uidx_stop) || AllBitsAreZero(variant_include, x_start, x_end)) {
-        x_start = 0;
-        x_end = 0;
-      } else {
-        Dosage* male_dosage_invmask;
-        if (bigstack_alloc_dosage(founder_ct, &male_dosage_invmask)) {
-          goto VcorMatrix_ret_NOMEM;
-        }
-        Expand1bitTo16(founder_male_collapsed, founder_ct, 0xffff, male_dosage_invmask);
-        ctx.male_dosage_invmask = male_dosage_invmask;
-      }
-    }
-    uint32_t y_start;
-    uint32_t y_end;
-    GetXymtStartAndEnd(cip, kChrOffsetY, &y_start, &y_end);
-    if (y_end) {
-      if (y_end > variant_uidx_stop) {
-        y_end = variant_uidx_stop;
-      }
-      if ((founder_male_ct == founder_ct) || (y_start >= variant_uidx_stop) || AllBitsAreZero(variant_include, y_start, y_end)) {
-        y_start = 0;
-        y_end = 0;
-      }
-    }
-    if ((x_end == 0) && (y_end == 0)) {
-      BigstackReset(founder_male_collapsed);
-      founder_male_collapsed = nullptr;
-    }
-    ctx.founder_male_collapsed = founder_male_collapsed;
-    ctx.founder_ct = founder_ct;
-    ctx.founder_male_ct = founder_male_ct;
-    ctx.is_unsquared = is_unsquared;
-    ctx.triangle_calc = triangle_calc;
-    if (x_end) {
-      const uint32_t x_start_collapsed = PopcountBitRange(variant_include, 0, x_start);
-      ctx.x_start_collapsed = x_start_collapsed;
-      ctx.x_end_collapsed = x_start_collapsed + PopcountBitRange(variant_include, x_start, x_end);
-    } else {
-      ctx.x_start_collapsed = 0;
-      ctx.x_end_collapsed = 0;
-    }
+    const uint32_t founder_ctv = BitCtToVecCt(founder_ct);
+    const uint32_t founder_ctaw = founder_ctv * kWordsPerVec;
+    const uint32_t founder_male_ct = PopcountWordsIntersect(founder_info, sex_male, raw_sample_ctl);
     const uint32_t all_haploid = IsSet(cip->haploid_mask, 0);
     PgenGlobalFlags effective_gflags = PgrGetGflags(simple_pgrp) & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
     if (variant_ct < variant_uidx_stop) {
@@ -8171,8 +8321,110 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       effective_gflags &= kfPgenGlobalDosagePresent;
     }
     const R2PhaseType phase_type = GetR2PhaseType(phased_calc, !all_haploid, check_phase);
-
     const uint32_t check_dosage = (effective_gflags / kfPgenGlobalDosagePresent) & 1;
+
+    ctx.founder_male_collapsed = nullptr;
+    ctx.male_dosage_invmask = nullptr;
+    {
+      // create abbreviated chromosome-view for use by worker threads.
+      // they may need to know where each chromosome starts/ends (use phase or
+      // not?), and which chromosome is X; that's it
+      const uint32_t chr_ct = cip->chr_ct;
+      uint32_t x_fo_idx = UINT32_MAX;
+      if ((founder_male_ct != 0) && (founder_male_ct != founder_ct)) {
+        uint32_t x_code;
+        if (XymtExists(cip, kChrOffsetX, &x_code)) {
+          x_fo_idx = cip->chr_idx_to_foidx[x_code];
+        }
+      }
+      uint32_t* chr_fo_idx_end;
+      if (bigstack_alloc_u32(chr_ct, &chr_fo_idx_end)) {
+        goto VcorMatrix_ret_NOMEM;
+      }
+      // not quite the same as FillSubsetChrFoVidxStart since we prune
+      // now-empty chromosomes.  may want to have this logic in plink2_common
+      // too
+      uint32_t new_chr_ct = 0;
+      uint32_t chr_variant_uidx_start = 0;
+      uint32_t chr_variant_idx_start = 0;
+      ctx.chrx_idx = UINT32_MAX;
+      for (uint32_t chr_fo_idx = 0; chr_variant_idx_start >= variant_ct; ++chr_fo_idx) {
+        uint32_t chr_variant_uidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        if (chr_variant_uidx_end > variant_uidx_stop) {
+          chr_variant_uidx_end = variant_uidx_stop;
+        }
+        const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_variant_uidx_start, chr_variant_uidx_end);
+        if (chr_variant_ct) {
+          if (chr_fo_idx == x_fo_idx) {
+            ctx.chrx_idx = new_chr_ct;
+          }
+          const uint32_t chr_variant_idx_end = chr_variant_idx_start + chr_variant_ct;
+          chr_fo_idx_end[new_chr_ct++] = chr_variant_idx_end;
+          chr_variant_idx_start = chr_variant_idx_end;
+        }
+        chr_variant_uidx_start = chr_variant_uidx_end;
+      }
+      assert(chr_variant_idx_start == variant_ct);
+      ctx.chr_ct = new_chr_ct;
+      BigstackShrinkTop(chr_fo_idx_end, new_chr_ct * sizeof(int32_t));
+      ctx.chr_fo_idx_end = chr_fo_idx_end;
+      if (ctx.chrx_idx != UINT32_MAX) {
+        uintptr_t* founder_male_collapsed;
+        if (unlikely(bigstack_alloc_w(founder_ctl, &founder_male_collapsed))) {
+          goto VcorMatrix_ret_NOMEM;
+        }
+        CopyBitarrSubset(sex_male, founder_info, founder_ct, founder_male_collapsed);
+        ctx.founder_male_collapsed = founder_male_collapsed;
+        if (check_dosage) {
+          Dosage* male_dosage_invmask;
+          if (bigstack_alloc_dosage(founder_ct, &male_dosage_invmask)) {
+            goto VcorMatrix_ret_NOMEM;
+          }
+          Expand1bitTo16(founder_male_collapsed, founder_ct, 0xffff, male_dosage_invmask);
+          ctx.male_dosage_invmask = male_dosage_invmask;
+        }
+      }
+    }
+    uint32_t y_start;
+    uint32_t y_end;
+    GetXymtStartAndEnd(cip, kChrOffsetY, &y_start, &y_end);
+    uintptr_t* founder_female_collapsed = nullptr;
+    uintptr_t* founder_female_collapsed_interleaved = nullptr;
+    if (y_end) {
+      if (y_end > variant_uidx_stop) {
+        y_end = variant_uidx_stop;
+      }
+      if ((founder_male_ct == founder_ct) || (y_start >= variant_uidx_stop) || AllBitsAreZero(variant_include, y_start, y_end)) {
+        y_start = 0;
+        y_end = 0;
+      }
+      if (y_end) {
+        uintptr_t* founder_female;
+        if (bigstack_end_alloc_w(raw_sample_ctl, &founder_female)) {
+          goto VcorMatrix_ret_NOMEM;
+        }
+        BitvecInvmaskCopy(sex_nm, sex_male, raw_sample_ctl, founder_female);
+        BitvecAnd(founder_info, raw_sample_ctl, founder_female);
+        if (AllWordsAreZero(founder_female, raw_sample_ctl)) {
+          y_start = 0;
+          y_end = 0;
+        } else {
+          if (bigstack_alloc_w(founder_ctaw, &founder_female_collapsed) ||
+              bigstack_alloc_w(founder_ctaw, &founder_female_collapsed_interleaved)) {
+            goto VcorMatrix_ret_NOMEM;
+          }
+          CopyBitarrSubset(founder_female, founder_info, founder_ct, founder_female_collapsed);
+          ZeroTrailingWords(founder_ctl, founder_female_collapsed);
+          FillInterleavedMaskVec(founder_female_collapsed, founder_ctv, founder_female_collapsed_interleaved);
+        }
+        BigstackEndReset(bigstack_end_mark);
+      }
+    }
+    ctx.founder_ct = founder_ct;
+    ctx.founder_male_ct = founder_male_ct;
+    ctx.is_unsquared = is_unsquared;
+    ctx.triangle_calc = triangle_calc;
+
     const uintptr_t bitvec_byte_ct = BitCtToVecCt(founder_ct) * kBytesPerVec;
     uintptr_t dosagevec_byte_ct = 0;
     uintptr_t unpacked_byte_stride;
@@ -8184,7 +8436,6 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       const uintptr_t nondosage_trail_byte_ct = LdNondosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_calc));
       unpacked_byte_stride = bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
     }
-    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uint32_t* founder_info_cumulative_popcounts;
     PgenVariant pgv;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
@@ -8275,7 +8526,9 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     } else {
       job_size = (row_variant_idx_stop - row_variant_idx_start) * S_CAST(uint64_t, variant_ct);
     }
+    uint64_t job_done = 0;
     uint64_t pct_thresh = job_size / 100;
+    uint32_t pct = 0;
     uint32_t cur_row_variant_idx_start = row_variant_idx_start;
     uint32_t col_variant_idx_stop = variant_ct;
     uint32_t parity = 0;
@@ -8376,10 +8629,27 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
         // TODO: spawn/join, flush...
         // er, flushing is slow enough that it should occur concurrently, we do
         // want parity after all
+
+        // wait till join to increment this
+        if (triangle_calc) {
+
+        } else {
+          job_done += row_window_size * S_CAST(uint64_t, col_window_size);
+        }
+        if (job_done >= pct_thresh) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          pct = (job_done * 100) / job_size;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          pct_thresh = (pct * job_size) / 100;
+        }
         cur_col_variant_idx_start += col_window_size;
       } while (cur_col_variant_idx_start != col_variant_idx_stop);
       cur_row_variant_idx_start += row_window_size;
     } while (cur_row_variant_idx_start != row_variant_idx_stop);
+    // TODO: final flush
   }
   while (0) {
   VcorMatrix_ret_NOMEM:
@@ -8402,7 +8672,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
   CleanupThreads(&tg);
   CswriteCloseCond(&css, cswritep);
   fclose_cond(outfile);
-  BigstackReset(bigstack_mark);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 
@@ -8415,7 +8685,7 @@ PglErr VcorTable() {
   return reterr;
 }
 
-PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, __attribute__((unused)) const uint32_t* variant_bps, const char* const* variant_ids, __attribute__((unused)) const double* variant_cms, __attribute__((unused)) const uintptr_t* allele_idx_offsets, __attribute__((unused)) const char* const* allele_storage, const AlleleCode* maj_alleles, __attribute__((unused)) const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const VcorInfo* vcip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, __attribute__((unused)) uint32_t max_variant_id_slen, __attribute__((unused)) uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, __attribute__((unused)) const uint32_t* variant_bps, const char* const* variant_ids, __attribute__((unused)) const double* variant_cms, __attribute__((unused)) const uintptr_t* allele_idx_offsets, __attribute__((unused)) const char* const* allele_storage, const AlleleCode* maj_alleles, __attribute__((unused)) const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, __attribute__((unused)) uint32_t max_variant_id_slen, __attribute__((unused)) uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   const VcorFlags flags = vcip->flags;
   const uint32_t phased_calc = (flags / kfVcorPhased) & 1;
   const uint32_t is_unsquared = (flags / kfVcorUnsquared) & 1;
@@ -8436,13 +8706,12 @@ PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, __attribu
   const uint32_t is_matrix = ((flags & (kfVcorBin8 | kfVcorBin4 | kfVcorMatrixShapemask)) != 0);
   PglErr reterr;
   if (is_matrix) {
-    reterr = VcorMatrix(orig_variant_include, cip, variant_ids, maj_alleles, founder_info, sex_male, vcip, flagname, raw_variant_ct, orig_variant_ct, raw_sample_ct, founder_ct, parallel_idx, parallel_tot, max_thread_ct, simple_pgrp, outname, outname_end);
+    reterr = VcorMatrix(orig_variant_include, cip, variant_ids, maj_alleles, founder_info, sex_nm, sex_male, vcip, flagname, raw_variant_ct, orig_variant_ct, raw_sample_ct, founder_ct, parallel_idx, parallel_tot, max_thread_ct, simple_pgrp, outname, outname_end);
   } else {
     reterr = VcorTable();
   }
   return reterr;
 }
-*/
 
 #ifdef __cplusplus
 }  // namespace plink2

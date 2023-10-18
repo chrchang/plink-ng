@@ -3344,6 +3344,7 @@ typedef struct LoadSampleMissingCtsCtxStruct {
   const uintptr_t* variant_include;
   const ChrInfo* cip;
   const uintptr_t* sex_male;
+  const uintptr_t* y_include;
   uint32_t raw_sample_ct;
 
   PgenReader** pgr_ptrs;
@@ -3366,6 +3367,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* raw_arg) {
   const uintptr_t* variant_include = ctx->variant_include;
   const ChrInfo* cip = ctx->cip;
   const uintptr_t* sex_male = ctx->sex_male;
+  const uintptr_t* y_include = ctx->y_include;
   const uint32_t raw_sample_ct = ctx->raw_sample_ct;
   const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
   const uint32_t acc1_vec_ct = BitCtToVecCt(raw_sample_ct);
@@ -3444,9 +3446,9 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* raw_arg) {
         goto LoadSampleMissingCtsThread_err;
       }
       if (is_y) {
-        BitvecAnd(sex_male, raw_sample_ctaw, missing_hc_acc1);
+        BitvecAnd(y_include, raw_sample_ctaw, missing_hc_acc1);
         if (missing_dosage_acc1) {
-          BitvecAnd(sex_male, raw_sample_ctaw, missing_dosage_acc1);
+          BitvecAnd(y_include, raw_sample_ctaw, missing_dosage_acc1);
         }
       }
       VcountIncr1To4(missing_hc_acc1, acc1_vec_ct, missing_hc_acc4);
@@ -3502,7 +3504,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_hc_cts, uint32_t* sample_missing_dosage_cts, uint32_t* sample_hethap_cts) {
+PglErr LoadSampleMissingCts(const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t y_nosex_missing_stats, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_hc_cts, uint32_t* sample_missing_dosage_cts, uint32_t* sample_hethap_cts) {
   assert(sample_missing_hc_cts || sample_missing_dosage_cts);
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
@@ -3531,9 +3533,20 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
       }
       thread_alloc_cacheline_ct += acc1_alloc_cacheline_ct;
     }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     if (unlikely(bigstack_alloc_wp(calc_thread_ct, &ctx.missing_hc_acc1) ||
                  bigstack_alloc_wp(calc_thread_ct, &ctx.hethap_acc1))) {
       goto LoadSampleMissingCts_ret_NOMEM;
+    }
+    if (!y_nosex_missing_stats) {
+      ctx.y_include = sex_male;
+    } else {
+      uintptr_t* y_include;
+      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &y_include))) {
+        goto LoadSampleMissingCts_ret_NOMEM;
+      }
+      AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, y_include);
+      ctx.y_include = y_include;
     }
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     uint32_t read_block_size;

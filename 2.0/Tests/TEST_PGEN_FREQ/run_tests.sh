@@ -4,12 +4,12 @@ set -exo pipefail
 
 plink --simulate simulate.txt --simulate-missing 0.01 --out tmp_data
 
-# Force last few variants to chrX/chrY.  (chrM is expected to be different.)
+# Force last few variants to chrX.  (chrY and chrM expected to be different.)
 # (Unfortunately, "head -n -2" doesn't work on macOS.)
 head -n 295 tmp_data.bim > tmp_data2.bim
 tail -n 2 tmp_data.bim > last_two.txt
 head -n 1 last_two.txt | sed 's/^1/X/g' >> tmp_data2.bim
-tail -n 1 last_two.txt | sed 's/^1/Y/g' >> tmp_data2.bim
+tail -n 1 last_two.txt | sed 's/^1/X/g' >> tmp_data2.bim
 cp tmp_data2.bim tmp_data.bim
 # Force some samples to male or no-sex.
 head -n 1234 tmp_data.fam > tmp_data2.fam

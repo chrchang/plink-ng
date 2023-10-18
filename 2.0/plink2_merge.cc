@@ -8277,6 +8277,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         if (is_x) {
           cur_autosomal_diploid = !IsSet(sex_male, sample_uidx);
         } else if (is_y) {
+          // unknown-sex prohibited, so sex_male is fine
           if (!IsSet(sex_male, sample_uidx)) {
             --grand_diff_ct;
             continue;

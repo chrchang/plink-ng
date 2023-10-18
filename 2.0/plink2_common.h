@@ -155,7 +155,8 @@ FLAGSET64_DEF_START()
   kfMiscAcFounders = (1LLU << 45),
   kfMiscMakeFoundersFirst = (1LLU << 46),
   kfMiscMakeFoundersNotfirst = (1LLU << 47),
-  kfMiscMakeFoundersRequire2Missing = (1LLU << 48)
+  kfMiscMakeFoundersRequire2Missing = (1LLU << 48),
+  kfMiscYNosexMissingStats = (1LLU << 49)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()

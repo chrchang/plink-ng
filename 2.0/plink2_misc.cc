@@ -3584,7 +3584,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
   return reterr;
 }
 
-PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, PgenGlobalFlags gflags, GenoCountsFlags geno_counts_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, PgenGlobalFlags gflags, GenoCountsFlags geno_counts_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -3601,7 +3601,8 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_mal
     const uint32_t max_allele_ct = PgrGetMaxAlleleCt(simple_pgrp);
     uint32_t* sample_include_cumulative_popcounts = nullptr;
     uintptr_t* sex_male_collapsed = nullptr;  // chrX
-    uint32_t* sex_male_cumulative_popcounts = nullptr;  // chrY
+    const uintptr_t* sex_nonfemale = sex_male;
+    uint32_t* sex_nonfemale_cumulative_popcounts = nullptr;  // chrY
     PgenVariant pgv;
     pgv.genovec = nullptr;
     pgv.patch_01_set = nullptr;
@@ -3611,10 +3612,11 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_mal
     uint32_t* diploid_pair_cts = nullptr;
     uint32_t* hap_cts = nullptr;
     const uint32_t more_counts_needed = (max_allele_ct > 2) && (geno_counts_flags & (kfGenoCountsColRefalt1 | kfGenoCountsColRefalt | kfGenoCountsColHomalt1 | kfGenoCountsColAltxy | kfGenoCountsColXy | kfGenoCountsColHapalt1 | kfGenoCountsColHapalt | kfGenoCountsColHap | kfGenoCountsColNumeq));
+    const uint32_t nonfemale_ct = male_ct + nosex_ct;
     if (more_counts_needed) {
       if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
                    bigstack_alloc_w(sample_ctl, &sex_male_collapsed) ||
-                   bigstack_alloc_u32(raw_sample_ctl, &sex_male_cumulative_popcounts) ||
+                   bigstack_alloc_u32(raw_sample_ctl, &sex_nonfemale_cumulative_popcounts) ||
                    bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &pgv.genovec) ||
                    bigstack_alloc_w(sample_ctl, &pgv.patch_01_set) ||
                    bigstack_alloc_ac(sample_ct, &pgv.patch_01_vals) ||
@@ -3626,7 +3628,15 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_mal
       }
       FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
       CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_male_collapsed);
-      FillCumulativePopcounts(sex_male, raw_sample_ctl, sex_male_cumulative_popcounts);
+      if (nosex_ct) {
+        uintptr_t* nonfemale_tmp;
+        if (unlikely(bigstack_alloc_w(raw_sample_ctl, &nonfemale_tmp))) {
+          goto WriteGenoCounts_ret_NOMEM;
+        }
+        AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, nonfemale_tmp);
+        sex_nonfemale = nonfemale_tmp;
+      }
+      FillCumulativePopcounts(sex_nonfemale, raw_sample_ctl, sex_nonfemale_cumulative_popcounts);
     }
     // Will need to remove quadratic dependency on max_allele_ct if
     // sizeof(AlleleCode) > 1.
@@ -3736,6 +3746,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_mal
     uintptr_t cur_bits = variant_include[0];
     uint32_t is_autosomal_diploid = 0;
     uint32_t is_x = 0;
+    uint32_t is_y = 0;
     uint32_t nobs_base = 0;
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
@@ -3766,13 +3777,14 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_mal
         is_autosomal_diploid = !IsSet(cip->haploid_mask, chr_idx);
         nobs_base = sample_ct;
         is_x = (chr_idx == x_code);
+        is_y = (chr_idx == y_code);
         cur_sample_include = sample_include;
         const uint32_t* cur_cumulative_popcounts = sample_include_cumulative_popcounts;
         if (!is_autosomal_diploid) {
-          if (chr_idx == y_code) {
-            cur_sample_include = sex_male;
-            cur_cumulative_popcounts = sex_male_cumulative_popcounts;
-            nobs_base = male_ct;
+          if (is_y) {
+            cur_sample_include = sex_nonfemale;
+            cur_cumulative_popcounts = sex_nonfemale_cumulative_popcounts;
+            nobs_base = nonfemale_ct;
           }
         }
         PgrSetSampleSubsetIndex(cur_cumulative_popcounts, simple_pgrp, &pssi);
@@ -4139,13 +4151,25 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_mal
   return reterr;
 }
 
-PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uintptr_t max_allele_slen, PgenGlobalFlags gflags, uint32_t first_hap_uidx, MissingRptFlags missing_rpt_flags, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t y_nosex_missing_stats, PgenGlobalFlags gflags, uint32_t first_hap_uidx, MissingRptFlags missing_rpt_flags, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   {
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    const uintptr_t* chry_missingstat_include = sex_male;
+    if (y_nosex_missing_stats) {
+      uintptr_t* nonfemale_tmp;
+      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &nonfemale_tmp))) {
+        goto WriteMissingnessReports_ret_NOMEM;
+      }
+      AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, nonfemale_tmp);
+      chry_missingstat_include = nonfemale_tmp;
+    }
+
+    const uint32_t chry_missingstat_sample_ct = PopcountWords(chry_missingstat_include, raw_sample_ctl);
     const uint32_t output_zst = missing_rpt_flags & kfMissingRptZs;
     if (!(missing_rpt_flags & kfMissingRptVariantOnly)) {
       const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxMediumLine + pheno_ct * 2;
@@ -4278,11 +4302,11 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
           *cswritep++ = '\t';
           cswritep = u32toa(sample_hethap_cts[sample_uidx], cswritep);
         }
-        const uint32_t is_male = IsSet(sex_male, sample_uidx);
+        const uint32_t chry_included = IsSet(chry_missingstat_include, sample_uidx);
         if (scol_nobs) {
-          cswritep = memcpya(cswritep, nobs_strs[is_male], nobs_slens[is_male]);
+          cswritep = memcpya(cswritep, nobs_strs[chry_included], nobs_slens[chry_included]);
         }
-        const double cur_variant_ct_recip = variant_ct_recips[is_male];
+        const double cur_variant_ct_recip = variant_ct_recips[chry_included];
         if (scol_fmiss_dosage) {
           *cswritep++ = '\t';
           cswritep = dtoa_g(u31tod(sample_missing_dosage_cts[sample_uidx]) * cur_variant_ct_recip, cswritep);
@@ -4409,7 +4433,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
           const uint32_t new_is_y = (chr_idx == y_code);
           if (new_is_y != is_y) {
             is_y = new_is_y;
-            const uint32_t cur_nobs = is_y? male_ct : sample_ct;
+            const uint32_t cur_nobs = is_y? chry_missingstat_sample_ct : sample_ct;
             nobs_recip = 1.0 / u31tod(cur_nobs);
             char* nobs_str_end = u32toa(cur_nobs, &(nobs_str[1]));
             nobs_slen = nobs_str_end - nobs_str;
@@ -7633,6 +7657,8 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
             }
           } else {
             for (uintptr_t pair_idx = 0; pair_idx != id_pair_ct; ++pair_idx) {
+              // don't need pair_sex_nonfemale here since we prohibit
+              // unknown-sex pairs when chrY is present
               if (is_y && (!IsSet(pair_sex_male, pair_idx))) {
                 continue;
               }

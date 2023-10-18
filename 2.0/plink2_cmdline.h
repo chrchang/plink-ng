@@ -499,6 +499,10 @@ static const double kDblNormalMin = 2.2250738585072013e-308;
 
 // probably time to flip arena_alloc and bigstack_alloc definitions...
 
+PglErr InitLogfile(uint32_t always_stderr, char* outname, char* outname_end);
+
+BoolErr CleanupLogfile(uint32_t print_end_time);
+
 // manually managed, very large double-ended stack
 extern unsigned char* g_bigstack_base;
 extern unsigned char* g_bigstack_end;
@@ -1306,6 +1310,11 @@ void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintpt
 void BitvecInvertAndMask(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
 // void BitvecOrNot(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
+
+// yes || (!no)
+// 'AlignedBitarr' instead of Bitvec since this takes bit_ct instead of word_ct
+// as the size argument, and zeroes trailing bits.
+void AlignedBitarrOrnotCopy(const uintptr_t* __restrict argyes_bitvec, const uintptr_t* __restrict argno_bitvec, uintptr_t bit_ct, uintptr_t* __restrict target_bitvec);
 
 // Address C-only incompatible-pointer-types-discards-qualifiers warning.
 #ifdef __cplusplus

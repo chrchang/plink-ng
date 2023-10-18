@@ -2738,6 +2738,28 @@ HEADER_INLINE uint32_t Popcount4Words(uintptr_t val0, uintptr_t val1, uintptr_t 
 }
 #endif
 
+#ifdef USE_SSE42
+HEADER_INLINE uint32_t PopcountHW(uint32_t val) {
+  return __builtin_popcount(val);
+}
+#else
+#  ifdef __LP64__
+HEADER_INLINE uint32_t PopcountHW(uint32_t val) {
+  val = val - ((val >> 1) & 0x55555555);
+  val = (val & 0x33333333) + ((val >> 2) & 0x33333333);
+  val = (val + (val >> 4)) & 0x0f0f0f0f;
+  return (val * 0x1010101) >> 24;
+}
+#  else
+HEADER_INLINE uint32_t PopcountHW(uint32_t val) {
+  val = val - ((val >> 1) & 0x5555);
+  val = (val & 0x3333) + ((val >> 2) & 0x3333);
+  val = (val + (val >> 4)) & 0x0f0f;
+  return (val + (val >> 8)) & 0xff;
+}
+#  endif
+#endif
+
 #ifdef USE_SSE2
 #  ifdef USE_SSE42
 HEADER_INLINE uint32_t PopcountVec8thUint(uint32_t val) {
@@ -2745,7 +2767,7 @@ HEADER_INLINE uint32_t PopcountVec8thUint(uint32_t val) {
 }
 #  else
 HEADER_INLINE uint32_t PopcountVec8thUint(uint32_t val) {
-  // May as well exploit the fact that only the low 15 bits may be set.
+  // May as well exploit the fact that only the low 16 bits may be set.
   val = val - ((val >> 1) & 0x5555);
   val = (val & 0x3333) + ((val >> 2) & 0x3333);
   val = (val + (val >> 4)) & 0x0f0f;

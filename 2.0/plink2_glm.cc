@@ -2049,6 +2049,17 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     if (add_sex_covar && ((!male_ct) || (male_ct == sex_nm_ct))) {
       add_sex_covar = 0;
     }
+    const uintptr_t* sex_nonfemale = sex_male;
+    uint32_t nonfemale_ct = male_ct;
+    if (sex_nm_ct != orig_sample_ct) {
+      uintptr_t* sex_nonfemale_tmp;
+      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sex_nonfemale_tmp))) {
+        goto GlmMain_ret_NOMEM;
+      }
+      AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, sex_nonfemale_tmp);
+      sex_nonfemale = sex_nonfemale_tmp;
+      nonfemale_ct = PopcountWords(sex_nonfemale, raw_sample_ctl);
+    }
     uint32_t variant_ct_x = 0;
     {
       uint32_t x_code;
@@ -2127,14 +2138,14 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (XymtExists(cip, kChrOffsetY, &y_code)) {
         variant_ct_y = CountChrVariantsUnsafe(early_variant_include, cip, y_code);
         if (variant_ct_y) {
-          if (!male_ct) {
-            logputs("--glm: Skipping chrY since there are no males.\n");
+          if (!nonfemale_ct) {
+            logputs("--glm: Skipping chrY since all samples are female.\n");
             max_variant_ct -= variant_ct_y;
             if (unlikely(!max_variant_ct)) {
               logerrputs("Error: No variants remaining for --glm.\n");
               goto GlmMain_ret_DEGENERATE_DATA;
             }
-          } else if (male_ct < orig_sample_ct) {
+          } else if (nonfemale_ct < orig_sample_ct) {
             // may as well check for only-chrY special case
             if (max_variant_ct != variant_ct_y) {
               if (unlikely(bigstack_alloc_w(raw_sample_ctl, &cur_sample_include_y_buf))) {
@@ -2143,8 +2154,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 goto GlmMain_ret_NOMEM;
               }
             } else {
-              orig_sample_include = sex_male;
-              orig_sample_ct = male_ct;
+              orig_sample_include = sex_nonfemale;
+              orig_sample_ct = nonfemale_ct;
             }
           }
         }
@@ -2957,7 +2968,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         uint32_t biallelic_predictor_ct_y = 0;
         uint32_t y_samples_are_different = 0;
         if (cur_sample_include_y) {
-          BitvecAndCopy(orig_sample_include, sex_male, raw_sample_ctl, cur_sample_include_y);
+          BitvecAndCopy(orig_sample_include, sex_nonfemale, raw_sample_ctl, cur_sample_include_y);
           BitvecAnd(cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_y);
           uint16_t dummy = 0;
           if (unlikely(GlmDetermineCovars(nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_y_covar_ct, covar_max_nonnull_cat_ct, 0, 0, cur_sample_include_y, covar_include_y, &sample_ct_y, &covar_ct_y, &extra_cat_ct_y, &dummy))) {
@@ -3518,7 +3529,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       uint32_t biallelic_predictor_ct_y = 0;
       uint32_t y_samples_are_different = 0;
       if (cur_sample_include_y) {
-        BitvecAndCopy(orig_sample_include, sex_male, raw_sample_ctl, cur_sample_include_y);
+        BitvecAndCopy(orig_sample_include, sex_nonfemale, raw_sample_ctl, cur_sample_include_y);
         BitvecAnd(cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_y);
         logistic_ctx.separation_found_y = 0;
         if (unlikely(GlmDetermineCovars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_y_covar_ct, covar_max_nonnull_cat_ct, is_sometimes_firth, is_always_firth, cur_sample_include_y, covar_include_y, &sample_ct_y, &covar_ct_y, &extra_cat_ct_y, &logistic_ctx.separation_found_y))) {

@@ -6020,6 +6020,7 @@ typedef struct CalcScoreCtxStruct {
   const uint32_t* variant_include_cumulative_popcounts;
   const uintptr_t* qsr_include;
   const uintptr_t* sex_nonmale_collapsed;
+  const uintptr_t* sex_female_collapsed;
   uint32_t score_final_col_ct;
   uint32_t sample_shard_size;
   uint32_t sample_ct;
@@ -6038,6 +6039,7 @@ typedef struct CalcScoreCtxStruct {
   uint32_t* dosage_cts[2];
   uintptr_t* missing_bitvecs[2];
   uintptr_t* missing_male_bitvecs[2];
+  uintptr_t* missing_nonfemale_bitvecs[2];
   double* allele_freqs[2];
   double* geno_slopes[2];
   double* geno_intercepts[2];
@@ -6085,8 +6087,11 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
   const uintptr_t difflist_sample_ids_stride = RoundUpPow2(max_returned_difflist_len, kInt32PerVec);
   const uint32_t dosage_main_stride = RoundUpPow2(sample_ct, kDosagePerVec);
   const uintptr_t* shard_sex_nonmale_collapsed = &(ctx->sex_nonmale_collapsed[sample_idx_startl]);
+  const uintptr_t* shard_sex_female_collapsed = &(ctx->sex_female_collapsed[sample_idx_startl]);
   const uint32_t shard_nonmale_ct = PopcountWords(shard_sex_nonmale_collapsed, shard_sizel);
   const uint32_t shard_male_ct = sample_shard_size - shard_nonmale_ct;
+  const uint32_t shard_female_ct = PopcountWords(shard_sex_female_collapsed, shard_sizel);
+  const uint32_t shard_nonfemale_ct = sample_shard_size - shard_female_ct;
   const ScoreFlags flags = ctx->flags;
   const uint32_t model_dominant = (flags / kfScoreDominant) & 1;
   const uint32_t domrec = model_dominant || (flags & kfScoreRecessive);
@@ -6117,6 +6122,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
       const uint32_t* dosage_cts = ctx->dosage_cts[parity];
       const uintptr_t* missing_bitvec_iter = &(ctx->missing_bitvecs[parity][sample_idx_startl]);
       const uintptr_t* missing_male_bitvec_iter = &(ctx->missing_male_bitvecs[parity][sample_idx_startl]);
+      const uintptr_t* missing_nonfemale_bitvec_iter = &(ctx->missing_nonfemale_bitvecs[parity][sample_idx_startl]);
       const double* allele_freqs = ctx->allele_freqs[parity];
       const double* geno_slopes = ctx->geno_slopes[parity];
       const double* geno_intercepts = ctx->geno_intercepts[parity];
@@ -6261,6 +6267,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             genovec_iter = &(genovec_iter[sample_ctaw2]);
             missing_bitvec_iter = &(missing_bitvec_iter[sample_ctaw]);
             missing_male_bitvec_iter = &(missing_male_bitvec_iter[sample_ctaw]);
+            missing_nonfemale_bitvec_iter = &(missing_nonfemale_bitvec_iter[sample_ctaw]);
             score_sparse_coefs_vmaj_iter = &(score_sparse_coefs_vmaj_iter[score_final_col_ct]);
             ++sparse_vidx;
             raregeno_iter = &(raregeno_iter[raregeno_stride]);
@@ -6270,11 +6277,11 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
         }
         FillDdosageInts(genovec_iter, shard_dosage_present, shard_dosage_main, sample_shard_size, shard_dosage_ct, 1 - is_nonx_haploid, ddosage_incrs);
         if (is_y) {
-          if (shard_nonmale_ct) {
+          if (shard_female_ct) {
             uintptr_t shard_sample_idx_base = 0;
-            uintptr_t shard_sex_nonmale_collapsed_bits = shard_sex_nonmale_collapsed[0];
-            for (uint32_t shard_nonmale_idx = 0; shard_nonmale_idx != shard_nonmale_ct; ++shard_nonmale_idx) {
-              const uintptr_t shard_sample_idx = BitIter1(shard_sex_nonmale_collapsed, &shard_sample_idx_base, &shard_sex_nonmale_collapsed_bits);
+            uintptr_t shard_sex_female_collapsed_bits = shard_sex_female_collapsed[0];
+            for (uint32_t shard_female_idx = 0; shard_female_idx != shard_female_ct; ++shard_female_idx) {
+              const uintptr_t shard_sample_idx = BitIter1(shard_sex_female_collapsed, &shard_sample_idx_base, &shard_sex_female_collapsed_bits);
               ddosage_incrs[shard_sample_idx] = 0;
             }
           }
@@ -6365,7 +6372,23 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
             if (!no_meanimpute) {
               missing_effect = kDosageMax * cur_allele_freq * geno_slope;
             }
-            if (is_y || is_relevant_x) {
+            if (is_y) {
+              ZeroDArr(sample_shard_size, dosages_vmaj_iter);
+              if ((!no_meanimpute) && shard_nonfemale_ct) {
+                for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
+                  uintptr_t cur_missing_nonfemale_bits = missing_nonfemale_bitvec_iter[shard_widx];
+                  if (!cur_missing_nonfemale_bits) {
+                    continue;
+                  }
+                  double* cur_dosages_vmaj_iter = &(dosages_vmaj_iter[shard_widx * kBitsPerWord]);
+                  do {
+                    const uint32_t sample_idx_lowbits = ctzw(cur_missing_nonfemale_bits);
+                    cur_dosages_vmaj_iter[sample_idx_lowbits] = missing_effect;
+                    cur_missing_nonfemale_bits &= cur_missing_nonfemale_bits - 1;
+                  } while (cur_missing_nonfemale_bits);
+                }
+              }
+            } else if (is_relevant_x) {
               ZeroDArr(sample_shard_size, dosages_vmaj_iter);
               if (!no_meanimpute) {
                 if (shard_male_ct) {
@@ -6382,7 +6405,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                     } while (cur_missing_male_bits);
                   }
                 }
-                if (is_relevant_x && shard_nonmale_ct) {
+                if (shard_nonmale_ct) {
                   missing_effect *= 2;
                   for (uint32_t shard_widx = 0; shard_widx != shard_sizel; ++shard_widx) {
                     uintptr_t cur_missing_nonmale_bits = missing_bitvec_iter[shard_widx] & shard_sex_nonmale_collapsed[shard_widx];
@@ -6438,6 +6461,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
         genovec_iter = &(genovec_iter[sample_ctaw2]);
         missing_bitvec_iter = &(missing_bitvec_iter[sample_ctaw]);
         missing_male_bitvec_iter = &(missing_male_bitvec_iter[sample_ctaw]);
+        missing_nonfemale_bitvec_iter = &(missing_nonfemale_bitvec_iter[sample_ctaw]);
         if (dosage_present_iter) {
           dosage_present_iter = &(dosage_present_iter[sample_ctaw]);
           dosage_main_iter = &(dosage_main_iter[dosage_main_stride]);
@@ -6461,7 +6485,7 @@ typedef struct ParsedQscoreRangeStruct {
   double ubound;
 } ParsedQscoreRange;
 
-PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t nosex_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -6910,10 +6934,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uintptr_t qsr_ct_nz = qsr_ct + (qsr_ct == 0);
     uint32_t* sample_include_cumulative_popcounts = nullptr;
     uintptr_t* sex_nonmale_collapsed = nullptr;
-    VecW* missing_accx = nullptr;
-    VecW* missing_male_accx = nullptr;
+    VecW* missing_diploid_accx = nullptr;
+    VecW* missing_haploid_accx = nullptr;
     uint32_t* allele_ct_bases;
-    int32_t* male_allele_ct_deltas;
+    uint32_t* male_allele_ct_decrs;
+    uint32_t* nonfemale_allele_ct_incrs;
     uint32_t* variant_ct_rems;
     uint32_t* variant_hap_ct_rems;
     uintptr_t* already_seen_variants;
@@ -6926,15 +6951,18 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                  bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.missing_bitvecs[1]) ||
                  bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.missing_male_bitvecs[0]) ||
                  bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.missing_male_bitvecs[1]) ||
+                 bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.missing_nonfemale_bitvecs[0]) ||
+                 bigstack_alloc_w(kScoreVariantBlockSize * sample_ctaw, &ctx.missing_nonfemale_bitvecs[1]) ||
                  bigstack_alloc_d(kScoreVariantBlockSize * score_final_col_ct, &(ctx.score_dense_coefs_cmaj[0])) ||
                  bigstack_alloc_d(kScoreVariantBlockSize * score_final_col_ct, &(ctx.score_dense_coefs_cmaj[1])) ||
                  bigstack_alloc_dp(sample_shard_ct, &ctx.sharded_final_scores_cmaj) ||
                  bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
                  bigstack_alloc_w(sample_ctl, &sex_nonmale_collapsed) ||
-                 bigstack_end_clalloc_v(11 * acc4_vec_ct * qsr_ct_nz, &missing_accx) ||
-                 bigstack_end_clalloc_v(11 * acc4_vec_ct * qsr_ct_nz, &missing_male_accx) ||
+                 bigstack_end_clalloc_v(11 * acc4_vec_ct * qsr_ct_nz, &missing_diploid_accx) ||
+                 bigstack_end_clalloc_v(11 * acc4_vec_ct * qsr_ct_nz, &missing_haploid_accx) ||
                  bigstack_alloc_u32(qsr_ct_nz, &allele_ct_bases) ||
-                 bigstack_alloc_i32(qsr_ct_nz, &male_allele_ct_deltas) ||
+                 bigstack_alloc_u32(qsr_ct_nz, &male_allele_ct_decrs) ||
+                 bigstack_alloc_u32(qsr_ct_nz, &nonfemale_allele_ct_incrs) ||
                  bigstack_alloc_u32(qsr_ct_nz * 2, &variant_ct_rems) ||
                  bigstack_alloc_u32(qsr_ct_nz * 2, &variant_hap_ct_rems) ||
                  bigstack_alloc_u64p(sample_shard_ct, &ctx.ddosage_incrs) ||
@@ -7050,6 +7078,21 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_nonmale_collapsed);
     AlignedBitarrInvert(sample_ct, sex_nonmale_collapsed);
     ctx.sex_nonmale_collapsed = sex_nonmale_collapsed;
+    const uintptr_t* sex_nonfemale = sex_male;
+    uintptr_t* sex_female_collapsed = sex_nonmale_collapsed;
+    if (nosex_ct) {
+      uintptr_t* sex_female_tmp;
+      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sex_female_tmp) ||
+                   bigstack_alloc_w(sample_ctl, &sex_female_collapsed))) {
+        goto ScoreReport_ret_NOMEM;
+      }
+      BitvecInvmaskCopy(sex_nm, sex_male, raw_sample_ctl, sex_female_tmp);
+      CopyBitarrSubset(sex_female_tmp, sample_include, sample_ct, sex_female_collapsed);
+      // now invert to nonfemale
+      AlignedBitarrInvert(raw_sample_ct, sex_female_tmp);
+      sex_nonfemale = sex_female_tmp;
+    }
+    ctx.sex_female_collapsed = sex_nonmale_collapsed;
 
     if (!variant_id_htable) {
       reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, 0, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
@@ -7106,6 +7149,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uint32_t variance_standardize = (flags / kfScoreVarianceStandardize) & 1;
     const uint32_t center = variance_standardize || (flags & kfScoreCenter);
     const uint32_t no_meanimpute = (flags / kfScoreNoMeanimpute) & 1;
+    const uint32_t y_prohibited = nosex_ct && (!no_meanimpute);
     const uint32_t se_mode = (flags / kfScoreSe) & 1;
     const uintptr_t tmpfile_buf_byte_ct = score_col_ct * sizeof(double);
     // If we're not attempting the sparse-genotype optimization, this is always
@@ -7124,10 +7168,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           goto ScoreReport_ret_TSTREAM_FAIL;
         }
       }
-      ZeroVecArr(11 * acc4_vec_ct * qsr_ct_nz, missing_accx);
-      ZeroVecArr(11 * acc4_vec_ct * qsr_ct_nz, missing_male_accx);
+      ZeroVecArr(11 * acc4_vec_ct * qsr_ct_nz, missing_diploid_accx);
+      ZeroVecArr(11 * acc4_vec_ct * qsr_ct_nz, missing_haploid_accx);
       ZeroU32Arr(qsr_ct_nz, allele_ct_bases);
-      ZeroI32Arr(qsr_ct_nz, male_allele_ct_deltas);
+      ZeroU32Arr(qsr_ct_nz, male_allele_ct_decrs);
+      ZeroU32Arr(qsr_ct_nz, nonfemale_allele_ct_incrs);
       ZeroU64Arr(qsr_ct_nz * sample_ct, ctx.ddosage_sums);
       ZeroWArr(raw_variant_ctl, already_seen_variants);
       ZeroWArr(raw_allele_ctl, already_seen_alleles);
@@ -7238,6 +7283,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       uint32_t* dosage_cts = ctx.dosage_cts[0];
       uintptr_t* missing_bitvec_iter = ctx.missing_bitvecs[0];
       uintptr_t* missing_male_bitvec_iter = ctx.missing_male_bitvecs[0];
+      uintptr_t* missing_nonfemale_bitvec_iter = ctx.missing_nonfemale_bitvecs[0];
       double* cur_allele_freqs = ctx.allele_freqs[0];
       double* geno_slopes = ctx.geno_slopes[0];
       double* geno_intercepts = ctx.geno_intercepts[0];
@@ -7356,6 +7402,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         is_relevant_x = is_relevant_x && xchr_model;
 
         const uint32_t is_y = (chr_idx == y_code);
+        if (unlikely(is_y && y_prohibited)) {
+          fputs("\n", stdout);
+          logerrputs("Error: When both chrY variants and unknown-sex samples are present,\n--score[-list] can only be run with the 'no-mean-imputation' modifier.\n");
+          goto ScoreReport_ret_INCONSISTENT_INPUT;
+        }
         uint32_t ploidy_m1;
         if ((variant_uidx == prev_variant_uidx) && (cur_allele_ct == 2)) {
           // Previous record is the exact inverse of what we now want, so just
@@ -7420,7 +7471,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             if (!qsr_ct) {
               allele_ct_bases[0] += 2;
               if (missing_exists) {
-                VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_ct_rems, missing_accx);
+                VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_ct_rems, missing_diploid_accx);
               }
             } else {
               const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
@@ -7428,7 +7479,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                 if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
                   allele_ct_bases[qsr_idx] += 2;
                   if (missing_exists) {
-                    VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_accx[acc4_vec_ct * 11 * qsr_idx]));
+                    VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_diploid_accx[acc4_vec_ct * 11 * qsr_idx]));
                   }
                 }
               }
@@ -7458,17 +7509,17 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             if (is_y) {
               if (is_new_variant) {
                 if (!qsr_ct) {
-                  male_allele_ct_deltas[0] += 1;
+                  nonfemale_allele_ct_incrs[0] += 1;
                 } else {
                   const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
                   for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
                     if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
-                      male_allele_ct_deltas[qsr_idx] += 1;
+                      nonfemale_allele_ct_incrs[qsr_idx] += 1;
                     }
                   }
                 }
               }
-              BitvecInvmask(sex_nonmale_collapsed, sample_ctl, missing_bitvec_iter);
+              BitvecInvmask(sex_female_collapsed, sample_ctl, missing_bitvec_iter);
             } else if (is_new_variant) {
               if (!qsr_ct) {
                 allele_ct_bases[0] += 1;
@@ -7483,19 +7534,19 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             }
             if (is_new_variant) {
               if (!qsr_ct) {
-                VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_hap_ct_rems, missing_male_accx);
+                VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_hap_ct_rems, missing_haploid_accx);
               } else {
                 const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
                 for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
                   if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
-                    VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
+                    VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_haploid_accx[acc4_vec_ct * 11 * qsr_idx]));
                   }
                 }
               }
             }
             if (is_y) {
-              memcpy(missing_male_bitvec_iter, missing_bitvec_iter, sample_ctl * sizeof(intptr_t));
-              BitvecOr(sex_nonmale_collapsed, sample_ctl, missing_bitvec_iter);
+              memcpy(missing_nonfemale_bitvec_iter, missing_bitvec_iter, sample_ctl * sizeof(intptr_t));
+              BitvecOr(sex_female_collapsed, sample_ctl, missing_bitvec_iter);
             }
             ploidy_m1 = 0;
           } else {
@@ -7509,13 +7560,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             if (is_new_variant) {
               if (!qsr_ct) {
                 allele_ct_bases[0] += 2;
-                VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_ct_rems, missing_accx);
+                VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, variant_ct_rems, missing_diploid_accx);
               } else {
                 const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
                 for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
                   if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
                     allele_ct_bases[qsr_idx] += 2;
-                    VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_accx[acc4_vec_ct * 11 * qsr_idx]));
+                    VerticalCounterUpdate(missing_bitvec_iter, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_diploid_accx[acc4_vec_ct * 11 * qsr_idx]));
                   }
                 }
               }
@@ -7524,14 +7575,14 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               // Now count males.
               if (is_new_variant) {
                 if (!qsr_ct) {
-                  male_allele_ct_deltas[0] -= 1;
-                  VerticalCounterUpdate(missing_male_bitvec_iter, acc1_vec_ct, variant_hap_ct_rems, missing_male_accx);
+                  male_allele_ct_decrs[0] += 1;
+                  VerticalCounterUpdate(missing_male_bitvec_iter, acc1_vec_ct, variant_hap_ct_rems, missing_haploid_accx);
                 } else {
                   const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
                   for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
                     if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
-                      male_allele_ct_deltas[qsr_idx] -= 1;
-                      VerticalCounterUpdate(missing_male_bitvec_iter, acc1_vec_ct, &(variant_hap_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
+                      male_allele_ct_decrs[qsr_idx] += 1;
+                      VerticalCounterUpdate(missing_male_bitvec_iter, acc1_vec_ct, &(variant_hap_ct_rems[2 * qsr_idx]), &(missing_haploid_accx[acc4_vec_ct * 11 * qsr_idx]));
                     }
                   }
                 }
@@ -7702,6 +7753,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         genovec_iter = &(genovec_iter[sample_ctaw2]);
         missing_bitvec_iter = &(missing_bitvec_iter[sample_ctaw]);
         missing_male_bitvec_iter = &(missing_male_bitvec_iter[sample_ctaw]);
+        missing_nonfemale_bitvec_iter = &(missing_nonfemale_bitvec_iter[sample_ctaw]);
         if (dosage_present_iter) {
           dosage_present_iter = &(dosage_present_iter[sample_ctaw]);
           dosage_main_iter = &(dosage_main_iter[dosage_main_stride]);
@@ -7747,6 +7799,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           dosage_cts = ctx.dosage_cts[parity];
           missing_bitvec_iter = ctx.missing_bitvecs[parity];
           missing_male_bitvec_iter = ctx.missing_male_bitvecs[parity];
+          missing_nonfemale_bitvec_iter = ctx.missing_nonfemale_bitvecs[parity];
           cur_allele_freqs = ctx.allele_freqs[parity];
           geno_slopes = ctx.geno_slopes[parity];
           geno_intercepts = ctx.geno_intercepts[parity];
@@ -7764,10 +7817,10 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         goto ScoreReport_ret_TSTREAM_FAIL;
       }
       for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct_nz; ++qsr_idx) {
-        VecW* missing_diploid_acc4 = &(missing_accx[acc4_vec_ct * 11 * qsr_idx]);
+        VecW* missing_diploid_acc4 = &(missing_diploid_accx[acc4_vec_ct * 11 * qsr_idx]);
         VecW* missing_diploid_acc8 = &(missing_diploid_acc4[acc4_vec_ct]);
         VecW* missing_diploid_acc32 = &(missing_diploid_acc8[acc8_vec_ct]);
-        VecW* missing_haploid_acc4 = &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]);
+        VecW* missing_haploid_acc4 = &(missing_haploid_accx[acc4_vec_ct * 11 * qsr_idx]);
         VecW* missing_haploid_acc8 = &(missing_haploid_acc4[acc4_vec_ct]);
         VecW* missing_haploid_acc32 = &(missing_haploid_acc8[acc8_vec_ct]);
         VcountIncr4To8(missing_diploid_acc4, acc4_vec_ct, missing_diploid_acc8);
@@ -7908,8 +7961,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
       // Now compute and spill scores to temporary file.
       for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct_nz; ++qsr_idx) {
-        const uint32_t* scrambled_missing_diploid_cts = &(R_CAST(uint32_t*, missing_accx)[acc4_vec_ct * (3 + 11 * qsr_idx) * kInt32PerVec]);
-        const uint32_t* scrambled_missing_haploid_cts = &(R_CAST(uint32_t*, missing_male_accx)[acc4_vec_ct * (3 + 11 * qsr_idx) * kInt32PerVec]);
+        const uint32_t* scrambled_missing_diploid_cts = &(R_CAST(uint32_t*, missing_diploid_accx)[acc4_vec_ct * (3 + 11 * qsr_idx) * kInt32PerVec]);
+        const uint32_t* scrambled_missing_haploid_cts = &(R_CAST(uint32_t*, missing_haploid_accx)[acc4_vec_ct * (3 + 11 * qsr_idx) * kInt32PerVec]);
 
         uint32_t cur_shard_start = 0;
         uintptr_t cur_sample_shard_size = sample_shard_size;
@@ -7927,7 +7980,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             const uint32_t sample_idx = shard_sample_idx + cur_shard_start;
             const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
             const uint32_t scrambled_idx = VcountScramble1(sample_idx);
-            uint32_t denom = allele_ct_bases[qsr_idx] + IsSet(sex_male, sample_uidx) * male_allele_ct_deltas[qsr_idx];
+            uint32_t denom = allele_ct_bases[qsr_idx] + IsSet(sex_nonfemale, sample_uidx) * nonfemale_allele_ct_incrs[qsr_idx] - IsSet(sex_male, sample_uidx) * male_allele_ct_decrs[qsr_idx];
             if (no_meanimpute) {
               const uint32_t nallele = denom - 2 * scrambled_missing_diploid_cts[scrambled_idx] - scrambled_missing_haploid_cts[scrambled_idx];
               denom = nallele;
@@ -8080,8 +8133,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
       AppendBinaryEoln(&cswritep);
       if (!multi_input) {
-        scrambled_missing_diploid_cts = &(R_CAST(uint32_t*, missing_accx)[acc4_vec_ct * (3 + 11 * qsr_idx) * kInt32PerVec]);
-        scrambled_missing_haploid_cts = &(R_CAST(uint32_t*, missing_male_accx)[acc4_vec_ct * (3 + 11 * qsr_idx) * kInt32PerVec]);
+        scrambled_missing_diploid_cts = &(R_CAST(uint32_t*, missing_diploid_accx)[acc4_vec_ct * (3 + 11 * qsr_idx) * kInt32PerVec]);
+        scrambled_missing_haploid_cts = &(R_CAST(uint32_t*, missing_haploid_accx)[acc4_vec_ct * (3 + 11 * qsr_idx) * kInt32PerVec]);
       }
       const uint32_t omp_slen = strlen(output_missing_pheno);
 
@@ -8119,7 +8172,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
 
         if (!multi_input) {
           const uint32_t scrambled_idx = VcountScramble1(sample_idx);
-          uint32_t denom = allele_ct_bases[qsr_idx] + IsSet(sex_male, sample_uidx) * male_allele_ct_deltas[qsr_idx];
+          uint32_t denom = allele_ct_bases[qsr_idx] + IsSet(sex_nonfemale, sample_uidx) * nonfemale_allele_ct_incrs[qsr_idx] - IsSet(sex_male, sample_uidx) * male_allele_ct_decrs[qsr_idx];
           const uint32_t nallele = denom - 2 * scrambled_missing_diploid_cts[scrambled_idx] - scrambled_missing_haploid_cts[scrambled_idx];
           if (write_nallele) {
             *cswritep++ = '\t';
@@ -8813,7 +8866,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const double* allele_freqs, const char* in_fname, const RangeList* col_idx_range_listp, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_allele_slen, VscoreFlags flags, uint32_t xchr_model, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
+PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const double* allele_freqs, const char* in_fname, const RangeList* col_idx_range_listp, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t nosex_ct, uint32_t max_allele_slen, VscoreFlags flags, uint32_t xchr_model, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -8834,6 +8887,14 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
   {
     // unsurprisingly, lots of overlap with --score
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    if (nosex_ct) {
+      // forced mean-imputation doesn't mix well with inclusion of chrY
+      // unknown-sex samples.
+      if (unlikely(XymtIsNonempty(variant_include, cip, kChrOffsetY))) {
+        logerrputs("Error: When chrY is present, --variant-score cannot be used with unknown-sex\nsamples.\n");
+        goto Vscore_ret_INCONSISTENT_INPUT;
+      }
+    }
     if (!xchr_model) {
       uint32_t x_code;
       if (XymtExists(cip, kChrOffsetX, &x_code)) {
@@ -9233,6 +9294,8 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
         ctx.tmp_f_result_bufs = nullptr;
       }
       CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_male_collapsed);
+      // bugfix (18 Oct 2023): forgot to clear trailing words
+      ZeroTrailingWords(sample_ctl, sex_male_collapsed);
       FillInterleavedMaskVec(sex_male_collapsed, sample_ctv, sex_male_interleaved_vec);
       ctx.sex_male_collapsed = sex_male_collapsed;
       ctx.sex_male_interleaved_vec = sex_male_interleaved_vec;

@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (11 Oct 2023)";
+  " (18 Oct 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -600,9 +600,12 @@ uint32_t GrmKeepIsNeeded(Command1Flags command_flags1, PcaFlags pca_flags) {
   return ((command_flags1 & kfCommand1Pca) && (!(pca_flags & kfPcaApprox)));
 }
 
-void ReportGenotypingRate(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_missing_cts, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t is_dosage) {
-  // defined the same way as PLINK 1.x, to allow this to serve as a sanity
-  // check
+void ReportGenotypingRate(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_missing_cts, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t y_sample_ct, uint32_t variant_ct, uint32_t is_dosage) {
+  // Each variant has equal weight.
+  // By default, only males are considered on chrY; with
+  // --y-nosex-missing-stats, missing-sex samples are also counted.  If
+  // y_sample_ct == 0, chrY is not considered at all.
+
   // trivial to multithread this if it ever matters
   uint64_t tot_nony_missing = 0;
   uint64_t tot_y_missing = 0;
@@ -649,10 +652,10 @@ void ReportGenotypingRate(const uintptr_t* variant_include, const ChrInfo* cip, 
     return;
   }
   double genotyping_rate;
-  if (male_ct && variant_ct_y) {
+  if (y_sample_ct && variant_ct_y) {
     const uint64_t nony_possible_obs = (variant_ct - variant_ct_y) * S_CAST(uint64_t, sample_ct);
-    const uint64_t y_possible_obs = variant_ct_y * S_CAST(uint64_t, male_ct);
-    genotyping_rate = u63tod(nony_possible_obs - tot_nony_missing) / u31tod(sample_ct) + u63tod(y_possible_obs - tot_y_missing) / u31tod(male_ct);
+    const uint64_t y_possible_obs = variant_ct_y * S_CAST(uint64_t, y_sample_ct);
+    genotyping_rate = u63tod(nony_possible_obs - tot_nony_missing) / u31tod(sample_ct) + u63tod(y_possible_obs - tot_y_missing) / u31tod(y_sample_ct);
     genotyping_rate /= u31tod(variant_ct);
   } else {
     variant_ct -= variant_ct_y;
@@ -1548,7 +1551,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         // could avoid this call and make LoadAlleleAndGenoCounts() do
         // double duty with --missing?
-        reterr = LoadSampleMissingCts(sex_male, variant_include, cip, raw_variant_ct, variant_ct, raw_sample_ct, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, sample_missing_hc_cts, (pgfi.gflags & kfPgenGlobalDosagePresent)? sample_missing_dosage_cts : nullptr, sample_hethap_cts);
+        reterr = LoadSampleMissingCts(sex_nm, sex_male, variant_include, cip, raw_variant_ct, variant_ct, raw_sample_ct, (pcp->misc_flags / kfMiscYNosexMissingStats) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, sample_missing_hc_cts, (pgfi.gflags & kfPgenGlobalDosagePresent)? sample_missing_dosage_cts : nullptr, sample_hethap_cts);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2069,7 +2072,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           // hardcall-missing-count slot... and it's NOT fine to pass in
           // nullptrs for both missing-count arrays...
           const uint32_t dosageless_file = !(pgfi.gflags & kfPgenGlobalDosagePresent);
-          reterr = LoadAlleleAndGenoCounts(sample_include, founder_info, sex_nm, sex_male, regular_freqcounts_needed? variant_include : variant_afreqcalc, cip, allele_idx_offsets, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, regular_freqcounts_needed? variant_ct : afreqcalc_variant_ct, first_hap_uidx, is_minimac3_r2, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_presents, allele_ddosages, founder_allele_ddosages, ((!variant_missing_hc_cts) && dosageless_file)? variant_missing_dosage_cts : variant_missing_hc_cts, dosageless_file? nullptr : variant_missing_dosage_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, imp_r2_vals);
+          reterr = LoadAlleleAndGenoCounts(sample_include, founder_info, sex_nm, sex_male, regular_freqcounts_needed? variant_include : variant_afreqcalc, cip, allele_idx_offsets, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, regular_freqcounts_needed? variant_ct : afreqcalc_variant_ct, first_hap_uidx, is_minimac3_r2, (pcp->misc_flags / kfMiscYNosexMissingStats) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_presents, allele_ddosages, founder_allele_ddosages, ((!variant_missing_hc_cts) && dosageless_file)? variant_missing_dosage_cts : variant_missing_hc_cts, dosageless_file? nullptr : variant_missing_dosage_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, imp_r2_vals);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -2081,7 +2084,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // (variant_missing_hc_cts filled for other reasons).  worth
             // multithreading in that case.
             const uint32_t is_dosage = (pcp->misc_flags / kfMiscGenotypingRateDosage) & 1;
-            ReportGenotypingRate(variant_include, cip, is_dosage? variant_missing_dosage_cts : variant_missing_hc_cts, raw_sample_ct, sample_ct, male_ct, variant_ct, is_dosage);
+            const uint32_t y_sample_ct = male_ct + ((pcp->misc_flags / kfMiscYNosexMissingStats) & 1) * nosex_ct;
+            ReportGenotypingRate(variant_include, cip, is_dosage? variant_missing_dosage_cts : variant_missing_hc_cts, raw_sample_ct, sample_ct, y_sample_ct, variant_ct, is_dosage);
             if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
               continue;
             }
@@ -2107,7 +2111,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         if (pcp->command_flags1 & kfCommand1GenoCounts) {
-          reterr = WriteGenoCounts(sample_include, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, raw_geno_cts, x_male_geno_cts, raw_sample_ct, sample_ct, male_ct, raw_variant_ct, variant_ct, x_start, max_allele_slen, pgfi.gflags, pcp->geno_counts_flags, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = WriteGenoCounts(sample_include, sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, raw_geno_cts, x_male_geno_cts, raw_sample_ct, sample_ct, male_ct, nosex_ct, raw_variant_ct, variant_ct, x_start, max_allele_slen, pgfi.gflags, pcp->geno_counts_flags, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -2117,7 +2121,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->command_flags1 & kfCommand1MissingReport) {
-          reterr = WriteMissingnessReports(sample_include, &pii.sii, sex_male, pheno_cols, pheno_names, sample_missing_hc_cts, sample_missing_dosage_cts, sample_hethap_cts, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, variant_missing_hc_cts, variant_missing_dosage_cts, variant_hethap_cts, sample_ct, male_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pgfi.gflags, variant_hethap_cts? first_hap_uidx : 0x7fffffff, pcp->missing_rpt_flags, pcp->max_thread_ct, outname, outname_end);
+          reterr = WriteMissingnessReports(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, sample_missing_hc_cts, sample_missing_dosage_cts, sample_hethap_cts, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, variant_missing_hc_cts, variant_missing_dosage_cts, variant_hethap_cts, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, nosex_ct && (pcp->misc_flags & kfMiscYNosexMissingStats), pgfi.gflags, variant_hethap_cts? first_hap_uidx : 0x7fffffff, pcp->missing_rpt_flags, pcp->max_thread_ct, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -2710,7 +2714,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: When the window size is in kb units, LD-based pruning requires a sorted\n.pvar/.bim.  Retry this command after using --make-pgen/--make-bed +\n--sort-vars to sort your data.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
-        reterr = LdPrune(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, sex_male, &(pcp->ld_info), pcp->indep_preferred_fname, raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = LdPrune(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, sex_nm, sex_male, &(pcp->ld_info), pcp->indep_preferred_fname, raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, nosex_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2732,9 +2736,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: --ld-window-cm requires nondecreasing CM values on each chromosome.\nRetry this command after regenerating your CM coordinates.\n");
           return kPglRetInconsistentInput;
         }
-        logerrputs("Error: --r[2]-[un]phased is under development.\n");
-        reterr = kPglRetNotYetSupported;
-        // reterr = Vcor(variant_include, cip, variant_bps, variant_ids, variant_cms, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, founder_info, sex_male, &(pcp->vcor_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, max_allele_slen, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = Vcor(variant_include, cip, variant_bps, variant_ids, variant_cms, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, founder_info, sex_nm, sex_male, &(pcp->vcor_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, max_allele_slen, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2755,13 +2757,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Score) {
-        reterr = ScoreReport(sample_include, &pii.sii, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, &(pcp->score_info), pcp->output_missing_pheno, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->xchr_model, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = ScoreReport(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, &(pcp->score_info), pcp->output_missing_pheno, raw_sample_ct, sample_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->xchr_model, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
       }
       if (pcp->command_flags1 & kfCommand1Vscore) {
-        reterr = Vscore(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, sample_include, &pii.sii, sex_male, allele_freqs, pcp->vscore_fname, &(pcp->vscore_col_idx_range_list), raw_variant_ct, variant_ct, raw_sample_ct, sample_ct, max_allele_slen, pcp->vscore_flags, pcp->xchr_model, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
+        reterr = Vscore(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, sample_include, &pii.sii, sex_male, allele_freqs, pcp->vscore_fname, &(pcp->vscore_col_idx_range_list), raw_variant_ct, variant_ct, raw_sample_ct, sample_ct, nosex_ct, max_allele_slen, pcp->vscore_flags, pcp->xchr_model, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2784,7 +2786,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         logerrputs("Error: --clump requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
         goto Plink2Core_ret_INCONSISTENT_INPUT;
       }
-      reterr = ClumpReports(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, founder_info, sex_male, &(pcp->clump_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, max_allele_slen, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+      reterr = ClumpReports(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, founder_info, sex_nm, sex_male, &(pcp->clump_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, nosex_ct, max_variant_id_slen, max_allele_slen, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -3640,6 +3642,8 @@ int main(int argc, char** argv) {
         case 's':
           if (strequal_k(flagname_p, "sdiff", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "sample-diff");
+          } else if (strequal_k(flagname_p, "set-hh-missing", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "set-invalid-haploid-missing");
           } else {
             goto main_flag_copy;
           }
@@ -7189,10 +7193,10 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --ld-window-r2 argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          if (dxx < 0.0) {
-            dxx = 0.0;
+          if (dxx > 0.0) {
+            dxx *= 1 - kSmallEpsilon;
           }
-          pc.vcor_info.min_r2 = dxx * (1 - kSmallEpsilon);
+          pc.vcor_info.min_r2 = dxx;
           r2_required = 1;
         } else if (strequal_k_unsafe(flagname_p2, "d-snp")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -10197,9 +10201,9 @@ int main(int argc, char** argv) {
           if (!(pc.command_flags1 & kfCommand1Pmerge)) {
             pc.dependency_flags |= kfFilterPvarReq;
           }
-        } else if (strequal_k_unsafe(flagname_p2, "et-hh-missing")) {
-          if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
-            logerrputs("Error: --set-hh-missing must be used with --make-[b]pgen/--make-bed.\n");
+        } else if (strequal_k_unsafe(flagname_p2, "et-invalid-haploid-missing")) {
+          if (unlikely(!(make_plink2_flags & (kfMakeBed | kfMakePgen)))) {
+            logerrputs("Error: --set-invalid-haploid-missing must be used with\n--make-[b]pgen/--make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
@@ -10209,16 +10213,16 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + 1];
             if (likely(!strcmp(cur_modif, "keep-dosage"))) {
               if (unlikely(make_plink2_flags & kfMakePgenEraseDosage)) {
-                logerrputs("Error: --set-hh-missing 'keep-dosage' modifier cannot be used with\n--make-[b]pgen erase-dosage.\n");
+                logerrputs("Error: --set-invalid-haploid-missing 'keep-dosage' modifier cannot be used with\n--make-[b]pgen erase-dosage.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              make_plink2_flags |= kfMakePlink2SetHhMissingKeepDosage;
+              make_plink2_flags |= kfMakePlink2SetInvalidHaploidMissingKeepDosage;
             } else {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --set-hh-missing argument '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --set-invalid-haploid-missing argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          make_plink2_flags |= kfMakePlink2SetHhMissing;
+          make_plink2_flags |= kfMakePlink2SetInvalidHaploidMissing;
         } else if (strequal_k_unsafe(flagname_p2, "et-mixed-mt-missing")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
             logerrputs("Error: --set-mixed-mt-missing must be used with --make-[b]pgen/--make-bed.\n");
@@ -11489,6 +11493,15 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --xchr-model argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+        } else {
+          goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
+        }
+        break;
+
+      case 'y':
+        if (likely(strequal_k_unsafe(flagname_p2, "-nosex-missing-stats"))) {
+          pc.misc_flags |= kfMiscYNosexMissingStats;
+          goto main_param_zero;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }

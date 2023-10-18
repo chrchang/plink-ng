@@ -871,6 +871,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    --r-phased and --r-unphased report signed (and of course unsquared) values,\n"
 "    with positive sign when the two major alleles are positively correlated\n"
 "    with each other.\n"
+"    Dosages are used when present.  (In the diploid case, an unphased dosage of\n"
+"    x is interpreted as P(0/0) = 1 - x, P(0/1) = x when x is in 0..1.)\n"
+"    Phase information is used when both variants are on the same chromosome.\n"
 "    By default, tabular output is written to <output prefix>.vcor.\n"
 "    * In this mode, the --ld-... flags filter the output.  \"--ld-window-kb\n"
 "      1000\" and \"--ld-window-r2 0.2\" are active unless explicitly overridden.\n"
@@ -913,14 +916,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("ld\0", &help_ctrl, 1,
 "  --ld <variant ID> <variant ID> ['hwe-midp']\n"
 "    This displays diplotype frequencies, haplotype-based r^2, and D' for a\n"
-"    single pair of variants.\n"
-"    * Dosages are used when present.  (In the diploid case, an unphased dosage\n"
-"      of x is interpreted as P(0/0) = 1 - x, P(0/1) = x when x is in 0..1.)\n"
-"    * Phase information is used when both variants are on the same chromosome.\n"
-"    * When there is at least one sample with unphased het calls for both\n"
-"      variants, diplotype frequencies are estimated using the Hill equation.\n"
-"      If there are multiple biologically possible local maxima, all are\n"
-"      displayed, along with HWE exact test statistics.\n\n"
+"    single pair of variants.  (The latter two values are calculated in the same\n"
+"    manner as they are for --r2-phased.)\n"
+"    When there is at least one sample with unphased het calls for both\n"
+"    variants, diplotype frequencies are estimated using the Hill equation.  If\n"
+"    there are multiple biologically possible local maxima, all are displayed,\n"
+"    along with HWE exact test statistics.\n\n"
               );
     HelpPrint("sample-diff\0sdiff\0", &help_ctrl, 1,
 "  --sample-diff ['id-delim='<char>] ['dosage' | 'dosage='<tolerance>]\n"
@@ -2048,6 +2049,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    nonmissing.  Alternatively, you can use 'hh-missing' to also treat\n"
 "    heterozygous haploid calls as missing.\n"
                );
+    HelpPrint("y-nosex-missing-stats\0genotyping-rate\0missing\0geno\0mind\0", &help_ctrl, 0,
+"  --y-nosex-missing-stats : On chrY, include unknown-sex samples when computing\n"
+"                            missing-genotype and heterozygous-haploid stats.\n"
+              );
     /*
     HelpPrint("oblig-clusters\0oblig-missing\0", &help_ctrl, 0,
 "  --oblig-missing <f1> <f2> : Specify blocks of missing genotype calls for\n"
@@ -2224,15 +2229,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            --make-[b]pgen/--make-bed, or\n"
 "                            --make-just-{bim,pvar}.\n"
                );
-    HelpPrint("set-hh-missing\0set-mixed-mt-missing\0", &help_ctrl, 0,
-"  --set-hh-missing ['keep-dosage'] : Make --make-[b]pgen/--make-bed set non-MT\n"
-"                                     heterozygous haploid hardcalls, and all\n"
-"                                     female chrY calls, to missing.  (Unlike\n"
-"                                     PLINK 1.x, this treats unknown-sex chrY\n"
-"                                     genotypes like males, not females.)\n"
-"                                     By default, all associated dosages are\n"
-"                                     also erased; use 'keep-dosage' to keep\n"
-"                                     them all.\n"
+    HelpPrint("set-invalid-haploid-missing\0set-hh-missing\0set-mixed-mt-missing\0", &help_ctrl, 0,
+"  --set-invalid-haploid-missing ['keep-dosage'] :\n"
+"    Make --make-[b]pgen/--make-bed set non-MT heterozygous haploid hardcalls,\n"
+"    and all female chrY calls, to missing.\n"
+"    By default, all associated dosages are also erased; use 'keep-dosage' to\n"
+"    keep them all.\n"
 "  --set-mixed-mt-missing ['keep-dosage'] : Make --make-[b]pgen/--make-bed set\n"
 "                                           mixed MT hardcalls to missing.\n"
                );
