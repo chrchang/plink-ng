@@ -3884,6 +3884,12 @@ int32_t main(int32_t argc, char** argv) {
 	  break;
 	}
 	goto main_flag_copy;
+      case 's':
+        if (!strcmp(argptr, "set-invalid-haploid-missing")) {
+	  memcpy(flagptr, "set-hh-missing", 15);
+	  break;
+	}
+	goto main_flag_copy;
       case 't':
         if (!strcmp(argptr, "thread-num")) {
 	  memcpy(flagptr, "threads", 8);
