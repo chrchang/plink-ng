@@ -3596,6 +3596,20 @@ uint32_t DosageR2Prod(const Dosage* dosage_vec0, const uintptr_t* nm_bitvec0, co
   return nm_intersection_ct;
 }
 
+uint64_t DosageUnsignedDotprodSubset(const Dosage* dosage_mask_vec, const Dosage* dosage_vec0, const Dosage* dosage_vec1, uint32_t vec_ct) {
+  const uint32_t sample_cta2 = vec_ct * 2;
+  uint64_t dotprod = 0;
+  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
+    const uint32_t cur_dosage_maskval = dosage_mask_vec[sample_idx];
+    const uint32_t cur_dosage0 = dosage_vec0[sample_idx];
+    const uint32_t cur_dosage1 = dosage_vec1[sample_idx];
+    if ((cur_dosage_maskval != kDosageMissing) && (cur_dosage0 != kDosageMissing) && (cur_dosage1 != kDosageMissing)) {
+      dotprod += cur_dosage0 * cur_dosage1;
+    }
+  }
+  return dotprod;
+}
+
 
 // "unscaled" because you need to multiply by allele count to get the proper
 // log-likelihood
@@ -5389,12 +5403,12 @@ uint32_t ComputeR2DosageUnphasedStats(const R2DosageVariant* dp0, const R2Dosage
   if (nm_ct0 == valid_obs_ct) {
     *ssq0_ptr = dp0->nmaj_dosage_ssq;
   } else {
-    *ssq0_ptr = DosageUnsignedDotprod(dosage_vec0, dosage_vec0, sample_dosagev_ct);
+    *ssq0_ptr = DosageUnsignedDotprodSubset(dosage_vec1, dosage_vec0, dosage_vec0, sample_dosagev_ct);
   }
   if (nm_ct1 == valid_obs_ct) {
     *ssq1_ptr = dp1->nmaj_dosage_ssq;
   } else {
-    *ssq1_ptr = DosageUnsignedDotprod(dosage_vec1, dosage_vec1, sample_dosagev_ct);
+    *ssq1_ptr = DosageUnsignedDotprodSubset(dosage_vec0, dosage_vec1, dosage_vec1, sample_dosagev_ct);
   }
   return valid_obs_ct;
 }
