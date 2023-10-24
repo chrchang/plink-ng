@@ -4540,17 +4540,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               *cswritep++ = '\t';
             }
             if (matrix_shape == kfGrmMatrixSq0) {
-              // (roughly same performance as creating a zero-tab constant
-              // buffer in advance)
-              const uint32_t zcount = sample_ct - row_idx;
-              const uint32_t wct = DivUp(zcount, kBytesPerWord / 2);
-              // assumes little-endian
-              const uintptr_t zerotab_word = 0x930 * kMask0001;
-              unsigned char* zerotab_write_iter = R_CAST(unsigned char*, cswritep);
-              for (uintptr_t widx = 0; widx != wct; ++widx) {
-                AppendW(zerotab_word, &zerotab_write_iter);
-              }
-              cswritep = &(cswritep[zcount * 2]);
+              AppendZerotabsUnsafe(sample_ct - row_idx, &cswritep);
             } else if (matrix_shape == kfGrmMatrixSq) {
               const double* grm_col = &(grm[row_idx - 1]);
               for (uintptr_t row_idx2 = row_idx; row_idx2 != sample_ct; ++row_idx2) {
@@ -8474,7 +8464,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
         uint32_t difflist_len;
         PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_sparse, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
-          new_err_info = S_CAST(uint32_t, reterr);
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto VscoreThread_err;
         }
         if (difflist_common_geno != UINT32_MAX) {
@@ -8582,7 +8572,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
       } else {
         PglErr reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
         if (unlikely(reterr)) {
-          new_err_info = S_CAST(uint32_t, reterr);
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto VscoreThread_err;
         }
         if ((!is_x_or_y) && (dosage_ct <= max_sparse)) {

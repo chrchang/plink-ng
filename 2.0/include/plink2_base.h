@@ -3832,6 +3832,11 @@ HEADER_INLINE void AppendU16(uint16_t usii, unsigned char** targetp) {
   *targetp += sizeof(int16_t);
 }
 
+HEADER_INLINE void CAppendW(uintptr_t ulii, char** targetp) {
+  memcpy_k(*targetp, &ulii, kBytesPerWord);
+  *targetp += kBytesPerWord;
+}
+
 HEADER_INLINE void CAppendU32(uint32_t uii, char** targetp) {
   memcpy_k(*targetp, &uii, sizeof(int32_t));
   *targetp += sizeof(int32_t);

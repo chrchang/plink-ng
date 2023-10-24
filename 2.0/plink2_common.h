@@ -1464,6 +1464,9 @@ uint32_t TriangleDivide(int64_t cur_prod_x2, int32_t modif);
 
 void ParallelBounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t parallel_tot, int32_t* __restrict bound_start_ptr, int32_t* __restrict bound_end_ptr);
 
+// Unsafe since this may write up to 6 bytes past the end.
+void AppendZerotabsUnsafe(uint32_t zerotab_ct, char** cswritep_ptr);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

@@ -282,6 +282,8 @@ uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const
 
 uintptr_t PopcountWordsXor(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct);
 
+// uintptr_t PopcountWordsIntersect3(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, const uintptr_t* __restrict bitvec3_iter, uintptr_t word_ct);
+
 // requires positive word_ct
 // stay agnostic a bit longer re: word_ct := DIV_UP(entry_ct, kBitsPerWord)
 // vs. word_ct := 1 + (entry_ct / kBitsPerWord)

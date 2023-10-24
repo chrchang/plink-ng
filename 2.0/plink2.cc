@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (18 Oct 2023)";
+  " (24 Oct 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -10091,6 +10091,7 @@ int main(int argc, char** argv) {
               pc.vcor_info.min_r2 = 0.2 * (1 - kSmallEpsilon);
             }
           }
+          pc.vcor_info.flags |= S_CAST(VcorFlags, (is_phased * kfVcorPhased) | (is_unsquared * kfVcorUnsquared));
           pc.command_flags1 |= kfCommand1Vcor;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "2"))) {

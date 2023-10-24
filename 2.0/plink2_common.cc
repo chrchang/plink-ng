@@ -4347,6 +4347,18 @@ void ParallelBounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t 
   *bound_end_ptr = TriangleDivide((ct_tot * (parallel_idx + 1)) / parallel_tot, modif);
 }
 
+void AppendZerotabsUnsafe(uint32_t zerotab_ct, char** cswritep_ptr) {
+  // (roughly same performance as creating a zero-tab constant buffer in
+  // advance)
+  const uint32_t word_ct = DivUp(zerotab_ct, kBytesPerWord / 2);
+  const uintptr_t zerotab_word = 0x930 * kMask0001;
+  char* cswritep = *cswritep_ptr;
+  for (uint32_t widx = 0; widx != word_ct; ++widx) {
+    CAppendW(zerotab_word, &cswritep);
+  }
+  *cswritep_ptr = &((*cswritep_ptr)[2 * zerotab_ct]);
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
