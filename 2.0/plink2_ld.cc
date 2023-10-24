@@ -3611,6 +3611,54 @@ uint64_t SDosageAbsDotprod(const SDosage* dphase_delta0, const SDosage* dphase_d
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
 }
+
+uint64_t DosageUnsignedDotprodSubset(const Dosage* dosage_mask_vec, const Dosage* dosage_vec0, const Dosage* dosage_vec1, uint32_t vec_ct) {
+  const __m256i* dosage_mask_iter = R_CAST(const __m256i*, dosage_mask_vec);
+  const __m256i* dosage_vvec0_iter = R_CAST(const __m256i*, dosage_vec0);
+  const __m256i* dosage_vvec1_iter = R_CAST(const __m256i*, dosage_vec1);
+  const __m256i m16 = _mm256_set1_epi64x(kMask0000FFFF);
+  const __m256i all1 = _mm256_cmpeq_epi16(m16, m16);
+  uint64_t dotprod = 0;
+  for (uint32_t vecs_left = vec_ct; ; ) {
+    __m256i dotprod_lo = _mm256_setzero_si256();
+    __m256i dotprod_hi = _mm256_setzero_si256();
+    const __m256i* dosage_vvec0_stop;
+    if (vecs_left < 4096) {
+      if (!vecs_left) {
+        return dotprod;
+      }
+      dosage_vvec0_stop = &(dosage_vvec0_iter[vecs_left]);
+      vecs_left = 0;
+    } else {
+      dosage_vvec0_stop = &(dosage_vvec0_iter[4096]);
+      vecs_left -= 4096;
+    }
+    do {
+      __m256i cur_mask = *dosage_mask_iter++;
+      __m256i dosage0 = *dosage_vvec0_iter++;
+      __m256i dosage1 = *dosage_vvec1_iter++;
+      __m256i invmask = _mm256_cmpeq_epi16(dosage0, all1);
+      invmask = _mm256_or_si256(invmask, _mm256_cmpeq_epi16(dosage1, all1));
+      invmask = _mm256_or_si256(invmask, _mm256_cmpeq_epi16(cur_mask, all1));
+      dosage0 = _mm256_andnot_si256(invmask, dosage0);
+      dosage1 = _mm256_andnot_si256(invmask, dosage1);
+
+      // todo: try rewriting this loop without 256-bit multiplication, to avoid
+      // ~15% universal clock frequency slowdown (128-bit?  sparse?)
+      __m256i lo16 = _mm256_mullo_epi16(dosage0, dosage1);
+      __m256i hi16 = _mm256_mulhi_epu16(dosage0, dosage1);
+      lo16 = _mm256_add_epi64(_mm256_and_si256(lo16, m16), _mm256_and_si256(_mm256_srli_epi64(lo16, 16), m16));
+      hi16 = _mm256_and_si256(_mm256_add_epi64(hi16, _mm256_srli_epi64(hi16, 16)), m16);
+      dotprod_lo = _mm256_add_epi64(dotprod_lo, lo16);
+      dotprod_hi = _mm256_add_epi64(dotprod_hi, hi16);
+    } while (dosage_vvec0_iter < dosage_vvec0_stop);
+    UniVec acc_lo;
+    UniVec acc_hi;
+    acc_lo.vw = R_CAST(VecW, dotprod_lo);
+    acc_hi.vw = R_CAST(VecW, dotprod_hi);
+    dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
+  }
+}
 #  else  // !USE_AVX2
 void FillDosageHet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage_het) {
   const __m128i* dosage_vvec_iter = R_CAST(const __m128i*, dosage_vec);
@@ -3893,11 +3941,57 @@ uint64_t SDosageAbsDotprod(const SDosage* dphase_delta0, const SDosage* dphase_d
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
 }
+
+uint64_t DosageUnsignedDotprodSubset(const Dosage* dosage_mask_vec, const Dosage* dosage_vec0, const Dosage* dosage_vec1, uint32_t vec_ct) {
+  const __m128i* dosage_mask_iter = R_CAST(const __m128i*, dosage_mask_vec);
+  const __m128i* dosage_vvec0_iter = R_CAST(const __m128i*, dosage_vec0);
+  const __m128i* dosage_vvec1_iter = R_CAST(const __m128i*, dosage_vec1);
+  const __m128i m16 = _mm_set1_epi64x(kMask0000FFFF);
+  const __m128i all1 = _mm_cmpeq_epi16(m16, m16);
+  uint64_t dotprod = 0;
+  for (uint32_t vecs_left = vec_ct; ; ) {
+    __m128i dotprod_lo = _mm_setzero_si128();
+    __m128i dotprod_hi = _mm_setzero_si128();
+    const __m128i* dosage_vvec0_stop;
+    if (vecs_left < 8192) {
+      if (!vecs_left) {
+        return dotprod;
+      }
+      dosage_vvec0_stop = &(dosage_vvec0_iter[vecs_left]);
+      vecs_left = 0;
+    } else {
+      dosage_vvec0_stop = &(dosage_vvec0_iter[8192]);
+      vecs_left -= 8192;
+    }
+    do {
+      __m128i cur_mask = *dosage_mask_iter++;
+      __m128i dosage0 = *dosage_vvec0_iter++;
+      __m128i dosage1 = *dosage_vvec1_iter++;
+      __m128i invmask = _mm_cmpeq_epi16(dosage0, all1);
+      invmask = _mm_or_si128(invmask, _mm_cmpeq_epi16(dosage1, all1));
+      invmask = _mm_or_si128(invmask, _mm_cmpeq_epi16(cur_mask, all1));
+      dosage0 = _mm_andnot_si128(invmask, dosage0);
+      dosage1 = _mm_andnot_si128(invmask, dosage1);
+
+      __m128i lo16 = _mm_mullo_epi16(dosage0, dosage1);
+      __m128i hi16 = _mm_mulhi_epu16(dosage0, dosage1);
+      lo16 = _mm_add_epi64(_mm_and_si128(lo16, m16), _mm_and_si128(_mm_srli_epi64(lo16, 16), m16));
+      hi16 = _mm_and_si128(_mm_add_epi64(hi16, _mm_srli_epi64(hi16, 16)), m16);
+      dotprod_lo = _mm_add_epi64(dotprod_lo, lo16);
+      dotprod_hi = _mm_add_epi64(dotprod_hi, hi16);
+    } while (dosage_vvec0_iter < dosage_vvec0_stop);
+    UniVec acc_lo;
+    UniVec acc_hi;
+    acc_lo.vw = R_CAST(VecW, dotprod_lo);
+    acc_hi.vw = R_CAST(VecW, dotprod_hi);
+    dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
+  }
+}
 #  endif  // !USE_AVX2
 #else  // !__LP64__
 void FillDosageHet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage_het) {
-  const uint32_t sample_cta2 = dosagev_ct * 2;
-  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
+  const uint32_t sample_ctav = dosagev_ct * kDosagePerVec;
+  for (uint32_t sample_idx = 0; sample_idx != sample_ctav; ++sample_idx) {
     const uint32_t cur_dosage = dosage_vec[sample_idx];
     uint32_t cur_hetval = cur_dosage;
     if (cur_hetval > 16384) {
@@ -3912,9 +4006,9 @@ void FillDosageHet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage
 }
 
 uint64_t DenseDosageSum(const Dosage* dosage_vec, uint32_t vec_ct) {
-  const uint32_t sample_cta2 = vec_ct * 2;
+  const uint32_t sample_ctav = vec_ct * kDosagePerVec;
   uint64_t sum = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ctav; ++sample_idx) {
     const uint32_t cur_dosage = dosage_vec[sample_idx];
     if (cur_dosage != kDosageMissing) {
       sum += cur_dosage;
@@ -3924,9 +4018,9 @@ uint64_t DenseDosageSum(const Dosage* dosage_vec, uint32_t vec_ct) {
 }
 
 uint64_t DenseDosageSumSubset(const Dosage* dosage_vec, const Dosage* dosage_mask_vec, uint32_t vec_ct) {
-  const uint32_t sample_cta2 = vec_ct * 2;
+  const uint32_t sample_ctav = vec_ct * kDosagePerVec;
   uint64_t sum = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ctav; ++sample_idx) {
     const uint32_t cur_dosage = dosage_vec[sample_idx];
     const uint32_t other_dosage = dosage_mask_vec[sample_idx];
     if ((cur_dosage != kDosageMissing) && (other_dosage != kDosageMissing)) {
@@ -3937,9 +4031,9 @@ uint64_t DenseDosageSumSubset(const Dosage* dosage_vec, const Dosage* dosage_mas
 }
 
 uint64_t DosageUnsignedDotprod(const Dosage* dosage_vec0, const Dosage* dosage_vec1, uint32_t vec_ct) {
-  const uint32_t sample_cta2 = vec_ct * 2;
+  const uint32_t sample_ctav = vec_ct * kDosagePerVec;
   uint64_t dotprod = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ctav; ++sample_idx) {
     const uint32_t cur_dosage0 = dosage_vec0[sample_idx];
     const uint32_t cur_dosage1 = dosage_vec1[sample_idx];
     if ((cur_dosage0 != kDosageMissing) && (cur_dosage1 != kDosageMissing)) {
@@ -3950,9 +4044,9 @@ uint64_t DosageUnsignedDotprod(const Dosage* dosage_vec0, const Dosage* dosage_v
 }
 
 uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* dosage_vec1, uint32_t vec_ct) {
-  const uint32_t sample_cta2 = vec_ct * 2;
+  const uint32_t sample_ctav = vec_ct * kDosagePerVec;
   uint64_t dotprod = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ctav; ++sample_idx) {
     const uint32_t cur_dosage0 = dosage_vec0[sample_idx];
     const uint32_t cur_dosage1 = dosage_vec1[sample_idx];
     dotprod += cur_dosage0 * cur_dosage1;
@@ -3978,6 +4072,20 @@ uint64_t SDosageAbsDotprod(const SDosage* dphase_delta0, const SDosage* dphase_d
     const int32_t cur_diff0 = dphase_delta0[sample_idx];
     const int32_t cur_diff1 = dphase_delta1[sample_idx];
     dotprod += abs_i32(cur_diff0 * cur_diff1);
+  }
+  return dotprod;
+}
+
+uint64_t DosageUnsignedDotprodSubset(const Dosage* dosage_mask_vec, const Dosage* dosage_vec0, const Dosage* dosage_vec1, uint32_t vec_ct) {
+  const uint32_t sample_ctav = vec_ct * kDosagePerVec;
+  uint64_t dotprod = 0;
+  for (uint32_t sample_idx = 0; sample_idx != sample_ctav; ++sample_idx) {
+    const uint32_t cur_dosage_maskval = dosage_mask_vec[sample_idx];
+    const uint32_t cur_dosage0 = dosage_vec0[sample_idx];
+    const uint32_t cur_dosage1 = dosage_vec1[sample_idx];
+    if ((cur_dosage_maskval != kDosageMissing) && (cur_dosage0 != kDosageMissing) && (cur_dosage1 != kDosageMissing)) {
+      dotprod += cur_dosage0 * cur_dosage1;
+    }
   }
   return dotprod;
 }
@@ -4007,20 +4115,6 @@ uint32_t DosageR2Prod(const Dosage* dosage_vec0, const uintptr_t* nm_bitvec0, co
   // could conditionally use dosage_unsigned_nomiss here
   *dosageprod_ptr = DosageUnsignedDotprod(dosage_vec0, dosage_vec1, vec_ct);
   return nm_intersection_ct;
-}
-
-uint64_t DosageUnsignedDotprodSubset(const Dosage* dosage_mask_vec, const Dosage* dosage_vec0, const Dosage* dosage_vec1, uint32_t vec_ct) {
-  const uint32_t sample_cta2 = vec_ct * 2;
-  uint64_t dotprod = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
-    const uint32_t cur_dosage_maskval = dosage_mask_vec[sample_idx];
-    const uint32_t cur_dosage0 = dosage_vec0[sample_idx];
-    const uint32_t cur_dosage1 = dosage_vec1[sample_idx];
-    if ((cur_dosage_maskval != kDosageMissing) && (cur_dosage0 != kDosageMissing) && (cur_dosage1 != kDosageMissing)) {
-      dotprod += cur_dosage0 * cur_dosage1;
-    }
-  }
-  return dotprod;
 }
 
 
@@ -7483,6 +7577,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           if (!founder_nonmale_ct) {
             is_x = 0;
           } else if (!founder_male_ct) {
+            is_x = 0;
             is_haploid = 0;
           }
         }
