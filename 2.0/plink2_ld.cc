@@ -3990,6 +3990,11 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     }
     FillCumulativePopcounts(founder_info, founder_ctl, founder_info_cumulative_popcounts);
     uint32_t use_dosage = ldip->ld_console_flags & kfLdConsoleDosage;
+    if (use_dosage) {
+      logerrputs("Error: Alpha 5 --ld's handling of dosages is incorrect, and has been disabled.\nUse an alpha 6 or later build for this functionality.\n");
+      reterr = kPglRetNotYetSupported;
+      goto LdConsole_ret_1;
+    }
 
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
@@ -4153,9 +4158,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       main_dphase_deltas[0] = nullptr;
       main_dphase_deltas[1] = nullptr;
       if (use_phase) {
-        logerrputs("Error: Alpha 5 --ld's handling of phased dosages is incorrect, and has been\ndisabled.  Use an alpha 6 or later build for this functionality.\n");
-        reterr = kPglRetNotYetSupported;
-        goto LdConsole_ret_1;
+        assert(0);
         if (unlikely(bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[0]) ||
                      bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[1]))) {
           goto LdConsole_ret_NOMEM;
@@ -4579,19 +4582,18 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
 // phased-r^2 computation
 ENUM_U31_DEF_START()
   kR2PhaseTypeUnphased,
-  kR2PhaseTypeHaploid,
   kR2PhaseTypeOmit,
   kR2PhaseTypePresent
 ENUM_U31_DEF_END(R2PhaseType);
 
-static inline R2PhaseType R2PhaseHaploid(R2PhaseType phase_type) {
-  // convert kR2PhaseTypeOmit and kR2PhaseTypePresent to kR2PhaseTypeHaploid,
-  // leave other values unchanged
+static inline R2PhaseType R2PhaseOmit(R2PhaseType phase_type) {
+  // convert kR2PhaseTypePresent to kR2PhaseTypeOmit, leave other values
+  // unchanged
   return S_CAST(R2PhaseType, phase_type != kR2PhaseTypeUnphased);
 }
 
-static inline R2PhaseType GetR2PhaseType(uint32_t phased_r2, uint32_t diploid_or_x, uint32_t phase_present) {
-  return S_CAST(R2PhaseType, phased_r2 * (1 + diploid_or_x * (1 + phase_present)));
+static inline R2PhaseType GetR2PhaseType(uint32_t phased_r2, uint32_t phase_present) {
+  return S_CAST(R2PhaseType, phased_r2 * (1 + phase_present));
 }
 
 // ***** --clump implementation starts here *****
@@ -5037,7 +5039,7 @@ unsigned char* LdUnpackNondosageSubset(const PgenVariant* pgvp, const uintptr_t*
 // (This doesn't work for inter-chr case.)
 void LdUnpackChrXNondosage(const PgenVariant* pgvp, const uintptr_t* founder_male, const uintptr_t* founder_nonmale, uint32_t raw_sample_ct, uint32_t founder_male_ct, uint32_t founder_nonmale_ct, R2PhaseType phase_type, unsigned char* dst_iter, uintptr_t* workspace) {
   // Unpack male data, ignoring phase.
-  dst_iter = LdUnpackNondosageSubset(pgvp, founder_male, raw_sample_ct, founder_male_ct, R2PhaseHaploid(phase_type), dst_iter, workspace);
+  dst_iter = LdUnpackNondosageSubset(pgvp, founder_male, raw_sample_ct, founder_male_ct, R2PhaseOmit(phase_type), dst_iter, workspace);
   // Then unpack nonmale data.
   LdUnpackNondosageSubset(pgvp, founder_nonmale, raw_sample_ct, founder_nonmale_ct, phase_type, dst_iter, workspace);
 }
@@ -5149,7 +5151,7 @@ unsigned char* LdUnpackDosageSubset(const PgenVariant* pgvp, const uintptr_t* sa
 
 void LdUnpackChrXDosage(const PgenVariant* pgvp, const uintptr_t* founder_male, const uint32_t* founder_male_cumulative_popcounts, const uintptr_t* founder_nonmale, const uint32_t* founder_nonmale_cumulative_popcounts, uint32_t raw_sample_ct, uint32_t founder_male_ct, uint32_t founder_nonmale_ct, R2PhaseType phase_type, unsigned char* dst_iter, uintptr_t* workspace) {
   // Unpack male data, ignoring phase.
-  dst_iter = LdUnpackDosageSubset(pgvp, founder_male, founder_male_cumulative_popcounts, raw_sample_ct, founder_male_ct, R2PhaseHaploid(phase_type), dst_iter, workspace);
+  dst_iter = LdUnpackDosageSubset(pgvp, founder_male, founder_male_cumulative_popcounts, raw_sample_ct, founder_male_ct, R2PhaseOmit(phase_type), dst_iter, workspace);
   // Then unpack nonmale data.
   LdUnpackDosageSubset(pgvp, founder_nonmale, founder_nonmale_cumulative_popcounts, raw_sample_ct, founder_nonmale_ct, phase_type, dst_iter, workspace);
 }
@@ -5245,10 +5247,10 @@ void FillR2V(const unsigned char* src_iter, uint32_t sample_ct, R2PhaseType phas
 
 void FillXR2V(const unsigned char* unpacked_variant, uint32_t male_ct, uint32_t nonmale_ct, R2PhaseType phase_type, uint32_t load_dosage, R2Variant* r2vp) {
   if (!load_dosage) {
-    const unsigned char* src_iter = FillR2Nondosage(unpacked_variant, male_ct, R2PhaseHaploid(phase_type), &(r2vp->x_nd[0]));
+    const unsigned char* src_iter = FillR2Nondosage(unpacked_variant, male_ct, R2PhaseOmit(phase_type), &(r2vp->x_nd[0]));
     FillR2Nondosage(src_iter, nonmale_ct, phase_type, &(r2vp->x_nd[1]));
   } else {
-    const unsigned char* src_iter = FillR2Dosage(unpacked_variant, male_ct, R2PhaseHaploid(phase_type), &(r2vp->x_d[0]));
+    const unsigned char* src_iter = FillR2Dosage(unpacked_variant, male_ct, R2PhaseOmit(phase_type), &(r2vp->x_d[0]));
     FillR2Dosage(src_iter, nonmale_ct, phase_type, &(r2vp->x_d[1]));
   }
 }
@@ -5470,13 +5472,10 @@ uint32_t ComputeR2NondosagePhasedStats(const R2NondosageVariant* ndp0, const R2N
   }
   nmajsums_d[0] = u31tod(nmaj_ct0);
   nmajsums_d[1] = u31tod(nmaj_ct1);
-  if (phase_type != kR2PhaseTypeHaploid) {
-    *known_dotprod_d_ptr = S_CAST(double, known_dotprod);
-    *unknown_hethet_d_ptr = u31tod(unknown_hethet_ct);
-  } else {
-    *known_dotprod_d_ptr = S_CAST(double, known_dotprod) + S_CAST(double, unknown_hethet_ct) * 0.5;
-    *unknown_hethet_d_ptr = 0.0;
-  }
+  // bugfix (26 Oct 2023): unknown_hethet treatment shouldn't actually change
+  // in haploid case
+  *known_dotprod_d_ptr = S_CAST(double, known_dotprod);
+  *unknown_hethet_d_ptr = u31tod(unknown_hethet_ct);
   return valid_obs_ct;
 }
 
@@ -5525,14 +5524,11 @@ uint32_t ComputeR2DosagePhasedStats(const R2DosageVariant* dp0, const R2DosageVa
   const uint32_t sample_dosagev_ct = DivUp(sample_ct, kDosagePerVec);
   const Dosage* dosage_uhet0 = dp0->dosage_uhet;
   const Dosage* dosage_uhet1 = dp1->dosage_uhet;
-  uint64_t uhethet_dosageprod = 0;
-  if (phase_type != kR2PhaseTypeHaploid) {
-    uhethet_dosageprod = DosageUnsignedNomissDotprod(dosage_uhet0, dosage_uhet1, sample_dosagev_ct);
-    if ((phase_type == kR2PhaseTypePresent) && (uhethet_dosageprod != 0)) {
-      const SDosage* dphase_delta0 = dp0->dense_dphase_delta;
-      const SDosage* dphase_delta1 = dp1->dense_dphase_delta;
-      dosageprod = S_CAST(int64_t, dosageprod) + DosageSignedDotprod(dphase_delta0, dphase_delta1, sample_dosagev_ct);
-    }
+  uint64_t uhethet_dosageprod = DosageUnsignedNomissDotprod(dosage_uhet0, dosage_uhet1, sample_dosagev_ct);
+  if ((phase_type == kR2PhaseTypePresent) && (uhethet_dosageprod != 0)) {
+    const SDosage* dphase_delta0 = dp0->dense_dphase_delta;
+    const SDosage* dphase_delta1 = dp1->dense_dphase_delta;
+    dosageprod = S_CAST(int64_t, dosageprod) + DosageSignedDotprod(dphase_delta0, dphase_delta1, sample_dosagev_ct);
   }
   nmajsums_d[0] = u63tod(nmaj_dosages[0]) * kRecipDosageMid;
   nmajsums_d[1] = u63tod(nmaj_dosages[1]) * kRecipDosageMid;
@@ -5665,7 +5661,7 @@ double ComputeTwoPartXR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_
       return cov01 * cov01 / variance_prod;
     }
     double ignore;
-    male_obs_ct = ComputeR2NondosagePhasedStats(male_vp0, male_vp1, male_ct, R2PhaseHaploid(phase_type), nmajsums_d, &known_dotprod_d, &ignore);
+    male_obs_ct = ComputeR2NondosagePhasedStats(male_vp0, male_vp1, male_ct, R2PhaseOmit(phase_type), nmajsums_d, &known_dotprod_d, &ignore);
     nonmale_obs_ct = ComputeR2NondosagePhasedStats(nonmale_vp0, nonmale_vp1, nonmale_ct, phase_type, nonmale_nmajsums_d, &nonmale_known_dotprod_d, &nonmale_unknown_hethet_d);
   } else {
     const R2DosageVariant* male_vp0 = &(r2vp0->x_d[0]);
@@ -5697,7 +5693,8 @@ double ComputeTwoPartXR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_
       if (nonmale_obs_ct) {
         nmaj_dosages[0] += 2 * nonmale_nmaj_dosages[0];
         nmaj_dosages[1] += 2 * nonmale_nmaj_dosages[1];
-        dosageprod = 2 * nonmale_dosageprod;
+        // bugfix (27 Oct 2023)
+        dosageprod += 2 * nonmale_dosageprod;
         ssq0 += 2 * nonmale_ssq0;
         ssq1 += 2 * nonmale_ssq1;
       }
@@ -5711,7 +5708,7 @@ double ComputeTwoPartXR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_
       return cov01 * cov01 / variance_prod;
     }
     double ignore;
-    male_obs_ct = ComputeR2DosagePhasedStats(male_vp0, male_vp1, male_ct, R2PhaseHaploid(phase_type), nmajsums_d, &known_dotprod_d, &ignore);
+    male_obs_ct = ComputeR2DosagePhasedStats(male_vp0, male_vp1, male_ct, R2PhaseOmit(phase_type), nmajsums_d, &known_dotprod_d, &ignore);
     nonmale_obs_ct = ComputeR2DosagePhasedStats(nonmale_vp0, nonmale_vp1, nonmale_ct, phase_type, nonmale_nmajsums_d, &nonmale_known_dotprod_d, &nonmale_unknown_hethet_d);
   }
   const uint32_t weighted_obs_ct = male_obs_ct + 2 * nonmale_obs_ct;
@@ -6691,7 +6688,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     uintptr_t nonxy_unpacked_byte_stride;
     if (check_dosage) {
       if (phased_r2) {
-        logerrputs("Error: Alpha 5 --clump's handling of phased dosages is incorrect, and has been\ndisabled.  Use an alpha 6 or later build for this functionality.\n");
+        logerrputs("Error: Alpha 5 --clump's handling of dosages when computing phased-r^2 is\nincorrect, and has been disabled.  Either use an alpha 6 or later build for\nthat functionality, or use --clump-unphased to clump on unphased-r^2.\n");
         reterr = kPglRetNotYetSupported;
         goto ClumpReports_ret_1;
       }
@@ -6911,7 +6908,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       uint32_t relevant_phase_exists = 0;
       uint32_t load_dosage = 0;
       ScanPhaseDosage(observed_variants, pgfip, vidx_start, vidx_end, check_phase && ((!is_haploid) || is_x), check_dosage, &relevant_phase_exists, &load_dosage);
-      R2PhaseType phase_type = GetR2PhaseType(phased_r2, (!is_haploid) || is_x, relevant_phase_exists);
+      R2PhaseType phase_type = GetR2PhaseType(phased_r2, relevant_phase_exists);
       ctx.is_x = is_x;
       ctx.is_y = is_y;
       ctx.igroup_oaidx_start = oaidx_start;
@@ -6940,7 +6937,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           uint32_t ext_relevant_phase_exists = relevant_phase_exists;
           uint32_t ext_load_dosage = load_dosage;
           ScanPhaseDosage(observed_variants, pgfip, next_vidx_start, next_vidx_end, check_phase && ((!is_haploid) || is_x), check_dosage, &ext_relevant_phase_exists, &ext_load_dosage);
-          const R2PhaseType ext_phase_type = GetR2PhaseType(phased_r2, (!is_haploid) || is_x, ext_relevant_phase_exists);
+          const R2PhaseType ext_phase_type = GetR2PhaseType(phased_r2, ext_relevant_phase_exists);
           const uintptr_t ext_candidate_ct = candidate_ct + next_oaidx_end - next_oaidx_start;
           const uint64_t ext_unpacked_variant_byte_stride = UnpackedByteStride(&ctx, ext_phase_type, ext_load_dosage);
           const uintptr_t ext_high_multiread_byte_target = MAXV(RoundUpPow2((ext_candidate_ct + calc_thread_ct) * sizeof(intptr_t), 2 * kCacheline) / 2, multiread_byte_target);
