@@ -4,4 +4,5 @@ plink.*
 plink_subset.*
 subset.id
 tmp_data.*
+tmp_data2.*
 last_two.txt
