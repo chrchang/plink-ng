@@ -6005,9 +6005,12 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     uintptr_t* observed_alleles;
     uintptr_t* observed_alleles_cumulative_popcounts_w;
     double* best_ln_pvals;
+    // bugfix (29 Oct 2023): there are RawToSubsettedPosW(observed_alleles,
+    // observed_alleles_cumulative_popcounts_w, x) calls with x =
+    // raw_allele_ct.  In this case, we may need one more entry.
     if (unlikely(bigstack_calloc_w(raw_variant_ctl, &observed_variants) ||
                  bigstack_calloc_w(raw_allele_ctl, &observed_alleles) ||
-                 bigstack_alloc_w(raw_allele_ctl, &observed_alleles_cumulative_popcounts_w) ||
+                 bigstack_alloc_w(1 + (raw_allele_ct / kBitsPerWord), &observed_alleles_cumulative_popcounts_w) ||
                  bigstack_end_calloc_d(raw_allele_ct, &best_ln_pvals))) {
       goto ClumpReports_ret_NOMEM;
     }
@@ -6315,6 +6318,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
 
     FillCumulativePopcountsW(observed_alleles, raw_allele_ctl, observed_alleles_cumulative_popcounts_w);
     const uintptr_t observed_allele_ct = observed_alleles_cumulative_popcounts_w[raw_allele_ctl - 1] + PopcountWord(observed_alleles[raw_allele_ctl - 1]);
+    if ((raw_allele_ct % kBitsPerWord) == 0) {
+      observed_alleles_cumulative_popcounts_w[raw_allele_ctl] = observed_allele_ct;
+    }
     const uint32_t output_zst = (flags / kfClumpZs) & 1;
     // Now we have efficient (variant_uidx, aidx) -> oaidx lookup.
     // Free some memory by compacting the information in best_ln_pvals, etc. to
