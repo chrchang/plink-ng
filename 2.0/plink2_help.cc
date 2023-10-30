@@ -2462,10 +2462,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                         * '2' = within each window, scan backwards (faster)\n"
               );
     HelpPrint("ld-window\0ld-window-kb\0ld-window-cm\0ld-window-r2\0r-phased\0r-unphased\0r2-phased\0r2-unphased\0r\0r2\0", &help_ctrl, 0,
-"  --ld-window <#var+1> : Restrict --r[2]-[un]phased max variant-ct distance.\n"
+"  --ld-window <#var+1> : Limit --r[2]-[un]phased variant-ct distance.\n"
 "  --ld-window-kb <#kb> : Change tabular --r[2]-[un]phased max kb distance\n"
 "                         (default 1000).\n"
-"  --ld-window-cm <#cm> : Restrict --r[2]-[un]phased max centimorgan distance.\n"
+"  --ld-window-cm <#cm> : Limit --r[2]-[un]phased centimorgan distance.\n"
               );
     HelpPrint("ld-window-r2\0r-phased\0r-unphased\0r2-phased\0r2-unphased\0r\0r2\0", &help_ctrl, 0,
 "  --ld-window-r2 <min> : Change tabular --r[2]-[un]phased minimum r^2 (default\n"
