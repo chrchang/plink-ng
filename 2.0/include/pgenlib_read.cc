@@ -408,7 +408,9 @@ double BiallelicDiploidMinimac3R2(uint64_t alt1_dosage, uint64_t hap_alt1_ssq_x2
 // These two functions do not overread, but may write extra bytes up to the
 // word boundary.
 // They are likely to be moved to plink2_bits.
-void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_nyp_ct, uint32_t incr, void* __restrict dst_vec) {
+// bugfix (30 Oct 2023): given how we use this function, we have to drop the
+// vector-alignment requirement for dst.
+void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_nyp_ct, uint32_t incr, void* __restrict dst) {
   // Tried adding incr == 0 fast path, negligible performance difference in
   // benchmark.
   // GenoarrLookup256x1bx4 takes ~3-4x as long.
@@ -416,7 +418,7 @@ void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_nyp_ct, uint32
 #ifdef USE_SSE2
   const unsigned char* src_iter = S_CAST(const unsigned char*, bytearr);
   const uint32_t input_vec_ct = input_byte_ct / kBytesPerVec;
-  VecW* dst_iter = S_CAST(VecW*, dst_vec);
+  uintptr_t* dst_iter = S_CAST(uintptr_t*, dst);
   if (input_vec_ct) {
     const VecW mincr = VecUcToW(vecuc_set1(incr));
     const VecW m03 = VCONST_W(kMask0303);
@@ -490,12 +492,16 @@ void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_nyp_ct, uint32
       // SSE2:
       //   vecw_unpacklo8() contains {0, 1, ..., 15}
       //   vecw_unpachhi8() contains {16, 17, ..., 31}
-      *dst_iter++ = mincr + vecw_unpacklo8(vec01_even, vec01_odd);
-      *dst_iter++ = mincr + vecw_unpackhi8(vec01_even, vec01_odd);
+      vecw_storeu(dst_iter, mincr + vecw_unpacklo8(vec01_even, vec01_odd));
+      dst_iter = &(dst_iter[kWordsPerVec]);
+      vecw_storeu(dst_iter, mincr + vecw_unpackhi8(vec01_even, vec01_odd));
+      dst_iter = &(dst_iter[kWordsPerVec]);
       const VecW vec23_odd = vecw_srli(vec23, 2) & m03;
       const VecW vec23_even = vec23 & m03;
-      *dst_iter++ = mincr + vecw_unpacklo8(vec23_even, vec23_odd);
-      *dst_iter++ = mincr + vecw_unpackhi8(vec23_even, vec23_odd);
+      vecw_storeu(dst_iter, mincr + vecw_unpacklo8(vec23_even, vec23_odd));
+      dst_iter = &(dst_iter[kWordsPerVec]);
+      vecw_storeu(dst_iter, mincr + vecw_unpackhi8(vec23_even, vec23_odd));
+      dst_iter = &(dst_iter[kWordsPerVec]);
     }
   }
   input_byte_ct = input_byte_ct % kBytesPerVec;
@@ -503,10 +509,10 @@ void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_nyp_ct, uint32
     return;
   }
   const unsigned char* src_uc = src_iter;
-  uintptr_t* dstw = DowncastVecWToW(dst_iter);
+  uintptr_t* dstw = dst_iter;
 #else  // !USE_SSE2
   const unsigned char* src_uc = S_CAST(const unsigned char*, bytearr);
-  uintptr_t* dstw = S_CAST(uintptr_t*, dst_vec);
+  uintptr_t* dstw = S_CAST(uintptr_t*, dst);
 #endif
   const uint32_t full_qw_ct = input_byte_ct / sizeof(Quarterword);
   const uintptr_t incr_word = kMask0101 * incr;
@@ -529,14 +535,14 @@ void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_nyp_ct, uint32
 #endif
 }
 
-void Expand4bitTo8(const void* __restrict bytearr, uint32_t input_nybble_ct, uint32_t incr, void* __restrict dst_vec) {
+void Expand4bitTo8(const void* __restrict bytearr, uint32_t input_nybble_ct, uint32_t incr, void* __restrict dst) {
   // Tried adding incr == 0 fast path, negligible performance difference in
   // benchmark.
 #ifdef USE_SSE2
   uint32_t input_byte_ct = DivUp(input_nybble_ct, 2);
   const unsigned char* src_iter = S_CAST(const unsigned char*, bytearr);
   const uint32_t input_vec_ct = input_byte_ct / kBytesPerVec;
-  VecW* dst_iter = S_CAST(VecW*, dst_vec);
+  uintptr_t* dst_iter = S_CAST(uintptr_t*, dst);
   if (input_vec_ct) {
     const VecW mincr = VecUcToW(vecuc_set1(incr));
     const VecW m4 = VCONST_W(kMask0F0F);
@@ -563,8 +569,10 @@ void Expand4bitTo8(const void* __restrict bytearr, uint32_t input_nybble_ct, uin
       //   vec_hi contains {16, 17, 18, ..., 31}
       const VecW vec_lo = vecw_unpacklo8(vec_even, vec_odd);
       const VecW vec_hi = vecw_unpackhi8(vec_even, vec_odd);
-      *dst_iter++ = mincr + vec_lo;
-      *dst_iter++ = mincr + vec_hi;
+      vecw_storeu(dst_iter, mincr + vec_lo);
+      dst_iter = &(dst_iter[kWordsPerVec]);
+      vecw_storeu(dst_iter, mincr + vec_hi);
+      dst_iter = &(dst_iter[kWordsPerVec]);
     }
   }
   input_byte_ct = input_byte_ct % kBytesPerVec;
@@ -572,13 +580,13 @@ void Expand4bitTo8(const void* __restrict bytearr, uint32_t input_nybble_ct, uin
     return;
   }
   const unsigned char* src_uc = src_iter;
-  uintptr_t* dstw = DowncastVecWToW(dst_iter);
+  uintptr_t* dstw = dst_iter;
 #else
   if (!input_nybble_ct) {
     return;
   }
   const unsigned char* src_uc = S_CAST(const unsigned char*, bytearr);
-  uintptr_t* dstw = S_CAST(uintptr_t*, dst_vec);
+  uintptr_t* dstw = S_CAST(uintptr_t*, dst);
   const uint32_t input_byte_ct = DivUp(input_nybble_ct, 2);
 #endif
   const uint32_t hw_ct_m1 = (input_byte_ct - 1) / sizeof(Halfword);
