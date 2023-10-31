@@ -299,9 +299,9 @@ void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative
 
 // These functions do not overread, but may write extra bytes up to the word
 // boundary.
-void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst_vec);
+void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst);
 
-void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst_vec);
+void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst);
 
 
 // might rename this to IsSet01 (guaranteeing 0/1 return value), and change

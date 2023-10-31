@@ -1861,7 +1861,7 @@ void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative
   }
 }
 
-void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst_vec) {
+void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst) {
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
   const uint32_t input_bit_ct_plus = input_bit_ct + kBytesPerWord - 1;
 #if defined(USE_SHUFFLE8) && !defined(NO_UNALIGNED)
@@ -1879,7 +1879,7 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32
 #  endif
     const VecUc all1 = vecuc_set1(255);
     const VecUc subfrom = vecuc_set1(incr);
-    VecUc* dst_alias = S_CAST(VecUc*, dst_vec);
+    VecUc* dst_alias = S_CAST(VecUc*, dst);
     for (uint32_t vec_idx = 0; vec_idx != fullvec_ct; ++vec_idx) {
 #  ifdef USE_AVX2
       VecUc vmask = VecToUc(_mm256_set1_epi32(bytearr_alias[vec_idx]));
@@ -1895,7 +1895,7 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32
     byte_idx = fullvec_ct * (kBytesPerVec / 8);
   }
   const uintptr_t incr_word = incr * kMask0101;
-  uintptr_t* dst_w = S_CAST(uintptr_t*, dst_vec);
+  uintptr_t* dst_w = S_CAST(uintptr_t*, dst);
   for (; byte_idx != input_byte_ct; ++byte_idx) {
     const uintptr_t input_byte = bytearr_uc[byte_idx];
 #  ifdef USE_AVX2
@@ -1907,7 +1907,7 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32
   }
 #else // NO_UNALIGNED || (!USE_SSE42)
   const uintptr_t incr_word = incr * kMask0101;
-  uintptr_t* dst_w = S_CAST(uintptr_t*, dst_vec);
+  uintptr_t* dst_w = S_CAST(uintptr_t*, dst);
 #  ifdef __LP64__
   const uint32_t input_byte_ct = input_bit_ct_plus / 8;
   for (uint32_t uii = 0; uii != input_byte_ct; ++uii) {
@@ -1948,7 +1948,7 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32
 #endif
 }
 
-void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst_vec) {
+void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, void* __restrict dst) {
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
 #if defined(USE_SHUFFLE8) && (!(defined(USE_AVX2) && defined(NO_UNALIGNED)))
   const uint32_t input_nybble_ct = DivUp(input_bit_ct, 4);
@@ -1964,7 +1964,7 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
 #  endif
     const VecU16 all1 = VCONST_S(0xffff);
     const VecU16 subfrom = vecu16_set1(incr);
-    VecU16* dst_alias = S_CAST(VecU16*, dst_vec);
+    VecU16* dst_alias = S_CAST(VecU16*, dst);
     // todo: check whether this is actually any better than the non-vectorized
     // loop
     for (uint32_t vec_idx = 0; vec_idx != fullvec_ct; ++vec_idx) {
@@ -1983,7 +1983,7 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
   }
   const uintptr_t incr_word = incr * kMask0001;
   const uint32_t fullbyte_ct = input_nybble_ct / 2;
-  uintptr_t* dst_w = S_CAST(uintptr_t*, dst_vec);
+  uintptr_t* dst_w = S_CAST(uintptr_t*, dst);
   for (; byte_idx != fullbyte_ct; ++byte_idx) {
     const uintptr_t input_byte = bytearr_uc[byte_idx];
     const uintptr_t input_byte_scatter = input_byte * 0x200040008001LLU;
@@ -1999,7 +1999,7 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
   }
 #else // (!USE_SHUFFLE8) || (NO_UNALIGNED && USE_AVX2)
   const uintptr_t incr_word = incr * kMask0001;
-  uintptr_t* dst_w = S_CAST(uintptr_t*, dst_vec);
+  uintptr_t* dst_w = S_CAST(uintptr_t*, dst);
 #  ifdef __LP64__
   const uint32_t input_nybble_ct = DivUp(input_bit_ct, 4);
   const uint32_t fullbyte_ct = input_nybble_ct / 2;
@@ -2029,7 +2029,7 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
   const uint32_t remainder = input_bit_ct % 8;
   if (remainder) {
     uintptr_t input_byte = bytearr_uc[fullbyte_ct];
-    uint16_t* dst_u16 = S_CAST(uint16_t*, dst_vec);
+    uint16_t* dst_u16 = S_CAST(uint16_t*, dst);
     uint16_t* dst_u16_last = &(dst_u16[8 * fullbyte_ct]);
     for (uint32_t uii = 0; uii < remainder; ++uii) {
       dst_u16_last[uii] = (input_byte & 1) + incr;

@@ -6875,8 +6875,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     uintptr_t* observed_alleles_cumulative_popcounts_w;
     double* best_ln_pvals;
     // bugfix (29 Oct 2023): there are RawToSubsettedPosW(observed_alleles,
-    // observed_allele_cumulative_popcounts_w, x) calls with x = raw_allele_ct.
-    // In this case, we may need one more entry.
+    // observed_alleles_cumulative_popcounts_w, x) calls with x =
+    // raw_allele_ct.  In this case, we may need one more entry.
     if (unlikely(bigstack_calloc_w(raw_variant_ctl, &observed_variants) ||
                  bigstack_calloc_w(raw_allele_ctl, &observed_alleles) ||
                  bigstack_alloc_w(1 + (raw_allele_ct / kBitsPerWord), &observed_alleles_cumulative_popcounts_w) ||
@@ -7869,8 +7869,6 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
             multiread_allele_idx_end = 2 * multiread_vidx_end;
           }
           const uintptr_t multiread_oaidx_start = RawToSubsettedPosW(observed_alleles, observed_alleles_cumulative_popcounts_w, multiread_allele_idx_start);
-          // bugfix (29 Oct 2023): this was unsafe if multiread_allele_idx_end
-          // == raw_allele_ct and the latter is a multiple of kBitsPerWord.
           const uintptr_t multiread_oaidx_end = RawToSubsettedPosW(observed_alleles, observed_alleles_cumulative_popcounts_w, multiread_allele_idx_end);
           FillWStarts(calc_thread_ct, multiread_oaidx_start, multiread_oaidx_end - multiread_oaidx_start, ctx.a[parity].oaidx_starts);
           ctx.a[parity].oaidx_starts[calc_thread_ct] = multiread_oaidx_end;
