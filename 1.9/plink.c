@@ -105,10 +105,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (18 Oct 2023)";
+  " (5 Nov 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   " " // (don't want this when version number has two trailing digits)
 #else
@@ -9897,6 +9897,10 @@ int32_t main(int32_t argc, char** argv) {
 	if ((load_params & (LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OX_ALL)) || load_rare) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
+        if (!(load_params & LOAD_PARAMS_MAP)) {
+          logerrprint("Error: --ped must be used with --map (or --file).\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        }
 	load_params |= LOAD_PARAMS_PED;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
