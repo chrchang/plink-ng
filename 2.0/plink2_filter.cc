@@ -200,42 +200,33 @@ PglErr SnpFlag(const uint32_t* variant_bps, const char* const* variant_ids, cons
   return reterr;
 }
 
-PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const RangeList* snps_range_list_ptr, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
-  unsigned char* bigstack_mark = g_bigstack_base;
+PglErr InterpretVariantRangeList(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const RangeList* snps_range_list_ptr, const char* flagname, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* seen_uidxs) {
   PglErr reterr = kPglRetSuccess;
   {
-    if (!(*variant_ct_ptr)) {
-      goto SnpsFlag_ret_1;
-    }
     const char* varid_strbox = snps_range_list_ptr->names;
     const unsigned char* starts_range = snps_range_list_ptr->starts_range;
     const uint32_t varid_ct = snps_range_list_ptr->name_ct;
     const uintptr_t varid_max_blen = snps_range_list_ptr->name_max_blen;
-    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    uintptr_t* seen_uidxs;
-    if (unlikely(bigstack_calloc_w(raw_variant_ctl, &seen_uidxs))) {
-      goto SnpsFlag_ret_NOMEM;
-    }
     uint32_t range_start_vidx = UINT32_MAX;
     for (uint32_t varid_idx = 0; varid_idx != varid_ct; ++varid_idx) {
       const char* cur_varid = &(varid_strbox[varid_idx * varid_max_blen]);
       uint32_t cur_llidx;
       uint32_t variant_uidx = VariantIdDupHtableFind(cur_varid, variant_ids, variant_id_htable, htable_dup_base, strlen(cur_varid), variant_id_htable_size, max_variant_id_slen, &cur_llidx);
       if (unlikely(variant_uidx == UINT32_MAX)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: --%ssnps variant '%s' not found.\n", do_exclude? "exclude-" : "", cur_varid);
-        goto SnpsFlag_ret_INCONSISTENT_INPUT_WW;
+        snprintf(g_logbuf, kLogbufSize, "Error: %s variant '%s' not found.\n", flagname, cur_varid);
+        goto InterpretVariantRangeList_ret_INCONSISTENT_INPUT_WW;
       }
       if (starts_range[varid_idx]) {
         if (unlikely(cur_llidx != UINT32_MAX)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: --%ssnps range-starting variant ID '%s' appears multiple times.\n", do_exclude? "exclude-" : "", cur_varid);
-          goto SnpsFlag_ret_INCONSISTENT_INPUT_WW;
+          snprintf(g_logbuf, kLogbufSize, "Error: %s range-starting variant ID '%s' appears multiple times.\n", flagname, cur_varid);
+          goto InterpretVariantRangeList_ret_INCONSISTENT_INPUT_WW;
         }
         range_start_vidx = variant_uidx;
       } else {
         if (range_start_vidx != UINT32_MAX) {
           if (unlikely(cur_llidx != UINT32_MAX)) {
-            snprintf(g_logbuf, kLogbufSize, "Error: --%ssnps range-ending variant ID '%s' appears multiple times.\n", do_exclude? "exclude-" : "", cur_varid);
-            goto SnpsFlag_ret_INCONSISTENT_INPUT_WW;
+            snprintf(g_logbuf, kLogbufSize, "Error: %s range-ending variant ID '%s' appears multiple times.\n", flagname, cur_varid);
+            goto InterpretVariantRangeList_ret_INCONSISTENT_INPUT_WW;
           }
           if (variant_uidx < range_start_vidx) {
             const uint32_t uii = variant_uidx;
@@ -255,6 +246,33 @@ PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htabl
         range_start_vidx = UINT32_MAX;
       }
     }
+  }
+  while (0) {
+  InterpretVariantRangeList_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+  return reterr;
+}
+
+PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const RangeList* snps_range_list_ptr, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    if (!(*variant_ct_ptr)) {
+      goto SnpsFlag_ret_1;
+    }
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* seen_uidxs;
+    if (unlikely(bigstack_calloc_w(raw_variant_ctl, &seen_uidxs))) {
+      goto SnpsFlag_ret_NOMEM;
+    }
+    reterr = InterpretVariantRangeList(variant_ids, variant_id_htable, htable_dup_base, snps_range_list_ptr, do_exclude? "--exclude-snps" : "--snps", max_variant_id_slen, variant_id_htable_size, seen_uidxs);
+    if (unlikely(reterr)) {
+      goto SnpsFlag_ret_1;
+    }
     if (do_exclude) {
       BitvecInvmask(seen_uidxs, raw_variant_ctl, variant_include);
     } else {
@@ -267,11 +285,6 @@ PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htabl
   while (0) {
   SnpsFlag_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  SnpsFlag_ret_INCONSISTENT_INPUT_WW:
-    WordWrapB(0);
-    logerrputsb();
-    reterr = kPglRetInconsistentInput;
     break;
   }
  SnpsFlag_ret_1:
@@ -336,9 +349,8 @@ THREAD_FUNC_DECL ExtractExcludeThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, const char* flagname, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  const char* vft_name = g_vft_names[vft];
   const char* fname_tks = nullptr;
   PglErr reterr = kPglRetSuccess;
   TokenStream tks;
@@ -427,7 +439,7 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
       BitvecAnd(ctx.already_seens[0], raw_variant_ctl, variant_include);
     }
     const uint32_t new_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
-    logprintf("--%s: %u variant%s remaining.\n", vft_name, new_variant_ct, (new_variant_ct == 1)? "" : "s");
+    logprintf("--%s: %u variant%s remaining.\n", flagname, new_variant_ct, (new_variant_ct == 1)? "" : "s");
     *variant_ct_ptr = new_variant_ct;
   }
   while (0) {

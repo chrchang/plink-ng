@@ -7912,9 +7912,8 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       if (unlikely((l_shared < 24) || (chrom >= contig_string_idx_end) || (n_sample != sample_ct))) {
         goto BcfToPgen_ret_VREC_GENERIC;
       }
-      const uint32_t contig_slen = contig_slens[chrom];
       const uint64_t second_load_size = l_shared + S_CAST(uint64_t, l_indiv) - 24;
-      if (unlikely((!contig_slen) || (second_load_size > loadbuf_size))) {
+      if (unlikely(second_load_size > loadbuf_size)) {
         goto BcfToPgen_ret_NOMEM;
       }
       if (second_load_size > loadbuf_size_needed) {
@@ -7939,6 +7938,12 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           continue;
         }
       } else if (!require_gt) {
+        const uint32_t contig_slen = contig_slens[chrom];
+        if (unlikely(!contig_slen)) {
+          putc_unlocked('\n', stdout);
+          logerrputs("Error: Empty contig ID in --bcf file.");
+          goto BcfToPgen_ret_MALFORMED_INPUT;
+        }
         // Don't want to mutate cip in require_gt case until we know the contig
         // is being kept.
         uint32_t cur_chr_code;

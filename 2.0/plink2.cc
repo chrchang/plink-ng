@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (30 Oct 2023)";
+  " (20 Nov 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1348,19 +1348,19 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractBed0 | kfFilterExtractBed1)))) {
-          reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->extract_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExtract, pcp->max_thread_ct, variant_include, &variant_ct);
+          reterr = TokenExtractExclude(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->extract_fnames, "extract", raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExtract, pcp->max_thread_ct, variant_include, &variant_ct);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
         }
         if (pcp->extract_intersect_fnames && (!(pcp->filter_flags & (kfFilterExtractIntersectBed0 | kfFilterExtractIntersectBed1)))) {
-          reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->extract_intersect_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExtractIntersect, pcp->max_thread_ct, variant_include, &variant_ct);
+          reterr = TokenExtractExclude(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->extract_intersect_fnames, "extract-intersect", raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExtractIntersect, pcp->max_thread_ct, variant_include, &variant_ct);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
         }
         if (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeBed0 | kfFilterExcludeBed1)))) {
-          reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->exclude_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExclude, pcp->max_thread_ct, variant_include, &variant_ct);
+          reterr = TokenExtractExclude(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->exclude_fnames, "exclude", raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExclude, pcp->max_thread_ct, variant_include, &variant_ct);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -7218,12 +7218,20 @@ int main(int argc, char** argv) {
           pc.vcor_info.ld_snp_range_list.starts_range = R_CAST(unsigned char*, &(new_buf[variant_id_blen]));
           r2_required = 1;
         } else if (strequal_k_unsafe(flagname_p2, "d-snps")) {
+          if (unlikely(pc.vcor_info.ld_snp_list_fname || pc.vcor_info.ld_snp_range_list.name_ct)) {
+            logerrputs("Error: --ld-snps cannot be used with --ld-snp or --ld-snp-list.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           reterr = ParseNameRanges(&(argvk[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.vcor_info.ld_snp_range_list);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
           r2_required = 1;
         } else if (strequal_k_unsafe(flagname_p2, "d-snp-list")) {
+          if (unlikely(pc.vcor_info.ld_snp_range_list.name_ct)) {
+            logerrputs("Error: --ld-snp-list cannot be used with --ld-snp.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -10069,7 +10077,7 @@ int main(int argc, char** argv) {
           const uint32_t must_matrix = (pc.vcor_info.flags & (kfVcorBin8 | kfVcorBin4 | kfVcorMatrixShapemask));
           const uint32_t must_all_pairs = must_matrix || (pc.vcor_info.flags & kfVcorInterChr);
           if (must_all_pairs) {
-            if (unlikely((pc.vcor_info.var_ct_radius != UINT32_MAX) || (pc.vcor_info.bp_radius != UINT32_MAX) || (pc.vcor_info.cm_radius != -1.0))) {
+            if (unlikely((pc.vcor_info.var_ct_radius != 0x7fffffff) || (pc.vcor_info.bp_radius != UINT32_MAX) || (pc.vcor_info.cm_radius != -1.0))) {
               snprintf(g_logbuf, kLogbufSize, "Error: All-pairs --%s settings cannot be used with --ld-window/--ld-window-kb/--ld-window-cm.\n", flagname_p);
               goto main_ret_INVALID_CMDLINE_WWA;
             }

@@ -1010,9 +1010,9 @@ HEADER_INLINE void Vcount0Incr2To4(uint32_t acc2_vec_ct, VecW* acc2_iter, VecW* 
 HEADER_INLINE uint32_t CountChrVariantsUnsafe(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t chr_idx) {
   assert(IsSet(cip->chr_mask, chr_idx));
   const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
-  const uint32_t min_idx = cip->chr_fo_vidx_start[chr_fo_idx];
-  const uint32_t max_idx = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-  return PopcountBitRange(variant_include, min_idx, max_idx);
+  const uint32_t start_vidx = cip->chr_fo_vidx_start[chr_fo_idx];
+  const uint32_t end_vidx = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+  return PopcountBitRange(variant_include, start_vidx, end_vidx);
 }
 
 HEADER_INLINE uint32_t ChrIsNonempty(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t chr_idx) {
@@ -1020,9 +1020,9 @@ HEADER_INLINE uint32_t ChrIsNonempty(const uintptr_t* variant_include, const Chr
     return 0;
   }
   const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
-  const uint32_t min_idx = cip->chr_fo_vidx_start[chr_fo_idx];
-  const uint32_t max_idx = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-  return !AllBitsAreZero(variant_include, min_idx, max_idx);
+  const uint32_t start_vidx = cip->chr_fo_vidx_start[chr_fo_idx];
+  const uint32_t end_vidx = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+  return !AllBitsAreZero(variant_include, start_vidx, end_vidx);
 }
 
 HEADER_INLINE uint32_t XymtIsNonempty(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t xymt_offset) {

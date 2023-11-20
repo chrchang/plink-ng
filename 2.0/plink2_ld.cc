@@ -79,9 +79,9 @@ void InitVcor(VcorInfo* vcip) {
   // the radius filters.
   // Unfortunately, --ld-window... flags are parsed before --r[2]-[un]phased,
   // so directly initializing bp_radius and min_r2 to default values doesn't
-  // work out cleanly.  Instead, we initialize these to out-of-range values,
-  // and fill in defaults during --r[2]-[un]phased parsing.
-  vcip->var_ct_radius = UINT32_MAX;
+  // work out cleanly.  Instead, we initialize them to out-of-range values, and
+  // fill in defaults during --r[2]-[un]phased parsing.
+  vcip->var_ct_radius = 0x7fffffff; // avoids overflows UINT32_MAX would have
   vcip->bp_radius = UINT32_MAX;
   vcip->cm_radius = -1.0;
   vcip->min_r2 = 2.0;
@@ -94,7 +94,7 @@ void CleanupVcor(VcorInfo* vcip) {
 }
 
 // Move to plink2_common if any users outside plink2_ld.
-const uintptr_t* StripUnplaced(const uintptr_t* orig_variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uint32_t* skipped_variant_ctp) {
+BoolErr StripUnplaced(const uintptr_t* orig_variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uint32_t* skipped_variant_ctp, uintptr_t** new_variant_includep) {
   uint32_t skipped_variant_ct = 0;
   if (IsSet(cip->chr_mask, 0)) {
     skipped_variant_ct = CountChrVariantsUnsafe(orig_variant_include, cip, 0);
@@ -109,13 +109,14 @@ const uintptr_t* StripUnplaced(const uintptr_t* orig_variant_include, const ChrI
   }
   *skipped_variant_ctp = skipped_variant_ct;
   if (!skipped_variant_ct) {
-    return orig_variant_include;
+    *new_variant_includep = nullptr;
+    return 0;
   }
   const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-  uintptr_t* new_variant_include;
-  if (unlikely(bigstack_alloc_w(raw_variant_ctl, &new_variant_include))) {
-    return nullptr;
+  if (unlikely(bigstack_alloc_w(raw_variant_ctl, new_variant_includep))) {
+    return 1;
   }
+  uintptr_t* new_variant_include = *new_variant_includep;
   memcpy(new_variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
   if (IsSet(cip->chr_mask, 0)) {
     const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[0];
@@ -129,7 +130,15 @@ const uintptr_t* StripUnplaced(const uintptr_t* orig_variant_include, const ChrI
       ClearBitsNz(start_uidx, cip->chr_fo_vidx_start[chr_fo_idx + 1], new_variant_include);
     }
   }
-  return new_variant_include;
+  return 0;
+}
+
+static inline const uintptr_t* StripUnplacedK(const uintptr_t* orig_variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uint32_t* skipped_variant_ctp) {
+  uintptr_t* new_variant_include;
+  if (unlikely(StripUnplaced(orig_variant_include, cip, raw_variant_ct, skipped_variant_ctp, &new_variant_include))) {
+    return nullptr;
+  }
+  return new_variant_include? new_variant_include : orig_variant_include;
 }
 
 
@@ -2486,7 +2495,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       goto LdPrune_ret_INCONSISTENT_INPUT;
     }
     uint32_t skipped_variant_ct;
-    const uintptr_t* variant_include = StripUnplaced(orig_variant_include, cip, raw_variant_ct, &skipped_variant_ct);
+    const uintptr_t* variant_include = StripUnplacedK(orig_variant_include, cip, raw_variant_ct, &skipped_variant_ct);
     if (unlikely(variant_include == nullptr)) {
       goto LdPrune_ret_NOMEM;
     }
@@ -6853,7 +6862,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       goto ClumpReports_ret_NOT_YET_SUPPORTED;
     }
     uint32_t skipped_variant_ct;
-    const uintptr_t* variant_include = StripUnplaced(orig_variant_include, cip, raw_variant_ct, &skipped_variant_ct);
+    const uintptr_t* variant_include = StripUnplacedK(orig_variant_include, cip, raw_variant_ct, &skipped_variant_ct);
     if (unlikely(variant_include == nullptr)) {
       goto ClumpReports_ret_NOMEM;
     }
@@ -8297,8 +8306,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     const uint32_t alt_col = flags & kfClumpColAlt;
     const uintptr_t* nonref_flags = pgfip->nonref_flags;
     const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
-    const uint32_t provref_col = ref_col && ProvrefCol(orig_variant_include, nonref_flags, flags / kfClumpColMaybeprovref, raw_variant_ct, all_nonref);
-    const uint32_t a1_col = (flags & kfClumpColA1) || ((flags & kfClumpColMaybeA1) && MultiallelicVariantPresent(orig_variant_include, allele_idx_offsets, orig_variant_ct));
+    const uint32_t provref_col = ref_col && ProvrefCol(variant_include, nonref_flags, flags / kfClumpColMaybeprovref, raw_variant_ct, all_nonref);
+    const uint32_t a1_col = (flags & kfClumpColA1) || ((flags & kfClumpColMaybeA1) && MultiallelicVariantPresent(variant_include, allele_idx_offsets, variant_ct));
     const uint32_t f_col = (flags & kfClumpColF) || ((flags & kfClumpColMaybeF) && (file_ct > 1));
     const uint32_t f_in_sp2 = sp2_col && ((flags & kfClumpColF) || (file_ct > 1));
     const uint32_t output_log10 = flags & kfClumpOutputLog10;
@@ -8698,7 +8707,7 @@ typedef struct VcorMatrixCtxStruct {
   unsigned char phase_type;
   unsigned char check_dosage;
   uint32_t variant_ct;
-  uintptr_t unpacked_byte_stride;
+  uintptr_t unpacked_variant_byte_stride;
 
   // Input data.
   unsigned char* unpacked_row_variants[2];  // read from [row_parity]
@@ -8739,7 +8748,7 @@ THREAD_FUNC_DECL VcorMatrixThread(void* raw_arg) {
   const R2PhaseType unpack_phase_type = S_CAST(R2PhaseType, ctx->phase_type);
   const uint32_t check_dosage = ctx->check_dosage;
   const uintptr_t variant_ct = ctx->variant_ct;
-  const uintptr_t unpacked_byte_stride = ctx->unpacked_byte_stride;
+  const uintptr_t unpacked_variant_byte_stride = ctx->unpacked_variant_byte_stride;
   // only flips when moving to next row-window.  detect this with
   // (cur_col_variant_idx_start == 0).
   // initialize to 1 instead of 0 so we don't need to special-case first row.
@@ -8772,7 +8781,7 @@ THREAD_FUNC_DECL VcorMatrixThread(void* raw_arg) {
       start_coord = cur_row_variant_idx_start * S_CAST(uint64_t, variant_ct);
     }
     if (shard_row_variant_idx_end > shard_row_variant_idx_start) {
-      const unsigned char* unpacked_row_variants_iter = &(ctx->unpacked_row_variants[row_parity][row_start_offset * unpacked_byte_stride]);
+      const unsigned char* unpacked_row_variants_iter = &(ctx->unpacked_row_variants[row_parity][row_start_offset * unpacked_variant_byte_stride]);
       const unsigned char* unpacked_col_variants = ctx->unpacked_col_variants[col_parity];
       double* results_d = ctx->results_d[row_parity];
       float* results_f = ctx->results_f[row_parity];
@@ -8784,7 +8793,7 @@ THREAD_FUNC_DECL VcorMatrixThread(void* raw_arg) {
       uint32_t row_is_chrx = (row_chr_idx == chrx_idx);
       const uint32_t shard_col_variant_idx_end = cur_col_variant_idx_start + ctx->col_window_size;
       uint32_t col_variant_idx_stop = shard_col_variant_idx_end;
-      for (uint32_t row_variant_idx = shard_row_variant_idx_start; row_variant_idx != shard_row_variant_idx_end; ++row_variant_idx, unpacked_row_variants_iter = &(unpacked_row_variants_iter[unpacked_byte_stride])) {
+      for (uint32_t row_variant_idx = shard_row_variant_idx_start; row_variant_idx != shard_row_variant_idx_end; ++row_variant_idx, unpacked_row_variants_iter = &(unpacked_row_variants_iter[unpacked_variant_byte_stride])) {
         if (row_variant_idx == row_chr_end) {
           ++row_chr_idx;
           row_chr_end = chr_fo_idx_end[row_chr_idx];
@@ -8814,7 +8823,7 @@ THREAD_FUNC_DECL VcorMatrixThread(void* raw_arg) {
         uint32_t same_chr = (row_chr_idx == col_chr_idx);
         R2PhaseType compare_phase_type = same_chr? unpack_phase_type : R2PhaseOmit(unpack_phase_type);
         const unsigned char* unpacked_col_variants_iter = unpacked_col_variants;
-        for (uint32_t col_variant_idx = cur_col_variant_idx_start; col_variant_idx != col_variant_idx_stop; ++col_variant_idx, unpacked_col_variants_iter = &(unpacked_col_variants_iter[unpacked_byte_stride])) {
+        for (uint32_t col_variant_idx = cur_col_variant_idx_start; col_variant_idx != col_variant_idx_stop; ++col_variant_idx, unpacked_col_variants_iter = &(unpacked_col_variants_iter[unpacked_variant_byte_stride])) {
           if (col_variant_idx == col_chr_end) {
             ++col_chr_idx;
             col_chr_end = chr_fo_idx_end[col_chr_idx];
@@ -8934,6 +8943,7 @@ THREAD_FUNC_DECL VcorMatrixWriteThread(void* raw_arg) {
       }
     } else {
       char* cswritep = ctx->cswritep;
+      CompressStreamState* cssp = &(ctx->css);
       const uintptr_t row_idx_stop = row_idx_start + row_window_size;
       uintptr_t col_idx_stop = triangle_calc? (row_idx_start + 1) : orig_variant_ct;
       for (uintptr_t row_idx = row_idx_start; row_idx != row_idx_stop; ++row_idx) {
@@ -8949,7 +8959,7 @@ THREAD_FUNC_DECL VcorMatrixWriteThread(void* raw_arg) {
         }
         --cswritep;
         AppendBinaryEoln(&cswritep);
-        if (unlikely(Cswrite(&(ctx->css), &cswritep))) {
+        if (unlikely(Cswrite(cssp, &cswritep))) {
           goto VcorMatrixWriteThread_ret_WRITE_FAIL;
         }
       }
@@ -8982,7 +8992,9 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
   PreinitThreads(&tg);
   PreinitThreads(&write_tg);
   {
-    // todo: shared initialization with VcorTable()
+    // Don't want to do much shared initialization with VcorTable() upfront,
+    // since chrX/chrY presence may be affected by
+    // --ld-snp/--ld-snps/--ld-snp-list
     const VcorFlags flags = vcip->flags;
     if (unlikely((orig_variant_ct > 400000) && (parallel_tot == 1) && (!(flags & kfVcorYesReally)))) {
       logerrprintfww("Error: Gigantic (over 400k variants) %s unfiltered, non-distributed computation. Rerun with the 'yes-really' modifier if you are SURE you have enough hard drive space and want to do this.\n", flagname);
@@ -9126,7 +9138,10 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     // not?), and which chromosome is X; that's it
     uint32_t x_code = UINT32_MAX;
     uint32_t x_fo_idx = UINT32_MAX;
-    // (if all-males, we can ignore phase on chrX)
+    // if all-males, we can ignore phase on chrX, as well as skipping
+    // male/nonmale-specific stats
+    // if all-nonmales, we initialize x_code to prevent phase from being
+    // ignored, but can skip the male/nonmale-specific stats
     if (founder_male_ct != founder_ct) {
       if (XymtExists(cip, kChrOffsetX, &x_code) && (founder_male_ct != 0)) {
         x_fo_idx = cip->chr_idx_to_foidx[x_code];
@@ -9242,14 +9257,14 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
 
     const uintptr_t bitvec_byte_ct = BitCtToVecCt(founder_ct) * kBytesPerVec;
     uintptr_t dosagevec_byte_ct = 0;
-    uintptr_t unpacked_byte_stride;
+    uintptr_t unpacked_variant_byte_stride;
     if (check_dosage) {
       dosagevec_byte_ct = DivUp(founder_ct, kDosagePerVec) * kBytesPerVec;
       const uintptr_t dosage_trail_byte_ct = LdDosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_calc), x_exists);
-      unpacked_byte_stride = dosagevec_byte_ct * (1 + phased_calc + check_phase) + bitvec_byte_ct + dosage_trail_byte_ct;
+      unpacked_variant_byte_stride = dosagevec_byte_ct * (1 + phased_calc + check_phase) + bitvec_byte_ct + dosage_trail_byte_ct;
     } else {
       const uintptr_t nondosage_trail_byte_ct = LdNondosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_calc), x_exists);
-      unpacked_byte_stride = bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
+      unpacked_variant_byte_stride = bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
     }
     uint32_t* founder_info_cumulative_popcounts;
     PgenVariant pgv;
@@ -9264,10 +9279,10 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     ctx.phase_type = phase_type;
     ctx.check_dosage = check_dosage;
     ctx.variant_ct = variant_ct;
-    ctx.unpacked_byte_stride = unpacked_byte_stride;
+    ctx.unpacked_variant_byte_stride = unpacked_variant_byte_stride;
 
     // Determine row-window size.  Byte cost of each row-window variant:
-    //   unpacked_byte_stride for preprocessed variant data
+    //   unpacked_variant_byte_stride for preprocessed variant data
     //   variant_ct * 4 * (2 - is_bin4) for results (this is an overestimate
     //     for triangle case)
     // Assign up to ~half of remaining memory to this (ok to overshoot
@@ -9301,7 +9316,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       }
     }
     {
-      const uintptr_t row_byte_cost = unpacked_byte_stride + variant_ct * (4 * k1LU) * (2 - is_bin4);
+      const uintptr_t row_byte_cost = unpacked_variant_byte_stride + variant_ct * (4 * k1LU) * (2 - is_bin4);
       const uintptr_t row_capacity = bigstack_left() / (4 * row_byte_cost);
       if (row_capacity < usual_row_window_size) {
         // If multipass, may as well make usual_row_window_size a multiple of
@@ -9318,8 +9333,8 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     }
     ctx.cur_row_variant_idx_start = row_variant_idx_start;
     ctx.row_window_size = usual_row_window_size;
-    if (unlikely(bigstack_alloc_uc(usual_row_window_size * unpacked_byte_stride, &(ctx.unpacked_row_variants[0])) ||
-                 bigstack_alloc_uc(usual_row_window_size * unpacked_byte_stride, &(ctx.unpacked_row_variants[1])))) {
+    if (unlikely(bigstack_alloc_uc(usual_row_window_size * unpacked_variant_byte_stride, &(ctx.unpacked_row_variants[0])) ||
+                 bigstack_alloc_uc(usual_row_window_size * unpacked_variant_byte_stride, &(ctx.unpacked_row_variants[1])))) {
       goto VcorMatrix_ret_NOMEM;
     }
     {
@@ -9356,15 +9371,15 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     uint32_t usual_col_window_size = variant_ct;
     {
       const uintptr_t half_bytes_avail = RoundDownPow2(bigstack_left() / 2, kCacheline);
-      if (unlikely(half_bytes_avail < unpacked_byte_stride)) {
+      if (unlikely(half_bytes_avail < unpacked_variant_byte_stride)) {
         goto VcorMatrix_ret_NOMEM;
       }
-      if (variant_ct * S_CAST(uint64_t, unpacked_byte_stride) > half_bytes_avail) {
-        usual_col_window_size = half_bytes_avail / unpacked_byte_stride;
+      if (variant_ct * S_CAST(uint64_t, unpacked_variant_byte_stride) > half_bytes_avail) {
+        usual_col_window_size = half_bytes_avail / unpacked_variant_byte_stride;
       }
     }
-    if (unlikely(bigstack_alloc_uc(usual_col_window_size * unpacked_byte_stride, &(ctx.unpacked_col_variants[0])) ||
-                 bigstack_alloc_uc(usual_col_window_size * unpacked_byte_stride, &(ctx.unpacked_col_variants[1])))) {
+    if (unlikely(bigstack_alloc_uc(usual_col_window_size * unpacked_variant_byte_stride, &(ctx.unpacked_col_variants[0])) ||
+                 bigstack_alloc_uc(usual_col_window_size * unpacked_variant_byte_stride, &(ctx.unpacked_col_variants[1])))) {
       goto VcorMatrix_ret_NOMEM;
     }
     if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
@@ -9445,7 +9460,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
           }
           LdUnpackNondosage(&pgv, founder_male_collapsed, founder_ct, phase_type, row_load_iter);
         }
-        row_load_iter = &(row_load_iter[unpacked_byte_stride]);
+        row_load_iter = &(row_load_iter[unpacked_variant_byte_stride]);
       }
       const uint32_t cur_row_variant_idx_stop = cur_row_variant_idx_start + row_window_size;
       if (triangle_calc) {
@@ -9509,7 +9524,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
             }
             LdUnpackNondosage(&pgv, founder_male_collapsed, founder_ct, phase_type, col_load_iter);
           }
-          col_load_iter = &(col_load_iter[unpacked_byte_stride]);
+          col_load_iter = &(col_load_iter[unpacked_variant_byte_stride]);
         }
         const uint32_t cur_col_variant_idx_stop = cur_col_variant_idx_start + col_window_size;
         job_done = next_job_done;
@@ -9647,10 +9662,12 @@ typedef struct VcorTableCtxStruct {
   unsigned char check_dosage;
   unsigned char report_d;
   unsigned char report_dprime;
+  uintptr_t unpacked_variant_byte_stride;
 
   // Input data.
-  unsigned char** unpacked_row_variant_ptrs[2];  // read from [row_parity]
-  unsigned char** unpacked_col_variant_ptrs[2];  // read from [col_parity]
+  unsigned char* unpacked_variants[2];  // read from [row_parity]
+  uint32_t* row_uvidxs[2];  // read from [row_parity]
+  uint32_t* col_uvidxs[2];  // read from [col_parity]
   ChrIdx* row_chr_idxs[2];  // read from [row_parity]
   ChrIdx* col_chr_idxs[2];  // read from [col_parity]
   uint32_t* col_offset_starts[2];  // read from [row_parity]
@@ -9699,6 +9716,7 @@ THREAD_FUNC_DECL VcorTableThread(void* raw_arg) {
   const uint32_t check_dosage = ctx->check_dosage;
   const uint32_t report_d = ctx->report_d;
   const uint32_t report_dprime = ctx->report_dprime;
+  const uintptr_t unpacked_variant_byte_stride = ctx->unpacked_variant_byte_stride;
   const uintptr_t result_stride = 1 + report_d + report_dprime;
   // only flips when moving to next row-window.  detect this with
   // (col_window_start == 0).
@@ -9721,8 +9739,9 @@ THREAD_FUNC_DECL VcorTableThread(void* raw_arg) {
     const uint32_t row_start_offset = (row_window_size * tidx) / calc_thread_ct;
     const uint32_t row_end_offset = (row_window_size * (tidx + 1)) / calc_thread_ct;
     if (row_end_offset > row_start_offset) {
-      unsigned char** unpacked_row_variant_ptrs = ctx->unpacked_row_variant_ptrs[row_parity];
-      unsigned char** unpacked_col_variant_ptrs = ctx->unpacked_col_variant_ptrs[col_parity];
+      unsigned char* unpacked_variants = ctx->unpacked_variants[row_parity];
+      uint32_t* row_uvidxs = ctx->row_uvidxs[row_parity];
+      uint32_t* col_uvidxs = ctx->col_uvidxs[col_parity];
       const ChrIdx* row_chr_idxs = ctx->row_chr_idxs[row_parity];
       const ChrIdx* col_chr_idxs = ctx->col_chr_idxs[col_parity];
       const uint32_t* col_offset_starts = ctx->col_offset_starts[row_parity];
@@ -9738,7 +9757,7 @@ THREAD_FUNC_DECL VcorTableThread(void* raw_arg) {
         if (col_offset_stop > col_window_end) {
           col_offset_stop = col_window_end;
         }
-        const unsigned char* unpacked_row_ptr = unpacked_row_variant_ptrs[row_offset_idx];
+        const unsigned char* unpacked_row_ptr = &(unpacked_variants[row_uvidxs[row_offset_idx] * unpacked_variant_byte_stride]);
         R2Variant row_r2v;
         FillR2V(unpacked_row_ptr, founder_ct, unpack_phase_type, x_exists, check_dosage, &row_r2v);
         const uint32_t row_chr_idx = row_chr_idxs[row_offset_idx];
@@ -9748,7 +9767,7 @@ THREAD_FUNC_DECL VcorTableThread(void* raw_arg) {
         for (; col_offset_idx != col_offset_stop; ++col_offset_idx) {
           // If these pointers are equal, we're in the row_variant_idx ==
           // col_variant_idx case, and it's safe to skip the computation.
-          const unsigned char* unpacked_col_ptr = unpacked_col_variant_ptrs[col_offset_idx];
+          const unsigned char* unpacked_col_ptr = &(unpacked_variants[col_uvidxs[col_offset_idx] * unpacked_variant_byte_stride]);
           if (unpacked_col_ptr == unpacked_row_ptr) {
             write_iter = &(write_iter[result_stride]);
             continue;
@@ -9789,16 +9808,646 @@ THREAD_FUNC_DECL VcorTableThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr VcorTable() {
+typedef struct VcorTableWriteCtxStruct {
+  const uintptr_t* variant_include;
+  const uint32_t* variant_include_cumulative_popcounts;
+  const uintptr_t* row_variant_include;
+  const uint32_t* row_variant_include_cumulative_popcounts;
+  const ChrInfo* cip;
+  const uint32_t* variant_bps;
+  const char* const* variant_ids;
+  const uintptr_t* allele_idx_offsets;
+  const char* const* allele_storage;
+  const uintptr_t* nonref_flags;
+  const AlleleCode* maj_alleles;
+  const double* allele_freqs;
+  double r_or_r2_thresh;
+  uint32_t raw_variant_ct;
+  VcorFlags flags;
+  unsigned char all_nonref;
+  unsigned char provref_col;
+  unsigned char inter_chr_row_subset;
+
+  // these are relative to row_variant_include
+  uint32_t variant_ridx_start;
+  uint32_t row_window_size;
+
+  // these are relative to variant_include
+  uint32_t col_variant_idx_start;
+  uint32_t* col_offset_starts[2];
+  uintptr_t* write_idx_starts[2];
+
+  double* results[2];
+
+  char* row_chr_buf;
+  char* col_chr_buf;
+
+  CompressStreamState css;
+  char* cswritep;
+
+  PglErr reterr;
+} VcorTableWriteCtx;
+
+THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  VcorTableWriteCtx* ctx = S_CAST(VcorTableWriteCtx*, arg->sharedp->context);
+  const uintptr_t* variant_include = ctx->variant_include;
+  const uint32_t* variant_include_cumulative_popcounts = ctx->variant_include_cumulative_popcounts;
+  const uintptr_t* row_variant_include = ctx->row_variant_include;
+  const uint32_t* row_variant_include_cumulative_popcounts = ctx->row_variant_include_cumulative_popcounts;
+  const ChrInfo* cip = ctx->cip;
+  const uint32_t* variant_bps = ctx->variant_bps;
+  const char* const* variant_ids = ctx->variant_ids;
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const char* const* allele_storage = ctx->allele_storage;
+  const uintptr_t* nonref_flags = ctx->nonref_flags;
+  const AlleleCode* maj_alleles = ctx->maj_alleles;
+  const double* allele_freqs = ctx->allele_freqs;
+  const VcorFlags flags = ctx->flags;
+  const uint32_t inter_chr = (flags / kfVcorInterChr) & 1;
+  const uint32_t chr_col = (flags / kfVcorColChrom) & 1;
+  const uint32_t pos_col = (flags / kfVcorColPos) & 1;
+  const uint32_t id_col = (flags / kfVcorColId) & 1;
+  const uint32_t ref_col = (flags / kfVcorColRef) & 1;
+  const uint32_t alt1_col = (flags / kfVcorColAlt1) & 1;
+  const uint32_t alt_col = (flags / kfVcorColAlt) & 1;
+  const uint32_t all_nonref = ctx->all_nonref;
+  const uint32_t provref_col = ctx->provref_col;
+  const uint32_t maj_col = (flags / kfVcorColMaj) & 1;
+  const uint32_t nonmaj_col = (flags / kfVcorColNonmaj) & 1;
+  const uint32_t freq_col = (flags / kfVcorColFreq) & 1;
+  const uint32_t d_col = (flags / kfVcorColD) & 1;
+  const uint32_t dprime_col = ((flags & (kfVcorColDprime | kfVcorColDprimeAbs)) != 0);
+  const uint32_t dprime_abs = (flags / kfVcorColDprimeAbs) & 1;
+  const uint32_t results_stride = 1 + d_col + dprime_col;
+  const double r_or_r2_thresh = ctx->r_or_r2_thresh;
+  const uint32_t raw_variant_ctl = BitCtToWordCt(ctx->raw_variant_ct);
+  const uint32_t inter_chr_row_subset = ctx->inter_chr_row_subset;
+
+  char* row_chr_buf = ctx->row_chr_buf;
+  char* col_chr_buf = ctx->col_chr_buf;
+  uint32_t row_chr_fo_idx = UINT32_MAX;
+  uint32_t row_chr_end = 0;
+  uint32_t row_chr_blen = 0;
+  uint32_t col_chr_fo_idx = 0;
+  uint32_t col_chr_end = UINT32_MAX;
+  uint32_t col_chr_blen = 0;
+  uint32_t row_allele_ct = 2;
+  uint32_t col_allele_ct = 2;
+
+  uint32_t row_parity = 0;
+  do {
+    const uint32_t* col_offset_starts = ctx->col_offset_starts[row_parity];
+    const uintptr_t* write_idx_starts = ctx->write_idx_starts[row_parity];
+    const double* cur_results_iter = ctx->results[row_parity];
+    const uintptr_t variant_ridx_start = ctx->variant_ridx_start;
+    const uint32_t row_window_size = ctx->row_window_size;
+    const uint32_t col_variant_idx_start = ctx->col_variant_idx_start;
+    char* cswritep = ctx->cswritep;
+    CompressStreamState* cssp = &(ctx->css);
+    const uint32_t row_variant_uidx_start = IdxToUidx(row_variant_include, row_variant_include_cumulative_popcounts, 0, raw_variant_ctl, variant_ridx_start);
+    uintptr_t row_variant_uidx_base;
+    uintptr_t row_cur_bits;
+    BitIter1Start(row_variant_include, row_variant_uidx_start, &row_variant_uidx_base, &row_cur_bits);
+    uint32_t col_variant_widx = 0;
+    for (uint32_t row_offset = 0; row_offset != row_window_size; ++row_offset) {
+      const uint32_t row_variant_uidx = BitIter1(row_variant_include, &row_variant_uidx_base, &row_cur_bits);
+      if (row_variant_uidx >= row_chr_end) {
+        do {
+          ++row_chr_fo_idx;
+          row_chr_end = cip->chr_fo_vidx_start[row_chr_fo_idx + 1];
+        } while (row_variant_uidx >= row_chr_end);
+        const uint32_t row_chr_idx = cip->chr_file_order[row_chr_fo_idx];
+        char* chr_name_end = chrtoa(cip, row_chr_idx, row_chr_buf);
+        *chr_name_end = '\t';
+        row_chr_blen = 1 + S_CAST(uintptr_t, chr_name_end - row_chr_buf);
+        // row_chr_buf == col_chr_buf except in inter_chr case
+        col_chr_blen = row_chr_blen;
+      }
+      uintptr_t row_allele_idx_offset_base = row_variant_uidx * 2;
+      if (allele_idx_offsets) {
+        row_allele_idx_offset_base = allele_idx_offsets[row_variant_uidx];
+        row_allele_ct = allele_idx_offsets[row_variant_uidx + 1] - row_allele_idx_offset_base;
+      }
+      const char* const* cur_row_alleles = &(allele_storage[row_allele_idx_offset_base]);
+      const uint32_t col_offset_start = col_offset_starts[row_offset];
+      const uint32_t col_offset_stop = write_idx_starts[row_offset + 1] - write_idx_starts[row_offset] + col_offset_start;
+      if (inter_chr) {
+        col_chr_fo_idx = UINT32_MAX;
+        col_chr_end = 0;
+      }
+      const uint32_t col_variant_uidx_start = ExpsearchIdxToUidx(variant_include, variant_include_cumulative_popcounts, raw_variant_ctl, col_variant_idx_start + col_offset_start, &col_variant_widx);
+      uintptr_t col_variant_uidx_base;
+      uintptr_t col_cur_bits;
+      BitIter1Start(variant_include, col_variant_uidx_start, &col_variant_uidx_base, &col_cur_bits);
+      for (uint32_t col_offset = col_offset_start; col_offset != col_offset_stop; ++col_offset) {
+        const uint32_t col_variant_uidx = BitIter1(variant_include, &col_variant_uidx_base, &col_cur_bits);
+        if (col_variant_uidx == row_variant_uidx) {
+          cur_results_iter = &(cur_results_iter[results_stride]);
+          continue;
+        }
+        // In the usual inter-chr case, we can report each pair exactly once by
+        // setting the iteration bounds to correspond to the upper-right
+        // triangle of the matrix.
+        // However, if inter-chr is combined with
+        // --ld-snp/--ld-snps/--ld-snp-list, that doesn't work, since we only
+        // want to exclude lower-left columns corresponding to included rows.
+        if (inter_chr_row_subset && (col_variant_uidx < row_variant_uidx) && IsSet(row_variant_include, col_variant_uidx)) {
+          cur_results_iter = &(cur_results_iter[results_stride]);
+          continue;
+        }
+        const double r_or_r2 = *cur_results_iter;
+        // !(a >= b) instead of (a < b) so that NaN is handled properly
+        if ((r_or_r2_thresh >= 0.0) && (!(r_or_r2 >= r_or_r2_thresh))) {
+          cur_results_iter = &(cur_results_iter[results_stride]);
+          continue;
+        }
+        ++cur_results_iter;
+
+        if (col_variant_uidx >= col_chr_end) {
+          do {
+            ++col_chr_fo_idx;
+            col_chr_end = cip->chr_fo_vidx_start[col_chr_fo_idx + 1];
+          } while (col_variant_uidx >= col_chr_end);
+          const uint32_t col_chr_idx = cip->chr_file_order[col_chr_fo_idx];
+          char* chr_name_end = chrtoa(cip, col_chr_idx, col_chr_buf);
+          *chr_name_end = '\t';
+          col_chr_blen = 1 + S_CAST(uintptr_t, chr_name_end - col_chr_buf);
+        }
+        if (chr_col) {
+          cswritep = memcpya(cswritep, row_chr_buf, row_chr_blen);
+        }
+        if (pos_col) {
+          cswritep = u32toa_x(variant_bps[row_variant_uidx], '\t', cswritep);
+        }
+        if (id_col) {
+          cswritep = strcpyax(cswritep, variant_ids[row_variant_uidx], '\t');
+        }
+        if (ref_col) {
+          cswritep = strcpyax(cswritep, cur_row_alleles[0], '\t');
+        }
+        if (alt1_col) {
+          cswritep = strcpyax(cswritep, cur_row_alleles[1], '\t');
+        }
+        if (alt_col) {
+          for (uint32_t allele_idx = 1; allele_idx != row_allele_ct; ++allele_idx) {
+            if (unlikely(Cswrite(cssp, &cswritep))) {
+              goto VcorTableWriteThread_ret_WRITE_FAIL;
+            }
+            cswritep = strcpyax(cswritep, cur_row_alleles[allele_idx], ',');
+          }
+          cswritep[-1] = '\t';
+        }
+        if (provref_col) {
+          *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, row_variant_uidx)))? 'Y' : 'N';
+          *cswritep++ = '\t';
+        }
+        if (maj_col || nonmaj_col || freq_col) {
+          const uint32_t maj_allele_idx = maj_alleles[row_variant_uidx];
+          if (maj_col) {
+            cswritep = strcpyax(cswritep, cur_row_alleles[maj_allele_idx], '\t');
+          }
+          if (nonmaj_col) {
+            for (uint32_t allele_idx = 0; allele_idx != row_allele_ct; ++allele_idx) {
+              if (allele_idx == maj_allele_idx) {
+                continue;
+              }
+              if (unlikely(Cswrite(cssp, &cswritep))) {
+                goto VcorTableWriteThread_ret_WRITE_FAIL;
+              }
+              cswritep = strcpyax(cswritep, cur_row_alleles[allele_idx], ',');
+            }
+            cswritep[-1] = '\t';
+          }
+          if (freq_col) {
+            const double maj_freq = GetAlleleFreq(&(allele_freqs[row_allele_idx_offset_base - row_variant_uidx]), maj_allele_idx, row_allele_ct);
+            cswritep = dtoa_g(1.0 - maj_freq, cswritep);
+            *cswritep++ = '\t';
+          }
+        }
+
+        if (chr_col) {
+          cswritep = memcpya(cswritep, col_chr_buf, col_chr_blen);
+        }
+        if (pos_col) {
+          cswritep = u32toa_x(variant_bps[col_variant_uidx], '\t', cswritep);
+        }
+        if (id_col) {
+          cswritep = strcpyax(cswritep, variant_ids[col_variant_uidx], '\t');
+        }
+        uintptr_t col_allele_idx_offset_base = col_variant_uidx * 2;
+        if (allele_idx_offsets) {
+          col_allele_idx_offset_base = allele_idx_offsets[col_variant_uidx];
+          col_allele_ct = allele_idx_offsets[col_variant_uidx + 1] - col_allele_idx_offset_base;
+        }
+        const char* const* cur_col_alleles = &(allele_storage[col_allele_idx_offset_base]);
+        if (ref_col) {
+          cswritep = strcpyax(cswritep, cur_col_alleles[0], '\t');
+        }
+        if (alt1_col) {
+          cswritep = strcpyax(cswritep, cur_col_alleles[1], '\t');
+        }
+        if (alt_col) {
+          for (uint32_t allele_idx = 1; allele_idx != col_allele_ct; ++allele_idx) {
+            if (unlikely(Cswrite(cssp, &cswritep))) {
+              goto VcorTableWriteThread_ret_WRITE_FAIL;
+            }
+            cswritep = strcpyax(cswritep, cur_col_alleles[allele_idx], ',');
+          }
+          cswritep[-1] = '\t';
+        }
+        if (provref_col) {
+          *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, col_variant_uidx)))? 'Y' : 'N';
+          *cswritep++ = '\t';
+        }
+        if (maj_col || nonmaj_col || freq_col) {
+          const uint32_t maj_allele_idx = maj_alleles[col_variant_uidx];
+          if (maj_col) {
+            cswritep = strcpyax(cswritep, cur_col_alleles[maj_allele_idx], '\t');
+          }
+          if (nonmaj_col) {
+            for (uint32_t allele_idx = 0; allele_idx != col_allele_ct; ++allele_idx) {
+              if (allele_idx == maj_allele_idx) {
+                continue;
+              }
+              if (unlikely(Cswrite(cssp, &cswritep))) {
+                goto VcorTableWriteThread_ret_WRITE_FAIL;
+              }
+              cswritep = strcpyax(cswritep, cur_col_alleles[allele_idx], ',');
+            }
+            cswritep[-1] = '\t';
+          }
+          if (freq_col) {
+            const double maj_freq = GetAlleleFreq(&(allele_freqs[col_allele_idx_offset_base - col_variant_uidx]), maj_allele_idx, col_allele_ct);
+            cswritep = dtoa_g(1.0 - maj_freq, cswritep);
+            *cswritep++ = '\t';
+          }
+        }
+
+        // R or R2
+        cswritep = dtoa_g(r_or_r2, cswritep);
+        if (d_col) {
+          *cswritep++ = '\t';
+          cswritep = dtoa_g(*cur_results_iter++, cswritep);
+        }
+        if (dprime_col) {
+          *cswritep++ = '\t';
+          double dprime = *cur_results_iter++;
+          if (dprime_abs) {
+            dprime = fabs(dprime);
+          }
+          cswritep = dtoa_g(dprime, cswritep);
+        }
+        AppendBinaryEoln(&cswritep);
+        if (unlikely(Cswrite(cssp, &cswritep))) {
+          goto VcorTableWriteThread_ret_WRITE_FAIL;
+        }
+      }
+    }
+    ctx->cswritep = cswritep;
+    row_parity = 1 - row_parity;
+    while (0) {
+    VcorTableWriteThread_ret_WRITE_FAIL:
+      ctx->reterr = kPglRetWriteFail;
+    }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, __attribute__((unused)) const uintptr_t* allele_idx_offsets, __attribute__((unused)) const char* const* allele_storage, __attribute__((unused)) const AlleleCode* maj_alleles, __attribute__((unused)) const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, const char* flagname, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, __attribute__((unused)) uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end) {
   logerrputs("Error: --r[2]-[un]phased is under development.\n");
   return kPglRetNotYetSupported;
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
+  VcorTableCtx ctx;
+  VcorTableWriteCtx write_ctx;
+  PreinitCstream(&write_ctx.css);
   {
+    // 1. If not inter-chr, remove unplaced variants.
+    // 2. If --parallel and/or --ld-snp/--ld-snps/--ld-snp-list, initialize
+    //    row_variant_include, then try to shrink variant_include:
+    //    - If inter-chr + --parallel, and this isn't the first piece, we can
+    //      remove leading variants.
+    //    - If not inter-chr, we can remove all variants that are out of range
+    //      of row_variant_include elements.
+    const VcorFlags flags = vcip->flags;
+    const uint32_t inter_chr = (flags / kfVcorInterChr) & 1;
+    const char* ld_snp_list_fname = vcip->ld_snp_list_fname;
+    const RangeList* ld_snp_range_listp = &(vcip->ld_snp_range_list);
+    const uint32_t row_snp_subset = ld_snp_list_fname || (ld_snp_range_listp->name_ct != 0);
+    const uint32_t inter_chr_upper_right = inter_chr && (!row_snp_subset);
+    const double min_r2 = vcip->min_r2;
+    if (unlikely(inter_chr_upper_right && (min_r2 <= 0.0) && (orig_variant_ct > 400000) && (parallel_tot == 1) && (!(flags & kfVcorYesReally)))) {
+      logerrprintfww("Error: Gigantic (over 400k variants) %s unfiltered, non-distributed computation. Rerun with the 'yes-really' modifier if you are SURE you have enough hard drive space and want to do this.\n", flagname);
+      goto VcorTable_ret_INCONSISTENT_INPUT;
+    }
+    uintptr_t* new_variant_include = nullptr;
+    uint32_t variant_ct = orig_variant_ct;
+    if (!inter_chr) {
+      uint32_t skipped_variant_ct = 0;
+      if (unlikely(StripUnplaced(orig_variant_include, cip, raw_variant_ct, &skipped_variant_ct, &new_variant_include))) {
+        goto VcorTable_ret_NOMEM;
+      }
+      if (skipped_variant_ct) {
+        logprintf("%s: Ignoring %u chromosome 0 variant%s.\n", flagname, skipped_variant_ct, (skipped_variant_ct == 1)? "" : "s");
+        variant_ct -= skipped_variant_ct;
+      }
+    }
+    const uint32_t var_ct_radius = vcip->var_ct_radius;
+    const uint32_t bp_radius = vcip->bp_radius;
+    const double cm_radius = vcip->cm_radius;
+    if (cm_radius == -1.0) {
+      variant_cms = nullptr;
+    }
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* row_variant_include = nullptr;
+    uint32_t* row_variant_include_cumulative_popcounts = nullptr;
+    uint32_t row_variant_ct = variant_ct;
+    if ((parallel_tot != 1) || row_snp_subset) {
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &row_variant_include) ||
+                   bigstack_alloc_u32(raw_variant_ctl, &row_variant_include_cumulative_popcounts))) {
+        goto VcorTable_ret_NOMEM;
+      }
+      {
+        const uintptr_t* prev_variant_include = new_variant_include? new_variant_include : orig_variant_include;
+        if (row_snp_subset) {
+          unsigned char* bigstack_mark2 = g_bigstack_base;
+          uint32_t* variant_id_htable;
+          uint32_t* htable_dup_base;
+          uint32_t variant_id_htable_size;
+          AllocAndPopulateIdHtableMt(prev_variant_include, variant_ids, variant_ct, bigstack_left() / 2, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, nullptr);
+          if (ld_snp_list_fname) {
+            memcpy(row_variant_include, prev_variant_include, raw_variant_ctl * sizeof(intptr_t));
+            const uint32_t fname_slen = strlen(ld_snp_list_fname);
+            char* fnames_tmp;
+            if (unlikely(bigstack_alloc_c(fname_slen + 2, &fnames_tmp))) {
+              goto VcorTable_ret_NOMEM;
+            }
+            memcpy(fnames_tmp, ld_snp_list_fname, fname_slen + 1);
+            fnames_tmp[fname_slen + 1] = '\0';
+            reterr = TokenExtractExclude(variant_ids, variant_id_htable, htable_dup_base, fnames_tmp, "--ld-snp-list", raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExtract, max_thread_ct, row_variant_include, &row_variant_ct);
+            if (unlikely(reterr)) {
+              goto VcorTable_ret_1;
+            }
+          } else {
+            uintptr_t* seen_uidxs;
+            if (unlikely(bigstack_calloc_w(raw_variant_ctl, &seen_uidxs))) {
+              goto VcorTable_ret_NOMEM;
+            }
+            reterr = InterpretVariantRangeList(variant_ids, variant_id_htable, htable_dup_base, ld_snp_range_listp, "--ld-snps", max_variant_id_slen, variant_id_htable_size, seen_uidxs);
+            if (unlikely(reterr)) {
+              goto VcorTable_ret_1;
+            }
+            BitvecAnd(seen_uidxs, raw_variant_ctl, row_variant_include);
+            row_variant_ct = PopcountWords(row_variant_include, raw_variant_ctl);
+          }
+          BigstackReset(bigstack_mark2);
+        } else {
+          memcpy(row_variant_include, prev_variant_include, raw_variant_ctl * sizeof(intptr_t));
+        }
+      }
+      if (parallel_tot > 1) {
+        const uint32_t row_shard_start = (S_CAST(uint64_t, row_variant_ct) * parallel_idx) / parallel_tot;
+        const uint32_t row_uidx_start = IdxToUidxBasic(row_variant_include, row_shard_start);
+        if (row_uidx_start) {
+          ClearBitsNz(0, row_uidx_start, row_variant_include);
+        }
+        uint32_t row_shard_end = row_variant_ct;
+        if (parallel_idx + 1 != parallel_tot) {
+          row_shard_end = (S_CAST(uint64_t, row_variant_ct) * (parallel_idx + 1)) / parallel_tot;
+          const uint32_t row_vecidx_start = row_uidx_start / kBitsPerVec;
+          const uint32_t row_uidx_end = row_vecidx_start * kBitsPerVec + IdxToUidxBasic(&(row_variant_include[row_vecidx_start * kWordsPerVec]), row_shard_end - row_shard_start);
+          ClearBitsNz(row_uidx_end, raw_variant_ct, row_variant_include);
+        }
+        row_variant_ct = row_shard_end - row_shard_start;
+        if (inter_chr_upper_right && (row_shard_start != 0)) {
+          // Safe to remove column-variants before the current row-shard.
+          if (new_variant_include == nullptr) {
+            if (unlikely(bigstack_alloc_w(raw_variant_ctl, &new_variant_include))) {
+              goto VcorTable_ret_NOMEM;
+            }
+            memcpy(new_variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+          }
+          variant_ct -= PopcountBitRange(new_variant_include, 0, row_uidx_start);
+          ClearBitsNz(0, row_uidx_start, new_variant_include);
+        }
+      }
+      FillCumulativePopcounts(row_variant_include, raw_variant_ctl, row_variant_include_cumulative_popcounts);
+      if (!inter_chr) {
+        // Safe to remove column-variants out of range of all row variants.
+        if (new_variant_include == nullptr) {
+          if (unlikely(bigstack_alloc_w(raw_variant_ctl, &new_variant_include))) {
+            goto VcorTable_ret_NOMEM;
+          }
+          memcpy(new_variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+        }
+        uint32_t row_chr_fo_idx = UINT32_MAX;
+        uint32_t row_chr_start = 0;
+        uint32_t row_chr_end = 0;
+
+        uint32_t prev_uidx_start = 0;
+        uint32_t prev_uidx_end = 0;
+        double cur_cm = 0.0;
+
+        uintptr_t row_variant_uidx_base = 0;
+        uintptr_t row_cur_bits = row_variant_include[0];
+        for (uint32_t row_variant_idx = 0; row_variant_idx != row_variant_ct; ++row_variant_idx) {
+          const uint32_t row_variant_uidx = BitIter1(row_variant_include, &row_variant_uidx_base, &row_cur_bits);
+          if (row_variant_uidx >= row_chr_end) {
+            do {
+              ++row_chr_fo_idx;
+              row_chr_end = cip->chr_fo_vidx_start[row_chr_fo_idx + 1];
+            } while (row_variant_uidx >= row_chr_end);
+            row_chr_start = cip->chr_fo_vidx_start[row_chr_fo_idx];
+            prev_uidx_start = row_chr_start;
+            prev_uidx_end = row_chr_start;
+          }
+          // Determine --ld-window-kb, --ld-window-cm, and --ld-window
+          // intersection.
+          const uint32_t cur_bp = variant_bps[row_variant_uidx];
+          uint32_t cur_uidx_start = prev_uidx_start;
+          if (cur_bp > bp_radius) {
+            cur_uidx_start = ExpsearchU32(variant_bps, cur_uidx_start, row_variant_uidx, cur_bp - bp_radius);
+          }
+          if (variant_cms) {
+            cur_cm = variant_cms[row_variant_uidx];
+            cur_uidx_start = ExpsearchD(variant_cms, cur_uidx_start, row_variant_uidx, cur_cm - cm_radius);
+          }
+          // var_ct_radius <= 0x7fffffff, so no overflow risk
+          if (cur_uidx_start + var_ct_radius < row_variant_uidx) {
+            const uint32_t leading_var_ct = PopcountBitRange(new_variant_include, cur_uidx_start, row_variant_uidx);
+            if (leading_var_ct > var_ct_radius) {
+              cur_uidx_start = FindNth1BitFrom(new_variant_include, cur_uidx_start + 1, leading_var_ct - var_ct_radius);
+            }
+          }
+          uint32_t cur_uidx_end = MAXV(prev_uidx_end, row_variant_uidx + 1);
+          if (cur_uidx_end < row_chr_end) {
+            uint32_t cur_uidx_end_ceil = ExpsearchU32(variant_bps, cur_uidx_end, row_chr_end, cur_bp + bp_radius + 1);
+            if (variant_cms) {
+              cur_uidx_end_ceil = ExpsearchD(variant_cms, cur_uidx_end, cur_uidx_end_ceil, cur_cm + cm_radius);
+            }
+            if (row_variant_uidx + 1 + var_ct_radius < cur_uidx_end_ceil) {
+              const uint32_t trailing_var_ct = PopcountBitRange(new_variant_include, row_variant_uidx + 1, cur_uidx_end_ceil);
+              if (trailing_var_ct > var_ct_radius) {
+                cur_uidx_end_ceil = 1 + FindNth1BitFrom(new_variant_include, row_variant_uidx + 1, var_ct_radius);
+              }
+            }
+            cur_uidx_end = cur_uidx_end_ceil;
+          }
+          if (prev_uidx_end < cur_uidx_start) {
+            ClearBitsNz(prev_uidx_end, cur_uidx_start, new_variant_include);
+          }
+          prev_uidx_start = cur_uidx_start;
+          prev_uidx_end = cur_uidx_end;
+        }
+        variant_ct = PopcountWords(new_variant_include, raw_variant_ctl);
+      }
+    }
+    const uintptr_t* variant_include = new_variant_include? new_variant_include : orig_variant_include;
+
+    const uint32_t phased_calc = (flags / kfVcorPhased) & 1;
+    const uint32_t is_unsquared = (flags / kfVcorUnsquared) & 1;
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
+    const uint32_t founder_ctv = BitCtToVecCt(founder_ct);
+    const uint32_t founder_ctaw = founder_ctv * kWordsPerVec;
+    const uint32_t founder_male_ct = PopcountWordsIntersect(founder_info, sex_male, raw_sample_ctl);
+    const uint32_t all_haploid = IsSet(cip->haploid_mask, 0);
+    PgenGlobalFlags effective_gflags = PgrGetGflags(simple_pgrp) & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
+    const uint32_t check_phase = phased_calc && (!all_haploid) && (effective_gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent));
+    if (!check_phase) {
+      effective_gflags &= kfPgenGlobalDosagePresent;
+    }
+    const R2PhaseType phase_type = GetR2PhaseType(phased_calc, check_phase);
+    const uint32_t check_dosage = (effective_gflags / kfPgenGlobalDosagePresent) & 1;
+
+    const uintptr_t* founder_male_collapsed = nullptr;
+    const Dosage* male_dosage_invmask = nullptr;
+    ctx.founder_nonmale_collapsed = nullptr;
+    ctx.nonmale_dosage_invmask = nullptr;
+    ctx.chrx_idx = UINT32_MAX;
+    uint32_t x_code = UINT32_MAX;
+    // if all-males, we can ignore phase on chrX, as well as skipping
+    // male/nonmale-specific stats
+    // if all-nonmales, we initialize x_code to prevent phase from being
+    // ignored, but can skip the male/nonmale-specific stats
+    if (founder_male_ct != founder_ct) {
+      if (XymtExists(cip, kChrOffsetX, &x_code) && (founder_male_ct != 0)) {
+        const uint32_t x_fo_idx = cip->chr_idx_to_foidx[x_code];
+        const uint32_t start_vidx = cip->chr_fo_vidx_start[x_fo_idx];
+        const uint32_t end_vidx = cip->chr_fo_vidx_start[x_fo_idx + 1];
+        if (!AllBitsAreZero(variant_include, start_vidx, end_vidx)) {
+          ctx.chrx_idx = x_code;
+          uintptr_t* founder_male_collapsed_fill;
+          uintptr_t* founder_nonmale_collapsed;
+          if (unlikely(bigstack_alloc_w(founder_ctl, &founder_male_collapsed_fill) ||
+                       bigstack_alloc_w(founder_ctl, &founder_nonmale_collapsed))) {
+            goto VcorTable_ret_NOMEM;
+          }
+          CopyBitarrSubset(sex_male, founder_info, founder_ct, founder_male_collapsed_fill);
+          founder_male_collapsed = founder_male_collapsed_fill;
+          BitvecInvertCopy(founder_male_collapsed, founder_ctl, founder_nonmale_collapsed);
+          ZeroTrailingBits(founder_ct, founder_nonmale_collapsed);
+          ctx.founder_nonmale_collapsed = founder_nonmale_collapsed;
+          if (check_dosage) {
+            const uint32_t founder_ctad = RoundUpPow2(founder_ct, kDosagePerVec);
+            Dosage* male_dosage_invmask_fill;
+            Dosage* nonmale_dosage_invmask;
+            if (bigstack_alloc_dosage(founder_ctad, &male_dosage_invmask_fill) ||
+                bigstack_alloc_dosage(founder_ctad, &nonmale_dosage_invmask)) {
+              goto VcorTable_ret_NOMEM;
+            }
+            Expand1bitTo16(founder_male_collapsed, founder_ctad, 0xffff, male_dosage_invmask_fill);
+            Expand1bitTo16(founder_nonmale_collapsed, founder_ctad, 0xffff, nonmale_dosage_invmask);
+            male_dosage_invmask = male_dosage_invmask_fill;
+            ctx.nonmale_dosage_invmask = nonmale_dosage_invmask;
+          }
+        }
+      }
+    }
+    const uint32_t x_exists = (ctx.chrx_idx < UINT32_MAXM1);
+    ctx.founder_male_collapsed = founder_male_collapsed;
+    ctx.male_dosage_invmask = male_dosage_invmask;
+
+    uint32_t y_start;
+    uint32_t y_end;
+    GetXymtStartAndEnd(cip, kChrOffsetY, &y_start, &y_end);
+    uintptr_t* founder_female_collapsed = nullptr;
+    uintptr_t* founder_female_collapsed_interleaved = nullptr;
+    if (y_end) {
+      if ((founder_male_ct == founder_ct) || AllBitsAreZero(variant_include, y_start, y_end)) {
+        y_start = 0;
+        y_end = 0;
+      }
+      if (y_end) {
+        uintptr_t* founder_female;
+        if (bigstack_end_alloc_w(raw_sample_ctl, &founder_female)) {
+          goto VcorTable_ret_NOMEM;
+        }
+        BitvecInvmaskCopy(sex_nm, sex_male, raw_sample_ctl, founder_female);
+        BitvecAnd(founder_info, raw_sample_ctl, founder_female);
+        if (AllWordsAreZero(founder_female, raw_sample_ctl)) {
+          y_start = 0;
+          y_end = 0;
+        } else {
+          if (bigstack_alloc_w(founder_ctaw, &founder_female_collapsed) ||
+              bigstack_alloc_w(founder_ctaw, &founder_female_collapsed_interleaved)) {
+            goto VcorTable_ret_NOMEM;
+          }
+          CopyBitarrSubset(founder_female, founder_info, founder_ct, founder_female_collapsed);
+          ZeroTrailingWords(founder_ctl, founder_female_collapsed);
+          FillInterleavedMaskVec(founder_female_collapsed, founder_ctv, founder_female_collapsed_interleaved);
+        }
+        BigstackEndReset(bigstack_end_mark);
+      }
+    }
+    ctx.founder_ct = founder_ct;
+    ctx.founder_male_ct = founder_male_ct;
+    ctx.is_unsquared = is_unsquared;
+
+    const uintptr_t bitvec_byte_ct = BitCtToVecCt(founder_ct) * kBytesPerVec;
+    uintptr_t dosagevec_byte_ct = 0;
+    uintptr_t unpacked_variant_byte_stride;
+    if (check_dosage) {
+      dosagevec_byte_ct = DivUp(founder_ct, kDosagePerVec) * kBytesPerVec;
+      const uintptr_t dosage_trail_byte_ct = LdDosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_calc), x_exists);
+      unpacked_variant_byte_stride = dosagevec_byte_ct * (1 + phased_calc + check_phase) + bitvec_byte_ct + dosage_trail_byte_ct;
+    } else {
+      const uintptr_t nondosage_trail_byte_ct = LdNondosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_calc), x_exists);
+      unpacked_variant_byte_stride = bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
+    }
+    uint32_t* founder_info_cumulative_popcounts;
+    PgenVariant pgv;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
+                 BigstackAllocPgv(founder_ct, 0, effective_gflags, &pgv))) {
+      goto VcorTable_ret_NOMEM;
+    }
+    FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
+
+    ctx.phase_type = phase_type;
+    ctx.check_dosage = check_dosage;
+    ctx.unpacked_variant_byte_stride = unpacked_variant_byte_stride;
+    // TODO
   }
+  while (0) {
+  VcorTable_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  VcorTable_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ VcorTable_ret_1:
+  CswriteCloseCond(&write_ctx.css, write_ctx.cswritep);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 
-PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, __attribute__((unused)) const uint32_t* variant_bps, const char* const* variant_ids, __attribute__((unused)) const double* variant_cms, __attribute__((unused)) const uintptr_t* allele_idx_offsets, __attribute__((unused)) const char* const* allele_storage, const AlleleCode* maj_alleles, __attribute__((unused)) const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, __attribute__((unused)) uint32_t max_variant_id_slen, __attribute__((unused)) uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   const VcorFlags flags = vcip->flags;
   const uint32_t phased_calc = (flags / kfVcorPhased) & 1;
   const uint32_t is_unsquared = (flags / kfVcorUnsquared) & 1;
@@ -9821,7 +10470,7 @@ PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, __attribu
   if (is_matrix) {
     reterr = VcorMatrix(orig_variant_include, cip, variant_ids, maj_alleles, founder_info, sex_nm, sex_male, vcip, flagname, raw_variant_ct, orig_variant_ct, raw_sample_ct, founder_ct, parallel_idx, parallel_tot, max_thread_ct, simple_pgrp, outname, outname_end);
   } else {
-    reterr = VcorTable();
+    reterr = VcorTable(orig_variant_include, cip, variant_bps, variant_ids, variant_cms, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, founder_info, sex_nm, sex_male, vcip, flagname, raw_variant_ct, orig_variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, max_allele_slen, parallel_idx, parallel_tot, max_thread_ct, simple_pgrp, outname, outname_end);
   }
   return reterr;
 }
