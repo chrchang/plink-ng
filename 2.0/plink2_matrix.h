@@ -205,11 +205,29 @@ HEADER_INLINE void AddFVec(const float* arg, uintptr_t ctav, float* main) {
   }
 }
 
+#ifdef __LP64__
+// FillDVec sets all elements of dst to dxx, and zero-fills any trailing
+// elements (w.r.t. vector boundaries).
+// bugfix (21 Nov 2023): forgot about trailing zero-fill.
+HEADER_INLINE void FillDVec(uintptr_t ct, double dxx, double* dst) {
+  for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
+    dst[ulii] = dxx;
+  }
+  const uintptr_t remainder = ct % kDoublePerDVec;
+  if (remainder) {
+    const uintptr_t ctav = ct + kDoublePerDVec - remainder;
+    for (uintptr_t ulii = ct; ulii != ctav; ++ulii) {
+      dst[ulii] = 0.0;
+    }
+  }
+}
+#else
 HEADER_INLINE void FillDVec(uintptr_t ct, double dxx, double* dst) {
   for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
     dst[ulii] = dxx;
   }
 }
+#endif
 
 #ifdef __LP64__
 // FillFVec sets all elements of dst to fxx, and zero-fills any trailing
