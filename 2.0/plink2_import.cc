@@ -2922,6 +2922,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected FORMAT/GT format.\n", line_idx);
             goto VcfToPgen_ret_MALFORMED_INPUT_WW;
           }
+          // bugfix (21 Nov 2023)
+          format_gt_exists = 1;
         } else if ((vcf_min_gq != -1) && strequal_k(idval, "GQ", id_slen)) {
           if (unlikely(format_gq_relevant)) {
             logerrputs("Error: Duplicate FORMAT/GQ header line in --vcf file.\n");
