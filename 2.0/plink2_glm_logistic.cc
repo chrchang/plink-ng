@@ -3004,9 +3004,6 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_
     if (loglik != loglik) {
       return 1;
     }
-    if (g_debug_on) {
-      logprintf("iteration 0  loglik: %g\n", loglik);
-    }
     loglik_old = loglik;
   }
 
@@ -3018,33 +3015,96 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_
     // P[i] -= Y[i];
     ComputeVAndPMinusYD(yy, sample_ctav, pp, vv);
     // V and P may both contain trailing garbage.
+    const uint32_t debug_print = g_debug_on && (iteration == 1);
+    if (debug_print) {
+      logprintf("sample_ct: %" PRIuPTR "  sample_ctav: %" PRIuPTR "\n", sample_ct, sample_ctav);
+      for (uint32_t uii = 0; uii < 4; ++uii) {
+        logprintf("yy[%u]: %g  pp[%u]: %g  vv[%u]: %g\n", uii, yy[uii], uii, pp[uii], uii, vv[uii]);
+      }
+      for (uint32_t uii = sample_ctav - 4; uii < sample_ct; ++uii) {
+        logprintf("yy[%u]: %g  pp[%u]: %g  vv[%u]: %g\n", uii, yy[uii], uii, pp[uii], uii, vv[uii]);
+      }
+      logprintf("\n");
+    }
 
     ComputeHessianD(xx, vv, sample_ct, predictor_ct, hh);
+    if (debug_print) {
+      logprintf("predictor_ct: %u\n", predictor_ct);
+      for (uint32_t row_idx = 0; row_idx < predictor_ct; ++row_idx) {
+        for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
+          logprintf("hh[%u][%u]: %g\n", row_idx, col_idx, hh[row_idx * predictor_ctav + col_idx]);
+        }
+      }
+      logprintf("\n");
+    }
 
     // grad = X^T P
     // Separate categorical loop also possible here
     ColMajorVectorMatrixMultiplyStrided(pp, xx, sample_ct, sample_ctav, predictor_ct, grad);
+    if (debug_print) {
+      for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+        logprintf("grad[%u]: %g\n", pred_idx, grad[pred_idx]);
+      }
+      logprintf("\n");
+    }
 
     // maybe this should use a QR decomposition instead?
     CholeskyDecompositionD(hh, predictor_ct, ll);
+    if (debug_print) {
+      for (uint32_t row_idx = 0; row_idx < predictor_ct; ++row_idx) {
+        for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
+          logprintf("ll[%u][%u]: %g\n", row_idx, col_idx, ll[row_idx * predictor_ctav + col_idx]);
+        }
+      }
+      logprintf("\n");
+    }
 
     SolveLinearSystemD(ll, grad, predictor_ct, dcoef);
+    if (debug_print) {
+      for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+        logprintf("dcoef[%u]: %g\n", pred_idx, dcoef[pred_idx]);
+      }
+      logprintf("\n");
+    }
 
     for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
       coef[pred_idx] -= dcoef[pred_idx];
     }
+    if (debug_print) {
+      for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+        logprintf("coef[%u]: %g\n", pred_idx, coef[pred_idx]);
+      }
+      logprintf("\n");
+    }
     // P[i] = \sum_j X[i][j] * coef[j];
     ColMajorMatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+    if (debug_print) {
+      for (uint32_t uii = 0; uii < 4; ++uii) {
+        logprintf("pp[%u]: %g\n", uii, pp[uii]);
+      }
+      for (uint32_t uii = sample_ctav - 4; uii < sample_ct; ++uii) {
+        logprintf("pp[%u]: %g\n", uii, pp[uii]);
+      }
+    }
 
     // P[i] = 1 / (1 + exp(-P[i]));
     logistic_v_unsafe(pp, sample_ctav);
+    if (debug_print) {
+      logprintf("after logistic_v_unsafe:\n");
+      for (uint32_t uii = 0; uii < 4; ++uii) {
+        logprintf("yy[%u]: %g  pp[%u]: %g\n", uii, yy[uii], uii, pp[uii]);
+      }
+      for (uint32_t uii = sample_ctav - 4; uii < sample_ct; ++uii) {
+        logprintf("yy[%u]: %g  pp[%u]: %g\n", uii, yy[uii], uii, pp[uii]);
+      }
+    }
     const double loglik = ComputeLoglikD(yy, pp, sample_ct);
     if (loglik != loglik) {
       return 1;
     }
 
-    if (g_debug_on) {
-      logprintf("iteration %u  loglik: %g\n", iteration, loglik);
+    if (debug_print) {
+      logprintf("iteration 1  loglik: %g\n", iteration, loglik);
     }
     // TODO: determine other non-convergence criteria
     if (fabs(loglik - loglik_old) < 1e-8 * (0.05 + fabs(loglik))) {
@@ -4498,9 +4558,6 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
               }
             }
             {
-              if (g_debug_on) {
-                logprintf("coef_return[%u]: %g  sample_variance_buf[%u]: %g\n", reported_pred_uidx_start, coef_return[reported_pred_uidx_start], reported_pred_uidx_start, sample_variance_buf[reported_pred_uidx_start]);
-              }
               double* beta_se_iter2 = beta_se_iter;
               for (uint32_t pred_uidx = reported_pred_uidx_start; pred_uidx != reported_pred_uidx_biallelic_end; ++pred_uidx) {
                 // In the multiallelic-fused case, if the first allele is
