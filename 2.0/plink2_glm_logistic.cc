@@ -3004,6 +3004,9 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_
     if (loglik != loglik) {
       return 1;
     }
+    if (g_debug_on) {
+      logprintf("iteration 0  loglik: %g\n", loglik);
+    }
     loglik_old = loglik;
   }
 
@@ -3040,6 +3043,9 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_
       return 1;
     }
 
+    if (g_debug_on) {
+      logprintf("iteration %u  loglik: %g\n", iteration, loglik);
+    }
     // TODO: determine other non-convergence criteria
     if (fabs(loglik - loglik_old) < 1e-8 * (0.05 + fabs(loglik))) {
       return 0;
@@ -3179,9 +3185,6 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, uint32_t sample_ct,
     }
     const double dethh = HalfSymmInvertedDet(hh0, inv_1d_buf, predictor_ct, predictor_ctav);
     loglik += 0.5 * log(dethh);
-    if (g_debug_on) {
-      logprintf("iter_idx=%u loglik=%g\n", iter_idx, loglik);
-    }
 
     InvertSymmdefMatrixSecondHalf(predictor_ct, predictor_ctav, hh0, inv_1d_buf, dbl_2d_buf);
     // trailing elements of hh0[] rows can't be arbitrary for later
@@ -3206,16 +3209,10 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, uint32_t sample_ct,
       }
       const double loglik_change = loglik - loglik_old;
       if ((delta_max <= xconv) && (ustar_max < gconv) && (loglik_change < lconv)) {
-        if (g_debug_on) {
-          logprintf("converged: delta_max=%g ustar_max=%g loglik_change=%g\n", delta_max, ustar_max, loglik_change);
-        }
         return 0;
       }
       if (iter_idx > max_iter) {
         *is_unfinished_ptr = 1;
-        if (g_debug_on) {
-          logprintf("unfinished: delta_max=%g ustar_max=%g loglik_change=%g\n", delta_max, ustar_max, loglik_change);
-        }
         return 0;
       }
     }
@@ -4502,7 +4499,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
             }
             {
               if (g_debug_on) {
-                logprintf("coef_return[%u]: %g  sample_variance_buf[%u]: %g\n", coef_return[reported_pred_uidx_start], sample_variance_buf[reported_pred_uidx_start]);
+                logprintf("coef_return[%u]: %g  sample_variance_buf[%u]: %g\n", reported_pred_uidx_start, coef_return[reported_pred_uidx_start], reported_pred_uidx_start, sample_variance_buf[reported_pred_uidx_start]);
               }
               double* beta_se_iter2 = beta_se_iter;
               for (uint32_t pred_uidx = reported_pred_uidx_start; pred_uidx != reported_pred_uidx_biallelic_end; ++pred_uidx) {
