@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (21 Nov 2023)";
+  " (23 Nov 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3811,6 +3811,7 @@ int main(int argc, char** argv) {
 #endif
     uint32_t randmem = 0;
     uint32_t allow_misleading_out_arg = 0;
+    uint32_t allow_normalize_with_split = 0;
     Plink1DosageInfo plink1_dosage_info;
     InitPlink1Dosage(&plink1_dosage_info);
     do {
@@ -4137,6 +4138,9 @@ int main(int argc, char** argv) {
           pc.af_pseudocount = dxx;
         } else if (strequal_k_unsafe(flagname_p2, "llow-misleading-out-arg")) {
           allow_misleading_out_arg = 1;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "llow-normalize-with-split")) {
+          allow_normalize_with_split = 1;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "c-founders")) {
           pc.misc_flags |= kfMiscAcFounders;
@@ -8876,6 +8880,11 @@ int main(int argc, char** argv) {
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --normalize argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (!allow_normalize_with_split) {
+            if (unlikely(make_plink2_flags & (kfMakePlink2MSplitAll | kfMakePlink2MSplitSnps))) {
+              logerrputs("Warning: --normalize specified with a variant-split operation.  This probably\ndoesn't do what you want, since left-normalization occurs before variant-split\nin the " PROG_NAME_STR " order of operations.  Instead, you probably want to split first,\nand then left-normalize in a subsequent " PROG_NAME_STR " run.\nUse --allow-normalize-with-split to disable this warning (which will be\nupgraded to an error in the future).\n");
             }
           }
           pc.fa_flags |= kfFaNormalize;

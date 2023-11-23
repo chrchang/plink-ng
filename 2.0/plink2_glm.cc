@@ -1648,11 +1648,13 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
         goto GlmDetermineCovars_ret_NOMEM;
       }
       if (!is_always_firth) {
-        covar_uidx_base = 0;
-        cur_bits = covar_include[0];
         if (!is_sometimes_firth) {
           do {
             prev_sample_ct = sample_ct;
+            // bugfix (23 Nov 2023): these need to be reinitialized when the
+            // while condition is actually true
+            covar_uidx_base = 0;
+            cur_bits = covar_include[0];
             for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
               const uintptr_t covar_uidx = BitIter1(covar_include, &covar_uidx_base, &cur_bits);
               if (CheckForAndHandleSeparatedCovar(pheno_cc, covar_cols, raw_sample_ctl, covar_uidx, cur_sample_include, covar_include, &sample_ct, cat_covar_wkspace)) {
@@ -1663,6 +1665,8 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
             covar_ct = PopcountWords(covar_include, raw_covar_ctl);
           } while (sample_ct < prev_sample_ct);
         } else {
+          covar_uidx_base = 0;
+          cur_bits = covar_include[0];
           for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
             const uintptr_t covar_uidx = BitIter1(covar_include, &covar_uidx_base, &cur_bits);
             if (CheckForSeparatedCovar(pheno_cc, cur_sample_include, &(covar_cols[covar_uidx]), sample_ct, cat_covar_wkspace)) {

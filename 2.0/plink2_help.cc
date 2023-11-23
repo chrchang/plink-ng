@@ -2687,9 +2687,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --zst-level <lvl>  : Set the Zstd compression level (1-22, default 3).\n"
                );
     HelpPrint("allow-misleading-out-arg\0out\0", &help_ctrl, 0,
-"  --allow-misleading-out-arg : Allow --out argument to end in a common filename\n"
-"                               extension, even though that usually corresponds\n"
-"                               to a misunderstanding of how --out works.\n"
+"  --allow-misleading-out-arg   : Allow --out argument to end in a common\n"
+"                                 filename extension, even though that usually\n"
+"                                 corresponds to a misunderstanding of how --out\n"
+"                                 works.\n"
+              );
+    HelpPrint("allow-normalize-with-split\0normalize\0", &help_ctrl, 0,
+"  --allow-normalize-with-split : Disable the --normalize + variant-split\n"
+"                                 order-of-operations warning (which will become\n"
+"                                 an error in a future build).\n"
               );
     if (!param_ct) {
       fputs(
