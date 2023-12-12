@@ -10671,7 +10671,7 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
     write_ctx.row_variant_include = row_variant_include;
     write_ctx.row_variant_include_cumulative_popcounts = row_variant_include_cumulative_popcounts;
     write_ctx.row_subset_exclude = nullptr;
-    if (inter_chr && row_snp_subset) {
+    if (row_snp_subset) {
       write_ctx.row_subset_exclude = (parallel_idx == 0)? row_variant_include : row_subset_exclude_buf;
     }
     write_ctx.cip = cip;
