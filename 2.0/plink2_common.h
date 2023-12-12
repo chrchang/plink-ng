@@ -429,9 +429,7 @@ void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_pr
 
 void PopulateRescaledDosageF(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, float slope, float intercept, float missing_val, uint32_t sample_ct, uint32_t dosage_ct, float* expanded_dosages);
 
-void PopulateDenseDphase(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, SDosage* dense_dphase_delta);
-
-void PopulateDenseDphaseSubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, SDosage* dense_dphase_delta);
+void PopulateDenseDphase(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dosage_ct, uint32_t dphase_ct, SDosage* dense_dphase_delta);
 
 // assumes trailing bits of genoarr are zeroed out
 HEADER_INLINE uint32_t AtLeastOneHetUnsafe(const uintptr_t* genoarr, uint32_t sample_ct) {

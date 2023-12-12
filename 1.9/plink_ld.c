@@ -5516,7 +5516,8 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	      }
 	    } else {
 	      cur_marker_cm = marker_cms[marker_uidx1_tmp] + window_cm;
-	      while ((marker_pos[marker_uidx2_fwd2] <= cur_marker_pos) && (marker_cms[marker_uidx2_fwd2] <= window_cm)) {
+              // bugfix (11 Dec 2023)
+	      while ((marker_pos[marker_uidx2_fwd2] <= cur_marker_pos) && (marker_cms[marker_uidx2_fwd2] <= cur_marker_cm)) {
 		marker_uidx2_fwd = marker_uidx2_fwd2;
 		window_lead_ct++;
 		if (marker_uidx2_fwd == chrom_last) {

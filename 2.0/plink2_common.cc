@@ -304,6 +304,7 @@ void PopulateRescaledDosageF(const uintptr_t* genoarr, const uintptr_t* dosage_p
 
 void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dosage_vec, const uintptr_t* dphase_present, uint32_t sample_ct, SDosage* dphase_delta) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  uintptr_t dosage_present_word = 0;
   for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
     uintptr_t phasepresent_nodphase_word = phasepresent[widx];
     if (dphase_present) {
@@ -311,7 +312,9 @@ void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phasei
     }
     if (phasepresent_nodphase_word) {
       const uintptr_t phaseinfo_word = phaseinfo[widx];
-      const uintptr_t dosage_present_word = dosage_present[widx];
+      if (dosage_present) {
+        dosage_present_word = dosage_present[widx];
+      }
       const uint32_t sample_idx_offset = widx * kBitsPerWord;
       do {
         const uint32_t sample_idx_lowbits = ctzw(phasepresent_nodphase_word);
@@ -333,7 +336,7 @@ void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phasei
   }
 }
 
-void PopulateDenseDphase(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, SDosage* dense_dphase_delta) {
+void PopulateDenseDphase(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dosage_ct, uint32_t dphase_ct, SDosage* dense_dphase_delta) {
   const uint32_t dosagev_ct = DivUp(sample_ct, kDosagePerVec);
   ZeroDphaseArr(dosagev_ct * kDosagePerVec, dense_dphase_delta);
   if (dphase_ct) {
@@ -348,60 +351,7 @@ void PopulateDenseDphase(const uintptr_t* phasepresent, const uintptr_t* phasein
     dphase_present = nullptr;
   }
   if (phasepresent_ct) {
-    DosagePhaseinfoPatch(phasepresent, phaseinfo, dosage_present, dense_dosage_vec, dphase_present, sample_ct, dense_dphase_delta);
-  }
-}
-
-void DosagePhaseinfoPatchSubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dosage_vec, const uintptr_t* dphase_present, uint32_t raw_sample_ct, SDosage* dphase_delta) {
-  const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-  for (uint32_t widx = 0; widx != raw_sample_ctl; ++widx) {
-    const uintptr_t sample_include_word = sample_include[widx];
-    uintptr_t phasepresent_nodphase_word = phasepresent[widx] & sample_include_word;
-    if (dphase_present) {
-      phasepresent_nodphase_word &= ~dphase_present[widx];
-    }
-    if (phasepresent_nodphase_word) {
-      const uintptr_t phaseinfo_word = phaseinfo[widx];
-      const uintptr_t dosage_present_word = dosage_present[widx];
-      const uint32_t sample_idx_offset = sample_include_cumulative_popcounts[widx];
-      do {
-        const uintptr_t shifted_bit = phasepresent_nodphase_word & (-phasepresent_nodphase_word);
-        const uint32_t sample_idx = sample_idx_offset + PopcountWord(sample_include_word & (shifted_bit - 1));
-        int32_t cur_diff = kDosageMid;
-        if (dosage_present_word & shifted_bit) {
-          cur_diff = DosageHomdist(dosage_vec[sample_idx]);
-        }
-        // todo: verify the compiler optimizes this well
-        if (!(phaseinfo_word & shifted_bit)) {
-          cur_diff = -cur_diff;
-        }
-        dphase_delta[sample_idx] = cur_diff;
-        phasepresent_nodphase_word ^= shifted_bit;
-      } while (phasepresent_nodphase_word);
-    }
-  }
-}
-
-void PopulateDenseDphaseSubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dense_dosage_vec, const uintptr_t* dphase_present, const SDosage* dphase_delta, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t phasepresent_ct, uint32_t dphase_ct, SDosage* dense_dphase_delta) {
-  const uint32_t dosagev_ct = DivUp(sample_ct, kDosagePerVec);
-  ZeroDphaseArr(dosagev_ct * kDosagePerVec, dense_dphase_delta);
-  if (dphase_ct) {
-    uintptr_t widx = 0;
-    uintptr_t cur_bits = dphase_present[0];
-    for (uint32_t dphase_idx = 0; dphase_idx != dphase_ct; ++dphase_idx) {
-      const uintptr_t shifted_bit = BitIter1y(dphase_present, &widx, &cur_bits);
-      const uintptr_t sample_include_word = sample_include[widx];
-      if (sample_include_word & shifted_bit) {
-        const uint32_t sample_idx = sample_include_cumulative_popcounts[widx] + PopcountWord(sample_include_word & (shifted_bit - 1));
-        const int32_t dphase_delta_val = dphase_delta[dphase_idx];
-        dense_dphase_delta[sample_idx] = dphase_delta_val;
-      }
-    }
-  } else {
-    dphase_present = nullptr;
-  }
-  if (phasepresent_ct) {
-    DosagePhaseinfoPatchSubset(sample_include, sample_include_cumulative_popcounts, phasepresent, phaseinfo, dosage_present, dense_dosage_vec, dphase_present, raw_sample_ct, dense_dphase_delta);
+    DosagePhaseinfoPatch(phasepresent, phaseinfo, dosage_ct? dosage_present : nullptr, dense_dosage_vec, dphase_present, sample_ct, dense_dphase_delta);
   }
 }
 
@@ -4252,6 +4202,9 @@ void GetBpWindow(const uintptr_t* variant_include, const uint32_t* variant_bps, 
 
 PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned char* vrtypes, uint32_t raw_variant_ct, PgenGlobalFlags input_gflags) {
   PgenGlobalFlags read_gflags = kfPgenGlobal0;
+  if (!vrtypes) {
+    return input_gflags;
+  }
   const uintptr_t* vrtypes_alias = R_CAST(const uintptr_t*, vrtypes);
   const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
   uint32_t mask_multiply = ((input_gflags & kfPgenGlobalHardcallPhasePresent)? 0x10 : 0) + ((input_gflags & kfPgenGlobalDosagePresent)? 0x60 : 0) + ((input_gflags & kfPgenGlobalDosagePhasePresent)? 0x80 : 0);

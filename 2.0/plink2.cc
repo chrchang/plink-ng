@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (23 Nov 2023)";
+  " (11 Dec 2023)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -7239,7 +7239,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx], flagname_p, 0, &pc.vcor_info.ld_snp_list_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.vcor_info.ld_snp_list_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }

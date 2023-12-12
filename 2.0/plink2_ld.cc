@@ -93,6 +93,22 @@ void CleanupVcor(VcorInfo* vcip) {
   CleanupRangeList(&(vcip->ld_snp_range_list));
 }
 
+void StripUnplacedNoCount(const ChrInfo* cip, uintptr_t* variant_include) {
+  if (IsSet(cip->chr_mask, 0)) {
+    const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[0];
+    const uint32_t start_uidx = cip->chr_fo_vidx_start[chr_fo_idx];
+    ClearBitsNz(start_uidx, cip->chr_fo_vidx_start[chr_fo_idx + 1], variant_include);
+  }
+  if (cip->zero_extra_chrs) {
+    const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
+    for (uint32_t chr_idx = cip->max_code + 1; chr_idx != chr_code_end; ++chr_idx) {
+      const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
+      const uint32_t start_uidx = cip->chr_fo_vidx_start[chr_fo_idx];
+      ClearBitsNz(start_uidx, cip->chr_fo_vidx_start[chr_fo_idx + 1], variant_include);
+    }
+  }
+}
+
 // Move to plink2_common if any users outside plink2_ld.
 BoolErr StripUnplaced(const uintptr_t* orig_variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uint32_t* skipped_variant_ctp, uintptr_t** new_variant_includep) {
   uint32_t skipped_variant_ct = 0;
@@ -118,18 +134,7 @@ BoolErr StripUnplaced(const uintptr_t* orig_variant_include, const ChrInfo* cip,
   }
   uintptr_t* new_variant_include = *new_variant_includep;
   memcpy(new_variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
-  if (IsSet(cip->chr_mask, 0)) {
-    const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[0];
-    const uint32_t start_uidx = cip->chr_fo_vidx_start[chr_fo_idx];
-    ClearBitsNz(start_uidx, cip->chr_fo_vidx_start[chr_fo_idx + 1], new_variant_include);
-  }
-  if (cip->zero_extra_chrs) {
-    for (uint32_t chr_idx = cip->max_code + 1; chr_idx != chr_code_end; ++chr_idx) {
-      const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
-      const uint32_t start_uidx = cip->chr_fo_vidx_start[chr_fo_idx];
-      ClearBitsNz(start_uidx, cip->chr_fo_vidx_start[chr_fo_idx + 1], new_variant_include);
-    }
-  }
+  StripUnplacedNoCount(cip, new_variant_include);
   return 0;
 }
 
@@ -139,6 +144,27 @@ static inline const uintptr_t* StripUnplacedK(const uintptr_t* orig_variant_incl
     return nullptr;
   }
   return new_variant_include? new_variant_include : orig_variant_include;
+}
+
+// Returns number of skipped variants.
+uint32_t StripUnplacedMut(const ChrInfo* cip, uintptr_t* variant_include) {
+  uint32_t skipped_variant_ct = 0;
+  if (IsSet(cip->chr_mask, 0)) {
+    skipped_variant_ct = CountChrVariantsUnsafe(variant_include, cip, 0);
+  }
+  const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
+  if (cip->zero_extra_chrs) {
+    for (uint32_t chr_idx = cip->max_code + 1; chr_idx != chr_code_end; ++chr_idx) {
+      if (IsSet(cip->chr_mask, chr_idx)) {
+        skipped_variant_ct += CountChrVariantsUnsafe(variant_include, cip, cip->chr_idx_to_foidx[chr_idx]);
+      }
+    }
+  }
+  if (!skipped_variant_ct) {
+    return 0;
+  }
+  StripUnplacedNoCount(cip, variant_include);
+  return skipped_variant_ct;
 }
 
 
@@ -4521,26 +4547,28 @@ uint32_t DosageR2FreqsSubset(const Dosage* dosage_vec0, const uintptr_t* nm_bitv
 // "unscaled" because you need to multiply by allele count to get the proper
 // log-likelihood
 double EmPhaseUnscaledLnlike(double freq11, double freq12, double freq21, double freq22, double half_hethet_share, double freq11_incr) {
-  freq11 += freq11_incr;
-  freq22 += freq11_incr;
-  freq12 += half_hethet_share - freq11_incr;
-  freq21 += half_hethet_share - freq11_incr;
-  const double cross_sum = freq11 * freq22 + freq12 * freq21;
+  // bugfix (11 Dec 2023): can't modify freq11, etc. in-place because then
+  // they're no longer scaled with old calc_lnlike() known11, etc.
+  const double adj_freq11 = freq11 + freq11_incr;
+  const double adj_freq22 = freq22 + freq11_incr;
+  const double adj_freq12 = freq12 + half_hethet_share - freq11_incr;
+  const double adj_freq21 = freq21 + half_hethet_share - freq11_incr;
+  const double cross_sum = adj_freq11 * adj_freq22 + adj_freq12 * adj_freq21;
   double lnlike = 0.0;
   if (cross_sum != 0.0) {
     lnlike = half_hethet_share * log(cross_sum);
   }
-  if (freq11 != 0.0) {
-    lnlike += freq11 * log(freq11);
+  if (adj_freq11 != 0.0) {
+    lnlike += freq11 * log(adj_freq11);
   }
-  if (freq12 != 0.0) {
-    lnlike += freq12 * log(freq12);
+  if (adj_freq12 != 0.0) {
+    lnlike += freq12 * log(adj_freq12);
   }
-  if (freq21 != 0.0) {
-    lnlike += freq21 * log(freq21);
+  if (adj_freq21 != 0.0) {
+    lnlike += freq21 * log(adj_freq21);
   }
-  if (freq22 != 0.0) {
-    lnlike += freq22 * log(freq22);
+  if (adj_freq22 != 0.0) {
+    lnlike += freq22 * log(adj_freq22);
   }
   return lnlike;
 }
@@ -4577,7 +4605,7 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
   //     1  -  1 : known_dotprod
 
   // bugfix (15 Sep 2023): otherwise possible for freq_majmaj to be slightly
-  // less than zero, and this breaks EmPhasedUnscaledLnlike().
+  // less than zero, and this breaks EmPhaseUnscaledLnlike().
   const double freq_majmaj = MAXV(1.0 - (nmajsums_d[0] + nmajsums_d[1] - known_dotprod_d) * twice_tot_recip, 0.0);
   const double freq_majmin = (nmajsums_d[1] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
   const double freq_minmaj = (nmajsums_d[0] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
@@ -4687,7 +4715,8 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
       if (dd >= 0.0) {
         results[2] = dd / MINV(freq_xmaj * freq_minx, freq_xmin * freq_majx);
       } else {
-        results[2] = -dd / MINV(freq_xmaj * freq_majx, freq_xmin * freq_minx);
+        // note that this preserves sign
+        results[2] = dd / MINV(freq_xmaj * freq_majx, freq_xmin * freq_minx);
       }
     }
   } else {
@@ -4917,11 +4946,15 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uint64_t nmaj_dosages[2];
       uint32_t nm_cts[2];
       for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
-        PopulateDenseDosage(pgvs[var_idx].genovec, pgvs[var_idx].dosage_present, pgvs[var_idx].dosage_main, founder_ct, pgvs[var_idx].dosage_ct, dosage_vecs[var_idx]);
+        const uint32_t dosage_ct = pgvs[var_idx].dosage_ct;
+        PopulateDenseDosage(pgvs[var_idx].genovec, pgvs[var_idx].dosage_present, pgvs[var_idx].dosage_main, founder_ct, dosage_ct, dosage_vecs[var_idx]);
         nmaj_dosages[var_idx] = DenseDosageSum(dosage_vecs[var_idx], founder_dosagev_ct);
         FillDosageHet(dosage_vecs[var_idx], founder_dosagev_ct, dosage_hets[var_idx]);
         GenoarrToNonmissing(pgvs[var_idx].genovec, founder_ct, nm_bitvecs[var_idx]);
-        BitvecOr(pgvs[var_idx].dosage_present, founder_ctl, nm_bitvecs[var_idx]);
+        // bugfix (10 Dec 2023)
+        if (dosage_ct) {
+          BitvecOr(pgvs[var_idx].dosage_present, founder_ctl, nm_bitvecs[var_idx]);
+        }
         nm_cts[var_idx] = PopcountWords(nm_bitvecs[var_idx], founder_ctl);
       }
       SDosage* main_dphase_deltas[2];
@@ -4933,7 +4966,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           goto LdConsole_ret_NOMEM;
         }
         for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
-          PopulateDenseDphase(pgvs[var_idx].phasepresent, pgvs[var_idx].phaseinfo, pgvs[var_idx].dosage_present, dosage_vecs[var_idx], pgvs[var_idx].dphase_present, pgvs[var_idx].dphase_delta, founder_ct, pgvs[var_idx].phasepresent_ct, pgvs[var_idx].dphase_ct, main_dphase_deltas[var_idx]);
+          PopulateDenseDphase(pgvs[var_idx].phasepresent, pgvs[var_idx].phaseinfo, pgvs[var_idx].dosage_present, dosage_vecs[var_idx], pgvs[var_idx].dphase_present, pgvs[var_idx].dphase_delta, founder_ct, pgvs[var_idx].phasepresent_ct, pgvs[var_idx].dosage_ct, pgvs[var_idx].dphase_ct, main_dphase_deltas[var_idx]);
         }
       }
       valid_obs_ct = DosageR2Freqs(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], nmaj_dosages);
@@ -5218,7 +5251,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       }
       write_iter = strcpya_k(g_logbuf, "  r^2 = ");
       write_iter = dtoa_g(dd * dd / (freq_majx * freq_xmaj * freq_minx * freq_xmin), write_iter);
-      write_iter = strcpya_k(write_iter, "    D' = ");
+      write_iter = strcpya_k(write_iter, "    |D'| = ");
       double d_prime;
       if (dd >= 0.0) {
         d_prime = dd / MINV(freq_xmaj * freq_minx, freq_xmin * freq_majx);
@@ -5821,7 +5854,7 @@ void LdUnpackDosage(const PgenVariant* pgvp, const uintptr_t* founder_male_colla
   } else {
     FillDosageHet(dosage_vec, dosagev_ct, dosage_het);
     if (phase_type == kR2PhaseTypePresent) {
-      PopulateDenseDphase(pgvp->phasepresent, pgvp->phaseinfo, pgvp->dosage_present, dosage_vec, pgvp->dphase_present, pgvp->dphase_delta, sample_ct, pgvp->phasepresent_ct, pgvp->dphase_ct, dense_dphase_delta);
+      PopulateDenseDphase(pgvp->phasepresent, pgvp->phaseinfo, pgvp->dosage_present, dosage_vec, pgvp->dphase_present, pgvp->dphase_delta, sample_ct, pgvp->phasepresent_ct, pgvp->dosage_ct, pgvp->dphase_ct, dense_dphase_delta);
     }
   }
   if (founder_male_collapsed == nullptr) {
@@ -9665,8 +9698,8 @@ typedef struct VcorTableCtxStruct {
   uintptr_t unpacked_variant_byte_stride;
 
   // Input data.
-  unsigned char* unpacked_variants[2];  // read from [row_parity]
-  uint32_t* row_uvidxs[2];  // read from [row_parity]
+  unsigned char* unpacked_variants[2];  // read from [col_parity]
+  // uint32_t* row_uvidxs[2];  // read from [row_parity]
   uint32_t* col_uvidxs[2];  // read from [col_parity]
   ChrIdx* row_chr_idxs[2];  // read from [row_parity]
   ChrIdx* col_chr_idxs[2];  // read from [col_parity]
@@ -9682,9 +9715,9 @@ typedef struct VcorTableCtxStruct {
   // we currently don't optimize out the computation.
   uintptr_t* write_idx_starts[2];
 
-  uint32_t row_window_size;
-  uint32_t col_window_start;
-  uint32_t col_window_end;
+  uint32_t* row_window_sizes;  // read from [row_parity]
+  uint32_t col_window_starts[2];  // read from [col_parity]
+  uint32_t col_window_ends[2];  // read from [col_parity]
 
   // per-thread chrX workspaces.
   uintptr_t** cur_nm_bufs;
@@ -9730,17 +9763,17 @@ THREAD_FUNC_DECL VcorTableThread(void* raw_arg) {
   double* d_ptr = report_d? (&dd) : nullptr;
   double* dprime_ptr = report_dprime? (&dprime) : nullptr;
   do {
-    const uint32_t col_window_start = ctx->col_window_start;
-    const uint32_t col_window_end = ctx->col_window_end;
+    const uint32_t col_window_start = ctx->col_window_starts[col_parity];
+    const uint32_t col_window_end = ctx->col_window_ends[col_parity];
     if (col_window_start == 0) {
       row_parity = 1 - row_parity;
     }
-    const uint64_t row_window_size = ctx->row_window_size;
+    const uint64_t row_window_size = ctx->row_window_sizes[row_parity];
     const uint32_t row_start_offset = (row_window_size * tidx) / calc_thread_ct;
     const uint32_t row_end_offset = (row_window_size * (tidx + 1)) / calc_thread_ct;
     if (row_end_offset > row_start_offset) {
-      unsigned char* unpacked_variants = ctx->unpacked_variants[row_parity];
-      uint32_t* row_uvidxs = ctx->row_uvidxs[row_parity];
+      unsigned char* unpacked_variants = ctx->unpacked_variants[col_parity];
+      // uint32_t* row_uvidxs = ctx->row_uvidxs[row_parity];
       uint32_t* col_uvidxs = ctx->col_uvidxs[col_parity];
       const ChrIdx* row_chr_idxs = ctx->row_chr_idxs[row_parity];
       const ChrIdx* col_chr_idxs = ctx->col_chr_idxs[col_parity];
@@ -9757,7 +9790,9 @@ THREAD_FUNC_DECL VcorTableThread(void* raw_arg) {
         if (col_offset_stop > col_window_end) {
           col_offset_stop = col_window_end;
         }
-        const unsigned char* unpacked_row_ptr = &(unpacked_variants[row_uvidxs[row_offset_idx] * unpacked_variant_byte_stride]);
+        // const uint32_t cur_row_uvidx = row_uvidxs[row_offset_idx];
+        const uint32_t cur_row_uvidx = row_offset_idx;
+        const unsigned char* unpacked_row_ptr = &(unpacked_variants[row_offset_idx * unpacked_variant_byte_stride]);
         R2Variant row_r2v;
         FillR2V(unpacked_row_ptr, founder_ct, unpack_phase_type, x_exists, check_dosage, &row_r2v);
         const uint32_t row_chr_idx = row_chr_idxs[row_offset_idx];
@@ -9765,13 +9800,12 @@ THREAD_FUNC_DECL VcorTableThread(void* raw_arg) {
         uint32_t col_offset_idx = MAXV(col_offset_start, col_window_start);
         double* write_iter = &(results[(write_idx_start + col_offset_idx - col_offset_start) * result_stride]);
         for (; col_offset_idx != col_offset_stop; ++col_offset_idx) {
-          // If these pointers are equal, we're in the row_variant_idx ==
-          // col_variant_idx case, and it's safe to skip the computation.
-          const unsigned char* unpacked_col_ptr = &(unpacked_variants[col_uvidxs[col_offset_idx] * unpacked_variant_byte_stride]);
-          if (unpacked_col_ptr == unpacked_row_ptr) {
+          const uint32_t cur_col_uvidx = col_uvidxs[col_offset_idx];
+          if (cur_row_uvidx == cur_col_uvidx) {
             write_iter = &(write_iter[result_stride]);
             continue;
           }
+          const unsigned char* unpacked_col_ptr = &(unpacked_variants[cur_col_uvidx * unpacked_variant_byte_stride]);
           const uint32_t col_chr_idx = col_chr_idxs[col_offset_idx];
           const uint32_t either_is_chrx = row_is_chrx || (col_chr_idx == chrx_idx);
           R2Variant col_r2v;
@@ -9813,6 +9847,7 @@ typedef struct VcorTableWriteCtxStruct {
   const uint32_t* variant_include_cumulative_popcounts;
   const uintptr_t* row_variant_include;
   const uint32_t* row_variant_include_cumulative_popcounts;
+  const uintptr_t* row_subset_exclude;
   const ChrInfo* cip;
   const uint32_t* variant_bps;
   const char* const* variant_ids;
@@ -9826,14 +9861,13 @@ typedef struct VcorTableWriteCtxStruct {
   VcorFlags flags;
   unsigned char all_nonref;
   unsigned char provref_col;
-  unsigned char inter_chr_row_subset;
 
   // these are relative to row_variant_include
-  uint32_t variant_ridx_start;
-  uint32_t row_window_size;
+  uint32_t variant_ridx_starts[2];
+  uint32_t* row_window_sizes;  // [2]
 
   // these are relative to variant_include
-  uint32_t col_variant_idx_start;
+  uint32_t col_variant_idx_starts[2];
   uint32_t* col_offset_starts[2];
   uintptr_t* write_idx_starts[2];
 
@@ -9855,6 +9889,7 @@ THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
   const uint32_t* variant_include_cumulative_popcounts = ctx->variant_include_cumulative_popcounts;
   const uintptr_t* row_variant_include = ctx->row_variant_include;
   const uint32_t* row_variant_include_cumulative_popcounts = ctx->row_variant_include_cumulative_popcounts;
+  const uintptr_t* row_subset_exclude = ctx->row_subset_exclude;
   const ChrInfo* cip = ctx->cip;
   const uint32_t* variant_bps = ctx->variant_bps;
   const char* const* variant_ids = ctx->variant_ids;
@@ -9882,15 +9917,14 @@ THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
   const uint32_t results_stride = 1 + d_col + dprime_col;
   const double r_or_r2_thresh = ctx->r_or_r2_thresh;
   const uint32_t raw_variant_ctl = BitCtToWordCt(ctx->raw_variant_ct);
-  const uint32_t inter_chr_row_subset = ctx->inter_chr_row_subset;
 
   char* row_chr_buf = ctx->row_chr_buf;
   char* col_chr_buf = ctx->col_chr_buf;
   uint32_t row_chr_fo_idx = UINT32_MAX;
   uint32_t row_chr_end = 0;
   uint32_t row_chr_blen = 0;
-  uint32_t col_chr_fo_idx = 0;
-  uint32_t col_chr_end = UINT32_MAX;
+  uint32_t col_chr_fo_idx = UINT32_MAX;
+  uint32_t col_chr_end = 0;
   uint32_t col_chr_blen = 0;
   uint32_t row_allele_ct = 2;
   uint32_t col_allele_ct = 2;
@@ -9900,9 +9934,9 @@ THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
     const uint32_t* col_offset_starts = ctx->col_offset_starts[row_parity];
     const uintptr_t* write_idx_starts = ctx->write_idx_starts[row_parity];
     const double* cur_results_iter = ctx->results[row_parity];
-    const uintptr_t variant_ridx_start = ctx->variant_ridx_start;
-    const uint32_t row_window_size = ctx->row_window_size;
-    const uint32_t col_variant_idx_start = ctx->col_variant_idx_start;
+    const uintptr_t variant_ridx_start = ctx->variant_ridx_starts[row_parity];
+    const uint32_t row_window_size = ctx->row_window_sizes[row_parity];
+    const uint32_t col_variant_idx_start = ctx->col_variant_idx_starts[row_parity];
     char* cswritep = ctx->cswritep;
     CompressStreamState* cssp = &(ctx->css);
     const uint32_t row_variant_uidx_start = IdxToUidx(row_variant_include, row_variant_include_cumulative_popcounts, 0, raw_variant_ctl, variant_ridx_start);
@@ -9946,19 +9980,21 @@ THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
           cur_results_iter = &(cur_results_iter[results_stride]);
           continue;
         }
-        // In the usual inter-chr case, we can report each pair exactly once by
-        // setting the iteration bounds to correspond to the upper-right
-        // triangle of the matrix.
-        // However, if inter-chr is combined with
-        // --ld-snp/--ld-snps/--ld-snp-list, that doesn't work, since we only
-        // want to exclude lower-left columns corresponding to included rows.
-        if (inter_chr_row_subset && (col_variant_uidx < row_variant_uidx) && IsSet(row_variant_include, col_variant_uidx)) {
+        // In the usual case, we can report each pair exactly once by requiring
+        // col_variant_uidx > row_variant_uidx.
+        // However, if --ld-snp/--ld-snps/--ld-snp-list is in effect, that may
+        // cause some variant-pairs to not be reported at all.  In that case,
+        // we only enforce the col_variant_uidx > row_variant_uidx rule when
+        // col_variant_uidx corresponds to a row-variant.  (row_subset_exclude
+        // usually points to row_variant_include; the exception is when
+        // --parallel is also in effect.)
+        if (row_subset_exclude && (col_variant_uidx < row_variant_uidx) && IsSet(row_subset_exclude, col_variant_uidx)) {
           cur_results_iter = &(cur_results_iter[results_stride]);
           continue;
         }
         const double r_or_r2 = *cur_results_iter;
         // !(a >= b) instead of (a < b) so that NaN is handled properly
-        if ((r_or_r2_thresh >= 0.0) && (!(r_or_r2 >= r_or_r2_thresh))) {
+        if ((r_or_r2_thresh >= 0.0) && (!(fabs(r_or_r2) >= r_or_r2_thresh))) {
           cur_results_iter = &(cur_results_iter[results_stride]);
           continue;
         }
@@ -10114,15 +10150,63 @@ THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, __attribute__((unused)) const uintptr_t* allele_idx_offsets, __attribute__((unused)) const char* const* allele_storage, __attribute__((unused)) const AlleleCode* maj_alleles, __attribute__((unused)) const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, const char* flagname, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, __attribute__((unused)) uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end) {
-  logerrputs("Error: --r[2]-[un]phased is under development.\n");
-  return kPglRetNotYetSupported;
+// Determine --ld-window-kb, --ld-window-cm, and --ld-window intersection.
+// Assumes chr_start_uidx <= uidx_start <= uidx_end on entry, and that
+// uidx_start and uidx_end are not greater than their true values for the
+// current variant.
+void UpdateVcorWindow(const uintptr_t* variant_include, const uint32_t* variant_bps, const double* variant_cms, uint32_t row_snp_subset, uint32_t var_ct_radius, uint32_t bp_radius, double cm_radius, uint32_t chr_end_uidx, uint32_t center_uidx, uint32_t* uidx_startp, uint32_t* uidx_endp) {
+  const uint32_t cur_bp = variant_bps[center_uidx];
+  if (row_snp_subset) {
+    uint32_t uidx_start = *uidx_startp;
+    if (cur_bp > bp_radius) {
+      uidx_start = ExpsearchU32(variant_bps, uidx_start, center_uidx, cur_bp - bp_radius);
+    }
+    if (variant_cms) {
+      const double cur_cm = variant_cms[center_uidx];
+      uidx_start = ExpsearchD(variant_cms, uidx_start, center_uidx, cur_cm - cm_radius);
+    }
+    // var_ct_radius <= 0x7fffffff, so no overflow risk
+    if (uidx_start + var_ct_radius < center_uidx) {
+      const uint32_t leading_var_ct = PopcountBitRange(variant_include, uidx_start, center_uidx);
+      if (leading_var_ct > var_ct_radius) {
+        uidx_start = FindNth1BitFrom(variant_include, uidx_start + 1, leading_var_ct - var_ct_radius);
+      }
+    }
+    *uidx_startp = uidx_start;
+  } else {
+    *uidx_startp = center_uidx;
+  }
+
+  uint32_t uidx_end = MAXV(*uidx_endp, center_uidx + 1);
+  if (uidx_end < chr_end_uidx) {
+    uint32_t uidx_end_ceil = ExpsearchU32(variant_bps, uidx_end, chr_end_uidx, cur_bp + bp_radius + 1);
+    if (variant_cms) {
+      const double cur_cm = variant_cms[center_uidx];
+      uidx_end_ceil = ExpsearchD(variant_cms, uidx_end, uidx_end_ceil, cur_cm + cm_radius);
+    }
+    if (center_uidx + 1 + var_ct_radius < uidx_end_ceil) {
+      const uint32_t trailing_var_ct = PopcountBitRange(variant_include, center_uidx + 1, uidx_end_ceil);
+      if (trailing_var_ct > var_ct_radius) {
+        uidx_end_ceil = 1 + FindNth1BitFrom(variant_include, center_uidx + 1, var_ct_radius);
+      }
+    }
+    uidx_end = uidx_end_ceil;
+  }
+  *uidx_endp = uidx_end;
+}
+
+PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, const char* flagname, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
   VcorTableCtx ctx;
   VcorTableWriteCtx write_ctx;
+  ThreadGroup tg;
+  ThreadGroup write_tg;
   PreinitCstream(&write_ctx.css);
+  write_ctx.cswritep = nullptr;
+  PreinitThreads(&tg);
+  PreinitThreads(&write_tg);
   {
     // 1. If not inter-chr, remove unplaced variants.
     // 2. If --parallel and/or --ld-snp/--ld-snps/--ld-snp-list, initialize
@@ -10136,19 +10220,32 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
     const char* ld_snp_list_fname = vcip->ld_snp_list_fname;
     const RangeList* ld_snp_range_listp = &(vcip->ld_snp_range_list);
     const uint32_t row_snp_subset = ld_snp_list_fname || (ld_snp_range_listp->name_ct != 0);
-    const uint32_t inter_chr_upper_right = inter_chr && (!row_snp_subset);
     const double min_r2 = vcip->min_r2;
-    if (unlikely(inter_chr_upper_right && (min_r2 <= 0.0) && (orig_variant_ct > 400000) && (parallel_tot == 1) && (!(flags & kfVcorYesReally)))) {
+    if (unlikely(inter_chr && (!row_snp_subset) && (min_r2 <= 0.0) && (orig_variant_ct > 400000) && (parallel_tot == 1) && (!(flags & kfVcorYesReally)))) {
       logerrprintfww("Error: Gigantic (over 400k variants) %s unfiltered, non-distributed computation. Rerun with the 'yes-really' modifier if you are SURE you have enough hard drive space and want to do this.\n", flagname);
       goto VcorTable_ret_INCONSISTENT_INPUT;
     }
-    uintptr_t* new_variant_include = nullptr;
-    uint32_t variant_ct = orig_variant_ct;
-    if (!inter_chr) {
-      uint32_t skipped_variant_ct = 0;
-      if (unlikely(StripUnplaced(orig_variant_include, cip, raw_variant_ct, &skipped_variant_ct, &new_variant_include))) {
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    // There are conditions under which we can optimize out these allocations,
+    // but we don't realistically need the memory under those conditions, so
+    // just go ahead and make copies 100% of the time.
+    uintptr_t* variant_include_buf;
+    uintptr_t* row_variant_include_buf;
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include_buf) ||
+                 bigstack_alloc_w(raw_variant_ctl, &row_variant_include_buf))) {
+      goto VcorTable_ret_NOMEM;
+    }
+    memcpy(variant_include_buf, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+    memcpy(row_variant_include_buf, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+    uintptr_t* row_subset_exclude_buf = nullptr;
+    if (row_snp_subset && (parallel_idx != 0)) {
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &row_subset_exclude_buf))) {
         goto VcorTable_ret_NOMEM;
       }
+    }
+    uint32_t variant_ct = orig_variant_ct;
+    if (!inter_chr) {
+      uint32_t skipped_variant_ct = StripUnplacedMut(cip, variant_include_buf);
       if (skipped_variant_ct) {
         logprintf("%s: Ignoring %u chromosome 0 variant%s.\n", flagname, skipped_variant_ct, (skipped_variant_ct == 1)? "" : "s");
         variant_ct -= skipped_variant_ct;
@@ -10160,158 +10257,274 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
     if (cm_radius == -1.0) {
       variant_cms = nullptr;
     }
-    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    uintptr_t* row_variant_include = nullptr;
-    uint32_t* row_variant_include_cumulative_popcounts = nullptr;
     uint32_t row_variant_ct = variant_ct;
     if ((parallel_tot != 1) || row_snp_subset) {
-      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &row_variant_include) ||
-                   bigstack_alloc_u32(raw_variant_ctl, &row_variant_include_cumulative_popcounts))) {
-        goto VcorTable_ret_NOMEM;
-      }
-      {
-        const uintptr_t* prev_variant_include = new_variant_include? new_variant_include : orig_variant_include;
-        if (row_snp_subset) {
-          unsigned char* bigstack_mark2 = g_bigstack_base;
-          uint32_t* variant_id_htable;
-          uint32_t* htable_dup_base;
-          uint32_t variant_id_htable_size;
-          AllocAndPopulateIdHtableMt(prev_variant_include, variant_ids, variant_ct, bigstack_left() / 2, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, nullptr);
-          if (ld_snp_list_fname) {
-            memcpy(row_variant_include, prev_variant_include, raw_variant_ctl * sizeof(intptr_t));
-            const uint32_t fname_slen = strlen(ld_snp_list_fname);
-            char* fnames_tmp;
-            if (unlikely(bigstack_alloc_c(fname_slen + 2, &fnames_tmp))) {
-              goto VcorTable_ret_NOMEM;
-            }
-            memcpy(fnames_tmp, ld_snp_list_fname, fname_slen + 1);
-            fnames_tmp[fname_slen + 1] = '\0';
-            reterr = TokenExtractExclude(variant_ids, variant_id_htable, htable_dup_base, fnames_tmp, "--ld-snp-list", raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExtract, max_thread_ct, row_variant_include, &row_variant_ct);
-            if (unlikely(reterr)) {
-              goto VcorTable_ret_1;
-            }
-          } else {
-            uintptr_t* seen_uidxs;
-            if (unlikely(bigstack_calloc_w(raw_variant_ctl, &seen_uidxs))) {
-              goto VcorTable_ret_NOMEM;
-            }
-            reterr = InterpretVariantRangeList(variant_ids, variant_id_htable, htable_dup_base, ld_snp_range_listp, "--ld-snps", max_variant_id_slen, variant_id_htable_size, seen_uidxs);
-            if (unlikely(reterr)) {
-              goto VcorTable_ret_1;
-            }
-            BitvecAnd(seen_uidxs, raw_variant_ctl, row_variant_include);
-            row_variant_ct = PopcountWords(row_variant_include, raw_variant_ctl);
+      if (row_snp_subset) {
+        unsigned char* bigstack_mark2 = g_bigstack_base;
+        uint32_t* variant_id_htable;
+        uint32_t* htable_dup_base;
+        uint32_t variant_id_htable_size;
+        AllocAndPopulateIdHtableMt(variant_include_buf, variant_ids, variant_ct, bigstack_left() / 2, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, nullptr);
+        if (ld_snp_list_fname) {
+          const uint32_t fname_slen = strlen(ld_snp_list_fname);
+          char* fnames_tmp;
+          if (unlikely(bigstack_alloc_c(fname_slen + 2, &fnames_tmp))) {
+            goto VcorTable_ret_NOMEM;
           }
-          BigstackReset(bigstack_mark2);
+          memcpy(fnames_tmp, ld_snp_list_fname, fname_slen + 1);
+          fnames_tmp[fname_slen + 1] = '\0';
+          reterr = TokenExtractExclude(variant_ids, variant_id_htable, htable_dup_base, fnames_tmp, "ld-snp-list", raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExtract, max_thread_ct, row_variant_include_buf, &row_variant_ct);
+          if (unlikely(reterr)) {
+            goto VcorTable_ret_1;
+          }
         } else {
-          memcpy(row_variant_include, prev_variant_include, raw_variant_ctl * sizeof(intptr_t));
+          uintptr_t* seen_uidxs;
+          if (unlikely(bigstack_calloc_w(raw_variant_ctl, &seen_uidxs))) {
+            goto VcorTable_ret_NOMEM;
+          }
+          reterr = InterpretVariantRangeList(variant_ids, variant_id_htable, htable_dup_base, ld_snp_range_listp, "--ld-snps", max_variant_id_slen, variant_id_htable_size, seen_uidxs);
+          if (unlikely(reterr)) {
+            goto VcorTable_ret_1;
+          }
+          BitvecAnd(seen_uidxs, raw_variant_ctl, row_variant_include_buf);
+          row_variant_ct = PopcountWords(row_variant_include_buf, raw_variant_ctl);
         }
+        BigstackReset(bigstack_mark2);
       }
       if (parallel_tot > 1) {
         const uint32_t row_shard_start = (S_CAST(uint64_t, row_variant_ct) * parallel_idx) / parallel_tot;
-        const uint32_t row_uidx_start = IdxToUidxBasic(row_variant_include, row_shard_start);
+        const uint32_t row_uidx_start = IdxToUidxBasic(row_variant_include_buf, row_shard_start);
+        if ((parallel_idx != 0) && row_snp_subset) {
+          memcpy(row_subset_exclude_buf, row_variant_include_buf, raw_variant_ctl * sizeof(intptr_t));
+        }
         if (row_uidx_start) {
-          ClearBitsNz(0, row_uidx_start, row_variant_include);
+          ClearBitsNz(0, row_uidx_start, row_variant_include_buf);
         }
         uint32_t row_shard_end = row_variant_ct;
         if (parallel_idx + 1 != parallel_tot) {
           row_shard_end = (S_CAST(uint64_t, row_variant_ct) * (parallel_idx + 1)) / parallel_tot;
           const uint32_t row_vecidx_start = row_uidx_start / kBitsPerVec;
-          const uint32_t row_uidx_end = row_vecidx_start * kBitsPerVec + IdxToUidxBasic(&(row_variant_include[row_vecidx_start * kWordsPerVec]), row_shard_end - row_shard_start);
-          ClearBitsNz(row_uidx_end, raw_variant_ct, row_variant_include);
+          const uint32_t row_uidx_end = row_vecidx_start * kBitsPerVec + IdxToUidxBasic(&(row_variant_include_buf[row_vecidx_start * kWordsPerVec]), row_shard_end - row_shard_start);
+          ClearBitsNz(row_uidx_end, raw_variant_ct, row_variant_include_buf);
         }
         row_variant_ct = row_shard_end - row_shard_start;
-        if (inter_chr_upper_right && (row_shard_start != 0)) {
+        if ((row_shard_start != 0) && (!row_snp_subset)) {
           // Safe to remove column-variants before the current row-shard.
-          if (new_variant_include == nullptr) {
-            if (unlikely(bigstack_alloc_w(raw_variant_ctl, &new_variant_include))) {
-              goto VcorTable_ret_NOMEM;
-            }
-            memcpy(new_variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
-          }
-          variant_ct -= PopcountBitRange(new_variant_include, 0, row_uidx_start);
-          ClearBitsNz(0, row_uidx_start, new_variant_include);
+          variant_ct -= PopcountBitRange(variant_include_buf, 0, row_uidx_start);
+          ClearBitsNz(0, row_uidx_start, variant_include_buf);
         }
-      }
-      FillCumulativePopcounts(row_variant_include, raw_variant_ctl, row_variant_include_cumulative_popcounts);
-      if (!inter_chr) {
-        // Safe to remove column-variants out of range of all row variants.
-        if (new_variant_include == nullptr) {
-          if (unlikely(bigstack_alloc_w(raw_variant_ctl, &new_variant_include))) {
-            goto VcorTable_ret_NOMEM;
-          }
-          memcpy(new_variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
-        }
-        uint32_t row_chr_fo_idx = UINT32_MAX;
-        uint32_t row_chr_start = 0;
-        uint32_t row_chr_end = 0;
-
-        uint32_t prev_uidx_start = 0;
-        uint32_t prev_uidx_end = 0;
-        double cur_cm = 0.0;
-
-        uintptr_t row_variant_uidx_base = 0;
-        uintptr_t row_cur_bits = row_variant_include[0];
-        for (uint32_t row_variant_idx = 0; row_variant_idx != row_variant_ct; ++row_variant_idx) {
-          const uint32_t row_variant_uidx = BitIter1(row_variant_include, &row_variant_uidx_base, &row_cur_bits);
-          if (row_variant_uidx >= row_chr_end) {
-            do {
-              ++row_chr_fo_idx;
-              row_chr_end = cip->chr_fo_vidx_start[row_chr_fo_idx + 1];
-            } while (row_variant_uidx >= row_chr_end);
-            row_chr_start = cip->chr_fo_vidx_start[row_chr_fo_idx];
-            prev_uidx_start = row_chr_start;
-            prev_uidx_end = row_chr_start;
-          }
-          // Determine --ld-window-kb, --ld-window-cm, and --ld-window
-          // intersection.
-          const uint32_t cur_bp = variant_bps[row_variant_uidx];
-          uint32_t cur_uidx_start = prev_uidx_start;
-          if (cur_bp > bp_radius) {
-            cur_uidx_start = ExpsearchU32(variant_bps, cur_uidx_start, row_variant_uidx, cur_bp - bp_radius);
-          }
-          if (variant_cms) {
-            cur_cm = variant_cms[row_variant_uidx];
-            cur_uidx_start = ExpsearchD(variant_cms, cur_uidx_start, row_variant_uidx, cur_cm - cm_radius);
-          }
-          // var_ct_radius <= 0x7fffffff, so no overflow risk
-          if (cur_uidx_start + var_ct_radius < row_variant_uidx) {
-            const uint32_t leading_var_ct = PopcountBitRange(new_variant_include, cur_uidx_start, row_variant_uidx);
-            if (leading_var_ct > var_ct_radius) {
-              cur_uidx_start = FindNth1BitFrom(new_variant_include, cur_uidx_start + 1, leading_var_ct - var_ct_radius);
-            }
-          }
-          uint32_t cur_uidx_end = MAXV(prev_uidx_end, row_variant_uidx + 1);
-          if (cur_uidx_end < row_chr_end) {
-            uint32_t cur_uidx_end_ceil = ExpsearchU32(variant_bps, cur_uidx_end, row_chr_end, cur_bp + bp_radius + 1);
-            if (variant_cms) {
-              cur_uidx_end_ceil = ExpsearchD(variant_cms, cur_uidx_end, cur_uidx_end_ceil, cur_cm + cm_radius);
-            }
-            if (row_variant_uidx + 1 + var_ct_radius < cur_uidx_end_ceil) {
-              const uint32_t trailing_var_ct = PopcountBitRange(new_variant_include, row_variant_uidx + 1, cur_uidx_end_ceil);
-              if (trailing_var_ct > var_ct_radius) {
-                cur_uidx_end_ceil = 1 + FindNth1BitFrom(new_variant_include, row_variant_uidx + 1, var_ct_radius);
-              }
-            }
-            cur_uidx_end = cur_uidx_end_ceil;
-          }
-          if (prev_uidx_end < cur_uidx_start) {
-            ClearBitsNz(prev_uidx_end, cur_uidx_start, new_variant_include);
-          }
-          prev_uidx_start = cur_uidx_start;
-          prev_uidx_end = cur_uidx_end;
-        }
-        variant_ct = PopcountWords(new_variant_include, raw_variant_ctl);
       }
     }
-    const uintptr_t* variant_include = new_variant_include? new_variant_include : orig_variant_include;
+    if (!inter_chr) {
+      // Safe to remove column-variants out of range of all row variants, as
+      // well as "orphan" row variants.
+      uint32_t row_chr_fo_idx = UINT32_MAX;
+      uint32_t row_chr_end = 0;
+
+      uint32_t uidx_start = 0;
+      uint32_t uidx_end = 0;
+
+      uintptr_t row_variant_uidx_base = 0;
+      uintptr_t row_cur_bits = row_variant_include_buf[0];
+      for (uint32_t row_variant_idx = 0; row_variant_idx != row_variant_ct; ++row_variant_idx) {
+        const uint32_t row_variant_uidx = BitIter1(row_variant_include_buf, &row_variant_uidx_base, &row_cur_bits);
+        if (row_variant_uidx >= row_chr_end) {
+          do {
+            ++row_chr_fo_idx;
+            row_chr_end = cip->chr_fo_vidx_start[row_chr_fo_idx + 1];
+          } while (row_variant_uidx >= row_chr_end);
+          const uint32_t row_chr_start = cip->chr_fo_vidx_start[row_chr_fo_idx];
+          uidx_start = row_chr_start;
+          uidx_end = row_chr_start;
+        }
+        const uint32_t prev_uidx_end = uidx_end;
+        UpdateVcorWindow(variant_include_buf, variant_bps, variant_cms, row_snp_subset, var_ct_radius, bp_radius, cm_radius, row_chr_end, row_variant_uidx, &uidx_start, &uidx_end);
+        if (prev_uidx_end < uidx_start) {
+          ClearBitsNz(prev_uidx_end, uidx_start, variant_include_buf);
+        }
+        if (row_snp_subset && (uidx_start + 1 == uidx_end)) {
+          // No variants in range.  This row-variant is an "orphan" and can be
+          // skipped.
+          ClearBit(uidx_start, variant_include_buf);
+        }
+      }
+      BitvecAnd(variant_include_buf, raw_variant_ctl, row_variant_include_buf);
+      variant_ct = PopcountWords(variant_include_buf, raw_variant_ctl);
+    }
+    const uintptr_t* variant_include = variant_include_buf;
+    const uintptr_t* row_variant_include = row_variant_include_buf;
+    const uint32_t* variant_include_cumulative_popcounts;
+    const uint32_t* row_variant_include_cumulative_popcounts;
+    {
+      uint32_t* variant_include_cumulative_popcounts_buf;
+      uint32_t* row_variant_include_cumulative_popcounts_buf;
+      if (unlikely(bigstack_alloc_u32(raw_variant_ctl, &variant_include_cumulative_popcounts_buf) ||
+                   bigstack_alloc_u32(raw_variant_ctl, &row_variant_include_cumulative_popcounts_buf))) {
+        goto VcorTable_ret_NOMEM;
+      }
+      FillCumulativePopcounts(variant_include, raw_variant_ctl, variant_include_cumulative_popcounts_buf);
+      FillCumulativePopcounts(row_variant_include, raw_variant_ctl, row_variant_include_cumulative_popcounts_buf);
+      variant_include_cumulative_popcounts = variant_include_cumulative_popcounts_buf;
+      row_variant_include_cumulative_popcounts = row_variant_include_cumulative_popcounts_buf;
+    }
+    row_variant_ct = row_variant_include_cumulative_popcounts[raw_variant_ctl - 1] + PopcountWord(row_variant_include[raw_variant_ctl - 1]);
+    // variant_ct == 0 is possible here.  In that case, we want to write the
+    // header line (or nothing at all if parallel_idx > 0) and skip the main
+    // loop, not error out.
 
     const uint32_t phased_calc = (flags / kfVcorPhased) & 1;
     const uint32_t is_unsquared = (flags / kfVcorUnsquared) & 1;
+    const uintptr_t* nonref_flags = PgrGetNonrefFlags(simple_pgrp);
+    // "&& (!nonref_flags)" needed since this is after --ref-allele, etc. in
+    // the order of operations.
+    const uint32_t all_nonref = (PgrGetGflags(simple_pgrp) & kfPgenGlobalAllNonref) && (!nonref_flags);
+    write_ctx.all_nonref = all_nonref;
+    const uint32_t provref_col = (flags & kfVcorColRef) && ProvrefCol(variant_include, nonref_flags, flags / kfVcorColMaybeprovref, raw_variant_ct, all_nonref);
+    const uint32_t d_col = (flags / kfVcorColD) & 1;
+    const uint32_t dprime_col = ((flags & (kfVcorColDprime | kfVcorColDprimeAbs)) != 0);
+    write_ctx.row_chr_buf = nullptr;
+    write_ctx.col_chr_buf = nullptr;
+    {
+      uintptr_t overflow_buf_size = kCompressStreamBlock + 512;
+      const uint32_t chr_col = (flags / kfVcorColChrom) & 1;
+      const uint32_t pos_col = (flags / kfVcorColPos) & 1;
+      const uint32_t id_col = (flags / kfVcorColId) & 1;
+      const uint32_t ref_col = (flags / kfVcorColRef) & 1;
+      const uint32_t alt1_col = (flags / kfVcorColAlt1) & 1;
+      const uint32_t alt_col = (flags / kfVcorColAlt) & 1;
+      // provref_col defined earlier
+      const uint32_t maj_col = (flags / kfVcorColMaj) & 1;
+      const uint32_t nonmaj_col = (flags / kfVcorColNonmaj) & 1;
+      const uint32_t freq_col = (flags / kfVcorColFreq) & 1;
+      // d_col, dprime_col defined earlier
+      if (chr_col) {
+        const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+        if (unlikely(bigstack_alloc_c(max_chr_blen, &write_ctx.row_chr_buf) ||
+                     bigstack_alloc_c(max_chr_blen, &write_ctx.col_chr_buf))) {
+          goto VcorTable_ret_NOMEM;
+        }
+        overflow_buf_size += 2 * max_chr_blen;
+      }
+      if (id_col) {
+        overflow_buf_size += 2 * (max_variant_id_slen + 1);
+      }
+      uintptr_t n_allele = ref_col + alt1_col + maj_col;
+      if (!n_allele) {
+        if (alt_col || nonmaj_col) {
+          n_allele = 1;
+        }
+      }
+      overflow_buf_size += n_allele * (max_allele_slen + 1);
+      const uint32_t output_zst = (flags / kfVcorZs) & 1;
+      char* outname_write_iter = strcpya_k(outname_end, ".vcor");
+      if (parallel_tot != 1) {
+        *outname_write_iter++ = '.';
+        outname_write_iter = u32toa(parallel_idx + 1, outname_write_iter);
+      }
+      if (output_zst) {
+        outname_write_iter = strcpya_k(outname_write_iter, ".zst");
+      }
+      *outname_write_iter = '\0';
+      reterr = InitCstreamAlloc(outname, 0, output_zst, 1, overflow_buf_size, &write_ctx.css, &write_ctx.cswritep);
+      if (unlikely(reterr)) {
+        goto VcorTable_ret_1;
+      }
+      if (parallel_idx == 0) {
+        char* cswritep = write_ctx.cswritep;
+        *cswritep++ = '#';
+        if (chr_col) {
+          cswritep = strcpya_k(cswritep, "CHROM_A\t");
+        }
+        if (pos_col) {
+          cswritep = strcpya_k(cswritep, "POS_A\t");
+        }
+        if (id_col) {
+          cswritep = strcpya_k(cswritep, "ID_A\t");
+        }
+        if (ref_col) {
+          cswritep = strcpya_k(cswritep, "REF_A\t");
+        }
+        if (alt1_col) {
+          cswritep = strcpya_k(cswritep, "ALT1_A\t");
+        }
+        if (alt_col) {
+          cswritep = strcpya_k(cswritep, "ALT_A\t");
+        }
+        if (provref_col) {
+          cswritep = strcpya_k(cswritep, "PROVISIONAL_REF_A?\t");
+        }
+        if (maj_col) {
+          cswritep = strcpya_k(cswritep, "MAJ_A\t");
+        }
+        if (nonmaj_col) {
+          cswritep = strcpya_k(cswritep, "NONMAJ_A\t");
+        }
+        if (freq_col) {
+          cswritep = strcpya_k(cswritep, "NONMAJ_FREQ_A\t");
+        }
 
+        if (chr_col) {
+          cswritep = strcpya_k(cswritep, "CHROM_B\t");
+        }
+        if (pos_col) {
+          cswritep = strcpya_k(cswritep, "POS_B\t");
+        }
+        if (id_col) {
+          cswritep = strcpya_k(cswritep, "ID_B\t");
+        }
+        if (ref_col) {
+          cswritep = strcpya_k(cswritep, "REF_B\t");
+        }
+        if (alt1_col) {
+          cswritep = strcpya_k(cswritep, "ALT1_B\t");
+        }
+        if (alt_col) {
+          cswritep = strcpya_k(cswritep, "ALT_B\t");
+        }
+        if (provref_col) {
+          cswritep = strcpya_k(cswritep, "PROVISIONAL_REF_B?\t");
+        }
+        if (maj_col) {
+          cswritep = strcpya_k(cswritep, "MAJ_B\t");
+        }
+        if (nonmaj_col) {
+          cswritep = strcpya_k(cswritep, "NONMAJ_B\t");
+        }
+        if (freq_col) {
+          cswritep = strcpya_k(cswritep, "NONMAJ_FREQ_B\t");
+        }
+
+        if (!phased_calc) {
+          cswritep = strcpya_k(cswritep, "UN");
+        }
+        cswritep = strcpya_k(cswritep, "PHASED_R");
+        if (!is_unsquared) {
+          *cswritep++ = '2';
+        }
+
+        if (d_col) {
+          cswritep = strcpya_k(cswritep, "\tD");
+        }
+        if (dprime_col) {
+          *cswritep++ = '\t';
+          if (flags & kfVcorColDprimeAbs) {
+            cswritep = strcpya_k(cswritep, "ABS_");
+          }
+          cswritep = strcpya_k(cswritep, "DPRIME");
+        }
+        AppendBinaryEoln(&cswritep);
+
+        write_ctx.cswritep = cswritep;
+      }
+    }
+    if (!row_variant_ct) {
+      logprintf("%s: No variant-pairs to process.\n", flagname);
+      goto VcorTable_ret_1;
+    }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
     const uint32_t founder_ctv = BitCtToVecCt(founder_ct);
+    const uint32_t founder_ctv2 = NypCtToVecCt(founder_ct);
     const uint32_t founder_ctaw = founder_ctv * kWordsPerVec;
     const uint32_t founder_male_ct = PopcountWordsIntersect(founder_info, sex_male, raw_sample_ctl);
     const uint32_t all_haploid = IsSet(cip->haploid_mask, 0);
@@ -10430,8 +10643,435 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
 
     ctx.phase_type = phase_type;
     ctx.check_dosage = check_dosage;
+    ctx.report_d = d_col;
+    ctx.report_dprime = dprime_col;
     ctx.unpacked_variant_byte_stride = unpacked_variant_byte_stride;
-    // TODO
+    // Some room to tune this, e.g. if .zst compression is on, founder_ct is
+    // small, and computation is unphased, we may want more than 1 compression
+    // thread.  But this should be good enough for now.
+    uint32_t calc_thread_ct = max_thread_ct - (max_thread_ct > 4) - (max_thread_ct > 8);
+    ctx.cur_nm_bufs = nullptr;
+    ctx.invmask_bufs = nullptr;
+    if (x_exists) {
+      if (unlikely(bigstack_alloc_wp(calc_thread_ct, &ctx.cur_nm_bufs) ||
+                   bigstack_alloc_dosagep(calc_thread_ct, &ctx.invmask_bufs))) {
+        goto VcorTable_ret_NOMEM;
+      }
+      for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+        if (unlikely(bigstack_alloc_w(founder_ctl, &(ctx.cur_nm_bufs[tidx])) ||
+                     bigstack_alloc_dosage(founder_ct, &(ctx.invmask_bufs[tidx])))) {
+          goto VcorTable_ret_NOMEM;
+        }
+      }
+    }
+
+    // Now initialize the parts of write_ctx that don't depend on uv_capacity.
+    write_ctx.variant_include = variant_include;
+    write_ctx.variant_include_cumulative_popcounts = variant_include_cumulative_popcounts;
+    write_ctx.row_variant_include = row_variant_include;
+    write_ctx.row_variant_include_cumulative_popcounts = row_variant_include_cumulative_popcounts;
+    write_ctx.row_subset_exclude = nullptr;
+    if (inter_chr && row_snp_subset) {
+      write_ctx.row_subset_exclude = (parallel_idx == 0)? row_variant_include : row_subset_exclude_buf;
+    }
+    write_ctx.cip = cip;
+    write_ctx.variant_bps = variant_bps;
+    write_ctx.variant_ids = variant_ids;
+    write_ctx.allele_idx_offsets = allele_idx_offsets;
+    write_ctx.allele_storage = allele_storage;
+    write_ctx.nonref_flags = nonref_flags;
+    write_ctx.maj_alleles = maj_alleles;
+    write_ctx.allele_freqs = allele_freqs;
+    if (!is_unsquared) {
+      write_ctx.r_or_r2_thresh = min_r2;
+    } else {
+      write_ctx.r_or_r2_thresh = (min_r2 < 0.0)? -1.0 : sqrt(min_r2);
+    }
+    write_ctx.raw_variant_ct = raw_variant_ct;
+    write_ctx.flags = flags;
+    write_ctx.provref_col = provref_col;
+    write_ctx.reterr = kPglRetSuccess;
+
+    // Assign ~half of remaining workspace to input buffers and ~half to output
+    // buffers.
+    const uintptr_t results_stride = 1 + d_col + dprime_col;
+    const uintptr_t result_capacity = bigstack_left() / (4 * sizeof(double) * results_stride);
+    if (unlikely(bigstack_alloc_d(result_capacity * results_stride, &(ctx.results[0])) ||
+                 bigstack_alloc_d(result_capacity * results_stride, &(ctx.results[1])))) {
+      goto VcorTable_ret_NOMEM;
+    }
+    write_ctx.results[0] = ctx.results[0];
+    write_ctx.results[1] = ctx.results[1];
+
+    uint32_t* col_offset_starts_storage[2];
+    uintptr_t* write_idx_starts_storage[2];
+    uint32_t row_window_sizes[2];
+    ctx.row_window_sizes = row_window_sizes;
+    write_ctx.row_window_sizes = row_window_sizes;
+    // All remaining allocation sizes are a function of uv_capacity.  Set its
+    // value.
+    uintptr_t uv_capacity;
+    {
+      // ctx:
+      //   unpacked_variants: 2 * unpacked_variant_byte_stride
+      //   (no row_uvidxs)
+      //   col_uvidxs: 2 * sizeof(int32_t)
+      //   row_chr_idxs: 2 * sizeof(ChrIdx)
+      //   col_chr_idxs: 2 * sizeof(ChrIdx)
+      //   col_offset_starts: 2 * sizeof(int32_t)
+      //   write_idx_starts: 2 * sizeof(intptr_t) (length (uv_capacity + 1))
+      // (could optimize row_chr_idxs and col_chr_idxs out)
+      uintptr_t bytes_left = bigstack_left();
+      // defend against adverse rounding
+      if (unlikely(bytes_left < 11 * kCacheline)) {
+        goto VcorTable_ret_NOMEM;
+      }
+      bytes_left -= 11 * kCacheline;
+      const uintptr_t bytes_per_unpacked_variant = 2 * (unpacked_variant_byte_stride + 2 * sizeof(int32_t) + 2 * sizeof(ChrIdx) + sizeof(intptr_t));
+      uv_capacity = bytes_left / bytes_per_unpacked_variant;
+      if (unlikely(uv_capacity < 2)) {
+        goto VcorTable_ret_NOMEM;
+      }
+      if (uv_capacity > variant_ct) {
+        uv_capacity = variant_ct;
+      }
+      // shouldn't be possible for these allocations to fail
+      if (unlikely(bigstack_alloc_uc(uv_capacity * unpacked_variant_byte_stride, &(ctx.unpacked_variants[0])) ||
+                   bigstack_alloc_uc(uv_capacity * unpacked_variant_byte_stride, &(ctx.unpacked_variants[1])) ||
+                   bigstack_alloc_u32(uv_capacity, &(ctx.col_uvidxs[0])) ||
+                   bigstack_alloc_u32(uv_capacity, &(ctx.col_uvidxs[1])) ||
+                   bigstack_alloc_chridx(uv_capacity, &(ctx.row_chr_idxs[0])) ||
+                   bigstack_alloc_chridx(uv_capacity, &(ctx.row_chr_idxs[1])) ||
+                   bigstack_alloc_chridx(uv_capacity, &(ctx.col_chr_idxs[0])) ||
+                   bigstack_alloc_chridx(uv_capacity, &(ctx.col_chr_idxs[1])) ||
+                   bigstack_alloc_u32(uv_capacity, &(col_offset_starts_storage[0])) ||
+                   bigstack_alloc_u32(uv_capacity, &(col_offset_starts_storage[1])) ||
+                   bigstack_alloc_w(uv_capacity + 1, &(write_idx_starts_storage[0])) ||
+                   bigstack_alloc_w(uv_capacity + 1, &(write_idx_starts_storage[1])))) {
+        // shouldn't be possible
+        goto VcorTable_ret_NOMEM;
+      }
+      ctx.col_offset_starts[0] = col_offset_starts_storage[0];
+      ctx.col_offset_starts[1] = col_offset_starts_storage[1];
+      ctx.write_idx_starts[0] = write_idx_starts_storage[0];
+      ctx.write_idx_starts[1] = write_idx_starts_storage[1];
+      write_ctx.col_offset_starts[0] = col_offset_starts_storage[0];
+      write_ctx.col_offset_starts[1] = col_offset_starts_storage[1];
+      write_ctx.write_idx_starts[0] = write_idx_starts_storage[0];
+      write_ctx.write_idx_starts[1] = write_idx_starts_storage[1];
+    }
+    if (calc_thread_ct > uv_capacity) {
+      calc_thread_ct = uv_capacity;
+    }
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg) ||
+                 SetThreadCt(1, &write_tg))) {
+      goto VcorTable_ret_NOMEM;
+    }
+    SetThreadFuncAndData(VcorTableThread, &ctx, &tg);
+    SetThreadFuncAndData(VcorTableWriteThread, &write_ctx, &write_tg);
+
+    uint32_t next_print_variant_ridx = row_variant_ct / 100;
+    uint32_t pct = 0;
+    uint32_t prev_variant_ridx_start = 0;
+    uint32_t cur_variant_ridx_start = 0;
+    uint32_t row_chr_fo_idx = UINT32_MAX;  // deliberate overflow
+    uint32_t row_chr_idx = 0;
+    uint32_t row_chr_start = 0;
+    uint32_t row_chr_end = 0;
+    uint32_t row_read_phase = 0;
+    uint32_t row_parity = 0;
+    uint32_t col_parity = 0;
+    uint32_t col_variant_widx = 0;
+    uintptr_t row_variant_uidx_base;
+    uintptr_t row_cur_bits;
+    BitIter1Start(row_variant_include, 0, &row_variant_uidx_base, &row_cur_bits);
+    printf("%s: 0%%", flagname);
+    fflush(stdout);
+    do {
+      // Since we're using a double- rather than a triple-buffer, we must wait
+      // for the writer to finish flushing results for block (n-2) before we
+      // overwrite with information about block n.
+      if (prev_variant_ridx_start) {
+        JoinThreads(&write_tg);
+        if (unlikely(write_ctx.reterr)) {
+          reterr = write_ctx.reterr;
+          goto VcorTable_ret_1;
+        }
+      }
+      // 1. Determine col_offset_start and col_offset_end for each row-variant
+      //    in the new row-window, and what the current row_window_size is.
+      //    Constraints:
+      //    * Can't run out of results-capacity.
+      //    * Unless variant_ct == uv_capacity, there's also:
+      //      * row_window_size <= row_variant_ct - cur_variant_ridx_start.
+      //      * row_window_size <= uv_capacity / 2.  This is unnecessarily
+      //        tight in many cases, but never by a factor of more than 2 (4 if
+      //        we take results-space into account), and I did not find that to
+      //        be a big deal in my testing.
+      //    Fill row_parity-indexed buffers.
+      // 2. col_capacity := uv_capacity - row_window_size; iterate through
+      //    column-shard(s).
+      // uint32_t* row_uvidxs = ctx.row_uvidxs[row_parity];
+      ChrIdx* row_chr_idxs = ctx.row_chr_idxs[row_parity];
+      uint32_t* col_offset_starts = col_offset_starts_storage[row_parity];
+      uintptr_t* write_idx_starts = write_idx_starts_storage[row_parity];
+      uintptr_t write_idx = 0;
+      uint32_t row_variant_uidx_first = 0;
+      uint32_t row_variant_uidx_last = 0;
+      uint32_t col_variant_idx_start = 0;
+      uint32_t row_window_size;
+      uint32_t cur_variant_ridx_stop;
+      uint32_t col_variant_idx_ct;
+      {
+        uint32_t row_offset_limit = row_variant_ct - cur_variant_ridx_start;
+        if ((uv_capacity < variant_ct) && ((uv_capacity / 2) < row_offset_limit)) {
+          row_offset_limit = uv_capacity / 2;
+        }
+
+        // ok for these to be less than true value
+        uint32_t uidx_start = row_chr_start;
+        uint32_t uidx_end = row_chr_start;
+
+        unsigned char* row_load_iter = ctx.unpacked_variants[col_parity];
+        uint32_t row_offset = 0;
+        // in inter-chr case, should save col-window size
+        //   if row-subset, start at variant_idx=0 instead of at diagonal
+        for (; row_offset != row_offset_limit; ++row_offset) {
+          const uint32_t row_variant_uidx = BitIter1(row_variant_include, &row_variant_uidx_base, &row_cur_bits);
+          if (row_variant_uidx >= row_chr_end) {
+            do {
+              ++row_chr_fo_idx;
+              row_chr_end = cip->chr_fo_vidx_start[row_chr_fo_idx + 1];
+            } while (row_variant_uidx >= row_chr_end);
+            row_chr_idx = cip->chr_file_order[row_chr_fo_idx];
+            row_chr_start = cip->chr_fo_vidx_start[row_chr_fo_idx];
+            uidx_start = row_chr_start;
+            uidx_end = row_chr_start;
+            if (phase_type == kR2PhaseTypePresent) {
+              row_read_phase = (!IsSet(cip->haploid_mask, row_chr_idx)) || (row_chr_idx == x_code);
+              if (!row_read_phase) {
+                pgv.phasepresent_ct = 0;
+                pgv.dphase_ct = 0;
+              }
+            }
+          }
+          uint32_t cur_col_offset_start;
+          uint32_t cur_col_offset_end;
+          if (inter_chr) {
+            if (row_offset == 0) {
+              row_variant_uidx_first = row_variant_uidx;
+              if (!row_snp_subset) {
+                col_variant_idx_start = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, row_variant_uidx);
+              }
+            }
+            cur_col_offset_start = row_snp_subset? 0 : row_offset;
+            cur_col_offset_end = variant_ct - col_variant_idx_start;
+          } else {
+            UpdateVcorWindow(variant_include, variant_bps, variant_cms, row_snp_subset, var_ct_radius, bp_radius, cm_radius, row_chr_end, row_variant_uidx, &uidx_start, &uidx_end);
+            if (row_offset == 0) {
+              row_variant_uidx_first = row_variant_uidx;
+              col_variant_idx_start = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, uidx_start);
+            }
+            cur_col_offset_start = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, uidx_start) - col_variant_idx_start;
+            cur_col_offset_end = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, uidx_end) - col_variant_idx_start;
+          }
+          const uintptr_t next_write_idx = write_idx + cur_col_offset_end - cur_col_offset_start;
+          if (next_write_idx > result_capacity) {
+            // Need to backtrack.
+            row_variant_uidx_base = RoundDownPow2(row_variant_uidx, kBitsPerWord);
+            row_cur_bits = row_variant_include[row_variant_uidx / kBitsPerWord] & (-(k1LU << (row_variant_uidx % kBitsPerWord)));
+            break;
+          }
+          row_variant_uidx_last = row_variant_uidx;
+          row_chr_idxs[row_offset] = row_chr_idx;
+          col_offset_starts[row_offset] = cur_col_offset_start;
+          write_idx_starts[row_offset] = write_idx;
+          write_idx = next_write_idx;
+
+          const AlleleCode aidx = maj_alleles[row_variant_uidx];
+          if (check_dosage) {
+            if (row_read_phase) {
+              reterr = PgrGetInv1Dp(founder_info, pssi, founder_ct, row_variant_uidx, aidx, simple_pgrp, &pgv);
+            } else {
+              reterr = PgrGetInv1D(founder_info, pssi, founder_ct, row_variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
+            }
+            if (unlikely(reterr)) {
+              goto VcorTable_ret_PGR_FAIL;
+            }
+            if ((row_variant_uidx < y_end) && (row_variant_uidx >= y_start)) {
+              InterleavedSetMissingCleardosage(founder_female_collapsed, founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec, &pgv.dosage_ct, pgv.dosage_present, pgv.dosage_main);
+            }
+            LdUnpackDosage(&pgv, founder_male_collapsed, male_dosage_invmask, founder_ct, phase_type, row_load_iter);
+          } else {
+            if (row_read_phase) {
+              reterr = PgrGetInv1P(founder_info, pssi, founder_ct, row_variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
+            } else {
+              reterr = PgrGetInv1(founder_info, pssi, founder_ct, row_variant_uidx, aidx, simple_pgrp, pgv.genovec);
+            }
+            if (unlikely(reterr)) {
+              goto VcorTable_ret_PGR_FAIL;
+            }
+            if ((row_variant_uidx < y_end) && (row_variant_uidx >= y_start)) {
+              InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
+            }
+            LdUnpackNondosage(&pgv, founder_male_collapsed, founder_ct, phase_type, row_load_iter);
+          }
+          row_load_iter = &(row_load_iter[unpacked_variant_byte_stride]);
+        }
+        row_window_size = row_offset;
+        write_idx_starts[row_window_size] = write_idx;
+        cur_variant_ridx_stop = cur_variant_ridx_start + row_window_size;
+        write_ctx.variant_ridx_starts[row_parity] = cur_variant_ridx_start;
+        row_window_sizes[row_parity] = row_window_size;
+        write_ctx.col_variant_idx_starts[row_parity] = col_variant_idx_start;
+        col_variant_idx_ct = col_offset_starts[row_window_size - 1] + write_idx - write_idx_starts[row_window_size - 1];
+      }
+      uint32_t col_window_start = 0;
+      uint32_t col_offset = 0;
+      uint32_t col_read_phase = 0;
+      uint32_t col_chr_fo_idx;
+      uint32_t col_chr_idx;
+      uint32_t col_chr_end;
+      uintptr_t col_variant_uidx_base;
+      uintptr_t col_cur_bits;
+      {
+        const uint32_t col_variant_uidx_start = ExpsearchIdxToUidx(variant_include, variant_include_cumulative_popcounts, raw_variant_ctl, col_variant_idx_start, &col_variant_widx);
+        col_chr_fo_idx = GetVariantChrFoIdx(cip, col_variant_uidx_start);
+        col_chr_idx = cip->chr_file_order[col_chr_fo_idx];
+        col_chr_end = cip->chr_fo_vidx_start[col_chr_fo_idx + 1];
+        if (phase_type == kR2PhaseTypePresent) {
+          col_read_phase = (!IsSet(cip->haploid_mask, col_chr_idx)) || (col_chr_idx == x_code);
+          if (!col_read_phase) {
+            pgv.phasepresent_ct = 0;
+            pgv.dphase_ct = 0;
+          }
+        }
+        BitIter1Start(variant_include, col_variant_uidx_start, &col_variant_uidx_base, &col_cur_bits);
+      }
+      do {
+        unsigned char* col_load_iter;
+        {
+          unsigned char* unpacked_variants = ctx.unpacked_variants[col_parity];
+          const uintptr_t row_unpacked_variants_byte_ct = row_window_size * unpacked_variant_byte_stride;
+          if (col_offset != 0) {
+            memcpy(unpacked_variants, ctx.unpacked_variants[1 - col_parity], row_unpacked_variants_byte_ct);
+          }
+          col_load_iter = &(unpacked_variants[row_unpacked_variants_byte_ct]);
+        }
+        const uint32_t col_window_limit = MINV(col_window_start + uv_capacity, col_variant_idx_ct);
+        uint32_t* col_uvidxs = ctx.col_uvidxs[col_parity];
+        ChrIdx* col_chr_idxs = ctx.col_chr_idxs[col_parity];
+        uint32_t col_uvidx = row_window_size;
+        for (; col_offset != col_window_limit; ++col_offset) {
+          const uint32_t col_variant_uidx = BitIter1(variant_include, &col_variant_uidx_base, &col_cur_bits);
+          if (col_variant_uidx >= col_chr_end) {
+            do {
+              ++col_chr_fo_idx;
+              col_chr_end = cip->chr_fo_vidx_start[col_chr_fo_idx + 1];
+            } while (col_variant_uidx >= col_chr_end);
+            col_chr_idx = cip->chr_file_order[col_chr_fo_idx];
+            if (phase_type == kR2PhaseTypePresent) {
+              col_read_phase = (!IsSet(cip->haploid_mask, col_chr_idx)) || (col_chr_idx == x_code);
+              if (!col_read_phase) {
+                pgv.phasepresent_ct = 0;
+                pgv.dphase_ct = 0;
+              }
+            }
+          }
+          if (IsSet(row_variant_include, col_variant_uidx) && (col_variant_uidx >= row_variant_uidx_first) && (col_variant_uidx <= row_variant_uidx_last)) {
+            col_uvidxs[col_offset] = RawToSubsettedPos(row_variant_include, row_variant_include_cumulative_popcounts, col_variant_uidx) - cur_variant_ridx_start;
+            col_chr_idxs[col_offset] = col_chr_idx;
+            continue;
+          }
+          if (col_uvidx == uv_capacity) {
+            col_variant_uidx_base = RoundDownPow2(col_variant_uidx, kBitsPerWord);
+            col_cur_bits = variant_include[col_variant_uidx / kBitsPerWord] & (-(k1LU << (col_variant_uidx % kBitsPerWord)));
+            break;
+          }
+          col_uvidxs[col_offset] = col_uvidx++;
+          col_chr_idxs[col_offset] = col_chr_idx;
+          const AlleleCode aidx = maj_alleles[col_variant_uidx];
+          if (check_dosage) {
+            if (col_read_phase) {
+              reterr = PgrGetInv1Dp(founder_info, pssi, founder_ct, col_variant_uidx, aidx, simple_pgrp, &pgv);
+            } else {
+              reterr = PgrGetInv1D(founder_info, pssi, founder_ct, col_variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
+            }
+            if (unlikely(reterr)) {
+              goto VcorTable_ret_PGR_FAIL;
+            }
+            if ((col_variant_uidx < y_end) && (col_variant_uidx >= y_start)) {
+              InterleavedSetMissingCleardosage(founder_female_collapsed, founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec, &pgv.dosage_ct, pgv.dosage_present, pgv.dosage_main);
+            }
+            LdUnpackDosage(&pgv, founder_male_collapsed, male_dosage_invmask, founder_ct, phase_type, col_load_iter);
+          } else {
+            if (col_read_phase) {
+              reterr = PgrGetInv1P(founder_info, pssi, founder_ct, col_variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
+            } else {
+              reterr = PgrGetInv1(founder_info, pssi, founder_ct, col_variant_uidx, aidx, simple_pgrp, pgv.genovec);
+            }
+            if (unlikely(reterr)) {
+              goto VcorTable_ret_PGR_FAIL;
+            }
+            if ((col_variant_uidx < y_end) && (col_variant_uidx >= y_start)) {
+              InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
+            }
+            LdUnpackNondosage(&pgv, founder_male_collapsed, founder_ct, phase_type, col_load_iter);
+          }
+          col_load_iter = &(col_load_iter[unpacked_variant_byte_stride]);
+        }
+        ctx.col_window_starts[col_parity] = col_window_start;
+        ctx.col_window_ends[col_parity] = col_offset;
+
+        if (cur_variant_ridx_start || col_window_start) {
+          JoinThreads(&tg);
+          if (!col_window_start) {
+            if (unlikely(SpawnThreads(&write_tg))) {
+              goto VcorTable_ret_THREAD_CREATE_FAIL;
+            }
+          }
+        }
+        if ((cur_variant_ridx_stop == row_variant_ct) && (col_offset == col_variant_idx_ct)) {
+          DeclareLastThreadBlock(&tg);
+        }
+        if (unlikely(SpawnThreads(&tg))) {
+          goto VcorTable_ret_THREAD_CREATE_FAIL;
+        }
+        col_window_start = col_offset;
+        col_parity = 1 - col_parity;
+      } while (col_offset != col_variant_idx_ct);
+      if (cur_variant_ridx_start >= next_print_variant_ridx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (cur_variant_ridx_start * 100LLU) / row_variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_ridx = (pct * S_CAST(uint64_t, row_variant_ct)) / 100;
+      }
+      prev_variant_ridx_start = cur_variant_ridx_start;
+      cur_variant_ridx_start = cur_variant_ridx_stop;
+      row_parity = 1 - row_parity;
+    } while (cur_variant_ridx_start != row_variant_ct);
+    JoinThreads(&tg);
+    if (prev_variant_ridx_start) {
+      JoinThreads(&write_tg);
+      if (unlikely(write_ctx.reterr)) {
+        reterr = write_ctx.reterr;
+        goto VcorTable_ret_1;
+      }
+    }
+    DeclareLastThreadBlock(&write_tg);
+    if (unlikely(SpawnThreads(&write_tg))) {
+      goto VcorTable_ret_THREAD_CREATE_FAIL;
+    }
+    JoinThreads(&write_tg);
+    if (unlikely(write_ctx.reterr)) {
+      reterr = write_ctx.reterr;
+      goto VcorTable_ret_1;
+    }
+    fputs("\r", stdout);
+    logprintfww("%s: Results written to %s .\n", flagname, outname);
   }
   while (0) {
   VcorTable_ret_NOMEM:
@@ -10440,8 +11080,16 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
   VcorTable_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
+  VcorTable_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  VcorTable_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
+    break;
   }
  VcorTable_ret_1:
+  CleanupThreads(&write_tg);
+  CleanupThreads(&tg);
   CswriteCloseCond(&write_ctx.css, write_ctx.cswritep);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
