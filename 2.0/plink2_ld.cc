@@ -3708,26 +3708,28 @@ uint32_t DosageR2Prod(const Dosage* dosage_vec0, const uintptr_t* nm_bitvec0, co
 // "unscaled" because you need to multiply by allele count to get the proper
 // log-likelihood
 double EmPhaseUnscaledLnlike(double freq11, double freq12, double freq21, double freq22, double half_hethet_share, double freq11_incr) {
-  freq11 += freq11_incr;
-  freq22 += freq11_incr;
-  freq12 += half_hethet_share - freq11_incr;
-  freq21 += half_hethet_share - freq11_incr;
-  const double cross_sum = freq11 * freq22 + freq12 * freq21;
+  // bugfix (11 Dec 2023): can't modify freq11, etc. in-place because then
+  // they're no longer scaled with old calc_lnlike() known11, etc.
+  const double adj_freq11 = freq11 + freq11_incr;
+  const double adj_freq22 = freq22 + freq11_incr;
+  const double adj_freq12 = freq12 + half_hethet_share - freq11_incr;
+  const double adj_freq21 = freq21 + half_hethet_share - freq11_incr;
+  const double cross_sum = adj_freq11 * adj_freq22 + adj_freq12 * adj_freq21;
   double lnlike = 0.0;
   if (cross_sum != 0.0) {
     lnlike = half_hethet_share * log(cross_sum);
   }
-  if (freq11 != 0.0) {
-    lnlike += freq11 * log(freq11);
+  if (adj_freq11 != 0.0) {
+    lnlike += freq11 * log(adj_freq11);
   }
-  if (freq12 != 0.0) {
-    lnlike += freq12 * log(freq12);
+  if (adj_freq12 != 0.0) {
+    lnlike += freq12 * log(adj_freq12);
   }
-  if (freq21 != 0.0) {
-    lnlike += freq21 * log(freq21);
+  if (adj_freq21 != 0.0) {
+    lnlike += freq21 * log(adj_freq21);
   }
-  if (freq22 != 0.0) {
-    lnlike += freq22 * log(freq22);
+  if (adj_freq22 != 0.0) {
+    lnlike += freq22 * log(adj_freq22);
   }
   return lnlike;
 }
@@ -4146,12 +4148,16 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uint64_t nmaj_dosages[2];
       uint32_t nm_cts[2];
       for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
-        PopulateDenseDosage(pgvs[var_idx].genovec, pgvs[var_idx].dosage_present, pgvs[var_idx].dosage_main, founder_ct, pgvs[var_idx].dosage_ct, dosage_vecs[var_idx]);
+        const uint32_t dosage_ct = pgvs[var_idx].dosage-ct;
+        PopulateDenseDosage(pgvs[var_idx].genovec, pgvs[var_idx].dosage_present, pgvs[var_idx].dosage_main, founder_ct, dosage_ct, dosage_vecs[var_idx]);
         nmaj_dosages[var_idx] = DenseDosageSum(dosage_vecs[var_idx], founder_dosagev_ct);
         FillDosageUhet(dosage_vecs[var_idx], founder_dosagev_ct, dosage_uhets[var_idx]);
         GenoarrToNonmissingnessUnsafe(pgvs[var_idx].genovec, founder_ct, nm_bitvecs[var_idx]);
         ZeroTrailingBits(founder_ct, nm_bitvecs[var_idx]);
-        BitvecOr(pgvs[var_idx].dosage_present, founder_ctl, nm_bitvecs[var_idx]);
+        // bugfix (10 Dec 2023)
+        if (dosage_ct) {
+          BitvecOr(pgvs[var_idx].dosage_present, founder_ctl, nm_bitvecs[var_idx]);
+        }
         nm_cts[var_idx] = PopcountWords(nm_bitvecs[var_idx], founder_ctl);
       }
       SDosage* main_dphase_deltas[2];
@@ -4164,7 +4170,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           goto LdConsole_ret_NOMEM;
         }
         for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
-          PopulateDenseDphase(pgvs[var_idx].phasepresent, pgvs[var_idx].phaseinfo, pgvs[var_idx].dosage_present, dosage_vecs[var_idx], pgvs[var_idx].dphase_present, pgvs[var_idx].dphase_delta, founder_ct, pgvs[var_idx].phasepresent_ct, pgvs[var_idx].dphase_ct, dosage_uhets[var_idx], main_dphase_deltas[var_idx]);
+          PopulateDenseDphase(pgvs[var_idx].phasepresent, pgvs[var_idx].phaseinfo, pgvs[var_idx].dosage_present, dosage_vecs[var_idx], pgvs[var_idx].dphase_present, pgvs[var_idx].dphase_delta, founder_ct, pgvs[var_idx].phasepresent_ct, pgvs[var_idx].dosage_ct, pgvs[var_idx].dphase_ct, dosage_uhets[var_idx], main_dphase_deltas[var_idx]);
         }
       }
       const uint64_t orig_nmaj_dosage1 = nmaj_dosages[1];
@@ -5088,7 +5094,7 @@ void LdUnpackDosage(const PgenVariant* pgvp, uint32_t sample_ct, R2PhaseType pha
   } else {
     FillDosageUhet(dosage_vec, dosagev_ct, dosage_uhet);
     if (phase_type == kR2PhaseTypePresent) {
-      PopulateDenseDphase(pgvp->phasepresent, pgvp->phaseinfo, pgvp->dosage_present, dosage_vec, pgvp->dphase_present, pgvp->dphase_delta, sample_ct, pgvp->phasepresent_ct, pgvp->dphase_ct, dosage_uhet, dense_dphase_delta);
+      PopulateDenseDphase(pgvp->phasepresent, pgvp->phaseinfo, pgvp->dosage_present, dosage_vec, pgvp->dphase_present, pgvp->dphase_delta, sample_ct, pgvp->phasepresent_ct, pgvp->dosage_ct, pgvp->dphase_ct, dosage_uhet, dense_dphase_delta);
     }
   }
 }
@@ -5143,7 +5149,7 @@ unsigned char* LdUnpackDosageSubset(const PgenVariant* pgvp, const uintptr_t* sa
   } else {
     FillDosageUhet(dosage_vec, dosagev_ct, dosage_uhet);
     if (phase_type == kR2PhaseTypePresent) {
-      PopulateDenseDphaseSubset(sample_include, sample_include_cumulative_popcounts, pgvp->phasepresent, pgvp->phaseinfo, pgvp->dosage_present, dosage_vec, pgvp->dphase_present, pgvp->dphase_delta, raw_sample_ct, sample_ct, pgvp->phasepresent_ct, pgvp->dphase_ct, dosage_uhet, dense_dphase_delta);
+      PopulateDenseDphaseSubset(sample_include, sample_include_cumulative_popcounts, pgvp->phasepresent, pgvp->phaseinfo, pgvp->dosage_present, dosage_vec, pgvp->dphase_present, pgvp->dphase_delta, raw_sample_ct, sample_ct, pgvp->phasepresent_ct, pgvp->dosage_ct, pgvp->dphase_ct, dosage_uhet, dense_dphase_delta);
     }
   }
   return dst_iter;
