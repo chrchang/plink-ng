@@ -4148,7 +4148,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uint64_t nmaj_dosages[2];
       uint32_t nm_cts[2];
       for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
-        const uint32_t dosage_ct = pgvs[var_idx].dosage-ct;
+        const uint32_t dosage_ct = pgvs[var_idx].dosage_ct;
         PopulateDenseDosage(pgvs[var_idx].genovec, pgvs[var_idx].dosage_present, pgvs[var_idx].dosage_main, founder_ct, dosage_ct, dosage_vecs[var_idx]);
         nmaj_dosages[var_idx] = DenseDosageSum(dosage_vecs[var_idx], founder_dosagev_ct);
         FillDosageUhet(dosage_vecs[var_idx], founder_dosagev_ct, dosage_uhets[var_idx]);
