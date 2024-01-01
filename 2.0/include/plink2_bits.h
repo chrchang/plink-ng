@@ -1,7 +1,7 @@
 #ifndef __PLINK2_BITS_H__
 #define __PLINK2_BITS_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2024 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -514,7 +514,8 @@ uintptr_t PopcountBytesMasked(const void* bitarr, const uintptr_t* mask_arr, uin
 // TransposeNypblock(), which is more plink-specific, is in pgenlib_misc
 CONSTI32(kPglBitTransposeBatch, kBitsPerCacheline);
 CONSTI32(kPglBitTransposeWords, kWordsPerCacheline);
-// * Up to 512x512; vecaligned_buf must have size 64k
+// * Up to 512x512 (CACHELINE64) or 1024x1024 (CACHELINE128)
+// * vecaligned_buf must have size 64k (CACHELINE64) or 256k (CACHELINE128)
 // * write_iter must be allocated up to at least
 //   RoundUpPow2(write_batch_size, 2) rows
 // * We use pointers with different types to read from and write to buf0/buf1,
@@ -549,8 +550,9 @@ CONSTI32(kPglNybbleTransposeWords, kWordsPerCacheline);
 
 CONSTI32(kPglNybbleTransposeBufbytes, (kPglNybbleTransposeBatch * kPglNybbleTransposeBatch) / 2);
 
-// up to 128x128; vecaligned_buf must have size 8k
-// now ok for write_iter to not be padded when write_batch_size odd
+// * Up to 128x128 (CACHELINE64) or 256x256 (CACHELINE128)
+// * vecaligned_buf must have size 8k (CACHELINE64) or 32k (CACHELINE128)
+// * Now ok for write_iter to not be padded when write_batch_size odd
 void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf);
 
 #ifdef USE_SSE2

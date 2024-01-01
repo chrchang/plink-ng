@@ -1,4 +1,4 @@
-// This library is part of PLINK 2, copyright (C) 2005-2023 Shaun Purcell,
+// This library is part of PLINK 2, copyright (C) 2005-2024 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -2043,8 +2043,8 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
 #ifdef USE_SSE2
 static_assert(kPglBitTransposeBatch == S_CAST(uint32_t, kBitsPerCacheline), "TransposeBitblock64() needs to be updated.");
 void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, uintptr_t write_ul_stride, uint32_t read_row_ct, uint32_t write_row_ct, uintptr_t* write_iter, VecW* __restrict buf0, VecW* __restrict buf1) {
-  // We need to perform the equivalent of 9 shuffles (assuming a full-size
-  // 512x512 bitblock).
+  // We need to perform the equivalent of 9-10 shuffles (assuming a full-size
+  // 512x512 or 1024x1024 bitblock).
   // The first shuffles are performed by the ingestion loop: we write the first
   // word from every row to buf0, then the second word from every row, etc.,
   // yielding
@@ -2052,8 +2052,8 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
   //   (0,64) ...  (0,127) (1,64) ...  (1,127) (2,64) ...  (511,127)
   //   ...
   //   (0,448) ... (0,511) (1,448) ... (1,511) (2,448) ... (511,511)
-  // in terms of the original bit positions.
-  // Since each input row has 8 words, this amounts to 3 shuffles.
+  // in terms of the original bit positions when kCacheline==64.
+  // Since each input row has 8-16 words, this amounts to 3-4 shuffles.
   //
   // The second step writes
   //   (0,0) (0,1) ... (0,7)   (1,0) (1,1) ... (1,7) ...   (511,7)
@@ -2063,15 +2063,16 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
   // to buf1, performing the equivalent of 3 shuffles, and the third step
   // finishes the transpose using movemask.
   //
-  // buf0 and buf1 must both be 32KiB vector-aligned buffers.
+  // buf0 and buf1 must both be 32KiB vector-aligned buffers when
+  // kCacheline==64, and 128KiB when kCacheline==128.
 
   const uint32_t buf0_row_ct = DivUp(write_row_ct, 64);
   {
     uintptr_t* buf0_ul = DowncastVecWToW(buf0);
-    const uint32_t zfill_ct = (-read_row_ct) & 63;
-    for (uint32_t bidx = 0; bidx != buf0_row_ct; ++bidx) {
-      const uintptr_t* read_iter_tmp = &(read_iter[bidx]);
-      uintptr_t* buf0_row_start = &(buf0_ul[512 * bidx]);
+    const uint32_t zfill_ct = (-read_row_ct) & (kBitsPerWord - 1);
+    for (uint32_t ridx = 0; ridx != buf0_row_ct; ++ridx) {
+      const uintptr_t* read_iter_tmp = &(read_iter[ridx]);
+      uintptr_t* buf0_row_start = &(buf0_ul[kPglBitTransposeBatch * ridx]);
       for (uint32_t uii = 0; uii != read_row_ct; ++uii) {
         buf0_row_start[uii] = *read_iter_tmp;
         read_iter_tmp = &(read_iter_tmp[read_ul_stride]);
@@ -2084,8 +2085,7 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
       ZeroWArr(zfill_ct, &(buf0_row_start[read_row_ct]));
     }
   }
-  // Each width-unit corresponds to 64 input rows.
-  const uint32_t buf_row_xwidth = DivUp(read_row_ct, 64);
+  const uint32_t write_word_width = DivUp(read_row_ct, 64);
   {
     const VecW* buf0_read_iter = buf0;
     uintptr_t* write_iter0 = DowncastVecWToW(buf1);
@@ -2099,19 +2099,19 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
 #  else
     const VecW m8 = VCONST_W(kMask00FF);
 #  endif
-    const uint32_t buf0_row_clwidth = buf_row_xwidth * 8;
-    for (uint32_t bidx = 0; bidx != buf0_row_ct; ++bidx) {
-      uintptr_t* write_iter1 = &(write_iter0[64]);
-      uintptr_t* write_iter2 = &(write_iter1[64]);
-      uintptr_t* write_iter3 = &(write_iter2[64]);
-      uintptr_t* write_iter4 = &(write_iter3[64]);
-      uintptr_t* write_iter5 = &(write_iter4[64]);
-      uintptr_t* write_iter6 = &(write_iter5[64]);
-      uintptr_t* write_iter7 = &(write_iter6[64]);
-      for (uint32_t clidx = 0; clidx != buf0_row_clwidth; ++clidx) {
+    const uint32_t buf0_row_b64width = write_word_width * 8;
+    for (uint32_t ridx = 0; ridx != buf0_row_ct; ++ridx) {
+      uintptr_t* write_iter1 = &(write_iter0[kCacheline]);
+      uintptr_t* write_iter2 = &(write_iter1[kCacheline]);
+      uintptr_t* write_iter3 = &(write_iter2[kCacheline]);
+      uintptr_t* write_iter4 = &(write_iter3[kCacheline]);
+      uintptr_t* write_iter5 = &(write_iter4[kCacheline]);
+      uintptr_t* write_iter6 = &(write_iter5[kCacheline]);
+      uintptr_t* write_iter7 = &(write_iter6[kCacheline]);
+      for (uint32_t b64idx = 0; b64idx != buf0_row_b64width; ++b64idx) {
 #  ifdef USE_AVX2
-        VecW loader0 = buf0_read_iter[clidx * 2];
-        VecW loader1 = buf0_read_iter[clidx * 2 + 1];
+        VecW loader0 = buf0_read_iter[b64idx * 2];
+        VecW loader1 = buf0_read_iter[b64idx * 2 + 1];
         //    (0,0) (0,1) ... (0,7) (1,0) (1,1) ... (1,7) (2,0) ... (3,7)
         // -> (0,0) (1,0) (0,1) (1,1) (0,2) .... (1,7) (2,0) (3,0) (2,1) ...
         loader0 = vecw_shuffle8(loader0, gather_u16s);
@@ -2125,19 +2125,19 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
         vec_hi = vecw_shuffle8(vec_hi, gather_u32s);
         const VecW final0145 = vecw_unpacklo32(vec_lo, vec_hi);
         const VecW final2367 = vecw_unpackhi32(vec_lo, vec_hi);
-        write_iter0[clidx] = vecw_extract64_0(final0145);
-        write_iter1[clidx] = vecw_extract64_1(final0145);
-        write_iter2[clidx] = vecw_extract64_0(final2367);
-        write_iter3[clidx] = vecw_extract64_1(final2367);
-        write_iter4[clidx] = vecw_extract64_2(final0145);
-        write_iter5[clidx] = vecw_extract64_3(final0145);
-        write_iter6[clidx] = vecw_extract64_2(final2367);
-        write_iter7[clidx] = vecw_extract64_3(final2367);
+        write_iter0[b64idx] = vecw_extract64_0(final0145);
+        write_iter1[b64idx] = vecw_extract64_1(final0145);
+        write_iter2[b64idx] = vecw_extract64_0(final2367);
+        write_iter3[b64idx] = vecw_extract64_1(final2367);
+        write_iter4[b64idx] = vecw_extract64_2(final0145);
+        write_iter5[b64idx] = vecw_extract64_3(final0145);
+        write_iter6[b64idx] = vecw_extract64_2(final2367);
+        write_iter7[b64idx] = vecw_extract64_3(final2367);
 #  else  // !USE_AVX2
-        VecW loader0 = buf0_read_iter[clidx * 4];
-        VecW loader1 = buf0_read_iter[clidx * 4 + 1];
-        VecW loader2 = buf0_read_iter[clidx * 4 + 2];
-        VecW loader3 = buf0_read_iter[clidx * 4 + 3];
+        VecW loader0 = buf0_read_iter[b64idx * 4];
+        VecW loader1 = buf0_read_iter[b64idx * 4 + 1];
+        VecW loader2 = buf0_read_iter[b64idx * 4 + 2];
+        VecW loader3 = buf0_read_iter[b64idx * 4 + 3];
         //    (0,0) (0,1) ... (0,7) (1,0) (1,1) ... (1,7)
         // -> (0,0) (1,0) (0,1) (1,1) (0,2) ... (1,7)
 #    ifdef USE_SHUFFLE8
@@ -2166,26 +2166,26 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
         VecW final23 = vecw_unpackhi32(lo_0123, hi_0123);
         VecW final45 = vecw_unpacklo32(lo_4567, hi_4567);
         VecW final67 = vecw_unpackhi32(lo_4567, hi_4567);
-        write_iter0[clidx] = vecw_extract64_0(final01);
-        write_iter1[clidx] = vecw_extract64_1(final01);
-        write_iter2[clidx] = vecw_extract64_0(final23);
-        write_iter3[clidx] = vecw_extract64_1(final23);
-        write_iter4[clidx] = vecw_extract64_0(final45);
-        write_iter5[clidx] = vecw_extract64_1(final45);
-        write_iter6[clidx] = vecw_extract64_0(final67);
-        write_iter7[clidx] = vecw_extract64_1(final67);
+        write_iter0[b64idx] = vecw_extract64_0(final01);
+        write_iter1[b64idx] = vecw_extract64_1(final01);
+        write_iter2[b64idx] = vecw_extract64_0(final23);
+        write_iter3[b64idx] = vecw_extract64_1(final23);
+        write_iter4[b64idx] = vecw_extract64_0(final45);
+        write_iter5[b64idx] = vecw_extract64_1(final45);
+        write_iter6[b64idx] = vecw_extract64_0(final67);
+        write_iter7[b64idx] = vecw_extract64_1(final67);
 #  endif  // !USE_AVX2
       }
-      buf0_read_iter = &(buf0_read_iter[512 / kWordsPerVec]);
-      write_iter0 = &(write_iter7[64]);
+      buf0_read_iter = &(buf0_read_iter[kPglBitTransposeBatch / kWordsPerVec]);
+      write_iter0 = &(write_iter7[kCacheline]);
     }
   }
   const VecW* buf1_read_iter = buf1;
   const uint32_t write_v8ui_stride = kVec8thUintPerWord * write_ul_stride;
   const uint32_t buf1_fullrow_ct = write_row_ct / 8;
-  const uint32_t buf1_row_vecwidth = buf_row_xwidth * (8 / kWordsPerVec);
+  const uint32_t buf1_row_vecwidth = write_word_width * (8 / kWordsPerVec);
   Vec8thUint* write_iter0 = DowncastWToV8(write_iter);
-  for (uint32_t bidx = 0; bidx != buf1_fullrow_ct; ++bidx) {
+  for (uint32_t ridx = 0; ridx != buf1_fullrow_ct; ++ridx) {
     Vec8thUint* write_iter1 = &(write_iter0[write_v8ui_stride]);
     Vec8thUint* write_iter2 = &(write_iter1[write_v8ui_stride]);
     Vec8thUint* write_iter3 = &(write_iter2[write_v8ui_stride]);
@@ -2211,7 +2211,7 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
       loader = vecw_slli(loader, 1);
       write_iter0[vidx] = vecw_movemask(loader);
     }
-    buf1_read_iter = &(buf1_read_iter[64 / kWordsPerVec]);
+    buf1_read_iter = &(buf1_read_iter[kCacheline / kWordsPerVec]);
     write_iter0 = &(write_iter7[write_v8ui_stride]);
   }
   const uint32_t row_ct_rem = write_row_ct % 8;
@@ -2384,9 +2384,10 @@ void TransposeBitblock32(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
 #ifdef USE_SSE2
 void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf) {
   // Very similar to TransposeNypblock64() in pgenlib_internal.
-  // vecaligned_buf must be vector-aligned and have size 8k
+  // vecaligned_buf must be vector-aligned and have size 8k if kCacheline==64,
+  // 32k if kCacheline==128
   const uint32_t buf_row_ct = DivUp(write_batch_size, 8);
-  // fold the first 4 shuffles into the initial ingestion loop
+  // fold the first 4-5 shuffles into the initial ingestion loop
   const uint32_t* initial_read_iter = DowncastKWToU32(read_iter);
   const uint32_t* initial_read_end = &(initial_read_iter[buf_row_ct]);
   uint32_t* initial_target_iter = DowncastVecWToU32(vecaligned_buf);
@@ -2409,7 +2410,7 @@ void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
   const VecW* source_iter = vecaligned_buf;
   const VecW m4 = VCONST_W(kMask0F0F);
   const uint32_t buf_fullrow_ct = write_batch_size / 8;
-  const uint32_t eightword_ct = DivUp(read_batch_size, 16);
+  const uint32_t b64width = DivUp(read_batch_size, 16);
   uintptr_t* target_iter0 = write_iter;
   uint32_t cur_dst_row_ct = 8;
 #  ifdef USE_SHUFFLE8
@@ -2436,9 +2437,9 @@ void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
     uintptr_t* target_iter5 = &(target_iter4[write_ul_stride]);
     uintptr_t* target_iter6 = &(target_iter5[write_ul_stride]);
     uintptr_t* target_iter7 = &(target_iter6[write_ul_stride]);
-    for (uint32_t dvidx = 0; dvidx != eightword_ct; ++dvidx) {
-      const VecW loader0 = source_iter[dvidx * 2];
-      const VecW loader1 = source_iter[dvidx * 2 + 1];
+    for (uint32_t b64idx = 0; b64idx != b64width; ++b64idx) {
+      const VecW loader0 = source_iter[b64idx * 2];
+      const VecW loader1 = source_iter[b64idx * 2 + 1];
       VecW even_nybbles0 = loader0 & m4;
       VecW odd_nybbles0 = vecw_and_notfirst(m4, loader0);
       VecW even_nybbles1 = loader1 & m4;
@@ -2486,28 +2487,28 @@ void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       // tried using _mm_stream_si64 here, that totally sucked
       switch (cur_dst_row_ct) {
         case 8:
-          target_iter7[dvidx] = vecw_extract64_3(target_odd);
+          target_iter7[b64idx] = vecw_extract64_3(target_odd);
           // fall through
         case 7:
-          target_iter6[dvidx] = vecw_extract64_3(target_even);
+          target_iter6[b64idx] = vecw_extract64_3(target_even);
           // fall through
         case 6:
-          target_iter5[dvidx] = vecw_extract64_2(target_odd);
+          target_iter5[b64idx] = vecw_extract64_2(target_odd);
           // fall through
         case 5:
-          target_iter4[dvidx] = vecw_extract64_2(target_even);
+          target_iter4[b64idx] = vecw_extract64_2(target_even);
           // fall through
         case 4:
-          target_iter3[dvidx] = vecw_extract64_1(target_odd);
+          target_iter3[b64idx] = vecw_extract64_1(target_odd);
           // fall through
         case 3:
-          target_iter2[dvidx] = vecw_extract64_1(target_even);
+          target_iter2[b64idx] = vecw_extract64_1(target_even);
           // fall through
         case 2:
-          target_iter1[dvidx] = vecw_extract64_0(target_odd);
+          target_iter1[b64idx] = vecw_extract64_0(target_odd);
           // fall through
         default:
-          target_iter0[dvidx] = vecw_extract64_0(target_even);
+          target_iter0[b64idx] = vecw_extract64_0(target_even);
       }
     }
     source_iter = &(source_iter[(4 * kPglNybbleTransposeBatch) / kBytesPerVec]);
@@ -2528,11 +2529,11 @@ void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
     uintptr_t* target_iter5 = &(target_iter4[write_ul_stride]);
     uintptr_t* target_iter6 = &(target_iter5[write_ul_stride]);
     uintptr_t* target_iter7 = &(target_iter6[write_ul_stride]);
-    for (uint32_t qvidx = 0; qvidx != eightword_ct; ++qvidx) {
-      const VecW loader0 = source_iter[qvidx * 4];
-      const VecW loader1 = source_iter[qvidx * 4 + 1];
-      const VecW loader2 = source_iter[qvidx * 4 + 2];
-      const VecW loader3 = source_iter[qvidx * 4 + 3];
+    for (uint32_t b64idx = 0; b64idx != b64width; ++b64idx) {
+      const VecW loader0 = source_iter[b64idx * 4];
+      const VecW loader1 = source_iter[b64idx * 4 + 1];
+      const VecW loader2 = source_iter[b64idx * 4 + 2];
+      const VecW loader3 = source_iter[b64idx * 4 + 3];
       VecW even_nybbles0 = loader0 & m4;
       VecW odd_nybbles0 = vecw_and_notfirst(m4, loader0);
       VecW even_nybbles1 = loader1 & m4;
@@ -2606,28 +2607,28 @@ void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       const VecW final57 = vecw_unpackhi32(odd_lo, odd_hi);
       switch (cur_dst_row_ct) {
         case 8:
-          target_iter7[qvidx] = vecw_extract64_1(final57);
+          target_iter7[b64idx] = vecw_extract64_1(final57);
           // fall through
         case 7:
-          target_iter6[qvidx] = vecw_extract64_1(final46);
+          target_iter6[b64idx] = vecw_extract64_1(final46);
           // fall through
         case 6:
-          target_iter5[qvidx] = vecw_extract64_0(final57);
+          target_iter5[b64idx] = vecw_extract64_0(final57);
           // fall through
         case 5:
-          target_iter4[qvidx] = vecw_extract64_0(final46);
+          target_iter4[b64idx] = vecw_extract64_0(final46);
           // fall through
         case 4:
-          target_iter3[qvidx] = vecw_extract64_1(final13);
+          target_iter3[b64idx] = vecw_extract64_1(final13);
           // fall through
         case 3:
-          target_iter2[qvidx] = vecw_extract64_1(final02);
+          target_iter2[b64idx] = vecw_extract64_1(final02);
           // fall through
         case 2:
-          target_iter1[qvidx] = vecw_extract64_0(final13);
+          target_iter1[b64idx] = vecw_extract64_0(final13);
           // fall through
         default:
-          target_iter0[qvidx] = vecw_extract64_0(final02);
+          target_iter0[b64idx] = vecw_extract64_0(final02);
       }
     }
     source_iter = &(source_iter[(4 * kPglNybbleTransposeBatch) / kBytesPerVec]);

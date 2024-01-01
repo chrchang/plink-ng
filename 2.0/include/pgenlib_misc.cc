@@ -1,4 +1,4 @@
-// This library is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2024 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -1108,10 +1108,14 @@ void DifflistCountSubsetFreqs(const uintptr_t* __restrict sample_include, const 
 
 #ifdef USE_SSE2
 static_assert(kPglNypTransposeBatch == S_CAST(uint32_t, kNypsPerCacheline), "TransposeNypblock64() needs to be updated.");
+#  ifdef CACHELINE64
 void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
   // buf0 and buf1 must each be vector-aligned and have size 16k
   // Tried using previous AVX2 small-buffer approach, but that was a bit
   // worse... though maybe it should be revisited?
+
+  // Each input row has 256 nyps, across 8 words.
+  // First word of each row goes into first buf0 row, etc.
   const uint32_t buf0_row_ct = DivUp(write_batch_size, 32);
   {
     // Fold the first 3 shuffles into the ingestion loop.
@@ -1143,18 +1147,18 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
     const VecW* buf0_read_iter = R_CAST(const VecW*, buf0);
     __m128i* write_iter0 = R_CAST(__m128i*, buf1);
     const uint32_t buf0_row_clwidth = DivUp(read_batch_size, 8);
-#  ifdef USE_SHUFFLE8
+#    ifdef USE_SHUFFLE8
     const VecW gather_u32s = vecw_setr8(0, 1, 8, 9, 2, 3, 10, 11,
                                         4, 5, 12, 13, 6, 7, 14, 15);
-#  else
+#    else
     const VecW m16 = VCONST_W(kMask0000FFFF);
-#  endif
+#    endif
     for (uint32_t bidx = 0; bidx != buf0_row_ct; ++bidx) {
       __m128i* write_iter1 = &(write_iter0[32]);
       __m128i* write_iter2 = &(write_iter1[32]);
       __m128i* write_iter3 = &(write_iter2[32]);
       for (uint32_t clidx = 0; clidx != buf0_row_clwidth; ++clidx) {
-#  ifdef USE_AVX2
+#    ifdef USE_AVX2
         VecW loader0 = buf0_read_iter[clidx * 2];
         VecW loader1 = buf0_read_iter[clidx * 2 + 1];
         loader0 = vecw_shuffle8(loader0, gather_u32s);
@@ -1176,17 +1180,17 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
         write_iter1[clidx] = _mm256_castsi256_si128(final2367);
         write_iter2[clidx] = _mm256_extracti128_si256(final0145, 1);
         write_iter3[clidx] = _mm256_extracti128_si256(final2367, 1);
-#  else
+#    else
         VecW loader0 = buf0_read_iter[clidx * 4];
         VecW loader1 = buf0_read_iter[clidx * 4 + 1];
         VecW loader2 = buf0_read_iter[clidx * 4 + 2];
         VecW loader3 = buf0_read_iter[clidx * 4 + 3];
-#    ifdef USE_SHUFFLE8
+#      ifdef USE_SHUFFLE8
         loader0 = vecw_shuffle8(loader0, gather_u32s);
         loader1 = vecw_shuffle8(loader1, gather_u32s);
         loader2 = vecw_shuffle8(loader2, gather_u32s);
         loader3 = vecw_shuffle8(loader3, gather_u32s);
-#    else
+#      else
         VecW tmp_lo = vecw_unpacklo16(loader0, loader1);
         VecW tmp_hi = vecw_unpackhi16(loader0, loader1);
         loader0 = vecw_blendv(vecw_slli(tmp_hi, 16), tmp_lo, m16);
@@ -1195,7 +1199,7 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
         tmp_hi = vecw_unpackhi16(loader2, loader3);
         loader2 = vecw_blendv(vecw_slli(tmp_hi, 16), tmp_lo, m16);
         loader3 = vecw_blendv(tmp_hi, vecw_srli(tmp_lo, 16), m16);
-#    endif
+#      endif
         //    (0,0) (0,1) (1,0) ... (7,1) (0,2) ... (7,3) (8,0) ... (31,3)
         //  + (0,4) ... (31,7)
         // -> (0,0) ... (7,3) (0,4) ... (7,7) (8,0) ... (15,7)
@@ -1207,7 +1211,7 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
         write_iter1[clidx] = WToVec(vecw_unpackhi64(lo_0_15, hi_0_15));
         write_iter2[clidx] = WToVec(vecw_unpacklo64(lo_16_31, hi_16_31));
         write_iter3[clidx] = WToVec(vecw_unpackhi64(lo_16_31, hi_16_31));
-#  endif
+#    endif
       }
       buf0_read_iter = &(buf0_read_iter[2048 / kBytesPerVec]);
       write_iter0 = &(write_iter3[32]);
@@ -1278,6 +1282,141 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
     target_iter0[vidx] = vecw_movemask(target_0123);
   }
 }
+#  else
+#    ifndef CACHELINE128
+#      error "CACHELINE64 or CACHELINE128 expected."
+#    endif
+// assumes USE_SHUFFLE8, !USE_AVX2
+void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
+  // buf0 and buf1 must each be vector-aligned and have size 64k
+  // Each input row has 512 nyps, across 16 words.
+  // First word of each row goes into first buf0 row, etc.
+  const uint32_t buf0_row_ct = DivUp(write_batch_size, 32);
+  {
+    // Fold the first 4 shuffles into the ingestion loop.
+    const uintptr_t* initial_read_iter = read_iter;
+    const uintptr_t* initial_read_end = &(initial_read_iter[buf0_row_ct]);
+    uintptr_t* initial_target_iter = R_CAST(uintptr_t*, buf0);
+    const uint32_t read_batch_rem = kNypsPerCacheline - read_batch_size;
+    for (; initial_read_iter != initial_read_end; ++initial_read_iter) {
+      const uintptr_t* read_iter_tmp = initial_read_iter;
+      for (uint32_t ujj = 0; ujj != read_batch_size; ++ujj) {
+        *initial_target_iter++ = *read_iter_tmp;
+        read_iter_tmp = &(read_iter_tmp[read_ul_stride]);
+      }
+      ZeroWArr(read_batch_rem, initial_target_iter);
+      initial_target_iter = &(initial_target_iter[read_batch_rem]);
+    }
+  }
+
+  // First buf0 row now corresponds to a 512x32 nyp matrix (512 * 8 bytes) that
+  // we wish to transpose.  We split this into eight 512x4 matrices.
+  // (ARMv8 doesn't have efficient movemask, so this should be better than four
+  // 512x8 matrices.)
+  // This is nearly identical to the middle step in TransposeBitblock64().
+  {
+    const VecW* buf0_read_iter = R_CAST(const VecW*, buf0);
+    uintptr_t* write_iter0 = R_CAST(uintptr_t*, buf1);
+    const VecW gather_u16s = vecw_setr8(0, 8, 1, 9, 2, 10, 3, 11,
+                                        4, 12, 5, 13, 6, 14, 7, 15);
+    const uint32_t buf0_row_b64width = DivUp(read_batch_size, 8);
+    for (uint32_t ridx = 0; ridx != buf0_row_ct; ++ridx) {
+      uintptr_t* write_iter1 = &(write_iter0[64]);
+      uintptr_t* write_iter2 = &(write_iter1[64]);
+      uintptr_t* write_iter3 = &(write_iter2[64]);
+      uintptr_t* write_iter4 = &(write_iter3[64]);
+      uintptr_t* write_iter5 = &(write_iter4[64]);
+      uintptr_t* write_iter6 = &(write_iter5[64]);
+      uintptr_t* write_iter7 = &(write_iter6[64]);
+      for (uint32_t b64idx = 0; b64idx != buf0_row_b64width; ++b64idx) {
+        VecW loader0 = buf0_read_iter[b64idx * 4];
+        VecW loader1 = buf0_read_iter[b64idx * 4 + 1];
+        VecW loader2 = buf0_read_iter[b64idx * 4 + 2];
+        VecW loader3 = buf0_read_iter[b64idx * 4 + 3];
+        loader0 = vecw_shuffle8(loader0, gather_u16s);
+        loader1 = vecw_shuffle8(loader1, gather_u16s);
+        loader2 = vecw_shuffle8(loader2, gather_u16s);
+        loader3 = vecw_shuffle8(loader3, gather_u16s);
+        const VecW lo_0123 = vecw_unpacklo16(loader0, loader1);
+        const VecW lo_4567 = vecw_unpackhi16(loader0, loader1);
+        const VecW hi_0123 = vecw_unpacklo16(loader2, loader3);
+        const VecW hi_4567 = vecw_unpackhi16(loader2, loader3);
+
+        const VecW final01 = vecw_unpacklo32(lo_0123, hi_0123);
+        const VecW final23 = vecw_unpackhi32(lo_0123, hi_0123);
+        const VecW final45 = vecw_unpacklo32(lo_4567, hi_4567);
+        const VecW final67 = vecw_unpackhi32(lo_4567, hi_4567);
+        write_iter0[b64idx] = vecw_extract64_0(final01);
+        write_iter1[b64idx] = vecw_extract64_1(final01);
+        write_iter2[b64idx] = vecw_extract64_0(final23);
+        write_iter3[b64idx] = vecw_extract64_1(final23);
+        write_iter4[b64idx] = vecw_extract64_0(final45);
+        write_iter5[b64idx] = vecw_extract64_1(final45);
+        write_iter6[b64idx] = vecw_extract64_0(final67);
+        write_iter7[b64idx] = vecw_extract64_1(final67);
+      }
+      buf0_read_iter = &(buf0_read_iter[256]);
+      write_iter0 = &(write_iter7[64]);
+    }
+  }
+
+  // 8 -> 2
+  // This is similar to the main TransposeNybbleblock() loop.
+  const VecW* source_iter = R_CAST(VecW*, buf1);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
+  const VecW gather_even = vecw_setr8(0, 2, 4, 6, 8, 10, 12, 14,
+                                      -1, -1, -1, -1, -1, -1, -1, -1);
+  // Take advantage of current function contract.
+  const uint32_t buf1_row_ct = (write_batch_size + 3) / 4;
+
+  const uint32_t fourword_ct = DivUp(read_batch_size, 32);
+  uintptr_t* target_iter0 = write_iter;
+  for (uint32_t ridx = 0; ridx != buf1_row_ct; ++ridx) {
+    uintptr_t* target_iter1 = &(target_iter0[write_ul_stride]);
+    uintptr_t* target_iter2 = &(target_iter1[write_ul_stride]);
+    uintptr_t* target_iter3 = &(target_iter2[write_ul_stride]);
+    for (uint32_t dvidx = 0; dvidx != fourword_ct; ++dvidx) {
+      const VecW loader0 = source_iter[dvidx * 2];
+      const VecW loader1 = source_iter[dvidx * 2 + 1];
+
+      VecW even_nyps0 = loader0 & m2;
+      VecW even_nyps1 = loader1 & m2;
+      VecW odd_nyps0 = vecw_srli(loader0, 2) & m2;
+      VecW odd_nyps1 = vecw_srli(loader1, 2) & m2;
+      even_nyps0 = even_nyps0 | vecw_srli(even_nyps0, 6);
+      even_nyps1 = even_nyps1 | vecw_srli(even_nyps1, 6);
+      odd_nyps0 = odd_nyps0 | vecw_srli(odd_nyps0, 6);
+      odd_nyps1 = odd_nyps1 | vecw_srli(odd_nyps1, 6);
+      // Low four bits of even_nyps{0,1}[0], [2], ..., [14] are destined for
+      // target_iter0; high four bits of those bytes are destined for
+      // target_iter2.
+      const VecW even_nyps = vecw_gather_even(even_nyps0, even_nyps1, m8);
+      const VecW odd_nyps = vecw_gather_even(odd_nyps0, odd_nyps1, m8);
+
+      VecW mod0_nyps = even_nyps & m4;
+      VecW mod1_nyps = odd_nyps & m4;
+      VecW mod2_nyps = vecw_srli(even_nyps, 4) & m4;
+      VecW mod3_nyps = vecw_srli(odd_nyps, 4) & m4;
+      mod0_nyps = mod0_nyps | vecw_srli(mod0_nyps, 4);
+      mod1_nyps = mod1_nyps | vecw_srli(mod1_nyps, 4);
+      mod2_nyps = mod2_nyps | vecw_srli(mod2_nyps, 4);
+      mod3_nyps = mod3_nyps | vecw_srli(mod3_nyps, 4);
+      mod0_nyps = vecw_shuffle8(mod0_nyps, gather_even);
+      mod1_nyps = vecw_shuffle8(mod1_nyps, gather_even);
+      mod2_nyps = vecw_shuffle8(mod2_nyps, gather_even);
+      mod3_nyps = vecw_shuffle8(mod3_nyps, gather_even);
+      target_iter0[dvidx] = vecw_extract64_0(mod0_nyps);
+      target_iter1[dvidx] = vecw_extract64_0(mod1_nyps);
+      target_iter2[dvidx] = vecw_extract64_0(mod2_nyps);
+      target_iter3[dvidx] = vecw_extract64_0(mod3_nyps);
+    }
+    source_iter = &(source_iter[32]);
+    target_iter0 = &(target_iter3[write_ul_stride]);
+  }
+}
+#  endif
 #else  // !USE_SSE2
 #  ifdef __LP64__
 static_assert(kWordsPerVec == 1, "TransposeNypblock64() needs to be updated.");

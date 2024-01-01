@@ -1,7 +1,7 @@
 #ifndef __PLINK2_BASE_H__
 #define __PLINK2_BASE_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2024 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -106,7 +106,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 811
+#define PLINK2_BASE_VERNUM 812
 
 
 #define _FILE_OFFSET_BITS 64
@@ -943,6 +943,8 @@ HEADER_INLINE VecI8 veci8_set1(char cc) {
   return VecToI8( _mm256_set1_epi8(cc));
 }
 
+// TODO: on ARM, replace most movemask uses:
+// https://community.arm.com/arm-community-blogs/b/infrastructure-solutions-blog/posts/porting-x86-vector-bitmask-optimizations-to-arm-neon
 HEADER_INLINE uint32_t vecw_movemask(VecW vv) {
   return _mm256_movemask_epi8(WToVec(vv));
 }
@@ -1606,6 +1608,7 @@ HEADER_INLINE uintptr_t vecw_extract64_0(VecW vv) {
   return R_CAST(uintptr_t, _mm_movepi64_pi64(WToVec(vv)));
 }
 
+// compiler recognizes this on ARMv8
 HEADER_INLINE uintptr_t vecw_extract64_1(VecW vv) {
   const __m128i v0 = _mm_srli_si128(WToVec(vv), 8);
   return R_CAST(uintptr_t, _mm_movepi64_pi64(v0));
@@ -1900,7 +1903,14 @@ CONSTI32(kInt16PerVec, kBytesPerVec / 2);
 CONSTI32(kFloatPerFVec, kBytesPerFVec / 4);
 CONSTI32(kDoublePerDVec, kBytesPerDVec / 8);
 
+#if defined(__APPLE__) && defined(__LP64__) && !defined(__x86_64__)
+// TODO: make this 128 once that stops breaking code
+#  define CACHELINE128
+CONSTI32(kCacheline, 128);
+#else
+#  define CACHELINE64
 CONSTI32(kCacheline, 64);
+#endif
 
 CONSTI32(kBitsPerCacheline, kCacheline * CHAR_BIT);
 CONSTI32(kNypsPerCacheline, kCacheline * 4);
@@ -1923,7 +1933,11 @@ CONSTI32(kMaxBytesPerIO, 0x7ffff000);
 // Maximum size of "dynamically" allocated line load buffer.  (This is the
 // limit that applies to .vcf and similar files.)  Inconvenient to go higher
 // since fgets() takes a int32_t size argument.
+#if defined(__APPLE__) && defined(__LP64__) && !defined(__x86_64__)
+CONSTI32(kMaxLongLine, 0x7fffff80);
+#else
 CONSTI32(kMaxLongLine, 0x7fffffc0);
+#endif
 static_assert(!(kMaxLongLine % kCacheline), "kMaxLongLine must be a multiple of kCacheline.");
 
 #ifdef __APPLE__

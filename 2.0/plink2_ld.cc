@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2024 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -5598,31 +5598,32 @@ ENUM_U31_DEF_END(ClumpJobType);
 
 // Unpacked representations:
 // 1. If not loading dosage:
-//    a. If not loading phase: {one_bitvec, two_bitvec, nm_bitvec},
-//                             founder_ctaw words each, i.e. 3 * bitvec_byte_ct
-//                             uint32_t nmaj_ct, ssq?, nm_ct, x_male_nm_ct?,
-//                             x_male_nmaj_ct?, x_male_ssq? for another
-//                             RoundUpPow2({8|12|16|24}, kBytesPerVec)
+//    a. If not loading phase:
+//         uint32_t is_sparse, nm_ct, nmaj_ct, ssq:
+//           RoundUpPow2(16, kBytesPerVec)
+//         {one_bitvec, two_bitvec, nm_bitvec}: founder_ctaw words each, total
+//           3 * bitvec_byte_ct
+//         uint32_t x_male_nm_ct, x_male_nmaj_ct, x_male_ssq: if chrX, another
+//           RoundUpPow2(12, kBytesPerVec)
+//         (sparse representation guaranteed to be no larger than dense)
 //       Male-specific values placed in the back so that the unpacker doesn't
 //       need to distinguish between no-x-male-stats and
 //       x-male-stats-not-needed.
 //    b. If loading phase, also need phasepresent and phaseinfo, founder_ctaw
 //       words each, for a total of 5 * bitvec_byte_ct +
-//       RoundUpPow2({8|12|16|24}, kBytesPerVec)
+//       RoundUpPow2(16, kBytesPerVec) + RoundUpPow2(0|12, kBytesPerVec)
 // 2. If loading dosage:
-//    a. If not loading phase: {dosage_vec, dosage_het} founder_dosagev_ct
-//                             vectors each; plus nm_bitvec, i.e.
-//                             2 * dosagevec_byte_ct + bitvec_byte_ct
-//                             uint64_t nmaj_dosage, nmaj_dosage_ssq?,
-//                             uint32_t nm_ct, x_male_nm_ct?,
-//                             uint64_t x_male_nmaj_dosage?,
-//                             x_male_nmaj_dosage_ssq? for another
-//                             RoundUpPow2({12|20|24|40}, kBytesPerVec)
+//    a. If not loading phase:
+//         {dosage_vec, dosage_het}: founder_dosagev_ct vectors each; plus
+//           nm_bitvec, i.e. 2 * dosagevec_byte_ct + bitvec_byte_ct
+//         uint64_t nmaj_dosage, nmaj_dosage_ssq?, uint32_t nm_ct,
+//           x_male_nm_ct?, uint64_t x_male_nmaj_dosage?,
+//           x_male_nmaj_dosage_ssq?: RoundUpPow2({12|20|24|40}, kBytesPerVec)
 //    b. If loading phase, also need main_dphase_deltas, for a total of
 //       3 * dosagevec_byte_ct + bitvec_byte_ct + RoundUpPow2({12|20|24|40},
 //       kBytesPerVec)
 //
-// Probable todo: Unpack the index variant in a way that allows r^2 to be
+// Possible todo: Unpack the index variant in a way that allows r^2 to be
 // computed efficiently against other variants *without* unpacking them.
 
 // In the HighmemUnpack step, the main thread wants to prepare the next copy of
@@ -5688,6 +5689,9 @@ typedef struct ClumpCtxStruct {
   // load_dosage.
   unsigned char* unpacked_variants;
 
+  // In unphased case, one of these per thread to enable sparse-optimization.
+  uintptr_t** raregeno_bufs;
+  uint32_t** difflist_sample_id_bufs;
   // chrX workspaces
   //   nm_buf: max(founder_nonmale_ct, founder_male_ct) bits
   //   invmask_buf: max(founder_nonmale_ct, founder_male_ct) uint16s
@@ -5720,19 +5724,16 @@ typedef struct ClumpCtxStruct {
 // phase_type and load_dosage are not read from ctx, since they can change as
 // we try to extend an island group along a single chromosome.
 uintptr_t UnpackedByteStride(const ClumpCtx* ctx, R2PhaseType phase_type, uint32_t x_exists, uint32_t load_dosage) {
-  uintptr_t trail_byte_ct;
-  if (load_dosage) {
-    trail_byte_ct = (1 + (phase_type == kR2PhaseTypeUnphased)) * sizeof(int64_t) + sizeof(int32_t);
-  } else {
-    trail_byte_ct = (2 + (phase_type == kR2PhaseTypeUnphased)) * sizeof(int32_t);
-  }
-  trail_byte_ct <<= x_exists;
-  trail_byte_ct = RoundUpPow2(trail_byte_ct, kBytesPerVec);
   const uintptr_t bitvec_byte_ct = ctx->bitvec_byte_ct;
-  if (load_dosage) {
-    return (1 + phase_type) * ctx->dosagevec_byte_ct + bitvec_byte_ct + trail_byte_ct;
+  if (!load_dosage) {
+    uintptr_t stride = RoundUpPow2(16, kBytesPerVec) + (3 + 2 * (phase_type == kR2PhaseTypePresent)) * bitvec_byte_ct;
+    if (x_exists) {
+      stride += RoundUpPow2((2 + (phase_type == kR2PhaseTypeUnphased)) * sizeof(int32_t), kBytesPerVec);
+    }
+    return stride;
   }
-  return (3 + 2 * (phase_type == kR2PhaseTypePresent)) * bitvec_byte_ct + trail_byte_ct;
+  const uintptr_t trail_byte_ct = RoundUpPow2(((1 + (phase_type == kR2PhaseTypeUnphased)) * sizeof(int64_t) + sizeof(int32_t)) << x_exists, kBytesPerVec);
+  return (1 + phase_type) * ctx->dosagevec_byte_ct + bitvec_byte_ct + trail_byte_ct;
 }
 
 // does not check multiallelic fields
@@ -5756,9 +5757,11 @@ void ClumpPgenVariantIncr(uintptr_t byte_ct, PgenVariant* pgvp) {
 
 // x_male_nmaj_ct, x_male_ssq, and x_male_nm_ct only filled if
 // founder_male_collapsed is non-null.
-void LdUnpackNondosage(const PgenVariant* pgvp, const uintptr_t* founder_male_collapsed, uint32_t sample_ct, R2PhaseType phase_type, unsigned char* dst_iter) {
+void LdUnpackNondosageDense(const PgenVariant* pgvp, const uintptr_t* founder_male_collapsed, uint32_t sample_ct, R2PhaseType phase_type, unsigned char* dst_iter) {
   const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
-  uintptr_t* dst_witer = R_CAST(uintptr_t*, dst_iter);
+  uint32_t* dst_u32 = R_CAST(uint32_t*, dst_iter);
+  dst_u32[0] = 0; // is_sparse
+  uintptr_t* dst_witer = R_CAST(uintptr_t*, &(dst_iter[RoundUpPow2(16, kBytesPerVec)]));
   uintptr_t* one_bitvec = dst_witer;
   dst_witer = &(dst_witer[sample_ctaw]);
   uintptr_t* two_bitvec = dst_witer;
@@ -5773,11 +5776,11 @@ void LdUnpackNondosage(const PgenVariant* pgvp, const uintptr_t* founder_male_co
     phaseinfo = dst_witer;
     dst_witer = &(dst_witer[sample_ctaw]);
   }
-  uint32_t* dst_u32iter = R_CAST(uint32_t*, dst_witer);
-  uint32_t* nmaj_ct_ptr = dst_u32iter++;
   GenoarrSplit12Nm(pgvp->genovec, sample_ct, one_bitvec, two_bitvec, nm_bitvec);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  *nmaj_ct_ptr = GenoBitvecSum(one_bitvec, two_bitvec, sample_ctl);
+  dst_u32[1] = PopcountWords(nm_bitvec, sample_ctl);
+  dst_u32[2] = GenoBitvecSum(one_bitvec, two_bitvec, sample_ctl);
+  dst_u32[3] = 0; // defensive
   if (phase_type == kR2PhaseTypePresent) {
     if (!pgvp->phasepresent_ct) {
       ZeroWArr(sample_ctl, phasepresent);
@@ -5786,27 +5789,112 @@ void LdUnpackNondosage(const PgenVariant* pgvp, const uintptr_t* founder_male_co
       memcpy(phaseinfo, pgvp->phaseinfo, sample_ctl * sizeof(intptr_t));
     }
   } else if (phase_type == kR2PhaseTypeUnphased) {
-    uint32_t* ssq_ptr = dst_u32iter++;
-    *ssq_ptr = (*nmaj_ct_ptr) + 2 * PopcountWords(two_bitvec, sample_ctl);
+    dst_u32[3] = dst_u32[2] + 2 * PopcountWords(two_bitvec, sample_ctl);
   }
-  uint32_t* nm_ct_ptr = dst_u32iter;
-  *nm_ct_ptr = PopcountWords(nm_bitvec, sample_ctl);
   if (founder_male_collapsed) {
-    ++dst_u32iter;
+    uint32_t* dst_x_u32 = R_CAST(uint32_t*, dst_witer);
     // x_male_nm_ct
-    *dst_u32iter++ = PopcountWordsIntersect(founder_male_collapsed, nm_bitvec, sample_ctl);
-
-    uint32_t* x_male_nmaj_ct_ptr = dst_u32iter;
-    *x_male_nmaj_ct_ptr = GenoBitvecSumSubset(founder_male_collapsed, one_bitvec, two_bitvec, sample_ctl);
+    dst_x_u32[0] = PopcountWordsIntersect(founder_male_collapsed, nm_bitvec, sample_ctl);
+    dst_x_u32[1] = GenoBitvecSumSubset(founder_male_collapsed, one_bitvec, two_bitvec, sample_ctl);
     if (phase_type == kR2PhaseTypeUnphased) {
       // x_male_ssq
-      dst_u32iter[1] = (*x_male_nmaj_ct_ptr) + 2 * PopcountWordsIntersect(founder_male_collapsed, two_bitvec, sample_ctl);
+      dst_x_u32[2] = dst_x_u32[1] + 2 * PopcountWordsIntersect(founder_male_collapsed, two_bitvec, sample_ctl);
     }
   }
 }
 
+// Ok if trailing bits of raregeno aren't clear.
+void LdUnpackNondosageSparse(const uintptr_t* raregeno, const uint32_t* difflist_sample_ids, const uintptr_t* founder_male_collapsed, uint32_t sample_ct, uint32_t male_ct, uint32_t difflist_common_geno, uint32_t difflist_len, unsigned char* dst_iter) {
+  uint32_t* dst_u32 = R_CAST(uint32_t*, dst_iter);
+  dst_u32[0] = 1; // is_sparse
+  dst_u32[4] = difflist_common_geno;
+  dst_u32[5] = difflist_len;
+  uint32_t nm_ct = sample_ct;
+  uint32_t nmaj_ct = 0;
+  uint32_t ssq = 0;
+  if (difflist_common_geno) {
+    if (difflist_common_geno == 3) {
+      nm_ct = difflist_len;
+    } else {
+      const uint32_t two_ct = sample_ct - difflist_len;
+      nmaj_ct = 2 * two_ct;
+      ssq = 4 * two_ct;
+    }
+  }
+  uintptr_t* raregeno_dst = R_CAST(uintptr_t*, &(dst_iter[RoundUpPow2((6 + difflist_len) * sizeof(int32_t), kBytesPerVec)]));
+  const uint32_t word_ct = NypCtToWordCt(difflist_len);
+  if (difflist_len) {
+    memcpy(&(dst_u32[6]), difflist_sample_ids, difflist_len * sizeof(int32_t));
+    memcpy(raregeno_dst, raregeno, word_ct * sizeof(intptr_t));
+    ZeroTrailingNyps(difflist_len, raregeno_dst);
+    STD_ARRAY_DECL(uint32_t, 4, genocounts);
+    GenoarrCountFreqsUnsafe(raregeno_dst, difflist_len, genocounts);
+    nm_ct -= genocounts[3];
+    nmaj_ct += genocounts[1] + 2 * genocounts[2];
+    ssq += genocounts[1] + 4 * genocounts[2];
+  }
+  dst_u32[1] = nm_ct;
+  dst_u32[2] = nmaj_ct;
+  dst_u32[3] = ssq;
+  if (founder_male_collapsed) {
+    uint32_t x_male_nm_ct = male_ct;
+    uint32_t x_male_nmaj_ct = 0;
+    uint32_t x_male_ssq = 0;
+    if (difflist_common_geno) {
+      if (difflist_common_geno == 3) {
+        x_male_nm_ct = 0;
+      } else {
+        x_male_nmaj_ct = male_ct * 2;
+        x_male_ssq = male_ct * 4;
+      }
+    }
+    if (difflist_len) {
+      const uint32_t word_ct_m1 = word_ct - 1;
+      uint32_t genocounts[4];
+      ZeroU32Arr(4, genocounts);
+      uint32_t loop_len = kBitsPerWordD2;
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(difflist_len, kBitsPerWordD2);
+        }
+        const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids[widx * kBitsPerWordD2]);
+        uintptr_t raregeno_word = raregeno[widx];
+        for (uint32_t uii = 0; uii != loop_len; ++uii) {
+          const uint32_t sample_idx = cur_difflist_sample_ids[uii];
+          if (IsSet(founder_male_collapsed, sample_idx)) {
+            const uintptr_t cur_geno = raregeno_word & 3;
+            genocounts[cur_geno] += 1;
+          }
+          raregeno_word = raregeno_word >> 2;
+        }
+      }
+      if (difflist_common_geno != 3) {
+        x_male_nm_ct -= genocounts[3];
+      } else {
+        x_male_nm_ct = genocounts[0] + genocounts[1] + genocounts[2];
+      }
+      if (difflist_common_geno != 2) {
+        x_male_nmaj_ct = genocounts[1] + 2 * genocounts[2];
+        x_male_ssq = genocounts[1] + 4 * genocounts[2];
+      } else {
+        const uint32_t zero_or_missing_ct = genocounts[0] + genocounts[3];
+        x_male_nmaj_ct -= genocounts[1] + 2 * zero_or_missing_ct;
+        x_male_ssq -= genocounts[1] + 4 * zero_or_missing_ct;
+      }
+    }
+    const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
+    uint32_t* dst_x_u32 = R_CAST(uint32_t*, &(raregeno_dst[sample_ctaw]));
+    dst_x_u32[0] = x_male_nm_ct;
+    dst_x_u32[1] = x_male_nmaj_ct;
+    dst_x_u32[2] = x_male_ssq;
+  }
+}
+
 static inline uint32_t LdNondosageTrailAlignedByteCt(R2PhaseType phase_type, uint32_t x_exists) {
-  return RoundUpPow2(((2 + (phase_type == kR2PhaseTypeUnphased)) << x_exists) * sizeof(int32_t), kBytesPerVec);
+  return x_exists * RoundUpPow2((2 + (phase_type == kR2PhaseTypeUnphased)) * sizeof(int32_t), kBytesPerVec);
 }
 
 static inline uint32_t LdDosageTrailAlignedByteCt(R2PhaseType phase_type, uint32_t x_exists) {
@@ -5873,15 +5961,33 @@ void LdUnpackDosage(const PgenVariant* pgvp, const uintptr_t* founder_male_colla
   }
 }
 
-typedef struct R2NondosageVariantStruct {
+typedef struct R2NondosageDenseStruct {
   const uintptr_t* one_bitvec;
   const uintptr_t* two_bitvec;
   const uintptr_t* nm_bitvec;
   const uintptr_t* phasepresent; // may be uninitialized
   const uintptr_t* phaseinfo; // may be uninitialized
-  uint32_t nmaj_ct;
-  uint32_t ssq; // may be uninitialized
+} R2NondosageDense;
+
+typedef struct R2NondosageSparseStruct {
+  uint32_t difflist_common_geno;
+  uint32_t difflist_len;
+  const uint32_t* difflist_sample_ids;
+  const uintptr_t* raregeno;
+  // probable todo: support phase
+} R2NondosageSparse;
+
+typedef union {
+  R2NondosageDense d;
+  R2NondosageSparse s;
+} R2NondosagePayload;
+
+typedef struct R2NondosageVariantStruct {
+  uint32_t is_sparse;
   uint32_t nm_ct;
+  uint32_t nmaj_ct;
+  uint32_t ssq; // set to 0 unless unphased calc
+  R2NondosagePayload p;
   uint32_t x_male_nm_ct; // may be uninitialized
   uint32_t x_male_nmaj_ct; // may be uninitialized
   uint32_t x_male_ssq; // may be uninitialized
@@ -5912,35 +6018,51 @@ typedef union {
 } R2Variant;
 
 void FillR2Nondosage(const unsigned char* src_iter, uint32_t sample_ct, R2PhaseType phase_type, uint32_t is_x, R2NondosageVariant* ndp) {
-  // See LdUnpackNondosage().
+  // See LdUnpackNondosageDense().
   const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
-  const uintptr_t* src_witer = R_CAST(const uintptr_t*, src_iter);
-  ndp->one_bitvec = src_witer;
-  src_witer = &(src_witer[sample_ctaw]);
-  ndp->two_bitvec = src_witer;
-  src_witer = &(src_witer[sample_ctaw]);
-  ndp->nm_bitvec = src_witer;
-  src_witer = &(src_witer[sample_ctaw]);
-  if (phase_type == kR2PhaseTypePresent) {
-    ndp->phasepresent = src_witer;
-    src_witer = &(src_witer[sample_ctaw]);
-    ndp->phaseinfo = src_witer;
-    src_witer = &(src_witer[sample_ctaw]);
-  }
-  const uint32_t* final_u32_iter = R_CAST(const uint32_t*, src_witer);
-  ndp->nmaj_ct = *final_u32_iter++;
-  if (phase_type == kR2PhaseTypeUnphased) {
-    ndp->ssq = *final_u32_iter++;
-  }
-  ndp->nm_ct = *final_u32_iter;
-  if (!is_x) {
+  const uint32_t* src_u32 = R_CAST(const uint32_t*, src_iter);
+  const uint32_t is_sparse = src_u32[0];
+  ndp->is_sparse = is_sparse;
+  ndp->nm_ct = src_u32[1];
+  ndp->nmaj_ct = src_u32[2];
+  ndp->ssq = src_u32[3];
+  if (is_sparse) {
+    R2NondosageSparse* ndsp = &(ndp->p.s);
+    ndsp->difflist_common_geno = src_u32[4];
+    const uint32_t difflist_len = src_u32[5];
+    ndsp->difflist_len = difflist_len;
+    ndsp->difflist_sample_ids = &(src_u32[6]);
+    const uintptr_t* raregeno = R_CAST(const uintptr_t*, &(src_iter[RoundUpPow2(sizeof(int32_t) * (6 + difflist_len), kBytesPerVec)]));
+    ndsp->raregeno = raregeno;
+    if (is_x) {
+      const uint32_t* src_x_u32 = R_CAST(const uint32_t*, &(raregeno[sample_ctaw]));
+      ndp->x_male_nm_ct = src_x_u32[0];
+      ndp->x_male_nmaj_ct = src_x_u32[1];
+      ndp->x_male_ssq = src_x_u32[2];
+    }
     return;
   }
-  ++final_u32_iter;
-  ndp->x_male_nm_ct = *final_u32_iter++;
-  ndp->x_male_nmaj_ct = *final_u32_iter;
-  if (phase_type == kR2PhaseTypeUnphased) {
-    ndp->x_male_ssq = final_u32_iter[1];
+  const uintptr_t* src_witer = R_CAST(const uintptr_t*, &(src_iter[RoundUpPow2(16, kBytesPerVec)]));
+  R2NondosageDense* nddp = &(ndp->p.d);
+  nddp->one_bitvec = src_witer;
+  src_witer = &(src_witer[sample_ctaw]);
+  nddp->two_bitvec = src_witer;
+  src_witer = &(src_witer[sample_ctaw]);
+  nddp->nm_bitvec = src_witer;
+  src_witer = &(src_witer[sample_ctaw]);
+  if (phase_type == kR2PhaseTypePresent) {
+    nddp->phasepresent = src_witer;
+    src_witer = &(src_witer[sample_ctaw]);
+    nddp->phaseinfo = src_witer;
+    src_witer = &(src_witer[sample_ctaw]);
+  }
+  if (is_x) {
+    const uint32_t* src_x_u32 = R_CAST(const uint32_t*, src_witer);
+    ndp->x_male_nm_ct = src_x_u32[0];
+    ndp->x_male_nmaj_ct = src_x_u32[1];
+    if (phase_type == kR2PhaseTypeUnphased) {
+      ndp->x_male_ssq = src_x_u32[2];
+    }
   }
 }
 
@@ -6013,6 +6135,7 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
   }
   const uintptr_t* founder_info = ctx->founder_info;
   const uint32_t* founder_info_cumulative_popcounts = ctx->founder_info_cumulative_popcounts;
+  const uint32_t founder_male_ct = ctx->founder_male_ct;
   const uint32_t is_x = ctx->is_x;
   const uintptr_t* founder_male_collapsed = is_x? ctx->founder_male_collapsed : nullptr;
   const Dosage* male_dosage_invmask = is_x? ctx->male_dosage_invmask : nullptr;
@@ -6026,6 +6149,14 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
   const R2PhaseType phase_type = S_CAST(R2PhaseType, ctx->phase_type);
   const uint32_t load_dosage = ctx->load_dosage;
   const uintptr_t allele_idx_start = IdxToUidxW(observed_alleles, observed_alleles_cumulative_popcounts_w, ctx->allele_widx_start, ctx->allele_widx_end, oaidx);
+  // todo: try tuning this number
+  const uint32_t max_simple_difflist_len = founder_ct / 64;
+  uintptr_t* raregeno = nullptr;
+  uint32_t* difflist_sample_ids = nullptr;
+  if (phase_type == kR2PhaseTypeUnphased) {
+    raregeno = ctx->raregeno_bufs[tidx];
+    difflist_sample_ids = ctx->difflist_sample_id_bufs[tidx];
+  }
   uintptr_t allele_idx_base;
   uintptr_t cur_bits;
   BitIter1Start(observed_alleles, allele_idx_start, &allele_idx_base, &cur_bits);
@@ -6055,18 +6186,34 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
       }
       LdUnpackDosage(&pgv, founder_male_collapsed, male_dosage_invmask, founder_ct, phase_type, write_iter);
     } else {
-      if (phase_type == kR2PhaseTypePresent) {
-        reterr = PgrGetInv1P(founder_info, pssi, founder_ct, variant_uidx, aidx, pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
+      if ((phase_type == kR2PhaseTypeUnphased) && (!is_y)) {
+        uint32_t difflist_common_geno;
+        uint32_t difflist_len;
+        reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_simple_difflist_len, variant_uidx, aidx, pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        if (unlikely(reterr)) {
+          goto ClumpHighmemUnpack_err;
+        }
+        if (difflist_common_geno != UINT32_MAX) {
+          if (difflist_len <= max_simple_difflist_len) {
+            LdUnpackNondosageSparse(raregeno, difflist_sample_ids, founder_male_collapsed, founder_ct, founder_male_ct, difflist_common_geno, difflist_len, write_iter);
+            continue;
+          }
+          PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, founder_ct, difflist_len, pgv.genovec);
+        }
       } else {
-        reterr = PgrGetInv1(founder_info, pssi, founder_ct, variant_uidx, aidx, pgrp, pgv.genovec);
+        if (phase_type == kR2PhaseTypePresent) {
+          reterr = PgrGetInv1P(founder_info, pssi, founder_ct, variant_uidx, aidx, pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
+        } else {
+          reterr = PgrGetInv1(founder_info, pssi, founder_ct, variant_uidx, aidx, pgrp, pgv.genovec);
+        }
+        if (unlikely(reterr)) {
+          goto ClumpHighmemUnpack_err;
+        }
+        if (is_y) {
+          InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
+        }
       }
-      if (unlikely(reterr)) {
-        goto ClumpHighmemUnpack_err;
-      }
-      if (is_y) {
-        InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
-      }
-      LdUnpackNondosage(&pgv, founder_male_collapsed, founder_ct, phase_type, write_iter);
+      LdUnpackNondosageDense(&pgv, founder_male_collapsed, founder_ct, phase_type, write_iter);
     }
   }
   return;
@@ -6091,12 +6238,181 @@ static inline uint32_t GenoBitvecUnphasedDotprodSubset(const uintptr_t* subset_m
   return 2 * half_hom_part + hethet_ct;
 }
 
+uint32_t ComputeR2NondosageUnphased1SparseStats(const R2NondosageVariant* densevp0, const R2NondosageVariant* sparsevp1, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
+  const uint32_t difflist_common_geno = sparsevp1->p.s.difflist_common_geno;
+  const uint32_t difflist_len = sparsevp1->p.s.difflist_len;
+  const uint32_t* difflist_sample_ids = sparsevp1->p.s.difflist_sample_ids;
+  uint32_t nmaj_ct0 = 0;
+  uint32_t ssq0 = 0;
+  uint32_t dotprod = 0;
+  uint32_t valid_obs_ct = 0;
+  if (difflist_common_geno != 3) {
+    nmaj_ct0 = densevp0->nmaj_ct;
+    ssq0 = densevp0->ssq;
+    dotprod = difflist_common_geno * nmaj_ct0;
+    valid_obs_ct = densevp0->nm_ct;
+  }
+  uint32_t nmaj_ct1 = sparsevp1->nmaj_ct;
+  uint32_t ssq1 = sparsevp1->ssq;
+  if (difflist_len) {
+    // genovec would be more convenient than this representation here, but that
+    // shouldn't be a big deal.
+    const uintptr_t* nm_bitvec0 = densevp0->p.d.nm_bitvec;
+    const uintptr_t* one_bitvec0 = densevp0->p.d.one_bitvec;
+    const uintptr_t* two_bitvec0 = densevp0->p.d.two_bitvec;
+    const uintptr_t* raregeno = sparsevp1->p.s.raregeno;
+    const uint32_t word_ct_m1 = (difflist_len - 1) / kBitsPerWordD2;
+    uint32_t joint_counts[16]; // low bits = dense geno, high bits = sparse
+    ZeroU32Arr(16, joint_counts);
+    uint32_t loop_len = kBitsPerWordD2;
+    for (uint32_t widx = 0; ; ++widx) {
+      if (widx >= word_ct_m1) {
+        if (widx > word_ct_m1) {
+          break;
+        }
+        loop_len = ModNz(difflist_len, kBitsPerWordD2);
+      }
+      const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids[widx * kBitsPerWordD2]);
+      uintptr_t raregeno_word = raregeno[widx];
+      for (uint32_t uii = 0; uii != loop_len; ++uii) {
+        const uintptr_t cur_sparse_geno = raregeno_word & 3;
+        const uint32_t sample_idx = cur_difflist_sample_ids[uii];
+        const uint32_t sample_widx = sample_idx / kBitsPerWord;
+        const uint32_t sample_idx_lowbits = sample_idx % kBitsPerWord;
+        const uintptr_t nm_bit = (nm_bitvec0[sample_widx] >> sample_idx_lowbits) & 1;
+        const uintptr_t one_bit = (one_bitvec0[sample_widx] >> sample_idx_lowbits) & 1;
+        // "& 3" takes care of this mask
+        const uintptr_t two_bit_unmasked = two_bitvec0[sample_widx] >> sample_idx_lowbits;
+        const uintptr_t cur_dense_geno = (nm_bit + one_bit + two_bit_unmasked * 2 - 1) & 3;
+        joint_counts[cur_dense_geno + cur_sparse_geno * 4] += 1;
+        raregeno_word = raregeno_word >> 2;
+      }
+    }
+    nmaj_ct1 -= joint_counts[7] + 2 * joint_counts[11];
+    ssq1 -= joint_counts[7] + 4 * joint_counts[11];
+    if (difflist_common_geno != 3) {
+      nmaj_ct0 -= joint_counts[13] + 2 * joint_counts[14];
+      ssq0 -= joint_counts[13] + 4 * joint_counts[14];
+      const uint32_t sparse_missing_dense_nm_ct = joint_counts[12] + joint_counts[13] + joint_counts[14];
+      valid_obs_ct -= sparse_missing_dense_nm_ct;
+    } else {
+      const uint32_t dense_one_ct = joint_counts[1] + joint_counts[5] + joint_counts[9];
+      const uint32_t dense_two_ct = joint_counts[2] + joint_counts[6] + joint_counts[10];
+      nmaj_ct0 = dense_one_ct + 2 * dense_two_ct;
+      ssq0 = dense_one_ct + 4 * dense_two_ct;
+      const uint32_t dense_missing_sparse_nm_ct = joint_counts[3] + joint_counts[7] + joint_counts[11];
+      valid_obs_ct = difflist_len - dense_missing_sparse_nm_ct;
+    }
+    if (difflist_common_geno != 2) {
+      dotprod = joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
+    } else {
+      dotprod -= joint_counts[5] + 2 * (joint_counts[1] + joint_counts[6] + joint_counts[13]) + 4 * (joint_counts[2] + joint_counts[14]);
+    }
+  }
+  *nmaj_ct0_ptr = nmaj_ct0;
+  *nmaj_ct1_ptr = nmaj_ct1;
+  *ssq0_ptr = ssq0;
+  *ssq1_ptr = ssq1;
+  *dotprod_ptr = dotprod;
+  return valid_obs_ct;
+}
+
+uint32_t ComputeR2NondosageUnphased2SparseStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, uint32_t sample_ct, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
+  const uint32_t difflist_common_geno0 = ndp0->p.s.difflist_common_geno;
+  const uint32_t difflist_common_geno1 = ndp1->p.s.difflist_common_geno;
+  const uint32_t difflist_len0 = ndp0->p.s.difflist_len;
+  const uint32_t difflist_len1 = ndp1->p.s.difflist_len;
+  const uint32_t* difflist_sample_ids0 = ndp0->p.s.difflist_sample_ids;
+  const uint32_t* difflist_sample_ids1 = ndp1->p.s.difflist_sample_ids;
+  const uintptr_t* raregeno0 = ndp0->p.s.raregeno;
+  const uintptr_t* raregeno1 = ndp1->p.s.raregeno;
+  uint32_t joint_counts[16]; // low bits = ndp0, high bits = ndp1
+  ZeroU32Arr(16, joint_counts);
+  uint32_t difflist_idx1 = 0;
+  uint32_t sample_idx1 = UINT32_MAX;
+  uintptr_t raregeno_word1 = 0;
+  if (difflist_len1) {
+    sample_idx1 = difflist_sample_ids1[0];
+    raregeno_word1 = raregeno1[0];
+  }
+  uintptr_t raregeno_word0 = 0;
+  for (uint32_t difflist_idx0 = 0; ; ++difflist_idx0) {
+    uint32_t sample_idx0 = UINT32_MAX;
+    if (difflist_idx0 < difflist_len0) {
+      sample_idx0 = difflist_sample_ids0[difflist_idx0];
+      raregeno_word0 = raregeno_word0 >> 2;
+      if (!(difflist_idx0 % kBitsPerWordD2)) {
+        raregeno_word0 = raregeno0[difflist_idx0 / kBitsPerWordD2];
+      }
+    }
+    while (sample_idx1 < sample_idx0) {
+      const uintptr_t cur_geno1 = raregeno_word1 & 3;
+      joint_counts[difflist_common_geno0 + cur_geno1 * 4] += 1;
+      sample_idx1 = UINT32_MAX;
+      if (++difflist_idx1 < difflist_len1) {
+        sample_idx1 = difflist_sample_ids1[difflist_idx1];
+        raregeno_word1 = raregeno_word1 >> 2;
+        if (!(difflist_idx1 % kBitsPerWordD2)) {
+          raregeno_word1 = raregeno1[difflist_idx1 / kBitsPerWordD2];
+        }
+      }
+    }
+    const uintptr_t cur_geno0 = raregeno_word0 & 3;
+    if (sample_idx0 != sample_idx1) {
+      joint_counts[cur_geno0 + difflist_common_geno1 * 4] += 1;
+      continue;
+    }
+    if (sample_idx0 == UINT32_MAX) {
+      break;
+    }
+    const uintptr_t cur_geno1 = raregeno_word1 & 3;
+    joint_counts[cur_geno0 + cur_geno1 * 4] += 1;
+    sample_idx1 = UINT32_MAX;
+    if (++difflist_idx1 < difflist_len1) {
+      sample_idx1 = difflist_sample_ids1[difflist_idx1];
+      raregeno_word1 = raregeno_word1 >> 2;
+      if (!(difflist_idx1 % kBitsPerWordD2)) {
+        raregeno_word1 = raregeno1[difflist_idx1 / kBitsPerWordD2];
+      }
+    }
+  }
+  *nmaj_ct0_ptr = ndp0->nmaj_ct - joint_counts[13] - 2 * joint_counts[14];
+  *nmaj_ct1_ptr = ndp1->nmaj_ct - joint_counts[7] - 2 * joint_counts[11];
+  *ssq0_ptr = ndp0->ssq - joint_counts[13] - 4 * joint_counts[14];
+  *ssq1_ptr = ndp1->ssq - joint_counts[7] - 4 * joint_counts[11];
+  uint32_t dotprod = joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
+  if ((difflist_common_geno0 == 2) && (difflist_common_geno1 == 2)) {
+    const uint32_t sparse0_not1_ct = joint_counts[8] + joint_counts[9] + joint_counts[11];
+    dotprod += 4 * (sample_ct - sparse0_not1_ct - difflist_len1);
+  }
+  *dotprod_ptr = dotprod;
+  uint32_t valid_obs_ct;
+  if (difflist_common_geno1 != 3) {
+    const uint32_t missing1_nm0_ct = joint_counts[12] + joint_counts[13] + joint_counts[14];
+    valid_obs_ct = ndp0->nm_ct - missing1_nm0_ct;
+  } else {
+    const uint32_t missing0_nm1_ct = joint_counts[3] + joint_counts[7] + joint_counts[11];
+    valid_obs_ct = difflist_len1 - missing0_nm1_ct;
+  }
+  return valid_obs_ct;
+}
+
 // Main return value is valid_obs_ct.  On valid_obs_ct=0, other return values
-// are not filled.  (Same is true for the next three functions.)
+// may not be filled.  (Same is true for the next three functions.)
 uint32_t ComputeR2NondosageUnphasedStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, uint32_t sample_ct, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
+  if (ndp0->is_sparse) {
+    if (ndp1->is_sparse) {
+      return ComputeR2NondosageUnphased2SparseStats(ndp0, ndp1, sample_ct, nmaj_ct0_ptr, nmaj_ct1_ptr, ssq0_ptr, ssq1_ptr, dotprod_ptr);
+    } else {
+      return ComputeR2NondosageUnphased1SparseStats(ndp1, ndp0, nmaj_ct1_ptr, nmaj_ct0_ptr, ssq1_ptr, ssq0_ptr, dotprod_ptr);
+    }
+  }
+  if (ndp1->is_sparse) {
+    return ComputeR2NondosageUnphased1SparseStats(ndp0, ndp1, nmaj_ct0_ptr, nmaj_ct1_ptr, ssq0_ptr, ssq1_ptr, dotprod_ptr);
+  }
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  const uintptr_t* nm_bitvec0 = ndp0->nm_bitvec;
-  const uintptr_t* nm_bitvec1 = ndp1->nm_bitvec;
+  const uintptr_t* nm_bitvec0 = ndp0->p.d.nm_bitvec;
+  const uintptr_t* nm_bitvec1 = ndp1->p.d.nm_bitvec;
   const uint32_t nm_ct0 = ndp0->nm_ct;
   const uint32_t nm_ct1 = ndp1->nm_ct;
   uint32_t valid_obs_ct;
@@ -6108,8 +6424,8 @@ uint32_t ComputeR2NondosageUnphasedStats(const R2NondosageVariant* ndp0, const R
   } else {
     valid_obs_ct = MINV(nm_ct0, nm_ct1);
   }
-  const uintptr_t* one_bitvec0 = ndp0->one_bitvec;
-  const uintptr_t* two_bitvec0 = ndp0->two_bitvec;
+  const uintptr_t* one_bitvec0 = ndp0->p.d.one_bitvec;
+  const uintptr_t* two_bitvec0 = ndp0->p.d.two_bitvec;
   if (nm_ct0 == valid_obs_ct) {
     *nmaj_ct0_ptr = ndp0->nmaj_ct;
     *ssq0_ptr = ndp0->ssq;
@@ -6119,8 +6435,8 @@ uint32_t ComputeR2NondosageUnphasedStats(const R2NondosageVariant* ndp0, const R
     // 0, 1, 4 instead of 0, 1, 2
     *ssq0_ptr = nmaj_ct0 + 2 * PopcountWordsIntersect(nm_bitvec1, two_bitvec0, sample_ctl);
   }
-  const uintptr_t* one_bitvec1 = ndp1->one_bitvec;
-  const uintptr_t* two_bitvec1 = ndp1->two_bitvec;
+  const uintptr_t* one_bitvec1 = ndp1->p.d.one_bitvec;
+  const uintptr_t* two_bitvec1 = ndp1->p.d.two_bitvec;
   if (nm_ct1 == valid_obs_ct) {
     *nmaj_ct1_ptr = ndp1->nmaj_ct;
     *ssq1_ptr = ndp1->ssq;
@@ -6137,8 +6453,8 @@ uint32_t ComputeR2NondosagePhasedStats(const R2NondosageVariant* ndp0, const R2N
   // See HardcallPhasedR2Stats().  Probable todo: make function names more
   // systematic.
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  const uintptr_t* nm_bitvec0 = ndp0->nm_bitvec;
-  const uintptr_t* nm_bitvec1 = ndp1->nm_bitvec;
+  const uintptr_t* nm_bitvec0 = ndp0->p.d.nm_bitvec;
+  const uintptr_t* nm_bitvec1 = ndp1->p.d.nm_bitvec;
   const uint32_t nm_ct0 = ndp0->nm_ct;
   const uint32_t nm_ct1 = ndp1->nm_ct;
   uint32_t valid_obs_ct;
@@ -6150,14 +6466,14 @@ uint32_t ComputeR2NondosagePhasedStats(const R2NondosageVariant* ndp0, const R2N
   } else {
     valid_obs_ct = MINV(nm_ct0, nm_ct1);
   }
-  const uintptr_t* one_bitvec0 = ndp0->one_bitvec;
-  const uintptr_t* two_bitvec0 = ndp0->two_bitvec;
+  const uintptr_t* one_bitvec0 = ndp0->p.d.one_bitvec;
+  const uintptr_t* two_bitvec0 = ndp0->p.d.two_bitvec;
   uint32_t nmaj_ct0 = ndp0->nmaj_ct;
   if (nm_ct0 != valid_obs_ct) {
     nmaj_ct0 = GenoBitvecSumSubset(nm_bitvec1, one_bitvec0, two_bitvec0, sample_ctl);
   }
-  const uintptr_t* one_bitvec1 = ndp1->one_bitvec;
-  const uintptr_t* two_bitvec1 = ndp1->two_bitvec;
+  const uintptr_t* one_bitvec1 = ndp1->p.d.one_bitvec;
+  const uintptr_t* two_bitvec1 = ndp1->p.d.two_bitvec;
   uint32_t nmaj_ct1 = ndp1->nmaj_ct;
   if (nm_ct1 != valid_obs_ct) {
     nmaj_ct1 = GenoBitvecSumSubset(nm_bitvec0, one_bitvec1, two_bitvec1, sample_ctl);
@@ -6167,7 +6483,7 @@ uint32_t ComputeR2NondosagePhasedStats(const R2NondosageVariant* ndp0, const R2N
   GenoBitvecPhasedDotprod(one_bitvec0, two_bitvec0, one_bitvec1, two_bitvec1, sample_ctl, &known_dotprod, &unknown_hethet_ct);
   if ((phase_type == kR2PhaseTypePresent) && (unknown_hethet_ct != 0)) {
     // don't bother with no-phase-here optimization for now
-    HardcallPhasedR2Refine(ndp0->phasepresent, ndp0->phaseinfo, ndp1->phasepresent, ndp1->phaseinfo, sample_ctl, &known_dotprod, &unknown_hethet_ct);
+    HardcallPhasedR2Refine(ndp0->p.d.phasepresent, ndp0->p.d.phaseinfo, ndp1->p.d.phasepresent, ndp1->p.d.phaseinfo, sample_ctl, &known_dotprod, &unknown_hethet_ct);
   }
   nmajsums_d[0] = u31tod(nmaj_ct0);
   nmajsums_d[1] = u31tod(nmaj_ct1);
@@ -6325,12 +6641,180 @@ double ComputeR2(const R2Variant* r2vp0, const R2Variant* r2vp1, uint32_t sample
   return results[0];
 }
 
+uint32_t ComputeR2NondosageUnphased1SparseSubsetStats(const R2NondosageVariant* densevp0, const R2NondosageVariant* sparsevp1, const uintptr_t* sample_include, uint32_t subsetted_nm_ct0, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
+  const uint32_t difflist_common_geno = sparsevp1->p.s.difflist_common_geno;
+  const uint32_t difflist_len = sparsevp1->p.s.difflist_len;
+  const uint32_t* difflist_sample_ids = sparsevp1->p.s.difflist_sample_ids;
+  uint32_t nmaj_ct0 = 0;
+  uint32_t ssq0 = 0;
+  uint32_t dotprod = 0;
+  uint32_t valid_obs_ct = 0;
+  if (difflist_common_geno != 3) {
+    nmaj_ct0 = *nmaj_ct0_ptr;
+    ssq0 = *ssq0_ptr;
+    dotprod = difflist_common_geno * nmaj_ct0;
+    valid_obs_ct = subsetted_nm_ct0;
+  }
+  if (difflist_len) {
+    const uintptr_t* nm_bitvec0 = densevp0->p.d.nm_bitvec;
+    const uintptr_t* one_bitvec0 = densevp0->p.d.one_bitvec;
+    const uintptr_t* two_bitvec0 = densevp0->p.d.two_bitvec;
+    const uintptr_t* raregeno = sparsevp1->p.s.raregeno;
+    const uint32_t word_ct_m1 = (difflist_len - 1) / kBitsPerWordD2;
+    uint32_t joint_counts[16]; // low bits = dense geno, high bits = sparse
+    ZeroU32Arr(16, joint_counts);
+    uint32_t loop_len = kBitsPerWordD2;
+    for (uint32_t widx = 0; ; ++widx) {
+      if (widx >= word_ct_m1) {
+        if (widx > word_ct_m1) {
+          break;
+        }
+        loop_len = ModNz(difflist_len, kBitsPerWordD2);
+      }
+      const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids[widx * kBitsPerWordD2]);
+      uintptr_t raregeno_word = raregeno[widx];
+      for (uint32_t uii = 0; uii != loop_len; ++uii) {
+        const uint32_t sample_idx = cur_difflist_sample_ids[uii];
+        const uint32_t sample_widx = sample_idx / kBitsPerWord;
+        const uint32_t sample_idx_lowbits = sample_idx % kBitsPerWord;
+        if ((sample_include[sample_widx] >> sample_idx_lowbits) & 1) {
+          const uintptr_t cur_sparse_geno = raregeno_word & 3;
+          const uintptr_t nm_bit = (nm_bitvec0[sample_widx] >> sample_idx_lowbits) & 1;
+          const uintptr_t one_bit = (one_bitvec0[sample_widx] >> sample_idx_lowbits) & 1;
+          // "& 3" takes care of this mask
+          const uintptr_t two_bit_unmasked = two_bitvec0[sample_widx] >> sample_idx_lowbits;
+          const uintptr_t cur_dense_geno = (nm_bit + one_bit + two_bit_unmasked * 2 - 1) & 3;
+          joint_counts[cur_dense_geno + cur_sparse_geno * 4] += 1;
+        }
+        raregeno_word = raregeno_word >> 2;
+      }
+    }
+    *nmaj_ct1_ptr -= joint_counts[7] + 2 * joint_counts[11];
+    *ssq1_ptr -= joint_counts[7] + 4 * joint_counts[11];
+    if (difflist_common_geno != 3) {
+      nmaj_ct0 -= joint_counts[13] + 2 * joint_counts[14];
+      ssq0 -= joint_counts[13] + 4 * joint_counts[14];
+      const uint32_t sparse_missing_dense_nm_ct = joint_counts[12] + joint_counts[13] + joint_counts[14];
+      valid_obs_ct -= sparse_missing_dense_nm_ct;
+    } else {
+      const uint32_t dense_one_ct = joint_counts[1] + joint_counts[5] + joint_counts[9];
+      const uint32_t dense_two_ct = joint_counts[2] + joint_counts[6] + joint_counts[10];
+      nmaj_ct0 = dense_one_ct + 2 * dense_two_ct;
+      ssq0 = dense_one_ct + 4 * dense_two_ct;
+      const uint32_t dense_zero_ct = joint_counts[0] + joint_counts[4] + joint_counts[8];
+      valid_obs_ct = dense_zero_ct + dense_one_ct + dense_two_ct;
+    }
+    if (difflist_common_geno != 2) {
+      dotprod = joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
+    } else {
+      dotprod -= joint_counts[5] + 2 * (joint_counts[1] + joint_counts[6] + joint_counts[13]) + 4 * (joint_counts[2] + joint_counts[14]);
+    }
+  }
+  *nmaj_ct0_ptr = nmaj_ct0;
+  *ssq0_ptr = ssq0;
+  *dotprod_ptr = dotprod;
+  return valid_obs_ct;
+}
+
+uint32_t ComputeR2NondosageUnphased2SparseSubsetStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, const uintptr_t* sample_include, uint32_t sample_ct, uint32_t subsetted_nm_ct0, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
+  const uint32_t difflist_common_geno0 = ndp0->p.s.difflist_common_geno;
+  const uint32_t difflist_common_geno1 = ndp1->p.s.difflist_common_geno;
+  const uint32_t difflist_len0 = ndp0->p.s.difflist_len;
+  const uint32_t difflist_len1 = ndp1->p.s.difflist_len;
+  const uint32_t* difflist_sample_ids0 = ndp0->p.s.difflist_sample_ids;
+  const uint32_t* difflist_sample_ids1 = ndp1->p.s.difflist_sample_ids;
+  const uintptr_t* raregeno0 = ndp0->p.s.raregeno;
+  const uintptr_t* raregeno1 = ndp1->p.s.raregeno;
+  uint32_t joint_counts[16]; // low bits = ndp0, high bits = ndp1
+  ZeroU32Arr(16, joint_counts);
+  uint32_t difflist_idx1 = 0;
+  uint32_t sample_idx1 = UINT32_MAX;
+  uintptr_t raregeno_word1 = 0;
+  if (difflist_len1) {
+    sample_idx1 = difflist_sample_ids1[0];
+    raregeno_word1 = raregeno1[0];
+  }
+  uintptr_t raregeno_word0 = 0;
+  for (uint32_t difflist_idx0 = 0; ; ++difflist_idx0) {
+    uint32_t sample_idx0 = UINT32_MAX;
+    if (difflist_idx0 < difflist_len0) {
+      sample_idx0 = difflist_sample_ids0[difflist_idx0];
+      raregeno_word0 = raregeno_word0 >> 2;
+      if (!(difflist_idx0 % kBitsPerWordD2)) {
+        raregeno_word0 = raregeno0[difflist_idx0 / kBitsPerWordD2];
+      }
+    }
+    while (sample_idx1 < sample_idx0) {
+      const uintptr_t cur_geno1 = raregeno_word1 & 3;
+      joint_counts[difflist_common_geno0 + cur_geno1 * 4] += IsSet(sample_include, sample_idx1);
+      sample_idx1 = UINT32_MAX;
+      if (++difflist_idx1 < difflist_len1) {
+        sample_idx1 = difflist_sample_ids1[difflist_idx1];
+        raregeno_word1 = raregeno_word1 >> 2;
+        if (!(difflist_idx1 % kBitsPerWordD2)) {
+          raregeno_word1 = raregeno1[difflist_idx1 / kBitsPerWordD2];
+        }
+      }
+    }
+    if (sample_idx0 == UINT32_MAX) {
+      break;
+    }
+    const uint32_t is_set = IsSet(sample_include, sample_idx0);
+    const uintptr_t cur_geno0 = raregeno_word0 & 3;
+    if (sample_idx0 != sample_idx1) {
+      joint_counts[cur_geno0 + difflist_common_geno1 * 4] += is_set;
+      continue;
+    }
+    const uintptr_t cur_geno1 = raregeno_word1 & 3;
+    joint_counts[cur_geno0 + cur_geno1 * 4] += is_set;
+    sample_idx1 = UINT32_MAX;
+    if (++difflist_idx1 < difflist_len1) {
+      sample_idx1 = difflist_sample_ids1[difflist_idx1];
+      raregeno_word1 = raregeno_word1 >> 2;
+      if (!(difflist_idx1 % kBitsPerWordD2)) {
+        raregeno_word1 = raregeno1[difflist_idx1 / kBitsPerWordD2];
+      }
+    }
+  }
+  *nmaj_ct0_ptr -= joint_counts[13] + 2 * joint_counts[14];
+  *nmaj_ct1_ptr -= joint_counts[7] + 2 * joint_counts[11];
+  *ssq0_ptr -= joint_counts[13] + 4 * joint_counts[14];
+  *ssq1_ptr -= joint_counts[7] + 4 * joint_counts[11];
+  uint32_t dotprod = joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
+  if ((difflist_common_geno0 == 2) && (difflist_common_geno1 == 2)) {
+    uint32_t sparse_union_ct = 0;
+    for (uint32_t uii = 0; uii != 16; ++uii) {
+      sparse_union_ct += joint_counts[uii];
+    }
+    dotprod += 4 * (sample_ct - sparse_union_ct);
+  }
+  *dotprod_ptr = dotprod;
+  uint32_t valid_obs_ct;
+  if (difflist_common_geno1 != 3) {
+    const uint32_t missing1_nm0_ct = joint_counts[12] + joint_counts[13] + joint_counts[14];
+    valid_obs_ct = subsetted_nm_ct0 - missing1_nm0_ct;
+  } else {
+    valid_obs_ct = joint_counts[0] + joint_counts[1] + joint_counts[2] + joint_counts[4] + joint_counts[5] + joint_counts[6] + joint_counts[8] + joint_counts[9] + joint_counts[10];
+  }
+  return valid_obs_ct;
+}
+
 // nmaj_ct0, nmaj_ct1, ssq0, and ssq1 assumed to be initialized to precomputed
 // subsetted values.
 uint32_t ComputeR2NondosageUnphasedSubsetStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, const uintptr_t* sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t subsetted_nm_ct0, uint32_t subsetted_nm_ct1, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr, uintptr_t* cur_nm_buf) {
+  if (ndp0->is_sparse) {
+    if (ndp1->is_sparse) {
+      return ComputeR2NondosageUnphased2SparseSubsetStats(ndp0, ndp1, sample_include, sample_ct, subsetted_nm_ct0, nmaj_ct0_ptr, nmaj_ct1_ptr, ssq0_ptr, ssq1_ptr, dotprod_ptr);
+    } else {
+      return ComputeR2NondosageUnphased1SparseSubsetStats(ndp1, ndp0, sample_include, subsetted_nm_ct1, nmaj_ct1_ptr, nmaj_ct0_ptr, ssq1_ptr, ssq0_ptr, dotprod_ptr);
+    }
+  }
+  if (ndp1->is_sparse) {
+    return ComputeR2NondosageUnphased1SparseSubsetStats(ndp0, ndp1, sample_include, subsetted_nm_ct0, nmaj_ct0_ptr, nmaj_ct1_ptr, ssq0_ptr, ssq1_ptr, dotprod_ptr);
+  }
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-  const uintptr_t* nm_bitvec0 = ndp0->nm_bitvec;
-  const uintptr_t* nm_bitvec1 = ndp1->nm_bitvec;
+  const uintptr_t* nm_bitvec0 = ndp0->p.d.nm_bitvec;
+  const uintptr_t* nm_bitvec1 = ndp1->p.d.nm_bitvec;
   const uintptr_t* cur_nm;
   uint32_t valid_obs_ct;
   if (subsetted_nm_ct0 == sample_ct) {
@@ -6359,8 +6843,8 @@ uint32_t ComputeR2NondosageUnphasedSubsetStats(const R2NondosageVariant* ndp0, c
     }
     cur_nm = cur_nm_buf;
   }
-  const uintptr_t* one_bitvec0 = ndp0->one_bitvec;
-  const uintptr_t* two_bitvec0 = ndp0->two_bitvec;
+  const uintptr_t* one_bitvec0 = ndp0->p.d.one_bitvec;
+  const uintptr_t* two_bitvec0 = ndp0->p.d.two_bitvec;
   if (subsetted_nm_ct0 != valid_obs_ct) {
     const uint32_t nmaj_ct0 = GenoBitvecSumSubset(cur_nm, one_bitvec0, two_bitvec0, raw_sample_ctl);
     *nmaj_ct0_ptr = nmaj_ct0;
@@ -6368,8 +6852,8 @@ uint32_t ComputeR2NondosageUnphasedSubsetStats(const R2NondosageVariant* ndp0, c
     *ssq0_ptr = nmaj_ct0 + 2 * PopcountWordsIntersect(cur_nm, two_bitvec0, raw_sample_ctl);
   }
 
-  const uintptr_t* one_bitvec1 = ndp1->one_bitvec;
-  const uintptr_t* two_bitvec1 = ndp1->two_bitvec;
+  const uintptr_t* one_bitvec1 = ndp1->p.d.one_bitvec;
+  const uintptr_t* two_bitvec1 = ndp1->p.d.two_bitvec;
   if (subsetted_nm_ct1 != valid_obs_ct) {
     const uint32_t nmaj_ct1 = GenoBitvecSumSubset(cur_nm, one_bitvec1, two_bitvec1, raw_sample_ctl);
     *nmaj_ct1_ptr = nmaj_ct1;
@@ -6381,8 +6865,8 @@ uint32_t ComputeR2NondosageUnphasedSubsetStats(const R2NondosageVariant* ndp0, c
 
 uint32_t ComputeR2NondosagePhasedSubsetStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, const uintptr_t* sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t subsetted_nm_ct0, uint32_t subsetted_nm_ct1, uint32_t subsetted_nmaj_ct0, uint32_t subsetted_nmaj_ct1, R2PhaseType phase_type, double* nmajsums_d, double* known_dotprod_d_ptr, double* unknown_hethet_d_ptr, uintptr_t* cur_nm_buf) {
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-  const uintptr_t* nm_bitvec0 = ndp0->nm_bitvec;
-  const uintptr_t* nm_bitvec1 = ndp1->nm_bitvec;
+  const uintptr_t* nm_bitvec0 = ndp0->p.d.nm_bitvec;
+  const uintptr_t* nm_bitvec1 = ndp1->p.d.nm_bitvec;
   const uintptr_t* cur_nm;
   uint32_t valid_obs_ct;
   if (subsetted_nm_ct0 == sample_ct) {
@@ -6410,15 +6894,15 @@ uint32_t ComputeR2NondosagePhasedSubsetStats(const R2NondosageVariant* ndp0, con
     }
     cur_nm = cur_nm_buf;
   }
-  const uintptr_t* one_bitvec0 = ndp0->one_bitvec;
-  const uintptr_t* two_bitvec0 = ndp0->two_bitvec;
+  const uintptr_t* one_bitvec0 = ndp0->p.d.one_bitvec;
+  const uintptr_t* two_bitvec0 = ndp0->p.d.two_bitvec;
   uint32_t nmaj_ct0 = subsetted_nmaj_ct0;
   if (subsetted_nm_ct0 != valid_obs_ct) {
     nmaj_ct0 = GenoBitvecSumSubset(cur_nm, one_bitvec0, two_bitvec0, raw_sample_ctl);
   }
 
-  const uintptr_t* one_bitvec1 = ndp1->one_bitvec;
-  const uintptr_t* two_bitvec1 = ndp1->two_bitvec;
+  const uintptr_t* one_bitvec1 = ndp1->p.d.one_bitvec;
+  const uintptr_t* two_bitvec1 = ndp1->p.d.two_bitvec;
   uint32_t nmaj_ct1 = subsetted_nmaj_ct1;
   if (subsetted_nm_ct1 != valid_obs_ct) {
     nmaj_ct1 = GenoBitvecSumSubset(cur_nm, one_bitvec1, two_bitvec1, raw_sample_ctl);
@@ -6429,7 +6913,7 @@ uint32_t ComputeR2NondosagePhasedSubsetStats(const R2NondosageVariant* ndp0, con
   GenoBitvecPhasedDotprodSubset(cur_nm, one_bitvec0, two_bitvec0, one_bitvec1, two_bitvec1, raw_sample_ctl, &known_dotprod, &unknown_hethet_ct);
   if ((phase_type == kR2PhaseTypePresent) && (unknown_hethet_ct != 0)) {
     // don't bother with no-phase-here optimization for now
-    HardcallPhasedR2RefineSubset(cur_nm, ndp0->phasepresent, ndp0->phaseinfo, ndp1->phasepresent, ndp1->phaseinfo, raw_sample_ctl, &known_dotprod, &unknown_hethet_ct);
+    HardcallPhasedR2RefineSubset(cur_nm, ndp0->p.d.phasepresent, ndp0->p.d.phaseinfo, ndp1->p.d.phasepresent, ndp1->p.d.phaseinfo, raw_sample_ctl, &known_dotprod, &unknown_hethet_ct);
   }
   nmajsums_d[0] = u31tod(nmaj_ct0);
   nmajsums_d[1] = u31tod(nmaj_ct1);
@@ -6534,7 +7018,22 @@ double ComputeXR2(const R2Variant* r2vp0, const R2Variant* r2vp1, const uintptr_
       uint32_t male_ssq0 = ndp0->x_male_ssq;
       uint32_t male_ssq1 = ndp1->x_male_ssq;
       uint32_t male_dotprod;
+      /*
+      printf("male_nm_ct0: %u\n", ndp0->x_male_nm_ct);
+      printf("male_nm_ct1: %u\n", ndp1->x_male_nm_ct);
+      printf("male_nmaj_ct0: %u\n", male_nmaj_ct0);
+      printf("male_nmaj_ct1: %u\n", male_nmaj_ct1);
+      printf("male_ssq0: %u\n", male_ssq0);
+      printf("male_ssq1: %u\n", male_ssq1);
+      */
       male_obs_ct = ComputeR2NondosageUnphasedSubsetStats(ndp0, ndp1, founder_male_collapsed, sample_ct, male_ct, ndp0->x_male_nm_ct, ndp1->x_male_nm_ct, &male_nmaj_ct0, &male_nmaj_ct1, &male_ssq0, &male_ssq1, &male_dotprod, cur_nm_buf);
+      /*
+      printf("male_nmaj_ct0: %u\n", male_nmaj_ct0);
+      printf("male_nmaj_ct1: %u\n", male_nmaj_ct1);
+      printf("male_ssq0: %u\n", male_ssq0);
+      printf("male_ssq1: %u\n", male_ssq1);
+      printf("male_dotprod: %u\n", male_dotprod);
+      */
 
       const double weighted_obs_ct = u31tod(valid_obs_ct) - male_downwt * u31tod(male_obs_ct);
       const double weighted_nmaj_ct0 = u31tod(nmaj_ct0) - male_downwt * u31tod(male_nmaj_ct0);
@@ -6791,7 +7290,7 @@ void ClumpLowmemR2(uintptr_t tidx, uint32_t thread_ct_p1, uint32_t parity, Clump
     if (load_dosage) {
       LdUnpackDosage(&pgv, founder_male_collapsed, male_dosage_invmask, founder_ct, phase_type, unpacked_cur_variant);
     } else {
-      LdUnpackNondosage(&pgv, founder_male_collapsed, founder_ct, phase_type, unpacked_cur_variant);
+      LdUnpackNondosageDense(&pgv, founder_male_collapsed, founder_ct, phase_type, unpacked_cur_variant);
     }
     R2Variant cur_r2v;
     FillR2V(unpacked_cur_variant, founder_ct, phase_type, is_x, load_dosage, &cur_r2v);
@@ -7590,6 +8089,16 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
                  bigstack_alloc_wp(calc_thread_ct + 1, &(ctx.ld_idx_found)))) {
       goto ClumpReports_ret_NOMEM;
     }
+    ctx.raregeno_bufs = nullptr;
+    ctx.difflist_sample_id_bufs = nullptr;
+    ctx.chrx_workspaces = nullptr;
+    const uint32_t phased_r2 = !(flags & kfClumpUnphased);
+    if (!phased_r2) {
+      if (unlikely(bigstack_alloc_wp(calc_thread_ct, &ctx.raregeno_bufs) ||
+                   bigstack_alloc_u32p(calc_thread_ct, &ctx.difflist_sample_id_bufs))) {
+        goto ClumpReports_ret_NOMEM;
+      }
+    }
     if (x_exists) {
       if (unlikely(bigstack_alloc_wp(calc_thread_ct + 1, &ctx.chrx_workspaces))) {
         goto ClumpReports_ret_NOMEM;
@@ -7600,7 +8109,6 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     // PgfiMultiread use case that we fork PgenMtLoadInit()'s computation here
     // instead of modifying that function.
 
-    const uint32_t phased_r2 = !(flags & kfClumpUnphased);
     const uint32_t all_haploid = IsSet(cip->haploid_mask, 0);
     const uint32_t check_phase = phased_r2 && (!all_haploid) && (pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent));
     PgenGlobalFlags effective_gflags = pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
@@ -7619,7 +8127,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       unpacked_byte_stride = dosagevec_byte_ct * (1 + phased_r2 + check_phase) + bitvec_byte_ct + dosage_trail_byte_ct;
     } else {
       const uintptr_t nondosage_trail_byte_ct = LdNondosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_r2), x_exists);
-      unpacked_byte_stride = bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
+      unpacked_byte_stride = RoundUpPow2(16, kBytesPerVec) + bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
     }
     const uintptr_t unpacked_byte_stride_cachealign = RoundUpPow2(unpacked_byte_stride, kCacheline);
     const uintptr_t pgr_struct_alloc = RoundUpPow2(sizeof(PgenReader), kCacheline);
@@ -7631,6 +8139,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     // memory writes.  I'm guessing that is also a reasonable unpacked_variants
     // shard size to aim for.
     const uint32_t min_pgv_per_thread = 1 + 4194303 / pgv_byte_stride;
+    uintptr_t sparse_alloc = 0;
+    uint32_t raregeno_word_ct = 0;
     uintptr_t chrx_alloc = 0;
     if (x_exists) {
       const uint32_t larger_half = MAXV(founder_male_ct, founder_nonmale_ct);
@@ -7642,6 +8152,13 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       const uintptr_t phasepresent_alloc = check_phase * min_u32_alloc;
       const uintptr_t dosage_ct_alloc = check_dosage * min_u32_alloc;
       const uintptr_t dphase_ct_alloc = dosage_ct_alloc * check_phase;
+      if (!phased_r2) {
+        const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+        const uintptr_t raregeno_vec_ct = DivUp(max_returned_difflist_len, kNypsPerVec);
+        const uintptr_t difflist_sample_id_vec_ct = DivUp(max_returned_difflist_len, kInt32PerVec);
+        sparse_alloc = RoundUpPow2((raregeno_vec_ct + difflist_sample_id_vec_ct) * kBytesPerVec, kCacheline);
+        raregeno_word_ct = raregeno_vec_ct * kWordsPerVec;
+      }
 
       uintptr_t bytes_avail = bigstack_left();
       const uintptr_t more_base_alloc = pgr_struct_alloc + pgr_alloc_cacheline_ct * kCacheline + 2 * unpacked_byte_stride_cachealign + min_ld_idx_found_alloc + phasepresent_alloc + dosage_ct_alloc + dphase_ct_alloc + chrx_alloc;
@@ -7650,7 +8167,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       }
       bytes_avail -= more_base_alloc;
 
-      const uintptr_t per_thread_target_alloc = 2 * min_pgv_per_thread * pgv_byte_stride + unpacked_byte_stride_cachealign + pgr_struct_alloc + pgr_alloc_cacheline_ct * kCacheline + min_ld_idx_found_alloc + chrx_alloc;
+      const uintptr_t per_thread_target_alloc = 2 * min_pgv_per_thread * pgv_byte_stride + unpacked_byte_stride_cachealign + pgr_struct_alloc + pgr_alloc_cacheline_ct * kCacheline + min_ld_idx_found_alloc + sparse_alloc + chrx_alloc;
       if (bytes_avail < per_thread_target_alloc * calc_thread_ct) {
         calc_thread_ct = bytes_avail / per_thread_target_alloc;
         if (unlikely(!calc_thread_ct)) {
@@ -7676,6 +8193,11 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       // shouldn't be possible for this to fail
       PgrInit(nullptr, 0, pgfip, ctx.pgr_ptrs[tidx], pgr_alloc);
 
+      if (!phased_r2) {
+        uintptr_t* raregeno_buf = S_CAST(uintptr_t*, bigstack_end_alloc_raw(sparse_alloc));
+        ctx.raregeno_bufs[tidx] = raregeno_buf;
+        ctx.difflist_sample_id_bufs[tidx] = R_CAST(uint32_t*, &(raregeno_buf[raregeno_word_ct]));
+      }
       if (x_exists) {
         ctx.chrx_workspaces[tidx] = S_CAST(uintptr_t*, bigstack_end_alloc_raw(chrx_alloc));
       }
@@ -8187,7 +8709,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
                 if (load_dosage) {
                   LdUnpackDosage(&pgv, cur_founder_male_collapsed, cur_male_dosage_invmask, founder_ct, phase_type, lowmem_unpacked_variants);
                 } else {
-                  LdUnpackNondosage(&pgv, cur_founder_male_collapsed, founder_ct, phase_type, lowmem_unpacked_variants);
+                  LdUnpackNondosageDense(&pgv, cur_founder_male_collapsed, founder_ct, phase_type, lowmem_unpacked_variants);
                 }
                 index_variant_needed = 0;
               }
@@ -9166,6 +9688,17 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     const R2PhaseType phase_type = GetR2PhaseType(phased_calc, check_phase);
     const uint32_t check_dosage = (effective_gflags / kfPgenGlobalDosagePresent) & 1;
 
+    uintptr_t* raregeno = nullptr;
+    uint32_t* difflist_sample_ids = nullptr;
+    const uint32_t max_simple_difflist_len = founder_ct / 64;
+    if (!phased_calc) {
+      const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+      if (unlikely(bigstack_alloc_w(NypCtToWordCt(max_returned_difflist_len), &raregeno) ||
+                   bigstack_alloc_u32(max_returned_difflist_len, &difflist_sample_ids))) {
+        goto VcorMatrix_ret_NOMEM;
+      }
+    }
+
     // create abbreviated chromosome-view for use by worker threads.
     // they may need to know where each chromosome starts/ends (use phase or
     // not?), and which chromosome is X; that's it
@@ -9297,7 +9830,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       unpacked_variant_byte_stride = dosagevec_byte_ct * (1 + phased_calc + check_phase) + bitvec_byte_ct + dosage_trail_byte_ct;
     } else {
       const uintptr_t nondosage_trail_byte_ct = LdNondosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_calc), x_exists);
-      unpacked_variant_byte_stride = bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
+      unpacked_variant_byte_stride = RoundUpPow2(16, kBytesPerVec) + bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
     }
     uint32_t* founder_info_cumulative_popcounts;
     PgenVariant pgv;
@@ -9449,7 +9982,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
         row_window_size = row_variant_idx_stop - cur_row_variant_idx_start;
       }
       unsigned char* row_load_iter = ctx.unpacked_row_variants[row_parity];
-      for (uint32_t vidx_offset = 0; vidx_offset != row_window_size; ++vidx_offset) {
+      for (uint32_t vidx_offset = 0; vidx_offset != row_window_size; ++vidx_offset, row_load_iter = &(row_load_iter[unpacked_variant_byte_stride])) {
         const uint32_t variant_uidx = BitIter1(variant_include, &row_variant_uidx_base, &row_cur_bits);
         if (variant_uidx >= row_chr_end) {
           do {
@@ -9466,6 +9999,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
           }
         }
         const AlleleCode aidx = maj_alleles[variant_uidx];
+        const uint32_t is_y = (variant_uidx < y_end) && (variant_uidx >= y_start);
         if (check_dosage) {
           if (row_read_phase) {
             reterr = PgrGetInv1Dp(founder_info, pssi, founder_ct, variant_uidx, aidx, simple_pgrp, &pgv);
@@ -9475,25 +10009,40 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
           if (unlikely(reterr)) {
             goto VcorMatrix_ret_PGR_FAIL;
           }
-          if ((variant_uidx < y_end) && (variant_uidx >= y_start)) {
+          if (is_y) {
             InterleavedSetMissingCleardosage(founder_female_collapsed, founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec, &pgv.dosage_ct, pgv.dosage_present, pgv.dosage_main);
           }
           LdUnpackDosage(&pgv, founder_male_collapsed, male_dosage_invmask, founder_ct, phase_type, row_load_iter);
         } else {
-          if (row_read_phase) {
-            reterr = PgrGetInv1P(founder_info, pssi, founder_ct, variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
+          if ((!phased_calc) && (!is_y)) {
+            uint32_t difflist_common_geno;
+            uint32_t difflist_len;
+            reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_simple_difflist_len, variant_uidx, aidx, simple_pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+            if (unlikely(reterr)) {
+              goto VcorMatrix_ret_PGR_FAIL;
+            }
+            if (difflist_common_geno != UINT32_MAX) {
+              if (difflist_len <= max_simple_difflist_len) {
+                LdUnpackNondosageSparse(raregeno, difflist_sample_ids, founder_male_collapsed, founder_ct, founder_male_ct, difflist_common_geno, difflist_len, row_load_iter);
+                continue;
+              }
+              PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, founder_ct, difflist_len, pgv.genovec);
+            }
           } else {
-            reterr = PgrGetInv1(founder_info, pssi, founder_ct, variant_uidx, aidx, simple_pgrp, pgv.genovec);
+            if (row_read_phase) {
+              reterr = PgrGetInv1P(founder_info, pssi, founder_ct, variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
+            } else {
+              reterr = PgrGetInv1(founder_info, pssi, founder_ct, variant_uidx, aidx, simple_pgrp, pgv.genovec);
+            }
+            if (unlikely(reterr)) {
+              goto VcorMatrix_ret_PGR_FAIL;
+            }
+            if (is_y) {
+              InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
+            }
           }
-          if (unlikely(reterr)) {
-            goto VcorMatrix_ret_PGR_FAIL;
-          }
-          if ((variant_uidx < y_end) && (variant_uidx >= y_start)) {
-            InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
-          }
-          LdUnpackNondosage(&pgv, founder_male_collapsed, founder_ct, phase_type, row_load_iter);
+          LdUnpackNondosageDense(&pgv, founder_male_collapsed, founder_ct, phase_type, row_load_iter);
         }
-        row_load_iter = &(row_load_iter[unpacked_variant_byte_stride]);
       }
       const uint32_t cur_row_variant_idx_stop = cur_row_variant_idx_start + row_window_size;
       if (triangle_calc) {
@@ -9513,7 +10062,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
         }
         unsigned char* col_load_iter = ctx.unpacked_col_variants[col_parity];
         // possible todo: don't duplicate already-unpacked row variants
-        for (uint32_t vidx_offset = 0; vidx_offset != col_window_size; ++vidx_offset) {
+        for (uint32_t vidx_offset = 0; vidx_offset != col_window_size; ++vidx_offset, col_load_iter = &(col_load_iter[unpacked_variant_byte_stride])) {
           const uint32_t variant_uidx = BitIter1(variant_include, &col_variant_uidx_base, &col_cur_bits);
           if (variant_uidx >= col_chr_end) {
             do {
@@ -9530,6 +10079,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
             }
           }
           const AlleleCode aidx = maj_alleles[variant_uidx];
+          const uint32_t is_y = (variant_uidx < y_end) && (variant_uidx >= y_start);
           if (check_dosage) {
             if (col_read_phase) {
               reterr = PgrGetInv1Dp(founder_info, pssi, founder_ct, variant_uidx, aidx, simple_pgrp, &pgv);
@@ -9539,25 +10089,40 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
             if (unlikely(reterr)) {
               goto VcorMatrix_ret_PGR_FAIL;
             }
-            if ((variant_uidx < y_end) && (variant_uidx >= y_start)) {
+            if (is_y) {
               InterleavedSetMissingCleardosage(founder_female_collapsed, founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec, &pgv.dosage_ct, pgv.dosage_present, pgv.dosage_main);
             }
             LdUnpackDosage(&pgv, founder_male_collapsed, male_dosage_invmask, founder_ct, phase_type, col_load_iter);
           } else {
-            if (col_read_phase) {
-              reterr = PgrGetInv1P(founder_info, pssi, founder_ct, variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
+            if ((!phased_calc) && (!is_y)) {
+              uint32_t difflist_common_geno;
+              uint32_t difflist_len;
+              reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_simple_difflist_len, variant_uidx, aidx, simple_pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+              if (unlikely(reterr)) {
+                goto VcorMatrix_ret_PGR_FAIL;
+              }
+              if (difflist_common_geno != UINT32_MAX) {
+                if (difflist_len <= max_simple_difflist_len) {
+                  LdUnpackNondosageSparse(raregeno, difflist_sample_ids, founder_male_collapsed, founder_ct, founder_male_ct, difflist_common_geno, difflist_len, col_load_iter);
+                  continue;
+                }
+                PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, founder_ct, difflist_len, pgv.genovec);
+              }
             } else {
-              reterr = PgrGetInv1(founder_info, pssi, founder_ct, variant_uidx, aidx, simple_pgrp, pgv.genovec);
+              if (col_read_phase) {
+                reterr = PgrGetInv1P(founder_info, pssi, founder_ct, variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
+              } else {
+                reterr = PgrGetInv1(founder_info, pssi, founder_ct, variant_uidx, aidx, simple_pgrp, pgv.genovec);
+              }
+              if (unlikely(reterr)) {
+                goto VcorMatrix_ret_PGR_FAIL;
+              }
+              if (is_y) {
+                InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
+              }
             }
-            if (unlikely(reterr)) {
-              goto VcorMatrix_ret_PGR_FAIL;
-            }
-            if ((variant_uidx < y_end) && (variant_uidx >= y_start)) {
-              InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
-            }
-            LdUnpackNondosage(&pgv, founder_male_collapsed, founder_ct, phase_type, col_load_iter);
+            LdUnpackNondosageDense(&pgv, founder_male_collapsed, founder_ct, phase_type, col_load_iter);
           }
-          col_load_iter = &(col_load_iter[unpacked_variant_byte_stride]);
         }
         const uint32_t cur_col_variant_idx_stop = cur_col_variant_idx_start + col_window_size;
         job_done = next_job_done;
@@ -9951,12 +10516,14 @@ THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
           ++row_chr_fo_idx;
           row_chr_end = cip->chr_fo_vidx_start[row_chr_fo_idx + 1];
         } while (row_variant_uidx >= row_chr_end);
-        const uint32_t row_chr_idx = cip->chr_file_order[row_chr_fo_idx];
-        char* chr_name_end = chrtoa(cip, row_chr_idx, row_chr_buf);
-        *chr_name_end = '\t';
-        row_chr_blen = 1 + S_CAST(uintptr_t, chr_name_end - row_chr_buf);
-        // row_chr_buf == col_chr_buf except in inter_chr case
-        col_chr_blen = row_chr_blen;
+        if (row_chr_buf) {
+          const uint32_t row_chr_idx = cip->chr_file_order[row_chr_fo_idx];
+          char* chr_name_end = chrtoa(cip, row_chr_idx, row_chr_buf);
+          *chr_name_end = '\t';
+          row_chr_blen = 1 + S_CAST(uintptr_t, chr_name_end - row_chr_buf);
+          // row_chr_buf == col_chr_buf except in inter_chr case
+          col_chr_blen = row_chr_blen;
+        }
       }
       uintptr_t row_allele_idx_offset_base = row_variant_uidx * 2;
       if (allele_idx_offsets) {
@@ -10005,10 +10572,12 @@ THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
             ++col_chr_fo_idx;
             col_chr_end = cip->chr_fo_vidx_start[col_chr_fo_idx + 1];
           } while (col_variant_uidx >= col_chr_end);
-          const uint32_t col_chr_idx = cip->chr_file_order[col_chr_fo_idx];
-          char* chr_name_end = chrtoa(cip, col_chr_idx, col_chr_buf);
-          *chr_name_end = '\t';
-          col_chr_blen = 1 + S_CAST(uintptr_t, chr_name_end - col_chr_buf);
+          if (col_chr_buf) {
+            const uint32_t col_chr_idx = cip->chr_file_order[col_chr_fo_idx];
+            char* chr_name_end = chrtoa(cip, col_chr_idx, col_chr_buf);
+            *chr_name_end = '\t';
+            col_chr_blen = 1 + S_CAST(uintptr_t, chr_name_end - col_chr_buf);
+          }
         }
         if (chr_col) {
           cswritep = memcpya(cswritep, row_chr_buf, row_chr_blen);
@@ -10536,6 +11105,17 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
     const R2PhaseType phase_type = GetR2PhaseType(phased_calc, check_phase);
     const uint32_t check_dosage = (effective_gflags / kfPgenGlobalDosagePresent) & 1;
 
+    uintptr_t* raregeno = nullptr;
+    uint32_t* difflist_sample_ids = nullptr;
+    const uint32_t max_simple_difflist_len = founder_ct / 64;
+    if (!phased_calc) {
+      const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+      if (unlikely(bigstack_alloc_w(NypCtToWordCt(max_returned_difflist_len), &raregeno) ||
+                   bigstack_alloc_u32(max_returned_difflist_len, &difflist_sample_ids))) {
+        goto VcorTable_ret_NOMEM;
+      }
+    }
+
     const uintptr_t* founder_male_collapsed = nullptr;
     const Dosage* male_dosage_invmask = nullptr;
     ctx.founder_nonmale_collapsed = nullptr;
@@ -10629,7 +11209,7 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
       unpacked_variant_byte_stride = dosagevec_byte_ct * (1 + phased_calc + check_phase) + bitvec_byte_ct + dosage_trail_byte_ct;
     } else {
       const uintptr_t nondosage_trail_byte_ct = LdNondosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_calc), x_exists);
-      unpacked_variant_byte_stride = bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
+      unpacked_variant_byte_stride = RoundUpPow2(16, kBytesPerVec) + bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
     }
     uint32_t* founder_info_cumulative_popcounts;
     PgenVariant pgv;
@@ -10836,7 +11416,7 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
         uint32_t row_offset = 0;
         // in inter-chr case, should save col-window size
         //   if row-subset, start at variant_idx=0 instead of at diagonal
-        for (; row_offset != row_offset_limit; ++row_offset) {
+        for (; row_offset != row_offset_limit; ++row_offset, row_load_iter = &(row_load_iter[unpacked_variant_byte_stride])) {
           const uint32_t row_variant_uidx = BitIter1(row_variant_include, &row_variant_uidx_base, &row_cur_bits);
           if (row_variant_uidx >= row_chr_end) {
             do {
@@ -10889,6 +11469,7 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
           write_idx = next_write_idx;
 
           const AlleleCode aidx = maj_alleles[row_variant_uidx];
+          const uint32_t is_y = (row_variant_uidx < y_end) && (row_variant_uidx >= y_start);
           if (check_dosage) {
             if (row_read_phase) {
               reterr = PgrGetInv1Dp(founder_info, pssi, founder_ct, row_variant_uidx, aidx, simple_pgrp, &pgv);
@@ -10898,25 +11479,40 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
             if (unlikely(reterr)) {
               goto VcorTable_ret_PGR_FAIL;
             }
-            if ((row_variant_uidx < y_end) && (row_variant_uidx >= y_start)) {
+            if (is_y) {
               InterleavedSetMissingCleardosage(founder_female_collapsed, founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec, &pgv.dosage_ct, pgv.dosage_present, pgv.dosage_main);
             }
             LdUnpackDosage(&pgv, founder_male_collapsed, male_dosage_invmask, founder_ct, phase_type, row_load_iter);
           } else {
-            if (row_read_phase) {
-              reterr = PgrGetInv1P(founder_info, pssi, founder_ct, row_variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
+            if ((!phased_calc) && (!is_y)) {
+              uint32_t difflist_common_geno;
+              uint32_t difflist_len;
+              reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_simple_difflist_len, row_variant_uidx, aidx, simple_pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+              if (unlikely(reterr)) {
+                goto VcorTable_ret_PGR_FAIL;
+              }
+              if (difflist_common_geno != UINT32_MAX) {
+                if (difflist_len <= max_simple_difflist_len) {
+                  LdUnpackNondosageSparse(raregeno, difflist_sample_ids, founder_male_collapsed, founder_ct, founder_male_ct, difflist_common_geno, difflist_len, row_load_iter);
+                  continue;
+                }
+                PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, founder_ct, difflist_len, pgv.genovec);
+              }
             } else {
-              reterr = PgrGetInv1(founder_info, pssi, founder_ct, row_variant_uidx, aidx, simple_pgrp, pgv.genovec);
+              if (row_read_phase) {
+                reterr = PgrGetInv1P(founder_info, pssi, founder_ct, row_variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
+              } else {
+                reterr = PgrGetInv1(founder_info, pssi, founder_ct, row_variant_uidx, aidx, simple_pgrp, pgv.genovec);
+              }
+              if (unlikely(reterr)) {
+                goto VcorTable_ret_PGR_FAIL;
+              }
+              if (is_y) {
+                InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
+              }
             }
-            if (unlikely(reterr)) {
-              goto VcorTable_ret_PGR_FAIL;
-            }
-            if ((row_variant_uidx < y_end) && (row_variant_uidx >= y_start)) {
-              InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
-            }
-            LdUnpackNondosage(&pgv, founder_male_collapsed, founder_ct, phase_type, row_load_iter);
+            LdUnpackNondosageDense(&pgv, founder_male_collapsed, founder_ct, phase_type, row_load_iter);
           }
-          row_load_iter = &(row_load_iter[unpacked_variant_byte_stride]);
         }
         row_window_size = row_offset;
         write_idx_starts[row_window_size] = write_idx;
@@ -10991,6 +11587,7 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
           col_uvidxs[col_offset] = col_uvidx++;
           col_chr_idxs[col_offset] = col_chr_idx;
           const AlleleCode aidx = maj_alleles[col_variant_uidx];
+          const uint32_t is_y = (col_variant_uidx < y_end) && (col_variant_uidx >= y_start);
           if (check_dosage) {
             if (col_read_phase) {
               reterr = PgrGetInv1Dp(founder_info, pssi, founder_ct, col_variant_uidx, aidx, simple_pgrp, &pgv);
@@ -11000,24 +11597,41 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
             if (unlikely(reterr)) {
               goto VcorTable_ret_PGR_FAIL;
             }
-            if ((col_variant_uidx < y_end) && (col_variant_uidx >= y_start)) {
+            if (is_y) {
               InterleavedSetMissingCleardosage(founder_female_collapsed, founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec, &pgv.dosage_ct, pgv.dosage_present, pgv.dosage_main);
             }
             LdUnpackDosage(&pgv, founder_male_collapsed, male_dosage_invmask, founder_ct, phase_type, col_load_iter);
           } else {
-            if (col_read_phase) {
-              reterr = PgrGetInv1P(founder_info, pssi, founder_ct, col_variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
+            if ((!phased_calc) && (!is_y)) {
+              uint32_t difflist_common_geno;
+              uint32_t difflist_len;
+              reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_simple_difflist_len, col_variant_uidx, aidx, simple_pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+              if (unlikely(reterr)) {
+                goto VcorTable_ret_PGR_FAIL;
+              }
+              if (difflist_common_geno != UINT32_MAX) {
+                if (difflist_len <= max_simple_difflist_len) {
+                  LdUnpackNondosageSparse(raregeno, difflist_sample_ids, founder_male_collapsed, founder_ct, founder_male_ct, difflist_common_geno, difflist_len, col_load_iter);
+                  goto VcorTable_col_finish;
+                }
+                PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, founder_ct, difflist_len, pgv.genovec);
+              }
             } else {
-              reterr = PgrGetInv1(founder_info, pssi, founder_ct, col_variant_uidx, aidx, simple_pgrp, pgv.genovec);
+              if (col_read_phase) {
+                reterr = PgrGetInv1P(founder_info, pssi, founder_ct, col_variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
+              } else {
+                reterr = PgrGetInv1(founder_info, pssi, founder_ct, col_variant_uidx, aidx, simple_pgrp, pgv.genovec);
+              }
+              if (unlikely(reterr)) {
+                goto VcorTable_ret_PGR_FAIL;
+              }
+              if (is_y) {
+                InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
+              }
             }
-            if (unlikely(reterr)) {
-              goto VcorTable_ret_PGR_FAIL;
-            }
-            if ((col_variant_uidx < y_end) && (col_variant_uidx >= y_start)) {
-              InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
-            }
-            LdUnpackNondosage(&pgv, founder_male_collapsed, founder_ct, phase_type, col_load_iter);
+            LdUnpackNondosageDense(&pgv, founder_male_collapsed, founder_ct, phase_type, col_load_iter);
           }
+        VcorTable_col_finish:
           col_load_iter = &(col_load_iter[unpacked_variant_byte_stride]);
         }
         ctx.col_window_starts[col_parity] = col_window_start;

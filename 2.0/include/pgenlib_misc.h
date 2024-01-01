@@ -1,7 +1,7 @@
 #ifndef __PGENLIB_MISC_H__
 #define __PGENLIB_MISC_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2023 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2024 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -79,7 +79,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1912
+#define PGENLIB_INTERNAL_VERNUM 1913
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -337,6 +337,9 @@ HEADER_INLINE uint64_t GetVint64Unsafe(const unsigned char** buf_iterp) {
   }
 }
 
+// TODO: make this work properly with kCacheline == 128, then fix other
+// transpose functions, etc.
+
 // main batch size
 CONSTI32(kPglNypTransposeBatch, kNypsPerCacheline);
 
@@ -355,7 +358,8 @@ void TransposeNypblock32(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
 #endif
 CONSTI32(kPglNypTransposeBufwords, kPglNypTransposeBufbytes / kBytesPerWord);
 
-// - up to 256x256; vecaligned_buf must have size 16k (64-bit) or 32k (32-bit)
+// - single block is up to 256x256 (CACHELINE64) or 512x512 (CACHELINE128)
+// - vecaligned_buf must have size 32k (CACHELINE64) or 128k (CACHELINE128)
 // - does NOT zero out trailing bits, because main application is ind-major-bed
 //   <-> plink2 format conversion, where the zeroing would be undone...
 // - important: write_iter must be allocated up to at least
