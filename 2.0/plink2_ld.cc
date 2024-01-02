@@ -5605,7 +5605,8 @@ ENUM_U31_DEF_END(ClumpJobType);
 //           3 * bitvec_byte_ct
 //         uint32_t x_male_nm_ct, x_male_nmaj_ct, x_male_ssq: if chrX, another
 //           RoundUpPow2(12, kBytesPerVec)
-//         (sparse representation guaranteed to be no larger than dense)
+//         (sparse representation usually smaller, but need to compare if not
+//         AVX2)
 //       Male-specific values placed in the back so that the unpacker doesn't
 //       need to distinguish between no-x-male-stats and
 //       x-male-stats-not-needed.
@@ -5727,6 +5728,15 @@ uintptr_t UnpackedByteStride(const ClumpCtx* ctx, R2PhaseType phase_type, uint32
   const uintptr_t bitvec_byte_ct = ctx->bitvec_byte_ct;
   if (!load_dosage) {
     uintptr_t stride = RoundUpPow2(16, kBytesPerVec) + (3 + 2 * (phase_type == kR2PhaseTypePresent)) * bitvec_byte_ct;
+#ifndef USE_AVX2
+    const uint32_t founder_ct = ctx->founder_ct;
+    const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
+    const uint32_t max_simple_difflist_len = founder_ct / 64;
+    const uintptr_t sparse_req = RoundUpPow2((6 + max_simple_difflist_len) * sizeof(int32_t), kBytesPerVec) + NypCtToVecCt(max_simple_difflist_len) * kBytesPerVec + RoundUpPow2(founder_ctl * (kBytesPerWord + sizeof(int32_t)), kBytesPerVec);
+    if (sparse_req > stride) {
+      stride = sparse_req;
+    }
+#endif
     if (x_exists) {
       stride += RoundUpPow2((2 + (phase_type == kR2PhaseTypeUnphased)) * sizeof(int32_t), kBytesPerVec);
     }
@@ -5822,16 +5832,28 @@ void LdUnpackNondosageSparse(const uintptr_t* raregeno, const uint32_t* difflist
     }
   }
   uintptr_t* raregeno_dst = R_CAST(uintptr_t*, &(dst_iter[RoundUpPow2((6 + difflist_len) * sizeof(int32_t), kBytesPerVec)]));
-  const uint32_t word_ct = NypCtToWordCt(difflist_len);
+  const uint32_t raregeno_word_ct = NypCtToWordCt(difflist_len);
+  uintptr_t* difflist_include_dst = &(raregeno_dst[RoundUpPow2(raregeno_word_ct, kWordsPerVec)]);
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  ZeroWArr(sample_ctl, difflist_include_dst);
+  uint32_t* difflist_include_cumulative_popcounts_dst = R_CAST(uint32_t*, &(difflist_include_dst[sample_ctl]));
   if (difflist_len) {
-    memcpy(&(dst_u32[6]), difflist_sample_ids, difflist_len * sizeof(int32_t));
-    memcpy(raregeno_dst, raregeno, word_ct * sizeof(intptr_t));
+    uint32_t* difflist_sample_ids_dst = &(dst_u32[6]);
+    for (uint32_t uii = 0; uii != difflist_len; ++uii) {
+      const uint32_t sample_idx = difflist_sample_ids[uii];
+      difflist_sample_ids_dst[uii] = sample_idx;
+      SetBit(sample_idx, difflist_include_dst);
+    }
+    FillCumulativePopcounts(difflist_include_dst, sample_ctl, difflist_include_cumulative_popcounts_dst);
+    memcpy(raregeno_dst, raregeno, raregeno_word_ct * sizeof(intptr_t));
     ZeroTrailingNyps(difflist_len, raregeno_dst);
     STD_ARRAY_DECL(uint32_t, 4, genocounts);
     GenoarrCountFreqsUnsafe(raregeno_dst, difflist_len, genocounts);
     nm_ct -= genocounts[3];
     nmaj_ct += genocounts[1] + 2 * genocounts[2];
     ssq += genocounts[1] + 4 * genocounts[2];
+  } else {
+    ZeroU32Arr(sample_ctl, difflist_include_cumulative_popcounts_dst);
   }
   dst_u32[1] = nm_ct;
   dst_u32[2] = nmaj_ct;
@@ -5849,7 +5871,7 @@ void LdUnpackNondosageSparse(const uintptr_t* raregeno, const uint32_t* difflist
       }
     }
     if (difflist_len) {
-      const uint32_t word_ct_m1 = word_ct - 1;
+      const uint32_t word_ct_m1 = raregeno_word_ct - 1;
       uint32_t genocounts[4];
       ZeroU32Arr(4, genocounts);
       uint32_t loop_len = kBitsPerWordD2;
@@ -5885,8 +5907,7 @@ void LdUnpackNondosageSparse(const uintptr_t* raregeno, const uint32_t* difflist
         x_male_ssq -= genocounts[1] + 4 * zero_or_missing_ct;
       }
     }
-    const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
-    uint32_t* dst_x_u32 = R_CAST(uint32_t*, &(raregeno_dst[sample_ctaw]));
+    uint32_t* dst_x_u32 = &(difflist_include_cumulative_popcounts_dst[sample_ctl]);
     dst_x_u32[0] = x_male_nm_ct;
     dst_x_u32[1] = x_male_nmaj_ct;
     dst_x_u32[2] = x_male_ssq;
@@ -5974,6 +5995,8 @@ typedef struct R2NondosageSparseStruct {
   uint32_t difflist_len;
   const uint32_t* difflist_sample_ids;
   const uintptr_t* raregeno;
+  const uintptr_t* difflist_include;
+  const uint32_t* difflist_include_cumulative_popcounts;
   // probable todo: support phase
 } R2NondosageSparse;
 
@@ -6018,8 +6041,7 @@ typedef union {
 } R2Variant;
 
 void FillR2Nondosage(const unsigned char* src_iter, uint32_t sample_ct, R2PhaseType phase_type, uint32_t is_x, R2NondosageVariant* ndp) {
-  // See LdUnpackNondosageDense().
-  const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
+  // See LdUnpackNondosage{Dense,Sparse}().
   const uint32_t* src_u32 = R_CAST(const uint32_t*, src_iter);
   const uint32_t is_sparse = src_u32[0];
   ndp->is_sparse = is_sparse;
@@ -6034,8 +6056,14 @@ void FillR2Nondosage(const unsigned char* src_iter, uint32_t sample_ct, R2PhaseT
     ndsp->difflist_sample_ids = &(src_u32[6]);
     const uintptr_t* raregeno = R_CAST(const uintptr_t*, &(src_iter[RoundUpPow2(sizeof(int32_t) * (6 + difflist_len), kBytesPerVec)]));
     ndsp->raregeno = raregeno;
+    const uint32_t raregeno_word_ct = NypCtToWordCt(difflist_len);
+    const uintptr_t* difflist_include = &(raregeno[RoundUpPow2(raregeno_word_ct, kWordsPerVec)]);
+    ndsp->difflist_include = difflist_include;
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t* difflist_include_cumulative_popcounts = R_CAST(const uint32_t*, &(difflist_include[sample_ctl]));
+    ndsp->difflist_include_cumulative_popcounts = difflist_include_cumulative_popcounts;
     if (is_x) {
-      const uint32_t* src_x_u32 = R_CAST(const uint32_t*, &(raregeno[sample_ctaw]));
+      const uint32_t* src_x_u32 = &(difflist_include_cumulative_popcounts[sample_ctl]);
       ndp->x_male_nm_ct = src_x_u32[0];
       ndp->x_male_nmaj_ct = src_x_u32[1];
       ndp->x_male_ssq = src_x_u32[2];
@@ -6043,6 +6071,7 @@ void FillR2Nondosage(const unsigned char* src_iter, uint32_t sample_ct, R2PhaseT
     return;
   }
   const uintptr_t* src_witer = R_CAST(const uintptr_t*, &(src_iter[RoundUpPow2(16, kBytesPerVec)]));
+  const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   R2NondosageDense* nddp = &(ndp->p.d);
   nddp->one_bitvec = src_witer;
   src_witer = &(src_witer[sample_ctaw]);
@@ -6149,7 +6178,6 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
   const R2PhaseType phase_type = S_CAST(R2PhaseType, ctx->phase_type);
   const uint32_t load_dosage = ctx->load_dosage;
   const uintptr_t allele_idx_start = IdxToUidxW(observed_alleles, observed_alleles_cumulative_popcounts_w, ctx->allele_widx_start, ctx->allele_widx_end, oaidx);
-  // todo: try tuning this number
   const uint32_t max_simple_difflist_len = founder_ct / 64;
   uintptr_t* raregeno = nullptr;
   uint32_t* difflist_sample_ids = nullptr;
@@ -6318,82 +6346,102 @@ uint32_t ComputeR2NondosageUnphased1SparseStats(const R2NondosageVariant* densev
 }
 
 uint32_t ComputeR2NondosageUnphased2SparseStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, uint32_t sample_ct, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
-  const uint32_t difflist_common_geno0 = ndp0->p.s.difflist_common_geno;
-  const uint32_t difflist_common_geno1 = ndp1->p.s.difflist_common_geno;
-  const uint32_t difflist_len0 = ndp0->p.s.difflist_len;
-  const uint32_t difflist_len1 = ndp1->p.s.difflist_len;
-  const uint32_t* difflist_sample_ids0 = ndp0->p.s.difflist_sample_ids;
-  const uint32_t* difflist_sample_ids1 = ndp1->p.s.difflist_sample_ids;
-  const uintptr_t* raregeno0 = ndp0->p.s.raregeno;
-  const uintptr_t* raregeno1 = ndp1->p.s.raregeno;
-  uint32_t joint_counts[16]; // low bits = ndp0, high bits = ndp1
-  ZeroU32Arr(16, joint_counts);
-  uint32_t difflist_idx1 = 0;
-  uint32_t sample_idx1 = UINT32_MAX;
-  uintptr_t raregeno_word1 = 0;
-  if (difflist_len1) {
-    sample_idx1 = difflist_sample_ids1[0];
-    raregeno_word1 = raregeno1[0];
+  const R2NondosageVariant* longvp;
+  const R2NondosageVariant* shortvp;
+  uint32_t* nmaj_ctlong_ptr;
+  uint32_t* nmaj_ctshort_ptr;
+  uint32_t* ssqlong_ptr;
+  uint32_t* ssqshort_ptr;
+  if (ndp0->p.s.difflist_len <= ndp1->p.s.difflist_len) {
+    longvp = ndp1;
+    shortvp = ndp0;
+    nmaj_ctlong_ptr = nmaj_ct1_ptr;
+    nmaj_ctshort_ptr = nmaj_ct0_ptr;
+    ssqlong_ptr = ssq1_ptr;
+    ssqshort_ptr = ssq0_ptr;
+  } else {
+    longvp = ndp0;
+    shortvp = ndp1;
+    nmaj_ctlong_ptr = nmaj_ct0_ptr;
+    nmaj_ctshort_ptr = nmaj_ct1_ptr;
+    ssqlong_ptr = ssq0_ptr;
+    ssqshort_ptr = ssq1_ptr;
   }
-  uintptr_t raregeno_word0 = 0;
-  for (uint32_t difflist_idx0 = 0; ; ++difflist_idx0) {
-    uint32_t sample_idx0 = UINT32_MAX;
-    if (difflist_idx0 < difflist_len0) {
-      sample_idx0 = difflist_sample_ids0[difflist_idx0];
-      raregeno_word0 = raregeno_word0 >> 2;
-      if (!(difflist_idx0 % kBitsPerWordD2)) {
-        raregeno_word0 = raregeno0[difflist_idx0 / kBitsPerWordD2];
+  const uint32_t difflist_common_geno_long = longvp->p.s.difflist_common_geno;
+  const uint32_t difflist_common_geno_short = shortvp->p.s.difflist_common_geno;
+  uint32_t nmaj_ctlong = 0;
+  uint32_t nmaj_ctshort = shortvp->nmaj_ct;
+  uint32_t ssqlong = 0;
+  uint32_t dotprod = (difflist_common_geno_long == 2)? (2 * nmaj_ctshort) : 0;
+  uint32_t valid_obs_ct = 0;
+  if (difflist_common_geno_short != 3) {
+    nmaj_ctlong = longvp->nmaj_ct;
+    ssqlong = longvp->ssq;
+    valid_obs_ct = longvp->nm_ct;
+    dotprod += difflist_common_geno_short * nmaj_ctlong;
+  }
+  uint32_t ssqshort = shortvp->ssq;
+  const uint32_t difflist_len_short = shortvp->p.s.difflist_len;
+  if (difflist_len_short) {
+    // tested genovec in place of {difflist_include,
+    // difflist_include_cumulative_popcounts}; that benchmarked worse
+    const uintptr_t* difflist_include_long = longvp->p.s.difflist_include;
+    const uint32_t* difflist_include_long_cumulative_popcounts = longvp->p.s.difflist_include_cumulative_popcounts;
+
+    const uint32_t* difflist_sample_ids_short = shortvp->p.s.difflist_sample_ids;
+    const uintptr_t* raregeno_long = longvp->p.s.raregeno;
+    const uintptr_t* raregeno_short = shortvp->p.s.raregeno;
+    uint32_t joint_counts[16]; // low bits = long, high bits = short
+    ZeroU32Arr(16, joint_counts);
+    const uint32_t word_ct_m1 = (difflist_len_short - 1) / kBitsPerWordD2;
+    uint32_t intersection_ct = 0;
+    uint32_t loop_len = kBitsPerWordD2;
+    for (uint32_t widx = 0; ; ++widx) {
+      if (widx >= word_ct_m1) {
+        if (widx > word_ct_m1) {
+          break;
+        }
+        loop_len = ModNz(difflist_len_short, kBitsPerWordD2);
       }
-    }
-    while (sample_idx1 < sample_idx0) {
-      const uintptr_t cur_geno1 = raregeno_word1 & 3;
-      joint_counts[difflist_common_geno0 + cur_geno1 * 4] += 1;
-      sample_idx1 = UINT32_MAX;
-      if (++difflist_idx1 < difflist_len1) {
-        sample_idx1 = difflist_sample_ids1[difflist_idx1];
-        raregeno_word1 = raregeno_word1 >> 2;
-        if (!(difflist_idx1 % kBitsPerWordD2)) {
-          raregeno_word1 = raregeno1[difflist_idx1 / kBitsPerWordD2];
+      const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids_short[widx * kBitsPerWordD2]);
+      const uintptr_t raregeno_word = raregeno_short[widx];
+      for (uint32_t uii = 0; uii != loop_len; ++uii) {
+        const uint32_t sample_idx = cur_difflist_sample_ids[uii];
+        if (IsSet(difflist_include_long, sample_idx)) {
+          const uint32_t difflist_idx_long = RawToSubsettedPos(difflist_include_long, difflist_include_long_cumulative_popcounts, sample_idx);
+          const uintptr_t cur_geno_long = GetNyparrEntry(raregeno_long, difflist_idx_long);
+          const uintptr_t cur_geno_short = (raregeno_word >> (2 * uii)) & 3;
+          joint_counts[cur_geno_long + 4 * cur_geno_short] += 1;
+          ++intersection_ct;
         }
       }
     }
-    const uintptr_t cur_geno0 = raregeno_word0 & 3;
-    if (sample_idx0 != sample_idx1) {
-      joint_counts[cur_geno0 + difflist_common_geno1 * 4] += 1;
-      continue;
+    if (intersection_ct) {
+      nmaj_ctlong -= joint_counts[13] - 2 * joint_counts[14];
+      nmaj_ctshort -= joint_counts[7] - 2 * joint_counts[11];
+      ssqlong -= joint_counts[13] - 4 * joint_counts[14];
+      ssqshort -= joint_counts[7] - 4 * joint_counts[11];
+      dotprod += joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
+      if ((difflist_common_geno_short == 2) && (difflist_common_geno_long == 2)) {
+        dotprod -= 4 * intersection_ct;
+      }
     }
-    if (sample_idx0 == UINT32_MAX) {
-      break;
-    }
-    const uintptr_t cur_geno1 = raregeno_word1 & 3;
-    joint_counts[cur_geno0 + cur_geno1 * 4] += 1;
-    sample_idx1 = UINT32_MAX;
-    if (++difflist_idx1 < difflist_len1) {
-      sample_idx1 = difflist_sample_ids1[difflist_idx1];
-      raregeno_word1 = raregeno_word1 >> 2;
-      if (!(difflist_idx1 % kBitsPerWordD2)) {
-        raregeno_word1 = raregeno1[difflist_idx1 / kBitsPerWordD2];
+    if (difflist_common_geno_short != 3) {
+      valid_obs_ct -= sample_ct - shortvp->nm_ct - joint_counts[15];
+    } else {
+      if (difflist_common_geno_long != 3) {
+        const uint32_t missing0_nm1_ct = joint_counts[3] + joint_counts[7] + joint_counts[11];
+        valid_obs_ct = difflist_len_short - missing0_nm1_ct;
+      } else {
+        valid_obs_ct = intersection_ct;
       }
     }
   }
-  *nmaj_ct0_ptr = ndp0->nmaj_ct - joint_counts[13] - 2 * joint_counts[14];
-  *nmaj_ct1_ptr = ndp1->nmaj_ct - joint_counts[7] - 2 * joint_counts[11];
-  *ssq0_ptr = ndp0->ssq - joint_counts[13] - 4 * joint_counts[14];
-  *ssq1_ptr = ndp1->ssq - joint_counts[7] - 4 * joint_counts[11];
-  uint32_t dotprod = joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
-  if ((difflist_common_geno0 == 2) && (difflist_common_geno1 == 2)) {
-    const uint32_t sparse0_not1_ct = joint_counts[8] + joint_counts[9] + joint_counts[11];
-    dotprod += 4 * (sample_ct - sparse0_not1_ct - difflist_len1);
-  }
+  *nmaj_ctlong_ptr = nmaj_ctlong;
+  *nmaj_ctshort_ptr = nmaj_ctshort;
+  *ssqlong_ptr = ssqlong;
+  *ssqshort_ptr = ssqshort;
   *dotprod_ptr = dotprod;
-  uint32_t valid_obs_ct;
-  if (difflist_common_geno1 != 3) {
-    const uint32_t missing1_nm0_ct = joint_counts[12] + joint_counts[13] + joint_counts[14];
-    valid_obs_ct = ndp0->nm_ct - missing1_nm0_ct;
-  } else {
-    const uint32_t missing0_nm1_ct = joint_counts[3] + joint_counts[7] + joint_counts[11];
-    valid_obs_ct = difflist_len1 - missing0_nm1_ct;
-  }
   return valid_obs_ct;
 }
 
@@ -6716,86 +6764,107 @@ uint32_t ComputeR2NondosageUnphased1SparseSubsetStats(const R2NondosageVariant* 
   return valid_obs_ct;
 }
 
-uint32_t ComputeR2NondosageUnphased2SparseSubsetStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, const uintptr_t* sample_include, uint32_t sample_ct, uint32_t subsetted_nm_ct0, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
-  const uint32_t difflist_common_geno0 = ndp0->p.s.difflist_common_geno;
-  const uint32_t difflist_common_geno1 = ndp1->p.s.difflist_common_geno;
-  const uint32_t difflist_len0 = ndp0->p.s.difflist_len;
-  const uint32_t difflist_len1 = ndp1->p.s.difflist_len;
-  const uint32_t* difflist_sample_ids0 = ndp0->p.s.difflist_sample_ids;
-  const uint32_t* difflist_sample_ids1 = ndp1->p.s.difflist_sample_ids;
-  const uintptr_t* raregeno0 = ndp0->p.s.raregeno;
-  const uintptr_t* raregeno1 = ndp1->p.s.raregeno;
-  uint32_t joint_counts[16]; // low bits = ndp0, high bits = ndp1
-  ZeroU32Arr(16, joint_counts);
-  uint32_t difflist_idx1 = 0;
-  uint32_t sample_idx1 = UINT32_MAX;
-  uintptr_t raregeno_word1 = 0;
-  if (difflist_len1) {
-    sample_idx1 = difflist_sample_ids1[0];
-    raregeno_word1 = raregeno1[0];
+uint32_t ComputeR2NondosageUnphased2SparseSubsetStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, const uintptr_t* sample_include, uint32_t sample_ct, uint32_t subsetted_nm_ct0, uint32_t subsetted_nm_ct1, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
+  const R2NondosageVariant* longvp;
+  const R2NondosageVariant* shortvp;
+  uint32_t* nmaj_ctlong_ptr;
+  uint32_t* nmaj_ctshort_ptr;
+  uint32_t* ssqlong_ptr;
+  uint32_t* ssqshort_ptr;
+  uint32_t long_nm_ct;
+  uint32_t short_nm_ct;
+  if (ndp0->p.s.difflist_len <= ndp1->p.s.difflist_len) {
+    longvp = ndp1;
+    shortvp = ndp0;
+    nmaj_ctlong_ptr = nmaj_ct1_ptr;
+    nmaj_ctshort_ptr = nmaj_ct0_ptr;
+    ssqlong_ptr = ssq1_ptr;
+    ssqshort_ptr = ssq0_ptr;
+    long_nm_ct = subsetted_nm_ct1;
+    short_nm_ct = subsetted_nm_ct0;
+  } else {
+    longvp = ndp0;
+    shortvp = ndp1;
+    nmaj_ctlong_ptr = nmaj_ct0_ptr;
+    nmaj_ctshort_ptr = nmaj_ct1_ptr;
+    ssqlong_ptr = ssq0_ptr;
+    ssqshort_ptr = ssq1_ptr;
+    long_nm_ct = subsetted_nm_ct0;
+    short_nm_ct = subsetted_nm_ct1;
   }
-  uintptr_t raregeno_word0 = 0;
-  for (uint32_t difflist_idx0 = 0; ; ++difflist_idx0) {
-    uint32_t sample_idx0 = UINT32_MAX;
-    if (difflist_idx0 < difflist_len0) {
-      sample_idx0 = difflist_sample_ids0[difflist_idx0];
-      raregeno_word0 = raregeno_word0 >> 2;
-      if (!(difflist_idx0 % kBitsPerWordD2)) {
-        raregeno_word0 = raregeno0[difflist_idx0 / kBitsPerWordD2];
+  const uint32_t difflist_common_geno_long = longvp->p.s.difflist_common_geno;
+  const uint32_t difflist_common_geno_short = shortvp->p.s.difflist_common_geno;
+  uint32_t nmaj_ctlong = 0;
+  uint32_t nmaj_ctshort = *nmaj_ctshort_ptr;
+  uint32_t ssqlong = 0;
+  uint32_t dotprod = (difflist_common_geno_long == 2)? (2 * nmaj_ctshort) : 0;
+  uint32_t valid_obs_ct = 0;
+  if (difflist_common_geno_short != 3) {
+    nmaj_ctlong = *nmaj_ctlong_ptr;
+    ssqlong = *ssqlong_ptr;
+    valid_obs_ct = long_nm_ct;
+    dotprod += difflist_common_geno_short * nmaj_ctlong;
+  }
+  uint32_t ssqshort = *ssqshort_ptr;
+  const uint32_t difflist_len_short = shortvp->p.s.difflist_len;
+  if (difflist_len_short) {
+    const uintptr_t* difflist_include_long = longvp->p.s.difflist_include;
+    const uint32_t* difflist_include_long_cumulative_popcounts = longvp->p.s.difflist_include_cumulative_popcounts;
+
+    const uint32_t* difflist_sample_ids_short = shortvp->p.s.difflist_sample_ids;
+    const uintptr_t* raregeno_long = longvp->p.s.raregeno;
+    const uintptr_t* raregeno_short = shortvp->p.s.raregeno;
+    uint32_t joint_counts[16]; // low bits = long, high bits = short
+    ZeroU32Arr(16, joint_counts);
+    const uint32_t word_ct_m1 = (difflist_len_short - 1) / kBitsPerWordD2;
+    uint32_t intersection_ct = 0;
+    uint32_t loop_len = kBitsPerWordD2;
+    for (uint32_t widx = 0; ; ++widx) {
+      if (widx >= word_ct_m1) {
+        if (widx > word_ct_m1) {
+          break;
+        }
+        loop_len = ModNz(difflist_len_short, kBitsPerWordD2);
       }
-    }
-    while (sample_idx1 < sample_idx0) {
-      const uintptr_t cur_geno1 = raregeno_word1 & 3;
-      joint_counts[difflist_common_geno0 + cur_geno1 * 4] += IsSet(sample_include, sample_idx1);
-      sample_idx1 = UINT32_MAX;
-      if (++difflist_idx1 < difflist_len1) {
-        sample_idx1 = difflist_sample_ids1[difflist_idx1];
-        raregeno_word1 = raregeno_word1 >> 2;
-        if (!(difflist_idx1 % kBitsPerWordD2)) {
-          raregeno_word1 = raregeno1[difflist_idx1 / kBitsPerWordD2];
+      const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids_short[widx * kBitsPerWordD2]);
+      const uintptr_t raregeno_word = raregeno_short[widx];
+      for (uint32_t uii = 0; uii != loop_len; ++uii) {
+        const uint32_t sample_idx = cur_difflist_sample_ids[uii];
+        if (IsSet(difflist_include_long, sample_idx) && IsSet(sample_include, sample_idx)) {
+          const uint32_t difflist_idx_long = RawToSubsettedPos(difflist_include_long, difflist_include_long_cumulative_popcounts, sample_idx);
+          const uintptr_t cur_geno_long = GetNyparrEntry(raregeno_long, difflist_idx_long);
+          const uintptr_t cur_geno_short = (raregeno_word >> (2 * uii)) & 3;
+          joint_counts[cur_geno_long + 4 * cur_geno_short] += 1;
+          ++intersection_ct;
         }
       }
     }
-    if (sample_idx0 == UINT32_MAX) {
-      break;
+    if (intersection_ct) {
+      nmaj_ctlong -= joint_counts[13] - 2 * joint_counts[14];
+      nmaj_ctshort -= joint_counts[7] - 2 * joint_counts[11];
+      ssqlong -= joint_counts[13] - 4 * joint_counts[14];
+      ssqshort -= joint_counts[7] - 4 * joint_counts[11];
+      dotprod += joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
+      if ((difflist_common_geno_short == 2) && (difflist_common_geno_long == 2)) {
+        dotprod -= 4 * intersection_ct;
+      }
     }
-    const uint32_t is_set = IsSet(sample_include, sample_idx0);
-    const uintptr_t cur_geno0 = raregeno_word0 & 3;
-    if (sample_idx0 != sample_idx1) {
-      joint_counts[cur_geno0 + difflist_common_geno1 * 4] += is_set;
-      continue;
-    }
-    const uintptr_t cur_geno1 = raregeno_word1 & 3;
-    joint_counts[cur_geno0 + cur_geno1 * 4] += is_set;
-    sample_idx1 = UINT32_MAX;
-    if (++difflist_idx1 < difflist_len1) {
-      sample_idx1 = difflist_sample_ids1[difflist_idx1];
-      raregeno_word1 = raregeno_word1 >> 2;
-      if (!(difflist_idx1 % kBitsPerWordD2)) {
-        raregeno_word1 = raregeno1[difflist_idx1 / kBitsPerWordD2];
+    if (difflist_common_geno_short != 3) {
+      valid_obs_ct -= sample_ct - short_nm_ct - joint_counts[15];
+    } else {
+      if (difflist_common_geno_long != 3) {
+        const uint32_t missing0_nm1_ct = joint_counts[3] + joint_counts[7] + joint_counts[11];
+        valid_obs_ct = difflist_len_short - missing0_nm1_ct;
+      } else {
+        valid_obs_ct = intersection_ct;
       }
     }
   }
-  *nmaj_ct0_ptr -= joint_counts[13] + 2 * joint_counts[14];
-  *nmaj_ct1_ptr -= joint_counts[7] + 2 * joint_counts[11];
-  *ssq0_ptr -= joint_counts[13] + 4 * joint_counts[14];
-  *ssq1_ptr -= joint_counts[7] + 4 * joint_counts[11];
-  uint32_t dotprod = joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
-  if ((difflist_common_geno0 == 2) && (difflist_common_geno1 == 2)) {
-    uint32_t sparse_union_ct = 0;
-    for (uint32_t uii = 0; uii != 16; ++uii) {
-      sparse_union_ct += joint_counts[uii];
-    }
-    dotprod += 4 * (sample_ct - sparse_union_ct);
-  }
+  *nmaj_ctlong_ptr = nmaj_ctlong;
+  *nmaj_ctshort_ptr = nmaj_ctshort;
+  *ssqlong_ptr = ssqlong;
+  *ssqshort_ptr = ssqshort;
   *dotprod_ptr = dotprod;
-  uint32_t valid_obs_ct;
-  if (difflist_common_geno1 != 3) {
-    const uint32_t missing1_nm0_ct = joint_counts[12] + joint_counts[13] + joint_counts[14];
-    valid_obs_ct = subsetted_nm_ct0 - missing1_nm0_ct;
-  } else {
-    valid_obs_ct = joint_counts[0] + joint_counts[1] + joint_counts[2] + joint_counts[4] + joint_counts[5] + joint_counts[6] + joint_counts[8] + joint_counts[9] + joint_counts[10];
-  }
   return valid_obs_ct;
 }
 
@@ -6804,7 +6873,7 @@ uint32_t ComputeR2NondosageUnphased2SparseSubsetStats(const R2NondosageVariant* 
 uint32_t ComputeR2NondosageUnphasedSubsetStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, const uintptr_t* sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t subsetted_nm_ct0, uint32_t subsetted_nm_ct1, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr, uintptr_t* cur_nm_buf) {
   if (ndp0->is_sparse) {
     if (ndp1->is_sparse) {
-      return ComputeR2NondosageUnphased2SparseSubsetStats(ndp0, ndp1, sample_include, sample_ct, subsetted_nm_ct0, nmaj_ct0_ptr, nmaj_ct1_ptr, ssq0_ptr, ssq1_ptr, dotprod_ptr);
+      return ComputeR2NondosageUnphased2SparseSubsetStats(ndp0, ndp1, sample_include, sample_ct, subsetted_nm_ct0, subsetted_nm_ct1, nmaj_ct0_ptr, nmaj_ct1_ptr, ssq0_ptr, ssq1_ptr, dotprod_ptr);
     } else {
       return ComputeR2NondosageUnphased1SparseSubsetStats(ndp1, ndp0, sample_include, subsetted_nm_ct1, nmaj_ct1_ptr, nmaj_ct0_ptr, ssq1_ptr, ssq0_ptr, dotprod_ptr);
     }
@@ -8126,8 +8195,16 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       const uintptr_t dosage_trail_byte_ct = LdDosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_r2), x_exists);
       unpacked_byte_stride = dosagevec_byte_ct * (1 + phased_r2 + check_phase) + bitvec_byte_ct + dosage_trail_byte_ct;
     } else {
+      unpacked_byte_stride = RoundUpPow2(16, kBytesPerVec) + bitvec_byte_ct * (3 + 2 * check_phase);
+#ifndef USE_AVX2
+      const uint32_t max_simple_difflist_len = founder_ct / 64;
+      const uintptr_t sparse_req = RoundUpPow2((6 + max_simple_difflist_len) * sizeof(int32_t), kBytesPerVec) + NypCtToVecCt(max_simple_difflist_len) * kBytesPerVec + RoundUpPow2(founder_ctl * (kBytesPerWord + sizeof(int32_t)), kBytesPerVec);
+      if (sparse_req > unpacked_byte_stride) {
+        unpacked_byte_stride = sparse_req;
+      }
+#endif
       const uintptr_t nondosage_trail_byte_ct = LdNondosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_r2), x_exists);
-      unpacked_byte_stride = RoundUpPow2(16, kBytesPerVec) + bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
+      unpacked_byte_stride += nondosage_trail_byte_ct;
     }
     const uintptr_t unpacked_byte_stride_cachealign = RoundUpPow2(unpacked_byte_stride, kCacheline);
     const uintptr_t pgr_struct_alloc = RoundUpPow2(sizeof(PgenReader), kCacheline);
@@ -9664,7 +9741,11 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       }
     } else {
       const uintptr_t overflow_buf_size = kCompressStreamBlock + (kMaxDoubleGSlen + 1) * variant_ct + strlen(EOLN_STR) - 1;
-      reterr = InitCstreamAlloc(outname, 0, matrix_output_zst, 1, overflow_buf_size, &write_ctx.css, &write_ctx.cswritep);
+      uint32_t compress_thread_ct = 1;
+      if ((!phased_calc) && (max_thread_ct > 4) && (founder_ct <= 8192)) {
+        compress_thread_ct = 2 + ((max_thread_ct > 8) && (founder_ct <= 4096));
+      }
+      reterr = InitCstreamAlloc(outname, 0, matrix_output_zst, compress_thread_ct, overflow_buf_size, &write_ctx.css, &write_ctx.cswritep);
       if (unlikely(reterr)) {
         goto VcorMatrix_ret_1;
       }
@@ -9829,8 +9910,15 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
       const uintptr_t dosage_trail_byte_ct = LdDosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_calc), x_exists);
       unpacked_variant_byte_stride = dosagevec_byte_ct * (1 + phased_calc + check_phase) + bitvec_byte_ct + dosage_trail_byte_ct;
     } else {
+      unpacked_variant_byte_stride = RoundUpPow2(16, kBytesPerVec) + bitvec_byte_ct * (3 + 2 * check_phase);
+#ifndef USE_AVX2
+      const uintptr_t sparse_req = RoundUpPow2((6 + max_simple_difflist_len) * sizeof(int32_t), kBytesPerVec) + NypCtToVecCt(max_simple_difflist_len) * kBytesPerVec + RoundUpPow2(founder_ctl * (kBytesPerWord + sizeof(int32_t)), kBytesPerVec);
+      if (sparse_req > unpacked_variant_byte_stride) {
+        unpacked_variant_byte_stride = sparse_req;
+      }
+#endif
       const uintptr_t nondosage_trail_byte_ct = LdNondosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_calc), x_exists);
-      unpacked_variant_byte_stride = RoundUpPow2(16, kBytesPerVec) + bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
+      unpacked_variant_byte_stride += nondosage_trail_byte_ct;
     }
     uint32_t* founder_info_cumulative_popcounts;
     PgenVariant pgv;
@@ -10990,11 +11078,16 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
         *outname_write_iter++ = '.';
         outname_write_iter = u32toa(parallel_idx + 1, outname_write_iter);
       }
+      uint32_t compress_thread_ct = 1;
       if (output_zst) {
         outname_write_iter = strcpya_k(outname_write_iter, ".zst");
+        // more room to tune this, but this is an easy win
+        if ((!phased_calc) && (min_r2 <= 0.0) && (max_thread_ct > 4) && (founder_ct <= 65536)) {
+          compress_thread_ct = 2 + ((max_thread_ct > 8) && (founder_ct <= 32768));
+        }
       }
       *outname_write_iter = '\0';
-      reterr = InitCstreamAlloc(outname, 0, output_zst, 1, overflow_buf_size, &write_ctx.css, &write_ctx.cswritep);
+      reterr = InitCstreamAlloc(outname, 0, output_zst, compress_thread_ct, overflow_buf_size, &write_ctx.css, &write_ctx.cswritep);
       if (unlikely(reterr)) {
         goto VcorTable_ret_1;
       }
@@ -11208,8 +11301,15 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
       const uintptr_t dosage_trail_byte_ct = LdDosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_calc), x_exists);
       unpacked_variant_byte_stride = dosagevec_byte_ct * (1 + phased_calc + check_phase) + bitvec_byte_ct + dosage_trail_byte_ct;
     } else {
+      unpacked_variant_byte_stride = RoundUpPow2(16, kBytesPerVec) + bitvec_byte_ct * (3 + 2 * check_phase);
+#ifndef USE_AVX2
+      const uintptr_t sparse_req = RoundUpPow2((6 + max_simple_difflist_len) * sizeof(int32_t), kBytesPerVec) + NypCtToVecCt(max_simple_difflist_len) * kBytesPerVec + RoundUpPow2(founder_ctl * (kBytesPerWord + sizeof(int32_t)), kBytesPerVec);
+      if (sparse_req > unpacked_variant_byte_stride) {
+        unpacked_variant_byte_stride = sparse_req;
+      }
+#endif
       const uintptr_t nondosage_trail_byte_ct = LdNondosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_calc), x_exists);
-      unpacked_variant_byte_stride = RoundUpPow2(16, kBytesPerVec) + bitvec_byte_ct * (3 + 2 * check_phase) + nondosage_trail_byte_ct;
+      unpacked_variant_byte_stride += nondosage_trail_byte_ct;
     }
     uint32_t* founder_info_cumulative_popcounts;
     PgenVariant pgv;
