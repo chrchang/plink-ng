@@ -10046,6 +10046,10 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     } else {
       job_size = (row_variant_idx_stop - row_variant_idx_start) * S_CAST(uint64_t, variant_ct);
     }
+    if (flags & kfVcorRefBased) {
+      maj_alleles = nullptr;
+    }
+    AlleleCode aidx = 0;
     uint64_t job_done = 0;
     uint64_t next_job_done = 0;
     uint64_t pct_thresh = job_size / 100;
@@ -10086,7 +10090,9 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
             }
           }
         }
-        const AlleleCode aidx = maj_alleles[variant_uidx];
+        if (maj_alleles) {
+          aidx = maj_alleles[variant_uidx];
+        }
         const uint32_t is_y = (variant_uidx < y_end) && (variant_uidx >= y_start);
         if (check_dosage) {
           if (row_read_phase) {
@@ -10166,7 +10172,9 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
               }
             }
           }
-          const AlleleCode aidx = maj_alleles[variant_uidx];
+          if (maj_alleles) {
+            aidx = maj_alleles[variant_uidx];
+          }
           const uint32_t is_y = (variant_uidx < y_end) && (variant_uidx >= y_start);
           if (check_dosage) {
             if (col_read_phase) {
@@ -10865,6 +10873,43 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
   PreinitThreads(&tg);
   PreinitThreads(&write_tg);
   {
+    const VcorFlags flags = vcip->flags;
+    const uint32_t is_unsquared = (flags / kfVcorUnsquared) & 1;
+    const uint32_t phased_calc = (flags / kfVcorPhased) & 1;
+    const uint32_t ref_based = (flags / kfVcorRefBased) & 1;
+    if (!(flags & kfVcorAllowAmbiguousAllele)) {
+      if (is_unsquared) {
+        uint32_t is_ambiguous_biallelic = 0;
+        if (!ref_based) {
+          is_ambiguous_biallelic = !(flags & (kfVcorColMaj | kfVcorColNonmaj));
+        } else {
+          const VcorFlags relevant_allele_cols = flags & (kfVcorColRef | kfVcorColAlt1 | kfVcorColAlt);
+          if (relevant_allele_cols != kfVcorColAlt1) {
+            is_ambiguous_biallelic = (relevant_allele_cols == kfVcor0);
+          } else {
+            if (unlikely(MultiallelicVariantPresent(orig_variant_include, allele_idx_offsets, orig_variant_ct))) {
+              logerrprintfww("Error: The meaning of r's sign cannot be consistently inferred from just the %s 'alt1' column-set at multiallelic variants. Either filter out multiallelic variants, revise the column-set, or use the 'allow-ambiguous-allele' modifier to override this error.\n", flagname);
+              return kPglRetInconsistentInput;
+            }
+          }
+        }
+        if (unlikely(is_ambiguous_biallelic)) {
+          logerrprintfww("Error: %s column-set doesn't include allele columns which clarify the meaning of r's sign. Either switch to --r2-%sphased, add a disambiguating column-set, or use the 'allow-ambiguous-allele' modifier to override this error.\n", flagname, phased_calc? "" : "un");
+          return kPglRetInconsistentInput;
+        }
+      } else {
+        uint32_t is_ambiguous_multiallelic;
+        if (!ref_based) {
+          is_ambiguous_multiallelic = !(flags & (kfVcorColMaj | kfVcorColNonmaj));
+        } else {
+          is_ambiguous_multiallelic = !(flags & (kfVcorColRef | kfVcorColAlt));
+        }
+        if (unlikely(is_ambiguous_multiallelic && MultiallelicVariantPresent(orig_variant_include, allele_idx_offsets, orig_variant_ct))) {
+          logerrprintfww("Error: %s column-set doesn't include allele columns which clarify which calculation is being performed at multiallelic variants. Either filter out multiallelic variants, revise the column-set (with e.g. \"cols=+%s\"), or use the 'allow-ambiguous-allele' modifier to override this error.\n", flagname, ref_based? "ref" : "maj");
+          return kPglRetInconsistentInput;
+        }
+      }
+    }
     // 1. If not inter-chr, remove unplaced variants.
     // 2. If --parallel and/or --ld-snp/--ld-snps/--ld-snp-list, initialize
     //    row_variant_include, then try to shrink variant_include:
@@ -10872,7 +10917,6 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
     //      remove leading variants.
     //    - If not inter-chr, we can remove all variants that are out of range
     //      of row_variant_include elements.
-    const VcorFlags flags = vcip->flags;
     const uint32_t inter_chr = (flags / kfVcorInterChr) & 1;
     const char* ld_snp_list_fname = vcip->ld_snp_list_fname;
     const RangeList* ld_snp_range_listp = &(vcip->ld_snp_range_list);
@@ -11029,8 +11073,6 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
     // header line (or nothing at all if parallel_idx > 0) and skip the main
     // loop, not error out.
 
-    const uint32_t phased_calc = (flags / kfVcorPhased) & 1;
-    const uint32_t is_unsquared = (flags / kfVcorUnsquared) & 1;
     const uintptr_t* nonref_flags = PgrGetNonrefFlags(simple_pgrp);
     // "&& (!nonref_flags)" needed since this is after --ref-allele, etc. in
     // the order of operations.
@@ -11450,6 +11492,11 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
     SetThreadFuncAndData(VcorTableThread, &ctx, &tg);
     SetThreadFuncAndData(VcorTableWriteThread, &write_ctx, &write_tg);
 
+    if (ref_based) {
+      maj_alleles = nullptr;
+    }
+    AlleleCode aidx = 0;
+
     uint32_t next_print_variant_ridx = row_variant_ct / 100;
     uint32_t pct = 0;
     uint32_t prev_variant_ridx_start = 0;
@@ -11568,7 +11615,9 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
           write_idx_starts[row_offset] = write_idx;
           write_idx = next_write_idx;
 
-          const AlleleCode aidx = maj_alleles[row_variant_uidx];
+          if (!maj_alleles) {
+            aidx = maj_alleles[row_variant_uidx];
+          }
           const uint32_t is_y = (row_variant_uidx < y_end) && (row_variant_uidx >= y_start);
           if (check_dosage) {
             if (row_read_phase) {
@@ -11686,7 +11735,9 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
           }
           col_uvidxs[col_offset] = col_uvidx++;
           col_chr_idxs[col_offset] = col_chr_idx;
-          const AlleleCode aidx = maj_alleles[col_variant_uidx];
+          if (!maj_alleles) {
+            aidx = maj_alleles[col_variant_uidx];
+          }
           const uint32_t is_y = (col_variant_uidx < y_end) && (col_variant_uidx >= y_start);
           if (check_dosage) {
             if (col_read_phase) {

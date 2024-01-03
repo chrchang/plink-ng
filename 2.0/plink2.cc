@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (2 Jan 2024)";
+  " (3 Jan 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -490,11 +490,12 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, HetFlags het_f
 
 // not actually needed for e.g. --hardy, --hwe, etc. if no multiallelic
 // variants are retained, but let's keep this simpler for now
-uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags) {
+uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags, VcorFlags vcor_flags) {
   // Keep this in sync with --error-on-freq-calc.
-  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1Vcor)) ||
+  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld)) ||
     ((command_flags1 & kfCommand1Pca) && (pca_flags & kfPcaBiallelicVarWts)) ||
-    ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef)));
+    ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef))) ||
+    ((command_flags1 & kfCommand1Vcor) && ((!(vcor_flags & kfVcorRefBased)) || (vcor_flags & (kfVcorColMaj | kfVcorColNonmaj))));
 }
 
 // only needs to cover cases not captured by DecentAlleleFreqsAreNeeded() or
@@ -1864,7 +1865,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_DEGENERATE_DATA;
         }
         const uint32_t decent_afreqs_needed = DecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->het_flags, pcp->score_info.flags);
-        const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->pca_flags, pcp->glm_info.flags);
+        const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->pca_flags, pcp->glm_info.flags, pcp->vcor_info.flags);
         if (decent_afreqs_needed || maj_alleles_needed || IndecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
           if (unlikely((!pcp->read_freq_fname) && ((sample_ct < 50) || ((!nonfounders) && (founder_ct < 50))) && decent_afreqs_needed && (!(pcp->misc_flags & kfMiscAllowBadFreqs)))) {
             if ((!nonfounders) && (sample_ct >= 50)) {
@@ -9985,7 +9986,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --r-phased, --r-unphased, --r2-phased, and --r2-unphased are mutually\nexclusive.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 6))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const uint32_t is_unsquared = (flagname_p2[0] == '-');
@@ -10016,6 +10017,10 @@ int main(int argc, char** argv) {
               pc.vcor_info.flags |= kfVcorInterChr;
             } else if (strequal_k(cur_modif, "yes-really", cur_modif_slen)) {
               pc.vcor_info.flags |= kfVcorYesReally;
+            } else if (strequal_k(cur_modif, "ref-based", cur_modif_slen)) {
+              pc.vcor_info.flags |= kfVcorRefBased;
+            } else if (strequal_k(cur_modif, "allow-ambiguous-allele", cur_modif_slen)) {
+              pc.vcor_info.flags |= kfVcorAllowAmbiguousAllele;
             } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               if (unlikely(pc.vcor_info.flags & kfVcorEncodemask)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Multiple --%s encoding modifiers.\n", flagname_p);
