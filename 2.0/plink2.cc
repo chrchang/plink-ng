@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (3 Jan 2024)";
+  " (4 Jan 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -9991,7 +9991,7 @@ int main(int argc, char** argv) {
           }
           const uint32_t is_unsquared = (flagname_p2[0] == '-');
           const uint32_t is_phased = (flagname_p2[2 - is_unsquared] == 'p');
-          uint32_t explicit_cols = 0;
+          uint32_t cols_idx = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -10040,19 +10040,13 @@ int main(int argc, char** argv) {
               }
               pc.vcor_info.flags |= kfVcorBin4;
             } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
-              if (unlikely(explicit_cols)) {
+              if (unlikely(cols_idx)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Multiple --%s cols= modifiers.\n", flagname_p);
                 goto main_ret_INVALID_CMDLINE_2A;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0id\0ref\0alt1\0alt\0maybeprovref\0provref\0maj\0nonmaj\0freq\0d\0dprime\0dprimeabs\0", flagname_p, kfVcorColChrom, is_unsquared? kfVcorUnsquaredColDefault : kfVcorColDefault, 0, &pc.vcor_info.flags);
-              if (unlikely(reterr)) {
-                goto main_ret_1;
-              }
-              if (unlikely((!is_phased) && (pc.vcor_info.flags & (kfVcorColD | kfVcorColDprime | kfVcorColDprimeAbs)))) {
-                snprintf(g_logbuf, kLogbufSize, "Error: --%s does not support computation of D or D'. Use --r%s-phased instead.\n", flagname_p, is_unsquared? "" : "2");
-                goto main_ret_INVALID_CMDLINE_WWA;
-              }
-              explicit_cols = 1;
+              // Postpone parse, since we need to know whether ref-based is
+              // present.
+              cols_idx = param_idx;
             } else if (strequal_k(cur_modif, "in-phase", cur_modif_slen)) {
               if (is_unsquared) {
                 snprintf(g_logbuf, kLogbufSize, "Error: --%s does not have PLINK 1.x's 'in-phase' modifier. (The same information is available from the major-allele columns and the sign of R.)\n", flagname_p);
@@ -10086,6 +10080,21 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
+          if (cols_idx) {
+            VcorFlags default_cols = kfVcorColDefault;
+            if (is_unsquared) {
+              default_cols |= (pc.vcor_info.flags & kfVcorRefBased)? kfVcorColRef : kfVcorColMaj;
+            }
+            const char* cur_modif = argvk[arg_idx + cols_idx];
+            reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0id\0ref\0alt1\0alt\0maybeprovref\0provref\0maj\0nonmaj\0freq\0d\0dprime\0dprimeabs\0", flagname_p, kfVcorColChrom, default_cols, 0, &pc.vcor_info.flags);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+            if (unlikely((!is_phased) && (pc.vcor_info.flags & (kfVcorColD | kfVcorColDprime | kfVcorColDprimeAbs)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --%s does not support computation of D or D'. Use --r%s-phased instead.\n", flagname_p, is_unsquared? "" : "2");
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
           const uint32_t must_matrix = (pc.vcor_info.flags & (kfVcorBin8 | kfVcorBin4 | kfVcorMatrixShapemask));
           const uint32_t must_all_pairs = must_matrix || (pc.vcor_info.flags & kfVcorInterChr);
           if (must_all_pairs) {
@@ -10099,14 +10108,21 @@ int main(int argc, char** argv) {
             }
           }
           if (must_matrix) {
-            const uint32_t must_table = explicit_cols || (pc.vcor_info.flags & kfVcorInterChr) || pc.vcor_info.ld_snp_list_fname || pc.vcor_info.ld_snp_range_list.name_ct || (pc.vcor_info.min_r2 != 2.0);
+            const uint32_t must_table = cols_idx || (pc.vcor_info.flags & kfVcorInterChr) || pc.vcor_info.ld_snp_list_fname || pc.vcor_info.ld_snp_range_list.name_ct || (pc.vcor_info.min_r2 != 2.0);
             if (unlikely(must_matrix && must_table)) {
               snprintf(g_logbuf, kLogbufSize, "Error: Matrix-only and table-only --%s settings cannot be used together.\n", flagname_p);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           } else {
-            if (!explicit_cols) {
-              pc.vcor_info.flags |= is_unsquared? kfVcorUnsquaredColDefault : kfVcorColDefault;
+            if (!cols_idx) {
+              pc.vcor_info.flags |= kfVcorColDefault;
+              if (is_unsquared) {
+                if (pc.vcor_info.flags & kfVcorRefBased) {
+                  pc.vcor_info.flags |= kfVcorColRef;
+                } else {
+                  pc.vcor_info.flags |= kfVcorColMaj;
+                }
+              }
             }
             if (pc.vcor_info.min_r2 == 2.0) {
               pc.vcor_info.min_r2 = 0.2 * (1 - kSmallEpsilon);

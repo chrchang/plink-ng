@@ -92,8 +92,7 @@ FLAGSET_DEF_START()
   kfVcorColD = (1 << 23),
   kfVcorColDprime = (1 << 24),
   kfVcorColDprimeAbs = (1 << 25),
-  kfVcorColDefault = (kfVcorColChrom | kfVcorColPos | kfVcorColId | kfVcorColMaybeprovref),
-  kfVcorUnsquaredColDefault = (kfVcorColDefault | kfVcorColMaj)
+  kfVcorColDefault = (kfVcorColChrom | kfVcorColPos | kfVcorColId | kfVcorColMaybeprovref)
 FLAGSET_DEF_END(VcorFlags);
 
 CONSTI32(kClumpMaxBinBounds, 0x4000000);

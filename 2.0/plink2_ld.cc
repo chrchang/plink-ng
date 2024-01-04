@@ -5904,7 +5904,7 @@ void LdUnpackNondosageSparse(const uintptr_t* raregeno, const uint32_t* difflist
       } else {
         const uint32_t zero_or_missing_ct = genocounts[0] + genocounts[3];
         x_male_nmaj_ct -= genocounts[1] + 2 * zero_or_missing_ct;
-        x_male_ssq -= genocounts[1] + 4 * zero_or_missing_ct;
+        x_male_ssq -= 3 * genocounts[1] + 4 * zero_or_missing_ct;
       }
     }
     uint32_t* dst_x_u32 = &(difflist_include_cumulative_popcounts_dst[sample_ctl]);
@@ -6271,7 +6271,9 @@ uint32_t ComputeR2NondosageUnphased1SparseStats(const R2NondosageVariant* densev
   const uint32_t difflist_len = sparsevp1->p.s.difflist_len;
   const uint32_t* difflist_sample_ids = sparsevp1->p.s.difflist_sample_ids;
   uint32_t nmaj_ct0 = 0;
+  uint32_t nmaj_ct1 = 0;
   uint32_t ssq0 = 0;
+  uint32_t ssq1 = 0;
   uint32_t dotprod = 0;
   uint32_t valid_obs_ct = 0;
   if (difflist_common_geno != 3) {
@@ -6279,9 +6281,9 @@ uint32_t ComputeR2NondosageUnphased1SparseStats(const R2NondosageVariant* densev
     ssq0 = densevp0->ssq;
     dotprod = difflist_common_geno * nmaj_ct0;
     valid_obs_ct = densevp0->nm_ct;
+    nmaj_ct1 = difflist_common_geno * valid_obs_ct;
+    ssq1 = difflist_common_geno * nmaj_ct1;
   }
-  uint32_t nmaj_ct1 = sparsevp1->nmaj_ct;
-  uint32_t ssq1 = sparsevp1->ssq;
   if (difflist_len) {
     // genovec would be more convenient than this representation here, but that
     // shouldn't be a big deal.
@@ -6316,8 +6318,6 @@ uint32_t ComputeR2NondosageUnphased1SparseStats(const R2NondosageVariant* densev
         raregeno_word = raregeno_word >> 2;
       }
     }
-    nmaj_ct1 -= joint_counts[7] + 2 * joint_counts[11];
-    ssq1 -= joint_counts[7] + 4 * joint_counts[11];
     if (difflist_common_geno != 3) {
       nmaj_ct0 -= joint_counts[13] + 2 * joint_counts[14];
       ssq0 -= joint_counts[13] + 4 * joint_counts[14];
@@ -6331,9 +6331,16 @@ uint32_t ComputeR2NondosageUnphased1SparseStats(const R2NondosageVariant* densev
       const uint32_t dense_missing_sparse_nm_ct = joint_counts[3] + joint_counts[7] + joint_counts[11];
       valid_obs_ct = difflist_len - dense_missing_sparse_nm_ct;
     }
+    const uint32_t sparse_one_ct = joint_counts[4] + joint_counts[5] + joint_counts[6];
     if (difflist_common_geno != 2) {
+      const uint32_t sparse_two_ct = joint_counts[8] + joint_counts[9] + joint_counts[10];
+      nmaj_ct1 = sparse_one_ct + 2 * sparse_two_ct;
+      ssq1 = sparse_one_ct + 4 * sparse_two_ct;
       dotprod = joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
     } else {
+      const uint32_t sparse_zmiss_ct = joint_counts[0] + joint_counts[1] + joint_counts[2] + joint_counts[12] + joint_counts[13] + joint_counts[14];
+      nmaj_ct1 -= sparse_one_ct + 2 * sparse_zmiss_ct;
+      ssq1 -= 3 * sparse_one_ct + 4 * sparse_zmiss_ct;
       dotprod -= joint_counts[5] + 2 * (joint_counts[1] + joint_counts[6] + joint_counts[13]) + 4 * (joint_counts[2] + joint_counts[14]);
     }
   }
@@ -6345,7 +6352,7 @@ uint32_t ComputeR2NondosageUnphased1SparseStats(const R2NondosageVariant* densev
   return valid_obs_ct;
 }
 
-uint32_t ComputeR2NondosageUnphased2SparseStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, uint32_t sample_ct, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
+uint32_t ComputeR2NondosageUnphased2SparseStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
   const R2NondosageVariant* longvp;
   const R2NondosageVariant* shortvp;
   uint32_t* nmaj_ctlong_ptr;
@@ -6367,20 +6374,21 @@ uint32_t ComputeR2NondosageUnphased2SparseStats(const R2NondosageVariant* ndp0, 
     ssqlong_ptr = ssq0_ptr;
     ssqshort_ptr = ssq1_ptr;
   }
-  const uint32_t difflist_common_geno_long = longvp->p.s.difflist_common_geno;
   const uint32_t difflist_common_geno_short = shortvp->p.s.difflist_common_geno;
   uint32_t nmaj_ctlong = 0;
-  uint32_t nmaj_ctshort = shortvp->nmaj_ct;
+  uint32_t nmaj_ctshort = 0;
   uint32_t ssqlong = 0;
-  uint32_t dotprod = (difflist_common_geno_long == 2)? (2 * nmaj_ctshort) : 0;
+  uint32_t ssqshort = 0;
+  uint32_t dotprod = 0;
   uint32_t valid_obs_ct = 0;
   if (difflist_common_geno_short != 3) {
     nmaj_ctlong = longvp->nmaj_ct;
     ssqlong = longvp->ssq;
+    dotprod = difflist_common_geno_short * nmaj_ctlong;
     valid_obs_ct = longvp->nm_ct;
-    dotprod += difflist_common_geno_short * nmaj_ctlong;
+    nmaj_ctshort = difflist_common_geno_short * valid_obs_ct;
+    ssqshort = difflist_common_geno_short * nmaj_ctshort;
   }
-  uint32_t ssqshort = shortvp->ssq;
   const uint32_t difflist_len_short = shortvp->p.s.difflist_len;
   if (difflist_len_short) {
     // tested genovec in place of {difflist_include,
@@ -6391,10 +6399,10 @@ uint32_t ComputeR2NondosageUnphased2SparseStats(const R2NondosageVariant* ndp0, 
     const uint32_t* difflist_sample_ids_short = shortvp->p.s.difflist_sample_ids;
     const uintptr_t* raregeno_long = longvp->p.s.raregeno;
     const uintptr_t* raregeno_short = shortvp->p.s.raregeno;
+    const uint32_t difflist_common_geno_long = longvp->p.s.difflist_common_geno;
     uint32_t joint_counts[16]; // low bits = long, high bits = short
     ZeroU32Arr(16, joint_counts);
     const uint32_t word_ct_m1 = (difflist_len_short - 1) / kBitsPerWordD2;
-    uint32_t intersection_ct = 0;
     uint32_t loop_len = kBitsPerWordD2;
     for (uint32_t widx = 0; ; ++widx) {
       if (widx >= word_ct_m1) {
@@ -6404,37 +6412,43 @@ uint32_t ComputeR2NondosageUnphased2SparseStats(const R2NondosageVariant* ndp0, 
         loop_len = ModNz(difflist_len_short, kBitsPerWordD2);
       }
       const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids_short[widx * kBitsPerWordD2]);
-      const uintptr_t raregeno_word = raregeno_short[widx];
+      uintptr_t raregeno_word = raregeno_short[widx];
       for (uint32_t uii = 0; uii != loop_len; ++uii) {
         const uint32_t sample_idx = cur_difflist_sample_ids[uii];
+        const uintptr_t cur_geno_short = raregeno_word & 3;
+        uintptr_t cur_geno_long = difflist_common_geno_long;
         if (IsSet(difflist_include_long, sample_idx)) {
           const uint32_t difflist_idx_long = RawToSubsettedPos(difflist_include_long, difflist_include_long_cumulative_popcounts, sample_idx);
-          const uintptr_t cur_geno_long = GetNyparrEntry(raregeno_long, difflist_idx_long);
-          const uintptr_t cur_geno_short = (raregeno_word >> (2 * uii)) & 3;
-          joint_counts[cur_geno_long + 4 * cur_geno_short] += 1;
-          ++intersection_ct;
+          cur_geno_long = GetNyparrEntry(raregeno_long, difflist_idx_long);
         }
-      }
-    }
-    if (intersection_ct) {
-      nmaj_ctlong -= joint_counts[13] - 2 * joint_counts[14];
-      nmaj_ctshort -= joint_counts[7] - 2 * joint_counts[11];
-      ssqlong -= joint_counts[13] - 4 * joint_counts[14];
-      ssqshort -= joint_counts[7] - 4 * joint_counts[11];
-      dotprod += joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
-      if ((difflist_common_geno_short == 2) && (difflist_common_geno_long == 2)) {
-        dotprod -= 4 * intersection_ct;
+        joint_counts[cur_geno_long + 4 * cur_geno_short] += 1;
+        raregeno_word = raregeno_word >> 2;
       }
     }
     if (difflist_common_geno_short != 3) {
-      valid_obs_ct -= sample_ct - shortvp->nm_ct - joint_counts[15];
+      nmaj_ctlong -= joint_counts[13] + 2 * joint_counts[14];
+      ssqlong -= joint_counts[13] + 4 * joint_counts[14];
+      const uint32_t short_missing_long_nm_ct = joint_counts[12] + joint_counts[13] + joint_counts[14];
+      valid_obs_ct -= short_missing_long_nm_ct;
     } else {
-      if (difflist_common_geno_long != 3) {
-        const uint32_t missing0_nm1_ct = joint_counts[3] + joint_counts[7] + joint_counts[11];
-        valid_obs_ct = difflist_len_short - missing0_nm1_ct;
-      } else {
-        valid_obs_ct = intersection_ct;
-      }
+      const uint32_t long_one_ct = joint_counts[1] + joint_counts[5] + joint_counts[9];
+      const uint32_t long_two_ct = joint_counts[2] + joint_counts[6] + joint_counts[10];
+      nmaj_ctlong = long_one_ct + 2 * long_two_ct;
+      ssqlong = long_one_ct + 4 * long_two_ct;
+      const uint32_t long_missing_short_nm_ct = joint_counts[3] + joint_counts[7] + joint_counts[11];
+      valid_obs_ct = difflist_len_short - long_missing_short_nm_ct;
+    }
+    const uint32_t short_one_ct = joint_counts[4] + joint_counts[5] + joint_counts[6];
+    if (difflist_common_geno_short != 2) {
+      const uint32_t short_two_ct = joint_counts[8] + joint_counts[9] + joint_counts[10];
+      nmaj_ctshort = short_one_ct + 2 * short_two_ct;
+      ssqshort = short_one_ct + 4 * short_two_ct;
+      dotprod = joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
+    } else {
+      const uint32_t short_zmiss_ct = joint_counts[0] + joint_counts[1] + joint_counts[2] + joint_counts[12] + joint_counts[13] + joint_counts[14];
+      nmaj_ctshort -= short_one_ct + 2 * short_zmiss_ct;
+      ssqshort -= 3 * short_one_ct + 4 * short_zmiss_ct;
+      dotprod -= joint_counts[5] + 2 * (joint_counts[1] + joint_counts[6] + joint_counts[13]) + 4 * (joint_counts[2] + joint_counts[14]);
     }
   }
   *nmaj_ctlong_ptr = nmaj_ctlong;
@@ -6450,7 +6464,7 @@ uint32_t ComputeR2NondosageUnphased2SparseStats(const R2NondosageVariant* ndp0, 
 uint32_t ComputeR2NondosageUnphasedStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, uint32_t sample_ct, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
   if (ndp0->is_sparse) {
     if (ndp1->is_sparse) {
-      return ComputeR2NondosageUnphased2SparseStats(ndp0, ndp1, sample_ct, nmaj_ct0_ptr, nmaj_ct1_ptr, ssq0_ptr, ssq1_ptr, dotprod_ptr);
+      return ComputeR2NondosageUnphased2SparseStats(ndp0, ndp1, nmaj_ct0_ptr, nmaj_ct1_ptr, ssq0_ptr, ssq1_ptr, dotprod_ptr);
     } else {
       return ComputeR2NondosageUnphased1SparseStats(ndp1, ndp0, nmaj_ct1_ptr, nmaj_ct0_ptr, ssq1_ptr, ssq0_ptr, dotprod_ptr);
     }
@@ -6694,7 +6708,9 @@ uint32_t ComputeR2NondosageUnphased1SparseSubsetStats(const R2NondosageVariant* 
   const uint32_t difflist_len = sparsevp1->p.s.difflist_len;
   const uint32_t* difflist_sample_ids = sparsevp1->p.s.difflist_sample_ids;
   uint32_t nmaj_ct0 = 0;
+  uint32_t nmaj_ct1 = 0;
   uint32_t ssq0 = 0;
+  uint32_t ssq1 = 0;
   uint32_t dotprod = 0;
   uint32_t valid_obs_ct = 0;
   if (difflist_common_geno != 3) {
@@ -6702,6 +6718,8 @@ uint32_t ComputeR2NondosageUnphased1SparseSubsetStats(const R2NondosageVariant* 
     ssq0 = *ssq0_ptr;
     dotprod = difflist_common_geno * nmaj_ct0;
     valid_obs_ct = subsetted_nm_ct0;
+    nmaj_ct1 = difflist_common_geno * valid_obs_ct;
+    ssq1 = difflist_common_geno * nmaj_ct1;
   }
   if (difflist_len) {
     const uintptr_t* nm_bitvec0 = densevp0->p.d.nm_bitvec;
@@ -6737,8 +6755,6 @@ uint32_t ComputeR2NondosageUnphased1SparseSubsetStats(const R2NondosageVariant* 
         raregeno_word = raregeno_word >> 2;
       }
     }
-    *nmaj_ct1_ptr -= joint_counts[7] + 2 * joint_counts[11];
-    *ssq1_ptr -= joint_counts[7] + 4 * joint_counts[11];
     if (difflist_common_geno != 3) {
       nmaj_ct0 -= joint_counts[13] + 2 * joint_counts[14];
       ssq0 -= joint_counts[13] + 4 * joint_counts[14];
@@ -6752,19 +6768,28 @@ uint32_t ComputeR2NondosageUnphased1SparseSubsetStats(const R2NondosageVariant* 
       const uint32_t dense_zero_ct = joint_counts[0] + joint_counts[4] + joint_counts[8];
       valid_obs_ct = dense_zero_ct + dense_one_ct + dense_two_ct;
     }
+    const uint32_t sparse_one_ct = joint_counts[4] + joint_counts[5] + joint_counts[6];
     if (difflist_common_geno != 2) {
+      const uint32_t sparse_two_ct = joint_counts[8] + joint_counts[9] + joint_counts[10];
+      nmaj_ct1 = sparse_one_ct + 2 * sparse_two_ct;
+      ssq1 = sparse_one_ct + 4 * sparse_two_ct;
       dotprod = joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
     } else {
+      const uint32_t sparse_zmiss_ct = joint_counts[0] + joint_counts[1] + joint_counts[2] + joint_counts[12] + joint_counts[13] + joint_counts[14];
+      nmaj_ct1 -= sparse_one_ct + 2 * sparse_zmiss_ct;
+      ssq1 -= 3 * sparse_one_ct + 4 * sparse_zmiss_ct;
       dotprod -= joint_counts[5] + 2 * (joint_counts[1] + joint_counts[6] + joint_counts[13]) + 4 * (joint_counts[2] + joint_counts[14]);
     }
   }
   *nmaj_ct0_ptr = nmaj_ct0;
+  *nmaj_ct1_ptr = nmaj_ct1;
   *ssq0_ptr = ssq0;
+  *ssq1_ptr = ssq1;
   *dotprod_ptr = dotprod;
   return valid_obs_ct;
 }
 
-uint32_t ComputeR2NondosageUnphased2SparseSubsetStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, const uintptr_t* sample_include, uint32_t sample_ct, uint32_t subsetted_nm_ct0, uint32_t subsetted_nm_ct1, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
+uint32_t ComputeR2NondosageUnphased2SparseSubsetStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, const uintptr_t* sample_include, uint32_t subsetted_nm_ct0, uint32_t subsetted_nm_ct1, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr) {
   const R2NondosageVariant* longvp;
   const R2NondosageVariant* shortvp;
   uint32_t* nmaj_ctlong_ptr;
@@ -6772,7 +6797,6 @@ uint32_t ComputeR2NondosageUnphased2SparseSubsetStats(const R2NondosageVariant* 
   uint32_t* ssqlong_ptr;
   uint32_t* ssqshort_ptr;
   uint32_t long_nm_ct;
-  uint32_t short_nm_ct;
   if (ndp0->p.s.difflist_len <= ndp1->p.s.difflist_len) {
     longvp = ndp1;
     shortvp = ndp0;
@@ -6781,7 +6805,6 @@ uint32_t ComputeR2NondosageUnphased2SparseSubsetStats(const R2NondosageVariant* 
     ssqlong_ptr = ssq1_ptr;
     ssqshort_ptr = ssq0_ptr;
     long_nm_ct = subsetted_nm_ct1;
-    short_nm_ct = subsetted_nm_ct0;
   } else {
     longvp = ndp0;
     shortvp = ndp1;
@@ -6790,22 +6813,22 @@ uint32_t ComputeR2NondosageUnphased2SparseSubsetStats(const R2NondosageVariant* 
     ssqlong_ptr = ssq0_ptr;
     ssqshort_ptr = ssq1_ptr;
     long_nm_ct = subsetted_nm_ct0;
-    short_nm_ct = subsetted_nm_ct1;
   }
-  const uint32_t difflist_common_geno_long = longvp->p.s.difflist_common_geno;
   const uint32_t difflist_common_geno_short = shortvp->p.s.difflist_common_geno;
   uint32_t nmaj_ctlong = 0;
-  uint32_t nmaj_ctshort = *nmaj_ctshort_ptr;
+  uint32_t nmaj_ctshort = 0;
   uint32_t ssqlong = 0;
-  uint32_t dotprod = (difflist_common_geno_long == 2)? (2 * nmaj_ctshort) : 0;
+  uint32_t ssqshort = 0;
+  uint32_t dotprod = 0;
   uint32_t valid_obs_ct = 0;
   if (difflist_common_geno_short != 3) {
     nmaj_ctlong = *nmaj_ctlong_ptr;
     ssqlong = *ssqlong_ptr;
+    dotprod = difflist_common_geno_short * nmaj_ctlong;
     valid_obs_ct = long_nm_ct;
-    dotprod += difflist_common_geno_short * nmaj_ctlong;
+    nmaj_ctshort = difflist_common_geno_short * valid_obs_ct;
+    ssqshort = difflist_common_geno_short * nmaj_ctshort;
   }
-  uint32_t ssqshort = *ssqshort_ptr;
   const uint32_t difflist_len_short = shortvp->p.s.difflist_len;
   if (difflist_len_short) {
     const uintptr_t* difflist_include_long = longvp->p.s.difflist_include;
@@ -6814,10 +6837,10 @@ uint32_t ComputeR2NondosageUnphased2SparseSubsetStats(const R2NondosageVariant* 
     const uint32_t* difflist_sample_ids_short = shortvp->p.s.difflist_sample_ids;
     const uintptr_t* raregeno_long = longvp->p.s.raregeno;
     const uintptr_t* raregeno_short = shortvp->p.s.raregeno;
+    const uint32_t difflist_common_geno_long = longvp->p.s.difflist_common_geno;
     uint32_t joint_counts[16]; // low bits = long, high bits = short
     ZeroU32Arr(16, joint_counts);
     const uint32_t word_ct_m1 = (difflist_len_short - 1) / kBitsPerWordD2;
-    uint32_t intersection_ct = 0;
     uint32_t loop_len = kBitsPerWordD2;
     for (uint32_t widx = 0; ; ++widx) {
       if (widx >= word_ct_m1) {
@@ -6827,37 +6850,45 @@ uint32_t ComputeR2NondosageUnphased2SparseSubsetStats(const R2NondosageVariant* 
         loop_len = ModNz(difflist_len_short, kBitsPerWordD2);
       }
       const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids_short[widx * kBitsPerWordD2]);
-      const uintptr_t raregeno_word = raregeno_short[widx];
+      uintptr_t raregeno_word = raregeno_short[widx];
       for (uint32_t uii = 0; uii != loop_len; ++uii) {
         const uint32_t sample_idx = cur_difflist_sample_ids[uii];
-        if (IsSet(difflist_include_long, sample_idx) && IsSet(sample_include, sample_idx)) {
-          const uint32_t difflist_idx_long = RawToSubsettedPos(difflist_include_long, difflist_include_long_cumulative_popcounts, sample_idx);
-          const uintptr_t cur_geno_long = GetNyparrEntry(raregeno_long, difflist_idx_long);
-          const uintptr_t cur_geno_short = (raregeno_word >> (2 * uii)) & 3;
+        if (IsSet(sample_include, sample_idx)) {
+          const uintptr_t cur_geno_short = raregeno_word & 3;
+          uintptr_t cur_geno_long = difflist_common_geno_long;
+          if (IsSet(difflist_include_long, sample_idx)) {
+            const uint32_t difflist_idx_long = RawToSubsettedPos(difflist_include_long, difflist_include_long_cumulative_popcounts, sample_idx);
+            cur_geno_long = GetNyparrEntry(raregeno_long, difflist_idx_long);
+          }
           joint_counts[cur_geno_long + 4 * cur_geno_short] += 1;
-          ++intersection_ct;
         }
-      }
-    }
-    if (intersection_ct) {
-      nmaj_ctlong -= joint_counts[13] - 2 * joint_counts[14];
-      nmaj_ctshort -= joint_counts[7] - 2 * joint_counts[11];
-      ssqlong -= joint_counts[13] - 4 * joint_counts[14];
-      ssqshort -= joint_counts[7] - 4 * joint_counts[11];
-      dotprod += joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
-      if ((difflist_common_geno_short == 2) && (difflist_common_geno_long == 2)) {
-        dotprod -= 4 * intersection_ct;
+        raregeno_word = raregeno_word >> 2;
       }
     }
     if (difflist_common_geno_short != 3) {
-      valid_obs_ct -= sample_ct - short_nm_ct - joint_counts[15];
+      nmaj_ctlong -= joint_counts[13] + 2 * joint_counts[14];
+      ssqlong -= joint_counts[13] + 4 * joint_counts[14];
+      const uint32_t short_missing_long_nm_ct = joint_counts[12] + joint_counts[13] + joint_counts[14];
+      valid_obs_ct -= short_missing_long_nm_ct;
     } else {
-      if (difflist_common_geno_long != 3) {
-        const uint32_t missing0_nm1_ct = joint_counts[3] + joint_counts[7] + joint_counts[11];
-        valid_obs_ct = difflist_len_short - missing0_nm1_ct;
-      } else {
-        valid_obs_ct = intersection_ct;
-      }
+      const uint32_t long_one_ct = joint_counts[1] + joint_counts[5] + joint_counts[9];
+      const uint32_t long_two_ct = joint_counts[2] + joint_counts[6] + joint_counts[10];
+      nmaj_ctlong = long_one_ct + 2 * long_two_ct;
+      ssqlong = long_one_ct + 4 * long_two_ct;
+      const uint32_t long_zero_ct = joint_counts[0] + joint_counts[4] + joint_counts[8];
+      valid_obs_ct = long_zero_ct + long_one_ct + long_two_ct;
+    }
+    const uint32_t short_one_ct = joint_counts[4] + joint_counts[5] + joint_counts[6];
+    if (difflist_common_geno_short != 2) {
+      const uint32_t short_two_ct = joint_counts[8] + joint_counts[9] + joint_counts[10];
+      nmaj_ctshort = short_one_ct + 2 * short_two_ct;
+      ssqshort = short_one_ct + 4 * short_two_ct;
+      dotprod = joint_counts[5] + 2 * (joint_counts[6] + joint_counts[9]) + 4 * joint_counts[10];
+    } else {
+      const uint32_t short_zmiss_ct = joint_counts[0] + joint_counts[1] + joint_counts[2] + joint_counts[12] + joint_counts[13] + joint_counts[14];
+      nmaj_ctshort -= short_one_ct + 2 * short_zmiss_ct;
+      ssqshort -= 3 * short_one_ct + 4 * short_zmiss_ct;
+      dotprod -= joint_counts[5] + 2 * (joint_counts[1] + joint_counts[6] + joint_counts[13]) + 4 * (joint_counts[2] + joint_counts[14]);
     }
   }
   *nmaj_ctlong_ptr = nmaj_ctlong;
@@ -6873,7 +6904,7 @@ uint32_t ComputeR2NondosageUnphased2SparseSubsetStats(const R2NondosageVariant* 
 uint32_t ComputeR2NondosageUnphasedSubsetStats(const R2NondosageVariant* ndp0, const R2NondosageVariant* ndp1, const uintptr_t* sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t subsetted_nm_ct0, uint32_t subsetted_nm_ct1, uint32_t* nmaj_ct0_ptr, uint32_t* nmaj_ct1_ptr, uint32_t* ssq0_ptr, uint32_t* ssq1_ptr, uint32_t* dotprod_ptr, uintptr_t* cur_nm_buf) {
   if (ndp0->is_sparse) {
     if (ndp1->is_sparse) {
-      return ComputeR2NondosageUnphased2SparseSubsetStats(ndp0, ndp1, sample_include, sample_ct, subsetted_nm_ct0, subsetted_nm_ct1, nmaj_ct0_ptr, nmaj_ct1_ptr, ssq0_ptr, ssq1_ptr, dotprod_ptr);
+      return ComputeR2NondosageUnphased2SparseSubsetStats(ndp0, ndp1, sample_include, subsetted_nm_ct0, subsetted_nm_ct1, nmaj_ct0_ptr, nmaj_ct1_ptr, ssq0_ptr, ssq1_ptr, dotprod_ptr);
     } else {
       return ComputeR2NondosageUnphased1SparseSubsetStats(ndp1, ndp0, sample_include, subsetted_nm_ct1, nmaj_ct1_ptr, nmaj_ct0_ptr, ssq1_ptr, ssq0_ptr, dotprod_ptr);
     }
@@ -7082,19 +7113,20 @@ double ComputeXR2(const R2Variant* r2vp0, const R2Variant* r2vp1, const uintptr_
       if (!valid_obs_ct) {
         return -DBL_MAX;
       }
+      /*
+      printf("nmaj_ct0: %u\n", nmaj_ct0);
+      printf("nmaj_ct1: %u\n", nmaj_ct1);
+      printf("ssq0: %u\n", ssq0);
+      printf("ssq1: %u\n", ssq1);
+      printf("dotprod: %u\n", dotprod);
+      printf("valid_obs_ct: %u\n", valid_obs_ct);
+      */
       uint32_t male_nmaj_ct0 = ndp0->x_male_nmaj_ct;
       uint32_t male_nmaj_ct1 = ndp1->x_male_nmaj_ct;
       uint32_t male_ssq0 = ndp0->x_male_ssq;
       uint32_t male_ssq1 = ndp1->x_male_ssq;
       uint32_t male_dotprod;
-      /*
-      printf("male_nm_ct0: %u\n", ndp0->x_male_nm_ct);
-      printf("male_nm_ct1: %u\n", ndp1->x_male_nm_ct);
-      printf("male_nmaj_ct0: %u\n", male_nmaj_ct0);
-      printf("male_nmaj_ct1: %u\n", male_nmaj_ct1);
-      printf("male_ssq0: %u\n", male_ssq0);
-      printf("male_ssq1: %u\n", male_ssq1);
-      */
+      // printf("male_ssq1 before: %u\n", male_ssq1);
       male_obs_ct = ComputeR2NondosageUnphasedSubsetStats(ndp0, ndp1, founder_male_collapsed, sample_ct, male_ct, ndp0->x_male_nm_ct, ndp1->x_male_nm_ct, &male_nmaj_ct0, &male_nmaj_ct1, &male_ssq0, &male_ssq1, &male_dotprod, cur_nm_buf);
       /*
       printf("male_nmaj_ct0: %u\n", male_nmaj_ct0);
@@ -7102,6 +7134,7 @@ double ComputeXR2(const R2Variant* r2vp0, const R2Variant* r2vp1, const uintptr_
       printf("male_ssq0: %u\n", male_ssq0);
       printf("male_ssq1: %u\n", male_ssq1);
       printf("male_dotprod: %u\n", male_dotprod);
+      printf("male_obs_ct: %u\n", male_obs_ct);
       */
 
       const double weighted_obs_ct = u31tod(valid_obs_ct) - male_downwt * u31tod(male_obs_ct);
