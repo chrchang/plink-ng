@@ -5305,7 +5305,9 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
   const uint32_t sample_ct = mcp->sample_ct;
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   const uint32_t sample_ctv2 = NypCtToVecCt(sample_ct);
-  const uint32_t sample_ct4 = NypCtToByteCt(sample_ct);
+  // bugfix (5 Jan 2024): (write_idx * sample_ct4) could overflow when
+  // sample_ct4 was a uint32_t
+  const uintptr_t sample_ct4 = NypCtToByteCt(sample_ct);
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select) = mcp->refalt1_select;
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
