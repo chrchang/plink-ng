@@ -4762,7 +4762,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
   return reterr;
 }
 
-typedef struct ComputeHweXPvalsCtxStruct {
+typedef struct ComputeHweXLnPvalsCtxStruct {
   const uintptr_t* variant_include;
   const uintptr_t* allele_idx_offsets;
   const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts);
@@ -4777,10 +4777,10 @@ typedef struct ComputeHweXPvalsCtxStruct {
   uint32_t hwe_midp;
   uint32_t hwe_x_ct;
 
-  double* hwe_x_pvals;
-} ComputeHweXPvalsCtx;
+  double* hwe_x_ln_pvals;
+} ComputeHweXLnPvalsCtx;
 
-void ComputeHweXPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXPvalsCtx* ctx) {
+void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPvalsCtx* ctx) {
   const uintptr_t* variant_include = ctx->variant_include;
   const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
   const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts) = ctx->founder_raw_geno_cts;
@@ -4797,7 +4797,7 @@ void ComputeHweXPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXPvalsC
   uint32_t variant_idx = (hwe_x_ct * S_CAST(uint64_t, tidx)) / thread_ct;
 
   uintptr_t xgeno_idx = ctx->extra_aidx_starts[tidx];
-  double* hwe_x_pvals_iter = &(ctx->hwe_x_pvals[variant_idx + xgeno_idx]);
+  double* hwe_x_ln_pvals_iter = &(ctx->hwe_x_ln_pvals[variant_idx + xgeno_idx]);
   uintptr_t variant_uidx_base;
   uintptr_t cur_bits;
   BitIter1Start(variant_include, ctx->variant_uidx_starts[tidx], &variant_uidx_base, &cur_bits);
@@ -4830,7 +4830,7 @@ void ComputeHweXPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXPvalsC
       female_1copy_ct -= cur_nosex_geno_cts[1];
       female_0copy_ct -= cur_nosex_geno_cts[2];
     }
-    *hwe_x_pvals_iter++ = HweXchrP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
+    *hwe_x_ln_pvals_iter++ = HweXchrLnP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
     if (allele_idx_offsets) {
       const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
       if (allele_ct != 2) {
@@ -4847,7 +4847,7 @@ void ComputeHweXPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXPvalsC
             male_0copy_ct = male_obs_ct - male_1copy_ct - male_hethap_ct;
           }
           female_0copy_ct = female_obs_ct - female_2copy_ct - female_1copy_ct;
-          *hwe_x_pvals_iter++ = HweXchrP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
+          *hwe_x_ln_pvals_iter++ = HweXchrLnP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
           ++xgeno_idx;
         }
       }
@@ -4868,26 +4868,26 @@ void ComputeHweXPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXPvalsC
   }
 }
 
-THREAD_FUNC_DECL ComputeHweXPvalsThread(void* raw_arg) {
+THREAD_FUNC_DECL ComputeHweXLnPvalsThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
-  ComputeHweXPvalsCtx* ctx = S_CAST(ComputeHweXPvalsCtx*, arg->sharedp->context);
-  ComputeHweXPvalsMain(arg->tidx, GetThreadCt(arg->sharedp) + 1, ctx);
+  ComputeHweXLnPvalsCtx* ctx = S_CAST(ComputeHweXLnPvalsCtx*, arg->sharedp->context);
+  ComputeHweXLnPvalsMain(arg->tidx, GetThreadCt(arg->sharedp) + 1, ctx);
   THREAD_RETURN;
 }
 
-PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), uint32_t x_start, uint32_t hwe_x_ct, uintptr_t x_xallele_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_pvals_ptr) {
+PglErr ComputeHweXLnPvals(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), uint32_t x_start, uint32_t hwe_x_ct, uintptr_t x_xallele_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_ln_pvals_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   ThreadGroup tg;
   PreinitThreads(&tg);
-  ComputeHweXPvalsCtx ctx;
+  ComputeHweXLnPvalsCtx ctx;
   {
     assert(hwe_x_ct);
-    if (unlikely(bigstack_alloc_d(hwe_x_ct + x_xallele_ct, hwe_x_pvals_ptr))) {
-      goto ComputeHweXPvals_ret_NOMEM;
+    if (unlikely(bigstack_alloc_d(hwe_x_ct + x_xallele_ct, hwe_x_ln_pvals_ptr))) {
+      goto ComputeHweXLnPvals_ret_NOMEM;
     }
     bigstack_mark = g_bigstack_base;
-    ctx.hwe_x_pvals = *hwe_x_pvals_ptr;
+    ctx.hwe_x_ln_pvals = *hwe_x_ln_pvals_ptr;
 
     if (calc_thread_ct > hwe_x_ct) {
       calc_thread_ct = hwe_x_ct;
@@ -4895,7 +4895,7 @@ PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allel
     if (unlikely(SetThreadCt0(calc_thread_ct - 1, &tg) ||
                  bigstack_alloc_u32(calc_thread_ct, &ctx.variant_uidx_starts) ||
                  bigstack_alloc_w(calc_thread_ct, &ctx.extra_aidx_starts))) {
-      goto ComputeHweXPvals_ret_NOMEM;
+      goto ComputeHweXLnPvals_ret_NOMEM;
     }
     // possible todo: extra-allele-based load balancer
     ComputeUidxStartPartition(variant_include, hwe_x_ct, calc_thread_ct, x_start, ctx.variant_uidx_starts);
@@ -4922,22 +4922,22 @@ PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allel
     fputs("0%", stdout);
     fflush(stdout);
     if (calc_thread_ct > 1) {
-      SetThreadFuncAndData(ComputeHweXPvalsThread, &ctx, &tg);
+      SetThreadFuncAndData(ComputeHweXLnPvalsThread, &ctx, &tg);
       DeclareLastThreadBlock(&tg);
       if (unlikely(SpawnThreads(&tg))) {
-        goto ComputeHweXPvals_ret_THREAD_CREATE_FAIL;
+        goto ComputeHweXLnPvals_ret_THREAD_CREATE_FAIL;
       }
     }
-    ComputeHweXPvalsMain(calc_thread_ct - 1, calc_thread_ct, &ctx);
+    ComputeHweXLnPvalsMain(calc_thread_ct - 1, calc_thread_ct, &ctx);
     JoinThreads0(&tg);
     fputs("\b\b", stdout);
     logputs("done.\n");
   }
   while (0) {
-  ComputeHweXPvals_ret_NOMEM:
+  ComputeHweXLnPvals_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ComputeHweXPvals_ret_THREAD_CREATE_FAIL:
+  ComputeHweXLnPvals_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
   }
@@ -4946,7 +4946,7 @@ PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allel
   return reterr;
 }
 
-PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
+PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_ln_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -5017,6 +5017,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
         }
       }
     }
+    const uint32_t report_neglog10p = (hardy_flags / kfHardyLog10) & 1;
     const uint32_t ax_col = hardy_flags & kfHardyColAx;
     const uint32_t gcounts = hardy_flags & (kfHardyColGcounts | kfHardyColGcount1col);
     const uint32_t gcount_1col = hardy_flags & kfHardyColGcount1col;
@@ -5074,11 +5075,13 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       }
       if (p_col) {
         *cswritep++ = '\t';
-        if (midp) {
-          cswritep = strcpya_k(cswritep, "MIDP");
-        } else {
-          *cswritep++ = 'P';
+        if (report_neglog10p) {
+          cswritep = strcpya_k(cswritep, "NEG_LOG10_");
         }
+        if (midp) {
+          cswritep = strcpya_k(cswritep, "MID");
+        }
+        *cswritep++ = 'P';
       }
       AppendBinaryEoln(&cswritep);
       uintptr_t variant_uidx_base = 0;
@@ -5206,8 +5209,13 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           if (p_col) {
             // possible todo: multithread this
             *cswritep++ = '\t';
-            const double hwe_p = HweP(het_a1_ct, hom_a1_ct, two_ax_ct, midp);
-            cswritep = dtoa_g(MAXV(hwe_p, output_min_p), cswritep);
+            const double hwe_ln_p = HweLnP(het_a1_ct, hom_a1_ct, two_ax_ct, midp);
+            if (report_neglog10p) {
+              const double reported_val = (-kRecipLn10) * hwe_ln_p;
+              cswritep = dtoa_g(reported_val, cswritep);
+            } else {
+              cswritep = lntoa_g(MAXV(hwe_ln_p, output_min_ln), cswritep);
+            }
           }
           AppendBinaryEoln(&cswritep);
           if (unlikely(Cswrite(&css, &cswritep))) {
@@ -5294,19 +5302,23 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       const uint32_t femalep_col = hardy_flags & kfHardyColFemalep;
       if (femalep_col) {
         cswritep = strcpya_k(cswritep, "\tFEMALE_ONLY_");
-        if (midp) {
-          cswritep = strcpya_k(cswritep, "MIDP");
-        } else {
-          *cswritep++ = 'P';
+        if (report_neglog10p) {
+          cswritep = strcpya_k(cswritep, "NEG_LOG10_");
         }
+        if (midp) {
+          cswritep = strcpya_k(cswritep, "MID");
+        }
+        *cswritep++ = 'P';
       }
       if (p_col) {
         *cswritep++ = '\t';
-        if (midp) {
-          cswritep = strcpya_k(cswritep, "MIDP");
-        } else {
-          *cswritep++ = 'P';
+        if (report_neglog10p) {
+          cswritep = strcpya_k(cswritep, "NEG_LOG10_");
         }
+        if (midp) {
+          cswritep = strcpya_k(cswritep, "MID");
+        }
+        *cswritep++ = 'P';
       }
       AppendBinaryEoln(&cswritep);
       fputs("--hardy: Writing chrX results...", stdout);
@@ -5416,8 +5428,8 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
               male_ax_ct = male_obs_ct - male_a1_ct - male_hethap_ct;
             }
             female_two_ax_ct = female_obs_ct - female_hom_a1_ct - female_het_a1_ct;
-            // Correct to increment this before looking up hwe_x_pvals[] (and
-            // to not increment on a1_idx == 0).
+            // Correct to increment this before looking up hwe_x_ln_pvals[]
+            // (and to not increment on a1_idx == 0).
             ++xgeno_idx;
           }
           if (gcounts) {
@@ -5454,14 +5466,35 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           }
           if (femalep_col) {
             *cswritep++ = '\t';
-            const double female_hwe_p = HweP(female_het_a1_ct, female_hom_a1_ct, female_two_ax_ct, midp);
-            cswritep = dtoa_g(MAXV(female_hwe_p, output_min_p), cswritep);
+            const double female_hwe_ln_p = HweLnP(female_het_a1_ct, female_hom_a1_ct, female_two_ax_ct, midp);
+            if (report_neglog10p) {
+              const double reported_val = (-kRecipLn10) * female_hwe_ln_p;
+              cswritep = dtoa_g(reported_val, cswritep);
+            } else {
+              cswritep = lntoa_g(MAXV(female_hwe_ln_p, output_min_ln), cswritep);
+            }
           }
           if (p_col) {
             *cswritep++ = '\t';
             // bugfix (27 Jun 2020): forgot to correct this for multiallelic
             // variants
-            cswritep = dtoa_g(MAXV(hwe_x_pvals[variant_idx + xgeno_idx], output_min_p), cswritep);
+
+            // temporary
+            const double ln_pval = hwe_x_ln_pvals[variant_idx + xgeno_idx];
+            if (report_neglog10p) {
+              if (ln_pval != -750) {
+                const double reported_val = (-kRecipLn10) * ln_pval;
+                cswritep = dtoa_g(reported_val, cswritep);
+              } else {
+                cswritep = strcpya_k(cswritep, "inf");
+              }
+            } else {
+              if (ln_pval != -750) {
+                cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+              } else {
+                cswritep = dtoa_g(output_min_p, cswritep);
+              }
+            }
           }
           AppendBinaryEoln(&cswritep);
           if (unlikely(Cswrite(&css, &cswritep))) {

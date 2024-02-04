@@ -1866,6 +1866,8 @@ VcfParseErr VcfConvertUnphasedMultiallelicLine(const VcfImportBaseContext* vibcp
                   }
                 }
               } else {
+                // don't check halfcall_mode == kVcfHalfCallMissing yet because
+                // we want error_on_polyploid to work
                 cur_geno = ctow(second_allele_first_char) - 48;
                 if (unlikely(cur_geno >= 10)) {
                   return kVcfParseInvalidGt;
@@ -1906,6 +1908,9 @@ VcfParseErr VcfConvertUnphasedMultiallelicLine(const VcfImportBaseContext* vibcp
                       cur_geno = 2;
                     }
                   }
+                } else {
+                  // bugfix (3 Feb 2024)
+                  cur_geno = 3;
                 }
               }
             }
@@ -2417,6 +2422,8 @@ VcfParseErr VcfConvertPhasedMultiallelicLine(const VcfImportBaseContext* vibcp, 
                   }
                 }
               } else {
+                // don't check halfcall_mode == kVcfHalfCallMissing yet because
+                // we want error_on_polyploid to work
                 cur_geno = ctow(second_allele_first_char) - 48;
                 if (unlikely(cur_geno >= 10)) {
                   return kVcfParseInvalidGt;
@@ -2459,6 +2466,9 @@ VcfParseErr VcfConvertPhasedMultiallelicLine(const VcfImportBaseContext* vibcp, 
                       cur_geno = 2;
                     }
                   }
+                } else {
+                  // bugfix (3 Feb 2024)
+                  cur_geno = 3;
                 }
               }
             }

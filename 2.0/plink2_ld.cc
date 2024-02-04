@@ -5198,9 +5198,13 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         const uintptr_t* cur_genovec = pgvs[var_idx].genovec;
         STD_ARRAY_DECL(uint32_t, 4, genocounts);
         GenoarrCountFreqsUnsafe(cur_genovec, founder_ct, genocounts);
-        double hwe_pval;
+        write_iter = strcpya_k(g_logbuf, "  ");
+        write_iter = strcpya(write_iter, ld_console_varids[var_idx]);
+        write_iter = strcpya_k(write_iter, ": ");
+        double hwe_ln_pval;
         if (!is_xs[var_idx]) {
-          hwe_pval = HweP(genocounts[1], genocounts[0], genocounts[2], hwe_midp);
+          hwe_ln_pval = HweLnP(genocounts[1], genocounts[0], genocounts[2], hwe_midp);
+          write_iter = lntoa_g(hwe_ln_pval, write_iter);
         } else {
           STD_ARRAY_DECL(uint32_t, 4, male_genocounts);
           GenoarrCountSubsetFreqs(cur_genovec, sex_male_collapsed_interleaved, founder_ct, x_male_ct, male_genocounts);
@@ -5212,9 +5216,16 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
             genocounts[1] -= nosex_genocounts[1];
             genocounts[2] -= nosex_genocounts[2];
           }
-          hwe_pval = HweXchrP(genocounts[1], genocounts[0] - male_genocounts[0], genocounts[2] - male_genocounts[2], male_genocounts[0], male_genocounts[2], hwe_midp);
+          hwe_ln_pval = HweXchrLnP(genocounts[1], genocounts[0] - male_genocounts[0], genocounts[2] - male_genocounts[2], male_genocounts[0], male_genocounts[2], hwe_midp);
+          // temporary
+          if (hwe_ln_pval != -750) {
+            write_iter = lntoa_g(hwe_ln_pval, write_iter);
+          } else {
+            *write_iter++ = '0';
+          }
         }
-        logprintf("  %s: %g\n", ld_console_varids[var_idx], hwe_pval);
+        memcpy_k(write_iter, "\n", 2);
+        logputsb();
       }
     }
     logputs("\n");

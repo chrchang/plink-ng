@@ -180,22 +180,23 @@ FLAGSET_DEF_START()
   kfHardy0,
   kfHardyZs = (1 << 0),
   kfHardyMidp = (1 << 1),
-  kfHardyRedundant = (1 << 2),
+  kfHardyLog10 = (1 << 2),
+  kfHardyRedundant = (1 << 3),
 
-  kfHardyColChrom = (1 << 3),
-  kfHardyColPos = (1 << 4),
-  kfHardyColRef = (1 << 5),
-  kfHardyColAlt1 = (1 << 6),
-  kfHardyColAlt = (1 << 7),
-  kfHardyColMaybeprovref = (1 << 8),
-  kfHardyColProvref = (1 << 9),
-  kfHardyColAx = (1 << 10),
-  kfHardyColGcounts = (1 << 11),
-  kfHardyColGcount1col = (1 << 12),
-  kfHardyColHetfreq = (1 << 13),
-  kfHardyColSexaf = (1 << 14),
-  kfHardyColFemalep = (1 << 15),
-  kfHardyColP = (1 << 16),
+  kfHardyColChrom = (1 << 4),
+  kfHardyColPos = (1 << 5),
+  kfHardyColRef = (1 << 6),
+  kfHardyColAlt1 = (1 << 7),
+  kfHardyColAlt = (1 << 8),
+  kfHardyColMaybeprovref = (1 << 9),
+  kfHardyColProvref = (1 << 10),
+  kfHardyColAx = (1 << 11),
+  kfHardyColGcounts = (1 << 12),
+  kfHardyColGcount1col = (1 << 13),
+  kfHardyColHetfreq = (1 << 14),
+  kfHardyColSexaf = (1 << 15),
+  kfHardyColFemalep = (1 << 16),
+  kfHardyColP = (1 << 17),
   kfHardyColDefault = (kfHardyColChrom | kfHardyColMaybeprovref | kfHardyColAx | kfHardyColGcounts | kfHardyColHetfreq | kfHardyColSexaf | kfHardyColP),
   kfHardyColAll = ((kfHardyColP * 2) - kfHardyColChrom)
 FLAGSET_DEF_END(HardyFlags);
@@ -398,7 +399,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
 
 PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), uint32_t raw_sample_ct, uint32_t autosomal_variant_ct, uint32_t autosomal_xallele_ct, uint32_t hwe_x_ct, uint32_t x_xallele_ct, PgenReader* simple_pgrp, STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts));
 
-PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), uint32_t x_start, uint32_t hwe_x_ct, uintptr_t x_xallele_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_pvals_ptr);
+PglErr ComputeHweXLnPvals(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), uint32_t x_start, uint32_t hwe_x_ct, uintptr_t x_xallele_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_ln_pvals_ptr);
 
 PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end);
 

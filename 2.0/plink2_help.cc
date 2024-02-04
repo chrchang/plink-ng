@@ -723,13 +723,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    The default is chrom,maybeprovref,nmiss,nobs,fmiss.\n\n"
               );
     HelpPrint("hardy\0", &help_ctrl, 1,
-"  --hardy ['zs'] ['midp'] ['redundant'] ['cols='<column set descriptor>]\n"
+"  --hardy ['zs'] ['midp'] ['log10'] ['redundant'] ['cols='<col set descriptor>]\n"
 "    Hardy-Weinberg exact test p-value report(s).\n"
 "    * By default, only founders are considered; change this with --nonfounders.\n"
 "    * chrX is now omitted from the main <output prefix>.hardy report.  Instead,\n"
 "      (if present) it gets its own <output prefix>.hardy.x report based on the\n"
 "      method described in Graffelman J, Weir BS (2016) Hardy-Weinberg\n"
 "      equilibrium and the X chromosome.\n"
+"    * The 'log10' modifier causes p-values to be reported in -log10(p) form.\n"
 "    * For variants with k alleles where k>2, k separate 'biallelic' tests are\n"
 "      performed, each reported on its own line.  However, biallelic variants\n"
 "      are normally reported on a single line, since the counts/frequencies\n"
@@ -757,7 +758,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      hetfreq: Observed and expected het-A1 frequencies.\n"
 "      sexaf: Female and male A1 observed allele frequencies (chrX only).\n"
 "      femalep: Female-only p/midp-value (chrX only).\n"
-"      p: Hardy-Weinberg equilibrium exact test p/midp-value.\n"
+"      p: Hardy-Weinberg equilibrium exact test p/midp-value (or -log10(p)).\n"
 "    The default is chrom,maybeprovref,ax,gcounts,hetfreq,sexaf,p.\n\n"
                );
     HelpPrint("het\0", &help_ctrl, 1,

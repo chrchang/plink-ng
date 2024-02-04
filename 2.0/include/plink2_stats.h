@@ -58,16 +58,41 @@ HEADER_INLINE double ZscoreToLnP(double zz) {
   return ChisqToLnP(zz * zz, 1);
 }
 
-double HweP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp);
+// Assumes xx is a nonnegative integer.
+double Lfact(double xx);
 
-// returns 0 if close enough to Hardy-Weinberg equilibrium
+// HweP() has been replaced by HweLnP().  HweThresh() and HweThreshMidp() have
+// been replaced by HweThreshLn().
+
+double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp);
+
+// these return 0 if close enough to Hardy-Weinberg equilibrium
 uint32_t HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh);
 
 uint32_t HweThreshMidp(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh);
 
+uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp, double ln_thresh);
+
+HEADER_INLINE uint32_t HweThreshLn(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp, double thresh, double ln_thresh) {
+  // kLnNormalMin = -708.3964185...
+  if (ln_thresh > -708.396) {
+    if (!midp) {
+      return HweThresh(obs_hets, obs_hom1, obs_hom2, thresh);
+    } else {
+      return HweThreshMidp(obs_hets, obs_hom1, obs_hom2, thresh);
+    }
+  }
+  return HweThreshLnMain(obs_hets, obs_hom1, obs_hom2, midp, ln_thresh);
+}
+
 double FisherExact2x2P(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp);
 
 double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp);
+
+HEADER_INLINE double HweXchrLnP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp) {
+  const double pval = HweXchrP(female_hets, female_hom1, female_hom2, male1, male2, midp);
+  return (pval == 0)? -750 : log(pval);
+}
 
 #ifdef __cplusplus
 }

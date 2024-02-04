@@ -3791,18 +3791,18 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
   *variant_ct_ptr -= removed_ct;
 }
 
-void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, MiscFlags misc_flags, double hwe_thresh, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_ln_pvals, MiscFlags misc_flags, double hwe_ln_thresh, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   uint32_t prefilter_variant_ct = *variant_ct_ptr;
   const uint32_t midp = (misc_flags / kfMiscHweMidp) & 1;
   const uint32_t keep_fewhet = (misc_flags / kfMiscHweKeepFewhet) & 1;
-  hwe_thresh *= 1 - kSmallEpsilon;
+  hwe_ln_thresh *= 1 + kSmallEpsilon;
+  const double hwe_thresh = exp(hwe_ln_thresh);
   uint32_t removed_ct = 0;
   uint32_t min_obs = UINT32_MAX;
   uint32_t max_obs = 0;
   uint32_t male_a1_ct = 0;
   uint32_t male_ax_ct = 0;
-  const double* hwe_x_pvals_iter = hwe_x_pvals;
-  const double hwe_thresh_recip = (1 + 4 * kSmallEpsilon) / hwe_thresh;
+  const double* hwe_x_ln_pvals_iter = hwe_x_ln_pvals;
   uintptr_t autosomal_xgeno_idx = 0;
   uintptr_t x_xgeno_idx = 0;
   uint32_t x_skip_code = UINT32_MAX;
@@ -3811,7 +3811,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, c
   if (XymtExists(cip, kChrOffsetX, &x_code)) {
     const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
     x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
-    if (!hwe_x_pvals) {
+    if (!hwe_x_ln_pvals) {
       x_skip_code = x_code;  // only set this if we're skipping chrX
       prefilter_variant_ct -= PopcountBitRange(variant_include, x_start, cip->chr_fo_vidx_start[x_chr_fo_idx + 1]);
     }
@@ -3870,11 +3870,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, c
           }
         }
         pval_computed = 1;
-        if (midp) {
-          test_failed = HweThreshMidp(het_a1_ct, hom_a1_ct, two_ax_ct, hwe_thresh);
-        } else {
-          test_failed = HweThresh(het_a1_ct, hom_a1_ct, two_ax_ct, hwe_thresh);
-        }
+        test_failed = HweThreshLn(het_a1_ct, hom_a1_ct, two_ax_ct, midp, hwe_thresh, hwe_ln_thresh);
         if (test_failed) {
           break;
         }
@@ -3906,22 +3902,21 @@ void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, c
       const uint32_t female_obs_ct = hom_a1_ct + het_a1_ct + two_ax_ct;
       cur_obs_ct = female_obs_ct + male_a1_ct + male_ax_ct;
       pval_computed = 1;
-      double joint_pval = *hwe_x_pvals_iter++;
+      double joint_ln_pval = *hwe_x_ln_pvals_iter++;
       for (uint32_t xallele_idx = 0; ; ++xallele_idx) {
-        test_failed = (joint_pval < hwe_thresh);
+        test_failed = (joint_ln_pval < hwe_ln_thresh);
         if (test_failed && keep_fewhet && (het_a1_ct * S_CAST(uint64_t, het_a1_ct) < (4LLU * hom_a1_ct) * two_ax_ct)) {
           // female-only retest
-          if (joint_pval != 0.0) {
-            joint_pval *= hwe_thresh_recip;
+          double joint_pval;
+          if (joint_ln_pval != -750) {
+            joint_ln_pval = joint_ln_pval - hwe_ln_thresh;
+            joint_pval = exp(joint_ln_pval);
           } else {
-            // keep the variant iff female-only p-value also underflows
+            // temporary: preserve preexisting behavior
+            joint_ln_pval = -1022 * kLn2;
             joint_pval = kDblNormalMin;
           }
-          if (midp) {
-            test_failed = !HweThreshMidp(het_a1_ct, hom_a1_ct, two_ax_ct, joint_pval);
-          } else {
-            test_failed = !HweThresh(het_a1_ct, hom_a1_ct, two_ax_ct, joint_pval);
-          }
+          test_failed = !HweThreshLn(het_a1_ct, hom_a1_ct, two_ax_ct, midp, joint_pval, joint_ln_pval);
         }
         // bugfix (27 Jun 2020): don't clobber previous allele-test failure if
         // variant is multiallelic
@@ -3937,10 +3932,10 @@ void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, c
           het_a1_ct -= cur_male_xgeno_cts[1];
         }
         two_ax_ct = female_obs_ct - hom_a1_ct - het_a1_ct;
-        joint_pval = hwe_x_pvals_iter[xallele_idx];
+        joint_ln_pval = hwe_x_ln_pvals_iter[xallele_idx];
       }
       x_xgeno_idx += xallele_ct;
-      hwe_x_pvals_iter = &(hwe_x_pvals_iter[xallele_ct]);
+      hwe_x_ln_pvals_iter = &(hwe_x_ln_pvals_iter[xallele_ct]);
     }
     if (test_failed) {
       ClearBit(variant_uidx, variant_include);
