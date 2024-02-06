@@ -1947,6 +1947,8 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
     // Tried using old algorithm on rare_ct < 64, but this didn't make a
     // noticeable difference to --hardy execution time on 1000 Genomes data, so
     // I'd rather not bloat this function further.
+    // (might still be worth it due to midp use case?  revisit after chrX is
+    // working.)
 
     // If we're close enough to the center, we may be best off computing 1 -
     // <sum of center probabilities>.  But this approach is vulnerable to
@@ -1980,11 +1982,11 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
         curr_homr += 1;
         curr_homc += 1;
         lastp *= (curr_hets * (curr_hets - 1)) / (4 * curr_homr * curr_homc);
-        curr_hets -= 2;
         if (lastp < 1 + kSmallEpsilon) {
           tie_ct += (lastp > 1 - kSmallEpsilon);
           break;
         }
+        curr_hets -= 2;
         centerp += lastp;
       }
       if (midp) {
@@ -1998,14 +2000,14 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
     curr_hets += 2;
     while (curr_homr > 0.5) {
       lastp *= (4 * curr_homr * curr_homc) / (curr_hets * (curr_hets - 1));
+      curr_homr -= 1;
+      curr_homc -= 1;
       const double preaddp = tailp;
       tailp += lastp;
       if (tailp <= preaddp) {
         break;
       }
       curr_hets += 2;
-      curr_homr -= 1;
-      curr_homc -= 1;
     }
     // Now we want to jump near the other tail, without evaluating that many
     // terms in between.
@@ -2045,8 +2047,9 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
     {
       const double delta = 0.5 * (curr_hets + S_CAST(double, obs_hets)) - modal_nhet;
       curr_homr = 0.5 * (curr_homr + S_CAST(double, obs_homr)) + delta;
-      // Round and clamp.  (er, does clamping ever come up in this direction?)
-      curr_homr = S_CAST(double, S_CAST(int32_t, curr_homr + 0.5));
+      // Round up (to guarantee we've actually moved to the other side of the
+      // mode) and clamp.
+      curr_homr = S_CAST(double, S_CAST(int32_t, curr_homr + 1));
       if (curr_homr > max_homr) {
         curr_homr = max_homr;
       }
@@ -2064,7 +2067,7 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
       if (lnprob_diff > max_diff) {
         if (curr_homr >= max_homr) {
           // All terms on this tail are larger than the starting term.  Exit.
-          // (is this possible?)
+          // (This is possible when obs_hom1 == obs_hom2 == 0.)
           if (midp) {
             tailp -= 0.5;
           }
@@ -2094,13 +2097,15 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
         }
       }
     }
-    // Sum toward center, until lastp >= 1.
+    // Sum toward center, until lastp >= 1 or we're about to double-count the
+    // starting cell (possible when midp true).
     double lastp_tail = lastp;
     if (lastp < 1 - kSmallEpsilon) {
+      const double starting_homr_p1 = obs_homr + 1;
       double curr_homr_center = curr_homr;
       double curr_homc_center = curr_homc;
       double curr_hets_center = curr_hets;
-      while (1) {
+      while (curr_homr_center > starting_homr_p1) {
         tailp += lastp;
         curr_hets_center += 2;
         lastp *= (4 * curr_homr_center * curr_homc_center) / (curr_hets_center * (curr_hets_center - 1));
@@ -2111,7 +2116,7 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
         curr_homc_center -= 1;
       }
     }
-    if (lastp < 1 + kSmallEpsilon) {
+    if ((lastp >= 1 - kSmallEpsilon) && (lastp < 1 + kSmallEpsilon)) {
       tailp += lastp;
       ++tie_ct;
     }
@@ -2181,8 +2186,9 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
   {
     const double delta = modal_nhet - 0.5 * (curr_hets + S_CAST(double, obs_hets));
     curr_homr = 0.5 * (curr_homr + S_CAST(double, obs_homr)) - delta;
-    // Round and clamp.
-    curr_homr = S_CAST(double, S_CAST(int32_t, curr_homr + 0.5));
+    // Round down (to guarantee we've actually moved to the other side of the
+    // mode) and clamp.
+    curr_homr = S_CAST(double, S_CAST(int32_t, curr_homr));
     if (curr_homr < 0) {
       curr_homr = 0;
     }
@@ -2218,13 +2224,15 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
       }
     }
   }
-  // Sum toward center, until lastp >= 1.
+  // Sum toward center, until lastp >= 1 or we're about to double-count the
+  // starting cell.
   double lastp_tail = lastp;
   if (lastp < 1 - kSmallEpsilon) {
+    const double starting_homr_m1 = obs_homr - 1;
     double curr_homr_center = curr_homr;
     double curr_homc_center = curr_homc;
     double curr_hets_center = curr_hets;
-    while (1) {
+    while (curr_homr_center < starting_homr_m1) {
       tailp += lastp;
       curr_homr_center += 1;
       curr_homc_center += 1;
@@ -2235,7 +2243,7 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
       curr_hets_center -= 2;
     }
   }
-  if (lastp < 1 + kSmallEpsilon) {
+  if ((lastp >= 1 - kSmallEpsilon) && (lastp < 1 + kSmallEpsilon)) {
     tailp += lastp;
     ++tie_ct;
   }
