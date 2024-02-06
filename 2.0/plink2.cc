@@ -6342,7 +6342,7 @@ int main(int argc, char** argv) {
 
       case 'h':
         if (strequal_k_unsafe(flagname_p2, "ardy")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
