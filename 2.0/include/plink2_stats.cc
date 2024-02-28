@@ -1997,8 +1997,8 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
       return log(1 - centerp);
     }
     double tailp = 1;
-    curr_hets += 2;
     while (curr_homr > 0.5) {
+      curr_hets += 2;
       lastp *= (4 * curr_homr * curr_homc) / (curr_hets * (curr_hets - 1));
       curr_homr -= 1;
       curr_homc -= 1;
@@ -2007,7 +2007,6 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
       if (tailp <= preaddp) {
         break;
       }
-      curr_hets += 2;
     }
     // Now we want to jump near the other tail, without evaluating that many
     // terms in between.
@@ -2697,6 +2696,7 @@ uint32_t HweThreshMidp(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, dou
 }
 
 uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp, double ln_thresh) {
+  assert(ln_thresh < -708);
   // Threshold-test-only version of HweLnP() which is usually able to exit
   // from the calculation earlier.  Returns 0 if these counts are close enough
   // to Hardy-Weinberg equilibrium, 1 otherwise.
@@ -2718,6 +2718,7 @@ uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, u
   const int64_t rare_ct = 2LL * obs_homr + obs_hets;
   // Change this to "rare_ct < 2" if ln_thresh restriction is being loosened
   // (to e.g. compare results against HweThresh()).
+  // TODO: also look at |obs_hets - modal_nhet|, bsru32(sample_ct)
   if (rare_ct < 64) {
     return 0;
   }
@@ -3568,13 +3569,13 @@ void HweLnFirstRow(double hetab, double homa, double homb, double* tailp_ptr, do
     while (tmp_homr > 0.5) {
       tmp_hets += 2;
       lastp *= (4 * tmp_homr * tmp_homc) / (tmp_hets * (tmp_hets - 1));
+      tmp_homr -= 1;
+      tmp_homc -= 1;
       const double preaddp = tailp;
       tailp += lastp;
       if (tailp <= preaddp) {
         break;
       }
-      tmp_homr -= 1;
-      tmp_homc -= 1;
     }
     const double maf = rare_ctd / allele_ctd;
     const double modal_nhet = rare_ctd * (1 - maf);
@@ -3808,7 +3809,7 @@ void HweLnFirstRow(double hetab, double homa, double homb, double* tailp_ptr, do
   }
   return starting_lnprob + log(tailp);
 }
-  */
+*/
 
 /*
 double HweXchrLnP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp) {
