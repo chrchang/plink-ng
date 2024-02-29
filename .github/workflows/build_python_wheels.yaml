@@ -1,0 +1,43 @@
+# Builds Python wheels on many OSes, archs, and python versions with cibuildwheel
+
+name: Build Python Wheels for Linux, Windows, Mac
+
+on: [workflow_dispatch]
+
+jobs:
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-latest, macos-14 ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU for aarch64 emulation
+        if: runner.os == 'Linux'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: Create sdist and unpack into ./sdist/Pgenlib-latest
+        working-directory: ./2.0/Python
+        run: |
+          pipx run build --sdist
+          mkdir sdist
+          tar -xf ./dist/Pgenlib-*.tar.gz -C ./sdist
+          mv ./sdist/* Pgenlib-latest/
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.16.5
+        with:
+          package-dir: ./2.0/Python/sdist/Pgenlib-latest
+        env:
+          CIBW_ARCHS_LINUX: x86_64 aarch64
+          CIBW_ARCHS_MACOS: x86_64 aarch64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+          path: ./wheelhouse/*.whl

@@ -1,0 +1,21 @@
+# Test python build on macOS aarch64
+
+name: Run python build for Pgenlib on Apple Silicon
+
+on: [push, pull_request]
+
+jobs:
+  run_build:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ macos-14 ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run build
+        working-directory: ./2.0/Python
+        run: pipx run build
+
