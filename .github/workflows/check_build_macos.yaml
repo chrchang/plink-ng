@@ -20,5 +20,5 @@ jobs:
     - name: Run build
       working-directory: ./2.0/Python
       run: |
-        "${{ steps.python.outputs.python-path }}" -m pip install pipx
+        python -m pip install pipx
         pipx run build
