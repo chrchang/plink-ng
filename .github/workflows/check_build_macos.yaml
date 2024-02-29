@@ -22,4 +22,3 @@ jobs:
       run: |
         "${{ steps.python.outputs.python-path }}" -m pip install pipx
         pipx run build
-
