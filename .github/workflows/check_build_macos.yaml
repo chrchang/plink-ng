@@ -13,13 +13,13 @@ jobs:
         os: [ macos-14 ]
 
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v5
 
-      - name: Run build
-        working-directory: ./2.0/Python
-        run: |
-           "${{ steps.python.outputs.python-path }}" -m pip install pipx
-          pipx run build
+    - name: Run build
+      working-directory: ./2.0/Python
+      run: |
+        "${{ steps.python.outputs.python-path }}" -m pip install pipx
+        pipx run build
 
