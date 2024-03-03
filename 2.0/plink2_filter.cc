@@ -3906,17 +3906,12 @@ void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, c
       for (uint32_t xallele_idx = 0; ; ++xallele_idx) {
         test_failed = (joint_ln_pval < hwe_ln_thresh);
         if (test_failed && keep_fewhet && (het_a1_ct * S_CAST(uint64_t, het_a1_ct) < (4LLU * hom_a1_ct) * two_ax_ct)) {
-          // female-only retest
-          double joint_pval;
-          if (joint_ln_pval != -750) {
-            joint_ln_pval = joint_ln_pval - hwe_ln_thresh;
-            joint_pval = exp(joint_ln_pval);
-          } else {
-            // temporary: preserve preexisting behavior
-            joint_ln_pval = -1022 * kLn2;
-            joint_pval = kDblNormalMin;
-          }
-          test_failed = !HweThreshLn(het_a1_ct, hom_a1_ct, two_ax_ct, midp, joint_pval, joint_ln_pval);
+          // In chrX keep_fewhet case, we only keep a
+          // Graffelman/Weir-test-failing variant if there are few female hets,
+          // *and* the male/female allele-frequency imbalance isn't severe
+          // enough to make the G/W test fail on its own.
+          joint_ln_pval = joint_ln_pval - hwe_ln_thresh;
+          test_failed = !HweThreshLn(het_a1_ct, hom_a1_ct, two_ax_ct, midp, exp(joint_ln_pval), joint_ln_pval);
         }
         // bugfix (27 Jun 2020): don't clobber previous allele-test failure if
         // variant is multiallelic

@@ -87,12 +87,7 @@ HEADER_INLINE uint32_t HweThreshLn(int32_t obs_hets, int32_t obs_hom1, int32_t o
 
 double FisherExact2x2P(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp);
 
-double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp);
-
-HEADER_INLINE double HweXchrLnP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp) {
-  const double pval = HweXchrP(female_hets, female_hom1, female_hom2, male1, male2, midp);
-  return (pval == 0)? -750 : log(pval);
-}
+double HweXchrLnP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp);
 
 #ifdef __cplusplus
 }
