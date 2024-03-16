@@ -2431,7 +2431,7 @@ HEADER_INLINE uint32_t abs_i32(int32_t ii) {
   return (S_CAST(uint32_t, ii) ^ neg_sign_bit) - neg_sign_bit;
 }
 
-extern uintptr_t g_failed_alloc_attempt_size;
+extern uint64_t g_failed_alloc_attempt_size;
 // with NDEBUG undefined, may want to define a bunch of macros so that line
 // number is printed as well; see e.g.
 //   https://stackoverflow.com/questions/15884793/how-to-get-the-name-or-file-and-line-of-caller-method

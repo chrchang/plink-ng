@@ -3453,7 +3453,7 @@ void DispExitMsg(PglErr reterr) {
       logputs("\n");
       logerrputs(kErrstrNomem);
       if (g_failed_alloc_attempt_size) {
-        logerrprintf("Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+        logerrprintf("Failed allocation size: %" PRIu64 "\n", g_failed_alloc_attempt_size);
       }
       // kPglRetReadFail no longer gets a message here, for the same reason
       // kPglRetOpenFail doesn't: it's important to know which file we failed
@@ -4005,7 +4005,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
   CmdlineParsePhase1_ret_NOMEM2:
     fputs(kErrstrNomem, stderr);
     if (g_failed_alloc_attempt_size) {
-      fprintf(stderr, "Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+      fprintf(stderr, "Failed allocation size: %" PRIu64 "\n", g_failed_alloc_attempt_size);
     }
     reterr = kPglRetNomem;
     break;
@@ -4164,7 +4164,7 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
   CmdlineParsePhase2_ret_NOMEM_NOLOG:
     fputs(kErrstrNomem, stderr);
     if (g_failed_alloc_attempt_size) {
-      fprintf(stderr, "Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+      fprintf(stderr, "Failed allocation size: %" PRIu64 "\n", g_failed_alloc_attempt_size);
     }
     reterr = kPglRetNomem;
     break;

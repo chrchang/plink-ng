@@ -11742,7 +11742,7 @@ int main(int argc, char** argv) {
  main_ret_1:
   if (reterr == kPglRetNomemCustomMsg) {
     if (g_failed_alloc_attempt_size) {
-      logerrprintf("Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+      logerrprintf("Failed allocation size: %" PRIu64 "\n", g_failed_alloc_attempt_size);
     }
     reterr = kPglRetNomem;
   } else {
@@ -11754,7 +11754,7 @@ int main(int argc, char** argv) {
   main_ret_NOMEM_NOLOG2:
     fputs(kErrstrNomem, stderr);
     if (g_failed_alloc_attempt_size) {
-      fprintf(stderr, "Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+      fprintf(stderr, "Failed allocation size: %" PRIu64 "\n", g_failed_alloc_attempt_size);
     }
     reterr = kPglRetNomem;
     break;
