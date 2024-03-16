@@ -3578,7 +3578,7 @@ double HweXchrLnP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2,
     tailp -= S_CAST(double, tie_ct) * 0.5;
   }
   double result = log(tailp) + absolute_row_lnprob + starting_lnprob;
-  if (result > -kEpsilon) {
+  if (result > -kBigEpsilon) {
     // true p-value should always be 1 here
     return 0.0;
   }

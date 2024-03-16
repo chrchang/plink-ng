@@ -21,7 +21,7 @@
 namespace plink2 {
 #endif
 
-uintptr_t g_failed_alloc_attempt_size = 0;
+uint64_t g_failed_alloc_attempt_size = 0;
 
 #if (((__GNUC__ == 4) && (__GNUC_MINOR__ < 7)) || (__GNUC__ >= 11)) && !defined(__APPLE__)
 BoolErr pgl_malloc(uintptr_t size, void* pp) {

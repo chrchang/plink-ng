@@ -5,7 +5,7 @@
 #   Do not use SSE4.2 instructions: NO_SSE42
 #   Print clear error message if SSE42/AVX2 needed but missing: CPU_CHECK
 #   Do not link to LAPACK: NO_LAPACK
-#   Use cblas_f77 instead of cblas: FORCE_CBLAS_F77
+#   Use cblas_f77 instead of cblas: PREFER_CBLAS_F77
 #   Use only -O2 optimization for zstd (may be necessary for gcc 4.x): ZSTD_O2
 #   Statically link zlib: STATIC_ZLIB
 #   Statically link zstd: STATIC_ZSTD

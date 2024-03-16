@@ -106,7 +106,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 813
+#define PLINK2_BASE_VERNUM 814
 
 
 #define _FILE_OFFSET_BITS 64
@@ -2446,6 +2446,10 @@ HEADER_CINLINE uintptr_t RoundUpPow2(uintptr_t val, uintptr_t alignment) {
   return (val + alignment - 1) & (~(alignment - 1));
 }
 
+HEADER_CINLINE uint64_t RoundUpPow2U64(uint64_t val, uint64_t alignment) {
+  return (val + alignment - 1) & (~(alignment - 1));
+}
+
 
 // This is best when the divisor is constant (so (divisor - 1) can be
 // collapsed), and handles val == 0 properly.  If the divisor isn't constant
@@ -2491,7 +2495,7 @@ HEADER_INLINE uint32_t abs_i32(int32_t ii) {
   return (S_CAST(uint32_t, ii) ^ neg_sign_bit) - neg_sign_bit;
 }
 
-extern uintptr_t g_failed_alloc_attempt_size;
+extern uint64_t g_failed_alloc_attempt_size;
 // with NDEBUG undefined, may want to define a bunch of macros so that line
 // number is printed as well; see e.g.
 //   https://stackoverflow.com/questions/15884793/how-to-get-the-name-or-file-and-line-of-caller-method

@@ -7893,13 +7893,8 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       writebuf_blen += allele_ubound;
     }
     writebuf_blen += kMaxMediumLine;
-#ifndef __LP64__
-    if (writebuf_blen > 0x7ff00000) {
-      goto ExportBcf_ret_NOMEM;
-    }
-#endif
     BigstackReset(writebuf);
-    if (unlikely(bigstack_alloc_c(writebuf_blen, &writebuf))) {
+    if (unlikely(bigstack_alloc64_c(writebuf_blen, &writebuf))) {
       goto ExportBcf_ret_NOMEM;
     }
 

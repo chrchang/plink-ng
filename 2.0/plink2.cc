@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (2 Mar 2024)";
+  " (15 Mar 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -12086,7 +12086,7 @@ int main(int argc, char** argv) {
  main_ret_1:
   if (reterr == kPglRetNomemCustomMsg) {
     if (g_failed_alloc_attempt_size) {
-      logerrprintf("Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+      logerrprintf("Failed allocation size: %" PRIu64 "\n", g_failed_alloc_attempt_size);
     }
     reterr = kPglRetNomem;
   } else {
@@ -12098,7 +12098,7 @@ int main(int argc, char** argv) {
   main_ret_NOMEM_NOLOG2:
     fputs(kErrstrNomem, stderr);
     if (g_failed_alloc_attempt_size) {
-      fprintf(stderr, "Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+      fprintf(stderr, "Failed allocation size: %" PRIu64 "\n", g_failed_alloc_attempt_size);
     }
     reterr = kPglRetNomem;
     break;

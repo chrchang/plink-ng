@@ -9250,11 +9250,14 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
   BcfToPgen_ret_BGZF_FAIL_N:
     putc_unlocked('\n', stdout);
   BcfToPgen_ret_BGZF_FAIL:
-    // ReadFail, DecompressFail, and ThreadCreateFail possible.
+    // ReadFail, DecompressFail, ThreadCreateFail, and RewindFail possible.
     if (reterr == kPglRetReadFail) {
       logerrprintfww(kErrprintfFread, bcfname, rstrerror(errno));
     } else if (reterr == kPglRetDecompressFail) {
       logerrprintfww(kErrprintfDecompress, bcfname, bgzf_errmsg);
+    } else if (reterr == kPglRetRewindFail) {
+      // forgot this case (13 Mar 2024)
+      logerrprintfww(kErrprintfRewind, "--bcf file");
     }
     break;
   BcfToPgen_ret_REWIND_FAIL_N:

@@ -10557,17 +10557,13 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
             }
           } else {
             // ids=
-#ifndef __LP64__
-            if (unlikely(named_pop_ct > 23170)) {
-              goto FstReport_ret_NOMEM;
-            }
-#endif
             SetBit(first_cat_idx, cats_seen);
-            const uintptr_t named_pop_ct_m1 = named_pop_ct - k1LU;
-            pop_pair_ct = (named_pop_ct * named_pop_ct_m1) / 2;
-            if (unlikely(bigstack_alloc_u32(2 * pop_pair_ct, &pop_pairs))) {
+            const uint64_t named_pop_ct_m1 = named_pop_ct - k1LU;
+            const uint64_t pop_pair_ct_u64 = (named_pop_ct * named_pop_ct_m1) / 2;
+            if (unlikely(bigstack_alloc64_u32(2 * pop_pair_ct_u64, &pop_pairs))) {
               goto FstReport_ret_NOMEM;
             }
+            pop_pair_ct = pop_pair_ct_u64;
             uint32_t* pop_pairs_iter = pop_pairs;
             uintptr_t cats_seen_base1 = 0;
             uintptr_t cats_seen_bits1 = cats_seen[0];
@@ -10584,16 +10580,11 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
           }
         }
       } else if (flags & kfFstPopPairFile) {
-        const uint64_t possible_pair_ct = nonnull_category_ct * (nonnull_category_ct + 1LLU) / 2;
-#ifndef __LP64__
-        if (possible_pair_ct >= (32LLU << 32)) {
-          goto FstReport_ret_NOMEM;
-        }
-#endif
-        const uintptr_t possible_pair_ctl = BitCtToWordCt(possible_pair_ct);
+        const uint64_t possible_pair_ct_u64 = S_CAST(uint64_t, nonnull_category_ct) * (nonnull_category_ct + 1LLU) / 2;
+        const uint64_t possible_pair_ctl_u64 = DivUpU64(possible_pair_ct_u64, kBitsPerWord);
         uintptr_t* selected_pairs;
         uintptr_t* pop_include;
-        if (unlikely(bigstack_end_calloc_w(possible_pair_ctl, &selected_pairs) ||
+        if (unlikely(bigstack_end_calloc64_w(possible_pair_ctl_u64, &selected_pairs) ||
                      bigstack_end_calloc_w(raw_cat_ctl, &pop_include))) {
           goto FstReport_ret_NOMEM;
         }
@@ -10658,7 +10649,7 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
           sample_ct = RemoveExcludedCats(old_cats, cats_seen, raw_sample_ct, sample_ct, sample_include);
         }
         BigstackEndReset(bigstack_end_mark2);
-        pop_pair_ct = PopcountWords(selected_pairs, possible_pair_ctl);
+        pop_pair_ct = PopcountWords(selected_pairs, possible_pair_ctl_u64);
         if (unlikely(!pop_pair_ct)) {
           logerrprintfww("Error: %s is empty.\n", in_fname);
           goto FstReport_ret_INCONSISTENT_INPUT;
@@ -10721,15 +10712,11 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
       ctx.sample_ct = sample_ct;
       ctx.pop_ct = pop_ct;
       if (!(flags & (kfFstOneBasePop | kfFstExplicitPopIds | kfFstPopPairFile))) {
-#ifndef __LP64__
-        if (unlikely(pop_ct > 23170)) {
+        const uint64_t pop_pair_ct_u64 = (S_CAST(uint64_t, pop_ct) * (pop_ct - k1LU)) / 2;
+        if (unlikely(bigstack_alloc64_u32(2 * pop_pair_ct_u64, &pop_pairs))) {
           goto FstReport_ret_NOMEM;
         }
-#endif
-        pop_pair_ct = (pop_ct * (pop_ct - k1LU)) / 2;
-        if (unlikely(bigstack_alloc_u32(2 * pop_pair_ct, &pop_pairs))) {
-          goto FstReport_ret_NOMEM;
-        }
+        pop_pair_ct = pop_pair_ct_u64;
         uint32_t* pop_pairs_iter = pop_pairs;
         const uint32_t pop_ct_m1 = pop_ct - 1;
         for (uint32_t first_pop_idx = 0; first_pop_idx != pop_ct_m1; ++first_pop_idx) {

@@ -893,6 +893,17 @@ BoolErr bigstack_calloc_cpp(uintptr_t ct, char**** cpp_arr_ptr) {
   return 0;
 }
 
+#ifndef __LP64__
+BoolErr bigstack_calloc64_d(uint64_t ct, double** d_arr_ptr) {
+  *d_arr_ptr = S_CAST(double*, bigstack_alloc64(ct * sizeof(double)));
+  if (unlikely(!(*d_arr_ptr))) {
+    return 1;
+  }
+  ZeroDArr(ct, *d_arr_ptr);
+  return 0;
+}
+#endif
+
 BoolErr bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
   *uc_arr_ptr = S_CAST(unsigned char*, bigstack_end_alloc(ct));
   if (unlikely(!(*uc_arr_ptr))) {
@@ -964,6 +975,17 @@ BoolErr bigstack_end_calloc_cp(uintptr_t ct, char*** cp_arr_ptr) {
   ZeroPtrArr(ct, *cp_arr_ptr);
   return 0;
 }
+
+#ifndef __LP64__
+BoolErr bigstack_end_calloc64_w(uint64_t ct, uintptr_t** w_arr_ptr) {
+  *w_arr_ptr = S_CAST(uintptr_t*, bigstack_end_alloc64(ct * sizeof(intptr_t)));
+  if (unlikely(!(*w_arr_ptr))) {
+    return 1;
+  }
+  ZeroWArr(ct, *w_arr_ptr);
+  return 0;
+}
+#endif
 
 
 BoolErr PushLlStr(const char* str, LlStr** ll_stack_ptr) {
@@ -3535,7 +3557,7 @@ void DispExitMsg(PglErr reterr) {
       logputs("\n");
       logerrputs(kErrstrNomem);
       if (g_failed_alloc_attempt_size) {
-        logerrprintf("Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+        logerrprintf("Failed allocation size: %" PRIu64 "\n", g_failed_alloc_attempt_size);
       }
       // kPglRetReadFail no longer gets a message here, for the same reason
       // kPglRetOpenFail doesn't: it's important to know which file we failed
@@ -4087,7 +4109,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
   CmdlineParsePhase1_ret_NOMEM2:
     fputs(kErrstrNomem, stderr);
     if (g_failed_alloc_attempt_size) {
-      fprintf(stderr, "Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+      fprintf(stderr, "Failed allocation size: %" PRIu64 "\n", g_failed_alloc_attempt_size);
     }
     reterr = kPglRetNomem;
     break;
@@ -4246,7 +4268,7 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
   CmdlineParsePhase2_ret_NOMEM_NOLOG:
     fputs(kErrstrNomem, stderr);
     if (g_failed_alloc_attempt_size) {
-      fprintf(stderr, "Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+      fprintf(stderr, "Failed allocation size: %" PRIu64 "\n", g_failed_alloc_attempt_size);
     }
     reterr = kPglRetNomem;
     break;

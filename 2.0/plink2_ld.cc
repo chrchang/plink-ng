@@ -8947,12 +8947,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           max_vint_byte_ct = vint_byte_ct;
         }
       }
-#ifndef __LP64__
-      if (max_vint_byte_ct > 0x7fffffff) {
-        goto ClumpReports_ret_NOMEM;
-      }
-#endif
-      if (unlikely(bigstack_alloc_uc(max_vint_byte_ct, &overlap_raw_loadbuf) ||
+      if (unlikely(bigstack_alloc64_uc(max_vint_byte_ct, &overlap_raw_loadbuf) ||
                    bigstack_alloc_w(max_overlap_clump_size + 1, &overlap_allele_idxs))) {
         goto ClumpReports_ret_NOMEM;
       }

@@ -110,16 +110,6 @@ CONSTI32(kMaxIdBlen, kMaxIdSlen + 1);
 // allow extensions like .model.trend.fisher.set.score.adjusted
 CONSTI32(kMaxOutfnameExtBlen, 39);
 
-#ifdef __LP64__
-HEADER_CINLINE uint64_t RoundUpPow2U64(uint64_t val, uint64_t alignment) {
-  return RoundUpPow2(val, alignment);
-}
-#else
-HEADER_CINLINE uint64_t RoundUpPow2U64(uint64_t val, uint64_t alignment) {
-  return (val + alignment - 1) & (~(alignment - 1));
-}
-#endif
-
 extern const char kErrprintfFopen[];
 extern const char kErrprintfFread[];
 extern const char kErrprintfRewind[];
@@ -580,6 +570,17 @@ HEADER_INLINE void* bigstack_allocv(uintptr_t size) {
   return bigstack_alloc_raw(size);
 }
 
+// Don't want uint64_t -> uintptr_t truncation to hide insufficient-memory
+// scenarios in 32-bit builds.
+HEADER_INLINE void* bigstack_alloc64(uint64_t size) {
+  size = RoundUpPow2U64(size, kCacheline);
+  if (unlikely(bigstack_left() < size)) {
+    g_failed_alloc_attempt_size = size;
+    return nullptr;
+  }
+  return bigstack_alloc_raw(size);
+}
+
 
 // Typesafe, return-0-iff-success interfaces.  (See also bigstack_calloc_...
 // further below.)
@@ -745,6 +746,31 @@ HEADER_INLINE BoolErr bigstack_allocv_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
   return !(*w_arr_ptr);
 }
 
+HEADER_INLINE BoolErr bigstack_alloc64_c(uint64_t ct, char** c_arr_ptr) {
+  *c_arr_ptr = S_CAST(char*, bigstack_alloc64(ct));
+  return !(*c_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_alloc64_d(uint64_t ct, double** d_arr_ptr) {
+  *d_arr_ptr = S_CAST(double*, bigstack_alloc64(ct * sizeof(double)));
+  return !(*d_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_alloc64_f(uint64_t ct, float** f_arr_ptr) {
+  *f_arr_ptr = S_CAST(float*, bigstack_alloc64(ct * sizeof(float)));
+  return !(*f_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_alloc64_uc(uint64_t ct, unsigned char** uc_arr_ptr) {
+  *uc_arr_ptr = S_CAST(unsigned char*, bigstack_alloc64(ct));
+  return !(*uc_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_alloc64_u32(uint64_t ct, uint32_t** u32_arr_ptr) {
+  *u32_arr_ptr = S_CAST(uint32_t*, bigstack_alloc64(ct * sizeof(int32_t)));
+  return !(*u32_arr_ptr);
+}
+
 typedef struct LlStrStruct {
   NONCOPYABLE(LlStrStruct);
   struct LlStrStruct* next;
@@ -800,6 +826,14 @@ HEADER_INLINE BoolErr bigstack_calloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
 HEADER_INLINE BoolErr bigstack_calloc_u32p(uintptr_t ct, uint32_t*** u32p_arr_ptr) {
   return bigstack_calloc_w(ct, R_CAST(uintptr_t**, u32p_arr_ptr));
 }
+
+#ifdef __LP64__
+HEADER_INLINE BoolErr bigstack_calloc64_d(uint64_t ct, double** d_arr_ptr) {
+  return bigstack_calloc_d(ct, d_arr_ptr);
+}
+#else
+BoolErr bigstack_calloc64_d(uint64_t ct, double** d_arr_ptr);
+#endif
 
 #if __cplusplus >= 201103L
 
@@ -912,7 +946,7 @@ HEADER_INLINE void* bigstack_end_alloc_raw_rd(uintptr_t size) {
 }
 
 HEADER_INLINE void* bigstack_end_alloc_presized(uintptr_t size) {
-  uintptr_t cur_bigstack_left = bigstack_left();
+  const uintptr_t cur_bigstack_left = bigstack_left();
   if (size > cur_bigstack_left) {
     g_failed_alloc_attempt_size = size;
     return nullptr;
@@ -923,6 +957,20 @@ HEADER_INLINE void* bigstack_end_alloc_presized(uintptr_t size) {
 HEADER_INLINE void* bigstack_end_alloc(uintptr_t size) {
   size = RoundUpPow2(size, kEndAllocAlign);
   return bigstack_end_alloc_presized(size);
+}
+
+HEADER_INLINE void* bigstack_end_alloc64_presized(uint64_t size) {
+  const uintptr_t cur_bigstack_left = bigstack_left();
+  if (size > cur_bigstack_left) {
+    g_failed_alloc_attempt_size = size;
+    return nullptr;
+  }
+  return bigstack_end_alloc_raw(size);
+}
+
+HEADER_INLINE void* bigstack_end_alloc64(uint64_t size) {
+  size = RoundUpPow2U64(size, kEndAllocAlign);
+  return bigstack_end_alloc64_presized(size);
 }
 
 HEADER_INLINE BoolErr bigstack_end_alloc_c(uintptr_t ct, char** c_arr_ptr) {
@@ -1021,6 +1069,14 @@ HEADER_INLINE BoolErr bigstack_end_calloc_i64(uintptr_t ct, int64_t** i64_arr_pt
 HEADER_INLINE BoolErr bigstack_end_calloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr) {
   return bigstack_end_calloc_cp(ct, K_CAST(char***, kcp_arr_ptr));
 }
+
+#ifdef __LP64__
+HEADER_INLINE BoolErr bigstack_end_calloc64_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
+  return bigstack_end_calloc_w(ct, w_arr_ptr);
+}
+#else
+BoolErr bigstack_end_calloc64_w(uintptr_t ct, uintptr_t** w_arr_ptr);
+#endif
 
 HEADER_INLINE void bigstack_end_clalign() {
   g_bigstack_end = BigstackEndRoundedDown();
