@@ -2637,7 +2637,7 @@ uint32_t HweFirstRow(double hetab, double homa, double homb, double* tailp_ptr, 
       tmp_homa -= 1;
       tmp_homb -= 1;
       if (cur_prob < kExactTestBias) {
-        tie_ct += (cur_prob > (1 - (2 * kExactTestEpsilon2) * kExactTestBias));
+        tie_ct += (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias);
         tailp += cur_prob;
         quarter_numer = tmp_homa * tmp_homb;
         break;
