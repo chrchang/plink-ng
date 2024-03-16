@@ -851,6 +851,17 @@ BoolErr bigstack_calloc_cpp(uintptr_t ct, char**** cpp_arr_ptr) {
   return 0;
 }
 
+#ifndef __LP64__
+BoolErr bigstack_calloc64_d(uint64_t ct, double** d_arr_ptr) {
+  *d_arr_ptr = S_CAST(double*, bigstack_alloc64(ct * sizeof(double)));
+  if (unlikely(!(*d_arr_ptr))) {
+    return 1;
+  }
+  ZeroDArr(ct, *d_arr_ptr);
+  return 0;
+}
+#endif
+
 BoolErr bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
   *uc_arr_ptr = S_CAST(unsigned char*, bigstack_end_alloc(ct));
   if (unlikely(!(*uc_arr_ptr))) {

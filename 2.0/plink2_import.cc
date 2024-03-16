@@ -9163,6 +9163,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       logerrprintfww(kErrprintfFread, bcfname, rstrerror(errno));
     } else if (reterr == kPglRetDecompressFail) {
       logerrprintfww(kErrprintfDecompress, bcfname, bgzf_errmsg);
+    } else if (reterr == kPglRetRewindFail) {
+      // forgot this case
+      logerrprintfww(kErrprintfRewind, "--bcf file");
     }
     break;
   BcfToPgen_ret_REWIND_FAIL_N:
