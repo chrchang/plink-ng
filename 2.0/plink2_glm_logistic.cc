@@ -588,8 +588,7 @@ BoolErr LogisticRegressionF(const float* yy, const float* xx, const float* sampl
   // yy    = case/control phenotype; trailing elements must be zeroed out
   //
   // Input/output:
-  // coef  = starting point, overwritten with logistic regression betas.  Must
-  //         be vector-16-byte waligned.
+  // coef  = starting point, overwritten with logistic regression betas.
   //
   // Outputs:
   // ll    = cholesky decomposition matrix, predictor_ct^2, rows vector-aligned
@@ -864,8 +863,7 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
   //                  beta vector with covariate matrix.  otherwise, nullptr.
   //
   // Input/output:
-  // beta  = starting point, overwritten with logistic regression betas.  Must
-  //         be vector-aligned.
+  // beta  = starting point, overwritten with logistic regression betas.
   //
   // Outputs:
   // hh    = variance-covariance matrix buffer, predictor_ct^2, rows
@@ -1203,6 +1201,9 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
         }
         ColMajorFmatrixVectorMultiplyStrided(xx, coefs, sample_ct, sample_ctav, pred_ct, logistic_nm_sample_offsets);
         ZeroFArr(sample_ctav - sample_ct, &(logistic_nm_sample_offsets[sample_ct]));
+        // anomaly fix (18 Mar 2024): cc-residualize should not result in
+        // very-slightly-different Firth offsets from firth-residualize
+        ZeroFArr(pred_ctav, coefs);
       }
       float* firth_nm_sample_offsets = (*cc_residualize_ptr)->firth_nm_sample_offsets;
       if (firth_nm_sample_offsets) {
@@ -2959,7 +2960,7 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_
   // yy    = case/control phenotype; trailing elements must be zeroed out
   //
   // Outputs:
-  // coef  = main result.  Must be vector-aligned.
+  // coef  = main result.
   // ll    = cholesky decomposition matrix, predictor_ct^2, rows vector-aligned
   // hh    = hessian matrix buffer, predictor_ct^2, rows vector-aligned
   // pp    = final likelihoods minus Y[] (not currently used by callers).
@@ -3131,8 +3132,7 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, uint32_t sample_ct,
   // yy    = case/control phenotype
   //
   // Input/output:
-  // beta  = starting point, overwritten with logistic regression betas.  Must
-  //         be vector-aligned.
+  // beta  = starting point, overwritten with logistic regression betas.
   //
   // Outputs:
   // hh    = variance-covariance matrix buffer, predictor_ct^2, rows
