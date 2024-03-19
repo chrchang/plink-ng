@@ -588,8 +588,7 @@ BoolErr LogisticRegressionF(const float* yy, const float* xx, const float* sampl
   // yy    = case/control phenotype; trailing elements must be zeroed out
   //
   // Input/output:
-  // coef  = starting point, overwritten with logistic regression betas.  Must
-  //         be vector-16-byte waligned.
+  // coef  = starting point, overwritten with logistic regression betas.
   //
   // Outputs:
   // ll    = cholesky decomposition matrix, predictor_ct^2, rows vector-aligned
@@ -731,8 +730,8 @@ void CopyAndMeanCenterF(const float* src, uintptr_t ct, float* __restrict dst) {
 }
 #endif
 
-BoolErr LogisticRegressionResidualized(const float* yy, const float* xx, const uintptr_t* sample_nm, const CcResidualizeCtx* cc_residualize, uint32_t nm_sample_ct, uint32_t orig_predictor_ct, float* coef, uint32_t* is_unfinished_ptr, float* ll, float* pp, float* vv, float* hh, float* grad, float* dcoef, float* mean_centered_pmaj_buf, float* sample_offsets_buf) {
-  if (!cc_residualize->logistic_nm_sample_offsets) {
+BoolErr LogisticRegressionResidualizedF(const float* yy, const float* xx, const uintptr_t* sample_nm, const CcResidualizeCtx* cc_residualize, uint32_t nm_sample_ct, uint32_t orig_predictor_ct, float* coef, uint32_t* is_unfinished_ptr, float* ll, float* pp, float* vv, float* hh, float* grad, float* dcoef, float* mean_centered_pmaj_buf, float* sample_offsets_buf) {
+  if (!cc_residualize->logistic_nm_sample_offsets_f) {
     return 1;
   }
   const uintptr_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kFloatPerFVec);
@@ -746,7 +745,7 @@ BoolErr LogisticRegressionResidualized(const float* yy, const float* xx, const u
   for (uint32_t extra_allele_idx = 0; extra_allele_idx != extra_allele_ct; ++extra_allele_idx) {
     CopyAndMeanCenterF(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_present_p1) * nm_sample_ctav]));
   }
-  const float* sample_offsets = cc_residualize->logistic_nm_sample_offsets;
+  const float* sample_offsets = cc_residualize->logistic_nm_sample_offsets_f;
   if (nm_sample_ct != cc_residualize->sample_ct) {
     uintptr_t sample_idx_base = 0;
     uintptr_t sample_nm_bits = sample_nm[0];
@@ -864,8 +863,7 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
   //                  beta vector with covariate matrix.  otherwise, nullptr.
   //
   // Input/output:
-  // beta  = starting point, overwritten with logistic regression betas.  Must
-  //         be vector-aligned.
+  // beta  = starting point, overwritten with regression betas.
   //
   // Outputs:
   // hh    = variance-covariance matrix buffer, predictor_ct^2, rows
@@ -987,8 +985,8 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
   }
 }
 
-BoolErr FirthRegressionResidualized(const float* yy, const float* xx, const uintptr_t* sample_nm, const CcResidualizeCtx* cc_residualize, uint32_t nm_sample_ct, uint32_t orig_predictor_ct, float* beta, uint32_t* is_unfinished_ptr, float* hh, double* half_inverted_buf, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* ustar, float* delta, float* hdiag, float* ww, float* hh0_buf, float* tmpnxk_buf, float* mean_centered_pmaj_buf, float* sample_offsets_buf) {
-  // todo: deduplicate with LogisticRegressionResidualized()
+BoolErr FirthRegressionResidualizedF(const float* yy, const float* xx, const uintptr_t* sample_nm, const CcResidualizeCtx* cc_residualize, uint32_t nm_sample_ct, uint32_t orig_predictor_ct, float* beta, uint32_t* is_unfinished_ptr, float* hh, double* half_inverted_buf, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* ustar, float* delta, float* hdiag, float* ww, float* hh0_buf, float* tmpnxk_buf, float* mean_centered_pmaj_buf, float* sample_offsets_buf) {
+  // todo: deduplicate with LogisticRegressionResidualizedF()
   const uintptr_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kFloatPerFVec);
   const uint32_t domdev_present_p1 = cc_residualize->domdev_present_p1;
   for (uint32_t geno_idx = 0; geno_idx != domdev_present_p1; ++geno_idx) {
@@ -1000,7 +998,7 @@ BoolErr FirthRegressionResidualized(const float* yy, const float* xx, const uint
   for (uint32_t extra_allele_idx = 0; extra_allele_idx != extra_allele_ct; ++extra_allele_idx) {
     CopyAndMeanCenterF(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_present_p1) * nm_sample_ctav]));
   }
-  const float* sample_offsets = cc_residualize->firth_nm_sample_offsets;
+  const float* sample_offsets = cc_residualize->firth_nm_sample_offsets_f;
   if (nm_sample_ct != cc_residualize->sample_ct) {
     uintptr_t sample_idx_base = 0;
     uintptr_t sample_nm_bits = sample_nm[0];
@@ -1026,203 +1024,6 @@ BoolErr FirthRegressionResidualized(const float* yy, const float* xx, const uint
   const uint32_t expected_predictor_ctav = RoundUpPow2(regressed_predictor_ct + 1, kFloatPerFVec);
   for (uint32_t write_row_idx = regressed_predictor_ct; write_row_idx; --write_row_idx) {
     memcpy(&(hh[write_row_idx * expected_predictor_ctav + 1]), &(hh[(write_row_idx - 1) * regressed_predictor_ctav]), regressed_predictor_ct * sizeof(float));
-  }
-  return 0;
-}
-
-static const float kSmallFloats[4] = {0.0, 1.0, 2.0, 3.0};
-
-BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t domdev_present_p1, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, GlmFlags glm_flags, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, double** pheno_d_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, double** covars_cmaj_d_ptr, CcResidualizeCtx** cc_residualize_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
-  const uint32_t is_single_prec = (glm_flags / kfGlmSinglePrecCc) & 1;
-  const uintptr_t sample_ctav = is_single_prec? RoundUpPow2(sample_ct, kFloatPerFVec) : RoundUpPow2(sample_ct, kDoublePerDVec);
-  const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
-  const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
-  const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
-  const uint32_t is_cc_residualize = !!(glm_flags & (kfGlmFirthResidualize | kfGlmCcResidualize));
-  if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, pheno_cc_collapsed_ptr) ||
-               bigstack_alloc_kcp(new_covar_ct, cur_covar_names_ptr))) {
-      return 1;
-  }
-  if (is_single_prec) {
-    if (unlikely(bigstack_alloc_f(sample_ctav, pheno_f_ptr) ||
-                 bigstack_alloc_f(new_nonlocal_covar_ct * sample_ctav, covars_cmaj_f_ptr))) {
-      return 1;
-    }
-    if (xtx_state) {
-      assert(!local_covar_ct);
-      if (is_cc_residualize) {
-        // Interactions and local covariates prohibited with firth-residualize,
-        // so xtx_state guaranteed to be nonzero.
-        if (unlikely(BIGSTACK_ALLOC_X(CcResidualizeCtx, 1, cc_residualize_ptr))) {
-          return 1;
-        }
-        (*cc_residualize_ptr)->logistic_nm_sample_offsets = nullptr;
-        if ((glm_flags & (kfGlmFirth | kfGlmCcResidualize)) == kfGlmCcResidualize) {
-          if (unlikely(bigstack_alloc_f(sample_ctav, &((*cc_residualize_ptr)->logistic_nm_sample_offsets)))) {
-            return 1;
-          }
-        }
-        (*cc_residualize_ptr)->firth_nm_sample_offsets = nullptr;
-        if (!(glm_flags & kfGlmNoFirth)) {
-          if (unlikely(bigstack_alloc_f(sample_ctav, &((*cc_residualize_ptr)->firth_nm_sample_offsets)))) {
-            return 1;
-          }
-        }
-        (*cc_residualize_ptr)->prefitted_pred_ct = 1 + new_covar_ct;
-        (*cc_residualize_ptr)->domdev_present_p1 = domdev_present_p1;
-        (*cc_residualize_ptr)->sample_ct = sample_ct;
-      }
-    }
-  } else {
-    if (unlikely(bigstack_alloc_d(sample_ctav, pheno_d_ptr))) {
-      return 1;
-    }
-  }
-  double* corr_buf = nullptr;
-  unsigned char* bigstack_mark = g_bigstack_base;
-  *nm_precomp_ptr = nullptr;
-  if (xtx_state) {
-    if (unlikely(BIGSTACK_ALLOC_X(RegressionNmPrecomp, 1, nm_precomp_ptr))) {
-      return 1;
-    }
-    // x^2 + (2*xtx_state + 2)x + (5*xtx_state - 1)
-    // 2x^2 + (2*xtx_state + 2)x + (5*xtx_state - 1)
-    // 3x^2 + (4*xtx_state + 2)x + (8*xtx_state - 3)
-    // 3x^2 + (4*xtx_state + 3)x + (8*xtx_state - 3)
-    if (unlikely(bigstack_alloc_d(8 * xtx_state - 3 +
-                                  new_covar_ct * (3 + 4 * xtx_state + 3 * new_covar_ct),
-                                  &((*nm_precomp_ptr)->xtx_image)) ||
-                 bigstack_alloc_d(new_covar_ct * (new_covar_ct + 1), &corr_buf))) {
-      return 1;
-    }
-    (*nm_precomp_ptr)->covarx_dotprod_inv = nullptr;
-    (*nm_precomp_ptr)->corr_inv = &((*nm_precomp_ptr)->xtx_image[(new_covar_ct + xtx_state + 1) * (new_covar_ct + xtx_state + 1)]);
-    (*nm_precomp_ptr)->corr_image = &((*nm_precomp_ptr)->corr_inv[new_covar_ct * new_covar_ct]);
-    (*nm_precomp_ptr)->corr_inv_sqrts = &((*nm_precomp_ptr)->corr_image[(new_covar_ct + xtx_state) * (new_covar_ct + xtx_state)]);
-    (*nm_precomp_ptr)->xt_y_image = nullptr;
-    bigstack_mark = R_CAST(unsigned char*, corr_buf);
-  }
-
-  double* covars_cmaj_d;
-  double* covar_dotprod;
-  double* inverse_corr_buf;
-  if (unlikely(bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, &covars_cmaj_d) ||
-               bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod) ||
-               bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &inverse_corr_buf))) {
-    return 1;
-  }
-  if (!is_single_prec) {
-    *covars_cmaj_d_ptr = covars_cmaj_d;
-    bigstack_mark = R_CAST(unsigned char*, covar_dotprod);
-  }
-  uintptr_t* pheno_cc_collapsed = *pheno_cc_collapsed_ptr;
-  CopyBitarrSubset(pheno_cc, sample_include, sample_ct, pheno_cc_collapsed);
-  const uint32_t sample_remv = sample_ctav - sample_ct;
-  if (is_single_prec) {
-    float* pheno_f_iter = *pheno_f_ptr;
-    for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      // can use the bitvector equivalent of GenoarrLookup...(), but this isn't
-      // in a critical loop so I'll postpone writing those functions for now
-      *pheno_f_iter++ = kSmallFloats[IsSet(pheno_cc_collapsed, sample_idx)];
-    }
-    ZeroFArr(sample_remv, pheno_f_iter);
-  } else {
-    double* pheno_d_iter = *pheno_d_ptr;
-    for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      *pheno_d_iter++ = kSmallDoubles[IsSet(pheno_cc_collapsed, sample_idx)];
-    }
-    ZeroDArr(sample_remv, pheno_d_iter);
-  }
-  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, corr_buf, inverse_corr_buf, covars_cmaj_d, *cur_covar_names_ptr, glm_err_ptr);
-  if (unlikely(reterr)) {
-    return (reterr == kPglRetNomem);
-  }
-  if (is_single_prec) {
-    double* covar_read_iter = covars_cmaj_d;
-    float* covar_write_iter = *covars_cmaj_f_ptr;
-    for (uintptr_t covar_idx = 0; covar_idx != new_nonlocal_covar_ct; ++covar_idx) {
-      for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        *covar_write_iter++ = S_CAST(float, *covar_read_iter++);
-      }
-      ZeroFArr(sample_remv, covar_write_iter);
-      covar_write_iter = &(covar_write_iter[sample_remv]);
-    }
-  }
-  if (xtx_state) {
-    // error-out should be impossible
-    InitNmPrecomp(covars_cmaj_d, covar_dotprod, corr_buf, inverse_corr_buf, sample_ct, 0, new_covar_ct, xtx_state, *nm_precomp_ptr);
-    if (is_cc_residualize) {
-      BigstackReset(bigstack_mark);
-      const uintptr_t pred_ct = new_covar_ct + 1;
-      const uintptr_t pred_ctav = RoundUpPow2(pred_ct, kFloatPerFVec);
-      float* xx;
-      float* coefs;
-      float* hh;
-      double* half_inverted_buf;
-      double* dbl_2d_buf;
-      float* ll;
-      float* pp;
-      float* vv;
-      float* grad;
-      float* dcoef;
-      float* hdiag;
-      float* ww;
-      float* hh0_buf;
-      float* tmpnxk_buf;
-      MatrixInvertBuf1* inv_1d_buf = S_CAST(MatrixInvertBuf1*, bigstack_alloc(pred_ct * kMatrixInvertBuf1CheckedAlloc));
-      // see GetLogisticWorkspaceSizeF() and corresponding code at top of
-      // GlmLogisticThread{F,D}()
-      if (unlikely((!inv_1d_buf) ||
-                   bigstack_alloc_f(sample_ctav * pred_ct, &xx) ||
-                   bigstack_calloc_f(pred_ctav, &coefs) ||
-                   bigstack_alloc_f(pred_ct * pred_ctav, &hh) ||
-                   bigstack_alloc_d(pred_ct * MAXV(pred_ct, 3), &half_inverted_buf) ||
-                   bigstack_alloc_d(pred_ct * MAXV(pred_ct, 7), &dbl_2d_buf) ||
-                   bigstack_alloc_f(pred_ct * pred_ctav, &ll) ||
-                   bigstack_alloc_f(sample_ctav, &pp) ||
-                   bigstack_alloc_f(sample_ctav, &vv) ||
-                   bigstack_alloc_f(pred_ctav, &grad) ||
-                   bigstack_alloc_f(pred_ctav, &dcoef) ||
-                   bigstack_alloc_f(sample_ctav, &hdiag) ||
-                   bigstack_alloc_f(sample_ctav, &ww) ||
-                   bigstack_alloc_f(pred_ct * pred_ctav, &hh0_buf) ||
-                   bigstack_alloc_f(sample_ctav * pred_ct, &tmpnxk_buf))) {
-        return 1;
-      }
-      FillFVec(sample_ct, 1.0, xx);
-      memcpy(&(xx[sample_ctav]), *covars_cmaj_f_ptr, sample_ctav * (pred_ct - 1) * sizeof(float));
-      uint32_t is_unfinished = 0;
-      float* logistic_nm_sample_offsets = (*cc_residualize_ptr)->logistic_nm_sample_offsets;
-      if (logistic_nm_sample_offsets) {
-        if (unlikely(LogisticRegressionF(*pheno_f_ptr, xx, nullptr, sample_ct, pred_ct, coefs, &is_unfinished, ll, pp, vv, hh, grad, dcoef) || is_unfinished)) {
-          if (glm_flags & kfGlmNoFirth) {
-            *glm_err_ptr = SetGlmErr0(kGlmErrcodeLogisticConvergeFail);
-            return 0;
-          }
-          (*cc_residualize_ptr)->logistic_nm_sample_offsets = nullptr;
-        }
-        ColMajorFmatrixVectorMultiplyStrided(xx, coefs, sample_ct, sample_ctav, pred_ct, logistic_nm_sample_offsets);
-        ZeroFArr(sample_ctav - sample_ct, &(logistic_nm_sample_offsets[sample_ct]));
-      }
-      float* firth_nm_sample_offsets = (*cc_residualize_ptr)->firth_nm_sample_offsets;
-      if (firth_nm_sample_offsets) {
-        if (unlikely(FirthRegressionF(*pheno_f_ptr, xx, nullptr, sample_ct, pred_ct, coefs, &is_unfinished, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf, pp, vv, grad, dcoef, hdiag, ww, hh0_buf, tmpnxk_buf) || is_unfinished)) {
-          *glm_err_ptr = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
-          return 0;
-        }
-        ColMajorFmatrixVectorMultiplyStrided(xx, coefs, sample_ct, sample_ctav, pred_ct, firth_nm_sample_offsets);
-        ZeroFArr(sample_ctav - sample_ct, &(firth_nm_sample_offsets[sample_ct]));
-      }
-      // probable todo: print fitted coefficients and standard errors to log
-    }
-  }
-  BigstackReset(bigstack_mark);
-  if (gcount_case_interleaved_vec_ptr) {
-    if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, gcount_case_interleaved_vec_ptr))) {
-      return 1;
-    }
-    ZeroTrailingWords(BitCtToWordCt(sample_ct), pheno_cc_collapsed);
-    FillInterleavedMaskVec(pheno_cc_collapsed, sample_ctv, *gcount_case_interleaved_vec_ptr);
   }
   return 0;
 }
@@ -1324,6 +1125,7 @@ uintptr_t GetLogisticWorkspaceSizeF(uint32_t sample_ct, uint32_t biallelic_predi
   return workspace_size;
 }
 
+static const float kSmallFloats[4] = {0.0, 1.0, 2.0, 3.0};
 
 THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
@@ -2415,7 +2217,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                   goto GlmLogisticThreadF_skip_regression;
                 }
               } else {
-                if (LogisticRegressionResidualized(nm_pheno_buf, nm_predictors_pmaj_buf, sample_nm, cur_cc_residualize, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf, mean_centered_pmaj_buf, sample_offsets_buf)) {
+                if (LogisticRegressionResidualizedF(nm_pheno_buf, nm_predictors_pmaj_buf, sample_nm, cur_cc_residualize, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf, mean_centered_pmaj_buf, sample_offsets_buf)) {
                   if (is_sometimes_firth) {
                     ZeroFArr(cur_predictor_ctav, coef_return);
                     goto GlmLogisticThreadF_firth_fallback;
@@ -2476,7 +2278,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                   goto GlmLogisticThreadF_skip_regression;
                 }
               } else {
-                if (FirthRegressionResidualized(nm_pheno_buf, nm_predictors_pmaj_buf, sample_nm, cur_cc_residualize, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, hdiag_buf, score_buf, hh0_buf, tmpnxk_buf, mean_centered_pmaj_buf, sample_offsets_buf)) {
+                if (FirthRegressionResidualizedF(nm_pheno_buf, nm_predictors_pmaj_buf, sample_nm, cur_cc_residualize, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, hdiag_buf, score_buf, hh0_buf, tmpnxk_buf, mean_centered_pmaj_buf, sample_offsets_buf)) {
                   glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
                   goto GlmLogisticThreadF_skip_regression;
                 }
@@ -2935,7 +2737,7 @@ void SolveLinearSystemD(const double* ll, const double* yy, uint32_t predictor_c
   }
 }
 
-BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_ct, uint32_t predictor_ct, uint32_t* is_unfinished_ptr, double* __restrict coef, double* __restrict ll, double* __restrict pp, double* __restrict vv, double* __restrict hh, double* __restrict grad, double* __restrict dcoef, MatrixInvertBuf1* __restrict mi_buf, double* __restrict dbl_2d_buf) {
+BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, uint32_t* is_unfinished_ptr, double* __restrict coef, double* __restrict ll, double* __restrict pp, double* __restrict vv, double* __restrict hh, double* __restrict grad, double* __restrict dcoef, MatrixInvertBuf1* __restrict mi_buf, double* __restrict dbl_2d_buf) {
   // This imitates R glm.fit().  Main differences from LogisticRegressionF(),
   // beyond precision:
   // - Initialization is somewhat different.
@@ -2943,9 +2745,12 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_
   //     maxit = 25
   //     |dev - dev_{old}| / (|dev| + 0.1) < 1e-8, where dev := -2 *
   //       log-likelihood.
-  // - sample_offsets isn't supported, since if you're searching for a speed
-  //   boost at a small accuracy cost, switching to LogisticRegressionF() is
-  //   the first logical step to take.
+  // Support for sample_offsets was added in Mar 2024.  I had thought that
+  // cc-residualize without single-prec didn't make sense since single-prec
+  // should offer more of a speed boost for less accuracy cost on the initial
+  // margin, but it turns out that the current single-precision functions have
+  // unreliable convergence on biobank-scale datasets, so cc-residualize on its
+  // own is often the fastest mode that still works.
   //
   // Preallocated buffers (initial contents irrelevant):
   // vv    = sample variance buffer
@@ -2959,7 +2764,7 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_
   // yy    = case/control phenotype; trailing elements must be zeroed out
   //
   // Outputs:
-  // coef  = main result.  Must be vector-aligned.
+  // coef  = main result.
   // ll    = cholesky decomposition matrix, predictor_ct^2, rows vector-aligned
   // hh    = hessian matrix buffer, predictor_ct^2, rows vector-aligned
   // pp    = final likelihoods minus Y[] (not currently used by callers).
@@ -2996,6 +2801,9 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_
 
     // P[i] = \sum_j X[i][j] * coef[j];
     ColMajorMatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+    if (sample_offsets) {
+      AddDVec(sample_offsets, sample_ctav, pp);
+    }
 
     // P[i] = 1 / (1 + exp(-P[i]));
     logistic_v_unsafe(pp, sample_ctav);
@@ -3032,6 +2840,9 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_
     }
     // P[i] = \sum_j X[i][j] * coef[j];
     ColMajorMatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+    if (sample_offsets) {
+      AddDVec(sample_offsets, sample_ctav, pp);
+    }
 
     // P[i] = 1 / (1 + exp(-P[i]));
     logistic_v_unsafe(pp, sample_ctav);
@@ -3047,6 +2858,95 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_
     loglik_old = loglik;
   }
   *is_unfinished_ptr = 1;
+  return 0;
+}
+
+#ifdef __LP64__
+void CopyAndMeanCenterD(const double* src, uintptr_t ct, double* __restrict dst) {
+  const uintptr_t fullvec_ct = ct / kDoublePerDVec;
+  const VecD* src_alias = R_CAST(const VecD*, src);
+  VecD vsum = vecd_setzero();
+  for (uintptr_t vidx = 0; vidx != fullvec_ct; ++vidx) {
+    vsum += src_alias[vidx];
+  }
+  double sum = VecDHsum(vsum);
+  const uintptr_t trailing_start_idx = fullvec_ct * kDoublePerDVec;
+  for (uintptr_t ulii = trailing_start_idx; ulii != ct; ++ulii) {
+    sum += src[ulii];
+  }
+
+  const double neg_mean = -sum / u31tod(ct);
+  const VecD neg_vmean = VCONST_D(neg_mean);
+  VecD* dst_alias = R_CAST(VecD*, dst);
+  for (uintptr_t vidx = 0; vidx != fullvec_ct; ++vidx) {
+    dst_alias[vidx] = src_alias[vidx] + neg_vmean;
+  }
+  if (trailing_start_idx != ct) {
+    for (uintptr_t ulii = trailing_start_idx; ulii != ct; ++ulii) {
+      dst[ulii] = src[ulii] + neg_mean;
+    }
+    const uintptr_t trailing_stop_idx = trailing_start_idx + kDoublePerDVec;
+    for (uintptr_t ulii = ct; ulii != trailing_stop_idx; ++ulii) {
+      dst[ulii] = 0.0;
+    }
+  }
+}
+#else
+void CopyAndMeanCenterD(const double* src, uintptr_t ct, double* __restrict dst) {
+  double sum = 0.0;
+  for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
+    sum += src[ulii];
+  }
+  const double mean = sum / u31tod(ct);
+  for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
+    dst[ulii] = src[ulii] - mean;
+  }
+}
+#endif
+
+BoolErr LogisticRegressionResidualizedD(const double* yy, const double* xx, const uintptr_t* sample_nm, const CcResidualizeCtx* cc_residualize, uint32_t nm_sample_ct, uint32_t orig_predictor_ct, uint32_t* is_unfinished_ptr, double* coef, double* ll, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* hh, double* grad, double* dcoef, double* mean_centered_pmaj_buf, double* sample_offsets_buf) {
+  if (!cc_residualize->logistic_nm_sample_offsets_d) {
+    return 1;
+  }
+  const uintptr_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kDoublePerDVec);
+  const uint32_t domdev_present_p1 = cc_residualize->domdev_present_p1;
+  for (uint32_t geno_idx = 0; geno_idx != domdev_present_p1; ++geno_idx) {
+    CopyAndMeanCenterD(&(xx[(geno_idx + 1) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[geno_idx * nm_sample_ctav]));
+  }
+  const uint32_t prefitted_pred_ct = cc_residualize->prefitted_pred_ct;
+  const uint32_t orig_biallelic_predictor_ct = domdev_present_p1 + prefitted_pred_ct;
+  const uint32_t extra_allele_ct = orig_predictor_ct - orig_biallelic_predictor_ct;
+  for (uint32_t extra_allele_idx = 0; extra_allele_idx != extra_allele_ct; ++extra_allele_idx) {
+    CopyAndMeanCenterD(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_present_p1) * nm_sample_ctav]));
+  }
+  const double* sample_offsets = cc_residualize->logistic_nm_sample_offsets_d;
+  if (nm_sample_ct != cc_residualize->sample_ct) {
+    uintptr_t sample_idx_base = 0;
+    uintptr_t sample_nm_bits = sample_nm[0];
+    for (uint32_t uii = 0; uii != nm_sample_ct; ++uii) {
+      const uintptr_t sample_idx = BitIter1(sample_nm, &sample_idx_base, &sample_nm_bits);
+      sample_offsets_buf[uii] = sample_offsets[sample_idx];
+    }
+    // todo: check if this is actually needed
+    const uint32_t remainder = (-nm_sample_ct) & (kDoublePerDVec - 1);
+    ZeroDArr(remainder, &(sample_offsets_buf[nm_sample_ct]));
+    sample_offsets = sample_offsets_buf;
+  }
+  // genotype, domdev?, other alleles
+  const uint32_t regressed_predictor_ct = domdev_present_p1 + extra_allele_ct;
+  const uint32_t regressed_predictor_ctav = RoundUpPow2(regressed_predictor_ct, kDoublePerDVec);
+  if (LogisticRegressionD(yy, mean_centered_pmaj_buf, sample_offsets, nm_sample_ct, regressed_predictor_ct, is_unfinished_ptr, &(coef[1]), ll, pp, vv, hh, grad, dcoef, inv_1d_buf, dbl_2d_buf)) {
+    return 1;
+  }
+  // hh and ll are shifted up and to the left from what the caller expects, due
+  // to the missing intercept.  Correct that here.
+  const uint32_t expected_predictor_ctav = RoundUpPow2(regressed_predictor_ct + 1, kDoublePerDVec);
+  for (uint32_t write_row_idx = regressed_predictor_ct; write_row_idx; --write_row_idx) {
+    memcpy(&(hh[write_row_idx * expected_predictor_ctav + 1]), &(hh[(write_row_idx - 1) * regressed_predictor_ctav]), regressed_predictor_ct * sizeof(double));
+  }
+  for (uint32_t write_row_idx = regressed_predictor_ct; write_row_idx; --write_row_idx) {
+    memcpy(&(ll[write_row_idx * expected_predictor_ctav + 1]), &(ll[(write_row_idx - 1) * regressed_predictor_ctav]), regressed_predictor_ct * sizeof(double));
+  }
   return 0;
 }
 
@@ -3110,7 +3010,7 @@ void FirthComputeSecondWeightsD(const double* hdiag, const double* vv, __maybe_u
 #endif
 }
 
-BoolErr FirthRegressionD(const double* yy, const double* xx, uint32_t sample_ct, uint32_t predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0, double* tmpnxk_buf) {
+BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0, double* tmpnxk_buf) {
   // This is a port of Georg Heinze's logistf 1.24.1 R function (called with
   // pl=FALSE), adapted to use many of plink 1.9's optimizations; see
   //   https://github.com/georgheinze/logistf
@@ -3129,10 +3029,11 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, uint32_t sample_ct,
   // xx    = covariate (and usually genotype) matrix, covariate-major, rows are
   //         vector-aligned, trailing row elements must be zeroed out
   // yy    = case/control phenotype
+  // sample_offsets = in residualized mode, product of pre-fitted covariate
+  //                  beta vector with covariate matrix.  otherwise, nullptr.
   //
   // Input/output:
-  // beta  = starting point, overwritten with logistic regression betas.  Must
-  //         be vector-aligned.
+  // beta  = starting point, overwritten with logistic regression betas.
   //
   // Outputs:
   // hh    = variance-covariance matrix buffer, predictor_ct^2, rows
@@ -3159,6 +3060,9 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, uint32_t sample_ct,
     // P[i] = \sum_j beta[j] * X[i][j];
     // categorical optimization possible here
     ColMajorMatrixVectorMultiplyStrided(xx, beta, sample_ct, sample_ctav, predictor_ct, pp);
+    if (sample_offsets) {
+      AddDVec(sample_offsets, sample_ctav, pp);
+    }
     // P[i] = 1 / (1 + exp(-P[i]));
     logistic_v_unsafe(pp, sample_ct);
     double loglik;
@@ -3243,7 +3147,315 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, uint32_t sample_ct,
   }
 }
 
-uintptr_t GetLogisticWorkspaceSizeD(uint32_t sample_ct, uint32_t biallelic_predictor_ct, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct, uint32_t gcount_cc, uint32_t is_sometimes_firth) {
+BoolErr FirthRegressionResidualizedD(const double* yy, const double* xx, const uintptr_t* sample_nm, const CcResidualizeCtx* cc_residualize, uint32_t nm_sample_ct, uint32_t orig_predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0_buf, double* tmpnxk_buf, double* mean_centered_pmaj_buf, double* sample_offsets_buf) {
+  // todo: deduplicate with LogisticRegressionResidualizedD()
+  const uintptr_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kDoublePerDVec);
+  const uint32_t domdev_present_p1 = cc_residualize->domdev_present_p1;
+  for (uint32_t geno_idx = 0; geno_idx != domdev_present_p1; ++geno_idx) {
+    CopyAndMeanCenterD(&(xx[(geno_idx + 1) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[geno_idx * nm_sample_ctav]));
+  }
+  const uint32_t prefitted_pred_ct = cc_residualize->prefitted_pred_ct;
+  const uint32_t orig_biallelic_predictor_ct = domdev_present_p1 + prefitted_pred_ct;
+  const uint32_t extra_allele_ct = orig_predictor_ct - orig_biallelic_predictor_ct;
+  for (uint32_t extra_allele_idx = 0; extra_allele_idx != extra_allele_ct; ++extra_allele_idx) {
+    CopyAndMeanCenterD(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_present_p1) * nm_sample_ctav]));
+  }
+  const double* sample_offsets = cc_residualize->firth_nm_sample_offsets_d;
+  if (nm_sample_ct != cc_residualize->sample_ct) {
+    uintptr_t sample_idx_base = 0;
+    uintptr_t sample_nm_bits = sample_nm[0];
+    for (uint32_t uii = 0; uii != nm_sample_ct; ++uii) {
+      const uintptr_t sample_idx = BitIter1(sample_nm, &sample_idx_base, &sample_nm_bits);
+      sample_offsets_buf[uii] = sample_offsets[sample_idx];
+    }
+    const uint32_t remainder = (-nm_sample_ct) & (kDoublePerDVec - 1);
+    ZeroDArr(remainder, &(sample_offsets_buf[nm_sample_ct]));
+    sample_offsets = sample_offsets_buf;
+  }
+  const uint32_t regressed_predictor_ct = domdev_present_p1 + extra_allele_ct;
+  const uint32_t regressed_predictor_ctav = RoundUpPow2(regressed_predictor_ct, kDoublePerDVec);
+  if (FirthRegressionD(yy, mean_centered_pmaj_buf, sample_offsets, nm_sample_ct, regressed_predictor_ct, &(beta[1]), is_unfinished_ptr, hh, inv_1d_buf, dbl_2d_buf, pp, vv, ustar, delta, hdiag, ww, hh0_buf, tmpnxk_buf)) {
+    return 1;
+  }
+  // hh is shifted up and to the left from what the caller expects, due to the
+  // missing intercept.  Correct that here.
+  const uint32_t expected_predictor_ctav = RoundUpPow2(regressed_predictor_ct + 1, kDoublePerDVec);
+  for (uint32_t write_row_idx = regressed_predictor_ct; write_row_idx; --write_row_idx) {
+    memcpy(&(hh[write_row_idx * expected_predictor_ctav + 1]), &(hh[(write_row_idx - 1) * regressed_predictor_ctav]), regressed_predictor_ct * sizeof(double));
+  }
+  return 0;
+}
+
+BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t domdev_present_p1, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, GlmFlags glm_flags, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, double** pheno_d_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, double** covars_cmaj_d_ptr, CcResidualizeCtx** cc_residualize_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
+  const uint32_t is_single_prec = (glm_flags / kfGlmSinglePrecCc) & 1;
+  const uintptr_t sample_ctav = is_single_prec? RoundUpPow2(sample_ct, kFloatPerFVec) : RoundUpPow2(sample_ct, kDoublePerDVec);
+  const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
+  const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
+  const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
+  const uint32_t is_cc_residualize = !!(glm_flags & (kfGlmFirthResidualize | kfGlmCcResidualize));
+  if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, pheno_cc_collapsed_ptr) ||
+               bigstack_alloc_kcp(new_covar_ct, cur_covar_names_ptr))) {
+      return 1;
+  }
+  if (is_single_prec) {
+    if (unlikely(bigstack_alloc_f(sample_ctav, pheno_f_ptr) ||
+                 bigstack_alloc_f(new_nonlocal_covar_ct * sample_ctav, covars_cmaj_f_ptr))) {
+      return 1;
+    }
+  } else {
+    if (unlikely(bigstack_alloc_d(sample_ctav, pheno_d_ptr))) {
+      return 1;
+    }
+  }
+  if (is_cc_residualize) {
+    assert(!local_covar_ct);
+    // Interactions and local covariates prohibited with firth-residualize,
+    // so xtx_state guaranteed to be nonzero.
+    if (unlikely(BIGSTACK_ALLOC_X(CcResidualizeCtx, 1, cc_residualize_ptr))) {
+      return 1;
+    }
+    (*cc_residualize_ptr)->logistic_nm_sample_offsets_f = nullptr;
+    (*cc_residualize_ptr)->firth_nm_sample_offsets_f = nullptr;
+    (*cc_residualize_ptr)->logistic_nm_sample_offsets_d = nullptr;
+    (*cc_residualize_ptr)->firth_nm_sample_offsets_d = nullptr;
+    if ((glm_flags & (kfGlmFirth | kfGlmCcResidualize)) == kfGlmCcResidualize) {
+      if (is_single_prec) {
+        if (unlikely(bigstack_alloc_f(sample_ctav, &((*cc_residualize_ptr)->logistic_nm_sample_offsets_f)))) {
+          return 1;
+        }
+      } else {
+        if (unlikely(bigstack_alloc_d(sample_ctav, &((*cc_residualize_ptr)->logistic_nm_sample_offsets_d)))) {
+          return 1;
+        }
+      }
+    }
+    if (!(glm_flags & kfGlmNoFirth)) {
+      if (is_single_prec) {
+        if (unlikely(bigstack_alloc_f(sample_ctav, &((*cc_residualize_ptr)->firth_nm_sample_offsets_f)))) {
+          return 1;
+        }
+      } else {
+        if (unlikely(bigstack_alloc_d(sample_ctav, &((*cc_residualize_ptr)->firth_nm_sample_offsets_d)))) {
+          return 1;
+        }
+      }
+    }
+    (*cc_residualize_ptr)->prefitted_pred_ct = 1 + new_covar_ct;
+    (*cc_residualize_ptr)->domdev_present_p1 = domdev_present_p1;
+    (*cc_residualize_ptr)->sample_ct = sample_ct;
+  }
+  double* corr_buf = nullptr;
+  unsigned char* bigstack_mark = g_bigstack_base;
+  *nm_precomp_ptr = nullptr;
+  if (xtx_state) {
+    if (unlikely(BIGSTACK_ALLOC_X(RegressionNmPrecomp, 1, nm_precomp_ptr))) {
+      return 1;
+    }
+    // x^2 + (2*xtx_state + 2)x + (5*xtx_state - 1)
+    // 2x^2 + (2*xtx_state + 2)x + (5*xtx_state - 1)
+    // 3x^2 + (4*xtx_state + 2)x + (8*xtx_state - 3)
+    // 3x^2 + (4*xtx_state + 3)x + (8*xtx_state - 3)
+    if (unlikely(bigstack_alloc_d(8 * xtx_state - 3 +
+                                  new_covar_ct * (3 + 4 * xtx_state + 3 * new_covar_ct),
+                                  &((*nm_precomp_ptr)->xtx_image)) ||
+                 bigstack_alloc_d(new_covar_ct * (new_covar_ct + 1), &corr_buf))) {
+      return 1;
+    }
+    (*nm_precomp_ptr)->covarx_dotprod_inv = nullptr;
+    (*nm_precomp_ptr)->corr_inv = &((*nm_precomp_ptr)->xtx_image[(new_covar_ct + xtx_state + 1) * (new_covar_ct + xtx_state + 1)]);
+    (*nm_precomp_ptr)->corr_image = &((*nm_precomp_ptr)->corr_inv[new_covar_ct * new_covar_ct]);
+    (*nm_precomp_ptr)->corr_inv_sqrts = &((*nm_precomp_ptr)->corr_image[(new_covar_ct + xtx_state) * (new_covar_ct + xtx_state)]);
+    (*nm_precomp_ptr)->xt_y_image = nullptr;
+    bigstack_mark = R_CAST(unsigned char*, corr_buf);
+  }
+
+  double* covars_cmaj_d;
+  double* covar_dotprod;
+  double* inverse_corr_buf;
+  if (unlikely(bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, &covars_cmaj_d) ||
+               bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod) ||
+               bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &inverse_corr_buf))) {
+    return 1;
+  }
+  if (!is_single_prec) {
+    *covars_cmaj_d_ptr = covars_cmaj_d;
+    bigstack_mark = R_CAST(unsigned char*, covar_dotprod);
+  }
+  uintptr_t* pheno_cc_collapsed = *pheno_cc_collapsed_ptr;
+  CopyBitarrSubset(pheno_cc, sample_include, sample_ct, pheno_cc_collapsed);
+  const uint32_t sample_remv = sample_ctav - sample_ct;
+  if (is_single_prec) {
+    float* pheno_f_iter = *pheno_f_ptr;
+    for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      // can use the bitvector equivalent of GenoarrLookup...(), but this isn't
+      // in a critical loop so I'll postpone writing those functions for now
+      *pheno_f_iter++ = kSmallFloats[IsSet(pheno_cc_collapsed, sample_idx)];
+    }
+    ZeroFArr(sample_remv, pheno_f_iter);
+  } else {
+    double* pheno_d_iter = *pheno_d_ptr;
+    for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      *pheno_d_iter++ = kSmallDoubles[IsSet(pheno_cc_collapsed, sample_idx)];
+    }
+    ZeroDArr(sample_remv, pheno_d_iter);
+  }
+  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, corr_buf, inverse_corr_buf, covars_cmaj_d, *cur_covar_names_ptr, glm_err_ptr);
+  if (unlikely(reterr)) {
+    return (reterr == kPglRetNomem);
+  }
+  if (is_single_prec) {
+    double* covar_read_iter = covars_cmaj_d;
+    float* covar_write_iter = *covars_cmaj_f_ptr;
+    for (uintptr_t covar_idx = 0; covar_idx != new_nonlocal_covar_ct; ++covar_idx) {
+      for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        *covar_write_iter++ = S_CAST(float, *covar_read_iter++);
+      }
+      ZeroFArr(sample_remv, covar_write_iter);
+      covar_write_iter = &(covar_write_iter[sample_remv]);
+    }
+  }
+  if (xtx_state) {
+    // error-out should be impossible
+    InitNmPrecomp(covars_cmaj_d, covar_dotprod, corr_buf, inverse_corr_buf, sample_ct, 0, new_covar_ct, xtx_state, *nm_precomp_ptr);
+    if (is_cc_residualize) {
+      BigstackReset(bigstack_mark);
+      const uintptr_t pred_ct = new_covar_ct + 1;
+      const uintptr_t pred_ctav = RoundUpPow2(pred_ct, kFloatPerFVec);
+      double* dbl_2d_buf;
+      if (is_single_prec) {
+        float* xx;
+        float* coefs;
+        float* hh;
+        double* half_inverted_buf;
+        float* ll;
+        float* pp;
+        float* vv;
+        float* grad;
+        float* dcoef;
+        float* hdiag;
+        float* ww;
+        float* hh0_buf;
+        float* tmpnxk_buf;
+        MatrixInvertBuf1* inv_1d_buf = S_CAST(MatrixInvertBuf1*, bigstack_alloc(pred_ct * kMatrixInvertBuf1CheckedAlloc));
+        // see GetLogisticWorkspaceSizeF() and corresponding code at top of
+        // GlmLogisticThread{F,D}()
+        if (unlikely((!inv_1d_buf) ||
+                     bigstack_alloc_f(sample_ctav * pred_ct, &xx) ||
+                     bigstack_calloc_f(pred_ctav, &coefs) ||
+                     bigstack_alloc_f(pred_ct * pred_ctav, &hh) ||
+                     bigstack_alloc_d(pred_ct * MAXV(pred_ct, 3), &half_inverted_buf) ||
+                     bigstack_alloc_d(pred_ct * MAXV(pred_ct, 7), &dbl_2d_buf) ||
+                     bigstack_alloc_f(pred_ct * pred_ctav, &ll) ||
+                     bigstack_alloc_f(sample_ctav, &pp) ||
+                     bigstack_alloc_f(sample_ctav, &vv) ||
+                     bigstack_alloc_f(pred_ctav, &grad) ||
+                     bigstack_alloc_f(pred_ctav, &dcoef) ||
+                     bigstack_alloc_f(sample_ctav, &hdiag) ||
+                     bigstack_alloc_f(sample_ctav, &ww) ||
+                     bigstack_alloc_f(pred_ct * pred_ctav, &hh0_buf) ||
+                     bigstack_alloc_f(sample_ctav * pred_ct, &tmpnxk_buf))) {
+          return 1;
+        }
+        FillFVec(sample_ct, 1.0, xx);
+        memcpy(&(xx[sample_ctav]), *covars_cmaj_f_ptr, sample_ctav * (pred_ct - 1) * sizeof(float));
+        uint32_t is_unfinished = 0;
+        float* logistic_nm_sample_offsets_f = (*cc_residualize_ptr)->logistic_nm_sample_offsets_f;
+        if (logistic_nm_sample_offsets_f) {
+          if (unlikely(LogisticRegressionF(*pheno_f_ptr, xx, nullptr, sample_ct, pred_ct, coefs, &is_unfinished, ll, pp, vv, hh, grad, dcoef) || is_unfinished)) {
+            if (glm_flags & kfGlmNoFirth) {
+              *glm_err_ptr = SetGlmErr0(kGlmErrcodeLogisticConvergeFail);
+              return 0;
+            }
+            (*cc_residualize_ptr)->logistic_nm_sample_offsets_f = nullptr;
+          }
+          ColMajorFmatrixVectorMultiplyStrided(xx, coefs, sample_ct, sample_ctav, pred_ct, logistic_nm_sample_offsets_f);
+          ZeroFArr(sample_ctav - sample_ct, &(logistic_nm_sample_offsets_f[sample_ct]));
+          ZeroFArr(pred_ctav, coefs);
+        }
+        float* firth_nm_sample_offsets_f = (*cc_residualize_ptr)->firth_nm_sample_offsets_f;
+        if (firth_nm_sample_offsets_f) {
+          if (unlikely(FirthRegressionF(*pheno_f_ptr, xx, nullptr, sample_ct, pred_ct, coefs, &is_unfinished, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf, pp, vv, grad, dcoef, hdiag, ww, hh0_buf, tmpnxk_buf) || is_unfinished)) {
+            *glm_err_ptr = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
+            return 0;
+          }
+          ColMajorFmatrixVectorMultiplyStrided(xx, coefs, sample_ct, sample_ctav, pred_ct, firth_nm_sample_offsets_f);
+          ZeroFArr(sample_ctav - sample_ct, &(firth_nm_sample_offsets_f[sample_ct]));
+        }
+      } else {
+        double* xx;
+        double* coefs;
+        double* hh;
+        double* ll;
+        double* pp;
+        double* vv;
+        double* grad;
+        double* dcoef;
+        double* hdiag;
+        double* ww;
+        double* hh0_buf;
+        double* tmpnxk_buf;
+        MatrixInvertBuf1* inv_1d_buf = S_CAST(MatrixInvertBuf1*, bigstack_alloc(pred_ct * kMatrixInvertBuf1CheckedAlloc));
+        if (unlikely((!inv_1d_buf) ||
+                     bigstack_alloc_d(sample_ctav * pred_ct, &xx) ||
+                     bigstack_alloc_d(pred_ctav, &coefs) ||
+                     bigstack_alloc_d(pred_ct * pred_ctav, &hh) ||
+                     bigstack_alloc_d(pred_ct * MAXV(pred_ct, 7), &dbl_2d_buf) ||
+                     bigstack_alloc_d(pred_ct * pred_ctav, &ll) ||
+                     bigstack_alloc_d(sample_ctav, &pp) ||
+                     bigstack_alloc_d(sample_ctav, &vv) ||
+                     bigstack_alloc_d(pred_ctav, &grad) ||
+                     bigstack_alloc_d(pred_ctav, &dcoef) ||
+                     bigstack_alloc_d(sample_ctav, &hdiag) ||
+                     bigstack_alloc_d(sample_ctav, &ww) ||
+                     bigstack_alloc_d(pred_ct * pred_ctav, &hh0_buf) ||
+                     bigstack_alloc_d(sample_ctav * pred_ct, &tmpnxk_buf))) {
+          return 1;
+        }
+        FillDVec(sample_ct, 1.0, xx);
+        for (uintptr_t pred_idx = 1; pred_idx != pred_ct; ++pred_idx) {
+          double* write_row_start = &(xx[sample_ctav * pred_idx]);
+          memcpy(write_row_start, &(covars_cmaj_d[sample_ct * (pred_idx - 1)]), sample_ct * sizeof(double));
+          ZeroDArr(sample_ctav - sample_ct, &(write_row_start[sample_ct]));
+        }
+        uint32_t is_unfinished = 0;
+        double* logistic_nm_sample_offsets_d = (*cc_residualize_ptr)->logistic_nm_sample_offsets_d;
+        if (logistic_nm_sample_offsets_d) {
+          if (unlikely(LogisticRegressionD(*pheno_d_ptr, xx, nullptr, sample_ct, pred_ct, &is_unfinished, coefs, ll, pp, vv, hh, grad, dcoef, inv_1d_buf, dbl_2d_buf) || is_unfinished)) {
+            if (glm_flags & kfGlmNoFirth) {
+              *glm_err_ptr = SetGlmErr0(kGlmErrcodeLogisticConvergeFail);
+              return 0;
+            }
+            (*cc_residualize_ptr)->logistic_nm_sample_offsets_d = nullptr;
+          }
+          ColMajorMatrixVectorMultiplyStrided(xx, coefs, sample_ct, sample_ctav, pred_ct, logistic_nm_sample_offsets_d);
+          ZeroDArr(sample_ctav - sample_ct, &(logistic_nm_sample_offsets_d[sample_ct]));
+        }
+        double* firth_nm_sample_offsets_d = (*cc_residualize_ptr)->firth_nm_sample_offsets_d;
+        if (firth_nm_sample_offsets_d) {
+          ZeroDArr(pred_ctav, coefs);
+          if (unlikely(FirthRegressionD(*pheno_d_ptr, xx, nullptr, sample_ct, pred_ct, coefs, &is_unfinished, hh, inv_1d_buf, dbl_2d_buf, pp, vv, grad, dcoef, hdiag, ww, hh0_buf, tmpnxk_buf) || is_unfinished)) {
+            *glm_err_ptr = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
+            return 0;
+          }
+          ColMajorMatrixVectorMultiplyStrided(xx, coefs, sample_ct, sample_ctav, pred_ct, firth_nm_sample_offsets_d);
+          ZeroDArr(sample_ctav - sample_ct, &(firth_nm_sample_offsets_d[sample_ct]));
+        }
+      }
+      // probable todo: print fitted coefficients and standard errors to log
+    }
+  }
+  BigstackReset(bigstack_mark);
+  if (gcount_case_interleaved_vec_ptr) {
+    if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, gcount_case_interleaved_vec_ptr))) {
+      return 1;
+    }
+    ZeroTrailingWords(BitCtToWordCt(sample_ct), pheno_cc_collapsed);
+    FillInterleavedMaskVec(pheno_cc_collapsed, sample_ctv, *gcount_case_interleaved_vec_ptr);
+  }
+  return 0;
+}
+
+uintptr_t GetLogisticWorkspaceSizeD(uint32_t sample_ct, uint32_t biallelic_predictor_ct, uint32_t domdev_present_p1, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct, uint32_t gcount_cc, uint32_t is_sometimes_firth, uint32_t is_cc_residualize) {
   // sample_ctav * max_predictor_ct < 2^31, and sample_ct >=
   // biallelic_predictor_ct, so no overflows?
   // could round everything up to multiples of 16 instead of 64
@@ -3316,6 +3528,14 @@ uintptr_t GetLogisticWorkspaceSizeD(uint32_t sample_ct, uint32_t biallelic_predi
 
     // tmpnxk_buf = max_predictor_ct * sample_ctav doubles
     workspace_size += RoundUpPow2(max_predictor_ct * sample_ctav * sizeof(double), kCacheline);
+  }
+  if (is_cc_residualize) {
+    // mean_centered_pmaj_buf = (domdev_present_p1 + max_extra_allele_ct) *
+    //   sample_ctav doubles
+    workspace_size += RoundUpPow2((domdev_present_p1 + max_extra_allele_ct) * sample_ctav * sizeof(double), kCacheline);
+
+    // sample_offsets_buf
+    workspace_size += RoundUpPow2(sample_ctav * sizeof(double), kCacheline);
   }
   if (constraint_ct) {
     // tmphxs_buf, h_transpose_buf = constraint_ct * max_predictor_ctav doubles
@@ -3444,6 +3664,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
       const double* cur_covars_cmaj;
       const uintptr_t* cur_parameter_subset;
       const uintptr_t* cur_joint_test_params;
+      const CcResidualizeCtx* cur_cc_residualize;
       uint32_t cur_sample_ct;
       uint32_t cur_covar_ct;
       uint32_t cur_constraint_ct;
@@ -3458,6 +3679,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         cur_covars_cmaj = ctx->covars_cmaj_y_d;
         cur_parameter_subset = common->parameter_subset_y;
         cur_joint_test_params = common->joint_test_params_y;
+        cur_cc_residualize = ctx->cc_residualize_y;
         cur_sample_ct = common->sample_ct_y;
         cur_covar_ct = common->covar_ct_y;
         cur_constraint_ct = common->constraint_ct_y;
@@ -3472,6 +3694,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         cur_covars_cmaj = ctx->covars_cmaj_x_d;
         cur_parameter_subset = common->parameter_subset_x;
         cur_joint_test_params = common->joint_test_params_x;
+        cur_cc_residualize = ctx->cc_residualize_x;
         cur_sample_ct = common->sample_ct_x;
         cur_covar_ct = common->covar_ct_x;
         cur_constraint_ct = common->constraint_ct_x;
@@ -3486,6 +3709,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         cur_covars_cmaj = ctx->covars_cmaj_d;
         cur_parameter_subset = common->parameter_subset;
         cur_joint_test_params = common->joint_test_params;
+        cur_cc_residualize = ctx->cc_residualize;
         cur_sample_ct = common->sample_ct;
         cur_covar_ct = common->covar_ct;
         cur_constraint_ct = common->constraint_ct;
@@ -3578,6 +3802,12 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         hh0_buf = S_CAST(double*, arena_alloc_raw_rd(max_predictor_ct * max_predictor_ctav * sizeof(double), &workspace_iter));
         tmpnxk_buf = S_CAST(double*, arena_alloc_raw_rd(max_predictor_ct * sample_ctav * sizeof(double), &workspace_iter));
       }
+      double* mean_centered_pmaj_buf = nullptr;
+      double* sample_offsets_buf = nullptr;
+      if (cur_cc_residualize) {
+        mean_centered_pmaj_buf = S_CAST(double*, arena_alloc_raw_rd(sample_ctav * sizeof(double) * (domdev_present_p1 + max_extra_allele_ct), &workspace_iter));
+        sample_offsets_buf = S_CAST(double*, arena_alloc_raw_rd(sample_ctav * sizeof(double), &workspace_iter));
+      }
 
       // joint test only
       double* tmphxs_buf = nullptr;
@@ -3597,7 +3827,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         // Rest of this matrix must be updated later, since cur_predictor_ct
         // changes at multiallelic variants.
       }
-      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetLogisticWorkspaceSizeD(cur_sample_ct, cur_biallelic_predictor_ct, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, cur_gcount_case_interleaved_vec != nullptr, is_sometimes_firth));
+      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetLogisticWorkspaceSizeD(cur_sample_ct, cur_biallelic_predictor_ct, domdev_present_p1, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, cur_gcount_case_interleaved_vec != nullptr, is_sometimes_firth, cur_cc_residualize != nullptr));
       const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
       const double cur_sample_ct_m1_recip = 1.0 / u31tod(cur_sample_ct - 1);
       const double* corr_inv = nullptr;
@@ -4246,6 +4476,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
             double* main_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
             double* domdev_vals = nullptr;
             uint32_t is_unfinished = 0;
+            uint32_t is_residualized = 0;
             // _stop instead of _ct since, in the residualized case, the
             // intercept (predictor index 0) is not included; we iterate over
             // the predictor indices in [1, _stop).
@@ -4407,22 +4638,38 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                   goto GlmLogisticThreadD_skip_regression;
                 }
               }
-              if (LogisticRegressionD(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, &is_unfinished, coef_return, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf, inv_1d_buf, dbl_2d_buf)) {
-                if (is_sometimes_firth) {
-                  ZeroDArr(cur_predictor_ctav, coef_return);
-                  goto GlmLogisticThreadD_firth_fallback;
+              if (!cur_cc_residualize) {
+                if (LogisticRegressionD(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, nm_sample_ct, cur_predictor_ct, &is_unfinished, coef_return, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf, inv_1d_buf, dbl_2d_buf)) {
+                  if (is_sometimes_firth) {
+                    ZeroDArr(cur_predictor_ctav, coef_return);
+                    goto GlmLogisticThreadD_firth_fallback;
+                  }
+                  glm_err = SetGlmErr0(kGlmErrcodeLogisticConvergeFail);
+                  goto GlmLogisticThreadD_skip_regression;
                 }
-                glm_err = SetGlmErr0(kGlmErrcodeLogisticConvergeFail);
-                goto GlmLogisticThreadD_skip_regression;
+              } else {
+                if (LogisticRegressionResidualizedD(nm_pheno_buf, nm_predictors_pmaj_buf, sample_nm, cur_cc_residualize, nm_sample_ct, cur_predictor_ct, &is_unfinished, coef_return, cholesky_decomp_return, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf, mean_centered_pmaj_buf, sample_offsets_buf)) {
+                  if (is_sometimes_firth) {
+                    ZeroDArr(cur_predictor_ctav, coef_return);
+                    goto GlmLogisticThreadD_firth_fallback;
+                  }
+                  glm_err = SetGlmErr0(kGlmErrcodeLogisticConvergeFail);
+                  goto GlmLogisticThreadD_skip_regression;
+                }
+                is_residualized = 1;
+                cur_regressed_predictor_stop = domdev_present + allele_ct;
+                cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kDoublePerDVec);
+                cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
+                cur_biallelic_regressed_predictor_stop = domdev_present + 2;
               }
               // unlike FirthRegressionD(), hh_return isn't inverted yet, do
               // that here
-              for (uint32_t pred_uidx = 0; pred_uidx != cur_regressed_predictor_stop; ++pred_uidx) {
+              for (uint32_t pred_uidx = is_residualized; pred_uidx != cur_regressed_predictor_stop; ++pred_uidx) {
                 double* hh_inv_row = &(hh_return[pred_uidx * cur_regressed_predictor_ctav]);
                 // ZeroDArr(cur_regressed_predictor_stop, gradient_buf);
                 // gradient_buf[pred_uidx] = 1.0;
                 // (y is gradient_buf, x is dcoef_buf)
-                // SolveLinearSystemD(cholesky_decomp_return, gradient_buf, cur_regressed_predictor_stop, hh_inv_row);
+                // SolveLinearSystemD(cholesky_decomp_return, &(gradient_buf[is_residualized]), cur_regressed_predictor_stop - is_residualized, &(hh_inv_row[is_residualized]));
                 // that works, but doesn't exploit the sparsity of y
 
                 // hh_return does now have vector-aligned rows
@@ -4437,7 +4684,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                   hh_inv_row[row_idx] = dxx / ll_row[row_idx];
                   dxx = 0.0;
                 }
-                for (uint32_t col_idx = cur_regressed_predictor_stop; col_idx > 0; ) {
+                for (uint32_t col_idx = cur_regressed_predictor_stop; col_idx > is_residualized; ) {
                   dxx = hh_inv_row[--col_idx];
                   double* hh_inv_row_iter = &(hh_inv_row[cur_regressed_predictor_stop - 1]);
                   for (uint32_t row_idx = cur_regressed_predictor_stop - 1; row_idx > col_idx; --row_idx) {
@@ -4456,9 +4703,21 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                   }
                 }
               }
-              if (FirthRegressionD(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, hdiag_buf, score_buf, hh0_buf, tmpnxk_buf)) {
-                glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
-                goto GlmLogisticThreadD_skip_regression;
+              if (!cur_cc_residualize) {
+                if (FirthRegressionD(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, hdiag_buf, score_buf, hh0_buf, tmpnxk_buf)) {
+                  glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
+                  goto GlmLogisticThreadD_skip_regression;
+                }
+              } else {
+                if (FirthRegressionResidualizedD(nm_pheno_buf, nm_predictors_pmaj_buf, sample_nm, cur_cc_residualize, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, hdiag_buf, score_buf, hh0_buf, tmpnxk_buf, mean_centered_pmaj_buf, sample_offsets_buf)) {
+                  glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
+                  goto GlmLogisticThreadD_skip_regression;
+                }
+                is_residualized = 1;
+                cur_regressed_predictor_stop = domdev_present + allele_ct;
+                cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kDoublePerDVec);
+                cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
+                cur_biallelic_regressed_predictor_stop = domdev_present + 2;
               }
             }
             // validParameters() check
@@ -4471,12 +4730,14 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
               // use sample_variance_buf[] to store diagonal square roots
               sample_variance_buf[pred_uidx] = sqrt(hh_inv_diag_element);
             }
-            sample_variance_buf[0] = sqrt(hh_return[0]);
-            for (uint32_t pred_uidx = 1; pred_uidx != cur_regressed_predictor_stop; ++pred_uidx) {
+            if (!is_residualized) {
+              sample_variance_buf[0] = sqrt(hh_return[0]);
+            }
+            for (uint32_t pred_uidx = 1 + is_residualized; pred_uidx != cur_regressed_predictor_stop; ++pred_uidx) {
               const double cur_hh_inv_diag_sqrt = 0.99999 * sample_variance_buf[pred_uidx];
-              const double* hh_inv_row_iter = &(hh_return[pred_uidx * cur_regressed_predictor_ctav]);
-              const double* hh_inv_diag_sqrts_iter = sample_variance_buf;
-              for (uint32_t pred_uidx2 = 0; pred_uidx2 != pred_uidx; ++pred_uidx2) {
+              const double* hh_inv_row_iter = &(hh_return[pred_uidx * cur_regressed_predictor_ctav + is_residualized]);
+              const double* hh_inv_diag_sqrts_iter = &(sample_variance_buf[is_residualized]);
+              for (uint32_t pred_uidx2 = is_residualized; pred_uidx2 != pred_uidx; ++pred_uidx2) {
                 if ((*hh_inv_row_iter++) > cur_hh_inv_diag_sqrt * (*hh_inv_diag_sqrts_iter++)) {
                   glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
                   goto GlmLogisticThreadD_skip_regression;
@@ -4822,15 +5083,15 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
         }
       }
     } else {
-      workspace_alloc = GetLogisticWorkspaceSizeD(sample_ct, biallelic_predictor_ct, max_extra_allele_ct, constraint_ct, xmain_ct, gcount_cc_col, is_sometimes_firth);
+      workspace_alloc = GetLogisticWorkspaceSizeD(sample_ct, biallelic_predictor_ct, domdev_present_p1, max_extra_allele_ct, constraint_ct, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
       if (sample_ct_x) {
-        const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSizeD(sample_ct_x, biallelic_predictor_ct_x, max_extra_allele_ct, constraint_ct_x, xmain_ct, gcount_cc_col, is_sometimes_firth);
+        const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSizeD(sample_ct_x, biallelic_predictor_ct_x, domdev_present_p1, max_extra_allele_ct, constraint_ct_x, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
         if (workspace_alloc_x > workspace_alloc) {
           workspace_alloc = workspace_alloc_x;
         }
       }
       if (sample_ct_y) {
-        const uintptr_t workspace_alloc_y = GetLogisticWorkspaceSizeD(sample_ct_y, biallelic_predictor_ct_y, max_extra_allele_ct, constraint_ct_y, xmain_ct, gcount_cc_col, is_sometimes_firth);
+        const uintptr_t workspace_alloc_y = GetLogisticWorkspaceSizeD(sample_ct_y, biallelic_predictor_ct_y, domdev_present_p1, max_extra_allele_ct, constraint_ct_y, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
         if (workspace_alloc_y > workspace_alloc) {
           workspace_alloc = workspace_alloc_y;
         }
@@ -5738,7 +5999,7 @@ void LogisticTestD() {
   }
   ZeroDArr(predictor_ctav, coef);
   uint32_t is_unfinished = 0;
-  BoolErr reterr = LogisticRegressionD(yy, xx, sample_ct, predictor_ct, &is_unfinished, coef, ll, pp, vv, hh, grad, dcoef, inv_1d_buf, dbl_2d_buf);
+  BoolErr reterr = LogisticRegressionD(yy, xx, nullptr, sample_ct, predictor_ct, &is_unfinished, coef, ll, pp, vv, hh, grad, dcoef, inv_1d_buf, dbl_2d_buf);
   printf("coef: %g %g %g %g %g\n", coef[0], coef[1], coef[2], coef[3], coef[4]);
   for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
     double* hh_inv_row = &(hh[pred_uidx * predictor_ctav]);
@@ -5819,7 +6080,7 @@ void LogisticTestFirthD() {
   }
   ZeroDArr(predictor_ctav, beta);
   uint32_t is_unfinished = 0;
-  BoolErr reterr = FirthRegressionD(yy, xx, sample_ct, predictor_ct, beta, &is_unfinished, hh, inv_1d_buf, dbl_2d_buf, pp, vv, ustar, delta, hdiag, ww, hh0_buf, tmpnxk_buf);
+  BoolErr reterr = FirthRegressionD(yy, xx, nullptr, sample_ct, predictor_ct, &is_unfinished, beta, hh, inv_1d_buf, dbl_2d_buf, pp, vv, ustar, delta, hdiag, ww, hh0_buf, tmpnxk_buf);
   printf("beta: %g %g %g %g %g\n", beta[0], beta[1], beta[2], beta[3], beta[4]);
   printf("sqrt(diag(hh)): %g %g %g %g %g\n", sqrt(hh[0]), sqrt(hh[predictor_ctav + 1]), sqrt(hh[2 * (predictor_ctav + 1)]), sqrt(hh[3 * (predictor_ctav + 1)]), sqrt(hh[4 * (predictor_ctav + 1)]));
   printf("p-values:");

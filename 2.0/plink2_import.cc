@@ -7598,13 +7598,13 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     uintptr_t* bcf_contig_keep;
     const char** contig_names;
     uint32_t* contig_slens;
-    const char** contig_out_names;
-    uint32_t* contig_out_slens;
+    const char** contig_out_names = nullptr; // spurious g++ 4.8 warning
+    uint32_t* contig_out_slens = nullptr;
     char* contig_out_buf;
     const char** fif_strings;
     uint32_t* fif_slens;
     uintptr_t* bcf_contig_seen;
-    uintptr_t* sample_nypbuf;
+    uintptr_t* sample_nypbuf = nullptr;
     if (unlikely(bigstack_calloc_w(BitCtToWordCt(contig_string_idx_end), &bcf_contig_keep) ||
                  bigstack_calloc_kcp(contig_string_idx_end, &contig_names) ||
                  bigstack_calloc_u32(contig_string_idx_end, &contig_slens) ||

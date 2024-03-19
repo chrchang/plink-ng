@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (15 Mar 2024)";
+  " (18 Mar 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -6135,8 +6135,8 @@ int main(int argc, char** argv) {
               logputs("Note: 'firth-residualize' is redundant when 'cc-residualize' is already\nspecified.\n");
               pc.glm_info.flags ^= kfGlmFirthResidualize;
             }
-            if (unlikely((pc.glm_info.flags & (kfGlmHideCovar | kfGlmSinglePrecCc)) != (kfGlmHideCovar | kfGlmSinglePrecCc))) {
-              logerrputs("Error: --glm 'cc-residualize'/'firth-residualize' requires 'hide-covar' and\n'single-prec-cc' to be specified as well.\n");
+            if (unlikely(!(pc.glm_info.flags & kfGlmHideCovar))) {
+              logerrputs("Error: --glm 'cc-residualize'/'firth-residualize' requires 'hide-covar' to be\nspecified as well.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (unlikely(pc.glm_info.flags & kfGlmInteraction)) {

@@ -4250,20 +4250,18 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
       goto CalcGrm_ret_NOMEM;
     }
-    {
-      if (unlikely(bigstack_calloc64_d(S_CAST(uint64_t, row_end_idx - row_start_idx) * row_end_idx, &grm))) {
-        if (!grm_ptr) {
-          logerrputs("Error: Out of memory.  If you are SURE you are performing the right matrix\ncomputation, you can split it into smaller pieces with --parallel, and then\nconcatenate the results.  But before you try this, make sure the program you're\nproviding the matrix to can actually handle such a large input file.\n");
+    if (unlikely(bigstack_calloc64_d(S_CAST(uint64_t, row_end_idx - row_start_idx) * row_end_idx, &grm))) {
+      if (!grm_ptr) {
+        logerrputs("Error: Out of memory.  If you are SURE you are performing the right matrix\ncomputation, you can split it into smaller pieces with --parallel, and then\nconcatenate the results.  But before you try this, make sure the program you're\nproviding the matrix to can actually handle such a large input file.\n");
+      } else {
+        // Need to edit this if there are ever non-PCA ways to get here.
+        if (!(grm_flags & (kfGrmMatrixShapemask | kfGrmListmask | kfGrmBin))) {
+          logerrputs("Error: Out of memory.  Consider \"--pca approx\" instead.\n");
         } else {
-          // Need to edit this if there are ever non-PCA ways to get here.
-          if (!(grm_flags & (kfGrmMatrixShapemask | kfGrmListmask | kfGrmBin))) {
-            logerrputs("Error: Out of memory.  Consider \"--pca approx\" instead.\n");
-          } else {
-            logerrputs("Error: Out of memory.  Consider \"--pca approx\" (and not writing the GRM to\ndisk) instead.\n");
-          }
+          logerrputs("Error: Out of memory.  Consider \"--pca approx\" (and not writing the GRM to\ndisk) instead.\n");
         }
-        goto CalcGrm_ret_NOMEM_CUSTOM;
       }
+      goto CalcGrm_ret_NOMEM_CUSTOM;
     }
     ctx.sample_ct = row_end_idx;
     ctx.grm = grm;
@@ -5267,7 +5265,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uint32_t* pca_sample_include_cumulative_popcounts;
     PgenVariant pgv;
-    double* allele_1copy_buf;
+    double* allele_1copy_buf = nullptr; // spurious g++ 4.8 warning
     double* eigvals;
     CalcPcaCtx ctx;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &pca_sample_include_cumulative_popcounts) ||

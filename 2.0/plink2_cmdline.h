@@ -1071,11 +1071,11 @@ HEADER_INLINE BoolErr bigstack_end_calloc_kcp(uintptr_t ct, const char*** kcp_ar
 }
 
 #ifdef __LP64__
-HEADER_INLINE BoolErr bigstack_end_calloc64_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_end_calloc64_w(uint64_t ct, uintptr_t** w_arr_ptr) {
   return bigstack_end_calloc_w(ct, w_arr_ptr);
 }
 #else
-BoolErr bigstack_end_calloc64_w(uintptr_t ct, uintptr_t** w_arr_ptr);
+BoolErr bigstack_end_calloc64_w(uint64_t ct, uintptr_t** w_arr_ptr);
 #endif
 
 HEADER_INLINE void bigstack_end_clalign() {

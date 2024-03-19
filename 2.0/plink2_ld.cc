@@ -1812,11 +1812,11 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     IndepPairphaseCtx ctx;
     uintptr_t* genovec;
-    uintptr_t* phasepresent;
-    uintptr_t* phaseinfo;
-    uintptr_t* raw_genovec;
-    uintptr_t* raw_phasepresent;
-    uintptr_t* raw_phaseinfo;
+    uintptr_t* phasepresent = nullptr; // spurious g++ 4.8 warning
+    uintptr_t* phaseinfo = nullptr;
+    uintptr_t* raw_genovec = nullptr;
+    uintptr_t* raw_phasepresent = nullptr;
+    uintptr_t* raw_phaseinfo = nullptr;
     uint32_t* thread_last_subcontig;
     uint32_t* thread_subcontig_start_tvidx;
     uint32_t* thread_last_tvidx;

@@ -53,8 +53,10 @@ typedef struct {
 } LogisticAuxResult;
 
 typedef struct CcResidualizeCtxStruct {
-  float* logistic_nm_sample_offsets;
-  float* firth_nm_sample_offsets;
+  float* logistic_nm_sample_offsets_f;
+  float* firth_nm_sample_offsets_f;
+  double* logistic_nm_sample_offsets_d;
+  double* firth_nm_sample_offsets_d;
   uint32_t prefitted_pred_ct;
   uint32_t domdev_present_p1;
   uint32_t sample_ct;

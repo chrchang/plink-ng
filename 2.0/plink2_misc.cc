@@ -662,7 +662,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
     uintptr_t* chr_already_seen;
     uintptr_t* already_seen;
     uintptr_t* conflict_bitarr;
-    char** orig_alt_starts;
+    char** orig_alt_starts = nullptr; // spurious g++ 4.8 warning
     if (unlikely(bigstack_alloc_cp(raw_variant_ct, &variant_ids_copy) ||
                  bigstack_calloc_w(BitCtToWordCt(chr_code_end), &chr_already_seen) ||
                  bigstack_calloc_w(raw_variant_ctl, &already_seen) ||

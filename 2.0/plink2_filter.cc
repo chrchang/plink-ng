@@ -2281,8 +2281,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     }
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     double* cur_allele_freqs;
-    uintptr_t* matched_loaded_alleles;
-    uintptr_t* matched_internal_alleles;
+    uintptr_t* matched_loaded_alleles = nullptr; // spurious g++ 4.8 warning
+    uintptr_t* matched_internal_alleles = nullptr;
     uint32_t* loaded_to_internal_allele_idx;
     uintptr_t* already_seen;
     if (unlikely(bigstack_calloc_w(raw_variant_ctl, variant_afreqcalcp) ||
