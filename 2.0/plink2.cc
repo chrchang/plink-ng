@@ -3617,6 +3617,8 @@ int main(int argc, char** argv) {
         case 's':
           if (strequal_k(flagname_p, "sdiff", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "sample-diff");
+          } else if (strequal_k(flagname_p, "set-hh-missing", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "set-invalid-haploid-missing");
           } else {
             goto main_flag_copy;
           }
@@ -9931,9 +9933,9 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPvarReq;
-        } else if (strequal_k_unsafe(flagname_p2, "et-hh-missing")) {
+        } else if (strequal_k_unsafe(flagname_p2, "et-invalid-haploid-missing")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
-            logerrputs("Error: --set-hh-missing must be used with --make-[b]pgen/--make-bed.\n");
+            logerrputs("Error: --set-invalid-haploid-missing must be used with\n--make-[b]pgen/--make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
@@ -9943,12 +9945,12 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + 1];
             if (likely(!strcmp(cur_modif, "keep-dosage"))) {
               if (unlikely(make_plink2_flags & kfMakePgenEraseDosage)) {
-                logerrputs("Error: --set-hh-missing 'keep-dosage' modifier cannot be used with\n--make-[b]pgen erase-dosage.\n");
+                logerrputs("Error: --set-invalid-haploid-missing 'keep-dosage' modifier cannot be used with\n--make-[b]pgen erase-dosage.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               make_plink2_flags |= kfMakePlink2SetHhMissingKeepDosage;
             } else {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --set-hh-missing argument '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --set-invalid-haploid-missing argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }

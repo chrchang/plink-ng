@@ -2169,15 +2169,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            This must be used with --pmerge[-list] or\n"
 "                            --make-[b]pgen/--make-bed.\n"
                );
-    HelpPrint("set-hh-missing\0set-mixed-mt-missing\0", &help_ctrl, 0,
-"  --set-hh-missing ['keep-dosage'] : Make --make-[b]pgen/--make-bed set non-MT\n"
-"                                     heterozygous haploid hardcalls, and all\n"
-"                                     female chrY calls, to missing.  (Unlike\n"
-"                                     PLINK 1.x, this treats unknown-sex chrY\n"
-"                                     genotypes like males, not females.)\n"
-"                                     By default, all associated dosages are\n"
-"                                     also erased; use 'keep-dosage' to keep\n"
-"                                     them all.\n"
+    HelpPrint("set-invalid-haploid-missing\0set-hh-missing\0set-mixed-mt-missing\0", &help_ctrl, 0,
+"  --set-invalid-haploid-missing ['keep-dosage'] :\n"
+"    Make --make-[b]pgen/--make-bed set non-MT heterozygous haploid hardcalls,\n"
+"    and all female chrY calls, to missing.\n"
+"    By default, all associated dosages are also erased; use 'keep-dosage' to\n"
+"    keep them all.\n"
 "  --set-mixed-mt-missing ['keep-dosage'] : Make --make-[b]pgen/--make-bed set\n"
 "                                           mixed MT hardcalls to missing.\n"
                );
