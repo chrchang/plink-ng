@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (18 Mar 2024)";
+  " (18 Apr 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -105,7 +105,7 @@ static const char ver_str2[] =
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise,\n--r2-phased, --sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--gwas-ssf, --clump, --score-list, --variant-score, --genotyping-rate,\n--pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise,\n--r2-phased, --sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--gwas-ssf, --pheno-svd, --clump, --score-list, --variant-score,\n--genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #else
 // no --pca
 static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise,\n--r2-phased, --sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--gwas-ssf, --clump, --score-list, --variant-score, --genotyping-rate,\n--pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
@@ -196,7 +196,8 @@ FLAGSET64_DEF_START()
   kfCommand1Pmerge = (1 << 26),
   kfCommand1PgenDiff = (1 << 27),
   kfCommand1Clump = (1 << 28),
-  kfCommand1Vcor = (1 << 29)
+  kfCommand1Vcor = (1 << 29),
+  kfCommand1PhenoSvd = (1 << 30)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -349,6 +350,7 @@ typedef struct Plink2CmdlineStruct {
   GwasSsfInfo gwas_ssf_info;
   ClumpInfo clump_info;
   VcorInfo vcor_info;
+  PhenoSvdInfo pheno_svd_info;
   double ci_size;
   float var_min_qual;
   uint32_t splitpar_bound1;
@@ -1697,6 +1699,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
     }
 
+#ifndef NOLAPACK
+    if (pcp->command_flags1 & kfCommand1PhenoSvd) {
+      reterr = PhenoSvd(&pcp->pheno_svd_info, sample_include, &pii.sii, raw_sample_ct, sample_ct, pcp->max_thread_ct, &pheno_names, &pheno_ct, &max_pheno_name_blen, pheno_cols, outname, outname_end);
+      if (unlikely(reterr)) {
+        goto Plink2Core_ret_1;
+      }
+    }
+#endif
+
     char* loop_cats_outname_endp1_backup = &(outname_end[1]);
     uintptr_t* loop_cats_sample_include_backup = nullptr;
     uintptr_t* loop_cats_founder_info_backup = nullptr;
@@ -2085,7 +2096,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             const uint32_t is_dosage = (pcp->misc_flags / kfMiscGenotypingRateDosage) & 1;
             const uint32_t y_sample_ct = male_ct + ((pcp->misc_flags / kfMiscYNosexMissingStats) & 1) * nosex_ct;
             ReportGenotypingRate(variant_include, cip, is_dosage? variant_missing_dosage_cts : variant_missing_hc_cts, raw_sample_ct, sample_ct, y_sample_ct, variant_ct, is_dosage);
-            if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
+            if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1PhenoSvd | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
               continue;
             }
           }
@@ -2105,7 +2116,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
+          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1PhenoSvd | kfCommand1AlleleFreq | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
             continue;
           }
         }
@@ -2114,7 +2125,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
+          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1PhenoSvd | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
             continue;
           }
         }
@@ -2124,7 +2135,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
+          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1PhenoSvd | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
             continue;
           }
         }
@@ -2234,7 +2245,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               if (unlikely(reterr)) {
                 goto Plink2Core_ret_1;
               }
-              if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1Hardy | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
+              if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1PhenoSvd | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1Hardy | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
                 continue;
               }
             }
@@ -3400,6 +3411,7 @@ int main(int argc, char** argv) {
   InitGwasSsf(&pc.gwas_ssf_info);
   InitClump(&pc.clump_info);
   InitVcor(&pc.vcor_info);
+  InitPhenoSvd(&pc.pheno_svd_info);
   GenDummyInfo gendummy_info;
   InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
@@ -5990,6 +6002,8 @@ int main(int argc, char** argv) {
               pc.glm_info.flags |= kfGlmFirthResidualize;
             } else if (strequal_k(cur_modif, "cc-residualize", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmCcResidualize;
+            } else if (strequal_k(cur_modif, "qt-residualize", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmQtResidualize;
             } else if (strequal_k(cur_modif, "single-prec-cc", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmSinglePrecCc;
             } else if (unlikely(strequal_k(cur_modif, "standard-beta", cur_modif_slen))) {
@@ -6130,25 +6144,25 @@ int main(int argc, char** argv) {
             logerrputs("Error: --glm 'perm' and 'mperm=' cannot be used together.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (pc.glm_info.flags & (kfGlmFirthResidualize | kfGlmCcResidualize)) {
+          if (pc.glm_info.flags & kfGlmResidualizeMask) {
             if ((pc.glm_info.flags & (kfGlmFirthResidualize | kfGlmCcResidualize)) == (kfGlmFirthResidualize | kfGlmCcResidualize)) {
               logputs("Note: 'firth-residualize' is redundant when 'cc-residualize' is already\nspecified.\n");
               pc.glm_info.flags ^= kfGlmFirthResidualize;
             }
             if (unlikely(!(pc.glm_info.flags & kfGlmHideCovar))) {
-              logerrputs("Error: --glm 'cc-residualize'/'firth-residualize' requires 'hide-covar' to be\nspecified as well.\n");
+              logerrputs("Error: --glm '{cc,firth,qt}-residualize' requires 'hide-covar' to be specified\nas well.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (unlikely(pc.glm_info.flags & kfGlmInteraction)) {
-              logerrputs("Error: --glm 'cc-residualize'/'firth-residualize' cannot be used with\n'interaction'.\n");
+              logerrputs("Error: --glm '{cc,firth,qt}-residualize' cannot be used with 'interaction'.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (unlikely(pc.glm_info.flags & kfGlmIntercept)) {
-              logerrputs("Error: --glm 'cc-residualize'/'firth-residualize' cannot be used with\n'intercept'.\n");
+              logerrputs("Error: --glm '{cc,firth,qt}-residualize' cannot be used with 'intercept'.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (unlikely(pc.glm_local_covar_fname)) {
-              logerrputs("Error: --glm 'cc-residualize'/'firth-residualize' cannot be used with local\ncovariates.  (If you want to include a per-chromosome polygenic effect, you\nneed to include that as a regular covariate and perform per-chromosome --glm\nruns; sorry about the inconvenience.)\n");
+              logerrputs("Error: --glm '{cc,firth,qt}-residualize' cannot be used with local covariates.\n(If you want to include a per-chromosome polygenic effect, you need to include\nthat as a regular covariate and perform per-chromosome --glm runs; sorry about\nthe inconvenience.)\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (unlikely((pc.glm_info.flags & (kfGlmFirthResidualize | kfGlmNoFirth)) == (kfGlmFirthResidualize | kfGlmNoFirth))) {
@@ -9170,8 +9184,8 @@ int main(int argc, char** argv) {
             logerrputs("Error: --parameters must be used with --glm.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(pc.glm_info.flags & kfGlmFirthResidualize)) {
-            logerrputs("Error: --parameters cannot be used with --glm firth-residualize.\n");
+          if (unlikely(pc.glm_info.flags & kfGlmResidualizeMask)) {
+            logerrputs("Error: --parameters cannot be used with --glm {cc,firth,qt}-residualize.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           reterr = ParseNameRanges(&(argvk[arg_idx]), errstr_append, param_ct, 1, '-', &pc.glm_info.parameters_range_list);
@@ -9241,7 +9255,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Invalid --pca argument sequence.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (unlikely(pc.pca_ct > 8000)) {
+              if (unlikely(pc.pca_ct > kMaxPc)) {
                 // this slightly simplifies output buffering.
                 logerrputs("Error: --pca does not support more than 8000 PCs.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -9648,6 +9662,75 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --polyploid-mode.\n", mode_str);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "heno-svd")) {
+#ifdef NOLAPACK
+          logerrputs("Error: --pheno-svd requires " PROG_NAME_STR " to be built with LAPACK.\n");
+          goto main_ret_INVALID_CMDLINE;
+#endif
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* first_arg = argvk[arg_idx + 1];
+          const uint32_t first_arg_slen = strlen(first_arg);
+          if (StrStartsWith(first_arg, "variance=", first_arg_slen)) {
+            double dxx;
+            if (unlikely((!ScantokDouble(&(first_arg[9]), &dxx)) || (dxx <= 0.0) || (dxx > 1.0))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --pheno-svd variance= argument '%s'.\n", first_arg);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.pheno_svd_info.min_variance_explained = dxx;
+          } else {
+            uint32_t uii;
+            if (unlikely(ScanPosintDefcapx(first_arg, &uii))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --pheno-svd output phenotype count '%s'.\n", first_arg);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            if (unlikely(uii > kMaxPc)) {
+              logerrputs("Error: --pheno-svd does not support more than 8000 output phenotypes.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
+            pc.pheno_svd_info.ct = uii;
+          }
+          uint32_t explicit_scols = 0;
+          uint32_t explicit_pcols = 0;
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "force", cur_modif_slen)) {
+              pc.pheno_svd_info.flags |= kfPhenoSvdForce;
+            } else if (StrStartsWith0(cur_modif, "scols=", cur_modif_slen)) {
+              if (unlikely(explicit_scols)) {
+                logerrputs("Error: Multiple --pheno-svd scols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              explicit_scols = 1;
+              reterr = ParseColDescriptor(&(cur_modif[strlen("scols=")]), "maybefid\0fid\0maybesid\0sid\0", "pheno-svd scols", kfPhenoSvdScolMaybefid, kfPhenoSvdScolDefault, 0, &pc.pheno_svd_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else if (likely(StrStartsWith0(cur_modif, "pcols=", cur_modif_slen))) {
+              if (unlikely(explicit_scols)) {
+                logerrputs("Error: Multiple --pheno-svd pcols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              explicit_scols = 1;
+              reterr = ParseColDescriptor(&(cur_modif[strlen("pcols=")]), "id\0sv\0", "pheno-svd pcols", kfPhenoSvdPcolId, kfPhenoSvdPcolDefault, 0, &pc.pheno_svd_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              logerrputs("Error: Invalid --pheno-svd argument sequence.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+          if (!explicit_scols) {
+            pc.pheno_svd_info.flags |= kfPhenoSvdScolDefault;
+          }
+          if (!explicit_pcols) {
+            pc.pheno_svd_info.flags |= kfPhenoSvdPcolDefault;
+          }
+          pc.command_flags1 |= kfCommand1PhenoSvd;
+          pc.dependency_flags |= kfFilterPsamReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "heno-quantile-normalize"))) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
@@ -10953,8 +11036,8 @@ int main(int argc, char** argv) {
             logerrputs("Error: --tests must be used with --glm.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(pc.glm_info.flags & kfGlmFirthResidualize)) {
-            logerrputs("Error: --tests cannot be used with --glm firth-residualize.\n");
+          if (unlikely(pc.glm_info.flags & kfGlmResidualizeMask)) {
+            logerrputs("Error: --tests cannot be used with --glm {cc,firth,qt}-residualize.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(pc.gwas_ssf_info.flags & kfGwasSsfDeleteOrigGlm)) {

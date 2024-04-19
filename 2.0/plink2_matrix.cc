@@ -1284,15 +1284,14 @@ BoolErr GetSvdRectLwork(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer* lw
   return 0;
 }
 
-IntErr SvdRect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, double* matrix, double* ss, unsigned char* svd_rect_wkspace) {
+IntErr SvdRect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, double* matrix, double* ss, double* vv, unsigned char* svd_rect_wkspace) {
   double* work = R_CAST(double*, svd_rect_wkspace);
-  double* vv_buf = &(work[lwork]);
   char jobu = 'S';
   char jobvt = 'O';
   __CLPK_integer tmp_m = minor_ct;
   __CLPK_integer tmp_n = major_ct;
   __CLPK_integer info;
-  dgesvd_(&jobu, &jobvt, &tmp_m, &tmp_n, matrix, &tmp_m, ss, vv_buf, &tmp_m, nullptr, &tmp_m, work, &lwork, &info);
+  dgesvd_(&jobu, &jobvt, &tmp_m, &tmp_n, matrix, &tmp_m, ss, vv, &tmp_m, nullptr, &tmp_m, work, &lwork, &info);
   return S_CAST(IntErr, info);
 }
 

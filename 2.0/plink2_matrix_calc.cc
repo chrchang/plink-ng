@@ -51,6 +51,12 @@ void CleanupScore(ScoreInfo* score_info_ptr) {
   free_cond(score_info_ptr->qsr_data_fname);
 }
 
+void InitPhenoSvd(PhenoSvdInfo* pheno_svd_info_ptr) {
+  pheno_svd_info_ptr->flags = kfPhenoSvd0;
+  pheno_svd_info_ptr->ct = 0;
+  pheno_svd_info_ptr->min_variance_explained = 0.0;
+}
+
 
 // Cost function for thread load-balancing: (max - min) * ((max + min)/2)
 // i.e. we don't waste any time processing entries in the irrelevant
@@ -5299,10 +5305,10 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // Sets.
       const uintptr_t pc_ct_x2 = pc_ct * 2;
       const uintptr_t qq_col_ct = (pc_ct + 1) * pc_ct_x2;
-      // bugfix (30 Jan 2019): First SvdRect() call returns min(variant_ct,
-      // qq_col_ct) singular vectors; this was previously assumed to always be
-      // qq_col_ct, and very inaccurate results were produced when the
-      // assumption wasn't true.
+      // bugfix (30 Jan 2019): First SvdRectFused() call returns
+      // min(variant_ct, qq_col_ct) singular vectors; this was previously
+      // assumed to always be qq_col_ct, and very inaccurate results were
+      // produced when the assumption wasn't true.
       // Simplest solution is to force the user to request fewer PCs, since the
       // final PCs wouldn't be accurate anyway.
       if (qq_col_ct > variant_ct) {
@@ -5449,7 +5455,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       logputs("Computing SVD of Krylov matrix... ");
       fflush(stdout);
       BLAS_SET_NUM_THREADS(max_thread_ct);
-      IntErr svd_rect_err = SvdRect(pca_row_ct, qq_col_ct, svd_rect_lwork, qq, ss, svd_rect_wkspace);
+      IntErr svd_rect_err = SvdRectFused(pca_row_ct, qq_col_ct, svd_rect_lwork, qq, ss, svd_rect_wkspace);
       if (unlikely(svd_rect_err)) {
         logputs("\n");
         snprintf(g_logbuf, kLogbufSize, "Error: Failed to compute SVD of Krylov matrix (DGESVD info=%d).\n", S_CAST(int32_t, svd_rect_err));
@@ -5507,7 +5513,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         }
       }
       BLAS_SET_NUM_THREADS(max_thread_ct);
-      svd_rect_err = SvdRect(pca_sample_ct, qq_col_ct, svd_rect_lwork, bb, ss, svd_rect_wkspace);
+      svd_rect_err = SvdRectFused(pca_sample_ct, qq_col_ct, svd_rect_lwork, bb, ss, svd_rect_wkspace);
       if (unlikely(svd_rect_err)) {
         logputs("\n");
         snprintf(g_logbuf, kLogbufSize, "Error: Failed to compute SVD of final matrix (DGESVD info=%d).\n", S_CAST(int32_t, svd_rect_err));
@@ -9693,6 +9699,319 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
   pgfip->block_base = nullptr;
   return reterr;
 }
+
+#ifndef NOLAPACK
+// may need to increase textbuf size if this stops being true
+static_assert(kMaxPc < 100000, "PhenoSvd() needs to be updated.");
+PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, __attribute__((unused)) uint32_t max_thread_ct, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr, PhenoCol* pheno_cols, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  const uintptr_t orig_pheno_ct = *pheno_ct_ptr;
+  FILE* outfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    if (unlikely(orig_pheno_ct < 2)) {
+      logerrprintf("Error: --pheno-svd invoked %s.\n", orig_pheno_ct? "with only 1 phenotype" : "without any phenotypes");
+      goto PhenoSvd_ret_INCONSISTENT_INPUT;
+    }
+    if (unlikely(orig_sample_ct <= 1)) {
+      assert(orig_sample_ct == 1);
+      logerrputs("Error: --pheno-svd invoked with only one sample.\n");
+      goto PhenoSvd_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
+    uintptr_t* sample_intersect;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctaw, &sample_intersect))) {
+      goto PhenoSvd_ret_NOMEM;
+    }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    memcpy(sample_intersect, sample_include, raw_sample_ctl * sizeof(intptr_t));
+    ZeroTrailingWords(raw_sample_ctl, sample_intersect);
+    const uintptr_t orig_max_pheno_name_blen = *max_pheno_name_blen_ptr;
+    char* orig_pheno_names = *pheno_names_ptr;
+    for (uintptr_t pheno_idx = 0; pheno_idx != orig_pheno_ct; ++pheno_idx) {
+      const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
+      if (unlikely(cur_pheno_col->type_code == kPhenoDtypeCat)) {
+        logerrprintfww("Error: --pheno-svd: phenotype '%s' is categorical; it must be preprocessed with e.g. --split-cat-pheno.\n", &(orig_pheno_names[pheno_idx * orig_max_pheno_name_blen]));
+        goto PhenoSvd_ret_INCONSISTENT_INPUT;
+      }
+      BitvecAnd(cur_pheno_col->nonmiss, raw_sample_ctl, sample_intersect);
+    }
+    const uint32_t new_sample_ct = PopcountWords(sample_intersect, raw_sample_ctl);
+    const PhenoSvdFlags flags = psip->flags;
+    if (new_sample_ct * 2 < orig_sample_ct) {
+      if (unlikely(!(flags & kfPhenoSvdForce))) {
+        logerrprintfww("Error: --pheno-svd: Only %u/%u sample%s have no missing phenotype values. Consider imputing some missing phenotype values, and/or excluding phenotypes with many missing values.\n", new_sample_ct, orig_sample_ct, (new_sample_ct == 1)? "" : "s");
+        goto PhenoSvd_ret_INCONSISTENT_INPUT;
+      }
+    }
+    const uintptr_t svd_dim = MINV(orig_pheno_ct, new_sample_ct);
+    uint32_t new_pheno_ct = psip->ct;
+    if (unlikely(svd_dim < new_pheno_ct)) {
+      if (svd_dim == orig_pheno_ct) {
+        logerrprintf("Error: --pheno-svd %u invoked with only %" PRIuPTR " phenotypes.\n", new_pheno_ct, orig_pheno_ct);
+      } else {
+        logerrprintf("Error: --pheno-svd %u invoked with only %u samples.\n", new_pheno_ct, new_sample_ct);
+      }
+      goto PhenoSvd_ret_INCONSISTENT_INPUT;
+    }
+    const uint64_t svd_rect_size = S_CAST(uint64_t, orig_pheno_ct) * new_sample_ct;
+    __CLPK_integer svd_rect_lwork;
+#ifdef LAPACK_ILP64
+    GetSvdRectLwork(orig_pheno_ct, new_sample_ct, &svd_rect_lwork);
+#else
+    if (unlikely((svd_rect_size > 0x7effffff) ||
+                 GetSvdRectLwork(orig_pheno_ct, new_sample_ct, &svd_rect_lwork))) {
+      logerrputs("Error: --pheno-svd problem instance too large for this " PROG_NAME_STR " build.  If this\nis really the computation you want, use a " PROG_NAME_STR " build with large-matrix support.\n");
+      goto PhenoSvd_ret_INCONSISTENT_INPUT;
+    }
+#endif
+    double* matrix; // orig_pheno x new_sample on input, pheno-pheno afterward
+    double* singular_values;
+    double* svd_sample_result;
+    unsigned char* svd_rect_wkspace;
+    if (unlikely(bigstack_alloc_d(svd_rect_size, &matrix) ||
+                 bigstack_alloc_d(svd_dim, &singular_values) ||
+                 bigstack_alloc_d(svd_rect_size, &svd_sample_result) ||
+                 bigstack_alloc_uc(svd_rect_lwork * sizeof(double), &svd_rect_wkspace))) {
+      goto PhenoSvd_ret_NOMEM;
+    }
+    {
+      double* dwrite_iter = matrix;
+      for (uintptr_t pheno_idx = 0; pheno_idx != orig_pheno_ct; ++pheno_idx) {
+        const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
+
+        uintptr_t sample_uidx_base = 0;
+        uintptr_t cur_bits = sample_intersect[0];
+        if (cur_pheno_col->type_code == kPhenoDtypeQt) {
+          const double* pheno_qt = cur_pheno_col->data.qt;
+          for (uint32_t sample_idx = 0; sample_idx != new_sample_ct; ++sample_idx) {
+            const uint32_t sample_uidx = BitIter1(sample_intersect, &sample_uidx_base, &cur_bits);
+            dwrite_iter[sample_idx] = pheno_qt[sample_uidx];
+          }
+        } else {
+          const uintptr_t* pheno_cc = cur_pheno_col->data.cc;
+          for (uint32_t sample_idx = 0; sample_idx != new_sample_ct; ++sample_idx) {
+            const uint32_t sample_uidx = BitIter1(sample_intersect, &sample_uidx_base, &cur_bits);
+            dwrite_iter[sample_idx] = kSmallDoubles[IsSet(pheno_cc, sample_uidx)];
+          }
+        }
+        dwrite_iter = &(dwrite_iter[new_sample_ct]);
+      }
+    }
+
+    BLAS_SET_NUM_THREADS(max_thread_ct);
+    IntErr svd_rect_err = SvdRect(orig_pheno_ct, new_sample_ct, svd_rect_lwork, matrix, singular_values, svd_sample_result, svd_rect_wkspace);
+    if (unlikely(svd_rect_err)) {
+      logerrprintf("Error: --pheno-svd: DGESVD failure, info=%d.\n", S_CAST(int32_t, svd_rect_err));
+      goto PhenoSvd_ret_DEGENERATE_DATA;
+    }
+
+    if (!new_pheno_ct) {
+      const double min_variance_explained = psip->min_variance_explained;
+      if (min_variance_explained == 1.0) {
+        new_pheno_ct = svd_dim;
+      } else {
+        double ssq = 0.0;
+        for (uintptr_t sv_idx = 0; sv_idx != svd_dim; ++sv_idx) {
+          const double cur_sv = singular_values[sv_idx];
+          ssq += cur_sv * cur_sv;
+        }
+        const double target_ssq = min_variance_explained * ssq;
+        ssq = 0.0;
+        do {
+          const double cur_sv = singular_values[new_pheno_ct];
+          ssq += cur_sv * cur_sv;
+          ++new_pheno_ct;
+        } while (ssq < target_ssq);
+        assert(new_pheno_ct <= svd_dim);
+      }
+      if (unlikely(new_pheno_ct > kMaxPc)) {
+        logerrprintfww("Error: --pheno-svd variance=%g: Too many new phenotypes (%u; max %u).\n", min_variance_explained, new_pheno_ct, kMaxPc);
+        goto PhenoSvd_ret_INCONSISTENT_INPUT;
+      }
+      logprintf("--pheno-svd variance=%g: %u/%" PRIuPTR " phenotype%s kept.\n", min_variance_explained, new_pheno_ct, svd_dim, (new_pheno_ct == 1)? "" : "s");
+    }
+
+    BigstackReset(svd_rect_wkspace);
+    const uint32_t textbuf_req = kMaxMediumLine + MAXV(kMaxMediumLine, 3 * kMaxIdBlen + (kMaxDoubleGSlen + 1) * orig_pheno_ct);
+    char* textbuf;
+    if (unlikely(bigstack_alloc_c(textbuf_req, &textbuf))) {
+      goto PhenoSvd_ret_NOMEM;
+    }
+    char* textbuf_flush = &(textbuf[kMaxMediumLine]);
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".svd.pheno");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto PhenoSvd_ret_OPEN_FAIL;
+    }
+    char* write_iter = textbuf;
+    *write_iter++ = '#';
+    const uint32_t col_fid = FidColIsRequired(siip, flags / kfPhenoSvdScolMaybefid);
+    if (col_fid) {
+      write_iter = strcpya_k(write_iter, "FID\t");
+    }
+    write_iter = strcpya_k(write_iter, "IID");
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    const uint32_t col_sid = SidColIsRequired(sids, flags / kfPhenoSvdScolMaybesid);
+    if (col_sid) {
+      write_iter = strcpya_k(write_iter, "\tSID");
+    }
+    for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
+      write_iter = strcpya_k(write_iter, "\tSVDPHENO");
+      write_iter = u32toa(1 + new_pheno_idx, write_iter);
+    }
+    AppendBinaryEoln(&write_iter);
+    if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
+      goto PhenoSvd_ret_WRITE_FAIL;
+    }
+    {
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_intersect[0];
+      for (uint32_t sample_idx = 0; sample_idx != new_sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_intersect, &sample_uidx_base, &cur_bits);
+        write_iter = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, write_iter);
+        const double* svd_sample_result_row = &(svd_sample_result[sample_idx * svd_dim]);
+        for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
+          *write_iter++ = '\t';
+          write_iter = dtoa_g(svd_sample_result_row[new_pheno_idx], write_iter);
+        }
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
+          goto PhenoSvd_ret_WRITE_FAIL;
+        }
+      }
+    }
+    if (unlikely(fclose_flush_null(textbuf_flush, write_iter, &outfile))) {
+      goto PhenoSvd_ret_WRITE_FAIL;
+    }
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".svd.pheno_wts");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto PhenoSvd_ret_OPEN_FAIL;
+    }
+    write_iter = textbuf;
+    *write_iter++ = '#';
+    const uint32_t col_id = (flags / kfPhenoSvdPcolId) & 1;
+    if (col_id) {
+      write_iter = strcpya_k(write_iter, "NEW_PHENO_ID\t");
+    }
+    const uint32_t col_sv = (flags / kfPhenoSvdPcolSv) & 1;
+    if (col_sv) {
+      write_iter = strcpya_k(write_iter, "SINGULAR_VALUE\t");
+    }
+    for (uint32_t orig_pheno_idx = 0; orig_pheno_idx != orig_pheno_ct; ++orig_pheno_idx) {
+      if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
+        goto PhenoSvd_ret_WRITE_FAIL;
+      }
+      write_iter = strcpyax(write_iter, &(orig_pheno_names[orig_pheno_idx * orig_max_pheno_name_blen]), '\t');
+    }
+    --write_iter;
+    AppendBinaryEoln(&write_iter);
+    if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
+      goto PhenoSvd_ret_WRITE_FAIL;
+    }
+    for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
+      if (col_id) {
+        write_iter = strcpya_k(write_iter, "SVDPHENO");
+        write_iter = u32toa_x(new_pheno_idx + 1, '\t', write_iter);
+      }
+      if (col_sv) {
+        write_iter = dtoa_g(singular_values[new_pheno_idx], write_iter);
+        *write_iter++ = '\t';
+      }
+      const double* matrix_col_iter = &(matrix[new_pheno_idx]);
+      for (uint32_t orig_pheno_idx = 0; orig_pheno_idx != orig_pheno_ct; ++orig_pheno_idx) {
+        write_iter = dtoa_g(*matrix_col_iter, write_iter);
+        *write_iter++ = '\t';
+        matrix_col_iter = &(matrix_col_iter[svd_dim]);
+      }
+      --write_iter;
+      AppendBinaryEoln(&write_iter);
+      if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
+        goto PhenoSvd_ret_WRITE_FAIL;
+      }
+    }
+
+    if (unlikely(fclose_flush_null(textbuf_flush, write_iter, &outfile))) {
+      goto PhenoSvd_ret_WRITE_FAIL;
+    }
+    outname_end[strlen(".svd.pheno")] = '\0';
+    logprintfww("--pheno-svd: Results written to %s + %s_wts .\n", outname, outname);
+
+    // ensure cleanup works if new phenotype initialization fails in the middle
+    for (uint32_t pheno_idx = new_pheno_ct; pheno_idx != orig_pheno_ct; ++pheno_idx) {
+      pheno_cols[pheno_idx].nonmiss = nullptr;
+    }
+
+    const uintptr_t old_pheno_names_size = orig_pheno_ct * orig_max_pheno_name_blen;
+    const uintptr_t new_max_pheno_name_blen = 9 + UintSlen(new_pheno_ct + 1);
+    const uintptr_t new_pheno_names_size = new_pheno_ct * new_max_pheno_name_blen;
+    char* new_pheno_names = orig_pheno_names;
+    if (new_pheno_names_size > old_pheno_names_size) {
+      if (unlikely(pgl_malloc(new_pheno_names_size, &new_pheno_names))) {
+        goto PhenoSvd_ret_NOMEM;
+      }
+      *pheno_names_ptr = new_pheno_names;
+    }
+    for (uint32_t pheno_idx = 0; pheno_idx != new_pheno_ct; ) {
+      char* pheno_write_iter = strcpya_k(&(new_pheno_names[pheno_idx * new_max_pheno_name_blen]), "SVDPHENO");
+      ++pheno_idx;
+      write_iter = u32toa(pheno_idx, pheno_write_iter);
+      *write_iter = '\0';
+    }
+    const uintptr_t nonmiss_vec_ct = BitCtToVecCt(raw_sample_ct);
+    const uintptr_t data_vec_ct = DblCtToVecCt(raw_sample_ct);
+    for (uint32_t pheno_idx = 0; pheno_idx != new_pheno_ct; ++pheno_idx) {
+      // could try to reuse, but let's keep this a bit simpler for now
+      vecaligned_free_cond(pheno_cols[pheno_idx].nonmiss);
+      pheno_cols[pheno_idx].nonmiss = nullptr;
+      uintptr_t* new_pheno_data_iter;
+      if (unlikely(vecaligned_malloc((nonmiss_vec_ct + data_vec_ct) * kBytesPerVec, &new_pheno_data_iter))) {
+        goto PhenoSvd_ret_NOMEM;
+      }
+      pheno_cols[pheno_idx].nonmiss = new_pheno_data_iter;
+      memcpy(new_pheno_data_iter, sample_intersect, raw_sample_ctaw * sizeof(intptr_t));
+      new_pheno_data_iter = &(new_pheno_data_iter[raw_sample_ctaw]);
+      double* qt = R_CAST(double*, new_pheno_data_iter);
+      pheno_cols[pheno_idx].data.qt = qt;
+
+      const double* svd_sample_result_col = &(svd_sample_result[pheno_idx]);
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_intersect[0];
+      for (uint32_t sample_idx = 0; sample_idx != new_sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_intersect, &sample_uidx_base, &cur_bits);
+        qt[sample_uidx] = svd_sample_result_col[sample_idx * svd_dim];
+      }
+    }
+    *pheno_ct_ptr = new_pheno_ct;
+    *max_pheno_name_blen_ptr = new_max_pheno_name_blen;
+  }
+  while (0) {
+  PhenoSvd_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  PhenoSvd_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  PhenoSvd_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  PhenoSvd_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  PhenoSvd_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
+    break;
+  }
+  BLAS_SET_NUM_THREADS(1);
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+#endif
 
 #ifdef __cplusplus
 }  // namespace plink2

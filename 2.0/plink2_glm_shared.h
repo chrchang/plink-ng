@@ -62,8 +62,10 @@ FLAGSET_DEF_START()
   kfGlmLocalCats1based = (1 << 25),
   kfGlmFirthResidualize = (1 << 26),
   kfGlmCcResidualize = (1 << 27),
-  kfGlmSinglePrecCc = (1 << 28),
-  kfGlmAllowNoCovars = (1 << 29)
+  kfGlmQtResidualize = (1 << 28),
+  kfGlmResidualizeMask = (kfGlmFirthResidualize | kfGlmCcResidualize | kfGlmQtResidualize),
+  kfGlmSinglePrecCc = (1 << 29),
+  kfGlmAllowNoCovars = (1 << 30)
 FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()
@@ -284,8 +286,6 @@ uint32_t GetBiallelicReportedTestCt(const uintptr_t* parameter_subset, GlmFlags 
 PglErr ReadLocalCovarBlock(const GlmCtx* common, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t cur_block_variant_ct, uint32_t local_sample_ct, uint32_t local_cat_ct, TextStream* local_covar_txsp, uint32_t* local_line_idx_ptr, uint32_t* local_xy_ptr, float* local_covars_vcmaj_f_iter, double* local_covars_vcmaj_d_iter, uint32_t* local_sample_idx_order);
 
 PglErr ReadRfmix2Block(const GlmCtx* common, const uint32_t* variant_bps, const uint32_t* local_sample_uidx_order, const float* prev_local_covar_row_f, const double* prev_local_covar_row_d, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t cur_block_variant_ct, uint32_t local_sample_ct, uint32_t local_cat_ct, uint32_t local_chrom_col, uint32_t local_bp_col, uint32_t local_first_covar_col, TextStream* local_covar_txsp, const char** local_line_iterp, uint32_t* local_line_idx_ptr, uint32_t* local_prev_chr_code_ptr, uint32_t* local_chr_code_ptr, uint32_t* local_bp_ptr, uint32_t* local_skip_chr_ptr, float* local_covars_vcmaj_f_iter, double* local_covars_vcmaj_d_iter, uint32_t* local_sample_idx_order);
-
-extern const double kSmallDoubles[4];
 
 extern const double kSmallDoublePairs[32];
 

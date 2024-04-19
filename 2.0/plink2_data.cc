@@ -8236,7 +8236,7 @@ PglErr PvarInfoLoadAll(const uint32_t* old_variant_uidx_to_new, uint32_t variant
       break;
     }
   }
-  assert(str_store_iter <= R_CAST(const char*, old_variant_uidx_to_new));
+  assert(str_store_iter <= R_CAST(char*, g_bigstack_end));
   return kPglRetSuccess;
 }
 

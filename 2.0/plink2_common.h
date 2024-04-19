@@ -40,6 +40,8 @@ namespace plink2 {
 
 #define PROG_NAME_STR "plink2"
 
+extern const double kSmallDoubles[4];
+
 // Exclude 0x7fffffff, since the half-open interval containing it ends in
 // 0x80000000U or higher.
 CONSTI32(kMaxBp, 0x7ffffffe);

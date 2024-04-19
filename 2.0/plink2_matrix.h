@@ -515,7 +515,13 @@ void TransposeMultiplySelfIncr(double* input_part, uint32_t dim, uint32_t partia
 BoolErr GetSvdRectLwork(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer* lwork_ptr);
 
 // currently a wrapper for dgesvd_().
-IntErr SvdRect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, double* matrix, double* ss, unsigned char* svd_rect_wkspace);
+IntErr SvdRect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, double* matrix, double* ss, double* vv, unsigned char* svd_rect_wkspace);
+
+HEADER_INLINE IntErr SvdRectFused(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, double* matrix, double* ss, unsigned char* svd_rect_wkspace) {
+  double* work = R_CAST(double*, svd_rect_wkspace);
+  double* vv_buf = &(work[lwork]);
+  return SvdRect(major_ct, minor_ct, lwork, matrix, ss, vv_buf, svd_rect_wkspace);
+}
 
 BoolErr GetExtractEigvecsLworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lwork_ptr, __CLPK_integer* liwork_ptr, uintptr_t* wkspace_byte_ct_ptr);
 

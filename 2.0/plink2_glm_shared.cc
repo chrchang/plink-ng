@@ -1098,8 +1098,6 @@ PglErr ReadRfmix2Block(const GlmCtx* common, const uint32_t* variant_bps, const 
   return kPglRetSuccess;
 }
 
-const double kSmallDoubles[4] = {0.0, 1.0, 2.0, 3.0};
-
 const double kSmallDoublePairs[32] ALIGNV16 = PAIR_TABLE16(0.0, 1.0, 2.0, 3.0);
 
 const double kSmallInvDoublePairs[32] ALIGNV16 = PAIR_TABLE16(2.0, 1.0, 0.0, 3.0);

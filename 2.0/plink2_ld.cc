@@ -10494,13 +10494,14 @@ THREAD_FUNC_DECL VcorTableThread(void* raw_arg) {
         uint32_t col_offset_idx = MAXV(col_offset_start, col_window_start);
         double* write_iter = &(results[(write_idx_start + col_offset_idx - col_offset_start) * result_stride]);
         for (; col_offset_idx != col_offset_stop; ++col_offset_idx) {
-          const uint32_t cur_col_uvidx = col_uvidxs[col_offset_idx];
+          // bugfix (18 Apr 2024): must subtract col_window_start
+          const uint32_t cur_col_uvidx = col_uvidxs[col_offset_idx - col_window_start];
           if (cur_row_uvidx == cur_col_uvidx) {
             write_iter = &(write_iter[result_stride]);
             continue;
           }
           const unsigned char* unpacked_col_ptr = &(unpacked_variants[cur_col_uvidx * unpacked_variant_byte_stride]);
-          const uint32_t col_chr_idx = col_chr_idxs[col_offset_idx];
+          const uint32_t col_chr_idx = col_chr_idxs[col_offset_idx - col_window_start];
           const uint32_t either_is_chrx = row_is_chrx || (col_chr_idx == chrx_idx);
           R2Variant col_r2v;
           FillR2V(unpacked_col_ptr, founder_ct, unpack_phase_type, either_is_chrx, check_dosage, &col_r2v);
@@ -11757,8 +11758,9 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
             }
           }
           if (IsSet(row_variant_include, col_variant_uidx) && (col_variant_uidx >= row_variant_uidx_first) && (col_variant_uidx <= row_variant_uidx_last)) {
-            col_uvidxs[col_offset] = RawToSubsettedPos(row_variant_include, row_variant_include_cumulative_popcounts, col_variant_uidx) - cur_variant_ridx_start;
-            col_chr_idxs[col_offset] = col_chr_idx;
+            // bugfix (18 Apr 2024): must subtract col_window_start
+            col_uvidxs[col_offset - col_window_start] = RawToSubsettedPos(row_variant_include, row_variant_include_cumulative_popcounts, col_variant_uidx) - cur_variant_ridx_start;
+            col_chr_idxs[col_offset - col_window_start] = col_chr_idx;
             continue;
           }
           if (col_uvidx == uv_capacity) {
@@ -11766,8 +11768,8 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
             col_cur_bits = variant_include[col_variant_uidx / kBitsPerWord] & (-(k1LU << (col_variant_uidx % kBitsPerWord)));
             break;
           }
-          col_uvidxs[col_offset] = col_uvidx++;
-          col_chr_idxs[col_offset] = col_chr_idx;
+          col_uvidxs[col_offset - col_window_start] = col_uvidx++;
+          col_chr_idxs[col_offset - col_window_start] = col_chr_idx;
           if (!maj_alleles) {
             aidx = maj_alleles[col_variant_uidx];
           }

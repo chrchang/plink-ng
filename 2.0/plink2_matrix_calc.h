@@ -176,9 +176,37 @@ typedef struct ScoreInfoStruct {
   uint32_t qsr_val_col_p1;
 } ScoreInfo;
 
+FLAGSET_DEF_START()
+  kfPhenoSvd0,
+  kfPhenoSvdForce = (1 << 0),
+
+  kfPhenoSvdScolMaybefid = (1 << 1),
+  kfPhenoSvdScolFid = (1 << 2),
+  kfPhenoSvdScolMaybesid = (1 << 3),
+  kfPhenoSvdScolSid = (1 << 4),
+  kfPhenoSvdScolDefault = (kfPhenoSvdScolMaybefid | kfPhenoSvdScolMaybesid),
+  kfPhenoSvdScolAll = ((kfPhenoSvdScolSid * 2) - kfPhenoSvdScolMaybefid),
+
+  kfPhenoSvdPcolId = (1 << 5),
+  kfPhenoSvdPcolSv = (1 << 6),
+  kfPhenoSvdPcolDefault = (kfPhenoSvdPcolId | kfPhenoSvdPcolSv),
+  kfPhenoSvdPcolAll = ((kfPhenoSvdPcolSv * 2) - kfPhenoSvdPcolId)
+FLAGSET_DEF_END(PhenoSvdFlags);
+
+typedef struct PhenoSvdInfoStruct {
+  NONCOPYABLE(PhenoSvdInfoStruct);
+  PhenoSvdFlags flags;
+  uint32_t ct;
+  double min_variance_explained;
+} PhenoSvdInfo;
+
 void InitScore(ScoreInfo* score_info_ptr);
 
 void CleanupScore(ScoreInfo* score_info_ptr);
+
+void InitPhenoSvd(PhenoSvdInfo* pheno_svd_info_ptr);
+
+CONSTI32(kMaxPc, 8000);
 
 PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr);
 
@@ -195,6 +223,10 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
 PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t nosex_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const double* allele_freqs, const char* in_fname, const RangeList* col_idx_range_listp, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t nosex_ct, uint32_t max_allele_slen, VscoreFlags flags, uint32_t xchr_model, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
+
+#ifndef NOLAPACK
+PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t max_thread_ct, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr, PhenoCol* pheno_cols, char* outname, char* outname_end);
+#endif
 
 #ifdef __cplusplus
 }  // namespace plink2

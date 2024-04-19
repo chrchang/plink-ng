@@ -22,6 +22,8 @@
 namespace plink2 {
 #endif
 
+const double kSmallDoubles[4] = {0.0, 1.0, 2.0, 3.0};
+
 void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip) {
   piip->sii.sample_ids = nullptr;
   piip->sii.sids = nullptr;
