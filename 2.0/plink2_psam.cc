@@ -1205,8 +1205,9 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       if (unlikely(!line_iter)) {
         goto LoadPhenos_ret_MISSING_TOKENS;
       }
-      if (!pheno_info_reverse_ll) {
+      if ((!pheno_info_reverse_ll) && (!no_categorical)) {
         // first relevant line, detect categorical phenotypes
+        // bugfix (18 Apr 2024): ...unless --no-categorical
         for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
           if (IsCategoricalPhenostr(token_ptrs[new_pheno_idx])) {
             SetBit(new_pheno_idx, categorical_phenos);
