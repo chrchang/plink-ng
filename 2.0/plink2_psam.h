@@ -66,7 +66,7 @@ namespace plink2 {
 CONSTI32(kCatHtableSize, 524287);
 static_assert(kCatHtableSize >= kMaxPhenoCt, "kCatHtableSize cannot be smaller than kMaxPhenoCt.");
 
-PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, const char* missing_catname, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uint32_t no_categorical, uint32_t max_thread_ct, PedigreeIdInfo* piip, uintptr_t** sample_include_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
+PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, const char* missing_catname, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uint32_t no_categorical, uint32_t neg9_pheno_really_missing, uint32_t max_thread_ct, PedigreeIdInfo* piip, uintptr_t** sample_include_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
 
 HEADER_INLINE BoolErr IsReservedPhenoName(const char* pheno_name, uint32_t pheno_name_slen) {
   if (pheno_name_slen != 3) {
@@ -78,7 +78,7 @@ HEADER_INLINE BoolErr IsReservedPhenoName(const char* pheno_name, uint32_t pheno
 }
 
 // also for loading covariates.  set affection_01 to 2 to prohibit case/control
-PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* missing_catname, uint32_t raw_sample_ct, uint32_t sample_ct, int32_t missing_pheno, uint32_t affection_01, uint32_t no_categorical, uint32_t iid_only, uint32_t numeric_ranges, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
+PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* missing_catname, uint32_t raw_sample_ct, uint32_t sample_ct, int32_t missing_pheno, uint32_t affection_01, uint32_t no_categorical, uint32_t iid_only, uint32_t numeric_ranges, uint32_t neg9_pheno_really_missing, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
 
 PglErr IgnorePhenosOrCovars(const char* not_pheno_flattened, uint32_t is_covar, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
 
