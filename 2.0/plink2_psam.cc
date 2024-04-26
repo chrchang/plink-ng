@@ -726,7 +726,10 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
     uintptr_t* founder_info = *founder_info_ptr;
     uintptr_t* sex_nm = *sex_nm_ptr;
     uintptr_t* sex_male = *sex_male_ptr;
+    const uint32_t check_neg8_to_10_pheno = (missing_pheno == -9) && (!neg9_pheno_really_missing);
     uint32_t sample_uidx = raw_sample_ct;
+    uint32_t neg9_seen = 0;
+    uint32_t other_neg8_to_10_seen = 0;
     while (sample_uidx) {
       --sample_uidx;
       unsigned char* cur_vardata = psam_info_reverse_ll->vardata;
@@ -745,6 +748,15 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
             if (dxx != missing_phenod) {
               SetBit(sample_uidx, pheno_cols[pheno_idx].nonmiss);
               pheno_cols[pheno_idx].data.qt[sample_uidx] = dxx;
+            }
+            if (check_neg8_to_10_pheno) {
+              if ((dxx <= -8.0) && (dxx >= 10.0)) {
+                if (dxx == -9.0) {
+                  neg9_seen = 1;
+                } else {
+                  other_neg8_to_10_seen = 1;
+                }
+              }
             }
           } else {
             if (dxx == pheno_cased) {
@@ -782,6 +794,13 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
         }
       }
       psam_info_reverse_ll = psam_info_reverse_ll->next;
+    }
+    if (check_neg8_to_10_pheno && other_neg8_to_10_seen) {
+      if (neg9_seen) {
+        logerrputs("Warning: Distinct phenotype values in [-8, -10] present, including -9, when -9\nis treated as missing.\n* Usually, this means -9 should be treated as an ordinary numeric value; use\n--no-input-missing-phenotype to specify this.\n* If -9 really does still mean missing, use --neg9-pheno-really-missing.\n");
+      } else {
+        logerrputs("Warning: Phenotype value in [-8, -9) or (-9, -10] present, when -9 is treated\nas missing.  Use --no-input-missing-phenotype to treat -9 as a numeric value\n(missing values can be indicated by 'NA'), or --neg9-pheno-really-missing to\nsuppress this warning.\n");
+      }
     }
     if (fid_present) {
       piip->sii.flags |= kfSampleIdFidPresent;
@@ -1378,8 +1397,11 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           goto LoadPhenos_ret_NOMEM;
         }
       }
+      const uint32_t check_neg8_to_10_pheno = (missing_pheno == -9) && (!neg9_pheno_really_missing);
       const uintptr_t nonmiss_vec_ct = BitCtToVecCt(raw_sample_ct);
       uint32_t cat_pheno_idx = 0;
+      uint32_t neg9_seen = 0;
+      uint32_t other_neg8_to_10_seen = 0;
       PhenoCol* pheno_cols_iter = &(new_pheno_cols[old_pheno_ct]);
       for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
         const uint32_t is_categorical = IsSet(categorical_phenos, new_pheno_idx);
@@ -1472,6 +1494,15 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
                 SetBit(sample_uidx, pheno_cols_iter->nonmiss);
                 pheno_cols_iter->data.qt[sample_uidx] = dxx;
               }
+              if (check_neg8_to_10_pheno) {
+                if ((dxx <= -8.0) && (dxx >= -10.0)) {
+                  if (dxx == -9.0) {
+                    neg9_seen = 1;
+                  } else {
+                    other_neg8_to_10_seen = 1;
+                  }
+                }
+              }
             } else {
               if (dxx == pheno_cased) {
                 SetBit(sample_uidx, pheno_cols_iter->data.cc);
@@ -1484,6 +1515,13 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           ++pheno_cols_iter;
         }
         pheno_info_reverse_ll = pheno_info_reverse_ll->next;
+      }
+      if (check_neg8_to_10_pheno && other_neg8_to_10_seen) {
+        if (neg9_seen) {
+          logerrputs("Warning: Distinct phenotype/covariate values in [-8, -10] present, including\n-9, when -9 is treated as missing.\n* Usually, this means -9 should be treated as an ordinary numeric value; use\n--no-input-missing-phenotype to specify this.\n* If -9 really does still mean missing, use --neg9-pheno-really-missing.\n");
+        } else {
+          logerrputs("Warning: Phenotype/covariate value in [-8, -9) or (-9, -10] present, when -9 is\ntreated as missing.  Use --no-input-missing-phenotype to treat -9 as a numeric\nvalue (missing values can be indicated by 'NA'), or --neg9-pheno-really-missing\nto suppress this warning.\n");
+        }
       }
     }
     *pheno_names_ptr = pheno_names;
