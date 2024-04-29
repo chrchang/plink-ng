@@ -3083,9 +3083,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
       if (unlikely(S_CAST(uintptr_t, id_end - pos_end) > kMaxIdBlen)) {
-        putc_unlocked('\n', stdout);
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid ID on line %" PRIuPTR " of --vcf file (max " MAX_ID_SLEN_STR " chars).\n", line_idx);
-        goto VcfToPgen_ret_MALFORMED_INPUT_WW;
+        goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
       }
 
       // note REF length
@@ -3095,6 +3094,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
       uint32_t cur_max_allele_slen = linebuf_iter - ref_allele_start;
+      if (unlikely(memchr(ref_allele_start, ',', cur_max_allele_slen) != nullptr)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid REF allele on line %" PRIuPTR " of --vcf file.\n", line_idx);
+        goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
+      }
 
       uint32_t alt_ct = 1;
       unsigned char ucc;
@@ -3812,6 +3815,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             goto VcfToPgen_load_start;
           }
           if ((!vic.vibc.gt_exists) && (!format_dosage_relevant) && (!format_hds_search)) {
+            line_iter = AdvToDelim(format_start, '\n');
+            if (unlikely(CountByte(format_start, '\t', line_iter - format_start) != sample_ct)) {
+              goto VcfToPgen_ret_MISSING_TOKENS;
+            }
             gparse_flags = kfGparseNull;
             genotext_byte_ct = 1;
           } else {
