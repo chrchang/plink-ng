@@ -14,7 +14,7 @@ to load.}
 }
 \value{
 Integer matrix, where rows correspond to samples, columns
-correspond to variant_subset, and values are in {0, 1, 2, NA} indicating
+correspond to variant_subset, and values are in \{0, 1, 2, NA\} indicating
 the number of hardcall ALT allele copies.  For multiallelic variants, all
 ALT alleles are combined.
 }

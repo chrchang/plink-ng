@@ -2,7 +2,7 @@
 % Please edit documentation in R/RcppExports.R
 \name{ReadHardcalls}
 \alias{ReadHardcalls}
-\title{Loads the variant_numth variant, and then fills buf with {0, 1, 2, NA}
+\title{Loads the variant_numth variant, and then fills buf with \{0, 1, 2, NA\}
 values indicating the number of copies of the first ALT (or user-specified)
 allele each sample has.}
 \usage{
