@@ -1872,12 +1872,21 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     // bugfix (27 Feb 2019): "\01" is interpreted as a single character, not a
     // null followed by a '1'...
-    HelpPrint("input-missing-phenotype\0no-input-missing-phenotype\0\061\0missing-catname\0missing-phenotype\0", &help_ctrl, 0,
+    HelpPrint("input-missing-phenotype\0no-input-missing-phenotype\0neg9-pheno-really-missing\0\061\0missing-catname\0missing-phenotype\0", &help_ctrl, 0,
 "  --input-missing-phenotype <v> : Set nonzero number to treat as a missing\n"
 "                                  pheno/covar in input files (default -9).\n"
 "  --no-input-missing-phenotype  : Don't treat any nonzero number as a missing\n"
 "                                  pheno/covar.  ('NA'/'nan' are still treated\n"
 "                                  as missing.)\n"
+"  --neg9-pheno-really-missing   : When neither --input-missing-phenotype nor\n"
+"                                  --no-input-missing-phenotype are specified,\n"
+"                                  and a pheno/covar value in [-8, -9) or\n"
+"                                  (-9, -10] is present, PLINK 2 now errors out\n"
+"                                  when -9 is also present: in this context it\n"
+"                                  is too likely that -9 does not represent a\n"
+"                                  missing value.\n"
+"                                  --neg9-pheno-really-missing suppresses the\n"
+"                                  error.\n"
 "  --1                           : Expect case/control phenotypes in input files\n"
 "                                  to be coded as 0 = control, 1 = case, instead\n"
 "                                  of the usual 0 = missing, 1 = ctrl, 2 = case.\n"

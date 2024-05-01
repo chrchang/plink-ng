@@ -42,7 +42,7 @@ typedef struct CatnameLl2Struct {
   char str[];
 } CatnameLl2;
 
-PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, const char* missing_catname, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uint32_t no_categorical, uint32_t max_thread_ct, PedigreeIdInfo* piip, uintptr_t** sample_include_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, const char* missing_catname, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uint32_t no_categorical, uint32_t neg9_pheno_really_missing, uint32_t max_thread_ct, PedigreeIdInfo* piip, uintptr_t** sample_include_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   // outparameter pointers assumed to be initialized to nullptr
   //
   // pheno_ct_max should default to something like 0x7fffffff, not UINT32_MAX
@@ -726,7 +726,10 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
     uintptr_t* founder_info = *founder_info_ptr;
     uintptr_t* sex_nm = *sex_nm_ptr;
     uintptr_t* sex_male = *sex_male_ptr;
+    const uint32_t check_neg8_to_10_pheno = (missing_pheno == -9) && (!neg9_pheno_really_missing);
     uint32_t sample_uidx = raw_sample_ct;
+    uint32_t neg9_seen = 0;
+    uint32_t other_neg8_to_10_seen = 0;
     while (sample_uidx) {
       --sample_uidx;
       unsigned char* cur_vardata = psam_info_reverse_ll->vardata;
@@ -745,6 +748,15 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
             if (dxx != missing_phenod) {
               SetBit(sample_uidx, pheno_cols[pheno_idx].nonmiss);
               pheno_cols[pheno_idx].data.qt[sample_uidx] = dxx;
+            }
+            if (check_neg8_to_10_pheno) {
+              if ((dxx <= -8.0) && (dxx >= -10.0)) {
+                if (dxx == -9.0) {
+                  neg9_seen = 1;
+                } else {
+                  other_neg8_to_10_seen = 1;
+                }
+              }
             }
           } else {
             if (dxx == pheno_cased) {
@@ -782,6 +794,13 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
         }
       }
       psam_info_reverse_ll = psam_info_reverse_ll->next;
+    }
+    if (check_neg8_to_10_pheno && other_neg8_to_10_seen) {
+      if (unlikely(neg9_seen)) {
+        logerrputs("Error: Distinct phenotype values in [-8, -10] present, including -9, when -9 is\ntreated as missing.\n* Usually, this means -9 should be treated as an ordinary numeric value; use\n--no-input-missing-phenotype to specify this.\n* If -9 really does still mean missing, use --neg9-pheno-really-missing.\n");
+        goto LoadPsam_ret_INCONSISTENT_INPUT;
+      }
+      logerrputs("Warning: Phenotype value in [-8, -9) or (-9, -10] present, when -9 is treated\nas missing.  Use --no-input-missing-phenotype to treat -9 as a numeric value\n(missing values can be indicated by 'NA'), or --neg9-pheno-really-missing to\nsuppress this warning.\n");
     }
     if (fid_present) {
       piip->sii.flags |= kfSampleIdFidPresent;
@@ -856,7 +875,7 @@ typedef struct PhenoInfoLlStruct {
 
 // also for loading covariates.  set affection_01 to 2 to prohibit case/control
 // and make unnamed variables start with "COVAR" instead of "PHENO"
-PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* missing_catname, uint32_t raw_sample_ct, uint32_t sample_ct, int32_t missing_pheno, uint32_t affection_01, uint32_t no_categorical, uint32_t iid_only, uint32_t numeric_ranges, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* missing_catname, uint32_t raw_sample_ct, uint32_t sample_ct, int32_t missing_pheno, uint32_t affection_01, uint32_t no_categorical, uint32_t iid_only, uint32_t numeric_ranges, uint32_t neg9_pheno_really_missing, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   char* pheno_names = nullptr;
@@ -1378,8 +1397,11 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           goto LoadPhenos_ret_NOMEM;
         }
       }
+      const uint32_t check_neg8_to_10_pheno = (missing_pheno == -9) && (!neg9_pheno_really_missing);
       const uintptr_t nonmiss_vec_ct = BitCtToVecCt(raw_sample_ct);
       uint32_t cat_pheno_idx = 0;
+      uint32_t neg9_seen = 0;
+      uint32_t other_neg8_to_10_seen = 0;
       PhenoCol* pheno_cols_iter = &(new_pheno_cols[old_pheno_ct]);
       for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
         const uint32_t is_categorical = IsSet(categorical_phenos, new_pheno_idx);
@@ -1472,6 +1494,15 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
                 SetBit(sample_uidx, pheno_cols_iter->nonmiss);
                 pheno_cols_iter->data.qt[sample_uidx] = dxx;
               }
+              if (check_neg8_to_10_pheno) {
+                if ((dxx <= -8.0) && (dxx >= -10.0)) {
+                  if (dxx == -9.0) {
+                    neg9_seen = 1;
+                  } else {
+                    other_neg8_to_10_seen = 1;
+                  }
+                }
+              }
             } else {
               if (dxx == pheno_cased) {
                 SetBit(sample_uidx, pheno_cols_iter->data.cc);
@@ -1484,6 +1515,13 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           ++pheno_cols_iter;
         }
         pheno_info_reverse_ll = pheno_info_reverse_ll->next;
+      }
+      if (check_neg8_to_10_pheno && other_neg8_to_10_seen) {
+        if (unlikely(neg9_seen)) {
+          logerrputs("Error: Distinct phenotype/covariate values in [-8, -10] present, including -9,\nwhen -9 is treated as missing.  Use --no-input-missing-phenotype to treat -9 as\na numeric value (missing values can be indicated by 'NA'), or\n--neg9-pheno-really-missing to suppress this error.\n");
+          goto LoadPhenos_ret_INCONSISTENT_INPUT;
+        }
+        logerrputs("Warning: Phenotype/covariate value in [-8, -9) or (-9, -10] present, when -9\nis treated as missing.  Use --no-input-missing-phenotype to treat -9 as a\nnumeric value (missing values can be indicated by 'NA'), or\n--neg9-pheno-really-missing to suppress this warning.\n");
       }
     }
     *pheno_names_ptr = pheno_names;
