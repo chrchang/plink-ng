@@ -811,8 +811,8 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
 
   // since this branch is getting long-term support, include mode 0x11 / 0x21
   // forward-compatibility patch
-  if ((file_type_code != 0x20) && (file_type_code != 0x21)) {
-    if (unlikely((file_type_code == 0x30) || (file_type_code == 0x31))) {
+  if ((file_type_code & 0xfe) != 0x20) {
+    if (unlikely((file_type_code & 0xfe) == 0x30)) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s is a .pgen.pgi index file, rather than a .pgen file.\n", fname);
       return kPglRetMalformedInput;
     }
@@ -843,7 +843,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", header_fname, strerror(errno));
       return kPglRetReadFail;
     }
-    if (unlikely(!memequal_k(small_readbuf, "l\x1b\x30", 3))) {
+    if (unlikely((!memequal_k(small_readbuf, "l\x1b", 2)) || ((small_readbuf[2] & 0xfe) != 0x30))) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s is not a .pgen.pgi file (first three bytes don't match the magic number).\n", header_fname);
       return kPglRetMalformedInput;
     }
@@ -922,7 +922,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
     *pgfi_alloc_cacheline_ct_ptr = 0;
     return kPglRetSuccess;
   }
-  if (unlikely((file_type_code >= 0x12) && (file_type_code != 0x20) && (file_type_code != 0x21))) {
+if (unlikely((file_type_code >= 0x12) && ((file_type_code & 0xfe) != 0x20))) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Third byte of %s does not correspond to a storage mode supported by this version of pgenlib.\n", fname);
     return kPglRetNotYetSupported;
   }
