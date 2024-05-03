@@ -165,9 +165,9 @@ typedef struct PgenReaderMainStruct {
   uintptr_t* workspace_dosage_present;
   uintptr_t* workspace_dphase_present;
 
-  // phase set loading (mode 0x11) unimplemented for now; should be a sequence
-  // of (sample ID, [uint32_t phase set begin, set end), [set begin, set end),
-  // ...).
+  // phase set loading (footer track in mode 0x11) unimplemented for now;
+  // should be a sequence of (sample ID, [uint32_t phase set begin, set end),
+  // [set begin, set end), ...).
 } PgenReaderMain;
 
 typedef struct PgenReaderStruct {
