@@ -11649,7 +11649,7 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
           write_idx_starts[row_offset] = write_idx;
           write_idx = next_write_idx;
 
-          if (!maj_alleles) {
+          if (maj_alleles) {
             aidx = maj_alleles[row_variant_uidx];
           }
           const uint32_t is_y = (row_variant_uidx < y_end) && (row_variant_uidx >= y_start);
@@ -11770,7 +11770,7 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
           }
           col_uvidxs[col_offset - col_window_start] = col_uvidx++;
           col_chr_idxs[col_offset - col_window_start] = col_chr_idx;
-          if (!maj_alleles) {
+          if (maj_alleles) {
             aidx = maj_alleles[col_variant_uidx];
           }
           const uint32_t is_y = (col_variant_uidx < y_end) && (col_variant_uidx >= y_start);

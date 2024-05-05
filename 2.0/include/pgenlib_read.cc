@@ -793,8 +793,8 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
   // This isn't Golang.
   char pgi_fname_buf[kPglFnamesize];
 
-  if (file_type_code != 0x20) {
-    if (unlikely(file_type_code == 0x30)) {
+  if ((file_type_code & 0xfe) != 0x20) {
+    if (unlikely((file_type_code & 0xfe) == 0x30)) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s is a .pgen.pgi index file, rather than a .pgen file.\n", fname);
       return kPglRetMalformedInput;
     }
@@ -825,7 +825,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", header_fname, strerror(errno));
       return kPglRetReadFail;
     }
-    if (unlikely(!memequal_k(small_readbuf, "l\x1b\x30", 3))) {
+    if (unlikely((!memequal_k(small_readbuf, "l\x1b", 2)) || ((small_readbuf[2] & 0xfe) != 0x30))) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s is not a .pgen.pgi file (first three bytes don't match the magic number).\n", header_fname);
       return kPglRetMalformedInput;
     }
@@ -904,8 +904,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
     *pgfi_alloc_cacheline_ct_ptr = 0;
     return kPglRetSuccess;
   }
-  if (unlikely((file_type_code >= 0x11) && (file_type_code != 0x20))) {
-    // possible todo: 0x11 phase sets (unlikely before 2023, though)
+  if (unlikely((file_type_code >= 0x12) && ((file_type_code & 0xfe) != 0x20))) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Third byte of %s does not correspond to a storage mode supported by this version of pgenlib.\n", fname);
     return kPglRetNotYetSupported;
   }
@@ -1396,7 +1395,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
   const uint64_t actual_fpos = ftello(pgfip->shared_ff);
   if (actual_fpos != pgfip->var_fpos[0]) {
     // now > instead of != to allow additional information to be stored between
-    // header and first variant record
+    // header and first variant record (e.g. mode 0x11).
     if (unlikely(actual_fpos > pgfip->var_fpos[0])) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen%s.\n", is_pgi? ".pgi file" : " header");
       return kPglRetMalformedInput;
@@ -10039,11 +10038,12 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
   }
   fsize = ftello(ff);
   pgrp->fp_vidx = 1;  // force fseek when loading first variant
-  // todo: modify this check when phase sets are implemented
-  const uint64_t expected_fsize = pgrp->fi.var_fpos[variant_ct];
-  if (unlikely(expected_fsize != fsize)) {
-    char* write_iter = strcpya_k(errstr_buf, "Error: .pgen header indicates that file size should be ");
-    write_iter = i64toa(expected_fsize, write_iter);
+  // todo: verify equality if no mode-0x11 footer; and if there is a footer,
+  // validate it
+  const uint64_t expected_fsize_min = pgrp->fi.var_fpos[variant_ct];
+  if (unlikely(expected_fsize_min > fsize)) {
+    char* write_iter = strcpya_k(errstr_buf, "Error: .pgen header indicates that file size should be at least ");
+    write_iter = i64toa(expected_fsize_min, write_iter);
     write_iter = strcpya_k(write_iter, " bytes, but actual file size is ");
     write_iter = i64toa(fsize, write_iter);
     strcpy_k(write_iter, " bytes.\n");
