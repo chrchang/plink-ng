@@ -10623,6 +10623,7 @@ THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
   uint32_t col_chr_blen = 0;
   uint32_t row_allele_ct = 2;
   uint32_t col_allele_ct = 2;
+  uint32_t maj_allele_idx = 0;
 
   uint32_t row_parity = 0;
   do {
@@ -10738,7 +10739,9 @@ THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
           *cswritep++ = '\t';
         }
         if (maj_col || nonmaj_col || freq_col) {
-          const uint32_t maj_allele_idx = maj_alleles[row_variant_uidx];
+          if (maj_alleles) {
+            maj_allele_idx = maj_alleles[row_variant_uidx];
+          }
           if (maj_col) {
             cswritep = strcpyax(cswritep, cur_row_alleles[maj_allele_idx], '\t');
           }
@@ -10796,7 +10799,9 @@ THREAD_FUNC_DECL VcorTableWriteThread(void* raw_arg) {
           *cswritep++ = '\t';
         }
         if (maj_col || nonmaj_col || freq_col) {
-          const uint32_t maj_allele_idx = maj_alleles[col_variant_uidx];
+          if (maj_alleles) {
+            maj_allele_idx = maj_alleles[col_variant_uidx];
+          }
           if (maj_col) {
             cswritep = strcpyax(cswritep, cur_col_alleles[maj_allele_idx], '\t');
           }

@@ -502,10 +502,11 @@ uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, G
 
 // only needs to cover cases not captured by DecentAlleleFreqsAreNeeded() or
 // MajAllelesAreNeeded()
-uint32_t IndecentAlleleFreqsAreNeeded(Command1Flags command_flags1, double min_maf, double max_maf) {
+uint32_t IndecentAlleleFreqsAreNeeded(Command1Flags command_flags1, VcorFlags vcor_flags, double min_maf, double max_maf) {
   // Keep this in sync with --error-on-freq-calc.
   // Vscore could go either here or in the decent bucket
   return (command_flags1 & kfCommand1Vscore) ||
+    ((command_flags1 & kfCommand1Vcor) && (vcor_flags & kfVcorColFreq)) ||
     (min_maf != 0.0) ||
     (max_maf != 1.0);
 }
@@ -1877,7 +1878,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         const uint32_t decent_afreqs_needed = DecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->het_flags, pcp->score_info.flags);
         const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->pca_flags, pcp->glm_info.flags, pcp->vcor_info.flags);
-        if (decent_afreqs_needed || maj_alleles_needed || IndecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
+        if (decent_afreqs_needed || maj_alleles_needed || IndecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->vcor_info.flags, pcp->min_maf, pcp->max_maf)) {
           if (unlikely((!pcp->read_freq_fname) && ((sample_ct < 50) || ((!nonfounders) && (founder_ct < 50))) && decent_afreqs_needed && (!(pcp->misc_flags & kfMiscAllowBadFreqs)))) {
             if ((!nonfounders) && (sample_ct >= 50)) {
               logerrputs("Error: This run requires decent allele frequencies, but they aren't being\nloaded with --read-freq, and less than 50 founders are available to impute them\nfrom.  Possible solutions:\n* You can use --nonfounders to include nonfounders when imputing allele\n  frequencies.\n* You can generate (with --freq) or obtain an allele frequency file based on a\n  larger similar-population reference dataset, and load it with --read-freq.\n* (Not recommended) You can override this error with --bad-freqs.\n");
