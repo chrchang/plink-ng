@@ -11096,13 +11096,20 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
     const uint32_t* variant_include_cumulative_popcounts;
     const uint32_t* row_variant_include_cumulative_popcounts;
     {
+      // bugfix (16 May 2024): there are RawToSubsettedPos(variant_include,
+      // variant_include_cumulative_popcounts, x) calls with x =
+      // raw_variant_ct.  In this case, we may need one more entry.
       uint32_t* variant_include_cumulative_popcounts_buf;
       uint32_t* row_variant_include_cumulative_popcounts_buf;
-      if (unlikely(bigstack_alloc_u32(raw_variant_ctl, &variant_include_cumulative_popcounts_buf) ||
+      if (unlikely(bigstack_alloc_u32(1 + (raw_variant_ct / kBitsPerWord), &variant_include_cumulative_popcounts_buf) ||
                    bigstack_alloc_u32(raw_variant_ctl, &row_variant_include_cumulative_popcounts_buf))) {
         goto VcorTable_ret_NOMEM;
       }
+
       FillCumulativePopcounts(variant_include, raw_variant_ctl, variant_include_cumulative_popcounts_buf);
+      if ((raw_variant_ct % kBitsPerWord) == 0) {
+        variant_include_cumulative_popcounts_buf[raw_variant_ctl] = variant_ct;
+      }
       FillCumulativePopcounts(row_variant_include, raw_variant_ctl, row_variant_include_cumulative_popcounts_buf);
       variant_include_cumulative_popcounts = variant_include_cumulative_popcounts_buf;
       row_variant_include_cumulative_popcounts = row_variant_include_cumulative_popcounts_buf;
