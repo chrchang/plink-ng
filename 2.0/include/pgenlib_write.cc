@@ -153,7 +153,7 @@ PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_fl
 
   const uint32_t variant_ct = variant_ct_limit;
   const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
-  uintptr_t header_bytes_left = 9 + vblock_ct * sizeof(int64_t) + variant_ct * vrec_len_byte_ct;
+  uint64_t header_bytes_left = 9 + vblock_ct * sizeof(int64_t) + variant_ct * vrec_len_byte_ct;
   if (phase_dosage_gflags) {
     // 8-bit vrtypes
     header_bytes_left += variant_ct;
