@@ -79,7 +79,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1914
+#define PGENLIB_INTERNAL_VERNUM 2000
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -285,23 +285,6 @@ HEADER_INLINE uint32_t PeekVint31(const unsigned char* buf_iter, const unsigned 
 }
 
 /*
-HEADER_INLINE uint32_t FGetVint31(FILE* ff) {
-  // Can't be used when multiple threads are reading from ff.
-  uint32_t vint32 = getc_unlocked(ff);
-  if (vint32 <= 127) {
-    return vint32;
-  }
-  vint32 &= 127;
-  for (uint32_t shift = 7; shift != 35; shift += 7) {
-    uint32_t uii = getc_unlocked(ff);
-    vint32 |= (uii & 127) << shift;
-    if (uii <= 127) {
-      return vint32;
-    }
-  }
-  return 0x80000000U;
-}
-
 HEADER_INLINE void FPutVint31(uint32_t uii, FILE* ff) {
   // caller's responsibility to periodically check ferror
   while (uii > 127) {
@@ -311,6 +294,40 @@ HEADER_INLINE void FPutVint31(uint32_t uii, FILE* ff) {
   putc_unlocked(uii, ff);
 }
 */
+
+HEADER_INLINE BoolErr FSkipVint(FILE* ff) {
+  while (1) {
+    const uint32_t cur_byte = getc_unlocked(ff);
+    if (cur_byte <= 127) {
+      return 0;
+    }
+    if (unlikely(cur_byte > 255)) {
+      return 1;
+    }
+  }
+}
+
+HEADER_INLINE uint64_t FGetVint63(FILE* ff) {
+  // Can't be used when multiple threads are reading from ff.
+  uint64_t vint64 = getc_unlocked(ff);
+  if (vint64 <= 127) {
+    return vint64;
+  }
+  if (unlikely(vint64 > 255)) {
+    return (1LLU << 63);
+  }
+  vint64 &= 127;
+  for (uint32_t shift = 7; ; shift += 7) {
+    const uint64_t ullii = getc_unlocked(ff);
+    vint64 |= (ullii & 127) << shift;
+    if (ullii <= 127) {
+      return vint64;
+    }
+    if (unlikely((ullii > 255) || (shift == 56))) {
+      return (1LLU << 63);
+    }
+  }
+}
 
 // Need this for sparse multiallelic dosage.
 HEADER_INLINE unsigned char* Vint64Append(uint64_t ullii, unsigned char* buf) {
@@ -335,6 +352,15 @@ HEADER_INLINE uint64_t GetVint64Unsafe(const unsigned char** buf_iterp) {
       return vint64;
     }
   }
+}
+
+HEADER_INLINE void FPutVint64(uint64_t ullii, FILE* ff) {
+  // caller's responsibility to periodically check ferror
+  while (ullii > 127) {
+    putc_unlocked((ullii & 127) + 128, ff);
+    ullii >>= 7;
+  }
+  putc_unlocked(ullii, ff);
 }
 
 // TODO: make this work properly with kCacheline == 128, then fix other
@@ -1001,6 +1027,21 @@ uint32_t CountNybble(const void* nybblearr, uintptr_t nybble_word, uintptr_t nyb
 CONSTI32(kPglMaxVariantCt, 0x7ffffffd);
 
 CONSTI32(kPglMaxSampleCt, 0x7ffffffe);
+
+uint64_t PglHeaderBaseEndOffset(uint32_t variant_ct, uintptr_t vrec_len_byte_ct, uint32_t phase_or_dosage_present, uint32_t explicit_nonref_flags);
+
+// Current pgen-extension API assumes .pgen extension bodies fit comfortably in
+// memory.
+// It's easy to imagine a useful extension that breaks this assumption, e.g.
+// storage of VCF FORMAT/GQ and FORMAT/DP.  There's an escape hatch --
+// extensions are allowed to refer to additional files.  We'll see whether that
+// proves to be enough.
+typedef struct PgenExtensionLlStruct {
+  struct PgenExtensionLlStruct* next;
+  uint64_t size;
+  unsigned char* contents;
+  uint8_t type_idx;
+} PgenExtensionLl;
 
 #ifdef __cplusplus
 }  // namespace plink2

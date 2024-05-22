@@ -3609,6 +3609,22 @@ uint32_t CountNybble(const void* nybblearr, uintptr_t nybble_word, uintptr_t nyb
   return tot;
 }
 
+uint64_t PglHeaderBaseEndOffset(uint32_t variant_ct, uintptr_t vrec_len_byte_ct, uint32_t phase_or_dosage_present, uint32_t explicit_nonref_flags) {
+  const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
+  uint64_t offset = 12 + vblock_ct * sizeof(int64_t) + variant_ct * vrec_len_byte_ct;
+  if (phase_or_dosage_present) {
+    // 8-bit vrtypes
+    offset += variant_ct;
+  } else {
+    // 4-bit vrtypes
+    offset += DivUp(variant_ct, 2);
+  }
+  if (explicit_nonref_flags) {
+    offset += DivUp(variant_ct, CHAR_BIT);
+  }
+  return offset;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

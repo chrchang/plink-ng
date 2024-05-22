@@ -52,6 +52,9 @@ typedef struct PgenWriterCommonStruct {
   // needed for multiallelic-phased case
   uintptr_t* genovec_hets_buf;
 
+  PgenExtensionLl* header_exts;
+  PgenExtensionLl* footer_exts;
+
   // should match ftello() return value in singlethreaded case, but be set to
   // zero in multithreaded case
   uint64_t vblock_fpos_offset;
@@ -185,8 +188,18 @@ void PreinitMpgw(MTPgenWriter* mpgwp);
 // workspace, without falling below the number of variants you can
 // realistically load on the system.
 //
-// The body of explicit_nonref_flags doesn't need to be filled until flush.
-PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr);
+// The body of explicit_nonref_flags doesn't need to be filled until final
+// flush.
+// For header extensions, type_idx and size must be correct when this function
+// is called, but contents doesn't need to be filled until final flush.
+// For footer extensions, type_idx must be correct when this function is
+// called, but size and contents don't need to be filled until final flush.
+// Extension linked-lists must be ordered with lower type_idx first.
+PglErr SpgwInitPhase1Ex(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr);
+
+HEADER_INLINE PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr) {
+  return SpgwInitPhase1Ex(fname, allele_idx_offsets, explicit_nonref_flags, nullptr, nullptr, variant_ct_limit, sample_ct, allele_ct_upper_bound, write_mode, phase_dosage_gflags, nonref_flags_storage, spgwp, alloc_cacheline_ct_ptr, max_vrec_len_ptr);
+}
 
 void SpgwInitPhase2(uint32_t max_vrec_len, STPgenWriter* spgwp, unsigned char* spgw_alloc);
 
@@ -199,7 +212,11 @@ void SpgwInitPhase2(uint32_t max_vrec_len, STPgenWriter* spgwp, unsigned char* s
 void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t variant_ct, uint32_t sample_ct, PgenGlobalFlags phase_dosage_gflags, uintptr_t* alloc_base_cacheline_ct_ptr, uint64_t* alloc_per_thread_cacheline_ct_ptr, uint32_t* vrec_len_byte_ct_ptr, uint64_t* vblock_cacheline_ct_ptr);
 
 // Caller is responsible for printing open-fail error message.
-PglErr MpgwInitPhase2(const char* __restrict fname, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, MTPgenWriter* mpgwp);
+PglErr MpgwInitPhase2Ex(const char* __restrict fname, uintptr_t* __restrict explicit_nonref_flags, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uint32_t variant_ct, uint32_t sample_ct, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, MTPgenWriter* mpgwp);
+
+HEADER_INLINE PglErr MpgwInitPhase2(const char* __restrict fname, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, MTPgenWriter* mpgwp) {
+  return MpgwInitPhase2Ex(fname, explicit_nonref_flags, nullptr, nullptr, variant_ct, sample_ct, write_mode, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, vblock_cacheline_ct, thread_ct, mpgw_alloc, mpgwp);
+}
 
 
 // trailing bits of genovec must be zeroed out
@@ -349,10 +366,11 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restr
   return kPglRetSuccess;
 }
 
-// Backfills header info, then closes the file.
+// Writes footer if present, backfills header, then closes the file.
 PglErr SpgwFinish(STPgenWriter* spgwp);
 
-// Last flush automatically backfills header info and closes the file.
+// Last flush automatically writes footer if present, backfills header, and
+// closes the file.
 // (caller should set mpgwp = nullptr after that)
 PglErr MpgwFlush(MTPgenWriter* mpgwp);
 

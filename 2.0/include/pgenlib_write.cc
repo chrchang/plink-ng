@@ -68,7 +68,7 @@ void PreinitMpgw(MTPgenWriter* mpgwp) {
 
 // OpenFail and WriteFail errors can now refer to either the .pgen, .pgen.tmp,
 // or .pgen.pgi file.
-PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_flags, uint32_t variant_ct_limit, uint32_t sample_ct, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uintptr_t vrec_len_byte_ct, PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_or_final_pgen_outfile_ptr, char** fname_buf_ptr) {
+PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_flags, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uint32_t variant_ct_limit, uint32_t sample_ct, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uintptr_t vrec_len_byte_ct, PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_or_final_pgen_outfile_ptr, char** fname_buf_ptr) {
   pwcp->explicit_nonref_flags = nullptr;
   if (nonref_flags_storage == 3) {
     if (unlikely(!explicit_nonref_flags)) {
@@ -76,6 +76,8 @@ PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_fl
     }
     pwcp->explicit_nonref_flags = explicit_nonref_flags;
   }
+  pwcp->header_exts = header_exts;
+  pwcp->footer_exts = footer_exts;
   pwcp->variant_ct_limit = variant_ct_limit;
   pwcp->sample_ct = sample_ct;
   pwcp->phase_dosage_gflags = phase_dosage_gflags;
@@ -98,6 +100,8 @@ PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_fl
   *pgen_outfile_ptr = nullptr;
   *pgi_or_final_pgen_outfile_ptr = nullptr;
   *fname_buf_ptr = nullptr;
+  const int32_t ext_present = (header_exts != nullptr) || (footer_exts != nullptr);
+  const int32_t third_byte = ((write_mode == kPgenWriteSeparateIndex)? 0x20 : 0x10) + ext_present;
   if (write_mode != kPgenWriteBackwardSeek) {
     const uint32_t fname_slen = strlen(fname);
     if (fname_slen > kPglFnamesize - 5) {
@@ -116,7 +120,8 @@ PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_fl
       if (unlikely(!(*pgen_outfile_ptr))) {
         return kPglRetOpenFail;
       }
-      if (unlikely(fwrite_checked("l\x1b\x20", 3, *pgen_outfile_ptr))) {
+      fwrite_unlocked("l\x1b", 2, 1, *pgen_outfile_ptr);
+      if (unlikely(putc_checked(third_byte + 0x10, *pgen_outfile_ptr))) {
         return kPglRetWriteFail;
       }
     } else {
@@ -128,7 +133,8 @@ PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_fl
       if (unlikely(!(*pgi_or_final_pgen_outfile_ptr))) {
         return kPglRetOpenFail;
       }
-      if (unlikely(fwrite_checked("l\x1b\x30", 3, *pgi_or_final_pgen_outfile_ptr))) {
+      fwrite_unlocked("l\x1b", 2, 1, *pgi_or_final_pgen_outfile_ptr);
+      if (unlikely(putc_checked(third_byte + 0x10, *pgi_or_final_pgen_outfile_ptr))) {
         return kPglRetWriteFail;
       }
     }
@@ -143,7 +149,6 @@ PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_fl
     *pgi_or_final_pgen_outfile_ptr = header_ff;
   }
   fwrite_unlocked("l\x1b", 2, 1, header_ff);
-  const int32_t third_byte = (write_mode == kPgenWriteSeparateIndex)? 0x20 : 0x10;
   if (unlikely(putc_checked(third_byte, header_ff))) {
     return kPglRetWriteFail;
   }
@@ -151,18 +156,52 @@ PglErr PwcInitPhase1(const char* __restrict fname, uintptr_t* explicit_nonref_fl
     return kPglRetSuccess;
   }
 
-  const uint32_t variant_ct = variant_ct_limit;
-  const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
-  uintptr_t header_bytes_left = 9 + vblock_ct * sizeof(int64_t) + variant_ct * vrec_len_byte_ct;
-  if (phase_dosage_gflags) {
-    // 8-bit vrtypes
-    header_bytes_left += variant_ct;
-  } else {
-    // 4-bit vrtypes
-    header_bytes_left += DivUp(variant_ct, 2);
-  }
-  if (nonref_flags_storage == 3) {
-    header_bytes_left += DivUp(variant_ct, CHAR_BIT);
+  uint64_t header_bytes_left = PglHeaderBaseEndOffset(variant_ct_limit, vrec_len_byte_ct, phase_dosage_gflags != kfPgenGlobal0, nonref_flags_storage == 3) - 3;
+  if (ext_present) {
+    // Additional header contents:
+    // 1. Flag varint describing which header extensions are present.
+    // 2. Flag varint describing which footer extensions are present.
+    // 3. If at least one footer extension present, uint64 byte offset of
+    //    footer start.
+    // 4. For each present header extension, a varint indicating its byte
+    //    length.
+    // 5. Bodies of header extensions, in order.
+
+    // Fixed minimum size of (1) + (2).
+    header_bytes_left += 2;
+    if (header_exts) {
+      PgenExtensionLl* header_exts_iter = header_exts;
+      int32_t prev_type_idx = -1;
+      do {
+        const int32_t cur_type_idx = header_exts_iter->type_idx;
+        if (cur_type_idx <= prev_type_idx) {
+          return kPglRetImproperFunctionCall;
+        }
+        const uint64_t cur_size = header_exts_iter->size;
+        if (unlikely(cur_size >= (1LLU << (kBitsPerWord - 1)))) {
+          return kPglRetImproperFunctionCall;
+        }
+        header_bytes_left += cur_size + VintBytect(cur_size);
+
+        prev_type_idx = cur_type_idx;
+        header_exts_iter = header_exts_iter->next;
+      } while (header_exts_iter);
+      header_bytes_left += S_CAST(uint32_t, prev_type_idx) / 7;
+    }
+    if (footer_exts) {
+      PgenExtensionLl* footer_exts_iter = footer_exts;
+      int32_t prev_type_idx = -1;
+      do {
+        const int32_t cur_type_idx = footer_exts_iter->type_idx;
+        if (cur_type_idx <= prev_type_idx) {
+          return kPglRetImproperFunctionCall;
+        }
+        prev_type_idx = cur_type_idx;
+        footer_exts_iter = footer_exts_iter->next;
+      } while (footer_exts_iter);
+      // 8 more fixed bytes for (3).
+      header_bytes_left += sizeof(int64_t) + S_CAST(uint32_t, prev_type_idx) / 7;
+    }
   }
 
   // this should be the position of the first variant
@@ -225,8 +264,8 @@ uintptr_t CountSpgwAllocCachelinesRequired(uint32_t variant_ct_limit, uint32_t s
   return cachelines_required;
 }
 
-static_assert(kPglMaxAlleleCt == 255, "Need to update SpgwInitPhase1().");
-PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr) {
+static_assert(kPglMaxAlleleCt == 255, "Need to update SpgwInitPhase1Ex().");
+PglErr SpgwInitPhase1Ex(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uint32_t variant_ct_limit, uint32_t sample_ct, uint32_t allele_ct_upper_bound, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr) {
   assert(variant_ct_limit);
   assert(sample_ct);
 
@@ -288,7 +327,7 @@ PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict 
   FILE** pgen_outfilep = GetPgenOutfilep(spgwp);
   FILE** pgi_or_final_pgen_outfilep = GetPgiOrFinalPgenOutfilep(spgwp);
   char** fname_bufp = GetFnameBufp(spgwp);
-  PglErr reterr = PwcInitPhase1(fname, explicit_nonref_flags, variant_ct_limit, sample_ct, write_mode, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, pwcp, pgen_outfilep, pgi_or_final_pgen_outfilep, fname_bufp);
+  PglErr reterr = PwcInitPhase1(fname, explicit_nonref_flags, header_exts, footer_exts, variant_ct_limit, sample_ct, write_mode, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, pwcp, pgen_outfilep, pgi_or_final_pgen_outfilep, fname_bufp);
   if (likely(!reterr)) {
     *alloc_cacheline_ct_ptr = CountSpgwAllocCachelinesRequired(variant_ct_limit, sample_ct, phase_dosage_gflags, max_vrec_len);
   }
@@ -513,13 +552,13 @@ void SpgwInitPhase2(uint32_t max_vrec_len, STPgenWriter* spgwp, unsigned char* s
   PwcInitPhase2(fwrite_cacheline_ct, 1, &pwcp, spgw_alloc);
 }
 
-PglErr MpgwInitPhase2(const char* __restrict fname, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, MTPgenWriter* mpgwp) {
+PglErr MpgwInitPhase2Ex(const char* __restrict fname, uintptr_t* __restrict explicit_nonref_flags, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uint32_t variant_ct, uint32_t sample_ct, PgenWriteMode write_mode, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, MTPgenWriter* mpgwp) {
   assert(thread_ct);
   const uintptr_t pwc_byte_ct = RoundUpPow2(sizeof(PgenWriterCommon), kCacheline);
   for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
     mpgwp->pwcs[tidx] = R_CAST(PgenWriterCommon*, &(mpgw_alloc[tidx * pwc_byte_ct]));
   }
-  PglErr reterr = PwcInitPhase1(fname, explicit_nonref_flags, variant_ct, sample_ct, write_mode, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, mpgwp->pwcs[0], &(mpgwp->pgen_outfile), &(mpgwp->pgi_or_final_pgen_outfile), &(mpgwp->fname_buf));
+  PglErr reterr = PwcInitPhase1(fname, explicit_nonref_flags, header_exts, footer_exts, variant_ct, sample_ct, write_mode, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, mpgwp->pwcs[0], &(mpgwp->pgen_outfile), &(mpgwp->pgi_or_final_pgen_outfile), &(mpgwp->fname_buf));
   if (unlikely(reterr)) {
     return reterr;
   }
@@ -2253,7 +2292,60 @@ uint32_t PhaseOrDosagePresent(const uintptr_t* vrtype_buf, uint32_t variant_ct) 
   return 0;
 }
 
+// ext_iter == nullptr ok
+IntErr AppendExtVarint(const PgenExtensionLl* ext_iter, FILE* pgen) {
+  int32_t cur_outbyte = 0;
+  uint32_t flushed_byte_ct = 0;
+  while (ext_iter) {
+    const uint32_t cur_type_idx = ext_iter->type_idx;
+    const uint32_t cur_type_idx_div7 = cur_type_idx / 7;
+    const uint32_t bytes_to_flush = cur_type_idx_div7 - flushed_byte_ct;
+    if (bytes_to_flush) {
+      putc_unlocked(cur_outbyte | 128, pgen);
+      for (uint32_t uii = 1; uii != bytes_to_flush; ++uii) {
+        putc_unlocked(128, pgen);
+      }
+      cur_outbyte = 0;
+      flushed_byte_ct = cur_type_idx_div7;
+    }
+    cur_outbyte |= 1 << (cur_type_idx % 7);
+
+    ext_iter = ext_iter->next;
+  }
+  return putc_checked(cur_outbyte, pgen);
+}
+
+PglErr AppendExtSizesAndContents(const PgenExtensionLl* exts, FILE* pgen) {
+  const PgenExtensionLl* exts_iter = exts;
+  do {
+    const uint64_t size = exts_iter->size;
+    if (unlikely(size >= (1LLU << (kBitsPerWord - 1)))) {
+      return kPglRetImproperFunctionCall;
+    }
+    FPutVint64(size, pgen);
+    exts_iter = exts_iter->next;
+  } while (exts_iter);
+  exts_iter = exts;
+  do {
+    if (unlikely(!fwrite_checked(exts_iter->contents, exts_iter->size, pgen))) {
+      return kPglRetWriteFail;
+    }
+    exts_iter = exts_iter->next;
+  } while (exts_iter);
+  return kPglRetSuccess;
+}
+
 PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_or_final_pgen_outfile_ptr, char** fname_buf_ptr) {
+  uint64_t footer_fpos = 0;
+  if (pwcp->footer_exts) {
+    footer_fpos = ftello(*pgen_outfile_ptr);
+    if (!(*fname_buf_ptr)) {
+      PglErr reterr = AppendExtSizesAndContents(pwcp->footer_exts, *pgen_outfile_ptr);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
+    }
+  }
   const uint32_t variant_ct = pwcp->vidx;
   FILE** header_ff_ptr;
   if (*pgi_or_final_pgen_outfile_ptr) {
@@ -2357,6 +2449,34 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_or_
       explicit_nonref_flags_iter = &(explicit_nonref_flags_iter[kPglVblockSize / kBitsPerWord]);
     }
   }
+  if (pwcp->header_exts || pwcp->footer_exts) {
+    if (unlikely(AppendExtVarint(pwcp->header_exts, header_ff) ||
+                 AppendExtVarint(pwcp->footer_exts, header_ff))) {
+      return kPglRetWriteFail;
+    }
+    if (pwcp->footer_exts) {
+      if (*fname_buf_ptr) {
+        // In kPgenWriteAndCopy mode, initial footer_fpos value is relative to
+        // the start of the .pgen body.  We now need to add the header size.
+        footer_fpos += ftello(header_ff) + sizeof(int64_t);
+        const PgenExtensionLl* header_exts_iter = pwcp->header_exts;
+        while (header_exts_iter) {
+          const uintptr_t cur_size = header_exts_iter->size;
+          footer_fpos += cur_size + VintBytect(cur_size);
+          header_exts_iter = header_exts_iter->next;
+        }
+      }
+      if (unlikely(!fwrite_unlocked(&footer_fpos, sizeof(int64_t), 1, header_ff))) {
+        return kPglRetWriteFail;
+      }
+    }
+    if (pwcp->header_exts) {
+      PglErr reterr = AppendExtSizesAndContents(pwcp->header_exts, header_ff);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
+    }
+  }
   if (!(*fname_buf_ptr)) {
     return fclose_null(header_ff_ptr)? kPglRetWriteFail : kPglRetSuccess;
   }
@@ -2364,7 +2484,7 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_or_
   // magic number) to final output file.
   unsigned char copybuf[kPglFwriteBlockSize + 3];
   uintptr_t nbyte = fread(copybuf, 1, kPglFwriteBlockSize + 3, *pgen_outfile_ptr);
-  if (unlikely((nbyte <= 3) || (!memequal_k(copybuf, "l\x1b\x20", 3)))) {
+  if (unlikely((nbyte <= 3) || (!memequal_k(copybuf, "l\x1b", 2)))) {
     return kPglRetRewindFail;
   }
   nbyte -= 3;
@@ -2377,6 +2497,12 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr, FILE** pgi_or_
       break;
     }
     if (unlikely(!fwrite_unlocked(copybuf, nbyte, 1, header_ff))) {
+      return kPglRetWriteFail;
+    }
+  }
+  if (pwcp->footer_exts) {
+    PglErr reterr = AppendExtSizesAndContents(pwcp->footer_exts, header_ff);
+    if (unlikely(reterr)) {
       return kPglRetWriteFail;
     }
   }

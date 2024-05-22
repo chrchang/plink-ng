@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (16 May 2024)";
+  " (22 May 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1247,6 +1247,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // --update-name in the order of operations.
     const uint32_t htable_needed_early = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct);
     const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params);
+    DPrintf("before ApplyVariantBpFilters()\n");
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, pcp->bed_border_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1412,6 +1413,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     uint32_t* sample_missing_hc_cts = nullptr;
     uint32_t* sample_hethap_cts = nullptr;
     uintptr_t max_covar_name_blen = 0;
+    DPrintf("before psamname[0]\n");
     if (psamname[0]) {
       // xid_mode may vary between these operations in a single run, and
       // sample-sort is relatively cheap, so we abandon plink 1.9's "construct
@@ -1440,6 +1442,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         // --update-parents goes here
         if (pcp->update_sex_info.fname) {
+          DPrintf("starting --update-sex on %s\n", pcp->update_sex_info.fname);
           reterr = UpdateSampleSexes(sample_include, &pii.sii, &(pcp->update_sex_info), raw_sample_ct, sample_ct, pcp->max_thread_ct, sex_nm, sex_male);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;

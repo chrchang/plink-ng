@@ -90,13 +90,16 @@ typedef struct PgenFileInfoStruct {
   uint32_t max_allele_ct;
   // uint32_t max_dosage_allele_ct;  // might need this later
 
+  uint32_t extensions_present;
+
   // if using per-variant fread(), this is non-null during PgenFileInfo
   // initialization, but it's then "moved" to the first Pgen_reader and set to
   // nullptr.
   FILE* shared_ff;
 
-  // can only be non-null after PgfiInitPhase1 and before PgfiInitPhase2, and
-  // only if the external-index-file representation is used.
+  // can only be non-null after PgfiInitPhase1 and before PgfiInitPhase2 /
+  // PgfiInitLoadExts, and only if the external-index-file representation is
+  // used.
   FILE* pgi_ff;
 
   const unsigned char* block_base;  // nullptr if using per-variant fread()
@@ -432,8 +435,21 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
 
 // If allele_cts_already_loaded is set, but they're present in the file,
 // they'll be validated; similarly for nonref_flags_already_loaded.
-PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf);
+//
+// If caller is interested in extensions, they should pass in header_exts
+// and/or footer_exts entries with type_idx set to those of the extensions of
+// interest, and type_idx values in increasing order.  On return, .size values
+// of each entry will be filled when the extension is present, and set to ~0LLU
+// when the extension is absent.
+PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf);
 
+HEADER_INLINE PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf) {
+  return PgfiInitPhase2Ex(header_ctrl, allele_cts_already_loaded, nonref_flags_already_loaded, use_blockload, vblock_idx_start, vidx_end, max_vrec_width_ptr, pgfip, pgfi_alloc, nullptr, nullptr, pgr_alloc_cacheline_ct_ptr, errstr_buf);
+}
+
+// Expected to be called right after PgfiInitPhase2Ex(), after memory buffers
+// are provided for header_exts / footer_exts entries.
+PglErr PgfiInitLoadExts(PgenHeaderCtrl header_ctrl, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, char* errstr_buf);
 
 uint64_t GetPgfiLdbaseFpos(const PgenFileInfo* pgfip, uintptr_t vidx);
 

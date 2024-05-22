@@ -106,7 +106,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 814
+#define PLINK2_BASE_VERNUM 815
 
 
 #define _FILE_OFFSET_BITS 64
@@ -2760,6 +2760,10 @@ HEADER_INLINE uint32_t Popcount4Words(uintptr_t val0, uintptr_t val1, uintptr_t 
 HEADER_INLINE uint32_t PopcountHW(uint32_t val) {
   return __builtin_popcount(val);
 }
+
+HEADER_INLINE uint32_t PopcountByte(uint32_t val) {
+  return __builtin_popcount(val);
+}
 #else
 #  ifdef __LP64__
 HEADER_INLINE uint32_t PopcountHW(uint32_t val) {
@@ -2776,6 +2780,12 @@ HEADER_INLINE uint32_t PopcountHW(uint32_t val) {
   return (val + (val >> 8)) & 0xff;
 }
 #  endif
+
+HEADER_INLINE uint32_t PopcountByte(uint32_t val) {
+  val = val - ((val >> 1) & 0x55);
+  val = (val & 0x33) + ((val >> 2) & 0x33);
+  return (val + (val >> 4)) & 0xf;
+}
 #endif
 
 #ifdef USE_SSE2
@@ -4114,6 +4124,15 @@ HEADER_INLINE uintptr_t CountVintsNonempty(const unsigned char* buf, const unsig
   return CountVints(buf, buf_end);
 }
 #endif
+
+// Number of bytes required to encode ulii as a varint.
+HEADER_INLINE uint32_t VintBytect(uintptr_t ulii) {
+  if (ulii < 128) {
+    // bsrw(0) is undefined.
+    return 1;
+  }
+  return 1 + (bsrw(ulii) / 7);
+}
 
 // Flagset conventions:
 // * Each 32-bit and 64-bit flagset has its own type, which is guaranteed to be

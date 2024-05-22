@@ -691,6 +691,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
   // is preloaded... need to fix this interface.
   pgfip->max_allele_ct = 2;
   // pgfip->max_dosage_allele_ct = 0;
+  pgfip->extensions_present = 0;
 
   pgfip->block_base = nullptr;
   // this should force overflow when value is uninitialized.
@@ -836,7 +837,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", header_fname, strerror(errno));
     return kPglRetReadFail;
   }
-  PgenHeaderCtrl header_ctrl = *header_ctrl_ptr;
+  const PgenHeaderCtrl header_ctrl = *header_ctrl_ptr;
   if (raw_variant_ct == UINT32_MAX) {
     raw_variant_ct = pgfip->raw_variant_ct;
     // deliberate underflow
@@ -909,6 +910,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
     return kPglRetNotYetSupported;
   }
   // plink 2 binary, general-purpose
+  pgfip->extensions_present = file_type_code & 1;
   pgfip->const_fpos_offset = 0;
   pgfip->const_vrtype = UINT32_MAX;
   pgfip->const_vrec_width = 0;
@@ -984,8 +986,112 @@ void FillPgenReadErrstr(FILE* ff, char* errstr_buf) {
   FillPgenHeaderReadErrstr(ff, 0, errstr_buf);
 }
 
-static_assert(kPglMaxAlleleCt == 255, "Need to update PgfiInitPhase2().");
-PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf) {
+// Assumes ff points to first byte of appropriate extension-set varint.
+// For each exts_iter entry corresponding to a present extension, size is
+// initialized to 0-based relative sequence number of extension.  size is
+// initialized to ~0LLU for each absent extension.
+// If preprocessing header_exts, footer_fpos_ptr must be nullptr, and ff points
+// to first byte of footer-extension-set varint on successful exit.  If
+// preprocessing footer_exts, footer_fpos_ptr must be non-null, will be filled
+// if footer exists, and ff will be advanced past that on successful exit.
+PglErr PgfiInitPhase2PreprocessExts(uint32_t is_pgi, FILE* ff, PgenExtensionLl* exts_iter, uint64_t* footer_fpos_ptr, char* errstr_buf) {
+  uint32_t cur_type_idx = exts_iter? exts_iter->type_idx : UINT32_MAX;
+  uint32_t type_idx_start = 0;
+  uint32_t prev_ct = 0;
+  while (1) {
+    const uint32_t type_idx_stop = type_idx_start + 7;
+    const int32_t ii = getc_unlocked(ff);
+    if (unlikely(ii == EOF)) {
+      if (ferror_unlocked(ff)) {
+        FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
+        return kPglRetReadFail;
+      }
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen%s.\n", is_pgi? ".pgi file" : " header");
+      return kPglRetMalformedInput;
+    }
+    const uint32_t cur_byte = ii;
+    while (cur_type_idx < type_idx_stop) {
+      const uint32_t shifted_bit = 1 << (cur_type_idx - type_idx_start);
+      if (cur_byte & shifted_bit) {
+        exts_iter->size = prev_ct + PopcountByte(cur_byte & (shifted_bit - 1));
+      } else {
+        exts_iter->size = ~0LLU;
+      }
+      exts_iter = exts_iter->next;
+      const uint32_t next_type_idx = exts_iter? exts_iter->type_idx : UINT32_MAX;
+      if (unlikely(next_type_idx <= cur_type_idx)) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: PgfiInitPhase2Ex() extension linked-lists must be ordered by increasing type_idx.\n");
+        return kPglRetImproperFunctionCall;
+      }
+      cur_type_idx = next_type_idx;
+    }
+    if (unlikely((type_idx_start == 252) && (cur_byte & 0xf0))) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen%s.\n", is_pgi? ".pgi file" : " header");
+      return kPglRetMalformedInput;
+    }
+    if (!(cur_byte & 128)) {
+      if (footer_fpos_ptr) {
+        if (cur_byte || prev_ct) {
+          if (unlikely(!fread_unlocked(footer_fpos_ptr, sizeof(int64_t), 1, ff))) {
+            FillPgenHeaderReadErrstr(ff, is_pgi, errstr_buf);
+            return kPglRetReadFail;
+          }
+        }
+      }
+      break;
+    }
+    type_idx_start = type_idx_stop;
+    prev_ct += PopcountByte(cur_byte) - 1;
+  }
+  if (exts_iter) {
+    while (1) {
+      exts_iter->size = ~0LLU;
+      exts_iter = exts_iter->next;
+      if (!exts_iter) {
+        break;
+      }
+      const uint32_t next_type_idx = exts_iter->type_idx;
+      if (next_type_idx <= cur_type_idx) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: PgfiInitPhase2Ex() extension linked-lists must be ordered by increasing type_idx.\n");
+        return kPglRetImproperFunctionCall;
+      }
+      cur_type_idx = next_type_idx;
+    }
+  }
+  return kPglRetSuccess;
+}
+
+PglErr PgfiInitPhase2FillExtSizes(uint32_t is_pgi, FILE* ff, PgenExtensionLl* exts_iter, char* errstr_buf) {
+  uint32_t next_seq_idx = 0;
+  for (; exts_iter; exts_iter = exts_iter->next) {
+    if (exts_iter->size == ~0LLU) {
+      continue;
+    }
+    const uint32_t cur_seq_idx = exts_iter->size;
+    for (; next_seq_idx < cur_seq_idx; ++next_seq_idx) {
+      if (unlikely(FSkipVint(ff))) {
+        goto PgfiInitPhase2FillExtSizes_error_or_eof;
+      }
+    }
+    const uint64_t cur_size = FGetVint63(ff);
+    if (unlikely(cur_size == (1LLU << 63))) {
+      goto PgfiInitPhase2FillExtSizes_error_or_eof;
+    }
+    exts_iter->size = cur_size;
+    next_seq_idx = cur_seq_idx + 1;
+  }
+  return kPglRetSuccess;
+ PgfiInitPhase2FillExtSizes_error_or_eof:
+  if (ferror_unlocked(ff)) {
+    FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
+    return kPglRetReadFail;
+  }
+  snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen%s.\n", is_pgi? ".pgi file" : " header");
+  return kPglRetMalformedInput;
+}
+
+static_assert(kPglMaxAlleleCt == 255, "Need to update PgfiInitPhase2Ex().");
+PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf) {
   // *max_vrec_width_ptr technically only needs to be set in single-variant
   // fread() mode, but its computation is not currently optimized out in the
   // other two modes.
@@ -1110,7 +1216,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
   if (alt_allele_ct_byte_ct) {
     assert(alt_allele_ct_byte_ct == 1);
     if (unlikely(!allele_idx_offsets_iter)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: pgfip->allele_idx_offsets must be allocated before PgfiInitPhase2() is called.\n");
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: pgfip->allele_idx_offsets must be allocated before PgfiInitPhase2Ex() is called.\n");
       return kPglRetImproperFunctionCall;
     }
   }
@@ -1261,21 +1367,21 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         }
         vrtypes_iter = &(vrtypes_iter[cur_vblock_variant_ct]);
       }
-      const uint32_t bytes_per_entry = 1 + (vrtype_and_fpos_storage & 3);
-      const uint32_t cur_byte_ct = cur_vblock_variant_ct * bytes_per_entry;
+      const uint32_t vrec_len_byte_ct = 1 + (vrtype_and_fpos_storage & 3);
+      const uint32_t cur_byte_ct = cur_vblock_variant_ct * vrec_len_byte_ct;
       if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, header_ff))) {
         FillPgenHeaderReadErrstr(header_ff, is_pgi, errstr_buf);
         return kPglRetReadFail;
       }
       fread_ptr = loadbuf;
-      if (bytes_per_entry == 1) {
+      if (vrec_len_byte_ct == 1) {
         for (uint32_t cur_vblock_vidx = 0; cur_vblock_vidx != cur_vblock_variant_ct; ++cur_vblock_vidx) {
           var_fpos_iter[cur_vblock_vidx] = variant_fpos;
           uint32_t cur_vrec_len = fread_ptr[cur_vblock_vidx];
           variant_fpos += cur_vrec_len;
           // no need for correct max_vrec_width
         }
-      } else if (bytes_per_entry == 2) {
+      } else if (vrec_len_byte_ct == 2) {
         for (uint32_t cur_vblock_vidx = 0; cur_vblock_vidx != cur_vblock_variant_ct; ++cur_vblock_vidx) {
           var_fpos_iter[cur_vblock_vidx] = variant_fpos;
           uint16_t cur_vrec_len;
@@ -1286,7 +1392,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
             max_vrec_width = cur_vrec_len;
           }
         }
-      } else if (bytes_per_entry == 3) {
+      } else if (vrec_len_byte_ct == 3) {
         for (uint32_t cur_vblock_vidx = 0; cur_vblock_vidx != cur_vblock_variant_ct; ++cur_vblock_vidx) {
           var_fpos_iter[cur_vblock_vidx] = variant_fpos;
           uint32_t cur_vrec_len;
@@ -1385,7 +1491,32 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
     vrtypes_iter[0] = 0;
   }
 
-  if (is_pgi) {
+  uint64_t footer_extensions_fpos = 0;
+  if (pgfip->extensions_present && (header_exts || footer_exts)) {
+    if (vidx_end < raw_variant_ct) {
+      const uint32_t vrec_len_byte_ct = 1 + (vrtype_and_fpos_storage & 3);
+      const uint32_t phase_or_dosage_present = (vrtype_and_fpos_storage >= 4);
+      const uint64_t ext_fpos = PglHeaderBaseEndOffset(raw_variant_ct, vrec_len_byte_ct, phase_or_dosage_present, nonref_flags_stored);
+      if (unlikely(fseeko(header_ff, ext_fpos, SEEK_SET))) {
+        FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
+        return kPglRetReadFail;
+      }
+    }
+    PglErr reterr = PgfiInitPhase2PreprocessExts(is_pgi, header_ff, header_exts, nullptr, errstr_buf);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    reterr = PgfiInitPhase2PreprocessExts(is_pgi, header_ff, footer_exts, &footer_extensions_fpos, errstr_buf);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    reterr = PgfiInitPhase2FillExtSizes(is_pgi, header_ff, header_exts, errstr_buf);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+  }
+
+  if (is_pgi && (!header_exts) && (!footer_exts)) {
     if (unlikely(fclose_null(&pgfip->pgi_ff))) {
       FillPgenHeaderReadErrstrFromNzErrno(1, errstr_buf);
       return kPglRetReadFail;
@@ -1399,6 +1530,20 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
     if (unlikely(actual_fpos > pgfip->var_fpos[0])) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen%s.\n", is_pgi? ".pgi file" : " header");
       return kPglRetMalformedInput;
+    }
+    if (unlikely(fseeko(pgfip->shared_ff, pgfip->var_fpos[0], SEEK_SET))) {
+      FillPgenReadErrstrFromNzErrno(errstr_buf);
+      return kPglRetReadFail;
+    }
+  }
+  if (footer_extensions_fpos && footer_exts) {
+    if (unlikely(fseeko(pgfip->shared_ff, footer_extensions_fpos, SEEK_SET))) {
+      FillPgenReadErrstrFromNzErrno(errstr_buf);
+      return kPglRetReadFail;
+    }
+    PglErr reterr = PgfiInitPhase2FillExtSizes(0, pgfip->shared_ff, footer_exts, errstr_buf);
+    if (unlikely(reterr)) {
+      return reterr;
     }
     if (unlikely(fseeko(pgfip->shared_ff, pgfip->var_fpos[0], SEEK_SET))) {
       FillPgenReadErrstrFromNzErrno(errstr_buf);
@@ -1524,6 +1669,169 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
   }
   *pgr_alloc_cacheline_ct_ptr = CountPgrAllocCachelinesRequired(raw_sample_ct, new_gflags, max_allele_ct, use_blockload? 0 : max_vrec_width);
   *max_vrec_width_ptr = max_vrec_width;
+  return kPglRetSuccess;
+}
+
+PglErr PgfiInitReloadExtSet(uint32_t is_pgi, FILE* ff, uintptr_t* ext_bitarr, uint32_t* ext_bitarr_cumulative_popcounts, uint64_t* footer_fpos_ptr, uint32_t* word_ct_ptr, char* errstr_buf) {
+  uintptr_t cur_output_word = 0;
+  uint32_t write_idx_lowbits = 0;
+  uint32_t widx = 0;
+  ext_bitarr_cumulative_popcounts[0] = 0;
+  while (1) {
+    const int32_t ii = getc_unlocked(ff);
+    if (unlikely(ii == EOF)) {
+      if (ferror_unlocked(ff)) {
+        FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
+        return kPglRetReadFail;
+      }
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen%s.\n", is_pgi? ".pgi file" : " header");
+      return kPglRetMalformedInput;
+    }
+    const uintptr_t cur_masked_bits = ii & 127;
+    cur_output_word |= cur_masked_bits << write_idx_lowbits;
+    uint32_t new_write_idx_lowbits = write_idx_lowbits + 7;
+    if (new_write_idx_lowbits >= kBitsPerWord) {
+      ext_bitarr[widx] = cur_output_word;
+      ++widx;
+      ext_bitarr_cumulative_popcounts[widx] = PopcountWord(cur_output_word);
+      cur_output_word = cur_masked_bits >> (kBitsPerWord - write_idx_lowbits);
+      new_write_idx_lowbits -= kBitsPerWord;
+    }
+    write_idx_lowbits = new_write_idx_lowbits;
+    if (!(ii & 128)) {
+      break;
+    }
+    if (unlikely(widx == (256 / kBitsPerWord))) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen%s.\n", is_pgi? ".pgi file" : " header");
+      return kPglRetMalformedInput;
+    }
+  }
+  ext_bitarr[widx] = cur_output_word;
+  *word_ct_ptr = widx + 1;
+  if (footer_fpos_ptr) {
+    if (unlikely(!fread_unlocked(footer_fpos_ptr, sizeof(int64_t), 1, ff))) {
+      FillPgenHeaderReadErrstr(ff, is_pgi, errstr_buf);
+      return kPglRetReadFail;
+    }
+  }
+  return kPglRetSuccess;
+}
+
+PglErr PgfiInitFillExts(const uintptr_t* ext_bitarr, const uint32_t* ext_cumulative_popcounts, uint32_t word_ct, uint32_t is_pgi, FILE* ff, PgenExtensionLl* exts, char* errstr_buf) {
+  {
+    const uint32_t ext_ct = ext_cumulative_popcounts[word_ct - 1] + PopcountWord(ext_bitarr[word_ct - 1]);
+    uint64_t sizes[256];
+    for (uint32_t seq_idx = 0; seq_idx != ext_ct; ++seq_idx) {
+      const uint64_t cur_size = FGetVint63(ff);
+      if (unlikely(cur_size == (1LLU << 63))) {
+        goto PgfiInitFillExts_error_or_eof;
+      }
+      sizes[seq_idx] = cur_size;
+    }
+    const uint32_t type_idx_limit = word_ct * kBitsPerWord;
+    uint32_t next_seq_idx = 0;
+    for (PgenExtensionLl* exts_iter = exts; exts_iter; exts_iter = exts_iter->next) {
+      const uint32_t type_idx = exts_iter->type_idx;
+      if (type_idx >= type_idx_limit) {
+        break;
+      }
+      if ((exts_iter->size == ~0LLU) || (!IsSet(ext_bitarr, type_idx))) {
+        continue;
+      }
+      const uint32_t seq_idx = RawToSubsettedPos(ext_bitarr, ext_cumulative_popcounts, type_idx);
+      const uint64_t cur_size = sizes[seq_idx];
+      if (unlikely(cur_size != exts_iter->size)) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: PgfiInitLoadExts() extension byte-size mismatch.\n");
+        return kPglRetImproperFunctionCall;
+      }
+      if (seq_idx > next_seq_idx) {
+        uint64_t bytes_to_skip = 0;
+        for (uint32_t uii = next_seq_idx; uii != seq_idx; ++uii) {
+          bytes_to_skip += sizes[uii];
+        }
+        if (unlikely(fseeko(ff, bytes_to_skip, SEEK_CUR))) {
+          FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
+          return kPglRetReadFail;
+        }
+      }
+      if (unlikely(fread_checked(exts_iter->contents, cur_size, ff))) {
+        FillPgenHeaderReadErrstr(ff, is_pgi, errstr_buf);
+        return kPglRetReadFail;
+      }
+      next_seq_idx = seq_idx + 1;
+    }
+    return kPglRetSuccess;
+  }
+ PgfiInitFillExts_error_or_eof:
+  if (ferror_unlocked(ff)) {
+    FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
+    return kPglRetReadFail;
+  }
+  snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen%s.\n", is_pgi? ".pgi file" : " header");
+  return kPglRetMalformedInput;
+}
+
+PglErr PgfiInitLoadExts(PgenHeaderCtrl header_ctrl, PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, char* errstr_buf) {
+  // Not tested yet.
+  const uint64_t starting_fpos = ftello(pgfip->shared_ff);
+  FILE* header_ff = pgfip->pgi_ff;
+  const uint32_t is_pgi = (header_ff != nullptr);
+  if (!is_pgi) {
+    header_ff = pgfip->shared_ff;
+    assert(header_ff);
+  }
+  {
+    const uint32_t vrtype_and_fpos_storage = header_ctrl & 15;
+    const uint32_t vrec_len_byte_ct = 1 + (vrtype_and_fpos_storage & 3);
+    const uint32_t phase_or_dosage_present = (vrtype_and_fpos_storage >= 4);
+    const uint32_t nonref_flags_stored = ((header_ctrl >> 6) == 3);
+    const uint64_t ext_fpos = PglHeaderBaseEndOffset(pgfip->raw_variant_ct, vrec_len_byte_ct, phase_or_dosage_present, nonref_flags_stored);
+    if (unlikely(fseeko(header_ff, ext_fpos, SEEK_SET))) {
+      FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
+      return kPglRetReadFail;
+    }
+  }
+  uintptr_t header_bitarr[(256 / kBitsPerWord) + 1];
+  uint32_t header_bitarr_cumulative_popcounts[(256 / kBitsPerWord) + 1];
+  uint32_t header_ext_word_ct;
+  PglErr reterr = PgfiInitReloadExtSet(is_pgi, header_ff, header_bitarr, header_bitarr_cumulative_popcounts, nullptr, &header_ext_word_ct, errstr_buf);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  uintptr_t footer_bitarr[(256 / kBitsPerWord) + 1];
+  uint32_t footer_bitarr_cumulative_popcounts[(256 / kBitsPerWord) + 1];
+  uint32_t footer_ext_word_ct;
+  uint64_t footer_extensions_fpos;
+  reterr = PgfiInitReloadExtSet(is_pgi, header_ff, footer_bitarr, footer_bitarr_cumulative_popcounts, &footer_extensions_fpos, &footer_ext_word_ct, errstr_buf);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  if (header_exts) {
+    reterr = PgfiInitFillExts(header_bitarr, header_bitarr_cumulative_popcounts, header_ext_word_ct, is_pgi, header_ff, header_exts, errstr_buf);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+  }
+  if (is_pgi) {
+    if (unlikely(fclose_null(&pgfip->pgi_ff))) {
+      FillPgenHeaderReadErrstrFromNzErrno(1, errstr_buf);
+      return kPglRetReadFail;
+    }
+  }
+  if (footer_exts) {
+    if (unlikely(fseeko(pgfip->shared_ff, footer_extensions_fpos, SEEK_SET))) {
+      FillPgenReadErrstrFromNzErrno(errstr_buf);
+      return kPglRetReadFail;
+    }
+    reterr = PgfiInitFillExts(footer_bitarr, footer_bitarr_cumulative_popcounts, footer_ext_word_ct, 0, pgfip->shared_ff, footer_exts, errstr_buf);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+  }
+  if (unlikely(fseeko(pgfip->shared_ff, starting_fpos, SEEK_SET))) {
+    FillPgenReadErrstrFromNzErrno(errstr_buf);
+    return kPglRetReadFail;
+  }
   return kPglRetSuccess;
 }
 
