@@ -2214,18 +2214,23 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     if (!sample_ct) {
       goto UpdateSampleSexes_ret_1;
     }
-    DPrintf("before SizeAndInitTextStream()\n");
+    DPrintf("before SizeAndInitTextStream()  bigstack_left() = %" PRIuPTR "\n", bigstack_left());
     // permit very long lines since this can be pointed at .ped files
     reterr = SizeAndInitTextStream(update_sex_info_ptr->fname, bigstack_left() - (bigstack_left() / 4), MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
+      DPrintf("reterr: %u\n", S_CAST(uint32_t, reterr));
+      const char* errmsg = TextStreamError(&txs);
+      if (errmsg) {
+        DPrintf("errmsg: %s\n", errmsg);
+      }
       goto UpdateSampleSexes_ret_1;
     }
+    DPrintf("no SizeAndInitTextStream() error\n");
 
     // (Much of this boilerplate is shared with e.g. KeepColMatch(); it
     // probably belongs in its own function.)
     char* line_start;
     XidMode xid_mode;
-    DPrintf("before LoadXidHeader()\n");
     reterr = LoadXidHeader("update-sex", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
     if (reterr) {
       if (likely(reterr == kPglRetEof)) {
@@ -2233,7 +2238,6 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
         logputs("--update-sex: 0 samples updated.\n");
         goto UpdateSampleSexes_ret_1;
       }
-      DPrintf("TSTREAM_XID_FAIL\n");
       goto UpdateSampleSexes_ret_TSTREAM_XID_FAIL;
     }
     const uint32_t id_col_ct = GetXidColCt(xid_mode);
@@ -2274,7 +2278,6 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     char* sorted_xidbox = nullptr;
     const uint32_t allow_dups = siip->sids && (!(xid_mode & kfXidModeFlagSid));
     uintptr_t max_xid_blen;
-    DPrintf("before SortedXidboxInitAlloc()\n");
     reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (unlikely(reterr)) {
       goto UpdateSampleSexes_ret_1;
@@ -2298,7 +2301,6 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
       const char* linebuf_iter = line_start;
       uint32_t xid_idx_start;
       uint32_t xid_idx_end;
-      DPrintf("processing line %" PRIuPTR "\n", line_idx);
       if (SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
         if (unlikely(!linebuf_iter)) {
           goto UpdateSampleSexes_ret_MISSING_TOKENS;
@@ -2368,11 +2370,9 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
         }
       }
     }
-    DPrintf("done with loop\n");
     if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
       goto UpdateSampleSexes_ret_TSTREAM_FAIL;
     }
-    DPrintf("no close error\n");
     if (duplicate_ct) {
       logprintfww("Note: %" PRIuPTR " duplicate sample ID%s) in --update-sex file.\n", duplicate_ct, (duplicate_ct == 1)? " (with a consistent sex assignment" : "s (with consistent sex assignments");
     }

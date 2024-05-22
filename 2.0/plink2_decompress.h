@@ -80,6 +80,7 @@ HEADER_INLINE PglErr SizeAndInitTextStream(const char* fname, uintptr_t byte_ava
   if (unlikely(StandardizeMaxLineBlen(byte_avail_ct, &max_line_blen))) {
     return kPglRetNomem;
   }
+  DPrintf("max_line_blen: %u\n", max_line_blen);
   return InitTextStream(fname, max_line_blen, decompress_thread_ct, txsp);
 }
 
