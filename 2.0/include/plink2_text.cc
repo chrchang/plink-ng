@@ -129,6 +129,8 @@ const char kShortErrRfileAlreadyOpen[] = "TextFileOpenInternal can't be called o
 const char kShortErrRfileEnforcedMaxBlenTooSmall[] = "TextFileOpenInternal: enforced_max_line_blen too small (must be at least max(1 MiB, dst_capacity - 1 MiB))";
 const char kShortErrRfileDstCapacityTooSmall[] = "TextFileOpenInternal: dst_capacity too small (2 MiB minimum)";
 
+char g_debug_msg_buf[4096];
+
 PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILEMain* txfp, TextStreamMain* txsp) {
   PglErr reterr = kPglRetSuccess;
   TextFileBase* trbp;
@@ -226,6 +228,7 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
           } else {
             reterr = BgzfRawMtStreamInit(dst, txsp->decompress_thread_ct, trbp->ff, nullptr, &txsp->rds.bgzf, &trbp->errmsg);
             if (unlikely(reterr)) {
+              snprintf(g_debug_msg_buf, 4096, "BgzfRawMtStreamInit fail");
               goto TextFileOpenInternal_ret_1;
             }
           }
@@ -260,6 +263,7 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
   TextFileOpenInternal_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     trbp->errmsg = strerror(errno);
+    strcpy(g_debug_msg_buf, trbp->errmsg);
     break;
   TextFileOpenInternal_ret_READ_FAIL:
     reterr = kPglRetReadFail;
@@ -1340,13 +1344,7 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
 
 const char kShortErrRfileInvalid[] = "TextStreamOpenEx can't be called with a closed or error-state textFILE";
 
-const char kDebugFail1[] = "TextStreamOpenEx fail 1";
 const char kDebugFail2[] = "TextStreamOpenEx fail 2";
-const char kDebugFail3[] = "TextStreamOpenEx fail 3";
-const char kDebugFail4[] = "TextStreamOpenEx fail 4";
-const char kDebugFail5[] = "TextStreamOpenEx fail 5";
-const char kDebugFail6[] = "TextStreamOpenEx fail 6";
-const char kDebugFail7[] = "TextStreamOpenEx fail 7";
 
 PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textFILE* txf_ptr, char* dst, TextStream* txs_ptr) {
   TextStreamMain* txsp = GetTxsp(txs_ptr);
@@ -1390,7 +1388,6 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
           reterr = BgzfRawMtStreamInit(nullptr, decompress_thread_ct, txs_basep->ff, &txfp->rds.bgzf, &txsp->rds.bgzf, &txs_basep->errmsg);
           if (unlikely(reterr)) {
             EraseTextFileBase(&txfp->base);
-            txs_basep->errmsg = kDebugFail1;
             goto TextStreamOpenEx_ret_1;
           }
         }
@@ -1410,7 +1407,6 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
     assert(!txsp->syncp);
     TextStreamSync* syncp;
     if (unlikely(cachealigned_malloc(RoundUpPow2(sizeof(TextStreamSync), kCacheline), &syncp))) {
-      txs_basep->errmsg = kDebugFail3;
       goto TextStreamOpenEx_ret_NOMEM;
     }
     txsp->syncp = syncp;
@@ -1450,18 +1446,15 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
 #else
     syncp->sync_init_state = 0;
     if (unlikely(pthread_mutex_init(&syncp->sync_mutex, nullptr))) {
-      txs_basep->errmsg = kDebugFail4;
       goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
     syncp->sync_init_state = 1;
     if (unlikely(pthread_cond_init(&syncp->reader_progress_condvar, nullptr))) {
-      txs_basep->errmsg = kDebugFail5;
       goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
     syncp->sync_init_state = 2;
     syncp->consumer_progress_state = 0;
     if (unlikely(pthread_cond_init(&syncp->consumer_progress_condvar, nullptr))) {
-      txs_basep->errmsg = kDebugFail6;
       goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
     syncp->sync_init_state = 3;
@@ -1469,7 +1462,6 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
     if (unlikely(pthread_create(&syncp->read_thread,
                                 &g_thread_startup.smallstack_thread_attr,
                                 TextStreamThread, txsp))) {
-      txs_basep->errmsg = kDebugFail7;
       goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
 #  else
