@@ -1744,7 +1744,6 @@ PglErr PgfiInitFillExts(const uintptr_t* ext_bitarr, const uint32_t* ext_cumulat
       const uint32_t seq_idx = RawToSubsettedPos(ext_bitarr, ext_cumulative_popcounts, type_idx);
       const uint64_t cur_size = sizes[seq_idx];
       if (unlikely(cur_size != exts_iter->size)) {
-        printf("cur_size: %llu  exts_iter->size: %llu  seq_idx: %u\n", cur_size, exts_iter->size, seq_idx);
         snprintf(errstr_buf, kPglErrstrBufBlen, "Error: PgfiInitLoadExts() extension byte-size mismatch.\n");
         return kPglRetImproperFunctionCall;
       }
