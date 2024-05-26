@@ -2269,11 +2269,11 @@ simde_mm256_i32gather_ps(const simde_float32* base_addr, simde__m256i vindex, co
   return simde__m256_from_private(r_);
 }
 #if defined(SIMDE_X86_AVX2_NATIVE)
-  #define simde_mm256_i32gather_ps(base_addr, vindex, scale) _mm256_i32gather_ps(SIMDE_CHECKED_REINTERPRET_CAST(float const*, simde_float32 const*, base_addr), vindex, scale)
+  #define simde_mm256_i32gather_ps(base_addr, vindex, scale) _mm256_i32gather_ps(SIMDE_CHECKED_REINTERPRET_CAST(float const*, simde_float32 const*, (base_addr)), (vindex), (scale))
 #endif
 #if defined(SIMDE_X86_AVX2_ENABLE_NATIVE_ALIASES)
   #undef _mm256_i32gather_ps
-  #define _mm256_i32gather_ps(base_addr, vindex, scale) simde_mm256_i32gather_ps(SIMDE_CHECKED_REINTERPRET_CAST(simde_float32 const*, float const*, base_addr), vindex, scale)
+  #define _mm256_i32gather_ps(base_addr, vindex, scale) simde_mm256_i32gather_ps(SIMDE_CHECKED_REINTERPRET_CAST(simde_float32 const*, float const*, (base_addr)), (vindex), (scale))
 #endif
 
 SIMDE_FUNCTION_ATTRIBUTES
@@ -4092,7 +4092,7 @@ simde_mm256_sign_epi8 (simde__m256i a, simde__m256i b) {
 
     SIMDE_VECTORIZE
     for (size_t i = 0 ; i < (sizeof(r_.i8) / sizeof(r_.i8[0])) ; i++) {
-      r_.i8[i] = (b_.i8[i] < INT32_C(0)) ? -a_.i8[i] : a_.i8[i];
+      r_.i8[i] = (b_.i8[i] == INT8_C(0)) ? INT8_C(0) : (b_.i8[i] < INT8_C(0)) ? -a_.i8[i] : a_.i8[i];
     }
 
     return simde__m256i_from_private(r_);
@@ -4116,7 +4116,7 @@ simde_mm256_sign_epi16 (simde__m256i a, simde__m256i b) {
 
     SIMDE_VECTORIZE
     for (size_t i = 0 ; i < (sizeof(r_.i16) / sizeof(r_.i16[0])) ; i++) {
-      r_.i16[i] = (b_.i16[i] < INT32_C(0)) ? -a_.i16[i] : a_.i16[i];
+      r_.i16[i] = (b_.i16[i] == INT16_C(0)) ? INT16_C(0) : (b_.i16[i] < INT16_C(0)) ? -a_.i16[i] : a_.i16[i];
     }
 
     return simde__m256i_from_private(r_);
@@ -4140,7 +4140,7 @@ simde_mm256_sign_epi32(simde__m256i a, simde__m256i b) {
 
     SIMDE_VECTORIZE
     for (size_t i = 0; i < (sizeof(r_.i32) / sizeof(r_.i32[0])); i++) {
-      r_.i32[i] = (b_.i32[i] < INT32_C(0)) ? -a_.i32[i] : a_.i32[i];
+      r_.i32[i] = (b_.i32[i] == INT32_C(0)) ? INT32_C(0) : (b_.i32[i] < INT32_C(0)) ? -a_.i32[i] : a_.i32[i];
     }
 
     return simde__m256i_from_private(r_);
@@ -5117,6 +5117,8 @@ simde__m256i
 simde_mm256_stream_load_si256 (const simde__m256i* mem_addr) {
   #if defined(SIMDE_X86_AVX2_NATIVE)
     return _mm256_stream_load_si256(HEDLEY_CONST_CAST(simde__m256i*, mem_addr));
+  #elif HEDLEY_HAS_BUILTIN(__builtin_nontemporal_store) && defined(SIMDE_VECTOR_SUBSCRIPT)
+    return __builtin_nontemporal_load(mem_addr);
   #else
     simde__m256i r;
     simde_memcpy(&r, SIMDE_ALIGN_ASSUME_LIKE(mem_addr, simde__m256i), sizeof(r));
