@@ -199,42 +199,42 @@ FLAGSET64_DEF_START()
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
-  logerrprintfww("--pgen-info on %s:\n", pgenname);
-  logerrprintf("  Variants: %u\n", pgfip->raw_variant_ct);
-  logerrprintf("  Samples: %u\n", pgfip->raw_sample_ct);
+  logprintfww("--pgen-info on %s:\n", pgenname);
+  logprintf("  Variants: %u\n", pgfip->raw_variant_ct);
+  logprintf("  Samples: %u\n", pgfip->raw_sample_ct);
   const uint32_t nonref_flags_status = header_ctrl >> 6;
   if (!nonref_flags_status) {
-    logerrputs("  REF allele known/provisional status not stored in .pgen\n");
+    logputs("  REF allele known/provisional status not stored in .pgen\n");
   } else if (nonref_flags_status == 1) {
-    logerrputs("  REF alleles are all known\n");
+    logputs("  REF alleles are all known\n");
   } else if (nonref_flags_status == 2) {
-    logerrputs("  REF alleles are all provisional\n");
+    logputs("  REF alleles are all provisional\n");
   } else {
     // could report exact counts of each
-    logerrputs("  REF alleles are a mix of known and provisional\n");
+    logputs("  REF alleles are a mix of known and provisional\n");
   }
   if (max_allele_ct >= UINT32_MAXM1) {
     if (max_allele_ct == UINT32_MAX) {
-      logerrputs("  Maximum allele count for a single variant: >2, not explicitly stored\n");
+      logputs("  Maximum allele count for a single variant: >2, not explicitly stored\n");
     } else {
-      logerrputs("  Maximum allele count for a single variant: not explicitly stored\n");
+      logputs("  Maximum allele count for a single variant: not explicitly stored\n");
     }
   } else {
-    logerrprintf("  Maximum allele count for a single variant: %u\n", max_allele_ct);
+    logprintf("  Maximum allele count for a single variant: %u\n", max_allele_ct);
   }
   if (pgfip->gflags & kfPgenGlobalHardcallPhasePresent) {
-    logerrputs("  Explicitly phased hardcalls present\n");
+    logputs("  Explicitly phased hardcalls present\n");
   } else {
-    logerrputs("  No hardcalls are explicitly phased\n");
+    logputs("  No hardcalls are explicitly phased\n");
   }
   if (pgfip->gflags & kfPgenGlobalDosagePresent) {
     if (pgfip->gflags & kfPgenGlobalDosagePhasePresent) {
-      logerrputs("  Explicitly phased dosages present\n");
+      logputs("  Explicitly phased dosages present\n");
     } else {
-      logerrputs("  Dosage present, none explicitly phased\n");
+      logputs("  Dosage present, none explicitly phased\n");
     }
   } else {
-    logerrputs("  No dosages present\n");
+    logputs("  No dosages present\n");
   }
 }
 
