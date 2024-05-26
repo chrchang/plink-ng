@@ -449,7 +449,7 @@ HEADER_INLINE PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_
 
 // Expected to be called right after PgfiInitPhase2Ex(), after memory buffers
 // are provided for header_exts / footer_exts entries.
-PglErr PgfiInitLoadExts(PgenHeaderCtrl header_ctrl, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, char* errstr_buf);
+PglErr PgfiInitLoadExts(PgenHeaderCtrl header_ctrl, PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, char* errstr_buf);
 
 uint64_t GetPgfiLdbaseFpos(const PgenFileInfo* pgfip, uintptr_t vidx);
 

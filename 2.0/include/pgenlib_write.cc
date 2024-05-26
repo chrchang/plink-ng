@@ -2327,7 +2327,7 @@ PglErr AppendExtSizesAndContents(const PgenExtensionLl* exts, FILE* pgen) {
   } while (exts_iter);
   exts_iter = exts;
   do {
-    if (unlikely(!fwrite_checked(exts_iter->contents, exts_iter->size, pgen))) {
+    if (unlikely(fwrite_checked(exts_iter->contents, exts_iter->size, pgen))) {
       return kPglRetWriteFail;
     }
     exts_iter = exts_iter->next;

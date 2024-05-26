@@ -2215,18 +2215,10 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
       goto UpdateSampleSexes_ret_1;
     }
     // permit very long lines since this can be pointed at .ped files
-    g_debug_msg_buf[0] = '\0';
     reterr = SizeAndInitTextStream(update_sex_info_ptr->fname, bigstack_left() - (bigstack_left() / 4), MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
-      const char* errmsg = TextStreamError(&txs);
-      DPrintf("g_debug_msg_buf: [%s]\n", g_debug_msg_buf);
-      DPrintf("fname: %s\n", update_sex_info_ptr->fname);
-      if (errmsg) {
-        DPrintf("errmsg: %s\n", errmsg);
-      }
-      goto UpdateSampleSexes_ret_1;
+      goto UpdateSampleSexes_ret_TSTREAM_FAIL;
     }
-    DPrintf("no SizeAndInitTextStream() error\n");
 
     // (Much of this boilerplate is shared with e.g. KeepColMatch(); it
     // probably belongs in its own function.)

@@ -129,8 +129,6 @@ const char kShortErrRfileAlreadyOpen[] = "TextFileOpenInternal can't be called o
 const char kShortErrRfileEnforcedMaxBlenTooSmall[] = "TextFileOpenInternal: enforced_max_line_blen too small (must be at least max(1 MiB, dst_capacity - 1 MiB))";
 const char kShortErrRfileDstCapacityTooSmall[] = "TextFileOpenInternal: dst_capacity too small (2 MiB minimum)";
 
-char g_debug_msg_buf[4096];
-
 PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILEMain* txfp, TextStreamMain* txsp) {
   PglErr reterr = kPglRetSuccess;
   TextFileBase* trbp;
@@ -228,7 +226,6 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
           } else {
             reterr = BgzfRawMtStreamInit(dst, txsp->decompress_thread_ct, trbp->ff, nullptr, &txsp->rds.bgzf, &trbp->errmsg);
             if (unlikely(reterr)) {
-              snprintf(g_debug_msg_buf, 4096, "BgzfRawMtStreamInit fail");
               goto TextFileOpenInternal_ret_1;
             }
           }
@@ -263,7 +260,6 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
   TextFileOpenInternal_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     trbp->errmsg = strerror(errno);
-    strcpy(g_debug_msg_buf, trbp->errmsg);
     break;
   TextFileOpenInternal_ret_READ_FAIL:
     reterr = kPglRetReadFail;
@@ -1344,8 +1340,6 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
 
 const char kShortErrRfileInvalid[] = "TextStreamOpenEx can't be called with a closed or error-state textFILE";
 
-const char kDebugFail2[] = "TextStreamOpenEx fail 2";
-
 PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textFILE* txf_ptr, char* dst, TextStream* txs_ptr) {
   TextStreamMain* txsp = GetTxsp(txs_ptr);
   TextFileBase* txs_basep = &txsp->base;
@@ -1401,7 +1395,6 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
         txs_basep->reterr = kPglRetEof;
         return kPglRetSuccess;
       }
-      txs_basep->errmsg = kDebugFail2;
       goto TextStreamOpenEx_ret_1;
     }
     assert(!txsp->syncp);

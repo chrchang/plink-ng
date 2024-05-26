@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (22 May 2024)";
+  " (26 May 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -200,43 +200,51 @@ FLAGSET64_DEF_START()
   kfCommand1PhenoSvd = (1 << 30)
 FLAGSET64_DEF_END(Command1Flags);
 
-void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
-  logerrprintfww("--pgen-info on %s:\n", pgenname);
-  logerrprintf("  Variants: %u\n", pgfip->raw_variant_ct);
-  logerrprintf("  Samples: %u\n", pgfip->raw_sample_ct);
+void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
+  logprintfww("--pgen-info on %s:\n", pgenname);
+  logprintf("  Variants: %u\n", pgfip->raw_variant_ct);
+  logprintf("  Samples: %u\n", pgfip->raw_sample_ct);
   const uint32_t nonref_flags_status = header_ctrl >> 6;
   if (!nonref_flags_status) {
-    logerrputs("  REF allele known/provisional status not stored in .pgen\n");
+    logputs("  REF allele known/provisional status not stored in .pgen\n");
   } else if (nonref_flags_status == 1) {
-    logerrputs("  REF alleles are all known\n");
+    logputs("  REF alleles are all known\n");
   } else if (nonref_flags_status == 2) {
-    logerrputs("  REF alleles are all provisional\n");
+    logputs("  REF alleles are all provisional\n");
   } else {
     // could report exact counts of each
-    logerrputs("  REF alleles are a mix of known and provisional\n");
+    logputs("  REF alleles are a mix of known and provisional\n");
   }
   if (max_allele_ct >= UINT32_MAXM1) {
     if (max_allele_ct == UINT32_MAX) {
-      logerrputs("  Maximum allele count for a single variant: >2, not explicitly stored\n");
+      logputs("  Maximum allele count for a single variant: >2, not explicitly stored\n");
     } else {
-      logerrputs("  Maximum allele count for a single variant: not explicitly stored\n");
+      logputs("  Maximum allele count for a single variant: not explicitly stored\n");
     }
   } else {
-    logerrprintf("  Maximum allele count for a single variant: %u\n", max_allele_ct);
+    logprintf("  Maximum allele count for a single variant: %u\n", max_allele_ct);
   }
   if (pgfip->gflags & kfPgenGlobalHardcallPhasePresent) {
-    logerrputs("  Explicitly phased hardcalls present\n");
+    logputs("  Explicitly phased hardcalls present\n");
   } else {
-    logerrputs("  No hardcalls are explicitly phased\n");
+    logputs("  No hardcalls are explicitly phased\n");
   }
   if (pgfip->gflags & kfPgenGlobalDosagePresent) {
     if (pgfip->gflags & kfPgenGlobalDosagePhasePresent) {
-      logerrputs("  Explicitly phased dosages present\n");
+      logputs("  Explicitly phased dosages present\n");
     } else {
-      logerrputs("  Dosage present, none explicitly phased\n");
+      logputs("  Dosage present, none explicitly phased\n");
     }
   } else {
-    logerrputs("  No dosages present\n");
+    logputs("  No dosages present\n");
+  }
+  assert(header_exts && (header_exts->type_idx == 1));
+  if (header_exts->size != ~0LLU) {
+    char* write_iter = strcpya_k(g_logbuf, "  Writer: ");
+    write_iter = memcpya(write_iter, header_exts->contents, header_exts->size);
+    strcpy_k(write_iter, "\n");
+    WordWrapB(0);
+    logputsb();
   }
 }
 
@@ -244,6 +252,8 @@ PglErr PgenInfoStandalone(const char* pgenname, const char* pginame) {
   PgenFileInfo pgfi;
   PglErr reterr = kPglRetSuccess;
   PreinitPgfi(&pgfi);
+  PgenExtensionLl ext_slot; // shouldn't have shorter lifetime than pgfi
+  ext_slot.contents = nullptr;
   {
     PgenHeaderCtrl header_ctrl;
     uintptr_t cur_alloc_cacheline_ct;
@@ -264,13 +274,30 @@ PglErr PgenInfoStandalone(const char* pgenname, const char* pginame) {
     if (unlikely(bigstack_alloc_uc(cur_alloc_cacheline_ct * kCacheline, &pgfi_alloc) ||
                  bigstack_alloc_w(raw_variant_ct + 1, &pgfi.allele_idx_offsets) ||
                  bigstack_alloc_w(raw_variant_ctl, &pgfi.nonref_flags))) {
-      reterr = kPglRetNomem;
-      goto PgenInfoStandalone_ret_1;
+      goto PgenInfoStandalone_ret_NOMEM;
     }
+    ext_slot.next = nullptr;
+    ext_slot.type_idx = 1;
+    PgenExtensionLl* header_exts = &ext_slot;
     uintptr_t pgr_alloc_cacheline_ct = 0;
     uint32_t max_vrec_width;
-    reterr = PgfiInitPhase2(header_ctrl, 0, 0, 1, 0, raw_variant_ct, &max_vrec_width, &pgfi, pgfi_alloc, &pgr_alloc_cacheline_ct, g_logbuf);
+    reterr = PgfiInitPhase2Ex(header_ctrl, 0, 0, 1, 0, raw_variant_ct, &max_vrec_width, &pgfi, pgfi_alloc, header_exts, nullptr, &pgr_alloc_cacheline_ct, g_logbuf);
     if (unlikely(reterr)) {
+      WordWrapB(0);
+      logerrputsb();
+      goto PgenInfoStandalone_ret_1;
+    }
+#ifndef __LP64__
+    if (unlikely(header_exts->size >= (1LLU << 31))) {
+      goto PgenInfoStandalone_ret_NOMEM;
+    }
+#endif
+    if (unlikely(pgl_malloc(header_exts->size, &(header_exts->contents)))) {
+      goto PgenInfoStandalone_ret_NOMEM;
+    }
+    reterr = PgfiInitLoadExts(header_ctrl, &pgfi, header_exts, nullptr, g_logbuf);
+    if (unlikely(reterr)) {
+      WordWrapB(0);
       logerrputsb();
       goto PgenInfoStandalone_ret_1;
     }
@@ -280,9 +307,15 @@ PglErr PgenInfoStandalone(const char* pgenname, const char* pginame) {
     } else if (pgfi.gflags & kfPgenGlobalDosagePresent) {
       max_allele_ct = UINT32_MAXM1;
     }
-    PgenInfoPrint(pgenname, &pgfi, header_ctrl, max_allele_ct);
+    PgenInfoPrint(pgenname, &pgfi, header_exts, header_ctrl, max_allele_ct);
+  }
+  while (0) {
+  PgenInfoStandalone_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
   }
  PgenInfoStandalone_ret_1:
+  free_cond(ext_slot.contents);
   CleanupPgfi2(pgenname, &pgfi, &reterr);
   // no BigstackReset() needed?
   return reterr;
@@ -760,6 +793,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
   PgenReader simple_pgr;
   PreinitPgfi(&pgfi);
   PreinitPgr(&simple_pgr);
+  PgenExtensionLl ext_slot; // shouldn't have shorter lifetime than pgfi
+  ext_slot.contents = nullptr;
   {
     uint32_t pvar_renamed = 0;
     if ((make_plink2_flags & (kfMakeBed | kfMakePgen)) ||
@@ -1063,11 +1098,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       pgfi.nonref_flags = nonref_flags;
+      PgenExtensionLl* header_exts = nullptr;
+      if (pcp->command_flags1 & kfCommand1PgenInfo) {
+        ext_slot.next = nullptr;
+        ext_slot.type_idx = 1;
+        header_exts = &ext_slot;
+      }
       uint32_t max_vrec_width;
       // only practical effect of setting use_blockload to zero here is that
       // pgr_alloc_cacheline_ct is overestimated by
       // DivUp(max_vrec_width, kCacheline).
-      reterr = PgfiInitPhase2(header_ctrl, 1, nonref_flags_already_loaded, 1, 0, raw_variant_ct, &max_vrec_width, &pgfi, pgfi_alloc, &pgr_alloc_cacheline_ct, g_logbuf);
+      reterr = PgfiInitPhase2Ex(header_ctrl, 1, nonref_flags_already_loaded, 1, 0, raw_variant_ct, &max_vrec_width, &pgfi, pgfi_alloc, header_exts, nullptr, &pgr_alloc_cacheline_ct, g_logbuf);
       if (unlikely(reterr)) {
         WordWrapB(0);
         logerrputsb();
@@ -1092,6 +1133,22 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         pgfi.nonref_flags = nullptr;
 
         pgfi.gflags &= ~kfPgenGlobalAllNonref;
+      }
+      if (header_exts) {
+#ifndef __LP64__
+        if (unlikely(header_exts->size >= (1LLU << 31))) {
+          goto Plink2Core_ret_NOMEM;
+        }
+#endif
+        if (unlikely(pgl_malloc(header_exts->size, &(header_exts->contents)))) {
+          goto Plink2Core_ret_NOMEM;
+        }
+        reterr = PgfiInitLoadExts(header_ctrl, &pgfi, header_exts, nullptr, g_logbuf);
+        if (unlikely(reterr)) {
+          WordWrapB(0);
+          logerrputsb();
+          goto Plink2Core_ret_1;
+        }
       }
       if (SingleVariantLoaderIsNeeded(king_cutoff_fprefix, pcp->command_flags1, make_plink2_flags, pcp->rmdup_mode, pcp->hwe_ln_thresh)) {
         // ugly kludge, probably want to add pgenlib_internal support for this
@@ -1139,7 +1196,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (pgfi.const_vrtype == kPglVrtypePlink1) {
           logerrputs("Warning: Skipping --pgen-info since a .bed file was provided.\n");
         } else {
-          PgenInfoPrint(pgenname, &pgfi, header_ctrl, max_allele_ct);
+          PgenInfoPrint(pgenname, &pgfi, header_exts, header_ctrl, max_allele_ct);
         }
         if (!(pcp->command_flags1 & (~(kfCommand1Validate | kfCommand1PgenInfo)))) {
           goto Plink2Core_ret_1;
@@ -2671,12 +2728,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           // todo: unsorted case (--update-chr, etc.)
           if (pcp->sort_vars_mode > kSortNone) {
-            reterr = MakePlink2Vsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->update_chr_flag, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2Vsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->update_chr_flag, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
           } else {
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
             }
-            reterr = MakePlink2NoVsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2NoVsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           }
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
@@ -2836,6 +2893,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
   free_cond(covar_names);
   free_cond(pheno_names);
   CleanupPgr2(".pgen file", &simple_pgr, &reterr);
+  free_cond(ext_slot.contents);
   CleanupPgfi2(".pgen file", &pgfi, &reterr);
   assert(pgfi.block_base == nullptr);
   // no BigstackReset() needed?
@@ -7396,7 +7454,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --make-bpgen cannot be used with --keep-autoconv.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 7))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 8))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t varid_semicolon = 0;
@@ -7459,10 +7517,12 @@ int main(int argc, char** argv) {
               make_plink2_flags |= kfMakePlink2VaridDup;
             } else if (strequal_k(cur_modif, "erase-phase", cur_modif_slen)) {
               make_plink2_flags |= kfMakePgenErasePhase;
-            } else if (likely(strequal_k(cur_modif, "erase-dosage", cur_modif_slen))) {
+            } else if (strequal_k(cur_modif, "erase-dosage", cur_modif_slen)) {
               make_plink2_flags |= kfMakePgenEraseDosage;
             } else if (strequal_k(cur_modif, "fill-missing-from-dosage", cur_modif_slen)) {
               make_plink2_flags |= kfMakePgenFillMissingFromDosage;
+            } else if (likely(strequal_k(cur_modif, "writer-ver", cur_modif_slen))) {
+              make_plink2_flags |= kfMakePgenWriterVer;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bpgen argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -7514,7 +7574,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --make-pgen cannot be used with --keep-autoconv.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 9))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 10))) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           uint32_t explicit_pvar_cols = 0;
@@ -7596,6 +7656,8 @@ int main(int argc, char** argv) {
               make_plink2_flags |= kfMakePgenEraseDosage;
             } else if (strequal_k(cur_modif, "fill-missing-from-dosage", cur_modif_slen)) {
               make_plink2_flags |= kfMakePgenFillMissingFromDosage;
+            } else if (strequal_k(cur_modif, "writer-ver", cur_modif_slen)) {
+              make_plink2_flags |= kfMakePgenWriterVer;
             } else if (likely(StrStartsWith0(cur_modif, "psam-cols=", cur_modif_slen))) {
               if (unlikely(explicit_psam_cols)) {
                 logerrputs("Error: Multiple --make-pgen psam-cols= modifiers.\n");

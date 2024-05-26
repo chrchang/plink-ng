@@ -1674,6 +1674,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
 
 PglErr PgfiInitReloadExtSet(uint32_t is_pgi, FILE* ff, uintptr_t* ext_bitarr, uint32_t* ext_bitarr_cumulative_popcounts, uint64_t* footer_fpos_ptr, uint32_t* word_ct_ptr, char* errstr_buf) {
   uintptr_t cur_output_word = 0;
+  uintptr_t nonzero_present = 0;
   uint32_t write_idx_lowbits = 0;
   uint32_t widx = 0;
   ext_bitarr_cumulative_popcounts[0] = 0;
@@ -1692,6 +1693,7 @@ PglErr PgfiInitReloadExtSet(uint32_t is_pgi, FILE* ff, uintptr_t* ext_bitarr, ui
     uint32_t new_write_idx_lowbits = write_idx_lowbits + 7;
     if (new_write_idx_lowbits >= kBitsPerWord) {
       ext_bitarr[widx] = cur_output_word;
+      nonzero_present |= cur_output_word;
       ++widx;
       ext_bitarr_cumulative_popcounts[widx] = PopcountWord(cur_output_word);
       cur_output_word = cur_masked_bits >> (kBitsPerWord - write_idx_lowbits);
@@ -1707,8 +1709,9 @@ PglErr PgfiInitReloadExtSet(uint32_t is_pgi, FILE* ff, uintptr_t* ext_bitarr, ui
     }
   }
   ext_bitarr[widx] = cur_output_word;
+  nonzero_present |= cur_output_word;
   *word_ct_ptr = widx + 1;
-  if (footer_fpos_ptr) {
+  if (footer_fpos_ptr && nonzero_present) {
     if (unlikely(!fread_unlocked(footer_fpos_ptr, sizeof(int64_t), 1, ff))) {
       FillPgenHeaderReadErrstr(ff, is_pgi, errstr_buf);
       return kPglRetReadFail;
@@ -1741,6 +1744,7 @@ PglErr PgfiInitFillExts(const uintptr_t* ext_bitarr, const uint32_t* ext_cumulat
       const uint32_t seq_idx = RawToSubsettedPos(ext_bitarr, ext_cumulative_popcounts, type_idx);
       const uint64_t cur_size = sizes[seq_idx];
       if (unlikely(cur_size != exts_iter->size)) {
+        printf("cur_size: %llu  exts_iter->size: %llu  seq_idx: %u\n", cur_size, exts_iter->size, seq_idx);
         snprintf(errstr_buf, kPglErrstrBufBlen, "Error: PgfiInitLoadExts() extension byte-size mismatch.\n");
         return kPglRetImproperFunctionCall;
       }
@@ -1772,7 +1776,6 @@ PglErr PgfiInitFillExts(const uintptr_t* ext_bitarr, const uint32_t* ext_cumulat
 }
 
 PglErr PgfiInitLoadExts(PgenHeaderCtrl header_ctrl, PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, char* errstr_buf) {
-  // Not tested yet.
   const uint64_t starting_fpos = ftello(pgfip->shared_ff);
   FILE* header_ff = pgfip->pgi_ff;
   const uint32_t is_pgi = (header_ff != nullptr);

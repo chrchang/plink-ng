@@ -1554,7 +1554,9 @@ HEADER_INLINE VecUc vecuc_gather_odd(VecUc src_lo, VecUc src_hi) {
 #    ifdef USE_SHUFFLE8
 #      ifdef SIMDE_ARM_NEON_A64V8_NATIVE
 // See simde_mm_shuffle_epi8().
-// This may need to be written more carefully in the IGNORE_BUNDLED_SIMDE case.
+// In the future, this may need to be written more carefully in the
+// IGNORE_BUNDLED_SIMDE case.  But this is compatible with simde v0.7.x and
+// v0.8.x.
 SIMDE_FUNCTION_ATTRIBUTES simde__m128i _mm_shuffle_epi8(simde__m128i a, simde__m128i b) {
   simde__m128i_private a_ = simde__m128i_to_private(a);
   simde__m128i_private b_ = simde__m128i_to_private(b);

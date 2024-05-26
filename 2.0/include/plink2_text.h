@@ -392,8 +392,6 @@ typedef struct TextStreamStruct {
 
 void PreinitTextStream(TextStream* txs_ptr);
 
-extern char g_debug_msg_buf[];
-
 // * Can return nomem, open-fail, read-fail, or thread-create-fail.
 // * Exactly one of fname and txf_ptr must be nullptr.  If txf_ptr is null,
 //   fname is opened.  Otherwise, the returned stream is "move-constructed"
