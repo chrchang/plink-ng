@@ -2217,7 +2217,8 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     // permit very long lines since this can be pointed at .ped files
     reterr = SizeAndInitTextStream(update_sex_info_ptr->fname, bigstack_left() - (bigstack_left() / 4), MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
-      goto UpdateSampleSexes_ret_1;
+      // bugfix (26 May 2024): forgot to print error message on this code path
+      goto UpdateSampleSexes_ret_TSTREAM_FAIL;
     }
 
     // (Much of this boilerplate is shared with e.g. KeepColMatch(); it
