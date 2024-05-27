@@ -117,7 +117,7 @@ BoolBuf <- function(pgen) {
     .Call(`_pgenlibr_BoolBuf`, pgen)
 }
 
-#' Loads the variant_numth variant, and then fills buf with {0, 1, 2, NA}
+#' Loads the variant_numth variant, and then fills buf with \{0, 1, 2, NA\}
 #' values indicating the number of copies of the first ALT (or user-specified)
 #' allele each sample has.
 #'
@@ -187,7 +187,7 @@ ReadAlleles <- function(pgen, acbuf, variant_num, phasepresent_buf = NULL) {
 #' @param variant_subset Integer vector containing 1-based indexes of variants
 #' to load.
 #' @return Integer matrix, where rows correspond to samples, columns
-#' correspond to variant_subset, and values are in {0, 1, 2, NA} indicating
+#' correspond to variant_subset, and values are in \{0, 1, 2, NA\} indicating
 #' the number of hardcall ALT allele copies.  For multiallelic variants, all
 #' ALT alleles are combined.
 #' @export

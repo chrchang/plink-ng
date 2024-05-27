@@ -852,20 +852,21 @@ PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint3
     return kPglRetThreadCreateFail;
   }
 #else
-  if (unlikely(pthread_create(&(bgzfp->threads[compressor_thread_ct]),
 #  ifdef __cplusplus
+  if (unlikely(pthread_create(&(bgzfp->threads[compressor_thread_ct]),
                               &g_thread_startup.smallstack_thread_attr,
-#  else
-                              &smallstack_thread_attr,
-#  endif
                               BgzfCompressWriterThread, bgzfp))) {
-#  ifndef __cplusplus
-    pthread_attr_destroy(&smallstack_thread_attr);
-#  endif
     bgzfp->unfinished_init_state = (kMaxBgzfSlotCt << 4) | compressor_thread_ct;
     return kPglRetThreadCreateFail;
   }
-#  if !defined(__cplusplus)
+#  else
+  if (unlikely(pthread_create(&(bgzfp->threads[compressor_thread_ct]),
+                              &smallstack_thread_attr,
+                              BgzfCompressWriterThread, bgzfp))) {
+    pthread_attr_destroy(&smallstack_thread_attr);
+    bgzfp->unfinished_init_state = (kMaxBgzfSlotCt << 4) | compressor_thread_ct;
+    return kPglRetThreadCreateFail;
+  }
   pthread_attr_destroy(&smallstack_thread_attr);
 #  endif
 #endif

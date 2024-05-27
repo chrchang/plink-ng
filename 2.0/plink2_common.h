@@ -744,9 +744,9 @@ CONSTI32(kMaxChrTextnumSlen, 2);
 CONSTI32(kMaxChrTextnum, 995);
 
 #  ifdef __LP64__
-CONSTI32(kChrExcludeWords, 32);
+CONSTI32(kChrExcludeWords, 16);
 #  else
-CONSTI32(kChrExcludeWords, 64);
+CONSTI32(kChrExcludeWords, 32);
 #  endif
 
 CONSTI32(kMaxChrTextnumSlen, 3);

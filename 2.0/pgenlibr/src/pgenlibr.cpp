@@ -915,7 +915,7 @@ LogicalVector BoolBuf(List pgen) {
   return LogicalVector(rp->GetSubsetSize());
 }
 
-//' Loads the variant_numth variant, and then fills buf with {0, 1, 2, NA}
+//' Loads the variant_numth variant, and then fills buf with \{0, 1, 2, NA\}
 //' values indicating the number of copies of the first ALT (or user-specified)
 //' allele each sample has.
 //'
@@ -1023,7 +1023,7 @@ void ReadAlleles(List pgen, SEXP acbuf, int variant_num, Nullable<LogicalVector>
 //' @param variant_subset Integer vector containing 1-based indexes of variants
 //' to load.
 //' @return Integer matrix, where rows correspond to samples, columns
-//' correspond to variant_subset, and values are in {0, 1, 2, NA} indicating
+//' correspond to variant_subset, and values are in \{0, 1, 2, NA\} indicating
 //' the number of hardcall ALT allele copies.  For multiallelic variants, all
 //' ALT alleles are combined.
 //' @export
