@@ -1,7 +1,7 @@
 #ifndef __PLINK_COMMON_H__
 #define __PLINK_COMMON_H__
 
-// This file is part of PLINK 1.90, copyright (C) 2005-2023 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2024 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -2142,7 +2142,6 @@ uint32_t unklen_id_htable_find(const char* cur_id, const char* const* item_ids, 
 // (note that n+1, n+2, n+3, and n+4 are reserved for X/Y/XY/MT)
 #define MAX_CHROM_TEXTNUM 95
 
-// get_chrom_code_raw() needs to be modified if this changes
 #define MAX_CHROM_TEXTNUM_SLEN 2
 
 #define X_OFFSET 0

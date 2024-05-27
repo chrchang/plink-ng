@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2023 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2024 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -4707,14 +4707,34 @@ int32_t get_chrom_code_raw(const char* sptr) {
     }
   }
   if (second_char_code > ' ') {
+#if MAX_CHROM_TEXTNUM_SLEN == 2
     if (sptr[2] > ' ') {
       return -1;
     }
+#endif
     const uint32_t first_char_toi = first_char_code - '0';
     if (first_char_toi < 10) {
       const uint32_t second_char_toi = second_char_code - '0';
       if (second_char_toi < 10) {
-	return first_char_toi * 10 + second_char_toi;
+        uint32_t chrom_code = first_char_toi * 10 + second_char_toi;
+#if MAX_CHROM_TEXTNUM_SLEN > 2
+        for (uint32_t pos = 2; pos < MAX_CHROM_TEXTNUM_SLEN; ++pos) {
+          const uint32_t char_code = (unsigned char)sptr[pos];
+          if (char_code <= ' ') {
+            return chrom_code;
+          }
+          const uint32_t char_toi = char_code - '0';
+          if (char_toi >= 10) {
+            return -1;
+          }
+          chrom_code = chrom_code * 10 + char_toi;
+        }
+        const uint32_t extra_char_code = (unsigned char)sptr[MAX_CHROM_TEXTNUM_SLEN];
+        if (extra_char_code > ' ') {
+          return -1;
+        }
+#endif
+        return chrom_code;
       } else if (!first_char_toi) {
 	// accept '0X', '0Y', '0M' emitted by Oxford software
 	return single_letter_chrom(second_char_code);
