@@ -165,9 +165,9 @@ next eight bytes are the number of variants (as a little-endian
 followed by the number of samples as a \texttt{uint32} (call this $N$).  This
 is followed by a byte describing how the rest of the header is formatted.
 
-If the storage mode is \texttt{0x20}, there is no more information in that
-file's header.  The external index file is formatted just like a PGEN header
-(except with third byte \texttt{0x30}).
+If the storage mode is \texttt{0x20} or \texttt{0x21}, there is no more
+information in that file's header.  The external index file is formatted just
+like a PGEN header (except with third byte \texttt{0x30} or \texttt{0x31}).
 
 \begin{itemize}
   \itemsep0em
