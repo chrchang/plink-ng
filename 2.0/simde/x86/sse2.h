@@ -2644,7 +2644,7 @@ simde_mm_cvtepi32_ps (simde__m128i a) {
     #elif defined(SIMDE_POWER_ALTIVEC_P6_NATIVE)
       HEDLEY_DIAGNOSTIC_PUSH
       #if HEDLEY_HAS_WARNING("-Wc11-extensions")
-        #pragma clang diagnostic ignored "-Wc11-extensions"
+        // #pragma clang diagnostic ignored "-Wc11-extensions"
       #endif
       r_.altivec_f32 = vec_ctf(a_.altivec_i32, 0);
       HEDLEY_DIAGNOSTIC_POP

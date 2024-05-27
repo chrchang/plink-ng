@@ -192,7 +192,7 @@ simde_vqrshlb_u8(uint8_t a, int8_t b) {
     #elif HEDLEY_HAS_WARNING("-Wsign-conversion")
       /* https://github.com/llvm/llvm-project/commit/f0a78bdfdc6d56b25e0081884580b3960a3c2429 */
       HEDLEY_DIAGNOSTIC_PUSH
-      #pragma clang diagnostic ignored "-Wsign-conversion"
+        // #pragma clang diagnostic ignored "-Wsign-conversion"
       return vqrshlb_u8(a, b);
       HEDLEY_DIAGNOSTIC_POP
     #else
@@ -234,7 +234,7 @@ simde_vqrshlh_u16(uint16_t a, int16_t b) {
       return vqrshlh_u16(a, HEDLEY_STATIC_CAST(uint16_t, b));
     #elif HEDLEY_HAS_WARNING("-Wsign-conversion")
       HEDLEY_DIAGNOSTIC_PUSH
-      #pragma clang diagnostic ignored "-Wsign-conversion"
+        // #pragma clang diagnostic ignored "-Wsign-conversion"
       return vqrshlh_u16(a, b);
       HEDLEY_DIAGNOSTIC_POP
     #else
@@ -277,7 +277,7 @@ simde_vqrshls_u32(uint32_t a, int32_t b) {
       return vqrshls_u32(a, HEDLEY_STATIC_CAST(uint16_t, b));
     #elif HEDLEY_HAS_WARNING("-Wsign-conversion")
       HEDLEY_DIAGNOSTIC_PUSH
-      #pragma clang diagnostic ignored "-Wsign-conversion"
+        // #pragma clang diagnostic ignored "-Wsign-conversion"
       return vqrshls_u32(a, b);
       HEDLEY_DIAGNOSTIC_POP
     #else
@@ -320,7 +320,7 @@ simde_vqrshld_u64(uint64_t a, int64_t b) {
       return vqrshld_u64(a, HEDLEY_STATIC_CAST(uint16_t, b));
     #elif HEDLEY_HAS_WARNING("-Wsign-conversion")
       HEDLEY_DIAGNOSTIC_PUSH
-      #pragma clang diagnostic ignored "-Wsign-conversion"
+        // #pragma clang diagnostic ignored "-Wsign-conversion"
       return vqrshld_u64(a, b);
       HEDLEY_DIAGNOSTIC_POP
     #else
