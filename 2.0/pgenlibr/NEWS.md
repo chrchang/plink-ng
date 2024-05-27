@@ -1,4 +1,8 @@
-# pgenlibr 0.3.5 (2023-06-xx)
+# pgenlibr 0.3.6 (2024-05-27)
+Patches Windows-build link order, makes .pgen reader forward-compatible with
+header/footer extensions in May 2024 specification update.
+
+# pgenlibr 0.3.5 (2023-06-12)
 Patches irregularities (e.g. interaction with preinstalled libraries, unaligned
 loads) in initial submission.
 
