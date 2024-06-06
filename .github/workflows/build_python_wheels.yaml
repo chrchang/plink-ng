@@ -51,3 +51,19 @@ jobs:
       with:
         name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
         path: ./wheelhouse/*.whl
+
+    - name: Install from wheel
+      run: |
+        python -m pip install ./wheelhouse/*.whl
+  
+    - name: Test against newest numpy version
+      working-directory: ./2.0/Python
+      run: |
+        python -m pip install numpy
+        pytest tests/
+
+    - name: Test against oldest supported numpy version
+      working-directory: ./2.0/Python
+      run: |
+        python -m pip install numpy==1.19.0
+        pytest tests/
