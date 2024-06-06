@@ -1,3 +1,8 @@
 [build-system]
-requires = ["setuptools","wheel","oldest-supported-numpy>=2022.8.16","Cython>=0.29.21"]
+requires = ["setuptools","wheel","numpy>=2.0.0rc1","Cython>=0.29.21"]
 build-backend = "setuptools.build_meta"
+
+[project]
+dependencies = [
+    "numpy>=1.19.0",
+]
