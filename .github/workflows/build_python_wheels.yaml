@@ -47,6 +47,7 @@ jobs:
       env:
         CIBW_ARCHS_LINUX: x86_64 aarch64
         CIBW_ARCHS_MACOS: x86_64 universal2 arm64
+        CIBW_ENVIRONMENT: "PIP_PRE=1" # we can remove this after 06/16/24 when numpy is officially published
 
     - uses: actions/upload-artifact@v4
       with:
