@@ -3,6 +3,7 @@ requires = ["setuptools","wheel","numpy>=2.0.0rc1","Cython>=0.29.21"]
 build-backend = "setuptools.build_meta"
 
 [project]
+name = "Pgenlib"
 dependencies = [
     "numpy>=1.19.0",
 ]
