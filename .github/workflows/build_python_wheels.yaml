@@ -11,6 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        build: ["cp39-*", "cp310-* cp311-* cp312-*"]
         os: [ ubuntu-latest, windows-latest, macos-14 ]
 
     steps:
@@ -45,6 +46,7 @@ jobs:
       with:
         package-dir: ./2.0/Python
       env:
+        CIBW_BUILD: ${{ matrix.build }}
         CIBW_ARCHS_LINUX: x86_64 aarch64
         CIBW_ARCHS_MACOS: x86_64 universal2 arm64
         CIBW_ENVIRONMENT: "PIP_PRE=1" # we can remove this after 06/16/24 when numpy is officially published
