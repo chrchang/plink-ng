@@ -36,7 +36,7 @@ jobs:
       run: |
         pipx run build --sdist
         mkdir sdist
-        tar -xf ./dist/Pgenlib-*.tar.gz -C ./sdist
+        tar -xf ./dist/pgenlib-*.tar.gz -C ./sdist
         mv ./sdist/* Pgenlib-latest/
 
     - name: Build wheels
