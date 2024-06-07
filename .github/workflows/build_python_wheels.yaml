@@ -6,12 +6,12 @@ on: [workflow_dispatch]
 
 jobs:
   build_wheels:
-    name: Build wheels on ${{ matrix.os }}
+    name: Build wheels on ${{ matrix.os }} for ${{ matrix.build }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        build: ["cp39-*", "cp310-* cp311-* cp312-*"]
+        build: ["cp39-*", "cp310-*", "cp311-*", "cp312-*"]
         os: [ ubuntu-latest, windows-latest, macos-14 ]
 
     steps:
