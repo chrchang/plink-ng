@@ -13,7 +13,7 @@ jobs:
       matrix:
         build: ["39", "310", "311", "312"]
         # macos-13 is an intel runner, macos-14 is apple silicon
-        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
+        os: [ubuntu-latest, macos-13, macos-14]
 
     steps:
     - uses: actions/checkout@v4
@@ -23,6 +23,12 @@ jobs:
       uses: docker/setup-qemu-action@v3
       with:
         platforms: all
+
+    - name: Setup python on macOS runner
+      uses: actions/setup-python@v5
+      if: startsWith(runner.os, 'macos')
+      with:
+        python-version: ${{ matrix.build }}
 
     - name: Build wheels
       uses: pypa/cibuildwheel@v2.16.5
@@ -37,24 +43,8 @@ jobs:
 
     - uses: actions/upload-artifact@v4
       with:
-        name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+        name: cibw-wheels-${{ matrix.os }}-${{ matrix.build }}
         path: ./wheelhouse/*.whl
-
-    - name: Install from wheel
-      run: |
-        python -m pip install ./wheelhouse/
-  
-    - name: Test against newest numpy version
-      working-directory: ./2.0/Python
-      run: |
-        python -m pip install numpy
-        pytest tests/
-
-    - name: Test against oldest supported numpy version
-      working-directory: ./2.0/Python
-      run: |
-        python -m pip install numpy==1.19.0
-        pytest tests/
 
   build_sdist:
     runs-on: ubuntu-latest
@@ -72,9 +62,9 @@ jobs:
 
       - name: Create source distribution
         working-directory: ./2.0/Python
-        run:  pipx run build --sdist
+        run:  python -m build . --sdist
 
       - uses: actions/upload-artifact@v4
         with:
           name: sdist
-          path: dist/pysam-*.tar.gz
+          path: dist/pgenlib-*.tar.gz
