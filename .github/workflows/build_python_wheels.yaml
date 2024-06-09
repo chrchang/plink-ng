@@ -71,6 +71,7 @@ jobs:
           python-version: ${{ env.job_python_version }}
 
       - name: Create source distribution
+        working-directory: ./2.0/Python
         run:  pipx run build --sdist
 
       - uses: actions/upload-artifact@v4
