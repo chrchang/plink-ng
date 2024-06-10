@@ -6,10 +6,8 @@ jobs:
   wheel:
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
       matrix:
-        # os: [ubuntu, macos-13, macos, windows]
-        os: [ubuntu]
+        os: [ubuntu, macos-13, macos, windows]
         python-version: ['3.7', '3.8', '3.9', '3.10', '3.11', '3.12']
 
     steps:
@@ -53,8 +51,7 @@ jobs:
     runs-on: ${{ matrix.os }}-latest
     strategy:
       matrix:
-        # os: [ubuntu, macos]
-        os: [ubuntu]
+        os: [ubuntu, macos]
         python-version: ['3.12']
 
     steps:
@@ -75,46 +72,6 @@ jobs:
         run: |
           python -m build . --sdist
           pip install --no-cache-dir --no-binary=pgenlib dist/pgenlib-*.tar.gz
-
-      - name: Run tests
-        working-directory: ./2.0/Python
-        run: |
-          pytest tests/
-
-  conda:
-    timeout-minutes: 20
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu]
-        python-version: ['3.12']
-    defaults:
-      run:
-        shell: bash -el {0}  # needed for conda activation
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Conda and Python ${{ matrix.python-version }}
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          channels: conda-forge,bioconda
-          miniforge-variant: Mambaforge
-          miniforge-version: latest
-          use-mamba: true
-          channel-priority: strict
-          python-version: ${{ matrix.python-version }}
-          auto-activate-base: false
-
-      - name: Install prerequisites via Conda
-        run: |
-          conda install pytest
-      
-      - name: Install
-        working-directory: ./2.0/Python
-        run: |
-          pip install .
 
       - name: Run tests
         working-directory: ./2.0/Python
