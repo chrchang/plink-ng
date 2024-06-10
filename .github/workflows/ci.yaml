@@ -28,7 +28,7 @@ jobs:
       - name: Build and install
         working-directory: ./2.0/Python
         run: |
-          build --wheel .
+          python -m build --wheel .
           pip install dist/*.whl
 
       - name: Run tests
@@ -73,7 +73,7 @@ jobs:
       - name: Build and install
         working-directory: ./2.0/Python
         run: |
-          build . --sdist
+          python -m build . --sdist
           pip install --no-cache-dir --no-binary=pgenlib dist/pgenlib-*.tar.gz
 
       - name: Run tests
