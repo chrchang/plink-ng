@@ -6,6 +6,7 @@ jobs:
   wheel:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu, macos-13, macos, windows]
         python-version: ['3.7', '3.8', '3.9', '3.10', '3.11', '3.12']
@@ -32,6 +33,7 @@ jobs:
       - name: Run tests
         working-directory: ./2.0/Python
         run: |
+          pip list
           pytest tests/
 
       - name: Test against oldest supported numpy version
@@ -71,7 +73,7 @@ jobs:
         working-directory: ./2.0/Python
         run: |
           python -m build . --sdist
-          pip install dist/pgenlib-*.tar.gz
+          pip install --no-cache-dir --no-binary=pgenlib dist/pgenlib-*.tar.gz
 
       - name: Run tests
         working-directory: ./2.0/Python
