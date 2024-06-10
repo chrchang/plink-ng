@@ -25,29 +25,27 @@ jobs:
         run: |
           pip install build pytest
 
-      - name: Build
+      - name: Build and install
         working-directory: ./2.0/Python
         run: |
           python -m build --wheel .
+          pip install dist/*.whl
 
-      - name: Install and run tests
+      - name: Run tests
         working-directory: ./2.0/Python
         run: |
-          pip list
-          pip install dist/*.whl
-          pip list
           pytest tests/
 
       - name: Test against oldest supported numpy version
         working-directory: ./2.0/Python
         run: |
-          pip install --force-reinstall --no-cache-dir 'numpy==1.20.0' dist/*.whl
+          pip install --force-reinstall --no-cache-dir 'numpy==1.20.0'
           pytest tests/
 
       - name: Test against newest numpy version
         working-directory: ./2.0/Python
         run: |
-          pip install --force-reinstall --no-cache-dir --pre 'numpy==2.0.0rc2' dist/*.whl
+          pip install --force-reinstall --no-cache-dir --pre 'numpy==2.0.0rc2'
           pytest tests/
 
 
@@ -72,17 +70,15 @@ jobs:
         run: |
           pip install build pytest
 
-      - name: Build
+      - name: Build and install
         working-directory: ./2.0/Python
         run: |
           python -m build . --sdist
+          pip install --no-cache-dir --no-binary=pgenlib dist/pgenlib-*.tar.gz
 
-      - name: Install and run tests
+      - name: Run tests
         working-directory: ./2.0/Python
         run: |
-          pip list
-          pip install --no-cache-dir --no-binary=pgenlib dist/pgenlib-*.tar.gz
-          pip list
           pytest tests/
 
   conda:
