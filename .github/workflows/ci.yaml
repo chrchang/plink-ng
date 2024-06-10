@@ -43,7 +43,7 @@ jobs:
 
       - name: Test against newest numpy version
         working-directory: ./2.0/Python
-        if: not contains(fromJson('["3.7", "3.8"]'), matrix.python-version)
+        if: ${{ matrix.python-version }} != "3.7" && ${{ matrix.python-version }} != "3.8"
         run: |
           pip install --force-reinstall --no-cache-dir --pre 'numpy==2.0.0rc2'
           pytest tests/
