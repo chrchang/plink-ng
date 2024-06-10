@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (27 May 2024)";
+  " (9 Jun 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -277,6 +277,7 @@ PglErr PgenInfoStandalone(const char* pgenname, const char* pginame) {
       goto PgenInfoStandalone_ret_NOMEM;
     }
     ext_slot.next = nullptr;
+    ext_slot.size = ~0LLU;
     ext_slot.type_idx = 1;
     PgenExtensionLl* header_exts = &ext_slot;
     uintptr_t pgr_alloc_cacheline_ct = 0;
@@ -287,19 +288,21 @@ PglErr PgenInfoStandalone(const char* pgenname, const char* pginame) {
       logerrputsb();
       goto PgenInfoStandalone_ret_1;
     }
+    if (header_exts->size != ~0LLU) {
 #ifndef __LP64__
-    if (unlikely(header_exts->size >= (1LLU << 31))) {
-      goto PgenInfoStandalone_ret_NOMEM;
-    }
+      if (unlikely(header_exts->size >= (1LLU << 31))) {
+        goto PgenInfoStandalone_ret_NOMEM;
+      }
 #endif
-    if (unlikely(pgl_malloc(header_exts->size, &(header_exts->contents)))) {
-      goto PgenInfoStandalone_ret_NOMEM;
-    }
-    reterr = PgfiInitLoadExts(header_ctrl, &pgfi, header_exts, nullptr, g_logbuf);
-    if (unlikely(reterr)) {
-      WordWrapB(0);
-      logerrputsb();
-      goto PgenInfoStandalone_ret_1;
+      if (unlikely(pgl_malloc(header_exts->size, &(header_exts->contents)))) {
+        goto PgenInfoStandalone_ret_NOMEM;
+      }
+      reterr = PgfiInitLoadExts(header_ctrl, &pgfi, header_exts, nullptr, g_logbuf);
+      if (unlikely(reterr)) {
+        WordWrapB(0);
+        logerrputsb();
+        goto PgenInfoStandalone_ret_1;
+      }
     }
     uint32_t max_allele_ct = 2;
     if (pgfi.gflags & kfPgenGlobalMultiallelicHardcallFound) {
@@ -1101,6 +1104,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       PgenExtensionLl* header_exts = nullptr;
       if (pcp->command_flags1 & kfCommand1PgenInfo) {
         ext_slot.next = nullptr;
+        ext_slot.size = ~0LLU;
         ext_slot.type_idx = 1;
         header_exts = &ext_slot;
       }
@@ -1134,7 +1138,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
         pgfi.gflags &= ~kfPgenGlobalAllNonref;
       }
-      if (header_exts) {
+      if (header_exts && (header_exts->size != ~0LLU)) {
 #ifndef __LP64__
         if (unlikely(header_exts->size >= (1LLU << 31))) {
           goto Plink2Core_ret_NOMEM;
