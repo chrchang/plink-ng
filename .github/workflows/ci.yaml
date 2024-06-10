@@ -36,14 +36,14 @@ jobs:
 
       - name: Test against oldest supported numpy version
         working-directory: ./2.0/Python
-        if: contains(fromJson('["3.7", "3.8", "3.9"]'), ${{ matrix.python-version }})
+        if: contains(fromJson('["3.7", "3.8", "3.9"]'), matrix.python-version)
         run: |
           pip install --force-reinstall --no-cache-dir 'numpy==1.21.0'
           pytest tests/
 
       - name: Test against newest numpy version
         working-directory: ./2.0/Python
-        if: ! contains(fromJson('["3.7", "3.8"]'), ${{ matrix.python-version }})
+        if: ! contains(fromJson('["3.7", "3.8"]'), matrix.python-version)
         run: |
           pip install --force-reinstall --no-cache-dir --pre 'numpy==2.0.0rc2'
           pytest tests/
