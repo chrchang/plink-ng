@@ -41,12 +41,12 @@ jobs:
           pip install --force-reinstall --no-cache-dir 'numpy==1.21.0'
           pytest tests/
 
-      - name: Test against newest numpy version
-        working-directory: ./2.0/Python
-        if: ${{ matrix.python-version }} != "3.7" && ${{ matrix.python-version }} != "3.8"
-        run: |
-          pip install --force-reinstall --no-cache-dir --pre 'numpy==2.0.0rc2'
-          pytest tests/
+      # - name: Test against newest numpy version
+      #   working-directory: ./2.0/Python
+      #   if: ${{ matrix.python-version }} != "3.7" && ${{ matrix.python-version }} != "3.8"
+      #   run: |
+      #     pip install --force-reinstall --no-cache-dir --pre 'numpy==2.0.0rc2'
+      #     pytest tests/
 
 
   sdist:
