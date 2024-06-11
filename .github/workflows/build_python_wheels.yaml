@@ -6,12 +6,12 @@ on: [workflow_dispatch]
 
 jobs:
   build_wheels:
-    name: Build wheels on ${{ matrix.os }} for py3.${{ matrix.build }}
+    name: Build wheels on ${{ matrix.os }} for py3.${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        build: [7, 8, 9, 10, 11, 12]
+        python-version: [7, 8, 9, 10, 11, 12]
         # macos-13 is an intel runner, macos-latest is apple silicon
         os: [ubuntu-latest, macos-13, macos-latest]
         exclude:
@@ -31,7 +31,7 @@ jobs:
       uses: actions/setup-python@v5
       if: startsWith(runner.os, 'macos')
       with:
-        python-version: 3.${{ matrix.build }}
+        python-version: 3.${{ matrix.python-version }}
 
     - name: Build wheels
       uses: pypa/cibuildwheel@v2.16.5
@@ -39,14 +39,14 @@ jobs:
         package-dir: ./2.0/Python
       env:
         CIBW_SKIP: "*-musllinux_*"
-        CIBW_BUILD: "{cp3${{ matrix.build }}-*,pp3${{ matrix.build }}-*}"
+        CIBW_BUILD: "{cp3${{ matrix.python-version }}-*,pp3${{ matrix.python-version }}-*}"
         CIBW_ARCHS_LINUX: x86_64 aarch64
         CIBW_ARCHS_MACOS: x86_64 universal2 arm64
         CIBW_ENVIRONMENT: "PIP_PRE=1" # we can remove this after 06/16/24 when numpy is officially published
 
     - uses: actions/upload-artifact@v4
       with:
-        name: wheels-${{ matrix.os }}-3${{ matrix.build }}
+        name: wheels-${{ matrix.os }}-3${{ matrix.python-version }}
         path: ./wheelhouse/*.whl
 
   merge_wheels:
