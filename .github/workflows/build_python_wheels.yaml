@@ -43,8 +43,19 @@ jobs:
 
     - uses: actions/upload-artifact@v4
       with:
-        name: cibw-wheels-${{ matrix.os }}-3${{ matrix.build }}
+        name: wheels-${{ matrix.os }}-3${{ matrix.build }}
         path: ./wheelhouse/*.whl
+
+  merge_wheels:
+    runs-on: ubuntu-latest
+    needs: build_wheels
+    steps:
+      - name: Merge wheel artifacts into a single artifact
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: wheels
+          pattern: wheels-*
+          delete-merged: true
 
   build_sdist:
     runs-on: ubuntu-latest
