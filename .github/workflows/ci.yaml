@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     paths:
-      - ./2.0/Python
+      - ./2.0/Python/**
       - .github/workflows/ci.yaml
 
 jobs:
