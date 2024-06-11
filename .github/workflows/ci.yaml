@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - ./2.0/Python
+      - .github/workflows/ci.yaml
 
 jobs:
   wheel:
