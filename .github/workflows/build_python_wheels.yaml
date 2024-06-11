@@ -11,9 +11,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build: ["9", "10", "11", "12"]
-        # macos-13 is an intel runner, macos-14 is apple silicon
-        os: [ubuntu-latest, macos-13, macos-14]
+        build: [9, 10, 11, 12]
+        # macos-13 is an intel runner, macos-latest is apple silicon
+        os: [ubuntu-latest, macos-13, macos-latest]
 
     steps:
     - uses: actions/checkout@v4
