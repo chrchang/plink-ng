@@ -27,9 +27,8 @@ jobs:
       with:
         platforms: all
 
-    - name: Setup python on macOS runner
+    - name: Setup python
       uses: actions/setup-python@v5
-      if: startsWith(runner.os, 'macos')
       with:
         python-version: 3.${{ matrix.python-version }}
 
