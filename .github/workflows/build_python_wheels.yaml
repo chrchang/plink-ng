@@ -4,12 +4,11 @@ on: [workflow_dispatch]
 
 jobs:
   build_wheels:
-    name: Build wheels on ${{ matrix.os }} for ${{ matrix.builds }}
+    name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        builds: ["*p37-* *p38-*", "*p39-* *p310-* *p311-* *p312-*"]
         # macos-13 is an intel runner, macos-latest is apple silicon
         os: [ubuntu-latest, macos-13, macos-latest]
 
@@ -23,7 +22,7 @@ jobs:
       env:
         # skip building pypy for python 3.7 on macos-13 and both cpython and pypy for python 3.7 on macos-latest
         CIBW_SKIP: "{*-musllinux_*,pp37-macosx_x86_64,*p37-macosx_arm64}"
-        CIBW_BUILD: ${{ matrix.builds }}
+        CIBW_BUILD: "*p37-* *p38-* *p39-* *p310-* *p311-* *p312-*"
         CIBW_ARCHS_LINUX: x86_64
         CIBW_ARCHS_MACOS: universal2
         # allow CIBW to find prerelease version of numpy. We can remove this after 06/16/24 when numpy is officially published
