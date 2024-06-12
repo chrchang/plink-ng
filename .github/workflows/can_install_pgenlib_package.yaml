@@ -8,6 +8,9 @@
 
 on:
   push:
+    paths:
+      - 2.0/pgenlibr/**
+      - .github/workflows/can_install_pgenlib_package.yaml
   pull_request:
 
 name: can_install_pgenlib_package

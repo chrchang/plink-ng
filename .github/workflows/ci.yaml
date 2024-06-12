@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     paths:
-      - ./2.0/Python/**
+      - 2.0/Python/**
       - .github/workflows/ci.yaml
 
 jobs:
@@ -62,7 +62,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: [7, 12]
+        python-version: [8, 12]
 
     steps:
       - name: Checkout
