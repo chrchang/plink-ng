@@ -1,6 +1,4 @@
-# Builds Python wheels on many OSes, archs, and python versions with cibuildwheel
-
-name: Build Python Wheels for Linux, Windows, Mac
+name: Build Python Wheels
 
 on: [workflow_dispatch]
 
@@ -31,7 +29,7 @@ jobs:
         # allow CIBW to find prerelease version of numpy. We can remove this after 06/16/24 when numpy is officially published
         # CIBW_ENVIRONMENT: PIP_EXTRA_INDEX_URL=https://pypi.anaconda.org/scientific-python-nightly-wheels/simple PIP_PRE=1
         CIBW_TEST_REQUIRES: pytest
-        CIBW_TEST_COMMAND: "pytest {project}/tests"
+        CIBW_TEST_COMMAND: "pytest {package}/tests"
 
     - uses: actions/upload-artifact@v4
       with:

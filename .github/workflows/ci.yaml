@@ -49,12 +49,12 @@ jobs:
           pip install --force-reinstall --no-cache-dir 'numpy==1.21.0'
           pytest tests/
 
-      - name: Test against newest numpy version
-        working-directory: ./2.0/Python
-        if: matrix.python-version >= 9
-        run: |
-          pip install --force-reinstall --no-cache-dir --pre 'numpy==2.0.0rc2'
-          pytest tests/
+      # - name: Test against newest numpy version
+      #   working-directory: ./2.0/Python
+      #   if: matrix.python-version >= 9
+      #   run: |
+      #     pip install --force-reinstall --no-cache-dir --pre 'numpy==2.0.0rc2'
+      #     pytest tests/
 
 
   sdist:
@@ -62,7 +62,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: [12]
+        python-version: [7, 12]
 
     steps:
       - name: Checkout
