@@ -4,7 +4,7 @@ on: [workflow_dispatch]
 
 jobs:
   build_wheels:
-    name: Build wheels for ${{ matrix.arch }} ${{ matrix.os }} with py3.${{ matrix.python }}
+    name: Build wheels: ${{ matrix.arch }} ${{ matrix.os }} py3.${{ matrix.python }}
     runs-on: ${{ matrix.os }}-latest
     strategy:
       fail-fast: false
@@ -95,6 +95,7 @@ jobs:
   upload_pypi:
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
+    if: github.repository_owner == 'chrchang'
     environment: ${{ github.ref == 'refs/heads/master' && 'pypi' || 'testpypi' }}
 
     permissions:
