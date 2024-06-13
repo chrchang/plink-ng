@@ -25,8 +25,7 @@ jobs:
         with:
           package-dir: ./2.0/Python
         env:
-          # skip building pypy for python 3.7 on macos-13 and both cpython and pypy for python 3.7 on macos-latest
-          CIBW_SKIP: "{*-musllinux_*,pp37-macosx_x86_64,*p37-macosx_arm64}"
+          CIBW_SKIP: "*-musllinux_*"
           CIBW_BUILD: "*p37-* *p38-* *p39-* *p310-* *p311-* *p312-*"
           CIBW_ARCHS_LINUX: x86_64 aarch64
           CIBW_ARCHS_MACOS: universal2
