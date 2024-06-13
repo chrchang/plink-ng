@@ -10,17 +10,18 @@ jobs:
       fail-fast: false
       matrix:
         python: [7, 8, 9, 10, 11, 12]
-        include:
-          - os: ubuntu-latest
-            arch: x86_64
-          - os: ubuntu-latest
-            arch: aarch64
-          - os: macos-latest
-            arch: universal2
+        os: [ubuntu-latest, macos-latest]
+        arch: [x86_64, aarch64, universal2]
         exclude:
           - os: macos-latest
             arch: universal2
             python: 7
+          - os: ubuntu-latest
+            arch: universal2
+          - os: macos-latest
+            arch: x86_64
+          - os: macos-latest
+            arch: aarch64
 
     steps:
       - uses: actions/checkout@v4
