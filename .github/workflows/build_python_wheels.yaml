@@ -4,18 +4,25 @@ on: [workflow_dispatch]
 
 jobs:
   build_wheels:
-    name: Build wheels on ${{ matrix.os }}
+    name: Build wheels on ${{ matrix.os }} ${{ matrix.arch }} for py3.${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        python: [7, 8, 9, 10, 11, 12]
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: ubuntu-latest
+            arch: aarch64
+          - os: macos-latest
+            arch: universal2
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up QEMU for aarch64 emulation
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.arch == 'aarch64'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: all
@@ -26,9 +33,8 @@ jobs:
           package-dir: ./2.0/Python
         env:
           CIBW_SKIP: "*-musllinux_* pp3*-manylinux_aarch64"
-          CIBW_BUILD: "*p37-* *p38-* *p39-* *p310-* *p311-* *p312-*"
-          CIBW_ARCHS_LINUX: x86_64 aarch64
-          CIBW_ARCHS_MACOS: universal2
+          CIBW_BUILD: ${{ format('*p3{0}-*', matrix.python) }}
+          CIBW_ARCHS: ${{ matrix.arch }}
           # allow CIBW to find prerelease version of numpy. We can remove this after 06/16/24 when numpy is officially published
           # CIBW_ENVIRONMENT: PIP_EXTRA_INDEX_URL=https://pypi.anaconda.org/scientific-python-nightly-wheels/simple PIP_PRE=1
           CIBW_TEST_REQUIRES: pytest
