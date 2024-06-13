@@ -80,3 +80,27 @@ jobs:
         run: |
           pip install --no-cache-dir --no-binary=pgenlib dist/pgenlib-*.tar.gz pytest
           pytest tests/
+
+  upload_pypi:
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/master' && 'pypi' || 'testpypi' }}
+
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Get artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Publish distribution to Test PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish distribution to PyPI
+        if: github.ref == 'refs/heads/master'
+        uses: pypa/gh-action-pypi-publish@release/v1
