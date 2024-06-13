@@ -4,23 +4,23 @@ on: [workflow_dispatch]
 
 jobs:
   build_wheels:
-    name: Build wheels on ${{ matrix.os }} ${{ matrix.arch }} for py3.${{ matrix.python }}
-    runs-on: ${{ matrix.os }}
+    name: Build wheels for ${{ matrix.arch }} ${{ matrix.os }} with py3.${{ matrix.python }}
+    runs-on: ${{ matrix.os }}-latest
     strategy:
       fail-fast: false
       matrix:
         python: [7, 8, 9, 10, 11, 12]
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu, macos]
         arch: [x86_64, aarch64, universal2]
         exclude:
-          - os: macos-latest
+          - os: macos
             arch: universal2
             python: 7
-          - os: ubuntu-latest
+          - os: ubuntu
             arch: universal2
-          - os: macos-latest
+          - os: macos
             arch: x86_64
-          - os: macos-latest
+          - os: macos
             arch: aarch64
 
     steps:
