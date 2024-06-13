@@ -17,6 +17,10 @@ jobs:
             arch: aarch64
           - os: macos-latest
             arch: universal2
+        exclude:
+          - os: macos-latest
+            arch: universal2
+            python: 7
 
     steps:
       - uses: actions/checkout@v4
