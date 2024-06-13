@@ -76,3 +76,9 @@ jobs:
         with:
           name: sdist
           path: ./2.0/Python/dist/pgenlib-*.tar.gz
+      
+      - name: Install and test
+        working-directory: ./2.0/Python
+        run: |
+          pip install --no-cache-dir --no-binary=pgenlib dist/pgenlib-*.tar.gz pytest
+          pytest tests/
