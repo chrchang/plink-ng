@@ -26,7 +26,7 @@ jobs:
           package-dir: ./2.0/Python
         env:
           CIBW_SKIP: "*-musllinux_*"
-          CIBW_BUILD: "*p37-* *p38-* *p39-* *p310-* *p311-* *p312-*"
+          CIBW_BUILD: "*cp37-* *cp38-* *cp39-* *cp310-* *cp311-* *cp312-*"
           CIBW_ARCHS_LINUX: x86_64 aarch64
           CIBW_ARCHS_MACOS: universal2
           # allow CIBW to find prerelease version of numpy. We can remove this after 06/16/24 when numpy is officially published
