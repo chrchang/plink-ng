@@ -4,7 +4,7 @@ on: [workflow_dispatch]
 
 jobs:
   build_wheels:
-    name: Build wheels: ${{ matrix.arch }} ${{ matrix.os }} py3.${{ matrix.python }}
+    name: Build wheels for ${{ matrix.arch }} ${{ matrix.os }} py3.${{ matrix.python }}
     runs-on: ${{ matrix.os }}-latest
     strategy:
       fail-fast: false
