@@ -1,4 +1,4 @@
-name: Build and publish python wheels
+name: Release pgenlib
 
 on: [workflow_dispatch]
 

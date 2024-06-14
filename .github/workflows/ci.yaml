@@ -1,4 +1,4 @@
-name: CI
+name: Test pgenlib
 
 on:
   pull_request:
