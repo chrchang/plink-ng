@@ -1,0 +1,118 @@
+name: Build Python Wheels
+
+on: [workflow_dispatch]
+
+jobs:
+  build_wheels:
+    name: Build wheels for ${{ matrix.arch }} ${{ matrix.os }} py3.${{ matrix.python }}
+    runs-on: ${{ matrix.os }}-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: [7, 8, 9, 10, 11, 12]
+        os: [ubuntu, macos]
+        arch: [x86_64, aarch64, universal2]
+        exclude:
+          - os: macos
+            arch: universal2
+            python: 7
+          - os: ubuntu
+            arch: universal2
+          - os: macos
+            arch: x86_64
+          - os: macos
+            arch: aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU for aarch64 emulation
+        if: runner.os == 'Linux' && matrix.arch == 'aarch64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.19.1
+        with:
+          package-dir: ./2.0/Python
+        env:
+          CIBW_SKIP: "*-musllinux_* pp3*-manylinux_aarch64"
+          CIBW_BUILD: ${{ format('*p3{0}-*', matrix.python) }}
+          CIBW_ARCHS: ${{ matrix.arch }}
+          # allow CIBW to find prerelease version of numpy. We can remove this after 06/16/24 when numpy is officially published
+          # CIBW_ENVIRONMENT: PIP_EXTRA_INDEX_URL=https://pypi.anaconda.org/scientific-python-nightly-wheels/simple PIP_PRE=1
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_COMMAND: "pytest {package}/tests"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.arch }}-3${{ matrix.python }}
+          path: ./wheelhouse/*.whl
+
+  merge_wheels:
+    runs-on: ubuntu-latest
+    needs: build_wheels
+    steps:
+      - name: Merge wheel artifacts into a single artifact
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: wheels
+          pattern: wheels-*
+          delete-merged: true
+
+  build_sdist:
+    runs-on: ubuntu-latest
+    env:
+      job_python_version: "3.12"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.job_python_version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.job_python_version }}
+
+      - name: Create source distribution
+        working-directory: ./2.0/Python
+        run: |
+          pip install build
+          python -m build --sdist .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: ./2.0/Python/dist/pgenlib-*.tar.gz
+      
+      - name: Install and test
+        working-directory: ./2.0/Python
+        run: |
+          pip install --no-cache-dir --no-binary=pgenlib dist/pgenlib-*.tar.gz pytest
+          pytest tests/
+
+  upload_pypi:
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'chrchang'
+    environment: ${{ github.ref == 'refs/heads/master' && 'pypi' || 'testpypi' }}
+
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Get artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Publish distribution to Test PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish distribution to PyPI
+        if: github.ref == 'refs/heads/master'
+        uses: pypa/gh-action-pypi-publish@release/v1

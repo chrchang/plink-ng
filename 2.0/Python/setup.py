@@ -99,5 +99,8 @@ setuptools.setup(
     packages=setuptools.find_packages(where="src"),
     python_requires=">=3.5",
     libraries=[clib],
-    ext_modules=cythonize(ext_modules)
+    ext_modules=cythonize(ext_modules),
+    install_requires = [
+        "numpy>=1.21.0",
+    ],
 )
