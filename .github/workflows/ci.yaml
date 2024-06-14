@@ -29,12 +29,13 @@ jobs:
 
       - name: Install prerequisites
         run: |
-          pip install build pytest
+          pip install pytest
 
       - name: Build and install
         working-directory: ./2.0/Python
         run: |
-          python -m build --wheel .
+          mkdir -p dist
+          pip wheel --wheel-dir dist --no-deps .
           pip install dist/*.whl
 
       - name: Run tests
