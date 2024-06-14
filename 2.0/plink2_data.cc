@@ -6435,7 +6435,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uintptr_t* nonref_flags_write = PgrGetNonrefFlags(simple_pgrp);
       if (!nonref_flags_write) {
         nonref_flags_storage = (PgrGetGflags(simple_pgrp) & kfPgenGlobalAllNonref)? 2 : 1;
-      } else if (variant_ct < raw_variant_ct) {
+      } else if ((variant_ct < raw_variant_ct) || new_variant_idx_to_old) {
+        // bugfix (9 Jun 2024): nonref_flags reorder may be necessary when
+        // variant_ct == raw_variant_ct
         const uint32_t write_variant_ctl = BitCtToWordCt(write_variant_ct);
         uintptr_t* old_nonref_flags = nonref_flags_write;
         if (bigstack_alloc_w(write_variant_ctl, &nonref_flags_write)) {
