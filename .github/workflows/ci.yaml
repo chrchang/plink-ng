@@ -1,4 +1,4 @@
-name: CI
+name: Test pgenlib
 
 on:
   pull_request:
@@ -29,12 +29,14 @@ jobs:
 
       - name: Install prerequisites
         run: |
-          pip install build pytest
+          pip install pytest
 
       - name: Build and install
         working-directory: ./2.0/Python
         run: |
-          python -m build --wheel .
+          mkdir -p dist
+          # specify --pre to allow pip to find prerelease versions of numpy. We can remove this after 06/16/24 when numpy is officially published
+          pip wheel --pre --wheel-dir dist --no-deps .
           pip install dist/*.whl
 
       - name: Run tests
@@ -49,12 +51,12 @@ jobs:
           pip install --force-reinstall --no-cache-dir 'numpy==1.21.0'
           pytest tests/
 
-      # - name: Test against newest numpy version
-      #   working-directory: ./2.0/Python
-      #   if: matrix.python-version >= 9
-      #   run: |
-      #     pip install --force-reinstall --no-cache-dir --pre 'numpy==2.0.0rc2'
-      #     pytest tests/
+      - name: Test against newest numpy version
+        working-directory: ./2.0/Python
+        if: matrix.python-version >= 9
+        run: |
+          pip install --force-reinstall --no-cache-dir --pre 'numpy==2.0.0rc2'
+          pytest tests/
 
 
   sdist:
