@@ -1,7 +1,6 @@
 name: Test pgenlib
 
 on:
-  pull_request:
   push:
     paths:
       - 2.0/Python/**
