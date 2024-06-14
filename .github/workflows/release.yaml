@@ -96,7 +96,6 @@ jobs:
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
     if: github.repository_owner == 'chrchang'
-    environment: ${{ github.ref == 'refs/heads/master' && 'pypi' || 'testpypi' }}
 
     permissions:
       id-token: write
