@@ -28,6 +28,7 @@ jobs:
 
       - name: Install prerequisites
         run: |
+          pip install -U pip
           pip install pytest
 
       - name: Build and install
@@ -75,6 +76,7 @@ jobs:
 
       - name: Install prerequisites
         run: |
+          pip install -U pip
           pip install build pytest
 
       - name: Build and install
