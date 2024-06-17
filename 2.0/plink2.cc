@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (9 Jun 2024)";
+  " (17 Jun 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -3886,6 +3886,7 @@ int main(int argc, char** argv) {
     uint32_t randmem = 0;
     uint32_t allow_misleading_out_arg = 0;
     uint32_t allow_normalize_with_split = 0;
+    uint32_t import_max_allele_ct = 0x7ffffffe;
     Plink1DosageInfo plink1_dosage_info;
     InitPlink1Dosage(&plink1_dosage_info);
     do {
@@ -6798,6 +6799,14 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "mport-max-alleles")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(ScanPosintDefcapx(argvk[arg_idx + 1], &import_max_allele_ct) || (import_max_allele_ct < 2))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-max-alleles argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
         } else if (likely(strequal_k_unsafe(flagname_p2, "mport-dosage"))) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -12054,9 +12063,9 @@ int main(int argc, char** argv) {
             g_zst_level = 1;
           }
           if (is_vcf) {
-            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, !!pc.update_sex_info.fname, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, !!pc.update_sex_info.fname, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           } else {
-            reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, !!pc.update_sex_info.fname, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, !!pc.update_sex_info.fname, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           }
           g_zst_level = zst_level;
         } else {
@@ -12078,7 +12087,7 @@ int main(int argc, char** argv) {
           } else if (xload & kfXloadOxGen) {
             reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxBgen) {
-            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, !!pc.update_sex_info.fname, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, !!pc.update_sex_info.fname, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxHaps) {
             reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, !!pc.update_sex_info.fname, !!pc.splitpar_bound2, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
           } else if (xload & kfXloadPlink1Dosage) {

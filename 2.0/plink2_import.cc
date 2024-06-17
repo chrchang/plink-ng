@@ -2733,7 +2733,7 @@ static const char kGpText[] = "GP";
 // pgen_generated and psam_generated assumed to be initialized to 1.
 static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
-PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t is_update_sex, uint32_t is_splitpar, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t is_update_sex, uint32_t is_splitpar, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Performs a 2-pass load.  Probably staying that way after sequential writer
   // is implemented since header lines are a pain.
   //
@@ -3185,6 +3185,11 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         goto VcfToPgen_ret_MALFORMED_INPUT_2N;
       }
       if (alt_ct > max_alt_ct) {
+        if (alt_ct >= import_max_allele_ct) {
+          ++variant_skip_ct;
+          line_iter = linebuf_iter;
+          continue;
+        }
         max_alt_ct = alt_ct;
       }
 
@@ -3521,7 +3526,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       goto VcfToPgen_ret_WRITE_FAIL;
     }
     if (max_alt_ct > kPglMaxAltAlleleCt) {
-      logerrprintfww("Error: VCF file has a variant with %u ALT alleles; this build of " PROG_NAME_STR " is limited to " PGL_MAX_ALT_ALLELE_CT_STR ".\n", max_alt_ct);
+      logerrprintfww("Error: VCF file has a variant with %u ALT alleles; this build of " PROG_NAME_STR " is limited to " PGL_MAX_ALT_ALLELE_CT_STR ". (You can use \"--import-max-alleles " PGL_MAX_ALLELE_CT_STR "\" to filter out such variants.)\n", max_alt_ct);
       reterr = kPglRetNotYetSupported;
       goto VcfToPgen_ret_1;
     }
@@ -3752,8 +3757,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             goto VcfToPgen_ret_TSTREAM_FAIL;
           }
 
-          // 1. check if we skip this variant.  chromosome filter and
-          //    require_gt can cause this.
+          // 1. check if we skip this variant.  chromosome filter,
+          //    import_max_allele_ct, and require_gt can cause this.
           char* chr_code_end = AdvToDelim(line_iter, '\t');
           uint32_t chr_code_base = GetChrCodeRaw(line_iter);
           if (chr_code_base == UINT32_MAX) {
@@ -3796,7 +3801,16 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           }
 
           // ALT, QUAL, FILTER, INFO
-          char* filter_end = AdvToNthDelim(&(linebuf_iter[1]), 3, '\t');
+          char* alt_start = &(linebuf_iter[1]);
+          char* alt_end = AdvToDelim(alt_start, '\t');
+          if ((import_max_allele_ct < 0x7ffffffe) && variant_skip_ct) {
+            const uint32_t alt_ct = 1 + CountByte(alt_start, ',', alt_end - alt_start);
+            if (alt_ct >= import_max_allele_ct) {
+              line_iter = alt_end;
+              goto VcfToPgen_load_start;
+            }
+          }
+          char* filter_end = AdvToNthDelim(&(alt_end[1]), 2, '\t');
           char* format_start = nullptr;
           char* info_end;
           if (sample_ct) {
@@ -3810,6 +3824,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           } else {
             info_end = NextPrespace(filter_end);
           }
+          // No variant-skipping past this point; safe to start writing to
+          // pvar_cswritep.
 
           // make sure POS starts with an integer, apply --output-chr setting
           uint32_t cur_bp;
@@ -7212,7 +7228,7 @@ THREAD_FUNC_DECL BcfGenoToPgenThread(void* raw_arg) {
 }
 
 // pgen_generated and psam_generated assumed to be initialized to 1.
-PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t is_update_sex, uint32_t is_splitpar, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t is_update_sex, uint32_t is_splitpar, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Yes, lots of this is copied-and-pasted from VcfToPgen(), but there are
   // enough differences that I don't think trying to handle them with the same
   // function is wise.
@@ -7949,9 +7965,12 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       }
 
       // We've now decompressed to the end of the variant record, and can
-      // safely skip the variant with "continue;".  There are currently two
-      // cases where we might want to do this: chromosome filters, and
-      // --vcf-require-gt.
+      // safely skip the variant with "continue;".  There are currently three
+      // cases where we might want to do this: chromosome filters,
+      // --import-max-alleles, and --vcf-require-gt.
+      if (n_allele > import_max_allele_ct) {
+        continue;
+      }
       if (IsSet(bcf_contig_seen, chrom)) {
         if (!IsSet(bcf_contig_keep, chrom)) {
           continue;
@@ -8238,7 +8257,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       if (max_allele_ct < n_allele) {
         if (n_allele > kPglMaxAlleleCt) {
           putc_unlocked('\n', stdout);
-          logerrprintfww("Error: Variant record #%" PRIuPTR " in --bcf file has %u alleles; this build of " PROG_NAME_STR " is limited to " PGL_MAX_ALLELE_CT_STR ".\n", vrec_idx, n_allele);
+          logerrprintfww("Error: Variant record #%" PRIuPTR " in --bcf file has %u alleles; this build of " PROG_NAME_STR " is limited to " PGL_MAX_ALLELE_CT_STR ". (You can use \"--import-max-alleles " PGL_MAX_ALLELE_CT_STR "\" to filter out such variants.)\n", vrec_idx, n_allele);
           reterr = kPglRetNotYetSupported;
           goto BcfToPgen_ret_1;
         }
@@ -8762,9 +8781,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
               goto BcfToPgen_ret_REWIND_FAIL_N;
             }
 
-            // 1. check if we skip this variant.  chromosome filter and
-            //    require_gt can cause this.
-            if (!IsSet(bcf_contig_keep, chrom)) {
+            // 1. check if we skip this variant.  chromosome filter,
+            //    import_max_allele_ct, and require_gt can cause this.
+            if ((n_allele > import_max_allele_ct) || (!IsSet(bcf_contig_keep, chrom))) {
               continue;
             }
             const uint32_t fail_on_ds_only = bcf_haploid_mask && IsSet(bcf_haploid_mask, chrom);
@@ -12203,7 +12222,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
 }
 
 static_assert(sizeof(Dosage) == 2, "OxBgenToPgen() needs to be updated.");
-PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_sex, uint32_t is_splitpar, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_sex, uint32_t is_splitpar, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* bgenfile = nullptr;
@@ -13025,6 +13044,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               logerrputs("Error: Empty allele code in .bgen file.\n");
               goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
+            // TODO: enforce a consistent, configurable limit across the
+            // program (2^26 default?)
             if (unlikely(a1_slen > 1000000000)) {
               logputs("\n");
               logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
@@ -13346,10 +13367,11 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       uint32_t max_compressed_geno_blen = 0;
       uint32_t max_uncompressed_geno_blen = 0;
       uint32_t uncompressed_genodata_byte_ct = 0;
-      uint32_t skip = 0;
+      uint32_t skip_chr = 0;
+      uint32_t import_max_alleles_skip_ct = 0;
 
       // temporary kludge
-      uint32_t multiallelic_skip_ct = 0;
+      uint32_t multiallelic_tmp_skip_ct = 0;
 
       for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ) {
         // format is mostly identical to bgen 1.1; but there's no sample count,
@@ -13427,7 +13449,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           if (unlikely(reterr)) {
             goto OxBgenToPgen_ret_1;
           }
-          skip = !IsSet(cip->chr_mask, cur_chr_code);
+          skip_chr = !IsSet(cip->chr_mask, cur_chr_code);
         }
 
         uint32_t cur_bp;
@@ -13449,9 +13471,13 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
 
         // the "cur_allele_ct > 2" part is a temporary kludge
-        if (skip || (cur_allele_ct > 2)) {
-          if (!skip) {
-            ++multiallelic_skip_ct;
+        if (skip_chr || (cur_allele_ct > 2)) {
+          if (!skip_chr) {
+            if (cur_allele_ct > import_max_allele_ct) {
+              ++import_max_alleles_skip_ct;
+            } else {
+              ++multiallelic_tmp_skip_ct;
+            }
           }
           for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
             uint32_t cur_allele_slen;
@@ -13702,9 +13728,13 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         compressed_geno_starts[++block_vidx] = bgen_geno_iter;
       }
       variant_ct += block_vidx;
-      if (multiallelic_skip_ct) {
+      if (import_max_alleles_skip_ct) {
         logputs("\n");
-        logerrprintfww("Warning: %u multiallelic variant%s skipped (not yet supported).\n", multiallelic_skip_ct, (multiallelic_skip_ct == 1)? "" : "s");
+        logprintf("--import-max-alleles: %u variant%s skipped.\n", import_max_alleles_skip_ct, (import_max_alleles_skip_ct == 1)? "" : "s");
+      }
+      if (multiallelic_tmp_skip_ct) {
+        logputs("\n");
+        logerrprintfww("Warning: %u multiallelic variant%s skipped%s (not yet supported).\n", multiallelic_tmp_skip_ct, (multiallelic_tmp_skip_ct == 1)? "" : "s", (import_max_allele_ct < 0x7ffffffe)? ", on top of --import-max-alleles filter" : "");
       }
       if (unlikely(!variant_ct)) {
         logputs("\n");
@@ -13721,7 +13751,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
         block_vidx = 0;
       }
-      chr_filter_exists = (variant_ct + multiallelic_skip_ct != raw_variant_ct);
+      chr_filter_exists = (variant_ct + import_max_alleles_skip_ct + multiallelic_tmp_skip_ct != raw_variant_ct);
       if (ThreadsAreActive(&tg)) {
         JoinThreads(&tg);
         reterr = S_CAST(PglErr, scan_ctx.err_info);
@@ -13994,7 +14024,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
                 // we scanned all the variants
                 assert(!IsI32Neg(cur_chr_code2));
 
-                skip = !IsSet(cip->chr_mask, cur_chr_code2);
+                skip_chr = !IsSet(cip->chr_mask, cur_chr_code2);
               }
             }
 
@@ -14021,7 +14051,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             }
 
             // "cur_allele_ct > 2" is temporary kludge
-            if (skip || (cur_allele_ct > 2)) {
+            if (skip_chr || (cur_allele_ct > 2)) {
               if (unlikely(fseeko(bgenfile, genodata_byte_ct, SEEK_CUR))) {
                 goto OxBgenToPgen_ret_READ_FAIL;
               }

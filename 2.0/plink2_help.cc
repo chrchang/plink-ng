@@ -2156,6 +2156,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       a missing-code, it's excluded by \"--min-alleles 2\".)\n"
 "  --max-alleles <ct> : Exclude variants with more than the given # of alleles.\n"
               );
+    HelpPrint("import-max-alleles\0max-alleles\0biallelic-only\0vcf\0bcf\0bgen\0data\0", &help_ctrl, 0,
+"  --import-max-alleles <ct> : Exclude variants with more than the given # of\n"
+"                              alleles during VCF/BCF/BGEN import.\n"
+              );
     HelpPrint("read-freq\0bad-freqs\0", &help_ctrl, 0,
 "  --read-freq <file> : Load allele frequency estimates from the given --freq or\n"
 "                       --geno-counts (or PLINK 1.9 --freqx) report, instead of\n"
