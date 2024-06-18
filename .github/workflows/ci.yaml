@@ -52,7 +52,6 @@ jobs:
 
       - name: Test against newest numpy version
         working-directory: ./2.0/Python
-        if: matrix.python-version >= 9
         run: |
           pip install -U numpy
           pytest tests/
