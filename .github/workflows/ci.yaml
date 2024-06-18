@@ -47,7 +47,7 @@ jobs:
         working-directory: ./2.0/Python
         if: matrix.python-version <= 9
         run: |
-          pip install --force-reinstall --no-cache-dir 'numpy==1.20.0'
+          pip install --force-reinstall --no-cache-dir 'numpy==1.20.3'
           pytest tests/
 
       - name: Test against newest numpy version
