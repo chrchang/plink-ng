@@ -101,6 +101,6 @@ setuptools.setup(
     libraries=[clib],
     ext_modules=cythonize(ext_modules),
     install_requires = [
-        "numpy>=1.20.3",
+        "numpy>=1.19.0",
     ],
 )
