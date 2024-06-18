@@ -45,7 +45,7 @@ jobs:
 
       - name: Test against oldest supported numpy version
         working-directory: ./2.0/Python
-        if: matrix.python-version <= 9 && matrix.os != 'macos-latest'
+        if: matrix.python-version <= 8 && matrix.os != 'macos-latest'
         run: |
           pip install --force-reinstall --no-cache-dir 'numpy==1.19.0'
           pytest tests/
