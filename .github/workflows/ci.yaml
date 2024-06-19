@@ -1,0 +1,90 @@
+name: Test pgenlib
+
+on:
+  push:
+    paths:
+      - 2.0/Python/**
+      - .github/workflows/ci.yaml
+
+jobs:
+  wheel:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-13, macos-latest]
+        python-version: [7, 8, 9, 10, 11, 12]
+        exclude:
+          - python-version: 7
+            os: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.${{ matrix.python-version }}
+
+      - name: Install prerequisites
+        run: |
+          pip install -U pip
+          pip install pytest
+
+      - name: Build and install
+        working-directory: ./2.0/Python
+        run: |
+          mkdir -p dist
+          pip wheel --wheel-dir dist --no-deps .
+          pip install dist/*.whl
+
+      - name: Run tests
+        working-directory: ./2.0/Python
+        run: |
+          pytest tests/
+
+      - name: Test against oldest supported numpy version
+        working-directory: ./2.0/Python
+        if: matrix.python-version <= 8 && matrix.os != 'macos-latest'
+        run: |
+          pip install --force-reinstall --no-cache-dir 'numpy==1.19.0'
+          pytest tests/
+
+      - name: Test against newest numpy version
+        working-directory: ./2.0/Python
+        run: |
+          pip install -U numpy
+          pytest tests/
+
+
+  sdist:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: [8, 12]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.${{ matrix.python-version }}
+
+      - name: Install prerequisites
+        run: |
+          pip install -U pip
+          pip install build pytest
+
+      - name: Build and install
+        working-directory: ./2.0/Python
+        run: |
+          python -m build . --sdist
+          pip install --no-cache-dir --no-binary=pgenlib dist/pgenlib-*.tar.gz
+
+      - name: Run tests
+        working-directory: ./2.0/Python
+        run: |
+          pytest tests/
