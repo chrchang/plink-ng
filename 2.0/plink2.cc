@@ -3554,6 +3554,8 @@ int main(int argc, char** argv) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "missing-code");
           } else if (strequal_k(flagname_p, "max-indv", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "thin-indiv-count");
+          } else if (strequal_k(flagname_p, "merge-max-alleles", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "merge-max-allele-ct");
           } else {
             goto main_flag_copy;
           }

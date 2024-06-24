@@ -7645,7 +7645,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         }
       }
       if (new_sample_idx_to_old || subsetting_required) {
-        uintptr_t writebuf_byte_ct = input_biallelic? NypCtToByteCt(sample_ct) : (2 * sample_ct * sizeof(AlleleCode));
+        uintptr_t writebuf_byte_ct = NypCtToByteCt(sample_ct);
         writebuf_byte_ct = RoundUpPow2(writebuf_byte_ct, kCacheline);
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
           ctx.thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(writebuf_byte_ct));
