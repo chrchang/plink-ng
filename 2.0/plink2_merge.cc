@@ -83,9 +83,9 @@ typedef struct PmergeInputFilesetLlStruct {
   uint32_t read_variant_ct;
   // accounts for --chr, negative bp, same-ID + same-position
   uint32_t write_variant_ct;
-  // Also accounts for --merge-max-allele-ct.  Separate from write_variant_ct
+  // Also accounts for --merge-max-alleles.  Separate from write_variant_ct
   // since, for large --pmerge-list jobs, we may need to write a tombstone for
-  // variants doomed to fail the --merge-max-allele-ct filter.
+  // variants doomed to fail the --merge-max-alleles filter.
   // We compute this upfront to make PmergeConcat() more efficient, since
   // that's the most common use case.
   uint32_t write_nondoomed_variant_ct;
@@ -1874,7 +1874,7 @@ PglErr RescanOnePos(unsigned char* arena_top, uint32_t batch_size, uint32_t prev
           }
         }
         // bugfix (8 Sep 2021): incorrect to perform this check if variant is
-        // being filtered out by --merge-max-allele-ct setting
+        // being filtered out by --merge-max-alleles setting
         if ((!ctxp->multiallelics_already_joined) && (merged_allele_ct <= ctxp->write_allele_ct_max)) {
           const uint32_t merged_variant_ct = variant_idx_end - variant_idx_start;
           if ((allele_ct_limit == merged_variant_ct * 2) && (merged_allele_ct == merged_variant_ct + 1) && (!missing_allele_ct)) {
@@ -2084,7 +2084,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
     // - variant_ct
     // - write_variant_ct (same as variant_ct unless chromosome filter or
     //   negative POS)
-    // - write_nondoomed_variant_ct (--merge-max-allele-ct applied)
+    // - write_nondoomed_variant_ct (--merge-max-alleles applied)
     // - max_line_blen
     // - max_single_pos_ct
     // - max_single_pos_blen
@@ -6341,7 +6341,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       goto PmergeConcat_ret_INCONSISTENT_INPUT;
     }
     if (unlikely(!write_variant_ct)) {
-      logerrputs("Error: All variants filtered out by --merge-max-allele-ct.\n");
+      logerrputs("Error: All variants filtered out by --merge-max-alleles.\n");
       goto PmergeConcat_ret_INCONSISTENT_INPUT;
     }
 

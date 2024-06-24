@@ -1152,12 +1152,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      Default is chrom,maybeprovref,maj,nonmaj.\n\n"
                );
 #endif
-    HelpPrint("king-cutoff\0make-king\0make-king-table\0rel-cutoff\0grm-cutoff\0", &help_ctrl, 1,
+    HelpPrint("king-cutoff\0king-cutoff-table\0make-king\0make-king-table\0rel-cutoff\0grm-cutoff\0", &help_ctrl, 1,
 "  --king-cutoff [.king.bin + .king.id fileset prefix] <threshold>\n"
+"  --king-cutoff-table <.kin0 filename> <threshold>\n"
 "    Exclude one member of each pair of samples with KING-robust kinship greater\n"
 "    than the given threshold.  Remaining/excluded sample IDs are written to\n"
 "    <output prefix>.king.cutoff.in.id + .king.cutoff.out.id.\n"
-"    If present, the .king.bin file must be triangular (either precision is ok).\n\n"
+"    * If a .king.bin file is provided to --king-cutoff, it must be triangular\n"
+"      (either precision is ok).\n"
+"    * The .kin0 file provided to --king-cutoff-table must contain sample ID\n"
+"      columns.\n\n"
                );
     HelpPrint("write-covar\0with-phenotype\0", &help_ctrl, 1,
 "  --write-covar ['cols='<column set descriptor>]\n"
@@ -2501,8 +2505,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                             * 'ascii'/'a' = ASCII order\n"
 "                             * 'natural'/'n' = natural sort\n"
               );
-    HelpPrint("pmerge\0pmerge-list\0merge-max-allele-ct\0", &help_ctrl, 0,
-"  --merge-max-allele-ct <> : Exclude merged variants with more than the\n"
+    HelpPrint("pmerge\0pmerge-list\0merge-max-alleles\0merge-max-allele-ct\0", &help_ctrl, 0,
+"  --merge-max-alleles <ct> : Exclude merged variants with more than the\n"
 "                             specified number of alleles.\n"
               );
     HelpPrint("pmerge\0pmerge-list\0multiallelics-already-joined\0", &help_ctrl, 0,
@@ -2540,7 +2544,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,
     // when it comes out
-    HelpPrint("make-king\0make-king-table\0king-table-filter\0king-table-subset\0king-table-require\0", &help_ctrl, 0,
+    HelpPrint("make-king\0make-king-table\0king-table-filter\0king-table-subset\0king-table-require\0king-table-require-xor\0", &help_ctrl, 0,
 "  --king-table-filter <min>      : Specify minimum kinship coefficient for\n"
 "                                   inclusion in --make-king-table report.\n"
 "  --king-table-subset <f> [kmin] : Restrict current --make-king-table run to\n"
@@ -2551,6 +2555,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --king-table-require <fn...>   : Restrict current --make-king-table run to\n"
 "                                   sample pairs that include at least one of\n"
 "                                   the samples in the given file.\n"
+"  --king-table-require-xor <...> : Restrict current --make-king-table run to\n"
+"                                   sample pairs that include exactly one of the\n"
+"                                   samples in the given file.\n"
                );
     HelpPrint("glm\0linear\0logistic\0condition\0condition-list\0parameters\0tests\0", &help_ctrl, 0,
 "  --condition <variant ID> [{dominant | recessive}] ['multiallelic']\n"

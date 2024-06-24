@@ -39,17 +39,19 @@ FLAGSET_DEF_START()
   kfKingTableZs = (1 << 6),
   kfKingCounts = (1 << 7),
   kfKingRelCheck = (1 << 8),
+  kfKingCutoffTable = (1 << 9),
+  kfKingTableRequireXor = (1 << 10),
 
-  kfKingColMaybefid = (1 << 9),
-  kfKingColFid = (1 << 10),
-  kfKingColId = (1 << 11),
-  kfKingColMaybesid = (1 << 12),
-  kfKingColSid = (1 << 13),
-  kfKingColNsnp = (1 << 14),
-  kfKingColHethet = (1 << 15),
-  kfKingColIbs0 = (1 << 16),
-  kfKingColIbs1 = (1 << 17),
-  kfKingColKinship = (1 << 18),
+  kfKingColMaybefid = (1 << 11),
+  kfKingColFid = (1 << 12),
+  kfKingColId = (1 << 13),
+  kfKingColMaybesid = (1 << 14),
+  kfKingColSid = (1 << 15),
+  kfKingColNsnp = (1 << 16),
+  kfKingColHethet = (1 << 17),
+  kfKingColIbs0 = (1 << 18),
+  kfKingColIbs1 = (1 << 19),
+  kfKingColKinship = (1 << 20),
   kfKingColDefault = (kfKingColMaybefid | kfKingColId | kfKingColMaybesid | kfKingColNsnp | kfKingColHethet | kfKingColIbs0 | kfKingColKinship),
   kfKingColAll = ((kfKingColKinship * 2) - kfKingColMaybefid)
 FLAGSET_DEF_END(KingFlags);
@@ -208,7 +210,9 @@ void InitPhenoSvd(PhenoSvdInfo* pheno_svd_info_ptr);
 
 CONSTI32(kMaxPc, 8000);
 
-PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr);
+PglErr KingCutoffBatchBinary(const SampleIdInfo* siip, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr);
+
+PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 
 PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
 

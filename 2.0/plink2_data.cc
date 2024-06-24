@@ -5678,7 +5678,9 @@ typedef struct MakePgenCtxStruct {
   PgenWriterCommon** pwcs;
   uintptr_t** thread_write_genovecs;
   uintptr_t** thread_write_mhc;
-  // AlleleCode** thread_ac_rotate;
+  AlleleCode** thread_ac_remap;
+  AlleleCode** thread_ac_rotate;
+  uintptr_t** thread_ac_flipped;
   uintptr_t** thread_write_phasepresents;
   uintptr_t** thread_write_phaseinfos;
   uintptr_t** thread_all_hets;
@@ -5768,8 +5770,14 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   AlleleCode* write_patch_01_vals = nullptr;
   uintptr_t* write_patch_10_set = nullptr;
   AlleleCode* write_patch_10_vals = nullptr;
+  AlleleCode* ac_remap = nullptr;
+  AlleleCode* ac_rotate = nullptr;
+  uintptr_t* ac_flipped = nullptr;
   if (ctx->thread_write_mhc) {
     ExpandMhc(sample_ct, ctx->thread_write_mhc[tidx], &write_patch_01_set, &write_patch_01_vals, &write_patch_10_set, &write_patch_10_vals);
+    ac_remap = ctx->thread_ac_remap[tidx];
+    ac_rotate = ctx->thread_ac_rotate[tidx];
+    ac_flipped = ctx->thread_ac_flipped[tidx];
   }
   uintptr_t* write_phasepresent = nullptr;
   uintptr_t* write_phaseinfo = nullptr;
@@ -5946,15 +5954,32 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           }
         }
       } else {
+        // This thread is permitted to mutate the input.  But we need to be
+        // careful about variable-size components like
+        // write_patch_{01,10}_vals.
         write_genovec = loadbuf_iter;
         if (is_mhc) {
-          // this doesn't work in refalt1_select case
-          write_patch_01_set = read_patch_01_set;
-          write_patch_01_vals = read_patch_01_vals;
-          write_patch_10_set = read_patch_10_set;
-          write_patch_10_vals = read_patch_10_vals;
           write_rare01_ct = read_rare01_ct;
           write_rare10_ct = read_rare10_ct;
+          if (!refalt1_select_iter) {
+            write_patch_01_set = read_patch_01_set;
+            write_patch_10_set = read_patch_10_set;
+            write_patch_01_vals = read_patch_01_vals;
+            write_patch_10_vals = read_patch_10_vals;
+          } else {
+            if (write_rare01_ct) {
+              memcpy(write_patch_01_set, read_patch_01_set, sample_ctl * sizeof(intptr_t));
+              memcpy(write_patch_01_vals, read_patch_01_vals, sizeof(AlleleCode) * write_rare01_ct);
+            } else {
+              ZeroWArr(sample_ctl, write_patch_01_set);
+            }
+            if (write_rare10_ct) {
+              memcpy(write_patch_10_set, read_patch_10_set, sample_ctl * sizeof(intptr_t));
+              memcpy(write_patch_10_vals, read_patch_10_vals, 2 * sizeof(AlleleCode) * write_rare10_ct);
+            } else {
+              ZeroWArr(sample_ctl, write_patch_10_set);
+            }
+          }
         }
         if (is_hphase) {
           UnpackHphase(all_hets, cur_phaseraw, sample_ct, &cur_write_phasepresent, write_phaseinfo);
@@ -5995,14 +6020,29 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
             }
           }
         } else {
-          exit(S_CAST(int32_t, kPglRetNotYetSupported));
-          // this is the fun case
-          // 1. fill length-(2 * sample_ct) AlleleCode[] buffer with codes
-          // 2. fill lookup table describing remapping
-          // 3. replace elements of table
-          // 4. normalize order of each code pair, inverting a phaseinfo bit on
-          //    each swap
-          // 5. call PglMultiallelicDenseToSparse to write back
+          AlleleCode ac0 = refalt1_select_iter[write_idx][0];
+          AlleleCode ac1 = refalt1_select_iter[write_idx][1];
+          ac_remap[0] = ac0;
+          ac_remap[1] = ac1;
+          if (ac1 < ac0) {
+            const AlleleCode ac_tmp = ac0;
+            ac0 = ac1;
+            ac1 = ac_tmp;
+          }
+          for (AlleleCode ac = 0; ac != ac0; ++ac) {
+            ac_remap[ac + 2] = ac;
+          }
+          for (AlleleCode ac = ac0 + 1; ac != ac1; ++ac) {
+            ac_remap[ac + 1] = ac;
+          }
+          for (uint32_t ac = ac1 + 1; ac != allele_ct; ++ac) {
+            ac_remap[ac] = ac;
+          }
+          PglMultiallelicSparseToDense(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, ac_remap, sample_ct, write_rare01_ct, write_rare10_ct, ac_flipped, ac_rotate);
+          if (is_hphase) {
+            BitvecXor(ac_flipped, sample_ctl, write_phaseinfo);
+          }
+          PglMultiallelicDenseToSparse(ac_rotate, sample_ct, write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, &write_rare01_ct, &write_rare10_ct);
         }
       }
       if (write_dosage_ct) {
@@ -6454,7 +6494,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                 SetBit(variant_idx, nonref_flags_write);
               }
             }
-          } else if (!write_allele_idx_offsets) {
+          } else if (!input_biallelic) {
             SplitNonrefFlags();
           } else {
             JoinNonrefFlags();
@@ -6503,7 +6543,12 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       ctx.thread_write_genovecs = nullptr;
       ctx.old_sample_idx_to_new = nullptr;
       ctx.sample_include_interleaved_vec = nullptr;
-      uint32_t write_mhc_needed = 0;
+      uint32_t write_mhc_needed = refalt1_select && (!input_biallelic);
+      if (write_mhc_needed) {
+        logerrputs("Error: Multiallelic allele rotation is under development.\n");
+        reterr = kPglRetNotYetSupported;
+        goto MakePgenRobust_ret_1;
+      }
       if (new_sample_idx_to_old || subsetting_required) {
         if (unlikely(bigstack_alloc_wp(1, &ctx.thread_write_genovecs))) {
           goto MakePgenRobust_ret_NOMEM;
@@ -6526,18 +6571,31 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         if (unlikely(bigstack_alloc_w(sample_ctl2, &(ctx.thread_write_genovecs[0])))) {
           goto MakePgenRobust_ret_NOMEM;
         }
-        // TODO: why is this here?
-        write_mhc_needed = 1;
+        if (!input_biallelic) {
+          write_mhc_needed = 1;
+        }
       }
       ctx.thread_write_mhc = nullptr;
+      ctx.thread_ac_remap = nullptr;
+      ctx.thread_ac_rotate = nullptr;
+      ctx.thread_ac_flipped = nullptr;
       if (write_mhc_needed) {
         if (unlikely(bigstack_alloc_wp(1, &ctx.thread_write_mhc))) {
           goto MakePgenRobust_ret_NOMEM;
         }
-        // todo: refalt1_select
         const uintptr_t mhcwrite_word_ct = GetMhcWordCt(sample_ct);
         if (unlikely(bigstack_alloc_w(mhcwrite_word_ct, &(ctx.thread_write_mhc[0])))) {
           goto MakePgenRobust_ret_NOMEM;
+        }
+        if (refalt1_select) {
+          if (unlikely(bigstack_alloc_acp(1, &ctx.thread_ac_remap) ||
+                       bigstack_alloc_acp(1, &ctx.thread_ac_rotate) ||
+                       bigstack_alloc_wp(1, &ctx.thread_ac_flipped) ||
+                       bigstack_alloc_ac(max_read_allele_ct, &(ctx.thread_ac_remap[0])) ||
+                       bigstack_alloc_ac(2 * sample_ct, &(ctx.thread_ac_rotate[0])) ||
+                       bigstack_alloc_w(sample_ctl, &(ctx.thread_ac_flipped[0])))) {
+            goto MakePgenRobust_ret_NOMEM;
+          }
         }
       }
       ctx.thread_write_phasepresents = nullptr;
@@ -6576,12 +6634,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       }
       mcp->refalt1_select = refalt1_select;
       if (refalt1_select) {
-        if (write_allele_idx_offsets) {
-          // this will require write_mhc and an additional AlleleCode buffer
-          logerrputs("Error: Multiallelic allele rotation is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto MakePgenRobust_ret_1;
-        }
         if (new_variant_idx_to_old || (variant_ct < raw_variant_ct)) {
           // might want inner loop to map variant uidx -> idx instead
           STD_ARRAY_PTR_DECL(AlleleCode, 2, tmp_refalt1_select);
@@ -7549,12 +7601,13 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       // this is frequently I/O-bound even when resorting, but I'll postpone
       // tuning thread count there
       mc.refalt1_select = refalt1_select;
+      uint32_t write_mhc_needed = 0;
       if (refalt1_select) {
-        if (write_allele_idx_offsets) {
-          // this will require write_mhc and an additional AlleleCode buffer
+        if (!input_biallelic) {
           logerrputs("Error: Multiallelic allele rotation is under development.\n");
           reterr = kPglRetNotYetSupported;
           goto MakePlink2NoVsort_ret_1;
+          write_mhc_needed = 1;
         }
         if (variant_ct < raw_variant_ct) {
           // might want inner loop to map variant uidx -> idx instead
@@ -7594,7 +7647,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
           CopyBitarrSubset(old_nonref_flags, variant_include, variant_ct, nonref_flags_write);
         } else {
           ZeroWArr(write_variant_ctl, nonref_flags_write);
-          if (!write_allele_idx_offsets) {
+          if (input_biallelic) {
             SplitNonrefFlags();
           } else {
             JoinNonrefFlags();
@@ -7623,7 +7676,6 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       ctx.old_sample_idx_to_new = nullptr;
       ctx.sample_include_interleaved_vec = nullptr;
 
-      uint32_t write_mhc_needed = 0;
       if (new_sample_idx_to_old || subsetting_required) {
         if (bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_genovecs)) {
           goto MakePlink2NoVsort_fallback;
@@ -7645,17 +7697,36 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         }
         // ctx.thread_write_genovecs
         other_per_thread_cacheline_ct += NypCtToCachelineCt(sample_ct);
-        write_mhc_needed = 1;
+
+        if (!input_biallelic) {
+          write_mhc_needed = 1;
+        }
       }
+      ctx.thread_ac_remap = nullptr;
+      ctx.thread_ac_rotate = nullptr;
+      ctx.thread_ac_flipped = nullptr;
       uintptr_t write_mhcraw_cacheline_ct = 0;
+      uintptr_t write_ac_remap_cacheline_ct = 0;
+      uintptr_t write_ac_rotate_cacheline_ct = 0;
+      uintptr_t write_ac_flipped_cacheline_ct = 0;
       if (write_mhc_needed) {
         if (bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_mhc)) {
           goto MakePlink2NoVsort_fallback;
         }
-        // todo: refalt1_select
         const uintptr_t mhcwrite_word_ct = GetMhcWordCt(sample_ct);
         write_mhcraw_cacheline_ct = DivUp(mhcwrite_word_ct, kWordsPerCacheline);
         other_per_thread_cacheline_ct += write_mhcraw_cacheline_ct;
+        if (refalt1_select) {
+          if (bigstack_alloc_acp(calc_thread_ct, &ctx.thread_ac_remap) ||
+              bigstack_alloc_acp(calc_thread_ct, &ctx.thread_ac_rotate) ||
+              bigstack_alloc_wp(calc_thread_ct, &ctx.thread_ac_flipped)) {
+            goto MakePlink2NoVsort_fallback;
+          }
+          write_ac_remap_cacheline_ct = DivUp(max_allele_ct, kCacheline / sizeof(AlleleCode));
+          write_ac_rotate_cacheline_ct = DivUp(sample_ct, kCacheline / (2 * sizeof(AlleleCode)));
+          write_ac_flipped_cacheline_ct = BitCtToCachelineCt(sample_ct);
+          other_per_thread_cacheline_ct += write_ac_remap_cacheline_ct + write_ac_rotate_cacheline_ct + write_ac_flipped_cacheline_ct;
+        }
       }
       ctx.thread_write_phasepresents = nullptr;
       ctx.thread_all_hets = nullptr;
@@ -7739,12 +7810,21 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         }
       }
       if (new_sample_idx_to_old || subsetting_required) {
-        uintptr_t writebuf_byte_ct = input_biallelic? NypCtToByteCt(sample_ct) : (2 * sample_ct * sizeof(AlleleCode));
-        writebuf_byte_ct = RoundUpPow2(writebuf_byte_ct, kCacheline);
+        const uintptr_t writebuf_byte_ct = RoundUpPow2(NypCtToByteCt(sample_ct), kCacheline);
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
           ctx.thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(writebuf_byte_ct));
-          if (write_mhc_needed) {
-            ctx.thread_write_mhc[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(write_mhcraw_cacheline_ct * kCacheline));
+        }
+      }
+      if (write_mhc_needed) {
+        const uintptr_t ac_remap_byte_ct = write_ac_remap_cacheline_ct * kCacheline;
+        const uintptr_t ac_rotate_byte_ct = write_ac_rotate_cacheline_ct * kCacheline;
+        const uintptr_t ac_flipped_byte_ct = write_ac_flipped_cacheline_ct * kCacheline;
+        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+          ctx.thread_write_mhc[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(write_mhcraw_cacheline_ct * kCacheline));
+          if (refalt1_select) {
+            ctx.thread_ac_remap[tidx] = S_CAST(AlleleCode*, bigstack_alloc_raw(ac_remap_byte_ct));
+            ctx.thread_ac_rotate[tidx] = S_CAST(AlleleCode*, bigstack_alloc_raw(ac_rotate_byte_ct));
+            ctx.thread_ac_flipped[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(ac_flipped_byte_ct));
           }
         }
       }

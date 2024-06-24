@@ -374,7 +374,7 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
   return reterr;
 }
 
-PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr) {
+PglErr KingCutoffBatchBinary(const SampleIdInfo* siip, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* binfile = nullptr;
   char* fprefix_end = &(king_cutoff_fprefix[strlen(king_cutoff_fprefix)]);
@@ -389,13 +389,13 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     uint32_t* sample_uidx_to_king_uidx;
     if (unlikely(bigstack_calloc_w(sample_ct * orig_sample_ctl, &kinship_table) ||
                  bigstack_alloc_u32(raw_sample_ct, &sample_uidx_to_king_uidx))) {
-      goto KingCutoffBatch_ret_NOMEM;
+      goto KingCutoffBatchBinary_ret_NOMEM;
     }
 
     snprintf(fprefix_end, 9, ".king.id");
     reterr = InitTextStream(king_cutoff_fprefix, kTextStreamBlenFast, 1, &txs);
     if (unlikely(reterr)) {
-      goto KingCutoffBatch_ret_TSTREAM_FAIL;
+      goto KingCutoffBatchBinary_ret_TSTREAM_FAIL;
     }
     // bugfix (18 Aug 2018): this missed some xid_mode possibilities
     // todo: try to simplify this interface, it's bordering on incomprehensible
@@ -405,9 +405,9 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --king-cutoff ID file.\n");
-        goto KingCutoffBatch_ret_MALFORMED_INPUT;
+        goto KingCutoffBatchBinary_ret_MALFORMED_INPUT;
       }
-      goto KingCutoffBatch_ret_TSTREAM_XID_FAIL;
+      goto KingCutoffBatchBinary_ret_TSTREAM_XID_FAIL;
     }
 
     uint32_t* xid_map;  // IDs not collapsed
@@ -415,11 +415,11 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     uintptr_t max_xid_blen;
     reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (unlikely(reterr)) {
-      goto KingCutoffBatch_ret_1;
+      goto KingCutoffBatchBinary_ret_1;
     }
     char* idbuf;
     if (unlikely(bigstack_alloc_c(max_xid_blen, &idbuf))) {
-      goto KingCutoffBatch_ret_NOMEM;
+      goto KingCutoffBatchBinary_ret_NOMEM;
     }
     SetAllU32Arr(raw_sample_ct, sample_uidx_to_king_uidx);
     uintptr_t king_id_ct = 0;
@@ -432,7 +432,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       uint32_t sample_uidx;
       if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
         if (unlikely(!linebuf_iter)) {
-          goto KingCutoffBatch_ret_MISSING_TOKENS;
+          goto KingCutoffBatchBinary_ret_MISSING_TOKENS;
         }
         continue;
       }
@@ -444,24 +444,24 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
           *second_tab = ' ';
         }
         snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID '%s' in %s .\n", idbuf, king_cutoff_fprefix);
-        goto KingCutoffBatch_ret_MALFORMED_INPUT_WW;
+        goto KingCutoffBatchBinary_ret_MALFORMED_INPUT_WW;
       }
       sample_uidx_to_king_uidx[sample_uidx] = king_id_ct;
       ++king_id_ct;
     }
     if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
-      goto KingCutoffBatch_ret_TSTREAM_FAIL;
+      goto KingCutoffBatchBinary_ret_TSTREAM_FAIL;
     }
 
     BigstackReset(TextStreamMemStart(&txs));
     if (unlikely(CleanupTextStream2(king_cutoff_fprefix, &txs, &reterr))) {
-      goto KingCutoffBatch_ret_1;
+      goto KingCutoffBatchBinary_ret_1;
     }
     uintptr_t* king_include;
     uint32_t* king_uidx_to_sample_idx;
     if (unlikely(bigstack_calloc_w(BitCtToWordCt(king_id_ct), &king_include) ||
                  bigstack_alloc_u32(king_id_ct, &king_uidx_to_sample_idx))) {
-      goto KingCutoffBatch_ret_NOMEM;
+      goto KingCutoffBatchBinary_ret_NOMEM;
     }
     uintptr_t sample_uidx_base = 0;
     uintptr_t sample_include_bits = sample_include[0];
@@ -475,10 +475,10 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     }
     snprintf(fprefix_end, 10, ".king.bin");
     if (unlikely(fopen_checked(king_cutoff_fprefix, FOPEN_RB, &binfile))) {
-      goto KingCutoffBatch_ret_OPEN_FAIL;
+      goto KingCutoffBatchBinary_ret_OPEN_FAIL;
     }
     if (unlikely(fseeko(binfile, 0, SEEK_END))) {
-      goto KingCutoffBatch_ret_READ_FAIL;
+      goto KingCutoffBatchBinary_ret_READ_FAIL;
     }
     const uint64_t fsize = ftello(binfile);
     const uint64_t fsize_double_expected = (king_id_ct * (S_CAST(uint64_t, king_id_ct) - 1) * (sizeof(double) / 2));
@@ -488,7 +488,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     uintptr_t king_uidx = AdvBoundedTo1Bit(king_include, first_king_uidx + 1, king_id_ct);
     if (king_uidx > 1) {
       if (fseeko(binfile, king_uidx * (S_CAST(uint64_t, king_uidx) - 1) * (2 + (2 * is_double)), SEEK_SET)) {
-        goto KingCutoffBatch_ret_READ_FAIL;
+        goto KingCutoffBatchBinary_ret_READ_FAIL;
       }
     }
     uintptr_t constraint_ct = 0;
@@ -497,7 +497,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       assert(king_id_ct <= ((kMaxBytesPerIO / sizeof(double)) + 1));
       double* king_drow;
       if (unlikely(bigstack_alloc_d(king_id_ct - 1, &king_drow))) {
-        goto KingCutoffBatch_ret_NOMEM;
+        goto KingCutoffBatchBinary_ret_NOMEM;
       }
       for (uint32_t king_idx = 1; king_uidx != king_id_ct; ++king_idx, ++king_uidx) {
         if (!IsSet(king_include, king_uidx)) {
@@ -506,11 +506,11 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
             break;
           }
           if (unlikely(fseeko(binfile, S_CAST(uint64_t, king_uidx) * (king_uidx - 1) * (sizeof(double) / 2), SEEK_SET))) {
-            goto KingCutoffBatch_ret_READ_FAIL;
+            goto KingCutoffBatchBinary_ret_READ_FAIL;
           }
         }
         if (unlikely(!fread_unlocked(king_drow, king_uidx * sizeof(double), 1, binfile))) {
-          goto KingCutoffBatch_ret_READ_FAIL;
+          goto KingCutoffBatchBinary_ret_READ_FAIL;
         }
         const uintptr_t sample_idx = king_uidx_to_sample_idx[king_uidx];
         uintptr_t* kinship_table_row = &(kinship_table[sample_idx * orig_sample_ctl]);
@@ -537,13 +537,13 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
         } else {
           logerrprintfww("Error: Invalid --king-cutoff .bin file size (expected %" PRIu64 " or %" PRIu64 " bytes).\n", fsize_double_expected / 2, fsize_double_expected);
         }
-        goto KingCutoffBatch_ret_MALFORMED_INPUT;
+        goto KingCutoffBatchBinary_ret_MALFORMED_INPUT;
       }
       assert(king_id_ct <= ((0x7ffff000 / sizeof(float)) + 1));
       const float king_cutoff_f = S_CAST(float, king_cutoff);
       float* king_frow;
       if (unlikely(bigstack_alloc_f(king_id_ct - 1, &king_frow))) {
-        goto KingCutoffBatch_ret_NOMEM;
+        goto KingCutoffBatchBinary_ret_NOMEM;
       }
       for (uint32_t king_idx = 1; king_uidx != king_id_ct; ++king_idx, ++king_uidx) {
         if (!IsSet(king_include, king_uidx)) {
@@ -552,11 +552,11 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
             break;
           }
           if (unlikely(fseeko(binfile, S_CAST(uint64_t, king_uidx) * (king_uidx - 1) * (sizeof(float) / 2), SEEK_SET))) {
-            goto KingCutoffBatch_ret_READ_FAIL;
+            goto KingCutoffBatchBinary_ret_READ_FAIL;
           }
         }
         if (unlikely(!fread_unlocked(king_frow, king_uidx * sizeof(float), 1, binfile))) {
-          goto KingCutoffBatch_ret_READ_FAIL;
+          goto KingCutoffBatchBinary_ret_READ_FAIL;
         }
         const uintptr_t sample_idx = king_uidx_to_sample_idx[king_uidx];
         uintptr_t* kinship_table_row = &(kinship_table[sample_idx * orig_sample_ctl]);
@@ -579,47 +579,268 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     logprintf("--king-cutoff: %" PRIuPTR " constraint%s loaded.\n", constraint_ct, (constraint_ct == 1)? "" : "s");
     BigstackReset(sample_uidx_to_king_uidx);
     if (unlikely(KinshipPruneDestructive(kinship_table, sample_include, sample_ct_ptr))) {
-      goto KingCutoffBatch_ret_NOMEM;
+      goto KingCutoffBatchBinary_ret_NOMEM;
     }
   }
   while (0) {
-  KingCutoffBatch_ret_NOMEM:
+  KingCutoffBatchBinary_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  KingCutoffBatch_ret_OPEN_FAIL:
+  KingCutoffBatchBinary_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  KingCutoffBatch_ret_READ_FAIL:
+  KingCutoffBatchBinary_ret_READ_FAIL:
     if (feof_unlocked(binfile)) {
       errno = 0;
     }
     logerrprintfww(kErrprintfFread, king_cutoff_fprefix, rstrerror(errno));
     reterr = kPglRetReadFail;
     break;
-  KingCutoffBatch_ret_MISSING_TOKENS:
+  KingCutoffBatchBinary_ret_MISSING_TOKENS:
     logerrprintfww("Error: Fewer tokens than expected on line %" PRIuPTR " of %s .\n", line_idx, king_cutoff_fprefix);
     reterr = kPglRetMalformedInput;
     break;
-  KingCutoffBatch_ret_TSTREAM_XID_FAIL:
+  KingCutoffBatchBinary_ret_TSTREAM_XID_FAIL:
     if (!TextStreamErrcode(&txs)) {
       break;
     }
-  KingCutoffBatch_ret_TSTREAM_FAIL:
+  KingCutoffBatchBinary_ret_TSTREAM_FAIL:
     TextStreamErrPrint(king_cutoff_fprefix, &txs);
     break;
-  KingCutoffBatch_ret_MALFORMED_INPUT_WW:
+  KingCutoffBatchBinary_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
-  KingCutoffBatch_ret_MALFORMED_INPUT:
+  KingCutoffBatchBinary_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   }
- KingCutoffBatch_ret_1:
+ KingCutoffBatchBinary_ret_1:
   fclose_cond(binfile);
   if (CleanupTextStream(&txs, &reterr)) {
     snprintf(fprefix_end, 9, ".king.id");
     logerrprintfww(kErrprintfFread, king_cutoff_fprefix, rstrerror(errno));
   }
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    // defend from ScanadvDouble() rounding error
+    king_cutoff *= 1.0 + kSmallEpsilon;
+
+    const uint32_t orig_sample_ct = *sample_ct_ptr;
+    const uint32_t orig_sample_ctl = BitCtToWordCt(orig_sample_ct);
+    uintptr_t* kinship_table;
+    if (unlikely(bigstack_calloc_w(orig_sample_ct * orig_sample_ctl, &kinship_table))) {
+      goto KingCutoffBatchTable_ret_NOMEM;
+    }
+
+    // possible todo: deduplicate with CalcKingTableSubset() .kin0 header-line
+    // scanner.
+    uint32_t kinship_skip = 0;
+    XidMode xid_mode = siip->sids? kfXidModeFidIidSid : kfXidModeIidSid;
+    reterr = InitTextStream(kin0_fname, kTextStreamBlenFast, 1, &txs);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetEof) {
+        logerrputs("Error: Empty --king-cutoff-table file.\n");
+        goto KingCutoffBatchTable_ret_MALFORMED_INPUT;
+      }
+      goto KingCutoffBatchTable_ret_TSTREAM_FAIL;
+    }
+    ++line_idx;
+    {
+      // Parse header line.
+      const char* linebuf_iter = TextGet(&txs);
+      if (unlikely(!linebuf_iter)) {
+        if (!TextStreamErrcode2(&txs, &reterr)) {
+          logerrputs("Error: Empty --king-cutoff-table file.\n");
+          goto KingCutoffBatchTable_ret_MALFORMED_INPUT;
+        }
+        goto KingCutoffBatchTable_ret_TSTREAM_FAIL;
+      }
+      const char* token_end = CurTokenEnd(linebuf_iter);
+      uint32_t token_slen = token_end - linebuf_iter;
+      // Make this work with both KING- and plink2-generated .kin0 files.
+      const uint32_t fid_present = strequal_k(linebuf_iter, "#FID1", token_slen) || strequal_k(linebuf_iter, "FID", token_slen);
+      if (fid_present) {
+        linebuf_iter = FirstNonTspace(token_end);
+        token_end = CurTokenEnd(linebuf_iter);
+        token_slen = token_end - linebuf_iter;
+        xid_mode = kfXidModeFidIid;
+      } else {
+        if (unlikely(*linebuf_iter != '#')) {
+          goto KingCutoffBatchTable_ret_INVALID_HEADER;
+        }
+        ++linebuf_iter;
+        --token_slen;
+        xid_mode = kfXidModeIid;
+      }
+      if (unlikely((!strequal_k(linebuf_iter, "ID1", token_slen)) && (!strequal_k(linebuf_iter, "IID1", token_slen)))) {
+        goto KingCutoffBatchTable_ret_INVALID_HEADER;
+      }
+      linebuf_iter = FirstNonTspace(token_end);
+      token_end = CurTokenEnd(linebuf_iter);
+      token_slen = token_end - linebuf_iter;
+      if (strequal_k(linebuf_iter, "SID1", token_slen)) {
+        if (siip->sids) {
+          xid_mode = fid_present? kfXidModeFidIidSid : kfXidModeIidSid;
+        } else {
+          xid_mode |= kfXidModeFlagSkipSid;
+        }
+        linebuf_iter = FirstNonTspace(token_end);
+        token_end = CurTokenEnd(linebuf_iter);
+        token_slen = token_end - linebuf_iter;
+      }
+      if (fid_present) {
+        if (unlikely(!strequal_k(linebuf_iter, "FID2", token_slen))) {
+          goto KingCutoffBatchTable_ret_INVALID_HEADER;
+        }
+        linebuf_iter = FirstNonTspace(token_end);
+        token_end = CurTokenEnd(linebuf_iter);
+        token_slen = token_end - linebuf_iter;
+      }
+      if (unlikely((!strequal_k(linebuf_iter, "ID2", token_slen)) && (!strequal_k(linebuf_iter, "IID2", token_slen)))) {
+        goto KingCutoffBatchTable_ret_INVALID_HEADER;
+      }
+      if (xid_mode & (kfXidModeFlagSid | kfXidModeFlagSkipSid)) {
+        linebuf_iter = FirstNonTspace(token_end);
+        token_end = CurTokenEnd(linebuf_iter);
+        token_slen = token_end - linebuf_iter;
+        if (unlikely(!strequal_k(linebuf_iter, "SID2", token_slen))) {
+          goto KingCutoffBatchTable_ret_INVALID_HEADER;
+        }
+      }
+      while (1) {
+        linebuf_iter = FirstNonTspace(token_end);
+        token_end = CurTokenEnd(linebuf_iter);
+        token_slen = token_end - linebuf_iter;
+        if (unlikely(!token_slen)) {
+          logerrputs("Error: No kinship-coefficient column in --king-cutoff-table file.\n");
+          goto KingCutoffBatchTable_ret_INCONSISTENT_INPUT;
+        }
+        if (strequal_k(linebuf_iter, "KINSHIP", token_slen) || strequal_k(linebuf_iter, "Kinship", token_slen)) {
+          break;
+        }
+        ++kinship_skip;
+      }
+    }
+
+    uint32_t* xid_cmap;
+    char* sorted_xidbox;
+    uintptr_t max_xid_blen;
+    {
+      uint32_t* xid_umap;  // IDs not collapsed
+      reterr = SortedXidboxInitAlloc(sample_include, siip, orig_sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_umap, &max_xid_blen);
+      if (unlikely(reterr)) {
+        goto KingCutoffBatchTable_ret_1;
+      }
+      xid_cmap = xid_umap;
+      if (orig_sample_ct != raw_sample_ct) {
+        // Convert to collapsed IDs in-place.
+        const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+        uint32_t* sample_include_cumulative_popcounts;
+        if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts))) {
+          goto KingCutoffBatchTable_ret_NOMEM;
+        }
+        FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+        UidxsToIdxs(sample_include, sample_include_cumulative_popcounts, orig_sample_ct, xid_cmap);
+        BigstackReset(sample_include_cumulative_popcounts);
+      }
+    }
+    char* idbuf;
+    if (unlikely(bigstack_alloc_c(max_xid_blen, &idbuf))) {
+      goto KingCutoffBatchTable_ret_NOMEM;
+    }
+
+    // possible todo: deduplicate with KingTableSubsetLoad().
+    ++line_idx;
+    uintptr_t constraint_ct = 0;
+    for (char* line_iter = TextLineEnd(&txs); TextGetUnsafe2(&txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
+      const char* linebuf_iter = line_iter;
+      uint32_t sample_idx1;
+      if (SortedXidboxReadFind(sorted_xidbox, xid_cmap, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_idx1, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
+          goto KingCutoffBatchTable_ret_MISSING_TOKENS;
+        }
+        line_iter = K_CAST(char*, linebuf_iter);
+        continue;
+      }
+      linebuf_iter = FirstNonTspace(linebuf_iter);
+      uint32_t sample_idx2;
+      if (SortedXidboxReadFind(sorted_xidbox, xid_cmap, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_idx2, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
+          goto KingCutoffBatchTable_ret_MISSING_TOKENS;
+        }
+        line_iter = K_CAST(char*, linebuf_iter);
+        continue;
+      }
+      if (unlikely(sample_idx1 == sample_idx2)) {
+        // could technically be due to unloaded SID, so use inconsistent-input
+        // error code
+        snprintf(g_logbuf, kLogbufSize, "Error: Identical sample IDs on line %" PRIuPTR " of --king-cutoff-table file.\n", line_idx);
+        goto KingCutoffBatchTable_ret_INCONSISTENT_INPUT_WW;
+      }
+      linebuf_iter = FirstNonTspace(linebuf_iter);
+      linebuf_iter = NextTokenMult0(linebuf_iter, kinship_skip);
+      if (unlikely(!linebuf_iter)) {
+        goto KingCutoffBatchTable_ret_MISSING_TOKENS;
+      }
+      double cur_kinship;
+      const char* kinship_end = ScanadvDouble(linebuf_iter, &cur_kinship);
+      if (!kinship_end) {
+        line_iter = K_CAST(char*, linebuf_iter);
+        continue;
+      }
+      if (unlikely(!IsSpaceOrEoln(*kinship_end))) {
+        kinship_end = CurTokenEnd(kinship_end);
+        *K_CAST(char*, kinship_end) = '\0';
+        logerrprintfww("Error: Invalid numeric token '%s' on line %" PRIuPTR " of --king-cutoff-table file.\n", linebuf_iter, line_idx);
+        goto KingCutoffBatchTable_ret_MALFORMED_INPUT;
+      }
+      if (cur_kinship > king_cutoff) {
+        SetBit(sample_idx2, &(kinship_table[sample_idx1 * orig_sample_ctl]));
+        SetBit(sample_idx1, &(kinship_table[sample_idx2 * orig_sample_ctl]));
+        ++constraint_ct;
+      }
+    }
+
+    logprintf("--king-cutoff-table: %" PRIuPTR " constraint%s loaded.\n", constraint_ct, (constraint_ct == 1)? "" : "s");
+    if (unlikely(KinshipPruneDestructive(kinship_table, sample_include, sample_ct_ptr))) {
+      goto KingCutoffBatchTable_ret_NOMEM;
+    }
+  }
+  while (0) {
+  KingCutoffBatchTable_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  KingCutoffBatchTable_ret_MISSING_TOKENS:
+    logerrprintfww("Error: Fewer tokens than expected on line %" PRIuPTR " of %s .\n", line_idx, kin0_fname);
+    reterr = kPglRetMalformedInput;
+    break;
+  KingCutoffBatchTable_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(kin0_fname, &txs);
+    break;
+  KingCutoffBatchTable_ret_INVALID_HEADER:
+    logerrputs("Error: Invalid header line in --king-cutoff-table file.\n");
+    reterr = kPglRetMalformedInput;
+    break;
+  KingCutoffBatchTable_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  KingCutoffBatchTable_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  KingCutoffBatchTable_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ KingCutoffBatchTable_ret_1:
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -2521,9 +2742,12 @@ THREAD_FUNC_DECL CalcKingTableSubsetThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t rel_check, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t rel_check, uint32_t require_xor, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
   PglErr reterr = kPglRetSuccess;
   {
+    // In --king-table-require case, sample1_in_require + sample2_in_require
+    // can be either 1 or 2.  In --king-table-require-xor case, it must be 1.
+    const uint32_t require_sum_mask = require_xor? 1 : 3;
     uint64_t pair_idx = *pair_idx_ptr;
     // Assumes header line already read if pair_idx == 0, and if pair_idx is
     // positive, we're that far into the file.
@@ -2565,7 +2789,9 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
         goto KingTableSubsetLoad_ret_INCONSISTENT_INPUT_WW;
       }
       if (sample_require) {
-        if ((!IsSet(sample_require, sample_uidx1)) && (!IsSet(sample_require, sample_uidx2))) {
+        const uint32_t sample1_in_require = IsSet(sample_require, sample_uidx1);
+        const uint32_t sample2_in_require = IsSet(sample_require, sample_uidx2);
+        if (!((sample1_in_require + sample2_in_require) & require_sum_mask)) {
           line_iter = K_CAST(char*, linebuf_iter);
           continue;
         }
@@ -2666,7 +2892,7 @@ uint64_t CountRelCheckPairs(const char* nsorted_xidbox, uintptr_t max_xid_blen, 
   return total;
 }
 
-uint64_t CountRelCheckPairsSampleRequire(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, char* idbuf) {
+uint64_t CountRelCheckPairsSampleRequire(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t require_xor, char* idbuf) {
   uint64_t total = 0;
   for (uintptr_t block_start_idx = 0; block_start_idx != orig_sample_ct; ) {
     const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
@@ -2682,13 +2908,17 @@ uint64_t CountRelCheckPairsSampleRequire(const char* nsorted_xidbox, const uint3
       required_ct += IsSet(sample_require, sample_uidx);
     }
     const uint64_t optional_ct = cur_block_size - required_ct;
-    total += ((cur_block_size * (cur_block_size - 1)) - (optional_ct * (optional_ct - 1))) / 2;
+    if (!require_xor) {
+      total += ((cur_block_size * (cur_block_size - 1)) - (optional_ct * (optional_ct - 1))) / 2;
+    } else {
+      total += required_ct * optional_ct;
+    }
     block_start_idx = block_end_idx;
   }
   return total;
 }
 
-void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t rel_check, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, FidPairIterator* fpip, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t rel_check, uint32_t require_xor, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, FidPairIterator* fpip, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
   // Support "--make-king-table rel-check" without an actual subset-file.
   // These loops aren't really optimized, since actual rel-check use cases
   // should have small families where it doesn't matter.
@@ -2750,31 +2980,81 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
       block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
     }
   } else {
-    // --king-table-require
+    // --king-table-require[-xor]
     while (1) {
       for (; idx1 != block_end_idx; ++idx1) {
         // idx1 >= idx2.
         uint32_t cur_pair_ct = 0;
         const uint32_t sample_uidx1 = xid_map[idx1];
         if (IsSet(sample_require, sample_uidx1)) {
-          cur_pair_ct = idx1 - idx2;
-          uint32_t idx2_stop = idx1;
-          if (pair_idx_stop - pair_idx < cur_pair_ct) {
-            cur_pair_ct = pair_idx_stop - pair_idx;
-            idx2_stop = idx2 + cur_pair_ct;
-          }
-          if (pair_idx < pair_idx_start) {
-            const uint64_t skip_ct = pair_idx_start - pair_idx;
-            if (skip_ct >= cur_pair_ct) {
-              idx2 = idx2_stop;
-            } else {
-              idx2 += skip_ct;
+          if (!require_xor) {
+            cur_pair_ct = idx1 - idx2;
+            uint32_t idx2_stop = idx1;
+            if (pair_idx_stop - pair_idx < cur_pair_ct) {
+              cur_pair_ct = pair_idx_stop - pair_idx;
+              idx2_stop = idx2 + cur_pair_ct;
             }
-          }
-          for (; idx2 != idx2_stop; ++idx2) {
-            const uint32_t sample_uidx2 = xid_map[idx2];
-            *loaded_sample_idx_pairs_iter++ = sample_uidx1;
-            *loaded_sample_idx_pairs_iter++ = sample_uidx2;
+            if (pair_idx < pair_idx_start) {
+              const uint64_t skip_ct = pair_idx_start - pair_idx;
+              if (skip_ct >= cur_pair_ct) {
+                idx2 = idx2_stop;
+              } else {
+                idx2 += skip_ct;
+              }
+            }
+            for (; idx2 != idx2_stop; ++idx2) {
+              const uint32_t sample_uidx2 = xid_map[idx2];
+              *loaded_sample_idx_pairs_iter++ = sample_uidx1;
+              *loaded_sample_idx_pairs_iter++ = sample_uidx2;
+            }
+          } else {
+            // --king-table-require-xor
+            cur_pair_ct += idx1 - idx2;
+            for (uint32_t idx = idx2; idx != idx1; ++idx) {
+              const uint32_t sample_uidx = xid_map[idx];
+              cur_pair_ct -= IsSet(sample_require, sample_uidx);
+            }
+            uint32_t idx2_stop = idx1;
+            if (pair_idx_stop - pair_idx < cur_pair_ct) {
+              cur_pair_ct = pair_idx_stop - pair_idx;
+              idx2_stop = idx2;
+              uint32_t remaining_required_pair_ct = cur_pair_ct;
+              while (1) {
+                const uint32_t sample_uidx = xid_map[idx2_stop];
+                ++idx2_stop;
+                if (!IsSet(sample_require, sample_uidx)) {
+                  --remaining_required_pair_ct;
+                  if (!remaining_required_pair_ct) {
+                    break;
+                  }
+                }
+              }
+            }
+            if (pair_idx < pair_idx_start) {
+              const uint64_t skip_ct = pair_idx_start - pair_idx;
+              if (skip_ct >= cur_pair_ct) {
+                idx2 = idx2_stop;
+              } else {
+                uint32_t remaining_skip_ct = skip_ct;
+                while (1) {
+                  const uint32_t sample_uidx = xid_map[idx2];
+                  ++idx2;
+                  if (!IsSet(sample_require, sample_uidx)) {
+                    --remaining_skip_ct;
+                    if (!remaining_skip_ct) {
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+            for (; idx2 != idx2_stop; ++idx2) {
+              const uint32_t sample_uidx2 = xid_map[idx2];
+              if (!IsSet(sample_require, sample_uidx2)) {
+                *loaded_sample_idx_pairs_iter++ = sample_uidx1;
+                *loaded_sample_idx_pairs_iter++ = sample_uidx2;
+              }
+            }
           }
         } else {
           // !IsSet(sample_require, sample_uidx1)
@@ -2833,9 +3113,13 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
               const uint64_t orig_sample_ct64 = orig_sample_ct;
               const uintptr_t orig_sample_ctl = BitCtToWordCt(orig_sample_ct);
               const uint64_t optional_ct = orig_sample_ct - PopcountWords(sample_require, orig_sample_ctl);
-              pair_idx = ((orig_sample_ct64 * (orig_sample_ct - 1)) - (optional_ct * (optional_ct - 1))) / 2;
+              if (!require_xor) {
+                pair_idx = ((orig_sample_ct64 * (orig_sample_ct - 1)) - (optional_ct * (optional_ct - 1))) / 2;
+              } else {
+                pair_idx = orig_sample_ct64 * optional_ct;
+              }
             } else {
-              pair_idx = CountRelCheckPairsSampleRequire(nsorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, idbuf);
+              pair_idx = CountRelCheckPairsSampleRequire(nsorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, require_xor, idbuf);
             }
           }
           goto GetRelCheckOrKTRequirePairs_early_exit;
@@ -2891,6 +3175,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uintptr_t* sample_require = nullptr;
+    const uint32_t require_xor = (king_flags / kfKingTableRequireXor) & 1;
     if (require_fnames) {
       uintptr_t* sample_require_tmp;
       reterr = LoadSampleIds(require_fnames, orig_sample_include, siip, "make-king-table", raw_sample_ct, orig_sample_ct, kfLoadSampleIdsMultifile, &sample_require_tmp, nullptr);
@@ -2900,10 +3185,14 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       sample_require = sample_require_tmp;
       const uint32_t require_set_size = PopcountWords(sample_require, raw_sample_ctl);
       if (unlikely(!require_set_size)) {
-        logerrputs("Error: No sample ID(s) in --king-table-require file(s) are in the current\ndataset.\n");
+        logerrputs("Error: No sample ID(s) in --king-table-require[-xor] file(s) are in the current\ndataset.\n");
         goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
       }
-      logprintf("--king-table-require: %u sample ID%s loaded.\n", require_set_size, (require_set_size == 1)? "" : "s");
+      if (unlikely(require_xor && (require_set_size == orig_sample_ct))) {
+        logerrputs("Error: All sample ID(s) in --king-table-require-xor file(s) are in the current\ndataset.\n");
+        goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
+      }
+      logprintf("--king-table-require%s: %u sample ID%s loaded.\n", require_xor? "-xor" : "", require_set_size, (require_set_size == 1)? "" : "s");
     }
     // 1. Write output header line if necessary.
     // 2. Count number of relevant sample pairs (higher uidx in high 32 bits),
@@ -2997,7 +3286,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     if (!calc_thread_ct) {
       calc_thread_ct = 1;
     }
-    // could eventually have 64-bit g_thread_start?
+    // could eventually have 64-bit ctx.thread_start?
     if (unlikely(SetThreadCt(calc_thread_ct, &tg) ||
                  bigstack_alloc_u32(calc_thread_ct + 1, &ctx.thread_start))) {
       goto CalcKingTableSubset_ret_NOMEM;
@@ -3131,11 +3420,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
 
     uint64_t pair_idx = 0;
     if (!subset_fname) {
-      GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, (parallel_tot != 1), 0, pair_buf_capacity, &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+      GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, require_xor, (parallel_tot != 1), 0, pair_buf_capacity, &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
     } else {
       fputs("Scanning --king-table-subset file...", stdout);
       fflush(stdout);
-      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, require_xor, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
       if (unlikely(reterr)) {
         goto CalcKingTableSubset_ret_1;
       }
@@ -3163,7 +3452,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           pair_idx = 0;
           if (!subset_fname) {
             InitFidPairIterator(&fpi);
-            GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+            GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, require_xor, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
           } else {
             reterr = TextRewind(&txs);
             if (unlikely(reterr)) {
@@ -3176,7 +3465,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_TSTREAM_REWIND_FAIL;
             }
-            reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+            reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, require_xor, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_1;
             }
@@ -3408,11 +3697,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       }
       pair_idx_cur_start = pair_idx;
       if (!subset_fname) {
-        GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+        GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, require_xor, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
       } else {
         fputs("Scanning --king-table-subset file...", stdout);
         fflush(stdout);
-        reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+        reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, require_xor, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
         if (unlikely(reterr)) {
           goto CalcKingTableSubset_ret_1;
         }

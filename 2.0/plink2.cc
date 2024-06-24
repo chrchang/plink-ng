@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (17 Jun 2024)";
+  " (24 Jun 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2368,7 +2368,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       if (pcp->command_flags1 & (kfCommand1MakeKing | kfCommand1KingCutoff)) {
         uintptr_t* prev_sample_include = nullptr;
         const uint32_t prev_sample_ct = sample_ct;
-        if (pcp->king_cutoff != -1) {
+        if (pcp->command_flags1 & kfCommand1KingCutoff) {
           if (unlikely(bigstack_alloc_w(raw_sample_ctl, &prev_sample_include))) {
             goto Plink2Core_ret_NOMEM;
           }
@@ -2384,24 +2384,27 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         if (pcp->king_table_require_fnames || pcp->king_table_subset_fname || rel_check) {
           // command-line parser currently guarantees
-          // --king-table-subset/--king-table-require and
-          // "--make-king-table rel-check" aren't used with --king-cutoff or
-          // --make-king
-          // probable todo: --king-cutoff-table which can use .kin0 as input
+          // --king-table-subset/--king-table-require[-xor] and
+          // "--make-king-table rel-check" aren't used with
+          // --king-cutoff[-table] or --make-king
           reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, pcp->king_table_subset_fname, pcp->king_table_require_fnames, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, rel_check, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
         } else {
           if (king_cutoff_fprefix) {
-            reterr = KingCutoffBatch(&pii.sii, raw_sample_ct, pcp->king_cutoff, sample_include, king_cutoff_fprefix, &sample_ct);
+            if (pcp->king_flags & kfKingCutoffTable) {
+              reterr = KingCutoffBatchTable(&pii.sii, king_cutoff_fprefix, raw_sample_ct, pcp->king_cutoff, sample_include, &sample_ct);
+            } else {
+              reterr = KingCutoffBatchBinary(&pii.sii, raw_sample_ct, pcp->king_cutoff, sample_include, king_cutoff_fprefix, &sample_ct);
+            }
           } else {
             reterr = CalcKing(&pii.sii, variant_include, cip, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
           }
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (pcp->king_cutoff != -1) {
+          if (pcp->command_flags1 & kfCommand1KingCutoff) {
             snprintf(outname_end, kMaxOutfnameExtBlen, ".king.cutoff.in.id");
             reterr = WriteSampleIds(sample_include, &pii.sii, outname, sample_ct);
             if (unlikely(reterr)) {
@@ -2416,7 +2419,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
             BigstackReset(prev_sample_include);
             outname_end[13] = '\0';
-            logprintfww("--king-cutoff: Excluded sample ID%s written to %sout.id , and %u remaining sample ID%s written to %sin.id .\n", (removed_sample_ct == 1)? "" : "s", outname, sample_ct, (sample_ct == 1)? "" : "s", outname);
+            logprintfww("--king-cutoff%s: Excluded sample ID%s written to %sout.id , and %u remaining sample ID%s written to %sin.id .\n", (pcp->king_flags & kfKingCutoffTable)? "-table" : "", (removed_sample_ct == 1)? "" : "s", outname, sample_ct, (sample_ct == 1)? "" : "s", outname);
             UpdateSampleSubsets(sample_include, raw_sample_ct, sample_ct, founder_info, &founder_ct, sex_nm, sex_male, &male_ct, &nosex_ct);
           }
         }
@@ -3654,6 +3657,8 @@ int main(int argc, char** argv) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "missing-code");
           } else if (strequal_k(flagname_p, "max-indv", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "thin-indiv-count");
+          } else if (strequal_k(flagname_p, "merge-max-allele-ct", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "merge-max-alleles");
           } else {
             goto main_flag_copy;
           }
@@ -7027,13 +7032,21 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclFounders;
           goto main_param_zero;
-        } else if (strequal_k_unsafe(flagname_p2, "ing-cutoff")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+        } else if (strequal_k_unsafe(flagname_p2, "ing-cutoff") || strequal_k_unsafe(flagname_p2, "ing-cutoff-table")) {
+          const uint32_t is_table = (flagname_p2[strlen("ing-cutoff")] != '\0');
+          if (is_table) {
+            if (unlikely(pc.command_flags1 & kfCommand1KingCutoff)) {
+              logerrputs("Error: --king-cutoff cannot be used with --king-cutoff-table.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
+            pc.king_flags |= kfKingCutoffTable;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1 + is_table, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct == 2) {
-            // .king.id, .king.bin appended
-            reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 9, &king_cutoff_fprefix);
+            // .king.id, .king.bin appended for --king-cutoff
+            reterr = AllocFname(argvk[arg_idx + 1], flagname_p, is_table? 0 : 9, &king_cutoff_fprefix);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -7043,7 +7056,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + param_ct];
           if (unlikely((!ScantokDouble(cur_modif, &pc.king_cutoff)) || (pc.king_cutoff < 0.0) || (pc.king_cutoff >= 0.5))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --king-cutoff argument '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --king-cutoff[-table] argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.command_flags1 |= kfCommand1KingCutoff;
@@ -7057,7 +7070,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k_unsafe(flagname_p2, "ing-table-subset")) {
-          if (unlikely(pc.king_cutoff != -1)) {
+          if (unlikely(pc.command_flags1 & kfCommand1KingCutoff)) {
             logerrputs("Error: --king-table-subset cannot be used with --king-cutoff.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -7077,10 +7090,14 @@ int main(int argc, char** argv) {
           } else {
             pc.king_table_subset_thresh = -DBL_MAX;
           }
-        } else if (strequal_k_unsafe(flagname_p2, "ing-table-require")) {
-          if (unlikely(pc.king_cutoff != -1)) {
-            logerrputs("Error: --king-table-require cannot be used with --king-cutoff.\n");
+        } else if (strequal_k_unsafe(flagname_p2, "ing-table-require") || strequal_k_unsafe(flagname_p2, "ing-table-require-xor")) {
+          if (unlikely(pc.command_flags1 & kfCommand1KingCutoff)) {
+            logerrputs("Error: --king-table-require[-xor] cannot be used with --king-cutoff.\n");
             goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (pc.king_table_require_fnames) {
+            logerrputs("Error: --king-table-require cannot be used with --king-table-require-xor.\n");
+            goto main_ret_INVALID_CMDLINE;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -7088,6 +7105,9 @@ int main(int argc, char** argv) {
           reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kPglFnamesize, &pc.king_table_require_fnames);
           if (unlikely(reterr)) {
             goto main_ret_1;
+          }
+          if (flagname_p2[strlen("ing-table-require")] != '\0') {
+            pc.king_flags |= kfKingTableRequireXor;
           }
         } else if (strequal_k_unsafe(flagname_p2, "eep-if")) {
           reterr = ValidateAndAllocCmpExpr(&(argvk[arg_idx + 1]), argvk[arg_idx], param_ct, &pc.keep_if_expr);
@@ -7820,10 +7840,10 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "ake-king")) {
           // may want to add options for handling X/Y/MT
           if (unlikely(king_cutoff_fprefix)) {
-            logerrputs("Error: --make-king cannot be used with a --king-cutoff input fileset.\n");
+            logerrputs("Error: --make-king cannot be used with --king-cutoff[-table] input file(s).\n");
             goto main_ret_INVALID_CMDLINE_A;
           } else if (unlikely(pc.king_table_subset_fname || pc.king_table_require_fnames)) {
-            logerrputs("Error: --make-king cannot be used with --king-table-subset or\n--king-table-require.\n");
+            logerrputs("Error: --make-king cannot be used with --king-table-subset or\n--king-table-require[-xor].\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
@@ -7887,7 +7907,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "ake-king-table")) {
           if (unlikely(king_cutoff_fprefix)) {
-            logerrputs("Error: --make-king-table cannot be used with a --king-cutoff input fileset.\n");
+            logerrputs("Error: --make-king-table cannot be used with --king-cutoff[-table] input file(s).\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
@@ -7901,7 +7921,7 @@ int main(int argc, char** argv) {
             } else if (strequal_k(cur_modif, "counts", cur_modif_slen)) {
               pc.king_flags |= kfKingCounts;
             } else if (strequal_k(cur_modif, "rel-check", cur_modif_slen)) {
-              if (unlikely(pc.king_cutoff != -1)) {
+              if (unlikely(pc.command_flags1 & kfCommand1KingCutoff)) {
                 logerrputs("Error: --make-king-table 'rel-check' modifier cannot be used with\n--king-cutoff.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
@@ -7929,7 +7949,7 @@ int main(int argc, char** argv) {
                   goto main_ret_INVALID_CMDLINE_A;
                 }
                 if (unlikely(pc.king_table_require_fnames)) {
-                  logerrputs("Error: --king-table-require requires --make-king-table cols= to include the 'id'\ncolumn set.\n");
+                  logerrputs("Error: --king-table-require[-xor] requires --make-king-table cols= to include\nthe 'id' column set.\n");
                   goto main_ret_INVALID_CMDLINE_A;
                 }
               }
@@ -8807,7 +8827,7 @@ int main(int argc, char** argv) {
           } else {
             pmerge_info.merge_pheno_sort = sort_mode;
           }
-        } else if (strequal_k_unsafe(flagname_p2, "erge-max-allele-ct")) {
+        } else if (strequal_k_unsafe(flagname_p2, "erge-max-alleles")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8816,7 +8836,7 @@ int main(int argc, char** argv) {
           // represent over-the-limit variants in temporary files.
           uint32_t merge_max_allele_ct;
           if (unlikely(ScanPosintCappedx(cur_modif, kPglMaxAlleleCt - 1, &merge_max_allele_ct) || (merge_max_allele_ct == 1))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-max-allele-ct argument '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-max-alleles argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pmerge_info.max_allele_ct = merge_max_allele_ct;
@@ -9247,8 +9267,8 @@ int main(int argc, char** argv) {
             logerrputs("Error: --parallel cannot be used with \"--make-king square\".  Use \"--make-king\nsquare0\" or plain --make-king instead.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely((pc.king_cutoff != -1) && (!king_cutoff_fprefix))) {
-            logerrputs("Error: --parallel cannot be used with --king-cutoff.\n");
+          if (unlikely((pc.command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix))) {
+            logerrputs("Error: --parallel cannot be used with no-input-fileset --king-cutoff.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(pc.grm_flags & kfGrmMatrixSq)) {
