@@ -6544,11 +6544,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       ctx.old_sample_idx_to_new = nullptr;
       ctx.sample_include_interleaved_vec = nullptr;
       uint32_t write_mhc_needed = refalt1_select && (!input_biallelic);
-      if (write_mhc_needed) {
-        logerrputs("Error: Multiallelic allele rotation is under development.\n");
-        reterr = kPglRetNotYetSupported;
-        goto MakePgenRobust_ret_1;
-      }
       if (new_sample_idx_to_old || subsetting_required) {
         if (unlikely(bigstack_alloc_wp(1, &ctx.thread_write_genovecs))) {
           goto MakePgenRobust_ret_NOMEM;
@@ -7604,9 +7599,6 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       uint32_t write_mhc_needed = 0;
       if (refalt1_select) {
         if (!input_biallelic) {
-          logerrputs("Error: Multiallelic allele rotation is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto MakePlink2NoVsort_ret_1;
           write_mhc_needed = 1;
         }
         if (variant_ct < raw_variant_ct) {

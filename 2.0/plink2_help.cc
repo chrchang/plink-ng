@@ -2416,6 +2416,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                          having 'provisional' reference alleles.  Add 'force'\n"
 "                          to apply this to all variants.\n"
 "                        * All new reference alleles are marked as provisional.\n"
+"                        * For multiallelic variants, this also sets the\n"
+"                          second-most-common allele to ALT1.\n"
 "  --ref-allele ['force'] <filename> [refcol] [IDcol] [skip]\n"
 "  --alt1-allele ['force'] <filename> [alt1col] [IDcol] [skip] :\n"
 "    These set the alleles specified in the file to ref (--ref-allele) or alt1\n"
