@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a5.12"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (xx yyy 2024)";
+  " (25 Jun 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2554,14 +2554,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // can't just subscribe to maj_alleles[].
             const uint64_t* main_allele_ddosages = nonfounders? allele_ddosages : founder_allele_ddosages;
             const uint32_t skip_real_ref = not_all_nonref && (!(pcp->misc_flags & kfMiscMajRefForce));
-            if (skip_real_ref && (!nonref_flags)) {
+            if (skip_real_ref && AllWordsAreZero(nonref_flags, raw_variant_ctl)) {
               logerrputs("Warning: --maj-ref has no effect, since no provisional reference alleles are\npresent.  (Did you forget to add the 'force' modifier?)\n");
             } else {
               uintptr_t variant_uidx_base = 0;
               uintptr_t cur_bits = variant_include[0];
               for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
                 const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-                if (skip_real_ref && IsSet(nonref_flags, variant_uidx)) {
+                // bugfix (25 Jun 2024): nonref_flags check was backward
+                if (skip_real_ref && (!IsSet(nonref_flags, variant_uidx))) {
                   continue;
                 }
                 const uint64_t* cur_allele_ddosages = &(main_allele_ddosages[allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx)]);
