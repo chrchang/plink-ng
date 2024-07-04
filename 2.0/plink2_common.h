@@ -139,7 +139,7 @@ FLAGSET64_DEF_START()
   kfMiscRequireCovar = (1 << 27),
   kfMiscCatPhenoFamily = (1 << 28),
   kfMiscRefAlleleForce = (1 << 29),
-  kfMiscAlt1AlleleForce = (1 << 30),
+  kfMiscAltAlleleForce = (1 << 30),
   kfMiscMergeX = (1U << 31),
   kfMiscNoIdHeader = (1LLU << 32),
   kfMiscNoIdHeaderIidOnly = (1LLU << 33),
@@ -159,7 +159,8 @@ FLAGSET64_DEF_START()
   kfMiscMakeFoundersNotfirst = (1LLU << 47),
   kfMiscMakeFoundersRequire2Missing = (1LLU << 48),
   kfMiscYNosexMissingStats = (1LLU << 49),
-  kfMiscNeg9PhenoReallyMissing = (1LLU << 50)
+  kfMiscNeg9PhenoReallyMissing = (1LLU << 50),
+  kfMiscAlt1Allele = (1LLU << 51)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -367,6 +368,11 @@ HEADER_INLINE BoolErr bigstack_allocv_dphase(uintptr_t ct, SDosage** dphase_arr_
   return !(*dphase_arr_ptr);
 }
 
+
+HEADER_INLINE BoolErr bigstack_end_alloc_ac(uintptr_t ct, AlleleCode** allele_arr_ptr) {
+  *allele_arr_ptr = S_CAST(AlleleCode*, bigstack_end_alloc(ct * sizeof(AlleleCode)));
+  return !(*allele_arr_ptr);
+}
 
 HEADER_INLINE BoolErr bigstack_end_alloc_dosage(uintptr_t ct, Dosage** dosage_arr_ptr) {
   *dosage_arr_ptr = S_CAST(Dosage*, bigstack_end_alloc(ct * sizeof(Dosage)));
@@ -1467,6 +1473,9 @@ void ParallelBounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t 
 
 // Unsafe since this may write up to 6 bytes past the end.
 void AppendZerotabsUnsafe(uint32_t zerotab_ct, char** cswritep_ptr);
+
+// Unsafe since this may write up to word boundary past the end.
+PglErr InitAllelePermuteUnsafe(const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_thread_ct, AlleleCode* allele_permute);
 
 #ifdef __cplusplus
 }  // namespace plink2

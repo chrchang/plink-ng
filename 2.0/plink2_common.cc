@@ -4314,6 +4314,93 @@ void AppendZerotabsUnsafe(uint32_t zerotab_ct, char** cswritep_ptr) {
   *cswritep_ptr = &((*cswritep_ptr)[2 * zerotab_ct]);
 }
 
+typedef struct InitAllelePermuteCtxStruct {
+  const uintptr_t* allele_idx_offsets;
+  uint32_t raw_variant_ct;
+
+  AlleleCode* allele_permute;
+} InitAllelePermuteCtx;
+
+void InitAllelePermuteMain(uintptr_t tidx, uintptr_t thread_ct, InitAllelePermuteCtx* ctx) {
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const uintptr_t* allele_idx_offset_ends = &(allele_idx_offsets[1]);
+  const uint32_t raw_variant_ct = ctx->raw_variant_ct;
+  const uint32_t variant_uidx_start = (raw_variant_ct * S_CAST(uint64_t, tidx)) / thread_ct;
+  const uint32_t variant_uidx_end = (raw_variant_ct * (S_CAST(uint64_t, tidx) + 1)) / thread_ct;
+  uintptr_t allele_idx_offset_start = allele_idx_offsets[variant_uidx_start];
+  AlleleCode* allele_permute_iter = &(ctx->allele_permute[allele_idx_offset_start]);
+  // could fill with zeroes first?
+  for (uint32_t vidx = variant_uidx_start; vidx != variant_uidx_end; ++vidx) {
+    const uintptr_t allele_idx_offset_end = allele_idx_offset_ends[vidx];
+    const uint32_t allele_ct = allele_idx_offset_end - allele_idx_offset_start;
+    for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+      *allele_permute_iter++ = aidx;
+    }
+    allele_idx_offset_start = allele_idx_offset_end;
+  }
+}
+
+THREAD_FUNC_DECL InitAllelePermuteThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uint32_t tidx = arg->tidx;
+  InitAllelePermuteCtx* ctx = S_CAST(InitAllelePermuteCtx*, arg->sharedp->context);
+
+  const uint32_t thread_ct = GetThreadCt(arg->sharedp) + 1;
+  InitAllelePermuteMain(tidx, thread_ct, ctx);
+  THREAD_RETURN;
+}
+
+PglErr InitAllelePermuteUnsafe(const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_thread_ct, AlleleCode* allele_permute) {
+  if (!allele_idx_offsets) {
+    uintptr_t* allele_permute_ul = R_CAST(uintptr_t*, allele_permute);
+    const uintptr_t allele_code_range_size = k1LU << (8 * sizeof(AlleleCode));
+    const uintptr_t fill_word = ((~k0LU) / ((allele_code_range_size - 1) * (allele_code_range_size + 1))) * allele_code_range_size;
+    const uintptr_t word_ct = DivUp(raw_variant_ct, sizeof(intptr_t) / (sizeof(AlleleCode) * 2));
+    for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+      allele_permute_ul[widx] = fill_word;
+    }
+    return kPglRetSuccess;
+  }
+  assert(allele_idx_offsets[raw_variant_ct] > raw_variant_ct * 2);
+  PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  InitAllelePermuteCtx ctx;
+  {
+    ctx.allele_idx_offsets = allele_idx_offsets;
+    ctx.raw_variant_ct = raw_variant_ct;
+    ctx.allele_permute = allele_permute;
+    uint32_t thread_ct = raw_variant_ct / 65536;
+    if (!thread_ct) {
+      thread_ct = 1;
+    } else if (thread_ct > max_thread_ct) {
+      thread_ct = max_thread_ct;
+    }
+    if (unlikely(SetThreadCt0(thread_ct - 1, &tg))) {
+      goto InitAllelePermuteUnsafe_ret_NOMEM;
+    }
+    if (thread_ct > 1) {
+      SetThreadFuncAndData(InitAllelePermuteThread, &ctx, &tg);
+      DeclareLastThreadBlock(&tg);
+      if (unlikely(SpawnThreads(&tg))) {
+        goto InitAllelePermuteUnsafe_ret_THREAD_CREATE_FAIL;
+      }
+    }
+    InitAllelePermuteMain(thread_ct - 1, thread_ct, &ctx);
+    JoinThreads0(&tg);
+  }
+  while (0) {
+  InitAllelePermuteUnsafe_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  InitAllelePermuteUnsafe_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+  CleanupThreads(&tg);
+  return reterr;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

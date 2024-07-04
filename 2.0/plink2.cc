@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (25 Jun 2024)";
+  " (4 Jul 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -503,7 +503,7 @@ typedef struct Plink2CmdlineStruct {
   char* not_covar_flattened;
   char* indv_str;
   TwoColParams* ref_allele_flag;
-  TwoColParams* alt1_allele_flag;
+  TwoColParams* alt_allele_flag;
   TwoColParams* update_chr_flag;
   TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
@@ -2521,23 +2521,24 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & (kfCommand1MakePlink2 | kfCommand1Exportf | kfCommand1WriteCovar)) {
-        // If non-null, refalt1_select[j][0] stores the index of the new ref
-        // allele and [j][1] stores the index of the new alt1 allele.  (0 =
-        // original ref, 1 = original alt1, etc.)
+        // If non-null, allele_permute[allele_idx_offsets[j]] stores the old
+        // allele-index of the new ref allele,
+        // allele_permute[allele_idx_offsets[j] + 1] stores the old
+        // allele-index of the new alt1 allele, etc.
         // Operations which instantiate this (--maj-ref, --ref-allele,
-        // --alt1-allele) are only usable with fileset creation commands.  No
+        // --alt[1]-allele) are only usable with fileset creation commands.  No
         // more pass-marker_reverse-to-everything nonsense.
         // (Technically, I could also drop support for --export, but that would
         // force too many real-world jobs to require two plink2 runs instead of
         // one.)
 
-        const uint32_t setting_alleles_from_file = pcp->ref_allele_flag || pcp->alt1_allele_flag || pcp->fa_fname;
+        const uint32_t setting_alleles_from_file = pcp->ref_allele_flag || pcp->alt_allele_flag || pcp->fa_fname;
         uint32_t* variant_bps_backup = nullptr;
         const char** allele_storage_backup = nullptr;
         uint32_t max_allele_slen_backup = max_allele_slen;
         uintptr_t* nonref_flags_backup = nullptr;
         uint32_t nonref_flags_was_null = (nonref_flags == nullptr);
-        STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select) = nullptr;
+        AlleleCode* allele_permute = nullptr;
         uint32_t* contig_lens = nullptr;
         if (pcp->fa_flags & kfFaScrapeLengths) {
           if (unlikely(bigstack_end_calloc_u32(cip->max_code + 1 + cip->name_ct, &contig_lens))) {
@@ -2545,12 +2546,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         if ((pcp->misc_flags & kfMiscMajRef) || setting_alleles_from_file || contig_lens) {
-          const uint32_t need_refalt1_select = ((pcp->misc_flags & kfMiscMajRef) || pcp->ref_allele_flag || pcp->alt1_allele_flag || (pcp->fa_flags & kfFaRefFrom));
+          const uint32_t need_allele_permute = ((pcp->misc_flags & kfMiscMajRef) || pcp->ref_allele_flag || pcp->alt_allele_flag || (pcp->fa_flags & kfFaRefFrom));
           if (loop_cats_idx + 1 < loop_cats_ct) {
-            // --ref-allele/--alt1-allele/--normalize may alter
+            // --ref-allele/--alt[1]-allele/--normalize may alter
             // allele_storage[] and (in the former two cases) max_allele_slen;
             // --loop-cats doesn't like this.  Save a backup copy.
-            if (pcp->ref_allele_flag || pcp->alt1_allele_flag || (pcp->fa_flags & kfFaNormalize)) {
+            if (pcp->ref_allele_flag || pcp->alt_allele_flag || (pcp->fa_flags & kfFaNormalize)) {
               if (pcp->fa_flags & kfFaNormalize) {
                 if (unlikely(bigstack_end_alloc_u32(raw_variant_ct, &variant_bps_backup))) {
                   goto Plink2Core_ret_NOMEM;
@@ -2563,7 +2564,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               memcpy(allele_storage_backup, allele_storage, raw_allele_ct * sizeof(intptr_t));
             }
             // nonref_flags may be altered by everything but --normalize.
-            if (nonref_flags && need_refalt1_select) {
+            if (nonref_flags && need_allele_permute) {
               if (unlikely(bigstack_end_alloc_w(raw_variant_ctl, &nonref_flags_backup))) {
                 goto Plink2Core_ret_NOMEM;
               }
@@ -2571,20 +2572,16 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
           }
           const uint32_t not_all_nonref = !(pgfi.gflags & kfPgenGlobalAllNonref);
-          if (need_refalt1_select) {
-            const uintptr_t refalt1_word_ct = DivUp(2 * raw_variant_ct * sizeof(AlleleCode), kBytesPerWord);
-            uintptr_t* refalt1_select_ul;
+          if (need_allele_permute) {
             // no need to track bigstack_end_mark before this is allocated,
             // etc., due to the restriction to --make-pgen/--export
-            if (unlikely(bigstack_end_alloc_w(refalt1_word_ct, &refalt1_select_ul))) {
+            if (unlikely(bigstack_end_alloc_ac(raw_allele_ct, &allele_permute))) {
               goto Plink2Core_ret_NOMEM;
             }
-            const uintptr_t allele_code_range_size = k1LU << (8 * sizeof(AlleleCode));
-            const uintptr_t fill_word = ((~k0LU) / ((allele_code_range_size - 1) * (allele_code_range_size + 1))) * allele_code_range_size;
-            for (uintptr_t widx = 0; widx != refalt1_word_ct; ++widx) {
-              refalt1_select_ul[widx] = fill_word;
+            reterr = InitAllelePermuteUnsafe(allele_idx_offsets, raw_variant_ct, pcp->max_thread_ct, allele_permute);
+            if (unlikely(reterr)) {
+              goto Plink2Core_ret_1;
             }
-            refalt1_select = R_CAST(STD_ARRAY_PTR_TYPE(AlleleCode, 2), refalt1_select_ul);
             if ((not_all_nonref || setting_alleles_from_file) && (!nonref_flags)) {
               if (unlikely(bigstack_end_alloc_w(raw_variant_ctl, &nonref_flags))) {
                 goto Plink2Core_ret_NOMEM;
@@ -2601,18 +2598,18 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
           uintptr_t* previously_seen = nullptr;
           if (pcp->ref_allele_flag) {
-            if (pcp->alt1_allele_flag) {
+            if (pcp->alt_allele_flag) {
               if (unlikely(bigstack_alloc_w(raw_variant_ctl, &previously_seen))) {
                 goto Plink2Core_ret_NOMEM;
               }
             }
-            reterr = SetRefalt1FromFile(variant_include, variant_ids, allele_idx_offsets, pcp->ref_allele_flag, raw_variant_ct, variant_ct, max_variant_id_slen, 0, (pcp->misc_flags / kfMiscRefAlleleForce) & 1, pcp->input_missing_geno_char, pcp->max_thread_ct, allele_storage, &max_allele_slen, refalt1_select, nonref_flags, previously_seen);
+            reterr = SetRefalt1FromFile(variant_include, variant_ids, allele_idx_offsets, pcp->ref_allele_flag, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_ct, kRefalt1ModeRef, (pcp->misc_flags / kfMiscRefAlleleForce) & 1, pcp->input_missing_geno_char, pcp->max_thread_ct, allele_storage, &max_allele_slen, allele_permute, nonref_flags, previously_seen);
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
           }
-          if (pcp->alt1_allele_flag) {
-            reterr = SetRefalt1FromFile(variant_include, variant_ids, allele_idx_offsets, pcp->alt1_allele_flag, raw_variant_ct, variant_ct, max_variant_id_slen, 1, (pcp->misc_flags / kfMiscAlt1AlleleForce) & 1, pcp->input_missing_geno_char, pcp->max_thread_ct, allele_storage, &max_allele_slen, refalt1_select, nonref_flags, previously_seen);
+          if (pcp->alt_allele_flag) {
+            reterr = SetRefalt1FromFile(variant_include, variant_ids, allele_idx_offsets, pcp->alt_allele_flag, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_ct, (pcp->misc_flags & kfMiscAlt1Allele)? kRefalt1ModeAlt1 : kRefalt1ModeAlt, (pcp->misc_flags / kfMiscAltAlleleForce) & 1, pcp->input_missing_geno_char, pcp->max_thread_ct, allele_storage, &max_allele_slen, allele_permute, nonref_flags, previously_seen);
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
@@ -2621,71 +2618,29 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
           }
           if (pcp->fa_flags & (kfFaRefFrom | kfFaNormalize | kfFaScrapeLengths)) {
-            // for sanity's sake, --maj-ref, --ref-allele/--alt1-allele, and
+            // for sanity's sake, --maj-ref, --ref-allele/--alt[1]-allele, and
             // --ref-from-fa are mutually exclusive
-            // (though --ref-from-fa + --alt1-allele may be permitted later)
+            // (though --ref-from-fa + --alt[1]-allele may be permitted later)
             if (unlikely((pcp->fa_flags & (kfFaRefFrom | kfFaNormalize)) && (vpos_sortstatus & kfUnsortedVarBp))) {
               logerrputs("Error: --normalize and --ref-from-fa require a sorted .pvar/.bim.  Retry this\ncommand after using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
               goto Plink2Core_ret_INCONSISTENT_INPUT;
             }
-            reterr = ProcessFa(variant_include, variant_ids, allele_idx_offsets, cip, pcp->fa_fname, max_allele_ct, max_allele_slen, pcp->fa_flags, ctou32(pcp->output_missing_geno_char), pcp->max_thread_ct, &vpos_sortstatus, variant_bps, allele_storage, refalt1_select, nonref_flags, contig_lens, outname, outname_end);
+            reterr = ProcessFa(variant_include, variant_ids, allele_idx_offsets, cip, pcp->fa_fname, max_allele_ct, max_allele_slen, pcp->fa_flags, ctou32(pcp->output_missing_geno_char), pcp->max_thread_ct, &vpos_sortstatus, variant_bps, allele_storage, allele_permute, nonref_flags, contig_lens, outname, outname_end);
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
           }
           if (pcp->misc_flags & kfMiscMajRef) {
-            // Since this also sets ALT1 to the second-most-common allele, it
-            // can't just subscribe to maj_alleles[].
+            // Since this also sorts ALT alleles by frequency, it can't just
+            // subscribe to maj_alleles[].
             const uint64_t* main_allele_ddosages = nonfounders? allele_ddosages : founder_allele_ddosages;
             const uint32_t skip_real_ref = not_all_nonref && (!(pcp->misc_flags & kfMiscMajRefForce));
             if (skip_real_ref && AllWordsAreZero(nonref_flags, raw_variant_ctl)) {
               logerrputs("Warning: --maj-ref has no effect, since no provisional reference alleles are\npresent.  (Did you forget to add the 'force' modifier?)\n");
             } else {
-              uintptr_t variant_uidx_base = 0;
-              uintptr_t cur_bits = variant_include[0];
-              for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-                const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-                // bugfix (25 Jun 2024): nonref_flags check was backwards
-                if (skip_real_ref && (!IsSet(nonref_flags, variant_uidx))) {
-                  continue;
-                }
-                const uint64_t* cur_allele_ddosages = &(main_allele_ddosages[allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx)]);
-                const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx]) : 2;
-                if (allele_ct == 2) {
-                  // optimize common case: only make one assignment
-                  if (cur_allele_ddosages[1] > cur_allele_ddosages[0]) {
-                    R_CAST(DoubleAlleleCode*, refalt1_select)[variant_uidx] = 1;
-                    if (nonref_flags) {
-                      SetBit(variant_uidx, nonref_flags);
-                    }
-                  }
-                } else {
-                  uint32_t new_ref_idx = (cur_allele_ddosages[1] > cur_allele_ddosages[0]);
-                  uint32_t new_alt1_idx = 1 - new_ref_idx;
-                  uint64_t ref_dosage = cur_allele_ddosages[new_ref_idx];
-                  uint64_t alt1_dosage = cur_allele_ddosages[new_alt1_idx];
-                  for (uint32_t alt_idx = 2; alt_idx != allele_ct; ++alt_idx) {
-                    const uint64_t cur_alt_dosage = cur_allele_ddosages[alt_idx];
-                    if (cur_alt_dosage > alt1_dosage) {
-                      if (cur_alt_dosage > ref_dosage) {
-                        alt1_dosage = ref_dosage;
-                        ref_dosage = cur_alt_dosage;
-                        new_alt1_idx = new_ref_idx;
-                        new_ref_idx = alt_idx;
-                      } else {
-                        alt1_dosage = cur_alt_dosage;
-                        new_alt1_idx = alt_idx;
-                      }
-                    }
-                  }
-                  if (new_ref_idx || (new_alt1_idx != 1)) {
-                    refalt1_select[variant_uidx][0] = new_ref_idx;
-                    refalt1_select[variant_uidx][1] = new_alt1_idx;
-                    if (nonref_flags && new_ref_idx) {
-                      SetBit(variant_uidx, nonref_flags);
-                    }
-                  }
-                }
+              reterr = MajRef(variant_include, allele_idx_offsets, main_allele_ddosages, variant_ct, max_allele_ct, skip_real_ref, allele_permute, nonref_flags);
+              if (unlikely(reterr)) {
+                goto Plink2Core_ret_1;
               }
             }
           }
@@ -2736,12 +2691,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           // todo: unsorted case (--update-chr, etc.)
           if (pcp->sort_vars_mode > kSortNone) {
-            reterr = MakePlink2Vsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->update_chr_flag, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2Vsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->update_chr_flag, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
           } else {
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
             }
-            reterr = MakePlink2NoVsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2NoVsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           }
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
@@ -2751,7 +2706,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->command_flags1 & kfCommand1Exportf) {
-          reterr = Exportf(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, &(pcp->exportf_info), pcp->legacy_output_missing_pheno, contig_lens, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->input_missing_geno_char, pcp->output_missing_geno_char, pcp->legacy_output_missing_geno_char, pcp->max_thread_ct, make_plink2_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
+          reterr = Exportf(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, &(pcp->exportf_info), pcp->legacy_output_missing_pheno, contig_lens, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->input_missing_geno_char, pcp->output_missing_geno_char, pcp->legacy_output_missing_geno_char, pcp->max_thread_ct, make_plink2_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -3444,7 +3399,7 @@ int main(int argc, char** argv) {
   pc.keep_col_match_name = nullptr;
   pc.update_alleles_fname = nullptr;
   pc.ref_allele_flag = nullptr;
-  pc.alt1_allele_flag = nullptr;
+  pc.alt_allele_flag = nullptr;
   pc.update_chr_flag = nullptr;
   pc.update_map_flag = nullptr;
   pc.update_name_flag = nullptr;
@@ -4188,7 +4143,11 @@ int main(int argc, char** argv) {
           }
           chr_info.haploid_mask[0] = 0;
           SetBit(autosome_ct + 1, chr_info.haploid_mask);
-        } else if (strequal_k_unsafe(flagname_p2, "lt1-allele")) {
+        } else if (strequal_k_unsafe(flagname_p2, "lt-allele") || strequal_k_unsafe(flagname_p2, "lt1-allele")) {
+          if (unlikely(pc.alt_allele_flag)) {
+            logerrputs("Error: --alt-allele cannot be used with --alt1-allele.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 5))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4196,15 +4155,18 @@ int main(int argc, char** argv) {
           if (!strcmp(sources[0], "force")) {
             --param_ct;
             if (unlikely(!param_ct)) {
-              logerrputs("Error: Invalid --alt1-allele argument sequence.\n");
+              logerrputs("Error: Invalid --alt[1]-allele argument sequence.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
-            pc.misc_flags |= kfMiscAlt1AlleleForce;
+            pc.misc_flags |= kfMiscAltAlleleForce;
             ++sources;
           }
-          reterr = Alloc2col(sources, flagname_p, param_ct, &pc.alt1_allele_flag);
+          reterr = Alloc2col(sources, flagname_p, param_ct, &pc.alt_allele_flag);
           if (unlikely(reterr)) {
             goto main_ret_1;
+          }
+          if (flagname_p2[2] == '1') {
+            pc.misc_flags |= kfMiscAlt1Allele;
           }
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "f-pseudocount")) {
@@ -8034,8 +7996,8 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1MissingReport;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "aj-ref")) {
-          if (unlikely(pc.alt1_allele_flag)) {
-            logerrputs("Error: --maj-ref cannot be used with --ref-allele/--alt1-allele.\n");
+          if (unlikely(pc.alt_allele_flag)) {
+            logerrputs("Error: --maj-ref cannot be used with --ref-allele/--alt[1]-allele.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
@@ -8973,8 +8935,8 @@ int main(int argc, char** argv) {
           }
         } else if (strequal_k_unsafe(flagname_p2, "ormalize")) {
           // Prevent a confusing order-of-operations dependency.
-          if (unlikely(pc.alt1_allele_flag)) {
-            logerrputs("Error: --normalize cannot be used with --ref-allele/--alt1-allele.\n");
+          if (unlikely(pc.alt_allele_flag)) {
+            logerrputs("Error: --normalize cannot be used with --ref-allele/--alt[1]-allele.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(!pc.fa_fname)) {
@@ -9965,6 +9927,10 @@ int main(int argc, char** argv) {
             logerrputs("Error: --freq and --read-freq cannot be used together.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (unlikely(pc.misc_flags & kfMiscMajRef)) {
+            logerrputs("Error: --read-freq cannot be used with --maj-ref.  (We recommend preprocessing\nthe --read-freq file to generate a file that can be used with\n--ref-allele/--alt-allele.)\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -10043,11 +10009,11 @@ int main(int argc, char** argv) {
           }
         } else if (strequal_k_unsafe(flagname_p2, "ef-allele")) {
           if (unlikely(pc.misc_flags & kfMiscMajRef)) {
-            logerrputs("Error: --maj-ref cannot be used with --ref-allele/--alt1-allele.\n");
+            logerrputs("Error: --maj-ref cannot be used with --ref-allele/--alt[1]-allele.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(pc.fa_flags & kfFaNormalize)) {
-            logerrputs("Error: --normalize cannot be used with --ref-allele/--alt1-allele.\n");
+            logerrputs("Error: --normalize cannot be used with --ref-allele/--alt[1]-allele.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 5))) {
@@ -10069,9 +10035,9 @@ int main(int argc, char** argv) {
           }
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "ef-from-fa")) {
-          if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.alt1_allele_flag)) {
-            // could allow --alt1-allele later, but keep this simpler for now
-            logerrputs("Error: --ref-from-fa cannot be used with --maj-ref or\n--ref-allele/--alt1-allele.\n");
+          if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.alt_allele_flag)) {
+            // could allow --alt[1]-allele later, but keep this simpler for now
+            logerrputs("Error: --ref-from-fa cannot be used with --maj-ref or\n--ref-allele/--alt[1]-allele.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
@@ -11815,12 +11781,12 @@ int main(int argc, char** argv) {
       goto main_ret_INVALID_CMDLINE;
     }
     if (make_plink2_flags & kfMakePlink2MMask) {
-      if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
+      if (unlikely(make_plink2_flags & kfMakePlink2TrimAlts)) {
         logerrputs("Error: --make-bed/--make-[b]pgen 'multiallelics=' cannot be used with\n'trim-alts'.\n");
         goto main_ret_INVALID_CMDLINE;
       }
-      if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
-        logerrputs("Error: When the 'multiallelics=' modifier is present, --make-bed/--make-[b]pgen\ncannot be used with a flag which alters REF/ALT1 allele settings.\n");
+      if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
+        logerrputs("Error: When the 'multiallelics=' modifier is present, --make-bed/--make-[b]pgen\ncannot be used with a flag which alters REF/ALT allele settings.\n");
         goto main_ret_INVALID_CMDLINE;
       }
     }
@@ -11830,8 +11796,8 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE;
       }
       if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf | kfCommand1Pmerge))) {
-        if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
-          logerrputs("Error: Flags which alter REF/ALT1 allele settings (--maj-ref, --ref-allele,\n--alt1-allele, --ref-from-fa) must be used with\n--make-bed/--make-[b]pgen/--export and no other non-merge commands.\n");
+        if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
+          logerrputs("Error: Flags which alter REF/ALT allele settings (--maj-ref, --ref-allele,\n--alt[1]-allele, --ref-from-fa) must be used with\n--make-bed/--make-[b]pgen/--export and no other non-merge commands.\n");
           goto main_ret_INVALID_CMDLINE;
         }
         if (unlikely(pc.fa_flags & kfFaNormalize)) {
@@ -12315,7 +12281,7 @@ int main(int argc, char** argv) {
   free_cond(pc.update_name_flag);
   free_cond(pc.update_map_flag);
   free_cond(pc.update_chr_flag);
-  free_cond(pc.alt1_allele_flag);
+  free_cond(pc.alt_allele_flag);
   free_cond(pc.ref_allele_flag);
   free_cond(pc.update_alleles_fname);
   free_cond(pc.keep_col_match_name);

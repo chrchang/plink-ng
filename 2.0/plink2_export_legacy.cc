@@ -27,7 +27,8 @@ namespace plink2 {
 
 typedef struct TransposeToSmajReadCtxStruct {
   const uintptr_t* variant_include;
-  const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select);
+  const uintptr_t* allele_idx_offsets;
+  const AlleleCode* allele_permute;
   const uintptr_t* sample_include;
   const uint32_t* sample_include_cumulative_popcounts;
   uint32_t sample_ct;
@@ -48,7 +49,8 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
   TransposeToSmajReadCtx* ctx = S_CAST(TransposeToSmajReadCtx*, arg->sharedp->context);
 
   const uintptr_t* variant_include = ctx->variant_include;
-  const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select) = ctx->refalt1_select;
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const AlleleCode* allele_permute = ctx->allele_permute;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const uintptr_t* sample_include = ctx->sample_include;
   const uint32_t read_sample_ct = ctx->sample_ct;
@@ -74,8 +76,12 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
         new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
         goto TransposeToSmajReadThread_err;
       }
-      if (refalt1_select && (refalt1_select[variant_uidx][0] == 1)) {
-        GenovecInvertUnsafe(read_sample_ct, vmaj_readbuf_iter);
+      if (allele_permute) {
+        const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx);
+        if (allele_permute[allele_idx_offset_base]) {
+          assert(allele_permute[allele_idx_offset_base] == 1);
+          GenovecInvertUnsafe(read_sample_ct, vmaj_readbuf_iter);
+        }
         // don't need ZeroTrailingNyps()
       }
       vmaj_readbuf_iter = &(vmaj_readbuf_iter[read_sample_ctaw2]);
@@ -161,7 +167,7 @@ THREAD_FUNC_DECL TransposeToPlink1SmajWriteThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* variant_include, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
+PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const AlleleCode* allele_permute, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -200,7 +206,8 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         goto ExportIndMajorBed_ret_NOMEM;
       }
       read_ctx.variant_include = variant_include;
-      read_ctx.refalt1_select = refalt1_select;
+      read_ctx.allele_idx_offsets = allele_idx_offsets;
+      read_ctx.allele_permute = allele_permute;
       read_ctx.err_info = (~0LLU) << 32;
       SetThreadFuncAndData(TransposeToSmajReadThread, &read_ctx, &read_tg);
 
@@ -875,7 +882,7 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
 
     // * Read phase: main thread reads raw bytes with MultireadNonempty(),
     //   while other thread(s) decode to standard 2-bit genovecs
-    // * Write phase: one thread transposes+rotates to sample-major .bed, and
+    // * Write phase: one thread transposes+permutes to sample-major .bed, and
     //   one thread renders and writes the final .ped text.  (Strictly
     //   speaking, the rotation is unnecessary, but its cost is negligible and
     //   we want to reuse TransposeToPlink1SmajWriteThread.)
@@ -893,7 +900,8 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
       goto ExportPed_ret_NOMEM;
     }
     read_ctx.variant_include = variant_include;
-    read_ctx.refalt1_select = nullptr;
+    read_ctx.allele_idx_offsets = nullptr;
+    read_ctx.allele_permute = nullptr;
     read_ctx.err_info = (~0LLU) << 32;
     SetThreadFuncAndData(TransposeToSmajReadThread, &read_ctx, &read_tg);
 

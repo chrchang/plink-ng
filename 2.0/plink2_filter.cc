@@ -4184,26 +4184,40 @@ void EnforceMinBpSpace(const ChrInfo* cip, const uint32_t* variant_bps, uint32_t
 // (Workaround for that case when merge is implemented: generate a
 // single-sample file with all the right reference alleles, and merge with
 // that.)
-PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const TwoColParams* allele_flag_info, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t is_alt1, uint32_t force, char input_missing_geno_char, uint32_t max_thread_ct, const char** allele_storage, uint32_t* max_allele_slen_ptr, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, uintptr_t* previously_seen) {
+PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const TwoColParams* allele_flag_info, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_ct, Refalt1Mode refalt1_mode, uint32_t force, char input_missing_geno_char, uint32_t max_thread_ct, const char** allele_storage, uint32_t* max_allele_slen_ptr, AlleleCode* allele_permute, uintptr_t* nonref_flags, uintptr_t* previously_seen) {
   // temporary allocations on bottom, "permanent" allocations on top (so we
   // don't reset g_bigstack_end).
   // previously_seen[] should be preallocated iff both --ref-allele and
-  // --alt1-allele are present in the same run.  when it is, this errors out
+  // --alt[1]-allele are present in the same run.  when it is, this errors out
   // when the flags produce conflicting results.
   unsigned char* bigstack_mark = g_bigstack_base;
 
   // unaligned in middle of loop
   unsigned char* bigstack_end = g_bigstack_end;
 
-  const char* flagstr = is_alt1? "--alt1-allele" : "--ref-allele";
+  const uint32_t is_alt_or_alt1 = (refalt1_mode != kRefalt1ModeRef);
+  const uint32_t is_alt1 = (refalt1_mode == kRefalt1ModeAlt1);
+  const char* flagstr;
+  if (refalt1_mode == kRefalt1ModeRef) {
+    flagstr = "--ref-allele";
+  } else if (refalt1_mode == kRefalt1ModeAlt) {
+    flagstr = "--alt-allele";
+  } else {
+    flagstr = "--alt1-allele";
+  }
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
   TextStream txs;
   PreinitTextStream(&txs);
   {
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    const uint32_t max_allele_ctl = BitCtToWordCt(max_allele_ct);
     uintptr_t* already_seen;
-    if (unlikely(bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
+    AlleleCode* loaded_ac_order;
+    uintptr_t* alleles_seen;
+    if (unlikely(bigstack_calloc_w(raw_variant_ctl, &already_seen) ||
+                 bigstack_alloc_ac(max_allele_ct, &loaded_ac_order) ||
+                 bigstack_alloc_w(max_allele_ctl, &alleles_seen))) {
       goto SetRefalt1FromFile_ret_NOMEM;
     }
     reterr = SizeAndInitTextStream(allele_flag_info->fname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
@@ -4242,7 +4256,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     uintptr_t skipped_variant_ct = 0;
     uintptr_t missing_allele_ct = 0;
     uint32_t allele_mismatch_warning_ct = 0;
-    uint32_t rotated_variant_ct = 0;
+    uint32_t permuted_variant_ct = 0;
     uint32_t fillin_variant_ct = 0;
     uint32_t max_allele_blen = 1 + (*max_allele_slen_ptr);
     uint32_t cur_allele_ct = 2;
@@ -4287,8 +4301,8 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
         goto SetRefalt1FromFile_ret_MALFORMED_INPUT_WW;
       }
       token_end = CurTokenEnd(allele_start);
-      const uint32_t allele_slen = token_end - allele_start;
-      if (allele_slen == 1) {
+      const uint32_t allele_col_slen = token_end - allele_start;
+      if (allele_col_slen == 1) {
         const char allele_char = *allele_start;
         // don't overwrite anything with missing code
         if ((allele_char == '.') || (allele_char == input_missing_geno_char)) {
@@ -4301,7 +4315,10 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
         goto SetRefalt1FromFile_ret_MALFORMED_INPUT_WW;
       }
       SetBit(variant_uidx, already_seen);
-      *token_end = '\0';
+      if (unlikely((refalt1_mode != kRefalt1ModeAlt) && memchr(allele_start, ',', allele_col_slen))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: %s: Multiple alleles on line %" PRIuPTR ".%s\n", flagstr, line_idx, is_alt1? " (Did you mean --alt-allele?)" : "");
+        goto SetRefalt1FromFile_ret_MALFORMED_INPUT_WW;
+      }
       uintptr_t allele_idx_offset_base;
       if (!allele_idx_offsets) {
         allele_idx_offset_base = variant_uidx * 2;
@@ -4310,30 +4327,61 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
         cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
       const char** cur_alleles = &(allele_storage[allele_idx_offset_base]);
-      const uint32_t allele_blen = allele_slen + 1;
-      uint32_t allele_idx = 0;
-      for (; allele_idx != cur_allele_ct; ++allele_idx) {
-        if (memequal(allele_start, cur_alleles[allele_idx], allele_blen)) {
+      ZeroWArr(max_allele_ctl, alleles_seen);
+      // --ref-allele and --alt1-allele: There must be exactly one allele here.
+      // --alt-allele: There can be anywhere from 1 to (cur_allele_ct - 1)
+      //               alleles here.  If less than (cur_allele_ct - 1),
+      //               remaining alleles retain original order.
+      //               TODO: For cur_allele_ct > 20 or so, construct hash table
+      //               instead of performing O(n^2) comparisons.
+      uint32_t loaded_allele_ct = 0;
+      uint32_t last_allele_blen;
+      for (char* allele_iter = allele_start; ; ) {
+        char* allele_end = AdvToDelimOrEnd(allele_iter, token_end, ',');
+        *allele_end = '\0';
+        last_allele_blen = 1 + S_CAST(uintptr_t, allele_end - allele_iter);
+        for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
+          if (memequal(allele_iter, cur_alleles[allele_idx], last_allele_blen)) {
+            if (unlikely(IsSet(alleles_seen, allele_idx))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --alt-allele: Duplicate allele on line %" PRIuPTR ".\n", line_idx);
+              goto SetRefalt1FromFile_ret_MALFORMED_INPUT_2;
+            }
+            SetBit(allele_idx, alleles_seen);
+            loaded_ac_order[loaded_allele_ct] = allele_idx;
+            ++loaded_allele_ct;
+            break;
+          }
+        }
+        if (allele_end == token_end) {
           break;
         }
+        allele_iter = &(allele_end[1]);
       }
-      // note that when both --ref-allele and --alt1-allele are present in the
-      // same run, --alt1-allele must deal with the possibility of a
-      // pre-altered refalt1_select[].
-      STD_ARRAY_REF(AlleleCode, 2) cur_refalt1_select = refalt1_select[variant_uidx];
-      // this is always zero or one
-      uint32_t orig_main_allele_idx = cur_refalt1_select[is_alt1];
+      if (unlikely(loaded_allele_ct == cur_allele_ct)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --alt-allele: All alleles appear on line %" PRIuPTR "; nothing left over to assign to REF.\n", line_idx);
+        goto SetRefalt1FromFile_ret_MALFORMED_INPUT_2;
+      }
+      // Note that when both --ref-allele and --alt[1]-allele are present in
+      // the same run, --alt[1]-allele must deal with the possibility of a
+      // pre-altered allele_permute[].
+      AlleleCode* cur_allele_permute = &(allele_permute[allele_idx_offset_base]);
+      // This is usually 0 for --ref-allele, and 1 for --alt[1]-allele.
+      // The exception is when --alt[1]-allele is being resolved after
+      // --ref-allele swapped alleles: then it's 0.
+      const uint32_t orig_main_allele_idx = cur_allele_permute[is_alt_or_alt1];
 
-      if (allele_idx == cur_allele_ct) {
+      if (loaded_allele_ct == 0) {
         if (cur_allele_ct > 2) {
           // could happen millions of times, so micromanage this instead of
           // using logpreprintfww()
           char* write_iter = strcpya_k(g_logbuf, "Warning: ");
-          // strlen("--ref-allele") == 12, strlen("--alt1-allele") == 13
+          // strlen("--ref-allele") == strlen("--alt-allele")== 12,
+          // strlen("--alt1-allele") == 13
           write_iter = memcpya(write_iter, flagstr, 12 + is_alt1);
           write_iter = strcpya_k(write_iter, " mismatch for multiallelic variant");
           // If we put this all on one line, its length would be
-          // 60 + is_alt1 + variant_id_slen.  Split into two if this is >79.
+          // 60 + is_alt_or_alt1 + variant_id_slen.  Split into two if this is
+          // >79.
           *write_iter++ = (variant_id_slen + is_alt1 < 20)? ' ' : '\n';
           *write_iter++ = '\'';
           write_iter = memcpya(write_iter, variant_ids[variant_uidx], variant_id_slen);
@@ -4348,12 +4396,14 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
         }
         const char** new_allele_ptr = &(cur_alleles[orig_main_allele_idx]);
         const char* main_allele = *new_allele_ptr;
+        const uint32_t multi_alt = (last_allele_blen <= allele_col_slen);
         uint32_t is_ref_changing = 1 - orig_main_allele_idx;
-        // if main allele is missing, we just fill it in.  otherwise...
-        if (!strequal_k_unsafe(main_allele, ".")) {
+        // If main allele is missing, we fill it in (unless there were multiple
+        // comma-separated ALT values).
+        if ((!strequal_k_unsafe(main_allele, ".")) || multi_alt) {
           new_allele_ptr = &(cur_alleles[1 - orig_main_allele_idx]);
           const char* other_allele = *new_allele_ptr;
-          if (!strequal_k_unsafe(other_allele, ".")) {
+          if ((!strequal_k_unsafe(other_allele, ".")) || multi_alt) {
             char* write_iter = strcpya_k(g_logbuf, "Warning: ");
             write_iter = memcpya(write_iter, flagstr, 12 + is_alt1);
             write_iter = strcpya_k(write_iter, " mismatch for biallelic variant '");
@@ -4367,24 +4417,47 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
             ++allele_mismatch_warning_ct;
             continue;
           }
-          // swap alleles for biallelic variant.  no previously_seen[] check
-          // needed, it's impossible to get here if --ref-allele and
-          // --alt1-allele assignments conflict.
-          cur_refalt1_select[0] = 1;
-          cur_refalt1_select[1] = 0;
-          ++rotated_variant_ct;
+          // If we get here during --ref-allele processing, that means REF is
+          // nonmissing and unequal, and ALT is missing.  Fill ALT and then
+          // swap REF/ALT.
+          // If we get here during --alt[1]-allele processing:
+          // * If --ref-allele previously swapped the alleles, that would mean
+          //   REF is nonmissing and unequal, and ALT is simultaneously missing
+          //   and equal to a nonmissing --ref-allele setting... impossible.
+          // * So that didn't happen; instead, ALT is nonmissing and unequal,
+          //   and REF is missing.  Fill REF and then swap REF/ALT.  Also
+          //   (bugfix, 3 Jul 2024) set nonref_flags bit unless --ref-allele
+          //   explicitly agreed with the ALT allele.
+          cur_allele_permute[0] = 1;
+          cur_allele_permute[1] = 0;
+          ++permuted_variant_ct;
           is_ref_changing = 1;
         }
         if (is_ref_changing) {
-          if (!IsSet(nonref_flags, variant_uidx)) {
-            if (unlikely(!force)) {
-              goto SetRefalt1FromFile_ret_NOFORCE;
+          if (!is_alt_or_alt1) {
+            if (!IsSet(nonref_flags, variant_uidx)) {
+              if (unlikely(!force)) {
+                goto SetRefalt1FromFile_ret_NOFORCE;
+              }
+            } else {
+              ClearBit(variant_uidx, nonref_flags);
             }
           } else {
-            ClearBit(variant_uidx, nonref_flags);
+            // If --ref-allele had something to say about this variant,
+            // --alt[1]-allele 'force' should not apply, and we should not set
+            // a nonref_flags bit.
+            // Otherwise, both are in play.
+            if ((!previously_seen) || (!IsSet(previously_seen, variant_uidx))) {
+              if (!IsSet(nonref_flags, variant_uidx)) {
+                if (unlikely(!force)) {
+                  goto SetRefalt1FromFile_ret_NOFORCE;
+                }
+                SetBit(variant_uidx, nonref_flags);
+              }
+            }
           }
         }
-        if (allele_blen == 2) {
+        if (last_allele_blen == 2) {
           *new_allele_ptr = &(g_one_char_strs[2 * ctou32(allele_start[0])]);
         } else {
           // No in-place-overwrite case here since
@@ -4392,86 +4465,97 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
           // 2. More importantly, when --loop-cats is used,
           //    allele_storage_backup[n] must point to the unaltered original
           //    string.
-          if (unlikely(S_CAST(uintptr_t, bigstack_end - main_bigstack_base) < allele_blen)) {
+          if (unlikely(S_CAST(uintptr_t, bigstack_end - main_bigstack_base) < last_allele_blen)) {
             goto SetRefalt1FromFile_ret_NOMEM;
           }
-          if (allele_blen > max_allele_blen) {
-            max_allele_blen = allele_blen;
+          if (last_allele_blen > max_allele_blen) {
+            max_allele_blen = last_allele_blen;
           }
-          bigstack_end -= allele_blen;
-          memcpy(bigstack_end, allele_start, allele_blen);
+          bigstack_end -= last_allele_blen;
+          memcpy(bigstack_end, allele_start, last_allele_blen);
           *new_allele_ptr = R_CAST(const char*, bigstack_end);
         }
         ++fillin_variant_ct;
         continue;
       }
-      if (allele_idx == orig_main_allele_idx) {
-        continue;
-      }
-      // both --ref-allele and --alt1-allele in current run, and they
-      // contradict each other.  error out instead of producing a
-      // order-of-operations dependent result.
-      if (unlikely(is_alt1 && previously_seen && IsSet(previously_seen, variant_uidx) && (allele_idx == cur_refalt1_select[0]))) {
-        snprintf(g_logbuf, kLogbufSize, "Error: --ref-allele and --alt1-allele assignments conflict for variant '%s'.\n", variant_ids[variant_uidx]);
-        goto SetRefalt1FromFile_ret_INCONSISTENT_INPUT_WW;
-      }
-
-      // need to swap/rotate alleles.
-      if ((!is_alt1) || (!allele_idx)) {
-        if (!IsSet(nonref_flags, variant_uidx)) {
-          if (unlikely(!force)) {
-            goto SetRefalt1FromFile_ret_NOFORCE;
+      const uint32_t first_allele_idx = loaded_ac_order[0];
+      if (first_allele_idx == orig_main_allele_idx) {
+        uint32_t mismatch_found = 0;
+        for (uint32_t alt_idx = 1; alt_idx != loaded_allele_ct; ++alt_idx) {
+          if (loaded_ac_order[alt_idx] != cur_allele_permute[alt_idx + 1]) {
+            mismatch_found = 1;
           }
-        } else if (!is_alt1) {
-          ClearBit(variant_uidx, nonref_flags);
+        }
+        if (!mismatch_found) {
+          continue;
         }
       }
-      if (!is_alt1) {
-        cur_refalt1_select[0] = allele_idx;
-        if (allele_idx == 1) {
-          cur_refalt1_select[1] = 0;
+      // We're permuting some alleles.
+      if (is_alt_or_alt1 && previously_seen && IsSet(previously_seen, variant_uidx)) {
+        if (unlikely(IsSet(alleles_seen, cur_allele_permute[0]))) {
+          // both --ref-allele and --alt[1]-allele in current run, and they
+          // contradict each other.  error out instead of producing a
+          // order-of-operations dependent result.
+          snprintf(g_logbuf, kLogbufSize, "Error: --ref-allele and --alt[1]-allele assignments conflict for variant '%s'.\n", variant_ids[variant_uidx]);
+          goto SetRefalt1FromFile_ret_INCONSISTENT_INPUT_WW;
+        }
+        // minor bugfix (3 Jul 2024): do not perform further nonref_flags
+        // check; only --ref-allele 'force' setting should apply.
+      } else {
+        // * If !is_alt_or_alt1, we are directly changing the REF allele.
+        // * If IsSet(alleles_seen, 0), we're processing --alt[1]-allele
+        //   without a --ref-allele observation at this variant, and the REF
+        //   allele also has to change.  We set it to the first free ALT
+        //   allele, and mark it as provisional-reference.
+        if ((!is_alt_or_alt1) || IsSet(alleles_seen, 0)) {
+          if (!IsSet(nonref_flags, variant_uidx)) {
+            if (unlikely(!force)) {
+              goto SetRefalt1FromFile_ret_NOFORCE;
+            }
+          } else if (!is_alt_or_alt1) {
+            ClearBit(variant_uidx, nonref_flags);
+          }
+          if (is_alt_or_alt1) {
+            const uint32_t first_free_ac = AdvTo0Bit(alleles_seen, 0);
+            cur_allele_permute[0] = first_free_ac;
+            SetBit(variant_uidx, nonref_flags);
+          }
+        }
+      }
+      if (!is_alt_or_alt1) {
+        cur_allele_permute[0] = first_allele_idx;
+        for (uint32_t write_ac = 0; write_ac != first_allele_idx; ++write_ac) {
+          cur_allele_permute[1 + write_ac] = write_ac;
         }
       } else {
-        cur_refalt1_select[1] = allele_idx;
+        memcpy(&(cur_allele_permute[1]), loaded_ac_order, loaded_allele_ct * sizeof(AlleleCode));
+        if (loaded_allele_ct + 1 != cur_allele_ct) {
+          SetBit(cur_allele_permute[0], alleles_seen);
 
-        // cases:
-        // 1. --alt1-allele run without --ref-allele, or previously_seen not
-        //    set for this variant.  then allele_idx must be zero, and we need
-        //    to change cur_refalt1_select[0] from 0 to 1 and mark the variant
-        //    as having a provisional reference allele.
-        //    orig_main_allele_idx is 1 here.
-        // 2. --ref-allele and --alt1-allele both run on this variant, and
-        //    --ref-allele confirmed the initial ref allele setting.  then,
-        //    since there's no conflict but alt1 is changing, allele_idx must
-        //    be >1, and we leave cur_refalt1_select[0] unchanged at 0.
-        // 3. --ref-allele and --alt1-allele both run on this variant, and
-        //    --ref-allele swapped ref and alt1.  then, since there's no
-        //    conflict but alt1 is changing, allele_idx must be >1, and we
-        //    leave cur_refalt_select[0] unchanged at 1.
-        // 4. --ref-allele and --alt1-allele both run on this variant, and
-        //    cur_refalt1_select[0] >1.  allele_idx could be either zero or
-        //    >1, but we know it doesn't conflict cur_refalt1_select[0] so we
-        //    don't change the latter.  orig_main_allele_idx is still 1 here.
-        // cheapest way I see to detect case 1 is comparison of allele_idx with
-        //   cur_refalt1_select[0].
-        if (cur_refalt1_select[0] == allele_idx) {
-          cur_refalt1_select[0] = 1;
-          SetBit(variant_uidx, nonref_flags);
+          // No need to update final unobserved alleles, if any.
+          const uint32_t write_aidx_stop = FindLast1BitBefore(alleles_seen, cur_allele_ct) + 1;
+
+          uintptr_t allele_idx_base = 0;
+          uintptr_t cur_inv_bits = ~alleles_seen[0];
+          for (uint32_t write_aidx = loaded_allele_ct + 1; write_aidx != write_aidx_stop; ++write_aidx) {
+            const uintptr_t ac = BitIter0(alleles_seen, &allele_idx_base, &cur_inv_bits);
+            cur_allele_permute[write_aidx] = ac;
+          }
         }
       }
-      ++rotated_variant_ct;
+      ++permuted_variant_ct;
     }
     if (allele_mismatch_warning_ct > 3) {
       fprintf(stderr, "%u more allele-mismatch warning%s: see log file.\n", allele_mismatch_warning_ct - 3, (allele_mismatch_warning_ct == 4)? "" : "s");
     }
     if (fillin_variant_ct) {
-      if (rotated_variant_ct) {
-        logprintfww("%s: %u set%s of allele codes rotated, %u allele code%s filled in.\n", flagstr, rotated_variant_ct, (rotated_variant_ct == 1)? "" : "s", fillin_variant_ct, (fillin_variant_ct == 1)? "" : "s");
+      if (permuted_variant_ct) {
+        logprintfww("%s: %u set%s of allele codes permuted, %u allele code%s filled in.\n", flagstr, permuted_variant_ct, (permuted_variant_ct == 1)? "" : "s", fillin_variant_ct, (fillin_variant_ct == 1)? "" : "s");
       } else {
         logprintf("%s: %u allele code%s filled in.\n", flagstr, fillin_variant_ct, (fillin_variant_ct == 1)? "" : "s");
       }
-    } else if (rotated_variant_ct) {
-      logprintf("%s: %u set%s of allele codes rotated.\n", flagstr, rotated_variant_ct, (rotated_variant_ct == 1)? "" : "s");
+    } else if (permuted_variant_ct) {
+      logprintf("%s: %u set%s of allele codes permuted.\n", flagstr, permuted_variant_ct, (permuted_variant_ct == 1)? "" : "s");
     } else {
       logprintf("%s: No variants changed.\n", flagstr);
     }
@@ -4481,7 +4565,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     if (missing_allele_ct) {
       logerrprintfww("Warning: %" PRIuPTR " allele code%s in %s file were missing (%s skipped).\n", missing_allele_ct, (missing_allele_ct == 1)? "" : "s", flagstr, (missing_allele_ct == 1)? "this entry was" : "these entries were");
     }
-    if (previously_seen && (!is_alt1)) {
+    if (previously_seen && (!is_alt_or_alt1)) {
       memcpy(previously_seen, already_seen, raw_variant_ctl * sizeof(intptr_t));
     }
     // bugfix (19 Jun 2018): forgot to update max_allele_slen.
@@ -4504,6 +4588,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     break;
   SetRefalt1FromFile_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
+  SetRefalt1FromFile_ret_MALFORMED_INPUT_2:
     logerrputsb();
     reterr = kPglRetMalformedInput;
     break;
@@ -4599,6 +4684,69 @@ PglErr MakeFounders(const uintptr_t* sample_include, uint32_t raw_sample_ct, uin
     break;
   }
  MakeFounders_ret_1:
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+static_assert(sizeof(Dosage) + sizeof(AlleleCode) <= 4, "MajRef() needs to be updated.");
+PglErr MajRef(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uint64_t* main_allele_ddosages, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t skip_real_ref, AlleleCode* allele_permute, uintptr_t* nonref_flags) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    uint64_t* sortbuf = nullptr;
+    if (allele_idx_offsets) {
+      if (unlikely(bigstack_alloc_u64(max_allele_ct, &sortbuf))) {
+        goto MajRef_ret_NOMEM;
+      }
+    }
+    // todo: multithread this
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t allele_ct = 2;
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      // bugfix (25 Jun 2024): nonref_flags check was backwards
+      if (skip_real_ref && (!IsSet(nonref_flags, variant_uidx))) {
+        continue;
+      }
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+      }
+      const uint64_t* cur_allele_ddosages = &(main_allele_ddosages[allele_idx_offset_base]);
+      if (allele_ct == 2) {
+        if (cur_allele_ddosages[1] > cur_allele_ddosages[0]) {
+          allele_permute[allele_idx_offset_base] = 1;
+          allele_permute[allele_idx_offset_base + 1] = 0;
+          if (nonref_flags) {
+            SetBit(variant_uidx, nonref_flags);
+          }
+        }
+        continue;
+      }
+      // Sort by allele frequency, breaking ties in favor of lower aidx.
+      // sortbuf entries have a (shared) multiple of the allele frequency in
+      // high bits, and (kPglMaxAlleleCt - aidx) in low bits.
+      for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+        sortbuf[aidx] = cur_allele_ddosages[aidx] * (kPglMaxAlleleCt + 1) + kPglMaxAlleleCt - aidx;
+      }
+      STD_SORT(allele_ct, u64cmp, sortbuf);
+      AlleleCode* cur_allele_permute = &(allele_permute[allele_idx_offset_base]);
+      const uint32_t allele_ct_m1 = allele_ct - 1;
+      for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+        cur_allele_permute[aidx] = kPglMaxAlleleCt - S_CAST(AlleleCode, sortbuf[allele_ct_m1 - aidx]);
+      }
+      if (nonref_flags && cur_allele_permute[0]) {
+        SetBit(variant_uidx, nonref_flags);
+      }
+    }
+  }
+  while (0) {
+  MajRef_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  }
   BigstackReset(bigstack_mark);
   return reterr;
 }

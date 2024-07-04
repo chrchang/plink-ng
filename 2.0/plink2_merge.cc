@@ -1981,7 +1981,7 @@ BoolErr ScrapeLastVarid(const RescanOnePosContext* ctxp, unsigned char* arena_bo
 // info_keys, pointed-to InfoVtype entries, and info_keys_htable are allocated
 // at the end of bigstack.
 static_assert(kCompressStreamBlock <= kDecompressChunkSize, "ScanPvarsAndMergeHeader() needs to be updated.");
-PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid_match, MiscFlags misc_flags, uint32_t missing_varid_match_slen, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, VaridTemplate* varid_templatep, VaridTemplate* varid_multi_templatep, VaridTemplate* varid_multi_nonsnp_templatep, char* outname, char* outname_end, PmergeInputFilesetLl** filesets_ptr, ChrInfo* cip, uintptr_t* fileset_ctp, const char* const** info_keys_ptr, uint32_t* info_key_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep, uint32_t* info_conflict_presentp) {
+PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid_match, MiscFlags misc_flags, uint32_t missing_varid_match_slen, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, VaridTemplate* varid_templatep, VaridTemplate* varid_multi_templatep, VaridTemplate* varid_multi_nonsnp_templatep, char* outname, char* outname_end, PmergeInputFilesetLl** filesets_ptr, ChrInfo* cip, uintptr_t* fileset_ctp, uint32_t* info_has_g_keyp, const char* const** info_keys_ptr, uint32_t* info_key_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep, uint32_t* info_conflict_presentp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   const char* cur_fname = nullptr;
@@ -2297,7 +2297,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
                 uint32_t num_slen;
                 int32_t existing_info_vtype_num;
                 if (unlikely(HkvlineFind(existing_read_iter, "Number", &numstr, &num_slen) ||
-                             FillInfoVtypeNum(numstr, num_slen, &existing_info_vtype_num))) {
+                             FillInfoVtypeNum(numstr, num_slen, info_has_g_keyp, &existing_info_vtype_num))) {
                   char* write_iter = strcpya_k(g_logbuf, "Error: --pmerge");
                   if (pmip->list_fname) {
                     write_iter = strcpya_k(write_iter, "-list");
@@ -2310,7 +2310,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
                 char* cur_read_iter = &(value_start[1]);
                 int32_t suppressed_info_vtype_num;
                 if (unlikely(HkvlineFind(cur_read_iter, "Number", &numstr, &num_slen) ||
-                             FillInfoVtypeNum(numstr, num_slen, &suppressed_info_vtype_num))) {
+                             FillInfoVtypeNum(numstr, num_slen, info_has_g_keyp, &suppressed_info_vtype_num))) {
                   snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s is malformed.\n", line_idx, cur_fname);
                   goto ScanPvarsAndMergeHeader_ret_MALFORMED_INPUT_WW;
                 }
@@ -2960,7 +2960,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
           char* numstr;
           uint32_t num_slen;
           if (unlikely(HkvlineFind(&(value[1]), "Number", &numstr, &num_slen) ||
-                       FillInfoVtypeNum(numstr, num_slen, &(new_entry->num)))) {
+                       FillInfoVtypeNum(numstr, num_slen, info_has_g_keyp, &(new_entry->num)))) {
             goto ScanPvarsAndMergeHeader_ret_MALFORMED_INFO_HEADER_LINE;
           }
         }
@@ -3638,7 +3638,7 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
     int32_t max_num = 1;
     for (uint32_t info_key_idx = 0; info_key_idx != info_key_ct; ++info_key_idx) {
       const int32_t info_vtype = const_container_of(info_keys[info_key_idx], InfoVtype, key)->num;
-      if (info_vtype >= kInfoVtypeUnknown) {
+      if (!IsInfoVtypeARSkip(info_vtype)) {
         if (max_num < info_vtype) {
           max_num = info_vtype;
         }
@@ -3746,7 +3746,7 @@ PglErr RenderFinalInfoFromSingleTmp(uint32_t read_info_slen, PvariantMergeContex
     const int32_t knum = const_container_of(info_keys[kidx], InfoVtype, key)->num;
     char* value_iter = &(key_end[1]);
     read_info_iter = AdvPastDelim(value_iter, ';');
-    if (knum >= kInfoVtypeUnknown) {
+    if (!IsInfoVtypeARSkip(knum)) {
       if (value_iter[0] != '=') {
         cswritep = memcpya(cswritep, key_end, read_info_iter - key_end);
       } else {
@@ -4513,7 +4513,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             // this may be caused by inconsistent headers across files
             return kPglRetInconsistentInput;
           }
-          if (knum >= kInfoVtypeUnknown) {
+          if (!IsInfoVtypeARSkip(knum)) {
             // Treat payload as a single string, including '=' and ';'.  Do not
             // null-terminate, semicolon is enough.
             if (knum == 0) {
@@ -4675,7 +4675,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             const char* cur_key = info_keys[kidx];
             const int32_t knum = const_container_of(cur_key, InfoVtype, key)->num;
             cswritep = strcpya(cswritep, cur_key);
-            if (knum >= kInfoVtypeUnknown) {
+            if (!IsInfoVtypeARSkip(knum)) {
               char* v_start = basic_info_fields[kidx];
               if (!v_start) {
                 // Missing value.
@@ -4720,7 +4720,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
             const char* cur_key = info_keys[kidx];
             const int32_t knum = const_container_of(cur_key, InfoVtype, key)->num;
             cswritep = strcpya(cswritep, cur_key);
-            if (knum >= kInfoVtypeUnknown) {
+            if (!IsInfoVtypeARSkip(knum)) {
               char* v_start = basic_info_fields[kidx];
               if (v_start && (!memequal_k(v_start, locked_missing_semicolon_str, 3))) {
                 char* v_end = AdvPastDelim(v_start, ';');
@@ -6360,7 +6360,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       uintptr_t num_m1_sum = 0;
       for (uint32_t info_key_idx = 0; info_key_idx != info_key_ct; ++info_key_idx) {
         const int32_t info_vtype = const_container_of(info_keys[info_key_idx], InfoVtype, key)->num;
-        if (info_vtype >= kInfoVtypeUnknown) {
+        if (!IsInfoVtypeARSkip(info_vtype)) {
           if (info_vtype > 1) {
             num_m1_sum += info_vtype - 1;
           }
@@ -7050,12 +7050,13 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
       }
     }
 
+    uint32_t info_has_g_key = 0;
     const char* const* info_keys = nullptr;
     uint32_t* info_keys_htable = nullptr;
     uint32_t info_key_ct = 0;
     uint32_t info_keys_htable_size = 0;
     uint32_t info_conflict_present;
-    reterr = ScanPvarsAndMergeHeader(pmip, missing_varid_match, misc_flags, missing_varid_match_slen, input_missing_geno_char, max_thread_ct, sort_vars_mode, varid_templatep, varid_multi_templatep, varid_multi_nonsnp_templatep, outname, outname_end, &input_filesets, cip, &fileset_ct, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size, &info_conflict_present);
+    reterr = ScanPvarsAndMergeHeader(pmip, missing_varid_match, misc_flags, missing_varid_match_slen, input_missing_geno_char, max_thread_ct, sort_vars_mode, varid_templatep, varid_multi_templatep, varid_multi_nonsnp_templatep, outname, outname_end, &input_filesets, cip, &fileset_ct, &info_has_g_key, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size, &info_conflict_present);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }

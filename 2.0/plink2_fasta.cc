@@ -21,7 +21,7 @@
 namespace plink2 {
 #endif
 
-PglErr RefFromFaContig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const ChrInfo* cip, const char* seqbuf, uint32_t force, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t bp_end, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, uint32_t* changed_ct_ptr, uint32_t* validated_ct_ptr, uint32_t* downgraded_ct_ptr) {
+PglErr RefFromFaContig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const ChrInfo* cip, const char* seqbuf, uint32_t force, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t bp_end, AlleleCode* allele_permute, uintptr_t* nonref_flags, uint32_t* changed_ct_ptr, uint32_t* validated_ct_ptr, uint32_t* downgraded_ct_ptr) {
   uintptr_t variant_uidx_base;
   uintptr_t cur_bits;
   BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &cur_bits);
@@ -125,7 +125,14 @@ PglErr RefFromFaContig(const uintptr_t* variant_include, const uint32_t* variant
           logerrputsb();
           return kPglRetInconsistentInput;
         }
-        R_CAST(DoubleAlleleCode*, refalt1_select)[variant_uidx] = consistent_allele_idx;
+        AlleleCode* cur_allele_permute = &(allele_permute[allele_idx_offset_base]);
+        cur_allele_permute[0] = consistent_allele_idx;
+        cur_allele_permute[1] = 0;
+        if (allele_ct > 2) {
+          for (uint32_t uii = 1; uii != S_CAST(uint32_t, consistent_allele_idx); ++uii) {
+            cur_allele_permute[uii + 1] = uii;
+          }
+        }
         ++changed_ct;
       } else {
         ++validated_ct;
@@ -451,7 +458,7 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
   return kPglRetSuccess;
 }
 
-PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, uint32_t output_missing_geno_code, uint32_t max_thread_ct, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, uint32_t* contig_lens, char* outname, char* outname_end) {
+PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, uint32_t output_missing_geno_code, uint32_t max_thread_ct, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, AlleleCode* allele_permute, uintptr_t* nonref_flags, uint32_t* contig_lens, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   FILE* nlist_file = nullptr;
@@ -566,7 +573,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
           *seq_iter = '\0';
           const uint32_t bp_end = seq_iter - seqbuf;
           if (flags & kfFaRefFrom) {
-            reterr = RefFromFaContig(variant_include, variant_bps, allele_idx_offsets, allele_storage, cip, seqbuf, flags & kfFaRefFromForce, chr_fo_idx, cur_vidx_last, bp_end, refalt1_select, nonref_flags, &ref_changed_ct, &ref_validated_ct, &ref_downgraded_ct);
+            reterr = RefFromFaContig(variant_include, variant_bps, allele_idx_offsets, allele_storage, cip, seqbuf, flags & kfFaRefFromForce, chr_fo_idx, cur_vidx_last, bp_end, allele_permute, nonref_flags, &ref_changed_ct, &ref_validated_ct, &ref_downgraded_ct);
             if (unlikely(reterr)) {
               goto ProcessFa_ret_1;
             }
@@ -663,7 +670,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
       if (chr_fo_idx != UINT32_MAX) {
         *seq_iter = '\0';
         const uint32_t bp_end = seq_iter - seqbuf;
-        reterr = RefFromFaContig(variant_include, variant_bps, allele_idx_offsets, allele_storage, cip, seqbuf, ref_from_fa_force, chr_fo_idx, cur_vidx_last, bp_end, refalt1_select, nonref_flags, &ref_changed_ct, &ref_validated_ct, &ref_downgraded_ct);
+        reterr = RefFromFaContig(variant_include, variant_bps, allele_idx_offsets, allele_storage, cip, seqbuf, ref_from_fa_force, chr_fo_idx, cur_vidx_last, bp_end, allele_permute, nonref_flags, &ref_changed_ct, &ref_validated_ct, &ref_downgraded_ct);
         if (unlikely(reterr)) {
           goto ProcessFa_ret_1;
         }
