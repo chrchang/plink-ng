@@ -4361,12 +4361,27 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
           is_ref_changing = 1;
         }
         if (is_ref_changing) {
-          if (!IsSet(nonref_flags, variant_uidx)) {
-            if (unlikely(!force)) {
-              goto SetRefalt1FromFile_ret_NOFORCE;
+          if (!is_alt1) {
+            if (!IsSet(nonref_flags, variant_uidx)) {
+              if (unlikely(!force)) {
+                goto SetRefalt1FromFile_ret_NOFORCE;
+              }
+            } else {
+              ClearBit(variant_uidx, nonref_flags);
             }
           } else {
-            ClearBit(variant_uidx, nonref_flags);
+            // If --ref-allele had something to say about this variant,
+            // --alt1-allele 'force' should not apply, and we should not set a
+            // nonref_flags bit.
+            // Otherwise, both are in play.
+            if ((!previously_seen) || (!IsSet(previously_seen, variant_uidx))) {
+              if (!IsSet(nonref_flags, variant_uidx)) {
+                if (unlikely(!force)) {
+                  goto SetRefalt1FromFile_ret_NOFORCE;
+                }
+                SetBit(variant_uidx, nonref_flags);
+              }
+            }
           }
         }
         if (allele_blen == 2) {
@@ -4393,22 +4408,34 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
       if (allele_idx == orig_main_allele_idx) {
         continue;
       }
-      // both --ref-allele and --alt1-allele in current run, and they
-      // contradict each other.  error out instead of producing a
-      // order-of-operations dependent result.
-      if (unlikely(is_alt1 && previously_seen && IsSet(previously_seen, variant_uidx) && (allele_idx == cur_refalt1_select[0]))) {
-        snprintf(g_logbuf, kLogbufSize, "Error: --ref-allele and --alt1-allele assignments conflict for variant '%s'.\n", variant_ids[variant_uidx]);
-        goto SetRefalt1FromFile_ret_INCONSISTENT_INPUT_WW;
-      }
-
       // need to swap/rotate alleles.
-      if ((!is_alt1) || (!allele_idx)) {
-        if (!IsSet(nonref_flags, variant_uidx)) {
-          if (unlikely(!force)) {
-            goto SetRefalt1FromFile_ret_NOFORCE;
+      if (is_alt1 && previously_seen && IsSet(previously_seen, variant_uidx)) {
+        if (unlikely(allele_idx == cur_refalt1_select[0])) {
+          // both --ref-allele and --alt1-allele in current run, and they
+          // contradict each other.  error out instead of producing a
+          // order-of-operations dependent result.
+          snprintf(g_logbuf, kLogbufSize, "Error: --ref-allele and --alt1-allele assignments conflict for variant '%s'.\n", variant_ids[variant_uidx]);
+          goto SetRefalt1FromFile_ret_INCONSISTENT_INPUT_WW;
+        }
+        // minor bugfix (4 Jul 2024): do not perform further nonref_flags
+        // check; only --ref-allele 'force' setting should apply.
+      } else {
+        // * If !is_alt1, we are directly changing the REF allele.
+        // * If allele_idx == 0, we're processing --alt1-allele without a
+        //   --ref-allele observation at this variant, and the REF allele also
+        //   has to change.  Mark as provisional-reference.
+        if ((!is_alt1) || (allele_idx == 0)) {
+          if (!IsSet(nonref_flags, variant_uidx)) {
+            if (unlikely(!force)) {
+              goto SetRefalt1FromFile_ret_NOFORCE;
+            }
+          } else if (!is_alt1) {
+            ClearBit(variant_uidx, nonref_flags);
           }
-        } else if (!is_alt1) {
-          ClearBit(variant_uidx, nonref_flags);
+          if (is_alt1) {
+            cur_refalt1_select[0] = 1;
+            SetBit(variant_uidx, nonref_flags);
+          }
         }
       }
       if (!is_alt1) {
@@ -4418,31 +4445,6 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
         }
       } else {
         cur_refalt1_select[1] = allele_idx;
-
-        // cases:
-        // 1. --alt1-allele run without --ref-allele, or previously_seen not
-        //    set for this variant.  then allele_idx must be zero, and we need
-        //    to change cur_refalt1_select[0] from 0 to 1 and mark the variant
-        //    as having a provisional reference allele.
-        //    orig_main_allele_idx is 1 here.
-        // 2. --ref-allele and --alt1-allele both run on this variant, and
-        //    --ref-allele confirmed the initial ref allele setting.  then,
-        //    since there's no conflict but alt1 is changing, allele_idx must
-        //    be >1, and we leave cur_refalt1_select[0] unchanged at 0.
-        // 3. --ref-allele and --alt1-allele both run on this variant, and
-        //    --ref-allele swapped ref and alt1.  then, since there's no
-        //    conflict but alt1 is changing, allele_idx must be >1, and we
-        //    leave cur_refalt_select[0] unchanged at 1.
-        // 4. --ref-allele and --alt1-allele both run on this variant, and
-        //    cur_refalt1_select[0] >1.  allele_idx could be either zero or
-        //    >1, but we know it doesn't conflict cur_refalt1_select[0] so we
-        //    don't change the latter.  orig_main_allele_idx is still 1 here.
-        // cheapest way I see to detect case 1 is comparison of allele_idx with
-        //   cur_refalt1_select[0].
-        if (cur_refalt1_select[0] == allele_idx) {
-          cur_refalt1_select[0] = 1;
-          SetBit(variant_uidx, nonref_flags);
-        }
       }
       ++rotated_variant_ct;
     }

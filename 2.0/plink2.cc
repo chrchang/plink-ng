@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a5.12"
+static const char ver_str[] = "PLINK v2.00a5.13"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a5.12"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (25 Jun 2024)";
+  " (xx yyy 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -9637,6 +9637,10 @@ int main(int argc, char** argv) {
             // --read-freq can't promise OBS_CTs, so simplest to just continue
             // disallowing this
             logerrputs("Error: --freq and --read-freq cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.misc_flags & kfMiscMajRef)) {
+            logerrputs("Error: --read-freq cannot be used with --maj-ref.  (We recommend preprocessing\nthe --read-freq file to generate a file that can be used with\n--ref-allele/--alt1-allele.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
