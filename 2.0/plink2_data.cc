@@ -6388,6 +6388,16 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           nonref_flags_write = nullptr;
           nonref_flags_storage = 1;
         }
+      } else {
+        if (nonref_flags_write[0] & 1) {
+          if (AllBitsAreOne(nonref_flags_write, raw_variant_ct)) {
+            nonref_flags_write = nullptr;
+            nonref_flags_storage = 2;
+          }
+        } else if (AllWordsAreZero(nonref_flags_write, BitCtToWordCt(raw_variant_ct))) {
+          nonref_flags_write = nullptr;
+          nonref_flags_storage = 1;
+        }
       }
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
@@ -7514,6 +7524,16 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
           }
         } else if (AllWordsAreZero(nonref_flags_write, write_variant_ctl)) {
           BigstackReset(nonref_flags_write);
+          nonref_flags_write = nullptr;
+          nonref_flags_storage = 1;
+        }
+      } else {
+        if (nonref_flags_write[0] & 1) {
+          if (AllBitsAreOne(nonref_flags_write, raw_variant_ct)) {
+            nonref_flags_write = nullptr;
+            nonref_flags_storage = 2;
+          }
+        } else if (AllWordsAreZero(nonref_flags_write, BitCtToWordCt(raw_variant_ct))) {
           nonref_flags_write = nullptr;
           nonref_flags_storage = 1;
         }
