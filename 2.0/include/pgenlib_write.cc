@@ -1923,6 +1923,9 @@ void PglMultiallelicSparseToDense(const uintptr_t* __restrict genoarr, const uin
         const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &cur_bits);
         const AlleleCode ac = remap[patch_01_vals[uii]];
         if (ac > remap0) {
+          // bugfix (4 Jul 2024): cannot assume wide_codes[2 * sample_idx] ==
+          // remap0.  It's remap1 when remap1 < remap0.
+          wide_codes[2 * sample_idx] = remap0;
           wide_codes[2 * sample_idx + 1] = ac;
         } else {
           wide_codes[2 * sample_idx] = ac;
