@@ -157,7 +157,7 @@ static BGZF *bgzf_write_init(const char *mode)
     if ( strchr(mode,'g') )
     {
         // gzip output
-        fp->is_gzip = 1;
+        fp->is_gzip = -1;
         fp->gz_stream = (z_stream*)calloc(1,sizeof(z_stream));
         fp->gz_stream->zalloc = NULL;
         fp->gz_stream->zfree  = NULL;
@@ -499,7 +499,7 @@ int bgzf_read_block(BGZF *fp)
         }
         if ( header[3] & 0x2 ) nskip += 2;  //  FLG.FHCRC
 
-        fp->is_gzip = 1;
+        fp->is_gzip = -1;
         fp->gz_stream = (z_stream*) calloc(1,sizeof(z_stream));
         int ret = inflateInit2(fp->gz_stream, -15);
         if (ret != Z_OK)
@@ -1122,4 +1122,3 @@ long bgzf_utell(BGZF *fp)
 {
     return fp->uncompressed_address;    // currently maintained only when reading
 }
-

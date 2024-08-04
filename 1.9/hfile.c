@@ -117,7 +117,7 @@ static ssize_t refill_buffer(hFILE *fp)
     else {
         n = fp->backend->read(fp, fp->end, fp->limit - fp->end);
         if (n < 0) { fp->has_errno = errno; return n; }
-        else if (n == 0) fp->at_eof = 1;
+        else if (n == 0) fp->at_eof = -1;
     }
 
     fp->end += n;
@@ -157,7 +157,7 @@ ssize_t hread2(hFILE *fp, void *destv, size_t nbytes, size_t nread)
     while (nbytes * 2 >= capacity && !fp->at_eof) {
         ssize_t n = fp->backend->read(fp, dest, nbytes);
         if (n < 0) { fp->has_errno = errno; return n; }
-        else if (n == 0) fp->at_eof = 1;
+        else if (n == 0) fp->at_eof = -1;
         fp->offset += n;
         dest += n, nbytes -= n;
         nread += n;

@@ -265,7 +265,7 @@
     #error "zlib version 1.2.4 or later required."
   #endif
 #else
-  #include "../zlib-1.3/zlib.h"
+  #include "../zlib-1.3.1/zlib.h"
 #endif
 #include "SFMT.h"
 
