@@ -866,11 +866,12 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   // should handle raw_variant_ct == 0 properly
 
   // possible todo: optionally skip allele code loading
-  // probable todo: load INFO/END.  (does this allow the CNV module to be
-  //   unified with the rest of the program?)  but this will probably wait
-  //   until I need to analyze some sort of CNV data, and that day keeps
-  //   getting postponed... for now, the BCF exporter performs its own parsing
-  //   of INFO/END so that it can fill each variant's rlen field correctly.
+  // probable todo: conditionally compute the value previously known as
+  //   INFO/END.  (does this allow the CNV module to be unified with the rest
+  //   of the program?)  but this will probably wait until I need to analyze
+  //   some sort of CNV data, and that day keeps getting postponed... for now,
+  //   the BCF exporter performs its own parsing of INFO/END to have a decent
+  //   shot at filling each variant's rlen field correctly.
   // possible todo: require FILTER to only contain values declared in header,
   //   and modify its storage accordingly?  (pointless for now, but worthwhile
   //   to keep an eye on what typical VCF files look like.)

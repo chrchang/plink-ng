@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (4 Jul 2024)";
+  " (4 Aug 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -9687,6 +9687,8 @@ int main(int argc, char** argv) {
           }
           if (!(xload & kfXloadMap)) {
             // allow --map to override this
+            // though I guess this isn't possible any more due to --pedmap
+            // being after --map alphabetically
             char* prefix_end = memcpya(pvarname, fname_prefix, slen);
             snprintf(prefix_end, 5, ".map");
             xload |= kfXloadMap;
@@ -11765,6 +11767,10 @@ int main(int argc, char** argv) {
       logerrputs("Error: No input dataset.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
+    if (unlikely((xload & kfXloadMap) && (!(xload & kfXloadPed)))) {
+      logerrputs("Error: --map must be used with --ped.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
     if (unlikely((xload & kfXloadOxGen) && (!(xload & kfXloadOxSample)))) {
       // could permit .fam/.psam, but unless Oxford software supports that mode
       // it's pointless
@@ -12079,8 +12085,14 @@ int main(int argc, char** argv) {
             reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, !!pc.update_sex_info.fname, !!pc.splitpar_bound2, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
           } else if (xload & kfXloadPlink1Dosage) {
             reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
-          } else if (xload & kfXloadGenDummy) {
+          } else if (likely(xload & kfXloadGenDummy)) {
             reterr = GenerateDummy(&gendummy_info, pc.misc_flags, import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, &main_sfmt, outname, convname_end, &chr_info);
+          } else {
+            // We should have errored out with a better message before this
+            // point.
+            assert(0);
+            logerrputs("Error: Invalid input flag combination.\n");
+            goto main_ret_INVALID_CMDLINE;
           }
         }
         if (reterr || (!pc.command_flags1)) {

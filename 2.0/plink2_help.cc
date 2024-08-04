@@ -840,7 +840,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      * file= specifies a file containing one population pair per line.\n"
 "      Note that 'base='/'ids='/'file=' must be positioned after all modifiers.\n\n"
               );
-    HelpPrint("indep\0indep-pairwise\0", &help_ctrl, 1,
+    HelpPrint("indep\0indep-pairwise\0indep-pairphase\0", &help_ctrl, 1,
 "  --indep-pairwise <window size>['kb'] [step size (variant ct)]\n"
 "                   <unphased-hardcall-r^2 threshold>\n"
 "  --indep-pairphase <window size>['kb'] [step size (variant ct)]\n"

@@ -152,20 +152,20 @@ PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
         variant_include_word = 0;
       }
       ++raw_variant_ct;
-      ++line_idx;
-      line_iter = AdvPastDelim(line_iter, '\n');
-      if (!TextGetUnsafe2(&map_txs, &line_iter)) {
-        if (!TextStreamErrcode2(&map_txs, &reterr)) {
-          break;
+      do {
+        ++line_idx;
+        line_iter = AdvPastDelim(line_iter, '\n');
+        if (!TextGetUnsafe2(&map_txs, &line_iter)) {
+          if (!TextStreamErrcode2(&map_txs, &reterr)) {
+            goto ScanMap_eof;
+          }
+          goto ScanMap_ret_TSTREAM_FAIL;
         }
-        goto ScanMap_ret_TSTREAM_FAIL;
-      }
-      if (unlikely(line_iter[0] == '#')) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line.)\n", line_idx, mapname);
-        goto ScanMap_ret_MALFORMED_INPUT_WW;
-      }
+        // bugfix (4 Aug 2024): original .map specification permits interior
+        // comment lines
+      } while (line_iter[0] == '#');
     }
-
+  ScanMap_eof:
     if (unlikely(!variant_ct)) {
       logerrputs("Error: All variants in .map file skipped due to chromosome filter or negative\nbp coordinates.\n");
       goto ScanMap_ret_INCONSISTENT_INPUT;
@@ -337,12 +337,14 @@ PglErr MapToPvar(const char* mapname, const ChrInfo* cip, const char* const* all
         }
       }
     MapToPvar_skip_variant:
-      ++line_idx;
-      line_iter = AdvPastDelim(line_iter, '\n');
-      if (unlikely(!TextGetUnsafe2(&map_txs, &line_iter))) {
-        TextStreamErrcode2(&map_txs, &reterr);
-        goto MapToPvar_ret_TSTREAM_REWIND_FAIL;
-      }
+      do {
+        ++line_idx;
+        line_iter = AdvPastDelim(line_iter, '\n');
+        if (unlikely(!TextGetUnsafe2(&map_txs, &line_iter))) {
+          TextStreamErrcode2(&map_txs, &reterr);
+          goto MapToPvar_ret_TSTREAM_REWIND_FAIL;
+        }
+      } while (line_iter[0] == '#');
     }
   }
   while (0) {
@@ -514,19 +516,18 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
         ++variant_ct;
       }
     LoadMap_skip_variant:
-      ++line_idx;
-      line_iter = AdvPastDelim(line_iter, '\n');
-      if (!TextGetUnsafe2(&map_txs, &line_iter)) {
-        if (!TextStreamErrcode2(&map_txs, &reterr)) {
-          break;
+      do {
+        ++line_idx;
+        line_iter = AdvPastDelim(line_iter, '\n');
+        if (!TextGetUnsafe2(&map_txs, &line_iter)) {
+          if (!TextStreamErrcode2(&map_txs, &reterr)) {
+            goto LoadMap_eof;
+          }
+          goto LoadMap_ret_TSTREAM_FAIL;
         }
-        goto LoadMap_ret_TSTREAM_FAIL;
-      }
-      if (unlikely(line_iter[0] == '#')) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line.)\n", line_idx, mapname);
-        goto LoadMap_ret_MALFORMED_INPUT_WW;
-      }
+      } while (line_iter[0] == '#');
     }
+  LoadMap_eof:
     if (unlikely(max_variant_id_slen > kMaxIdSlen)) {
       logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto LoadMap_ret_MALFORMED_INPUT;
@@ -1700,15 +1701,18 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
     unsigned char* tmp_alloc_base = g_bigstack_base;
     unsigned char* tmp_alloc_end = g_bigstack_end;
     const uint32_t fam_col_ct_m1 = ((fam_cols / kfFamCol1) & 1) + ((fam_cols / (kfFamCol34 / 2)) & 2) + ((fam_cols / kfFamCol5) & 1) + ((fam_cols / kfFamCol6) & 1);
-    line_idx = 1;
-    char* ped_line_start = TextGet(&ped_txs);
-    if (unlikely(!ped_line_start)) {
-      if (TextStreamErrcode2(&ped_txs, &reterr)) {
-        goto PedmapToPgen_ret_TSTREAM_FAIL;
+    char* ped_line_start;
+    do {
+      ++line_idx;
+      ped_line_start = TextGet(&ped_txs);
+      if (unlikely(!ped_line_start)) {
+        if (TextStreamErrcode2(&ped_txs, &reterr)) {
+          goto PedmapToPgen_ret_TSTREAM_FAIL;
+        }
+        snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", pedname);
+        goto PedmapToPgen_ret_DEGENERATE_DATA;
       }
-      snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", pedname);
-      goto PedmapToPgen_ret_DEGENERATE_DATA;
-    }
+    } while (ped_line_start[0] == '#');
     uint32_t compound_genotypes = 0;
     {
       const uint32_t token_ct = CountTokens(ped_line_start);
@@ -1724,6 +1728,7 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
       }
     }
     uint32_t max_allele_slen = 1;
+    uint32_t sample_idx = 0;
     while (1) {
       char* fam_last = NextTokenMult0(ped_line_start, fam_col_ct_m1);
       if (unlikely(!fam_last)) {
@@ -1925,20 +1930,24 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
       if (unlikely(!fwrite_unlocked(genovec, variant_ct4, 1, indmaj_bed_file))) {
         goto PedmapToPgen_ret_WRITE_FAIL;
       }
-      if ((line_idx % 100) == 0) {
-        printf("\r--pedmap: %" PRIuPTR " samples scanned.", line_idx);
+      ++sample_idx;
+      if ((sample_idx % 100) == 0) {
+        printf("\r--pedmap: %u samples scanned.", sample_idx);
         fflush(stdout);
       }
-      ++line_idx;
-      ped_line_start = TextGet(&ped_txs);
-      if (!ped_line_start) {
-        break;
-      }
-      if (unlikely(line_idx == 0x7fffffff)) {
+      do {
+        ++line_idx;
+        ped_line_start = TextGet(&ped_txs);
+        if (!ped_line_start) {
+          goto PedmapToPgen_ped_eof;
+        }
+      } while (ped_line_start[0] == '#');
+      if (unlikely(sample_idx == 0x7fffffff)) {
         logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
         goto PedmapToPgen_ret_MALFORMED_INPUT;
       }
     }
+  PedmapToPgen_ped_eof:
     if (unlikely(TextStreamErrcode2(&ped_txs, &reterr))) {
       goto PedmapToPgen_ret_TSTREAM_FAIL;
     }
@@ -1946,7 +1955,7 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
                  fclose_null(&indmaj_bed_file))) {
       goto PedmapToPgen_ret_WRITE_FAIL;
     }
-    const uint32_t sample_ct = line_idx - 1;
+    const uint32_t sample_ct = sample_idx;
     *outname_end = '\0';
     putc_unlocked('\r', stdout);
     logprintfww("--pedmap: %u sample%s present, genotypes extracted to %s.bed.smaj .\n", sample_ct, (sample_ct == 1)? "" : "s", outname);

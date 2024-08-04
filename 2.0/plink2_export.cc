@@ -8209,7 +8209,8 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       memcpy(&(rec_start[8]), &chr_bcf_idx, sizeof(int32_t));  // CHROM
       const int32_t bp0 = S_CAST(int32_t, variant_bps[variant_uidx] - 1);
       memcpy(&(rec_start[12]), &bp0, sizeof(int32_t));  // POS
-      // [16,20) is rlen, which may depend on INFO/END
+      // [16,20) is rlen, which may depend on INFO/END... er, VCF 4.5 spec says
+      // INFO/SVLEN and FORMAT/LEN should be consulted instead
 
       if ((!pvar_quals) || (!IsSet(pvar_qual_present, variant_uidx))) {
         const uint32_t missing_val = 0x7f800001;
@@ -8459,6 +8460,8 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                   // Only save INFO/END-derived rlen when REF is a single base,
                   // and info_end_rlen is positive.
                   // Otherwise, print a warning if the two rlens aren't equal.
+                  // TODO: process INFO/SVLEN and FORMAT/LEN as directed by the
+                  // VCF 4.5 specification instead.
                   const uint32_t info_end_rlen = 1 + info_int_buf[0] - variant_bps[variant_uidx];
                   if ((rlen == 1) && (S_CAST(int32_t, info_end_rlen) > 0)) {
                     rlen = info_end_rlen;
