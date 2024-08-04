@@ -1,7 +1,7 @@
 BASEFLAGS=-DUSE_MKL
 CXXFLAGS=-O2 -I/opt/intel/mkl/include
 
-ZLIB64=../../zlib-1.2.13/libz-64.a
+ZLIB64=../../zlib-1.3.1/libz-64.a
 LINKFLAGS=-lm -lpthread
 
 

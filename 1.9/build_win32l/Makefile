@@ -1,5 +1,5 @@
 OPENBLAS_ROOT = ../../../openblas-32
-ZLIB_STATIC = ../../zlib-1.2.13/libz-32w.a
+ZLIB_STATIC = ../../zlib-1.3.1/libz-32w.a
 
 BASEFLAGS=
 # ***** end configuration *****
