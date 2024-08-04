@@ -9489,8 +9489,6 @@ int main(int argc, char** argv) {
           }
           if (!(xload & kfXloadMap)) {
             // allow --map to override this
-            // though I guess this isn't possible any more due to --pedmap
-            // being after --map alphabetically
             char* prefix_end = memcpya(pvarname, fname_prefix, slen);
             snprintf(prefix_end, 5, ".map");
             xload |= kfXloadMap;
