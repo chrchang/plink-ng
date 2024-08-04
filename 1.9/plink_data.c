@@ -599,10 +599,9 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 	    }
 	    chrom_header_line_present = 1;
 	  }
-	} else if (*loadbuf_first_token == '#') {
-	  snprintf(g_logbuf, LOGBUFLEN, "Error: Header lines are not permitted in %ss.\n", ftype_str);
-	  goto load_bim_ret_INVALID_FORMAT_2;
 	}
+        // bugfix (4 Aug 2024): original PLINK documentation explicitly states
+        // '#' comments are ok in .map files
 	continue;
       }
       char* first_token_end = token_endnn(loadbuf_first_token);
