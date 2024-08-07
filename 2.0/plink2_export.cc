@@ -2928,47 +2928,53 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     // compression mode (1 + use_zstd_compression), layout=2
     writebuf[20] = 9 + use_zstd_compression;
     unsigned char* writebuf_flush = &(writebuf[kMaxMediumLine]);
-    // always save sample IDs...
-    char* exported_sample_ids;
-    uintptr_t max_exported_sample_id_blen;
-    if (unlikely(ExportIdpaste(sample_include, siip, use_zstd_compression? "bgen-1.3" : "bgen-1.2", "bgen", sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids))) {
-      goto ExportBgen13_ret_NOMEM;
-    }
-    // Compute total length of sample ID block now; this is necessary to fill
-    // in bytes 0-3 and 24-27 correctly; and we must do this now since we may
-    // flush them before we're done rendering the block.
-    uintptr_t sample_id_block_len = 2 * sample_ct + 8;
-    const char* exported_sample_ids_iter = exported_sample_ids;
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      sample_id_block_len += strlen(exported_sample_ids_iter);
-      exported_sample_ids_iter = &(exported_sample_ids_iter[max_exported_sample_id_blen]);
-    }
-#ifdef __LP64__
-    if (sample_id_block_len > 0xffffffffU - 20) {
-      // ...unless combined sample ID length is actually greater than 4 GiB, in
-      // which case bgen-1.2/1.3 can't actually represent it.
-      logerrputs("Warning: Omitting sample ID block from .bgen file since it would overflow (more\nthan 4 GiB).  Consider using shorter IDs.\n");
+    // Save sample IDs unless bgen-omit-sample-id-block specified...
+    if (exportf_flags & kfExportfBgenOmitSampleIdBlock) {
       memcpy(writebuf, "\24\0\0", 4);
+      writebuf[23] = 0;
     } else {
-#endif
-      uint32_t initial_bgen_offset = sample_id_block_len + 20;
-      memcpy(writebuf, &initial_bgen_offset, 4);
-      AppendU32(sample_id_block_len, &write_iter);
-      AppendU32(sample_ct, &write_iter);
-      exported_sample_ids_iter = exported_sample_ids;
+      char* exported_sample_ids;
+      uintptr_t max_exported_sample_id_blen;
+      if (unlikely(ExportIdpaste(sample_include, siip, use_zstd_compression? "bgen-1.3" : "bgen-1.2", "bgen", sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids))) {
+        goto ExportBgen13_ret_NOMEM;
+      }
+      // Compute total length of sample ID block now; this is necessary to fill
+      // in bytes 0-3 and 24-27 correctly; and we must do this now since we may
+      // flush them before we're done rendering the block.
+      uintptr_t sample_id_block_len = 2 * sample_ct + 8;
+      const char* exported_sample_ids_iter = exported_sample_ids;
       for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        const uint16_t cur_slen = strlen(exported_sample_ids_iter);
-        AppendU16(cur_slen, &write_iter);
-        write_iter = memcpyua(write_iter, exported_sample_ids_iter, cur_slen);
+        sample_id_block_len += strlen(exported_sample_ids_iter);
         exported_sample_ids_iter = &(exported_sample_ids_iter[max_exported_sample_id_blen]);
-        if (unlikely(fwrite_uflush2(writebuf_flush, outfile, &write_iter))) {
-          goto ExportBgen13_ret_WRITE_FAIL;
-        }
       }
 #ifdef __LP64__
-    }
+      if (sample_id_block_len > 0xffffffffU - 20) {
+        // ...or combined sample ID length is actually greater than 4 GiB, in
+        // which case bgen-1.2/1.3 can't actually represent it.
+        logerrputs("Warning: Omitting sample ID block from .bgen file since it would overflow (more\nthan 4 GiB).  Consider using shorter IDs.\n");
+        memcpy(writebuf, "\24\0\0", 4);
+        writebuf[23] = 0; // bugfix (6 Aug 2024): forgot this
+      } else {
 #endif
-    BigstackReset(exported_sample_ids);
+        uint32_t initial_bgen_offset = sample_id_block_len + 20;
+        memcpy(writebuf, &initial_bgen_offset, 4);
+        AppendU32(sample_id_block_len, &write_iter);
+        AppendU32(sample_ct, &write_iter);
+        exported_sample_ids_iter = exported_sample_ids;
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          const uint16_t cur_slen = strlen(exported_sample_ids_iter);
+          AppendU16(cur_slen, &write_iter);
+          write_iter = memcpyua(write_iter, exported_sample_ids_iter, cur_slen);
+          exported_sample_ids_iter = &(exported_sample_ids_iter[max_exported_sample_id_blen]);
+          if (unlikely(fwrite_uflush2(writebuf_flush, outfile, &write_iter))) {
+            goto ExportBgen13_ret_WRITE_FAIL;
+          }
+        }
+#ifdef __LP64__
+      }
+#endif
+      BigstackReset(exported_sample_ids);
+    }
 
     const uintptr_t max_write_block_byte_ct = bigstack_left() / 4;
     uint32_t max_write_block_size = kPglVblockSize;

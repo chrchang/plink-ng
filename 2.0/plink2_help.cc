@@ -437,7 +437,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --export <output format(s)...> [{01 | 12}] ['bgz'] ['id-delim='<char>]\n"
 "           ['id-paste='<column set descriptor>] ['include-alt']\n"
 "           ['omit-nonmale-y'] ['spaces'] ['vcf-dosage='<field>] ['ref-first']\n"
-"           ['bits='<#>] ['sample-v2']\n"
+"           ['bits='<#>] ['sample-v2'] ['bgen-omit-sample-id-block']\n"
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
 "    (actually, only A, AD, Av, bcf, bgen-1.x, haps, hapslegend, ind-major-bed,\n"
@@ -537,9 +537,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * 'sample-v2' exports .sample files according to the QCTOOLv2 rather than\n"
 "      the original specification.  Only one ID column is exported ('id-paste'\n"
 "      and 'id-delim' settings apply), parental IDs are exported if present, and\n"
-"      category names are preserved rather than converted to positive integers.\n\n"
+"      category names are preserved rather than converted to positive integers.\n"
+"    * 'bgen-omit-sample-id-block' causes the sample ID block to be omitted from\n"
+"      exported bgen-1.2 and -1.3 files.\n\n"
               );
-
     // don't bother with case/control or cluster-stratification any more, since
     // user can loop through subgroups and then use Unix cut/paste
 

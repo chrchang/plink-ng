@@ -211,7 +211,8 @@ FLAGSET64_DEF_START()
   kfExportfBgz = (1LLU << 39),
   kfExportfOmitNonmaleY = (1LLU << 40),
   kfExportfSampleV2 = (1LLU << 41),
-  kfExportfPhylipUsedSites = (1LLU << 42)
+  kfExportfBgenOmitSampleIdBlock = (1LLU << 42),
+  kfExportfPhylipUsedSites = (1LLU << 43)
 FLAGSET64_DEF_END(ExportfFlags);
 
 FLAGSET_DEF_START()

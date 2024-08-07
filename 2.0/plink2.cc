@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (4 Aug 2024)";
+  " (6 Aug 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -5424,6 +5424,12 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.exportf_info.flags |= kfExportfSampleV2;
+            } else if (strequal_k(cur_modif, "bgen-omit-sample-id-block", cur_modif_slen)) {
+              if (unlikely(!(pc.exportf_info.flags & (kfExportfBgen12 | kfExportfBgen13)))) {
+                logerrputs("Error: 'bgen-omit-sample-id-block' modifier only applies to --export's bgen-1.2\nand bgen-1.3 output formats.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.exportf_info.flags |= kfExportfBgenOmitSampleIdBlock;
             } else if (strequal_k(cur_modif, "used-sites", cur_modif_slen)) {
               if (unlikely(!(pc.exportf_info.flags & (kfExportfPhylip | kfExportfPhylipPhased)))) {
                 logerrputs("Error: 'used-sites' modifier only applies to --export's phylip and\nphylip-phased output formats.\n");
