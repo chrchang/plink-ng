@@ -2955,6 +2955,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
       // which case bgen-1.2/1.3 can't actually represent it.
       logerrputs("Warning: Omitting sample ID block from .bgen file since it would overflow (more\nthan 4 GiB).  Consider using shorter IDs.\n");
       memcpy(writebuf, "\24\0\0", 4);
+      writebuf[23] = 0; // bugfix (6 Aug 2024)
     } else {
 #endif
       uint32_t initial_bgen_offset = sample_id_block_len + 20;
