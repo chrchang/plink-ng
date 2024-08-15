@@ -229,6 +229,7 @@ typedef struct BgzfCompressCommWithPStruct {
   pthread_cond_t ucbuf_condvar;
 #endif
   uint32_t nbytes;  // UINT32_MAX = open, otherwise filled
+  uint32_t eof;  // bugfix (15 Aug 2024): otherwise BgzfFlush[Try] doesn't work
 } BgzfCompressCommWithP;
 
 typedef struct BgzfCompressorContextStruct {

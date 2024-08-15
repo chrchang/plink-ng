@@ -613,8 +613,7 @@ THREAD_FUNC_DECL BgzfCompressorThread(void* raw_arg) {
       nwrite = S_CAST(uint32_t, bsize) + 1;
     }
     cww->nbytes = nwrite;
-    const uint32_t eof = (src_byte_ct != kBgzfInputBlockSize);
-    cww->eof = eof;
+    cww->eof = cwp->eof;
     cwp->nbytes = UINT32_MAX;
 #ifdef _WIN32
     SetEvent(cwp->ucbuf_open_event);
@@ -766,6 +765,7 @@ PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint3
     }
 #endif
     cwp->nbytes = UINT32_MAX;
+    cwp->eof = 0;
 
     BgzfCompressCommWithW* cww = R_CAST(BgzfCompressCommWithW*, raw_alloc);
     bgzfp->cwws[slot_idx] = cww;
@@ -1015,10 +1015,12 @@ BoolErr CleanupBgzfCompressStream(BgzfCompressStream* cstream_ptr, PglErr* reter
           // kBgzfInputBlockSize and return
 #ifdef _WIN32
           cwp->nbytes = nbytes;
+          cwp->eof = 1;
           SetEvent(cwp->ucbuf_filled_event);
 #else
           pthread_mutex_lock(&(cwp->ucbuf_mutex));
           cwp->nbytes = nbytes;
+          cwp->eof = 1;
           pthread_cond_signal(&(cwp->ucbuf_condvar));
           pthread_mutex_unlock(&(cwp->ucbuf_mutex));
 #endif
