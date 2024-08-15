@@ -613,7 +613,8 @@ THREAD_FUNC_DECL BgzfCompressorThread(void* raw_arg) {
       nwrite = S_CAST(uint32_t, bsize) + 1;
     }
     cww->nbytes = nwrite;
-    cww->eof = cwp->eof;
+    const uint32_t eof = cwp->eof;
+    cww->eof = eof;
     cwp->nbytes = UINT32_MAX;
 #ifdef _WIN32
     SetEvent(cwp->ucbuf_open_event);
