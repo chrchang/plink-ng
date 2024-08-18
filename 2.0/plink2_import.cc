@@ -3287,7 +3287,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
         // Check if there's at least one phased het call, and/or at least one
         // relevant dosage.
-        // If there's only one sample, also check whether the VCF has any
+        // If there's only one sample, maybe also check whether the VCF has any
         // hom-REF calls at all.
         // Don't bother multithreading this since it's trivial.
         if ((vic.hds_field_idx != UINT32_MAX) || (vic.dosage_field_idx != UINT32_MAX)) {
@@ -3361,7 +3361,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       logprintf("--vcf: %u variant%s scanned (%" PRIuPTR " skipped).\n", variant_ct, (variant_ct == 1)? "" : "s", variant_skip_ct);
     }
     if ((!not_single_sample_no_nonvar) && (nonvar_nonmissing_ct >= 1000)) {
-      logerrprintf("Warning: All genotypes contain at least one ALT allele; this implies the VCF\nwas incorrectly generated.  You probably need to backtrack and e.g. rerun GATK\nGenotypeGVCFs with the --include-non-variant-sites flag added.\n");
+      logerrputs("Warning: All genotypes contain at least one ALT allele; this implies the VCF\nwas incorrectly generated.  You probably need to backtrack and e.g. rerun GATK\nGenotypeGVCFs with the --include-non-variant-sites flag added.\n");
     }
 
     if (allele_idx_end > 2 * variant_ct) {
