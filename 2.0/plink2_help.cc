@@ -1622,6 +1622,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --vcf-ref-n-missing : Import VCF 'N' REF alleles as missing alleles.  This\n"
 "                        can be appropriate for .ped-derived VCFs.\n"
                );
+    HelpPrint("vcf\0vcf-allow-no-nonvar\0", &help_ctrl, 0,
+"  --vcf-allow-no-nonvar : By default, --vcf without dosage= prints a warning\n"
+"                          (to be upgraded to an error in a future build) when\n"
+"                          given a single-sample file with no 0, 0/0, or 0|0 GT\n"
+"                          values among 1000+ scanned variants with non-missing\n"
+"                          GT, since that implies the VCF was not generated\n"
+"                          properly (e.g. GATK GenotypeGVCFs was run without\n"
+"                          --include-non-variant-sites).  --vcf-allow-no-nonvar\n"
+"                          suppresses this warning/error.\n"
+              );
     HelpPrint("oxford-single-chr\0data\0gen\0bgen\0", &help_ctrl, 0,
 "  --oxford-single-chr <chr name>  : Specify single-chromosome .gen/.bgen file\n"
 "                                    with no useful chromosome info inside.\n"
