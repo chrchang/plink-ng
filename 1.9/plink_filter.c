@@ -3135,7 +3135,7 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
   if (((uint64_t)max_obs) * 9 > ((uint64_t)min_obs_nonx) * 10) {
     logerrprint("Warning: --hwe observation counts vary by more than 10%.  Consider using\n--geno, and/or applying different p-value thresholds to distinct subsets of\nyour data.\n");
   } else if (((uint64_t)max_obs) * 9 > ((uint64_t)min_obs_x) * 10) {
-    logerrprint("Warning: --hwe observation counts vary by more than 10%, due to the X\nchromosome.  You may want to use a less stringent --hwe p-value threshold for X\nchromosome variants.\n");
+    logerrprint("Warning: --hwe observation counts vary by more than 10%, due to the X\nchromosome.  You may want to use a more stringent (i.e. less extreme) --hwe\np-value threshold for X chromosome variants: male samples are ignored there, so\nthe same degree of HWE violation corresponds to a less-extreme p-value than it\ndoes elsewhere in the genome.\n");
   }
   if ((marker_ct == removed_ct) && (!allow_no_variants)) {
     logerrprint("Error: All variants removed due to Hardy-Weinberg exact test (--hwe).\n");
