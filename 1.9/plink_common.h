@@ -43,7 +43,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define SPECIES_HUMAN 0
 #define SPECIES_COW 1
