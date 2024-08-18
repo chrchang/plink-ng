@@ -68,7 +68,8 @@ FLAGSET_DEF_START()
   kfImportVcfRefNMissing = (1 << 4),
   kfImportLaxChrX = (1 << 5),
   kfImportPolyploidMissing = (1 << 6),
-  kfImportPolyploidExplicitError = (1 << 7)
+  kfImportPolyploidExplicitError = (1 << 7),
+  kfImportVcfAllowNoNonvar = (1 << 8)
 FLAGSET_DEF_END(ImportFlags);
 
 CONSTI32(kMaxInfoKeySlen, kMaxIdSlen);

@@ -11543,6 +11543,24 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
     }
     AlleleCode aidx = 0;
 
+    logprintf("Running %s with the following filter%s:\n", flagname, inter_chr? "" : "s");
+    if (!inter_chr) {
+      if (var_ct_radius < 0x7fffffff) {
+        logprintf("  --ld-window: %u\n", var_ct_radius + 1);
+      }
+      logprintf("  --ld-window-kb: %g\n", 0.001 * u31tod(bp_radius));
+      if (cm_radius != -1.0) {
+        logprintf("  --ld-window-cm: %g\n", cm_radius);
+      }
+    }
+    logprintf("  --ld-window-r2: %g\n", min_r2);
+    if (row_snp_subset) {
+      if (ld_snp_list_fname) {
+        logputs("  --ld-snp-list\n");
+      } else {
+        logputs("  --ld-snp[s]\n");
+      }
+    }
     uint32_t next_print_variant_ridx = row_variant_ct / 100;
     uint32_t pct = 0;
     uint32_t prev_variant_ridx_start = 0;

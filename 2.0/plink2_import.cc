@@ -3093,6 +3093,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     uint32_t max_allele_slen = 1;
     uint32_t max_qualfilterinfo_slen = 6;
     uint32_t phase_or_dosage_found = 0;
+    uint32_t not_single_sample_no_nonvar = (sample_ct != 1) || format_dosage_relevant || format_hds_search || (import_flags & kfImportVcfAllowNoNonvar);
+    uint32_t nonvar_nonmissing_ct = 0;
 
     while (1) {
       ++line_idx;
@@ -3261,7 +3263,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         if (unlikely(*format_end != '\t')) {
           goto VcfToPgen_ret_MISSING_TOKENS;
         }
-        if (phase_or_dosage_found) {
+        if (phase_or_dosage_found && not_single_sample_no_nonvar) {
           goto VcfToPgen_linescan_done;
         }
 
@@ -3285,6 +3287,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
         // Check if there's at least one phased het call, and/or at least one
         // relevant dosage.
+        // If there's only one sample, also check whether the VCF has any
+        // hom-REF calls at all.
         // Don't bother multithreading this since it's trivial.
         if ((vic.hds_field_idx != UINT32_MAX) || (vic.dosage_field_idx != UINT32_MAX)) {
           if (alt_ct == 1) {
@@ -3302,10 +3306,21 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           if (!vic.vibc.gt_exists) {
             goto VcfToPgen_linescan_done;
           }
-          if (alt_ct < 10) {
-            phase_or_dosage_found = VcfScanShortallelicLine(&(vic.vibc), format_end, &line_iter);
-          } else {
-            phase_or_dosage_found = VcfScanLongallelicLine(&(vic.vibc), format_end, &line_iter);
+          if (!not_single_sample_no_nonvar) {
+            if (format_end[1] == '0') {
+              const char cc = format_end[2];
+              not_single_sample_no_nonvar = (((cc == '/') || (cc == '|')) && (format_end[3] == '0')) || (cc == ':') || (cc == '\t');
+            }
+            // This can miss ./0 and the like, but that should practically
+            // never matter.
+            nonvar_nonmissing_ct += (format_end[1] != '.');
+          }
+          if (!phase_or_dosage_found) {
+            if (alt_ct < 10) {
+              phase_or_dosage_found = VcfScanShortallelicLine(&(vic.vibc), format_end, &line_iter);
+            } else {
+              phase_or_dosage_found = VcfScanLongallelicLine(&(vic.vibc), format_end, &line_iter);
+            }
           }
         }
       VcfToPgen_linescan_done:
@@ -3344,6 +3359,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       logprintf("--vcf: %u variant%s scanned.\n", variant_ct, (variant_ct == 1)? "" : "s");
     } else {
       logprintf("--vcf: %u variant%s scanned (%" PRIuPTR " skipped).\n", variant_ct, (variant_ct == 1)? "" : "s", variant_skip_ct);
+    }
+    if ((!not_single_sample_no_nonvar) && (nonvar_nonmissing_ct >= 1000)) {
+      logerrprintf("Warning: All genotypes contain at least one ALT allele; this implies the VCF\nwas incorrectly generated.  You probably need to backtrack and e.g. rerun GATK\nGenotypeGVCFs with the --include-non-variant-sites flag added.\n");
     }
 
     if (allele_idx_end > 2 * variant_ct) {

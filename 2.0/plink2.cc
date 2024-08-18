@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (15 Aug 2024)";
+  " (18 Aug 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -11445,6 +11445,14 @@ int main(int argc, char** argv) {
           }
           import_flags |= kfImportVcfRefNMissing;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "cf-allow-no-nonvar")) {
+          // Don't bother with --bcf, since GATK GenotypeGVCFs only generates
+          // VCFs.
+          if (unlikely(!(xload & kfXloadVcf))) {
+            logerrputs("Error: --vcf-allow-no-nonvar must be used with --vcf.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          import_flags |= kfImportVcfAllowNoNonvar;
         } else if (strequal_k_unsafe(flagname_p2, "if")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Glm))) {
             logerrputs("Error: --vif must be used with --glm/--epistasis.\n");

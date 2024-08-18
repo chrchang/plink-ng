@@ -5876,6 +5876,22 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   } else {
     g_ld_window_r2 = sqrt(ldip->window_r2);
   }
+  LOGPRINTF("Running --r%s%s with the following filter%s:\n", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", is_inter_chr? "" : "s");
+  if (!is_inter_chr) {
+    LOGPRINTF("  --ld-window: %u\n", window_size_m1 + 1);
+    LOGPRINTF("  --ld-window-kb: %g\n", 0.001 * (double)window_bp);
+    if (window_cm != -1) {
+      LOGPRINTF("  --ld-window-cm: %g\n", window_cm);
+    }
+  }
+  LOGPRINTF("  --ld-window-r2: %g\n", ldip->window_r2);
+  if (idx1_subset) {
+    if (snp_list_file) {
+      LOGPRINTF("  --ld-snp-list\n");
+    } else {
+      LOGPRINTF("  --ld-snp[s]\n");
+    }
+  }
   if (ld_modifier & LD_DX) {
     // this is more like --fast-epistasis under the hood, since it requires the
     // entire 3x3 table
