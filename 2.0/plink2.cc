@@ -11453,6 +11453,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           import_flags |= kfImportVcfAllowNoNonvar;
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "if")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Glm))) {
             logerrputs("Error: --vif must be used with --glm/--epistasis.\n");
