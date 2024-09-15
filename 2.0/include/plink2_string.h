@@ -689,6 +689,7 @@ typedef struct StrSortIndexedDerefOverreadStruct {
 
 void StrptrArrSortMain(uintptr_t str_ct, uint32_t overread_ok, uint32_t use_nsort, StrSortIndexedDeref* wkspace_alias);
 
+void SortStrptrArrIndexed2(uint32_t str_ct, uint32_t leave_first_alone, uint32_t overread_ok, uint32_t use_nsort, const char** strptrs, uint32_t* new_to_old_idx, uint32_t* old_to_new_idx, void* wkspace);
 
 HEADER_INLINE int32_t IsLetter(unsigned char ucc) {
   return (((ucc & 192) == 64) && (((ucc - 1) & 31) < 26));
@@ -1533,6 +1534,8 @@ int32_t bsearch_strbox(const char* idbuf, const char* sorted_strbox, uintptr_t c
 
 // requires null-terminated string
 int32_t bsearch_strbox_natural(const char* idbuf, const char* sorted_strbox, uintptr_t max_id_blen, uintptr_t end_idx);
+
+int32_t bsearch_strptr_overread(const char* idbuf, const char* const* sorted_strptrs, uintptr_t end_idx);
 
 int32_t bsearch_strptr_natural(const char* idbuf, const char* const* sorted_strptrs, uintptr_t end_idx);
 

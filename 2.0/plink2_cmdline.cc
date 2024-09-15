@@ -303,54 +303,6 @@ BoolErr SortStrboxIndexed(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use
   return 0;
 }
 
-BoolErr SortStrptrArrIndexed(uint32_t str_ct, uint32_t leave_first_alone, uint32_t overread_ok, uint32_t use_nsort, const char** strptrs, uint32_t* new_to_old_idx, uint32_t* old_to_new_idx) {
-  const uint32_t str_sort_ct = str_ct - leave_first_alone;
-  if (str_sort_ct < 2) {
-    if (new_to_old_idx) {
-      for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
-        new_to_old_idx[str_idx] = str_idx;
-      }
-    }
-    if (old_to_new_idx) {
-      for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
-        old_to_new_idx[str_idx] = str_idx;
-      }
-    }
-    return 0;
-  }
-  if (bigstack_left() < str_sort_ct * sizeof(StrSortIndexedDeref)) {
-    return 1;
-  }
-  StrSortIndexedDeref* wkspace_alias = R_CAST(StrSortIndexedDeref*, g_bigstack_base);
-  const char** strptrs_to_sort = &(strptrs[leave_first_alone]);
-  for (uint32_t str_idx = 0; str_idx != str_sort_ct; ++str_idx) {
-    wkspace_alias[str_idx].strptr = strptrs_to_sort[str_idx];
-    wkspace_alias[str_idx].orig_idx = str_idx + leave_first_alone;
-  }
-  StrptrArrSortMain(str_sort_ct, overread_ok, use_nsort, wkspace_alias);
-  if (leave_first_alone) {
-    if (new_to_old_idx) {
-      new_to_old_idx[0] = 0;
-      new_to_old_idx = &(new_to_old_idx[1]);
-    }
-    if (old_to_new_idx) {
-      old_to_new_idx[0] = 0;
-    }
-  }
-  for (uint32_t str_idx = 0; str_idx != str_sort_ct; ++str_idx) {
-    strptrs_to_sort[str_idx] = wkspace_alias[str_idx].strptr;
-    const uint32_t orig_idx = wkspace_alias[str_idx].orig_idx;
-    if (new_to_old_idx) {
-      new_to_old_idx[str_idx] = orig_idx;
-    }
-    if (old_to_new_idx) {
-      old_to_new_idx[orig_idx] = str_idx + leave_first_alone;
-    }
-  }
-  BigstackReset(wkspace_alias);
-  return 0;
-}
-
 uintptr_t LowerBoundNonemptyU32(const uint32_t* sorted_u32_arr, uintptr_t arr_length, uint32_t needle) {
   // This is still benchmarking better than std::lower_bound on macOS as of 16
   // Sep 2023.  Also beats start/end indexing, by a smaller margin.  I'm

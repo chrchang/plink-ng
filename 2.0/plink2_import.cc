@@ -11247,14 +11247,95 @@ typedef struct Bgen13DosageOrPhaseScanCtxStruct {
   uint16_t* bgen_allele_cts[2];
   uint32_t* uncompressed_genodata_byte_cts[2];
 
-  // high 32 bits = tidx for now (smaller takes precedence)
-  // low 32 bits = uint32_t(PglErr)
+  const char** err_extra;
+
+  // high 32 bits = bidx, earlier one takes precedence
+  // next 16 bits = tidx if relevant (to look up err_extra)
+  // next 8 bits = uint8_t(BgenImportErrSubtype)
+  // low 8 bits = uint8_t(PglErr)
   uint64_t err_info;
 
   uint32_t error_on_polyploid;
+  uint32_t vidx_start;
 
   uint32_t dosage_exists;
 } Bgen13DosageOrPhaseScanCtx;
+
+ENUM_U31_DEF_START()
+  kBgenImportErrSubtype0,
+  kBgenImportErrSubtypeLibdeflateZdecompress,
+  kBgenImportErrSubtypeZstdDecompress,
+  kBgenImportErrSubtypeSampleCtMismatch,
+  kBgenImportErrSubtypePloidyOutOfRange,
+  kBgenImportErrSubtypePolyploid,
+  kBgenImportErrSubtypeIsPhasedOutOfRange,
+  kBgenImportErrSubtypeBitPrecisionOutOfRange,
+  kBgenImportErrSubtypeBitPrecisionUnsupported,
+  kBgenImportErrSubtypeAlleleCtUnsupported,
+  kBgenImportErrSubtypeUncompressedByteCtMismatch,
+  kBgenImportErrSubtypeNumeratorOverflow,
+  kBgenImportErrSubtypeProbOffsetMismatch,
+  kBgenImportErrSubtypeInvalidMissingPloidy,
+ENUM_U31_DEF_END(BgenImportErrSubtype);
+
+void PrintBgenImportErr(const char** err_extra, uint64_t err_info, uint32_t vidx_base) {
+  const BgenImportErrSubtype err_subtype = S_CAST(BgenImportErrSubtype, (err_info >> 8) & 255);
+  const uint32_t vidx = (err_info >> 32) + vidx_base;
+  logputs("\n");
+  switch (err_subtype) {
+  case kBgenImportErrSubtypeLibdeflateZdecompress:
+    snprintf(g_logbuf, kLogbufSize, "Error: .bgen libdeflate_zlib_decompress() failure, vidx=%u.\n", vidx);
+    break;
+  case kBgenImportErrSubtypeZstdDecompress:
+    {
+      const uint32_t tidx = (err_info >> 16) & 65535;
+      snprintf(g_logbuf, kLogbufSize, "Error: .bgen ZSTD_decompress() failure, vidx=%u: %s\n", vidx, err_extra[tidx]);
+    }
+    break;
+  case kBgenImportErrSubtypeSampleCtMismatch:
+    snprintf(g_logbuf, kLogbufSize, "Error: .bgen sample_ct mismatch, vidx=%u.\n", vidx);
+    break;
+  case kBgenImportErrSubtypePloidyOutOfRange:
+    snprintf(g_logbuf, kLogbufSize, "Error: .bgen ploidy out of range, vidx=%u.\n", vidx);
+    break;
+  case kBgenImportErrSubtypePolyploid:
+    snprintf(g_logbuf, kLogbufSize, "Error: Polyploid genotype in .bgen file, vidx=%u.\n", vidx);
+    break;
+  case kBgenImportErrSubtypeIsPhasedOutOfRange:
+    snprintf(g_logbuf, kLogbufSize, "Error: .bgen is_phased out of range, vidx=%u.\n", vidx);
+    break;
+  case kBgenImportErrSubtypeBitPrecisionOutOfRange:
+    snprintf(g_logbuf, kLogbufSize, "Error: .bgen bit_precision out of range, vidx=%u.\n", vidx);
+    break;
+  case kBgenImportErrSubtypeBitPrecisionUnsupported:
+    snprintf(g_logbuf, kLogbufSize, "Error: .bgen bit_precision unsupported, vidx=%u.\n", vidx);
+    break;
+  case kBgenImportErrSubtypeAlleleCtUnsupported:
+    snprintf(g_logbuf, kLogbufSize, "Error: .bgen allele_ct unsupported, vidx=%u.\n", vidx);
+    break;
+  case kBgenImportErrSubtypeUncompressedByteCtMismatch:
+    snprintf(g_logbuf, kLogbufSize, "Error: .bgen uncompressed_byte_ct mismatch, vidx=%u.\n", vidx);
+    break;
+  case kBgenImportErrSubtypeNumeratorOverflow:
+    snprintf(g_logbuf, kLogbufSize, "Error: .bgen numerator overflow, vidx=%u.\n", vidx);
+    break;
+  case kBgenImportErrSubtypeProbOffsetMismatch:
+    snprintf(g_logbuf, kLogbufSize, "Error: .bgen prob_offset mismatch, vidx=%u.\n", vidx);
+    break;
+  case kBgenImportErrSubtypeInvalidMissingPloidy:
+    snprintf(g_logbuf, kLogbufSize, "Error: Invalid .bgen missing_and_ploidy byte, vidx=%u.\n", vidx);
+    break;
+  default:
+    const PglErr reterr = S_CAST(PglErr, err_info & 255);
+    if (reterr == kPglRetNomem) {
+      return;
+    }
+    assert(0);
+    snprintf(g_logbuf, kLogbufSize, "Error: .bgen import internal error, vidx=%u.\n", vidx);
+  }
+  WordWrapB(0);
+  logerrputsb();
+}
 
 static_assert(sizeof(Dosage) == 2, "Bgen13DosageOrPhaseScanThread() needs to be updated.");
 THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
@@ -11275,6 +11356,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
     cur_uncompressed_geno = ctx->thread_wkspaces[tidx];
   }
   uint32_t parity = 0;
+  uint64_t new_err_info = 0;
   do {
     {
       const uint32_t bidx_end = ctx->thread_bidxs[parity][tidx + 1];
@@ -11291,14 +11373,16 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
           uncompressed_byte_ct = uncompressed_genodata_byte_cts[bidx];
           if (compression_mode == 1) {
             if (unlikely(libdeflate_zlib_decompress(decompressor, compressed_geno_start, compressed_byte_ct, K_CAST(unsigned char*, cur_uncompressed_geno), uncompressed_byte_ct, nullptr) != LIBDEFLATE_SUCCESS)) {
-              // possible todo: report variant index
-              goto Bgen13DosageOrPhaseScanThread_malformed;
+              new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeLibdeflateZdecompress) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+              goto Bgen13DosageOrPhaseScanThread_err;
             }
           } else {
             const uintptr_t extracted_byte_ct = ZSTD_decompress(K_CAST(unsigned char*, cur_uncompressed_geno), uncompressed_byte_ct, compressed_geno_start, compressed_byte_ct);
             if (unlikely(extracted_byte_ct != uncompressed_byte_ct)) {
-              // possible todo: inspect error code
-              goto Bgen13DosageOrPhaseScanThread_malformed;
+              assert(ZSTD_isError(extracted_byte_ct));
+              ctx->err_extra[tidx] = ZSTD_getErrorName(extracted_byte_ct);
+              new_err_info = (S_CAST(uint64_t, bidx) << 32) | (tidx << 16) | (S_CAST(uint32_t, kBgenImportErrSubtypeZstdDecompress) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+              goto Bgen13DosageOrPhaseScanThread_err;
             }
           }
         } else {
@@ -11315,7 +11399,8 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
         uint32_t stored_sample_ct;
         memcpy(&stored_sample_ct, cur_uncompressed_geno, sizeof(int32_t));
         if (unlikely((uncompressed_byte_ct < 10 + sample_ct) || (sample_ct != stored_sample_ct))) {
-          goto Bgen13DosageOrPhaseScanThread_malformed;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeSampleCtMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+          goto Bgen13DosageOrPhaseScanThread_err;
         }
         const uint32_t cur_allele_ct = bgen_allele_cts[bidx];
         /*
@@ -11328,33 +11413,40 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
         const uint32_t min_ploidy = cur_uncompressed_geno[6];
         const uint32_t max_ploidy = cur_uncompressed_geno[7];
         if (unlikely((min_ploidy > max_ploidy) || (max_ploidy > 63))) {
-          goto Bgen13DosageOrPhaseScanThread_malformed;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypePloidyOutOfRange) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+          goto Bgen13DosageOrPhaseScanThread_err;
         }
         if (unlikely(max_ploidy > 2)) {
           if (ctx->error_on_polyploid) {
             // you can't fire me, I quit!
-            goto Bgen13DosageOrPhaseScanThread_inconsistent;
+            new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypePolyploid) << 8) | S_CAST(uint32_t, kPglRetInconsistentInput);
+            goto Bgen13DosageOrPhaseScanThread_err;
           }
-          goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypePolyploid) << 8) | S_CAST(uint32_t, kPglRetNotYetSupported);
+          goto Bgen13DosageOrPhaseScanThread_err;
         }
         const unsigned char* missing_and_ploidy_info = &(cur_uncompressed_geno[8]);
         const unsigned char* probs_start = &(cur_uncompressed_geno[10 + sample_ct]);
         const uint32_t is_phased = probs_start[-2];
         if (unlikely(is_phased > 1)) {
-          goto Bgen13DosageOrPhaseScanThread_malformed;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeIsPhasedOutOfRange) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+          goto Bgen13DosageOrPhaseScanThread_err;
         }
         const uint32_t bit_precision = probs_start[-1];
         if (unlikely((!bit_precision) || (bit_precision > 32))) {
-          goto Bgen13DosageOrPhaseScanThread_malformed;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeBitPrecisionOutOfRange) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+          goto Bgen13DosageOrPhaseScanThread_err;
         }
         if (unlikely(bit_precision > kMaxBgenImportBits)) {
-          goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeBitPrecisionUnsupported) << 8) | S_CAST(uint32_t, kPglRetNotYetSupported);
+          goto Bgen13DosageOrPhaseScanThread_err;
         }
 
         if (cur_allele_ct != 2) {
           // shouldn't be possible to get here for now
           assert(0);
-          goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeAlleleCtUnsupported) << 8) | S_CAST(uint32_t, kPglRetNotYetSupported);
+          goto Bgen13DosageOrPhaseScanThread_err;
         }
         const uint64_t magic_preadd = kBgenMagicNums[bit_precision].preadd;
         const uint64_t magic_mult = kBgenMagicNums[bit_precision].mult;
@@ -11372,7 +11464,8 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
           // faster handling of common cases (no need to keep checking if
           // we've read past the end)
           if (unlikely(uncompressed_byte_ct != 10 + sample_ct + DivUp(S_CAST(uint64_t, bit_precision) * max_ploidy * sample_ct, CHAR_BIT))) {
-            goto Bgen13DosageOrPhaseScanThread_malformed;
+            new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeUncompressedByteCtMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+            goto Bgen13DosageOrPhaseScanThread_err;
           }
           if (max_ploidy < 2) {
             if (!max_ploidy) {
@@ -11500,7 +11593,8 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
             uint32_t missing_and_ploidy = missing_and_ploidy_info[sample_idx];
             if (missing_and_ploidy == 2) {
               if (unlikely(prob_offset + 2 > prob_offset_end)) {
-                goto Bgen13DosageOrPhaseScanThread_malformed;
+                new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeProbOffsetMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                goto Bgen13DosageOrPhaseScanThread_err;
               }
               uintptr_t numer_aa;
               uintptr_t numer_ab;
@@ -11523,7 +11617,8 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
                 // note that this can't be moved before the if(), since
                 // missing-ploidy could be zero
                 if (unlikely(prob_offset >= prob_offset_end)) {
-                  goto Bgen13DosageOrPhaseScanThread_malformed;
+                  new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeProbOffsetMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                  goto Bgen13DosageOrPhaseScanThread_err;
                 }
                 const uintptr_t numer_a = Bgen13GetOneVal(probs_start, prob_offset, bit_precision, numer_mask);
                 ++prob_offset;
@@ -11539,7 +11634,8 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
                 // treat as missing
                 missing_and_ploidy &= 127;
                 if (unlikely(missing_and_ploidy > 2)) {
-                  goto Bgen13DosageOrPhaseScanThread_malformed;
+                  new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeInvalidMissingPloidy) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                  goto Bgen13DosageOrPhaseScanThread_err;
                 }
                 prob_offset += missing_and_ploidy;
               }
@@ -11552,7 +11648,8 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
           uint32_t missing_and_ploidy = missing_and_ploidy_info[sample_idx];
           if (missing_and_ploidy == 2) {
             if (unlikely(prob_offset + 2 > prob_offset_end)) {
-              goto Bgen13DosageOrPhaseScanThread_malformed;
+              new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeProbOffsetMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+              goto Bgen13DosageOrPhaseScanThread_err;
             }
             uintptr_t numer_a1;
             uintptr_t numer_a2;
@@ -11564,7 +11661,8 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
           } else {
             if (missing_and_ploidy == 1) {
               if (unlikely(prob_offset >= prob_offset_end)) {
-                goto Bgen13DosageOrPhaseScanThread_malformed;
+                new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeProbOffsetMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                goto Bgen13DosageOrPhaseScanThread_err;
               }
               const uintptr_t numer_a = Bgen13GetOneVal(probs_start, prob_offset, bit_precision, numer_mask);
               ++prob_offset;
@@ -11580,7 +11678,8 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
               // treat as missing
               missing_and_ploidy &= 127;
               if (unlikely(missing_and_ploidy > 2)) {
-                goto Bgen13DosageOrPhaseScanThread_malformed;
+                new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeInvalidMissingPloidy) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                goto Bgen13DosageOrPhaseScanThread_err;
               }
               prob_offset += missing_and_ploidy;
             }
@@ -11589,30 +11688,18 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
       }
     }
     while (0) {
-    Bgen13DosageOrPhaseScanThread_malformed:
-      {
-        const uint64_t new_err_info = (S_CAST(uint64_t, tidx) << 32) | S_CAST(uint32_t, kPglRetMalformedInput);
-        UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      }
-      break;
-    Bgen13DosageOrPhaseScanThread_inconsistent:
-      {
-        const uint64_t new_err_info = (S_CAST(uint64_t, tidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
-        UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      }
-      break;
-    Bgen13DosageOrPhaseScanThread_not_yet_supported:
-      {
-        const uint64_t new_err_info = (S_CAST(uint64_t, tidx) << 32) | S_CAST(uint32_t, kPglRetNotYetSupported);
-        UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      }
-      break;
     Bgen13DosageOrPhaseScanThread_found:
       ctx->dosage_exists = 1;
       break;
     }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
+  while (0) {
+  Bgen13DosageOrPhaseScanThread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    THREAD_BLOCK_FINISH(arg);
+    break;
+  }
   THREAD_RETURN;
 }
 
@@ -11741,6 +11828,8 @@ typedef struct Bgen13GenoToPgenCtxStruct {
   GparseRecord* gparse[2];
   const uintptr_t* block_allele_idx_offsets[2];
 
+  const char** err_extra;
+
   uint64_t err_info;
 } Bgen13GenoToPgenCtx;
 
@@ -11773,6 +11862,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
   SDosage* dphase_delta = nullptr;
   uint32_t cur_allele_ct = 2;
   uint32_t parity = 0;
+  uint64_t new_err_info = 0;
   do {
     {
       const uintptr_t* block_allele_idx_offsets = ctx->block_allele_idx_offsets[parity];
@@ -11788,14 +11878,16 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
           uncompressed_byte_ct = grp->metadata.read_bgen.uncompressed_byte_ct;
           if (compression_mode == 1) {
             if (unlikely(libdeflate_zlib_decompress(decompressor, grp->record_start, compressed_byte_ct, K_CAST(unsigned char*, cur_uncompressed_geno), uncompressed_byte_ct, nullptr) != LIBDEFLATE_SUCCESS)) {
-              // possible todo: report variant index
-              goto Bgen13GenoToPgenThread_malformed;
+              new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeLibdeflateZdecompress) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+              goto Bgen13GenoToPgenThread_err;
             }
           } else {
             const uintptr_t extracted_byte_ct = ZSTD_decompress(K_CAST(unsigned char*, cur_uncompressed_geno), uncompressed_byte_ct, grp->record_start, compressed_byte_ct);
             if (unlikely(extracted_byte_ct != uncompressed_byte_ct)) {
-              // possible todo: inspect error code
-              goto Bgen13GenoToPgenThread_malformed;
+              assert(ZSTD_isError(extracted_byte_ct));
+              ctx->err_extra[tidx] = ZSTD_getErrorName(extracted_byte_ct);
+              new_err_info = (S_CAST(uint64_t, bidx) << 32) | (tidx << 16) | (S_CAST(uint32_t, kBgenImportErrSubtypeZstdDecompress) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+              goto Bgen13GenoToPgenThread_err;
             }
           }
         } else {
@@ -11813,7 +11905,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
         uint32_t stored_sample_ct;
         memcpy(&stored_sample_ct, cur_uncompressed_geno, sizeof(int32_t));
         if (unlikely((uncompressed_byte_ct < 10 + sample_ct) || (sample_ct != stored_sample_ct))) {
-          goto Bgen13GenoToPgenThread_malformed;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeSampleCtMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+          goto Bgen13GenoToPgenThread_err;
         }
         if (block_allele_idx_offsets) {
           cur_allele_ct = block_allele_idx_offsets[bidx + 1] - block_allele_idx_offsets[bidx];
@@ -11828,31 +11921,38 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
         const uint32_t min_ploidy = cur_uncompressed_geno[6];
         const uint32_t max_ploidy = cur_uncompressed_geno[7];
         if (unlikely((min_ploidy > max_ploidy) || (max_ploidy > 63))) {
-          goto Bgen13GenoToPgenThread_malformed;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypePloidyOutOfRange) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+          goto Bgen13GenoToPgenThread_err;
         }
         if (unlikely(max_ploidy > 2)) {
           if (ctx->error_on_polyploid) {
-            goto Bgen13GenoToPgenThread_inconsistent;
+            new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypePolyploid) << 8) | S_CAST(uint32_t, kPglRetInconsistentInput);
+            goto Bgen13GenoToPgenThread_err;
           }
-          goto Bgen13GenoToPgenThread_not_yet_supported;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypePolyploid) << 8) | S_CAST(uint32_t, kPglRetNotYetSupported);
+          goto Bgen13GenoToPgenThread_err;
         }
         const unsigned char* missing_and_ploidy_iter = &(cur_uncompressed_geno[8]);
         const unsigned char* probs_start = &(cur_uncompressed_geno[10 + sample_ct]);
         const uint32_t is_phased = probs_start[-2];
         if (unlikely(is_phased > 1)) {
-          goto Bgen13GenoToPgenThread_malformed;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeIsPhasedOutOfRange) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+          goto Bgen13GenoToPgenThread_err;
         }
         const uint32_t bit_precision = probs_start[-1];
         if (unlikely((!bit_precision) || (bit_precision > 32))) {
-          goto Bgen13GenoToPgenThread_malformed;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeBitPrecisionOutOfRange) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+          goto Bgen13GenoToPgenThread_err;
         }
         if (unlikely(bit_precision > kMaxBgenImportBits)) {
-          goto Bgen13GenoToPgenThread_not_yet_supported;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeBitPrecisionUnsupported) << 8) | S_CAST(uint32_t, kPglRetNotYetSupported);
+          goto Bgen13GenoToPgenThread_err;
         }
         if (cur_allele_ct != 2) {
           // shouldn't be possible to get here for now
           assert(0);
-          goto Bgen13GenoToPgenThread_not_yet_supported;
+          new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeAlleleCtUnsupported) << 8) | S_CAST(uint32_t, kPglRetNotYetSupported);
+          goto Bgen13GenoToPgenThread_err;
         }
         uintptr_t* genovec = GparseGetPointers(grp->record_start, sample_ct, cur_allele_ct, grp->flags, &patch_01_set, &patch_01_vals, &patch_10_set, &patch_10_vals, &phasepresent, &phaseinfo, &dosage_present, &dosage_main, &dphase_present, &dphase_delta);
         Dosage* dosage_main_iter = dosage_main;
@@ -11878,7 +11978,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
           // faster handling of common cases (no need to keep checking if
           // we've read past the end)
           if (unlikely(uncompressed_byte_ct != 10 + sample_ct + DivUp(S_CAST(uint64_t, bit_precision) * max_ploidy * sample_ct, CHAR_BIT))) {
-            goto Bgen13GenoToPgenThread_malformed;
+            new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeUncompressedByteCtMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+            goto Bgen13GenoToPgenThread_err;
           }
           if (max_ploidy == 2) {
             if (!is_phased) {
@@ -11923,7 +12024,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
                     continue;
                   }
                   if (unlikely(numer_aa + numer_ab > numer_mask)) {
-                    goto Bgen13GenoToPgenThread_malformed;
+                    new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeNumeratorOverflow) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                    goto Bgen13GenoToPgenThread_err;
                   }
                   if ((numer_aa < numer_certainty_min) && (numer_ab < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_aa + numer_ab)) {
                     // missing due to --import-dosage-certainty
@@ -12056,14 +12158,16 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
                 uint32_t write_dosage_int;
                 if (missing_and_ploidy == 2) {
                   if (unlikely(prob_offset + 2 > prob_offset_end)) {
-                    goto Bgen13GenoToPgenThread_malformed;
+                    new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeProbOffsetMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                    goto Bgen13GenoToPgenThread_err;
                   }
                   uintptr_t numer_aa;
                   uintptr_t numer_ab;
                   Bgen13GetTwoVals(probs_start, prob_offset, bit_precision, numer_mask, &numer_aa, &numer_ab);
                   prob_offset += 2;
                   if (unlikely(numer_aa + numer_ab > numer_mask)) {
-                    goto Bgen13GenoToPgenThread_malformed;
+                    new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeNumeratorOverflow) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                    goto Bgen13GenoToPgenThread_err;
                   }
                   if ((numer_aa < numer_certainty_min) && (numer_ab < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_aa + numer_ab)) {
                     // missing due to --import-dosage-certainty
@@ -12074,7 +12178,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
                   if (missing_and_ploidy != 1) {
                     missing_and_ploidy &= 127;
                     if (unlikely(missing_and_ploidy > 2)) {
-                      goto Bgen13GenoToPgenThread_malformed;
+                      new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeInvalidMissingPloidy) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                      goto Bgen13GenoToPgenThread_err;
                     }
                     prob_offset += missing_and_ploidy;
                   Bgen13GenoToPgenThread_generic_unphased_missing:
@@ -12082,7 +12187,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
                     continue;
                   }
                   if (unlikely(prob_offset >= prob_offset_end)) {
-                    goto Bgen13GenoToPgenThread_malformed;
+                    new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeProbOffsetMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                    goto Bgen13GenoToPgenThread_err;
                   }
                   const uintptr_t numer_a = Bgen13GetOneVal(probs_start, prob_offset, bit_precision, numer_mask);
                   ++prob_offset;
@@ -12126,7 +12232,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
                 uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
                 if (missing_and_ploidy == 2) {
                   if (unlikely(prob_offset + 2 > prob_offset_end)) {
-                    goto Bgen13GenoToPgenThread_malformed;
+                    new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeProbOffsetMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                    goto Bgen13GenoToPgenThread_err;
                   }
                   uintptr_t numer_a1;
                   uintptr_t numer_a2;
@@ -12146,7 +12253,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
                   if (missing_and_ploidy != 1) {
                     missing_and_ploidy &= 127;
                     if (unlikely(missing_and_ploidy > 2)) {
-                      goto Bgen13GenoToPgenThread_malformed;
+                      new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeInvalidMissingPloidy) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                      goto Bgen13GenoToPgenThread_err;
                     }
                     prob_offset += missing_and_ploidy;
                   Bgen13GenoToPgenThread_generic_phased_missing:
@@ -12154,7 +12262,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
                     continue;
                   }
                   if (unlikely(prob_offset >= prob_offset_end)) {
-                    goto Bgen13GenoToPgenThread_malformed;
+                    new_err_info = (S_CAST(uint64_t, bidx) << 32) | (S_CAST(uint32_t, kBgenImportErrSubtypeProbOffsetMismatch) << 8) | S_CAST(uint32_t, kPglRetMalformedInput);
+                    goto Bgen13GenoToPgenThread_err;
                   }
                   const uintptr_t numer_a = Bgen13GetOneVal(probs_start, prob_offset, bit_precision, numer_mask);
                   ++prob_offset;
@@ -12214,28 +12323,14 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
         grp->metadata.write.multiallelic_dphase_ct = 0;
       }
     }
-    while (0) {
-    Bgen13GenoToPgenThread_malformed:
-      {
-        const uint64_t new_err_info = (S_CAST(uint64_t, tidx) << 32) | S_CAST(uint32_t, kPglRetMalformedInput);
-        UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      }
-      break;
-    Bgen13GenoToPgenThread_inconsistent:
-      {
-        const uint64_t new_err_info = (S_CAST(uint64_t, tidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
-        UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      }
-      break;
-    Bgen13GenoToPgenThread_not_yet_supported:
-      {
-        const uint64_t new_err_info = (S_CAST(uint64_t, tidx) << 32) | S_CAST(uint32_t, kPglRetNotYetSupported);
-        UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      }
-      break;
-    }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
+  while (0) {
+  Bgen13GenoToPgenThread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    THREAD_BLOCK_FINISH(arg);
+    break;
+  }
   THREAD_RETURN;
 }
 
@@ -13243,11 +13338,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       scan_ctx.thread_wkspaces = S_CAST(unsigned char**, bigstack_alloc_raw_rd(calc_thread_ct_limit * sizeof(intptr_t)));
       scan_ctx.thread_bidxs[0] = S_CAST(uint32_t*, bigstack_alloc_raw_rd((calc_thread_ct_limit + 1) * sizeof(int32_t)));
       scan_ctx.thread_bidxs[1] = S_CAST(uint32_t*, bigstack_alloc_raw_rd((calc_thread_ct_limit + 1) * sizeof(int32_t)));
-      // ***** all bigstack allocations from this point on are reset before
-      //       pass 2 *****
-      // probably want to change this to use Gparse...
       uintptr_t main_block_size = 65536;
-      if (unlikely(bigstack_alloc_u16(main_block_size, &(scan_ctx.bgen_allele_cts[0])) ||
+      if (unlikely(bigstack_alloc_kcp(calc_thread_ct_limit, &(scan_ctx.err_extra)) ||
+                   // ***** all bigstack allocations from this point on are
+                   //       reset before pass 2 *****
+                   // probably want to change this to use Gparse...
+                   bigstack_alloc_u16(main_block_size, &(scan_ctx.bgen_allele_cts[0])) ||
                    bigstack_alloc_u16(main_block_size, &(scan_ctx.bgen_allele_cts[1])) ||
                    bigstack_alloc_ucp(main_block_size + 1, &(common.compressed_geno_starts[0])) ||
                    bigstack_alloc_ucp(main_block_size + 1, &(common.compressed_geno_starts[1])))) {
@@ -13688,9 +13784,10 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             if (ThreadsAreActive(&tg)) {
               // process *previous* block results
               JoinThreads(&tg);
-              reterr = S_CAST(PglErr, scan_ctx.err_info);
+              reterr = S_CAST(PglErr, scan_ctx.err_info & 255);
               if (unlikely(reterr)) {
-                goto OxBgenToPgen_ret_bgen13_thread_fail;
+                PrintBgenImportErr(scan_ctx.err_extra, scan_ctx.err_info, scan_ctx.vidx_start);
+                goto OxBgenToPgen_ret_1;
               }
               dosage_exists = scan_ctx.dosage_exists;
               if (dosage_exists) {
@@ -13711,6 +13808,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
                 continue;
               }
             }
+            scan_ctx.vidx_start = variant_ct;
             if (unlikely(SpawnThreads(&tg))) {
               goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
             }
@@ -13764,6 +13862,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         // decompression job has launched (e.g. there's only 1 variant on the
         // relevant chromosome in the entire .bgen, and calc_thread_ct == 2).
         thread_bidxs[cur_thread_fill_idx + 1] = block_vidx;
+        scan_ctx.vidx_start = 0;
         if (unlikely(SpawnThreads(&tg))) {
           goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
         }
@@ -13772,9 +13871,10 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       chr_filter_exists = (variant_ct + import_max_alleles_skip_ct + multiallelic_tmp_skip_ct != raw_variant_ct);
       if (ThreadsAreActive(&tg)) {
         JoinThreads(&tg);
-        reterr = S_CAST(PglErr, scan_ctx.err_info);
+        reterr = S_CAST(PglErr, scan_ctx.err_info & 255);
         if (unlikely(reterr)) {
-          goto OxBgenToPgen_ret_bgen13_thread_fail;
+          PrintBgenImportErr(scan_ctx.err_extra, scan_ctx.err_info, scan_ctx.vidx_start);
+          goto OxBgenToPgen_ret_1;
         }
         if ((!block_vidx) || scan_ctx.dosage_exists) {
           // ignore thread_bidxs[] in this case
@@ -13786,10 +13886,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             thread_bidxs[++cur_thread_fill_idx] = block_vidx;
           }
           DeclareLastThreadBlock(&tg);
+          scan_ctx.vidx_start = variant_ct - block_vidx;
           SpawnThreads(&tg);
           JoinThreads(&tg);
-          reterr = S_CAST(PglErr, scan_ctx.err_info);
+          reterr = S_CAST(PglErr, scan_ctx.err_info & 255);
           if (unlikely(reterr)) {
+            PrintBgenImportErr(scan_ctx.err_extra, scan_ctx.err_info, scan_ctx.vidx_start);
             goto OxBgenToPgen_ret_bgen13_thread_fail;
           }
         }
@@ -13852,6 +13954,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       }
       Bgen13GenoToPgenCtx ctx;
       ctx.common = &common;
+      ctx.err_extra = scan_ctx.err_extra;
       ctx.error_on_polyploid = !(import_flags & kfImportPolyploidMissing);
       ctx.hard_call_halfdist = kDosage4th - hard_call_thresh;
       ctx.bgen_import_dosage_certainty_thresholds = scan_ctx.bgen_import_dosage_certainty_thresholds;
@@ -14102,7 +14205,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           JoinThreads(&tg);
           reterr = S_CAST(PglErr, ctx.err_info);
           if (unlikely(reterr)) {
-            goto OxBgenToPgen_ret_bgen13_thread_fail;
+            PrintBgenImportErr(ctx.err_extra, ctx.err_info, vidx_start - prev_block_write_ct);
+            goto OxBgenToPgen_ret_1;
           }
         }
         if (!IsLastBlock(&tg)) {

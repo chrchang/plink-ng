@@ -2393,7 +2393,21 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      actually want to update just a proper subset.\n"
               );
     HelpPrint("update-alleles\0", &help_ctrl, 0,
-"  --update-alleles <fname>   : Update variant allele codes.\n"
+"  --update-alleles ['allow-mismatch'] ['strict-missing'] <filename> :\n"
+"    Update variant allele codes.\n"
+"    * Input file can be 3 or 5 columns.  If 3-column, variant IDs are expected\n"
+"      in the first column, comma-separated old allele codes are expected in\n"
+"      column 2, and comma-separated new allele codes are expected in column 3.\n"
+"      If 5-column, old allele codes are expected in columns 2-3 and new allele\n"
+"      codes in columns 4-5.\n"
+"    * If an entry's old alleles don't line up with the main dataset, it is\n"
+"      skipped and the variant ID is logged to <output prefix>.allele.no.snp.\n"
+"      The 'allow-mismatch' modifier relaxes the allele-matching requirement:\n"
+"      matching alleles are updated even when mismatching allele(s) are present\n"
+"      (and no .allele.no.snp entry is written when a partial update occurs).\n"
+"    * By default, if an allele code in the main dataset is missing, it is\n"
+"      treated as a wildcard.  'strict-missing' causes it to only match missing\n"
+"      allele codes.\n"
               );
     HelpPrint("update-ids\0update-parents\0update-sex\0", &help_ctrl, 0,
 "  --update-ids <fname>       : Update sample IDs.\n"

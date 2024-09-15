@@ -342,9 +342,6 @@ double DestructiveMedianD(uintptr_t len, double* unsorted_arr);
 // id_map is new_to_old_idx.
 BoolErr SortStrboxIndexed(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map);
 
-// This makes a temporary g_bigstack allocation.
-BoolErr SortStrptrArrIndexed(uint32_t str_ct, uint32_t leave_first_alone, uint32_t overread_ok, uint32_t use_nsort, const char** strptrs, uint32_t* new_to_old_idx, uint32_t* old_to_new_idx);
-
 // Offset of std::lower_bound, i.e. # of elements < needle.
 // Requires arr_length > 0.
 uintptr_t LowerBoundNonemptyU32(const uint32_t* sorted_u32_arr, uintptr_t arr_length, uint32_t needle);
@@ -1519,6 +1516,15 @@ HEADER_INLINE void U32CastVecAssignAdd5(const uint32_t* arg1_u32arr, const uint3
   U32VecAssignAdd5(R_CAST(const VecU32*, arg1_u32arr), R_CAST(const VecU32*, arg2_u32arr), R_CAST(const VecU32*, arg3_u32arr), R_CAST(const VecU32*, arg4_u32arr), R_CAST(const VecU32*, arg5_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
 }
 
+// This usually makes a temporary g_bigstack allocation.
+HEADER_INLINE BoolErr SortStrptrArrIndexed(uint32_t str_ct, uint32_t leave_first_alone, uint32_t overread_ok, uint32_t use_nsort, const char** strptrs, uint32_t* new_to_old_idx, uint32_t* old_to_new_idx) {
+  const uint32_t str_sort_ct = str_ct - leave_first_alone;
+  if ((str_sort_ct > 1) && (bigstack_left() < str_sort_ct * sizeof(StrSortIndexedDeref))) {
+    return 1;
+  }
+  SortStrptrArrIndexed2(str_ct, leave_first_alone, overread_ok, use_nsort, strptrs, new_to_old_idx, old_to_new_idx, g_bigstack_base);
+  return 0;
+}
 
 // basic linear scan
 // returns -1 on failure to find, -2 if duplicate

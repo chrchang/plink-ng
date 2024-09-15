@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (18 Aug 2024)";
+  " (15 Sep 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -354,6 +354,7 @@ typedef struct Plink2CmdlineStruct {
   RangeList covar_range_list;
   RangeList vscore_col_idx_range_list;
   FamCol fam_cols;
+  UpdateAllelesInfo update_alleles_info;
   UpdateSexInfo update_sex_info;
   LdInfo ld_info;
   SdiffInfo sdiff_info;
@@ -493,7 +494,6 @@ typedef struct Plink2CmdlineStruct {
   char* keep_col_match_fname;
   char* keep_col_match_flattened;
   char* keep_col_match_name;
-  char* update_alleles_fname;
   char* update_sample_ids_fname;
   char* update_parental_ids_fname;
   char* recover_var_ids_fname;
@@ -1307,7 +1307,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // because it would be too weird for it to be in a different position than
     // --update-name in the order of operations.
     const uint32_t htable_needed_early = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct);
-    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params);
+    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params);
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, pcp->bed_border_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1392,7 +1392,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (extract_exclude_by_id || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0)) {
+          if (extract_exclude_by_id || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0)) {
             // Must (re)construct the hash table in this case.
             BigstackReset(bigstack_mark);
             dup_ct = 0;
@@ -1403,8 +1403,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
 
-        if (pcp->update_alleles_fname) {
-          reterr = UpdateVarAlleles(pcp->update_alleles_fname, variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, allele_idx_offsets, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->input_missing_geno_char, pcp->max_thread_ct, allele_storage_mutable, &max_allele_slen, outname, outname_end);
+        if (pcp->update_alleles_info.fname) {
+          reterr = UpdateVarAlleles(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, allele_idx_offsets, &(pcp->update_alleles_info), raw_variant_ct, max_variant_id_slen, variant_id_htable_size, max_allele_ct, pcp->input_missing_geno_char, pcp->max_thread_ct, allele_storage_mutable, &max_allele_slen, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -3397,7 +3397,6 @@ int main(int argc, char** argv) {
   pc.keep_col_match_fname = nullptr;
   pc.keep_col_match_flattened = nullptr;
   pc.keep_col_match_name = nullptr;
-  pc.update_alleles_fname = nullptr;
   pc.ref_allele_flag = nullptr;
   pc.alt_allele_flag = nullptr;
   pc.update_chr_flag = nullptr;
@@ -3416,6 +3415,7 @@ int main(int argc, char** argv) {
   InitRangeList(&pc.pheno_range_list);
   InitRangeList(&pc.covar_range_list);
   InitRangeList(&pc.vscore_col_idx_range_list);
+  InitUpdateAlleles(&pc.update_alleles_info);
   InitUpdateSex(&pc.update_sex_info);
   InitLd(&pc.ld_info);
   InitSdiff(&pc.sdiff_info);
@@ -11262,12 +11262,29 @@ int main(int argc, char** argv) {
             logerrputs("Error: --update-alleles cannot be used with --set-missing-var-ids or\n--set-all-var-ids.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.update_alleles_fname);
-          if (unlikely(reterr)) {
-            goto main_ret_1;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            if (!strcmp(cur_modif, "allow-mismatch")) {
+              pc.update_alleles_info.flags |= kfUpdateAllelesAllowMismatch;
+            } else if (!strcmp(cur_modif, "strict-missing")) {
+              pc.update_alleles_info.flags |= kfUpdateAllelesStrictMissing;
+            } else {
+              if (unlikely(pc.update_alleles_info.fname)) {
+                logerrputs("Error: Invalid --update-alleles argument sequence.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              reterr = AllocFname(cur_modif, flagname_p, 0, &pc.update_alleles_info.fname);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            }
+          }
+          if (unlikely(!pc.update_alleles_info.fname)) {
+            logerrputs("Error: Invalid --update-alleles argument sequence.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           pc.dependency_flags |= kfFilterPvarReq;
         } else {
@@ -12308,7 +12325,6 @@ int main(int argc, char** argv) {
   free_cond(pc.update_chr_flag);
   free_cond(pc.alt_allele_flag);
   free_cond(pc.ref_allele_flag);
-  free_cond(pc.update_alleles_fname);
   free_cond(pc.keep_col_match_name);
   free_cond(pc.keep_col_match_flattened);
   free_cond(pc.keep_col_match_fname);
@@ -12391,6 +12407,7 @@ int main(int argc, char** argv) {
   CleanupSdiff(&pc.sdiff_info);
   CleanupLd(&pc.ld_info);
   CleanupUpdateSex(&pc.update_sex_info);
+  CleanupUpdateAlleles(&pc.update_alleles_info);
   CleanupRangeList(&pc.vscore_col_idx_range_list);
   CleanupRangeList(&pc.covar_range_list);
   CleanupRangeList(&pc.pheno_range_list);

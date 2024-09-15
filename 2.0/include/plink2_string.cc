@@ -681,6 +681,49 @@ void StrptrArrSortMain(uintptr_t str_ct, uint32_t overread_ok, uint32_t use_nsor
   }
 }
 
+void SortStrptrArrIndexed2(uint32_t str_ct, uint32_t leave_first_alone, uint32_t overread_ok, uint32_t use_nsort, const char** strptrs, uint32_t* new_to_old_idx, uint32_t* old_to_new_idx, void* wkspace) {
+  const uint32_t str_sort_ct = str_ct - leave_first_alone;
+  if (str_sort_ct < 2) {
+    if (new_to_old_idx) {
+      for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
+        new_to_old_idx[str_idx] = str_idx;
+      }
+    }
+    if (old_to_new_idx) {
+      for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
+        old_to_new_idx[str_idx] = str_idx;
+      }
+    }
+    return;
+  }
+  StrSortIndexedDeref* wkspace_alias = S_CAST(StrSortIndexedDeref*, wkspace);
+  const char** strptrs_to_sort = &(strptrs[leave_first_alone]);
+  for (uint32_t str_idx = 0; str_idx != str_sort_ct; ++str_idx) {
+    wkspace_alias[str_idx].strptr = strptrs_to_sort[str_idx];
+    wkspace_alias[str_idx].orig_idx = str_idx + leave_first_alone;
+  }
+  StrptrArrSortMain(str_sort_ct, overread_ok, use_nsort, wkspace_alias);
+  if (leave_first_alone) {
+    if (new_to_old_idx) {
+      new_to_old_idx[0] = 0;
+      new_to_old_idx = &(new_to_old_idx[1]);
+    }
+    if (old_to_new_idx) {
+      old_to_new_idx[0] = 0;
+    }
+  }
+  for (uint32_t str_idx = 0; str_idx != str_sort_ct; ++str_idx) {
+    strptrs_to_sort[str_idx] = wkspace_alias[str_idx].strptr;
+    const uint32_t orig_idx = wkspace_alias[str_idx].orig_idx;
+    if (new_to_old_idx) {
+      new_to_old_idx[str_idx] = orig_idx;
+    }
+    if (old_to_new_idx) {
+      old_to_new_idx[orig_idx] = str_idx + leave_first_alone;
+    }
+  }
+}
+
 /*
 uint32_t match_upper(const char* str_iter, const char* fixed_str) {
   char cc = *fixed_str++;
@@ -2909,6 +2952,22 @@ int32_t bsearch_strbox_natural(const char* idbuf, const char* sorted_strbox, uin
   while (start_idx < end_idx) {
     const uintptr_t mid_idx = (start_idx + end_idx) / 2;
     const int32_t ii = strcmp_natural(idbuf, &(sorted_strbox[mid_idx * max_id_blen]));
+    if (ii > 0) {
+      start_idx = mid_idx + 1;
+    } else if (ii < 0) {
+      end_idx = mid_idx;
+    } else {
+      return S_CAST(uint32_t, mid_idx);
+    }
+  }
+  return -1;
+}
+
+int32_t bsearch_strptr_overread(const char* idbuf, const char* const* sorted_strptrs, uintptr_t end_idx) {
+  uintptr_t start_idx = 0;
+  while (start_idx < end_idx) {
+    const uintptr_t mid_idx = (start_idx + end_idx) / 2;
+    const int32_t ii = strcmp_overread(idbuf, sorted_strptrs[mid_idx]);
     if (ii > 0) {
       start_idx = mid_idx + 1;
     } else if (ii < 0) {
