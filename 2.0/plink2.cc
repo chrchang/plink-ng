@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a5.14"
+static const char ver_str[] = "PLINK v2.00a5.15"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a5.14"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (20 Aug 2024)";
+  " (xx yyy 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4123,6 +4123,8 @@ int main(int argc, char** argv) {
         } else if (likely(strequal_k_unsafe(flagname_p2, "llow-no-sex"))) {
           logputs("Note: --allow-no-sex no longer has any effect.  (Missing-sex samples are\nautomatically excluded from association analysis when sex is a covariate, and\ntreated normally otherwise.)\n");
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "lt-allele")) {
+          goto main_ret_ALPHA6_REQUIRED;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -6857,6 +6859,8 @@ int main(int argc, char** argv) {
           }
           memcpy(pgenname, cur_modif, slen + 1);
           xload = kfXloadPlink1Dosage;
+        } else if (strequal_k_unsafe(flagname_p2, "mport-max-alleles")) {
+          goto main_ret_ALPHA6_REQUIRED;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -7060,6 +7064,9 @@ int main(int argc, char** argv) {
           }
           logputs("Note: --keep-allele-order no longer has any effect.\n");
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "ing-cutoff-table") ||
+                   strequal_k_unsafe(flagname_p2, "ing-table-require-xor")) {
+          goto main_ret_ALPHA6_REQUIRED;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -7156,6 +7163,13 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "ist-duplicate-vars")) {
           logerrputs("Error: --list-duplicate-vars is retired.  We recommend --set-all-var-ids +\n--rm-dup for variant deduplication.\n");
           goto main_ret_INVALID_CMDLINE_A;
+        } else if (strequal_k_unsafe(flagname_p2, "d-window-kb") ||
+                   strequal_k_unsafe(flagname_p2, "d-window-cm") ||
+                   strequal_k_unsafe(flagname_p2, "d-window-r2") ||
+                   strequal_k_unsafe(flagname_p2, "d-snp") ||
+                   strequal_k_unsafe(flagname_p2, "d-snps") ||
+                   strequal_k_unsafe(flagname_p2, "d-snp-list")) {
+          goto main_ret_ALPHA6_REQUIRED;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -9527,6 +9541,8 @@ int main(int argc, char** argv) {
           }
           pc.pheno_transform_flags |= kfPhenoTransformQuantnormPheno;
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "olyploid-mode")) {
+          goto main_ret_ALPHA6_REQUIRED;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -9871,6 +9887,11 @@ int main(int argc, char** argv) {
           chr_info.xymt_codes[5] = UINT32_MAXM1;
           chr_info.haploid_mask[0] = 0x1fff;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "-phased") ||
+                   strequal_k_unsafe(flagname_p2, "-unphased") ||
+                   strequal_k_unsafe(flagname_p2, "2-phased") ||
+                   strequal_k_unsafe(flagname_p2, "2-unphased")) {
+          goto main_ret_ALPHA6_REQUIRED;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -11247,6 +11268,14 @@ int main(int argc, char** argv) {
         }
         break;
 
+      case 'y':
+        if (strequal_k_unsafe(flagname_p2, "-nosex-missing-stats")) {
+          goto main_ret_ALPHA6_REQUIRED;
+        } else {
+          goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
+        }
+        break;
+
       case 'z':
         if (likely(strequal_k_unsafe(flagname_p2, "st-level"))) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -11752,6 +11781,10 @@ int main(int argc, char** argv) {
     InvalidArg(argv[arg_idx]);
     logerrputsb();
     logerrputs(errstr_append);
+    reterr = kPglRetInvalidCmdline;
+    break;
+  main_ret_ALPHA6_REQUIRED:
+    logerrprintf("Error: --%s requires an alpha 6 or later build.\n", flagname_p);
     reterr = kPglRetInvalidCmdline;
     break;
   main_ret_INVALID_CMDLINE_INPUT_CONFLICT:
