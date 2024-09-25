@@ -6045,6 +6045,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       }
       uintptr_t* cur_vrec_end = &(loadbuf_iter[raw_sample_ctaw2]);
       uintptr_t write_allele_idx_offset_base = (write_idx + variant_idx_offset) * 2;
+      const uint32_t debug_print = g_debug_on && (write_idx + variant_idx_offset == 36958);
       if (write_allele_idx_offsets) {
         write_allele_idx_offset_base = write_allele_idx_offsets[write_idx + variant_idx_offset];
         allele_ct = write_allele_idx_offsets[write_idx + variant_idx_offset + 1] - write_allele_idx_offset_base;
@@ -6116,6 +6117,23 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
 
         // temporary
         cur_vrec_end = &(cur_vrec_end[dosageraw_word_ct]);
+        if (debug_print) {
+          DPrintf("cur_dosagepresent: %lx\n", (uintptr_t)cur_dosagepresent);
+          DPrintf("cur_dosagevals: %lx\n", (uintptr_t)cur_dosagevals);
+          DPrintf("cur_vrec_end: %lx\n", (uintptr_t)cur_vrec_end);
+          DPrintf("read_dosage_ct: %u\n", read_dosage_ct);
+          DPrintf("is_dphase: %u\n", is_dphase);
+          for (uint32_t uii = 0; uii != read_dosage_ct; ++uii) {
+            if (cur_dosagevals[uii] > 32768) {
+              if (cur_dosagevals[uii] == 65535) {
+                DPrintf("missing dosage at [%u]\n", uii);
+              } else {
+                DPrintf("out-of-range dosage %u at [%u]\n", cur_dosagevals[uii], uii);
+                break;
+              }
+            }
+          }
+        }
 
         if (is_dphase) {
           cur_dphasepresent = cur_vrec_end;
@@ -6505,6 +6523,23 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         }
       }
       if ((!write_rare01_ct) && (!write_rare10_ct)) {
+        if (debug_print) {
+          DPrintf("write_dosage_ct: %u\n", write_dosage_ct);
+          for (uint32_t uii = 0; uii != write_dosage_ct; ++uii) {
+            if (write_dosagevals[uii] > 32768) {
+              if (write_dosagevals[uii] == 65535) {
+                DPrintf("missing write_dosagevals[%u]\n", uii);
+              } else {
+                DPrintf("out-of-range write_dosagevals[%u]: %u\n", uii, write_dosagevals[uii]);
+                break;
+              }
+            }
+          }
+          if (is_hphase || write_dphase_ct) {
+            DPrintf("is_hphase: %u\n", is_hphase);
+            DPrintf("write_dphase_ct: %u\n", write_dphase_ct);
+          }
+        }
         if ((!is_hphase) && (!write_dphase_ct)) {
           if (unlikely(PwcAppendBiallelicGenovecDosage16(write_genovec, write_dosagepresent, write_dosagevals, write_dosage_ct, pwcp))) {
             ctx->write_reterr = kPglRetVarRecordTooLarge;
@@ -6908,6 +6943,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         const uintptr_t multiallelic_raw_vec_ct = WordCtToVecCt(2) + WordCtToVecCt(raw_sample_ctl + DivUp(raw_sample_ct * sizeof(AlleleCode), kBytesPerWord)) + WordCtToVecCt(raw_sample_ctl + DivUp(raw_sample_ct * 2 * sizeof(AlleleCode), kBytesPerWord));
         load_variant_vec_ct += WordCtToVecCt(multiallelic_raw_vec_ct);
       }
+      DPrintf("read_phase_present: %u  read_dosage_present: %u\n", read_phase_present, read_dosage_present);
       if (read_phase_present || read_dosage_present) {
         loaded_vrtypes_needed = 1;
         if (read_phase_present) {
@@ -6932,7 +6968,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           // dphaseraw has the same structure, with the uint16s replaced with
           // an int16 array of (left - right) values.
           const uintptr_t dosageraw_word_ct = kWordsPerVec * (BitCtToVecCt(raw_sample_ct) + DivUp(raw_sample_ct, (kBytesPerVec / sizeof(Dosage))));
+          DPrintf("load_variant_vec_ct before read_dosage_present incr: %" PRIuPTR "\n", load_variant_vec_ct);
           load_variant_vec_ct += WordCtToVecCt(dosageraw_word_ct) * (1 + read_dphase_present);
+          DPrintf("load_variant_vec_ct after read_dosage_present incr: %" PRIuPTR "\n", load_variant_vec_ct);
         }
       }
 
@@ -6949,6 +6987,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         ulii = MINV(kPglVblockSize, write_variant_ct);
       }
       const uint32_t write_block_size = ulii;
+      DPrintf("write_block_size: %u\n", write_block_size);
       uintptr_t* main_loadbufs[2];
       main_loadbufs[0] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size));
       main_loadbufs[1] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size));
@@ -6967,6 +7006,11 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       logprintfww5("Writing %s ... ", outname);
       fputs("0%", stdout);
       fflush(stdout);
+
+      if (g_debug_on) {
+        g_problem_uidx = IdxToUidxBasic(variant_include, 36958);
+        DPrintf("output variant #36958 corresponds to input variant #%u\n", g_problem_uidx);
+      }
 
       // Main workflow:
       // 1. Set n=0, load first write_block_size post-filtering variants
@@ -7030,11 +7074,19 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
             if (cur_write_allele_idx_offsets) {
               cur_write_allele_ct = cur_write_allele_idx_offsets[block_widx + 1] - cur_write_allele_idx_offsets[block_widx];
             }
+            const uint32_t debug_print = (read_variant_uidx == g_problem_uidx);
             if (cur_read_allele_ct == cur_write_allele_ct) {
+              if (debug_print) {
+                DPrintf("loadbuf_iter before: %lx\n", (uintptr_t)loadbuf_iter);
+              }
               reterr = PgrGetRaw(read_variant_uidx, read_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[block_widx])) : nullptr);
               if (unlikely(reterr)) {
                 PgenErrPrintNV(reterr, read_variant_uidx);
                 goto MakePgenRobust_ret_1;
+              }
+              if (debug_print) {
+                DPrintf("loadbuf_iter after: %lx\n", (uintptr_t)loadbuf_iter);
+                DPrintf("cur_loaded_vrtypes[]: %u\n", cur_loaded_vrtypes[block_widx]);
               }
               ++block_widx;
               continue;
@@ -7971,6 +8023,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       const uintptr_t cachelines_avail = bigstack_left() / kCacheline;
       if (cachelines_avail < alloc_base_cacheline_ct + (mpgw_per_thread_cacheline_ct + other_per_thread_cacheline_ct) * calc_thread_ct) {
         if (cachelines_avail < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct + other_per_thread_cacheline_ct) {
+          DPrintf("falling back to MakePgenRobust() at expected branch\n");
           goto MakePlink2NoVsort_fallback;
         }
         calc_thread_ct = (cachelines_avail - alloc_base_cacheline_ct) / (mpgw_per_thread_cacheline_ct + other_per_thread_cacheline_ct);
@@ -9078,7 +9131,6 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
 
     char** pvar_info_strs = nullptr;
     uint32_t* variant_order_in_shard = nullptr;
-    ;;;
     const uint32_t info_reload_blen = info_reload_slen + 1;
     uint32_t batch_size = variant_ct;
     uint32_t batch_ct = 1;

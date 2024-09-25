@@ -23,6 +23,9 @@
 namespace plink2 {
 #endif
 
+// TEMPORARY DEBUG
+uint32_t g_problem_uidx = UINT32_MAX;
+
 static inline PgenReaderMain* GetPgrp(PgenReader* pgr_ptr) {
   return &GET_PRIVATE(*pgr_ptr, m);
 }
@@ -7254,8 +7257,21 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
   if (!dphase_ct) {
     if (allele_ct == 2) {
       if (!is_unconditional_dosage) {
+        const uint32_t debug_print = (vidx == g_problem_uidx);
         if (dosage_ct == raw_dosage_ct) {
           memcpy(dosage_main_write_iter, dosage_main_read_biter, dosage_ct * sizeof(int16_t));
+          if (debug_print) {
+            for (uint32_t uii = 0; uii != dosage_ct; ++uii) {
+              if (dosage_main_write_iter[uii] > 32768) {
+                if (dosage_main_write_iter[uii] == 65535) {
+                  printf("pgenlib_read: dosage_main[%u] missing\n", uii);
+                } else {
+                  printf("pgenlib_read: dosage_main[%u]=%u out of range\n", uii, dosage_main_write_iter[uii]);
+                  break;
+                }
+              }
+            }
+          }
         } else {
           // bugfix (22 May 2017): dosage_entry_idx needs to iterate up to
           // raw_dosage_ct, not dosage_ct
@@ -7271,6 +7287,12 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
               const uintptr_t low_bit = cur_bits & (-cur_bits);
               if (sample_include_word & low_bit) {
                 CopyFromUnalignedOffsetU16(dosage_main_write_iter, dosage_main_read_biter, dosage_entry_idx);
+                // TEMPORARY DEBUG
+                if (debug_print) {
+                  if (*dosage_main_write_iter > 32768) {
+                    printf("pgenlib_read: dosage_main[]=%u at sample_uidx %" PRIuPTR "\n", *dosage_main_write_iter, widx * kBitsPerWord + ctzw(low_bit));
+                  }
+                }
                 ++dosage_main_write_iter;
               }
               ++dosage_entry_idx;
