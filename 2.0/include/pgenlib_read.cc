@@ -7261,7 +7261,7 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
         if (dosage_ct == raw_dosage_ct) {
           memcpy(dosage_main_write_iter, dosage_main_read_biter, dosage_ct * sizeof(int16_t));
           if (debug_print) {
-            printf("pgenlib_read: dosage_main_write_iter[173] = %u\n", dosage_main_write_iter[173]);
+            printf("pgenlib_read: dosage_ct = %u, dosage_main_write_iter[173] = %u\n", dosage_ct, dosage_main_write_iter[173]);
           }
         } else {
           // bugfix (22 May 2017): dosage_entry_idx needs to iterate up to
