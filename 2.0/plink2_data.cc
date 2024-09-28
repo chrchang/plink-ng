@@ -6523,23 +6523,6 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         }
       }
       if ((!write_rare01_ct) && (!write_rare10_ct)) {
-        if (debug_print) {
-          DPrintf("write_dosage_ct: %u\n", write_dosage_ct);
-          for (uint32_t uii = 0; uii != write_dosage_ct; ++uii) {
-            if (write_dosagevals[uii] > 32768) {
-              if (write_dosagevals[uii] == 65535) {
-                DPrintf("missing write_dosagevals[%u]\n", uii);
-              } else {
-                DPrintf("out-of-range write_dosagevals[%u]: %u\n", uii, write_dosagevals[uii]);
-                break;
-              }
-            }
-          }
-          if (is_hphase || write_dphase_ct) {
-            DPrintf("is_hphase: %u\n", is_hphase);
-            DPrintf("write_dphase_ct: %u\n", write_dphase_ct);
-          }
-        }
         if ((!is_hphase) && (!write_dphase_ct)) {
           if (unlikely(PwcAppendBiallelicGenovecDosage16(write_genovec, write_dosagepresent, write_dosagevals, write_dosage_ct, pwcp))) {
             ctx->write_reterr = kPglRetVarRecordTooLarge;
