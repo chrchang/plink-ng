@@ -24,7 +24,8 @@ namespace plink2 {
 #endif
 
 // TEMPORARY DEBUG
-uint32_t g_problem_uidx = UINT32_MAX;
+uint32_t g_pgenlib_read_debug = 0;
+char g_pgenlib_read_debug_buf[1024];
 
 static inline PgenReaderMain* GetPgrp(PgenReader* pgr_ptr) {
   return &GET_PRIVATE(*pgr_ptr, m);
@@ -7257,11 +7258,10 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
   if (!dphase_ct) {
     if (allele_ct == 2) {
       if (!is_unconditional_dosage) {
-        const uint32_t debug_print = (vidx == g_problem_uidx);
         if (dosage_ct == raw_dosage_ct) {
           memcpy(dosage_main_write_iter, dosage_main_read_biter, dosage_ct * sizeof(int16_t));
-          if (debug_print) {
-            printf("pgenlib_read: dosage_ct = %u, dosage_main_write_iter[173] = %u\n", dosage_ct, dosage_main_write_iter[173]);
+          if (g_pgenlib_read_debug) {
+            snprintf(g_pgenlib_read_debug_buf, 1024, "pgenlib_read: vidx = %u, dosage_ct = %u, dosage_main_write_iter[173] = %u\n", vidx, dosage_ct, dosage_main_write_iter[173]);
           }
         } else {
           // bugfix (22 May 2017): dosage_entry_idx needs to iterate up to

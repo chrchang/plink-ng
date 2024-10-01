@@ -6990,11 +6990,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       fputs("0%", stdout);
       fflush(stdout);
 
-      if (g_debug_on) {
-        g_problem_uidx = IdxToUidxBasic(variant_include, 36958);
-        DPrintf("output variant #36958 corresponds to input variant #%u\n", g_problem_uidx);
-      }
-
       // Main workflow:
       // 1. Set n=0, load first write_block_size post-filtering variants
       //
@@ -7057,10 +7052,12 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
             if (cur_write_allele_idx_offsets) {
               cur_write_allele_ct = cur_write_allele_idx_offsets[block_widx + 1] - cur_write_allele_idx_offsets[block_widx];
             }
-            const uint32_t debug_print = (read_variant_uidx == g_problem_uidx);
+            const uint32_t debug_print = g_debug_on && (read_variant_uidx == 318270);
             if (cur_read_allele_ct == cur_write_allele_ct) {
               if (debug_print) {
                 DPrintf("loadbuf_iter before: %lx\n", (uintptr_t)loadbuf_iter);
+                g_pgenlib_read_debug = 1;
+                g_pgenlib_read_debug_buf[0] = '\0';
               }
               reterr = PgrGetRaw(read_variant_uidx, read_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[block_widx])) : nullptr);
               if (unlikely(reterr)) {
@@ -7068,6 +7065,8 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                 goto MakePgenRobust_ret_1;
               }
               if (debug_print) {
+                g_pgenlib_read_debug = 0;
+                DPrintf("g_pgenlib_read_debug_buf: %s", g_pgenlib_read_debug_buf);
                 DPrintf("loadbuf_iter after: %lx\n", (uintptr_t)loadbuf_iter);
                 DPrintf("cur_loaded_vrtypes[]: %u\n", cur_loaded_vrtypes[block_widx]);
               }
