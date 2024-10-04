@@ -26,10 +26,6 @@
 namespace plink2 {
 #endif
 
-// TEMPORARY DEBUG
-extern uint32_t g_pgenlib_read_debug;
-extern char g_pgenlib_read_debug_buf[1024];
-
 FLAGSET_DEF_START()
   kfPgrLdcache0,
   kfPgrLdcacheNyp = (1 << 0),

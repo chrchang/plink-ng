@@ -1742,6 +1742,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --oxford-single-chr <chr name>  : Specify single-chromosome .gen/.bgen file\n"
 "                                    with no useful chromosome info inside.\n"
                );
+    HelpPrint("lax-bgen-import\0bgen\0", &help_ctrl, 0,
+"  --lax-bgen-import               : Do not error out when .bgen header has an\n"
+"                                    overstated variant count (possible from\n"
+"                                    IMPUTE5).\n"
+              );
     HelpPrint("missing-code\0missing_code\0data\0sample\0", &help_ctrl, 0,
 "  --missing-code [string list]    : Comma-delimited list of missing phenotype\n"
 "    (alias: --missing_code)         values for Oxford-format import (default\n"

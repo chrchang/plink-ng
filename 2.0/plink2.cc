@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.00a6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (30 Sep 2024)";
+  " (4 Oct 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -7227,6 +7227,13 @@ int main(int argc, char** argv) {
           }
         } else if (strequal_k_unsafe(flagname_p2, "ax-chrx-import")) {
           import_flags |= kfImportLaxChrX;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "ax-bgen-import")) {
+          if (unlikely(!(xload & kfXloadOxBgen | kfXloadOxHaps))) {
+            logerrputs("Error: --lax-bgen-import must be used with --bgen.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          import_flags |= kfImportLaxBgen;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "d-window")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {

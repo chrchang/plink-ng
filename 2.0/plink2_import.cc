@@ -12385,10 +12385,11 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       logerrputs("Error: Invalid .bgen magic number.\n");
       goto OxBgenToPgen_ret_MALFORMED_INPUT;
     }
-    // Don't want to print "Empty .bgen file" error message when magic number
-    // is wrong.
-    const uint32_t raw_variant_ct = initial_uints[2];
-    if (unlikely(!raw_variant_ct)) {
+    // "expected" because .bgen files from IMPUTE5 may violate the spec and
+    // put too high of a number here:
+    //   https://github.com/chrchang/plink-ng/issues/280
+    const uint32_t header_variant_ct = initial_uints[2];
+    if (unlikely(!header_variant_ct)) {
       logerrputs("Error: Empty .bgen file.\n");
       goto OxBgenToPgen_ret_DEGENERATE_DATA;
     }
@@ -12414,7 +12415,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       logerrputs("Error: Invalid .bgen header.\n");
       goto OxBgenToPgen_ret_MALFORMED_INPUT;
     }
-    logprintf("--bgen: %u variant%s detected, format v1.%c.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s", (layout == 1)? '1' : ((compression_mode == 2)? '3' : '2'));
+    logprintf("--bgen: %u variant%s declared in header, format v1.%c.\n", header_variant_ct, (header_variant_ct == 1)? "" : "s", (layout == 1)? '1' : ((compression_mode == 2)? '3' : '2'));
+    uint32_t raw_variant_ct = header_variant_ct;
     if (samplename[0]) {
       uint32_t sfile_sample_ct;
       reterr = OxSampleToPsam(samplename, const_fid, ox_missing_code, missing_catname, misc_flags, import_flags, psam_01, id_delim, outname, outname_end, &sfile_sample_ct);
@@ -12665,6 +12667,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     // true for both provisional-reference and real-reference second
     const uint32_t prov_ref_allele_second = !(oxford_import_flags & kfOxfordImportRefFirst);
 
+    const uint32_t allow_overstated_variant_ct = (import_flags / kfImportLaxBgen) & 1;
+
     if (hard_call_thresh == UINT32_MAX) {
       hard_call_thresh = kDosageMid / 10;
     }
@@ -12730,8 +12734,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         // (well, it didn't before libdeflate, anyway.  recheck this.)
         calc_thread_ct = 2;
       }
-      if (calc_thread_ct > raw_variant_ct) {
-        calc_thread_ct = raw_variant_ct;
+      if (calc_thread_ct > header_variant_ct) {
+        calc_thread_ct = header_variant_ct;
       }
       if (unlikely(bigstack_alloc_u16p(calc_thread_ct, &scan_ctx.bgen_geno_bufs))) {
         goto OxBgenToPgen_ret_NOMEM;
@@ -12809,13 +12813,27 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       unsigned char** compressed_geno_starts = common.compressed_geno_starts[0];
       unsigned char* bgen_geno_iter = compressed_geno_bufs[0];
       uint32_t skip = 0;
-      for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ) {
+      for (uint32_t variant_uidx = 0; variant_uidx != header_variant_ct; ) {
         uint32_t uii;
-        if (unlikely(!fread_unlocked(&uii, 4, 1, bgenfile))) {
+        {
+          const uintptr_t bytes_read = fread_unlocked(&uii, 1, 4, bgenfile);
+          if (bytes_read != 4) {
+            // don't know of a bgen-1.1 use case, but may as well make
+            // --lax-bgen-import have a consistent effect.
+            if (likely(allow_overstated_variant_ct && (!bytes_read))) {
+              raw_variant_ct = variant_uidx;
+              putc_unlocked('\n', stdout);
+              logprintf("--lax-bgen-import: .bgen file actually contains %u variant%s.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+              break;
+            }
+            goto OxBgenToPgen_ret_READ_FAIL;
+          }
+        }
+        if (unlikely(!fread_unlocked(&uii, 1, 4, bgenfile))) {
           goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (unlikely(uii != sample_ct)) {
-          logputs("\n");
+          putc_unlocked('\n', stdout);
           logerrputs("Error: Unexpected number of samples specified in SNP block header.\n");
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
@@ -12829,7 +12847,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           }
         } else {
           if (unlikely(!snpid_slen)) {
-            logputs("\n");
+            putc_unlocked('\n', stdout);
             logerrputs("Error: Length-0 SNP ID in .bgen file.\n");
             goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
           }
@@ -12856,7 +12874,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         } else {
           if (!snpid_chr) {
             if (unlikely(!chr_name_slen)) {
-              logputs("\n");
+              putc_unlocked('\n', stdout);
               logerrputs("Error: Length-0 chromosome ID in .bgen file.\n");
               goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
             }
@@ -12938,7 +12956,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             if (dosage_exists) {
               // don't need to scan for any more dosages
               StopThreads(&tg);
-              if (!chr_filter_exists) {
+              if ((!chr_filter_exists) && (!allow_overstated_variant_ct)) {
                 break;
               }
               continue;
@@ -12967,7 +12985,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         variant_ct += block_vidx;
         if (variant_ct < calc_thread_ct) {
           if (unlikely(!variant_ct)) {
-            logputs("\n");
+            putc_unlocked('\n', stdout);
             logerrprintfww("Error: All %u variant%s in .bgen file skipped due to chromosome filter.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
             goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
           }
@@ -13012,7 +13030,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, kPgenWriteBackwardSeek, dosage_exists? kfPgenGlobalDosagePresent : kfPgenGlobal0, (oxford_import_flags & kfOxfordImportRefUnknown)? 2 : 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
-          logputs("\n");
+          putc_unlocked('\n', stdout);
           logerrprintfww(kErrprintfFopen, outname, strerror(errno));
         }
         goto OxBgenToPgen_ret_1;
@@ -13052,7 +13070,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (unlikely(uii != sample_ct)) {
-              logputs("\n");
+              putc_unlocked('\n', stdout);
               logerrputs("Error: Unexpected number of samples specified in SNP block header.\n");
               goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
@@ -13067,7 +13085,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               }
             } else {
               if (unlikely(!snpid_slen)) {
-                logputs("\n");
+                putc_unlocked('\n', stdout);
                 logerrputs("Error: Length-0 SNP ID in .bgen file.\n");
                 goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
               }
@@ -13082,7 +13100,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (unlikely(!rsid_slen)) {
-              logputs("\n");
+              putc_unlocked('\n', stdout);
               logerrputs("Error: Length-0 rsID in .bgen file.\n");
               goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
@@ -13102,7 +13120,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             } else {
               if (!snpid_chr) {
                 if (unlikely(!chr_name_slen)) {
-                  logputs("\n");
+                  putc_unlocked('\n', stdout);
                   logerrputs("Error: Length-0 chromosome ID in .bgen file.\n");
                   goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
                 }
@@ -13153,14 +13171,14 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             }
             char* a1_ptr = loadbuf_iter;
             if (unlikely(!a1_slen)) {
-              logputs("\n");
+              putc_unlocked('\n', stdout);
               logerrputs("Error: Empty allele code in .bgen file.\n");
               goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             // TODO: enforce a consistent, configurable limit across the
             // program (2^26 default?)
             if (unlikely(a1_slen > 1000000000)) {
-              logputs("\n");
+              putc_unlocked('\n', stdout);
               logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
               goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
@@ -13176,12 +13194,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (unlikely(!a2_slen)) {
-              logputs("\n");
+              putc_unlocked('\n', stdout);
               logerrputs("Error: Empty allele code in .bgen file.\n");
               goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             if (unlikely(a2_slen > 1000000000)) {
-              logputs("\n");
+              putc_unlocked('\n', stdout);
               logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
               goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
@@ -13202,13 +13220,13 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
             *pvar_cswritep++ = '\t';
             if (unlikely(cur_bp > kMaxBp)) {
-              logputs("\n");
+              putc_unlocked('\n', stdout);
               logerrputs("Error: Invalid bp coordinate (> 2^31 - 2) in .bgen file\n");
               goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             if (par_warn_code == cur_chr_code) {
               if (unlikely((!sex_info_avail) || (cur_bp <= kPAR1IntersectionLast) || (cur_bp >= kPAR2IntersectionFirst))) {
-                logputs("\n");
+                putc_unlocked('\n', stdout);
                 goto OxBgenToPgen_ret_SLOPPY_CHRX;
               }
             }
@@ -13487,14 +13505,27 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       // temporary kludge
       uint32_t multiallelic_tmp_skip_ct = 0;
 
-      for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ) {
+      for (uint32_t variant_uidx = 0; variant_uidx != header_variant_ct; ) {
         // format is mostly identical to bgen 1.1; but there's no sample count,
         // and there is an allele count
         // logic is more similar to the second bgen 1.1 pass since we write the
         // .pvar here.
         uint16_t snpid_slen;
-        if (unlikely(!fread_unlocked(&snpid_slen, 2, 1, bgenfile))) {
-          goto OxBgenToPgen_ret_READ_FAIL;
+        {
+          const uintptr_t bytes_read = fread_unlocked(&snpid_slen, 1, 2, bgenfile);
+          if (bytes_read != 2) {
+            if (likely(!bytes_read)) {
+              putc_unlocked('\n', stdout);
+              if (likely(allow_overstated_variant_ct)) {
+                raw_variant_ct = variant_uidx;
+                logprintf("--lax-bgen-import: .bgen file actually contains %u variant%s.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+                break;
+              }
+              logerrprintfww("Error: .bgen file actually contains %u variant%s; header is incorrect. Add --lax-bgen-import to force import.\n", variant_uidx, (variant_uidx == 1)? "" : "s");
+              goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
+            }
+            goto OxBgenToPgen_ret_READ_FAIL;
+          }
         }
         char* rsid_start = R_CAST(char*, loadbuf);
         if (!snpid_chr) {
@@ -13503,7 +13534,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           }
         } else {
           if (unlikely(!snpid_slen)) {
-            logputs("\n");
+            putc_unlocked('\n', stdout);
             logerrputs("Error: Length-0 SNP ID in .bgen file.\n");
             goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
           }
@@ -13518,7 +13549,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (unlikely(!rsid_slen)) {
-          logputs("\n");
+          putc_unlocked('\n', stdout);
           logerrputs("Error: Length-0 rsID in .bgen file.\n");
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
@@ -13538,7 +13569,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         } else {
           if (!snpid_chr) {
             if (unlikely(!chr_name_slen)) {
-              logputs("\n");
+              putc_unlocked('\n', stdout);
               logerrputs("Error: Length-0 chromosome ID in .bgen file.\n");
               goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
             }
@@ -13574,7 +13605,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
         if (unlikely(cur_allele_ct < 2)) {
           // this is undefined in the 1.3 standard; prohibit for now
-          logputs("\n");
+          putc_unlocked('\n', stdout);
           logerrputs("Error: .bgen variant has fewer than two alleles.\n");
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
@@ -13609,7 +13640,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
         if (unlikely(rsid_slen > kMaxIdSlen)) {
           // enforce this iff we aren't skipping
-          logputs("\n");
+          putc_unlocked('\n', stdout);
           logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
@@ -13621,12 +13652,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (unlikely(!a1_slen)) {
-          logputs("\n");
+          putc_unlocked('\n', stdout);
           logerrputs("Error: Empty allele code in .bgen file.\n");
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         if (unlikely(a1_slen > 1000000000)) {
-          logputs("\n");
+          putc_unlocked('\n', stdout);
           logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
@@ -13642,12 +13673,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (unlikely(!a2_slen)) {
-          logputs("\n");
+          putc_unlocked('\n', stdout);
           logerrputs("Error: Empty allele code in .bgen file.\n");
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         if (unlikely(a2_slen > 1000000000)) {
-          logputs("\n");
+          putc_unlocked('\n', stdout);
           logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
@@ -13660,13 +13691,13 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
         *pvar_cswritep++ = '\t';
         if (unlikely(cur_bp > kMaxBp)) {
-          logputs("\n");
+          putc_unlocked('\n', stdout);
           logerrputs("Error: Invalid bp coordinate (> 2^31 - 2) in .bgen file\n");
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         if (par_warn_code == cur_chr_code) {
           if (unlikely((!sex_info_avail) || (cur_bp <= kPAR1IntersectionLast) || (cur_bp >= kPAR2IntersectionFirst))) {
-            logputs("\n");
+            putc_unlocked('\n', stdout);
             goto OxBgenToPgen_ret_SLOPPY_CHRX;
           }
         }
@@ -13712,12 +13743,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             goto OxBgenToPgen_ret_READ_FAIL;
           }
           if (unlikely(!cur_allele_slen)) {
-            logputs("\n");
+            putc_unlocked('\n', stdout);
             logerrputs("Error: Empty allele code in .bgen file.\n");
             goto OxBgenToPgen_ret_MALFORMED_INPUT;
           }
           if (unlikely(cur_allele_slen > 1000000000)) {
-            logputs("\n");
+            putc_unlocked('\n', stdout);
             logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
             goto OxBgenToPgen_ret_MALFORMED_INPUT;
           }
@@ -13845,15 +13876,15 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       }
       variant_ct += block_vidx;
       if (import_max_alleles_skip_ct) {
-        logputs("\n");
+        putc_unlocked('\n', stdout);
         logprintf("--import-max-alleles: %u variant%s skipped.\n", import_max_alleles_skip_ct, (import_max_alleles_skip_ct == 1)? "" : "s");
       }
       if (multiallelic_tmp_skip_ct) {
-        logputs("\n");
+        putc_unlocked('\n', stdout);
         logerrprintfww("Warning: %u multiallelic variant%s skipped%s (not yet supported).\n", multiallelic_tmp_skip_ct, (multiallelic_tmp_skip_ct == 1)? "" : "s", (import_max_allele_ct < 0x7ffffffe)? ", on top of --import-max-alleles filter" : "");
       }
       if (unlikely(!variant_ct)) {
-        logputs("\n");
+        putc_unlocked('\n', stdout);
         logerrprintf("Error: All %u variant%s in .bgen file skipped.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
         goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
       }
@@ -14276,7 +14307,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     if (feof_unlocked(bgenfile)) {
       errno = 0;
     }
-    logputs("\n");
+    putc_unlocked('\n', stdout);
     logerrprintfww(kErrprintfFread, bgenname, rstrerror(errno));
     reterr = kPglRetReadFail;
     break;
@@ -14308,14 +14339,14 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   OxBgenToPgen_ret_bgen13_thread_fail:
     if (reterr == kPglRetInconsistentInput) {
       // --polyploid-mode note doesn't help here
-      logputs("\n");
+      putc_unlocked('\n', stdout);
       logerrputs("Error: Polyploid genotype in .bgen file.\n");
     } else if (reterr == kPglRetMalformedInput) {
     OxBgenToPgen_ret_bgen11_thread_fail:
-      logputs("\n");
+      putc_unlocked('\n', stdout);
       logerrputs("Error: Invalid compressed SNP block in .bgen file.\n");
     } else if (reterr == kPglRetNotYetSupported) {
-      logputs("\n");
+      putc_unlocked('\n', stdout);
       logerrputs("Error: BGEN import doesn't currently support multiallelic variants, 29-32 bit\nprobability precision, or ploidy > 2.\n");
     }
     // note that nomem is also possible here
