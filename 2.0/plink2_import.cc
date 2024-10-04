@@ -12829,9 +12829,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             goto OxBgenToPgen_ret_READ_FAIL;
           }
         }
-        if (unlikely(!fread_unlocked(&uii, 1, 4, bgenfile))) {
-          goto OxBgenToPgen_ret_READ_FAIL;
-        }
         if (unlikely(uii != sample_ct)) {
           putc_unlocked('\n', stdout);
           logerrputs("Error: Unexpected number of samples specified in SNP block header.\n");
