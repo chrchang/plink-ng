@@ -7134,6 +7134,12 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "ax-chrx-import")) {
           import_flags |= kfImportLaxChrX;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "ax-bgen-import")) {
+          if (unlikely(!(xload & kfXloadOxBgen))) {
+            logerrputs("Error: --lax-bgen-import must be used with --bgen.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          import_flags |= kfImportLaxBgen;
         } else if (likely(strequal_k_unsafe(flagname_p2, "d"))) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;

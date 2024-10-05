@@ -66,7 +66,8 @@ FLAGSET_DEF_START()
   kfImportVcfRequireGt = (1 << 3),
   kfImportVcfRefNMissing = (1 << 4),
   kfImportLaxChrX = (1 << 5),
-  kfImportVcfAllowNoNonvar = (1 << 8)
+  kfImportVcfAllowNoNonvar = (1 << 8),
+  kfImportLaxBgen = (1 << 9)
 FLAGSET_DEF_END(ImportFlags);
 
 CONSTI32(kMaxInfoKeySlen, kMaxIdSlen);

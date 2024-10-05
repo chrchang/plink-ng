@@ -12151,10 +12151,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       logerrputs("Error: Invalid .bgen magic number.\n");
       goto OxBgenToPgen_ret_MALFORMED_INPUT;
     }
-    // Don't want to print "Empty .bgen file" error message when magic number
-    // is wrong.
-    const uint32_t raw_variant_ct = initial_uints[2];
-    if (unlikely(!raw_variant_ct)) {
+    const uint32_t header_variant_ct = initial_uints[2];
+    if (unlikely(!header_variant_ct)) {
       logerrputs("Error: Empty .bgen file.\n");
       goto OxBgenToPgen_ret_DEGENERATE_DATA;
     }
@@ -12180,7 +12178,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       logerrputs("Error: Invalid .bgen header.\n");
       goto OxBgenToPgen_ret_MALFORMED_INPUT;
     }
-    logprintf("--bgen: %u variant%s detected, format v1.%c.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s", (layout == 1)? '1' : ((compression_mode == 2)? '3' : '2'));
+    logprintf("--bgen: %u variant%s declared in header, format v1.%c.\n", header_variant_ct, (header_variant_ct == 1)? "" : "s", (layout == 1)? '1' : ((compression_mode == 2)? '3' : '2'));
+    uint32_t raw_variant_ct = header_variant_ct;
     if (samplename[0]) {
       uint32_t sfile_sample_ct;
       reterr = OxSampleToPsam(samplename, const_fid, ox_missing_code, missing_catname, misc_flags, import_flags, psam_01, id_delim, outname, outname_end, &sfile_sample_ct);
@@ -12431,6 +12430,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     // true for both provisional-reference and real-reference second
     const uint32_t prov_ref_allele_second = !(oxford_import_flags & kfOxfordImportRefFirst);
 
+    const uint32_t allow_overstated_variant_ct = (import_flags / kfImportLaxBgen) & 1;
+
     if (hard_call_thresh == UINT32_MAX) {
       hard_call_thresh = kDosageMid / 10;
     }
@@ -12496,8 +12497,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         // (well, it didn't before libdeflate, anyway.  recheck this.)
         calc_thread_ct = 2;
       }
-      if (calc_thread_ct > raw_variant_ct) {
-        calc_thread_ct = raw_variant_ct;
+      if (calc_thread_ct > header_variant_ct) {
+        calc_thread_ct = header_variant_ct;
       }
       if (unlikely(bigstack_alloc_u16p(calc_thread_ct, &scan_ctx.bgen_geno_bufs))) {
         goto OxBgenToPgen_ret_NOMEM;
@@ -12575,10 +12576,21 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       unsigned char** compressed_geno_starts = common.compressed_geno_starts[0];
       unsigned char* bgen_geno_iter = compressed_geno_bufs[0];
       uint32_t skip = 0;
-      for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ) {
+      for (uint32_t variant_uidx = 0; variant_uidx != header_variant_ct; ) {
         uint32_t uii;
-        if (unlikely(!fread_unlocked(&uii, 4, 1, bgenfile))) {
-          goto OxBgenToPgen_ret_READ_FAIL;
+        {
+          const uintptr_t bytes_read = fread_unlocked(&uii, 1, 4, bgenfile);
+          if (bytes_read != 4) {
+            // don't know of a bgen-1.1 use case, but may as well make
+            // --lax-bgen-import have a consistent effect.
+            if (likely(allow_overstated_variant_ct && (!bytes_read))) {
+              raw_variant_ct = variant_uidx;
+              putc_unlocked('\n', stdout);
+              logprintf("--lax-bgen-import: .bgen file actually contains %u variant%s.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+              break;
+            }
+            goto OxBgenToPgen_ret_READ_FAIL;
+          }
         }
         if (unlikely(uii != sample_ct)) {
           logputs("\n");
@@ -12704,7 +12716,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             if (dosage_exists) {
               // don't need to scan for any more dosages
               StopThreads(&tg);
-              if (!chr_filter_exists) {
+              if ((!chr_filter_exists) && (!allow_overstated_variant_ct)) {
                 break;
               }
               continue;
@@ -13248,14 +13260,27 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       // temporary kludge
       uint32_t multiallelic_skip_ct = 0;
 
-      for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ) {
+      for (uint32_t variant_uidx = 0; variant_uidx != header_variant_ct; ) {
         // format is mostly identical to bgen 1.1; but there's no sample count,
         // and there is an allele count
         // logic is more similar to the second bgen 1.1 pass since we write the
         // .pvar here.
         uint16_t snpid_slen;
-        if (unlikely(!fread_unlocked(&snpid_slen, 2, 1, bgenfile))) {
-          goto OxBgenToPgen_ret_READ_FAIL;
+        {
+          const uintptr_t bytes_read = fread_unlocked(&snpid_slen, 1, 2, bgenfile);
+          if (bytes_read != 2) {
+            if (likely(!bytes_read)) {
+              putc_unlocked('\n', stdout);
+              if (likely(allow_overstated_variant_ct)) {
+                raw_variant_ct = variant_uidx;
+                logprintf("--lax-bgen-import: .bgen file actually contains %u variant%s.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+                break;
+              }
+              logerrprintfww("Error: .bgen file actually contains %u variant%s; header is incorrect. Add --lax-bgen-import to force import.\n", variant_uidx, (variant_uidx == 1)? "" : "s");
+              goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
+            }
+            goto OxBgenToPgen_ret_READ_FAIL;
+          }
         }
         char* rsid_start = R_CAST(char*, loadbuf);
         if (!snpid_chr) {
