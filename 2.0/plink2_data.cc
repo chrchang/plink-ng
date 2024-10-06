@@ -7031,10 +7031,25 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
               cur_write_allele_ct = cur_write_allele_idx_offsets[block_widx + 1] - cur_write_allele_idx_offsets[block_widx];
             }
             if (cur_read_allele_ct == cur_write_allele_ct) {
+              const uint32_t debug_print = g_debug_on && (read_variant_uidx == 318270);
+              Dosage* cur_dosagevals = nullptr;
+              if (debug_print) {
+                DPrintf("starting PgrGetRaw for variant_uidx=318270\n");
+                g_pgenlib_read_debug = 1;
+                g_pgenlib_read_debug_buf[0] = '\0';
+                const uint32_t raw_sample_ctaw2 = NypCtToAlignedWordCt(raw_sample_ct);
+                const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
+                cur_dosagevals = R_CAST(Dosage*, &(loadbuf_iter[raw_sample_ctaw2 + raw_sample_ctaw]));
+              }
               reterr = PgrGetRaw(read_variant_uidx, read_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[block_widx])) : nullptr);
               if (unlikely(reterr)) {
                 PgenErrPrintNV(reterr, read_variant_uidx);
                 goto MakePgenRobust_ret_1;
+              }
+              if (debug_print) {
+                g_pgenlib_read_debug = 0;
+                DPrintf("g_pgenlib_read_debug_buf: %s", g_pgenlib_read_debug_buf);
+                DPrintf("cur_dosagevals[173]: %u\n", cur_dosagevals[173]);
               }
               ++block_widx;
               continue;

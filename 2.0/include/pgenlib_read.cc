@@ -23,6 +23,10 @@
 namespace plink2 {
 #endif
 
+// TEMPORARY DEBUG
+uint32_t g_pgenlib_read_debug = 0;
+char g_pgenlib_read_debug_buf[1024];
+
 static inline PgenReaderMain* GetPgrp(PgenReader* pgr_ptr) {
   return &GET_PRIVATE(*pgr_ptr, m);
 }
@@ -7183,6 +7187,9 @@ PglErr PgrGetMP(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
 // ok for sample_include to be nullptr if not subsetting, though this is not
 // required
 PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t sample_ct, uint32_t vidx, uint32_t allele_ct, PgenReaderMain* pgrp, uint32_t* __restrict dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* __restrict dphase_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main) {
+  const uint32_t debug_print = g_pgenlib_read_debug;
+  char* debug_write_iter = g_pgenlib_read_debug_buf;
+
   // Side effect: may use pgrp->workspace_dosage_present and
   // pgrp->workspace_dphase_present
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
@@ -7192,6 +7199,9 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const uint32_t is_unconditional_dosage = ((vrtype & 0x60) == 0x40);
   uint32_t raw_dosage_ct;
+  if (debug_print) {
+    debug_write_iter += sprintf(debug_write_iter, "pgr vrtype: %u\n", vrtype);
+  }
   if ((vrtype & 0x60) == 0x20) {
     // case 1: dosage list
     if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_sample_ct, &fread_ptr, raw_dosage_present, &raw_dosage_ct))) {
@@ -7220,6 +7230,9 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
   }
   if (dosage_ct_ptr) {
     *dosage_ct_ptr = dosage_ct;
+  }
+  if (debug_print) {
+    debug_write_iter += sprintf(debug_write_iter, "pgr dosage_ct: %u  raw_dosage_ct: %u  dphase_present: %lx  allele_ct: %u  is_unconditional_dosage: %u\n", dosage_ct, raw_dosage_ct, (uintptr_t)dphase_present, allele_ct, is_unconditional_dosage);
   }
   if (!dosage_ct) {
     if (dphase_ct_ptr) {
