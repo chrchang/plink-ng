@@ -279,6 +279,8 @@ void AppendVcfHeaderStart(uint32_t v43, char** cswritepp) {
   time(&rawtime);
   const struct tm* loctime = localtime(&rawtime);
   cswritep += strftime(cswritep, kMaxMediumLine, "%Y%m%d", loctime);
+  // changing this to "PLINKv2.0" is arguably a minor compatibility break, so
+  // we don't do it here
   cswritep = strcpya_k(cswritep, EOLN_STR "##source=PLINKv2.00" EOLN_STR);
   *cswritepp = cswritep;
   return;
