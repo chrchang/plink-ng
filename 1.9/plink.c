@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2024 Shaun Purcell,
+// This file is part of PLINK 1.9, copyright (C) 2005-2024 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -93,9 +93,9 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b7.4"
+  "PLINK v1.9.0-b.7.4"
 #else
-  "PLINK v1.90p"
+  "PLINK v1.9.0-b.8"
 #endif
 #ifdef NOLAPACK
   "NL"
@@ -105,19 +105,19 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (18 Aug 2024)";
+  " (6 Oct 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   " " // (don't want this when version number has two trailing digits)
 #else
-  "    " // (don't want this when version number has e.g. "b3" before "p")
+  "   "
 #endif
 #ifndef NOLAPACK
   "  "
 #endif
-  "        www.cog-genomics.org/plink/1.9/\n"
+  "         cog-genomics.org/plink/1.9/\n"
   "(C) 2005-2024 Shaun Purcell, Christopher Chang   GNU General Public License v3"
 #if SPECIES_DEFAULT > 0
   "\nRecompiled with default species = "
@@ -6331,7 +6331,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "case-control-freqs")) {
 	    dosage_info.modifier |= DOSAGE_FREQ_CC;
 	  } else if (!strcmp(argv[cur_arg + uii], "frq2")) {
-	    // turn this into an error before official 1.90 release
+	    // turn this into an error before official 1.9 release
 	    logerrprint("Warning: The --dosage 'frq2' modifier has been renamed to 'case-control-freqs'.\n");
 	    dosage_info.modifier |= DOSAGE_FREQ_CC;
 	  } else if (strlen(argv[cur_arg + uii]) <= 6) {
