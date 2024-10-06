@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2024 Shaun Purcell,
+// This file is part of PLINK 2.0, copyright (C) 2005-2024 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -401,7 +401,7 @@ void AppendVcfHeaderStart(uint32_t v43, char** cswritepp) {
   time(&rawtime);
   const struct tm* loctime = localtime(&rawtime);
   cswritep += strftime(cswritep, kMaxMediumLine, "%Y%m%d", loctime);
-  cswritep = strcpya_k(cswritep, EOLN_STR "##source=PLINKv2.00" EOLN_STR);
+  cswritep = strcpya_k(cswritep, EOLN_STR "##source=PLINKv2.0" EOLN_STR);
   *cswritepp = cswritep;
   return;
 }

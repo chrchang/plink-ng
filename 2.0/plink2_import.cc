@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2024 Shaun Purcell,
+// This file is part of PLINK 2.0, copyright (C) 2005-2024 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -12385,9 +12385,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       logerrputs("Error: Invalid .bgen magic number.\n");
       goto OxBgenToPgen_ret_MALFORMED_INPUT;
     }
-    // "expected" because .bgen files from IMPUTE5 may violate the spec and
-    // put too high of a number here:
-    //   https://github.com/chrchang/plink-ng/issues/280
     const uint32_t header_variant_ct = initial_uints[2];
     if (unlikely(!header_variant_ct)) {
       logerrputs("Error: Empty .bgen file.\n");
