@@ -2704,6 +2704,8 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
             }
           }
         }
+        // bugfix (7 Oct 2024)
+        CopyToUnalignedW(bgen_geno_buf_iter, &cur_write_bits);
         bgen_geno_buf_iter = &(bgen_geno_buf_iter[DivUp(cur_write_bit_idx, CHAR_BIT)]);
       }
       const uint32_t uncompressed_bytect = bgen_geno_buf_iter - uncompressed_bgen_geno_buf;

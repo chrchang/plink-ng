@@ -6903,6 +6903,10 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
     if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_sample_ct, &fread_ptr, raw_dosage_present, &raw_dosage_ct))) {
       return kPglRetMalformedInput;
     }
+    if ((!raw_dosage_ct) && (!dosage_ct_ptr)) {
+      // bugfix (7 Oct 2024)
+      ZeroWArr(raw_sample_ctl, raw_dosage_present);
+    }
   } else if (is_unconditional_dosage) {
     // case 2: unconditional dosage.  handle separately from other two cases
     // since missing values may be present.
