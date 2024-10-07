@@ -1991,7 +1991,6 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
   // Unlike VCF, chrY female (but not unknown-sex) ploidy is 0 when genotype is
   // missing.
   const uint32_t male_ct = PopcountWords(sex_male_collapsed, sample_ctl);
-  ;;;
   const uint32_t female_ct = PopcountWords(sex_female_collapsed, sample_ctl);
   const uint32_t x_code = (male_ct != sample_ct)? cip->xymt_codes[kChrOffsetX] : UINT32_MAXM1;
   const uint32_t y_code = female_ct? cip->xymt_codes[kChrOffsetY] : UINT32_MAXM1;
@@ -2703,6 +2702,8 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
             }
           }
         }
+        // bugfix (7 Oct 2024)
+        CopyToUnalignedW(bgen_geno_buf_iter, &cur_write_bits);
         bgen_geno_buf_iter = &(bgen_geno_buf_iter[DivUp(cur_write_bit_idx, CHAR_BIT)]);
       }
       const uint32_t uncompressed_bytect = bgen_geno_buf_iter - uncompressed_bgen_geno_buf;
