@@ -1684,6 +1684,8 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
         // second predictor column: genotype
         float* genotype_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
         if (main_mutated || main_omitted) {
+          // bugfix (9 Oct 2024)
+          ZeroFArr(nm_sample_ct_rem, &(genotype_vals[nm_sample_ct]));
           genotype_vals = &(nm_predictors_pmaj_buf[expected_predictor_ct * nm_sample_ctav]);
         }
         CopyBitarrSubset(cur_pheno_cc, sample_nm, nm_sample_ct, pheno_cc_nm);
@@ -2300,9 +2302,6 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                 domdev_vals[sample_idx] = cur_genotype_val;
               }
               ZeroFArr(nm_sample_ct_rem, &(domdev_vals[nm_sample_ct]));
-            } else {
-              // bugfix (9 Oct 2024)
-              ZeroFArr(nm_sample_ct_rem, &(main_vals[nm_sample_ct]));
             }
             if (model_dominant) {
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
