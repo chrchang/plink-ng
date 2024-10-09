@@ -3923,6 +3923,8 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         // second predictor column: genotype
         double* genotype_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
         if (main_mutated || main_omitted) {
+          // bugfix (9 Oct 2024)
+          ZeroDArr(nm_sample_ct_rem, &(genotype_vals[nm_sample_ct]));
           genotype_vals = &(nm_predictors_pmaj_buf[expected_predictor_ct * nm_sample_ctav]);
         }
         CopyBitarrSubset(cur_pheno_cc, sample_nm, nm_sample_ct, pheno_cc_nm);
@@ -4490,7 +4492,6 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
               }
             }
           }
-          ;;;
           const uint32_t cur_predictor_ct = expected_predictor_ct - const_allele_ct;
           const uint32_t cur_predictor_ctav = RoundUpPow2(cur_predictor_ct, kDoublePerDVec);
           const uint32_t cur_predictor_ctavp1 = cur_predictor_ctav + 1;
@@ -4537,9 +4538,6 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 domdev_vals[sample_idx] = cur_genotype_val;
               }
               ZeroDArr(nm_sample_ct_rem, &(domdev_vals[nm_sample_ct]));
-            } else {
-              // bugfix (9 Oct 2024)
-              ZeroDArr(nm_sample_ct_rem, &(main_vals[nm_sample_ct]));
             }
             if (model_dominant) {
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
