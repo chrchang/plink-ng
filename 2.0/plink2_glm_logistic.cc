@@ -603,6 +603,11 @@ BoolErr LogisticRegressionF(const float* yy, const float* xx, const float* sampl
   float min_delta_coef = 1e9;
 
   ZeroFArr(predictor_ct * predictor_ctav, ll);
+  // quasi-bugfix (9 Oct 2024)
+  // technically wasn't needed because LogisticSseF() implementation mapped nan
+  // to not-nan, but we don't want to depend on that
+  ZeroFArr(sample_ctav - sample_ct, &(pp[sample_ct]));
+  ZeroFArr(sample_ctav - sample_ct, &(vv[sample_ct]));
   for (uint32_t iteration = 0; ; ++iteration) {
     // P[i] = \sum_j X[i][j] * coef[j];
     ColMajorFmatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
@@ -879,6 +884,10 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
 
   // bugfix (4 Nov 2017): ustar[] trailing elements must be zeroed out
   ZeroFArr(predictor_ctav - predictor_ct, &(ustar[predictor_ct]));
+
+  // quasi-bugfix (9 Oct 2024)
+  ZeroFArr(sample_ctav - sample_ct, &(pp[sample_ct]));
+  ZeroFArr(sample_ctav - sample_ct, &(vv[sample_ct]));
 
   // start with 80% of most logistf convergence defaults (some reduction is
   // appropriate to be consistent with single-precision arithmetic).  (Update,
@@ -2092,6 +2101,9 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                 domdev_vals[sample_idx] = cur_genotype_val;
               }
               ZeroFArr(nm_sample_ct_rem, &(domdev_vals[nm_sample_ct]));
+            } else {
+              // bugfix (9 Oct 2024)
+              ZeroFArr(nm_sample_ct_rem, &(main_vals[nm_sample_ct]));
             }
             if (model_dominant) {
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
@@ -2816,6 +2828,10 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
   }
 
   ZeroDArr(predictor_ct * predictor_ctav, ll);
+  // bugfix (9 Oct 2024): although trailing elements of pp and vv are mostly
+  // irrelevant, they cannot be nan
+  ZeroDArr(sample_ctav - sample_ct, &(pp[sample_ct]));
+  ZeroDArr(sample_ctav - sample_ct, &(vv[sample_ct]));
 
   // This index is 1 less than 'iter' in glm.R.
   for (uint32_t iteration = 1; iteration != maxit; ++iteration) {
@@ -2850,6 +2866,8 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
     if (loglik != loglik) {
       return 1;
     }
+    // DEBUG
+    // printf("loglik: %g\n", loglik);
 
     // TODO: determine other non-convergence criteria
     if (fabs(loglik - loglik_old) < 1e-8 * (0.05 + fabs(loglik))) {
@@ -3049,6 +3067,10 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
 
   // ustar[] trailing elements must be zeroed out
   ZeroDArr(predictor_ctav - predictor_ct, &(ustar[predictor_ct]));
+
+  // bugfix (9 Oct 2024)
+  ZeroDArr(sample_ctav - sample_ct, &(pp[sample_ct]));
+  ZeroDArr(sample_ctav - sample_ct, &(vv[sample_ct]));
 
   const uint32_t max_iter = 25;
   const double gconv = 0.00001;
@@ -4468,6 +4490,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
               }
             }
           }
+          ;;;
           const uint32_t cur_predictor_ct = expected_predictor_ct - const_allele_ct;
           const uint32_t cur_predictor_ctav = RoundUpPow2(cur_predictor_ct, kDoublePerDVec);
           const uint32_t cur_predictor_ctavp1 = cur_predictor_ctav + 1;
@@ -4514,6 +4537,9 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 domdev_vals[sample_idx] = cur_genotype_val;
               }
               ZeroDArr(nm_sample_ct_rem, &(domdev_vals[nm_sample_ct]));
+            } else {
+              // bugfix (9 Oct 2024)
+              ZeroDArr(nm_sample_ct_rem, &(main_vals[nm_sample_ct]));
             }
             if (model_dominant) {
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
@@ -5153,8 +5179,8 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       }
     }
 
-    if (is_single_prec && (max_sample_ct > 2000000)) {
-      logerrputs("Warning: --glm's 'single-prec-cc' mode is not recommended on more than ~2\nmillion samples.\n");
+    if (is_single_prec && (max_sample_ct > 100000)) {
+      logerrputs("Warning: --glm's 'single-prec-cc' mode is not recommended on more than ~100000\nsamples.\n");
     }
     common->workspace_bufs = S_CAST(unsigned char**, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(intptr_t)));
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
