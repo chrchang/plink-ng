@@ -603,6 +603,11 @@ BoolErr LogisticRegressionF(const float* yy, const float* xx, const float* sampl
   float min_delta_coef = 1e9;
 
   ZeroFArr(predictor_ct * predictor_ctav, ll);
+  // quasi-bugfix (9 Oct 2024)
+  // technically wasn't needed because LogisticSseF() implementation mapped nan
+  // to not-nan, but we don't want to depend on that
+  ZeroFArr(sample_ctav - sample_ct, &(pp[sample_ct]));
+  ZeroFArr(sample_ctav - sample_ct, &(vv[sample_ct]));
   for (uint32_t iteration = 0; ; ++iteration) {
     // P[i] = \sum_j X[i][j] * coef[j];
     ColMajorFmatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
@@ -879,6 +884,10 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
 
   // bugfix (4 Nov 2017): ustar[] trailing elements must be zeroed out
   ZeroFArr(predictor_ctav - predictor_ct, &(ustar[predictor_ct]));
+
+  // quasi-bugfix (9 Oct 2024)
+  ZeroFArr(sample_ctav - sample_ct, &(pp[sample_ct]));
+  ZeroFArr(sample_ctav - sample_ct, &(vv[sample_ct]));
 
   // start with 80% of most logistf convergence defaults (some reduction is
   // appropriate to be consistent with single-precision arithmetic).  (Update,
@@ -2291,6 +2300,9 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                 domdev_vals[sample_idx] = cur_genotype_val;
               }
               ZeroFArr(nm_sample_ct_rem, &(domdev_vals[nm_sample_ct]));
+            } else {
+              // bugfix (9 Oct 2024)
+              ZeroFArr(nm_sample_ct_rem, &(main_vals[nm_sample_ct]));
             }
             if (model_dominant) {
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
@@ -3009,6 +3021,10 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, uint32_t sample_
   }
 
   ZeroDArr(predictor_ct * predictor_ctav, ll);
+  // bugfix (9 Oct 2024): although trailing elements of pp and vv are mostly
+  // irrelevant, they cannot be nan
+  ZeroDArr(sample_ctav - sample_ct, &(pp[sample_ct]));
+  ZeroDArr(sample_ctav - sample_ct, &(vv[sample_ct]));
 
   // This index is 1 less than 'iter' in glm.R.
   for (uint32_t iteration = 1; iteration != maxit; ++iteration) {
@@ -3148,6 +3164,10 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, uint32_t sample_ct,
 
   // ustar[] trailing elements must be zeroed out
   ZeroDArr(predictor_ctav - predictor_ct, &(ustar[predictor_ct]));
+
+  // bugfix (9 Oct 2024)
+  ZeroDArr(sample_ctav - sample_ct, &(pp[sample_ct]));
+  ZeroDArr(sample_ctav - sample_ct, &(vv[sample_ct]));
 
   const uint32_t max_iter = 25;
   const double gconv = 0.00001;
@@ -3671,6 +3691,8 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         // second predictor column: genotype
         double* genotype_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
         if (main_mutated || main_omitted) {
+          // bugfix (9 Oct 2024)
+          ZeroDArr(nm_sample_ct_rem, &(genotype_vals[nm_sample_ct]));
           genotype_vals = &(nm_predictors_pmaj_buf[expected_predictor_ct * nm_sample_ctav]);
         }
         CopyBitarrSubset(cur_pheno_cc, sample_nm, nm_sample_ct, pheno_cc_nm);
