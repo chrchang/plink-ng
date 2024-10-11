@@ -2028,6 +2028,8 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
     //   chr_outedges[x].
     // - chr_inedge_cts[] is also indexed by chr_idx, and tracks how many
     //   in-edges each chromosome has.
+    // TODO: this is unsuitable for files with a huge number of contigs; linked
+    // lists should work better in practice
     uintptr_t* chr_present;
     uintptr_t** chr_outedges;
     uint32_t* chr_inedge_cts;
@@ -2636,7 +2638,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
         }
 
         char* line_end = AdvPastDelim(line_iter, '\n');
-        const uint32_t line_blen = line_end - line_start;
+        uint32_t line_blen = line_end - line_start;
         if (max_line_blen < line_blen) {
           max_line_blen = line_blen;
         }
@@ -2668,7 +2670,14 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
           }
           variant_id = variant_id_buf;
           char* variant_id_end = VaridTemplateWrite(cur_varid_templatep, token_ptrs[2], alt_start, cur_bp, ref_slen, extra_alt_ct, alt_slen, &max_allele_overflow_slen, variant_id);
+          // error message fix (11 Oct 2024)
+          if (max_allele_overflow_slen && (!(misc_flags & (kfMiscNewVarIdOverflowMissing | kfMiscNewVarIdOverflowTruncate)))) {
+            ctx.multiallelics_already_joined = 1;
+          }
           id_slen = variant_id_end - variant_id;
+          // bugfix (11 Oct 2024): need to update line_blen value used in
+          // cur_single_pos_blen accounting.
+          line_blen += id_slen - token_slens[1];
         }
         if (unlikely(id_slen > kMaxIdSlen)) {
           logerrputs("Error: Variant IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
