@@ -4913,8 +4913,8 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       }
     }
 
-    if (is_single_prec && (max_sample_ct > 2000000)) {
-      logerrputs("Warning: --glm's 'single-prec-cc' mode is not recommended on more than ~2\nmillion samples.\n");
+    if (is_single_prec && (max_sample_ct > 100000)) {
+      logerrputs("Warning: --glm's 'single-prec-cc' mode is not recommended on more than ~100000\nsamples.\n");
     }
     common->workspace_bufs = S_CAST(unsigned char**, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(intptr_t)));
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
