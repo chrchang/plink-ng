@@ -5562,6 +5562,8 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       }
     }
     marker_uidx2 = marker_uidx2_base;
+    // bugfix (11 Oct 2024)
+    chrom_end = 0;
     if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
       goto ld_report_dprime_ret_READ_FAIL;
     }
