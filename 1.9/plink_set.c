@@ -490,10 +490,11 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	if (chrom_end == chrom_start) {
 	  continue;
 	}
-	// might need to move this outside the if-statement later
-	if (subset_ct && (bsearch_str(bufptr2, strlen_se(bufptr2), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
-	  continue;
-	}
+      }
+      // bugfix (13 Oct 2024): this needs to be outside the preceding
+      // if-statement for e.g. --annotate subset=
+      if (subset_ct && (bsearch_str(bufptr2, strlen_se(bufptr2), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
+        continue;
       }
       bufptr = skip_initial_spaces(&(first_token_end[1]));
       if (scan_uint_defcap(bufptr, &range_first)) {
@@ -2239,7 +2240,8 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   if (fopen_checked(fname, "r", &infile)) {
     goto load_range_list_sortpos_ret_OPEN_FAIL;
   }
-  retval = load_range_list(infile, 1, border_extend, 0, 0, 0, 0, subset_ct, allow_extra_chroms, sorted_subset_ids, 0, nullptr, chrom_info_ptr, &gene_ct, gene_names_ptr, &max_gene_id_len, &gene_arr, &range_sort_buf, file_descrip);
+  // bugfix (13 Oct 2024): forgot to pass max_subset_id_len
+  retval = load_range_list(infile, 1, border_extend, 0, 0, 0, 0, subset_ct, allow_extra_chroms, sorted_subset_ids, max_subset_id_len, nullptr, chrom_info_ptr, &gene_ct, gene_names_ptr, &max_gene_id_len, &gene_arr, &range_sort_buf, file_descrip);
   if (retval) {
     goto load_range_list_sortpos_ret_1;
   }
