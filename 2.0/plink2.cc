@@ -4889,6 +4889,10 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "ovar-number")) {
           logerrputs("Error: --covar-number is retired.  Use --covar-col-nums instead (and add 2 to\nconvert from PLINK 1.x covariate-indexes to covariate-column-numbers).\n");
           goto main_ret_INVALID_CMDLINE_A;
+        } else if (strequal_k_unsafe(flagname_p2, "lump-range") ||
+                   strequal_k_unsafe(flagname_p2, "lump-range0") ||
+                   strequal_k_unsafe(flagname_p2, "lump-range-border")) {
+          goto main_ret_ALPHA6_REQUIRED;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
