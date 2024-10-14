@@ -46,7 +46,7 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
     // if we need to track set names, put together a sorted list
     if (track_set_names) {
       uintptr_t line_idx = 1;
-      for (char* line_iter = TextLineEnd(txsp); TextGetUnsafe(txsp, &line_iter); ++line_idx) {
+      for (char* line_iter = TextLineEnd(txsp); TextGetUnsafe2(txsp, &line_iter); ++line_idx) {
         char* line_start = line_iter;
         char* first_token_end = CurTokenEnd(line_start);
         char* cur_set_id = NextTokenMult(first_token_end, 3);
@@ -216,11 +216,9 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         if (chr_end == chr_start) {
           continue;
         }
-        // (track_set_names must be true if subset_ct is nonzero)
-        // might need to move this outside the if-statement later
-        if (subset_ct && (bsearch_strbox(last_token, sorted_subset_ids, strlen_se(last_token), max_subset_id_blen, subset_ct) == -1)) {
-          continue;
-        }
+      }
+      if (subset_ct && (bsearch_strbox(last_token, sorted_subset_ids, strlen_se(last_token), max_subset_id_blen, subset_ct) == -1)) {
+        continue;
       }
       const char* linebuf_iter = FirstNonTspace(&(first_token_end[1]));
       uint32_t range_first;
@@ -423,6 +421,210 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
     CleanupTextStream2(fname_txs, &txs, &reterr);
   }
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+
+uint32_t IntervalInSetdef(const uint32_t* setdef, uint32_t variant_uidx_start, uint32_t variant_uidx_end) {
+  // - expects half-open interval coordinates as input
+  // - assumes variant_uidx_end > variant_uidx_start
+  // - returns 0 if intersection empty, nonzero value (not necessarily 1) if
+  //   nonempty
+  const uint32_t range_ct = setdef[0];
+  if (range_ct != UINT32_MAX) {
+    // This overlap query may belong in plink2_common.
+    if (!range_ct) {
+      return 0;
+    }
+    const uint32_t* set_ranges_start = &(setdef[1]);
+    // Check whether variant_uidx_start is contained within an interval.
+    // - If an interval is of the form [x, variant_uidx_start),
+    //   variant_uidx_start is not within that interval.  We want start_pos to
+    //   be the index past the interval.
+    // - If an interval is of the form [x, variant_uidx_start + 1),
+    //   variant_uidx_start must be within the interval.
+    // std::lower_bound(set_ranges_start, &(set_ranges_start[range_ct * 2]),
+    //                  variant_uidx_start + 1)
+    // has the correct behavior.
+    const uint32_t start_pos = LowerBoundNonemptyU32(set_ranges_start, range_ct * 2, variant_uidx_start + 1);
+    if (start_pos & 1) {
+      return 1;
+    }
+    if (start_pos == range_ct * 2) {
+      // Last interval ends before variant_uidx_start, intersection must be
+      // empty.
+      return 0;
+    }
+    return LowerBoundNonemptyU32(&(set_ranges_start[start_pos]), range_ct * 2 - start_pos, variant_uidx_end);
+  }
+
+  const uint32_t set_uidx_base = setdef[1];
+  if ((variant_uidx_end <= set_uidx_base) || (variant_uidx_start >= set_uidx_base + setdef[2])) {
+    // Interval does not intersect set bitvector.
+    return setdef[3];
+  }
+  uint32_t idx_start;
+  if (variant_uidx_start < set_uidx_base) {
+    if (setdef[3]) {
+      return 1;
+    }
+    idx_start = 0;
+  } else {
+    idx_start = variant_uidx_start - set_uidx_base;
+  }
+  uint32_t idx_end;
+  if (variant_uidx_end > set_uidx_base + setdef[2]) {
+    if (setdef[3]) {
+      return 1;
+    }
+    idx_end = setdef[2];
+  } else {
+    idx_end = variant_uidx_end - set_uidx_base;
+  }
+  const uint32_t first_hit = AdvBoundedTo1Bit(R_CAST(const uintptr_t*, &(setdef[4])), idx_start, idx_end);
+  return (first_hit < idx_end);
+}
+
+PglErr LoadAndSortIntervalBed(const char* fname, const ChrInfo* cip, const char* sorted_subset_ids, uint32_t zero_based, uint32_t border_extend, uintptr_t subset_ct, uintptr_t max_subset_id_blen, uint32_t max_thread_ct, uintptr_t* gene_ct_ptr, char** gene_names_ptr, uintptr_t* max_gene_id_blen_ptr, uintptr_t** chr_bounds_ptr, uint32_t*** genedefs_ptr, uintptr_t* chr_max_gene_ct_ptr) {
+  // --clump-range[0]; in plink 1.9, also --annotate and --gene-report
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    reterr = InitTextStreamEx(fname, 1, kMaxLongLine, kTextStreamBlenFast, MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto LoadAndSortIntervalBed_ret_TSTREAM_FAIL;
+    }
+    uintptr_t gene_ct = 0;
+    uintptr_t max_gene_id_blen = 0;
+    uint64_t* range_sort_buf;
+    MakeSetRange** gene_arr;
+    reterr = LoadIntervalBed(cip, nullptr, sorted_subset_ids, fname, zero_based, 1, border_extend, 0, 0, subset_ct, max_subset_id_blen, &txs, &gene_ct, gene_names_ptr, &max_gene_id_blen, &range_sort_buf, &gene_arr);
+    if (unlikely(reterr)) {
+      goto LoadAndSortIntervalBed_ret_1;
+    }
+    const char* gene_names = *gene_names_ptr;
+    const uint32_t chr_idx_end = cip->max_code + 1 + cip->name_ct;
+    if (bigstack_alloc_w(chr_idx_end + 1, chr_bounds_ptr) ||
+        bigstack_alloc_u32p(gene_ct, genedefs_ptr)) {
+      goto LoadAndSortIntervalBed_ret_NOMEM;
+    }
+    uintptr_t* chr_bounds = *chr_bounds_ptr;
+    chr_bounds[0] = 0;
+    uint32_t** genedefs = *genedefs_ptr;
+    unsigned char* tmp_alloc_base = g_bigstack_base;
+    unsigned char* tmp_alloc_end = BigstackEndRoundedDown();
+    uintptr_t chr_max_gene_ct = 0;
+    uint32_t chr_idx = 0;
+    for (uintptr_t gene_idx = 0; gene_idx != gene_ct; ++gene_idx) {
+      const char* chrprefixed_gene_name = &(gene_names[gene_idx * max_gene_id_blen]);
+      uint32_t new_chr_idx = 0;
+      for (uint32_t uii = 0; uii != kMaxChrCodeDigits - 1; ++uii) {
+        new_chr_idx += chrprefixed_gene_name[uii] - 48;
+        new_chr_idx *= 10;
+      }
+      // Last prefix character must be nonnumeric to prevent weird natural-sort
+      // interaction, so it's offset by 33 instead of 48.
+      new_chr_idx += chrprefixed_gene_name[kMaxChrCodeDigits - 1] - 33;
+      if (chr_idx < S_CAST(uint32_t, new_chr_idx)) {
+        const uintptr_t chr_gene_ct = gene_idx - chr_bounds[chr_idx];
+        if (chr_gene_ct > chr_max_gene_ct) {
+          chr_max_gene_ct = chr_gene_ct;
+        }
+        do {
+          chr_bounds[++chr_idx] = gene_idx;
+        } while (chr_idx < S_CAST(uint32_t, new_chr_idx));
+      }
+      MakeSetRange* msr_tmp = gene_arr[gene_idx];
+      uint32_t range_ct = 0;
+      while (msr_tmp) {
+        range_sort_buf[range_ct++] = (S_CAST(uint64_t, msr_tmp->uidx_start) << 32) | S_CAST(uint64_t, msr_tmp->uidx_end);
+        msr_tmp = msr_tmp->next;
+      }
+      if (!range_ct) {
+        genedefs[gene_idx] = R_CAST(uint32_t*, tmp_alloc_base);
+        tmp_alloc_base = &(tmp_alloc_base[16]);
+        if (tmp_alloc_end - tmp_alloc_base < 0) {
+          goto LoadAndSortIntervalBed_ret_NOMEM;
+        }
+        genedefs[gene_idx][0] = 0;
+        continue;
+      }
+      // Sort and merge intervals.  (This logic may belong in plink2_common.)
+      STD_SORT_PAR_UNSEQ(range_ct, u64cmp, range_sort_buf);
+      uint64_t range_write_entry = range_sort_buf[0];
+      uint32_t range_read_idx = 1;
+      uint64_t range_read_entry;
+      for (; range_read_idx != range_ct; ++range_read_idx) {
+        range_read_entry = range_sort_buf[range_read_idx];
+        // explicit S_CAST to communicate intentional truncation.
+        const uint32_t range_read_first_uidx = S_CAST(uint32_t, range_read_entry >> 32);
+        if (range_read_first_uidx <= S_CAST(uint32_t, range_write_entry)) {
+          break;
+        }
+        range_write_entry = range_read_entry;
+      }
+      uint32_t range_write_idx = range_read_idx;
+      if (range_read_idx != range_ct) {
+        --range_write_idx;
+        uint32_t range_read_first_uidx;
+        goto LoadAndSortIntervalBed_merge_start;
+        for (; range_read_idx != range_ct; ++range_read_idx) {
+          range_read_entry = range_sort_buf[range_read_idx];
+          range_read_first_uidx = S_CAST(uint32_t, range_read_entry >> 32);
+          if (range_read_first_uidx <= S_CAST(uint32_t, range_write_entry)) {
+          LoadAndSortIntervalBed_merge_start:
+            const uint32_t range_read_last_uidx = S_CAST(uint32_t, range_read_entry);
+            if (range_read_last_uidx > S_CAST(uint32_t, range_write_entry)) {
+              range_write_entry = (range_write_entry & 0xffffffff00000000LLU) | S_CAST(uint64_t, range_read_last_uidx);
+            }
+          } else {
+            range_sort_buf[range_write_idx++] = range_write_entry;
+            range_write_entry = range_read_entry;
+          }
+        }
+        range_sort_buf[range_write_idx++] = range_write_entry;
+      }
+
+      const uintptr_t genedef_alloc_size = RoundUpPow2((range_write_idx * 2 + 1) * sizeof(int32_t), 16);
+      uint32_t* genedef_iter = R_CAST(uint32_t*, tmp_alloc_base);
+      tmp_alloc_base = &(tmp_alloc_base[genedef_alloc_size]);
+      if (tmp_alloc_end - tmp_alloc_base < 0) {
+        goto LoadAndSortIntervalBed_ret_NOMEM;
+      }
+      genedefs[gene_idx] = genedef_iter;
+      *genedef_iter++ = range_write_idx;
+      for (uint32_t range_idx = 0; range_idx != range_write_idx; ++range_idx) {
+        const uint64_t range_entry = range_sort_buf[range_idx];
+        *genedef_iter++ = S_CAST(uint32_t, range_entry >> 32);
+        *genedef_iter++ = S_CAST(uint32_t, range_entry);
+      }
+    }
+
+    BigstackBaseSet(tmp_alloc_base);
+
+    const uintptr_t chr_gene_ct = gene_ct - chr_bounds[chr_idx];
+    if (chr_gene_ct > chr_max_gene_ct) {
+      chr_max_gene_ct = chr_gene_ct;
+    }
+    while (chr_idx < chr_idx_end) {
+      chr_bounds[++chr_idx] = gene_ct;
+    }
+    *gene_ct_ptr = gene_ct;
+    *max_gene_id_blen_ptr = max_gene_id_blen;
+    *chr_max_gene_ct_ptr = chr_max_gene_ct;
+  }
+  while (0) {
+  LoadAndSortIntervalBed_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadAndSortIntervalBed_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(fname, &txs);
+    break;
+  }
+ LoadAndSortIntervalBed_ret_1:
+  CleanupTextStream2(fname, &txs, &reterr);
+  BigstackEndReset(bigstack_end_mark);
   return reterr;
 }
 

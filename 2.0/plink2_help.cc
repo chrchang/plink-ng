@@ -1503,10 +1503,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      f: Force F column (and SP2 entry) even when only one file is provided.\n"
 "      (P is always present, and positioned here.)\n"
 "      total: Number of other variants in clump.\n"
+"      maybebounds: If --clump-range[0] specified, bp range of members with p <\n"
+"                   --clump-p2 threshold (two cols).\n"
+"      bounds: Force bp range columns even without --clump-range[0].\n"
 "      bins: Number of clumped variants in each p-value bin.\n"
 "      sp2: IDs, and possibly A1 allele and/or file number, of members with p <\n"
 "           --clump-p2 threshold.\n"
-"    The default is chrom,pos,maybeprovref,maybea1,maybef,total,bins,sp2.\n\n"
+"      (Overlapping-range names always present and positioned here if\n"
+"       --clump-range[0] specified)\n"
+"    The default is chrom,pos,maybeprovref,maybea1,maybef,total,maybebounds,\n"
+"    bins,sp2.\n\n"
               );
     HelpPrint("score\0score-list\0", &help_ctrl, 1,
 "  --score <filename> [i] [j] [k] [{header | header-read}]\n"
@@ -2686,7 +2692,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --mperm-save-all   : Save all max(T) permutation test statistics.\n"
                );
     */
-    HelpPrint("clump-p1\0clump-p2\0clump-r2\0clump-kb\0clump-unphased\0clump-log10\0clump-bins\0clump-id-field\0clump-p-field\0clump-a1-field\0clump-test-field\0clump-force-a1\0clump-test\0clump-snp-field\0clump-field\0clump\0", &help_ctrl, 0,
+    HelpPrint("clump-p1\0clump-p2\0clump-r2\0clump-kb\0clump-unphased\0clump-log10\0clump-range\0clump-range0\0clump-range-border\0clump-bins\0clump-id-field\0clump-p-field\0clump-a1-field\0clump-test-field\0clump-force-a1\0clump-test\0clump-snp-field\0clump-field\0clump\0", &help_ctrl, 0,
 "  --clump-p1 <pval> : Set --clump index var. p-value ceiling (default 1e-4).\n"
 "  --clump-p2 <pval> : Set --clump secondary p-value threshold (default 0.01).\n"
 "  --clump-r2 <r^2>  : Set --clump r^2 threshold (default 0.5).\n"
@@ -2696,6 +2702,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                                 -log10 form.\n"
 "  --clump-log10-p1 <-l10(p)> : Alternatives to --clump-p1/--clump-p2 that take\n"
 "  --clump-log10-p2 <-l10(p)>   the p-value argument in -log10 form.\n"
+"  --clump-range[0] <fname>   : Report overlaps between clumps and regions.\n"
+"                               --clump-range0 specifies 0-based input\n"
+"                               coordinates.\n"
+"  --clump-range-border <kb>  : Stretch regions in --clump-range[0] file.\n"
 "  --clump-bins <bndries...>  : Set --clump p-value bin boundaries (default\n"
 "                               0.0001,0.001,0.01,0.05).\n"
 "  --clump-id-field <nm...>   : Set --clump variant ID (default 'ID SNP'),\n"

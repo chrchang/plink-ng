@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (11 Oct 2024)";
+  " (14 Oct 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4646,7 +4646,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               explicit_cols = 1;
-              reterr = ParseColDescriptor(&(cur_modif[strlen("cols=")]), "chrom\0pos\0ref\0alt1\0alt\0maybeprovref\0provref\0maybea1\0a1\0maybef\0f\0total\0bins\0sp2\0", "clump cols=", kfClumpColChrom, kfClumpColDefault, 0, &pc.clump_info.flags);
+              reterr = ParseColDescriptor(&(cur_modif[strlen("cols=")]), "chrom\0pos\0ref\0alt1\0alt\0maybeprovref\0provref\0maybea1\0a1\0maybef\0f\0total\0maybebounds\0bounds\0bins\0sp2\0", "clump cols=", kfClumpColChrom, kfClumpColDefault, 0, &pc.clump_info.flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -4834,6 +4834,43 @@ int main(int argc, char** argv) {
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-range") || strequal_k_unsafe(flagname_p2, "lump-range0")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-range[0] must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(pc.clump_info.range_fname)) {
+            logerrputs("Error: --clump-range and --clump-range0 cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.clump_info.range_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          if (flagname_p2[10]) {
+            pc.clump_info.flags |= kfClumpRange0;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-range-border")) {
+          if (unlikely(!pc.clump_info.range_fname)) {
+            logerrputs("Error: --clump-range-border must be used with --clump-range[0].\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --clump-range-border argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (dxx > 2147483.646) {
+            pc.clump_info.range_border = 0x7ffffffe;
+          } else {
+            pc.clump_info.range_border = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
           }
         } else if (strequal_k_unsafe(flagname_p2, "lump-bins")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {

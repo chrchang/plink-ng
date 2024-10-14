@@ -43,22 +43,25 @@ FLAGSET_DEF_START()
   kfClumpOutputLog10 = (1 << 5),
   kfClumpNoA1 = (1 << 6),
   kfClumpNoTest = (1 << 7),
+  kfClumpRange0 = (1 << 8),
 
-  kfClumpColChrom = (1 << 8),
-  kfClumpColPos = (1 << 9),
-  kfClumpColRef = (1 << 10),
-  kfClumpColAlt1 = (1 << 11),
-  kfClumpColAlt = (1 << 12),
-  kfClumpColMaybeprovref = (1 << 13),
-  kfClumpColProvref = (1 << 14),
-  kfClumpColMaybeA1 = (1 << 15),
-  kfClumpColA1 = (1 << 16),
-  kfClumpColMaybeF = (1 << 17),
-  kfClumpColF = (1 << 18),
-  kfClumpColTotal = (1 << 19),
-  kfClumpColBins = (1 << 20),
-  kfClumpColSp2 = (1 << 21),
-  kfClumpColDefault = (kfClumpColChrom | kfClumpColPos | kfClumpColMaybeprovref | kfClumpColMaybeA1 | kfClumpColMaybeF | kfClumpColTotal | kfClumpColBins | kfClumpColSp2)
+  kfClumpColChrom = (1 << 9),
+  kfClumpColPos = (1 << 10),
+  kfClumpColRef = (1 << 11),
+  kfClumpColAlt1 = (1 << 12),
+  kfClumpColAlt = (1 << 13),
+  kfClumpColMaybeprovref = (1 << 14),
+  kfClumpColProvref = (1 << 15),
+  kfClumpColMaybeA1 = (1 << 16),
+  kfClumpColA1 = (1 << 17),
+  kfClumpColMaybeF = (1 << 18),
+  kfClumpColF = (1 << 19),
+  kfClumpColTotal = (1 << 20),
+  kfClumpColMaybeBounds = (1 << 21),
+  kfClumpColBounds = (1 << 22),
+  kfClumpColBins = (1 << 23),
+  kfClumpColSp2 = (1 << 24),
+  kfClumpColDefault = (kfClumpColChrom | kfClumpColPos | kfClumpColMaybeprovref | kfClumpColMaybeA1 | kfClumpColMaybeF | kfClumpColTotal | kfClumpColMaybeBounds | kfClumpColBins | kfClumpColSp2)
 FLAGSET_DEF_END(ClumpFlags);
 
 FLAGSET_DEF_START()
@@ -115,6 +118,7 @@ typedef struct LdInfoStruct {
 typedef struct ClumpInfoStruct {
   NONCOPYABLE(ClumpInfoStruct);
   char* fnames_flattened;
+  char* range_fname;
   char* test_name;
   char* id_field;
   char* a1_field;
@@ -126,6 +130,7 @@ typedef struct ClumpInfoStruct {
   double r2;
   uint32_t bin_bound_ct;
   uint32_t bp_radius;
+  uint32_t range_border;
   ClumpFlags flags;
 } ClumpInfo;
 

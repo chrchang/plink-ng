@@ -16,9 +16,10 @@
 
 
 #include "include/plink2_stats.h"
+#include "plink2_compress_stream.h"
 #include "plink2_filter.h"
 #include "plink2_ld.h"
-#include "plink2_compress_stream.h"
+#include "plink2_set.h"
 
 #include <unistd.h>  // unlink()
 
@@ -47,6 +48,7 @@ void CleanupLd(LdInfo* ldip) {
 
 void InitClump(ClumpInfo* clump_ip) {
   clump_ip->fnames_flattened = nullptr;
+  clump_ip->range_fname = nullptr;
   clump_ip->test_name = nullptr;
   clump_ip->id_field = nullptr;
   clump_ip->a1_field = nullptr;
@@ -58,11 +60,13 @@ void InitClump(ClumpInfo* clump_ip) {
   clump_ip->r2 = 0.5 * (1.0 + kSmallEpsilon);
   clump_ip->bin_bound_ct = 0;
   clump_ip->bp_radius = 249999;
+  clump_ip->range_border = 0;
   clump_ip->flags = kfClump0;
 }
 
 void CleanupClump(ClumpInfo* clump_ip) {
   free_cond(clump_ip->fnames_flattened);
+  free_cond(clump_ip->range_fname);
   free_cond(clump_ip->test_name);
   free_cond(clump_ip->id_field);
   free_cond(clump_ip->a1_field);
@@ -7559,9 +7563,12 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         ln_bin_boundaries = clump_ip->ln_bin_boundaries;
       }
     }
+    const char* range_fname = clump_ip->range_fname;
     const uint32_t sp2_col = flags & kfClumpColSp2;
+    const uint32_t ranges_col = !!range_fname;
+    const uint32_t bounds_col = (flags & kfClumpColBounds) || ((flags & kfClumpColMaybeBounds) && ranges_col);
     const double ln_p1 = clump_ip->ln_p1;
-    const double ln_p2 = sp2_col? clump_ip->ln_p2 : -DBL_MAX;
+    const double ln_p2 = (sp2_col || bounds_col || ranges_col)? clump_ip->ln_p2 : -DBL_MAX;
     double load_ln_pthresh = MAXV(ln_p1, ln_p2);
     if (bin_bound_ct && (load_ln_pthresh < ln_bin_boundaries[bin_bound_ct - 1])) {
       load_ln_pthresh = ln_bin_boundaries[bin_bound_ct - 1];
@@ -7569,7 +7576,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     ClumpEntry** clump_entries = nullptr;
     uintptr_t* nonsig_arr = nullptr;
     uint32_t allow_overlap = (flags / kfClumpAllowOverlap) & 1;
-    if (flags & (kfClumpColTotal | kfClumpColBins | kfClumpColSp2)) {
+    if ((flags & (kfClumpColTotal | kfClumpColBins | kfClumpColSp2)) || bounds_col || range_fname) {
       if (unlikely(BIGSTACK_ALLOC_X(ClumpEntry*, raw_allele_ct + 1, &clump_entries))) {
         goto ClumpReports_ret_NOMEM;
       }
@@ -8958,6 +8965,20 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         goto ClumpReports_ret_OPEN_FAIL;
       }
     }
+
+    char* range_group_names = nullptr;
+    uintptr_t* rg_chr_bounds = nullptr;
+    uint32_t** rg_setdefs = nullptr;
+    uintptr_t max_range_group_id_blen = 0;
+    if (range_fname) {
+      uintptr_t ignored_group_ct;
+      uintptr_t ignored_chr_max_group_ct;
+      reterr = LoadAndSortIntervalBed(range_fname, cip, nullptr, (flags / kfClumpRange0) & 1, clump_ip->range_border, 0, 0, max_thread_ct, &ignored_group_ct, &range_group_names, &max_range_group_id_blen, &rg_chr_bounds, &rg_setdefs, &ignored_chr_max_group_ct);
+      if (unlikely(reterr)) {
+        goto ClumpReports_ret_1;
+      }
+    }
+
     const uint32_t overflow_buf_size = kCompressStreamBlock + MAXV(kMaxIdSlen + max_variant_id_slen + max_allele_slen, bin_bound_ct * (kMaxLnGSlen + 1)) + 256;
     OutnameZstSet(".clumps", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
@@ -9016,6 +9037,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     if (total_col) {
       cswritep = strcpya_k(cswritep, "\tTOTAL");
     }
+    if (bounds_col) {
+      cswritep = strcpya_k(cswritep, "\tCLUMP_FIRST_POS\tCLUMP_LAST_POS");
+    }
     if (bin_bound_ct) {
       cswritep = strcpya_k(cswritep, "\tNONSIG");
       for (uint32_t bin_idx = bin_bound_ct; bin_idx; ) {
@@ -9027,6 +9051,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     if (sp2_col) {
       cswritep = strcpya_k(cswritep, "\tSP2");
     }
+    if (ranges_col) {
+      cswritep = strcpya_k(cswritep, "\tRANGES");
+    }
     AppendBinaryEoln(&cswritep);
     if (unlikely(Cswrite(&css, &cswritep))) {
       goto ClumpReports_ret_WRITE_FAIL;
@@ -9034,9 +9061,12 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
 
     uintptr_t* clump_allele_idxs = overlap_allele_idxs;
     uintptr_t prev_clump_end = 0;
+    uint32_t chr_idx = 0;
     uint32_t index_allele_ct = 2;
     uint32_t index_file_idx1 = 1;
     uint32_t file_idx1 = 1;
+    uint32_t first_bp = 0;
+    uint32_t last_bp = 0;
     for (uint32_t clump_idx = 0; clump_idx != index_candidate_ct; ++clump_idx) {
       const uintptr_t index_allele_idx = index_candidates[clump_idx].allele_idx;
       uintptr_t clump_size_including_self;
@@ -9094,10 +9124,12 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         index_allele_idx_offset_base = allele_idx_offsets[index_variant_uidx];
         index_allele_ct = allele_idx_offsets[index_variant_uidx + 1] - index_allele_idx_offset_base;
       }
-      if (chr_col) {
-        uint32_t chr_idx = GetVariantChr(cip, index_variant_uidx);
-        cswritep = chrtoa(cip, chr_idx, cswritep);
-        *cswritep++ = '\t';
+      if (chr_col || ranges_col) {
+        chr_idx = GetVariantChr(cip, index_variant_uidx);
+        if (chr_col) {
+          cswritep = chrtoa(cip, chr_idx, cswritep);
+          *cswritep++ = '\t';
+        }
       }
       if (pos_col) {
         cswritep = u32toa_x(variant_bps[index_variant_uidx], '\t', cswritep);
@@ -9208,15 +9240,62 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           *cswritep++ = '\t';
           cswritep = wtoa(total_ct, cswritep);
         }
-        if (bin_bound_ct) {
-          if (unlikely(Cswrite(&css, &cswritep))) {
-            goto ClumpReports_ret_WRITE_FAIL;
+      }
+      if (bounds_col || ranges_col) {
+        for (intptr_t direction = 1; direction != -3; direction -= 2) {
+          uint32_t pval_too_high = 1;
+          uintptr_t member_idx = (direction == 1)? 0 : (clump_size_including_self - 1);
+          for (; member_idx != clump_size_including_self ; member_idx += direction) {
+            const uintptr_t cur_allele_idx = clump_allele_idxs[member_idx];
+            const uintptr_t cur_oaidx = RawToSubsettedPosW(observed_alleles, observed_alleles_cumulative_popcounts_w, cur_allele_idx);
+            const unsigned char* varint_read_iter = clump_entry_varints[cur_oaidx];
+            const unsigned char* varint_read_end = clump_entry_varints[cur_oaidx + 1];
+            while (varint_read_iter != varint_read_end) {
+              pval_too_high = GetVint32Unsafe(&varint_read_iter) & 1;
+              if (!pval_too_high) {
+                break;
+              }
+            }
+            if (!pval_too_high) {
+              uint32_t variant_uidx;
+              if (!allele_idx_offsets) {
+                variant_uidx = cur_allele_idx / 2;
+              } else {
+                variant_uidx = RawToSubsettedPos(variant_last_alidxs, variant_last_alidxs_cumulative_popcounts, cur_allele_idx);
+              }
+              if (direction == 1) {
+                first_bp = variant_bps[variant_uidx];
+              } else {
+                last_bp = variant_bps[variant_uidx];
+              }
+              break;
+            }
           }
-          for (uint32_t bin_idx = bin_bound_ct + 1; bin_idx; ) {
-            --bin_idx;
-            *cswritep++ = '\t';
-            cswritep = wtoa(cur_bin_counts[bin_idx], cswritep);
+          if (member_idx == clump_size_including_self) {
+            // special case: no --clump-p2 hits at all, not even index variant
+            assert(ln_p1 > ln_p2);
+            first_bp = UINT32_MAX;
+            break;
           }
+        }
+        if (bounds_col) {
+          *cswritep++ = '\t';
+          if (first_bp != UINT32_MAX) {
+            cswritep = u32toa_x(first_bp, '\t', cswritep);
+            cswritep = u32toa(last_bp, cswritep);
+          } else {
+            cswritep = strcpya_k(cswritep, ".\t.");
+          }
+        }
+      }
+      if (bin_bound_ct) {
+        if (unlikely(Cswrite(&css, &cswritep))) {
+          goto ClumpReports_ret_WRITE_FAIL;
+        }
+        for (uint32_t bin_idx = bin_bound_ct + 1; bin_idx; ) {
+          --bin_idx;
+          *cswritep++ = '\t';
+          cswritep = wtoa(cur_bin_counts[bin_idx], cswritep);
         }
       }
       if (sp2_col) {
@@ -9230,7 +9309,6 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           while (varint_read_iter != varint_read_end) {
             const uint32_t pval_too_high = GetVint32Unsafe(&varint_read_iter) & 1;
             if (!pval_too_high) {
-
               if (save_all_fidxs) {
                 const uint32_t file_idx1_x2 = GetVint32Unsafe(&varint_read_iter);
                 file_idx1 = file_idx1_x2 >> 1;
@@ -9266,6 +9344,31 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
               if (save_all_fidxs) {
                 SkipVintUnsafe(&varint_read_iter);
               }
+            }
+          }
+        }
+        if (nonempty) {
+          --cswritep;
+        } else {
+          *cswritep++ = '.';
+        }
+      }
+      if (ranges_col) {
+        *cswritep++ = '\t';
+        uint32_t nonempty = 0;
+        if (first_bp != UINT32_MAX) {
+          const uintptr_t cur_rg_start_idx = rg_chr_bounds[chr_idx];
+          uint32_t** cur_rg_setdefs = &(rg_setdefs[cur_rg_start_idx]);
+          const char* cur_rg_names = &(range_group_names[cur_rg_start_idx * max_range_group_id_blen + kMaxChrCodeDigits]);
+          const uintptr_t cur_rg_ct = rg_chr_bounds[chr_idx + 1] - cur_rg_start_idx;
+          const uint32_t end_bp = last_bp + 1;
+          for (uintptr_t rg_idx = 0; rg_idx != cur_rg_ct; ++rg_idx) {
+            if (IntervalInSetdef(cur_rg_setdefs[rg_idx], first_bp, end_bp)) {
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto ClumpReports_ret_WRITE_FAIL;
+              }
+              nonempty = 1;
+              cswritep = strcpyax(cswritep, &(cur_rg_names[rg_idx * max_range_group_id_blen]), ',');
             }
           }
         }
