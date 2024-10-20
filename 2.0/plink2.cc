@@ -6359,7 +6359,7 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1Hardy;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "we")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t thresh_seen = 0;
