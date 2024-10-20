@@ -6503,8 +6503,13 @@ int main(int argc, char** argv) {
               }
             }
           }
+          if (unlikely(!ln_thresh_seen)) {
+            logerrputs("Error: No --hwe p-value threshold specified.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if ((pc.misc_flags & kfMiscHweMidp) && (pc.hwe_ln_thresh >= -kLn2)) {
             logerrputs("Error: --hwe threshold must be smaller than 0.5 when using mid-p adjustment.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
