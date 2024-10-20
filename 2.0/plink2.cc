@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.5.17"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (xx yyy 202z)";
+  " (20 Oct 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -563,7 +563,8 @@ uint32_t VariantMissingHcCtsAreNeeded(Command1Flags command_flags1, MiscFlags mi
 }
 
 uint32_t VariantHethapCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags, uint32_t first_hap_uidx) {
-  return (first_hap_uidx != 0x7fffffff) && (((command_flags1 & kfCommand1MissingReport) && (missing_rpt_flags & (kfMissingRptVcolNmissHh | kfMissingRptVcolHethap | kfMissingRptVcolFmissHh | kfMissingRptVcolFhethap))) || ((geno_thresh != 1.0) && (!(misc_flags & kfMiscGenoHhMissing))));
+  // bugfix (20 Oct 2024): --geno hh-missing condition was backwards
+  return (first_hap_uidx != 0x7fffffff) && (((command_flags1 & kfCommand1MissingReport) && (missing_rpt_flags & (kfMissingRptVcolNmissHh | kfMissingRptVcolHethap | kfMissingRptVcolFmissHh | kfMissingRptVcolFhethap))) || ((geno_thresh != 1.0) && (misc_flags & kfMiscGenoHhMissing)));
 }
 
 uint32_t VariantMissingDosageCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags) {
@@ -6361,14 +6362,15 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          uint32_t thresh_seen = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             if (!strcmp(cur_modif, "midp")) {
               pc.misc_flags |= kfMiscHweMidp;
             } else if (!strcmp(cur_modif, "keep-fewhet")) {
               pc.misc_flags |= kfMiscHweKeepFewhet;
-            } else {
-              if (unlikely((pc.hwe_thresh != 0.0) || (!ScantokDouble(cur_modif, &pc.hwe_thresh)))) {
+            } else if (!thresh_seen) {
+              if (unlikely(!ScantokDouble(cur_modif, &pc.hwe_thresh))) {
                 logerrputs("Error: Invalid --hwe argument sequence.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
@@ -6376,10 +6378,27 @@ int main(int argc, char** argv) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --hwe threshold '%s' (must be in [0, 1)).\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
+              thresh_seen = 1;
+            } else {
+              double dxx;
+              if (unlikely(!ScantokDouble(cur_modif, &dxx))) {
+                logerrputs("Error: Invalid --hwe argument sequence.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              // tolerate k=0
+              if (unlikely(dxx != 0)) {
+                logerrputs("Error: --hwe sample size term requires an alpha 6 or later build.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
             }
           }
-          if ((pc.misc_flags & kfMiscHweMidp) && (pc.hwe_thresh >= 0.5)) {
+          if (unlikely(!thresh_seen)) {
+            logerrputs("Error: No --hwe p-value threshold specified.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely((pc.misc_flags & kfMiscHweMidp) && (pc.hwe_thresh >= 0.5))) {
             logerrputs("Error: --hwe threshold must be smaller than 0.5 when using mid-p adjustment.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
