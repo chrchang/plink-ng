@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (14 Oct 2024)";
+  " (20 Oct 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -407,6 +407,7 @@ typedef struct Plink2CmdlineStruct {
   double mind_thresh;
   double geno_thresh;
   double hwe_ln_thresh;
+  double hwe_sample_size_term; // -1 if unspecified
   double mach_r2_min;
   double mach_r2_max;
   double minimac3_r2_min;
@@ -2314,7 +2315,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             if (pcp->hwe_ln_thresh != -DBL_MAX) {
               // assumes no filtering between hwe_x_ln_pvals[] computation and
               // here
-              EnforceHweThresh(cip, allele_idx_offsets, hwe_geno_cts, autosomal_xgeno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_knownsex_xgeno_cts, x_male_xgeno_cts, hwe_x_ln_pvals, pcp->misc_flags, pcp->hwe_ln_thresh, nonfounders, variant_include, &variant_ct);
+              EnforceHweThresh(cip, allele_idx_offsets, hwe_geno_cts, autosomal_xgeno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_knownsex_xgeno_cts, x_male_xgeno_cts, hwe_x_ln_pvals, pcp->misc_flags, pcp->hwe_ln_thresh, pcp->hwe_sample_size_term, nonfounders, variant_include, &variant_ct);
             }
           }
         }
@@ -3783,6 +3784,7 @@ int main(int argc, char** argv) {
     pc.mind_thresh = 1.0;
     pc.geno_thresh = 1.0;
     pc.hwe_ln_thresh = -DBL_MAX;
+    pc.hwe_sample_size_term = -1;
     pc.mach_r2_min = 0.0;
     pc.mach_r2_max = 0.0;
     pc.minimac3_r2_min = 0.0;
@@ -6469,22 +6471,33 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1Hardy;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "we")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          uint32_t ln_thresh_seen = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             if (!strcmp(cur_modif, "midp")) {
               pc.misc_flags |= kfMiscHweMidp;
             } else if (!strcmp(cur_modif, "keep-fewhet")) {
               pc.misc_flags |= kfMiscHweKeepFewhet;
-            } else {
-              if (unlikely((pc.hwe_ln_thresh != -DBL_MAX) || (!ScantokLn(cur_modif, &pc.hwe_ln_thresh)))) {
+            } else if (!ln_thresh_seen) {
+              if (unlikely(!ScantokLn(cur_modif, &pc.hwe_ln_thresh))) {
                 logerrputs("Error: Invalid --hwe argument sequence.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               if (unlikely(pc.hwe_ln_thresh >= 0.0)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --hwe threshold '%s' (must be in [0, 1)).\n", cur_modif);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              ln_thresh_seen = 1;
+            } else {
+              if (unlikely((pc.hwe_sample_size_term != -1) || (!ScantokLn(cur_modif, &pc.hwe_sample_size_term)))) {
+                logerrputs("Error: Invalid --hwe argument sequence.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely(pc.hwe_sample_size_term < 0.0)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --hwe sample size term '%s' (must be nonnegative).\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             }

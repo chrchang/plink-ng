@@ -2194,13 +2194,17 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 // todo: something like <check-ctrls>/<check-ctrl=[case/ctrl phenotype name]>
 // and maybe <ctrls-only>/<ctrl-only=[case/ctrl phenotype name]>
     HelpPrint("hwe\0", &help_ctrl, 0,
-"  --hwe <p> ['midp'] ['keep-fewhet'] :\n"
-"    Exclude variants with Hardy-Weinberg equilibrium exact test p-values below\n"
-"    a threshold.\n"
+"  --hwe <p> [k] ['midp'] ['keep-fewhet'] :\n"
+"    Exclude variants with Hardy-Weinberg equilibrium exact test p-values less\n"
+"    than p * 10^{-nk}, where n is the sample size.\n"
+"    * If unspecified, k is 0.  However, because --hwe has frequently been used\n"
+"      with inappropriately strict thresholds on large datasets, this can now\n"
+"      result in a warning (to be upgraded to an error in a future build).\n"
+"      Explicitly specify k=0 to silence the warning.\n"
 "    * By default, only founders are considered.\n"
 "    * chrX p-values are now computed using Graffelman and Weir's method.\n"
-"    * For variants with k alleles with k>2, k separate 'biallelic' tests are\n"
-"      performed, and the variant is filtered out if any of them fail.\n"
+"    * For variants with j alleles where j>2, j one-vs.-rest 'biallelic' tests\n"
+"      are performed, and the variant is filtered out if any of them fail.\n"
 "    * With 'keep-fewhet', variants which fail the test in the too-few-hets\n"
 "      direction are not excluded.  On chrX, this uses the ratio between the\n"
 "      Graffelman/Weir p-value and the female-only p-value.\n"
