@@ -735,7 +735,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      method described in Graffelman J, Weir BS (2016) Hardy-Weinberg\n"
 "      equilibrium and the X chromosome.\n"
 "    * The 'log10' modifier causes p-values to be reported in -log10(p) form.\n"
-"    * For variants with k alleles where k>2, k separate 'biallelic' tests are\n"
+"    * For variants with j alleles where j>2, j separate 'biallelic' tests are\n"
 "      performed, each reported on its own line.  However, biallelic variants\n"
 "      are normally reported on a single line, since the counts/frequencies\n"
 "      would be mirror-images and the p-values would be the same.  You can add\n"

@@ -6492,7 +6492,7 @@ int main(int argc, char** argv) {
               }
               ln_thresh_seen = 1;
             } else {
-              if (unlikely((pc.hwe_sample_size_term != -1) || (!ScantokLn(cur_modif, &pc.hwe_sample_size_term)))) {
+              if (unlikely((pc.hwe_sample_size_term != -1) || (!ScantokDouble(cur_modif, &pc.hwe_sample_size_term)))) {
                 logerrputs("Error: Invalid --hwe argument sequence.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
