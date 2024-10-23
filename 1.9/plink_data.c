@@ -12794,7 +12794,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     time(&rawtime);
     loctime = localtime(&rawtime);
     wbufptr += strftime(wbufptr, MAXLINELEN, "%Y%m%d", loctime);
-    wbufptr = memcpya(wbufptr, "\n##source=PLINKv1.9\n", 21);
+    wbufptr = memcpya(wbufptr, "\n##source=PLINKv1.9\n", 20);
     uii = 0; // '0' written already?
     if (flexbwrite_checked(g_textbuf, wbufptr - g_textbuf, output_bgz, outfile, bgz_outfile)) {
       goto recode_ret_WRITE_FAIL;
