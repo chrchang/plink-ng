@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.5.17"
+static const char ver_str[] = "PLINK v2.0.0-a.5.18"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.5.17"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (20 Oct 2024)";
+  " (11 Nov 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4892,7 +4892,8 @@ int main(int argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "lump-range") ||
                    strequal_k_unsafe(flagname_p2, "lump-range0") ||
-                   strequal_k_unsafe(flagname_p2, "lump-range-border")) {
+                   strequal_k_unsafe(flagname_p2, "lump-range-border") ||
+                   strequal_k_unsafe(flagname_p2, "heck-sex")) {
           goto main_ret_ALPHA6_REQUIRED;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -6882,7 +6883,8 @@ int main(int argc, char** argv) {
           }
           memcpy(pgenname, cur_modif, slen + 1);
           xload = kfXloadPlink1Dosage;
-        } else if (strequal_k_unsafe(flagname_p2, "mport-max-alleles")) {
+        } else if (strequal_k_unsafe(flagname_p2, "mport-max-alleles") ||
+                   strequal_k_unsafe(flagname_p2, "mpute-sex")) {
           goto main_ret_ALPHA6_REQUIRED;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;

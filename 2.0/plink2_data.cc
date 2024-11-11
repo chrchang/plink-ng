@@ -1350,7 +1350,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Sam
     }
     AppendBinaryEoln(&write_iter);
 
-    const char case_char = '2' - psam_01;
+    const char ctrl_char = '1' - psam_01;
     uintptr_t sample_uidx_base = 0;
     uintptr_t cur_bits = sample_include[0];
     uint32_t sample_uidx2 = 0;
@@ -1374,7 +1374,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Sam
       if (write_sex) {
         *write_iter++ = '\t';
         if (IsSet(sex_nm, sample_uidx)) {
-          *write_iter++ = case_char - IsSet(sex_male, sample_uidx);
+          *write_iter++ = '2' - IsSet(sex_male, sample_uidx);
         } else {
           // this is better than '0' since it allows the raw column to be used
           // as --covar input
@@ -1386,7 +1386,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Sam
       if (write_phenos) {
         for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
           *write_iter++ = '\t';
-          write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), output_missing_pheno, omp_slen, sample_uidx, write_iter);
+          write_iter = AppendPhenoStrEx(&(pheno_cols[pheno_idx]), output_missing_pheno, omp_slen, sample_uidx, ctrl_char, write_iter);
           if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
             goto WritePsam_ret_WRITE_FAIL;
           }
