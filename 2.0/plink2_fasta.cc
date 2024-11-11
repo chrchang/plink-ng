@@ -264,31 +264,7 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
     if (((left_match == UINT32_MAX) || (min_alen == 1)) && (right_match == UINT32_MAX)) {
       continue;
     }
-    // Sanity check: verify alleles aren't all identical.
     const uint32_t first_aidx = AdvTo0Bit(allele_skip_buf, 0);
-    const uint32_t first_alen = alen_buf[first_aidx];
-    // allele_skip_buf contains an extra bit to ensure this is safe
-    const uint32_t second_aidx = AdvTo0Bit(allele_skip_buf, first_aidx + 1);
-    if (second_aidx != allele_ct) {
-      for (uint32_t aidx = second_aidx; ; ) {
-        if ((alen_buf[aidx] != first_alen) || (!memequal(cur_alleles[first_aidx], cur_alleles[aidx], min_alen))) {
-          break;
-        }
-        aidx = AdvTo0Bit(allele_skip_buf, aidx + 1);
-        if (aidx == allele_ct) {
-          // probable todo: report ID instead?
-          const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-          char* write_iter = strcpya_k(g_logbuf, "Error: Variant at ");
-          write_iter = chrtoa(cip, chr_idx, write_iter);
-          *write_iter++ = ':';
-          write_iter = u32toa(cur_bp, write_iter);
-          snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " has duplicate allele codes.\n");
-          WordWrapB(0);
-          logerrputsb();
-          return kPglRetMalformedInput;
-        }
-      }
-    }
     ++nchanged_ct;
     if (nlist_write_iter) {
       nlist_write_iter = strcpya(nlist_write_iter, variant_ids[variant_uidx]);

@@ -4278,7 +4278,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     write_iter = writebuf;
     // fill in the missing ##contig lines
     if (contig_zero_written) {
-      write_iter = strcpya_k(write_iter, "##contig=<ID=0,length=2147483645>" EOLN_STR);
+      write_iter = strcpya_k(write_iter, "##contig=<ID=0>" EOLN_STR);
     }
     uint32_t chrx_exists = 0;
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
@@ -4301,7 +4301,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           continue;
         }
         contig_zero_written = 1;
-        write_iter = strcpya_k(chr_name_write_end, ",length=2147483645");
+        write_iter = chr_name_write_end;
       } else {
         if (unlikely(!ValidVcfContigName(chr_name_write_start, chr_name_write_end, v43))) {
           goto ExportVcf_ret_MALFORMED_INPUT;
@@ -7652,7 +7652,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       }
       // fill in the missing ##contig lines
       if (contig_zero_written) {
-        write_iter = strcpya_k(write_iter, "##contig=<ID=0,length=2147483645>" EOLN_STR);
+        write_iter = strcpya_k(write_iter, "##contig=<ID=0>" EOLN_STR);
       }
       uint32_t chrx_exists = 0;
       for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
@@ -7675,7 +7675,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
             continue;
           }
           contig_zero_written = 1;
-          write_iter = strcpya_k(chr_name_write_end, ",length=2147483645");
+          write_iter = chr_name_write_end;
         } else {
           write_iter = chr_name_write_end;
           if (contig_lens && contig_lens[chr_idx]) {

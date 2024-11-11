@@ -1734,7 +1734,7 @@ uint32_t VariantIdDupHtableFind(const char* idbuf, const char* const* variant_id
 }
 
 
-PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t collapse_idxs, uint32_t use_nsort, char* __restrict sorted_strbox, uint32_t* __restrict id_map) {
+PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t collapse_idxs, uint32_t use_nsort, char* __restrict sorted_strbox, uint32_t* __restrict id_map) {
   // Stores a lexicographically sorted list of IDs in sorted_strbox and the raw
   // positions of the corresponding markers/samples in *id_map_ptr.  Does not
   // include excluded markers/samples in the list.
@@ -1809,34 +1809,23 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
 #ifdef __cplusplus
     }
 #endif
-    if (!allow_dups) {
-      char* dup_id = ScanForDuplicateIds(sorted_strbox, str_ct, max_str_blen);
-      if (unlikely(dup_id)) {
-        TabsToSpaces(dup_id);
-        logerrprintfww("Error: Duplicate ID '%s'.\n", dup_id);
-        goto CopySortStrboxSubsetNoalloc_ret_MALFORMED_INPUT;
-      }
-    }
   }
   while (0) {
   CopySortStrboxSubsetNoalloc_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  CopySortStrboxSubsetNoalloc_ret_MALFORMED_INPUT:
-    reterr = kPglRetMalformedInput;
     break;
   }
   BigstackReset(bigstack_mark);
   return reterr;
 }
 
-PglErr CopySortStrboxSubset(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t collapse_idxs, uint32_t use_nsort, char** sorted_strbox_ptr, uint32_t** id_map_ptr) {
+PglErr CopySortStrboxSubset(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t collapse_idxs, uint32_t use_nsort, char** sorted_strbox_ptr, uint32_t** id_map_ptr) {
   // id_map on bottom because --indiv-sort frees *sorted_strbox_ptr
   if (unlikely(bigstack_alloc_u32(str_ct, id_map_ptr) ||
                bigstack_alloc_c(str_ct * max_str_blen, sorted_strbox_ptr))) {
     return kPglRetNomem;
   }
-  return CopySortStrboxSubsetNoalloc(subset_mask, orig_strbox, str_ct, max_str_blen, allow_dups, collapse_idxs, use_nsort, *sorted_strbox_ptr, *id_map_ptr);
+  return CopySortStrboxSubsetNoalloc(subset_mask, orig_strbox, str_ct, max_str_blen, collapse_idxs, use_nsort, *sorted_strbox_ptr, *id_map_ptr);
 }
 
 
@@ -2001,7 +1990,7 @@ PglErr StringRangeListToBitarrAlloc(const char* header_line, const RangeList* ra
   }
   // kludge to use CopySortStrboxSubset()
   SetAllBits(name_ct, R_CAST(uintptr_t*, seen_idxs));
-  if (unlikely(CopySortStrboxSubset(R_CAST(uintptr_t*, seen_idxs), range_list_ptr->names, name_ct, range_list_ptr->name_max_blen, 0, 0, 0, &sorted_ids, &id_map))) {
+  if (unlikely(CopySortStrboxSubset(R_CAST(uintptr_t*, seen_idxs), range_list_ptr->names, name_ct, range_list_ptr->name_max_blen, 0, 0, &sorted_ids, &id_map))) {
     return kPglRetNomem;
   }
   SetAllI32Arr(name_ct, seen_idxs);
@@ -2666,74 +2655,106 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
   }
 }
 
-
+/* Analytically finds all real roots of x^3 + ax^2 + bx + c, saving them in
+ * solutions[] (sorted from smallest to largest), and returning the count.
+ * Multiple roots are only returned/counted once.
+ * (TODO: Move this to something like plink2_math.  Note that
+ * include/plink2_math is not an option because of the GPL vs. LGPL
+ * difference.)
+ * gsl_poly_solve_cubic() in the GNU Scientific Library was used as a template
+ * when writing this function.  Its license text follows:
+ *
+ * Copyright (C) 1996, 1997, 1998, 1999, 2000, 2007, 2009 Brian Gough
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 3 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc., 51
+ * Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+ */
 uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_REF(double, 3) solutions) {
-  // Additional research into numerical stability may be in order here...
-  double a2 = coef_a * coef_a;
-  double qq = (a2 - 3 * coef_b) * (1.0 / 9.0);
-  double rr = (2 * a2 * coef_a - 9 * coef_a * coef_b + 27 * coef_c) * (1.0 / 54.0);
-  double r2 = rr * rr;
-  double q3 = qq * qq * qq;
-  double adiv3 = coef_a * (1.0 / 3.0);
-  double sq;
-  double dxx;
-  if (r2 < q3) {
-    // three real roots
-    sq = sqrt(qq);
-    dxx = acos(rr / (qq * sq)) * (1.0 / 3.0);
-    sq *= -2;
-    solutions[0] = sq * cos(dxx) - adiv3;
-    solutions[1] = sq * cos(dxx + (2.0 * kPi / 3.0)) - adiv3;
-    solutions[2] = sq * cos(dxx - (2.0 * kPi / 3.0)) - adiv3;
-    // now sort and check for within-epsilon equality
-    if (solutions[0] > solutions[1]) {
-      dxx = solutions[0];
-      solutions[0] = solutions[1];
-      if (dxx > solutions[2]) {
-        solutions[1] = solutions[2];
-        solutions[2] = dxx;
-      } else {
-        solutions[1] = dxx;
-      }
-      if (solutions[0] > solutions[1]) {
-        dxx = solutions[0];
-        solutions[0] = solutions[1];
-        solutions[1] = dxx;
-      }
-    } else if (solutions[1] > solutions[2]) {
-      dxx = solutions[1];
-      solutions[1] = solutions[2];
-      solutions[2] = dxx;
+  const double a2 = coef_a * coef_a;
+  const double small_q = a2 - 3 * coef_b;
+  const double small_r = 2 * a2 * coef_a - 9 * coef_a * coef_b + 27 * coef_c;
+  const double small_r2 = small_r * small_r;
+  const double small_q3_x4 = 4 * small_q * small_q * small_q;
+  const double coef_a_div3 = coef_a * (1.0 / 3.0);
+  if (small_r2 == small_q3_x4) {
+    // Not a big deal if we miss this branch due to floating-point error, as
+    // long as it doesn't cause us to divide by zero later.
+    const double sqrt_q = (1.0 / 3.0) * sqrt(small_q);
+    if (small_r > 0.0) {
+      solutions[0] = -2 * sqrt_q - coef_a_div3;
+      solutions[1] = sqrt_q - coef_a_div3;
+    } else {
+      solutions[0] = -sqrt_q - coef_a_div3;
+      solutions[1] = 2 * sqrt_q - coef_a_div3;
     }
-    if (solutions[1] - solutions[0] < kEpsilon) {
-      solutions[1] = solutions[2];
-      return 2 - (solutions[1] - solutions[0] < kEpsilon);
-    }
-    return 3 - (solutions[2] - solutions[1] < kEpsilon);
+    // kEpsilon configured to 2^{-30} as of this writing.
+    return 2 - (solutions[1] - solutions[0] < kEpsilon);
   }
-  dxx = -pow(fabs(rr) + sqrt(r2 - q3), 1.0 / 3.0);
-  if (dxx == 0.0) {
-    solutions[0] = -adiv3;
+  const double qq = small_q * (1.0 / 9.0);
+  const double rr = small_r * (1.0 / 54.0);
+  // r2 = small_r2 / 54^2
+  // q3 = small_q3_x4 / 54^2
+  // We check small_r2 > small_q3_x4 instead of r2 > q3 because (i) it lets us
+  // skip a few unnecessary operations and (ii) it also plugs a divide-by-zero
+  // hole in the GSL implementation (R == 0, Q slightly below cbrt(min positive
+  // double)).
+  if (small_r2 > small_q3_x4) {
+    const double neg_sgn_r = (small_r >= 0)? -1 : 1;
+    const double aa = neg_sgn_r * cbrt(fabs(rr) + sqrt(small_r2 - small_q3_x4) * (1.0 / 54.0));
+    // As long as fabs(rr) is at least the ~2.23e-308 subnormal threshold, aa
+    // can't be zero.
+    // If fabs(rr) is smaller, small_r2 must be 0, small_r2 > small_q3_x4
+    // indicates that small_q3_x4 must be negative, and there's no
+    // underflow-to-zero risk in evaluating small_r2 - small_q3_x4.
+    const double bb = qq / aa;
+    solutions[0] = aa + bb - coef_a_div3;
     return 1;
   }
-  if (rr < 0.0) {
-    dxx = -dxx;
+  // 0 <= small_r2 < small_q3_x4; no risk of qq < 0 or sqrt_q * qq == 0.
+  const double sqrt_q = sqrt(qq);
+  const double ratio = rr / (sqrt_q * qq);
+  const double theta_div3 = acos(ratio) * (1.0 / 3.0);
+  const double norm = -2 * sqrt_q;
+  double sol0 = norm * cos(theta_div3) - coef_a_div3;
+  double sol1 = norm * cos(theta_div3 + (2.0 * kPi / 3.0)) - coef_a_div3;
+  double sol2 = norm * cos(theta_div3 - (2.0 * kPi / 3.0)) - coef_a_div3;
+  // sort and check for within-epsilon equality
+  if (sol0 > sol1) {
+    const double dxx = sol0;
+    sol0 = sol1;
+    sol1 = dxx;
   }
-  sq = qq / dxx;
-  solutions[0] = dxx + sq - adiv3;
-  // use of regular epsilon here has actually burned us
-  if (fabs(dxx - sq) >= (kEpsilon * 8)) {
-    return 1;
+  if (sol1 > sol2) {
+    double dxx = sol1;
+    sol1 = sol2;
+    sol2 = dxx;
+    if (sol0 > sol1) {
+      dxx = sol0;
+      sol0 = sol1;
+      sol1 = dxx;
+    }
   }
-  if (dxx >= 0.0) {
-    solutions[1] = solutions[0];
-    solutions[0] = -dxx - adiv3;
-  } else {
-    solutions[1] = -dxx - adiv3;
+  // Now sol0 <= sol1 <= sol2.
+  solutions[0] = sol0;
+  if (sol1 - sol0 < kEpsilon) {
+    solutions[1] = sol2;
+    return 2 - (sol2 - sol0 < kEpsilon);
   }
-  return 2;
+  solutions[1] = sol1;
+  solutions[2] = sol2;
+  return 3 - (sol2 - sol1 < kEpsilon);
 }
-
 
 CONSTI32(kMaxDupflagThreads, 16);
 
@@ -4562,7 +4583,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
     }
     SortStrboxIndexed(search_term_ct, max_blen, 0, merged_strbox, id_map);
     assert(search_term_ct);
-    const char* duplicate_search_term = ScanForDuplicateIds(merged_strbox, search_term_ct, max_blen);
+    const char* duplicate_search_term = FindSortedStrboxDuplicate(merged_strbox, search_term_ct, max_blen);
     if (unlikely(duplicate_search_term)) {
       logerrprintfww("Error: Duplicate term '%s' in --%s column search order.\n", duplicate_search_term, flagname_p);
       goto SearchHeaderLine_ret_INVALID_CMDLINE;

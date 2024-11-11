@@ -765,7 +765,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     uint32_t* xid_map;
     uintptr_t max_xid_blen;
     // IID -> multiple IID+SID not supported for now, may want to add this
-    reterr = SortedXidboxInitAllocEnd(*sample_include_ptr, siip, orig_sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = SortedXidboxInitAllocEnd(*sample_include_ptr, siip, orig_sample_ct, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (unlikely(reterr)) {
       goto GlmLocalOpen_ret_1;
     }
@@ -806,7 +806,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &read_ptr, &sample_uidx, idbuf)) {
         if (unlikely(IsSet(new_sample_include, sample_uidx))) {
           TabsToSpaces(idbuf);
-          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID '%s' in %s.\n", idbuf, local_psam_fname);
+          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in %s.\n", idbuf, local_psam_fname);
           goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
         }
         SetBit(sample_uidx, new_sample_include);

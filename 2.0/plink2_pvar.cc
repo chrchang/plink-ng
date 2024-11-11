@@ -1757,16 +1757,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               if (unlikely((geno_char == '.') || (geno_char == input_missing_geno_char))) {
                 goto LoadPvar_ret_MULTIALLELIC_MISSING_ALLELE_CODE;
               }
-              if (unlikely((ref_allele_first_char == geno_char) && (ref_slen == 1))) {
-                goto LoadPvar_ret_NONMISSING_ALT_MATCHES_REF;
-              }
               *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
             } else {
               if (unlikely(!cur_allele_slen)) {
                 goto LoadPvar_ret_EMPTY_ALLELE_CODE;
-              }
-              if (unlikely((ref_slen == cur_allele_slen) && memequal(ref_allele, linebuf_iter, ref_slen))) {
-                goto LoadPvar_ret_NONMISSING_ALT_MATCHES_REF;
               }
               if (StoreStringAtEndK(tmp_alloc_base, linebuf_iter, cur_allele_slen, &tmp_alloc_end, allele_storage_iter)) {
                 goto LoadPvar_ret_NOMEM;
@@ -1790,17 +1784,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           if (geno_char == '.') {
             ++missing_allele_ct;
-          } else {
-            // sanity check: nonmissing ALT cannot match REF
-            if (unlikely((ref_allele_first_char == geno_char) && (ref_slen == 1))) {
-              goto LoadPvar_ret_NONMISSING_ALT_MATCHES_REF;
-            }
           }
           *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
         } else {
-          if (unlikely((ref_slen == remaining_alt_char_ct) && memequal(ref_allele, linebuf_iter, ref_slen))) {
-            goto LoadPvar_ret_NONMISSING_ALT_MATCHES_REF;
-          }
           if (StoreStringAtEndK(tmp_alloc_base, linebuf_iter, remaining_alt_char_ct, &tmp_alloc_end, allele_storage_iter)) {
             goto LoadPvar_ret_NOMEM;
           }
@@ -2209,10 +2195,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     logerrprintfww("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, pvarname);
     reterr = kPglRetMalformedInput;
     break;
-  LoadPvar_ret_NONMISSING_ALT_MATCHES_REF:
-    logerrprintfww("Error: Line %" PRIuPTR " of %s has a nonmissing ALT allele code that's identical to the REF allele code.\n", line_idx, pvarname);
-    reterr = kPglRetMalformedInput;
-    break;
+    // old NONMISSING_ALT_MATCHES_REF sanity-check replaced with conditional
+    // CheckAlleleUniqueness() call.
   }
  LoadPvar_ret_1:
   CleanupTextStream2(pvarname, &pvar_txs, &reterr);

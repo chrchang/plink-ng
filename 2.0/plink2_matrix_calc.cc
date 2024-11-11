@@ -413,7 +413,7 @@ PglErr KingCutoffBatchBinary(const SampleIdInfo* siip, uint32_t raw_sample_ct, d
     uint32_t* xid_map;  // IDs not collapsed
     char* sorted_xidbox;
     uintptr_t max_xid_blen;
-    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (unlikely(reterr)) {
       goto KingCutoffBatchBinary_ret_1;
     }
@@ -443,7 +443,7 @@ PglErr KingCutoffBatchBinary(const SampleIdInfo* siip, uint32_t raw_sample_ct, d
         if (second_tab) {
           *second_tab = ' ';
         }
-        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID '%s' in %s .\n", idbuf, king_cutoff_fprefix);
+        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in %s .\n", idbuf, king_cutoff_fprefix);
         goto KingCutoffBatchBinary_ret_MALFORMED_INPUT_WW;
       }
       sample_uidx_to_king_uidx[sample_uidx] = king_id_ct;
@@ -736,7 +736,7 @@ PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, ui
     uintptr_t max_xid_blen;
     {
       uint32_t* xid_umap;  // IDs not collapsed
-      reterr = SortedXidboxInitAlloc(sample_include, siip, orig_sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_umap, &max_xid_blen);
+      reterr = SortedXidboxInitAlloc(sample_include, siip, orig_sample_ct, xid_mode, 0, &sorted_xidbox, &xid_umap, &max_xid_blen);
       if (unlikely(reterr)) {
         goto KingCutoffBatchTable_ret_1;
       }
@@ -3389,7 +3389,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     char* sorted_xidbox;
     uintptr_t max_xid_blen;
     // may as well use natural-sort order in rel-check-only case
-    reterr = SortedXidboxInitAlloc(orig_sample_include, siip, orig_sample_ct, 0, xid_mode, (!subset_fname), &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = SortedXidboxInitAlloc(orig_sample_include, siip, orig_sample_ct, xid_mode, (!subset_fname), &sorted_xidbox, &xid_map, &max_xid_blen);
     if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
     }
@@ -7024,7 +7024,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           min_vals[variant_idx] = cur_val;
         } else {
           if (IsSet(already_seen, variant_idx)) {
-            logerrprintfww("Error: Duplicate ID '%s' in --q-score-range data file. (Add the 'min' modifier if this is a multiallelic variant that you want to use the minimum p-value for.)\n", variant_ids[variant_uidx]);
+            logerrprintfww("Error: Duplicate variant ID '%s' in --q-score-range data file. (Add the 'min' modifier if this is a multiallelic variant that you want to use the minimum p-value for.)\n", variant_ids[variant_uidx]);
             goto ScoreReport_ret_MALFORMED_INPUT;
           }
         }
@@ -9308,7 +9308,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     uint32_t* xid_map;
     char* sorted_xidbox;
     uintptr_t max_xid_blen;
-    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (unlikely(reterr)) {
       goto Vscore_ret_1;
     }
@@ -9356,7 +9356,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       }
       if (unlikely(IsSet(already_seen, sample_uidx))) {
         TabsToSpaces(idbuf);
-        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in --variant-score file.\n", idbuf);
+        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in --variant-score file.\n", idbuf);
         goto Vscore_ret_MALFORMED_INPUT_WW;
       }
       SetBit(sample_uidx, already_seen);

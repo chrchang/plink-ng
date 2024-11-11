@@ -673,6 +673,11 @@ HEADER_INLINE BoolErr bigstack_alloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr
   return !(*kcp_arr_ptr);
 }
 
+HEADER_INLINE BoolErr bigstack_alloc_kcpp(uintptr_t ct, const char**** kcpp_arr_ptr) {
+  *kcpp_arr_ptr = S_CAST(const char***, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*kcpp_arr_ptr);
+}
+
 HEADER_INLINE BoolErr bigstack_alloc_i16p(uintptr_t ct, int16_t*** i16p_arr_ptr) {
   *i16p_arr_ptr = S_CAST(int16_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*i16p_arr_ptr);
@@ -1667,9 +1672,9 @@ uint32_t VariantIdDupHtableFind(const char* idbuf, const char* const* variant_id
 // This still perform a temporary bigstack allocation; 'noalloc' here just
 // means that sorted_strbox and id_map must be allocated in advance.  (Overread
 // must be safe.)
-PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t collapse_idxs, uint32_t use_nsort, char* __restrict sorted_strbox, uint32_t* __restrict id_map);
+PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t collapse_idxs, uint32_t use_nsort, char* __restrict sorted_strbox, uint32_t* __restrict id_map);
 
-PglErr CopySortStrboxSubset(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t collapse_idxs, uint32_t use_nsort, char** sorted_strbox_ptr, uint32_t** id_map_ptr);
+PglErr CopySortStrboxSubset(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t collapse_idxs, uint32_t use_nsort, char** sorted_strbox_ptr, uint32_t** id_map_ptr);
 
 
 typedef struct RangeListStruct {
@@ -1996,6 +2001,22 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
 // solutions[] (sorted from smallest to largest), and returning the count.
 // Multiple roots are only returned/counted once.
 uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_REF(double, 3) solutions);
+
+HEADER_INLINE double PrevFloat64(double dxx) {
+  uint64_t ullii;
+  memcpy(&ullii, &dxx, 8);
+  --ullii;
+  memcpy(&dxx, &ullii, 8);
+  return dxx;
+}
+
+HEADER_INLINE double NextFloat64(double dxx) {
+  uint64_t ullii;
+  memcpy(&ullii, &dxx, 8);
+  ++ullii;
+  memcpy(&dxx, &ullii, 8);
+  return dxx;
+}
 
 
 // store_all_dups currently must be true for dup_ct to be set, but this is easy

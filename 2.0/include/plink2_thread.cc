@@ -395,6 +395,15 @@ void UpdateU64IfSmaller(uint64_t newval, uint64_t* oldval_ptr) {
   }
 }
 
+void UpdateU32IfSmaller(uint32_t newval, uint32_t* oldval_ptr) {
+  uint32_t oldval = *oldval_ptr;
+  while (oldval > newval) {
+    if (ATOMIC_COMPARE_EXCHANGE_N_U32(oldval_ptr, &oldval, newval, 1, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+      break;
+    }
+  }
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

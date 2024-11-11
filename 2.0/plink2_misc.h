@@ -351,7 +351,7 @@ FLAGSET_DEF_START()
   kfFstVcolFstfrac = (1 << 15),
   kfFstVcolFst = (1 << 16),
   kfFstVcolDefault = (kfFstVcolChrom | kfFstVcolPos | kfFstVcolMaybeprovref | kfFstVcolNobs | kfFstVcolFst),
-  kfFstVcolAll = ((kfFstVcolFst * 2) - kfFstVcolChrom),
+  kfFstVcolAll = ((kfFstVcolFst * 2) - kfFstVcolChrom)
 FLAGSET_DEF_END(FstFlags);
 
 typedef struct FstInfoStruct {
@@ -362,6 +362,37 @@ typedef struct FstInfoStruct {
   char* first_id_or_fname;
   char* other_ids_flattened;
 } FstInfo;
+
+FLAGSET_DEF_START()
+  kfCheckSex0,
+  kfCheckSexImpute = (1 << 0),
+  kfCheckSexUseX = (1 << 1),
+  kfCheckSexUseY = (1 << 2),
+
+  kfCheckSexColMaybefid = (1 << 3),
+  kfCheckSexColFid = (1 << 4),
+  kfCheckSexColMaybesid = (1 << 5),
+  kfCheckSexColSid = (1 << 6),
+  kfCheckSexColPedsex = (1 << 7),
+  kfCheckSexColStatus = (1 << 8),
+  kfCheckSexColXF = (1 << 9),
+  kfCheckSexColYcount = (1 << 10),
+  kfCheckSexColYrate = (1 << 11),
+  kfCheckSexColYobs = (1 << 12),
+  kfCheckSexColDefault = (kfCheckSexColMaybefid | kfCheckSexColMaybesid | kfCheckSexColPedsex | kfCheckSexColStatus | kfCheckSexColXF | kfCheckSexColYrate),
+  kfCheckSexColAll = ((kfCheckSexColYobs * 2) - kfCheckSexColMaybefid)
+FLAGSET_DEF_END(CheckSexFlags);
+
+typedef struct CheckSexInfoStruct {
+  NONCOPYABLE(CheckSexInfoStruct);
+  CheckSexFlags flags;
+  double max_female_xf;
+  double min_male_xf;
+  uint32_t max_female_ycount;
+  uint32_t min_male_ycount;
+  double max_female_yrate;
+  double min_male_yrate;
+} CheckSexInfo;
 
 void InitUpdateAlleles(UpdateAllelesInfo* update_alleles_info_ptr);
 
@@ -378,6 +409,8 @@ void CleanupSdiff(SdiffInfo* sdiff_info_ptr);
 void InitFst(FstInfo* fst_info_ptr);
 
 void CleanupFst(FstInfo* fst_info_ptr);
+
+void InitCheckSex(CheckSexInfo* check_sex_info_ptr);
 
 PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t sort_vars_in_cmd, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp);
 
@@ -429,7 +462,11 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
 
 PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, HetFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
 
+PglErr CheckOrImputeSex(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const CheckSexInfo* csip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_allele_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t* sex_nm, uintptr_t* sex_male, PgenFileInfo* pgfip, char* outname, char* outname_end);
+
 PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const FstInfo* fst_infop, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
+
+PglErr CheckAlleleUniqueness(const uintptr_t* variant_include, const ChrInfo* cip, const ChrIdx* chr_idxs, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_thread_ct);
 
 #ifdef __cplusplus
 }  // namespace plink2

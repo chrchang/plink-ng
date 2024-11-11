@@ -920,11 +920,11 @@ PglErr AugidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip,
   return kPglRetSuccess;
 }
 
-PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t allow_dups, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr) {
+PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr) {
   if (!(xid_mode & kfXidModeFlagSid)) {
     // two fields
     *max_xid_blen_ptr = siip->max_sample_id_blen;
-    return CopySortStrboxSubset(sample_include, siip->sample_ids, sample_ct, siip->max_sample_id_blen, allow_dups, 0, use_nsort, sorted_xidbox_ptr, xid_map_ptr);
+    return CopySortStrboxSubset(sample_include, siip->sample_ids, sample_ct, siip->max_sample_id_blen, 0, use_nsort, sorted_xidbox_ptr, xid_map_ptr);
   }
   // three fields
   if (unlikely(AugidInitAlloc(sample_include, siip, sample_ct, 0, xid_map_ptr, sorted_xidbox_ptr, max_xid_blen_ptr))) {
@@ -933,18 +933,10 @@ PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const SampleIdInfo
   if (unlikely(SortStrboxIndexed(sample_ct, *max_xid_blen_ptr, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr))) {
     return kPglRetNomem;
   }
-  if (!allow_dups) {
-    char* dup_id = ScanForDuplicateIds(*sorted_xidbox_ptr, sample_ct, *max_xid_blen_ptr);
-    if (unlikely(dup_id)) {
-      TabsToSpaces(dup_id);
-      logerrprintfww("Error: Duplicate ID '%s'.\n", dup_id);
-      return kPglRetMalformedInput;
-    }
-  }
   return kPglRetSuccess;
 }
 
-PglErr SortedXidboxInitAllocEnd(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t allow_dups, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr) {
+PglErr SortedXidboxInitAllocEnd(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr) {
   if (!(xid_mode & kfXidModeFlagSid)) {
     // two fields
     const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
@@ -953,7 +945,7 @@ PglErr SortedXidboxInitAllocEnd(const uintptr_t* sample_include, const SampleIdI
                  bigstack_end_alloc_c(sample_ct * max_sample_id_blen, sorted_xidbox_ptr))) {
       return kPglRetNomem;
     }
-    return CopySortStrboxSubsetNoalloc(sample_include, siip->sample_ids, sample_ct, max_sample_id_blen, allow_dups, 0, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr);
+    return CopySortStrboxSubsetNoalloc(sample_include, siip->sample_ids, sample_ct, max_sample_id_blen, 0, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr);
   }
   // three fields
   if (unlikely(AugidInitAlloc(sample_include, siip, sample_ct, 1, xid_map_ptr, sorted_xidbox_ptr, max_xid_blen_ptr))) {
@@ -961,14 +953,6 @@ PglErr SortedXidboxInitAllocEnd(const uintptr_t* sample_include, const SampleIdI
   }
   if (unlikely(SortStrboxIndexed(sample_ct, *max_xid_blen_ptr, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr))) {
     return kPglRetNomem;
-  }
-  if (!allow_dups) {
-    char* dup_id = ScanForDuplicateIds(*sorted_xidbox_ptr, sample_ct, *max_xid_blen_ptr);
-    if (unlikely(dup_id)) {
-      TabsToSpaces(dup_id);
-      logerrprintfww("Error: Duplicate ID '%s'.\n", dup_id);
-      return kPglRetMalformedInput;
-    }
   }
   return kPglRetSuccess;
 }
@@ -1279,6 +1263,7 @@ PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t
   return kPglRetSuccess;
 }
 
+// Assumes no duplicates.
 void InitXidHtable(const SampleIdInfo* siip, uint32_t sample_ct, uint32_t xid_htable_size, uint32_t* xid_htable, char* idbuf) {
   SetAllU32Arr(xid_htable_size, xid_htable);
   const char* sample_ids_iter = siip->sample_ids;
@@ -1379,6 +1364,87 @@ BoolErr LookupXidHtable(const char* line_start, const SampleIdInfo* siip, const 
   }
 }
 
+PglErr CheckXidUniqueness(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* err_suffix_str, uint32_t sample_ct) {
+  // PopulateStrboxHtable() isn't sufficient for this when SIDs are present.
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t xid_htable_size = GetHtableFastSize(sample_ct);
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    uint32_t* xid_htable;
+    char* idbuf;
+    if (unlikely(bigstack_alloc_u32(xid_htable_size, &xid_htable) ||
+                 bigstack_alloc_c(max_sample_id_blen + max_sid_blen, &idbuf))) {
+      goto CheckXidUniqueness_ret_NOMEM;
+    }
+    // Lots of overlap with InitXidHtable().
+    SetAllU32Arr(xid_htable_size, xid_htable);
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+      const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
+      const uint32_t sample_id_slen = strlen(cur_sample_id);
+      uint32_t xid_slen = sample_id_slen;
+      const char* cur_xid;
+      if (!sids) {
+        cur_xid = cur_sample_id;
+      } else {
+        char* id_iter = memcpyax(idbuf, cur_sample_id, sample_id_slen, '\t');
+        const char* cur_sid = &(sids[sample_uidx * max_sample_id_blen]);
+        const uint32_t sid_blen = 1 + strlen(cur_sid);
+        memcpy(id_iter, cur_sid, sid_blen);
+        xid_slen += sid_blen;
+        cur_xid = idbuf;
+      }
+      for (uint32_t hashval = Hashceil(cur_xid, xid_slen, xid_htable_size); ; ) {
+        const uint32_t cur_htable_entry = xid_htable[hashval];
+        if (cur_htable_entry == UINT32_MAX) {
+          xid_htable[hashval] = sample_uidx;
+          break;
+        }
+        if (memequal(cur_sample_id, &(sample_ids[cur_htable_entry * max_sample_id_blen]), sample_id_slen + 1)) {
+          if ((!sids) || memequal(&(cur_xid[sample_id_slen + 1]), &(sids[cur_htable_entry * max_sid_blen]), xid_slen - sample_id_slen)) {
+            char* write_iter = strcpya_k(g_logbuf, "Error: Duplicate sample ID \"");
+            const char* fid_end = AdvToDelim(cur_sample_id, '\t');
+            const char* iid_start = &(fid_end[1]);
+            write_iter = memcpyax(write_iter, cur_sample_id, fid_end - cur_sample_id, ' ');
+            write_iter = strcpya(write_iter, iid_start);
+            if (sids) {
+              *write_iter++ = ' ';
+              write_iter = memcpya(write_iter, &(cur_xid[sample_id_slen + 1]), xid_slen - sample_id_slen - 1);
+            }
+            *write_iter++ = '"';
+            if (err_suffix_str) {
+              write_iter = strcpya(write_iter, err_suffix_str);
+            }
+            strcpy_k(write_iter, ".\n");
+            WordWrapB(0);
+            logerrputsb();
+            goto CheckXidUniqueness_ret_MALFORMED_INPUT;
+          }
+        }
+        if (++hashval == xid_htable_size) {
+          hashval = 0;
+        }
+      }
+    }
+  }
+  while (0) {
+  CheckXidUniqueness_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  CheckXidUniqueness_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr LoadSampleIds(const char* fnames, const uintptr_t* sample_include, const SampleIdInfo* siip, const char* flag_name, uint32_t raw_sample_ct, uint32_t sample_ct, LoadSampleIdsFlags flags, uintptr_t** loaded_bitarrp, uint32_t* duplicate_ctp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
@@ -1457,8 +1523,7 @@ PglErr LoadSampleIds(const char* fnames, const uintptr_t* sample_include, const 
           }
           goto LoadSampleIds_ret_TSTREAM_XID_FAIL;
         }
-        const uint32_t allow_dups = siip->sids && (!(xid_mode & kfXidModeFlagSid));
-        reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+        reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
         if (unlikely(reterr)) {
           goto LoadSampleIds_ret_1;
         }

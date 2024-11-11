@@ -318,6 +318,8 @@ HEADER_INLINE void JoinThreads0(ThreadGroup* tg_ptr) {
 // deterministic behavior is desired.
 void UpdateU64IfSmaller(uint64_t newval, uint64_t* oldval_ptr);
 
+void UpdateU32IfSmaller(uint32_t newval, uint32_t* oldval_ptr);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

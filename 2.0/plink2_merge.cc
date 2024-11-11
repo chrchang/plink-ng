@@ -7198,7 +7198,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
       char* sorted_xidbox;
       uint32_t* xid_map;
       uintptr_t max_xid_blen;
-      reterr = SortedXidboxInitAllocEnd(orig_sample_include, siip, orig_sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+      reterr = SortedXidboxInitAllocEnd(orig_sample_include, siip, orig_sample_ct, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
       if (unlikely(reterr)) {
         goto PgenDiff_ret_1;
       }
@@ -7253,7 +7253,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         }
         if (unlikely(IsSet(sample_include, sample_uidx))) {
           TabsToSpaces(idbuf);
-          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in --pgen-diff .psam file.\n", idbuf);
+          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in --pgen-diff .psam file.\n", idbuf);
           goto PgenDiff_ret_MALFORMED_INPUT_WW;
         }
         SetBit(sample_uidx, sample_include);
@@ -8026,10 +8026,6 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
           }
         }
         const uint32_t merged_allele_ctl = BitCtToWordCt(merged_allele_ct);
-        if (unlikely(DuplicateAllelePresent(remap1, cur_allele_ct1, merged_allele_ctl, remap_seen))) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code in variant '%s' at position %s:%u.\n", variant_ids[variant_uidx], chr_buf, cur_included_bp);
-          goto PgenDiff_ret_MALFORMED_INPUT_WW_N;
-        }
         if (unlikely(DuplicateAllelePresent(remap2, cur_allele_ct2, merged_allele_ctl, remap_seen))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code on line %" PRIuPTR " of --pgen-diff .pvar file.\n", pvar_line_idx);
           goto PgenDiff_ret_MALFORMED_INPUT_WW_N;

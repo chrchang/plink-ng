@@ -2733,7 +2733,7 @@ static const char kGpText[] = "GP";
 // pgen_generated and psam_generated assumed to be initialized to 1.
 static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
-PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t is_update_sex, uint32_t is_splitpar, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Performs a 2-pass load.  Probably staying that way after sequential writer
   // is implemented since header lines are a pain.
   //
@@ -3680,7 +3680,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
     // Could also require the .fam/.psam to contain non-NA sex information?
     // But this should already be enough to address the main footgun.
-    const uint32_t sex_info_avail = preexisting_psamname || is_update_sex;
+    const uint32_t sex_info_avail = preexisting_psamname || is_update_or_impute_sex;
     uint32_t par_warn_code = UINT32_MAX;
     if ((!(import_flags & kfImportLaxChrX)) && sample_ct) {
       const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
@@ -7246,7 +7246,7 @@ THREAD_FUNC_DECL BcfGenoToPgenThread(void* raw_arg) {
 }
 
 // pgen_generated and psam_generated assumed to be initialized to 1.
-PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t is_update_sex, uint32_t is_splitpar, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Yes, lots of this is copied-and-pasted from VcfToPgen(), but there are
   // enough differences that I don't think trying to handle them with the same
   // function is wise.
@@ -8540,7 +8540,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     const uint32_t hard_call_halfdist = kDosage4th - hard_call_thresh;
 
     // See the analogous code in VcfToPgen().
-    const uint32_t sex_info_avail = preexisting_psamname || is_update_sex;
+    const uint32_t sex_info_avail = preexisting_psamname || is_update_or_impute_sex;
     if (par_warn_bcf_chrom != UINT32_MAX) {
       if ((import_flags & kfImportLaxChrX) || (!sample_ct)) {
         par_warn_bcf_chrom = UINT32_MAX;
@@ -11326,6 +11326,7 @@ void PrintBgenImportErr(const char** err_extra, uint64_t err_info, uint32_t vidx
     snprintf(g_logbuf, kLogbufSize, "Error: Invalid .bgen missing_and_ploidy byte, vidx=%u.\n", vidx);
     break;
   default:
+    ;
     const PglErr reterr = S_CAST(PglErr, err_info & 255);
     if (reterr == kPglRetNomem) {
       return;
@@ -12335,7 +12336,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
 }
 
 static_assert(sizeof(Dosage) == 2, "OxBgenToPgen() needs to be updated.");
-PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_sex, uint32_t is_splitpar, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* bgenfile = nullptr;
@@ -12345,7 +12346,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   FILE* psamfile = nullptr;
 
   char* pvar_cswritep = nullptr;
-  const uint32_t sex_info_avail = samplename[0] || is_update_sex;
+  const uint32_t sex_info_avail = samplename[0] || is_update_or_impute_sex;
   CompressStreamState pvar_css;
   PreinitCstream(&pvar_css);
   ThreadGroup tg;
@@ -14419,7 +14420,7 @@ PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t s
   return reterr;
 }
 
-PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_sex, uint32_t is_splitpar, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgi_generated_ptr) {
+PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgi_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* psamfile = nullptr;
   uintptr_t line_idx_haps = 0;
@@ -14600,7 +14601,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     const uint32_t phaseinfo_match = 1 + prov_ref_allele_second;
     uint32_t variant_ct = 0;
     uintptr_t variant_skip_ct = 0;
-    const uint32_t sex_info_avail = sfile_sample_ct || is_update_sex;
+    const uint32_t sex_info_avail = sfile_sample_ct || is_update_or_impute_sex;
     uint32_t par_warn_code = UINT32_MAX;
     if (!(import_flags & kfImportLaxChrX)) {
       const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
@@ -15083,7 +15084,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         char* duplicate_sample_id = &(pii.sii.sample_ids[duplicate_idx * pii.sii.max_sample_id_blen]);
         char* duplicate_fid_end = AdvToDelim(duplicate_sample_id, '\t');
         *duplicate_fid_end = ' ';
-        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in .fam file.\n", duplicate_sample_id);
+        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in .fam file.\n", duplicate_sample_id);
         goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
       }
 
@@ -15157,7 +15158,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         }
         if (unlikely(IsSet(sample_include, sample_uidx))) {
           idbuf_iid[-1] = ' ';
-          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in dosage file.\n", idbuf);
+          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in dosage file.\n", idbuf);
           goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
         }
         SetBit(sample_uidx, sample_include);

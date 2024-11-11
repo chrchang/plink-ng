@@ -2871,7 +2871,7 @@ char* lntoa_g(double ln_val, char* start) {
 // makes sense to just promote to double like printf does.
 
 
-CXXCONST_CP ScanForDuplicateIds(const char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen) {
+CXXCONST_CP FindSortedStrboxDuplicate(const char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen) {
   --id_ct;
   for (uintptr_t id_idx = 0; id_idx != id_ct; ++id_idx) {
     if (strequal_overread(&(sorted_ids[id_idx * max_id_blen]), &(sorted_ids[(id_idx + 1) * max_id_blen]))) {
@@ -2879,49 +2879,6 @@ CXXCONST_CP ScanForDuplicateIds(const char* sorted_ids, uintptr_t id_ct, uintptr
     }
   }
   return nullptr;
-}
-
-uint32_t CollapseDuplicateIds(uintptr_t id_ct, uintptr_t max_id_blen, char* sorted_ids, uint32_t* id_starts) {
-  // Collapses array of sorted IDs to remove duplicates, and writes
-  // pre-collapse positions to id_starts (so e.g. duplication count of any
-  // sample ID can be determined via subtraction) if it isn't nullptr.
-  // Returns id_ct of collapsed array.
-  if (!id_ct) {
-    return 0;
-  }
-  uintptr_t read_idx = 1;
-  uintptr_t write_idx;
-  if (id_starts) {
-    id_starts[0] = 0;
-    for (; read_idx != id_ct; ++read_idx) {
-      if (strequal_overread(&(sorted_ids[(read_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
-        break;
-      }
-      id_starts[read_idx] = read_idx;
-    }
-    write_idx = read_idx;
-    while (++read_idx < id_ct) {
-      // this loop can probably be improved with string-length tracking...
-      if (!strequal_overread(&(sorted_ids[(write_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
-        strcpy(&(sorted_ids[write_idx * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]));
-        id_starts[write_idx++] = read_idx;
-      }
-    }
-  } else {
-    for (; read_idx != id_ct; ++read_idx) {
-      if (strequal_overread(&(sorted_ids[(read_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
-        break;
-      }
-    }
-    write_idx = read_idx;
-    while (++read_idx < id_ct) {
-      if (!strequal_overread(&(sorted_ids[(write_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
-        strcpy(&(sorted_ids[write_idx * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]));
-        ++write_idx;
-      }
-    }
-  }
-  return write_idx;
 }
 
 

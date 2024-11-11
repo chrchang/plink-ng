@@ -635,6 +635,10 @@ void SortStrbox64bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_
 // Must be ok to overread.
 void SortStrboxIndexed2(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace);
 #else  // !__cplusplus
+HEADER_INLINE uint32_t strcmp_overread_lt(const char* s1, const char* s2) {
+  return strcmp_overread(s1, s2) < 0;
+}
+
 HEADER_INLINE void StrptrArrSort(uintptr_t ct, const char** strptr_arr) {
   qsort(strptr_arr, ct, sizeof(intptr_t), strcmp_deref);
 }
@@ -1513,11 +1517,11 @@ HEADER_INLINE char* i32toa_x(int32_t ii, char extra_char, char* start) {
 
 
 // overread must be ok.
-CXXCONST_CP ScanForDuplicateIds(const char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen);
+CXXCONST_CP FindSortedStrboxDuplicate(const char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen);
 
 #ifdef __cplusplus
-HEADER_INLINE char* ScanForDuplicateIds(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen) {
-  return const_cast<char*>(ScanForDuplicateIds(const_cast<const char*>(sorted_ids), id_ct, max_id_blen));
+HEADER_INLINE char* FindSortedStrboxDuplicate(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen) {
+  return const_cast<char*>(FindSortedStrboxDuplicate(const_cast<const char*>(sorted_ids), id_ct, max_id_blen));
 }
 #endif
 
@@ -1526,7 +1530,7 @@ HEADER_INLINE char* ScanForDuplicateIds(char* sorted_ids, uintptr_t id_ct, uintp
 // determined via subtraction) if it isn't nullptr.
 // Overread must be ok.
 // Returns id_ct of collapsed array.
-uint32_t CollapseDuplicateIds(uintptr_t id_ct, uintptr_t max_id_blen, char* sorted_ids, uint32_t* id_starts);
+// uint32_t CollapseSortedStrbox(uintptr_t id_ct, uintptr_t max_id_blen, char* sorted_ids, uint32_t* id_starts);
 
 
 // returns position of string, or -1 if not found.

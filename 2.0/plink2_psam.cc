@@ -132,9 +132,14 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
           goto LoadPsam_ret_NOMEM;
         }
         SetAllBits(cmdline_pheno_name_ct, dummy_bitarr);
-        reterr = CopySortStrboxSubsetNoalloc(dummy_bitarr, pheno_range_list_ptr->names, cmdline_pheno_name_ct, max_cmdline_pheno_id_blen, 0, 0, 0, cmdline_pheno_sorted_ids, cmdline_pheno_id_map);
+        reterr = CopySortStrboxSubsetNoalloc(dummy_bitarr, pheno_range_list_ptr->names, cmdline_pheno_name_ct, max_cmdline_pheno_id_blen, 0, 0, cmdline_pheno_sorted_ids, cmdline_pheno_id_map);
         if (unlikely(reterr)) {
           goto LoadPsam_ret_1;
+        }
+        char* dup_id = FindSortedStrboxDuplicate(cmdline_pheno_sorted_ids, cmdline_pheno_name_ct, max_cmdline_pheno_id_blen);
+        if (unlikely(dup_id)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate phentoype ID '%s'.\n", dup_id);
+          goto LoadPsam_ret_MALFORMED_INPUT_WW;
         }
         BigstackReset(dummy_bitarr);
       }
@@ -818,7 +823,11 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
       *pheno_cols_ptr = pheno_cols;
       *pheno_ct_ptr = pheno_ct;
     }
-    // TODO: print at least a warning if a duplicate sample ID is present.
+
+    reterr = CheckXidUniqueness(*sample_include_ptr, &(piip->sii), nullptr, raw_sample_ct);
+    if (unlikely(reterr)) {
+      goto LoadPsam_ret_1;
+    }
   }
   while (0) {
   LoadPsam_ret_NOMEM:
@@ -1161,11 +1170,10 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     *pheno_ct_ptr = final_pheno_ct;
     *pheno_cols_ptr = new_pheno_cols;
 
-    const uint32_t allow_dups = siip->sids && (!(xid_mode & kfXidModeFlagSid));
     char* sorted_xidbox;
     uint32_t* xid_map;
     uintptr_t max_xid_blen;
-    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (unlikely(reterr)) {
       goto LoadPhenos_ret_1;
     }

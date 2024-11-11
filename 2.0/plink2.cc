@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6"
+static const char ver_str[] = "PLINK v2.0.0-a.6.0"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.6"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (20 Oct 2024)";
+  " (11 Nov 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -100,15 +100,15 @@ static const char ver_str2[] =
 #  endif
 #endif
 
-  "      cog-genomics.org/plink/2.0/\n"
+  "    cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2024 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise,\n--r2-phased, --sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--gwas-ssf, --pheno-svd, --clump, --score-list, --variant-score,\n--genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise,\n--r2-phased, --sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--check-sex, --write-samples, --write-snplist, --make-grm-list, --pca, --glm,\n--adjust-file, --gwas-ssf, --pheno-svd, --clump, --score-list, --variant-score,\n--genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #else
 // no --pca
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise,\n--r2-phased, --sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--gwas-ssf, --clump, --score-list, --variant-score, --genotyping-rate,\n--pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise,\n--r2-phased, --sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--check-sex, --write-samples, --write-snplist, --make-grm-list, --glm,\n--adjust-file, --gwas-ssf, --clump, --score-list, --variant-score,\n--genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #endif
 
 // multiallelics-already-joined + terminating null
@@ -197,7 +197,8 @@ FLAGSET64_DEF_START()
   kfCommand1PgenDiff = (1 << 27),
   kfCommand1Clump = (1 << 28),
   kfCommand1Vcor = (1 << 29),
-  kfCommand1PhenoSvd = (1 << 30)
+  kfCommand1PhenoSvd = (1 << 30),
+  kfCommand1CheckOrImputeSex = (1U << 31)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -388,6 +389,7 @@ typedef struct Plink2CmdlineStruct {
   ClumpInfo clump_info;
   VcorInfo vcor_info;
   PhenoSvdInfo pheno_svd_info;
+  CheckSexInfo check_sex_info;
   double ci_size;
   float var_min_qual;
   uint32_t splitpar_bound1;
@@ -520,9 +522,10 @@ uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Fl
 }
 
 
-uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, HetFlags het_flags, ScoreFlags score_flags) {
+uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags check_sex_flags, HetFlags het_flags, ScoreFlags score_flags) {
   // Keep this in sync with --error-on-freq-calc.
   return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel)) ||
+    (check_sex_flags & kfCheckSexUseX) ||
     ((command_flags1 & kfCommand1Score) && ((!(score_flags & kfScoreNoMeanimpute)) || (score_flags & (kfScoreCenter | kfScoreVarianceStandardize)))) ||
     ((command_flags1 & kfCommand1Het) && (!(het_flags & kfHetSmallSample)));
 }
@@ -607,7 +610,9 @@ uint32_t VariantMissingHcCtsAreNeeded(Command1Flags command_flags1, MiscFlags mi
 
 uint32_t VariantHethapCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags, uint32_t first_hap_uidx) {
   // bugfix (20 Oct 2024): --geno hh-missing condition was backwards
-  return (first_hap_uidx != 0x7fffffff) && (((command_flags1 & kfCommand1MissingReport) && (missing_rpt_flags & (kfMissingRptVcolNmissHh | kfMissingRptVcolHethap | kfMissingRptVcolFmissHh | kfMissingRptVcolFhethap))) || ((geno_thresh != 1.0) && (misc_flags & kfMiscGenoHhMissing)));
+  return (first_hap_uidx != 0x7fffffff) &&
+    (((command_flags1 & kfCommand1MissingReport) && (missing_rpt_flags & (kfMissingRptVcolNmissHh | kfMissingRptVcolHethap | kfMissingRptVcolFmissHh | kfMissingRptVcolFhethap))) ||
+     ((geno_thresh != 1.0) && (misc_flags & kfMiscGenoHhMissing)));
 }
 
 uint32_t VariantMissingDosageCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags) {
@@ -638,6 +643,10 @@ uint32_t InfoReloadIsNeeded(Command1Flags command_flags1, PvarPsamFlags pvar_psa
 
 uint32_t GrmKeepIsNeeded(Command1Flags command_flags1, PcaFlags pca_flags) {
   return ((command_flags1 & kfCommand1Pca) && (!(pca_flags & kfPcaApprox)));
+}
+
+uint32_t AlleleUniquenessCheckIsNeeded(const char* update_alleles_fname, const char* read_freq_fname, const TwoColParams* ref_allele_flag, const TwoColParams* alt_allele_flag, Command1Flags command_flags1, RmDupMode rmdup_mode, FaFlags fa_flags) {
+  return (command_flags1 & (kfCommand1PgenDiff | kfCommand1Score | kfCommand1Clump)) || update_alleles_fname || read_freq_fname || (rmdup_mode != kRmDup0) || ref_allele_flag || alt_allele_flag || (fa_flags & kfFaRefFrom);
 }
 
 void ReportGenotypingRate(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_missing_cts, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t y_sample_ct, uint32_t variant_ct, uint32_t is_dosage) {
@@ -1294,6 +1303,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
     }
+    if (variant_ct && AlleleUniquenessCheckIsNeeded(pcp->update_alleles_info.fname, pcp->read_freq_fname, pcp->ref_allele_flag, pcp->alt_allele_flag, pcp->command_flags1, pcp->rmdup_mode, pcp->fa_flags)) {
+      reterr = CheckAlleleUniqueness(variant_include, cip, chr_idxs, variant_bps, TO_CONSTCPCONSTP(variant_ids_mutable), allele_idx_offsets, TO_CONSTCPCONSTP(allele_storage_mutable), variant_ct, max_allele_ct, pcp->max_thread_ct);
+      if (unlikely(reterr)) {
+        goto Plink2Core_ret_1;
+      }
+    }
     // If something like --snps is combined with a position-based filter which
     // may remove some of the named variants, we need to apply --snps first.
     // Otherwise, it may be very advantageous to apply the position-based
@@ -1316,6 +1331,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         goto Plink2Core_ret_1;
       }
     }
+
     const uint32_t extract_exclude_by_id = (pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractBed0 | kfFilterExtractBed1)))) ||
       (pcp->extract_intersect_fnames && (!(pcp->filter_flags & (kfFilterExtractIntersectBed0 | kfFilterExtractIntersectBed1)))) ||
       (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeBed0 | kfFilterExcludeBed1))));
@@ -1616,7 +1632,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         // could avoid this call and make LoadAlleleAndGenoCounts() do
         // double duty with --missing?
-        reterr = LoadSampleMissingCts(sex_nm, sex_male, variant_include, cip, raw_variant_ct, variant_ct, raw_sample_ct, (pcp->misc_flags / kfMiscYNosexMissingStats) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, sample_missing_hc_cts, (pgfi.gflags & kfPgenGlobalDosagePresent)? sample_missing_dosage_cts : nullptr, sample_hethap_cts);
+        reterr = LoadSampleMissingCts(sex_nm, sex_male, variant_include, cip, "sample missingness", raw_variant_ct, variant_ct, raw_sample_ct, (pcp->misc_flags / kfMiscYNosexMissingStats) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, sample_missing_hc_cts, (pgfi.gflags & kfPgenGlobalDosagePresent)? sample_missing_dosage_cts : nullptr, sample_hethap_cts);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -1939,7 +1955,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
           goto Plink2Core_ret_DEGENERATE_DATA;
         }
-        const uint32_t decent_afreqs_needed = DecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->het_flags, pcp->score_info.flags);
+        const uint32_t decent_afreqs_needed = DecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->check_sex_info.flags, pcp->het_flags, pcp->score_info.flags);
         const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->pca_flags, pcp->glm_info.flags, pcp->vcor_info.flags);
         if (decent_afreqs_needed || maj_alleles_needed || IndecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->vcor_info.flags, pcp->min_maf, pcp->max_maf)) {
           if (unlikely((!pcp->read_freq_fname) && ((sample_ct < 50) || ((!nonfounders) && (founder_ct < 50))) && decent_afreqs_needed && (!(pcp->misc_flags & kfMiscAllowBadFreqs)))) {
@@ -2131,7 +2147,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // VariantMissingHcCtsAreNeeded(),
             // VariantMissingDosageCtsAreNeeded(),
             // [Founder]RawGenoCtsAreNeeded(), TrimAlts, and is_minimac3_r2.
-            logerrputs("Error: --error-on-freq-calc specified, but allele frequency calculation is\nneeded.\nFlags which may invoke the allele frequency calculation include --freq, --geno,\n--geno-counts, --genotyping-rate, --glm (unless 'omit-ref' is specified),\n--hardy, --het (unless 'small-sample' is specified), --hwe, --indep-pairwise,\nthe 'trim-alts' modifier of --make-[b]pgen/--make-bed, --make-grm-{bin,list},\n--make-rel, --[max-]mac, --[max-]maf, --minimac3-r2-filter, --missing, --pca,\n--score[-list] (unless 'no-mean-imputation' is specified, and neither 'center'\nnor 'variance-standardize' are), and --variant-score.\n");
+            logerrputs("Error: --error-on-freq-calc specified, but allele frequency calculation is\nneeded.\nFlags which may invoke the allele frequency calculation include --check-sex,\n--freq, --geno, --geno-counts, --genotyping-rate, --glm (unless 'omit-ref' is\nspecified), --hardy, --het (unless 'small-sample' is specified), --hwe,\n--impute-sex, --indep-pairwise, the 'trim-alts' modifier of\n--make-[b]pgen/--make-bed, --make-grm-{bin,list}, --make-rel, --[max-]mac,\n--[max-]maf, --minimac3-r2-filter, --missing, --pca, --score[-list] (unless\n'no-mean-imputation' is specified, and neither 'center' nor\n'variance-standardize' are), and --variant-score.\n");
             goto Plink2Core_ret_INVALID_CMDLINE;
           }
           // note that --geno depends on different handling of X/Y than --maf.
@@ -2515,6 +2531,18 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 #endif
 
+      if (pcp->command_flags1 & kfCommand1CheckOrImputeSex) {
+        reterr = CheckOrImputeSex(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, &(pcp->check_sex_info), raw_sample_ct, sample_ct, raw_variant_ct, max_allele_ct, pcp->max_thread_ct, pgr_alloc_cacheline_ct, sex_nm, sex_male, &pgfi, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+        if (pcp->check_sex_info.flags & kfCheckSexImpute) {
+          nosex_ct = sample_ct - PopcountWords(sex_nm, raw_sample_ctl);
+          // defensive, male_ct not actually used after this point?
+          male_ct = PopcountWords(sex_male, raw_sample_ctl);
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1WriteSnplist) {
         reterr = WriteSnplist(variant_include, variant_ids, variant_ct, (pcp->misc_flags / kfMiscWriteSnplistZs) & 1, (pcp->misc_flags / kfMiscWriteSnplistAllowDups) & 1, pcp->max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
@@ -2665,7 +2693,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               // to spare here, so keep the code simpler for now
               char* sorted_xidbox_tmp;
               uintptr_t max_xid_blen;
-              reterr = SortedXidboxInitAlloc(sample_include, &pii.sii, sample_ct, 0, pii.sii.sids? kfXidModeFidIidSid : kfXidModeFidIid, (pcp->sample_sort_mode == kSortNatural), &sorted_xidbox_tmp, &new_sample_idx_to_old, &max_xid_blen);
+              reterr = SortedXidboxInitAlloc(sample_include, &pii.sii, sample_ct, pii.sii.sids? kfXidModeFidIidSid : kfXidModeFidIid, (pcp->sample_sort_mode == kSortNatural), &sorted_xidbox_tmp, &new_sample_idx_to_old, &max_xid_blen);
               if (unlikely(reterr)) {
                 goto Plink2Core_ret_1;
               }
@@ -3436,6 +3464,7 @@ int main(int argc, char** argv) {
   InitClump(&pc.clump_info);
   InitVcor(&pc.vcor_info);
   InitPhenoSvd(&pc.pheno_svd_info);
+  InitCheckSex(&pc.check_sex_info);
   GenDummyInfo gendummy_info;
   InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
@@ -4985,6 +5014,135 @@ int main(int argc, char** argv) {
           }
           pc.pheno_transform_flags |= kfPhenoTransformQuantnormCovar;
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "heck-sex")) {
+          // parsing is almost identical for --impute-sex
+        main_parse_check_sex:
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 7))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t explicit_cols = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (StrStartsWith(cur_modif, "max-female-xf=", cur_modif_slen)) {
+              if (pc.check_sex_info.max_female_xf != -1.0) {
+                logerrprintf("Error: Multiple --%s max-female-xf= modifiers.\n", flagname_p);
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* arg_start = &(cur_modif[strlen("max-female-xf=")]);
+              double dxx;
+              if (unlikely((!ScantokDouble(arg_start, &dxx)) || (dxx < 0.0) || (dxx >= 1.0 - kSmallEpsilon))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s max-female-xf= argument '%s'.\n", flagname_p, arg_start);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              pc.check_sex_info.flags |= kfCheckSexUseX;
+              pc.check_sex_info.max_female_xf = dxx * (1.0 + kSmallEpsilon);
+            } else if (StrStartsWith(cur_modif, "min-male-xf=", cur_modif_slen)) {
+              if (pc.check_sex_info.min_male_xf != -1.0) {
+                logerrprintf("Error: Multiple --%s min-male-xf= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* arg_start = &(cur_modif[strlen("min-male-xf=")]);
+              double dxx;
+              if (unlikely((!ScantokDouble(arg_start, &dxx)) || (dxx <= 0.0) || (dxx > 1.0))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s min-male-xf= argument '%s'.\n", flagname_p, arg_start);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              pc.check_sex_info.flags |= kfCheckSexUseX;
+              pc.check_sex_info.min_male_xf = dxx * (1.0 - kSmallEpsilon);
+            } else if (StrStartsWith(cur_modif, "max-female-ycount=", cur_modif_slen)) {
+              if (pc.check_sex_info.max_female_ycount != UINT32_MAX) {
+                logerrprintf("Error: Multiple --%s max-female-ycount= modifiers.\n", flagname_p);
+                goto main_ret_INVALID_CMDLINE;
+              }
+              pc.check_sex_info.flags |= kfCheckSexUseY;
+              const char* arg_start = &(cur_modif[strlen("max-female-ycount=")]);
+              if (unlikely(ScanUintDefcapx(arg_start, &pc.check_sex_info.max_female_ycount))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s max-female-ycount= argument '%s'.\n", flagname_p, arg_start);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            } else if (StrStartsWith(cur_modif, "min-male-ycount=", cur_modif_slen)) {
+              if (pc.check_sex_info.min_male_ycount != UINT32_MAX) {
+                logerrprintf("Error: Multiple --%s min-male-ycount= modifiers.\n", flagname_p);
+                goto main_ret_INVALID_CMDLINE;
+              }
+              pc.check_sex_info.flags |= kfCheckSexUseY;
+              const char* arg_start = &(cur_modif[strlen("min-male-ycount=")]);
+              if (unlikely(ScanPosintDefcapx(arg_start, &pc.check_sex_info.min_male_ycount))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s min-male-ycount= argument '%s'.\n", flagname_p, arg_start);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            } else if (StrStartsWith(cur_modif, "max-female-yrate=", cur_modif_slen)) {
+              if (pc.check_sex_info.max_female_yrate != -1.0) {
+                logerrprintf("Error: Multiple --%s max-female-yrate= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* arg_start = &(cur_modif[strlen("max-female-yrate=")]);
+              double dxx;
+              if (unlikely((!ScantokDouble(arg_start, &dxx)) || (dxx < 0.0) || (dxx >= 1.0 - kSmallEpsilon))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s max-female-yrate= argument '%s'.\n", flagname_p, arg_start);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              pc.check_sex_info.max_female_yrate = dxx * (1.0 + kSmallEpsilon);
+              pc.check_sex_info.flags |= kfCheckSexUseY;
+            } else if (StrStartsWith(cur_modif, "min-male-yrate=", cur_modif_slen)) {
+              if (pc.check_sex_info.min_male_yrate != -1.0) {
+                logerrprintf("Error: Multiple --%s min-male-yrate= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* arg_start = &(cur_modif[strlen("min-male-yrate=")]);
+              double dxx;
+              if (unlikely((!ScantokDouble(arg_start, &dxx)) || (dxx <= 0.0) || (dxx > 1.0))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s min-male-yrate= argument '%s'.\n", flagname_p, arg_start);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              pc.check_sex_info.min_male_yrate = dxx * (1.0 - kSmallEpsilon);
+              pc.check_sex_info.flags |= kfCheckSexUseY;
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              if (unlikely(pc.check_sex_info.flags & kfCheckSexColAll)) {
+                logerrprintf("Error: Multiple --%s cols= modifiers.\n", flagname_p);
+                goto main_ret_INVALID_CMDLINE;
+              }
+              explicit_cols = 1;
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0pedsex\0status\0xf\0ycount\0yrate\0yobs\0", flagname_p, kfCheckSexColMaybefid, kfCheckSexColDefault, 0, &pc.check_sex_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              logerrprintf("Error: Invalid --%s argument sequence.\n", flagname_p);
+              double dxx;
+              if ((param_idx == 1) && (param_ct == 2) && ScantokDouble(cur_modif, &dxx) && ScantokDouble(argvk[arg_idx + 2], &dxx)) {
+                logerrprintfww("(Did you mean \"--%s max-female-xf=%s min-male-xf=%s\"?)\n", flagname_p, cur_modif, argvk[arg_idx + 2]);
+              }
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+          if (!(pc.check_sex_info.flags & (kfCheckSexUseX | kfCheckSexUseY))) {
+            logerrprintfww("Warning: No --%s thresholds specified. Setting min-male-xf=1 and max-female-yrate=0; if you aren't just sanity-checking pre-cleaned data, you should look at the distributions of xf and yrate in the .checksex output file, and then rerun --check-sex with data-derived thresholds.\n", flagname_p);
+            pc.check_sex_info.min_male_xf = 1.0 - kSmallEpsilon;
+            pc.check_sex_info.max_female_yrate = 0.0;
+            pc.check_sex_info.flags |= kfCheckSexUseX | kfCheckSexUseY;
+          } else {
+            if (unlikely((pc.check_sex_info.max_female_xf != -1.0) && (pc.check_sex_info.min_male_xf != -1.0) && (pc.check_sex_info.min_male_xf <= pc.check_sex_info.max_female_xf))) {
+              logerrprintfww("Error: --%s max-female-xf= argument must be smaller than min-male-xf= argument.\n", flagname_p);
+              goto main_ret_INVALID_CMDLINE;
+            }
+            if (pc.check_sex_info.flags & kfCheckSexUseY) {
+              if (unlikely((pc.check_sex_info.max_female_ycount != UINT32_MAX) && (pc.check_sex_info.min_male_ycount <= pc.check_sex_info.max_female_ycount))) {
+                logerrprintfww("Error: --%s max-female-ycount= argument must be smaller than min-male-ycount= argument.\n", flagname_p);
+                goto main_ret_INVALID_CMDLINE;
+              }
+              if (unlikely((pc.check_sex_info.max_female_yrate != -1.0) && (pc.check_sex_info.min_male_yrate != -1.0) && (pc.check_sex_info.min_male_yrate <= pc.check_sex_info.max_female_yrate))) {
+                logerrprintfww("Error: --%s max-female-yrate= argument must be smaller than min-male-yrate= argument.\n", flagname_p);
+                goto main_ret_INVALID_CMDLINE;
+              }
+            }
+          }
+          if (!explicit_cols) {
+            pc.check_sex_info.flags |= kfCheckSexColDefault;
+          }
+          pc.command_flags1 |= kfCommand1CheckOrImputeSex;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "ovar-variance-standardize"))) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.vstd_flattened);
@@ -6837,6 +6995,13 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-max-alleles argument '%s'.\n", argvk[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "mpute-sex")) {
+          if (unlikely(pc.command_flags1 & kfCommand1CheckOrImputeSex)) {
+            logerrputs("Error: --check-sex is redundant with --impute-sex.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          pc.check_sex_info.flags |= kfCheckSexImpute;
+          goto main_parse_check_sex;
         } else if (likely(strequal_k_unsafe(flagname_p2, "mport-dosage"))) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -11981,6 +12146,17 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_A;
       }
     }
+    if (pc.check_sex_info.flags & kfCheckSexImpute) {
+      if (unlikely(!(pc.command_flags1 & (kfCommand1MakePlink2 | kfCommand1Exportf | kfCommand1WriteCovar)))) {
+        logerrputs("Error: --impute-sex must be used with\n--make-[b]pgen/--make-bed/--export/--write-covar.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+      if (unlikely(pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf | kfCommand1WriteCovar | kfCommand1CheckOrImputeSex)))) {
+        // enforce this to reduce order-of-operations confusion
+        logerrputs("Error: --impute-sex cannot be used with any commands other than\n--make-[b]pgen/--make-bed/--export/--write-covar.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+    }
     if (!permit_multiple_inclusion_filters) {
       // Permit only one position- or ID-based variant inclusion filter, since
       // it's not immediately obvious whether the union or intersection should
@@ -12121,6 +12297,7 @@ int main(int argc, char** argv) {
         uint32_t pgi_generated = 0;
         uint32_t psam_generated = 1;
 
+        const uint32_t is_update_or_impute_sex = (pc.update_sex_info.fname || (pc.check_sex_info.flags & kfCheckSexImpute));
         // Compress by default for VCF/BCF due to potentially large INFO
         // section; otherwise only do it in "--keep-autoconv vzs" case.
         uint32_t pvar_is_compressed;
@@ -12149,9 +12326,9 @@ int main(int argc, char** argv) {
             g_zst_level = 1;
           }
           if (is_vcf) {
-            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, !!pc.update_sex_info.fname, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           } else {
-            reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, !!pc.update_sex_info.fname, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           }
           g_zst_level = zst_level;
         } else {
@@ -12173,9 +12350,9 @@ int main(int argc, char** argv) {
           } else if (xload & kfXloadOxGen) {
             reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxBgen) {
-            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, !!pc.update_sex_info.fname, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxHaps) {
-            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, !!pc.update_sex_info.fname, !!pc.splitpar_bound2, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
+            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
           } else if (xload & kfXloadPlink1Dosage) {
             reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (likely(xload & kfXloadGenDummy)) {

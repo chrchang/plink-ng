@@ -574,6 +574,7 @@ PglErr LoadAndSortIntervalBed(const char* fname, const ChrInfo* cip, const char*
           range_read_first_uidx = S_CAST(uint32_t, range_read_entry >> 32);
           if (range_read_first_uidx <= S_CAST(uint32_t, range_write_entry)) {
           LoadAndSortIntervalBed_merge_start:
+            ;
             const uint32_t range_read_last_uidx = S_CAST(uint32_t, range_read_entry);
             if (range_read_last_uidx > S_CAST(uint32_t, range_write_entry)) {
               range_write_entry = (range_write_entry & 0xffffffff00000000LLU) | S_CAST(uint64_t, range_read_last_uidx);
