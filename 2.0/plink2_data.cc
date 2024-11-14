@@ -5985,9 +5985,11 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   uintptr_t* ac_flipped = nullptr;
   if (ctx->thread_write_mhc) {
     ExpandMhc(sample_ct, ctx->thread_write_mhc[tidx], &write_patch_01_set, &write_patch_01_vals, &write_patch_10_set, &write_patch_10_vals);
-    ac_remap = ctx->thread_ac_remap[tidx];
-    ac_rotate = ctx->thread_ac_rotate[tidx];
-    ac_flipped = ctx->thread_ac_flipped[tidx];
+    if (ctx->thread_ac_remap) {
+      ac_remap = ctx->thread_ac_remap[tidx];
+      ac_rotate = ctx->thread_ac_rotate[tidx];
+      ac_flipped = ctx->thread_ac_flipped[tidx];
+    }
   }
   uintptr_t* write_phasepresent = nullptr;
   uintptr_t* write_phaseinfo = nullptr;

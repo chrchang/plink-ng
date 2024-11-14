@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6.0"
+static const char ver_str[] = "PLINK v2.0.0-a.6.1"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.6.0"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (11 Nov 2024)";
+  " (14 Nov 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2719,7 +2719,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
-          // todo: unsorted case (--update-chr, etc.)
           if (pcp->sort_vars_mode > kSortNone) {
             reterr = MakePlink2Vsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->update_chr_flag, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
           } else {
