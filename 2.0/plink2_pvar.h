@@ -61,6 +61,13 @@ namespace plink2 {
 
 PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, MiscFlags misc_flags, uintptr_t line_idx, ChrInfo* cip);
 
+FLAGSET_DEF_START()
+  kfVaridTemplateAllele0,
+  kfVaridTemplateAlleleRefOr1 = (1 << 0),
+  kfVaridTemplateAlleleAltOr2 = (1 << 1),
+  kfVaridTemplateAlleleAsciiOrder = (1 << 2)
+FLAGSET_DEF_END(VaridTemplateAlleleFlags);
+
 typedef struct VaridTemplateStruct {
   NONCOPYABLE(VaridTemplateStruct);
   const char* missing_id_match;
@@ -71,7 +78,7 @@ typedef struct VaridTemplateStruct {
   uint32_t insert_ct;
   uint32_t base_len;
   uint32_t chr_slen;
-  uint32_t alleles_needed;
+  VaridTemplateAlleleFlags allele_flags;
 
   // next two values (and the first two) are common between templates
   uint32_t new_id_max_allele_slen;

@@ -185,13 +185,15 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
   return reterr;
 }
 
+static_assert(kfVaridTemplateAlleleRefOr1 == 1, "VaridTemplateInit() or VaridTemplateAlleleFlags needs to be updated.");
+static_assert(kfVaridTemplateAlleleAltOr2 == 2, "VaridTemplateInit() or VaridTemplateAlleleFlags needs to be updated.");
 void VaridTemplateInit(const char* varid_template_str, const char* missing_id_match, char* chr_output_name_buf, uint32_t new_id_max_allele_slen, uint32_t overflow_substitute_blen, VaridTemplate* vtp) {
   // template string was previously validated
   // varid_template is only input, everything else is output values
   const char* varid_template_str_iter = varid_template_str;
   uint32_t template_insert_ct = 0;
   uint32_t template_base_len = 0;
-  uint32_t alleles_needed = 0;  // bit 0 = ref, bit 1 = alt, bit 2 = ascii sort
+  VaridTemplateAlleleFlags allele_flags = kfVaridTemplateAllele0;
   vtp->chr_output_name_buf = chr_output_name_buf;
   vtp->segs[0] = varid_template_str_iter;
   vtp->chr_slen = 0;
@@ -199,6 +201,8 @@ void VaridTemplateInit(const char* varid_template_str, const char* missing_id_ma
     if (ucc > '@') {
       continue;
     }
+    // VaridTemplateIsValid() ensures ucc is in {'$', '1', '2', 'A', 'R', 'a',
+    // 'r'}.
     uint32_t seg_len;
     uint32_t insert_type;
     if (ucc == '@') {
@@ -211,16 +215,16 @@ void VaridTemplateInit(const char* varid_template_str, const char* missing_id_ma
       continue;
     } else {
       seg_len = varid_template_str_iter - vtp->segs[template_insert_ct];
-      const uint32_t uii = ctou32(*(++varid_template_str_iter));
-      if (uii <= '2') {
-        alleles_needed += 2;  // this happens twice
-        insert_type = uii - 48;  // '1' -> type 2, '2' -> type 3
+      const uint32_t char_code = ctou32(*(++varid_template_str_iter));
+      uint32_t flagbit;  // 1 if '1' or 'R'/'r', 2 if '2' or 'A'/'a'
+      if (char_code <= '2') {
+        allele_flags |= kfVaridTemplateAlleleAsciiOrder;
+        flagbit = char_code - 48;
       } else {
-        // 'r' -> type 2, 'a' -> type 3
-        insert_type = 1 + ((uii & 0xdf) == 'A');
+        flagbit = 1 + ((char_code & 0xdf) == 'A');
       }
-      alleles_needed += insert_type;
-      ++insert_type;
+      allele_flags |= S_CAST(VaridTemplateAlleleFlags, flagbit);
+      insert_type = flagbit + 1;
     }
     vtp->seg_lens[template_insert_ct] = seg_len;
     template_base_len += seg_len;
@@ -231,7 +235,7 @@ void VaridTemplateInit(const char* varid_template_str, const char* missing_id_ma
   vtp->seg_lens[template_insert_ct] = seg_len;
   vtp->insert_ct = template_insert_ct;
   vtp->base_len = template_base_len + seg_len;
-  vtp->alleles_needed = alleles_needed;
+  vtp->allele_flags = allele_flags;
   vtp->new_id_max_allele_slen = new_id_max_allele_slen;
   vtp->overflow_substitute_blen = overflow_substitute_blen;
   vtp->missing_id_match = missing_id_match;
@@ -239,17 +243,27 @@ void VaridTemplateInit(const char* varid_template_str, const char* missing_id_ma
 
 // alt1_end currently allowed to be nullptr in biallelic case
 BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, unsigned char** tmp_alloc_endp, uintptr_t* new_id_allele_len_overflowp, uint32_t* id_slen_ptr) {
+  // (insert_ptrs[x], insert_slens[x]) is the (start, slen) of the
+  // insert-segment of type x:
+  //   0: chromosome
+  //   1: 1-based position
+  //   2: $r or $1
+  //   3: $a or $2
+  // Types 0 and 1 are always present, but 2 and/or 3 can be missing.
   uint32_t insert_slens[4];
-  const uint32_t alleles_needed = vtp->alleles_needed;
+  const VaridTemplateAlleleFlags allele_flags = vtp->allele_flags;
   const uint32_t new_id_max_allele_slen = vtp->new_id_max_allele_slen;
   uint32_t id_slen = UintSlen(cur_bp);
   insert_slens[0] = vtp->chr_slen;
   insert_slens[1] = id_slen;
   id_slen += vtp->base_len;
+  const uint32_t ref_or_1_exists = (allele_flags & kfVaridTemplateAlleleRefOr1)? 1 : 0;
   uint32_t ref_slen = 0;
   uint32_t cur_overflow = 0;
-  const char* tmp_allele_ptrs[2];
-  if (alleles_needed & 1) {
+  const char* tmp_allele_ptrs[2];  // [0] = RefOr1, [1] = AltOr2
+  tmp_allele_ptrs[0] = nullptr;
+  tmp_allele_ptrs[1] = nullptr;  // maybe-uninitialized warning
+  if (ref_or_1_exists) {
     ref_slen = ref_token_slen;
     if (ref_slen > new_id_max_allele_slen) {
       ref_slen = new_id_max_allele_slen;
@@ -259,7 +273,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
     id_slen += ref_slen;
     tmp_allele_ptrs[0] = ref_start;
   }
-  if (alleles_needed > 1) {
+  if (allele_flags & (kfVaridTemplateAlleleAltOr2 | kfVaridTemplateAlleleAsciiOrder)) {
     uint32_t alt1_slen;
     if (!extra_alt_ct) {
       alt1_slen = alt_token_slen;
@@ -271,7 +285,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
       ++cur_overflow;
     }
     id_slen += alt1_slen;
-    if (alleles_needed <= 3) {
+    if (!(allele_flags & kfVaridTemplateAlleleAsciiOrder)) {
     VaridTemplateApply_keep_allele_ascii_order:
       insert_slens[3] = alt1_slen;
       tmp_allele_ptrs[1] = alt1_start;
@@ -316,8 +330,16 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
     // maybe-uninitialized warnings
     insert_ptrs[0] = nullptr;
     insert_ptrs[1] = nullptr;
-    insert_ptrs[2] = nullptr;
 
+    insert_ptrs[2] = nullptr;
+    insert_ptrs[3] = nullptr;
+    // insert_ct currently guaranteed to be >= 2 since @ and # required
+    // insert_ct > 2 possibilities:
+    //   $r without $a: insert_ct=3, use tmp_allele_ptrs[0] and insert_slens[2]
+    //   $a without $r: insert_ct=3, use tmp_allele_ptrs[1] and insert_slens[3]
+    //                  (fixed bug on 24 Nov 2024)
+    //   $r+$a or $1+$2: insert_ct=4, use (tmp_allele_ptrs[0], insert_slens[2])
+    //                   followed by (tmp_allele_ptrs[1], insert_slens[3])
     for (uint32_t insert_idx = 0; insert_idx != insert_ct; ++insert_idx) {
       id_iter = memcpya(id_iter, vtp->segs[insert_idx], vtp->seg_lens[insert_idx]);
       const uint32_t cur_insert_type = vtp->insert_types[insert_idx];
@@ -328,9 +350,15 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
 
     memcpy(insert_ptrs[0], vtp->chr_output_name_buf, insert_slens[0]);
     u32toa(cur_bp, insert_ptrs[1]);
-    // insert_ct currently guaranteed to be >= 2 since @ and # required
-    for (uint32_t insert_type_idx = 2; insert_type_idx != insert_ct; ++insert_type_idx) {
-      memcpy(insert_ptrs[insert_type_idx], tmp_allele_ptrs[insert_type_idx - 2], insert_slens[insert_type_idx]);
+    if (insert_ct > 2) {
+      for (uint32_t insert_type_idx = 2; insert_type_idx != 4; ++insert_type_idx) {
+        char* cur_dst = insert_ptrs[insert_type_idx];
+        if (cur_dst == nullptr) {
+          // bugfix (24 Nov 2024)
+          continue;
+        }
+        memcpy(cur_dst, tmp_allele_ptrs[insert_type_idx - 2], insert_slens[insert_type_idx]);
+      }
     }
   }
   *id_slen_ptr = id_slen;
@@ -342,16 +370,19 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
 // Probable todo: pull out the common parts of the functions.
 char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, char* dst) {
   uint32_t insert_slens[4];
-  const uint32_t alleles_needed = vtp->alleles_needed;
+  const uint32_t allele_flags = vtp->allele_flags;
   const uint32_t new_id_max_allele_slen = vtp->new_id_max_allele_slen;
   uint32_t id_slen = UintSlen(cur_bp);
   insert_slens[0] = vtp->chr_slen;
   insert_slens[1] = id_slen;
   id_slen += vtp->base_len;
+  const uint32_t ref_or_1_exists = (allele_flags & kfVaridTemplateAlleleRefOr1)? 1 : 0;
   uint32_t ref_slen = 0;
   uint32_t cur_overflow = 0;
   const char* tmp_allele_ptrs[2];
-  if (alleles_needed & 1) {
+  tmp_allele_ptrs[0] = nullptr;
+  tmp_allele_ptrs[1] = nullptr;
+  if (ref_or_1_exists) {
     ref_slen = ref_token_slen;
     if (ref_slen > new_id_max_allele_slen) {
       ref_slen = new_id_max_allele_slen;
@@ -361,7 +392,7 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
     id_slen += ref_slen;
     tmp_allele_ptrs[0] = ref_start;
   }
-  if (alleles_needed > 1) {
+  if (allele_flags & (kfVaridTemplateAlleleAltOr2 | kfVaridTemplateAlleleAsciiOrder)) {
     uint32_t alt1_slen;
     if (!extra_alt_ct) {
       alt1_slen = alt_token_slen;
@@ -373,7 +404,7 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
       cur_overflow = 1;
     }
     id_slen += alt1_slen;
-    if (alleles_needed <= 3) {
+    if (!(allele_flags & kfVaridTemplateAlleleAsciiOrder)) {
     VaridTemplateWrite_keep_allele_ascii_order:
       insert_slens[3] = alt1_slen;
       tmp_allele_ptrs[1] = alt1_start;
@@ -407,7 +438,9 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
   // maybe-uninitialized warnings
   insert_ptrs[0] = nullptr;
   insert_ptrs[1] = nullptr;
+
   insert_ptrs[2] = nullptr;
+  insert_ptrs[3] = nullptr;
 
   for (uint32_t insert_idx = 0; insert_idx != insert_ct; ++insert_idx) {
     id_iter = memcpya(id_iter, vtp->segs[insert_idx], vtp->seg_lens[insert_idx]);
@@ -419,16 +452,24 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
 
   memcpy(insert_ptrs[0], vtp->chr_output_name_buf, insert_slens[0]);
   u32toa(cur_bp, insert_ptrs[1]);
-  // insert_ct currently guaranteed to be >= 2 since @ and # required
-  for (uint32_t insert_type_idx = 2; insert_type_idx != insert_ct; ++insert_type_idx) {
-    memcpy(insert_ptrs[insert_type_idx], tmp_allele_ptrs[insert_type_idx - 2], insert_slens[insert_type_idx]);
+  if (insert_ct > 2) {
+    for (uint32_t insert_type_idx = 2; insert_type_idx != 4; ++insert_type_idx) {
+      char* cur_dst = insert_ptrs[insert_type_idx];
+      if (cur_dst == nullptr) {
+        continue;
+      }
+      memcpy(cur_dst, tmp_allele_ptrs[insert_type_idx - 2], insert_slens[insert_type_idx]);
+    }
   }
   return id_end;
 }
 
 uint32_t VaridWorstCaseSlen(const VaridTemplate* vtp, uint32_t max_chr_slen, uint32_t max_allele_slen) {
+  const VaridTemplateAlleleFlags allele_flags = vtp->allele_flags;
+  uint32_t allele_ct = (allele_flags & kfVaridTemplateAlleleRefOr1)? 1 : 0;
+  allele_ct += (allele_flags & kfVaridTemplateAlleleAltOr2)? 1 : 0;
   // +10 for base-pair coordinate
-  return (max_allele_slen * vtp->alleles_needed + vtp->base_len + max_chr_slen + 10);
+  return (max_allele_slen * allele_ct + vtp->base_len + max_chr_slen + 10);
 }
 
 void BackfillChrIdxs(const ChrInfo* cip, uint32_t chrs_encountered_m1, uint32_t offset, uint32_t end_vidx, ChrIdx* chr_idxs) {
