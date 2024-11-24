@@ -304,6 +304,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
   uint32_t cur_overflow = 0;
   const char* tmp_allele_ptrs[2];  // [0] = RefOr1, [1] = AltOr2
   tmp_allele_ptrs[0] = nullptr;
+  tmp_allele_ptrs[1] = nullptr;  // maybe-uninitialized warning
   if (ref_or_1_exists) {
     ref_slen = ref_token_slen;
     if (ref_slen > new_id_max_allele_slen) {
@@ -422,6 +423,7 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
   uint32_t cur_max_overflow_slen = 0;
   const char* tmp_allele_ptrs[2];
   tmp_allele_ptrs[0] = nullptr;
+  tmp_allele_ptrs[1] = nullptr;
   if (ref_or_1_exists) {
     ref_slen = ref_token_slen;
     if (ref_slen > new_id_max_allele_slen) {
