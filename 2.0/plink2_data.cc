@@ -4008,7 +4008,7 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
       if (varid_dup) {
         for (uint32_t uii = 0; uii != varid_templatep->insert_ct; ++uii) {
           const uint32_t insert_type = varid_templatep->insert_types[uii];
-          if ((insert_type == 3) || ((insert_type == 2) && (varid_templatep->alleles_needed & 4))) {
+          if ((insert_type == 3) || ((insert_type == 2) && (varid_templatep->allele_flags & kfVaridTemplateAlleleAsciiOrder))) {
             // Could define what takes precedence here, but simpler to prohibit
             // this combination.
             logputs("\n");
@@ -4336,7 +4336,7 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
       if (varid_dup) {
         for (uint32_t uii = 0; uii != varid_templatep->insert_ct; ++uii) {
           const uint32_t insert_type = varid_templatep->insert_types[uii];
-          if ((insert_type == 3) || ((insert_type == 2) && (varid_templatep->alleles_needed & 4))) {
+          if ((insert_type == 3) || ((insert_type == 2) && (varid_templatep->allele_flags & kfVaridTemplateAlleleAsciiOrder))) {
             // Could define what takes precedence here, but simpler to prohibit
             // this combination.
             logputs("\n");
@@ -5017,7 +5017,7 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
       if (varid_dup) {
         for (uint32_t uii = 0; uii != varid_templatep->insert_ct; ++uii) {
           const uint32_t insert_type = varid_templatep->insert_types[uii];
-          if ((insert_type == 3) || ((insert_type == 2) && (varid_templatep->alleles_needed & 4))) {
+          if ((insert_type == 3) || ((insert_type == 2) && (varid_templatep->allele_flags & & kfVaridTemplateAlleleAsciiOrder))) {
             // Could define what takes precedence here, but simpler to prohibit
             // this combination.
             logerrputs("Error: 'vid-[split-]dup' cannot be used with a --set-all-var-ids or\n--set-missing-var-ids template string containing a non-REF allele.\n");
