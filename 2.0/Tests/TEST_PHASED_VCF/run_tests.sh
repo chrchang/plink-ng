@@ -132,7 +132,7 @@ plink --bfile plink1_data --clump plink2_glm_dbl.PHENO1.glm.logistic --clump-snp
 # ($12 != "") check needed because plink 1.x puts two blank lines at the end of
 # the .clumped file.
 cat plink1_test.clumped | tail -n +2 | awk '{if ($12 == "NONE") $12 = "."; if ($12 != "") print $3"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12}' > plink1_test.clump_compare
-plink2 --bfile plink1_data --clump cols=+f plink2_glm_dbl.PHENO1.glm.logistic --clump-p1 0.1 --clump-p2 0.2 --out plink2_test
+$1/plink2 --bfile plink1_data --clump cols=+f plink2_glm_dbl.PHENO1.glm.logistic --clump-p1 0.1 --clump-p2 0.2 --out plink2_test
 cat plink2_test.clumps | tail -n +2 | awk '{print $3"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12}' > plink2_test.clump_compare
 diff -q plink1_test.clump_compare plink2_test.clump_compare
 
@@ -141,7 +141,7 @@ $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --glm allow-
 python3 glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
 plink --bfile plink1_data --clump plink2_glm.PHENO1.glm.linear --clump-snp-field ID --clump-p1 0.1 --clump-p2 0.2 --out plink1_test
 cat plink1_test.clumped | tail -n +2 | awk '{if ($12 == "NONE") $12 = "."; if ($12 != "") print $3"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12}' > plink1_test.clump_compare
-plink2 --bfile plink1_data --clump cols=+f plink2_glm.PHENO1.glm.linear --clump-p1 0.1 --clump-p2 0.2 --out plink2_test
+$1/plink2 --bfile plink1_data --clump cols=+f plink2_glm.PHENO1.glm.linear --clump-p1 0.1 --clump-p2 0.2 --out plink2_test
 cat plink2_test.clumps | tail -n +2 | awk '{print $3"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12}' > plink2_test.clump_compare
 diff -q plink1_test.clump_compare plink2_test.clump_compare
 
@@ -167,7 +167,7 @@ python3 glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linea
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --glm hide-covar --covar plink2_pca.eigenvec --out plink2_glm
 plink --bfile plink1_data --clump plink2_glm.PHENO1.glm.linear --clump-snp-field ID --clump-p1 0.1 --clump-p2 0.2 --out plink1_test
 cat plink1_test.clumped | tail -n +2 | awk '{if ($12 == "NONE") $12 = "."; if ($12 != "") print $3"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12}' > plink1_test.clump_compare
-plink2 --bfile plink1_data --clump cols=+f plink2_glm.PHENO1.glm.linear --clump-p1 0.1 --clump-p2 0.2 --out plink2_test
+$1/plink2 --bfile plink1_data --clump cols=+f plink2_glm.PHENO1.glm.linear --clump-p1 0.1 --clump-p2 0.2 --out plink2_test
 cat plink2_test.clumps | tail -n +2 | awk '{print $3"\t"$6"\t"$7"\t"$8"\t"$9"\t"$10"\t"$11"\t"$12}' > plink2_test.clump_compare
 diff -q plink1_test.clump_compare plink2_test.clump_compare
 
