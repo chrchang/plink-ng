@@ -8264,7 +8264,7 @@ PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* varia
 
       if (write_qual) {
         *cswritep++ = '\t';
-        if (!IsSet(qual_present, variant_uidx)) {
+        if ((!qual_present) || (!IsSet(qual_present, variant_uidx))) {
           *cswritep++ = '.';
         } else {
           cswritep = ftoa_g(quals[variant_uidx], cswritep);
@@ -8273,7 +8273,7 @@ PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* varia
 
       if (write_filter) {
         *cswritep++ = '\t';
-        if (!IsSet(filter_present, variant_uidx)) {
+        if ((!filter_present) || (!IsSet(filter_present, variant_uidx))) {
           *cswritep++ = '.';
         } else if (!IsSet(filter_npass, variant_uidx)) {
           cswritep = strcpya_k(cswritep, "PASS");
