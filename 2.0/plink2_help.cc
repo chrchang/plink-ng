@@ -205,7 +205,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --tped <filename>  : Specify full name of .tped file.\n"
 "  --tfam <filename>  : Specify full name of .tfam file.\n\n"
               );
-    HelpPrint("import-dosage\0dosage\0", &help_ctrl, 1,
+    HelpPrint("import-dosage\0dosage\0map\0", &help_ctrl, 1,
 "  --import-dosage <allele dosage file> ['noheader'] ['id-delim='<char>]\n"
 "                  ['skip0='<i>] ['skip1='<j>] ['skip2='<k>] ['dose1']\n"
 "                  ['format='<m>] [{ref-first | ref-last}]\n"
