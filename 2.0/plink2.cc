@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6.3"
+static const char ver_str[] = "PLINK v2.0.0-a.6.4"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.6.3"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (3 Dec 2024)";
+  " (6 Dec 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -12024,8 +12024,8 @@ int main(int argc, char** argv) {
       logerrputs("Error: No input dataset.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-    if (unlikely((xload & kfXloadMap) && (!(xload & kfXloadPed)))) {
-      logerrputs("Error: --map must be used with --ped.\n");
+    if (unlikely((xload & kfXloadMap) && (!(xload & (kfXloadPed | kfXloadPlink1Dosage))))) {
+      logerrputs("Error: --map must be used with --import-dosage or --ped.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely((xload & kfXloadOxGen) && (!(xload & kfXloadOxSample)))) {
