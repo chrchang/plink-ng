@@ -2866,7 +2866,9 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
       return 1;
     }
     // DEBUG
-    // printf("loglik: %g\n", loglik);
+    if (g_debug_on) {
+      printf("LogisticRegressionD loglik: %g\n", loglik);
+    }
 
     // TODO: determine other non-convergence criteria
     if (fabs(loglik - loglik_old) < 1e-8 * (0.05 + fabs(loglik))) {
@@ -3077,6 +3079,9 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
   const double lconv = 0.00001;
   double delta_max = 0.0;
   double loglik_old = 0.0;
+  if (g_debug_on) {
+    printf("FirthRegressionD sample_ct: %u\n", sample_ct);
+  }
   for (uint32_t iter_idx = 0; ; ++iter_idx) {
     // P[i] = \sum_j beta[j] * X[i][j];
     // categorical optimization possible here
@@ -3104,6 +3109,9 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
     }
     const double dethh = HalfSymmInvertedDet(hh0, inv_1d_buf, predictor_ct, predictor_ctav);
     loglik += 0.5 * log(dethh);
+    if (g_debug_on) {
+      printf("FirthRegressionD loglik: %g  dethh: %g\n", loglik, dethh);
+    }
 
     InvertSymmdefMatrixSecondHalf(predictor_ct, predictor_ctav, hh0, inv_1d_buf, dbl_2d_buf);
     // trailing elements of hh0[] rows can't be arbitrary for later
