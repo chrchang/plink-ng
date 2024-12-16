@@ -17,9 +17,9 @@
 #include "plink2_memory.h"
 #include "plink2_string.h"
 
+#include <unistd.h>  // sysconf()
 #ifdef __APPLE__
-// needed for sysctl() call
-#  include <sys/sysctl.h>
+#  include <sys/sysctl.h>  // sysctl()
 #endif
 
 #ifdef __cplusplus
