@@ -23,6 +23,7 @@
 // constants.
 
 #include "include/plink2_bits.h"
+#include "include/plink2_memory.h"
 #include "include/plink2_string.h"
 #include "include/plink2_thread.h"
 
@@ -508,16 +509,7 @@ BoolErr CleanupLogfile(uint32_t print_end_time);
 extern unsigned char* g_bigstack_base;
 extern unsigned char* g_bigstack_end;
 
-uint64_t DetectMib();
-
 uintptr_t GetDefaultAllocMib();
-
-// On more recent Linux builds, the MemAvailable value reported by
-// "cat /proc/meminfo" is a pretty accurate estimate of how much we can afford
-// to allocate before introducing substantial risk of OOM-killer action.
-// Returns (~0LLU) if this estimate is unavailable.
-// Uses g_textbuf.
-uint64_t GetMemAvailableKib();
 
 // caller is responsible for freeing bigstack_ua
 PglErr InitBigstack(uintptr_t malloc_size_mib, uintptr_t* malloc_mib_final_ptr, unsigned char** bigstack_ua_ptr);
@@ -927,9 +919,6 @@ HEADER_INLINE void BigstackShrinkTop(const void* rebase, uintptr_t new_size) {
   g_bigstack_base = R_CAST(unsigned char*, RoundUpPow2(R_CAST(uintptr_t, rebase) + new_size, kCacheline));
 }
 
-// ensure vector-alignment
-CONSTI32(kEndAllocAlign, MAXV(kBytesPerVec, 16));
-
 HEADER_INLINE void BigstackEndSet(const void* unaligned_end) {
   g_bigstack_end = R_CAST(unsigned char*, RoundDownPow2(R_CAST(uintptr_t, unaligned_end), kEndAllocAlign));
 }
@@ -1111,152 +1100,9 @@ HEADER_INLINE BoolErr bigstack_end_clalloc_cp(uintptr_t ct, char*** cp_arr_ptr) 
   return !(*cp_arr_ptr);
 }
 
-// and here's the interface for a non-global arena (necessary for some
-// multithreaded code).
-// arena_alloc_raw and arena_alloc_raw_rd are now in plink2_base
-HEADER_INLINE void* arena_alloc(unsigned char* arena_top, uintptr_t size, unsigned char** arena_bottom_ptr) {
-  size = RoundUpPow2(size, kCacheline);
-  if (S_CAST(uintptr_t, arena_top - (*arena_bottom_ptr)) < size) {
-    g_failed_alloc_attempt_size = size;
-    return nullptr;
-  }
-  return arena_alloc_raw(size, arena_bottom_ptr);
-}
-
-HEADER_INLINE BoolErr arena_alloc_c(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, char** c_arr_ptr) {
-  *c_arr_ptr = S_CAST(char*, arena_alloc(arena_top, ct, arena_bottom_ptr));
-  return !(*c_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_alloc_d(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, double** d_arr_ptr) {
-  *d_arr_ptr = S_CAST(double*, arena_alloc(arena_top, ct * sizeof(double), arena_bottom_ptr));
-  return !(*d_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_alloc_f(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, float** f_arr_ptr) {
-  *f_arr_ptr = S_CAST(float*, arena_alloc(arena_top, ct * sizeof(float), arena_bottom_ptr));
-  return !(*f_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_alloc_i32(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, int32_t** i32_arr_ptr) {
-  *i32_arr_ptr = S_CAST(int32_t*, arena_alloc(arena_top, ct * sizeof(int32_t), arena_bottom_ptr));
-  return !(*i32_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_alloc_uc(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, unsigned char** uc_arr_ptr) {
-  *uc_arr_ptr = S_CAST(unsigned char*, arena_alloc(arena_top, ct, arena_bottom_ptr));
-  return !(*uc_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_alloc_u32(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uint32_t** u32_arr_ptr) {
-  *u32_arr_ptr = S_CAST(uint32_t*, arena_alloc(arena_top, ct * sizeof(int32_t), arena_bottom_ptr));
-  return !(*u32_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_alloc_w(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uintptr_t** w_arr_ptr) {
-  *w_arr_ptr = S_CAST(uintptr_t*, arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr));
-  return !(*w_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_alloc_i64(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, int64_t** i64_arr_ptr) {
-  *i64_arr_ptr = S_CAST(int64_t*, arena_alloc(arena_top, ct * sizeof(int64_t), arena_bottom_ptr));
-  return !(*i64_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_alloc_u64(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uint64_t** u64_arr_ptr) {
-  *u64_arr_ptr = S_CAST(uint64_t*, arena_alloc(arena_top, ct * sizeof(int64_t), arena_bottom_ptr));
-  return !(*u64_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_alloc_cp(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, char*** cp_arr_ptr) {
-  *cp_arr_ptr = S_CAST(char**, arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr));
-  return !(*cp_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_alloc_kcp(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, const char*** kcp_arr_ptr) {
-  *kcp_arr_ptr = S_CAST(const char**, arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr));
-  return !(*kcp_arr_ptr);
-}
-
-HEADER_INLINE void ArenaBaseSet(const void* unaligned_base, unsigned char** arena_bottom_ptr) {
-  *arena_bottom_ptr = R_CAST(unsigned char*, RoundUpPow2(R_CAST(uintptr_t, unaligned_base), kCacheline));
-}
-
-HEADER_INLINE void ArenaEndSet(const void* unaligned_end, unsigned char** arena_top_ptr) {
-  *arena_top_ptr = R_CAST(unsigned char*, RoundDownPow2(R_CAST(uintptr_t, unaligned_end), kEndAllocAlign));
-}
-
-HEADER_INLINE void* arena_end_alloc_raw(uintptr_t size, unsigned char** arena_top_ptr) {
-  assert(!(size % kEndAllocAlign));
-  unsigned char* alloc_ptr = *arena_top_ptr;
-  alloc_ptr -= size;
-  *arena_top_ptr = alloc_ptr;
-  return alloc_ptr;
-}
-
-HEADER_INLINE void* arena_end_alloc(unsigned char* arena_bottom, uintptr_t size, unsigned char** arena_top_ptr) {
-  size = RoundUpPow2(size, kEndAllocAlign);
-  if (unlikely(S_CAST(uintptr_t, (*arena_top_ptr) - arena_bottom) < size)) {
-    g_failed_alloc_attempt_size = size;
-    return nullptr;
-  }
-  return arena_end_alloc_raw(size, arena_top_ptr);
-}
-
-HEADER_INLINE BoolErr arena_end_alloc_c(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, char** c_arr_ptr) {
-  *c_arr_ptr = S_CAST(char*, arena_end_alloc(arena_bottom, ct, arena_top_ptr));
-  return !(*c_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_end_alloc_d(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, double** d_arr_ptr) {
-  *d_arr_ptr = S_CAST(double*, arena_end_alloc(arena_bottom, ct * sizeof(double), arena_top_ptr));
-  return !(*d_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_end_alloc_f(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, float** f_arr_ptr) {
-  *f_arr_ptr = S_CAST(float*, arena_end_alloc(arena_bottom, ct * sizeof(float), arena_top_ptr));
-  return !(*f_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_end_alloc_i32(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, int32_t** i32_arr_ptr) {
-  *i32_arr_ptr = S_CAST(int32_t*, arena_end_alloc(arena_bottom, ct * sizeof(int32_t), arena_top_ptr));
-  return !(*i32_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_end_alloc_uc(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, unsigned char** uc_arr_ptr) {
-  *uc_arr_ptr = S_CAST(unsigned char*, arena_end_alloc(arena_bottom, ct, arena_top_ptr));
-  return !(*uc_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_end_alloc_u32(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint32_t** u32_arr_ptr) {
-  *u32_arr_ptr = S_CAST(uint32_t*, arena_end_alloc(arena_bottom, ct * sizeof(int32_t), arena_top_ptr));
-  return !(*u32_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_end_alloc_w(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uintptr_t** w_arr_ptr) {
-  *w_arr_ptr = S_CAST(uintptr_t*, arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr));
-  return !(*w_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_end_alloc_i64(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, int64_t** i64_arr_ptr) {
-  *i64_arr_ptr = S_CAST(int64_t*, arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr));
-  return !(*i64_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_end_alloc_u64(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint64_t** u64_arr_ptr) {
-  *u64_arr_ptr = S_CAST(uint64_t*, arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr));
-  return !(*u64_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_end_alloc_cp(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, char*** cp_arr_ptr) {
-  *cp_arr_ptr = S_CAST(char**, arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr));
-  return !(*cp_arr_ptr);
-}
-
-HEADER_INLINE BoolErr arena_end_alloc_kcp(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, const char*** kcp_arr_ptr) {
-  *kcp_arr_ptr = S_CAST(const char**, arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr));
-  return !(*kcp_arr_ptr);
-}
+// most of the non-global arena interface (necessary for some multithreaded
+// code) now in include/plink2_memory; arena_alloc_raw() and
+// arena_alloc_raw_rd() in include/plink2_base
 
 
 BoolErr PushLlStr(const char* str, LlStr** ll_stack_ptr);

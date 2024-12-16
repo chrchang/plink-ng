@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6.*"
+static const char ver_str[] = "PLINK v2.0.0-a.6.4.a"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.6.*"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (11 Dec 2024)";
+  " (16 Dec 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -100,7 +100,7 @@ static const char ver_str2[] =
 #  endif
 #endif
 
-  "    cog-genomics.org/plink/2.0/\n"
+  "  cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2024 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
@@ -3853,7 +3853,7 @@ int main(int argc, char** argv) {
     int32_t vcf_min_gq = -1;
     int32_t vcf_min_dp = -1;
     int32_t vcf_max_dp = 0x7fffffff;
-    intptr_t malloc_size_mib = 0;
+    uintptr_t malloc_size_mib = 0;
     LoadParams load_params = kfLoadParams0;
     Xload xload = kfXload0;
     uint32_t rseed_ct = 0;
@@ -5169,6 +5169,9 @@ int main(int argc, char** argv) {
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ebug")) {
           g_debug_on = 1;
+#ifndef NDEBUG
+          g_pgl_debug_on = 1;
+#endif
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ata")) {
           if (unlikely(load_params || (xload & (~kfXloadOxBgen)))) {
@@ -7597,16 +7600,16 @@ int main(int argc, char** argv) {
             memory_require = 1;
           }
           const char* mb_modif = argvk[arg_idx + mb_modif_idx];
-          if (unlikely(ScanPosintptrx(mb_modif, R_CAST(uintptr_t*, &malloc_size_mib)))) {
+          if (unlikely(ScanPosintptrx(mb_modif, &malloc_size_mib))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --memory argument '%s'.\n", mb_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          if (unlikely(malloc_size_mib < S_CAST(intptr_t, kBigstackMinMib))) {
+          if (unlikely(malloc_size_mib < kBigstackMinMib)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --memory argument '%s' (minimum %u).\n", mb_modif, kBigstackMinMib);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
 #ifndef __LP64__
-          if (unlikely(malloc_size_mib > S_CAST(intptr_t, kMalloc32bitMibMax))) {
+          if (unlikely(malloc_size_mib > kMalloc32bitMibMax)) {
             logerrprintf("Error: --memory argument too large for 32-bit version (max %u).\n", kMalloc32bitMibMax);
             goto main_ret_INVALID_CMDLINE;
           }
@@ -12659,8 +12662,6 @@ int main(int argc, char** argv) {
   if (CleanupLogfile(print_end_time) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }
-  if (bigstack_ua) {
-    free(bigstack_ua);
-  }
+  free_cond(bigstack_ua);
   return S_CAST(int32_t, reterr);
 }

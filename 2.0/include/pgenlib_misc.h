@@ -79,10 +79,35 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 2003
+#define PGENLIB_INTERNAL_VERNUM 2004
 
 #ifdef __cplusplus
 namespace plink2 {
+#endif
+
+#ifdef NDEBUG
+HEADER_INLINE void PglLogprintf(__attribute__((unused)) const char* fmt, ...) {
+}
+#else
+CONSTI32(kPglErrbufBlen, 262144);
+extern uint32_t g_pgl_debug_on;
+extern char g_pgl_errbuf[];
+extern char* g_pgl_errbuf_write_iter;
+
+HEADER_INLINE void PglLogprintf(const char* fmt, ...) {
+  // possible todo: log levels
+  if (g_pgl_debug_on) {
+    va_list args;
+    va_start(args, fmt);
+    const uintptr_t remaining_space = &(g_pgl_errbuf[kPglErrbufBlen]) - g_pgl_errbuf_write_iter;
+    const uintptr_t intended_slen = vsnprintf(g_pgl_errbuf_write_iter, remaining_space, fmt, args);
+    if (intended_slen < remaining_space) {
+      g_pgl_errbuf_write_iter = &(g_pgl_errbuf_write_iter[intended_slen]);
+    } else {
+      g_pgl_errbuf_write_iter = &(g_pgl_errbuf[kPglErrbufBlen]);
+    }
+  }
+}
 #endif
 
 // other configuration-ish values needed by plink2_common subset

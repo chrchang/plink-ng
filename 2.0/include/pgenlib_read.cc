@@ -1959,6 +1959,7 @@ uint64_t PgfiMultireadGetCachelineReq(const uintptr_t* variant_include, const Pg
 }
 
 PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t load_variant_ct, PgenFileInfo* pgfip) {
+  PglLogprintf("[pgl] PgfiMultiread() called with variant_uidx_start=%u, variant_uidx_end=%u, load_variant_ct=%u\n", variant_uidx_start, variant_uidx_end, load_variant_ct);
   // we could permit 0, but that encourages lots of unnecessary thread wakeups
   assert(load_variant_ct);
   if (variant_include) {
@@ -2012,7 +2013,9 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
         break;
       }
     }
+    PglLogprintf("[pgl] PgfiMultiread() attempting to read %" PRIuPTR " byte(s) from %" PRIu64 ".\n", cur_read_end_fpos - cur_read_start_fpos, cur_read_start_fpos);
     if (unlikely(fseeko(pgfip->shared_ff, cur_read_start_fpos, SEEK_SET))) {
+      PglLogprintf("[pgl] PgfiMultiread() fseeko(%" PRIu64 ") failed.\n", cur_read_start_fpos);
       return kPglRetReadFail;
     }
     uintptr_t len = cur_read_end_fpos - cur_read_start_fpos;
@@ -2020,9 +2023,11 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
       if (feof_unlocked(pgfip->shared_ff)) {
         errno = 0;
       }
+      PglLogprintf("[pgl] PgfiMultiread() fread(%" PRIu64 ", %" PRIuPTR ") failed, block_offset=%" PRIu64 ".\n", cur_read_start_fpos, len, block_offset);
       return kPglRetReadFail;
     }
   } while (load_variant_ct);
+  PglLogprintf("[pgl] PgfiMultiread() returned success\n");
   return kPglRetSuccess;
 }
 

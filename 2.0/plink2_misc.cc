@@ -9908,7 +9908,7 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
       goto HetCalcMain_ret_NOMEM;
     }
     ctx.err_info = (~0LLU) << 32;
-    // assert(bigstack_left() >= thread_xalloc_cacheline_ct * kCacheline * calc_thread_ct);
+    assert(bigstack_left() >= thread_xalloc_cacheline_ct * kCacheline * calc_thread_ct);
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
       unsigned char* cur_alloc = S_CAST(unsigned char*, bigstack_alloc_raw(thread_xalloc_cacheline_ct * kCacheline));
       ctx.raregenos[tidx] = R_CAST(uintptr_t*, cur_alloc);
@@ -9931,7 +9931,8 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
         ctx.thread_ehet_incrs[tidx] = R_CAST(double*, cur_alloc);
         cur_alloc = &(cur_alloc[sample_ct_dv * kBytesPerVec]);
         ctx.thread_nobs_incrs[tidx] = R_CAST(int32_t*, cur_alloc);
-        // cur_alloc = &(cur_alloc[sample_ct_i32v * kBytesPerVec]);
+        cur_alloc = &(cur_alloc[sample_ct_i32v * kBytesPerVec]);
+        assert(cur_alloc <= g_bigstack_base);
       }
     }
     SetThreadFuncAndData(HetThread, &ctx, &tg);
@@ -10030,6 +10031,7 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
   CleanupThreads(&tg);
   BigstackReset(bigstack_mark);
   pgfip->block_base = nullptr;
+  PglLogputsb();
   return reterr;
 }
 

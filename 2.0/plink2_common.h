@@ -1480,6 +1480,12 @@ void AppendZerotabsUnsafe(uint32_t zerotab_ct, char** cswritep_ptr);
 // Unsafe since this may write up to word boundary past the end.
 PglErr InitAllelePermuteUnsafe(const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_thread_ct, AlleleCode* allele_permute);
 
+HEADER_INLINE void PglLogputsb() {
+#ifndef NDEBUG
+  logputs(g_pgl_errbuf);
+#endif
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
