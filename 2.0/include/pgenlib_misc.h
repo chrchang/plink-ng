@@ -75,6 +75,9 @@
 //   much memory.
 
 #include "plink2_bits.h"
+#ifndef NDEBUG
+#  include <stdarg.h> // va_start()
+#endif
 
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
