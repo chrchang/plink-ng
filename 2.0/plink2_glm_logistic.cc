@@ -2807,6 +2807,7 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
     // results.
     BoolErr reterr = LinearRegressionDVec(zz, xx, predictor_ct, sample_ct, coef, hh, grad, mi_buf, dbl_2d_buf);
     if (unlikely(reterr)) {
+      DPrintf("LogisticRegressionD LinearRegressionDVec() failed\n");
       return 1;
     }
 
@@ -2821,6 +2822,7 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
 
     const double loglik = ComputeLoglikD(yy, pp, sample_ct);
     if (loglik != loglik) {
+      DPrintf("LogisticRegressionD initial ComputeLoglikD() failed\n");
       return 1;
     }
     loglik_old = loglik;
@@ -2863,19 +2865,19 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
     logistic_v_unsafe(pp, sample_ctav);
     const double loglik = ComputeLoglikD(yy, pp, sample_ct);
     if (loglik != loglik) {
+      DPrintf("LogisticRegressionD ComputeLoglikD() failed\n");
       return 1;
     }
-    // DEBUG
-    if (g_debug_on) {
-      DPrintf("LogisticRegressionD loglik: %g\n", loglik);
-    }
+    DPrintf("LogisticRegressionD loglik: %g\n", loglik);
 
     // TODO: determine other non-convergence criteria
     if (fabs(loglik - loglik_old) < 1e-8 * (0.05 + fabs(loglik))) {
+      DPrintf("LogisticRegressionD ComputeLoglikD() converged successfully\n");
       return 0;
     }
     loglik_old = loglik;
   }
+  DPrintf("LogisticRegressionD ComputeLoglikD() unfinished\n");
   *is_unfinished_ptr = 1;
   return 0;
 }
@@ -3093,6 +3095,11 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
     logistic_v_unsafe(pp, sample_ct);
     double loglik;
     if (ComputeLoglikCheckedD(yy, pp, sample_ct, &loglik)) {
+      DPrintf("FirthRegressionD: failed to compute log-likelihood\npp:");
+      for (uint32_t uii = 0; uii != sample_ct; ++uii) {
+        DPrintf(" %g", pp[uii]);
+      }
+      DPrintf("\n");
       return 1;
     }
     // V[i] = P[i] * (1 - P[i]);
@@ -3105,13 +3112,12 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
     // we shouldn't need to compute the log directly, since underflow <->
     // regression failure, right?  check this.
     if (InvertSymmdefMatrixFirstHalf(predictor_ct, predictor_ctav, hh0, inv_1d_buf, dbl_2d_buf)) {
+      DPrintf("FirthRegressionD: InvertSymmdefMatrixFirstHalf failed\n");
       return 1;
     }
     const double dethh = HalfSymmInvertedDet(hh0, inv_1d_buf, predictor_ct, predictor_ctav);
     loglik += 0.5 * log(dethh);
-    if (g_debug_on) {
-      DPrintf("FirthRegressionD loglik: %g  dethh: %g\n", loglik, dethh);
-    }
+    DPrintf("FirthRegressionD loglik: %g  dethh: %g\n", loglik, dethh);
 
     InvertSymmdefMatrixSecondHalf(predictor_ct, predictor_ctav, hh0, inv_1d_buf, dbl_2d_buf);
     // trailing elements of hh0[] rows can't be arbitrary for later
@@ -3136,10 +3142,12 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
       }
       const double loglik_change = loglik - loglik_old;
       if ((delta_max <= xconv) && (ustar_max < gconv) && (loglik_change < lconv)) {
+        DPrintf("FirthRegressionD: converged properly\n");
         return 0;
       }
       if (iter_idx > max_iter) {
         *is_unfinished_ptr = 1;
+        DPrintf("FirthRegressionD: unfinished\n");
         return 0;
       }
     }
@@ -3148,6 +3156,7 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
     FirthComputeSecondWeightsD(hdiag, vv, sample_ct, sample_ctav, ww);
     ComputeHessianD(xx, ww, sample_ct, predictor_ct, hh);
     if (InvertSymmdefStridedMatrix(predictor_ct, predictor_ctav, hh, inv_1d_buf, dbl_2d_buf)) {
+      DPrintf("FirthRegressionD: failed to invert matrix\n");
       return 1;
     }
     ReflectStridedMatrix0(predictor_ct, predictor_ctav, hh);

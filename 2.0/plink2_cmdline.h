@@ -1546,35 +1546,6 @@ PglErr StringRangeListToBitarr(const char* header_line, const RangeList* range_l
 PglErr StringRangeListToBitarrAlloc(const char* header_line, const RangeList* range_list_ptr, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t** bitarr_ptr);
 
 
-#ifdef __LP64__
-HEADER_INLINE uintptr_t PopcountWordsNzbase(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx) {
-  uintptr_t prefix_ct = 0;
-#  ifdef USE_AVX2
-  while (start_idx & 3) {
-    if (end_idx == start_idx) {
-      return prefix_ct;
-    }
-    prefix_ct += PopcountWord(bitvec[start_idx++]);
-  }
-#  else
-  if (start_idx & 1) {
-    if (end_idx == start_idx) {
-      return 0;
-    }
-    prefix_ct = PopcountWord(bitvec[start_idx++]);
-  }
-#  endif  // USE_AVX2
-  return prefix_ct + PopcountWords(&(bitvec[start_idx]), end_idx - start_idx);
-}
-#else
-HEADER_INLINE uintptr_t PopcountWordsNzbase(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx) {
-  return PopcountWords(&(bitvec[start_idx]), end_idx - start_idx);
-}
-#endif
-
-// start_idx == end_idx ok
-uintptr_t PopcountBitRange(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx);
-
 HEADER_INLINE uint32_t IntersectionIsEmpty(const uintptr_t* bitvec1, const uintptr_t* bitvec2, uintptr_t word_ct) {
 #ifdef USE_SSE42
   const uintptr_t fullvec_ct = word_ct / kWordsPerVec;

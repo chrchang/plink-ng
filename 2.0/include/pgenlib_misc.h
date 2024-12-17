@@ -89,6 +89,9 @@ namespace plink2 {
 #endif
 
 #ifdef NDEBUG
+HEADER_INLINE void PglInitLog() {
+}
+
 HEADER_INLINE void PglLogprintf(__attribute__((unused)) const char* fmt, ...) {
 }
 #else
@@ -97,9 +100,16 @@ extern uint32_t g_pgl_debug_on;
 extern char g_pgl_errbuf[];
 extern char* g_pgl_errbuf_write_iter;
 
+HEADER_INLINE void PglInitLog() {
+  if (g_pgl_debug_on) {
+    g_pgl_errbuf_write_iter = g_pgl_errbuf;
+    *g_pgl_errbuf_write_iter = '\0';
+  }
+}
+
 HEADER_INLINE void PglLogprintf(const char* fmt, ...) {
   // possible todo: log levels
-  if (g_pgl_debug_on) {
+  if (g_pgl_errbuf_write_iter != nullptr) {
     va_list args;
     va_start(args, fmt);
     const uintptr_t remaining_space = &(g_pgl_errbuf[kPglErrbufBlen]) - g_pgl_errbuf_write_iter;

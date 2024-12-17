@@ -1482,7 +1482,12 @@ PglErr InitAllelePermuteUnsafe(const uintptr_t* allele_idx_offsets, uint32_t raw
 
 HEADER_INLINE void PglLogputsb() {
 #ifndef NDEBUG
-  logputs(g_pgl_errbuf);
+  if (g_pgl_errbuf_write_iter) {
+    WordWrapMultiline(g_pgl_errbuf);
+    logputs(g_pgl_errbuf);
+    g_pgl_errbuf_write_iter = g_pgl_errbuf;
+    *g_pgl_errbuf_write_iter = '\0';
+  }
 #endif
 }
 

@@ -9825,6 +9825,7 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
   ThreadGroup tg;
   PreinitThreads(&tg);
   HetCtx ctx;
+  PglInitLog();
   {
     // return values
     if (unlikely(bigstack_alloc_u32(sample_ct, ohets_ptr) ||
@@ -10179,7 +10180,7 @@ PglErr CheckOrImputeSex(const uintptr_t* sample_include, const SampleIdInfo* sii
     double max_female_xf = csip->max_female_xf;
     double min_male_xf = csip->min_male_xf;
     uint32_t used_variant_ct_x = 0;
-    uint32_t x_code = 0;
+    uint32_t x_code;
     if ((flags & kfCheckSexUseX) && XymtExists(cip, kChrOffsetX, &x_code)) {
       used_variant_ct_x = CountChrVariantsUnsafe(orig_variant_include, cip, x_code);
       if (used_variant_ct_x) {
@@ -10205,6 +10206,7 @@ PglErr CheckOrImputeSex(const uintptr_t* sample_include, const SampleIdInfo* sii
         if (x_end < raw_variant_ct) {
           ClearBitsNz(x_end, raw_variant_ct, variant_include_x);
         }
+        DPrintf("CheckOrImputeSex(): x_start=%u  x_end=%u  used_variant_ct_x=%u  PopcountBitRange: %" PRIuPTR "\n", x_start, x_end, used_variant_ct_x, PopcountBitRange(variant_include_x, x_start, x_end));
         // Don't actually need nobs.
         uint32_t* ohets;
         double* ehet_incrs;

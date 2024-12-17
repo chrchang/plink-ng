@@ -284,6 +284,35 @@ uintptr_t PopcountWordsXor(const uintptr_t* __restrict bitvec1_iter, const uintp
 
 // uintptr_t PopcountWordsIntersect3(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, const uintptr_t* __restrict bitvec3_iter, uintptr_t word_ct);
 
+#ifdef __LP64__
+HEADER_INLINE uintptr_t PopcountWordsNzbase(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx) {
+  uintptr_t prefix_ct = 0;
+#  ifdef USE_AVX2
+  while (start_idx & 3) {
+    if (end_idx == start_idx) {
+      return prefix_ct;
+    }
+    prefix_ct += PopcountWord(bitvec[start_idx++]);
+  }
+#  else
+  if (start_idx & 1) {
+    if (end_idx == start_idx) {
+      return 0;
+    }
+    prefix_ct = PopcountWord(bitvec[start_idx++]);
+  }
+#  endif  // USE_AVX2
+  return prefix_ct + PopcountWords(&(bitvec[start_idx]), end_idx - start_idx);
+}
+#else
+HEADER_INLINE uintptr_t PopcountWordsNzbase(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx) {
+  return PopcountWords(&(bitvec[start_idx]), end_idx - start_idx);
+}
+#endif
+
+// start_idx == end_idx ok
+uintptr_t PopcountBitRange(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx);
+
 // requires positive word_ct
 // stay agnostic a bit longer re: word_ct := DIV_UP(entry_ct, kBitsPerWord)
 // vs. word_ct := 1 + (entry_ct / kBitsPerWord)

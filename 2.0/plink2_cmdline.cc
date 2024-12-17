@@ -1928,28 +1928,6 @@ PglErr StringRangeListToBitarrAlloc(const char* header_line, const RangeList* ra
   return reterr;
 }
 
-
-uintptr_t PopcountBitRange(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx) {
-  uintptr_t start_idxl = start_idx / kBitsPerWord;
-  const uintptr_t start_idxlr = start_idx & (kBitsPerWord - 1);
-  const uintptr_t end_idxl = end_idx / kBitsPerWord;
-  const uintptr_t end_idxlr = end_idx & (kBitsPerWord - 1);
-  uintptr_t ct = 0;
-  if (start_idxl == end_idxl) {
-    return PopcountWord(bitvec[start_idxl] & ((k1LU << end_idxlr) - (k1LU << start_idxlr)));
-  }
-  if (start_idxlr) {
-    ct = PopcountWord(bitvec[start_idxl++] >> start_idxlr);
-  }
-  if (end_idxl > start_idxl) {
-    ct += PopcountWordsNzbase(bitvec, start_idxl, end_idxl);
-  }
-  if (end_idxlr) {
-    ct += PopcountWord(bzhi(bitvec[end_idxl], end_idxlr));
-  }
-  return ct;
-}
-
 uint32_t IntersectionRangeIsEmpty(const uintptr_t* bitarr1, const uintptr_t* bitarr2, uintptr_t start_idx, uintptr_t end_idx) {
   uintptr_t start_idxl = start_idx / kBitsPerWord;
   const uintptr_t start_idxlr = start_idx & (kBitsPerWord - 1);

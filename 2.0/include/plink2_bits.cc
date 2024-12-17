@@ -1832,6 +1832,27 @@ uintptr_t PopcountBytesMasked(const void* bitarr, const uintptr_t* mask_arr, uin
 #endif
 }
 
+uintptr_t PopcountBitRange(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx) {
+  uintptr_t start_idxl = start_idx / kBitsPerWord;
+  const uintptr_t start_idxlr = start_idx & (kBitsPerWord - 1);
+  const uintptr_t end_idxl = end_idx / kBitsPerWord;
+  const uintptr_t end_idxlr = end_idx & (kBitsPerWord - 1);
+  uintptr_t ct = 0;
+  if (start_idxl == end_idxl) {
+    return PopcountWord(bitvec[start_idxl] & ((k1LU << end_idxlr) - (k1LU << start_idxlr)));
+  }
+  if (start_idxlr) {
+    ct = PopcountWord(bitvec[start_idxl++] >> start_idxlr);
+  }
+  if (end_idxl > start_idxl) {
+    ct += PopcountWordsNzbase(bitvec, start_idxl, end_idxl);
+  }
+  if (end_idxlr) {
+    ct += PopcountWord(bzhi(bitvec[end_idxl], end_idxlr));
+  }
+  return ct;
+}
+
 void FillCumulativePopcounts(const uintptr_t* subset_mask, uint32_t word_ct, uint32_t* cumulative_popcounts) {
   assert(word_ct);
   const uint32_t word_ct_m1 = word_ct - 1;

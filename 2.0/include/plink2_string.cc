@@ -218,6 +218,23 @@ void WordWrap(uint32_t suffix_len, char* strbuf) {
   }
 }
 
+void WordWrapMultiline(char* strbuf) {
+  for (char* line_start = strbuf; *line_start != '\0'; ) {
+    char* line_end = strchrnul(line_start, '\n');
+    if (*line_end == '\0') {
+      line_end[0] = '\n';
+      line_end[1] = '\0';
+    }
+    char* next_line_start = &(line_end[1]);
+    // Temporarily clobber first character of next line so WordWrap()
+    // conditions are satisfied.
+    const char first_char_of_next_line = *next_line_start;
+    *next_line_start = '\0';
+    WordWrap(0, line_start);
+    *next_line_start = first_char_of_next_line;
+    line_start = next_line_start;
+  }
+}
 
 // This implementation is from Kendall Willets.  See
 //   https://lemire.me/blog/2021/06/03/computing-the-number-of-digits-of-an-integer-even-faster/

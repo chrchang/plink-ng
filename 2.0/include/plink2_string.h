@@ -293,6 +293,12 @@ HEADER_INLINE uint32_t incr_strchrnul_n_mov(unsigned char ucc1, const char** ss_
 // there should be a terminating \n.
 void WordWrap(uint32_t suffix_len, char* strbuf);
 
+// input: null-terminated string, could have multiple lines, must have at least
+//        ~80 bytes available past the end
+// output: WordWrap() called on each line, \n appended to last line if not
+//         there
+void WordWrapMultiline(char* strbuf);
+
 uint32_t UintSlen(uint32_t num);
 
 HEADER_INLINE uint32_t IntSlen(int32_t num) {
