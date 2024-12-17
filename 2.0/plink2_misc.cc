@@ -10203,8 +10203,10 @@ PglErr CheckOrImputeSex(const uintptr_t* sample_include, const SampleIdInfo* sii
         if (x_start) {
           ClearBitsNz(0, x_start, variant_include_x);
         }
-        if (x_end < raw_variant_ct) {
-          ClearBitsNz(x_end, raw_variant_ct, variant_include_x);
+        // bugfix (17 Dec 2024): trailing bits must also be zeroed out
+        const uint32_t raw_variant_ct_rounded_up = RoundUpPow2(raw_variant_ct, kBitsPerWord);
+        if (x_end < raw_variant_ct_rounded_up) {
+          ClearBitsNz(x_end, raw_variant_ct_rounded_up, variant_include_x);
         }
         DPrintf("CheckOrImputeSex(): x_start=%u  x_end=%u  used_variant_ct_x=%u  PopcountBitRange: %" PRIuPTR "\n", x_start, x_end, used_variant_ct_x, PopcountBitRange(variant_include_x, x_start, x_end));
         // Don't actually need nobs.
