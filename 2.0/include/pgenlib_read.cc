@@ -1962,6 +1962,7 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
   PglLogprintf("[pgl] PgfiMultiread() called with variant_uidx_start=%u, variant_uidx_end=%u, load_variant_ct=%u\n", variant_uidx_start, variant_uidx_end, load_variant_ct);
   // we could permit 0, but that encourages lots of unnecessary thread wakeups
   assert(load_variant_ct);
+#ifndef NDEBUG
   if (g_pgl_debug_on) {
     if (!variant_include) {
       PglLogprintf("[pgl] PgfiMultiread(): variant_include not provided\n");
@@ -1969,6 +1970,7 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
       PglLogprintf("[pgl] PgfiMultiread(): PopcountBitRange(%u, %u)=%u\n", variant_uidx_start, variant_uidx_end, PopcountBitRange(variant_include, variant_uidx_start, variant_uidx_end));
     }
   }
+#endif
   if (variant_include) {
     variant_uidx_start = AdvTo1Bit(variant_include, variant_uidx_start);
     PglLogprintf("[pgl] PgfiMultiread() advanced variant_uidx_start to %u\n", variant_uidx_start);
