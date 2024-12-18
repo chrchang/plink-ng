@@ -2857,7 +2857,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       }
       prev_line_start = line_iter;
       if (unlikely(*line_iter != '#')) {
-        if ((line_idx == 1) && (memequal_sk(line_iter, "BCF"))) {
+        if ((line_idx == 1) && memequal_sk(line_iter, "BCF")) {
           // this is more informative than "missing header line"...
           if (line_iter[3] == 2) {
             snprintf(g_logbuf, kLogbufSize, "Error: %s appears to be a BCF2 file. Try --bcf instead of --vcf.\n", vcfname);

@@ -3487,6 +3487,8 @@ uint32_t MultireadNonempty(const uintptr_t* variant_include, const ThreadGroup* 
   for (; ; ++read_block_idx, offset += read_block_size) {
     if (offset + read_block_size >= raw_variant_ct) {
       cur_read_block_size = raw_variant_ct - offset;
+      // trailing bits of variant_include must not be set, otherwise this
+      // miscounts
       cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
       assert(cur_block_write_ct);  // otherwise, IsLastBlock should be set
       break;
