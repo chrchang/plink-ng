@@ -885,9 +885,15 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
   // bugfix (4 Nov 2017): ustar[] trailing elements must be zeroed out
   ZeroFArr(predictor_ctav - predictor_ct, &(ustar[predictor_ct]));
 
-  // quasi-bugfix (9 Oct 2024)
-  ZeroFArr(sample_ctav - sample_ct, &(pp[sample_ct]));
-  ZeroFArr(sample_ctav - sample_ct, &(vv[sample_ct]));
+  const uint32_t trailing_sample_ct = sample_ctav - sample_ct;
+  if (trailing_sample_ct) {
+    // bunch of other trailing elements must also be zeroed out
+    ZeroFArr(trailing_sample_ct, &(pp[sample_ct]));
+    ZeroFArr(trailing_sample_ct, &(vv[sample_ct]));
+    for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+      ZeroFArr(trailing_sample_ct, &(tmpnxk_buf[sample_ct + pred_idx * sample_ctav]));
+    }
+  }
 
   // start with 80% of most logistf convergence defaults (some reduction is
   // appropriate to be consistent with single-precision arithmetic).  (Update,
@@ -936,9 +942,6 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
     ReflectFmatrix0(predictor_ct, predictor_ctav, hh0);
 
     FirthComputeHdiagWeightsF(yy, xx, pp, hh0, vv, predictor_ct, predictor_ctav, sample_ct, sample_ctav, hdiag, ww, tmpnxk_buf);
-
-    // trailing elements of ww can't be nan for MultMatrixDxnVectNF()
-    ZeroFArr(sample_ctav - sample_ct, &(ww[sample_ct]));
 
     // gradient = X' W
     // categorical optimization possible here
@@ -2807,7 +2810,6 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
     // results.
     BoolErr reterr = LinearRegressionDVec(zz, xx, predictor_ct, sample_ct, coef, hh, grad, mi_buf, dbl_2d_buf);
     if (unlikely(reterr)) {
-      DPrintf("LogisticRegressionD LinearRegressionDVec() failed\n");
       return 1;
     }
 
@@ -2822,7 +2824,6 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
 
     const double loglik = ComputeLoglikD(yy, pp, sample_ct);
     if (loglik != loglik) {
-      DPrintf("LogisticRegressionD initial ComputeLoglikD() failed\n");
       return 1;
     }
     loglik_old = loglik;
@@ -2865,19 +2866,15 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
     logistic_v_unsafe(pp, sample_ctav);
     const double loglik = ComputeLoglikD(yy, pp, sample_ct);
     if (loglik != loglik) {
-      DPrintf("LogisticRegressionD ComputeLoglikD() failed\n");
       return 1;
     }
-    DPrintf("LogisticRegressionD loglik: %g\n", loglik);
 
     // TODO: determine other non-convergence criteria
     if (fabs(loglik - loglik_old) < 1e-8 * (0.05 + fabs(loglik))) {
-      DPrintf("LogisticRegressionD ComputeLoglikD() converged successfully\n");
       return 0;
     }
     loglik_old = loglik;
   }
-  DPrintf("LogisticRegressionD ComputeLoglikD() unfinished\n");
   *is_unfinished_ptr = 1;
   return 0;
 }
@@ -2975,10 +2972,12 @@ void FirthComputeHdiagWeightsD(const double* yy, const double* xx, const double*
   ColMajorMatrixMultiplyStrided(xx, hh, sample_ct, sample_ctav, predictor_ct, predictor_ctav, predictor_ct, sample_ctav, tmpnxk_buf);
   // Assumes tau = 0.5.
 #ifdef __LP64__
-  // tmpNxK, interpreted as column-major, is sample_ct x predictor_ct
-  // X, interpreted as column-major, is also sample_ct x predictor_ct
-  // Hdiag[i] = V[i] (\sum_j tmpNxK[i][j] X[i][j])
-  // W[i] = (Y[i] - P[i]) + Hdiag[i] * (0.5 - P[i])
+  // * tmpNxK, interpreted as column-major, is sample_ct x predictor_ct, must
+  //   have trailing elements of each column zeroed out (otherwise nan may leak
+  //   into trailing elements of hdiag, then ww, ...)
+  // * X, interpreted as column-major, is also sample_ct x predictor_ct
+  // * Hdiag[i] = V[i] (\sum_j tmpNxK[i][j] X[i][j])
+  // * W[i] = (Y[i] - P[i]) + Hdiag[i] * (0.5 - P[i])
   const VecD half = VCONST_D(0.5);
   for (uint32_t sample_offset = 0; sample_offset < sample_ctav; sample_offset += kDoublePerDVec) {
     VecD dotprods = vecd_setzero();
@@ -3071,9 +3070,15 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
   // ustar[] trailing elements must be zeroed out
   ZeroDArr(predictor_ctav - predictor_ct, &(ustar[predictor_ct]));
 
-  // bugfix (9 Oct 2024)
-  ZeroDArr(sample_ctav - sample_ct, &(pp[sample_ct]));
-  ZeroDArr(sample_ctav - sample_ct, &(vv[sample_ct]));
+  const uint32_t trailing_sample_ct = sample_ctav - sample_ct;
+  if (trailing_sample_ct) {
+    // bunch of other trailing elements must also be zeroed out
+    ZeroDArr(trailing_sample_ct, &(pp[sample_ct]));
+    ZeroDArr(trailing_sample_ct, &(vv[sample_ct]));
+    for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+      ZeroDArr(trailing_sample_ct, &(tmpnxk_buf[sample_ct + pred_idx * sample_ctav]));
+    }
+  }
 
   const uint32_t max_iter = 25;
   const double gconv = 0.00001;
@@ -3125,9 +3130,6 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
     ReflectStridedMatrix0(predictor_ct, predictor_ctav, hh0);
 
     FirthComputeHdiagWeightsD(yy, xx, pp, hh0, vv, predictor_ct, predictor_ctav, sample_ct, sample_ctav, hdiag, ww, tmpnxk_buf);
-
-    // trailing elements of ww can't be nan for MultMatrixDxnVectND()
-    ZeroDArr(sample_ctav - sample_ct, &(ww[sample_ct]));
 
     // gradient = X' W
     // categorical optimization possible here
