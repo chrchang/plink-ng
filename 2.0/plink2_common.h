@@ -1481,14 +1481,12 @@ void AppendZerotabsUnsafe(uint32_t zerotab_ct, char** cswritep_ptr);
 PglErr InitAllelePermuteUnsafe(const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_thread_ct, AlleleCode* allele_permute);
 
 HEADER_INLINE void PglLogputsb() {
-#ifndef NDEBUG
-  if (g_pgl_errbuf_write_iter) {
-    WordWrapMultiline(g_pgl_errbuf);
-    logputs(g_pgl_errbuf);
-    g_pgl_errbuf_write_iter = g_pgl_errbuf;
-    *g_pgl_errbuf_write_iter = '\0';
+  char* pgl_errbuf = PglReturnLog();
+  if (pgl_errbuf) {
+    WordWrapMultiline(pgl_errbuf);
+    logputs(pgl_errbuf);
+    PglResetLog();
   }
-#endif
 }
 
 #ifdef __cplusplus

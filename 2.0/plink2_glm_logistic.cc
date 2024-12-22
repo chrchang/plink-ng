@@ -3086,9 +3086,6 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
   const double lconv = 0.00001;
   double delta_max = 0.0;
   double loglik_old = 0.0;
-  if (g_debug_on) {
-    DPrintf("FirthRegressionD sample_ct: %u\n", sample_ct);
-  }
   for (uint32_t iter_idx = 0; ; ++iter_idx) {
     // P[i] = \sum_j beta[j] * X[i][j];
     // categorical optimization possible here
@@ -3100,11 +3097,6 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
     logistic_v_unsafe(pp, sample_ct);
     double loglik;
     if (ComputeLoglikCheckedD(yy, pp, sample_ct, &loglik)) {
-      DPrintf("FirthRegressionD: failed to compute log-likelihood\npp:");
-      for (uint32_t uii = 0; uii != sample_ct; ++uii) {
-        DPrintf(" %g", pp[uii]);
-      }
-      DPrintf("\n");
       return 1;
     }
     // V[i] = P[i] * (1 - P[i]);
@@ -3117,12 +3109,10 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
     // we shouldn't need to compute the log directly, since underflow <->
     // regression failure, right?  check this.
     if (InvertSymmdefMatrixFirstHalf(predictor_ct, predictor_ctav, hh0, inv_1d_buf, dbl_2d_buf)) {
-      DPrintf("FirthRegressionD: InvertSymmdefMatrixFirstHalf failed\n");
       return 1;
     }
     const double dethh = HalfSymmInvertedDet(hh0, inv_1d_buf, predictor_ct, predictor_ctav);
     loglik += 0.5 * log(dethh);
-    DPrintf("FirthRegressionD loglik: %g  dethh: %g\n", loglik, dethh);
 
     InvertSymmdefMatrixSecondHalf(predictor_ct, predictor_ctav, hh0, inv_1d_buf, dbl_2d_buf);
     // trailing elements of hh0[] rows can't be arbitrary for later
@@ -3144,58 +3134,18 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
       }
       const double loglik_change = loglik - loglik_old;
       if ((delta_max <= xconv) && (ustar_max < gconv) && (loglik_change < lconv)) {
-        DPrintf("FirthRegressionD: converged properly\n");
         return 0;
       }
       if (iter_idx > max_iter) {
         *is_unfinished_ptr = 1;
-        DPrintf("FirthRegressionD: unfinished\n");
         return 0;
       }
     }
     loglik_old = loglik;
 
     FirthComputeSecondWeightsD(hdiag, vv, sample_ct, sample_ctav, ww);
-    if (sample_ct > 10) {
-      DPrintf("FirthRegressionD: xx = [");
-      for (uint32_t sample_idx = 0; sample_idx < 5; ++sample_idx) {
-        DPrintf(" %g", xx[sample_idx]);
-      }
-      DPrintf(" ...");
-      for (uint32_t sample_idx = sample_ct - 5; sample_idx < sample_ct; ++sample_idx) {
-        DPrintf(" %g", xx[sample_idx]);
-      }
-      for (uint32_t sample_idx = sample_ct; sample_idx < sample_ctav; ++sample_idx) {
-        DPrintf(" (%g)", xx[sample_idx]);
-      }
-      DPrintf(" ]\n");
-      DPrintf("FirthRegressionD: ww = [");
-      for (uint32_t sample_idx = 0; sample_idx < 5; ++sample_idx) {
-        DPrintf(" %g", ww[sample_idx]);
-      }
-      DPrintf(" ...");
-      for (uint32_t sample_idx = sample_ct - 5; sample_idx < sample_ct; ++sample_idx) {
-        DPrintf(" %g", ww[sample_idx]);
-      }
-      for (uint32_t sample_idx = sample_ct; sample_idx < sample_ctav; ++sample_idx) {
-        DPrintf(" (%g)", ww[sample_idx]);
-      }
-      DPrintf(" ]\n");
-    }
     ComputeHessianD(xx, ww, sample_ct, predictor_ct, hh);
-    DPrintf("FirthRegressionD: hh (predictor_ct=%u, predictor_ctav=%u):\n", predictor_ct, predictor_ctav);
-    for (uint32_t row_idx = 0; row_idx < predictor_ct; ++row_idx) {
-      DPrintf("[");
-      for (uint32_t col_idx = 0; col_idx < predictor_ct; ++col_idx) {
-        DPrintf(" %g", hh[row_idx * predictor_ctav + col_idx]);
-      }
-      for (uint32_t col_idx = predictor_ct; col_idx < predictor_ctav; ++col_idx) {
-        DPrintf(" (%g)", hh[row_idx * predictor_ctav + col_idx]);
-      }
-      DPrintf(" ]\n");
-    }
     if (InvertSymmdefStridedMatrix(predictor_ct, predictor_ctav, hh, inv_1d_buf, dbl_2d_buf)) {
-      DPrintf("FirthRegressionD: failed to invert matrix\n");
       return 1;
     }
     ReflectStridedMatrix0(predictor_ct, predictor_ctav, hh);
@@ -3792,7 +3742,6 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         cur_constraint_ct = common->constraint_ct;
         cur_is_always_firth = is_always_firth || ctx->separation_found;
       }
-      DPrintf("GlmLogisticThreadD: cur_is_always_firth=%u  is_always_firth=%u\n", cur_is_always_firth, is_always_firth);
       const uint32_t sample_ctl = BitCtToWordCt(cur_sample_ct);
       const uint32_t sample_ctav = RoundUpPow2(cur_sample_ct, kDoublePerDVec);
       const uint32_t cur_case_ct = PopcountWords(cur_pheno_cc, sample_ctl);

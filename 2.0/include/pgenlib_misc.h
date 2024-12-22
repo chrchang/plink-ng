@@ -89,22 +89,48 @@ namespace plink2 {
 #endif
 
 #ifdef NDEBUG
-HEADER_INLINE void PglInitLog() {
+HEADER_INLINE BoolErr PglInitLog(__attribute__((unused)) uintptr_t log_capacity) {
+  return 0;
 }
 
 HEADER_INLINE void PglLogprintf(__attribute__((unused)) const char* fmt, ...) {
 }
-#else
-CONSTI32(kPglErrbufBlen, 262144);
-extern uint32_t g_pgl_debug_on;
-extern char g_pgl_errbuf[];
-extern char* g_pgl_errbuf_write_iter;
 
-HEADER_INLINE void PglInitLog() {
-  if (g_pgl_debug_on) {
-    g_pgl_errbuf_write_iter = g_pgl_errbuf;
-    *g_pgl_errbuf_write_iter = '\0';
+HEADER_INLINE char* PglReturnLog() {
+  return nullptr;
+}
+
+HEADER_INLINE void PglResetLog() {
+}
+#else
+extern char* g_pgl_errbuf;
+extern char* g_pgl_errbuf_write_iter;
+extern char* g_pgl_errbuf_end;
+
+HEADER_INLINE BoolErr PglInitLog(uintptr_t log_capacity) {
+  if (g_pgl_errbuf) {
+    if (log_capacity <= S_CAST(uintptr_t, g_pgl_errbuf_end - g_pgl_errbuf)) {
+      // existing allocation is fine.  no need to shrink
+      g_pgl_errbuf_write_iter = g_pgl_errbuf;
+      *g_pgl_errbuf_write_iter = '\0';
+      return 0;
+    }
+    free(g_pgl_errbuf);
   }
+  // 128 extra bytes to make WordWrapMultiline() safe.
+  g_pgl_errbuf = S_CAST(char*, malloc(log_capacity + 128));
+  if (!g_pgl_errbuf) {
+    g_pgl_errbuf_write_iter = nullptr;
+    g_pgl_errbuf_end = nullptr;
+    // in the unlikely event this comes up, caller is free to ignore the error,
+    // logging just won't happen.  though, if malloc is failing, something else
+    // is likely to fail...
+    return 1;
+  }
+  g_pgl_errbuf_write_iter = g_pgl_errbuf;
+  *g_pgl_errbuf_write_iter = '\0';
+  g_pgl_errbuf_end = &(g_pgl_errbuf[log_capacity]);
+  return 0;
 }
 
 HEADER_INLINE void PglLogprintf(const char* fmt, ...) {
@@ -112,13 +138,24 @@ HEADER_INLINE void PglLogprintf(const char* fmt, ...) {
   if (g_pgl_errbuf_write_iter != nullptr) {
     va_list args;
     va_start(args, fmt);
-    const uintptr_t remaining_space = &(g_pgl_errbuf[kPglErrbufBlen]) - g_pgl_errbuf_write_iter;
+    const uintptr_t remaining_space = g_pgl_errbuf_end - g_pgl_errbuf_write_iter;
     const uintptr_t intended_slen = vsnprintf(g_pgl_errbuf_write_iter, remaining_space, fmt, args);
     if (intended_slen < remaining_space) {
       g_pgl_errbuf_write_iter = &(g_pgl_errbuf_write_iter[intended_slen]);
     } else {
-      g_pgl_errbuf_write_iter = &(g_pgl_errbuf[kPglErrbufBlen]);
+      g_pgl_errbuf_write_iter = g_pgl_errbuf_end;
     }
+  }
+}
+
+HEADER_INLINE char* PglReturnLog() {
+  return g_pgl_errbuf;
+}
+
+HEADER_INLINE void PglResetLog() {
+  if (g_pgl_errbuf) {
+    g_pgl_errbuf_write_iter = g_pgl_errbuf;
+    g_pgl_errbuf_write_iter[0] = '\0';
   }
 }
 #endif

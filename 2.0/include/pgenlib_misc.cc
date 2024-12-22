@@ -22,10 +22,9 @@ namespace plink2 {
 #endif
 
 #ifndef NDEBUG
-uint32_t g_pgl_debug_on = 0;
-// 128 extra bytes to make WordWrapMultiline() safe
-char g_pgl_errbuf[kPglErrbufBlen + 128];
+char* g_pgl_errbuf = nullptr;
 char* g_pgl_errbuf_write_iter = nullptr;
+char* g_pgl_errbuf_end = nullptr;
 #endif
 
 #ifdef USE_AVX2

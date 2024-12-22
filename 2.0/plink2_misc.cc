@@ -9825,7 +9825,6 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
   ThreadGroup tg;
   PreinitThreads(&tg);
   HetCtx ctx;
-  PglInitLog();
   {
     // return values
     if (unlikely(bigstack_alloc_u32(sample_ct, ohets_ptr) ||
@@ -10032,7 +10031,6 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
   CleanupThreads(&tg);
   BigstackReset(bigstack_mark);
   pgfip->block_base = nullptr;
-  PglLogputsb();
   return reterr;
 }
 
@@ -10208,7 +10206,6 @@ PglErr CheckOrImputeSex(const uintptr_t* sample_include, const SampleIdInfo* sii
         if (x_end < raw_variant_ct_rounded_up) {
           ClearBitsNz(x_end, raw_variant_ct_rounded_up, variant_include_x);
         }
-        DPrintf("CheckOrImputeSex(): x_start=%u  x_end=%u  used_variant_ct_x=%u  PopcountBitRange: %" PRIuPTR "\n", x_start, x_end, used_variant_ct_x, PopcountBitRange(variant_include_x, x_start, x_end));
         // Don't actually need nobs.
         uint32_t* ohets;
         double* ehet_incrs;
@@ -10281,8 +10278,9 @@ PglErr CheckOrImputeSex(const uintptr_t* sample_include, const SampleIdInfo* sii
         if (y_start) {
           ClearBitsNz(0, y_start, variant_include_y);
         }
-        if (y_end < raw_variant_ct) {
-          ClearBitsNz(y_end, raw_variant_ct, variant_include_y);
+        const uint32_t raw_variant_ct_rounded_up = RoundUpPow2(raw_variant_ct, kBitsPerWord);
+        if (y_end < raw_variant_ct_rounded_up) {
+          ClearBitsNz(y_end, raw_variant_ct_rounded_up, variant_include_y);
         }
         logprintf("%s: ", flagstr);
         reterr = LoadSampleMissingCts(sample_include, sample_include, variant_include_y, cip, "chrY valid genotype call", raw_variant_ct, used_variant_ct_y, raw_sample_ct, 0, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, sample_missing_hc_cts, nullptr, sample_hethap_cts);

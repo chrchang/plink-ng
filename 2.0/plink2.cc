@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6.4.e"
+static const char ver_str[] = "PLINK v2.0.0-a.6.5"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.6.4.e"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (19 Dec 2024)";
+  " (22 Dec 2024)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -100,7 +100,7 @@ static const char ver_str2[] =
 #  endif
 #endif
 
-  "  cog-genomics.org/plink/2.0/\n"
+  "    cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2024 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
@@ -5169,9 +5169,6 @@ int main(int argc, char** argv) {
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ebug")) {
           g_debug_on = 1;
-#ifndef NDEBUG
-          g_pgl_debug_on = 1;
-#endif
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ata")) {
           if (unlikely(load_params || (xload & (~kfXloadOxBgen)))) {

@@ -1959,21 +1959,10 @@ uint64_t PgfiMultireadGetCachelineReq(const uintptr_t* variant_include, const Pg
 }
 
 PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t load_variant_ct, PgenFileInfo* pgfip) {
-  PglLogprintf("[pgl] PgfiMultiread() called with variant_uidx_start=%u, variant_uidx_end=%u, load_variant_ct=%u\n", variant_uidx_start, variant_uidx_end, load_variant_ct);
   // we could permit 0, but that encourages lots of unnecessary thread wakeups
   assert(load_variant_ct);
-#ifndef NDEBUG
-  if (g_pgl_debug_on) {
-    if (!variant_include) {
-      PglLogprintf("[pgl] PgfiMultiread(): variant_include not provided\n");
-    } else {
-      PglLogprintf("[pgl] PgfiMultiread(): PopcountBitRange(%u, %u)=%u\n", variant_uidx_start, variant_uidx_end, PopcountBitRange(variant_include, variant_uidx_start, variant_uidx_end));
-    }
-  }
-#endif
   if (variant_include) {
     variant_uidx_start = AdvTo1Bit(variant_include, variant_uidx_start);
-    PglLogprintf("[pgl] PgfiMultiread() advanced variant_uidx_start to %u\n", variant_uidx_start);
   }
   assert(variant_uidx_start < pgfip->raw_variant_ct);
   uint64_t block_offset;
@@ -1996,7 +1985,6 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
     uint64_t cur_read_end_fpos;
     while (1) {
       cur_read_uidx_end = variant_uidx_end;
-      PglLogprintf("[pgl] PgfiMultiread(): restarting inner loop, cur_read_uidx_end=%u, variant_uidx_start=%u, load_variant_ct=%u\n", cur_read_uidx_end, variant_uidx_start, load_variant_ct);
       if (cur_read_uidx_end - variant_uidx_start == load_variant_ct) {
         cur_read_end_fpos = GetPgfiFpos(pgfip, cur_read_uidx_end);
         load_variant_ct = 0;
@@ -2005,16 +1993,13 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
       cur_read_uidx_end = AdvTo0Bit(variant_include, variant_uidx_start);
       cur_read_end_fpos = GetPgfiFpos(pgfip, cur_read_uidx_end);
       load_variant_ct -= cur_read_uidx_end - variant_uidx_start;
-      PglLogprintf("[pgl] PgfiMultiread(): cur_read_uidx_end updated to %u, cur_read_end_fpos=%" PRIu64 ", load_variant_ct updated to %u\n", cur_read_uidx_end, cur_read_end_fpos, load_variant_ct);
       if (!load_variant_ct) {
         break;
       }
       variant_uidx_start = AdvTo1Bit(variant_include, cur_read_uidx_end);
       next_read_start_fpos = GetPgfiFpos(pgfip, variant_uidx_start);
-      PglLogprintf("[pgl] PgfiMultiread(): variant_uidx_start updated to %u, next_read_start_fpos=%" PRIu64 "\n", variant_uidx_start, next_read_start_fpos);
       if (pgfip->vrtypes && ((pgfip->vrtypes[variant_uidx_start] & 6) == 2)) {
         const uint32_t variant_read_uidx_start = GetLdbaseVidx(pgfip->vrtypes, variant_uidx_start);
-        PglLogprintf("[pgl] PgfiMultiread(): variant_read_uidx_start=%u\n", variant_read_uidx_start);
         if (variant_read_uidx_start <= cur_read_uidx_end) {
           continue;
         }
@@ -2027,9 +2012,7 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
         break;
       }
     }
-    PglLogprintf("[pgl] PgfiMultiread() attempting to read %" PRIuPTR " byte(s) from %" PRIu64 ".\n", cur_read_end_fpos - cur_read_start_fpos, cur_read_start_fpos);
     if (unlikely(fseeko(pgfip->shared_ff, cur_read_start_fpos, SEEK_SET))) {
-      PglLogprintf("[pgl] PgfiMultiread() fseeko(%" PRIu64 ") failed.\n", cur_read_start_fpos);
       return kPglRetReadFail;
     }
     uintptr_t len = cur_read_end_fpos - cur_read_start_fpos;
@@ -2037,11 +2020,9 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
       if (feof_unlocked(pgfip->shared_ff)) {
         errno = 0;
       }
-      PglLogprintf("[pgl] PgfiMultiread() fread(%" PRIu64 ", %" PRIuPTR ") failed, block_offset=%" PRIu64 ".\n", cur_read_start_fpos, len, block_offset);
       return kPglRetReadFail;
     }
   } while (load_variant_ct);
-  PglLogprintf("[pgl] PgfiMultiread() returned success\n");
   return kPglRetSuccess;
 }
 
