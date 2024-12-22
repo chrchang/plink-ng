@@ -885,9 +885,14 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
   // bugfix (4 Nov 2017): ustar[] trailing elements must be zeroed out
   ZeroFArr(predictor_ctav - predictor_ct, &(ustar[predictor_ct]));
 
-  // quasi-bugfix (9 Oct 2024)
-  ZeroFArr(sample_ctav - sample_ct, &(pp[sample_ct]));
-  ZeroFArr(sample_ctav - sample_ct, &(vv[sample_ct]));
+  const uint32_t trailing_sample_ct = sample_ctav - sample_ct;
+  if (trailing_sample_ct) {
+    ZeroFArr(trailing_sample_ct, &(pp[sample_ct]));
+    ZeroFArr(trailing_sample_ct, &(vv[sample_ct]));
+    for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+      ZeroFArr(trailing_sample_ct, &(tmpnxk_buf[sample_ct + pred_idx * sample_ctav]));
+    }
+  }
 
   // start with 80% of most logistf convergence defaults (some reduction is
   // appropriate to be consistent with single-precision arithmetic).  (Update,
@@ -3164,9 +3169,16 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, uint32_t sample_ct,
   // ustar[] trailing elements must be zeroed out
   ZeroDArr(predictor_ctav - predictor_ct, &(ustar[predictor_ct]));
 
-  // bugfix (9 Oct 2024)
-  ZeroDArr(sample_ctav - sample_ct, &(pp[sample_ct]));
-  ZeroDArr(sample_ctav - sample_ct, &(vv[sample_ct]));
+  const uint32_t trailing_sample_ct = sample_ctav - sample_ct;
+  if (trailing_sample_ct) {
+    // bunch of other trailing elements must also be zeroed out (bugfixes in
+    // Oct and Dec 2024)
+    ZeroDArr(trailing_sample_ct, &(pp[sample_ct]));
+    ZeroDArr(trailing_sample_ct, &(vv[sample_ct]));
+    for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+      ZeroDArr(trailing_sample_ct, &(tmpnxk_buf[sample_ct + pred_idx * sample_ctav]));
+    }
+  }
 
   const uint32_t max_iter = 25;
   const double gconv = 0.00001;
@@ -3207,6 +3219,9 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, uint32_t sample_ct,
     FirthComputeHdiagWeightsD(yy, xx, pp, hh0, vv, predictor_ct, predictor_ctav, sample_ct, sample_ctav, hdiag, ww, tmpnxk_buf);
 
     // trailing elements of ww can't be nan for MultMatrixDxnVectND()
+    // (update, 22 Dec 2024: this line should no longer be necessary now that
+    // tmpnxk_buf is initialized properly, but I'll be more conservative with
+    // bugfixes in this branch)
     ZeroDArr(sample_ctav - sample_ct, &(ww[sample_ct]));
 
     // gradient = X' W
