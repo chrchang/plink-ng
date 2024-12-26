@@ -109,6 +109,8 @@ HEADER_INLINE uint32_t ATOMIC_COMPARE_EXCHANGE_N_U64(uint64_t* ptr, uint64_t* ex
 namespace plink2 {
 #endif
 
+extern const char kErrstrThreadCreate[];
+
 #ifdef _WIN32
 void WaitForAllObjects(uint32_t ct, HANDLE* objs);
 #endif

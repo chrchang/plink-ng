@@ -80,7 +80,7 @@ plink2: $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(CCSRC2) ../plink2_cpu.cc
 	$(CC) $(ZCFLAGS) $(ZCSRC2) $(ZSSRC2) -c
 	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
 	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
-	$(FC) $(OBJ2) plink2_cpu.o -o plink2 $(BLASFLAGS) $(LINKFLAGS)
+	$(FC) $(OBJL) plink2_cpu.o -o plink2 $(BLASFLAGS) $(LINKFLAGS)
 
 pgen_compress: $(PGCSRC2)
 	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o pgen_compress

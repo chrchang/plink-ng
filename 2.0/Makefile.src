@@ -56,12 +56,23 @@ PLINK2LIB_CCSRC = $(PGENLIB_CCSRC) \
                   include/plink2_bgzf.cc \
                   include/plink2_bitmap.cc \
                   include/plink2_fmath.cc \
+                  include/plink2_htable.cc \
                   include/plink2_memory.cc \
                   include/plink2_stats.cc \
                   include/plink2_string.cc \
                   include/plink2_text.cc \
                   include/plink2_thread.cc \
                   include/plink2_zstfile.cc
+
+TEXTLIB_CCSRC = include/plink2_base.cc \
+                include/plink2_bits.cc \
+                include/plink2_bgzf.cc \
+                include/plink2_htable.cc \
+                include/plink2_memory.cc \
+                include/plink2_string.cc \
+                include/plink2_text.cc \
+                include/plink2_thread.cc \
+                include/plink2_zstfile.cc
 
 CCSRC = $(PLINK2LIB_CCSRC) \
         plink2.cc \
@@ -98,6 +109,11 @@ OBJ_NO_ZSTD = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
 OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(CCSRC:.cc=.o)
 PGENLIB_OBJ = $(PGENLIB_CCSRC:.cc=.o)
 PLINK2LIB_OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(PLINK2LIB_CCSRC:.cc=.o)
+TEXTLIB_OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(TEXTLIB_CCSRC:.cc=.o)
+OBJL = $(notdir $(OBJ))
+PGENLIB_OBJL = $(notdir $(PGENLIB_OBJ))
+PLINK2LIB_OBJL = $(notdir $(PLINK2LIB_OBJ))
+TEXTLIB_OBJL = $(notdir $(TEXTLIB_OBJ))
 
 CSRC2 = $(foreach fname,$(CSRC),../$(fname))
 ZCSRC2 = $(foreach fname,$(ZCSRC),../$(fname))
@@ -105,18 +121,26 @@ ZSSRC2 = $(foreach fname,$(ZSSRC),../$(fname))
 CCSRC2 = $(foreach fname,$(CCSRC),../$(fname))
 PGENLIB_CCSRC2 = $(foreach fname,$(PGENLIB_CCSRC),../$(fname))
 PLINK2LIB_CCSRC2 = $(foreach fname,$(PLINK2LIB_CCSRC),../$(fname))
-OBJ2 = $(notdir $(OBJ))
-PGENLIB_OBJ2 = $(notdir $(PGENLIB_OBJ))
-PLINK2LIB_OBJ2 = $(notdir $(PLINK2LIB_OBJ))
+TEXTLIB_CCSRC2 = $(foreach fname,$(TEXTLIB_CCSRC),../$(fname))
+OBJ2 = $(CSRC2:.c=.o) $(ZCSRC2:.c=.o) $(ZSSRC2:.S=.o) $(CCSRC2:.cc=.o)
 
-OBJ3 = $(CSRC2:.c=.o) $(ZCSRC2:.c=.o) $(ZSSRC2:.S=.o) $(CCSRC2:.cc=.o)
+CSRC3 = $(foreach fname,$(CSRC),../../$(fname))
+ZCSRC3 = $(foreach fname,$(ZCSRC),../../$(fname))
+ZSSRC3 = $(foreach fname,$(ZSSRC),../../$(fname))
+CCSRC3 = $(foreach fname,$(CCSRC),../../$(fname))
+PLINK2LIB_CCSRC3 = $(foreach fname,$(PLINK2LIB_CCSRC),../../$(fname))
+TEXTLIB_CCSRC3 = $(foreach fname,$(TEXTLIB_CCSRC),../../$(fname))
+OBJ3 = $(CSRC3:.c=.o) $(ZCSRC3:.c=.o) $(ZSSRC3:.S=.o) $(CCSRC3:.cc=.o)
 
 CINCLUDE = -Ilibdeflate
 CINCLUDE2 = -I../libdeflate
+CINCLUDE3 = -I../../libdeflate
 CXXINCLUDE = -Ilibdeflate
 CXXINCLUDE2 = -I../libdeflate
+CXXINCLUDE2 = -I../../libdeflate
 ZSTD_INCLUDE =
 ZSTD_INCLUDE2 =
+ZSTD_INCLUDE3 =
 
 PGCSRC = $(PGENLIB_CCSRC) pgen_compress.cc
 PGCOBJ = $(PGCSRC:.cc=.o)
@@ -135,4 +159,4 @@ CLEAN = *.o \
         pgenlibr/src/Makevars \
         pgenlibr/src/pgenlibr.so \
         bin/plink2 bin/pgen_compress
-CLEAN3 = $(foreach expr,$(CLEAN),../$(expr))
+CLEAN2 = $(foreach expr,$(CLEAN),../$(expr))

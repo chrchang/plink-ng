@@ -103,6 +103,8 @@ HEADER_INLINE BoolErr arena_alloc_kcp(unsigned char* arena_top, uintptr_t ct, un
   return !(*kcp_arr_ptr);
 }
 
+BoolErr arena_calloc_w(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uintptr_t** w_arr_ptr);
+
 HEADER_INLINE void ArenaBaseSet(const void* unaligned_base, unsigned char** arena_bottom_ptr) {
   *arena_bottom_ptr = R_CAST(unsigned char*, RoundUpPow2(R_CAST(uintptr_t, unaligned_base), kCacheline));
 }

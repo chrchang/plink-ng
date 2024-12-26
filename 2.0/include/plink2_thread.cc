@@ -40,6 +40,8 @@ static inline ThreadGroupControlBlock* GetCbp(ThreadGroupShared* sharedp) {
   return &GET_PRIVATE(*sharedp, cb);
 }
 
+const char kErrstrThreadCreate[] = "Error: Failed to create thread.\n";
+
 #ifdef _WIN32
 void WaitForAllObjects(uint32_t ct, HANDLE* objs) {
   while (ct > 64) {

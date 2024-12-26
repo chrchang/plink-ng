@@ -1032,8 +1032,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             (!StrStartsWithUnsafe(line_start, "##fileDate=")) &&
             (!StrStartsWithUnsafe(line_start, "##source=")) &&
             (!StrStartsWithUnsafe(line_start, "##FORMAT="))) {
-          char* line_end = AdvToDelim(line_start, '\n');
-          uint32_t line_slen = line_end - line_start;
+          char* line_lf = AdvToDelim(line_start, '\n');
+          uint32_t line_slen = line_lf - line_start;
           if (line_start[line_slen - 1] == '\r') {
             --line_slen;
           }
@@ -1042,7 +1042,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           xheader_end = memcpya(xheader_end, line_start, line_slen);
           AppendBinaryEoln(&xheader_end);
-          line_iter = line_end;
+          line_iter = line_lf;
         }
       }
       line_iter = AdvPastDelim(line_iter, '\n');

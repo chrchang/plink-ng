@@ -110,7 +110,7 @@ ifndef STATIC_ZSTD
   ZSSRC2 =
   SKIP_STATIC_ZSTD = echo
   OBJ = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
-  OBJ2 = $(notdir $(OBJ))
+  OBJL = $(notdir $(OBJ))
   LINKFLAGS += -lzstd
 endif
 
@@ -159,7 +159,7 @@ plink2: $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(CCSRC2) ../plink2_cpu.cc ../cuda/plink2_m
 	nvcc -cudart shared ../cuda/plink2_matrix_cuda.cu -c
 	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
 	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
-	$(CXX) $(OBJ2) plink2_cpu.o plink2_matrix_cuda.o $(ARCH32) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
+	$(CXX) $(OBJL) plink2_cpu.o plink2_matrix_cuda.o $(ARCH32) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
 
 pgen_compress: $(PGCSRC2)
 	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o pgen_compress

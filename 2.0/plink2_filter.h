@@ -49,10 +49,6 @@ PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htabl
 
 PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, const char* flagname, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
-// variant_set is in/out: it should be set to variant_include on input, but
-// it's overwritten with the loaded variant set on successful return.
-PglErr NondupIdLoad(const char* const* variant_ids, const char* fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, uintptr_t* variant_set, uint32_t* dup_found_ptr);
-
 // probable todo: DupflagIdLoad()
 
 PglErr ExtractColCond(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const ExtractColCondInfo* eccip, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);

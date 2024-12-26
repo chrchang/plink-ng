@@ -20,8 +20,6 @@
 namespace plink2 {
 #endif
 
-const char kErrprintfDecompress[] = "Error: %s decompression failure: %s.\n";
-
 PglErr InitTextStreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, uint32_t decompress_thread_ct, TextStream* txsp) {
   const uint32_t dst_capacity = RoundUpPow2(max_line_blen + kDecompressChunkSize, kCacheline);
   if (unlikely(dst_capacity > bigstack_left())) {

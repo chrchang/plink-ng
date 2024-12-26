@@ -27,8 +27,6 @@
 namespace plink2 {
 #endif
 
-extern const char kErrprintfDecompress[];
-
 HEADER_INLINE BoolErr CleanupTextFile2(const char* file_descrip, textFILE* txfp, PglErr* reterrp) {
   if (unlikely(CleanupTextFile(txfp, reterrp))) {
     logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));

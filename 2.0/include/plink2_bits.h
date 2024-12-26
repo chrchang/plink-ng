@@ -665,6 +665,15 @@ HEADER_INLINE void AssignNybblearrEntry(uint32_t idx, uintptr_t newval, uintptr_
 // positive.
 void Reduce8to4bitInplaceUnsafe(uintptr_t entry_ct, uintptr_t* mainvec);
 
+// forward_ct must be positive.  Stays put if forward_ct == 1 and current bit
+// is set.
+// In usual 64-bit case, also assumes bitvec is vector aligned.
+uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t forward_ct);
+
+// This function assumes (bit_ct * (thread_ct - 1)) < 2^64.
+// bit_ct must be positive, but can be smaller than thread_ct
+void FillU32SubsetStarts(const uintptr_t* subset, uint32_t thread_ct, uint32_t start, uint64_t bit_ct, uint32_t* starts);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

@@ -91,6 +91,15 @@ uint64_t GetMemAvailableKib(__attribute__((unused)) uint32_t textbuf_blen, __att
 #endif
 }
 
+BoolErr arena_calloc_w(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uintptr_t** w_arr_ptr) {
+  *w_arr_ptr = S_CAST(uintptr_t*, arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr));
+  if (unlikely(!(*w_arr_ptr))) {
+    return 1;
+  }
+  ZeroWArr(ct, *w_arr_ptr);
+  return 0;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

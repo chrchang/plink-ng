@@ -106,7 +106,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 815
+#define PLINK2_BASE_VERNUM 816
 
 
 #define _FILE_OFFSET_BITS 64
@@ -511,6 +511,13 @@ private:
 typedef int32_t IntErr;
 typedef uint32_t BoolErr;
 #endif
+
+extern const char kErrprintfFopen[];
+extern const char kErrprintfFread[];
+extern const char kErrprintfRewind[];
+extern const char kErrstrNomem[];
+extern const char kErrstrWrite[];
+extern const char kErrprintfDecompress[];
 
 // make this work on 32-bit as well as 64-bit systems, across
 // Windows/OS X/Linux
@@ -3904,6 +3911,12 @@ HEADER_INLINE void SetAllWArr(uintptr_t entry_ct, uintptr_t* warr) {
   // todo: test this against vecset()
   for (uintptr_t idx = 0; idx != entry_ct; ++idx) {
     warr[idx] = ~k0LU;
+  }
+}
+
+HEADER_INLINE void SetAllU32Arr(uintptr_t entry_ct, uint32_t* u32arr) {
+  for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
+    *u32arr++ = ~0U;
   }
 }
 

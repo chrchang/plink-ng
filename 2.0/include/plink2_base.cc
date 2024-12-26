@@ -21,6 +21,13 @@
 namespace plink2 {
 #endif
 
+const char kErrprintfFopen[] = "Error: Failed to open %s : %s.\n";
+const char kErrprintfFread[] = "Error: %s read failure: %s.\n";
+const char kErrprintfRewind[] = "Error: %s could not be scanned twice. (Process-substitution/named-pipe input is not permitted in this use case.)\n";
+const char kErrstrNomem[] = "Error: Out of memory.  The --memory flag may be helpful.\n";
+const char kErrstrWrite[] = "Error: File write failure: %s.\n";
+const char kErrprintfDecompress[] = "Error: %s decompression failure: %s.\n";
+
 uint64_t g_failed_alloc_attempt_size = 0;
 
 #if (((__GNUC__ == 4) && (__GNUC_MINOR__ < 7)) || (__GNUC__ >= 11)) && !defined(__APPLE__)

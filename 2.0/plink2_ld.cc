@@ -2554,15 +2554,21 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     uint32_t dup_found;
     if (!indep_preferred_fname) {
       reterr = CheckIdUniqueness(g_bigstack_base, g_bigstack_end, variant_include, variant_ids, variant_ct, max_thread_ct, &dup_found);
+      if (unlikely(reterr)) {
+        goto LdPrune_ret_1;
+      }
     } else {
       if (unlikely(bigstack_alloc_w(raw_variant_ctl, &preferred_variants))) {
         goto LdPrune_ret_NOMEM;
       }
       memcpy(preferred_variants, variant_include, raw_variant_ctl * sizeof(intptr_t));
-      reterr = NondupIdLoad(variant_ids, indep_preferred_fname, raw_variant_ct, variant_ct, max_thread_ct, preferred_variants, &dup_found);
-    }
-    if (unlikely(reterr)) {
-      goto LdPrune_ret_1;
+      reterr = NondupIdLoad(g_bigstack_base, g_bigstack_end, variant_ids, indep_preferred_fname, raw_variant_ct, variant_ct, max_thread_ct, preferred_variants, &dup_found, g_logbuf);
+      if (unlikely(reterr)) {
+        if (g_logbuf[0]) {
+          logerrputsb();
+        }
+        goto LdPrune_ret_1;
+      }
     }
     if (unlikely(dup_found)) {
       logerrprintfww("Error: --indep-pair%s requires unique variant IDs. (--set-all-var-ids and/or --rm-dup may help.)\n", is_pairphase? "phase" : "wise");

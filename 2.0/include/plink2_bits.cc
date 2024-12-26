@@ -2961,6 +2961,100 @@ void Reduce8to4bitInplaceUnsafe(uintptr_t entry_ct, uintptr_t* mainvec) {
   mainvec[write_idx] = bzhi_max(write_word, remaining_entry_ct * 4);
 }
 
+// advances forward_ct set bits; forward_ct must be positive.  (stays put if
+// forward_ct == 1 and current bit is set.  may want to tweak this interface,
+// easy to introduce off-by-one bugs...)
+// In usual 64-bit case, also assumes bitvec is 16-byte aligned and the end of
+// the trailing 16-byte block can be safely read from.
+uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t forward_ct) {
+  assert(forward_ct);
+  uintptr_t widx = cur_pos / kBitsPerWord;
+  uintptr_t ulii = cur_pos % kBitsPerWord;
+  const uintptr_t* bptr = &(bitvec[widx]);
+  uintptr_t uljj;
+  uintptr_t ulkk;
+#ifdef __LP64__
+  const VecW* vptr;
+  assert(IsVecAligned(bitvec));
+#endif
+  if (ulii) {
+    uljj = (*bptr) >> ulii;
+    ulkk = PopcountWord(uljj);
+    if (ulkk >= forward_ct) {
+    JumpForwardSetUnsafe_finish:
+      return widx * kBitsPerWord + ulii + WordBitIdxToUidx(uljj, forward_ct - 1);
+    }
+    forward_ct -= ulkk;
+    ++widx;
+    ++bptr;
+  }
+  ulii = 0;
+#ifdef __LP64__
+  while (widx & (kWordsPerVec - k1LU)) {
+    uljj = *bptr;
+    ulkk = PopcountWord(uljj);
+    if (ulkk >= forward_ct) {
+      goto JumpForwardSetUnsafe_finish;
+    }
+    forward_ct -= ulkk;
+    ++widx;
+    ++bptr;
+  }
+  vptr = R_CAST(const VecW*, bptr);
+#ifdef USE_AVX2
+  while (forward_ct > kBitsPerWord * (16 * kWordsPerVec)) {
+    uljj = (forward_ct - 1) / (kBitsPerWord * kWordsPerVec);
+    ulkk = PopcountVecsAvx2(vptr, uljj);
+    vptr = &(vptr[uljj]);
+    forward_ct -= ulkk;
+  }
+#else
+  while (forward_ct > kBitsPerWord * (3 * kWordsPerVec)) {
+    uljj = ((forward_ct - 1) / (kBitsPerWord * (3 * kWordsPerVec))) * 3;
+    // yeah, yeah, this is suboptimal if we have SSE4.2
+    ulkk = PopcountVecsNoAvx2(vptr, uljj);
+    vptr = &(vptr[uljj]);
+    forward_ct -= ulkk;
+  }
+#endif
+  bptr = R_CAST(const uintptr_t*, vptr);
+  while (forward_ct > kBitsPerWord) {
+    forward_ct -= PopcountWord(*bptr++);
+  }
+#else
+  while (forward_ct > kBitsPerWord) {
+    uljj = (forward_ct - 1) / kBitsPerWord;
+    ulkk = PopcountWords(bptr, uljj);
+    bptr = &(bptr[uljj]);
+    forward_ct -= ulkk;
+  }
+#endif
+  for (; ; ++bptr) {
+    uljj = *bptr;
+    ulkk = PopcountWord(uljj);
+    if (ulkk >= forward_ct) {
+      widx = bptr - bitvec;
+      goto JumpForwardSetUnsafe_finish;
+    }
+    forward_ct -= ulkk;
+  }
+}
+
+void FillU32SubsetStarts(const uintptr_t* subset, uint32_t thread_ct, uint32_t start, uint64_t bit_ct, uint32_t* starts) {
+  assert(bit_ct);
+  uint32_t uidx = AdvTo1Bit(subset, start);
+  uint32_t prev_bit_idx = 0;
+  starts[0] = uidx;
+  for (uint32_t tidx = 1; tidx != thread_ct; ++tidx) {
+    const uint32_t bit_idx = (tidx * bit_ct) / thread_ct;
+    if (bit_idx != prev_bit_idx) {
+      uidx = FindNth1BitFrom(subset, uidx + 1, bit_idx - prev_bit_idx);
+      prev_bit_idx = bit_idx;
+    }
+    starts[tidx] = uidx;
+  }
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

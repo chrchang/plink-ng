@@ -23,6 +23,7 @@
 // constants.
 
 #include "include/plink2_bits.h"
+#include "include/plink2_htable.h"
 #include "include/plink2_memory.h"
 #include "include/plink2_string.h"
 #include "include/plink2_thread.h"
@@ -110,11 +111,6 @@ CONSTI32(kMaxIdBlen, kMaxIdSlen + 1);
 
 // allow extensions like .model.trend.fisher.set.score.adjusted
 CONSTI32(kMaxOutfnameExtBlen, 39);
-
-extern const char kErrprintfFopen[];
-extern const char kErrprintfFread[];
-extern const char kErrprintfRewind[];
-// extern const char g_cmdline_format_str[];
 
 // All global variables not initialized at compile time start with g_ (even if
 // they're initialized very early and never changed afterwards, like
@@ -1134,8 +1130,8 @@ HEADER_INLINE BoolErr MultistrToStrboxDedupAlloc(const char* multistr, char** so
 
 void DivisionMagicNums(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp);
 
-// ZeroU32Arr, ZeroWArr, ZeroU64Arr, SetAllWArr currently defined in
-// plink2_base.h
+// ZeroU32Arr, ZeroWArr, ZeroU64Arr, SetAllWArr, SetAllU32Arr currently defined
+// in plink2_base.h
 
 HEADER_INLINE void ZeroVecArr(uintptr_t entry_ct, VecW* vvec) {
   memset(vvec, 0, entry_ct * kBytesPerVec);
@@ -1153,12 +1149,6 @@ HEADER_INLINE void ZeroI32Arr(uintptr_t entry_ct, int32_t* i32arr) {
 HEADER_INLINE void SetAllI32Arr(uintptr_t entry_ct, int32_t* i32arr) {
   for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
     *i32arr++ = -1;
-  }
-}
-
-HEADER_INLINE void SetAllU32Arr(uintptr_t entry_ct, uint32_t* u32arr) {
-  for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
-    *u32arr++ = ~0U;
   }
 }
 
@@ -1381,115 +1371,10 @@ HEADER_INLINE BoolErr SortStrptrArrIndexed(uint32_t str_ct, uint32_t leave_first
 // returns -1 on failure to find, -2 if duplicate
 int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* variant_ids, const uintptr_t* variant_include, uint32_t variant_ct);
 
-// copy_subset() doesn't exist since a loop of the form
-//   uintptr_t uidx_base = 0;
-//   uintptr_t cur_bits = subset_mask[0];
-//   for (uint32_t idx = 0; idx != subset_size; ++idx) {
-//     const uintptr_t uidx = BitIter1(subset_mask, &uidx_base, &cur_bits);
-//     *target_iter++ = source_arr[uidx];
-//   }
-// seems to compile better?
-//
-// similarly, copy_when_nonmissing() retired in favor of genoarr_to_nonmissing
-// followed by a for loop
-
-// Benchmark results justify replacing this with XXH3 when the latter is ready.
-// Not considering it ready yet since the development XXH_INLINE_ALL setup
-// isn't very friendly.
-//
-// (Can also try using _mm_aesenc_si128() in a similar manner to the Golang
-// runtime when SSE4.2+ is available, and otherwise keeping Murmurhash.  See
-// aeshashbody() in https://golang.org/src/runtime/asm_amd64.s .)
-//
-// Eventually want this to be a constexpr?  Seems painful to make that work,
-// though.
-uint32_t Hash32(const void* key, uint32_t len);
-
-// see http://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
-// Note that this is a bit more vulnerable to adversarial input: modulo
-// reduction requires lots of hash collisions (or near-collisions) or known
-// hash table size, while this can be attacked without knowledge of the table
-// size.  But it doesn't really matter; either way, you'd need to add something
-// like a randomly generated salt if you care about defending.
-HEADER_INLINE uint32_t Hashceil(const char* idstr, uint32_t idlen, uint32_t htable_size) {
-  return (S_CAST(uint64_t, Hash32(idstr, idlen)) * htable_size) >> 32;
-}
-
-// In most cases, plink2 represents an array of strings in one of the following
-// two ways:
-//   (const char* strbox, uint32_t str_ct, uintptr_t max_str_blen):
-//     null-terminated string #x starts at &(strbox[x * max_str_blen)), where
-//     x is a 0-based index.
-//   (const char* const* item_ids, uint32_t str_ct):
-//     null-terminated string #x starts at item_ids[x].
-// When we need to perform string -> string-index lookups into the array, we
-// construct a hashmap as follows:
-// - Allocate a uint32_t array of htable_size >= 2 * str_ct, and initialize all
-//   entries to UINT32_MAX to mark them empty.
-// - Iterate through the array, computing hashval := Hashceil(str, strlen(str),
-//   htable_size) for each string, and then setting htable[hashval] :=
-//   string-index whenever that htable entry is empty.  When there is a
-//   conflict, use linear probing (increment hashval until an empty table cell
-//   is found, wrapping around from (htable_size - 1) to 0).
-//   - PLINK 1.9 used quadratic probing, but that's been scrapped since
-//     benchmark results suggest that it has no meaningful advantage.  We
-//     aren't dealing with adversarial input...
-// The "StrboxHtable" functions below work with the const char* strbox
-// string-array representation, while "IdHtable" functions work with the const
-// char* const* item_ids representation.
-
-// uintptr_t geqprime(uintptr_t floor);
-
-// assumes ceil is odd and greater than 4.  Returns the first prime <= ceil.
-// uintptr_t leqprime(uintptr_t ceil);
-
-HEADER_INLINE uint32_t GetHtableMinSize(uintptr_t item_ct) {
-  // Don't need primes any more.
-  return item_ct * 2;
-}
-
-// load factor ~22% seems to yield the best speed/space tradeoff on my test
-// machines
-HEADER_INLINE uint32_t GetHtableFastSize(uint32_t item_ct) {
-  if (item_ct < 954437176) {
-    return (item_ct * 9LLU) / 2;
-  }
-  return 4294967290U;
-}
-
 BoolErr HtableGoodSizeAlloc(uint32_t item_ct, uintptr_t bytes_avail, uint32_t** htable_ptr, uint32_t* htable_size_ptr);
 
 // returned index in duplicate-pair case is unfiltered
 // uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, const char* strbox, uintptr_t raw_str_ct, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable);
-
-// cur_id DOES need to be null-terminated
-uint32_t IdHtableFind(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
-
-// item_ids overread must be ok.  In exchange, cur_id doesn't need to be
-// null-terminated any more.
-uint32_t IdHtableFindNnt(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
-
-HEADER_INLINE void HtableAddNondup(const char* cur_id, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t value, uint32_t* id_htable) {
-  for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
-    const uint32_t cur_htable_entry = id_htable[hashval];
-    if (cur_htable_entry == UINT32_MAX) {
-      id_htable[hashval] = value;
-      return;
-    }
-    if (++hashval == id_htable_size) {
-      hashval = 0;
-    }
-  }
-}
-
-// Assumes cur_id is null-terminated.
-// item_ids overread must be ok.
-// Returns string-index if cur_id is already in the table, UINT32_MAX if it was
-// added.
-uint32_t IdHtableAdd(const char* cur_id, const char* const* item_ids, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t value, uint32_t* id_htable);
-
-// Does not require cur_id to be null-terminated.
-uint32_t IdHtableAddNnt(const char* cur_id, const char* const* item_ids, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t value, uint32_t* id_htable);
 
 // assumes cur_id_slen < max_str_blen.
 // requires cur_id to be null-terminated.
@@ -1770,22 +1655,17 @@ HEADER_INLINE void Vcount0Incr8To32(uint32_t acc8_vec_ct, VecW* acc8_iter, VecW*
 void VerticalCounterUpdate(const uintptr_t* acc1, uint32_t acc1_vec_ct, uint32_t* rem15_and_255d15, VecW* acc4_8_32);
 
 
-// forward_ct must be positive.  Stays put if forward_ct == 1 and current bit
-// is set.
-// In usual 64-bit case, also assumes bitvec is vector aligned.
-uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t forward_ct);
-
 HEADER_INLINE uint32_t IdxToUidxBasic(const uintptr_t* bitvec, uint32_t idx) {
   return FindNth1BitFrom(bitvec, 0, idx + 1);
 }
 
-// These functions assume (bit_ct * (thread_ct - 1)) < 2^64.
-// bit_ct must be positive, but can be smaller than thread_ct
-void FillU32SubsetStarts(const uintptr_t* subset, uint32_t thread_ct, uint32_t start, uint64_t bit_ct, uint32_t* starts);
-
 HEADER_INLINE void ComputeUidxStartPartition(const uintptr_t* variant_include, uint64_t variant_ct, uint32_t thread_ct, uint32_t first_uidx, uint32_t* variant_uidx_starts) {
   FillU32SubsetStarts(variant_include, thread_ct, first_uidx, variant_ct, variant_uidx_starts);
 }
+
+// These functions assume (bit_ct * (thread_ct - 1)) < 2^64.
+// bit_ct must be positive, but can be smaller than thread_ct
+// FillU32SubsetStarts moved to plink2_bits
 
 void FillWStarts(uint32_t thread_ct, uintptr_t start, uint64_t bit_ct, uintptr_t* starts);
 
@@ -1836,26 +1716,12 @@ HEADER_INLINE double NextFloat64(double dxx) {
 }
 
 
-// store_all_dups currently must be true for dup_ct to be set, but this is easy
-// to change
-PglErr PopulateIdHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, unsigned char** arena_bottom_ptr, uint32_t* id_htable, uint32_t* dup_ct_ptr);
-
 // Pass in htable_dup_base_ptr == nullptr if just flagging duplicate IDs rather
 // than tracking all their positions in item_ids.
 // Otherwise, htable_dup_base entries are guaranteed to be filled in increasing
 // order (briefly made that nondeterministic on 11 Oct 2019 and broke --rm-dup,
 // not doing that again).
 PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uintptr_t fast_size_min_extra_bytes, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_ct_ptr);
-
-PglErr MakeNondupHtable(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t id_htable_size, uint32_t max_thread_ct, uint32_t* id_htable, uint32_t* dup_found_ptr);
-
-PglErr AllocAndPopulateNondupHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t max_thread_ct, unsigned char** arena_bottom_ptr, uint32_t** id_htable_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_found_ptr);
-
-HEADER_INLINE PglErr CheckIdUniqueness(unsigned char* arena_bottom, unsigned char* arena_top, const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t* dup_found_ptr) {
-  uint32_t* id_htable;
-  uint32_t id_htable_size;
-  return AllocAndPopulateNondupHtableMt(arena_top, subset_mask, item_ids, item_ct, max_thread_ct, &arena_bottom, &id_htable, &id_htable_size, dup_found_ptr);
-}
 
 typedef struct HelpCtrlStruct {
   NONCOPYABLE(HelpCtrlStruct);
@@ -1873,11 +1739,12 @@ typedef struct HelpCtrlStruct {
 void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postprint_newline, const char* payload);
 
 
-extern const char kErrstrNomem[];
-extern const char kErrstrWrite[];
-extern const char kErrstrThreadCreate[];
 extern const char kErrstrReadCorrupted[];
 
+// 'r' in front for (file) read.  We default to a generic "File appears to be
+// corrupted" message when the C-library I/O function calls succeed (so errno
+// is 0) but we determine that the logical contents of the file don't make
+// sense.
 HEADER_INLINE const char* rstrerror(int errnum) {
   if (errnum) {
     return strerror(errnum);
