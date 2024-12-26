@@ -461,7 +461,7 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
           if (sample_ct > raw_sample_ct / 8) {
             // dense case
             // todo: tune threshold
-            // todo: try accelerating with SIMD
+            // todo: try accelerating with SIMD, this is still pretty slow
             for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
               char* next_sample_start = AdvPastDelim(sample_read_iter, '\t');
               if (IsSet(sample_include, sample_uidx)) {
@@ -484,6 +484,7 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
               char* next_sample_start = AdvPastDelim(sample_read_iter, '\t');
               write_iter = memcpya(write_iter, sample_read_iter, next_sample_start - sample_read_iter);
               prev_sample_uidx_p1 = cur_sample_uidx + 1;
+              sample_read_iter = next_sample_start;
             }
           }
           --write_iter;
