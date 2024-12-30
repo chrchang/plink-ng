@@ -36,11 +36,23 @@ CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 
 #else  // not NOLAPACK
 #  ifdef __APPLE__
+#    ifdef ACCELERATE_NEW_LAPACK
+#      ifdef LAPACK_ILP64
+#        define ACCELERATE_LAPACK_ILP64
+// unfortunately, compiler complains about incompatible pointer types if we
+// use the less-ambiguous "long long" or "int64_t" here
+typedef long __CLPK_integer;
+static_assert(sizeof(long) == 8, "Unexpected 'long' type size.");
+#      else
+typedef int32_t __CLPK_integer;
+#      endif
+#    else
+#      ifdef LAPACK_ILP64
+#        error "LAPACK_ILP64 requires ACCELERATE_NEW_LAPACK on macOS"
+#      endif
+#    endif
 #    include <Accelerate/Accelerate.h>
 #    define USE_CBLAS_XGEMM
-#    ifdef ACCELERATE_NEW_LAPACK
-typedef int32_t __CLPK_integer;
-#    endif
 #  elif defined(USE_AOCL)
 #    define USE_CBLAS_XGEMM
 #  endif

@@ -1913,7 +1913,6 @@ CONSTI32(kFloatPerFVec, kBytesPerFVec / 4);
 CONSTI32(kDoublePerDVec, kBytesPerDVec / 8);
 
 #if defined(__APPLE__) && defined(__LP64__) && !defined(__x86_64__)
-// TODO: make this 128 once that stops breaking code
 #  define CACHELINE128
 CONSTI32(kCacheline, 128);
 #else

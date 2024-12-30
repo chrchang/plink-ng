@@ -1298,6 +1298,14 @@ IntErr SvdRect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, doubl
 // dsyevr_ takes ~30% less time than dsyevd_ on OS X dev machine.  todo: retest
 // for Linux 64-bit MKL.
 BoolErr GetExtractEigvecsLworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lwork_ptr, __CLPK_integer* liwork_ptr, uintptr_t* wkspace_byte_ct_ptr) {
+#ifndef LAPACK_ILP64
+  if (unlikely(dim > 46340)) {
+    // (30 Dec 2024) maybe this still works on some systems despite matrix size
+    // being unrepresentable by __CLPK_integer?  but it doesn't on macOS:
+    //   https://groups.google.com/g/plink2-users/c/oteXlRFHdgk
+    return 1;
+  }
+#endif
   char jobz = 'V';
   char range = 'I';
   char uplo = 'U';
@@ -1321,7 +1329,7 @@ BoolErr GetExtractEigvecsLworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lw
     return 1;
   }
 #else
-  if (unlikely(info || (lwork_d > 2147483640.0))) {
+  if (unlikely(info || (lwork_d > 2147483648.0 - (kCacheline / sizeof(double))))) {
     return 1;
   }
 #endif

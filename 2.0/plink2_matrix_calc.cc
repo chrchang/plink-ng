@@ -5827,6 +5827,12 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         }
       }
     } else {
+#ifndef LAPACK_ILP64
+      if (unlikely(pca_sample_ct > 46340)) {
+        logerrputs("Error: --pca non-approximate problem instance too large for this " PROG_NAME_STR " build.\nTry \"--pca approx\" instead, or a " PROG_NAME_STR " build with large-matrix support.\n");
+        goto CalcPca_ret_INCONSISTENT_INPUT;
+      }
+#endif
       {
         // If there are NaNs in grm, ExtractEigvecs should fail; but we want to
         // print a customized error message in that case, and grm is destroyed
