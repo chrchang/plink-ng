@@ -171,6 +171,11 @@ typedef struct GlmCtxStruct {
   double vif_thresh;
   uintptr_t max_reported_test_ct;
 
+#ifndef NDEBUG
+  // temporary debug
+  const char* outname;
+#endif
+
   RegressionNmPrecomp* nm_precomp;
   RegressionNmPrecomp* nm_precomp_x;
   RegressionNmPrecomp* nm_precomp_y;

@@ -4733,6 +4733,28 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 }
               }
               if (!cur_cc_residualize) {
+#ifndef NDEBUG
+                if (g_debug_on && (variant_uidx == 0)) {
+                  // Dump phenotype values and predictor matrix to .inputs .
+                  char fname_buf[kPglFnamesize + 8];
+                  const uint32_t outname_slen = strlen(common->outname);
+                  char* fname_write_iter = memcpya(fname_buf, common->outname, outname_slen);
+                  strcpy_k(fname_write_iter, ".inputs");
+                  FILE* outfile;
+                  if (unlikely(fopen_checked(fname_buf, FOPEN_WB, &outfile))) {
+                    fprintf(stderr, "\nPanic: Failed to open .inputs file for writing.\n");
+                    exit(int(kPglRetOpenFail));
+                  }
+                  for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
+                    fprintf(outfile, "%g ", nm_pheno_buf[sample_idx]);
+                    for (uintptr_t pred_idx = 1; pred_idx != cur_predictor_ct; ++pred_idx) {
+                      fprintf(outfile, " %g", nm_predictors_pmaj_buf[nm_sample_ctav * pred_idx + sample_idx]);
+                    }
+                    fprintf(outfile, "\n");
+                  }
+                  fclose(outfile);
+                }
+#endif
                 if (FirthRegressionD(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, hdiag_buf, score_buf, hh0_buf, tmpnxk_buf)) {
                   glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
                   goto GlmLogisticThreadD_skip_regression;
@@ -5190,6 +5212,10 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       common->workspace_bufs[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(workspace_alloc));
     }
     common->err_info = (~0LLU) << 32;
+#ifndef NDEBUG
+    // temporary debug
+    common->outname = outname;
+#endif
     SetThreadFuncAndData(is_single_prec? GlmLogisticThreadF : GlmLogisticThreadD, ctx, &tg);
 
     const uint32_t ref_col = glm_cols & kfGlmColRef;
@@ -5863,6 +5889,16 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     fputs("\b\b", stdout);
     logputs("done.\n");
     logprintf("Results written to %s .\n", outname);
+#ifndef NDEBUG
+    // temporary debug
+    if (g_debug_on && (variant_ct == 1) && ctx->separation_found) {
+      char fname_buf[kPglFnamesize + 8];
+      const uint32_t outname_slen = strlen(outname);
+      char* fname_write_iter = memcpya(fname_buf, outname, outname_slen);
+      strcpy_k(fname_write_iter, ".inputs");
+      logprintf("Debug matrix written to %s .\n", fname_buf);
+    }
+#endif
     *valid_allele_ct_ptr = valid_allele_ct;
   }
   while (0) {
