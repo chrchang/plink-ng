@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.0, copyright (C) 2005-2024 Shaun Purcell,
+// This file is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6.5.b"
+static const char ver_str[] = "PLINK v2.0.0-a.6.5.d"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.0.0-a.6.5.b"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (30 Dec 2024)";
+  " (9 Jan 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -101,7 +101,7 @@ static const char ver_str2[] =
 #endif
 
   "  cog-genomics.org/plink/2.0/\n"
-  "(C) 2005-2024 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
+  "(C) 2005-2025 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
 #ifndef NOLAPACK

@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.0, copyright (C) 2005-2024 Shaun Purcell,
+// This file is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -4743,7 +4743,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                   FILE* outfile;
                   if (unlikely(fopen_checked(fname_buf, FOPEN_WB, &outfile))) {
                     fprintf(stderr, "\nPanic: Failed to open .inputs file for writing.\n");
-                    exit(int(kPglRetOpenFail));
+                    exit(S_CAST(int, kPglRetOpenFail));
                   }
                   for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                     fprintf(outfile, "%g ", nm_pheno_buf[sample_idx]);

@@ -1,7 +1,7 @@
 #ifndef __PLINK2_MATRIX_H__
 #define __PLINK2_MATRIX_H__
 
-// This file is part of PLINK 2.0, copyright (C) 2005-2024 Shaun Purcell,
+// This file is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -26,7 +26,8 @@
 // find it for Windows.  (And even if OS X vecLib adds it soon, we can't use it
 // there anytime soon because static linking is not an option.)
 
-#include "plink2_cmdline.h"
+// #include "plink2_cmdline.h"
+#include "include/plink2_bits.h"
 
 #ifdef NOLAPACK
 typedef double MatrixInvertBuf1;
@@ -35,10 +36,65 @@ CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 #  define __CLPK_integer int
 
 #else  // not NOLAPACK
+
+#  ifdef __APPLE__
+// Make -DLAPACK_ILP64 and -DACCELERATE_LAPACK_ILP64 have the same effect.
+#    if defined(LAPACK_ILP64) && !defined(ACCELERATE_LAPACK_ILP64)
+#      define ACCELERATE_LAPACK_ILP64
+#    endif
+#    if defined(ACCELERATE_LAPACK_ILP64) && !defined(LAPACK_ILP64)
+#      define LAPACK_ILP64
+#    endif
+#  endif
+
+#  ifdef DYNAMIC_MKL
+#    define USE_MKL
+#  endif
+
+#  ifdef USE_MKL
+#    ifdef __APPLE__
+#      error "plink2 cannot currently use MKL on OS X."
+#    endif
+#    ifdef LAPACK_ILP64
+#      define MKL_ILP64
+#    endif
+#    ifdef DYNAMIC_MKL
+#      include <mkl_service.h>
+#    else
+// If this isn't initially found, use the compiler's -I option to specify the
+// appropriate include-file directory.  A common location is
+// /opt/intel/mkl/include .
+// If this isn't installed at all on your system but you want/need to change
+// that, see the instructions at
+//   https://software.intel.com/en-us/articles/installing-intel-free-libs-and-python-apt-repo
+#      include "mkl_service.h"
+#    endif
+#    define USE_MTBLAS
+// this technically doesn't have to be a macro, but it's surrounded by other
+// things which do have to be macros, so changing this to a namespaced function
+// arguably *decreases* overall readability...
+#    define BLAS_SET_NUM_THREADS mkl_set_num_threads
+#  else
+#    ifdef USE_OPENBLAS
+#      ifdef __cplusplus
+extern "C" {
+#      endif
+  void openblas_set_num_threads(int num_threads);
+#      ifdef __cplusplus
+}  // extern "C"
+#      endif
+#      define USE_MTBLAS
+#      define BLAS_SET_NUM_THREADS openblas_set_num_threads
+#    else
+#      ifndef ACCELERATE_NEW_LAPACK
+#        define BLAS_SET_NUM_THREADS(num)
+#      endif
+#    endif
+#  endif
+
 #  ifdef __APPLE__
 #    ifdef ACCELERATE_NEW_LAPACK
 #      ifdef LAPACK_ILP64
-#        define ACCELERATE_LAPACK_ILP64
 // unfortunately, compiler complains about incompatible pointer types if we
 // use the less-ambiguous "long long" or "int64_t" here
 typedef long __CLPK_integer;
@@ -46,13 +102,24 @@ static_assert(sizeof(long) == 8, "Unexpected 'long' type size.");
 #      else
 typedef int32_t __CLPK_integer;
 #      endif
-#    else
+#    else // !ACCELERATE_NEW_LAPACK
 #      ifdef LAPACK_ILP64
 #        error "LAPACK_ILP64 requires ACCELERATE_NEW_LAPACK on macOS"
 #      endif
 #    endif
 #    include <Accelerate/Accelerate.h>
 #    define USE_CBLAS_XGEMM
+#    if defined(ACCELERATE_NEW_LAPACK) && !defined(USE_OPENBLAS)
+HEADER_INLINE void BLAS_SET_NUM_THREADS(__attribute__((unused)) int num_threads) {
+  if (__builtin_available(macOS 15.0, *)) {
+    if (num_threads > 1) {
+      BLASSetThreading(BLAS_THREADING_MULTI_THREADED);
+    } else {
+      BLASSetThreading(BLAS_THREADING_SINGLE_THREADED);
+    }
+  }
+}
+#    endif
 #  elif defined(USE_AOCL)
 #    define USE_CBLAS_XGEMM
 #  endif

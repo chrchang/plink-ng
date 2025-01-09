@@ -1,7 +1,7 @@
 #ifndef __PLINK2_BASE_H__
 #define __PLINK2_BASE_H__
 
-// This library is part of PLINK 2.0, copyright (C) 2005-2024 Shaun Purcell,
+// This library is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -3904,6 +3904,18 @@ HEADER_INLINE void ZeroPtrArr(uintptr_t entry_ct, void* pp) {
 
 HEADER_INLINE void ZeroHwArr(uintptr_t entry_ct, Halfword* hwarr) {
   memset(hwarr, 0, entry_ct * sizeof(Halfword));
+}
+
+HEADER_INLINE void ZeroFArr(uintptr_t entry_ct, float* farr) {
+  for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
+    *farr++ = 0.0;
+  }
+}
+
+HEADER_INLINE void ZeroDArr(uintptr_t entry_ct, double* darr) {
+  for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
+    *darr++ = 0.0;
+  }
 }
 
 HEADER_INLINE void SetAllWArr(uintptr_t entry_ct, uintptr_t* warr) {

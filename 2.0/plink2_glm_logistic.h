@@ -1,7 +1,7 @@
 #ifndef __PLINK2_GLM_LOGISTIC_H__
 #define __PLINK2_GLM_LOGISTIC_H__
 
-// This file is part of PLINK 2.0, copyright (C) 2005-2024 Shaun Purcell,
+// This file is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it

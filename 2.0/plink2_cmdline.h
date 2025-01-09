@@ -1,7 +1,7 @@
 #ifndef __PLINK2_CMDLINE_H__
 #define __PLINK2_CMDLINE_H__
 
-// This library is part of PLINK 2.0, copyright (C) 2005-2024 Shaun Purcell,
+// This library is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -33,49 +33,6 @@
 
 #ifndef _WIN32
 #  include <sys/stat.h>
-#endif
-
-#ifdef DYNAMIC_MKL
-#  define USE_MKL
-#endif
-
-#ifdef USE_MKL
-#  ifdef __APPLE__
-#    error "plink2 cannot currently use MKL on OS X."
-#  endif
-#  ifdef LAPACK_ILP64
-#    define MKL_ILP64
-#  endif
-#  ifdef DYNAMIC_MKL
-#    include <mkl_service.h>
-#  else
-// If this isn't initially found, use the compiler's -I option to specify the
-// appropriate include-file directory.  A common location is
-// /opt/intel/mkl/include .
-// If this isn't installed at all on your system but you want/need to change
-// that, see the instructions at
-//   https://software.intel.com/en-us/articles/installing-intel-free-libs-and-python-apt-repo
-#    include "mkl_service.h"
-#  endif
-#  define USE_MTBLAS
-// this technically doesn't have to be a macro, but it's surrounded by other
-// things which do have to be macros, so changing this to a namespaced function
-// arguably *decreases* overall readability...
-#  define BLAS_SET_NUM_THREADS mkl_set_num_threads
-#else
-#  ifdef USE_OPENBLAS
-#    ifdef __cplusplus
-extern "C" {
-#    endif
-      void openblas_set_num_threads(int num_threads);
-#    ifdef __cplusplus
-}  // extern "C"
-#    endif
-#    define USE_MTBLAS
-#    define BLAS_SET_NUM_THREADS openblas_set_num_threads
-#  else
-#    define BLAS_SET_NUM_THREADS(num)
-#  endif
 #endif
 
 #ifdef _WIN32
@@ -1149,18 +1106,6 @@ HEADER_INLINE void ZeroI32Arr(uintptr_t entry_ct, int32_t* i32arr) {
 HEADER_INLINE void SetAllI32Arr(uintptr_t entry_ct, int32_t* i32arr) {
   for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
     *i32arr++ = -1;
-  }
-}
-
-HEADER_INLINE void ZeroFArr(uintptr_t entry_ct, float* farr) {
-  for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
-    *farr++ = 0.0;
-  }
-}
-
-HEADER_INLINE void ZeroDArr(uintptr_t entry_ct, double* darr) {
-  for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
-    *darr++ = 0.0;
   }
 }
 

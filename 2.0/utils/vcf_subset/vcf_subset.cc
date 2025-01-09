@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Christopher Chang.
+// Copyright (C) 2024-2025 Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License as published by the
@@ -22,7 +22,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "vcf_subset v1.0.0"
+static const char ver_str[] = "vcf_subset v1.0.1"
 
 #ifdef __LP64__
 #  ifdef USE_AVX2
@@ -38,10 +38,10 @@ static const char ver_str[] = "vcf_subset v1.0.0"
   " 32-bit"
 #endif
 
-  " (26 Dec 2024)";
+  " (9 Jan 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
   // length of architecture string + this string should be 7 characterrs
 #ifdef __LP64__
@@ -58,7 +58,7 @@ static const char ver_str2[] =
   ""
 #endif
   "              cog-genomics.org/plink/2.0/\n"
-  "(C) 2024 Christopher Chang                                          GNU LGPL v3\n";
+  "(C) 2024-2025 Christopher Chang                                     GNU LGPL v3\n";
 
 void PrintVer() {
   fputs(ver_str, stdout);
@@ -151,7 +151,7 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
     char* readbuf;
     char* writebuf;
     if (unlikely(arena_alloc_c(bigstack_end, max_line_blen + kDecompressChunkSize, &bigstack_base, &readbuf) ||
-                 arena_alloc_c(bigstack_end, max_line_blen + kMaxMediumLine, &bigstack_base, &writebuf))) {
+                 arena_alloc_c(bigstack_end, max_line_blen + kBytesPerVec + kMaxMediumLine, &bigstack_base, &writebuf))) {
       goto VcfSubset_ret_NOMEM;
     }
     char* write_iter = writebuf;
@@ -185,13 +185,20 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
     // Can only be >1 if bgzf.  (But that's the expected case.)
     decompress_thread_ct = MAXV(1, TextDecompressThreadCt(&in_txs));
 
-    uintptr_t* sample_include = nullptr;
+    // Array of length (2 * sample_include_interval_ct).  For each k in [0,
+    // sample_include_interval_ct), the samples in
+    // [sample_include_endpoints[2k], sample_include_endpoints[2k+1]) are
+    // included; and no others are.  This minimizes the number of
+    // memory-copies we need to perform.
+    uint32_t* sample_include_endpoints = nullptr;
     char* line_start = TextLineEnd(&in_txs);
     uint32_t raw_sample_ct = 0;
     uint32_t raw_sample_ctl = 0;
     uint32_t sample_ct = 0;
+    uint32_t sample_include_interval_ct = 0;
     {
       unsigned char* bigstack_mark2 = bigstack_base;
+      unsigned char* bigstack_end_mark = bigstack_end;
       char* header = R_CAST(char*, bigstack_base);
       char* header_limit = &(header[max_header_blen]);
       char* header_write_iter = header;
@@ -273,6 +280,7 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
 
       char* info_end = &(line_start[strlen("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")]);
       header_write_iter = memcpya(header_write_iter, line_start, info_end - line_start);
+      uintptr_t* sample_include = nullptr;
       if (StrStartsWithUnsafe(info_end, "\tFORMAT\t")) {
         char* first_sample_id_start = &(info_end[strlen("\tFORMAT\t")]);
         // 1. count number of samples
@@ -280,13 +288,16 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
         // 3. construct sample ID hash table, error out if any ID duplicated,
         //    apply --indv/--keep if present
         // 4. generate output header line
+        // 5. convert sample_include to sample_include_endpoints
         raw_sample_ct = 1 + CountByte(first_sample_id_start, '\t', chrom_line_lf - first_sample_id_start);
         raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+        // Convenient to initialize a zero bit past the end of sample_include.
         const char** sample_ids;
         if (unlikely(arena_alloc_kcp(bigstack_end, raw_sample_ct, &bigstack_base, &sample_ids) ||
-                     arena_end_alloc_w(bigstack_base, raw_sample_ctl, &bigstack_end, &sample_include))) {
+                     arena_alloc_w(bigstack_end, 1 + (raw_sample_ct / kBitsPerWord), &bigstack_base, &sample_include))) {
           goto VcfSubset_ret_NOMEM;
         }
+        sample_include[raw_sample_ct / kBitsPerWord] = 0;
         SetAllBits(raw_sample_ct, sample_include);
         const uint32_t raw_sample_ctm1 = raw_sample_ct - 1;
         // Construct array of C-strings, pointing to (now-null-terminated)
@@ -413,9 +424,36 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
       }
       bigstack_base = bigstack_mark2;
       line_start = &(chrom_line_lf[1]);
+      if (sample_ct > 0) {
+        // Number of endpoints can't be larger than raw_sample_ct+1, since no
+        // endpoint is repeated (we'd have two touching intervals that can be
+        // merged).
+        // Number of endpoints also can't be larger than sample_ct*2.
+        const uint32_t endpoint_ct_ub = MINV(raw_sample_ct + 1, sample_ct * 2);
+        if (unlikely(arena_alloc_u32(bigstack_end, endpoint_ct_ub, &bigstack_base, &sample_include_endpoints))) {
+          goto VcfSubset_ret_NOMEM;
+        }
+        uint32_t samples_accounted_for = 0;
+        for (uint32_t sample_uidx = 0; ; ) {
+          const uint32_t intv_start = AdvTo1Bit(sample_include, sample_uidx);
+          const uint32_t intv_end = AdvTo0Bit(sample_include, intv_start + 1);
+          sample_include_endpoints[2 * sample_include_interval_ct] = intv_start;
+          sample_include_endpoints[2 * sample_include_interval_ct + 1] = intv_end;
+          ++sample_include_interval_ct;
+          samples_accounted_for += intv_end - intv_start;
+          if (samples_accounted_for == sample_ct) {
+            break;
+          }
+          sample_uidx = intv_end + 1;
+        }
+        // technically not needed
+        bigstack_end = bigstack_end_mark;
+      }
     }
     ++line_idx;
     const uintptr_t first_variant_line_idx = line_idx;
+    // There is more room for parallelization here: plink2 still beats this on
+    // wall-clock time in some denser cases, despite doing more work.
     for (; TextGetUnsafe2(&in_txs, &line_start); ++line_idx) {
       char* line_end = AdvPastDelim(line_start, '\n');
       char* filter_end = AdvToNthDelimChecked(line_start, line_end, 7, '\t');
@@ -434,9 +472,10 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
           goto VcfSubset_ret_MISSING_TOKENS;
         }
         char* format_start = &(info_end[1]);
-        // this count is efficient enough that we may as well do it up front,
+        // This count is efficient enough that we may as well do it up front,
         // and remove the corresponding check from the sample-filtering inner
         // loop.
+        // (Tried moving this into the main loop, barely made a difference.)
         const uint32_t line_raw_sample_ct = CountByte(format_start, '\t', line_end - format_start);
         if (unlikely(line_raw_sample_ct != raw_sample_ct)) {
           if (line_raw_sample_ct < raw_sample_ct) {
@@ -450,45 +489,66 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
         if (*line_crlf == '\r') {
           --line_crlf;
         }
-        if (sample_ct == raw_sample_ct) {
-          // trivial copy-all case
-          write_iter = memcpya(write_iter, info_end, line_crlf - info_end);
-        } else {
-          char* sample_read_iter = AdvPastDelim(format_start, '\t');
-          write_iter = memcpya(write_iter, info_end, sample_read_iter - info_end);
-          // This lets us avoid special-casing the last sample.
-          *line_crlf = '\t';
-          if (sample_ct > raw_sample_ct / 8) {
-            // dense case
-            // todo: tune threshold
-            // todo: try accelerating with SIMD, this is still pretty slow
-            for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
-              char* next_sample_start = AdvPastDelim(sample_read_iter, '\t');
-              if (IsSet(sample_include, sample_uidx)) {
-                write_iter = memcpya(write_iter, sample_read_iter, next_sample_start - sample_read_iter);
-              }
-              sample_read_iter = next_sample_start;
+        char* sample_read_iter = AdvPastDelim(format_start, '\t');
+        write_iter = memcpya(write_iter, info_end, sample_read_iter - info_end);
+        // This lets us avoid special-casing the last sample.
+        *line_crlf = '\t';
+
+#ifdef __LP64__
+        // Small variable-length memcpys can get expensive if we're doing
+        // thousands of them per line.  Instead, explicitly copy entire
+        // 16-/32-byte vectors at a time and overwrite or ignore trailing
+        // bytes.
+        const VecUc all_tab_vvec = vecuc_set1(9);
+#endif
+        // Loop precondition: sample_read_iter points to the tab at the end of
+        // the sample_uidx entry (or, on the first iteration, the tab at the
+        // end of FORMAT).
+        --sample_read_iter;
+        // intentional wraparound
+        uint32_t sample_uidx = UINT32_MAX;
+        for (uint32_t intv_idx = 0; intv_idx != sample_include_interval_ct; ++intv_idx) {
+          const uint32_t intv_start = sample_include_endpoints[intv_idx * 2];
+          const uint32_t intv_end = sample_include_endpoints[intv_idx * 2 + 1];
+#ifdef __LP64__
+          for (uint32_t leading_tabs_remaining = intv_start - sample_uidx; ; sample_read_iter = &(sample_read_iter[kBytesPerVec])) {
+            const VecUc cur_vvec = vecuc_loadu(sample_read_iter);
+            const VecUc cur_tab_vvec = (cur_vvec == all_tab_vvec);
+            const uint32_t cur_tab_bits = vecuc_movemask(cur_tab_vvec);
+            const uint32_t cur_tab_ct = PopcountVec8thUint(cur_tab_bits);
+            if (leading_tabs_remaining <= cur_tab_ct) {
+              const uint32_t final_tab_offset = WordBitIdxToUidx(cur_tab_bits, leading_tabs_remaining - 1);
+              sample_read_iter = &(sample_read_iter[final_tab_offset + 1]);
+              break;
             }
-          } else {
-            // sparse case
-            uint32_t prev_sample_uidx_p1 = 0;
-            uintptr_t sample_uidx_base = 0;
-            uintptr_t cur_bits = sample_include[0];
-            for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-              const uint32_t cur_sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-              const uint32_t skip_ct = cur_sample_uidx - prev_sample_uidx_p1;
-              if (skip_ct) {
-                sample_read_iter = AdvToNthDelim(sample_read_iter, skip_ct, '\t');
-                ++sample_read_iter;
-              }
-              char* next_sample_start = AdvPastDelim(sample_read_iter, '\t');
-              write_iter = memcpya(write_iter, sample_read_iter, next_sample_start - sample_read_iter);
-              prev_sample_uidx_p1 = cur_sample_uidx + 1;
-              sample_read_iter = next_sample_start;
-            }
+            leading_tabs_remaining -= cur_tab_ct;
           }
-          --write_iter;
+          for (uint32_t keep_tabs_remaining = intv_end - intv_start; ; sample_read_iter = &(sample_read_iter[kBytesPerVec]), write_iter = &(write_iter[kBytesPerVec])) {
+            const VecUc cur_vvec = vecuc_loadu(sample_read_iter);
+            vecuc_storeu(write_iter, cur_vvec);
+            const VecUc cur_tab_vvec = (cur_vvec == all_tab_vvec);
+            const uint32_t cur_tab_bits = vecuc_movemask(cur_tab_vvec);
+            const uint32_t cur_tab_ct = PopcountVec8thUint(cur_tab_bits);
+            if (keep_tabs_remaining <= cur_tab_ct) {
+              const uint32_t final_tab_offset = WordBitIdxToUidx(cur_tab_bits, keep_tabs_remaining - 1);
+              sample_read_iter = &(sample_read_iter[final_tab_offset + 1]);
+              write_iter = &(write_iter[final_tab_offset + 1]);
+              break;
+            }
+            keep_tabs_remaining -= cur_tab_ct;
+          }
+#else
+          char* copy_prestart = AdvToNthDelim(sample_read_iter, intv_start - sample_uidx, '\t');
+          char* copy_start = &(copy_prestart[1]);
+          char* copy_last = AdvToNthDelim(copy_start, intv_end - intv_start, '\t');
+          char* copy_end = &(copy_last[1]);
+          write_iter = memcpya(write_iter, copy_start, copy_end - copy_start);
+
+          sample_read_iter = copy_end;
+#endif
+          sample_uidx = intv_end;
         }
+        --write_iter;
       }
       AppendBinaryEoln(&write_iter);
       if (unlikely(bgzfwrite_ck(writebuf_flush, &out_bgzf, &write_iter))) {
