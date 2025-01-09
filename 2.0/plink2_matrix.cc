@@ -17,6 +17,8 @@
 
 #include "plink2_matrix.h"
 
+#include <math.h>  // fabs(), sqrt()
+
 #ifndef NOLAPACK
 #  ifndef __APPLE__
 
