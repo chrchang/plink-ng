@@ -4,9 +4,16 @@ RPvar::RPvar() {
   PreinitMinimalPvar(&_mp);
 }
 
-void RPvar::Load(String filename) {
+void RPvar::Load(String filename, bool omit_chrom, bool omit_pos) {
+  plink2::LoadMinimalPvarFlags load_flags = plink2::kfLoadMinimalPvar0;
+  if (omit_chrom) {
+    load_flags |= plink2::kfLoadMinimalPvarOmitChrom;
+  }
+  if (omit_pos) {
+    load_flags |= plink2::kfLoadMinimalPvarOmitPos;
+  }
   char errbuf[plink2::kPglErrstrBufBlen];
-  plink2::PglErr reterr = LoadMinimalPvar(filename.get_cstring(), &_mp, errbuf);
+  plink2::PglErr reterr = LoadMinimalPvarEx(filename.get_cstring(), load_flags, &_mp, errbuf);
   if (reterr != plink2::kPglRetSuccess) {
     if (reterr == plink2::kPglRetNomem) {
       stop("Out of memory");
@@ -20,6 +27,38 @@ void RPvar::Load(String filename) {
 
 uint32_t RPvar::GetVariantCt() const {
   return _mp.variant_ct;
+}
+
+const char* RPvar::GetVariantChrom(uint32_t variant_idx) const {
+  if (variant_idx >= _mp.variant_ct) {
+    char errbuf[256];
+    if (_mp.variant_ct) {
+      snprintf(errbuf, 256, "variant_num out of range (%d; must be 1..%d)", variant_idx + 1, _mp.variant_ct);
+    } else {
+      strcpy(errbuf, "pvar closed");
+    }
+    stop(errbuf);
+  }
+  if (_mp.chr_names == nullptr) {
+    stop("Chromosome information not loaded");
+  }
+  return _mp.chr_names[_mp.chr_idxs[variant_idx]];
+}
+
+int32_t RPvar::GetVariantPos(uint32_t variant_idx) const {
+  if (variant_idx >= _mp.variant_ct) {
+    char errbuf[256];
+    if (_mp.variant_ct) {
+      snprintf(errbuf, 256, "variant_num out of range (%d; must be 1..%d)", variant_idx + 1, _mp.variant_ct);
+    } else {
+      strcpy(errbuf, "pvar closed");
+    }
+    stop(errbuf);
+  }
+  if (_mp.variant_bps == nullptr) {
+    stop("Position information not loaded");
+  }
+  return _mp.variant_bps[variant_idx];
 }
 
 const char* RPvar::GetVariantId(uint32_t variant_idx) const {
@@ -104,18 +143,52 @@ RPvar::~RPvar() {
   plink2::CleanupMinimalPvar(&_mp);
 }
 
-//' Loads variant IDs and allele codes from a .pvar or .bim file (which can be
-//' compressed with gzip or Zstd).
+//' Loads variant positions, IDs, and allele codes from a .pvar or .bim file
+//' (which can be compressed with gzip or Zstd).
 //'
 //' @param filename .pvar/.bim file path.
+//' @param omit_chrom Whether to skip CHROM column.
+//' @param omit_pos Whether to skip POS column.
 //' @return A pvar object, which can be queried for variant IDs and allele
 //' codes.
 //' @export
 // [[Rcpp::export]]
-SEXP NewPvar(String filename) {
+SEXP NewPvar(String filename, bool omit_chrom = false, bool omit_pos = false) {
   XPtr<class RPvar> pvar(new RPvar(), true);
-  pvar->Load(filename);
+  pvar->Load(filename, omit_chrom, omit_pos);
   return List::create(_["class"] = "pvar", _["pvar"] = pvar);
+}
+
+//' Retrieve chromosome ID for given variant index.
+//'
+//' @param pvar Object returned by NewPvar().
+//' @param variant_num Variant index (1-based).
+//' @return Chromosome ID for the variant_numth variant.
+//' @export
+// [[Rcpp::export]]
+String GetVariantChrom(List pvar, int variant_num) {
+  if (strcmp_r_c(pvar[0], "pvar")) {
+    stop("pvar is not a pvar object");
+  }
+  XPtr<class RPvar> rp = as<XPtr<class RPvar> >(pvar[1]);
+  String ss(rp->GetVariantChrom(variant_num - 1));
+  return ss;
+}
+
+//' Retrieve POS (base-pair coordinate on a chromosome) for given variant
+//' index.
+//'
+//' @param pvar Object returned by NewPvar().
+//' @param variant_num Variant index (1-based).
+//' @return POS for the variant_numth variant.
+//' @export
+// [[Rcpp::export]]
+int GetVariantPos(List pvar, int variant_num) {
+  if (strcmp_r_c(pvar[0], "pvar")) {
+    stop("pvar is not a pvar object");
+  }
+  XPtr<class RPvar> rp = as<XPtr<class RPvar> >(pvar[1]);
+  return rp->GetVariantPos(variant_num - 1);
 }
 
 //' Convert variant index to variant ID string.

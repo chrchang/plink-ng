@@ -674,7 +674,11 @@ HEADER_INLINE uint32_t CharToSex(char cc) {
 
 #ifndef HIGH_CONTIG_BUILD
 // note that this is no longer divisible by 64
+#  ifndef HIGH_AUTOSOME_NUM_BUILD
 CONSTI32(kMaxContigs, 65274);
+#  else
+CONSTI32(kMaxContigs, 64506);
+#  endif
 CONSTI32(kMaxChrCodeDigits, 5);
 
 // change ChrIdx to uint32_t if (kMaxContigs + kChrOffsetCt) > 65536
@@ -688,7 +692,11 @@ CONSTI32(kChrHtableSize, 130560);
 #else
 // Keep this number in sync with the top-of-file comment, and the error message
 // in TryToAddChrName().
+#  ifndef HIGH_AUTOSOME_NUM_BUILD
 CONSTI32(kMaxContigs, 982778);
+#  else
+CONSTI32(kMaxContigs, 982010);
+#  endif
 CONSTI32(kMaxChrCodeDigits, 6);
 
 typedef uint32_t ChrIdx;

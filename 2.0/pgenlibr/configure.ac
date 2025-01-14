@@ -2,7 +2,7 @@
 # https://github.com/ropensci/git2r/blob/master/configure.ac .
 
 AC_PREREQ([2.69])
-AC_INIT([pgenlibr],[0.3.7],[chrchang@alumni.caltech.edu])
+AC_INIT([pgenlibr],[0.4.0],[chrchang@alumni.caltech.edu])
 AC_PATH_PROG([PKGCONF],[pkg-config],[],[$PATH:/usr/local/bin:ext/bin:ext:/sw/bin:/opt/bin:/opt/local/bin])
 
 # Find the compiler and compiler flags to use for fallback version checks
@@ -96,12 +96,12 @@ else
       fi
     fi
   fi
-  if test "xx$COMPILE_ZSTD" == "xx"; then
+  if test "xx$COMPILE_ZSTD" = "xx"; then
     AC_MSG_NOTICE([zstd not detected by pkg-config; falling back on system header file check])
     zstd_ver_ok=no
     ${PATH_TO_CPP_COMPILER} ${CPPFLAGS} ${CXXFLAGS} -E tools/zstd_version.cpp >/dev/null 2>&1 && zstd_ver_ok=yes
     AC_MSG_RESULT([${zstd_ver_ok}])
-    if test "xx${zstd_ver_ok}" == "xxyes"; then
+    if test "xx${zstd_ver_ok}" = "xxyes"; then
       ZSTD_LIBS="-lzstd"
       COMPILE_ZSTD="false"
     else
@@ -110,7 +110,7 @@ else
   fi
 fi
 
-if test xx$COMPILE_ZSTD == "xxtrue"; then
+if test xx$COMPILE_ZSTD = "xxtrue"; then
   ZSTD_COMPILE_FLAG="-DZSTD_DISABLE_ASM"
   ZSTD_INCLUDE_PATH="-Izstd/lib -Izstd/lib/common"
   ZSTD_LIBS="${LIBS} -lPGZSTD"
@@ -146,12 +146,12 @@ else
       fi
     fi
   fi
-  if test "xx$COMPILE_LIBDEFLATE" == "xx"; then
+  if test "xx$COMPILE_LIBDEFLATE" = "xx"; then
     AC_MSG_NOTICE([libdeflate not detected by pkg-config; falling back on system header file check])
     libdeflate_ver_ok=no
     ${PATH_TO_CPP_COMPILER} ${CPPFLAGS} ${CXXFLAGS} -E tools/libdeflate_version.cpp >/dev/null 2>&1 && libdeflate_ver_ok=yes
     AC_MSG_RESULT([${libdeflate_ver_ok}])
-    if test "xx${libdeflate_ver_ok}" == "xxyes"; then
+    if test "xx${libdeflate_ver_ok}" = "xxyes"; then
       LIBDEFLATE_LIBS="-ldeflate"
       COMPILE_LIBDEFLATE="false"
     else
@@ -160,7 +160,7 @@ else
   fi
 fi
 
-if test xx$COMPILE_LIBDEFLATE == "xxtrue"; then
+if test xx$COMPILE_LIBDEFLATE = "xxtrue"; then
   LIBDEFLATE_INCLUDE_PATH="-Ilibdeflate"
   LIBDEFLATE_LIBS="${LIBS} -lPGDEFLATE"
   LIBDEFLATE_SHLIB="libPGDEFLATE.a"
@@ -189,12 +189,12 @@ else
       fi
     fi
   fi
-  if test "xx$USE_BUNDLED_SIMDE" == "xx"; then
+  if test "xx$USE_BUNDLED_SIMDE" = "xx"; then
     AC_MSG_NOTICE([simde not detected by pkg-config; falling back on system header file check])
     simde_ver_ok=no
     ${PATH_TO_CPP_COMPILER} ${CPPFLAGS} ${CXXFLAGS} -E tools/simde_version.cpp >/dev/null 2>&1 && simde_ver_ok=yes
     AC_MSG_RESULT([${simde_ver_ok}])
-    if test "xx${simde_ver_ok}" == "xxyes"; then
+    if test "xx${simde_ver_ok}" = "xxyes"; then
       USE_BUNDLED_SIMDE="false"
     else
       USE_BUNDLED_SIMDE="true"

@@ -4,6 +4,7 @@ import numpy as np
 import csv
 import os
 import random
+import string
 
 def generate_unphased_biallelic_test_genotypes(nsample, nvariant):
     geno_buf = np.zeros([nvariant, nsample], dtype=np.int8)
@@ -406,3 +407,49 @@ def test_phased_multiallelic(tmp_path):
         phased_multiallelic_case(tmp_path, case_idx, 1, 100, 1, 100, 2)
     for case_idx in range(ncase, 2*ncase):
         phased_multiallelic_case(tmp_path, case_idx, 1, 100, 1, 100, 255)
+
+def check_bim_concordance(bimr, chrom_list, pos_list, id_list, ref_list, alt_list):
+    nvariant = bimr.get_variant_ct()
+    assert nvariant == len(chrom_list)
+
+    assert bimr.get_max_allele_ct() == 2
+
+    ncheck = 5
+    for _ in range(0, ncheck):
+        vidx = random.randrange(nvariant)
+        assert chrom_list[vidx].encode("utf-8") == bimr.get_variant_chrom(vidx)
+        assert pos_list[vidx] == bimr.get_variant_pos(vidx)
+        assert id_list[vidx].encode("utf-8") == bimr.get_variant_id(vidx)
+        assert ref_list[vidx].encode("utf-8") == bimr.get_allele_code(vidx, 0)
+        assert alt_list[vidx].encode("utf-8") == bimr.get_allele_code(vidx, 1)
+
+def bim_case(tmp_path, case_idx, nvariant_min, nvariant_limit):
+    # A .bim file is supposed to be grandfathered in as a valid .pvar.
+    # This was broken in pvar_ffi_support before Jan 2025.
+    random.seed(case_idx)
+    nvariant = random.randrange(nvariant_min, nvariant_limit)
+
+    chrom_list = [random.choice(['chr1', 'chr21', 'PAR1', 'chrX', 'HLA-DRB1*13:01:01'])
+                  for _ in range(nvariant)]
+    pos_list = [random.randrange(-2147483646, 2147483647)
+                for _ in range(nvariant)]
+    id_list = [''.join(random.choices(string.ascii_letters + string.digits,
+                                      k=random.randrange(1, 20)))
+               for _ in range(nvariant)]
+    ref_list = [random.choice(['A', 'C', 'ACT']) for _ in range(nvariant)]
+    alt_list = [random.choice(['G', 'T', '<DEL>']) for _ in range(nvariant)]
+
+    test_bim_path = bytes(tmp_path / ("test_" + str(case_idx) + ".bim"))
+    with open(test_bim_path, 'w', newline='') as bimfile:
+        w = csv.writer(bimfile, delimiter='\t')
+        for vidx in range(nvariant):
+            # CHROM ID CM POS ALT REF
+            w.writerow([chrom_list[vidx], id_list[vidx], str(pos_list[vidx]),
+                        alt_list[vidx], ref_list[vidx]])
+    with pgenlib.PvarReader(test_bim_path) as bimr:
+        check_bim_concordance(bimr, chrom_list, pos_list, id_list, ref_list, alt_list)
+
+def test_bim(tmp_path):
+    ncase = 5
+    for case_idx in range(0, ncase):
+        bim_case(tmp_path, case_idx, 1, 100)

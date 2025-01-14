@@ -1174,9 +1174,9 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelimChecked(const char* str_iter, const char*
 }
 
 HEADER_INLINE CXXCONST_CP AdvToNthDelim(const char* str_iter, uint32_t ct, char delim) {
+  const VecUc vvec_all_delim = vecuc_set1(delim);
   const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
   VecUc* str_viter = R_CAST(VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
-  const VecUc vvec_all_delim = vecuc_set1(delim);
   VecUc cur_vvec = *str_viter;
   VecUc delim_vvec = (cur_vvec == vvec_all_delim);
   uint32_t delimiter_bytes = vecuc_movemask(delim_vvec);
@@ -1196,6 +1196,55 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelim(const char* str_iter, uint32_t ct, char 
     cur_vvec = *str_viter;
     delim_vvec = (cur_vvec == vvec_all_delim);
     delimiter_bytes = vecuc_movemask(delim_vvec);
+  }
+}
+
+HEADER_INLINE CXXCONST_CP AdvToNthDelimOverread(const char* str_iter, uint32_t ct, char delim) {
+  const VecUc vvec_all_delim = vecuc_set1(delim);
+  for (uint32_t remaining_delim_ct = ct; ; ) {
+    VecUc cur_vvec = vecuc_loadu(str_iter);
+    VecUc delim_vvec = (cur_vvec == vvec_all_delim);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+    uint32_t delimiter_bytes = vecuc_movemask(delim_vvec);
+    const uint32_t cur_delim_ct = PopcountVec8thUint(delimiter_bytes);
+#  else
+    // Unfortunately, movemask and word-popcount don't have good translations
+    // to ARMv8.
+    // We change the algorithm in the manner suggested by Danila Kutenin at
+    //   https://community.arm.com/arm-community-blogs/b/infrastructure-solutions-blog/posts/porting-x86-vector-bitmask-optimizations-to-arm-neon .
+    // TODO: write this in a way that avoids dependency on SIMDe internals.
+    // (This should include updating how the ifndef guard works.  Current guard
+    // is a quick and dirty hack that covers M1.)
+    simde__m128i_private delim_vvec_ = simde__m128i_to_private(delim_vvec);
+    // Just like SSE2 delimiter_bytes, except bits 0, 4, 8, ..., 60 are used
+    // instead of bits 0, 1, 2, ..., 15.
+    const uint64_t delimiter_bits4 = vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(delim_vvec_.neon_i8, 4)), 0) & kMask1111;
+    // Branchlessly count the number of set bits, taking advantage of the
+    // limited set of positions they can be in.
+    // Multiplication by the magic constant kMask1111 usually puts the sum of
+    // all 16 bits of interest in the high nybble of the result... except that
+    // the nybble overflows when all 16 bits are set.
+    // We work around this by
+    // (i) multiplying by (kMask1111 >> 4) instead, which excludes the lowest
+    //     bit from the high-nybble sum, and
+    // (ii) then adding the lowest bit afterward.
+    const uint32_t cur_delim_ct_excluding_lowest = (delimiter_bits4 * (kMask1111 >> 4)) >> 60;
+    const uint32_t cur_delim_ct = cur_delim_ct_excluding_lowest + (delimiter_bits4 & 1);
+#  endif
+    if (cur_delim_ct >= remaining_delim_ct) {
+      // Faster to do this part outside of vector-space in my testing.
+      for (; ; ++str_iter) {
+        const char cc = *str_iter;
+        if (cc != delim) {
+          continue;
+        }
+        if (!(--remaining_delim_ct)) {
+          return S_CAST(CXXCONST_CP, str_iter);
+        }
+      }
+    }
+    remaining_delim_ct -= cur_delim_ct;
+    str_iter = &(str_iter[kBytesPerVec]);
   }
 }
 #else  // !__LP64__
@@ -1220,6 +1269,10 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelim(const char* str_iter, uint32_t ct, char 
     }
     str_iter = &(next_delim[1]);
   }
+}
+
+HEADER_INLINE CXXCONST_CP AdvToNthDelimOverread(const char* str_iter, uint32_t ct, char delim) {
+  return AdvToNthDelim(str_iter, ct, delim);
 }
 #endif
 

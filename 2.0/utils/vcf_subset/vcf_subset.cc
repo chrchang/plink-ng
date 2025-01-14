@@ -17,12 +17,13 @@
 #include "../../include/plink2_htable.h"
 #include "../../include/plink2_memory.h"
 #include "../../include/plink2_text.h"
+#include <errno.h>
 
 #ifdef __cplusplus
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "vcf_subset v1.0.1"
+static const char ver_str[] = "vcf_subset v1.0.2"
 
 #ifdef __LP64__
 #  ifdef USE_AVX2
@@ -38,10 +39,10 @@ static const char ver_str[] = "vcf_subset v1.0.1"
   " 32-bit"
 #endif
 
-  " (9 Jan 2025)";
+  " (10 Jan 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 
   // length of architecture string + this string should be 7 characterrs
 #ifdef __LP64__
@@ -489,10 +490,12 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
         if (*line_crlf == '\r') {
           --line_crlf;
         }
-        char* sample_read_iter = AdvPastDelim(format_start, '\t');
-        write_iter = memcpya(write_iter, info_end, sample_read_iter - info_end);
         // This lets us avoid special-casing the last sample.
         *line_crlf = '\t';
+
+        const char* sample_read_iter = AdvPastDelim(format_start, '\t');
+        const char* info_end_k = info_end;
+        write_iter = memcpya(write_iter, info_end, sample_read_iter - info_end_k);
 
 #ifdef __LP64__
         // Small variable-length memcpys can get expensive if we're doing
@@ -510,38 +513,42 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
         for (uint32_t intv_idx = 0; intv_idx != sample_include_interval_ct; ++intv_idx) {
           const uint32_t intv_start = sample_include_endpoints[intv_idx * 2];
           const uint32_t intv_end = sample_include_endpoints[intv_idx * 2 + 1];
+          const char* copy_prestart = AdvToNthDelimOverread(sample_read_iter, intv_start - sample_uidx, '\t');
 #ifdef __LP64__
-          for (uint32_t leading_tabs_remaining = intv_start - sample_uidx; ; sample_read_iter = &(sample_read_iter[kBytesPerVec])) {
-            const VecUc cur_vvec = vecuc_loadu(sample_read_iter);
-            const VecUc cur_tab_vvec = (cur_vvec == all_tab_vvec);
-            const uint32_t cur_tab_bits = vecuc_movemask(cur_tab_vvec);
-            const uint32_t cur_tab_ct = PopcountVec8thUint(cur_tab_bits);
-            if (leading_tabs_remaining <= cur_tab_ct) {
-              const uint32_t final_tab_offset = WordBitIdxToUidx(cur_tab_bits, leading_tabs_remaining - 1);
-              sample_read_iter = &(sample_read_iter[final_tab_offset + 1]);
-              break;
-            }
-            leading_tabs_remaining -= cur_tab_ct;
-          }
+          sample_read_iter = &(copy_prestart[1]);
           for (uint32_t keep_tabs_remaining = intv_end - intv_start; ; sample_read_iter = &(sample_read_iter[kBytesPerVec]), write_iter = &(write_iter[kBytesPerVec])) {
             const VecUc cur_vvec = vecuc_loadu(sample_read_iter);
             vecuc_storeu(write_iter, cur_vvec);
             const VecUc cur_tab_vvec = (cur_vvec == all_tab_vvec);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
             const uint32_t cur_tab_bits = vecuc_movemask(cur_tab_vvec);
             const uint32_t cur_tab_ct = PopcountVec8thUint(cur_tab_bits);
+#  else
+            simde__m128i_private cur_tab_vvec_ = simde__m128i_to_private(cur_tab_vvec);
+            uint64_t cur_tab_bits4 = vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(cur_tab_vvec_.neon_i8, 4)), 0) & kMask1111;
+            const uint32_t cur_tab_ct_excluding_lowest = (cur_tab_bits4 * (kMask1111 >> 4)) >> 60;
+            const uint32_t cur_tab_ct = cur_tab_ct_excluding_lowest + (cur_tab_bits4 & 1);
+#  endif
             if (keep_tabs_remaining <= cur_tab_ct) {
-              const uint32_t final_tab_offset = WordBitIdxToUidx(cur_tab_bits, keep_tabs_remaining - 1);
-              sample_read_iter = &(sample_read_iter[final_tab_offset + 1]);
-              write_iter = &(write_iter[final_tab_offset + 1]);
+              const char* sample_read_iter_vstart = sample_read_iter;
+              while (1) {
+                const char cc = *sample_read_iter++;
+                if (cc != '\t') {
+                  continue;
+                }
+                if (!(--keep_tabs_remaining)) {
+                  break;
+                }
+              }
+              write_iter = &(write_iter[sample_read_iter - sample_read_iter_vstart]);
               break;
             }
             keep_tabs_remaining -= cur_tab_ct;
           }
 #else
-          char* copy_prestart = AdvToNthDelim(sample_read_iter, intv_start - sample_uidx, '\t');
-          char* copy_start = &(copy_prestart[1]);
-          char* copy_last = AdvToNthDelim(copy_start, intv_end - intv_start, '\t');
-          char* copy_end = &(copy_last[1]);
+          const char* copy_start = &(copy_prestart[1]);
+          const char* copy_last = AdvToNthDelim(copy_start, intv_end - intv_start, '\t');
+          const char* copy_end = &(copy_last[1]);
           write_iter = memcpya(write_iter, copy_start, copy_end - copy_start);
 
           sample_read_iter = copy_end;
@@ -797,7 +804,7 @@ int main(int argc, char** argv) {
         }
 #ifndef __LP64__
         if (unlikely(malloc_size_mib > kMalloc32bitMibMax)) {
-          fprintf(fprintf, "Error: --memory argument too large for 32-bit version (max %u).\n", kMalloc32bitMibMax);
+          fprintf(stderr, "Error: --memory argument too large for 32-bit version (max %u).\n", kMalloc32bitMibMax);
           goto main_ret_INVALID_CMDLINE;
         }
 #endif

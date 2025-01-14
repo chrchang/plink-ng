@@ -3173,7 +3173,12 @@ HEADER_INLINE void aligned_free_cond(void* aligned_ptr) {
   }
 }
 
-// C spec is slightly broken here
+// Common pattern is to initialize a data structure, then use it without
+// mutating it, then free it.
+// Yes, in principle you should have a non-const pointer to the data structure
+// to free it.  But my experience is that that makes too many beneficial uses
+// of const less ergonomic, without offering enough in return.  So we cheat a
+// bit, in a way that can be systematically cleaned up later if necessary.
 HEADER_INLINE void free_const(const void* memptr) {
   free(K_CAST(void*, memptr));
 }

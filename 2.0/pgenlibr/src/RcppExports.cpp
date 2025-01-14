@@ -223,13 +223,39 @@ BEGIN_RCPP
 END_RCPP
 }
 // NewPvar
-SEXP NewPvar(String filename);
-RcppExport SEXP _pgenlibr_NewPvar(SEXP filenameSEXP) {
+SEXP NewPvar(String filename, bool omit_chrom, bool omit_pos);
+RcppExport SEXP _pgenlibr_NewPvar(SEXP filenameSEXP, SEXP omit_chromSEXP, SEXP omit_posSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< String >::type filename(filenameSEXP);
-    rcpp_result_gen = Rcpp::wrap(NewPvar(filename));
+    Rcpp::traits::input_parameter< bool >::type omit_chrom(omit_chromSEXP);
+    Rcpp::traits::input_parameter< bool >::type omit_pos(omit_posSEXP);
+    rcpp_result_gen = Rcpp::wrap(NewPvar(filename, omit_chrom, omit_pos));
+    return rcpp_result_gen;
+END_RCPP
+}
+// GetVariantChrom
+String GetVariantChrom(List pvar, int variant_num);
+RcppExport SEXP _pgenlibr_GetVariantChrom(SEXP pvarSEXP, SEXP variant_numSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pvar(pvarSEXP);
+    Rcpp::traits::input_parameter< int >::type variant_num(variant_numSEXP);
+    rcpp_result_gen = Rcpp::wrap(GetVariantChrom(pvar, variant_num));
+    return rcpp_result_gen;
+END_RCPP
+}
+// GetVariantPos
+int GetVariantPos(List pvar, int variant_num);
+RcppExport SEXP _pgenlibr_GetVariantPos(SEXP pvarSEXP, SEXP variant_numSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pvar(pvarSEXP);
+    Rcpp::traits::input_parameter< int >::type variant_num(variant_numSEXP);
+    rcpp_result_gen = Rcpp::wrap(GetVariantPos(pvar, variant_num));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -300,7 +326,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pgenlibr_ReadList", (DL_FUNC) &_pgenlibr_ReadList, 3},
     {"_pgenlibr_VariantScores", (DL_FUNC) &_pgenlibr_VariantScores, 3},
     {"_pgenlibr_ClosePgen", (DL_FUNC) &_pgenlibr_ClosePgen, 1},
-    {"_pgenlibr_NewPvar", (DL_FUNC) &_pgenlibr_NewPvar, 1},
+    {"_pgenlibr_NewPvar", (DL_FUNC) &_pgenlibr_NewPvar, 3},
+    {"_pgenlibr_GetVariantChrom", (DL_FUNC) &_pgenlibr_GetVariantChrom, 2},
+    {"_pgenlibr_GetVariantPos", (DL_FUNC) &_pgenlibr_GetVariantPos, 2},
     {"_pgenlibr_GetVariantId", (DL_FUNC) &_pgenlibr_GetVariantId, 2},
     {"_pgenlibr_GetVariantsById", (DL_FUNC) &_pgenlibr_GetVariantsById, 2},
     {"_pgenlibr_GetAlleleCode", (DL_FUNC) &_pgenlibr_GetAlleleCode, 3},

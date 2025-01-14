@@ -45,7 +45,9 @@
   pgenlibr::GetVariantCt(pgen)
   pgenlibr::GetRawSampleCt(pgen)
 
-  # Get the ID of the first variant.
+  # Get the chromosome, position, and ID of the first variant.
+  GetVariantChrom(pvar, 1)
+  GetVariantPos(pvar, 1)
   GetVariantId(pvar, 1)
 
   # Read the 14th variant.

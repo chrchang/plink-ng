@@ -1,4 +1,3 @@
-
 INCL = ../inst/include
 
 PKG_CPPFLAGS = -DNO_UNALIGNED -DPGENLIB_NOPRINT @ZSTD_COMPILE_FLAG@ @LIBDEFLATE_COMPILE_FLAG@ @SIMDE_COMPILE_FLAG@ @ZSTD_INCLUDE_PATH@ @LIBDEFLATE_INCLUDE_PATH@ @SIMDE_INCLUDE_PATH@ -I$(INCL)
@@ -10,7 +9,7 @@ LIBZSTD = $(ZSTD_SOURCES:.c=.o)
 LIBDEFLATE_SOURCES = $(INCL)/libdeflate/lib/zlib_decompress.c $(INCL)/libdeflate/lib/zlib_compress.c $(INCL)/libdeflate/lib/utils.c $(INCL)/libdeflate/lib/gzip_compress.c $(INCL)/libdeflate/lib/crc32.c $(INCL)/libdeflate/lib/adler32.c $(INCL)/libdeflate/lib/deflate_decompress.c $(INCL)/libdeflate/lib/deflate_compress.c $(INCL)/libdeflate/lib/gzip_decompress.c $(INCL)/libdeflate/lib/arm/arm_cpu_features.c $(INCL)/libdeflate/lib/x86/x86_cpu_features.c
 LIBDEFLATE = $(LIBDEFLATE_SOURCES:.c=.o)
 
-LIBPLINK2_SOURCES = $(INCL)/include/plink2_base.cc $(INCL)/include/plink2_bits.cc $(INCL)/include/pgenlib_misc.cc $(INCL)/include/pgenlib_read.cc $(INCL)/include/plink2_bgzf.cc $(INCL)/include/plink2_string.cc $(INCL)/include/plink2_text.cc $(INCL)/include/plink2_thread.cc $(INCL)/include/plink2_zstfile.cc
+LIBPLINK2_SOURCES = $(INCL)/include/plink2_base.cc $(INCL)/include/plink2_bits.cc $(INCL)/include/pgenlib_ffi_support.cc $(INCL)/include/pgenlib_misc.cc $(INCL)/include/pgenlib_read.cc $(INCL)/include/plink2_bgzf.cc $(INCL)/include/plink2_htable.cc $(INCL)/include/plink2_memory.cc $(INCL)/include/plink2_string.cc $(INCL)/include/plink2_text.cc $(INCL)/include/plink2_thread.cc $(INCL)/include/plink2_zstfile.cc $(INCL)/include/pvar_ffi_support.cc
 LIBPLINK2 = $(LIBPLINK2_SOURCES:.cc=.o)
 
 $(SHLIB): @ZSTD_SHLIB@ @LIBDEFLATE_SHLIB@ libPLINK2.a
@@ -27,4 +26,4 @@ libPLINK2.a: $(LIBPLINK2)
 clean:
 	rm -f $(SHLIB) $(OBJECTS) @ZSTD_CLEAN@ @LIBDEFLATE_CLEAN@ $(LIBPLINK2)
 
-OBJECTS = $(INCL)/pvar_ffi_support.o $(INCL)/pgenlib_ffi_support.o pvar.o pgenlibr.o RcppExports.o
+OBJECTS = pvar.o pgenlibr.o RcppExports.o

@@ -1,4 +1,4 @@
-#include "pgenlib_ffi_support.h"
+#include "include/pgenlib_ffi_support.h"
 #include "include/pgenlib_read.h"
 #include "pvar.h"  // includes Rcpp
 

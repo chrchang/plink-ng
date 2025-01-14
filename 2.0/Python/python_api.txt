@@ -1,12 +1,20 @@
-Pgenlib Python API specification, v0.90
+Pgenlib Python API specification, v0.92
 ("import numpy as np" assumed)
 
 class PvarReader:
-* PvarReader(bytes filename)
-  Constructor, opens the .pvar or .bim file.
+* PvarReader(bytes filename, omit_chrom = False, omit_pos = False)
+  Constructor, opens the .pvar or .bim file.  To save memory, you can use
+  omit_chrom and/or omit_pos to skip loading of those columns.
 
 * get_variant_ct()
   Returns the number of variants in the .pvar file.
+
+* get_variant_chrom(uint32_t variant_idx)
+  Returns a variant's chromosome code, given 0-based index.
+
+* get_variant_pos(uint32_t variant_idx)
+  Returns a variant's POS (base-pair coordinate on a chromosome), given 0-based
+  index.
 
 * get_variant_id(uint32_t variant_idx)
   Returns a variant's ID, given 0-based index.

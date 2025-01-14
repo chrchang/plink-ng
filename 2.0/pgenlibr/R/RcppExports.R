@@ -240,15 +240,38 @@ ClosePgen <- function(pgen) {
     invisible(.Call(`_pgenlibr_ClosePgen`, pgen))
 }
 
-#' Loads variant IDs and allele codes from a .pvar or .bim file (which can be
-#' compressed with gzip or Zstd).
+#' Loads variant positions, IDs, and allele codes from a .pvar or .bim file
+#' (which can be compressed with gzip or Zstd).
 #'
 #' @param filename .pvar/.bim file path.
+#' @param omit_chrom Whether to skip CHROM column.
+#' @param omit_pos Whether to skip POS column.
 #' @return A pvar object, which can be queried for variant IDs and allele
 #' codes.
 #' @export
-NewPvar <- function(filename) {
-    .Call(`_pgenlibr_NewPvar`, filename)
+NewPvar <- function(filename, omit_chrom = FALSE, omit_pos = FALSE) {
+    .Call(`_pgenlibr_NewPvar`, filename, omit_chrom, omit_pos)
+}
+
+#' Retrieve chromosome ID for given variant index.
+#'
+#' @param pvar Object returned by NewPvar().
+#' @param variant_num Variant index (1-based).
+#' @return Chromosome ID for the variant_numth variant.
+#' @export
+GetVariantChrom <- function(pvar, variant_num) {
+    .Call(`_pgenlibr_GetVariantChrom`, pvar, variant_num)
+}
+
+#' Retrieve POS (base-pair coordinate on a chromosome) for given variant
+#' index.
+#'
+#' @param pvar Object returned by NewPvar().
+#' @param variant_num Variant index (1-based).
+#' @return POS for the variant_numth variant.
+#' @export
+GetVariantPos <- function(pvar, variant_num) {
+    .Call(`_pgenlibr_GetVariantPos`, pvar, variant_num)
 }
 
 #' Convert variant index to variant ID string.

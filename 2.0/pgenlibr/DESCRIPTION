@@ -1,8 +1,8 @@
 Package: pgenlibr
 Type: Package
 Title: PLINK 2 Binary (.pgen) Reader
-Version: 0.3.7
-Date: 2024-06-03
+Version: 0.4.0
+Date: 2025-01-11
 Authors@R: c(person(given = "Christopher",
                     family = "Chang",
                     role = c("aut", "cre"),

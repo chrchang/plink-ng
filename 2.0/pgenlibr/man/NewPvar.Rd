@@ -2,19 +2,23 @@
 % Please edit documentation in R/RcppExports.R
 \name{NewPvar}
 \alias{NewPvar}
-\title{Loads variant IDs and allele codes from a .pvar or .bim file (which can be
-compressed with gzip or Zstd).}
+\title{Loads variant positions, IDs, and allele codes from a .pvar or .bim file
+(which can be compressed with gzip or Zstd).}
 \usage{
-NewPvar(filename)
+NewPvar(filename, omit_chrom = FALSE, omit_pos = FALSE)
 }
 \arguments{
 \item{filename}{.pvar/.bim file path.}
+
+\item{omit_chrom}{Whether to skip CHROM column.}
+
+\item{omit_pos}{Whether to skip POS column.}
 }
 \value{
 A pvar object, which can be queried for variant IDs and allele
 codes.
 }
 \description{
-Loads variant IDs and allele codes from a .pvar or .bim file (which can be
-compressed with gzip or Zstd).
+Loads variant positions, IDs, and allele codes from a .pvar or .bim file
+(which can be compressed with gzip or Zstd).
 }

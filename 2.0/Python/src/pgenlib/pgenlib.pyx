@@ -119,13 +119,24 @@ cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
     uintptr_t PglComputeMaxAlleleCt(const uintptr_t* allele_idx_offsets, uint32_t variant_ct)
 
 
-cdef extern from "../plink2/pvar_ffi_support.h" namespace "plink2":
+cdef extern from "../plink2/include/pvar_ffi_support.h" namespace "plink2":
 
     cdef struct RefcountedWptrStruct:
         uintptr_t ref_ct
         uintptr_t* p
 
+    ctypedef uint16_t ChrIdx
+
+    ctypedef uint32_t LoadMinimalPvarFlags
+    cdef enum:
+        kfLoadMinimalPvar0
+        kfLoadMinimalPvarOmitChrom
+        kfLoadMinimalPvarOmitPos
+
     cdef struct MinimalPvarStruct:
+        const char** chr_names
+        const ChrIdx* chr_idxs
+        const int32_t* variant_bps
         const char** variant_ids
         const char** allele_storage
         RefcountedWptrStruct* allele_idx_offsetsp
@@ -133,11 +144,11 @@ cdef extern from "../plink2/pvar_ffi_support.h" namespace "plink2":
         uint32_t max_allele_ct
 
     void PreinitMinimalPvar(MinimalPvarStruct* mpp)
-    PglErr LoadMinimalPvar(const char* fname, MinimalPvarStruct* mpp, char* errstr_buf)
+    PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalPvarStruct* mpp, char* errstr_buf)
     void CleanupMinimalPvar(MinimalPvarStruct* mpp)
 
 
-cdef extern from "../plink2/pgenlib_ffi_support.h" namespace "plink2":
+cdef extern from "../plink2/include/pgenlib_ffi_support.h" namespace "plink2":
 
     void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* genobytes)
     void GenoarrToInt32sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* geno_int32)
@@ -245,11 +256,17 @@ cdef extern from "../plink2/include/pgenlib_write.h" namespace "plink2":
 cdef class PvarReader:
     cdef MinimalPvarStruct _mp
 
-    def __cinit__(self, bytes filename):
+    def __cinit__(self, bytes filename, bint omit_chrom = False,
+                  bint omit_pos = False):
         PreinitMinimalPvar(&self._mp)
         cdef const char* fname = <const char*>filename
         cdef char errstr_buf[kPglErrstrBufBlen]
-        if LoadMinimalPvar(fname, &self._mp, errstr_buf) != kPglRetSuccess:
+        cdef LoadMinimalPvarFlags load_flags = kfLoadMinimalPvar0
+        if omit_chrom:
+            load_flags |= kfLoadMinimalPvarOmitChrom
+        if omit_pos:
+            load_flags |= kfLoadMinimalPvarOmitPos
+        if LoadMinimalPvarEx(fname, load_flags, &self._mp, errstr_buf) != kPglRetSuccess:
             raise RuntimeError(errstr_buf[7:])
         return
 
@@ -260,6 +277,25 @@ cdef class PvarReader:
 
     cpdef get_variant_ct(self):
         return self._mp.variant_ct
+
+
+    cpdef get_variant_chrom(self, uint32_t variant_idx):
+        cdef uint32_t variant_ct = self._mp.variant_ct
+        if variant_idx >= variant_ct:
+            raise RuntimeError("0-based variant idx too large (" + str(variant_idx) + "; only " + str(variant_ct) + " in file).")
+        if self._mp.chr_names == NULL:
+            raise RuntimeError("Chromosome information not loaded.")
+        cdef py_string = self._mp.chr_names[self._mp.chr_idxs[variant_idx]]
+        return py_string
+
+
+    cpdef get_variant_pos(self, uint32_t variant_idx):
+        cdef uint32_t variant_ct = self._mp.variant_ct
+        if variant_idx >= variant_ct:
+            raise RuntimeError("0-based variant idx too large (" + str(variant_idx) + "; only " + str(variant_ct) + " in file).")
+        if self._mp.variant_bps == NULL:
+            raise RuntimeError("Position information not loaded.")
+        return self._mp.variant_bps[variant_idx]
 
 
     cpdef get_variant_id(self, uint32_t variant_idx):
