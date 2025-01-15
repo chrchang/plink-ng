@@ -11,8 +11,12 @@ function repair_wheel {
 }
 
 for PYBIN in /opt/python/*/bin; do
-    # running into https://github.com/pypa/distutils/issues/283 with pypy 3.8?
+    # PyPy 3.7-3.9 officially not supported, and 3.8-3.9 now fails here
+    # https://github.com/pypa/cibuildwheel/issues/1983
     if [ "${PYBIN}" = "/opt/python/pp38-pypy38_pp73/bin" ]; then
+        continue
+    fi
+    if [ "${PYBIN}" = "/opt/python/pp39-pypy39_pp73/bin" ]; then
         continue
     fi
     "${PYBIN}/pip" install -r Python/dev-requirements.txt
