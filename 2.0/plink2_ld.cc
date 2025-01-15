@@ -160,7 +160,8 @@ uint32_t StripUnplacedMut(const ChrInfo* cip, uintptr_t* variant_include) {
   if (cip->zero_extra_chrs) {
     for (uint32_t chr_idx = cip->max_code + 1; chr_idx != chr_code_end; ++chr_idx) {
       if (IsSet(cip->chr_mask, chr_idx)) {
-        skipped_variant_ct += CountChrVariantsUnsafe(variant_include, cip, cip->chr_idx_to_foidx[chr_idx]);
+        // bugfix (15 Jan 2025): passed wrong last parameter
+        skipped_variant_ct += CountChrVariantsUnsafe(variant_include, cip, chr_idx);
       }
     }
   }
