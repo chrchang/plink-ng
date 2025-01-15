@@ -1,4 +1,9 @@
-# pgenlibr 0.3.6 (2024-06-03)
+# pgenlibr 0.4.0 (2025-01-15)
+CHROM and POS columns in .pvar are now loaded by default, and they can be
+checked with GetVariantChrom() and GetVariantPos().  NewPvar() should now work
+properly on .bim files.
+
+# pgenlibr 0.3.7 (2024-06-03)
 Undo premature switch to system libdeflate in Makevars.win, which broke R 4.3
 Windows build.
 
