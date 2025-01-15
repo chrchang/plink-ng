@@ -11,6 +11,10 @@ function repair_wheel {
 }
 
 for PYBIN in /opt/python/*/bin; do
+    # running into https://github.com/pypa/distutils/issues/283 with pypy 3.8?
+    if ["${PYBIN}" = "/opt/python/pp38-pypy38_pp73/bin"] ; then
+        continue
+    fi
     "${PYBIN}/pip" install -r Python/dev-requirements.txt
     "${PYBIN}/pip" wheel Python/ --no-deps -w wheelhouse/
 done
