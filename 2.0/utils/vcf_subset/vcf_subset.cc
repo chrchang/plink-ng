@@ -23,7 +23,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "vcf_subset v1.0.2"
+static const char ver_str[] = "vcf_subset v1.0.3"
 
 #ifdef __LP64__
 #  ifdef USE_AVX2
@@ -39,7 +39,7 @@ static const char ver_str[] = "vcf_subset v1.0.2"
   " 32-bit"
 #endif
 
-  " (10 Jan 2025)";
+  " (16 Jan 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -798,7 +798,7 @@ int main(int argc, char** argv) {
           snprintf(g_textbuf, kTextbufSize, "Error: Invalid --memory argument '%s'.\n", argv[arg_idx]);
           goto main_ret_INVALID_CMDLINE_WW;
         }
-        if (unlikely(malloc_size_mib > bigstack_min_mib)) {
+        if (unlikely(malloc_size_mib < bigstack_min_mib)) {
           snprintf(g_textbuf, kTextbufSize, "Error: Invalid --memory argument '%s' (minimum %" PRIuPTR ").\n", argv[arg_idx], bigstack_min_mib);
           goto main_ret_INVALID_CMDLINE_WW;
         }
