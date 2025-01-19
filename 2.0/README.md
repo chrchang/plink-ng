@@ -43,7 +43,8 @@ Key properties:
   billion times as much accuracy to %g's default 6-digit limit as you do to
   imperfect string->double conversion in that setting.)
 
-(Coming soon: example text-processing programs using plink2_text.)
+The utils/vcf_subset/ program uses plink2_text (and its plink2_bgzf dependency)
+to efficiently work with BGZF-compressed VCF files.
 
 The second library is pgenlib.  This supports reading and writing of PLINK 2.x
 genotype files (".pgen").  A draft specification for this format is under
