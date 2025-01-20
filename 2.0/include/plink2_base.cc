@@ -366,7 +366,7 @@ int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct) {
     // tried unrolling this, doesn't make a difference
     const VecUc v1 = vecuc_loadu(&(m1_alias[vidx]));
     const VecUc v2 = vecuc_loadu(&(m2_alias[vidx]));
-    if (vecuc_movemask(v1 == v2) != kVec8thUintMax) {
+    if (!vecucs_are_equal(v1, v2)) {
       return 0;
     }
   }
@@ -376,7 +376,7 @@ int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct) {
     const uintptr_t final_offset = byte_ct - kBytesPerVec;
     const VecUc v1 = vecuc_loadu(&(m1_uc[final_offset]));
     const VecUc v2 = vecuc_loadu(&(m2_uc[final_offset]));
-    if (vecuc_movemask(v1 == v2) != kVec8thUintMax) {
+    if (!vecucs_are_equal(v1, v2)) {
       return 0;
     }
   }
@@ -460,22 +460,39 @@ int32_t Memcmp(const void* m1, const void* m2, uintptr_t byte_ct) {
   for (uintptr_t vidx = 0; vidx != fullvec_ct; ++vidx) {
     const VecUc v1 = vecuc_loadu(&(m1_alias[vidx]));
     const VecUc v2 = vecuc_loadu(&(m2_alias[vidx]));
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     // is this even worthwhile now in non-AVX2 case?
     const uint32_t movemask_result = vecuc_movemask(v1 == v2);
     if (movemask_result != kVec8thUintMax) {
+      // todo: check if this is faster to do outside of vector-space
       const uintptr_t diff_pos = vidx * kBytesPerVec + ctzu32(~movemask_result);
       return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
     }
+#  else
+    const uint64_t eq_nybbles = arm_shrn4_uc(v1 == v2);
+    if (eq_nybbles != UINT64_MAX) {
+      const uintptr_t diff_pos = vidx * kBytesPerVec + ctzw(~eq_nybbles) / 4;
+      return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
+    }
+#  endif
   }
   if (byte_ct % kBytesPerVec) {
     const uintptr_t final_offset = byte_ct - kBytesPerVec;
     const VecUc v1 = vecuc_loadu(&(m1_uc[final_offset]));
     const VecUc v2 = vecuc_loadu(&(m2_uc[final_offset]));
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     const uint32_t movemask_result = vecuc_movemask(v1 == v2);
     if (movemask_result != kVec8thUintMax) {
       const uintptr_t diff_pos = final_offset + ctzu32(~movemask_result);
       return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
     }
+#  else
+    const uint64_t eq_nybbles = arm_shrn4_uc(v1 == v2);
+    if (eq_nybbles != UINT64_MAX) {
+      const uintptr_t diff_pos = final_offset + ctzw(~eq_nybbles) / 4;
+      return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
+    }
+#  endif
   }
   return 0;
 }
@@ -640,10 +657,17 @@ uintptr_t FirstUnequal4(const void* arr1, const void* arr2, uintptr_t nbytes) {
   for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
     const VecUc v1 = vecuc_loadu(&(arr1_alias[vidx]));
     const VecUc v2 = vecuc_loadu(&(arr2_alias[vidx]));
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     const uint32_t eq_result = vecw_movemask(v1 == v2);
     if (eq_result != kVec8thUintMax) {
       return vidx * kBytesPerVec + ctzu32(~eq_result);
     }
+#  else
+    const uint64_t eq_nybbles = arm_shrn4_uc(v1 == v2);
+    if (eq_nybbles != UINT64_MAX) {
+      return vidx * kBytesPerVec + ctzw(~eq_nybbles) / 4;
+    }
+#  endif
   }
   if (nbytes % kBytesPerVec) {
     const uintptr_t final_offset = nbytes - kBytesPerVec;
@@ -651,10 +675,17 @@ uintptr_t FirstUnequal4(const void* arr1, const void* arr2, uintptr_t nbytes) {
     const char* s2 = S_CAST(const char*, arr2);
     const VecW v1 = vecw_loadu(&(s1[final_offset]));
     const VecW v2 = vecw_loadu(&(s2[final_offset]));
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     const uint32_t eq_result = vecw_movemask(v1 == v2);
     if (eq_result != kVec8thUintMax) {
       return final_offset + ctzu32(~eq_result);
     }
+#  else
+    const uint64_t eq_nybbles = arm_shrn4_uc(v1 == v2);
+    if (eq_nybbles != UINT64_MAX) {
+      return final_offset + ctzw(~eq_nybbles) / 4;
+    }
+#  endif
   }
   return nbytes;
 }
@@ -695,6 +726,7 @@ uintptr_t CountVintsNonempty(const unsigned char* buf, const unsigned char* buf_
   const uintptr_t ending_addr = R_CAST(uintptr_t, buf_end);
   const VecUc* buf_vlast = R_CAST(const VecUc*, RoundDownPow2(ending_addr - 1, kBytesPerVec));
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, buf_viter);
+  // todo: better ARM implementation
   Vec8thUint vint_ends = (UINT32_MAX << leading_byte_ct) & (~vecuc_movemask(*buf_viter));
   uintptr_t total = 0;
   while (buf_viter != buf_vlast) {

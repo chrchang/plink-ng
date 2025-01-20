@@ -3259,6 +3259,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
       const uintptr_t raw_allele_ctl = BitCtToWordCt(raw_allele_ct);
       allele_presents[raw_allele_ctl - 1] = 0;
 #ifdef __LP64__
+      // todo: better ARM implementation
       const uintptr_t vec_ct = DivUp(raw_allele_ct, kBytesPerVec);
       VecUc* bytearr_alias = R_CAST(VecUc*, ctx.allele_presents_bytearr);
       Vec8thUint* allele_presents_alias = R_CAST(Vec8thUint*, allele_presents);

@@ -4319,6 +4319,7 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
         fail_vec = veci8_permute0xd8_if_avx2(fail_vec);
         const VecI8 fail_vec_lo = veci8_unpacklo8(fail_vec, fail_vec);
         const VecI8 fail_vec_hi = veci8_unpackhi8(fail_vec, fail_vec);
+        // todo: better ARM implementation
         const Vec4thUint fail_bits_lo = veci8_movemask(fail_vec_lo);
         const Vec4thUint fail_bits_hi = veci8_movemask(fail_vec_hi);
         genovec_alias[vidx] |= fail_bits_lo | (fail_bits_hi << kBytesPerVec);
@@ -5394,6 +5395,7 @@ void BcfConvertBiallelicHaploidGt(const unsigned char* gt_main, uint32_t sample_
     const VecUc bcf_bytes_m2 = bcf_bytes + neg2;
     VecUc converted_bytes = vecuc_min(bcf_bytes_m2, three);
     // Now gather bits 0,1,8,9,... via movemask.
+    // todo: better ARM implementation
     converted_bytes = vecuc_permute0xd8_if_avx2(converted_bytes);
     VecW vec_lo = vecw_unpacklo8(R_CAST(VecW, converted_bytes), zero);
     VecW vec_hi = vecw_unpackhi8(R_CAST(VecW, converted_bytes), zero);
@@ -5514,6 +5516,7 @@ BcfParseErr BcfConvertUnphasedBiallelic(const BcfImportBaseContext* bibcp, const
         const VecU16 ready_for_lookup = (capped_bytes | vecu16_srli(capped_bytes, 6)) & mask_000f;
         const VecU16 lookup_result = vecu16_shuffle8(lookup_vec, ready_for_lookup) & mask_000f;
         half_call_error_bit2_vec |= lookup_result;
+        // todo: better ARM implementation
         const VecU16 ready_for_movemask = vecu16_slli(lookup_result, 7) | vecu16_slli(lookup_result, 14);
         const Vec8thUint geno_bits = vecu16_movemask(ready_for_movemask);
         genovec_alias[vidx] = geno_bits;
@@ -6220,6 +6223,7 @@ BcfParseErr BcfConvertPhasedBiallelic(const BcfImportBaseContext* bibcp, const G
         const Vec16thUint cur_phasepresent = _pext_u32(vecu16_movemask(shifted_unmasked_bytes), 0x55555555);
         const Vec16thUint cur_phaseinfo = _pext_u32(vecu16_movemask(bit9s_at_bit7), 0x55555555);
 #  else
+        // todo: better ARM implementation
         const VecU16 phasepresent_vec = vecu16_shuffle8(shifted_unmasked_bytes, gather_even);
         const VecU16 phaseinfo_vec = vecu16_shuffle8(bit9s_at_bit7, gather_even);
         const Vec16thUint cur_phasepresent = vecu16_movemask(phasepresent_vec);
@@ -11518,7 +11522,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
               for (; vec_idx != full_vec_ct; ++vec_idx) {
                 const VecUc cur_vec = vecuc_loadu(&(probs_start[vec_idx * kBytesPerVec]));
                 const VecUc safe_bytes = (cur_vec == vec0) | (cur_vec == vecmax);
-                if (vecuc_movemask(safe_bytes) != kVec8thUintMax) {
+                if (!vec0255_is_all_set(safe_bytes)) {
                   break;
                 }
               }
@@ -11534,7 +11538,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* raw_arg) {
               for (; vec_idx != full_vec_ct; ++vec_idx) {
                 const VecU16 cur_vec = vecu16_loadu(&(probs_start[vec_idx * kBytesPerVec]));
                 const VecU16 safe_u16s = (cur_vec == vec0) | (cur_vec == vecmax);
-                if (vecu16_movemask(safe_u16s) != kVec8thUintMax) {
+                if (!vec0255u16_is_all_set(safe_u16s)) {
                   break;
                 }
               }
@@ -14748,6 +14752,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           for (uint32_t uii = 0; uii != 2; ++uii) {
             VecU16 cur_chars = vecu16_loadu(linebuf_iter);
             linebuf_iter += kBytesPerVec;
+            // todo: better ARM implementation
             uintptr_t zero_mm = vecu16_movemask(cur_chars == all0);
             uintptr_t one_mm = vecu16_movemask(cur_chars == all1);
             cur_chars = vecu16_loadu(linebuf_iter);

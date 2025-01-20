@@ -106,7 +106,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 816
+#define PLINK2_BASE_VERNUM 817
 
 
 #define _FILE_OFFSET_BITS 64
@@ -950,8 +950,6 @@ HEADER_INLINE VecI8 veci8_set1(char cc) {
   return VecToI8( _mm256_set1_epi8(cc));
 }
 
-// TODO: on ARM, replace most movemask uses:
-// https://community.arm.com/arm-community-blogs/b/infrastructure-solutions-blog/posts/porting-x86-vector-bitmask-optimizations-to-arm-neon
 HEADER_INLINE uint32_t vecw_movemask(VecW vv) {
   return _mm256_movemask_epi8(WToVec(vv));
 }
@@ -1561,15 +1559,16 @@ HEADER_INLINE VecUc vecuc_gather_odd(VecUc src_lo, VecUc src_hi) {
 #    ifdef USE_SHUFFLE8
 #      ifdef SIMDE_ARM_NEON_A64V8_NATIVE
 // See simde_mm_shuffle_epi8().
-// In the future, this may need to be written more carefully in the
-// IGNORE_BUNDLED_SIMDE case.  But this is compatible with simde v0.7.x and
-// v0.8.x.
-SIMDE_FUNCTION_ATTRIBUTES simde__m128i _mm_shuffle_epi8(simde__m128i a, simde__m128i b) {
-  simde__m128i_private a_ = simde__m128i_to_private(a);
-  simde__m128i_private b_ = simde__m128i_to_private(b);
-  simde__m128i_private r_;
-  r_.neon_i8 = vqtbl1q_s8(a_.neon_i8, b_.neon_u8);
-  return simde__m128i_from_private(r_);
+HEADER_INLINE __m128i _mm_shuffle_epi8(__m128i a, __m128i b) {
+  SIMDE_ALIGN_TO_16 int8x16_t a_;
+  SIMDE_ALIGN_TO_16 int8x16_t b_;
+  SIMDE_ALIGN_TO_16 int8x16_t r_;
+  memcpy(&a_, &a, sizeof(a_));
+  memcpy(&b_, &b, sizeof(b_));
+  r_ = vqtbl1q_s8(a_, b_);
+  __m128i r;
+  memcpy(&r, &r_, sizeof(r));
+  return r;
 }
 #      endif
 HEADER_INLINE VecW vecw_shuffle8(VecW table, VecW indexes) {
@@ -2812,6 +2811,115 @@ HEADER_INLINE uint32_t PopcountVec8thUint(uint32_t val) {
 #  endif
 #endif
 
+#ifdef USE_SSE2
+// On ARM, emulated movemask isn't great.  But there are alternative
+// instructions that efficiently perform what you usually want to do with
+// movemasks:
+//   https://community.arm.com/arm-community-blogs/b/infrastructure-solutions-blog/posts/porting-x86-vector-bitmask-optimizations-to-arm-neon
+
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+// vec0255 refers to a VecUc where all bytes are equal to 0 or 255.
+// (possible todo: define this as its own type, with automatic downcast to
+// VecUc but not the other way around.)
+//
+// Return value in nonzero case is architecture-dependent (though always
+// nonzero).  So, best to only use this in other architecture-specific code;
+// hence the leading underscore in the function name.
+HEADER_INLINE uint64_t _vec0255_is_nonzero(VecUc vv) {
+  return vecuc_movemask(vv);
+}
+
+HEADER_INLINE uint32_t vec0255_set_ct(VecUc vv) {
+  return PopcountVec8thUint(vecuc_movemask(vv));
+}
+
+HEADER_INLINE uint32_t vec0255_is_all_set(VecUc vv) {
+  return (vecuc_movemask(vv) == kVec8thUintMax);
+}
+
+HEADER_INLINE uint32_t vec0255u16_is_all_set(VecU16 vv) {
+  return (vecu16_movemask(vv) == kVec8thUintMax);
+}
+
+HEADER_INLINE uint32_t m128is_are_equal(__m128i v1, __m128i v2) {
+  return (_mm_movemask_epi8(_mm_cmpeq_epi8(v1, v2)) == 65535);
+}
+#  else
+HEADER_INLINE uint64_t arm_shrn4_uc(VecUc vv) {
+  int8x16_t vv_;
+  memcpy(&vv_, &vv, sizeof(vv_));
+  return vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vv_, 4)), 0);
+}
+
+HEADER_INLINE uint64_t arm_shrn4_i8(VecI8 vv) {
+  int8x16_t vv_;
+  memcpy(&vv_, &vv, sizeof(vv_));
+  return vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vv_, 4)), 0);
+}
+
+HEADER_INLINE uint64_t arm_shrn4_u16(VecU16 vv) {
+  int8x16_t vv_;
+  memcpy(&vv_, &vv, sizeof(vv_));
+  return vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vv_, 4)), 0);
+}
+
+HEADER_INLINE uint64_t arm_shrn4_m128i(__m128i vv) {
+  int8x16_t vv_;
+  memcpy(&vv_, &vv, sizeof(vv_));
+  return vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vv_, 4)), 0);
+}
+
+HEADER_INLINE uint64_t _vec0255_is_nonzero(VecUc vv) {
+  return arm_shrn4_uc(vv);
+}
+
+// set_bits4 must only have bits in 0, 4, ..., 60 set.
+// move this out of ARM-only ifdef if we ever want this elsewhere.
+HEADER_INLINE uint32_t popcount_bits4(uint64_t set_bits4) {
+  // Branchlessly count the number of set bits, taking advantage of the limited
+  // set of positions they can be in.
+  // Multiplication by the magic constant kMask1111 usually puts the sum of
+  // all 16 bits of interest in the high nybble of the result... except that
+  // the nybble overflows when all 16 bits are set.  We work around this by
+  // (i) multiplying by (kMask1111 >> 4) instead, which excludes the lowest bit
+  //     from the high-nybble sum, and
+  // (ii) then adding the lowest bit afterward.
+  const uint32_t set_ct_excluding_lowest = (set_bits4 * (kMask1111 >> 4)) >> 60;
+  return set_ct_excluding_lowest + (set_bits4 & 1);
+}
+
+// xx must have all nybbles equal to 0 or 15.
+HEADER_INLINE uint32_t count_set_nybbles(uint64_t xx) {
+  return popcount_bits4(xx & kMask1111);
+}
+
+HEADER_INLINE uint32_t vec0255_set_ct(VecUc vv) {
+  return count_set_nybbles(arm_shrn4_uc(vv));
+}
+
+HEADER_INLINE uint32_t vec0255_is_all_set(VecUc vv) {
+  return (arm_shrn4_uc(vv) == UINT64_MAX);
+}
+
+HEADER_INLINE uint32_t vec0255u16_is_all_set(VecU16 vv) {
+  return (arm_shrn4_u16(vv) == UINT64_MAX);
+}
+
+HEADER_INLINE uint32_t m128is_are_equal(__m128i v1, __m128i v2) {
+  const uint64_t set_nybbles = arm_shrn4_m128i(_mm_cmpeq_epi8(v1, v2));
+  return (set_nybbles == UINT64_MAX);
+}
+#  endif
+
+HEADER_INLINE uint32_t vecucs_are_equal(VecUc v1, VecUc v2) {
+  return vec0255_is_all_set(v1 == v2);
+}
+
+HEADER_INLINE uint32_t vecu16s_are_equal(VecU16 v1, VecU16 v2) {
+  return vec0255u16_is_all_set(v1 == v2);
+}
+#endif
+
 // Downcasts don't risk alignment issues.
 HEADER_INLINE unsigned char* DowncastToUc(void* pp) {
   return S_CAST(unsigned char*, pp);
@@ -3325,7 +3433,7 @@ template <> struct MemequalKImpl<16> {
   static int32_t MemequalK(const void* m1, const void* m2) {
     const __m128i v1 = _mm_loadu_si128(S_CAST(const __m128i*, m1));
     const __m128i v2 = _mm_loadu_si128(S_CAST(const __m128i*, m2));
-    return (_mm_movemask_epi8(_mm_cmpeq_epi8(v1, v2)) == 65535);
+    return m128is_are_equal(v1, v2);
   }
 };
 
@@ -3336,7 +3444,7 @@ template <uint32_t N> struct MemequalKImpl<N, TRange<(17 <= N) && (N <= 24)> > {
     const __m128i v1 = _mm_loadu_si128(S_CAST(const __m128i*, m1));
     const __m128i v2 = _mm_loadu_si128(S_CAST(const __m128i*, m2));
     return
-      (_mm_movemask_epi8(_mm_cmpeq_epi8(v1, v2)) == 65535) &&
+      m128is_are_equal(v1, v2) &&
       ((*R_CAST(const uint64_t*, &(m1_uc[N - 8]))) == (*R_CAST(const uint64_t*, &(m2_uc[N - 8]))));
   }
 };
@@ -3345,14 +3453,14 @@ template <uint32_t N> struct MemequalKImpl<N, TRange<(25 <= N) && (N <= 31)> > {
   static int32_t MemequalK(const void* m1, const void* m2) {
     __m128i v1 = _mm_loadu_si128(S_CAST(const __m128i*, m1));
     __m128i v2 = _mm_loadu_si128(S_CAST(const __m128i*, m2));
-    if (_mm_movemask_epi8(_mm_cmpeq_epi8(v1, v2)) != 65535) {
+    if (!m128is_are_equal(v1, v2)) {
       return 0;
     }
     const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
     const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
     v1 = _mm_loadu_si128(R_CAST(const __m128i*, &(m1_uc[N - 16])));
     v2 = _mm_loadu_si128(R_CAST(const __m128i*, &(m2_uc[N - 16])));
-    return (_mm_movemask_epi8(_mm_cmpeq_epi8(v1, v2)) == 65535);
+    return m128is_are_equal(v1, v2);
   }
 };
 

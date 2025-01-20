@@ -2087,6 +2087,7 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
   // buf0 and buf1 must both be 32KiB vector-aligned buffers when
   // kCacheline==64, and 128KiB when kCacheline==128.
 
+  // todo: better ARM implementation
   const uint32_t buf0_row_ct = DivUp(write_row_ct, 64);
   {
     uintptr_t* buf0_ul = DowncastVecWToW(buf0);
@@ -2981,7 +2982,7 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
     uljj = (*bptr) >> ulii;
     ulkk = PopcountWord(uljj);
     if (ulkk >= forward_ct) {
-    JumpForwardSetUnsafe_finish:
+    FindNth1BitFrom_finish:
       return widx * kBitsPerWord + ulii + WordBitIdxToUidx(uljj, forward_ct - 1);
     }
     forward_ct -= ulkk;
@@ -2994,7 +2995,7 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
     uljj = *bptr;
     ulkk = PopcountWord(uljj);
     if (ulkk >= forward_ct) {
-      goto JumpForwardSetUnsafe_finish;
+      goto FindNth1BitFrom_finish;
     }
     forward_ct -= ulkk;
     ++widx;
@@ -3034,7 +3035,7 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
     ulkk = PopcountWord(uljj);
     if (ulkk >= forward_ct) {
       widx = bptr - bitvec;
-      goto JumpForwardSetUnsafe_finish;
+      goto FindNth1BitFrom_finish;
     }
     forward_ct -= ulkk;
   }

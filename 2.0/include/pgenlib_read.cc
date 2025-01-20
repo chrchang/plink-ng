@@ -1570,6 +1570,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
       for (; vrtypes_alias_iter != vrtypes_alias_end; ++vrtypes_alias_iter) {
         const VecW cur_vvec = *vrtypes_alias_iter;
 #ifdef __LP64__
+        // todo: better ARM implementation
         const VecW cur_vvec_bit2 = vecw_slli(cur_vvec, 5);
         const VecW cur_vvec_bit1 = vecw_slli(cur_vvec, 6);
         // check if any vrtype has bit 1 set and bit 2 clear
@@ -1846,6 +1847,7 @@ uint32_t GetLdbaseVidx(const unsigned char* vrtypes, uint32_t cur_vidx) {
   if (cur_vidx_orig_remainder) {
     const VecW cur_vvec = vrtypes_valias[vidx_vec_idx];
     // non-ld: ((bit 2) OR (NOT bit 1))
+    // todo: better ARM implementation
     const VecW cur_vvec_bit2 = vecw_slli(cur_vvec, 5);
     const VecW inv_cur_vvec_bit1 = ~vecw_slli(cur_vvec, 6);
     v8ui = vecw_movemask(cur_vvec_bit2 | inv_cur_vvec_bit1);
@@ -3387,6 +3389,7 @@ PglErr SkipDeltalistIds(const unsigned char* fread_end, const unsigned char* gro
     }
     const VecW vv = vecw_loadu(fread_ptr);
     fread_ptr = &(fread_ptr[kBytesPerVec]);
+    // todo: better ARM implementation
     const uint32_t highbits = vecw_movemask(vv);
     remaining_id_ct -= kBytesPerVec - PopcountVec8thUint(highbits);
   }

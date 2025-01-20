@@ -389,8 +389,7 @@ uint32_t AtLeastOneMultiallelicHet(const PgenVariant* pgvp, uint32_t sample_ct) 
       const VecU16 vv_orig = vecu16_loadu(&(patch_10_valias[vidx]));
       const VecU16 vv_hi = vecu16_srli(vv_orig, 8);
       const VecU16 vv_lo = vv_orig & m8;
-      const VecU16 vv_eq = (vv_hi == vv_lo);
-      if (vecu16_movemask(vv_eq) != kVec8thUintMax) {
+      if (!vecu16s_are_equal(vv_hi, vv_lo)) {
         return 1;
       }
     }

@@ -1000,7 +1000,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
         const uint32_t sample_idx_interior_start = RoundUpPow2(sample_idx, kInt16PerVec);
         const uint32_t sample_idx_interior_stop = RoundDownPow2(sample_ct, kInt16PerVec);
         if (sample_idx_interior_stop > sample_idx_interior_start) {
-          if (unlikely(TpedToPgenSnp(sample_idx2, sample_idx_interior_start, allele1_char, allele2_char, input_missing_geno_char, &text_iter, genovec))) {
+          if (TpedToPgenSnp(sample_idx2, sample_idx_interior_start, allele1_char, allele2_char, input_missing_geno_char, &text_iter, genovec)) {
             goto TpedToPgen_general_case;
           }
           const uint32_t vidx_stop = sample_idx_interior_stop / kInt16PerVec;
@@ -1037,17 +1037,18 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
             // remove an if-statement), but that code is more complicated, and
             // doesn't seem to be any faster.
 
+            // todo: better ARM implementation
             const Vec8thUint alt_bits = vecuc_movemask(cur_alt);
             const Vec8thUint missing_bits = vecuc_movemask(cur_missing);
             // Even missing bytes must match odd missing bits.
-            if (unlikely((missing_bits ^ (missing_bits >> 1)) & (kVec8thUintMax / 3))) {
+            if ((missing_bits ^ (missing_bits >> 1)) & (kVec8thUintMax / 3)) {
               // Don't jump directly to HALF_MISSING, since there may be
               // another earlier error.
               goto TpedToPgen_general_case;
             }
             genovec_alias[vidx] = ((alt_bits & (kVec8thUintMax / 3)) + ((alt_bits >> 1) & (kVec8thUintMax / 3))) | missing_bits;
           }
-          if (unlikely(vecuc_movemask(ok_acc) != kVec8thUintMax)) {
+          if (!vec0255_is_all_set(ok_acc)) {
             goto TpedToPgen_general_case;
           }
           sample_idx2 = sample_idx_interior_stop;

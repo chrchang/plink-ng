@@ -1422,6 +1422,7 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
           if (fullvec_ct) {
             // parallel-equality-to-3 check, movemask
             // (+125 or <<7 followed by movemask also works)
+            // todo: better ARM implementation
             for (uint32_t vec_idx = 0; vec_idx != fullvec_ct; ++vec_idx) {
               VecUc cur_vec = vecuc_loadu(patch_01_vals_iter);
               patch_01_vals_iter = &(patch_01_vals_iter[kBytesPerVec]);
@@ -1595,6 +1596,7 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
           // SSE4.2: _mm_shuffle_epi8() to gather even bytes, parallel
           //         equality-to-2 check, movemask
           // (+126 or <<6 followed by movemask also works)
+          // todo: better ARM implementation
           const VecUc gather_even = vecuc_setr8(0, 2, 4, 6, 8, 10, 12, 14,
                                                 -1, -1, -1, -1, -1, -1, -1, -1);
           for (uint32_t vec_idx = 0; vec_idx != fullvec_ct; ++vec_idx) {

@@ -585,7 +585,9 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
           missing_ct = genocounts[3];
           // no need to set sample_nm
         } else {
-          if (difflist_common_geno <= 2) {
+          // bugfix (20 Jan 2025): difflist_common_geno == 3 was not handled
+          // properly
+          if (difflist_common_geno != UINT32_MAX) {
             PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, cur_sample_ct, difflist_len, pgv.genovec);
             difflist_common_geno = UINT32_MAX;
           }

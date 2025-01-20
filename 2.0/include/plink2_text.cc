@@ -1666,6 +1666,7 @@ PglErr TextSkipNz(uintptr_t skip_ct, TextStream* txs_ptr) {
     VecUc* consume_vstop = R_CAST(VecUc*, RoundDownPow2(ending_addr, kBytesPerVec));
     VecUc cur_vvec = *consume_viter;
     VecUc lf_vvec = (cur_vvec == vvec_all_lf);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     uint32_t lf_bytes = vecuc_movemask(lf_vvec);
     const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, consume_viter);
     const uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
@@ -1687,12 +1688,43 @@ PglErr TextSkipNz(uintptr_t skip_ct, TextStream* txs_ptr) {
     cur_lf_ct = PopcountVec8thUint(lf_bytes);
     if (cur_lf_ct >= skip_ct) {
     TextSkipNz_finish:
+      // todo: check if this is faster outside of vector-space
       lf_bytes = ClearBottomSetBits(skip_ct - 1, lf_bytes);
       const uint32_t byte_offset_in_vec = ctzu32(lf_bytes) + 1;
       const uintptr_t result_addr = R_CAST(uintptr_t, consume_viter) + byte_offset_in_vec;
       basep->consume_iter = R_CAST(char*, result_addr);
       return kPglRetSuccess;
     }
+#  else
+    uint64_t lf_nybbles = arm_shrn4_uc(lf_vvec);
+    const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, consume_viter);
+    const uint64_t leading_mask = UINT64_MAX << (4 * leading_byte_ct);
+    lf_nybbles &= leading_mask;
+    uint32_t cur_lf_ct;
+    for (; consume_viter != consume_vstop; ) {
+      cur_lf_ct = count_set_nybbles(lf_nybbles);
+      if (cur_lf_ct >= skip_ct) {
+        goto TextSkipNz_finish;
+      }
+      skip_ct -= cur_lf_ct;
+      // bugfix (28 Sep 2019): forgot to update cur_vvec/lf_vvec/lf_bytes?!
+      ++consume_viter;
+      cur_vvec = *consume_viter;
+      lf_vvec = (cur_vvec == vvec_all_lf);
+      lf_nybbles = arm_shrn4_uc(lf_vvec);
+    }
+    lf_nybbles &= (1LLU << (4 * (ending_addr % kBytesPerVec))) - 1;
+    cur_lf_ct = count_set_nybbles(lf_nybbles);
+    if (cur_lf_ct >= skip_ct) {
+    TextSkipNz_finish:
+      uint64_t lf_bits4 = lf_nybbles & kMask1111;
+      lf_bits4 = ClearBottomSetBits(skip_ct - 1, lf_bits4);
+      const uint32_t byte_offset_in_vec = (ctzw(lf_bits4) / 4) + 1;
+      const uintptr_t result_addr = R_CAST(uintptr_t, consume_viter) + byte_offset_in_vec;
+      basep->consume_iter = R_CAST(char*, result_addr);
+      return kPglRetSuccess;
+    }
+#  endif
     skip_ct -= cur_lf_ct;
     // bugfix (30 Oct 2019)
     basep->consume_iter = basep->consume_stop;

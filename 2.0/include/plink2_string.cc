@@ -28,8 +28,9 @@ CXXCONST_VOIDP rawmemchr(const void* ss, int cc) {
   const VecI8 vvec_all_needle = veci8_set1(cc);
   VecI8 cur_vvec = *ss_viter;
   VecI8 needle_match_vvec = (cur_vvec == vvec_all_needle);
-  uint32_t matching_bytes = veci8_movemask(needle_match_vvec);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, ss_viter);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+  uint32_t matching_bytes = veci8_movemask(needle_match_vvec);
   matching_bytes &= UINT32_MAX << leading_byte_ct;
   // This is typically short-range, so the Memrchr() double-vector strategy is
   // unlikely to be profitable.  (todo: experiment with header-inline)
@@ -40,6 +41,19 @@ CXXCONST_VOIDP rawmemchr(const void* ss, int cc) {
     matching_bytes = veci8_movemask(needle_match_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
+#  else
+  uint64_t matching_nybbles = arm_shrn4_i8(needle_match_vvec);
+  matching_nybbles &= UINT64_MAX << (4 * leading_byte_ct);
+  // This is typically short-range, so the Memrchr() double-vector strategy is
+  // unlikely to be profitable.  (todo: experiment with header-inline)
+  while (!matching_nybbles) {
+    ++ss_viter;
+    cur_vvec = *ss_viter;
+    needle_match_vvec = (cur_vvec == vvec_all_needle);
+    matching_nybbles = arm_shrn4_i8(needle_match_vvec);
+  }
+  const uint32_t byte_offset_in_vec = ctzw(matching_nybbles) / 4;
+#  endif
   return R_CAST(CXXCONST_VOIDP, R_CAST(uintptr_t, ss_viter) + byte_offset_in_vec);
 }
 #endif
@@ -53,8 +67,9 @@ CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2
   VecI8 cur_vvec = *ss_viter;
   VecI8 ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
   VecI8 ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
-  uint32_t matching_bytes = veci8_movemask(ucc1_match_vvec | ucc2_match_vvec);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, ss_viter);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+  uint32_t matching_bytes = veci8_movemask(ucc1_match_vvec | ucc2_match_vvec);
   matching_bytes &= UINT32_MAX << leading_byte_ct;
   while (!matching_bytes) {
     ++ss_viter;
@@ -64,6 +79,18 @@ CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2
     matching_bytes = veci8_movemask(ucc1_match_vvec | ucc2_match_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
+#  else
+  uint64_t matching_nybbles = arm_shrn4_i8(ucc1_match_vvec | ucc2_match_vvec);
+  matching_nybbles &= UINT64_MAX << (4 * leading_byte_ct);
+  while (!matching_nybbles) {
+    ++ss_viter;
+    cur_vvec = *ss_viter;
+    ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
+    ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
+    matching_nybbles = arm_shrn4_i8(ucc1_match_vvec | ucc2_match_vvec);
+  }
+  const uint32_t byte_offset_in_vec = ctzw(matching_nybbles) / 4;
+#  endif
   return &(DowncastToXC(ss_viter)[byte_offset_in_vec]);
 }
 
@@ -77,8 +104,9 @@ CXXCONST_VOIDP rawmemchr3(const void* ss, unsigned char ucc1, unsigned char ucc2
   VecI8 ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
   VecI8 ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
   VecI8 ucc3_match_vvec = (cur_vvec == vvec_all_ucc3);
-  uint32_t matching_bytes = veci8_movemask(ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, ss_viter);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+  uint32_t matching_bytes = veci8_movemask(ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   matching_bytes &= UINT32_MAX << leading_byte_ct;
   while (!matching_bytes) {
     ++ss_viter;
@@ -89,6 +117,19 @@ CXXCONST_VOIDP rawmemchr3(const void* ss, unsigned char ucc1, unsigned char ucc2
     matching_bytes = veci8_movemask(ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
+#  else
+  uint64_t matching_nybbles = arm_shrn4_i8(ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
+  matching_nybbles &= UINT64_MAX << (4 * leading_byte_ct);
+  while (!matching_nybbles) {
+    ++ss_viter;
+    cur_vvec = *ss_viter;
+    ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
+    ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
+    ucc3_match_vvec = (cur_vvec == vvec_all_ucc3);
+    matching_nybbles = arm_shrn4_i8(ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
+  }
+  const uint32_t byte_offset_in_vec = ctzw(matching_nybbles) / 4;
+#  endif
   return &(DowncastToXC(ss_viter)[byte_offset_in_vec]);
 }
 
@@ -104,8 +145,9 @@ CXXCONST_CP strchrnul3(const char* ss, unsigned char ucc1, unsigned char ucc2, u
   VecI8 ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
   VecI8 ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
   VecI8 ucc3_match_vvec = (cur_vvec == vvec_all_ucc3);
-  uint32_t matching_bytes = veci8_movemask(zero_match_vvec | ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, ss_viter);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+  uint32_t matching_bytes = veci8_movemask(zero_match_vvec | ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   matching_bytes &= UINT32_MAX << leading_byte_ct;
   while (!matching_bytes) {
     ++ss_viter;
@@ -117,6 +159,20 @@ CXXCONST_CP strchrnul3(const char* ss, unsigned char ucc1, unsigned char ucc2, u
     matching_bytes = veci8_movemask(zero_match_vvec | ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
+#  else
+  uint64_t matching_nybbles = arm_shrn4_i8(zero_match_vvec | ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
+  matching_nybbles &= UINT64_MAX << (4 * leading_byte_ct);
+  while (!matching_nybbles) {
+    ++ss_viter;
+    cur_vvec = *ss_viter;
+    zero_match_vvec = (cur_vvec == vvec_all_zero);
+    ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
+    ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
+    ucc3_match_vvec = (cur_vvec == vvec_all_ucc3);
+    matching_nybbles = arm_shrn4_i8(zero_match_vvec | ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
+  }
+  const uint32_t byte_offset_in_vec = ctzw(matching_nybbles) / 4;
+#  endif
   return &(DowncastToXC(ss_viter)[byte_offset_in_vec]);
 }
 #else
@@ -2002,7 +2058,7 @@ uint32_t CommaOrSpaceCountTokens(const char* str_iter, uint32_t comma_delim) {
 */
 
 uint32_t CountAndMeasureMultistr(const char* multistr, uintptr_t* max_blen_ptr) {
-  // Straightforward to accelerate this with movemask if it ever matters.
+  // Straightforward to accelerate this with movemask/shrn4 if it ever matters.
   // (Doesn't matter now since it's only used for command-line processing.)
   uint32_t ct = 0;
   uintptr_t max_blen = *max_blen_ptr;
@@ -3071,6 +3127,7 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
     // violating process read permissions if we cross a page boundary.
     // (For this reason, I don't bother with AVX unaligned reads.)
     const VecI8 match_vvec = (*str_rev_viter == vvec_all_needle);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     uint32_t matching_bytes = veci8_movemask(match_vvec);
     matching_bytes &= (1U << (trailing_byte_ct % kBytesPerVec)) - 1;
     if (str_start > DowncastKToC(str_rev_viter)) {
@@ -3085,6 +3142,22 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
       const uint32_t byte_offset_in_vec = bsru32(matching_bytes);
       return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
+#  else
+    uint64_t matching_nybbles = arm_shrn4_i8(match_vvec);
+    matching_nybbles &= (1LLU << (4 * (trailing_byte_ct % kBytesPerVec))) - 1;
+    if (str_start > DowncastKToC(str_rev_viter)) {
+      const uint32_t leading_byte_ct = R_CAST(uintptr_t, str_start) % kBytesPerVec;
+      matching_nybbles &= -(1LLU << (4 * leading_byte_ct));
+      // Special-case this, since main_loop_iter_ct below would underflow.
+      if (!matching_nybbles) {
+        return nullptr;
+      }
+    }
+    if (matching_nybbles) {
+      const uint32_t byte_offset_in_vec = bsrw(matching_nybbles) / 4;
+      return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
+    }
+#  endif
   }
   const uintptr_t main_loop_iter_ct = (R_CAST(uintptr_t, str_rev_viter) - R_CAST(uintptr_t, str_start)) / (2 * kBytesPerVec);
   for (uintptr_t ulii = 0; ulii != main_loop_iter_ct; ++ulii) {
@@ -3094,6 +3167,7 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
     const VecI8 match_vvec1 = (*str_rev_viter == vvec_all_needle);
     --str_rev_viter;
     const VecI8 match_vvec0 = (*str_rev_viter == vvec_all_needle);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     const uint32_t matching_bytes = veci8_movemask(match_vvec1 | match_vvec0);
     if (matching_bytes) {
       const uint32_t matching_bytes1 = veci8_movemask(match_vvec1);
@@ -3104,6 +3178,18 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
       const uint32_t byte_offset_in_vec = bsru32(matching_bytes);
       return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
+#  else
+    const uint64_t matching_nybbles = arm_shrn4_i8(match_vvec1 | match_vvec0);
+    if (matching_nybbles) {
+      const uint64_t matching_nybbles1 = arm_shrn4_i8(match_vvec1);
+      if (matching_nybbles1) {
+        const uint32_t byte_offset_in_vec = bsrw(matching_nybbles1) / 4;
+        return &(DowncastToXC(&(str_rev_viter[1]))[byte_offset_in_vec]);
+      }
+      const uint32_t byte_offset_in_vec = bsrw(matching_nybbles) / 4;
+      return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
+    }
+#  endif
   }
   while (1) {
     uintptr_t remaining_byte_ct_underflow = R_CAST(uintptr_t, str_rev_viter) - R_CAST(uintptr_t, str_start);
@@ -3112,6 +3198,7 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
     }
     --str_rev_viter;
     const VecI8 match_vvec = (*str_rev_viter == vvec_all_needle);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     const uint32_t matching_bytes = veci8_movemask(match_vvec);
     if (matching_bytes) {
       const uint32_t byte_offset_in_vec = bsru32(matching_bytes);
@@ -3120,6 +3207,16 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
       }
       return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
+#  else
+    const uint64_t matching_nybbles = arm_shrn4_i8(match_vvec);
+    if (matching_nybbles) {
+      const uint32_t byte_offset_in_vec = bsrw(matching_nybbles) / 4;
+      if (byte_offset_in_vec + remaining_byte_ct_underflow < kBytesPerVec) {
+        return nullptr;
+      }
+      return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
+    }
+#  endif
   }
 }
 
@@ -3134,6 +3231,7 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
     // beyond str_end as long as they're in the same vector; we only risk
     // violating process read permissions if we cross a page boundary.
     const VecUc postspace_vvec = vecuc_adds(*str_rev_viter, vvec_all95);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     uint32_t nontoken_bytes = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec));
     nontoken_bytes &= (1U << (trailing_byte_ct % kBytesPerVec)) - 1;
     if (str_start > DowncastKToC(str_rev_viter)) {
@@ -3148,6 +3246,22 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
       const uint32_t byte_offset_in_vec = bsru32(nontoken_bytes);
       return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
+#  else
+    uint64_t nontoken_nybbles = ~arm_shrn4_uc(postspace_vvec);
+    nontoken_nybbles &= (1LLU << (4 * (trailing_byte_ct % kBytesPerVec))) - 1;
+    if (str_start > DowncastKToC(str_rev_viter)) {
+      const uint32_t leading_byte_ct = R_CAST(uintptr_t, str_start) % kBytesPerVec;
+      nontoken_nybbles &= -(1LLU << (4 * leading_byte_ct));
+      // Special-case this, since main_loop_iter_ct below would underflow.
+      if (!nontoken_nybbles) {
+        return nullptr;
+      }
+    }
+    if (nontoken_nybbles) {
+      const uint32_t byte_offset_in_vec = bsrw(nontoken_nybbles) / 4;
+      return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
+    }
+#  endif
   }
   const uintptr_t main_loop_iter_ct = (R_CAST(uintptr_t, str_rev_viter) - R_CAST(uintptr_t, str_start)) / (2 * kBytesPerVec);
   for (uintptr_t ulii = 0; ulii != main_loop_iter_ct; ++ulii) {
@@ -3155,6 +3269,7 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
     const VecUc postspace_vvec1 = vecuc_adds(*str_rev_viter, vvec_all95);
     --str_rev_viter;
     const VecUc postspace_vvec0 = vecuc_adds(*str_rev_viter, vvec_all95);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     const uint32_t nontoken_bytes = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec1 & postspace_vvec0));
     if (nontoken_bytes) {
       const uint32_t nontoken_bytes1 = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec1));
@@ -3165,6 +3280,18 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
       const uint32_t byte_offset_in_vec = bsru32(nontoken_bytes);
       return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
+#  else
+    const uint64_t nontoken_nybbles = ~arm_shrn4_uc(postspace_vvec1 & postspace_vvec0);
+    if (nontoken_nybbles) {
+      const uint32_t nontoken_nybbles1 = ~arm_shrn4_uc(postspace_vvec1);
+      if (nontoken_nybbles1) {
+        const uint32_t byte_offset_in_vec = bsrw(nontoken_nybbles1) / 4;
+        return &(DowncastToXC(&(str_rev_viter[1]))[byte_offset_in_vec]);
+      }
+      const uint32_t byte_offset_in_vec = bsrw(nontoken_nybbles) / 4;
+      return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
+    }
+#  endif
   }
   while (1) {
     uintptr_t remaining_byte_ct_underflow = R_CAST(uintptr_t, str_rev_viter) - R_CAST(uintptr_t, str_start);
@@ -3173,6 +3300,7 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
     }
     --str_rev_viter;
     const VecUc postspace_vvec = vecuc_adds(*str_rev_viter, vvec_all95);
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     const uint32_t nontoken_bytes = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec));
     if (nontoken_bytes) {
       const uint32_t byte_offset_in_vec = bsru32(nontoken_bytes);
@@ -3181,6 +3309,16 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
       }
       return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
+#  else
+    const uint64_t nontoken_nybbles = ~arm_shrn4_uc(postspace_vvec);
+    if (nontoken_nybbles) {
+      const uint32_t byte_offset_in_vec = bsrw(nontoken_nybbles) / 4;
+      if (byte_offset_in_vec + remaining_byte_ct_underflow < kBytesPerVec) {
+        return nullptr;
+      }
+      return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
+    }
+#  endif
   }
 }
 #endif  // __LP64__
