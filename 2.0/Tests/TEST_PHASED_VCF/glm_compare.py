@@ -47,12 +47,14 @@ def float_compare_ok(val1, val2, tol):
 def main():
     cmd_args = parse_commandline_args()
     pc_ct = 0
+    line_num = 0
     tol = cmd_args.tolerance
     with open(cmd_args.plink1, 'r') as plink1_file, open(cmd_args.plink2, 'r') as plink2_file:
         reader1 = csv.reader(plink1_file, delimiter=' ', skipinitialspace=True)
         reader2 = csv.reader(plink2_file, delimiter='\t')
         first_line1 = next(reader1)
         first_line2 = next(reader2)
+        line_num += 1
         if first_line2.index('#CHROM') != 0:
             eprint('Unsupported plink2 association file format (this script requires #CHROM in front, even though plink2 can omit it).')
             sys.exit(1)
@@ -95,6 +97,7 @@ def main():
 
         for row1 in reader1:
             row2 = next(reader2)
+            line_num += 1
             if row1[0] != row2[0] or \
                row1[2] != row2[pos_col2] or \
                row1[1] != row2[id_col2] or \
@@ -109,7 +112,7 @@ def main():
                 # very unlikely to happen on random data, so error out and then
                 # manually pass if necessary.
                 if row2[errcode_col2] == 'INVALID_RESULT':
-                    eprint('Unexpected INVALID_RESULT.')
+                    eprint('Unexpected INVALID_RESULT, line', line_num)
                     sys.exit(1)
                 if row2[betaor_col2] != 'NA':
                     val1 = float(row1[6])
@@ -119,7 +122,7 @@ def main():
                         val1 = math.log(val1)
                         val2 = math.log(val2)
                     if not float_compare_ok(val1, val2, tol):
-                        eprint('BETA/OR mismatch.')
+                        eprint('BETA/OR mismatch, line', line_num)
                         sys.exit(1)
             if row1[7] != 'NA' and row1[7] != 'inf' and row2[stat_col2] != 'NA':
                 val1 = float(row1[7])
@@ -127,13 +130,13 @@ def main():
                 if row1[4][-2:] != 'DF':
                     # skip GENO_2DF, USER_xDF due to transition to F-statistics
                     if not float_compare_ok(val1, val2, tol):
-                        eprint('STAT mismatch.')
+                        eprint('STAT mismatch, line', line_num)
                         sys.exit(1)
             if row1[8] != 'NA' and row2[p_col2] != 'NA':
                 val1 = math.log(float(row1[8]))
                 val2 = math.log(float(row2[p_col2]))
                 if not float_compare_ok(val1, val2, tol):
-                    eprint('P-value mismatch.')
+                    eprint('P-value mismatch, line', line_num)
                     sys.exit(1)
 
 
