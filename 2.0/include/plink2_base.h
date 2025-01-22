@@ -1561,7 +1561,7 @@ HEADER_INLINE VecUc vecuc_gather_odd(VecUc src_lo, VecUc src_hi) {
 // See simde_mm_shuffle_epi8().
 HEADER_INLINE __m128i _mm_shuffle_epi8(__m128i a, __m128i b) {
   SIMDE_ALIGN_TO_16 int8x16_t a_;
-  SIMDE_ALIGN_TO_16 int8x16_t b_;
+  SIMDE_ALIGN_TO_16 uint8x16_t b_;
   SIMDE_ALIGN_TO_16 int8x16_t r_;
   memcpy(&a_, &a, sizeof(a_));
   memcpy(&b_, &b, sizeof(b_));
@@ -2846,25 +2846,25 @@ HEADER_INLINE uint32_t m128is_are_equal(__m128i v1, __m128i v2) {
 }
 #  else
 HEADER_INLINE uint64_t arm_shrn4_uc(VecUc vv) {
-  int8x16_t vv_;
+  uint16x8_t vv_;
   memcpy(&vv_, &vv, sizeof(vv_));
   return vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vv_, 4)), 0);
 }
 
 HEADER_INLINE uint64_t arm_shrn4_i8(VecI8 vv) {
-  int8x16_t vv_;
+  uint16x8_t vv_;
   memcpy(&vv_, &vv, sizeof(vv_));
   return vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vv_, 4)), 0);
 }
 
 HEADER_INLINE uint64_t arm_shrn4_u16(VecU16 vv) {
-  int8x16_t vv_;
+  uint16x8_t vv_;
   memcpy(&vv_, &vv, sizeof(vv_));
   return vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vv_, 4)), 0);
 }
 
 HEADER_INLINE uint64_t arm_shrn4_m128i(__m128i vv) {
-  int8x16_t vv_;
+  uint16x8_t vv_;
   memcpy(&vv_, &vv, sizeof(vv_));
   return vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vv_, 4)), 0);
 }
