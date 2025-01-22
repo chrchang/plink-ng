@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.9, copyright (C) 2005-2024 Shaun Purcell,
+// This file is part of PLINK 1.9, copyright (C) 2005-2025 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify

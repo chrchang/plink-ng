@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.9, copyright (C) 2005-2024 Shaun Purcell,
+// This file is part of PLINK 1.9, copyright (C) 2005-2025 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -93,7 +93,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.9.0-b.7.7"
+  "PLINK v1.9.0-b.7.8"
 #else
   "PLINK v1.9.0-b.8"
 #endif
@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (22 Oct 2024)";
+  " (22 Jan 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -118,7 +118,7 @@ static const char ver_str2[] =
   "  "
 #endif
   "         cog-genomics.org/plink/1.9/\n"
-  "(C) 2005-2024 Shaun Purcell, Christopher Chang   GNU General Public License v3"
+  "(C) 2005-2025 Shaun Purcell, Christopher Chang   GNU General Public License v3"
 #if SPECIES_DEFAULT > 0
   "\nRecompiled with default species = "
   #if SPECIES_DEFAULT == SPECIES_COW
