@@ -15397,11 +15397,15 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     if (check_pos_col) {
       parse_table[relevant_initial_col_ct++] = (S_CAST(uint64_t, pdip->pos_col_idx) << 32) + 1;
     }
-
-#pragma GCC diagnostic ignored "-Warray-bounds"
+#if (__GNUC__ == 13)
     // https://github.com/cms-sw/cmssw/issues/44582
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
     STD_SORT(relevant_initial_col_ct, u64cmp, parse_table);
-#pragma GCC diagnostic warning "-Warray-bounds"
+#if (__GNUC__ == 13)
+#  pragma GCC diagnostic pop
+#endif
     uint32_t col_skips[6];
     uint32_t col_types[6];
     for (uint32_t uii = 0; uii != relevant_initial_col_ct; ++uii) {
