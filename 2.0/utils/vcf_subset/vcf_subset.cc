@@ -23,7 +23,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "vcf_subset v1.0.3"
+static const char ver_str[] = "vcf_subset v1.0.4"
 
 #ifdef __LP64__
 #  ifdef USE_AVX2
@@ -39,7 +39,7 @@ static const char ver_str[] = "vcf_subset v1.0.3"
   " 32-bit"
 #endif
 
-  " (16 Jan 2025)";
+  " (23 Jan 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -389,8 +389,10 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
         // they were like 10 samples.  Could tune this more and/or make this
         // configurable, but I expect this is good enough the vast majority of
         // the time.
+        // Update (23 Jan 2025): compression:decompression cost ratio estimate
+        // raised from 5 to 10 after a bit of benchmarking.
         const uint64_t decompress_weight = 50 + raw_sample_ct;
-        const uint64_t compress_weight = 5LLU * (50 - 40 * erase_info + sample_ct);
+        const uint64_t compress_weight = 10LLU * (50 - 40 * erase_info + sample_ct);
         const uint64_t denom = compress_weight + decompress_weight;
         compress_thread_ct = MAXV(1, (compress_weight * max_thread_ct + denom / 2) / denom);
       }
@@ -520,15 +522,7 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
             const VecUc cur_vvec = vecuc_loadu(sample_read_iter);
             vecuc_storeu(write_iter, cur_vvec);
             const VecUc cur_tab_vvec = (cur_vvec == all_tab_vvec);
-#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
-            const uint32_t cur_tab_bits = vecuc_movemask(cur_tab_vvec);
-            const uint32_t cur_tab_ct = PopcountVec8thUint(cur_tab_bits);
-#  else
-            simde__m128i_private cur_tab_vvec_ = simde__m128i_to_private(cur_tab_vvec);
-            uint64_t cur_tab_bits4 = vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(cur_tab_vvec_.neon_i8, 4)), 0) & kMask1111;
-            const uint32_t cur_tab_ct_excluding_lowest = (cur_tab_bits4 * (kMask1111 >> 4)) >> 60;
-            const uint32_t cur_tab_ct = cur_tab_ct_excluding_lowest + (cur_tab_bits4 & 1);
-#  endif
+            const uint32_t cur_tab_ct = vec0255_set_ct(cur_tab_vvec);
             if (keep_tabs_remaining <= cur_tab_ct) {
               const char* sample_read_iter_vstart = sample_read_iter;
               while (1) {

@@ -143,8 +143,10 @@
 #endif
 
 #ifdef __LP64__
-// TODO: working no-SSE2 fallback on 64-bit little-endian platforms unsupported
-// by simde.  Can perform early test by compiling on M1/M2 without simde.
+// Possible todo: working no-SSE2 fallback on 64-bit little-endian platforms
+// unsupported by simde.  Can perform early test by compiling on arm64 without
+// simde.
+// (But not yet aware of a use case that matters.)
 #  define USE_SSE2
 #  ifdef __x86_64__
 #    include <emmintrin.h>
