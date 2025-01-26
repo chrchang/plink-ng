@@ -382,9 +382,8 @@ components of the difflist are, in order:
   minimum possible raw value is 63, and the maximum possible value is larger
   than 255 but not larger than 255+63.)  To reduce overhead for short lists,
   the byte size of the last group is not stored in this manner.
-\item If 2-bit genotype category values are also stored in the difflist, the
-  fourth component is a packed array of them, occupying $\lceil L/4\rceil $
-  bytes.
+\item If 2-bit genotype category values are also stored in the difflist, this
+  component is a packed array of them, occupying $\lceil L/4\rceil $ bytes.
 \item The final component is a sequence of $L-G$ base-128 varints encoding
   (\textless sample ID \#$k$\textgreater $\>-$ \textless sample ID
   \#$(k-1)$\textgreater) for all positive $k<L$ which aren't multiples of 64.
