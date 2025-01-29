@@ -3811,9 +3811,11 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
         while ((cubic_sols[first_relevant_sol_idx] < 8 * -kSmallishEpsilon) && (first_relevant_sol_idx + 1 < cubic_sol_ct)) {
           ++first_relevant_sol_idx;
         }
-        if (cubic_sols[first_relevant_sol_idx] < 8 * kSmallishEpsilon) {
-          cubic_sols[first_relevant_sol_idx] = 0.0;
-        }
+      }
+      // bugfix (29 Jan 2025): Also need to clip up to 0 when there's only one
+      // solution.
+      if (cubic_sols[first_relevant_sol_idx] < 8 * kSmallishEpsilon) {
+        cubic_sols[first_relevant_sol_idx] = 0.0;
       }
     } else {
       // At least one of {f11, f22} is zero, and one of {f12, f21} is zero.
