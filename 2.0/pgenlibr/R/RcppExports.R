@@ -129,11 +129,47 @@ BoolBuf <- function(pgen) {
 #' @param variant_num Variant index (1-based).
 #' @param allele_num Allele index; 1 corresponds to REF, 2 to the first ALT
 #' allele, 3 to the second ALT allele if it exists, etc.  Optional, defaults
-#' 2.
+#' to 2.
 #' @return No return value, called for buf-filling side-effect.
 #' @export
 ReadHardcalls <- function(pgen, buf, variant_num, allele_num = 2L) {
     invisible(.Call(`_pgenlibr_ReadHardcalls`, pgen, buf, variant_num, allele_num))
+}
+
+#' Returns whether hardcalls for the variant_numth variant and given allele
+#' are represented in a sparse manner that is supported by
+#' ReadSparseHardcalls().
+#'
+#' @param pgen Object returned by NewPgen().
+#' @param variant_num Variant index (1-based).
+#' @param allele_num Allele index; 1 corresponds to REF, 2 to the first ALT
+#' allele, 3 to the second ALT allele if it exists, etc.  Optional, defaults
+#' to 2.
+#' @return True iff the (variant, allele) pair has a sparse representation
+#' that can be returned by ReadSparseHardcalls().
+#' @export
+HasSparseHardcalls <- function(pgen, variant_num, allele_num = 2L) {
+    .Call(`_pgenlibr_HasSparseHardcalls`, pgen, variant_num, allele_num)
+}
+
+#' If HasSparseHardcalls() is true, returns a sparse representation for the
+#' (variant, allele) pair.  If HasSparseHardcalls() is false, the function
+#' fails.
+#'
+#' @param pgen Object returned by NewPgen().
+#' @param variant_num Variant index (1-based).
+#' @param allele_num Allele index; 1 corresponds to REF, 2 to the first ALT
+#' allele, 3 to the second ALT allele if it exists, etc.  Optional, defaults
+#' to 2.
+#' @param return_ints Whether to make the "counts" component of the return
+#' value an IntegerVector instead of a NumericVector; defaults to false.
+#' @return Either an empty list, in which case buf is filled in the same
+#' mannerObject where "sample_ids" is an increasing sequence of positive
+#' integers listing which samples have the allele, and "counts" is a vector
+#' listing the allele counts for those samples.
+#' @export
+ReadSparseHardcalls <- function(pgen, variant_num, allele_num = 2L, return_ints = FALSE) {
+    .Call(`_pgenlibr_ReadSparseHardcalls`, pgen, variant_num, allele_num, return_ints)
 }
 
 #' Loads the variant_numth variant, and then fills buf with numeric dosages
@@ -148,7 +184,7 @@ ReadHardcalls <- function(pgen, buf, variant_num, allele_num = 2L) {
 #' @param variant_num Variant index (1-based).
 #' @param allele_num Allele index; 1 corresponds to REF, 2 to the first ALT
 #' allele, 3 to the second ALT allele if it exists, etc.  Optional, defaults
-#' 2.
+#' to 2.
 #' @return No return value, called for buf-filling side-effect.
 #' @export
 Read <- function(pgen, buf, variant_num, allele_num = 2L) {

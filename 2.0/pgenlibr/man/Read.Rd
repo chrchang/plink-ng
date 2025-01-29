@@ -17,7 +17,7 @@ Read(pgen, buf, variant_num, allele_num = 2L)
 
 \item{allele_num}{Allele index; 1 corresponds to REF, 2 to the first ALT
 allele, 3 to the second ALT allele if it exists, etc.  Optional, defaults
-2.}
+to 2.}
 }
 \value{
 No return value, called for buf-filling side-effect.
