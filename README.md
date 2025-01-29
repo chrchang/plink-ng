@@ -1,6 +1,6 @@
 What this updates: https://zzz.bwh.harvard.edu/plink/
 
-Initial methods paper: https://academic.oup.com/gigascience/article/4/1/s13742-015-0047-8/2707533
+Main methods paper: https://academic.oup.com/gigascience/article/4/1/s13742-015-0047-8/2707533
 
 PLINK 1.9 and 2.0 user documentation: https://www.cog-genomics.org/plink/1.9/ , https://www.cog-genomics.org/plink/2.0/
 
