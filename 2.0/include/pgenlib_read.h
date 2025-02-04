@@ -556,7 +556,7 @@ PglErr PgrGet(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex p
 // difflist_common_geno to the common genotype value in that case.  Otherwise,
 // genovec is populated and difflist_common_geno is set to UINT32_MAX.
 //
-// max_simple_difflist_len must be smaller than sample_ct.
+// max_simple_difflist_len must be smaller than raw_sample_ct.
 //
 // Note that the returned difflist_len can be much larger than
 // max_simple_difflist_len when the variant is LD-encoded; it's bounded by

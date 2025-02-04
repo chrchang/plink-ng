@@ -2269,8 +2269,9 @@ PglErr ParseAndSaveDifflist(const unsigned char* fread_end, uint32_t raw_sample_
 }
 
 PglErr ParseAndSaveDifflistProperSubset(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t raw_sample_ct, const unsigned char** fread_pp, uintptr_t* __restrict raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr, uintptr_t* __restrict raregeno_workspace) {
-  // Requires a PROPER subset.  Might want to just merge this with
-  // ParseAndSaveDifflist() and rename appropriately.
+  // Requires a PROPER subset, since it assumes sample_include is non-null.
+  // Might want to just merge this with ParseAndSaveDifflist() and rename
+  // appropriately.
   // Trailing bits of raregeno are zeroed out.
   uint32_t raw_difflist_len;
   const unsigned char* group_info_iter;
@@ -3139,13 +3140,13 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
 PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   assert(sample_ct);
-  assert(max_simple_difflist_len < sample_ct);
   // Side effects:
   //   may use pgr.workspace_raregeno_tmp_loadbuf
   // Trailing bits of genovec/main_raregeno may not be zeroed out.
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const uint32_t maintrack_vrtype = vrtype & 7;
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
+  assert(max_simple_difflist_len < raw_sample_ct);
   const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
   // const uint32_t multiallelic_hc_present = fread_pp && VrtypeMultiallelic(vrtype);
   if (VrtypeLdCompressed(maintrack_vrtype)) {

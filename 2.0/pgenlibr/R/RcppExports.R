@@ -163,8 +163,7 @@ HasSparseHardcalls <- function(pgen, variant_num, allele_num = 2L) {
 #' to 2.
 #' @param return_ints Whether to make the "counts" component of the return
 #' value an IntegerVector instead of a NumericVector; defaults to false.
-#' @return Either an empty list, in which case buf is filled in the same
-#' mannerObject where "sample_ids" is an increasing sequence of positive
+#' @return An object where "sample_nums" is an increasing sequence of positive
 #' integers listing which samples have the allele, and "counts" is a vector
 #' listing the allele counts for those samples.
 #' @export

@@ -21,8 +21,7 @@ to 2.}
 value an IntegerVector instead of a NumericVector; defaults to false.}
 }
 \value{
-Either an empty list, in which case buf is filled in the same
-mannerObject where "sample_ids" is an increasing sequence of positive
+An object where "sample_nums" is an increasing sequence of positive
 integers listing which samples have the allele, and "counts" is a vector
 listing the allele counts for those samples.
 }
