@@ -2273,7 +2273,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	hwe_hh_allfs[marker_uidx] = hh_ctf;
 	uii = ll_ct + lh_ct + hh_ct;
 	if (!cur_oblig_missing) {
-	  cur_genotyping_rate = ((int32_t)uii) * sample_ct_recip;
+          cur_genotyping_rate = ((int32_t)uii) * sample_ct_recip;
 	} else {
 	  if (sample_ct - cur_oblig_missing) {
 	    cur_genotyping_rate = ((int32_t)uii) / ((double)((int32_t)(sample_ct - cur_oblig_missing)));
@@ -2441,6 +2441,12 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	  maf = ((double)ujj) / ((double)uii);
 	}
 	set_allele_freqs[marker_uidx] = maf;
+      }
+      // quasi-bugfix (4 Feb 2025): sample_ct * sample_ct_recip can be slightly
+      // different from 1 due to floating-point error.  Correct this so "Total
+      // genotyping rate is exactly 1" is printed when it should be.
+      if (cur_genotyping_rate > 1 - SMALLISH_EPSILON) {
+        cur_genotyping_rate = 1;
       }
       nonmissing_rate_tot += cur_genotyping_rate;
       if (geno_excl_bitfield && (cur_genotyping_rate < geno_thresh)) {
