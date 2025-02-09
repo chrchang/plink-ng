@@ -36,8 +36,10 @@
 #endif
 
 #include <iostream>
-
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "sisocks.h"
 #include "Rsrv.h"
 
@@ -74,7 +76,7 @@ class Rmessage {
     char *data;
     Rsize_t len;
     int complete;
-    
+
     // the following is avaliable only for parsed messages (max 16 pars)
     int pars;
     unsigned int *par[16];
@@ -85,14 +87,14 @@ class Rmessage {
     Rmessage(int cmd, int i); // DT_INT data (1 entry)
     Rmessage(int cmd, const void *buf, int len, int raw_data=0); // raw data or DT_BYTESTREAM
     virtual ~Rmessage();
-        
+
     int command() { return complete?head.cmd:-1; }
     Rsize_t length() { return complete?head.len:-1; }
     int is_complete() { return complete; }
-    
+
     int read(int s);
     void parse();
-    int send(int s);    
+    int send(int s);
 };
 
 //===================================== Rexp --- basis for all SEXPs
@@ -115,30 +117,30 @@ public:
 
 protected:
     // the next two are only cached if requested, no direct access allowed
-    int attribs; 
+    int attribs;
     const char **attrnames;
-    
+
     Rexp *master; // if this is set then this Rexp allocated the memory for us, so we are not supposed to free anything; if this is set to "this" then the content is self-allocated, including any data
     int rcount;  // reference count - only for a master - it counts how many children still exist
-    
+
 public:
     Rexp(Rmessage *msg);
     Rexp(unsigned int *pos, Rmessage *msg=0);
     Rexp(int type, const char *data=0, int len=0, Rexp *attr=0);
-    
+
     virtual ~Rexp();
-    
+
     void set_master(Rexp *m);
     char *parse(unsigned int *pos);
 
     virtual Rsize_t storageSize() { return len+((len>0x7fffff)?8:4); }
-    
+
     virtual void store(char *buf);
     Rexp *attribute(const char *name);
     const char **attributeNames();
-    
+
     virtual Rsize_t length() { return len; }
-    
+
     friend std::ostream& operator<< (std::ostream& os, const Rexp& exp) {
         return ((Rexp&)exp).os_print(os);
     }
@@ -146,7 +148,7 @@ public:
     friend std::ostream& operator<< (std::ostream& os, const Rexp* exp) {
         return ((Rexp*)exp)->os_print(os);
     }
-    
+
     virtual std::ostream& os_print(std::ostream& os) {
         return os << "Rexp[type=" << type << ",len=" << len <<"]";
     }
@@ -159,7 +161,7 @@ public:
     Rinteger(Rmessage *msg) : Rexp(msg) { fix_content(); }
     Rinteger(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { fix_content(); }
     Rinteger(int *array, int count) : Rexp(XT_ARRAY_INT, (char*)array, count*sizeof(int)) { fix_content(); }
-    
+
     int *intArray() { return (int*) data; }
     int intAt(int pos) { return (pos>=0 && (unsigned)pos<len/4)?((int*)data)[pos]:0; }
     virtual Rsize_t length() { return len/4; }
@@ -167,7 +169,7 @@ public:
     virtual std::ostream& os_print (std::ostream& os) {
         return os << "Rinteger[" << (len/4) <<"]";
     }
-    
+
 private:
     void fix_content();
 };
@@ -179,7 +181,7 @@ public:
     Rdouble(Rmessage *msg) : Rexp(msg) { fix_content(); }
     Rdouble(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { fix_content(); }
     Rdouble(double *array, int count) : Rexp(XT_ARRAY_DOUBLE, (char*)array, count*sizeof(double)) { fix_content(); }
-    
+
     double *doubleArray() { return (double*) data; }
     double doubleAt(int pos) { return (pos>=0 && (unsigned)pos<len/8)?((double*)data)[pos]:0; }
     virtual Rsize_t length() { return len/8; }
@@ -187,7 +189,7 @@ public:
     virtual std::ostream& os_print (std::ostream& os) {
         return os << "Rdouble[" << (len/8) <<"]";
     }
-    
+
 private:
     void fix_content();
 };
@@ -197,20 +199,20 @@ private:
 class Rsymbol : public Rexp {
 protected:
     const char *name;
-    
+
 public:
     Rsymbol(Rmessage *msg) : Rexp(msg)
     { name=""; fix_content(); }
-    
+
     Rsymbol(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg)
     { name=""; fix_content(); }
-    
+
     const char *symbolName() { return name; }
-    
+
     virtual std::ostream& os_print (std::ostream& os) {
         return os << "Rsymbol[" << symbolName() <<"]";
     }
-    
+
 private:
     void fix_content();
 };
@@ -227,7 +229,7 @@ public:
    Rstrings(Rmessage *msg) : Rexp(msg) { decode(); }
    Rstrings(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) { decode(); }
     /*Rstring(const char *str) : Rexp(XT_STR, str, strlen(str)+1) {}*/
-    
+
     char **strings() { return cont; }
     char *stringAt(unsigned int i) { return (i >= nel) ? 0 : cont[i]; }
     char *string() { return stringAt(0); }
@@ -252,7 +254,7 @@ public:
 	  cont[i] = strdup(c);
 	  while (*c) c++;
 	  c++; i++;
-	}	
+	}
       } else
 	cont = 0;
     }
@@ -265,7 +267,7 @@ public:
     Rstring(Rmessage *msg) : Rexp(msg) {}
     Rstring(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg) {}
     Rstring(const char *str) : Rexp(XT_STR, str, strlen(str)+1) {}
-    
+
     char *string() { return (char*) data; }
 
     virtual std::ostream& os_print (std::ostream& os) {
@@ -284,7 +286,7 @@ public:
 
     Rlist(Rmessage *msg) : Rexp(msg)
     { head=tag=0; tail=0; fix_content(); }
-    
+
     Rlist(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg)
     { head=tag=0; tail=0; fix_content(); }
 
@@ -295,7 +297,7 @@ public:
     Rlist(int type, Rexp *head, Rexp *tag, char *next, Rmessage *imsg) : Rexp(type, 0, 0, 0) { this->head = head; this->tag = tag; tail = 0; this->next = next; this->msg = imsg; master = 0; }
 
     virtual ~Rlist();
-    
+
     Rexp *entryByTagName(const char *tagName)  {
       if (tag && (tag->type==XT_SYM || tag->type==XT_SYMNAME) && !strcmp(((Rsymbol*)tag)->symbolName(),tagName)) return head;
         if (tail) return tail->entryByTagName(tagName);
@@ -310,7 +312,7 @@ public:
         if (tail) os << ",tail=" << *tail;
         return os << "]";
     }
-    
+
 private:
     void fix_content();
 };
@@ -327,12 +329,12 @@ protected:
 public:
     Rvector(Rmessage *msg) : Rexp(msg)
     { cont=0; count=0; strs=0; fix_content(); }
-    
+
     Rvector(unsigned int *ipos, Rmessage *imsg) : Rexp(ipos, imsg)
     { cont=0; count=0; strs=0; fix_content(); }
-  
+
     virtual ~Rvector();
-    
+
     char **strings();
     int indexOf(Rexp *exp);
     int indexOfString(const char *str);
@@ -346,7 +348,7 @@ public:
     Rexp *elementAt(int i) {
 	return (i < 0 || i >= count || !cont[i]) ? 0 : cont[i];
     }
-    
+
     Rexp* byName(const char *name);
 
     virtual std::ostream& os_print (std::ostream& os) {
@@ -373,18 +375,18 @@ protected:
     char *host_;
     int port_;
     char key_[32];
-    
+
 public:
     Rsession(const char *host, int port, const char key[32]) {
 	host_ = host ? strdup(host) : 0;
 	port_ = port;
 	memcpy(key_, key, 32);
     }
-    
+
     ~Rsession() {
 	if (host_) free(host_);
     }
-    
+
     const char *host() { return host_; }
     int port() { return port_; }
     const char *key() { return key_; }
@@ -405,19 +407,19 @@ public:
         port - either TCP port or -1 if unix sockets should be used */
     Rconnection(const char *host="127.0.0.1", int port=default_Rsrv_port);
     Rconnection(Rsession *session);
-    
+
     virtual ~Rconnection();
-    
+
     int connect();
     int disconnect();
-    
+
     /**--- low-level functions (should not be used directly) --- */
-    
+
     int request(Rmessage *msg, int cmd, int len=0, void *par=0);
     int request(Rmessage *targetMsg, Rmessage *contents);
-    
+
     /** --- high-level functions --- */
-    
+
     int assign(const char *symbol, Rexp *exp);
     int voidEval(const char *cmd);
     Rexp *eval(const char *cmd, int *status=0, int opt=0);
@@ -436,7 +438,7 @@ public:
     Rsession *detachedEval(const char *cmd, int *status = 0);
     Rsession *detach(int *status = 0);
     // sessions are resumed using resume() method of the Rsession object
-    
+
 #ifdef CMD_ctrl
     /* server control functions (need Rserve 0.6-0 or higher) */
     int serverEval(const char *cmd);

@@ -14,10 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include "plink_cluster.h"
+
+#include <float.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "plink_common.h"
-
-#include "plink_cluster.h"
 #include "plink_matrix.h"
 
 void cluster_init(Cluster_info* cluster_ptr) {

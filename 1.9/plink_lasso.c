@@ -14,10 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include "plink_lasso.h"
+
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "plink_common.h"
-
-#include "plink_lasso.h"
 #include "plink_matrix.h"
 
 // need to force to 64-bit integer if >= 2^16

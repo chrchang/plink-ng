@@ -14,13 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "plink_common.h"
-
 #include "plink_misc.h"
-#include "plink_stats.h"
+
+#include <float.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "pigz.h"
+#include "plink_common.h"
+#include "plink_stats.h"
 
 void misc_init(Score_info* sc_ip) {
   sc_ip->fname = nullptr;

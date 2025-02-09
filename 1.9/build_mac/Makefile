@@ -1,13 +1,14 @@
-# Mac Universal (amd64+arm64) Makefile for PLINK 1.90
+# Mac Universal (amd64+arm64) Makefile for PLINK 1.9
 
 .PHONY: clean install
 
 SYS = MAC
 
+include ../Makefile.src
 # Allow these to be overridden by make arguments or env variables, so people
 # don't have to edit the Makefile to build in a different environment.
 CXX ?=		g++
-CXXFLAGS ?=	-Wall -O2 -g -I../../2.0/simde
+CXXFLAGS ?=	-Wall -O2 -g -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
 AMDFLAGS ?=     --target=x86_64-apple-macosx10.9
 ARMFLAGS ?=     --target=arm64-apple-macos11
 
@@ -25,8 +26,8 @@ ifeq ($(SYS), MAC)
   CXXFLAGS += $(MACFLAGS)
   BLASFLAGS ?= -framework Accelerate
   LDFLAGS ?= -ldl
-  ZLIB_AMD ?= -L. ../../zlib-1.3.1/libz-amd64.a
-  ZLIB_ARM ?= -L. ../../zlib-1.3.1/libz-arm64.a
+  ZLIB_AMD ?= -L. "../../zlib-"$(ZLIB_VER)"/libz-amd64.a"
+  ZLIB_ARM ?= -L. "../../zlib-"$(ZLIB_VER)"/libz-arm64.a"
 endif
 
 CCSRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_common.c plink_data.c plink_dosage.c plink_family.c plink_filter.c plink_glm.c plink_help.c plink_homozyg.c plink_lasso.c plink_ld.c plink_matrix.c plink_misc.c plink_perm.c plink_rserve.c plink_set.c plink_stats.c SFMT.c dcdflib.c pigz.c yarn.c Rconnection.cc hfile.c bgzf.c

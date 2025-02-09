@@ -22,10 +22,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.  */
 
-#include "plink_common.h"
-#include <errno.h>
+#define _FILE_OFFSET_BITS 64
 
 #include "hfile.h"
+
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include "hfile_internal.h"
 
 /* hFILE fields are used as follows:
@@ -297,11 +304,6 @@ void hclose_abruptly(hFILE *fp)
 /***************************
  * File descriptor backend *
  ***************************/
-
-// #include <sys/socket.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
 
 // #ifdef _WIN32
 // #define HAVE_CLOSESOCKET

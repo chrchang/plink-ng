@@ -14,15 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "plink_common.h"
-
-#include <stddef.h>
-#include "plink_assoc.h"
-#include "plink_glm.h"
 #include "plink_ld.h"
-#include "plink_stats.h"
+
+#include <float.h>
+#include <math.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "pigz.h"
+#include "plink_assoc.h"
+#include "plink_common.h"
+#include "plink_glm.h"
+#include "plink_matrix.h"
+#include "plink_stats.h"
 
 #define MULTIPLEX_LD 1920
 #define MULTIPLEX_2LD (MULTIPLEX_LD * 2)

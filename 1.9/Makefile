@@ -1,4 +1,4 @@
-# General-purpose Makefile for PLINK 1.90
+# General-purpose Makefile for PLINK 1.9
 #
 # Compilation options:
 #   Do not link to LAPACK                    NO_LAPACK
@@ -10,6 +10,8 @@ NO_LAPACK =
 # Variable that allows additional linker flags (e.g., "-L/path/to/libs") to be
 # passed into the linker; to use this, invoke 'make LDFLAGS_EXTRA="<opts>"'.
 LDFLAGS_EXTRA =
+
+ZLIB_VER = 1.3.1
 
 .PHONY: clean install
 
@@ -29,8 +31,8 @@ endif
 BIN ?=		plink
 CC ?=		gcc
 CXX ?=		g++
-CFLAGS ?=	-Wall -O2 -g -I../2.0/simde
-CXXFLAGS ?=	-Wall -O2 -g -I../2.0/simde
+CFLAGS ?=	-Wall -O2 -g -I../2.0/simde "-I../zlib-"$(ZLIB_VER)
+CXXFLAGS ?=	-Wall -O2 -g -I../2.0/simde "-I../zlib-"$(ZLIB_VER)
 MACFLAGS ?=	-DACCELERATE_NEW_LAPACK
 
 PREFIX ?=	/usr/local
@@ -47,7 +49,7 @@ ifeq ($(SYS), MAC)
   CXXFLAGS += $(MACFLAGS)
   BLASFLAGS ?= -framework Accelerate
   LDFLAGS ?= -ldl
-  ZLIB ?= -L. ../zlib-1.3.1/libz.a
+  ZLIB ?= -L. "../zlib-"$(ZLIB_VER)"/libz.a"
 endif
 
 ifeq ($(SYS), WIN)
@@ -58,13 +60,13 @@ ifeq ($(SYS), WIN)
 # NO_LAPACK.
   BLASFLAGS ?= -L. lapack/liblapack.a -L. lapack/librefblas.a
   LDFLAGS ?= -lm -static-libgcc
-  ZLIB ?= -L. ../zlib-1.3.1/libz.a
+  ZLIB ?= -L. "../zlib-"$(ZLIB_VER)"/libz.a"
 endif
 
 # These must appear after the MAC/WIN-specific ?= statements.
 BLASFLAGS ?=	-L/usr/lib64/atlas -llapack -lblas -lcblas -latlas
 LDFLAGS ?=	-lm -lpthread -ldl
-ZLIB ?=		-L. ../zlib-1.3.1/libz.so.1.3.1
+ZLIB ?=		-L. "../zlib-"$(ZLIB_VER)"/libz.so."$(ZLIB_VER)
 
 ifdef NO_LAPACK
   BLASFLAGS=

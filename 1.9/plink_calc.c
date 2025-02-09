@@ -87,14 +87,20 @@
 // but we believe we have beaten down the leading constant by a large enough
 // factor to meaningfully help researchers.
 
-#include "plink_common.h"
-
 #include "plink_calc.h"
+
+#include <float.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "SFMT.h"
+#include "pigz.h"
 #include "plink_cluster.h"
+#include "plink_common.h"
 #include "plink_matrix.h"
 #include "plink_misc.h"
 #include "plink_stats.h"
-#include "pigz.h"
 
 // number of different types of jackknife values to precompute (x^2, x, y, xy)
 #define JACKKNIFE_VALS_REL 5

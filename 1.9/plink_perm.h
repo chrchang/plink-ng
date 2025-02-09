@@ -21,6 +21,9 @@
 // Permutation generation and interpretation code common to many association
 // tests.
 
+#include "SFMT.h"
+#include "plink_common.h"
+
 // Inputs/outputs for multithreaded permutation generators.
 extern uint32_t g_perm_pheno_nm_ct;
 extern uint32_t g_perm_case_ct;

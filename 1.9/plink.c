@@ -17,20 +17,24 @@
 
 // Uncomment "#define NOLAPACK" in plink_common.h to build without LAPACK.
 
-#include "plink_common.h"
 #include <ctype.h>
+#include <float.h>
 #include <locale.h>
+#include <string.h>
+#ifdef __APPLE__
+#  include <sys/sysctl.h>
+#  include <sys/types.h>
+#endif
 #include <time.h>
 #include <unistd.h>
 
-#ifdef __APPLE__
-  #include <sys/types.h>
-  #include <sys/sysctl.h>
-#endif
-
+#include "SFMT.h"
+#include "pigz.h"
 #include "plink_assoc.h"
 #include "plink_calc.h"
+#include "plink_cluster.h"
 #include "plink_cnv.h"
+#include "plink_common.h"
 #include "plink_data.h"
 #include "plink_dosage.h"
 #include "plink_family.h"
@@ -43,13 +47,12 @@
 #include "plink_misc.h"
 #include "plink_perm.h"
 #ifdef __cplusplus
-  #ifndef _WIN32
-    #include "plink_rserve.h"
-  #endif
+#  ifndef _WIN32
+#    include "plink_rserve.h"
+#  endif
 #endif
 #include "plink_set.h"
 #include "plink_stats.h"
-#include "pigz.h"
 
 #define DEFAULT_PPC_GAP 500000
 

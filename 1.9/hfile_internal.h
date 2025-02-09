@@ -25,7 +25,11 @@ DEALINGS IN THE SOFTWARE.  */
 #ifndef HFILE_INTERNAL_H
 #define HFILE_INTERNAL_H
 
+#include <stddef.h>
+#include <sys/types.h>
+
 #include "hfile.h"
+#include "hts_defs.h"
 
 struct hFILE_backend {
     /* As per read(2), returning the number of bytes read (possibly 0) or

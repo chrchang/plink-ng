@@ -21,6 +21,8 @@
 // Wrappers for frequent LAPACK calls (sometimes with no-LAPACK fallbacks).
 // (Update, 11 Oct 2018: Backported PLINK 2.0's MKL support.)
 
+#include <stdint.h>
+
 #ifdef NOLAPACK
 
 #  define MATRIX_INVERT_BUF1_TYPE double

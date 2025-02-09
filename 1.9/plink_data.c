@@ -14,26 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "plink_common.h"
-
 #include <ctype.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
 #include <time.h>
-// no more mmap() dependency
-// #include <fcntl.h>
-
 #ifndef _WIN32
-// #include <sys/mman.h>
-#include <unistd.h>
+#  include <unistd.h>
 #endif
 
-// #include <sys/stat.h>
-#include <sys/types.h>
+#include "SFMT.h"
+#include "bgzf.h"
+#include "hts.h"
+#include "pigz.h"
+#include "plink_common.h"
 #include "plink_family.h"
 #include "plink_set.h"
-
-#include "bgzf.h"
-#include "pigz.h"
 
 #define PHENO_EPSILON 0.000030517578125
 

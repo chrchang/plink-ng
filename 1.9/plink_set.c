@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include "plink_set.h"
+
+#include <stdlib.h>
+#include <string.h>
 
 #include "plink_common.h"
-
-#include "plink_set.h"
 
 void set_init(Set_info* sip, Annot_info* aip) {
   sip->fname = nullptr;

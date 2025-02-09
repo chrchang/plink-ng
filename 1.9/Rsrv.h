@@ -29,7 +29,7 @@
 #define __RSRV_H__
 
 #ifndef NO_CONFIG_H
-#include "config.h"
+#include "config.h"  // IWYU pragma: export
 #endif
 
 #define RSRV_VER 0x010801 /* Rserve v1.8-1 */
@@ -68,7 +68,7 @@
 
    all int and double entries throughout the transfer are in
    Intel-endianess format: int=0x12345678 -> char[4]=(0x78,0x56,x34,0x12)
-   functions/macros for converting from native to protocol format 
+   functions/macros for converting from native to protocol format
    are available below
 
    Please note also that all values muse be quad-aligned, i.e. the length
@@ -94,10 +94,10 @@ struct phdr {   /* always 16 bytes */
    field specifies the packet length sufficiently (hint: best method for parsing is
    to allocate len+4 bytes, set the last 4 bytes to 0 and trverse list of parameters
    until (int)0 occurs
-   
+
    since 0102:
    if the 7-th bit (0x40) in parameter type is set then the length is encoded
-   in 7 bytes enlarging the header by 4 bytes. 
+   in 7 bytes enlarging the header by 4 bytes.
  */
 
 /* macros for handling the first int - split/combine (24-bit version only!) */
@@ -146,7 +146,7 @@ struct phdr {   /* always 16 bytes */
 #define ERR_Rerror           0x45 /* R-error occured, usually followed by
 				     connection shutdown */
 #define ERR_IOerror          0x46 /* I/O error */
-#define ERR_notOpen          0x47 /* attempt to perform fileRead/Write 
+#define ERR_notOpen          0x47 /* attempt to perform fileRead/Write
 				     on closed file */
 #define ERR_accessDenied     0x48 /* this answer is also valid on
 				     CMD_login; otherwise it's sent
@@ -201,7 +201,7 @@ struct phdr {   /* always 16 bytes */
 
 /* security/encryption - all since 1.7-0 */
 #define CMD_switch       0x005 /* string (protocol)  : - */
-#define CMD_keyReq       0x006 /* string (request) : bytestream (key) */ 
+#define CMD_keyReq       0x006 /* string (request) : bytestream (key) */
 #define CMD_secLogin     0x007 /* bytestream (encrypted auth) : - */
 
 #define CMD_OCcall       0x00f /* SEXP : SEXP  -- it is the only command
@@ -231,7 +231,7 @@ struct phdr {   /* always 16 bytes */
 /* session management (since 0.4-0) */
 #define CMD_detachSession    0x030 /* : session key */
 #define CMD_detachedVoidEval 0x031 /* string : session key; doesn't */
-#define CMD_attachSession    0x032 /* session key : - */  
+#define CMD_attachSession    0x032 /* session key : - */
 
 /* control commands (since 0.6-0) - passed on to the master process */
 /* Note: currently all control commands are asychronous, i.e. RESP_OK
@@ -248,7 +248,7 @@ struct phdr {   /* always 16 bytes */
 #define CMD_ctrlShutdown    0x44  /* - : - */
 
 /* 'internal' commands (since 0.1-9) */
-#define CMD_setBufferSize 0x081  /* [int sendBufSize] 
+#define CMD_setBufferSize 0x081  /* [int sendBufSize]
 				  this commad allow clients to request
 				  bigger buffer sizes if large data is to be
 				  transported from Rserve to the client.
@@ -325,7 +325,7 @@ struct phdr {   /* always 16 bytes */
 										decode it separately.
 									- = deprecated/removed. if a client doesn't need to
 									    support old Rserve versions, those can be safely
-										skipped. 
+										skipped.
   Total primary: 4 trivial types (NULL, STR, S4, UNKNOWN) + 6 array types + 3 recursive types
 */
 
@@ -356,7 +356,7 @@ typedef unsigned long rlen_t;
 #define rlen_max ULONG_MAX
 #else
 #ifdef __LP64__
-#define rlen_max 0xffffffffffffffffL 
+#define rlen_max 0xffffffffffffffffL
 #else
 #define rlen_max 0xffffffffL
 #endif /* __LP64__ */

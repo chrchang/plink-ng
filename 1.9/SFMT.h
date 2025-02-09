@@ -63,7 +63,6 @@
 extern "C" {
 #endif
 
-#include <stdio.h>
 #include <assert.h>
 
 #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L)

@@ -14,17 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "plink_common.h"
-
-#include "plink_cluster.h"
-#include "plink_data.h"
 #include "plink_dosage.h"
+
+#include <math.h>
+#include <stdlib.h>
+
+#include "pigz.h"
+#include "plink_cluster.h"
+#include "plink_common.h"
+#include "plink_data.h"
 #include "plink_filter.h"
 #include "plink_glm.h"
 #include "plink_matrix.h"
 #include "plink_misc.h"
-#include "pigz.h"
+#include "plink_set.h"
 
 void dosage_init(Dosage_info* doip) {
   doip->fname = nullptr;

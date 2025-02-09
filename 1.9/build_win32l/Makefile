@@ -1,18 +1,17 @@
 OPENBLAS_ROOT = ../../../openblas-32
-ZLIB_STATIC = ../../zlib-1.3.1/libz-32w.a
 
 BASEFLAGS=
 # ***** end configuration *****
 
 BASEFLAGS += -fno-exceptions
-LINKFLAGS=-lm -static-libgcc -L. ${ZLIB_STATIC}
 BLASFLAGS=-Wl,-Bstatic -L. ${OPENBLAS_ROOT}/lib/libopenblas.a
 
 BASEFLAGS += -I${OPENBLAS_ROOT}/include
 
-CXXFLAGS=-O2 -std=gnu++11 -I../../2.0/simde
-
 include ../Makefile.src
+CXXFLAGS=-O2 -std=gnu++11 -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
+ZLIB_STATIC = "../../zlib-"$(ZLIB_VER)"/libz-32w.a"
+LINKFLAGS=-lm -static-libgcc -L. ${ZLIB_STATIC}
 CXXFLAGS += ${BASEFLAGS} ${CXXWARN}
 
 plink: $(CSRC2) $(CCSRC2)

@@ -26,7 +26,6 @@ DEALINGS IN THE SOFTWARE.  */
 #define HTSLIB_HFILE_H
 
 #include <string.h>
-
 #include <sys/types.h>
 
 #include "hts_defs.h"

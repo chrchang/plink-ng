@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include "plink_homozyg.h"
+
+#include <stdlib.h>
+#include <string.h>
 
 #include "plink_common.h"
-
-#include "plink_homozyg.h"
 
 // This implementation's use of unfiltered indices is idiotic; it should be
 // rewritten to be based on post-filtering variant indices ASAP.

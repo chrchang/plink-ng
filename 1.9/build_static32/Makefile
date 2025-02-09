@@ -6,12 +6,12 @@ CXXFLAGS=-O2 -std=c++0x
 ARCH32=-m32 -march=i686
 BASEFLAGS += ${ARCH32}
 
-ZLIB32=../../zlib-1.3.1/libz-32.a
 LINKFLAGS=-lm -lpthread
 
 
 include ../Makefile.src
-CXXFLAGS += ${BASEFLAGS} ${CXXWARN2} -Wno-sign-compare -I../../2.0/simde
+ZLIB32="../../zlib-"$(ZLIB_VER)"/libz-32.a"
+CXXFLAGS += ${BASEFLAGS} ${CXXWARN2} -Wno-sign-compare -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
 
 plink: $(CSRC2) $(CCSRC2)
 	g++ -x c++ $(CXXFLAGS) $(CSRC2) -c

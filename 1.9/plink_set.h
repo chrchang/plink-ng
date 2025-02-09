@@ -17,6 +17,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include "plink_common.h"
 
 #define SET_MAKE_FROM_RANGES 1
 #define SET_COMPLEMENTS 2

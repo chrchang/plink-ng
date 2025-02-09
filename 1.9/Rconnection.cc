@@ -43,9 +43,13 @@
  */
 #if defined (__cplusplus) && !defined (_WIN32)
 
+#define _FILE_OFFSET_BITS 64
+
 #include "Rconnection.h"
 
 #include <stdio.h>
+#include <sys/socket.h>
+
 #include "sisocks.h"
 #ifdef unix
 #include <sys/un.h>

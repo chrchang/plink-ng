@@ -1,9 +1,13 @@
-#include <stdio.h>
-#include <stdint.h>
+#define _FILE_OFFSET_BITS 64
+
+#ifndef __STDC_FORMAT_MACROS
+#  define __STDC_FORMAT_MACROS 1
+#endif
 #include <inttypes.h>
+#include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
 #define RET_NOMEM 1
 #define RET_OPEN_FAIL 2

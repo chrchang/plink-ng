@@ -14,12 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "plink_common.h"
-
 #include "plink_stats.h"
-#include "ipmpar.h"
+
+#include <float.h>
+#include <math.h>
+
 #include "dcdflib.h"
+#include "ipmpar.h"
+#include "plink_common.h"
 
 // 2^{-40} for now, since 2^{-44} was too small on real data
 #define FISHER_EPSILON 0.0000000000009094947017729282379150390625

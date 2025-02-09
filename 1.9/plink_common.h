@@ -22,21 +22,15 @@
 
 #define _FILE_OFFSET_BITS 64
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <stdint.h>
+#include <assert.h>
 #ifndef __STDC_FORMAT_MACROS
 #  define __STDC_FORMAT_MACROS 1
 #endif
-#include <inttypes.h>
-
-// avoid compiler warning
-#ifndef NDEBUG
-  #define NDEBUG
-#endif
-#include <assert.h>
+#include <inttypes.h>  // IWYU pragma: export
+#include <math.h>
+#include <stdio.h>  // IWYU pragma: export
+#include <stdlib.h>
+#include <string.h>
 
 // Uncomment this to build this without CBLAS/CLAPACK.
 // #define NOLAPACK
@@ -111,7 +105,7 @@
     #define int64_t long long
   #endif
 #else
-  #include <pthread.h>
+#  include <pthread.h>  // IWYU pragma: export
   #define THREAD_RET_TYPE void*
   #define THREAD_RETURN return nullptr
   #ifdef __cplusplus
@@ -187,12 +181,12 @@
 // http://esr.ibiblio.org/?p=5095 ).
 
 #ifdef __LP64__
-  #ifdef __SSE2__
-    #include <emmintrin.h>
-  #else
-    #define SIMDE_ENABLE_NATIVE_ALIASES
-    #include "x86/sse2.h"
-  #endif
+#  ifdef __SSE2__
+#    include <emmintrin.h>  // IWYU pragma: export
+#  else
+#    define SIMDE_ENABLE_NATIVE_ALIASES
+#    include "x86/sse2.h"  // IWYU pragma: export
+#  endif
 
   #define VECFTYPE __m128
   #define VECITYPE __m128i
@@ -260,12 +254,12 @@
 #define VEC_BITS_M1 (VEC_BITS - 1)
 
 #ifdef DYNAMIC_ZLIB
-  #include <zlib.h>
-  #if !defined(ZLIB_VERNUM) || ZLIB_VERNUM < 0x1240
-    #error "zlib version 1.2.4 or later required."
-  #endif
+#  include <zlib.h>  // IWYU pragma: export
+#  if !defined(ZLIB_VERNUM) || ZLIB_VERNUM < 0x1240
+#    error "zlib version 1.2.4 or later required."
+#  endif
 #else
-  #include "../zlib-1.3.1/zlib.h"
+#  include "zlib.h"  // IWYU pragma: export
 #endif
 #include "SFMT.h"
 

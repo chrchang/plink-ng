@@ -1,8 +1,9 @@
 #ifndef __PIGZ_H__
 #define __PIGZ_H__
 
-#include <stdint.h>
 #include <inttypes.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #define PIGZ_BLOCK_SIZE 131072
 

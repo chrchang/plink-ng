@@ -15,14 +15,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#define _FILE_OFFSET_BITS 64
+
+#ifndef __STDC_FORMAT_MACROS
+#  define __STDC_FORMAT_MACROS 1
+#endif
+#include <inttypes.h>
+#include <locale.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
-#include <inttypes.h>
-#include <math.h>
-#include <locale.h>
 #include <unistd.h>
+#ifdef DYNAMIC_ZLIB
+#  include <zlib.h>
+#else
+#  include "zlib.h"
+#endif
 
 #ifdef _WIN32
   #ifndef _WIN64
@@ -95,8 +104,6 @@
     #define PRIdPTR "ld"
   #endif
 #endif
-
-#include "../zlib-1.3/zlib.h"
 
 #ifdef __APPLE__
   #include <sys/sysctl.h>

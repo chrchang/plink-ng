@@ -29,8 +29,17 @@
 #ifndef HTSLIB_BGZF_H
 #define HTSLIB_BGZF_H
 
-#include "plink_common.h"
+#include <stddef.h>
+#include <stdint.h>
 #include <sys/types.h>
+#ifdef DYNAMIC_ZLIB
+#  include <zlib.h>
+#endif
+
+#include "hts.h"
+#ifndef DYNAMIC_ZLIB
+#  include "zlib.h"
+#endif
 
 #define BGZF_BLOCK_SIZE     0xff00 // make sure compressBound(BGZF_BLOCK_SIZE) < BGZF_MAX_BLOCK_SIZE
 #define BGZF_MAX_BLOCK_SIZE 0x10000
@@ -85,7 +94,7 @@ typedef struct __kstring_t {
      * @param mode  mode matching /[rwag][u0-9]+/: 'r' for reading, 'w' for
      *              writing, 'a' for appending, 'g' for gzip rather than BGZF
      *              compression (with 'w' only), and digit specifies the zlib
-     *              compression level. 
+     *              compression level.
      *              Note that there is a distinction between 'u' and '0': the
      *              first yields plain uncompressed output whereas the latter
      *              outputs uncompressed data wrapped in the zlib format.

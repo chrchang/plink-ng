@@ -17,13 +17,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include "plink_common.h"
+#include "plink_set.h"
 
 #define TESTMISS_PERM 1
 #define TESTMISS_MPERM 2
 #define TESTMISS_PERM_COUNT 4
 #define TESTMISS_MIDP 8
-
-#include "plink_set.h"
 
 void aperm_init(Aperm_info* apip);
 

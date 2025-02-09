@@ -1,23 +1,17 @@
-#include "plink_common.h"
-
-#include <ctype.h>
-#include <time.h>
-// no more mmap() dependency
-// #include <fcntl.h>
-
-#ifndef _WIN32
-// #include <sys/mman.h>
-#include <unistd.h>
-#endif
-
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 #ifdef __APPLE__
-  #include <sys/sysctl.h> // sysctl()
+#  include <sys/sysctl.h> // sysctl()
 #endif
-
-// #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
+#ifndef _WIN32
+#  include <unistd.h>
+#endif
 
 #include "pigz.h"
+#include "plink_common.h"
 
 #define D_EPSILON 0.000244140625
 

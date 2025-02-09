@@ -14,11 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "plink_common.h"
-
 #include "plink_assoc.h"
+
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "plink_cluster.h"
+#include "plink_common.h"
 #include "plink_ld.h"
 #include "plink_matrix.h"
 #include "plink_perm.h"

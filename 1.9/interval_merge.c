@@ -1,7 +1,11 @@
+#define _FILE_OFFSET_BITS 64
+
+#ifndef __STDC_FORMAT_MACROS
+#  define __STDC_FORMAT_MACROS 1
+#endif
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdint.h>
-#include <inttypes.h>
 
 #define MAXLINELEN 256
 
@@ -10,7 +14,7 @@ char gene_name_buf[MAXLINELEN];
 char chrom_name_buf[MAXLINELEN];
 
 uint32_t scan_uint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_t cap_mod_10) {
-  // Reads an integer in [0, cap].  Assumes first character is nonspace. 
+  // Reads an integer in [0, cap].  Assumes first character is nonspace.
   uint32_t val = (uint32_t)((unsigned char)*ss) - 48;
   uint32_t cur_digit;
   if (val < 10) {

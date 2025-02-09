@@ -25,8 +25,8 @@
 #include "sisocks.h"
 #include "Rconnection.h"
 
-#include "plink_common.h"
 #include "plink_cluster.h"
+#include "plink_common.h"
 
 #define RPLUGIN_BLOCK_SIZE 100
 

@@ -490,30 +490,31 @@ int32_t flex_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
 /* use large file functions if available */
 #define _FILE_OFFSET_BITS 64
 
+#include "pigz.h"
 /* included headers and what is expected from each */
+#include <assert.h>     /* assert() */
+#include <dirent.h>     /* opendir(), readdir(), closedir(), DIR, */
+                        /* struct dirent */
+#include <errno.h>      /* errno, EEXIST */
+#include <fcntl.h>      /* open(), O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, */
+                        /* O_WRONLY */
+#include <limits.h>     /* PATH_MAX, UINT_MAX */
+#include <signal.h>     /* signal(), SIGINT */
+#include <stdarg.h>     /* va_start(), va_end(), va_list */
 #include <stdio.h>      /* fflush(), fprintf(), fputs(), getchar(), putc(), */
                         /* puts(), printf(), vasprintf(), stderr, EOF, NULL,
                            SEEK_END, size_t, off_t */
 #include <stdlib.h>     /* exit(), malloc(), free(), realloc(), atol(), */
                         /* atoi(), getenv() */
-#include <stdarg.h>     /* va_start(), va_end(), va_list */
 #include <string.h>     /* memset(), memchr(), memcpy(), strcmp(), strcpy() */
                         /* strncpy(), strlen(), strcat(), strrchr() */
-#include <errno.h>      /* errno, EEXIST */
-#include <assert.h>     /* assert() */
-#include <time.h>       /* ctime(), time(), time_t, mktime() */
-#include <signal.h>     /* signal(), SIGINT */
-#include <sys/types.h>  /* ssize_t */
 #include <sys/stat.h>   /* chmod(), stat(), fstat(), lstat(), struct stat, */
                         /* S_IFDIR, S_IFLNK, S_IFMT, S_IFREG */
 #include <sys/time.h>   /* utimes(), gettimeofday(), struct timeval */
+#include <sys/types.h>  /* ssize_t */
+#include <time.h>       /* ctime(), time(), time_t, mktime() */
 #include <unistd.h>     /* unlink(), _exit(), read(), write(), close(), */
                         /* lseek(), isatty(), chown() */
-#include <fcntl.h>      /* open(), O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, */
-                        /* O_WRONLY */
-#include <dirent.h>     /* opendir(), readdir(), closedir(), DIR, */
-                        /* struct dirent */
-#include <limits.h>     /* PATH_MAX, UINT_MAX */
 #if __STDC_VERSION__-0 >= 199901L || __GNUC__-0 >= 3
 #  include <inttypes.h> /* intmax_t */
 #endif
@@ -526,7 +527,7 @@ int32_t flex_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
 #ifdef DYNAMIC_ZLIB
   #include <zlib.h>
 #else
-  #include "../zlib-1.3.1/zlib.h" /* deflateInit2(), deflateReset(), deflate(), */
+  #include "zlib.h"     /* deflateInit2(), deflateReset(), deflate(), */
                         /* deflateEnd(), deflateSetDictionary(), crc32(),
                            inflateBackInit(), inflateBack(), inflateBackEnd(),
                            Z_DEFAULT_COMPRESSION, Z_DEFAULT_STRATEGY,
@@ -542,8 +543,6 @@ int32_t flex_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
                         /* lock, new_lock(), possess(), twist(), wait_for(),
                            release(), peek_lock(), free_lock(), yarn_name */
 #endif
-
-#include "pigz.h"
 
 
 /* for local functions and globals */

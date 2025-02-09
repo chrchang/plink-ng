@@ -14,10 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include <string.h>
 
-#include "plink_common.h"
-
+#include "SFMT.h"
 #include "plink_cluster.h"
+#include "plink_common.h"
 
 // Inputs/outputs for multithreaded permutation generators.
 uint32_t g_perm_pheno_nm_ct;

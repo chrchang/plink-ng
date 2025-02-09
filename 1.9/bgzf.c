@@ -25,14 +25,21 @@
 
 #define _FILE_OFFSET_BITS 64
 
-#include <errno.h>
-#include <unistd.h>
-#include <assert.h>
-#include <sys/types.h>
-
-#include "hts.h"
 #include "bgzf.h"
+
+#include <assert.h>
+#include <errno.h>
+#ifndef _WIN32
+#  include <pthread.h>
+#endif
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 #include "hfile.h"
+#include "hts.h"
+#include "plink_common.h"
 
 #define BGZF_CACHE
 

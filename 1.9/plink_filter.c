@@ -14,13 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "plink_common.h"
-
 #include "plink_filter.h"
-#include "plink_stats.h"
 
+#include <stdlib.h>
+#include <string.h>
+
+#include "SFMT.h"
 #include "pigz.h"
+#include "plink_common.h"
+#include "plink_stats.h"
 
 void oblig_missing_init(Oblig_missing_info* om_ip) {
   om_ip->cluster_ct = 0;
