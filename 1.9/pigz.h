@@ -56,6 +56,13 @@ static inline uint32_t is_uncompressed_pzwrite(Pigz_state* ps_ptr) {
     return ps_ptr->outd != -1;
 }
 #else
+#  define _FILE_OFFSET_BITS 64
+#  include <stdio.h>
+#  ifdef DYNAMIC_ZLIB
+#    include <zlib.h>
+#  else
+#    include "zlib.h"
+#  endif
 typedef struct {
     unsigned char* overflow_buf;
     FILE* outfile;
