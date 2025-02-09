@@ -34,6 +34,7 @@ DEALINGS IN THE SOFTWARE.  */
 #include <unistd.h>
 
 #include "hfile_internal.h"
+#include "plink_common.h"  // HANDLE, etc.
 
 /* hFILE fields are used as follows:
 
