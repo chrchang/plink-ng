@@ -17,7 +17,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include <stdint.h>
+#include "plink_common.h"
 
 int32_t disp_help(uint32_t param_ct, char** argv);
 
