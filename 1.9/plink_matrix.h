@@ -33,7 +33,7 @@
 #else // !NOLAPACK
 
 #  ifdef __APPLE__
-#    include <Accelerate/Accelerate.h>
+#    include <Accelerate/Accelerate.h>  // IWYU pragma: export
 #    define USE_CBLAS_XGEMM
 #    ifdef ACCELERATE_NEW_LAPACK
 typedef int32_t __CLPK_integer;
@@ -61,7 +61,7 @@ extern "C" {
   // need to change a bit)
 #     define HAVE_LAPACK_CONFIG_H
 #     define LAPACK_COMPLEX_STRUCTURE
-#     include "lapacke.h"
+#     include "lapacke.h"  // IWYU pragma: export
 
   __CLPK_doublereal ddot_(__CLPK_integer* n, __CLPK_doublereal* dx,
                           __CLPK_integer* incx, __CLPK_doublereal* dy,
@@ -96,17 +96,17 @@ extern "C" {
   // sizeof(MKL_INT) should be 4.
 #        define MKL_LP64
 #        ifdef DYNAMIC_MKL
-#          include <mkl_service.h>
-#          include <mkl_cblas.h>
-#          include <mkl_lapack.h>
+#          include <mkl_service.h>  // IWYU pragma: export
+#          include <mkl_cblas.h>  // IWYU pragma: export
+#          include <mkl_lapack.h>  // IWYU pragma: export
 #        else
-#          include "mkl_service.h"
-#          include "mkl_cblas.h"
-#          include "mkl_lapack.h"
+#          include "mkl_service.h"  // IWYU pragma: export
+#          include "mkl_cblas.h"  // IWYU pragma: export
+#          include "mkl_lapack.h"  // IWYU pragma: export
 #        endif
 #      else
 #        ifdef USE_CBLAS_XGEMM
-#          include <cblas.h>
+#          include <cblas.h>  // IWYU pragma: export
 #        else
   // ARGH
   // cmake on Ubuntu 14 seems to require use of cblas_f77.h instead of cblas.h.
@@ -117,17 +117,17 @@ extern "C" {
   // 16 simultaneously, there is a CBLAS_F77_ON_OLD_GCC mode which picks
   // cblas_f77.h on Ubuntu 14 and cblas.h on 16.
 #          ifdef FORCE_CBLAS_F77
-#            include <cblas_f77.h>
+#            include <cblas_f77.h>  // IWYU pragma: export
 #          elif !defined(CBLAS_F77_ON_OLD_GCC)
-#            include <cblas.h>
+#            include <cblas.h>  // IWYU pragma: export
 #          else
 #            if (__GNUC__ <= 4)
-#              include <cblas_f77.h>
+#              include <cblas_f77.h>  // IWYU pragma: export
 #            else
 #              if __has_include(<cblas.h>)
-#                include <cblas.h>
+#                include <cblas.h>  // IWYU pragma: export
 #              else
-#                include <cblas_f77.h>
+#                include <cblas_f77.h>  // IWYU pragma: export
 #              endif
 #            endif
 #          endif
