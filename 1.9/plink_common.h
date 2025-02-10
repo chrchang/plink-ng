@@ -53,16 +53,16 @@
 #define PROG_NAME_CAPS "PLINK"
 
 #ifdef _WIN32
-  // needed for MEMORYSTATUSEX
-  #ifndef _WIN64
-    #define WINVER 0x0500
-  #else
-    #define __LP64__
-  #endif
-  #ifndef WIN32_LEAN_AND_MEAN
-    #define WIN32_LEAN_AND_MEAN
-  #endif
-  #include <windows.h>
+// needed for MEMORYSTATUSEX
+#  ifndef _WIN64
+#    define WINVER 0x0500
+#  else
+#    define __LP64__
+#  endif
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>  // IWYU pragma: export
 #else // Unix
   #include <sys/stat.h>
 #endif
@@ -80,9 +80,9 @@
 #endif
 
 #ifdef _WIN32
-  #define fseeko fseeko64
-  #define ftello ftello64
-  #include <process.h>
+#  define fseeko fseeko64
+#  define ftello ftello64
+#  include <process.h>  // IWYU pragma: export
 #  undef PRId64
 #  undef PRIu64
 #  define PRId64 "I64d"
