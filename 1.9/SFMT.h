@@ -57,6 +57,15 @@
  * unsigned int and 64-bit unsigned int in hexadecimal format.
  */
 
+#ifdef __LP64__
+#  ifdef __SSE2__
+#    include <emmintrin.h>  // IWYU pragma: export
+#  else
+#    define SIMDE_ENABLE_NATIVE_ALIASES
+#    include "x86/sse2.h"  // IWYU pragma: export
+#  endif
+#endif
+
 #ifndef SFMTST_H
 #define SFMTST_H
 #if defined(__cplusplus)
@@ -128,13 +137,6 @@ extern "C" {
   128-bit SIMD like data type for standard C
   ------------------------------------------*/
 #ifdef __LP64__
-  #ifdef __SSE2__
-    #include <emmintrin.h>
-  #else
-    #define SIMDE_ENABLE_NATIVE_ALIASES
-    #include "x86/sse2.h"
-  #endif
-
 /** 128-bit data structure */
 union W128_T {
     uint32_t u[4];
