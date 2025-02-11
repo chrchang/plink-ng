@@ -14,10 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 #include "plink2_matrix.h"
 
+#include <assert.h>
 #include <math.h>  // fabs(), sqrt()
+#include <string.h>
 
 #ifndef NOLAPACK
 #  ifndef __APPLE__

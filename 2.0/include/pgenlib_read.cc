@@ -18,6 +18,8 @@
 #include "pgenlib_read.h"
 
 #include <errno.h>
+#include <limits.h>
+#include <string.h>
 
 #ifdef __cplusplus
 namespace plink2 {

@@ -100,15 +100,18 @@
 // - A simpler single-threaded (no decompress-ahead) reader.
 
 #ifdef STATIC_ZLIB
-#  include "../../zlib-1.3.1/zlib.h"
+#  include "zlib.h"  // IWYU pragma: export
 #else
-#  include <zlib.h>
+#  include <zlib.h>  // IWYU pragma: export
 #  if !defined(ZLIB_VERNUM) || (ZLIB_VERNUM < 0x1240)
 #    error "plink2_text requires zlib 1.2.4 or later."
 #  endif
 #endif
 
+#include "plink2_base.h"
 #include "plink2_bgzf.h"
+#include "plink2_string.h"
+#include "plink2_thread.h"
 #include "plink2_zstfile.h"
 
 #ifdef __cplusplus

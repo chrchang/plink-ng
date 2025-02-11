@@ -23,8 +23,8 @@
 // interface is identical to the old multithreaded gzipper so we'll be able to
 // upgrade the backend later without making significant changes to other code.
 
+#include "include/plink2_base.h"
 #include "include/plink2_zstfile.h"
-#include "plink2_cmdline.h"
 
 #ifdef __cplusplus
 namespace plink2 {

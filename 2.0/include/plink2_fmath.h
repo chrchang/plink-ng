@@ -23,9 +23,9 @@
 // I've added comments to expd() which reflect my understanding of the
 // algorithm; these are BSD-licensed.
 
-#include "plink2_base.h"
-
 #include <math.h>
+
+#include "plink2_base.h"
 
 #ifdef __cplusplus
 namespace plink2 {

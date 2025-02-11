@@ -33,13 +33,17 @@
 // (Note that htslib has great BGZF compression/decompression performance, as
 // long as v1.8+ is used with libdeflate.)
 
+#ifdef IGNORE_BUNDLED_LIBDEFLATE
+#  include <libdeflate.h>  // IWYU pragma: export
+#endif
+#include <string.h>
+
+#ifndef IGNORE_BUNDLED_LIBDEFLATE
+#  include "../libdeflate/libdeflate.h"  // IWYU pragma: export
+#endif
+#include "plink2_base.h"
 #include "plink2_string.h"
 #include "plink2_thread.h"
-#ifdef IGNORE_BUNDLED_LIBDEFLATE
-#  include <libdeflate.h>
-#else
-#  include "../libdeflate/libdeflate.h"
-#endif
 
 #ifdef __cplusplus
 namespace plink2 {

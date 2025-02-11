@@ -135,9 +135,9 @@ OBJ3 = $(CSRC3:.c=.o) $(ZCSRC3:.c=.o) $(ZSSRC3:.S=.o) $(CCSRC3:.cc=.o)
 CINCLUDE = -Ilibdeflate
 CINCLUDE2 = -I../libdeflate
 CINCLUDE3 = -I../../libdeflate
-CXXINCLUDE = -Ilibdeflate
-CXXINCLUDE2 = -I../libdeflate
-CXXINCLUDE2 = -I../../libdeflate
+CXXINCLUDE = -Ilibdeflate "-I../zlib-"$(ZLIB_VER)
+CXXINCLUDE2 = -I../libdeflate "-I../../zlib-"$(ZLIB_VER)
+CXXINCLUDE3 = -I../../libdeflate "-I../../../zlib-"$(ZLIB_VER)
 ZSTD_INCLUDE =
 ZSTD_INCLUDE2 =
 ZSTD_INCLUDE3 =

@@ -20,7 +20,11 @@
 
 // pgenlib_read contains reader-specific code.
 
+#include <assert.h>
+
 #include "pgenlib_misc.h"
+#include "plink2_base.h"
+#include "plink2_bits.h"
 
 #ifdef __cplusplus
 namespace plink2 {

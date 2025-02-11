@@ -34,6 +34,7 @@
 //   2 = Simple difflist, base value is 0.
 //   3 = Simple difflist, base value is 1.
 
+#include "plink2_base.h"
 #include "plink2_bits.h"
 
 #ifdef __cplusplus

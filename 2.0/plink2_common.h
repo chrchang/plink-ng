@@ -23,8 +23,18 @@
 // 2-bit genotypes).  More generic library code has been moved to plink2_base
 // and plink2_cmdline.
 
+#include <assert.h>
+#include <errno.h>
+#include <string.h>
+
+#include "include/pgenlib_misc.h"
 #include "include/pgenlib_read.h"
-#include "plink2_decompress.h"
+#include "include/plink2_base.h"
+#include "include/plink2_bits.h"
+#include "plink2_cmdline.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "include/plink2_thread.h"
 
 #ifdef __cplusplus
 namespace plink2 {

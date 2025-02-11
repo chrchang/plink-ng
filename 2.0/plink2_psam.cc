@@ -16,6 +16,19 @@
 
 #include "plink2_psam.h"
 
+#include <assert.h>
+#include <math.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "include/pgenlib_misc.h"
+#include "include/plink2_bits.h"
+#include "plink2_decompress.h"
+#include "include/plink2_htable.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif

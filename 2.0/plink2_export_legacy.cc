@@ -14,9 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include <assert.h>
+#include <string.h>
 
+#include "include/pgenlib_misc.h"
+#include "include/pgenlib_read.h"
+#include "include/plink2_base.h"
+#include "include/plink2_bits.h"
+#include "plink2_cmdline.h"
 #include "plink2_common.h"
-#include "plink2_compress_stream.h"
+#include "include/plink2_string.h"
+#include "include/plink2_thread.h"
 
 // This covers formats that are fully supported by PLINK 1.x (no multiallelic
 // variants, dosages, or phase information).

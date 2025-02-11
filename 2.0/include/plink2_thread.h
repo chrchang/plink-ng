@@ -30,9 +30,9 @@
 #include "plink2_base.h"
 
 #ifdef _WIN32
-#  include <process.h>
+#  include <process.h>  // IWYU pragma: export
 #else
-#  include <pthread.h>
+#  include <pthread.h>  // IWYU pragma: export
 #endif
 
 // Most thread functions should be of the form

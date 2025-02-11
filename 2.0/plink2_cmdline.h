@@ -22,18 +22,14 @@
 // initialization/allocation, basic multithreading code, and a few numeric
 // constants.
 
+#include <assert.h>
+#include <stdarg.h>
+#include <string.h>
+
+#include "include/plink2_base.h"
 #include "include/plink2_bits.h"
-#include "include/plink2_htable.h"
 #include "include/plink2_memory.h"
 #include "include/plink2_string.h"
-#include "include/plink2_thread.h"
-
-#include <errno.h>
-#include <stdarg.h>
-
-#ifndef _WIN32
-#  include <sys/stat.h>
-#endif
 
 #ifdef _WIN32
 #  define NULL_STREAM_NAME "nul"

@@ -16,6 +16,8 @@
 
 #include "plink2_decompress.h"
 
+#include <assert.h>
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif

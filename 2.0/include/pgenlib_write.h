@@ -21,6 +21,7 @@
 // pgenlib_write contains writer-specific code.
 
 #include "pgenlib_misc.h"
+#include "plink2_base.h"
 
 #ifdef __cplusplus
 namespace plink2 {

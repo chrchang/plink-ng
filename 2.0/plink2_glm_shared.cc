@@ -14,8 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include "include/plink2_stats.h"
 #include "plink2_glm_shared.h"
+
+#include <assert.h>
+#include <math.h>
+#include <string.h>
+
+#include "include/plink2_bits.h"
+#include "plink2_decompress.h"
+#include "include/plink2_string.h"
 
 #ifdef __cplusplus
 namespace plink2 {

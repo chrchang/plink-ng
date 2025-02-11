@@ -74,15 +74,20 @@
 //   on the fly, since that tends to be faster than having to access twice as
 //   much memory.
 
-#include "plink2_bits.h"
+#include <assert.h>
 #ifndef NDEBUG
 #  include <stdarg.h> // va_start()
 #endif
+#include <stdlib.h>
+#include <string.h>
+
+#include "plink2_base.h"
+#include "plink2_bits.h"
 
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 2006
+#define PGENLIB_INTERNAL_VERNUM 2100
 
 #ifdef __cplusplus
 namespace plink2 {

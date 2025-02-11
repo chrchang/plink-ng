@@ -14,9 +14,15 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
-
 #include "plink2_common.h"
+
+#include <math.h>
+#include <stdlib.h>
+#include <unistd.h>
+
 #include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "include/plink2_htable.h"
 
 #ifdef __cplusplus
 namespace plink2 {

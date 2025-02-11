@@ -21,15 +21,16 @@
 // Standalone string-printing and parsing functions which neither make
 // permanent memory allocations nor use g_bigstack for temporary allocations.
 
+#include <math.h>  // fabs(), isfinite()
+#include <stdlib.h>
+#include <string.h>
+
 #include "plink2_base.h"
 
-#include <math.h>  // fabs(), isfinite()
-#include <stddef.h>  // offsetof()
-
 #ifdef __cplusplus
-#  include <algorithm>
+#  include <algorithm>  // IWYU pragma: export
 #  if __cplusplus >= 201902L && defined(__GNUC__) && !defined(__clang__)
-#    include <execution>
+#    include <execution>  // IWYU pragma: export
 #  endif
 #  ifdef _WIN32
     // Windows C++11 <algorithm> resets these values :(

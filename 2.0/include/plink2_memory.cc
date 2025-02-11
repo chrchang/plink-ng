@@ -15,12 +15,13 @@
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "plink2_memory.h"
-#include "plink2_string.h"
 
 #include <unistd.h>  // sysconf()
 #ifdef __APPLE__
 #  include <sys/sysctl.h>  // sysctl()
 #endif
+
+#include "plink2_string.h"
 
 #ifdef __cplusplus
 namespace plink2 {

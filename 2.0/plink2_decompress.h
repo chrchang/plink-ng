@@ -20,8 +20,15 @@
 
 // This has been separated from plink2_cmdline due to the relatively
 // heavyweight dependence on zstd.
-#include "include/plink2_text.h"
+
+#include <errno.h>
+#include <string.h>
+
+#include "include/plink2_base.h"
+#include "include/plink2_bgzf.h"
 #include "plink2_cmdline.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
 
 #ifdef __cplusplus
 namespace plink2 {

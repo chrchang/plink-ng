@@ -17,9 +17,9 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "plink2_cmdline.h"
 #include "include/SFMT.h"
+#include "include/plink2_base.h"
+#include "plink2_cmdline.h"
 
 #ifdef __cplusplus
 namespace plink2 {

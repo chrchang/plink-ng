@@ -20,6 +20,10 @@
 
 // Bitarray support.  (Inline single-word operations are in plink2_base.h.)
 
+#include <assert.h>
+#include <limits.h>
+#include <string.h>
+
 #include "plink2_base.h"
 
 #ifdef __cplusplus

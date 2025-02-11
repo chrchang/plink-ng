@@ -106,24 +106,29 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 817
+#define PLINK2_BASE_VERNUM 818
 
+// We now try to adhere to include-what-you-use in simple cases.  However,
+// we don't want to repeat either platform-specific ifdefs, or stuff like
+// "#define _FILE_OFFSET_BITS 64" before "#include <stdio.h>", so we use
+// "IWYU pragma: export" for those cases.
+// TODO: unfortunately, there is no straightforward way to tell IWYU to stop
+// looking behind the likes of <stdio.h> or "../simde/x86/sse2.h".  I'm
+// manually ignoring the associated false-positives for now, but this should be
+// systematized.
 
 #define _FILE_OFFSET_BITS 64
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stddef.h>  // offsetof()
-#include <stdint.h>
+#include <assert.h>
 #ifndef __STDC_FORMAT_MACROS
 #  define __STDC_FORMAT_MACROS 1
 #endif
-#include <inttypes.h>
+#include <inttypes.h>  // IWYU pragma: export
 #include <limits.h>  // CHAR_BIT, PATH_MAX
-
-// #define NDEBUG
-#include <assert.h>
+#include <stddef.h>  // offsetof()
+#include <stdio.h>  // IWYU pragma: export
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef _WIN32
   // needed for EnterCriticalSection, etc.
@@ -135,11 +140,11 @@
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
 #  endif
-#  include <windows.h>
+#  include <windows.h>  // IWYU pragma: export
 #endif
 
 #if __cplusplus >= 201103L
-#  include <array>
+#  include <array>  // IWYU pragma: export
 #endif
 
 #ifdef __LP64__
@@ -149,7 +154,7 @@
 // (But not yet aware of a use case that matters.)
 #  define USE_SSE2
 #  ifdef __x86_64__
-#    include <emmintrin.h>
+#    include <emmintrin.h>  // IWYU pragma: export
 #  else
 #    define SIMDE_ENABLE_NATIVE_ALIASES
 // Since e.g. an old zstd system header breaks the build, and plink2 is
@@ -158,9 +163,9 @@
 // are manually updated as necessary.
 // To use system headers, define IGNORE_BUNDLED_{ZSTD,LIBDEFLATE.SIMDE}.
 #    ifdef IGNORE_BUNDLED_SIMDE
-#      include <simde/x86/sse2.h>
+#      include <simde/x86/sse2.h>  // IWYU pragma: export
 #    else
-#      include "../simde/x86/sse2.h"
+#      include "../simde/x86/sse2.h"  // IWYU pragma: export
 #    endif
 #    ifdef SIMDE_ARM_NEON_A32V8_NATIVE
 // For Apple M1, we effectively use SSE2 + constrained _mm_shuffle_epi8().

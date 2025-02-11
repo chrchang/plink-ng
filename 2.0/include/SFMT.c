@@ -44,9 +44,10 @@
 extern "C" {
 #endif
 
-#include <string.h>
-#include <assert.h>
 #include "SFMT.h"
+
+#include <assert.h>
+#include <string.h>
 
 #ifndef __LP64__
 inline static void do_recursion(w128_t * r, w128_t * a, w128_t * b,
@@ -56,7 +57,7 @@ inline static void do_recursion(w128_t * r, w128_t * a, w128_t * b,
 #ifndef __LP64__
   inline static void rshift128(w128_t *out,  w128_t const *in, int shift);
   inline static void lshift128(w128_t *out,  w128_t const *in, int shift);
-  
+
 /**
  * This function simulates SIMD 128-bit right shift by the standard C.
  * The 128-bit integer given in in is shifted by (shift * 8) bits.

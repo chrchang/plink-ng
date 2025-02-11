@@ -21,13 +21,7 @@
 // Wrappers for frequent LAPACK calls (sometimes with no-LAPACK fallbacks).
 // Now supports MKL backend.
 
-// todo: allow this to take advantage of 64-bit integer LAPACK.  As of this
-// writing, it's available on Amazon EC2 64-bit Linux instances, but I can't
-// find it for Windows.  (And even if OS X vecLib adds it soon, we can't use it
-// there anytime soon because static linking is not an option.)
-
-// #include "plink2_cmdline.h"
-#include "include/plink2_bits.h"
+#include "include/plink2_base.h"
 
 #ifdef NOLAPACK
 typedef double MatrixInvertBuf1;
@@ -59,7 +53,7 @@ CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 #      define MKL_ILP64
 #    endif
 #    ifdef DYNAMIC_MKL
-#      include <mkl_service.h>
+#      include <mkl_service.h>  // IWYU pragma: export
 #    else
 // If this isn't initially found, use the compiler's -I option to specify the
 // appropriate include-file directory.  A common location is
@@ -67,7 +61,7 @@ CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 // If this isn't installed at all on your system but you want/need to change
 // that, see the instructions at
 //   https://software.intel.com/en-us/articles/installing-intel-free-libs-and-python-apt-repo
-#      include "mkl_service.h"
+#      include "mkl_service.h"  // IWYU pragma: export
 #    endif
 #    define USE_MTBLAS
 // this technically doesn't have to be a macro, but it's surrounded by other
@@ -107,7 +101,7 @@ typedef int32_t __CLPK_integer;
 #        error "LAPACK_ILP64 requires ACCELERATE_NEW_LAPACK on macOS"
 #      endif
 #    endif
-#    include <Accelerate/Accelerate.h>
+#    include <Accelerate/Accelerate.h>  // IWYU pragma: export
 #    define USE_CBLAS_XGEMM
 #    if defined(ACCELERATE_NEW_LAPACK) && !defined(USE_OPENBLAS)
 HEADER_INLINE void BLAS_SET_NUM_THREADS(__attribute__((unused)) int num_threads) {
@@ -158,7 +152,7 @@ extern "C" {
 #      endif
 #      define HAVE_LAPACK_CONFIG_H
 #      define LAPACK_COMPLEX_STRUCTURE
-#      include "lapacke.h"
+#      include "lapacke.h"  // IWYU pragma: export
 
   __CLPK_doublereal ddot_(__CLPK_integer* n, __CLPK_doublereal* dx,
                           __CLPK_integer* incx, __CLPK_doublereal* dy,
@@ -169,11 +163,11 @@ extern "C" {
 #      ifdef USE_MKL
 #        define USE_CBLAS_XGEMM
 #        ifdef DYNAMIC_MKL
-#          include <mkl_cblas.h>
-#          include <mkl_lapack.h>
+#          include <mkl_cblas.h>  // IWYU pragma: export
+#          include <mkl_lapack.h>  // IWYU pragma: export
 #        else
-#          include "mkl_cblas.h"
-#          include "mkl_lapack.h"
+#          include "mkl_cblas.h"  // IWYU pragma: export
+#          include "mkl_lapack.h"  // IWYU pragma: export
 #        endif
 static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
 #      else
@@ -182,7 +176,7 @@ static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
 // with -fdefault-integer-8.
 
 #        ifdef USE_CBLAS_XGEMM
-#          include <cblas.h>
+#          include <cblas.h>  // IWYU pragma: export
   int dpotri_(char* uplo, __CLPK_integer* n, __CLPK_doublereal* a,
               __CLPK_integer* lda, __CLPK_integer* info);
 #        else
@@ -195,17 +189,17 @@ static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
           // 14 and 16 simultaneously, there is a CBLAS_F77_ON_OLD_GCC mode
           // which picks cblas_f77.h on Ubuntu 14 and cblas.h on 16.
 #          ifdef FORCE_CBLAS_F77
-#            include <cblas_f77.h>
+#            include <cblas_f77.h>  // IWYU pragma: export
 #          elif !defined(CBLAS_F77_ON_OLD_GCC)
-#            include <cblas.h>
+#            include <cblas.h>  // IWYU pragma: export
 #          else
 #            if (__GNUC__ == 4)
-#              include <cblas_f77.h>
+#              include <cblas_f77.h>  // IWYU pragma: export
 #            else
 #              if __has_include(<cblas.h>)
-#                include <cblas.h>
+#                include <cblas.h>  // IWYU pragma: export
 #              else
-#                include <cblas_f77.h>
+#                include <cblas_f77.h>  // IWYU pragma: export
 #              endif
 #            endif
 #          endif
@@ -220,7 +214,7 @@ static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
 #        endif
 #      endif  // !USE_MKL
 #      ifdef USE_CUDA
-#        include "cuda/plink2_matrix_cuda.h"
+#        include "cuda/plink2_matrix_cuda.h"  // IWYU pragma: export
 #      endif
 #    endif
 

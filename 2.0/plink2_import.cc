@@ -14,14 +14,31 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "include/pgenlib_write.h"
-#include "plink2_compress_stream.h"
 #include "plink2_import.h"
+
+#include <assert.h>
+#include <errno.h>
+#include <limits.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "include/pgenlib_misc.h"
+#include "include/pgenlib_write.h"
+#include "include/plink2_bgzf.h"
+#include "include/plink2_bits.h"
+#include "plink2_cmdline.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "include/plink2_htable.h"
 #include "plink2_import_legacy.h"
+#include "include/plink2_memory.h"
 #include "plink2_psam.h"
 #include "plink2_pvar.h"
 #include "plink2_random.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "include/plink2_thread.h"
 
 #ifdef __cplusplus
 namespace plink2 {

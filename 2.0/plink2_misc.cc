@@ -14,11 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "include/plink2_stats.h"
-#include "plink2_compress_stream.h"
-#include "plink2_data.h"
 #include "plink2_misc.h"
+
+#include <assert.h>
+#include <errno.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "include/plink2_bits.h"
+#include "plink2_cmdline.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "plink2_data.h"
+#include "include/plink2_htable.h"
+#include "include/plink2_stats.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "include/plink2_thread.h"
 
 #ifdef __cplusplus
 namespace plink2 {

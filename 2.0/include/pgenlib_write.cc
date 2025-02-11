@@ -14,10 +14,14 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
-
 #include "pgenlib_write.h"
 
+#include <assert.h>
+#include <limits.h>
+#include <stdlib.h>
 #include <unistd.h>  // unlink()
+
+#include "plink2_bits.h"
 
 #ifdef __cplusplus
 namespace plink2 {

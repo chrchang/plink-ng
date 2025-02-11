@@ -14,11 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "plink2_compress_stream.h"
-#include "plink2_matrix.h"
 #include "plink2_matrix_calc.h"
+
+#include <assert.h>
+#include <errno.h>
+#include <float.h>
+#include <limits.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "include/plink2_bits.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "include/plink2_htable.h"
+#include "plink2_matrix.h"
 #include "plink2_random.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "include/plink2_thread.h"
 
 #ifdef USE_CUDA
 #  include "cuda/plink2_matrix_cuda.h"

@@ -14,8 +14,11 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
-#include <errno.h>
 #include "plink2_bgzf.h"
+
+#include <assert.h>
+#include <errno.h>
+#include <stdlib.h>
 
 #ifdef __cplusplus
 namespace plink2 {

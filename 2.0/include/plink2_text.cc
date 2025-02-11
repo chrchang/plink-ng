@@ -14,8 +14,12 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
-#include <errno.h>
 #include "plink2_text.h"
+
+#include <assert.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1717,6 +1721,7 @@ PglErr TextSkipNz(uintptr_t skip_ct, TextStream* txs_ptr) {
     cur_lf_ct = count_set_nybbles(lf_nybbles);
     if (cur_lf_ct >= skip_ct) {
     TextSkipNz_finish:
+      ;
       uint64_t lf_bits4 = lf_nybbles & kMask1111;
       lf_bits4 = ClearBottomSetBits(skip_ct - 1, lf_bits4);
       const uint32_t byte_offset_in_vec = (ctzw(lf_bits4) / 4) + 1;

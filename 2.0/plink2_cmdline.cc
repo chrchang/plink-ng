@@ -17,11 +17,18 @@
 
 #include "plink2_cmdline.h"
 
-#include <sys/types.h>  // open()
-#include <sys/stat.h>  // open()
+#include <errno.h>
 #include <fcntl.h>  // open()
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>  // open()
+#include <sys/types.h>  // open()
 #include <time.h>  // time(), ctime()
 #include <unistd.h>  // getcwd(), gethostname(), sysconf(), fstat()
+
+#include "include/plink2_htable.h"
+#include "include/plink2_thread.h"
 
 #ifdef __cplusplus
 namespace plink2 {

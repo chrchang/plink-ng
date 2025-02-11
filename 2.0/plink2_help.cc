@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-// necessary to include this instead of plink2_common so kCmdlineFormatStr[]
-// is known to have external linkage
 #include "plink2_help.h"
+
+#include <string.h>
+
+#include "include/plink2_bits.h"
+#include "plink2_cmdline.h"
 
 #ifdef __cplusplus
 namespace plink2 {

@@ -16,6 +16,12 @@
 
 #include "plink2_stats.h"
 
+#include <assert.h>
+#include <math.h>
+#include <stdlib.h>  // exit()
+
+#include "plink2_string.h"
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif
