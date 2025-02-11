@@ -4,58 +4,55 @@ name: PLINK2 GLM TESTS
 
 on:
   workflow_dispatch:
-    # Inputs the workflow accepts.
-    inputs:
-      plink_url:
-        # Friendly description for the Plink URL input
-        description: 'URL to download the Plink executable'
-        # Input is required for the workflow to run
-        required: true
-        # Type of input (URL for Plink executable)
-        type: string
 
 jobs:
   test_plink:
-    # The type of runner that the job will run on
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout the repository code (if needed for further steps)
       - name: Checkout Plink2 repository code
         uses: actions/checkout@v4
 
-      # Install dependencies (necessary for downloading and testing Plink)
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y wget unzip build-essential
 
-      # Download the Plink binary from the provided URL
       - name: Download Plink executable
         run: |
-          echo "Downloading Plink from ${PLINK_URL}..."
-          wget -O plink.zip ${{ inputs.plink_url }}
-          unzip plink.zip -d plink_dir
-          
-          # Check the extracted files and find the correct binary name
-          ls plink_dir
+          PLINK_BASE_URL="https://s3.amazonaws.com/plink2-assets/alpha6"
+          echo "Fetching Plink from: $PLINK_BASE_URL"
 
-          # Assuming plink2 is the correct binary name after extraction
-          chmod +x plink_dir/plink2
-          mv plink_dir/plink2 /usr/local/bin/plink
+          wget -O plink_dir.html $PLINK_BASE_URL
+          PLINK_ZIP=$(grep -oP 'href="\K[^"]*linux_[^"]*.zip' plink_dir.html | head -n 1)
 
-      # Run tests using the downloaded Plink executable
-      - name: Run tests with Plink
-        run: |
-          echo "Running tests with the downloaded Plink executable..."
-          plink --version # or replace with your test command
-
-      # Optional: Check the output of the tests (if applicable)
-      - name: Check Plink output
-        run: |
-          # If your tests produce output files like .assoc, you can check them here
-          if [ -f "plink_result.assoc" ]; then
-            cat plink_result.assoc
+          if [ -n "$PLINK_ZIP" ]; then
+            echo "Downloading Plink: $PLINK_ZIP"
+            wget -O plink.zip "$PLINK_BASE_URL/$PLINK_ZIP"
+            unzip plink.zip -d plink_dir
+            chmod +x plink_dir/plink2
+            mv plink_dir/plink2 /usr/local/bin/plink2
+          else
+            echo "No matching Plink binary found."
+            exit 1
           fi
 
+      - name: Download test data
+        run: |
+          DATA_URL="https://drive.google.com/file/d/1duspKrxtYdf_dJe5jX4Y_GMkzmy6i8dj/view?usp=sharing"  # Hardcoded test data URL
+          echo "Downloading test data from: $DATA_URL"
+
+          wget -O test_data.zip "$DATA_URL"
+          unzip test_data.zip -d test_data
+
+      - name: Run tests with Plink
+        run: |
+          echo "Running tests with Plink2..."
+          plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose --genotype-count dosage --out tmp  # Modify this command as needed
+
+      - name: Check Plink output
+        run: |
+          if [ -f "test_data/plink_result.assoc" ]; then
+            cat test_data/plink_result.assoc
+          fi
 
