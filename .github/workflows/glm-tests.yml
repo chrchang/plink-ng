@@ -20,7 +20,7 @@ jobs:
 
       - name: Download Plink executable
         run: |
-          PLINK_BASE_URL="https://s3.amazonaws.com/plink2-assets/alpha6"
+          PLINK_BASE_URL="https://s3.amazonaws.com/plink2-assets/alpha6/"
           echo "Fetching Plink from: $PLINK_BASE_URL"
 
           wget -O plink_dir.html $PLINK_BASE_URL
