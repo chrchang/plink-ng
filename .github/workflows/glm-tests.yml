@@ -36,8 +36,13 @@ jobs:
           echo "Downloading Plink from ${PLINK_URL}..."
           wget -O plink.zip ${{ inputs.plink_url }}
           unzip plink.zip -d plink_dir
-          chmod +x plink_dir/plink
-          mv plink_dir/plink /usr/local/bin/plink
+          
+          # Check the extracted files and find the correct binary name
+          ls plink_dir
+
+          # Assuming plink2 is the correct binary name after extraction
+          chmod +x plink_dir/plink2
+          mv plink_dir/plink2 /usr/local/bin/plink
 
       # Run tests using the downloaded Plink executable
       - name: Run tests with Plink
@@ -52,4 +57,5 @@ jobs:
           if [ -f "plink_result.assoc" ]; then
             cat plink_result.assoc
           fi
+
 
