@@ -43,10 +43,9 @@ jobs:
 
       - name: Download test data
         run: |
-          DATA_URL="https://example.com/test_data.zip"  # Replace with actual test data URL
-          echo "Downloading test data from: $DATA_URL"
-
-          wget -O test_data.zip "$DATA_URL"
+          GDRIVE_FILE_ID="1duspKrxtYdf_dJe5jX4Y_GMkzmy6i8dj"
+          echo "Downloading test data from Google Drive..."
+          gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
           unzip test_data.zip -d test_data
 
       - name: Run tests with Plink
