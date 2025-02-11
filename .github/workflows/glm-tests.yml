@@ -2,79 +2,54 @@
 
 name: PLINK2 GLM TESTS
 
-# Controls when the action will run. Workflow runs when manually triggered using the UI
-# or API.
 on:
   workflow_dispatch:
     # Inputs the workflow accepts.
     inputs:
-      plink_version:
-        # Friendly description to be shown in the UI
-        description: 'Select the version of Plink to test'
-        # Default value if no value is explicitly provided
-        default: 'dynamic'
+      plink_url:
+        # Friendly description for the Plink URL input
+        description: 'URL to download the Plink executable'
         # Input is required for the workflow to run
         required: true
-        # Type of input (a choice between dynamic or static Plink)
-        type: choice
-        options:
-          - 'dynamic'
-          - 'static'
-      # data_url:
-      #   # Friendly description for the data URL input
-      #   description: 'URL to the external test data (e.g., .ped, .map files)'
-      #   # Input is required for the workflow to run
-      #   required: true
-      #   # Type of input (URL for external data)
-      #   type: string
+        # Type of input (URL for Plink executable)
+        type: string
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   test_plink:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
 
     steps:
-    # Checkout the Plink2 repository code
-    - name: Checkout Plink2 repository code
-      uses: actions/checkout@v4
+      # Checkout the repository code (if needed for further steps)
+      - name: Checkout Plink2 repository code
+        uses: actions/checkout@v4
 
-    # # Install dependencies (for building Plink2 dynamically)
-    # - name: Install dependencies
-    #   run: |
-    #     sudo apt-get update
-    #     sudo apt-get install -y wget unzip build-essential
+      # Install dependencies (necessary for downloading and testing Plink)
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip build-essential
 
-    # # Download the external test data
-    # - name: Download external test data
-    #   run: |
-    #     curl -L -o test_data.zip ${{ inputs.data_url }}
-    #     unzip test_data.zip -d test_data
+      # Download the Plink binary from the provided URL
+      - name: Download Plink executable
+        run: |
+          echo "Downloading Plink from ${PLINK_URL}..."
+          wget -O plink.zip ${{ inputs.plink_url }}
+          unzip plink.zip -d plink_dir
+          chmod +x plink_dir/plink
+          mv plink_dir/plink /usr/local/bin/plink
 
-    # Conditionally install and build Plink2 (dynamic build) or use static Plink
-    - name: Install and build Plink2 (Dynamic) or Static Plink
-      run: |
-        if [ "${{ inputs.plink_version }}" == "dynamic" ]; then
-          # Build Plink2 dynamically from the source in the 2.0/build_dynamic directory
-          echo "Building Plink2 dynamically from source..."
-          cd 2.0/build_dynamic
-          make
-          chmod +x plink2
-          mv plink2 /usr/local/bin/plink2
-          cd ../../..
-        fi
+      # Run tests using the downloaded Plink executable
+      - name: Run tests with Plink
+        run: |
+          echo "Running tests with the downloaded Plink executable..."
+          plink --version # or replace with your test command
 
-    # Run tests using the chosen version of Plink
-    - name: Run tests with Plink
-      run: |
-        if [ "${{ inputs.plink_version }}" == "dynamic" ]; then
-          echo "Running tests with dynamic Plink2..."
-          plink2 
-        fi
+      # Optional: Check the output of the tests (if applicable)
+      - name: Check Plink output
+        run: |
+          # If your tests produce output files like .assoc, you can check them here
+          if [ -f "plink_result.assoc" ]; then
+            cat plink_result.assoc
+          fi
 
-    # Optional: Check the output of the tests
-    - name: Check Plink output
-      run: |
-        if [ "${{ inputs.plink_version }}" == "dynamic" ]; then
-          cat plink2_result.assoc
-        fi
