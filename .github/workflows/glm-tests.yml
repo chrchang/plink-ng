@@ -4,6 +4,11 @@ name: PLINK2 GLM TESTS
 
 on:
   workflow_dispatch:
+    inputs:
+      plink_version_date:
+        description: 'Enter the Plink version date (e.g., 20250129)'
+        required: true
+        type: string
 
 jobs:
   test_plink:
@@ -20,26 +25,25 @@ jobs:
 
       - name: Download Plink executable
         run: |
-          PLINK_BASE_URL="https://s3.amazonaws.com/plink2-assets/alpha6/"
-          echo "Fetching Plink from: $PLINK_BASE_URL"
+          PLINK_BASE_URL="https://s3.amazonaws.com/plink2-assets/alpha6"
+          PLINK_VERSION="${{ inputs.plink_version_date }}"
+          PLINK_URL="$PLINK_BASE_URL/plink2_linux_amd_avx2_${PLINK_VERSION}.zip"
 
-          wget -O plink_dir.html $PLINK_BASE_URL
-          PLINK_ZIP=$(grep -oP 'href="\K[^"]*linux_[^"]*.zip' plink_dir.html | head -n 1)
+          echo "Downloading Plink from: $PLINK_URL"
+          wget -O plink.zip "$PLINK_URL"
 
-          if [ -n "$PLINK_ZIP" ]; then
-            echo "Downloading Plink: $PLINK_ZIP"
-            wget -O plink.zip "$PLINK_BASE_URL/$PLINK_ZIP"
-            unzip plink.zip -d plink_dir
-            chmod +x plink_dir/plink2
-            mv plink_dir/plink2 /usr/local/bin/plink2
-          else
-            echo "No matching Plink binary found."
+          if [ $? -ne 0 ]; then
+            echo "Error: Failed to download Plink. Check if the version exists."
             exit 1
           fi
 
+          unzip plink.zip -d plink_dir
+          chmod +x plink_dir/plink2
+          mv plink_dir/plink2 /usr/local/bin/plink2
+
       - name: Download test data
         run: |
-          DATA_URL="https://drive.google.com/file/d/1duspKrxtYdf_dJe5jX4Y_GMkzmy6i8dj/view?usp=sharing"  # Hardcoded test data URL
+          DATA_URL="https://example.com/test_data.zip"  # Replace with actual test data URL
           echo "Downloading test data from: $DATA_URL"
 
           wget -O test_data.zip "$DATA_URL"
@@ -48,11 +52,14 @@ jobs:
       - name: Run tests with Plink
         run: |
           echo "Running tests with Plink2..."
-          plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose --genotype-count dosage --out tmp  # Modify this command as needed
+          plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose --genotype-count dosage --out tmp
 
       - name: Check Plink output
         run: |
-          if [ -f "test_data/plink_result.assoc" ]; then
-            cat test_data/plink_result.assoc
+          if [ -f "tmp.genotype-count" ]; then
+            cat tmp.genotype-count
+          else
+            echo "No output file generated."
+            exit 1
           fi
 
