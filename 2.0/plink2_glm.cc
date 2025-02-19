@@ -3232,9 +3232,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           common.sample_include_y_cumulative_popcounts = nullptr;
           common.covar_ct_y = 0;
         }
-        linear_ctx.max_returned_difflist_len = 0;
+        linear_ctx.max_difflist_len = 0;
         if ((is_qt_residualize || (!common.covar_ct) || (sample_ct_y && (!common.covar_ct_y))) && common.nm_precomp && (!(pgfip->gflags & kfPgenGlobalDosagePresent))) {
-          linear_ctx.max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+          linear_ctx.max_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
         }
 
         uint32_t* subset_chr_fo_vidx_start;
@@ -3961,9 +3961,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &logistic_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, orig_permstat, &valid_allele_ct);
       } else {
         // keep in sync with GlmLinearThread() difflist_eligible
-        linear_ctx.max_returned_difflist_len = 0;
+        linear_ctx.max_difflist_len = 0;
         if (((!common.covar_ct) || (sample_ct_y && (!common.covar_ct_y))) && common.nm_precomp && (!(pgfip->gflags & kfPgenGlobalDosagePresent))) {
-          linear_ctx.max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+          linear_ctx.max_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
         }
         reterr = GlmLinear(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &linear_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, &valid_allele_ct);
       }
@@ -3996,7 +3996,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         // files here.
         if (delete_orig_glm) {
           if (unlikely(unlink(in_fname))) {
-            logerrprintfww("Error: --gwas-ssf delete-orig-glm: Failed to delete %s .\n", in_fname);
+            logerrprintfww("Error: --gwas-ssf delete-orig-glm: Failed to delete %s : %s.\n", in_fname, strerror(errno));
             goto GlmMain_ret_WRITE_FAIL;
           }
         }

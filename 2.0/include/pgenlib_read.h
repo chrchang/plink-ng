@@ -153,10 +153,14 @@ typedef struct PgenReaderMainStruct {
   // can also be used for other purposes after we're done processing aux2.
   uintptr_t* workspace_vec;
 
-  // currently must hold (raw_sample_ct / kPglMaxDifflistLenDivisor)
-  // entries; may need to double the sizes later
-  // some top-level interface functions use these, so several lower-level
-  // functions cannot
+  // workspace_raregeno_vec must hold 2 * (raw_sample_ct /
+  // kPglMaxDifflistLenDivisor) entries, due to PgrGetDMaybeSparse().
+  // workspace_difflist_sample_ids requires space for one more entry than that,
+  // due to a potential terminator element.
+  //
+  // Several other top-level interface functions use
+  // workspace_difflist_sample_ids.  Lower-level functions should never refer
+  // directly to either of these two buffers.
   uintptr_t* workspace_raregeno_vec;
   uint32_t* workspace_difflist_sample_ids;
 
@@ -560,17 +564,10 @@ PglErr PgrGet(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex p
 // difflist_common_geno to the common genotype value in that case.  Otherwise,
 // genovec is populated and difflist_common_geno is set to UINT32_MAX.
 //
-// max_simple_difflist_len must be smaller than raw_sample_ct.
-//
-// Note that the returned difflist_len can be much larger than
-// max_simple_difflist_len when the variant is LD-encoded; it's bounded by
-//   2 * (raw_sample_ct / kPglMaxDifflistLenDivisor).
-// (probable todo: this interface has... rather sharp edges, even relative to
-// the rest of this low-level library.  Maybe it shouldn't be deleted, but it
-// would be better if there was a function that took a max_difflist_len
-// parameter, and it was safe for difflist_sample_ids to only be allocated up
-// to that length.)
-PglErr PgrGetDifflistOrGenovec(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uint32_t* __restrict difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr);
+// max_difflist_len must be smaller than raw_sample_ct.  The returned difflist
+// will never be longer than this.  (Note that this was not true before 13 Feb
+// 2025.)
+PglErr PgrGetDifflistOrGenovec(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t max_difflist_len, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uint32_t* __restrict difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr);
 
 // genocounts[0] = # hom ref, [1] = # het ref, [2] = two alts, [3] = missing
 PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts);
@@ -603,12 +600,12 @@ HEADER_INLINE PglErr PgrGetInv1(const uintptr_t* __restrict sample_include, PgrS
   return IMPLPgrGetInv1(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_invcountvec);
 }
 
-PglErr IMPLPgrGetInv1DifflistOrGenovec(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_invcountvec, uint32_t* __restrict difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr);
+PglErr IMPLPgrGetInv1DifflistOrGenovec(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_difflist_len, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_invcountvec, uint32_t* __restrict difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr);
 
-HEADER_INLINE PglErr PgrGetInv1DifflistOrGenovec(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_invcountvec, uint32_t* __restrict difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
+HEADER_INLINE PglErr PgrGetInv1DifflistOrGenovec(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t max_difflist_len, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_invcountvec, uint32_t* __restrict difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
   PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
   const uint32_t* sample_include_cumulative_popcounts = GET_PRIVATE(pssi, cumulative_popcounts);
-  return IMPLPgrGetInv1DifflistOrGenovec(sample_include, sample_include_cumulative_popcounts, sample_ct, max_simple_difflist_len, vidx, allele_idx, pgrp, allele_invcountvec, difflist_common_geno_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr);
+  return IMPLPgrGetInv1DifflistOrGenovec(sample_include, sample_include_cumulative_popcounts, sample_ct, max_difflist_len, vidx, allele_idx, pgrp, allele_invcountvec, difflist_common_geno_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr);
 }
 
 PglErr IMPLPgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReaderMain* pgrp, uintptr_t* __restrict genovec);
@@ -670,6 +667,25 @@ HEADER_INLINE PglErr PgrGetD(const uintptr_t* __restrict sample_include, PgrSamp
   const uint32_t* sample_include_cumulative_popcounts = GET_PRIVATE(pssi, cumulative_popcounts);
   return IMPLPgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genovec, dosage_present, dosage_main, dosage_ct_ptr);
 }
+
+/*
+PglErr IMPLPgrGetDMaybeSparse(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t max_sparse_dosage_ct, PgenReaderMain* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uint16_t* difflist_common_dosage_ptr, uint32_t* difflist_sample_ids);
+
+// If both hardcalls and dosages are stored sparsely, PgrGetDifflistOrGenovec(
+// ..., max_difflist_len=max_sparse_dosage_ct, ...) returns a sparse list, and
+// the length of that sparse list plus the length of the explicit-dosage list
+// <= max_sparse_dosage_ct, difflist_common_dosage is set to the common value
+// (either 0, 32768, or 65535), and {difflist_sample_ids, dosage_main,
+// dosage_ct} provide a sparse representation of the other values.
+// Otherwise, difflist_common_dosage is set to 1, and return values are as with
+// PgrGetD().
+// max_sparse_dosage_ct must be less than raw_sample_ct.
+HEADER_INLINE PglErr PgrGetDMaybeSparse(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t max_sparse_dosage_ct, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uint16_t* difflist_common_dosage_ptr, uint32_t* difflist_sample_ids) {
+  PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
+  const uint32_t* sample_include_cumulative_popcounts = GET_PRIVATE(pssi, cumulative_popcounts);
+  return IMPLPgrGetDMaybeSparse(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, max_sparse_dosage_ct, pgrp, genovec, dosage_present, dosage_main, dosage_ct_ptr, difflist_common_dosage_ptr, difflist_sample_ids);
+}
+*/
 
 PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 

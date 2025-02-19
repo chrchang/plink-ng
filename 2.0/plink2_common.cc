@@ -3921,12 +3921,12 @@ PglErr EmbedPgenIndex(char* outname, char* outname_end) {
       goto EmbedPgenIndex_ret_WRITE_FAIL;
     }
     if (unlikely(unlink(outname))) {
-      logerrprintfww("Error: Failed to delete %s .\n", outname);
+      logerrprintfww("Error: Failed to delete %s : %s.\n", outname, strerror(errno));
       goto EmbedPgenIndex_ret_WRITE_FAIL;
     }
     strcpy_k(outname_end, ".tmp.pgen.pgi");
     if (unlikely(unlink(outname))) {
-      logerrprintfww("Error: Failed to delete %s .\n", outname);
+      logerrprintfww("Error: Failed to delete %s : %s.\n", outname, strerror(errno));
       goto EmbedPgenIndex_ret_WRITE_FAIL;
     }
   }

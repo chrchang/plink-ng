@@ -8728,7 +8728,7 @@ PglErr PvarInfoResplitTmp(const uint32_t* new_variant_idx_to_old, uint32_t varia
           }
           if (unlikely(unlink(prev_inname))) {
             logputs("\n");
-            logerrprintfww("Error: Failed to delete %s .\n", prev_inname);
+            logerrprintfww("Error: Failed to delete %s : %s.\n", prev_inname, strerror(errno));
             goto PvarInfoResplitTmp_ret_WRITE_FAIL;
           }
         }
@@ -9193,7 +9193,7 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
           }
           if (unlikely(unlink(g_textbuf))) {
             logputs("\n");
-            logerrprintfww("Error: Failed to delete %s .\n", g_textbuf);
+            logerrprintfww("Error: Failed to delete %s : %s.\n", g_textbuf, strerror(errno));
             goto WritePvarResorted_ret_WRITE_FAIL;
           }
         }
@@ -9239,7 +9239,7 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
         }
         if (unlikely(unlink(g_textbuf))) {
           logputs("\n");
-          logerrprintfww("Error: Failed to delete %s .\n", g_textbuf);
+          logerrprintfww("Error: Failed to delete %s : %s.\n", g_textbuf, strerror(errno));
           goto WritePvarResorted_ret_WRITE_FAIL;
         }
       }

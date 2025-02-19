@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6.9.a"
+static const char ver_str[] = "PLINK v2.0.0-a.6.9.b"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.6.9.a"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (10 Feb 2025)";
+  " (18 Feb 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -12618,7 +12618,7 @@ int main(int argc, char** argv) {
     do {
       LlStr* llstr_ptr = file_delete_list->next;
       if (unlikely(unlink(file_delete_list->str))) {
-        logerrprintfww("Error: Failed to delete %s .\n", file_delete_list->str);
+        logerrprintfww("Error: Failed to delete %s : %s .\n", file_delete_list->str, strerror(errno));
         if (reterr == kPglRetSuccess) {
           reterr = kPglRetWriteFail;
         }

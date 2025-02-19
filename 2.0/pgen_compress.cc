@@ -150,13 +150,12 @@ int32_t main(int32_t argc, char** argv) {
     }
     SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
-    const uint32_t max_simple_difflist_len = sample_ct / kBitsPerWordD2;
-    const uint32_t max_returned_difflist_len = 2 * (sample_ct / kPglMaxDifflistLenDivisor);
-    const uint32_t max_difflist_len = 2 * (write_sample_ct / kPglMaxDifflistLenDivisor);
-    if (cachealigned_malloc(RoundUpPow2((max_returned_difflist_len + 3) / 4, kCacheline), &raregeno) ||
+    const uint32_t max_read_difflist_len = 2 * (sample_ct / kPglMaxDifflistLenDivisor);
+    const uint32_t max_write_difflist_len = 2 * (write_sample_ct / kPglMaxDifflistLenDivisor);
+    if (cachealigned_malloc(RoundUpPow2((max_read_difflist_len + 3) / 4, kCacheline), &raregeno) ||
         cachealigned_malloc(RoundUpPow2((sample_ct + 7) / 8, kCacheline), &sample_include) ||
         cachealigned_malloc(RoundUpPow2((1 + (sample_ct / kBitsPerWord)) * sizeof(int32_t), kCacheline), &sample_include_cumulative_popcounts) ||
-        cachealigned_malloc(RoundUpPow2((max_returned_difflist_len + 1) * sizeof(int32_t), kCacheline), &difflist_sample_ids)) {
+        cachealigned_malloc(RoundUpPow2((max_read_difflist_len + 1) * sizeof(int32_t), kCacheline), &difflist_sample_ids)) {
       goto main_ret_NOMEM;
     }
 #ifdef SUBSET_TEST
@@ -176,7 +175,7 @@ int32_t main(int32_t argc, char** argv) {
     for (uint32_t vidx = 0; vidx < variant_ct; ) {
       uint32_t difflist_common_geno;
       uint32_t difflist_len;
-      reterr = PgrGetDifflistOrGenovec(sample_include, pssi, write_sample_ct, max_simple_difflist_len, vidx, &pgr, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+      reterr = PgrGetDifflistOrGenovec(sample_include, pssi, write_sample_ct, max_read_difflist_len, vidx, &pgr, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
       if (reterr) {
         fprintf(stderr, "\nread error %u, vidx=%u\n", S_CAST(uint32_t, reterr), vidx);
         goto main_ret_1;
@@ -184,7 +183,7 @@ int32_t main(int32_t argc, char** argv) {
       if (difflist_common_geno == 0xffffffffU) {
         ZeroTrailingBits(write_sample_ct * 2, genovec);
         reterr = SpgwAppendBiallelicGenovec(genovec, &spgw);
-      } else if (difflist_len <= max_difflist_len) {
+      } else if (difflist_len <= max_write_difflist_len) {
         ZeroTrailingBits(2 * difflist_len, raregeno);
         difflist_sample_ids[difflist_len] = write_sample_ct;
         reterr = SpgwAppendBiallelicDifflistLimited(raregeno, difflist_sample_ids, difflist_common_geno, difflist_len, &spgw);

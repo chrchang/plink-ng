@@ -56,7 +56,7 @@ typedef struct GlmLinearCtxStruct {
   double* local_covars_vcmaj_d[2];
   LinearAuxResult* block_aux;
 
-  uint32_t max_returned_difflist_len;
+  uint32_t max_difflist_len;
   uint32_t subbatch_size;
 } GlmLinearCtx;
 

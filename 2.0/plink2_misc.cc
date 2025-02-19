@@ -6000,6 +6000,7 @@ typedef struct SampleCountsCtxStruct {
   uint32_t sample_ct;
   uint32_t male_ct;
   uint32_t y_nonmale_needed;
+  uint32_t max_difflist_len;
 
   PgenReader** pgr_ptrs;
   uintptr_t** genovecs;
@@ -6067,6 +6068,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
   const uintptr_t* sex_male_collapsed = ctx->sex_male_collapsed;
   const uintptr_t sample_ct = ctx->sample_ct;
   const uint32_t male_ct = ctx->male_ct;
+  const uint32_t max_difflist_len = ctx->max_difflist_len;
   const uint32_t skip_y = (!male_ct) && (!ctx->y_nonmale_needed);
   uintptr_t* genovec = ctx->genovecs[tidx];
   PgenVariant pgv;
@@ -6074,9 +6076,6 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
   SetPgvThreadMhcNull(sample_ct, tidx, ctx->thread_read_mhc, &pgv);
   uintptr_t* raregeno = ctx->raregenos[tidx];
   uint32_t* difflist_sample_ids = ctx->difflist_sample_id_bufs[tidx];
-
-  // todo: tune this threshold
-  const uint32_t max_simple_difflist_len = sample_ct / 32;
 
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   const uint32_t acc2_vec_ct = NypCtToVecCt(sample_ct);
@@ -6196,7 +6195,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
         // Finally, a scenario where exposing this capability really pays off.
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
-        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto SampleCountsThread_err;
@@ -6759,10 +6758,12 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
                  bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_sparse_common0_cts))) {
       goto SampleCounts_ret_NOMEM;
     }
-    const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+    // todo: tune this threshold
+    const uint32_t max_difflist_len = sample_ct / 32;
+    ctx.max_difflist_len = max_difflist_len;
 
-    const uintptr_t raregeno_vec_ct = DivUp(max_returned_difflist_len, kNypsPerVec);
-    const uintptr_t difflist_sample_id_vec_ct = DivUp(max_returned_difflist_len, kInt32PerVec);
+    const uintptr_t raregeno_vec_ct = DivUp(max_difflist_len, kNypsPerVec);
+    const uintptr_t difflist_sample_id_vec_ct = DivUp(max_difflist_len, kInt32PerVec);
 
     const uintptr_t acc2_vec_ct = NypCtToVecCt(sample_ct);
     const uintptr_t dense_counts_vstride = acc2_vec_ct * 23;
@@ -9456,6 +9457,7 @@ typedef struct HetCtxStruct {
   const double* allele_freqs;  // nullptr if small-sample
   uint32_t sample_ct;
   uint32_t founder_ct;
+  uint32_t max_difflist_len;
 
   PgenReader** pgr_ptrs;
   uintptr_t** genovecs;
@@ -9505,9 +9507,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
   if (ctx->thread_read_mhc) {
     allele_nobs = ctx->allele_nobs_bufs[tidx];
   }
-
-  // todo: tune this threshold
-  const uint32_t max_simple_difflist_len = sample_ct / 32;
+  const uint32_t max_difflist_len = ctx->max_difflist_len;
 
   double ehet_base = 0.0;
   uint32_t nobs_base = 0;
@@ -9557,7 +9557,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
         }
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
-        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto HetThread_err;
@@ -9891,9 +9891,11 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
                  bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_nobs_incrs))) {
       goto HetCalcMain_ret_NOMEM;
     }
-    const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
-    const uintptr_t raregeno_vec_ct = DivUp(max_returned_difflist_len, kNypsPerVec);
-    const uintptr_t difflist_sample_id_vec_ct = DivUp(max_returned_difflist_len, kInt32PerVec);
+    // todo: tune this threshold
+    const uint32_t max_difflist_len = sample_ct / 32;
+    ctx.max_difflist_len = max_difflist_len;
+    const uintptr_t raregeno_vec_ct = DivUp(max_difflist_len, kNypsPerVec);
+    const uintptr_t difflist_sample_id_vec_ct = DivUp(max_difflist_len, kInt32PerVec);
     const uint32_t mhc_needed = (max_allele_ct > 2);
     uintptr_t allele_nobs_vec_ct = 0;
     ctx.allele_nobs_bufs = nullptr;
@@ -10545,6 +10547,7 @@ typedef struct FstCtxStruct {
   const uint32_t* haploid_pop_sizes;
   uint32_t sample_ct;
   uint32_t pop_ct;
+  uint32_t max_difflist_len;
 
   PgenReader** pgr_ptrs;
   uintptr_t** genovecs;
@@ -10600,9 +10603,7 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
   uint32_t* difflist_sample_ids = ctx->difflist_sample_id_bufs[tidx];
   uint32_t* pop_geno_buf = ctx->pop_geno_bufs[tidx];
   const uintptr_t pop_geno_buf_size = pop_ct_x4 << haploid_present;
-
-  // todo: tune this threshold
-  const uint32_t max_simple_difflist_len = sample_ct / 32;
+  const uint32_t max_difflist_len = ctx->max_difflist_len;
 
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
 
@@ -10652,7 +10653,7 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
       uint32_t difflist_common_geno = UINT32_MAX;
       if (allele_ct == 2) {
         uint32_t difflist_len;
-        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto FstThread_err;
@@ -11292,9 +11293,11 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
     const uint32_t fstfrac_vcol = (flags / kfFstVcolFstfrac) & 1;
     const uint32_t fst_vcol = (flags / kfFstVcolFst) & 1;
     const uint32_t jackknife_blocksize = fst_infop->blocksize;
-    const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
-    const uintptr_t raregeno_vec_ct = DivUp(max_returned_difflist_len, kNypsPerVec);
-    const uintptr_t difflist_sample_id_vec_ct = DivUp(max_returned_difflist_len, kInt32PerVec);
+    // todo: tune this threshold
+    const uint32_t max_difflist_len = sample_ct / 32;
+    ctx.max_difflist_len = max_difflist_len;
+    const uintptr_t raregeno_vec_ct = DivUp(max_difflist_len, kNypsPerVec);
+    const uintptr_t difflist_sample_id_vec_ct = DivUp(max_difflist_len, kInt32PerVec);
     const uint32_t mhc_needed = (max_allele_ct > 2);
 
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);

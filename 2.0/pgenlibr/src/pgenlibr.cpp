@@ -33,9 +33,9 @@ public:
 
   void ReadHardcalls(NumericVector buf, int variant_idx, int allele_idx);
 
-  void ReadIntMaybeSparseHardcalls(IntegerVector buf, int variant_idx, int allele_idx, int max_simple_difflist_len, IntegerVector* sample_nums_ptr, IntegerVector* allele_counts_ptr);
+  void ReadIntMaybeSparseHardcalls(IntegerVector buf, int variant_idx, int allele_idx, int max_difflist_len, IntegerVector* sample_nums_ptr, IntegerVector* allele_counts_ptr);
 
-  void ReadMaybeSparseHardcalls(NumericVector buf, int variant_idx, int allele_idx, int max_simple_difflist_len, IntegerVector* sample_nums_ptr, NumericVector* allele_dosages_ptr);
+  void ReadMaybeSparseHardcalls(NumericVector buf, int variant_idx, int allele_idx, int max_difflist_len, IntegerVector* sample_nums_ptr, NumericVector* allele_dosages_ptr);
 
   void Read(NumericVector buf, int variant_idx, int allele_idx);
 
@@ -397,10 +397,10 @@ void RPgenReader::ReadHardcalls(NumericVector buf, int variant_idx, int allele_i
 
 static const int32_t kGenoRInt32QuadsFlipped[1024] ALIGNV16 = QUAD_TABLE256(2, 1, 0, NA_INTEGER);
 
-void RPgenReader::ReadIntMaybeSparseHardcalls(IntegerVector buf, int variant_idx, int allele_idx, int max_simple_difflist_len, IntegerVector* sample_nums_ptr, IntegerVector* allele_counts_ptr) {
+void RPgenReader::ReadIntMaybeSparseHardcalls(IntegerVector buf, int variant_idx, int allele_idx, int max_difflist_len, IntegerVector* sample_nums_ptr, IntegerVector* allele_counts_ptr) {
   uint32_t difflist_common_geno;
   uint32_t difflist_len;
-  ReadMaybeSparseHardcallsInternal(variant_idx, max_simple_difflist_len, &difflist_common_geno, &difflist_len);
+  ReadMaybeSparseHardcallsInternal(variant_idx, max_difflist_len, &difflist_common_geno, &difflist_len);
   const int32_t* quad_table = (allele_idx == 0)? kGenoRInt32QuadsFlipped : kGenoRInt32Quads;
   if (((allele_idx == 0) && (difflist_common_geno != 2)) ||
       ((allele_idx == 1) && (difflist_common_geno != 0)) ||
@@ -437,10 +437,10 @@ void RPgenReader::ReadIntMaybeSparseHardcalls(IntegerVector buf, int variant_idx
 
 static const double kGenoRDoublePairsFlipped[32] ALIGNV16 = PAIR_TABLE16(0.0, 1.0, 2.0, NA_REAL);
 
-void RPgenReader::ReadMaybeSparseHardcalls(NumericVector buf, int variant_idx, int allele_idx, int max_simple_difflist_len, IntegerVector* sample_nums_ptr, NumericVector* allele_dosages_ptr) {
+void RPgenReader::ReadMaybeSparseHardcalls(NumericVector buf, int variant_idx, int allele_idx, int max_difflist_len, IntegerVector* sample_nums_ptr, NumericVector* allele_dosages_ptr) {
   uint32_t difflist_common_geno;
   uint32_t difflist_len;
-  ReadMaybeSparseHardcallsInternal(variant_idx, max_simple_difflist_len, &difflist_common_geno, &difflist_len);
+  ReadMaybeSparseHardcallsInternal(variant_idx, max_difflist_len, &difflist_common_geno, &difflist_len);
   const double* pair_table = (allele_idx == 0)? kGenoRDoublePairsFlipped : kGenoRDoublePairs;
   if (((allele_idx == 0) && (difflist_common_geno != 2)) ||
       ((allele_idx == 1) && (difflist_common_geno != 0)) ||
@@ -829,12 +829,12 @@ void RPgenReader::SetSampleSubsetInternal(IntegerVector sample_subset_1based) {
   _subset_size = subset_size;
 }
 
-void RPgenReader::ReadMaybeSparseHardcallsInternal(int variant_idx, int max_simple_difflist_len, uint32_t* difflist_common_geno_ptr, uint32_t* difflist_len_ptr) {
+void RPgenReader::ReadMaybeSparseHardcallsInternal(int variant_idx, int max_difflist_len, uint32_t* difflist_common_geno_ptr, uint32_t* difflist_len_ptr) {
   // Fills {_raregeno_buf, _difflist_sample_ids_buf, *difflist_common_geno_ptr,
-  // *difflist_len_ptr} iff hardcalls are either stored as a simple difflist no
-  // longer than max_simple_difflist_len, or stored as a list of differences
-  // from an earlier variant.  (Note that when the latter representation is
-  // involved, the final difflist can be longer than max_simple_difflist_len.)
+  // *difflist_len_ptr} iff hardcalls are either (i) stored as a simple
+  // difflist no longer than max_difflist_len, or (ii) stored as a list of
+  // differences from an earlier variant, which is itself stored as a simple
+  // difflist, and the sum of the two list lengths is <= max_difflist_len.
   //
   // Otherwise, fills _pgv.genovec and sets *difflist_common_geno_ptr to
   // UINT32_MAX.
@@ -847,7 +847,7 @@ void RPgenReader::ReadMaybeSparseHardcallsInternal(int variant_idx, int max_simp
     snprintf(errstr_buf, 256, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _info_ptr->raw_variant_ct);
     stop(errstr_buf);
   }
-  plink2::PglErr reterr = plink2::PgrGetDifflistOrGenovec(_subset_include_vec, _subset_index, _subset_size, max_simple_difflist_len, variant_idx, _state_ptr, _pgv.genovec, difflist_common_geno_ptr, _raregeno_buf, _difflist_sample_ids_buf, difflist_len_ptr);
+  plink2::PglErr reterr = plink2::PgrGetDifflistOrGenovec(_subset_include_vec, _subset_index, _subset_size, max_difflist_len, variant_idx, _state_ptr, _pgv.genovec, difflist_common_geno_ptr, _raregeno_buf, _difflist_sample_ids_buf, difflist_len_ptr);
   if (reterr != plink2::kPglRetSuccess) {
     char errstr_buf[256];
     snprintf(errstr_buf, 256, "PgrGetDifflistOrGenovec() error %d", static_cast<int>(reterr));
@@ -1157,11 +1157,12 @@ List ReadSparseHardcalls(List pgen, int variant_num, int allele_num = 2, bool re
   IntegerVector sample_nums(0);
   const int allele_idx = allele_num - 1;
   const uint32_t file_sample_ct = rp->GetRawSampleCt();
-  const uint32_t max_simple_difflist_len = file_sample_ct / plink2::kPglMaxDifflistLenDivisor;
+  // Should be impossible for this to fail.
+  const uint32_t max_difflist_len = 2 * (file_sample_ct / plink2::kPglMaxDifflistLenDivisor);
   if (return_ints) {
     IntegerVector unused_buf(0);
     IntegerVector integer_counts(0);
-    rp->ReadIntMaybeSparseHardcalls(unused_buf, variant_idx, allele_idx, max_simple_difflist_len, &sample_nums, &integer_counts);
+    rp->ReadIntMaybeSparseHardcalls(unused_buf, variant_idx, allele_idx, max_difflist_len, &sample_nums, &integer_counts);
     return List::create(
                         _["sample_nums"] = sample_nums,
                         _["counts"] = integer_counts
@@ -1169,7 +1170,7 @@ List ReadSparseHardcalls(List pgen, int variant_num, int allele_num = 2, bool re
   } else {
     NumericVector unused_buf(0);
     NumericVector numeric_counts(0);
-    rp->ReadMaybeSparseHardcalls(unused_buf, variant_idx, allele_idx, max_simple_difflist_len, &sample_nums, &numeric_counts);
+    rp->ReadMaybeSparseHardcalls(unused_buf, variant_idx, allele_idx, max_difflist_len, &sample_nums, &numeric_counts);
     return List::create(
                         _["sample_nums"] = sample_nums,
                         _["counts"] = numeric_counts

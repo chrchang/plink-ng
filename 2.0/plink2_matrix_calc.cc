@@ -6329,7 +6329,7 @@ typedef struct CalcScoreCtxStruct {
   uint32_t score_final_col_ct;
   uint32_t sample_shard_size;
   uint32_t sample_ct;
-  uint32_t max_returned_difflist_len;
+  uint32_t max_difflist_len;
   ScoreFlags flags;
   uint32_t qsr_ct;
 
@@ -6387,9 +6387,9 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
   const uint32_t shard_sizel = BitCtToWordCt(sample_shard_size);
   const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
-  const uint32_t max_returned_difflist_len = ctx->max_returned_difflist_len;
-  const uintptr_t raregeno_stride = NypCtToAlignedWordCt(max_returned_difflist_len);
-  const uintptr_t difflist_sample_ids_stride = RoundUpPow2(max_returned_difflist_len, kInt32PerVec);
+  const uint32_t max_difflist_len = ctx->max_difflist_len;
+  const uintptr_t raregeno_stride = NypCtToAlignedWordCt(max_difflist_len);
+  const uintptr_t difflist_sample_ids_stride = RoundUpPow2(max_difflist_len, kInt32PerVec);
   const uint32_t dosage_main_stride = RoundUpPow2(sample_ct, kDosagePerVec);
   const uintptr_t* shard_sex_nonmale_collapsed = &(ctx->sex_nonmale_collapsed[sample_idx_startl]);
   const uintptr_t* shard_sex_female_collapsed = &(ctx->sex_female_collapsed[sample_idx_startl]);
@@ -7326,13 +7326,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uint32_t domrec = !!(flags & (kfScoreDominant | kfScoreRecessive));
     uint32_t* common_geno_sum_incrs = nullptr;
     double* common_score_incrs = nullptr;
-    uint32_t max_returned_difflist_len = 0;
+    uint32_t max_difflist_len = 0;
     uintptr_t raregeno_stride = 0;
     uintptr_t difflist_sample_ids_stride = 0;
     if ((!ctx.dosage_presents[0]) && (!domrec)) {
-      max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
-      raregeno_stride = NypCtToAlignedWordCt(max_returned_difflist_len);
-      difflist_sample_ids_stride = RoundUpPow2(max_returned_difflist_len, kInt32PerVec);
+      max_difflist_len = (score_final_col_ct == 1)? (sample_ct / 16) : (sample_ct / 32);
+      raregeno_stride = NypCtToAlignedWordCt(max_difflist_len);
+      difflist_sample_ids_stride = RoundUpPow2(max_difflist_len, kInt32PerVec);
       if (unlikely(bigstack_alloc_u32(qsr_ct_nz, &common_geno_sum_incrs) ||
                    bigstack_alloc_d(score_final_col_ct, &common_score_incrs) ||
                    bigstack_alloc_w(kScoreVariantBlockSize * raregeno_stride, &ctx.raregenos[0]) ||
@@ -7359,7 +7359,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       ctx.score_sparse_coefs_vmaj[0] = nullptr;
       ctx.score_sparse_coefs_vmaj[1] = nullptr;
     }
-    ctx.max_returned_difflist_len = max_returned_difflist_len;
+    ctx.max_difflist_len = max_difflist_len;
     if (allele_freqs) {
       if (unlikely(bigstack_alloc_d(kScoreVariantBlockSize, &ctx.allele_freqs[0]) ||
                    bigstack_alloc_d(kScoreVariantBlockSize, &ctx.allele_freqs[1]) ||
@@ -7447,7 +7447,6 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uint32_t lines_to_skip_p1 = 1 + ((flags / kfScoreHeaderIgnore) & 1);
     // Stricter threshold for multi-score since standard matrix-multiply
     // workflow is more likely to pay off
-    const uint32_t max_sparse = (score_final_col_ct == 1)? (sample_ct / 16) : (sample_ct / 32);
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
@@ -7745,7 +7744,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           // Sparse-genotype optimization.  We limit this to the no-dosage,
           // all-diploid, biallelic, no 'dominant'/'recessive' case to keep
           // code size under control.
-          reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_sparse, variant_uidx, simple_pgrp, genovec_iter, &difflist_common_geno, raregeno_iter, difflist_sample_ids_iter, &difflist_len);
+          reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_difflist_len, variant_uidx, simple_pgrp, genovec_iter, &difflist_common_geno, raregeno_iter, difflist_sample_ids_iter, &difflist_len);
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, variant_uidx);
             goto ScoreReport_ret_1;
@@ -8536,7 +8535,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     }
     snprintf(outname_end, kMaxOutfnameExtBlen, ".sscore.tmp");
     if (unlink(outname)) {
-      logerrprintfww("Error: Failed to delete %s .\n", outname);
+      logerrprintfww("Error: Failed to delete %s : %s.\n", outname, strerror(errno));
       goto ScoreReport_ret_WRITE_FAIL;
     }
   }
@@ -8629,6 +8628,7 @@ typedef struct VscoreCtxStruct {
   uint32_t sample_ct;
   uint32_t male_ct;
   uint32_t is_xchr_model_1;
+  uint32_t max_difflist_len;
 
   PgenReader** pgr_ptrs;
   uintptr_t** genovecs;
@@ -8698,14 +8698,12 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
   const uint32_t is_xchr_model_1 = ctx->is_xchr_model_1;
+  const uint32_t max_difflist_len = ctx->max_difflist_len;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
 
   const uint32_t single_prec = (wts_f_smaj != nullptr);
 #ifdef USE_CUDA
   CublasFmultiplier* cfmp = ctx->cfms? &(ctx->cfms[tidx]) : nullptr;
-  const uint32_t max_sparse = sample_ct / (single_prec? (cfmp? 64 : 32) : 16);
-#else
-  const uint32_t max_sparse = sample_ct / (single_prec? 32 : 16);
 #endif
 
   float* tmp_f_result_buf = nullptr;
@@ -8777,7 +8775,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
       if (!dosage_present) {
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
-        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_sparse, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto VscoreThread_err;
@@ -8890,7 +8888,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto VscoreThread_err;
         }
-        if ((!is_x_or_y) && (dosage_ct <= max_sparse)) {
+        if ((!is_x_or_y) && (dosage_ct <= max_difflist_len)) {
           STD_ARRAY_DECL(uint32_t, 4, genocounts);
           ZeroTrailingNyps(sample_ct, genovec);
           if (!dosage_ct) {
@@ -8899,7 +8897,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
             ZeroWArr(BitCtToWordCt(sample_ct), dosage_present);
           }
           GenoarrCountInvsubsetFreqs2(genovec, dosage_present, sample_ct, sample_ct - dosage_ct, genocounts);
-          if (genocounts[0] >= sample_ct - max_sparse) {
+          if (genocounts[0] >= sample_ct - max_difflist_len) {
             float* target_f = nullptr;
             double* target_d = nullptr;
             if (single_prec) {
@@ -9682,15 +9680,20 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       ctx.missing_cts[1] = nullptr;
     }
 
-    const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+#ifdef USE_CUDA
+    const uint32_t max_difflist_len = sample_ct / (single_prec? (ctx.cfms? 64 : 32) : 16);
+#else
+    const uint32_t max_difflist_len = sample_ct / (single_prec? 32 : 16);
+#endif
+    ctx.max_difflist_len = max_difflist_len;
     // * Per-thread raregeno buffers must have space for
-    //   max_returned_difflist_len nyps, and difflist_sample_ids buffers need
-    //   space for that many uint32s.
+    //   max_difflist_len nyps, and difflist_sample_ids buffers need space for
+    //   that many uint32s.
     // * Per-thread dosage_vmaj buffers must have space for
     //   kVscoreBlockSize * sample_ct elements.
     // * Per-thread result buffers must have space for kVscoreBlockSize *
     //   vscore_ct elements.
-    const uintptr_t thread_xalloc_cacheline_ct = DivUp(max_returned_difflist_len, kNypsPerCacheline) + DivUp(max_returned_difflist_len, kInt32PerCacheline) + DivUp(kVscoreBlockSize * S_CAST(uintptr_t, sample_ct) * sizeof(double), kCacheline) + DivUp(kVscoreBlockSize * vscore_ct * sizeof(double), kCacheline);
+    const uintptr_t thread_xalloc_cacheline_ct = DivUp(max_difflist_len, kNypsPerCacheline) + DivUp(max_difflist_len, kInt32PerCacheline) + DivUp(kVscoreBlockSize * S_CAST(uintptr_t, sample_ct) * sizeof(double), kCacheline) + DivUp(kVscoreBlockSize * vscore_ct * sizeof(double), kCacheline);
 
     // ctx.results must have space for 2 * vscore_ct * read_block_size values.
     const uintptr_t per_variant_xalloc_byte_ct = 2 * vscore_ct * ((8 * k1LU) >> single_prec);
@@ -9708,8 +9711,8 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     {
       // could vector-align individual allocations and only cacheline-align at
       // thread boundaries, but the savings are microscopic
-      const uintptr_t raregeno_alloc = kCacheline * DivUp(max_returned_difflist_len, kNypsPerCacheline);
-      const uintptr_t difflist_sample_ids_alloc = RoundUpPow2(max_returned_difflist_len * sizeof(int32_t), kCacheline);
+      const uintptr_t raregeno_alloc = kCacheline * DivUp(max_difflist_len, kNypsPerCacheline);
+      const uintptr_t difflist_sample_ids_alloc = RoundUpPow2(max_difflist_len * sizeof(int32_t), kCacheline);
       const uintptr_t dosage_vmaj_alloc = RoundUpPow2(kVscoreBlockSize * S_CAST(uintptr_t, sample_ct) * ((8 * k1LU) >> single_prec), kCacheline);
       const uintptr_t tmp_result_alloc = RoundUpPow2(kVscoreBlockSize * vscore_ct * ((8 * k1LU) >> single_prec), kCacheline);
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
