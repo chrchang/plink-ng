@@ -3270,7 +3270,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         memcpy(g_textbuf, subset_fname, fname_slen);
         strcpy_k(&(g_textbuf[fname_slen]), "~");
         if (unlikely(rename(subset_fname, g_textbuf))) {
-          logerrputs("Error: Failed to append '~' to --king-table-subset input filename.\n");
+          logerrprintf("Error: Failed to append '~' to --king-table-subset input filename: %s.\n", strerror(errno));
           goto CalcKingTableSubset_ret_OPEN_FAIL;
         }
         subset_fname = g_textbuf;

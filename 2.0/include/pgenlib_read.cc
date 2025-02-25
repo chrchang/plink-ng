@@ -21,6 +21,8 @@
 #include <limits.h>
 #include <string.h>
 
+#include <stdexcept>
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif
@@ -3147,6 +3149,7 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   // Side effects:
   //   may use pgr.workspace_raregeno_tmp_loadbuf
   // Trailing bits of genovec/main_raregeno may not be zeroed out.
+  // Always sets difflist_common_geno; may not set difflist_len.
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const uint32_t maintrack_vrtype = vrtype & 7;
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
@@ -7500,33 +7503,174 @@ PglErr IMPLPgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* _
   return ParseDosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, allele_ct, pgrp, dosage_ct_ptr, nullptr, nullptr, nullptr, dosage_present, dosage_main);
 }
 
-/*
+static const uint16_t kGenoToDosage16[4] = {0, 16384, 32768, 65535};
+
+// These tables should be renamed in a way that distinguishes them from the
+// likes of kGenoToDosage16.
+const uint16_t kHcToDosage16[1024] = QUAD_TABLE256(0, 16384, 32768, 65535);
+
 PglErr IMPLPgrGetDMaybeSparse(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t max_sparse_dosage_ct, PgenReaderMain* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uint16_t* difflist_common_dosage_ptr, uint32_t* difflist_sample_ids) {
   assert(vidx < pgrp->fi.raw_variant_ct);
+  *difflist_common_dosage_ptr = 1;
   if (!sample_ct) {
-    *difflist_common_dosage_ptr = 0;
-    *dosage_ct_ptr = 0;
     return kPglRetSuccess;
   }
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
-  if ((!VrtypeDosage(vrtype)) || (!dosage_present)) {
-    uint32_t difflist_common_geno;
-    PglErr reterr = ReadDifflistOrGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, max_sparse_dosage_ct, vidx, pgrp, nullptr, nullptr, genovec, &difflist_common_geno, , difflist_sample_ids);;;
-    *dosage_ct_ptr = 0;
-    return ReadGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genovec);
+  const uint32_t dosage_matters = dosage_present && VrtypeDosage(vrtype);
+  const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
+  const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
+  if (dosage_matters && (((vrtype & 0x60) != 0x20) || (subsetting_required && VrtypeHphase(vrtype)))) {
+    // If dense dosages are present, we can immediately bail to PgrGetD().
+    //
+    // If a dosage-list is present, we punt the hardcall-phase + subsetting
+    // subcase for now.  We can fill it in by calling
+    // ReadDifflistOrGenovecSubsetUnsafe() in no-subsetting mode (so we know
+    // the correct het_ct), calling SkipAux2(), and then subsetting.  (Or
+    // ReadDifflistOrGenovecSubsetUnsafe() could optionally return raw_het_ct,
+    // but I expect that approach to degrade hotter-path performance by too
+    // much to be worth it.)  Eventually, that code path will also need to
+    // support multiallelic variants.
+    return IMPLPgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genovec, dosage_present, dosage_main, dosage_ct_ptr);
   }
+  *dosage_ct_ptr = 0;
+  uintptr_t* subsetted_raregeno = pgrp->workspace_raregeno_vec;
+  // If a dosage-list is present, we may need to merge a (sample ID, genotype)
+  // list returned by ReadDifflistOrGenovecSubsetUnsafe() with the (sample ID,
+  // dosage) list.  So we save the IDs in the first list to a workspace buffer.
+  // However, if dosages aren't present (or we're ignoring them), we can write
+  // the sample IDs directly to the final destination.
+  uint32_t* subsetted_raregeno_sample_ids = dosage_matters? pgrp->workspace_difflist_sample_ids : difflist_sample_ids;
   const unsigned char* fread_ptr = nullptr;
   const unsigned char* fread_end = nullptr;
-  uint32_t phasepresent_ct;
-  PglErr reterr = ReadGenovecHphaseSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, &fread_ptr, &fread_end, genovec, nullptr, nullptr, &phasepresent_ct);
+  uint32_t difflist_common_geno;
+  uint32_t subsetted_raregeno_ct;
+  PglErr reterr = ReadDifflistOrGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, max_sparse_dosage_ct, vidx, pgrp, &fread_ptr, &fread_end, genovec, &difflist_common_geno, subsetted_raregeno, subsetted_raregeno_sample_ids, &subsetted_raregeno_ct);
   if (unlikely(reterr)) {
     return reterr;
   }
+  if (!dosage_matters) {
+    *dosage_ct_ptr = subsetted_raregeno_ct;
+    if (difflist_common_geno != UINT32_MAX) {
+      *difflist_common_dosage_ptr = kGenoToDosage16[difflist_common_geno];
+      GenoarrLookup256x2bx4(subsetted_raregeno, kHcToDosage16, subsetted_raregeno_ct, dosage_main);
+    }
+    return kPglRetSuccess;
+  }
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
-  return ParseDosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, allele_ct, pgrp, dosage_ct_ptr, nullptr, nullptr, nullptr, dosage_present, dosage_main);
+  if (allele_ct != 2) {
+    // Don't need aux1-skipping logic yet.
+#ifndef PGENLIB_NOPRINT
+    fputs("multiallelic dosages not yet supported by PgrGetDMaybeSparse()\n", stderr);
+#endif
+    return kPglRetNotYetSupported;
+  }
+  if (VrtypeHphase(vrtype)) {
+    assert(!subsetting_required);
+    const uint32_t raw_het_ct = CountNyp(subsetted_raregeno, kMask5555, raw_sample_ct);
+    reterr = SkipAux2(fread_end, raw_het_ct, &fread_ptr, nullptr);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+  }
+  // Only invoke sparse-return logic iff a sufficiently-short dosage-list is
+  // stored.
+  const uint32_t peek_raw_dosage_ct = PeekVint31(fread_ptr, fread_end);
+  if (peek_raw_dosage_ct + subsetted_raregeno_ct > max_sparse_dosage_ct) {
+    if (difflist_common_geno != UINT32_MAX) {
+      PgrDifflistToGenovecUnsafe(subsetted_raregeno, subsetted_raregeno_sample_ids, difflist_common_geno, sample_ct, subsetted_raregeno_ct, genovec);
+    }
+    return ParseDosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, allele_ct, pgrp, dosage_ct_ptr, nullptr, nullptr, nullptr, dosage_present, dosage_main);
+  }
+  *difflist_common_dosage_ptr = kGenoToDosage16[difflist_common_geno];
+  if (!subsetting_required) {
+    sample_include = nullptr;
+  }
+  subsetted_raregeno_sample_ids[subsetted_raregeno_ct] = sample_ct;
+  // Rest of this function is similar to ParseLdAndMergeDifflistSubset().
+  uint32_t raw_dosage_ct;
+  const unsigned char* group_info_iter;
+  reterr = ParseDifflistHeader(fread_end, raw_sample_ct, &fread_ptr, nullptr, &group_info_iter, &raw_dosage_ct);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  const unsigned char* deltalist_iter = fread_ptr;
+  const unsigned char* cur_raw_dosage_main_start = fread_ptr;
+  reterr = SkipDeltalistIds(fread_end, group_info_iter, raw_dosage_ct, raw_sample_ct, 0, &cur_raw_dosage_main_start);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  // raw_dosage_ct == 0 is technically permitted, but shouldn't happen in
+  // practice.  So we handle it correctly but don't give it a fast-path.
+  const int32_t subgroup_idx_last = ((raw_dosage_ct + kBitsPerWordD2 - 1) / kBitsPerWordD2) - 1;
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
+  uint32_t difflist_write_idx = 0;
+  uintptr_t subsetted_raregeno_word = 0;
+  uint32_t subsetted_raregeno_sample_idx = subsetted_raregeno_sample_ids[0];
+  uintptr_t raw_sample_idx = 0;
+  uint32_t sample_idx = 0;
+  uint32_t subsetted_raregeno_difflist_idx = 0;
+  uint32_t done = 0;
+  uint32_t subgroup_len_m1 = kBitsPerWordD2 - 1;
+  for (uint32_t subgroup_idx = 0; ; ++subgroup_idx) {
+    uint32_t dosage_idx_lowbits = 0;
+    if (S_CAST(int32_t, subgroup_idx) >= subgroup_idx_last) {
+      if (S_CAST(int32_t, subgroup_idx) > subgroup_idx_last) {
+        done = 1;
+        sample_idx = sample_ct;
+        goto IMPLPgrGetDMaybeSparse_finish;
+      }
+      subgroup_len_m1 &= raw_dosage_ct - 1;
+    }
+    if (!(subgroup_idx % (kPglDifflistGroupSize / kBitsPerWordD2))) {
+      raw_sample_idx = SubU32Load(group_info_iter, sample_id_byte_ct);
+      group_info_iter = &(group_info_iter[sample_id_byte_ct]);
+    } else {
+      // May as well use cur_raw_dosage_main_start over fread_end here.
+      raw_sample_idx += GetVint31(cur_raw_dosage_main_start, &deltalist_iter);
+    }
+    for (; ; ++dosage_idx_lowbits) {
+      if (unlikely(raw_sample_idx >= raw_sample_ct)) {
+        return kPglRetMalformedInput;
+      }
+      if ((!sample_include) || IsSet(sample_include, raw_sample_idx)) {
+        sample_idx = sample_include? RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, raw_sample_idx) : raw_sample_idx;
+      IMPLPgrGetDMaybeSparse_finish:
+        while (subsetted_raregeno_sample_idx < sample_idx) {
+          if (!(subsetted_raregeno_difflist_idx % kBitsPerWordD2)) {
+            subsetted_raregeno_word = subsetted_raregeno[subsetted_raregeno_difflist_idx / kBitsPerWordD2];
+          }
+          difflist_sample_ids[difflist_write_idx] = subsetted_raregeno_sample_idx;
+          dosage_main[difflist_write_idx] = kGenoToDosage16[subsetted_raregeno_word & 3];
+          ++difflist_write_idx;
+          ++subsetted_raregeno_difflist_idx;
+          subsetted_raregeno_word >>= 2;
+          subsetted_raregeno_sample_idx = subsetted_raregeno_sample_ids[subsetted_raregeno_difflist_idx];
+        }
+        if (subsetted_raregeno_sample_idx == sample_idx) {
+          if (done) {
+            *dosage_ct_ptr = difflist_write_idx;
+            return kPglRetSuccess;
+          }
+          if (!(subsetted_raregeno_difflist_idx % kBitsPerWordD2)) {
+            subsetted_raregeno_word = subsetted_raregeno[subsetted_raregeno_difflist_idx / kBitsPerWordD2];
+          }
+          ++subsetted_raregeno_difflist_idx;
+          subsetted_raregeno_word >>= 2;
+          subsetted_raregeno_sample_idx = subsetted_raregeno_sample_ids[subsetted_raregeno_difflist_idx];
+        }
+        difflist_sample_ids[difflist_write_idx] = sample_idx;
+        CopyFromUnalignedOffsetU16(&(dosage_main[difflist_write_idx]), cur_raw_dosage_main_start, dosage_idx_lowbits);
+        ++difflist_write_idx;
+      }
+      if (dosage_idx_lowbits == subgroup_len_m1) {
+        break;
+      }
+      raw_sample_idx += GetVint31(cur_raw_dosage_main_start, &deltalist_iter);
+    }
+    cur_raw_dosage_main_start = &(cur_raw_dosage_main_start[kBitsPerWordD2 * sizeof(int16_t)]);
+  }
 }
-*/
 
 PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) {
   PgenReaderMain* pgrp = GetPgrp(pgr_ptr);

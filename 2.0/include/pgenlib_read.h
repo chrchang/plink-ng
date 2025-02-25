@@ -668,15 +668,21 @@ HEADER_INLINE PglErr PgrGetD(const uintptr_t* __restrict sample_include, PgrSamp
   return IMPLPgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genovec, dosage_present, dosage_main, dosage_ct_ptr);
 }
 
-/*
+extern const uint16_t kHcToDosage16[1024];
+
 PglErr IMPLPgrGetDMaybeSparse(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t max_sparse_dosage_ct, PgenReaderMain* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uint16_t* difflist_common_dosage_ptr, uint32_t* difflist_sample_ids);
 
-// If both hardcalls and dosages are stored sparsely, PgrGetDifflistOrGenovec(
-// ..., max_difflist_len=max_sparse_dosage_ct, ...) returns a sparse list, and
-// the length of that sparse list plus the length of the explicit-dosage list
-// <= max_sparse_dosage_ct, difflist_common_dosage is set to the common value
-// (either 0, 32768, or 65535), and {difflist_sample_ids, dosage_main,
-// dosage_ct} provide a sparse representation of the other values.
+// If the following conditions hold:
+// 1. Hardcalls and dosages are stored sparsely.
+// 2. Either no subsetting is requested, or neither multiallelic-hardcall nor
+//    hardcall-phase data is present.  (This condition may be removed in the
+//    future.)
+// 3. PgrGetDifflistOrGenovec(..., max_difflist_len=max_sparse_dosage_ct, ...)
+//    returns a sparse list, and the length of that sparse list plus the length
+//    of the explicit-dosage list <= max_sparse_dosage_ct.
+// Then difflist_common_dosage is set to the common value (either 0, 32768, or
+// 65535), and {difflist_sample_ids, dosage_main, dosage_ct} provide a sparse
+// representation of the other values.
 // Otherwise, difflist_common_dosage is set to 1, and return values are as with
 // PgrGetD().
 // max_sparse_dosage_ct must be less than raw_sample_ct.
@@ -685,7 +691,6 @@ HEADER_INLINE PglErr PgrGetDMaybeSparse(const uintptr_t* __restrict sample_inclu
   const uint32_t* sample_include_cumulative_popcounts = GET_PRIVATE(pssi, cumulative_popcounts);
   return IMPLPgrGetDMaybeSparse(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, max_sparse_dosage_ct, pgrp, genovec, dosage_present, dosage_main, dosage_ct_ptr, difflist_common_dosage_ptr, difflist_sample_ids);
 }
-*/
 
 PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 

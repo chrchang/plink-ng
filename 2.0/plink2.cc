@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6.9.b"
+static const char ver_str[] = "PLINK v2.0.0-a.6.9.c"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.6.9.b"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (18 Feb 2025)";
+  " (25 Feb 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -839,7 +839,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         memcpy(g_textbuf, pgenname, fname_slen + 1);
         snprintf(&(pgenname[fname_slen]), 2, "~");
         if (unlikely(rename(g_textbuf, pgenname))) {
-          logerrputs("Error: Failed to append '~' to input .bed/.pgen filename.\n");
+          logerrprintf("Error: Failed to append '~' to input .bed/.pgen filename: %s.\n", strerror(errno));
           goto Plink2Core_ret_OPEN_FAIL;
         }
         // if/when --make-pgen can generate .pgen.pgi files, change pginame to
@@ -848,7 +848,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         memcpy(g_textbuf, pvarname, fname_slen + 1);
         snprintf(&(pvarname[fname_slen]), 2, "~");
         if (unlikely(rename(g_textbuf, pvarname))) {
-          logerrputs("Error: Failed to append '~' to input .bim/.pvar filename.\n");
+          logerrprintf("Error: Failed to append '~' to input .bim/.pvar filename: %s.\n", strerror(errno));
           goto Plink2Core_ret_OPEN_FAIL;
         }
         pvar_renamed = 1;
@@ -856,7 +856,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         memcpy(g_textbuf, psamname, fname_slen + 1);
         snprintf(&(psamname[fname_slen]), 2, "~");
         if (unlikely(rename(g_textbuf, psamname))) {
-          logerrputs("Error: Failed to append '~' to input .fam/.psam filename.\n");
+          logerrprintf("Error: Failed to append '~' to input .fam/.psam filename: %s.\n", strerror(errno));
           goto Plink2Core_ret_OPEN_FAIL;
         }
       }
@@ -1015,7 +1015,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             memcpy(g_textbuf, pvarname, fname_slen + 1);
             snprintf(&(pvarname[fname_slen]), 2, "~");
             if (unlikely(rename(g_textbuf, pvarname))) {
-              logerrputs("Error: Failed to append '~' to input .bim filename.\n");
+              logerrprintf("Error: Failed to append '~' to input .bim filename: %s.\n", strerror(errno));
               goto Plink2Core_ret_OPEN_FAIL;
             }
           }
@@ -1029,7 +1029,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             memcpy(g_textbuf, pvarname, fname_slen + 1);
             snprintf(&(pvarname[fname_slen]), 2, "~");
             if (unlikely(rename(g_textbuf, pvarname))) {
-              logerrputs("Error: Failed to append '~' to input .pvar filename.\n");
+              logerrprintf("Error: Failed to append '~' to input .pvar filename: %s.\n", strerror(errno));
               goto Plink2Core_ret_OPEN_FAIL;
             }
           }
@@ -12618,7 +12618,7 @@ int main(int argc, char** argv) {
     do {
       LlStr* llstr_ptr = file_delete_list->next;
       if (unlikely(unlink(file_delete_list->str))) {
-        logerrprintfww("Error: Failed to delete %s : %s .\n", file_delete_list->str, strerror(errno));
+        logerrprintfww("Error: Failed to delete %s : %s.\n", file_delete_list->str, strerror(errno));
         if (reterr == kPglRetSuccess) {
           reterr = kPglRetWriteFail;
         }

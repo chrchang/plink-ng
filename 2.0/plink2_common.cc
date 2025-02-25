@@ -222,10 +222,9 @@ char* PrintDdosageDecimal(uint32_t remainder, char* start) {
   return start;
 }
 
-static const uint16_t kHcToDosage[1024] = QUAD_TABLE256(0, kDosageMid, kDosageMax, kDosageMissing);
-
+static_assert(sizeof(Dosage) == 2, "PopulateDenseDosage() needs to be updated.");
 void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage) {
-  GenoarrLookup256x2bx4(genoarr, kHcToDosage, sample_ct, dense_dosage);
+  GenoarrLookup256x2bx4(genoarr, kHcToDosage16, sample_ct, dense_dosage);
   // fill trailing bits with missing values so vector operations work
   const uint32_t trailing_entry_ct = (-sample_ct) % kDosagePerVec;
   if (trailing_entry_ct) {
@@ -245,9 +244,10 @@ void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_prese
 }
 
 // workspace must have at least NypCtToWordCt(sample_ct) words
+static_assert(sizeof(Dosage) == 2, "PopulateDenseDosageNonemptySubset() needs to be updated.");
 void PopulateDenseDosageNonemptySubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage, uintptr_t* workspace) {
   CopyNyparrNonemptySubset(genoarr, sample_include, raw_sample_ct, sample_ct, workspace);
-  GenoarrLookup256x2bx4(workspace, kHcToDosage, sample_ct, dense_dosage);
+  GenoarrLookup256x2bx4(workspace, kHcToDosage16, sample_ct, dense_dosage);
   // fill trailing bits with missing values so vector operations work
   const uint32_t trailing_entry_ct = (-sample_ct) % kDosagePerVec;
   if (trailing_entry_ct) {
