@@ -168,6 +168,8 @@ HEADER_INLINE void DPrintf(const char* fmt, ...) {
   }
 }
 
+uint32_t FileExists(const char* fname);
+
 // Returns kPglRetOpenFail if file doesn't exist, or kPglRetRewindFail if file
 // is process-substitution/named-pipe.  Does not print an error message.
 PglErr ForceNonFifo(const char* fname);
@@ -1702,10 +1704,20 @@ char ExtractCharParam(const char* ss);
 
 PglErr CmdlineAllocString(const char* source, const char* flag_name, uint32_t max_slen, char** sbuf_ptr);
 
-PglErr AllocFname(const char* source, const char* flagname_p, uint32_t extra_size, char** fnbuf_ptr);
+// AllocFname() and AllocFnamePrefix() now confirm file-existence.
+PglErr AllocFname(const char* source, const char* flagname_p, char** fnbuf_ptr);
 
-PglErr AllocAndFlatten(const char* const* sources, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr);
+PglErr AllocFnamePrefix(const char* fname_prefix, const char* flattened_suffixes, const char* flagname_p, char** fnbuf_ptr);
 
+PglErr AllocAndFlattenEx(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t max_blen, uint32_t check_file_existence, char** flattened_buf_ptr);
+
+HEADER_INLINE PglErr AllocAndFlatten(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr) {
+  return AllocAndFlattenEx(sources, flagname_p, param_ct, max_blen, 0, flattened_buf_ptr);
+}
+
+HEADER_INLINE PglErr AllocAndFlattenFnames(const char* const* sources, const char* flagname_p, uint32_t param_ct, char** flattened_buf_ptr) {
+  return AllocAndFlattenEx(sources, flagname_p, param_ct, kPglFnamesize, 1, flattened_buf_ptr);
+}
 
 typedef struct Plink2CmdlineMetaStruct {
   NONCOPYABLE(Plink2CmdlineMetaStruct);

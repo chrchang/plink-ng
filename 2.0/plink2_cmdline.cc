@@ -22,7 +22,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>  // open()
+#include <sys/stat.h>  // open(), stat()
 #include <sys/types.h>  // open()
 #include <time.h>  // time(), ctime()
 #include <unistd.h>  // getcwd(), gethostname(), sysconf(), fstat()
@@ -101,6 +101,11 @@ void logerrputsb() {
   fflush(stdout);
   fputs(g_logbuf, stderr);
   g_stderr_written_to = 1;
+}
+
+uint32_t FileExists(const char* fname) {
+  struct stat statbuf;
+  return (stat(fname, &statbuf) == 0);
 }
 
 PglErr ForceNonFifo(const char* fname) {
@@ -2730,25 +2735,82 @@ PglErr CmdlineAllocString(const char* source, const char* flag_name, uint32_t ma
   return kPglRetSuccess;
 }
 
-PglErr AllocFname(const char* source, const char* flagname_p, uint32_t extra_size, char** fnbuf_ptr) {
+PglErr AllocFname(const char* source, const char* flagname_p, char** fnbuf_ptr) {
   const uint32_t blen = strlen(source) + 1;
-  if (unlikely(blen > (kPglFnamesize - extra_size))) {
+  if (unlikely(blen > kPglFnamesize)) {
     logerrprintf("Error: --%s filename too long.\n", flagname_p);
     return kPglRetOpenFail;
   }
-  if (unlikely(pgl_malloc(blen + extra_size, fnbuf_ptr))) {
+  // Update (2 Mar 2025): It's appropriate to verify file's existence at this
+  // point; see https://github.com/chrchang/plink-ng/issues/221 .
+  // However, sophisticated users may be taking advantage of the order of
+  // operations and specifying input files that don't exist at command-line
+  // parsing time, but are generated before processing time.  If this is really
+  // happening (and there is no better way to address the use cases), a
+  // --disable-file-existence-checks flag should be added.
+  if (unlikely(!FileExists(source))) {
+    logerrprintfww("Error: --%s: %s does not exist.\n", flagname_p, source);
+    return kPglRetOpenFail;
+  }
+  if (unlikely(pgl_malloc(blen, fnbuf_ptr))) {
     return kPglRetNomem;
   }
   memcpy(*fnbuf_ptr, source, blen);
   return kPglRetSuccess;
 }
 
-PglErr AllocAndFlatten(const char* const* sources, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr) {
+PglErr AllocFnamePrefix(const char* fname_prefix, const char* flattened_suffixes, const char* flagname_p, char** fnbuf_ptr) {
+  assert(flattened_suffixes[0]);
+  uint32_t max_suffix_blen = 0;
+  {
+    const char* suffix_iter = flattened_suffixes;
+    do {
+      const uintptr_t suffix_blen = strlen(suffix_iter) + 1;
+      if (suffix_blen > max_suffix_blen) {
+        max_suffix_blen = suffix_blen;
+      }
+      suffix_iter = &(suffix_iter[suffix_blen]);
+    } while (*suffix_iter);
+  }
+  const uint32_t prefix_slen = strlen(fname_prefix);
+  if (unlikely(prefix_slen + max_suffix_blen > kPglFnamesize)) {
+    logerrprintf("Error: --%s filename prefix too long.\n", flagname_p);
+    return kPglRetOpenFail;
+  }
+  if (unlikely(pgl_malloc(prefix_slen + max_suffix_blen, fnbuf_ptr))) {
+    return kPglRetNomem;
+  }
+  char* dst = *fnbuf_ptr;
+  memcpy(dst, fname_prefix, prefix_slen);
+  char* dst_suffix_start = &(dst[prefix_slen]);
+  const char* suffix_iter = flattened_suffixes;
+  do {
+    const uint32_t suffix_blen = strlen(suffix_iter) + 1;
+    memcpy(dst_suffix_start, suffix_iter, suffix_blen);
+    if (unlikely(!FileExists(dst))) {
+      logerrprintfww("Error: --%s: %s does not exist.\n", flagname_p, dst);
+      return kPglRetOpenFail;
+    }
+    suffix_iter = &(suffix_iter[suffix_blen]);
+  } while (*suffix_iter);
+  *dst_suffix_start = '\0';
+  return kPglRetSuccess;
+}
+
+PglErr AllocAndFlattenEx(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t max_blen, uint32_t check_file_existence, char** flattened_buf_ptr) {
   uintptr_t tot_blen = 1;
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
-    const uint32_t cur_blen = 1 + strlen(sources[param_idx]);
+    const char* cur_param = sources[param_idx];
+    const uint32_t cur_blen = 1 + strlen(cur_param);
     if (cur_blen > max_blen) {
+      logerrprintf("Error: --%s: argument too long.\n", flagname_p);
       return kPglRetInvalidCmdline;
+    }
+    if (check_file_existence) {
+      if (unlikely(!FileExists(cur_param))) {
+        logerrprintfww("Error: --%s: %s does not exist.\n", flagname_p, cur_param);
+        return kPglRetOpenFail;
+      }
     }
     tot_blen += cur_blen;
   }

@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6.9.c"
+static const char ver_str[] = "PLINK v2.0.0-a.6.9.d"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.0.0-a.6.9.c"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (25 Feb 2025)";
+  " (2 Mar 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -2978,6 +2978,10 @@ PglErr Alloc2col(const char* const* sources, const char* flagname_p, uint32_t pa
     logerrprintf("Error: --%s filename too long.\n", flagname_p);
     return kPglRetOpenFail;
   }
+  if (unlikely(!FileExists(sources[0]))) {
+    logerrprintfww("Error: --%s: %s does not exist.\n", flagname_p, sources[0]);
+    return kPglRetOpenFail;
+  }
   if (unlikely(pgl_malloc(offsetof(TwoColParams, fname) + fname_blen, tcbuf))) {
     return kPglRetNomem;
   }
@@ -3024,7 +3028,8 @@ PglErr Alloc2col(const char* const* sources, const char* flagname_p, uint32_t pa
   return kPglRetSuccess;
 }
 
-PglErr AllocAndFlattenCommaDelim(const char* const* sources, uint32_t param_ct, char** flattened_buf_ptr) {
+// flagname_p only needed when check_file_existence true
+PglErr AllocAndFlattenCommaDelimEx(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t check_file_existence, char** flattened_buf_ptr) {
   uint32_t tot_blen = 1;
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
     const char* cur_param_iter = sources[param_idx];
@@ -3056,13 +3061,24 @@ PglErr AllocAndFlattenCommaDelim(const char* const* sources, uint32_t param_ct, 
       if (!cur_token_end) {
         break;
       }
-      write_iter = memcpyax(write_iter, cur_param_iter, cur_token_end - cur_param_iter, '\0');
+      char* write_iter_next = memcpyax(write_iter, cur_param_iter, cur_token_end - cur_param_iter, '\0');
+      if (check_file_existence) {
+        if (unlikely(!FileExists(write_iter))) {
+          logerrprintfww("Error: --%s: %s does not exist.\n", flagname_p, write_iter);
+          return kPglRetOpenFail;
+        }
+      }
+      write_iter = write_iter_next;
       cur_param_iter = &(cur_token_end[1]);
     }
     write_iter = strcpyax(write_iter, cur_param_iter, '\0');
   }
   *write_iter = '\0';
   return kPglRetSuccess;
+}
+
+static inline PglErr AllocAndFlattenCommaDelim(const char* const* sources, uint32_t param_ct, char** flattened_buf_ptr) {
+  return AllocAndFlattenCommaDelimEx(sources, nullptr, param_ct, 0, flattened_buf_ptr);
 }
 
 void PrintVer() {
@@ -3965,7 +3981,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 7))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &adjust_file_info.fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &adjust_file_info.fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4006,7 +4022,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.chr_field);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &adjust_file_info.chr_field);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4014,7 +4030,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.alt_field);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &adjust_file_info.alt_field);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4026,7 +4042,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.provref_field);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &adjust_file_info.provref_field);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4034,7 +4050,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.a1_field);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &adjust_file_info.a1_field);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4046,7 +4062,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.pos_field);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &adjust_file_info.pos_field);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4058,7 +4074,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.id_field);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &adjust_file_info.id_field);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4070,7 +4086,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.ref_field);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &adjust_file_info.ref_field);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4082,7 +4098,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.test_field);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &adjust_file_info.test_field);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4094,7 +4110,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.p_field);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &adjust_file_info.p_field);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4450,7 +4466,7 @@ int main(int argc, char** argv) {
             }
             pc.misc_flags |= kfMiscCovarIidOnly;
           }
-          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, 0, &pc.covar_fname);
+          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, &pc.covar_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4529,7 +4545,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.glm_info.condition_list_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.glm_info.condition_list_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4691,7 +4707,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --clump requires at least one filename.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          reterr = AllocAndFlattenCommaDelim(&(argvk[arg_idx + first_fname_param_idx]), param_ct + 1 - first_fname_param_idx, &pc.clump_info.fnames_flattened);
+          reterr = AllocAndFlattenCommaDelimEx(&(argvk[arg_idx + first_fname_param_idx]), flagname_p, param_ct + 1 - first_fname_param_idx, 1, &pc.clump_info.fnames_flattened);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4708,7 +4724,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.clump_info.id_field);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.clump_info.id_field);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4720,7 +4736,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.clump_info.p_field);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.clump_info.p_field);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4831,7 +4847,7 @@ int main(int argc, char** argv) {
           if (!param_ct) {
             pc.clump_info.flags |= kfClumpNoA1;
           } else {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.clump_info.a1_field);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.clump_info.a1_field);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -4844,7 +4860,7 @@ int main(int argc, char** argv) {
           if (!param_ct) {
             pc.clump_info.flags |= kfClumpNoTest;
           } else {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.clump_info.test_name);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.clump_info.test_name);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -4861,7 +4877,7 @@ int main(int argc, char** argv) {
               logerrputs("Error: Nonempty --clump-test-field does not make sense with empty --clump-test\nargument.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.clump_info.test_field);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.clump_info.test_field);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -4878,7 +4894,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.clump_info.range_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.clump_info.range_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -5006,7 +5022,7 @@ int main(int argc, char** argv) {
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ovar-quantile-normalize")) {
           if (param_ct) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.covar_quantnorm_flattened);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.covar_quantnorm_flattened);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -5144,7 +5160,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterAllReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "ovar-variance-standardize"))) {
           if (param_ct) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.vstd_flattened);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.vstd_flattened);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -5381,7 +5397,7 @@ int main(int argc, char** argv) {
             pc.filter_flags |= kfFilterExtractBed1 | kfFilterNoSplitChr;
             is_interval_bed = 1;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1 + is_interval_bed]), param_ct - is_interval_bed, kPglFnamesize, &pc.extract_fnames);
+          reterr = AllocAndFlattenFnames(&(argvk[arg_idx + 1 + is_interval_bed]), flagname_p, param_ct - is_interval_bed, &pc.extract_fnames);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -5408,7 +5424,7 @@ int main(int argc, char** argv) {
             pc.filter_flags |= kfFilterExtractIntersectBed1 | kfFilterNoSplitChr;
             is_interval_bed = 1;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1 + is_interval_bed]), param_ct - is_interval_bed, kPglFnamesize, &pc.extract_intersect_fnames);
+          reterr = AllocAndFlattenFnames(&(argvk[arg_idx + 1 + is_interval_bed]), flagname_p, param_ct - is_interval_bed, &pc.extract_intersect_fnames);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -5435,7 +5451,7 @@ int main(int argc, char** argv) {
             pc.filter_flags |= kfFilterExcludeBed1 | kfFilterNoSplitChr;
             is_interval_bed = 1;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1 + is_interval_bed]), param_ct - is_interval_bed, kPglFnamesize, &pc.exclude_fnames);
+          reterr = AllocAndFlattenFnames(&(argvk[arg_idx + 1 + is_interval_bed]), flagname_p, param_ct - is_interval_bed, &pc.exclude_fnames);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -5669,7 +5685,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.exportf_info.export_allele_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.exportf_info.export_allele_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -5705,7 +5721,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.extract_col_cond_info.match_flattened);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, kMaxIdBlen, &pc.extract_col_cond_info.match_flattened);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -5723,7 +5739,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.extract_col_cond_info.mismatch_flattened);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, kMaxIdBlen, &pc.extract_col_cond_info.mismatch_flattened);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -5853,7 +5869,7 @@ int main(int argc, char** argv) {
               } else {
                 // "refbins-file=", "alt1bins-file="
                 pc.freq_rpt_flags |= is_alt1? kfAlleleFreqBinsAlt1Fname : kfAlleleFreqBinsRefFname;
-                reterr = AllocFname(&(cur_modif[13 + is_alt1]), is_alt1? "freq alt1bins-file=" : "freq refbins-file=", 0, binstr_ptr);
+                reterr = AllocFname(&(cur_modif[13 + is_alt1]), is_alt1? "freq alt1bins-file=" : "freq refbins-file=", binstr_ptr);
               }
               if (unlikely(reterr)) {
                 goto main_ret_1;
@@ -5957,7 +5973,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.fa_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.fa_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -6049,7 +6065,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: --fst 'file=' must appear after all other modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              reterr = AllocFname(&(cur_modif[5]), argvk[arg_idx], 0, &pc.fst_info.first_id_or_fname);
+              reterr = AllocFname(&(cur_modif[5]), argvk[arg_idx], &pc.fst_info.first_id_or_fname);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -6083,7 +6099,7 @@ int main(int argc, char** argv) {
           if (param_idx < param_ct) {
             // base= or id=
             const uint32_t other_id_ct = param_ct - param_idx;
-            reterr = AllocAndFlatten(&(argvk[arg_idx + param_idx + 1]), other_id_ct, kPglFnamesize - 13, &pc.fst_info.other_ids_flattened);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + param_idx + 1]), flagname_p, other_id_ct, kPglFnamesize - 13, &pc.fst_info.other_ids_flattened);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -6278,7 +6294,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --glm local-covar= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = AllocFname(&(cur_modif[strlen("local-covar=")]), "glm local-covar=", 0, &pc.glm_local_covar_fname);
+              reterr = AllocFname(&(cur_modif[strlen("local-covar=")]), "glm local-covar=", &pc.glm_local_covar_fname);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -6289,7 +6305,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               const uint32_t is_pvar = (cur_modif[6] == 'p');
-              reterr = AllocFname(&(cur_modif[10 + is_pvar]), "glm local-pvar=", 0, &pc.glm_local_pvar_fname);
+              reterr = AllocFname(&(cur_modif[10 + is_pvar]), "glm local-pvar=", &pc.glm_local_pvar_fname);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -6300,7 +6316,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               const uint32_t is_psam = (cur_modif[6] == 'p');
-              reterr = AllocFname(&(cur_modif[10 + is_psam]), "glm local-psam=", 0, &pc.glm_local_psam_fname);
+              reterr = AllocFname(&(cur_modif[10 + is_psam]), "glm local-psam=", &pc.glm_local_psam_fname);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -6509,12 +6525,12 @@ int main(int argc, char** argv) {
               }
               pc.gwas_ssf_info.a1freq_lower_limit = dxx * (1.0 - kSmallEpsilon);
             } else if (StrStartsWith(cur_modif, "file=", cur_modif_slen)) {
-              reterr = AllocFname(&(cur_modif[strlen("file=")]), argvk[arg_idx], 0, &pc.gwas_ssf_info.fname);
+              reterr = AllocFname(&(cur_modif[strlen("file=")]), argvk[arg_idx], &pc.gwas_ssf_info.fname);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
             } else if (StrStartsWith(cur_modif, "file-list=", cur_modif_slen)) {
-              reterr = AllocFname(&(cur_modif[strlen("file-list=")]), argvk[arg_idx], 0, &pc.gwas_ssf_info.list_fname);
+              reterr = AllocFname(&(cur_modif[strlen("file-list=")]), argvk[arg_idx], &pc.gwas_ssf_info.list_fname);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -6795,7 +6811,7 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_2A;
             }
             pc.sample_sort_mode = kSortFile;
-            reterr = AllocFname(argvk[arg_idx + 2], flagname_p, 0, &pc.sample_sort_fname);
+            reterr = AllocFname(argvk[arg_idx + 2], flagname_p, &pc.sample_sort_fname);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -6914,7 +6930,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.indep_preferred_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.indep_preferred_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -6981,7 +6997,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.indv_str);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, kMaxIdBlen, &pc.indv_str);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -7174,7 +7190,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kPglFnamesize, &pc.keep_fnames);
+          reterr = AllocAndFlattenFnames(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.keep_fnames);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -7183,7 +7199,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kPglFnamesize, &pc.keepfam_fnames);
+          reterr = AllocAndFlattenFnames(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.keepfam_fnames);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -7234,8 +7250,11 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct == 2) {
-            // .king.id, .king.bin appended for --king-cutoff
-            reterr = AllocFname(argvk[arg_idx + 1], flagname_p, is_table? 0 : 9, &king_cutoff_fprefix);
+            if (is_table) {
+              reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &king_cutoff_fprefix);
+            } else {
+              reterr = AllocFnamePrefix(argvk[arg_idx + 1], ".king.id\0.king.bin\0", flagname_p, &king_cutoff_fprefix);
+            }
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -7266,7 +7285,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.king_table_subset_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.king_table_subset_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -7291,7 +7310,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kPglFnamesize, &pc.king_table_require_fnames);
+          reterr = AllocAndFlattenFnames(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.king_table_require_fnames);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -7308,7 +7327,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.keep_cats_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.keep_cats_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -7317,7 +7336,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.keep_cat_names_flattened);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, kMaxIdBlen, &pc.keep_cat_names_flattened);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -7334,11 +7353,11 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.keep_col_match_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.keep_col_match_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 2]), param_ct - 1, kMaxIdBlen, &pc.keep_col_match_flattened);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 2]), flagname_p, param_ct - 1, kMaxIdBlen, &pc.keep_col_match_flattened);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -7547,7 +7566,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.vcor_info.ld_snp_list_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.vcor_info.ld_snp_list_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -9429,7 +9448,7 @@ int main(int argc, char** argv) {
             }
             pc.misc_flags |= kfMiscPhenoIidOnly;
           }
-          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, 0, &pc.pheno_fname);
+          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, &pc.pheno_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -9683,15 +9702,15 @@ int main(int argc, char** argv) {
             memcpy(pmerge_info.psam_fname, prefix, prefix_slen);
             memcpy(&(pmerge_info.psam_fname[prefix_slen]), ".psam", 6);
           } else {
-            reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pmerge_info.pgen_fname);
+            reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pmerge_info.pgen_fname);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
-            reterr = AllocFname(argvk[arg_idx + 2], flagname_p, 0, &pmerge_info.pvar_fname);
+            reterr = AllocFname(argvk[arg_idx + 2], flagname_p, &pmerge_info.pvar_fname);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
-            reterr = AllocFname(argvk[arg_idx + 3], flagname_p, 0, &pmerge_info.psam_fname);
+            reterr = AllocFname(argvk[arg_idx + 3], flagname_p, &pmerge_info.psam_fname);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -9742,7 +9761,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: No filename provided for --pmerge-list.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, 0, &pmerge_info.list_fname);
+          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, &pmerge_info.list_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -9869,15 +9888,15 @@ int main(int argc, char** argv) {
               logerrputs("Error: --pgen-diff 'vzs' modifier can only be used when a single fileset prefix\nis specified.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
-            reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.pgen_diff_info.pgen_fname);
+            reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.pgen_diff_info.pgen_fname);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
-            reterr = AllocFname(argvk[arg_idx + 2], flagname_p, 0, &pc.pgen_diff_info.pvar_fname);
+            reterr = AllocFname(argvk[arg_idx + 2], flagname_p, &pc.pgen_diff_info.pvar_fname);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
-            reterr = AllocFname(argvk[arg_idx + 3], flagname_p, 0, &pc.pgen_diff_info.psam_fname);
+            reterr = AllocFname(argvk[arg_idx + 3], flagname_p, &pc.pgen_diff_info.psam_fname);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -9943,9 +9962,9 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          // third argument should be 1 if there's ever a possibility of
-          // appending '~'
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.pginame);
+          // AllocFnamePrefix() should be used if there's ever a possibility of
+          // appending '~'.
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.pginame);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -10037,7 +10056,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterPsamReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "heno-quantile-normalize"))) {
           if (param_ct) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.quantnorm_flattened);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -10056,7 +10075,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           if (param_ct) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.quantnorm_flattened);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -10067,11 +10086,11 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 6))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.score_info.qsr_range_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.score_info.qsr_range_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-          reterr = AllocFname(argvk[arg_idx + 2], flagname_p, 0, &pc.score_info.qsr_data_fname);
+          reterr = AllocFname(argvk[arg_idx + 2], flagname_p, &pc.score_info.qsr_data_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -10130,7 +10149,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kPglFnamesize, &pc.remove_fnames);
+          reterr = AllocAndFlattenFnames(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.remove_fnames);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -10139,7 +10158,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kPglFnamesize, &pc.removefam_fnames);
+          reterr = AllocAndFlattenFnames(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.removefam_fnames);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -10167,14 +10186,14 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.read_freq_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.read_freq_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "equire-pheno")) {
           if (param_ct) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.require_pheno_flattened);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.require_pheno_flattened);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -10183,7 +10202,7 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "equire-covar")) {
           if (param_ct) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.require_covar_flattened);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.require_covar_flattened);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -10218,7 +10237,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.remove_cats_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.remove_cats_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -10227,7 +10246,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.remove_cat_names_flattened);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, kMaxIdBlen, &pc.remove_cat_names_flattened);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -10290,7 +10309,7 @@ int main(int argc, char** argv) {
             }
           }
           if (fname_modif_idx) {
-            reterr = AllocFname(argvk[arg_idx + fname_modif_idx], flagname_p, 0, &pc.fa_fname);
+            reterr = AllocFname(argvk[arg_idx + fname_modif_idx], flagname_p, &pc.fa_fname);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -10369,7 +10388,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --recover-var-ids 'rigid' and 'force' modifiers cannot be used\ntogether.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, 0, &pc.recover_var_ids_fname);
+          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, &pc.recover_var_ids_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -10756,7 +10775,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 12))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.score_info.input_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.score_info.input_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -10894,7 +10913,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (first_phenoname_idx <= param_ct) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + first_phenoname_idx]), param_ct + 1 - first_phenoname_idx, kMaxIdSlen - 1, &pc.split_cat_phenonames_flattened);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + first_phenoname_idx]), flagname_p, param_ct + 1 - first_phenoname_idx, kMaxIdSlen - 1, &pc.split_cat_phenonames_flattened);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -11037,7 +11056,7 @@ int main(int argc, char** argv) {
               }
               break;
             } else if (likely(StrStartsWith(cur_modif, "file=", cur_modif_slen))) {
-              reterr = AllocFname(&(cur_modif[5]), argvk[arg_idx], 0, &pc.sdiff_info.first_id_or_fname);
+              reterr = AllocFname(&(cur_modif[5]), argvk[arg_idx], &pc.sdiff_info.first_id_or_fname);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -11087,7 +11106,7 @@ int main(int argc, char** argv) {
               logerrputs("Error: --sample-diff 'file=' must appear after all other modifiers.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
-            reterr = AllocAndFlatten(&(argvk[arg_idx + param_idx + 1]), other_id_ct, kPglFnamesize, &pc.sdiff_info.other_ids_flattened);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + param_idx + 1]), flagname_p, other_id_ct, kPglFnamesize, &pc.sdiff_info.other_ids_flattened);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -11374,7 +11393,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.update_sex_info.fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.update_sex_info.fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -11464,7 +11483,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.update_sample_ids_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.update_sample_ids_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -11477,7 +11496,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.update_parental_ids_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.update_parental_ids_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -11503,7 +11522,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Invalid --update-alleles argument sequence.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              reterr = AllocFname(cur_modif, flagname_p, 0, &pc.update_alleles_info.fname);
+              reterr = AllocFname(cur_modif, flagname_p, &pc.update_alleles_info.fname);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -11532,7 +11551,7 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "ar-filter")) {
           if (param_ct) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.var_filter_exceptions_flattened);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.var_filter_exceptions_flattened);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -11721,7 +11740,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           if (param_ct) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.vstd_flattened);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.vstd_flattened);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -11748,7 +11767,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.vscore_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.vscore_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -11884,7 +11903,7 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (param_idx == 1) {
-              reterr = AllocFname(cur_modif, flagname_p, 0, &pc.within_fname);
+              reterr = AllocFname(cur_modif, flagname_p, &pc.within_fname);
             } else {
               if (unlikely(IsReservedPhenoName(cur_modif, cur_modif_slen))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: '%s' cannot be used as a categorical phenotype name.\n", cur_modif);

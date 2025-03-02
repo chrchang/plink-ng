@@ -21,7 +21,8 @@
 #include <limits.h>
 #include <string.h>
 
-#include <stdexcept>
+// Uncomment this during e.g. pgenlibr development to enable error-throwing.
+// #include <stdexcept>
 
 #ifdef __cplusplus
 namespace plink2 {
