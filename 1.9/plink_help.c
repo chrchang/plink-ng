@@ -2026,7 +2026,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                           (default 0.05).\n"
 "  --set-r2 [v] ['write'] : Adjust set test significant variant pairwise r^2\n"
 "                           ceiling (default 0.5).  'write' causes violating\n"
-"                          pairs to be dumped to <output prefix>.ldset.\n"
+"                           pairs to be dumped to <output prefix>.ldset.\n"
 "  --set-max <ct>         : Adjust set test maximum # of significant variants\n"
 "                           considered per set (default 5).\n"
 "  --set-test-lambda <v>  : Specify genomic control correction for set test.\n"
