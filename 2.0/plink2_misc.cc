@@ -9550,7 +9550,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
         if (allele_freqs) {
           const double ref_freq = allele_freqs[allele_idx_offset_base - variant_uidx];
           ehet = 2 * ref_freq * (1 - ref_freq);
-          if (ehet < kSmallishEpsilon) {
+          if (ehet < k2m35) {
             ++monomorphic_ct;
             continue;
           }
@@ -9678,7 +9678,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
           }
           const double last_allele_freq = 1.0 - freq_sum;
           ehet = 1.0 - freq_ssq - last_allele_freq * last_allele_freq;
-          if (ehet < kSmallishEpsilon) {
+          if (ehet < k2m35) {
             ++monomorphic_ct;
             continue;
           }

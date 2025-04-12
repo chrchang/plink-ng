@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6.9.d"
+static const char ver_str[] = "PLINK v2.0.0-a.6.10"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.0.0-a.6.9.d"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (2 Mar 2025)";
+  " (11 Apr 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -100,7 +100,7 @@ static const char ver_str2[] =
 #  endif
 #endif
 
-  "  cog-genomics.org/plink/2.0/\n"
+  "   cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2025 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
@@ -12344,9 +12344,9 @@ int main(int argc, char** argv) {
             g_zst_level = 1;
           }
           if (is_vcf) {
-            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           } else {
-            reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           }
           g_zst_level = zst_level;
         } else {
@@ -12366,11 +12366,11 @@ int main(int argc, char** argv) {
           } else if (xload & kfXloadTped) {
             reterr = TpedToPgen(pgenname, psamname, pc.missing_catname, pc.misc_flags, import_flags, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info, &psam_generated);
           } else if (xload & kfXloadOxGen) {
-            reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxBgen) {
-            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxHaps) {
-            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
+            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
           } else if (xload & kfXloadPlink1Dosage) {
             reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (likely(xload & kfXloadGenDummy)) {

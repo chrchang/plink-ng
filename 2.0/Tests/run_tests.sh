@@ -48,6 +48,11 @@ cd TEST_DOSAGE_ROUND_TRIP
 cd ..
 echo "TEST_DOSAGE_ROUND_TRIP passed."
 
+cd TEST_EXPORT_OPTIONS
+./run_tests.sh $d $2 $3 > TEST_EXPORT_OPTIONS.log
+cd ..
+echo "TEST_EXPORT_OPTIONS passed."
+
 cd TEST_ONE_WAY_EXPORT
 ./run_tests.sh $d $2 $3 > TEST_ONE_WAY_EXPORT.log
 cd ..

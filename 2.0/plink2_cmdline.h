@@ -442,10 +442,6 @@ CONSTI32(kNonBigstackMin, 67108864);
 CONSTI32(kBigstackMinMib, 640);
 CONSTI32(kBigstackDefaultMib, 2048);
 
-static const double kSmallishEpsilon = 0.00000000002910383045673370361328125;
-static const double kRecip2m32 = 0.00000000023283064365386962890625;
-static const double k2m64 = 18446744073709551616.0;
-
 static const double kLnPvalError = 9.0;
 
 static const double kDblNormalMin = 2.2250738585072013e-308;

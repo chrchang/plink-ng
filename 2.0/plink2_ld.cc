@@ -4658,24 +4658,23 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
       // + x^3 - (2K + f12 + f21)x^2 + (K + f12)(K + f21)x = 0
       cubic_sol_ct = CubicRealRoots(0.5 * (freq_majmaj + freq_minmin - freq_majmin - freq_minmaj - 3 * half_unphased_hethet_share), 0.5 * (freq_majmaj * freq_minmin + freq_majmin * freq_minmaj + half_unphased_hethet_share * (freq_majmin + freq_minmaj - freq_majmaj - freq_minmin + half_unphased_hethet_share)), -0.5 * half_unphased_hethet_share * freq_majmaj * freq_minmin, cubic_sols);
       if (cubic_sol_ct > 1) {
-        // have encountered 7.9e-11 difference in testing, which is more than
-        // twice kSmallishEpsilon.
-        while (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share + 8 * kSmallishEpsilon) {
+        // have encountered 7.9e-11 difference in testing.
+        while (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share + k2m32) {
           --cubic_sol_ct;
           if (cubic_sol_ct == 1) {
             break;
           }
         }
-        if (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share - 8 * kSmallishEpsilon) {
+        if (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share - k2m32) {
           cubic_sols[cubic_sol_ct - 1] = half_unphased_hethet_share;
         }
-        while ((cubic_sols[first_relevant_sol_idx] < 8 * -kSmallishEpsilon) && (first_relevant_sol_idx + 1 < cubic_sol_ct)) {
+        while ((cubic_sols[first_relevant_sol_idx] < -k2m32) && (first_relevant_sol_idx + 1 < cubic_sol_ct)) {
           ++first_relevant_sol_idx;
         }
       }
       // bugfix (29 Jan 2025): Also need to clip up to 0 when there's only one
       // solution.
-      if (cubic_sols[first_relevant_sol_idx] < 8 * kSmallishEpsilon) {
+      if (cubic_sols[first_relevant_sol_idx] < k2m32) {
         cubic_sols[first_relevant_sol_idx] = 0.0;
       }
     } else {
@@ -4694,7 +4693,7 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
       const double nonzero_freq_xx = freq_majmaj + freq_minmin;
       const double nonzero_freq_xy = freq_majmin + freq_minmaj;
       // (current code still works if three or all four values are zero)
-      if ((nonzero_freq_xx + kSmallishEpsilon < half_unphased_hethet_share + nonzero_freq_xy) && (nonzero_freq_xy + kSmallishEpsilon < half_unphased_hethet_share + nonzero_freq_xx)) {
+      if ((nonzero_freq_xx + k2m35 < half_unphased_hethet_share + nonzero_freq_xy) && (nonzero_freq_xy + k2m35 < half_unphased_hethet_share + nonzero_freq_xx)) {
         cubic_sol_ct = 3;
         cubic_sols[1] = (half_unphased_hethet_share + nonzero_freq_xy - nonzero_freq_xx) * 0.5;
         cubic_sols[2] = half_unphased_hethet_share;

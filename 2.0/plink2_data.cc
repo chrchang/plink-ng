@@ -68,6 +68,8 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
+    uint32_t a1_aidx = 1;
+    uint32_t a2_aidx = 0;
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (variant_uidx >= chr_end) {
@@ -110,23 +112,27 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
         }
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
         // note that VCF ref allele corresponds to A2, not A1
-        if (!allele_permute) {
-          if ((!allele_presents) || IsSet(allele_presents, 1 + allele_idx_offset_base)) {
-            cswritep = strcpya(cswritep, cur_alleles[1]);
-          } else {
-            *cswritep++ = output_missing_geno_char;
-          }
-          *cswritep++ = delim;
-          cswritep = strcpya(cswritep, cur_alleles[0]);
-        } else {
+        // bugfix (16 Mar 2025): forgot to implement --output-missing-genotype
+        // for .bim output
+        if (allele_permute) {
           const AlleleCode* cur_allele_permute = &(allele_permute[allele_idx_offset_base]);
-          if ((!allele_presents) || IsSet(allele_presents, cur_allele_permute[1] + allele_idx_offset_base)) {
-            cswritep = strcpya(cswritep, cur_alleles[cur_allele_permute[1]]);
-          } else {
-            *cswritep++ = output_missing_geno_char;
-          }
-          *cswritep++ = delim;
-          cswritep = strcpya(cswritep, cur_alleles[cur_allele_permute[0]]);
+          a1_aidx = cur_allele_permute[1];
+          a2_aidx = cur_allele_permute[0];
+        }
+        const char* cur_a1 = cur_alleles[a1_aidx];
+        const uint32_t cur_a1_slen = strlen(cur_a1);
+        if (((!allele_presents) || IsSet(allele_presents, a1_aidx + allele_idx_offset_base)) && (!strequal_k(cur_a1, ".", cur_a1_slen))) {
+          cswritep = memcpya(cswritep, cur_a1, cur_a1_slen);
+        } else {
+          *cswritep++ = output_missing_geno_char;
+        }
+        *cswritep++ = delim;
+        const char* cur_a2 = cur_alleles[a2_aidx];
+        const uint32_t cur_a2_slen = strlen(cur_a2);
+        if (!strequal_k(cur_a2, ".", cur_a2_slen)) {
+          cswritep = memcpya(cswritep, cur_a2, cur_a2_slen);
+        } else {
+          *cswritep++ = output_missing_geno_char;
         }
       }
       AppendBinaryEoln(&cswritep);
@@ -1058,16 +1064,20 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
       // here.
       // This check is only need for REF and ALT1; later ALTs are not permitted
       // to be missing.
-      if (!strequal_k_unsafe(cur_alleles[ref_allele_idx], ".")) {
-        cswritep = strcpya(cswritep, cur_alleles[ref_allele_idx]);
+      const char* ref_allele = cur_alleles[ref_allele_idx];
+      const uint32_t ref_allele_slen = strlen(ref_allele);
+      if (!strequal_k(ref_allele, ".", ref_allele_slen)) {
+        cswritep = memcpya(cswritep, ref_allele, ref_allele_slen);
       } else {
         *cswritep++ = output_missing_geno_char;
       }
       *cswritep++ = '\t';
       uint32_t alt_allele_written = 0;
       if ((!allele_presents) || IsSet(allele_presents, allele_idx_offset_base + alt1_allele_idx)) {
-        if (!strequal_k_unsafe(cur_alleles[alt1_allele_idx], ".")) {
-          cswritep = strcpya(cswritep, cur_alleles[alt1_allele_idx]);
+        const char* alt1_allele = cur_alleles[alt1_allele_idx];
+        const uint32_t alt1_allele_slen = strlen(alt1_allele);
+        if (!strequal_k(alt1_allele, ".", alt1_allele_slen)) {
+          cswritep = memcpya(cswritep, alt1_allele, alt1_allele_slen);
         } else {
           *cswritep++ = output_missing_geno_char;
         }
@@ -3986,7 +3996,7 @@ uint32_t VaridSplitOk(const char* orig_variant_id, uint32_t allele_ct) {
 // Similar to WriteMapOrBim(), but there are enough small differences to
 // justify making this a separate function instead of clogging the original
 // with more conditionals.
-PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* variant_cms, const char* varid_template_str, const char* missing_varid_match, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t new_variant_id_max_allele_slen, uint32_t varid_split, uint32_t varid_dup, MiscFlags misc_flags, uint32_t output_zst, uint32_t thread_ct) {
+PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* variant_cms, const char* varid_template_str, const char* missing_varid_match, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t new_variant_id_max_allele_slen, uint32_t varid_split, uint32_t varid_dup, MiscFlags misc_flags, char output_missing_geno_char, uint32_t output_zst, uint32_t thread_ct) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -4132,9 +4142,19 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
         cswritep = u32toa(cur_bp, cswritep);
         *cswritep++ = '\t';
         // note that VCF ref allele corresponds to A2, not A1
-        cswritep = memcpya(cswritep, cur_alt_allele, cur_alt_allele_slen);
+        // bugfix (16 Mar 2025): forgot to implement --output-missing-genotype
+        // for .bim output
+        if (!strequal_k(cur_alt_allele, ".", cur_alt_allele_slen)) {
+          cswritep = memcpya(cswritep, cur_alt_allele, cur_alt_allele_slen);
+        } else {
+          *cswritep++ = output_missing_geno_char;
+        }
         *cswritep++ = '\t';
-        cswritep = memcpya(cswritep, ref_allele, ref_allele_slen);
+        if (!strequal_k(ref_allele, ".", ref_allele_slen)) {
+          cswritep = memcpya(cswritep, ref_allele, ref_allele_slen);
+        } else {
+          *cswritep++ = output_missing_geno_char;
+        }
         AppendBinaryEoln(&cswritep);
         if (unlikely(Cswrite(&css, &cswritep))) {
           goto WriteBimSplit_ret_WRITE_FAIL;
@@ -7560,7 +7580,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         reterr = WriteMapOrBim(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, variant_cms, variant_ct, max_allele_slen, '\t', output_missing_geno_char, bim_zst, max_thread_ct);
       } else {
         assert(write_variant_ct > variant_ct);
-        reterr = WriteBimSplit(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, variant_cms, varid_template_str, missing_varid_match, variant_ct, max_allele_slen, new_variant_id_max_allele_slen, (make_plink2_flags / kfMakePlink2VaridSemicolon) & 1, (make_plink2_flags / kfMakePlink2VaridDup) & 1, misc_flags, bim_zst, max_thread_ct);
+        reterr = WriteBimSplit(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, variant_cms, varid_template_str, missing_varid_match, variant_ct, max_allele_slen, new_variant_id_max_allele_slen, (make_plink2_flags / kfMakePlink2VaridSemicolon) & 1, (make_plink2_flags / kfMakePlink2VaridDup) & 1, misc_flags, output_missing_geno_char, bim_zst, max_thread_ct);
       }
       if (unlikely(reterr)) {
         goto MakePlink2NoVsort_ret_1;
@@ -8452,6 +8472,8 @@ PglErr WriteBimResorted(const char* outname, const ChrInfo* write_cip, const uin
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
+    uint32_t a1_aidx = 1;
+    uint32_t a2_aidx = 0;
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = new_variant_idx_to_old[variant_idx];
       if (variant_idx >= chr_end) {
@@ -8476,23 +8498,27 @@ PglErr WriteBimResorted(const char* outname, const ChrInfo* write_cip, const uin
       const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (variant_uidx * 2);
       const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
       // note that VCF ref allele corresponds to A2, not A1
-      if (!allele_permute) {
-        if ((!allele_presents) || IsSet(allele_presents, 1 + allele_idx_offset_base)) {
-          cswritep = strcpya(cswritep, cur_alleles[1]);
-        } else {
-          *cswritep++ = output_missing_geno_char;
-        }
-        *cswritep++ = '\t';
-        cswritep = strcpya(cswritep, cur_alleles[0]);
-      } else {
+      // bugfix (16 Mar 2025): forgot to implement --output-missing-genotype
+      // for .bim output
+      if (allele_permute) {
         const AlleleCode* cur_allele_permute = &(allele_permute[allele_idx_offset_base]);
-        if ((!allele_presents) || IsSet(allele_presents, cur_allele_permute[1] + allele_idx_offset_base)) {
-          cswritep = strcpya(cswritep, cur_alleles[cur_allele_permute[1]]);
-        } else {
-          *cswritep++ = output_missing_geno_char;
-        }
-        *cswritep++ = '\t';
-        cswritep = strcpya(cswritep, cur_alleles[cur_allele_permute[0]]);
+        a1_aidx = cur_allele_permute[1];
+        a2_aidx = cur_allele_permute[0];
+      }
+      const char* cur_a1 = cur_alleles[a1_aidx];
+      const uint32_t cur_a1_slen = strlen(cur_a1);
+      if (((!allele_presents) || IsSet(allele_presents, a1_aidx + allele_idx_offset_base)) && (!strequal_k(cur_a1, ".", cur_a1_slen))) {
+        cswritep = memcpya(cswritep, cur_a1, cur_a1_slen);
+      } else {
+        *cswritep++ = output_missing_geno_char;
+      }
+      *cswritep++ = '\t';
+      const char* cur_a2 = cur_alleles[a2_aidx];
+      const uint32_t cur_a2_slen = strlen(cur_a2);
+      if (!strequal_k(cur_a2, ".", cur_a2_slen)) {
+        cswritep = memcpya(cswritep, cur_a2, cur_a2_slen);
+      } else {
+        *cswritep++ = output_missing_geno_char;
       }
       AppendBinaryEoln(&cswritep);
       if (unlikely(Cswrite(&css, &cswritep))) {

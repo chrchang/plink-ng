@@ -26,7 +26,7 @@ namespace plink2 {
 #endif
 
 HEADER_INLINE double RandUnif(sfmt_t* sfmtp) {
-  return (sfmt_genrand_uint32(sfmtp) + 0.5) * kRecip2m32;
+  return (sfmt_genrand_uint32(sfmtp) + 0.5) * k2m32;
 }
 
 double RandNormal(sfmt_t* sfmtp, double* secondval_ptr);
