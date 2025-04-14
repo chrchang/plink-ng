@@ -106,7 +106,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 818
+#define PLINK2_BASE_VERNUM 819
 
 // We now try to adhere to include-what-you-use in simple cases.  However,
 // we don't want to repeat either platform-specific ifdefs, or stuff like
@@ -1172,8 +1172,16 @@ HEADER_INLINE VecW vecw_sad(VecW v1, VecW v2) {
   return VecToW(_mm256_sad_epu8(WToVec(v1), WToVec(v2)));
 }
 
+HEADER_INLINE VecUc vecuc_add(VecUc v1, VecUc v2) {
+  return VecToUc(_mm256_add_epi8(UcToVec(v1), UcToVec(v2)));
+}
+
 HEADER_INLINE VecUc vecuc_adds(VecUc v1, VecUc v2) {
   return VecToUc(_mm256_adds_epu8(UcToVec(v1), UcToVec(v2)));
+}
+
+HEADER_INLINE VecUc vecuc_signed_cmpgt(VecUc v1, VecUc v2) {
+  return VecToUc(_mm256_cmpgt_epi8(UcToVec(v1), UcToVec(v2)));
 }
 
 HEADER_INLINE VecU16 vecu16_min8(VecU16 v1, VecU16 v2) {
@@ -1656,8 +1664,16 @@ HEADER_INLINE VecW vecw_sad(VecW v1, VecW v2) {
   return VecToW(_mm_sad_epu8(WToVec(v1), WToVec(v2)));
 }
 
+HEADER_INLINE VecUc vecuc_add(VecUc v1, VecUc v2) {
+  return VecToUc(_mm_add_epi8(UcToVec(v1), UcToVec(v2)));
+}
+
 HEADER_INLINE VecUc vecuc_adds(VecUc v1, VecUc v2) {
   return VecToUc(_mm_adds_epu8(UcToVec(v1), UcToVec(v2)));
+}
+
+HEADER_INLINE VecUc vecuc_signed_cmpgt(VecUc v1, VecUc v2) {
+  return VecToUc(_mm_cmpgt_epi8(UcToVec(v1), UcToVec(v2)));
 }
 
 HEADER_INLINE VecU16 vecu16_min8(VecU16 v1, VecU16 v2) {

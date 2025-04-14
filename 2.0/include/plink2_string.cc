@@ -3226,6 +3226,9 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
 CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
   // See TokenLexK0().
   const VecUc vvec_all95 = vecuc_set1(95);
+#  ifdef SIMDE_ARM_NEON_A32V8_NATIVE
+  const VecUc vvec_all94 = vecuc_set1(94);
+#  endif
   const uintptr_t str_end_addr = R_CAST(uintptr_t, str_start) + slen;
   const uint32_t trailing_byte_ct = str_end_addr % kBytesPerVec;
   const VecUc* str_rev_viter = R_CAST(const VecUc*, RoundDownPow2(str_end_addr, kBytesPerVec));
@@ -3233,8 +3236,8 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
     // As long as we're performing aligned reads, it's safe to read bytes
     // beyond str_end as long as they're in the same vector; we only risk
     // violating process read permissions if we cross a page boundary.
-    const VecUc postspace_vvec = vecuc_adds(*str_rev_viter, vvec_all95);
 #  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+    const VecUc postspace_vvec = vecuc_adds(*str_rev_viter, vvec_all95);
     uint32_t nontoken_bytes = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec));
     nontoken_bytes &= (1U << (trailing_byte_ct % kBytesPerVec)) - 1;
     if (str_start > DowncastKToC(str_rev_viter)) {
@@ -3250,7 +3253,9 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
       return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
 #  else
-    uint64_t nontoken_nybbles = ~arm_shrn4_uc(postspace_vvec);
+    // bugfix (14 Apr 2025): postspace_vvec was not of vec0255 form.
+    const VecUc pre33_vvec = vecuc_signed_cmpgt(vecuc_add(*str_rev_viter, vvec_all95), vvec_all94);
+    uint64_t nontoken_nybbles = arm_shrn4_uc(pre33_vvec);
     nontoken_nybbles &= (1LLU << (4 * (trailing_byte_ct % kBytesPerVec))) - 1;
     if (str_start > DowncastKToC(str_rev_viter)) {
       const uint32_t leading_byte_ct = R_CAST(uintptr_t, str_start) % kBytesPerVec;
@@ -3269,10 +3274,10 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
   const uintptr_t main_loop_iter_ct = (R_CAST(uintptr_t, str_rev_viter) - R_CAST(uintptr_t, str_start)) / (2 * kBytesPerVec);
   for (uintptr_t ulii = 0; ulii != main_loop_iter_ct; ++ulii) {
     --str_rev_viter;
+#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     const VecUc postspace_vvec1 = vecuc_adds(*str_rev_viter, vvec_all95);
     --str_rev_viter;
     const VecUc postspace_vvec0 = vecuc_adds(*str_rev_viter, vvec_all95);
-#  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
     const uint32_t nontoken_bytes = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec1 & postspace_vvec0));
     if (nontoken_bytes) {
       const uint32_t nontoken_bytes1 = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec1));
@@ -3284,9 +3289,12 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
       return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
 #  else
-    const uint64_t nontoken_nybbles = ~arm_shrn4_uc(postspace_vvec1 & postspace_vvec0);
+    const VecUc pre33_vvec1 = vecuc_signed_cmpgt(vecuc_add(*str_rev_viter, vvec_all95), vvec_all94);
+    --str_rev_viter;
+    const VecUc pre33_vvec0 = vecuc_signed_cmpgt(vecuc_add(*str_rev_viter, vvec_all95), vvec_all94);
+    const uint64_t nontoken_nybbles = arm_shrn4_uc(pre33_vvec1 | pre33_vvec0);
     if (nontoken_nybbles) {
-      const uint32_t nontoken_nybbles1 = ~arm_shrn4_uc(postspace_vvec1);
+      const uint32_t nontoken_nybbles1 = arm_shrn4_uc(pre33_vvec1);
       if (nontoken_nybbles1) {
         const uint32_t byte_offset_in_vec = bsrw(nontoken_nybbles1) / 4;
         return &(DowncastToXC(&(str_rev_viter[1]))[byte_offset_in_vec]);
@@ -3302,8 +3310,8 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
       return nullptr;
     }
     --str_rev_viter;
-    const VecUc postspace_vvec = vecuc_adds(*str_rev_viter, vvec_all95);
 #  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
+    const VecUc postspace_vvec = vecuc_adds(*str_rev_viter, vvec_all95);
     const uint32_t nontoken_bytes = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec));
     if (nontoken_bytes) {
       const uint32_t byte_offset_in_vec = bsru32(nontoken_bytes);
@@ -3313,7 +3321,8 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
       return &(DowncastToXC(str_rev_viter)[byte_offset_in_vec]);
     }
 #  else
-    const uint64_t nontoken_nybbles = ~arm_shrn4_uc(postspace_vvec);
+    const VecUc pre33_vvec = vecuc_signed_cmpgt(vecuc_add(*str_rev_viter, vvec_all95), vvec_all94);
+    const uint64_t nontoken_nybbles = arm_shrn4_uc(pre33_vvec);
     if (nontoken_nybbles) {
       const uint32_t byte_offset_in_vec = bsrw(nontoken_nybbles) / 4;
       if (byte_offset_in_vec + remaining_byte_ct_underflow < kBytesPerVec) {
