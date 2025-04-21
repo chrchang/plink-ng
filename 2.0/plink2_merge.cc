@@ -3058,7 +3058,8 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
     for (uint32_t chr_code = 0; chr_code != autosome_code_end; ++chr_code) {
       chr_idx_to_sort_idx[chr_code] = chr_code;
     }
-    const uint32_t xymt_ct = cip->max_code - autosome_code_end;
+    // bugfix (20 Apr 2025): forgot to add 1
+    const uint32_t xymt_ct = max_code_p1 - autosome_code_end;
     const uint32_t xymt_idx_to_chr_sort_offset[kChrOffsetCt] = {1, 3, 4, 5, 0, 2};
     for (uint32_t xymt_idx = 0; xymt_idx != xymt_ct; ++xymt_idx) {
       chr_idx_to_sort_idx[autosome_code_end + xymt_idx] = autosome_code_end + xymt_idx_to_chr_sort_offset[xymt_idx];
