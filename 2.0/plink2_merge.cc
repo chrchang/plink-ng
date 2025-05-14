@@ -6525,18 +6525,10 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         goto PmergeConcat_ret_NOMEM;
       }
       mr.old_sample_idx_to_new = old_sample_idx_to_new_buf;
-      const uint32_t debug_print = g_debug_on && (fileset_idx == 2);
-      if (debug_print) {
-        logputs("\n");
-        logprintf("Starting fileset #3.\n");
-      }
       uint32_t cur_write_sample_ct;
       reterr = ScrapeSampleOrder(filesets_iter->psam_fname, siip, sample_id_htable, read_sample_ct, sample_ct, sample_id_htable_size, fam_cols, psam_linebuf_capacity, max_thread_ct, mr.old_sample_idx_to_new, &mr.sample_idx_increasing, &cur_write_sample_ct, mr.sample_include, mr.sample_span);
       if (unlikely(reterr)) {
         goto PmergeConcat_ret_1;
-      }
-      if (debug_print) {
-        logprintf("ScrapeSampleOrder() complete.\n");
       }
       FillCumulativePopcounts(mr.sample_include, read_sample_ctl, read_cumulative_popcounts);
       if (mr.sample_idx_increasing && (cur_write_sample_ct == sample_ct)) {
@@ -6559,9 +6551,6 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           goto PmergeConcat_ret_1;
         }
         goto PmergeConcat_ret_PGEN_REWIND_FAIL_N;
-      }
-      if (debug_print) {
-        logprintf("PgfiInitPhase1() complete.\n");
       }
       unsigned char* pgfi_alloc;
       if (unlikely(bigstack_alloc_uc(cur_alloc_cacheline_ct * kCacheline, &pgfi_alloc))) {
@@ -6588,9 +6577,6 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         logerrputsb();
         goto PmergeConcat_ret_1;
       }
-      if (debug_print) {
-        logprintf("PgfiInitPhase2() complete.\n");
-      }
       unsigned char* pgr_alloc;
       if (unlikely(bigstack_alloc_uc(cur_alloc_cacheline_ct * kCacheline, &pgr_alloc))) {
         goto PmergeConcat_ret_NOMEM;
@@ -6609,9 +6595,6 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       reterr = InitTextStream(read_pvar_fname, MAXV(filesets_iter->max_pvar_line_blen, kDecompressMinBlen), 1, &pvar_txs);
       if (unlikely(reterr)) {
         goto PmergeConcat_ret_PVAR_TSTREAM_REWIND_FAIL_N;
-      }
-      if (debug_print) {
-        logprintf("InitTextStream() complete.\n");
       }
       char* line_start = TextLineEnd(&pvar_txs);
       for (pvar_line_idx = 1; ; ++pvar_line_idx) {
@@ -6745,17 +6728,15 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           varid_multi_nonsnp_templatep->chr_output_name_buf = ppmc.pmc.chr_buf;
         }
       }
-      if (debug_print) {
-        logprintf("Starting main variant loop, read_variant_ct=%u.\n", read_variant_ct);
-      }
       line_idx_body_start = pvar_line_idx;
       char* cur_pos_readbuf_iter = cur_pos_readbuf;
       uint32_t cur_single_pos_ct = 0;
       uint32_t prev_chr_idx = UINT32_MAX;
       int32_t prev_bp = 0;
       for (uint32_t read_variant_idx = 0; read_variant_idx != read_variant_ct; ++read_variant_idx) {
+        const uint32_t debug_print = g_debug_on && (fileset_idx == 2) && (read_variant_idx == 441305);
         if (debug_print) {
-          logprintf("read_variant_idx=%u.\n", read_variant_idx);
+          logprintf("Starting read_variant_idx=%u, prev_bp=%u, cur_single_pos_ct=%u.\n", read_variant_idx, prev_bp, cur_single_pos_ct);
         }
         if (unlikely(!TextGetUnsafe2(&pvar_txs, &line_start))) {
           reterr = TextStreamRawErrcode(&pvar_txs);
@@ -6810,6 +6791,9 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         if (unlikely(!line_iter)) {
           goto PmergeConcat_ret_PVAR_REWIND_FAIL_N;
         }
+        if (debug_print) {
+          logprintf("TokenLex() complete.\n");
+        }
         line_start = AdvPastDelim(line_iter, '\n');
         int32_t cur_bp;
         if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
@@ -6822,9 +6806,15 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           continue;
         }
         if (cur_bp > prev_bp) {
+          if (debug_print) {
+            logprintf("Calling ConcatPvariantPos().\n");
+          }
           reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
           if (unlikely(reterr)) {
             goto PmergeConcat_ret_N;
+          }
+          if (debug_print) {
+            logprintf("ConcatPvariantPos() complete.\n");
           }
           cur_pos_readbuf_iter = cur_pos_readbuf;
           cur_single_pos_ct = 0;
@@ -6841,6 +6831,9 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         const uint32_t alt_slen = token_slens[3];
         const uint32_t extra_alt_ct = CountByte(alt_start, ',', alt_slen);
         if (varid_templatep && ((!missing_varid_match_slen) || ((variant_id_slen == missing_varid_match_slen) && memequal(token_ptrs[1], missing_varid_match, missing_varid_match_slen)))) {
+          if (debug_print) {
+            logprintf("Selecting new variant ID template.\n");
+          }
           const VaridTemplate* cur_varid_templatep = varid_templatep;
           if (extra_alt_ct && (varid_multi_templatep || varid_multi_nonsnp_templatep)) {
             if (varid_multi_templatep) {
@@ -6852,11 +6845,20 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
               }
             }
           }
+          if (debug_print) {
+            logprintf("New variant ID template selected.\n");
+          }
           // already scanned, shouldn't be possible for this to fail
           uint32_t discard;
           cur_pos_readbuf_iter = VaridTemplateWrite(cur_varid_templatep, ref_start, alt_start, cur_bp, ref_slen, extra_alt_ct, alt_slen, &discard, cur_variant_id_start);
+          if (debug_print) {
+            logprintf("VaridTemplateWrite() complete.\n");
+          }
           variant_id_slen = cur_pos_readbuf_iter - cur_variant_id_start;
         } else {
+          if (debug_print) {
+            logprintf("Copying old variant ID.\n");
+          }
           cur_pos_readbuf_iter = memcpya(cur_variant_id_start, token_ptrs[1], variant_id_slen);
         }
         *cur_pos_readbuf_iter++ = '\0';
@@ -6867,6 +6869,9 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         } else {
           *cur_pos_readbuf_iter++ = '.';
         }
+        if (debug_print) {
+          logprintf("REF allele copied.\n");
+        }
         *cur_pos_readbuf_iter++ = '\0';
         other_field_offsets[1] = cur_pos_readbuf_iter - cur_variant_id_start;
 
@@ -6874,6 +6879,9 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           cur_pos_readbuf_iter = memcpya(cur_pos_readbuf_iter, alt_start, alt_slen);
         } else {
           *cur_pos_readbuf_iter++ = '.';
+        }
+        if (debug_print) {
+          logprintf("ALT allele copied.\n");
         }
         *cur_pos_readbuf_iter++ = '\0';
         other_field_offsets[2] = cur_pos_readbuf_iter - cur_variant_id_start;
@@ -6906,15 +6914,15 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         if (read_cm) {
           cur_pos_readbuf_iter = memcpya(cur_pos_readbuf_iter, token_ptrs[7], token_slens[7]);
         }
+        if (debug_print) {
+          logprintf("QUAL/FILTER/INFO/CM copied.\n");
+        }
         *cur_pos_readbuf_iter++ = '\0';
         // could align up to 8-byte boundary?
         assert(cur_pos_readbuf_iter <= R_CAST(char*, same_pos_records));
 
         same_pos_records[cur_single_pos_ct] = cur_record;
         ++cur_single_pos_ct;
-      }
-      if (debug_print) {
-        logprintf("Done with main variant loop.\n");
       }
       reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
       if (unlikely(reterr)) {
