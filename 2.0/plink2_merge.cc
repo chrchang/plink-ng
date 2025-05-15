@@ -4842,13 +4842,14 @@ void PermuteUpdate8bitDenseFromSparse(const uintptr_t* __restrict src_subset, co
 // ok for dst_subset to be nullptr.
 void PermuteUpdate16bitDenseFromSparse(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t sample_ct, uint32_t val_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  ZeroWArr(sample_ctl, dst_subset);
   const uint16_t* src_vals_u16 = S_CAST(const uint16_t*, src_vals);
   uint16_t* dst_vals_u16 = S_CAST(uint16_t*, dst_vals);
 
   uintptr_t cur_bits = src_subset[0];
   uintptr_t old_sample_idx_base = 0;
   if (dst_subset) {
+    // bugfix (15 May 2025): forgot to put this behind dst_subset != nullptr
+    ZeroWArr(sample_ctl, dst_subset);
     for (uint32_t old_val_idx = 0; old_val_idx != val_ct; ++old_val_idx) {
       const uint32_t old_sample_idx = BitIter1(src_subset, &old_sample_idx_base, &cur_bits);
       const uint32_t new_sample_idx = old_sample_idx_to_new[old_sample_idx];
