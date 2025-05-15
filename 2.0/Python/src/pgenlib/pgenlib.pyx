@@ -6,6 +6,7 @@ from cpython.mem cimport PyMem_Malloc, PyMem_Free
 # from cpython.view cimport array as cvarray
 import numpy as np
 cimport numpy as np
+from numpy cimport ndarray
 import sys
 
 cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
