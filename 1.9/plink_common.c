@@ -5888,7 +5888,6 @@ void bitvec_ornot(const uintptr_t* __restrict inverted_or_bitvec, uintptr_t word
   // main_bitvec := main_bitvec OR (~inverted_or_bitvec)
 #ifdef __LP64__
   const __m128i all1 = {-1LL, -1LL};
-#endif
   __m128i* vv128 = (__m128i*)main_bitvec;
   const __m128i* ev128 = (const __m128i*)inverted_or_bitvec;
   __m128i* vv128_end = &(vv128[word_ct / 2]);
