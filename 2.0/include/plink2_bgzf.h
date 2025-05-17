@@ -80,7 +80,7 @@ typedef struct BgzfMtReadCommWithRStruct {
   uint32_t remaining_start;
   uint32_t remaining_end;
   uint32_t remaining_end_is_eof;
-#ifdef CPP11_TYPE_CONSTRAINTS
+#ifdef CPP11_TYPE_ENFORCEMENT
   // Can't just use PglErr, since BgzfRawMtDecompressStream is part of a union,
   // hence BgzfMtReadBody must have a trivial default constructor.
   PglErr::ec reterr;

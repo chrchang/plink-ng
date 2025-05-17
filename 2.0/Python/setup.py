@@ -39,6 +39,7 @@ clib = ('clib',
                      'src/plink2/zstd/lib/compress/zstd_lazy.c',
                      'src/plink2/zstd/lib/compress/zstd_ldm.c',
                      'src/plink2/zstd/lib/compress/zstd_opt.c',
+                     'src/plink2/zstd/lib/compress/zstd_preSplit.c',
                      'src/plink2/zstd/lib/compress/zstdmt_compress.c',
                      'src/plink2/zstd/lib/decompress/huf_decompress.c',
                      'src/plink2/zstd/lib/decompress/zstd_ddict.c',
@@ -68,10 +69,10 @@ ext_modules = [
               language = "c++",
               # Cython doesn't yet support overload of e.g. uint32_t operator,
               # so it's necessary to compile plink2 with
-              # NO_CPP11_TYPE_CONSTRAINTS defined.  (Previously, we compiled as
+              # NO_CPP11_TYPE_ENFORCEMENT defined.  (Previously, we compiled as
               # c++98 here, but I don't blame them for no longer maintaining
               # that well.)
-              extra_compile_args = ["-std=c++11", "-Wno-unused-function", "-Wno-macro-redefined", "-Wno-cpp", "-DNO_CPP11_TYPE_CONSTRAINTS", "-DZSTD_DISABLE_ASM", "-DLIBDEFLATE_STATIC"],
+              extra_compile_args = ["-std=c++11", "-Wno-unused-function", "-Wno-cpp", "-DNO_CPP11_TYPE_ENFORCEMENT", "-DZSTD_DISABLE_ASM", "-DLIBDEFLATE_STATIC"],
               extra_link_args = ["-std=c++11", "-lz"],
               include_dirs = [np.get_include()] + ['src/plink2/libdeflate']
               )

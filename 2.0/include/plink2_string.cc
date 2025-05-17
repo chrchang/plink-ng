@@ -279,7 +279,7 @@ void WordWrap(uint32_t suffix_len, char* strbuf) {
 
 void WordWrapMultiline(char* strbuf) {
   for (char* line_start = strbuf; *line_start != '\0'; ) {
-    char* line_end = strchrnul(line_start, '\n');
+    char* line_end = Strchrnul(line_start, '\n');
     if (*line_end == '\0') {
       line_end[0] = '\n';
       line_end[1] = '\0';

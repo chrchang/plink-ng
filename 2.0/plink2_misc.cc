@@ -3251,7 +3251,7 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
     } else {
       const char* binstr_iter = binstr;
       while (1) {
-        const char* tok_end = strchrnul(binstr_iter, ',');
+        const char* tok_end = Strchrnul(binstr_iter, ',');
         reterr = ProcessBoundaryToken(binstr_iter, tok_end, "--freq {ref,alt1}bins= list", max_boundary_ct, kPglRetInvalidCmdline, &prev_boundary, &boundary_ct, freq_bounds_ptr, ddosage_bounds_ptr);
         if (unlikely(reterr)) {
           goto InitHistogramFromFileOrCommalist_ret_1;
@@ -3508,7 +3508,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
                   goto WriteAlleleFreqs_ret_WRITE_FAIL;
                 }
                 const char* cur_allele = cur_alleles[allele_idx];
-                const char* cur_allele_end_or_eq = strchrnul(cur_allele, '=');
+                const char* cur_allele_end_or_eq = Strchrnul(cur_allele, '=');
                 if (unlikely(*cur_allele_end_or_eq == '=')) {
                   logerrputs("Error: --freq's 'eq', 'eqz', 'alteq', and 'alteqz' columns cannot be requested\nwhen an allele code contains a '='.\n");
                   goto WriteAlleleFreqs_ret_INCONSISTENT_INPUT;

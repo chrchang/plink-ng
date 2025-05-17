@@ -263,13 +263,25 @@ HEADER_INLINE char* strchrnul3(char* ss, unsigned char ucc1, unsigned char ucc2,
 }
 #endif
 
-#ifndef _GNU_SOURCE
+#ifdef _GNU_SOURCE
+// Now capitalized to avoid headache introduced by macOS 15.4.
+//
+// The runtime __builtin_available() mechanism is fine for larger or
+// rarely-called functions.  But if the macOS 15.4 strchrnul() implementation
+// is currently good enough to be worth using despite the runtime-dispatch
+// overhead, that means rawmemchr2() and similar functions should be fixed; it
+// does not mean runtime dispatch should actually be used for this type of
+// inner-loop function.
+HEADER_INLINE CXXCONST_CP Strchrnul(const char* str, int needle) {
+  return S_CAST(CXXCONST_CP, strchrnul(str, needle));
+}
+#else
 #  ifdef __LP64__
-HEADER_INLINE CXXCONST_CP strchrnul(const char* str, int needle) {
+HEADER_INLINE CXXCONST_CP Strchrnul(const char* str, int needle) {
   return S_CAST(CXXCONST_CP, rawmemchr2(str, 0, needle));
 }
 #  else
-HEADER_INLINE CXXCONST_CP strchrnul(const char* str, int cc) {
+HEADER_INLINE CXXCONST_CP Strchrnul(const char* str, int cc) {
   const char* strchr_result = strchr(str, cc);
   if (strchr_result) {
     return S_CAST(CXXCONST_CP, strchr_result);
@@ -279,8 +291,8 @@ HEADER_INLINE CXXCONST_CP strchrnul(const char* str, int cc) {
 #  endif
 
 #  ifdef __cplusplus
-HEADER_INLINE char* strchrnul(char* ss, int needle) {
-  return const_cast<char*>(strchrnul(const_cast<const char*>(ss), needle));
+HEADER_INLINE char* Strchrnul(char* ss, int needle) {
+  return const_cast<char*>(Strchrnul(const_cast<const char*>(ss), needle));
 }
 #  endif
 #endif

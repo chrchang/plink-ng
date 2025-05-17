@@ -222,7 +222,7 @@ ENUM_U31_DEF_START()
   kGlmErrcodeUnstableScale
 ENUM_U31_DEF_END(GlmErrcode);
 
-#ifdef CPP11_TYPE_CONSTRAINTS
+#ifdef CPP11_TYPE_ENFORCEMENT
 // see IntErr in plink2_base.h
 struct GlmErr {
   GlmErr() {}

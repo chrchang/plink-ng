@@ -8321,7 +8321,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         ZeroWArr(fif_key_ctl, fif_seen);
         while (1) {
           // bugfix (3 Jan 2021): this is semicolon, not comma, delimited
-          const char* tok_end = strchrnul(cur_filter_iter, ';');
+          const char* tok_end = Strchrnul(cur_filter_iter, ';');
           const uint32_t fif_idx = IdHtableFindNnt(cur_filter_iter, fif_keys, fif_keys_htable, tok_end - cur_filter_iter, fif_keys_htable_size);
           // Second predicate verifies this is actually a FILTER key.
           if (unlikely((fif_idx == UINT32_MAX) || (!(fif_keys[fif_idx][-1] & 8)))) {

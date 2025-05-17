@@ -359,13 +359,13 @@ HEADER_INLINE unsigned char* CToUc(char* pp) {
 // * IntErr allows implicit conversion from int, but conversion back to
 //   int32_t requires an explicit cast.  It mainly serves as a holding pen for
 //   C standard library error return values, which can be negative.
-#if __cplusplus >= 201103L && !defined(NO_CPP11_TYPE_CONSTRAINTS)
+#if __cplusplus >= 201103L && !defined(NO_CPP11_TYPE_ENFORCEMENT)
 // Cython doesn't support these, and the previous workaround of forcing C++98
 // is breaking down.  So allow this C++11 feature to be selectively disabled.
-#  define CPP11_TYPE_CONSTRAINTS
+#  define CPP11_TYPE_ENFORCEMENT
 #endif
 
-#ifdef CPP11_TYPE_CONSTRAINTS
+#ifdef CPP11_TYPE_ENFORCEMENT
 struct PglErr {
   enum class ec
 #else
@@ -410,7 +410,7 @@ typedef enum
   kPglRetHelp = 125,
   kPglRetLongLine = 126,
   kPglRetEof = 127}
-#ifdef CPP11_TYPE_CONSTRAINTS
+#ifdef CPP11_TYPE_ENFORCEMENT
   ;
 
   PglErr() {}
@@ -479,7 +479,7 @@ const PglErr kPglRetEof = PglErr::ec::kPglRetEof;
   PglErr;
 #endif
 
-#ifdef CPP11_TYPE_CONSTRAINTS
+#ifdef CPP11_TYPE_ENFORCEMENT
 // allow efficient arithmetic on these, but force them to require explicit
 // int32_t/uint32_t casts; only permit implicit assignment from
 // int32_t/uint32_t by default.
@@ -2021,7 +2021,7 @@ HEADER_INLINE void PrintVecD(const VecD* vv_ptr, const char* preprint) {
   fputs("\n", stdout);
 }
 
-#ifdef CPP11_TYPE_CONSTRAINTS
+#ifdef CPP11_TYPE_ENFORCEMENT
 // Main application of std::array in this codebase is enforcing length when
 // passing references between functions.  Conversely, if the array type has
 // different lengths in different functions (e.g. col_skips[]/col_types[]), we
@@ -4323,7 +4323,7 @@ HEADER_INLINE uint32_t VintBytect(uintptr_t ulii) {
 //   enum base type to make it safe for the enum to serve as the flagset type.
 // * Implicit conversion to int is not prevented for now, since I'm trying to
 //   keep PglErr-style code duplication to a minimum.
-#ifdef CPP11_TYPE_CONSTRAINTS
+#ifdef CPP11_TYPE_ENFORCEMENT
 
   // could avoid the typedef here, but that leads to a bit more verbosity.
 #  define FLAGSET_DEF_START() typedef enum : uint32_t {
@@ -4435,7 +4435,7 @@ private: \
 #  define ENUM_U31_DEF_START() typedef enum : uint32_t {
 #  define ENUM_U31_DEF_END(tname) } tname
 
-#else  // !CPP11_TYPE_CONSTRAINTS
+#else  // !CPP11_TYPE_ENFORCEMENT
 
 #  define FLAGSET_DEF_START() enum {
 #  define FLAGSET_DEF_END(tname) } ; \

@@ -9506,7 +9506,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
           break;
         }
         ++mc_ct;
-        const char* token_end = strchrnul(missing_code_iter, ',');
+        const char* token_end = Strchrnul(missing_code_iter, ',');
         uintptr_t token_slen = token_end - missing_code_iter;
         if (token_slen >= max_mc_blen) {
           max_mc_blen = token_slen + 1;
@@ -9522,7 +9522,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
           while (*missing_code_iter == ',') {
             ++missing_code_iter;
           }
-          const char* token_end = strchrnul(missing_code_iter, ',');
+          const char* token_end = Strchrnul(missing_code_iter, ',');
           uintptr_t token_slen = token_end - missing_code_iter;
           memcpyx(&(sorted_mc[mc_idx * max_mc_blen]), missing_code_iter, token_slen, '\0');
           missing_code_iter = token_end;
@@ -9852,16 +9852,16 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
           }
           all_ids_iter = strnul(all_ids_iter);
         } else {
-          const char* first_part_end = strchrnul(all_ids_iter, id_delim);
+          const char* first_part_end = Strchrnul(all_ids_iter, id_delim);
           if (unlikely(!(*first_part_end))) {
             logerrprintfww("Error: No instances of --id-delim argument '%c' in sample ID '%s'.\n", id_delim, all_ids_iter);
             goto OxSampleToPsam_ret_INCONSISTENT_INPUT;
           }
           const char* second_part_start = &(first_part_end[1]);
-          const char* second_part_end = strchrnul(second_part_start, id_delim);
+          const char* second_part_end = Strchrnul(second_part_start, id_delim);
           if (*second_part_end) {
             const char* third_part_start = &(second_part_end[1]);
-            const char* third_part_end = strchrnul(third_part_start, id_delim);
+            const char* third_part_end = Strchrnul(third_part_start, id_delim);
             if (unlikely(*third_part_end)) {
               logerrprintfww("Error: Too many instances of --id-delim argument '%c' in sample ID '%s'.\n", id_delim, all_ids_iter);
               goto OxSampleToPsam_ret_INCONSISTENT_INPUT;

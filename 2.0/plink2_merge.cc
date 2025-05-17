@@ -4394,7 +4394,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
           for (uintptr_t nm_rec_idx = 0; nm_rec_idx != first_loop_stop; ++nm_rec_idx) {
             char* filter_subtoken_iter = cur_filter_strs[nm_rec_idx];
             while (1) {
-              char* subtoken_end = strchrnul(filter_subtoken_iter, ';');
+              char* subtoken_end = Strchrnul(filter_subtoken_iter, ';');
               const uint32_t is_last = (*subtoken_end == '\0');
               if (!is_last) {
                 *subtoken_end = '\0';
@@ -4423,7 +4423,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
               ZeroWArr(filter_ctl - 1, &(filter_set[1]));
               char* filter_subtoken_iter = cur_filter_strs[nm_rec_idx];
               while (1) {
-                char* subtoken_end = strchrnul(filter_subtoken_iter, ';');
+                char* subtoken_end = Strchrnul(filter_subtoken_iter, ';');
                 const uint32_t is_last = (*subtoken_end == '\0');
                 if (!is_last) {
                   *subtoken_end = '\0';

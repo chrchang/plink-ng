@@ -4119,7 +4119,7 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
             cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
             *cswritep++ = '\t';
           } else if (varid_token_start) {
-            const char* varid_token_end = strchrnul(varid_token_start, ';');
+            const char* varid_token_end = Strchrnul(varid_token_start, ';');
             // If substring matches missing code and --set-missing-var-ids is
             // specified, we replace it.
             if (varid_templatep && (S_CAST(uintptr_t, varid_token_end - varid_token_start) == missing_varid_slen) && memequal(varid_token_start, missing_varid_match, missing_varid_slen)) {
@@ -4693,7 +4693,7 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
             cswritep = VaridTemplateWrite(cur_varid_templatep, ref_allele, cur_alt_allele, cur_bp, ref_allele_slen, 0, cur_alt_allele_slen, &max_allele_overflow_slen, cswritep);
             *cswritep++ = '\t';
           } else if (varid_token_start) {
-            const char* varid_token_end = strchrnul(varid_token_start, ';');
+            const char* varid_token_end = Strchrnul(varid_token_start, ';');
             // If substring matches missing code and --set-missing-var-ids is
             // specified, we replace it.
             if (varid_templatep && (S_CAST(uintptr_t, varid_token_end - varid_token_start) == missing_varid_slen) && memequal(varid_token_start, missing_varid_match, missing_varid_slen)) {
@@ -4905,7 +4905,7 @@ PglErr MakeFilterHtable(const uintptr_t* variant_include, const uintptr_t* filte
       if (lowbit & filter_npass[variant_widx]) {
         const char* filter_iter = filter_storage[variant_widx * kBitsPerWord + ctzw(lowbit)];
         while (1) {
-          const char* token_end = strchrnul(filter_iter, ';');
+          const char* token_end = Strchrnul(filter_iter, ';');
           const uint32_t cur_id_slen = token_end - filter_iter;
           for (uint32_t hashval = Hash32(filter_iter, cur_id_slen) >> hash_shift; ; ) {
             char* cur_token_ptr = filter_tokens[hashval];

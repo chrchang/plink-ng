@@ -3891,7 +3891,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
       memcpy_k(maybebuf, "maybe", 5);
       while (1) {
         const char* id_start = &(col_descriptor_iter[1]);
-        const char* tok_end = strchrnul(id_start, ',');
+        const char* tok_end = Strchrnul(id_start, ',');
         const uint32_t slen = tok_end - id_start;
         int32_t alpha_idx = bsearch_strbox(id_start, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
@@ -3920,7 +3920,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
           }
         }
         // bugfix (16 Oct 2017): forgot to switch from !tok_end to !(*tok_end)
-        // after use of strchrnul().
+        // after use of Strchrnul().
         if (!(*tok_end)) {
           break;
         }
@@ -3931,7 +3931,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
       }
     } else if (*col_descriptor_iter) {
       while (1) {
-        const char* tok_end = strchrnul(col_descriptor_iter, ',');
+        const char* tok_end = Strchrnul(col_descriptor_iter, ',');
         const uint32_t slen = tok_end - col_descriptor_iter;
         const int32_t alpha_idx = bsearch_strbox(col_descriptor_iter, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
