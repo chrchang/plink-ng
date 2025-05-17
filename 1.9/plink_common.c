@@ -5887,9 +5887,6 @@ void bitvec_or(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintpt
 void bitvec_ornot(const uintptr_t* __restrict inverted_or_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
   // main_bitvec := main_bitvec OR (~inverted_or_bitvec)
 #ifdef __LP64__
-#ifdef __APPLE__
-  const __m128i all1 = {0xffffffffffffffffLLU, 0xffffffffffffffffLLU};
-#else
   const __m128i all1 = {-1LL, -1LL};
 #endif
   __m128i* vv128 = (__m128i*)main_bitvec;
