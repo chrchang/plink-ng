@@ -40,14 +40,14 @@
  * * * * * *
  */
 
-#if defined(__cplusplus)
-extern "C" {
-#endif
-
 #include "SFMT.h"
 
 #include <assert.h>
 #include <string.h>
+
+#if defined(__cplusplus)
+extern "C" {
+#endif
 
 #ifndef __LP64__
 inline static void do_recursion(w128_t * r, w128_t * a, w128_t * b,
