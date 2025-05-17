@@ -776,7 +776,7 @@ HEADER_INLINE BoolErr bigstack_calloc64_d(uint64_t ct, double** d_arr_ptr) {
 BoolErr bigstack_calloc64_d(uint64_t ct, double** d_arr_ptr);
 #endif
 
-#if __cplusplus >= 201103L
+#ifdef CPP11_TYPE_CONSTRAINTS
 
 template <class T> BoolErr BigstackAllocX(uintptr_t ct, T** x_arr_ptr) {
   *x_arr_ptr = S_CAST(T*, bigstack_alloc(ct * sizeof(T)));

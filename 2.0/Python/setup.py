@@ -66,12 +66,13 @@ ext_modules = [
                          'src/plink2/include/plink2_thread.cc',
                          'src/plink2/include/plink2_zstfile.cc'],
               language = "c++",
-              # do not compile as c++11, since cython doesn't yet support
-              # overload of uint32_t operator
-              # extra_compile_args = ["-std=c++11", "-Wno-unused-function"],
-              # extra_link_args = ["-std=c++11"],
-              extra_compile_args = ["-std=c++98", "-Wno-unused-function", "-Wno-macro-redefined", "-Wno-c++11-extensions", "-Wno-cpp", "-DZSTD_DISABLE_ASM", "-DLIBDEFLATE_STATIC"],
-              extra_link_args = ["-std=c++98", "-lz"],
+              # Cython doesn't yet support overload of e.g. uint32_t operator,
+              # so it's necessary to compile plink2 with
+              # NO_CPP11_TYPE_CONSTRAINTS defined.  (Previously, we compiled as
+              # c++98 here, but I don't blame them for no longer maintaining
+              # that well.)
+              extra_compile_args = ["-std=c++11", "-Wno-unused-function", "-Wno-macro-redefined", "-Wno-cpp", "-DNO_CPP11_TYPE_CONSTRAINTS", "-DZSTD_DISABLE_ASM", "-DLIBDEFLATE_STATIC"],
+              extra_link_args = ["-std=c++11", "-lz"],
               include_dirs = [np.get_include()] + ['src/plink2/libdeflate']
               )
     ]
