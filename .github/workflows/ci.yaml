@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-13, macos-latest]
-        python-version: [8, 9, 10, 11, 12]
+        python-version: [9, 10, 11, 12, 13]
 
     steps:
       - name: Checkout
@@ -42,9 +42,9 @@ jobs:
 
       - name: Test against oldest supported numpy version
         working-directory: ./2.0/Python
-        if: matrix.python-version <= 8 && matrix.os != 'macos-latest'
+        if: matrix.python-version <= 9 && matrix.os != 'macos-latest'
         run: |
-          pip install --force-reinstall --no-cache-dir 'numpy==1.19.0'
+          pip install --force-reinstall --no-cache-dir 'numpy==2.0.0'
           pytest tests/
 
       - name: Test against newest numpy version
@@ -59,7 +59,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: [8, 12]
+        python-version: [9, 13]
 
     steps:
       - name: Checkout
