@@ -289,12 +289,12 @@ HEADER_INLINE CXXCONST_CP Strchrnul(const char* str, int cc) {
   return S_CAST(CXXCONST_CP, strnul(str));
 }
 #  endif
+#endif
 
-#  ifdef __cplusplus
+#ifdef __cplusplus
 HEADER_INLINE char* Strchrnul(char* ss, int needle) {
   return const_cast<char*>(Strchrnul(const_cast<const char*>(ss), needle));
 }
-#  endif
 #endif
 
 // These return 1 at eoln.
