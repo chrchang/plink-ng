@@ -99,10 +99,10 @@ setuptools.setup(
     ],
     package_dir={"": "src"},
     packages=setuptools.find_namespace_packages(where="src"),
-    python_requires=">=3.5",
+    python_requires=">=3.9",
     libraries=[clib],
     ext_modules=cythonize(ext_modules),
     install_requires = [
-        "numpy>=1.19.0",
+        "numpy>=2.0.0",
     ],
 )
