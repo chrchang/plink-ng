@@ -77,10 +77,11 @@
 //   valid input types, NOT counting VecW*.
 
 
-// gcc 8.3.0 has been miscompiling the ParseOnebitUnsafe() function in
-// pgenlib_read.cc for the last several years.  gcc 8.4 does not have this
-// problem, and neither does any other gcc major version I've tested to date.
-#ifndef __clang__
+// gcc 8.3.0 has been miscompiling the vector code in the ParseOnebitUnsafe()
+// function in pgenlib_read.cc for the last several years.  gcc 8.4 does not
+// have this problem, and neither does any other gcc major version I've tested
+// to date.
+#if !defined(__clang__) && defined(__LP64__)
 #  if (__GNUC__ == 8) && (__GNUC_MINOR__ < 4)
 #    error "gcc 8.3 is known to have a miscompilation bug that was fixed in 8.4."
 #  endif
