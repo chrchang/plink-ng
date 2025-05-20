@@ -57,6 +57,8 @@
  * unsigned int and 64-bit unsigned int in hexadecimal format.
  */
 
+#define __USE_MINGW_ANSI_STDIO 1
+
 #ifndef SFMTST_H
 #define SFMTST_H
 #if defined(__cplusplus)
@@ -80,13 +82,8 @@ extern "C" {
 #endif
 
 #ifndef PRIu64
-  #if defined(_MSC_VER) || defined(__BORLANDC__)
-    #define PRIu64 "I64u"
-    #define PRIx64 "I64x"
-  #else
-    #define PRIu64 "llu"
-    #define PRIx64 "llx"
-  #endif
+  #define PRIu64 "llu"
+  #define PRIx64 "llx"
 #endif
 
 
