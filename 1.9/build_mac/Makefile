@@ -9,6 +9,7 @@ include ../Makefile.src
 # don't have to edit the Makefile to build in a different environment.
 CC ?=		gcc
 CXX ?=		g++
+CCFLAGS ?=	-Wall -O2
 CXXFLAGS ?=	-Wall -O2 -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
 AMDFLAGS ?=     --target=x86_64-apple-macosx10.9
 ARMFLAGS ?=     --target=arm64-apple-macos11
@@ -48,10 +49,10 @@ plink: plink_amd64 plink_arm64
 	lipo -create -output plink plink_amd64 plink_arm64
 
 prettify_amd64: ../prettify.c
-	$(CC) -Wall -O2 $(AMDFLAGS) ../prettify.c -o prettify_amd64
+	$(CC) $(CCFLAGS) $(AMDFLAGS) ../prettify.c -o prettify_amd64
 
 prettify_arm64: ../prettify.c
-	$(CC) -Wall -O2 $(ARMFLAGS) ../prettify.c -o prettify_arm64
+	$(CC) $(CCFLAGS) $(ARMFLAGS) ../prettify.c -o prettify_arm64
 
 prettify: prettify_amd64 prettify_arm64
 	lipo -create -output prettify prettify_amd64 prettify_arm64
