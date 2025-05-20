@@ -21,6 +21,7 @@
 // Resources needed across all plink modules.
 
 #define _FILE_OFFSET_BITS 64
+#define __USE_MINGW_ASCI_STDIO 1
 
 #include <assert.h>
 #ifndef __STDC_FORMAT_MACROS
@@ -83,10 +84,6 @@
 #  define fseeko fseeko64
 #  define ftello ftello64
 #  include <process.h>  // IWYU pragma: export
-#  undef PRId64
-#  undef PRIu64
-#  define PRId64 "I64d"
-#  define PRIu64 "I64u"
   #define pthread_t HANDLE
   #define THREAD_RET_TYPE unsigned __stdcall
   #define THREAD_RETURN return 0
@@ -150,27 +147,6 @@
 
 #ifdef __cplusplus
   #include <algorithm>
-#  ifdef _WIN32
-// Windows C++11 <algorithm> resets these values :(
-#    undef PRIu64
-#    undef PRId64
-#    define PRIu64 "I64u"
-#    define PRId64 "I64d"
-#    undef PRIuPTR
-#    undef PRIdPTR
-#    ifdef __LP64__
-#      define PRIuPTR PRIu64
-#      define PRIdPTR PRId64
-#    else
-#      if __cplusplus < 201103L
-#        define PRIuPTR "lu"
-#        define PRIdPTR "ld"
-#      else
-#        define PRIuPTR "u"
-#        define PRIdPTR "d"
-#      endif
-#    endif
-#  endif
   #define HEADER_INLINE inline
 #else
   #define HEADER_INLINE static inline
@@ -203,27 +179,13 @@
   // the right thing for 32-bit builds).
   #define ONELU 1LLU
 
-  #ifdef _WIN32 // i.e. Win64
-
-    #ifndef PRIuPTR
-      #define PRIuPTR PRIu64
-    #endif
-    #ifndef PRIdPTR
-      #define PRIdPTR PRId64
-    #endif
-    #define PRIxPTR2 "016I64x"
-
-  #else // not _WIN32
-
-    #ifndef PRIuPTR
-      #define PRIuPTR "lu"
-    #endif
-    #ifndef PRIdPTR
-      #define PRIdPTR "ld"
-    #endif
-    #define PRIxPTR2 "016lx"
-
-  #endif // Win64
+  #ifndef PRIuPTR
+    #define PRIuPTR "lu"
+  #endif
+  #ifndef PRIdPTR
+    #define PRIdPTR "ld"
+  #endif
+  #define PRIxPTR2 "016lx"
 
   #define VEC_BYTES 16
 
@@ -237,6 +199,13 @@
 #    define PRIuPTR "lu"
 #    define PRIdPTR "ld"
 #  endif
+#  ifdef _WIN32
+#    ifndef PRIuPTR
+#      define PRIuPTR "u"
+#    endif
+#    ifndef PRIdPTR
+#      define PRIdPTR "d"
+#    endif
   #define PRIxPTR2 "08lx"
 
   // todo: update code so this still works when reduced to 4
