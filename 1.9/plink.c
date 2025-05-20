@@ -17,6 +17,8 @@
 
 // Uncomment "#define NOLAPACK" in plink_common.h to build without LAPACK.
 
+#include "plink_common.h"
+
 #include <ctype.h>
 #include <float.h>
 #include <locale.h>
@@ -34,7 +36,6 @@
 #include "plink_calc.h"
 #include "plink_cluster.h"
 #include "plink_cnv.h"
-#include "plink_common.h"
 #include "plink_data.h"
 #include "plink_dosage.h"
 #include "plink_family.h"
