@@ -27,10 +27,10 @@ ZSTD_O2 = 1
 STATIC_ZLIB =
 STATIC_ZSTD = 1
 DYNAMIC_MKL =
-MKLROOT = /home/ubuntu/intel/mkl
-MKL_IOMP5_DIR = /home/ubuntu/intel/compilers_and_libraries_2017.2.174/linux/compiler/lib/intel64
+MKLROOT = /opt/intel/oneapi/mkl/2025.1
+MKL_IOMP5_DIR = /opt/intel/oneapi/compiler/2025.1/lib
 STATIC_AOCL =
-AOCLROOT = /home/ubuntu/amd/aocl/3.2.0
+AOCLROOT = /home/admin/aocl/5.1.0/gcc
 FORCE_32BIT =
 DEBUG =
 CC ?= gcc
@@ -152,7 +152,7 @@ else
       $(error STATIC_AOCL + FORCE_32BIT not supported)
     endif
     BASEFLAGS += -DUSE_AOCL -DLAPACK_ILP64 -I${AOCLROOT}/include
-    BLASFLAGS = -L. ${AOCLROOT}/lib/libflame.a -L. ${AOCLROOT}/lib/libblis.a
+    BLASFLAGS = -L. ${AOCLROOT}/lib/libflame.a -L. ${AOCLROOT}/lib/libblis.a -L. ${AOCLROOT}/lib/libau_cpuid.a
     LINKFLAGS += -ldl
   endif
 endif
