@@ -32,27 +32,6 @@
 #  if __cplusplus >= 201902L && defined(__GNUC__) && !defined(__clang__)
 #    include <execution>  // IWYU pragma: export
 #  endif
-#  ifdef _WIN32
-    // Windows C++11 <algorithm> resets these values :(
-#    undef PRIu64
-#    undef PRId64
-#    define PRIu64 "I64u"
-#    define PRId64 "I64d"
-#    undef PRIuPTR
-#    undef PRIdPTR
-#    ifdef __LP64__
-#      define PRIuPTR PRIu64
-#      define PRIdPTR PRId64
-#    else
-#      if __cplusplus < 201103L
-#        define PRIuPTR "lu"
-#        define PRIdPTR "ld"
-#      else
-#        define PRIuPTR "u"
-#        define PRIdPTR "d"
-#      endif
-#    endif
-#  endif
 #endif
 
 #ifdef _WIN32

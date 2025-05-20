@@ -1319,8 +1319,8 @@ BoolErr GetExtractEigvecsLworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lw
   __CLPK_integer lwork_dummy = -1;
 
   // defined to make macOS 13.3 happy.
-  double ignored_vl;
-  double ignored_vu;
+  double ignored_vl = 0.0;  // gcc 14 warning
+  double ignored_vu = 0.0;  // gcc 14 warning
   __CLPK_integer ignored_m;
 
   double lwork_d;
