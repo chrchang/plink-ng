@@ -206,6 +206,7 @@
 #    ifndef PRIdPTR
 #      define PRIdPTR "d"
 #    endif
+#  endif
   #define PRIxPTR2 "08lx"
 
   // todo: update code so this still works when reduced to 4
