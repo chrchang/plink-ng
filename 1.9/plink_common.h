@@ -21,7 +21,7 @@
 // Resources needed across all plink modules.
 
 #define _FILE_OFFSET_BITS 64
-#define __USE_MINGW_ASCI_STDIO 1
+#define __USE_MINGW_ASCII_STDIO 1
 
 #include <assert.h>
 #ifndef __STDC_FORMAT_MACROS
