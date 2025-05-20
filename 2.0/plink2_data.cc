@@ -8784,7 +8784,7 @@ PglErr PvarInfoResplitTmp(const uint32_t* new_variant_idx_to_old, uint32_t varia
         STD_SORT_PAR_UNSEQ(shard_variant_ct, u64cmp, old_variant_idx_map);
 
         // Now we know how to split them.
-        char* line_iter;
+        char* line_iter = nullptr;  // gcc 14 warning
         for (uintptr_t shard_old_variant_idx = 0; shard_old_variant_idx != shard_variant_ct; ++shard_old_variant_idx) {
           reterr = TextNextLine(pvar_reload_txsp, &line_iter);
           if (unlikely(reterr)) {

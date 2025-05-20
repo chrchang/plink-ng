@@ -531,7 +531,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
 
     while (1) {
       ++line_idx;
-      char* line_iter;
+      char* line_iter = nullptr;  // gcc 14 warning
       reterr = TextNextLine(&fa_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {

@@ -107,7 +107,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 820
+#define PLINK2_BASE_VERNUM 821
 
 // We now try to adhere to include-what-you-use in simple cases.  However,
 // we don't want to repeat either platform-specific ifdefs, or stuff like
@@ -119,6 +119,7 @@
 // systematized.
 
 #define _FILE_OFFSET_BITS 64
+#define __USE_MINGW_ANSI_STDIO 1
 
 #include <assert.h>
 #ifndef __STDC_FORMAT_MACROS
@@ -578,16 +579,9 @@ extern const char kErrprintfDecompress[];
 #  endif
 #endif
 
-#ifdef _WIN32
-#  undef PRId64
-#  undef PRIu64
-#  define PRId64 "I64d"
-#  define PRIu64 "I64u"
-#else
-#  ifdef __cplusplus
-#    ifndef PRId64
-#      define PRId64 "lld"
-#    endif
+#ifdef __cplusplus
+#  ifndef PRId64
+#    define PRId64 "lld"
 #  endif
 #endif
 
@@ -654,26 +648,13 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 #endif
 
 #ifdef __LP64__
-#  ifdef _WIN32 // i.e. Win64
-
-#    undef PRIuPTR
-#    undef PRIdPTR
-#    define PRIuPTR PRIu64
-#    define PRIdPTR PRId64
-#    define PRIxPTR2 "016I64x"
-
-#  else  // not _WIN32
-
-#    ifndef PRIuPTR
-#      define PRIuPTR "lu"
-#    endif
-#    ifndef PRIdPTR
-#      define PRIdPTR "ld"
-#    endif
-#    define PRIxPTR2 "016lx"
-
-#  endif  // Win64
-
+#  ifndef PRIuPTR
+#    define PRIuPTR "lu"
+#  endif
+#  ifndef PRIdPTR
+#    define PRIdPTR "ld"
+#  endif
+#  define PRIxPTR2 "016lx"
 #else  // not __LP64__
 
   // without this, we get ridiculous warning spew...
@@ -684,6 +665,15 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 #    undef PRIdPTR
 #    define PRIuPTR "lu"
 #    define PRIdPTR "ld"
+#  endif
+
+#  ifdef _WIN32
+#    ifndef PRIuPTR
+#      define PRIuPTR "u"
+#    endif
+#    ifndef PRIdPTR
+#      define PRIdPTR "d"
+#    endif
 #  endif
 
 #  define PRIxPTR2 "08lx"
