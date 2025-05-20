@@ -105,11 +105,6 @@
 #  include <pthread.h>  // IWYU pragma: export
   #define THREAD_RET_TYPE void*
   #define THREAD_RETURN return nullptr
-  #ifdef __cplusplus
-    #ifndef PRId64
-      #define PRId64 "lld"
-    #endif
-  #endif
   #define EOLN_STR "\n"
   #define FOPEN_RB "r"
   #define FOPEN_WB "w"
@@ -122,6 +117,12 @@
       #define uint64_t unsigned long long
       #define int64_t long long
     #endif
+  #endif
+#endif
+
+#ifdef __cplusplus
+  #ifndef PRId64
+    #define PRId64 "lld"
   #endif
 #endif
 
