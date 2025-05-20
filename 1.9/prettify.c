@@ -151,7 +151,7 @@ int32_t scan_column_widths(FILE* infile, uintptr_t column_sep, uintptr_t** col_w
   uintptr_t cur_col_idx = 0;
 
   uintptr_t cur_col_width = 0;
-  uintptr_t line_idx = 1;
+  // uintptr_t line_idx = 1;
   int32_t retval = 0;
   unsigned char* readptr;
   unsigned char* line_end;
@@ -211,7 +211,7 @@ int32_t scan_column_widths(FILE* infile, uintptr_t column_sep, uintptr_t** col_w
 	break;
       }
       readptr = &(line_end[1]);
-      line_idx++;
+      // line_idx++;
       cur_col_idx = 0;
       cur_col_width = 0;
       continue;

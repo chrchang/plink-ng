@@ -7,8 +7,9 @@ SYS = MAC
 include ../Makefile.src
 # Allow these to be overridden by make arguments or env variables, so people
 # don't have to edit the Makefile to build in a different environment.
+CC ?=		gcc
 CXX ?=		g++
-CXXFLAGS ?=	-Wall -O2 -g -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
+CXXFLAGS ?=	-Wall -O2 -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
 AMDFLAGS ?=     --target=x86_64-apple-macosx10.9
 ARMFLAGS ?=     --target=arm64-apple-macos11
 
@@ -35,7 +36,7 @@ CCSRC2 = $(foreach fname,$(CCSRC),../$(fname))
 
 CCOBJ = $(CCSRC:.cc=.o)
 
-all: plink
+all: plink prettify
 
 plink_amd64: $(CCSRC2)
 	$(CXX) $(CXXFLAGS) $(AMDFLAGS) $(CCSRC2) -o plink_amd64 $(BLASFLAGS) $(LDFLAGS) $(ZLIB_AMD)
@@ -46,5 +47,14 @@ plink_arm64: $(CCSRC2)
 plink: plink_amd64 plink_arm64
 	lipo -create -output plink plink_amd64 plink_arm64
 
+prettify_amd64: ../prettify.c
+	$(CC) -Wall -O2 $(AMDFLAGS) ../prettify.c -o prettify_amd64
+
+prettify_arm64: ../prettify.c
+	$(CC) -Wall -O2 $(ARMFLAGS) ../prettify.c -o prettify_arm64
+
+prettify: prettify_amd64 prettify_arm64
+	lipo -create -output prettify prettify_amd64 prettify_arm64
+
 clean:
-	rm -f plink plink_amd64 plink_arm64
+	rm -f plink plink_amd64 plink_arm64 prettify prettify_amd64 prettify_arm64
