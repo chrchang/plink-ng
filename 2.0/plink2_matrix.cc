@@ -304,7 +304,7 @@ extern "C" {
 #    define dgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1, 1)
 #    define dgemv_wrap(a, b, c, d, e, f, g, h, i, j, k) dgemv_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), 1)
 #    define dgesvd_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n) dgesvd_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), (n), 1, 1)
-#    define dlange_wrap(a, b, c, d, e, f) dlange_((a), (b), (c), (d), (e), f, 1)
+#    define dlange_wrap(a, b, c, d, e, f) dlange_((a), (b), (c), (d), (e), (f), 1)
 #    define dlansy_wrap(a, b, c, d, e, f) dlansy_((a), (b), (c), (d), (e), (f), 1, 1)
 #    define dpocon_wrap(a, b, c, d, e, f, g, h, i) dpocon_((a), (b), (c), (d), (e), (f), (g), (h), (i), 1)
 #    define dpotrf_wrap(a, b, c, d, e) dpotrf_((a), (b), (c), (d), (e), 1)
