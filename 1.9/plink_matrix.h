@@ -296,20 +296,20 @@ extern "C" {
 #  ifdef LAPACK_FORTRAN_STRLEN_END
 #    define dgecon_wrap(a, b, c, d, e, f, g, h, i) dgecon_((a), (b), (c), (d), (e), (f), (g), (h), (i), 1)
 #    define dgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1, 1)
-#    define dgesdd_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1)
+#    define dgesdd_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n) dgesdd_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1)
 #    define dlange_wrap(a, b, c, d, e, f) dlange_((a), (b), (c), (d), (e), f, 1)
 #    define dsyevr_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u) dsyevr_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), (n), (o), (p), (q), (r), (s), (t), (u), 1, 1, 1)
-#    define dsymv_wrap(a, b, c, d, e, f, g, h, i, j) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), 1)
+#    define dsymv_wrap(a, b, c, d, e, f, g, h, i, j) dsymv_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), 1)
 #    define sgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) sgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1, 1)
 
 #  else
 
 #    define dgecon_wrap(a, b, c, d, e, f, g, h, i) dgecon_((a), (b), (c), (d), (e), (f), (g), (h), (i))
 #    define dgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m))
-#    define dgesdd_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1)
+#    define dgesdd_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n) dgesdd_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1)
 #    define dlange_wrap(a, b, c, d, e, f) dlange_((a), (b), (c), (d), (e), (f))
 #    define dsyevr_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u) dsyevr_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), (n), (o), (p), (q), (r), (s), (t), (u))
-#    define dsymv_wrap(a, b, c, d, e, f, g, h, i, j) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j))
+#    define dsymv_wrap(a, b, c, d, e, f, g, h, i, j) dsymv_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j))
 #    define sgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) sgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m))
 #  endif
 
