@@ -3079,13 +3079,13 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   // fill_int_zero(8 * mdim, iwork);
 
   // workspace query
-  dgesdd_(&jobz, &mdim, &mdim, main_matrix, &mdim, sqrt_eigvals, out_u, &mdim, out_v, &mdim, &optim_lwork, &lwork, iwork, &info);
+  dgesdd_wrap(&jobz, &mdim, &mdim, main_matrix, &mdim, sqrt_eigvals, out_u, &mdim, out_v, &mdim, &optim_lwork, &lwork, iwork, &info);
   lwork = (int32_t)optim_lwork;
   if (bigstack_alloc_d(lwork, &work)) {
     goto mds_plot_ret_NOMEM;
   }
   // fill_double_zero(lwork, work);
-  dgesdd_(&jobz, &mdim, &mdim, main_matrix, &mdim, sqrt_eigvals, out_u, &mdim, out_v, &mdim, work, &lwork, iwork, &info);
+  dgesdd_wrap(&jobz, &mdim, &mdim, main_matrix, &mdim, sqrt_eigvals, out_u, &mdim, out_v, &mdim, work, &lwork, iwork, &info);
 
   // * sqrt_eigvals[0..(ulii-1)] contains singular values
   // * out_u[(ii*ulii)..(ii*ulii + ulii - 1)] are eigenvectors corresponding to
@@ -3382,7 +3382,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   fill_int_zero(2 * dim_ct * (sizeof(__CLPK_integer) / sizeof(int32_t)), (int32_t*)isuppz);
   ldz = mdim;
 
-  dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
+  dsyevr_wrap(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
   lwork = (int32_t)optim_lwork;
   if (bigstack_calloc_d(lwork, &work)) {
     goto mds_plot_eigendecomp_ret_NOMEM;
@@ -3393,7 +3393,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
     goto mds_plot_eigendecomp_ret_NOMEM;
   }
   fill_int_zero(liwork * (sizeof(__CLPK_integer) / sizeof(int32_t)), (int32_t*)iwork);
-  dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
+  dsyevr_wrap(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
 
   // * out_w[0..(dim_ct-1)] contains eigenvalues
   // * out_z[(ii*ulii)..(ii*ulii + ulii - 1)] is eigenvector corresponding to

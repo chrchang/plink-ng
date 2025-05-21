@@ -57,11 +57,9 @@ extern "C" {
   // openblas is easy enough to set up on Windows nowadays.
   // not worth the trouble of ripping out vector extensions, etc. just so we
   // can compile with Visual Studio and gain access to MKL.
-  // (todo: upgrade from 0.2.19 to a later version, build setup will probably
-  // need to change a bit)
-#     define HAVE_LAPACK_CONFIG_H
-#     define LAPACK_COMPLEX_STRUCTURE
-#     include "lapacke.h"  // IWYU pragma: export
+#      define HAVE_LAPACK_CONFIG_H
+#      define LAPACK_COMPLEX_STRUCTURE
+#      include "lapacke.h"  // IWYU pragma: export
 
   __CLPK_doublereal ddot_(__CLPK_integer* n, __CLPK_doublereal* dx,
                           __CLPK_integer* incx, __CLPK_doublereal* dy,
@@ -70,22 +68,45 @@ extern "C" {
   void dger_(int* m, int* n, double* alpha, double* x, int* incx, double* y,
              int* incy, double* a, int* lda);
 
+  // LAPACK 3.9.1 changed function signatures for functions taking char*
+  // parameters; previous signatures actually corresponded to undefined
+  // behavior which manifested in real problems with gfortran 7-9.
+#      ifdef LAPACK_FORTRAN_STRLEN_END
+  void dgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_integer* k, double* alpha, double* a, __CLPK_integer* lda,
+              double* b, __CLPK_integer* ldb, double* beta, double* c,
+              __CLPK_integer* ldc, size_t slen1, size_t slen2);
+#      else
   void dgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
               __CLPK_integer* k, double* alpha, double* a, __CLPK_integer* lda,
               double* b, __CLPK_integer* ldb, double* beta, double* c,
               __CLPK_integer* ldc);
+#      endif
 
+#      ifdef LAPACK_FORTRAN_STRLEN_END
+  void dsymv_(char* uplo, int* n, double* alpha, double* a, int* lda,
+              double* x, int* incx, double* beta, double* y, int* incy,
+              size_t slen1);
+#      else
   void dsymv_(char* uplo, int* n, double* alpha, double* a, int* lda,
               double* x, int* incx, double* beta, double* y, int* incy);
+#      endif
 
   void dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
                __CLPK_doublereal* a, __CLPK_integer* lda,
                __CLPK_integer* ipiv, __CLPK_integer* info);
 
+#      ifdef LAPACK_FORTRAN_STRLEN_END
+  void sgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_integer* k, float* alpha, float* a, __CLPK_integer* lda,
+              float* b, __CLPK_integer* ldb, float* beta, float* c,
+              __CLPK_integer* ldc, size_t slen1, size_t slen2);
+#      else
   void sgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
               __CLPK_integer* k, float* alpha, float* a, __CLPK_integer* lda,
               float* b, __CLPK_integer* ldb, float* beta, float* c,
               __CLPK_integer* ldc);
+#      endif
 
 #    else  // Linux
 #      ifdef USE_MKL
@@ -116,6 +137,9 @@ extern "C" {
   // So.  Default include is cblas.h.  To play well with cmake + Ubuntu 14 and
   // 16 simultaneously, there is a CBLAS_F77_ON_OLD_GCC mode which picks
   // cblas_f77.h on Ubuntu 14 and cblas.h on 16.
+  // (...er, don't really need to keep this in 2025, but I guess I won't
+  // actually delete it unless it gets in the way of something else I want to
+  // do.)
 #          ifdef FORCE_CBLAS_F77
 #            include <cblas_f77.h>  // IWYU pragma: export
 #          elif !defined(CBLAS_F77_ON_OLD_GCC)
@@ -145,21 +169,53 @@ extern "C" {
               __CLPK_doublereal* work, __CLPK_integer* lwork,
               __CLPK_integer* info);
 
+#        ifdef LAPACK_FORTRAN_STRLEN_END
+  double dlange_(char* norm, __CLPK_integer* m, __CLPK_integer* n,
+                 __CLPK_doublereal* a, __CLPK_integer* lda,
+                 __CLPK_doublereal* work, size_t slen1);
+#        else
   double dlange_(char* norm, __CLPK_integer* m, __CLPK_integer* n,
                  __CLPK_doublereal* a, __CLPK_integer* lda,
                  __CLPK_doublereal* work);
+#        endif
 
+#        ifdef LAPACK_FORTRAN_STRLEN_END
+  int dgecon_(char* norm, __CLPK_integer* n, __CLPK_doublereal* a,
+              __CLPK_integer* lda, __CLPK_doublereal* anorm,
+              __CLPK_doublereal* rcond, __CLPK_doublereal* work,
+              __CLPK_integer* iwork, __CLPK_integer* info, size_t slen1);
+#        else
   int dgecon_(char* norm, __CLPK_integer* n, __CLPK_doublereal* a,
               __CLPK_integer* lda, __CLPK_doublereal* anorm,
               __CLPK_doublereal* rcond, __CLPK_doublereal* work,
               __CLPK_integer* iwork, __CLPK_integer* info);
+#        endif
 
+#        ifdef LAPACK_FORTRAN_STRLEN_END
+  void dgels_(char* trans, __CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_integer* nrhs, __CLPK_doublereal* a, __CLPK_integer* lda,
+              __CLPK_doublereal* b, __CLPK_integer* ldb,
+              __CLPK_doublereal* work, __CLPK_integer* lwork,
+              __CLPK_integer* info, size_t slen1);
+#        else
   void dgels_(char* trans, __CLPK_integer* m, __CLPK_integer* n,
               __CLPK_integer* nrhs, __CLPK_doublereal* a, __CLPK_integer* lda,
               __CLPK_doublereal* b, __CLPK_integer* ldb,
               __CLPK_doublereal* work, __CLPK_integer* lwork,
               __CLPK_integer* info);
+#        endif
 
+#        ifdef LAPACK_FORTRAN_STRLEN_END
+  int dsyevr_(char* jobz, char* range, char* uplo, __CLPK_integer* n,
+              __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* vl,
+              __CLPK_doublereal* vu, __CLPK_integer* il, __CLPK_integer* iu,
+              __CLPK_doublereal* abstol, __CLPK_integer* m,
+              __CLPK_doublereal* w, __CLPK_doublereal* z, __CLPK_integer* ldz,
+              __CLPK_integer* isuppz, __CLPK_doublereal* work,
+              __CLPK_integer* lwork, __CLPK_integer* iwork,
+              __CLPK_integer* liwork, __CLPK_integer* info, size_t slen1,
+              size_t slen2, size_t slen3);
+#        else
   int dsyevr_(char* jobz, char* range, char* uplo, __CLPK_integer* n,
               __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* vl,
               __CLPK_doublereal* vu, __CLPK_integer* il, __CLPK_integer* iu,
@@ -168,27 +224,57 @@ extern "C" {
               __CLPK_integer* isuppz, __CLPK_doublereal* work,
               __CLPK_integer* lwork, __CLPK_integer* iwork,
               __CLPK_integer* liwork, __CLPK_integer* info);
+#        endif
 
+#        ifdef LAPACK_FORTRAN_STRLEN_END
+  void dgesdd_(char* jobs, __CLPK_integer* m, __CLPK_integer* n,
+               __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* s,
+               __CLPK_doublereal* u, __CLPK_integer* ldu,
+               __CLPK_doublereal* vt, __CLPK_integer* ldvt,
+               __CLPK_doublereal* work, __CLPK_integer* lwork,
+               __CLPK_integer* iwork, __CLPK_integer* info, size_t slen1);
+#        else
   void dgesdd_(char* jobs, __CLPK_integer* m, __CLPK_integer* n,
                __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* s,
                __CLPK_doublereal* u, __CLPK_integer* ldu,
                __CLPK_doublereal* vt, __CLPK_integer* ldvt,
                __CLPK_doublereal* work, __CLPK_integer* lwork,
                __CLPK_integer* iwork, __CLPK_integer* info);
+#        endif
 
 #        ifndef USE_CBLAS_XGEMM
+#          ifdef LAPACK_FORTRAN_STRLEN_END
+  void dgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_integer* k, double* alpha, double* a, __CLPK_integer* lda,
+              double* b, __CLPK_integer* ldb, double* beta, double* c,
+              __CLPK_integer* ldc, size_t slen1, size_t slen2);
+#          else
   void dgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
               __CLPK_integer* k, double* alpha, double* a, __CLPK_integer* lda,
               double* b, __CLPK_integer* ldb, double* beta, double* c,
               __CLPK_integer* ldc);
+#          endif
 
+#          ifdef LAPACK_FORTRAN_STRLEN_END
+  void dsymv_(char* uplo, int* n, double* alpha, double* a, int* lda,
+              double* x, int* incx, double* beta, double* y, int* incy,
+              size_t slen1);
+#          else
   void dsymv_(char* uplo, int* n, double* alpha, double* a, int* lda,
               double* x, int* incx, double* beta, double* y, int* incy);
+#          endif
 
+#          ifdef LAPACK_FORTRAN_STRLEN_END
+  void sgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_integer* k, float* alpha, float* a, __CLPK_integer* lda,
+              float* b, __CLPK_integer* ldb, float* beta, float* c,
+              __CLPK_integer* ldc, size_t slen1, size_t slen2);
+#          else
   void sgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
               __CLPK_integer* k, float* alpha, float* a, __CLPK_integer* lda,
               float* b, __CLPK_integer* ldb, float* beta, float* c,
               __CLPK_integer* ldc);
+#          endif
 #        endif
 
 #      endif  // !USE_MKL
@@ -206,6 +292,26 @@ extern "C" {
 #  define MATRIX_INVERT_BUF1_ELEM_ALLOC sizeof(__CLPK_integer)
 // invert_matrix_checked() usually requires a larger buffer
 #  define MATRIX_INVERT_BUF1_CHECKED_ALLOC (2 * sizeof(__CLPK_integer))
+
+#  ifdef LAPACK_FORTRAN_STRLEN_END
+#    define dgecon_wrap(a, b, c, d, e, f, g, h, i) dgecon_((a), (b), (c), (d), (e), (f), (g), (h), (i), 1)
+#    define dgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1, 1)
+#    define dgesdd_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1)
+#    define dlange_wrap(a, b, c, d, e, f) dlange_((a), (b), (c), (d), (e), f, 1)
+#    define dsyevr_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u) dsyevr_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), (n), (o), (p), (q), (r), (s), (t), (u), 1, 1, 1)
+#    define dsymv_wrap(a, b, c, d, e, f, g, h, i, j) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), 1)
+#    define sgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) sgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1, 1)
+
+#  else
+
+#    define dgecon_wrap(a, b, c, d, e, f, g, h, i) dgecon_((a), (b), (c), (d), (e), (f), (g), (h), (i))
+#    define dgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m))
+#    define dgesdd_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1)
+#    define dlange_wrap(a, b, c, d, e, f) dlange_((a), (b), (c), (d), (e), (f))
+#    define dsyevr_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u) dsyevr_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), (n), (o), (p), (q), (r), (s), (t), (u))
+#    define dsymv_wrap(a, b, c, d, e, f, g, h, i, j) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j))
+#    define sgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) sgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m))
+#  endif
 
 #endif  // !NOLAPACK
 

@@ -309,14 +309,14 @@ int32_t invert_matrix_checked(__CLPK_integer dim, double* matrix, MATRIX_INVERT_
   // the first row/column causing multicollinearity" logic to the caller.
   __CLPK_integer lwork = dim * dim;
   char cc = '1';
-  double norm = dlange_(&cc, &dim, &dim, matrix, &dim, dbl_2d_buf);
+  double norm = dlange_wrap(&cc, &dim, &dim, matrix, &dim, dbl_2d_buf);
   __CLPK_integer info;
   double rcond;
   dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
   if (info > 0) {
     return 1;
   }
-  dgecon_(&cc, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, &(int_1d_buf[dim]), &info);
+  dgecon_wrap(&cc, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, &(int_1d_buf[dim]), &info);
   if (rcond < MATRIX_SINGULAR_RCOND) {
     return 1;
   }
@@ -351,7 +351,7 @@ void col_major_matrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, _
   char blas_char = 'N';
   double dyy = 1;
   double dzz = 0;
-  dgemm_(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &dyy, inmatrix1, &row1_ct, inmatrix2, &common_ct, &dzz, outmatrix, &row1_ct);
+  dgemm_wrap(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &dyy, inmatrix1, &row1_ct, inmatrix2, &common_ct, &dzz, outmatrix, &row1_ct);
 #  else
   cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
 #  endif  // USE_CBLAS_XGEMM
@@ -384,7 +384,7 @@ void col_major_fmatrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, 
   char blas_char = 'N';
   float fyy = 1;
   float fzz = 0;
-  sgemm_(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &fyy, inmatrix1, &row1_ct, inmatrix2, &common_ct, &fzz, outmatrix, &row1_ct);
+  sgemm_wrap(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &fyy, inmatrix1, &row1_ct, inmatrix2, &common_ct, &fzz, outmatrix, &row1_ct);
 #  else
   cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
 #  endif  // USE_CBLAS_XGEMM
