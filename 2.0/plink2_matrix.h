@@ -104,8 +104,16 @@ static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
 
 #        ifdef USE_CBLAS_XGEMM
 #          include <cblas.h>
+// LAPACK 3.9.1 changed function signatures for functions taking char*
+// parameters; previous signatures actually corresponded to undefined behavior
+// which manifested in real problems with gfortran 7-9.
+#          ifdef LAPACK_FORTRAN_STRLEN_END
+  int dpotri_(char* uplo, __CLPK_integer* n, __CLPK_doublereal* a,
+              __CLPK_integer* lda, __CLPK_integer* info, size_t slen1);
+#          else
   int dpotri_(char* uplo, __CLPK_integer* n, __CLPK_doublereal* a,
               __CLPK_integer* lda, __CLPK_integer* info);
+#          endif
 #        else
           // ARGH
           // cmake on Ubuntu 14 seems to require use of cblas_f77.h instead of
@@ -151,6 +159,12 @@ static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
 #    endif
 
 #  endif  // !__APPLE__
+
+#  ifdef LAPACK_FORTRAN_STRLEN_END
+#    define dpotri_wrap(a, b, c, d, e) dpotri_((a), (b), (c), (d), (e), 1)
+#  else
+#    define dpotri_wrap(a, b, c, d, e) dpotri_((a), (b), (c), (d), (e))
+#  endif
 
 typedef __CLPK_integer MatrixInvertBuf1;
 // need to be careful about >= 2^32?
@@ -437,7 +451,7 @@ HEADER_INLINE double HalfSymmInvertedDet(__maybe_unused const double* half_inver
 HEADER_INLINE void InvertSymmdefMatrixSecondHalf(__CLPK_integer dim, __CLPK_integer stride, double* matrix, __maybe_unused MatrixInvertBuf1* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
   char uplo = 'U';
   __CLPK_integer info;
-  dpotri_(&uplo, &dim, matrix, &stride, &info);
+  dpotri_wrap(&uplo, &dim, matrix, &stride, &info);
 }
 
 void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf);
