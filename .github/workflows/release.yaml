@@ -30,7 +30,7 @@ jobs:
           platforms: all
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2
+        uses: pypa/cibuildwheel@v2.23
         with:
           package-dir: ./2.0/Python
         env:
