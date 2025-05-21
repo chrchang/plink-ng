@@ -10,6 +10,7 @@ jobs:
   wheel:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-13, macos-latest]
         python-version: [9, 10, 11, 12, 13]
@@ -44,7 +45,7 @@ jobs:
         working-directory: ./2.0/Python
         if: matrix.python-version <= 9 && matrix.os != 'macos-latest'
         run: |
-          pip install --force-reinstall --no-cache-dir 'numpy==2.0.0'
+          pip install --force-reinstall --no-cache-dir 'numpy==1.19.3'
           pytest tests/
 
       - name: Test against newest numpy version
@@ -59,6 +60,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
+        # The minimum and maximum supported versions of python that are not
+        # "end-of-life," "prerelease," or "feature": https://devguide.python.org/versions
         python-version: [9, 13]
 
     steps:
