@@ -92,10 +92,6 @@ extern "C" {
               double* x, int* incx, double* beta, double* y, int* incy);
 #      endif
 
-  void dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
-               __CLPK_doublereal* a, __CLPK_integer* lda,
-               __CLPK_integer* ipiv, __CLPK_integer* info);
-
 #      ifdef LAPACK_FORTRAN_STRLEN_END
   void sgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
               __CLPK_integer* k, float* alpha, float* a, __CLPK_integer* lda,
