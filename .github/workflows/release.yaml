@@ -82,7 +82,7 @@ jobs:
         with:
           name: sdist
           path: ./2.0/Python/dist/pgenlib-*.tar.gz
-      
+
       - name: Install and test
         working-directory: ./2.0/Python
         run: |
@@ -106,6 +106,7 @@ jobs:
 
       - name: Publish distribution to Test PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        if: github.ref != 'refs/heads/master'
         with:
           repository-url: https://test.pypi.org/legacy/
 
