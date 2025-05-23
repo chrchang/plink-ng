@@ -5673,6 +5673,11 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
   PreinitThreads(&tg);
   MakeBedlikeCtx ctx;
   {
+    if (g_debug_on) {
+      if (unlikely(PglInitLog(262144))) {
+        goto MakeBedlikeMain_ret_NOMEM;
+      }
+    }
     assert(variant_ct);
     const uint32_t sample_ct = mcp->sample_ct;
     assert(sample_ct);
@@ -5815,7 +5820,14 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
     for (uint32_t variant_idx = 0; ; ) {
       const uint32_t cur_block_write_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
       if (unlikely(reterr)) {
+        if (g_debug_on) {
+          logerrputs(PglReturnLog());
+        }
         goto MakeBedlikeMain_ret_PGR_FAIL;
+      }
+      if (g_debug_on) {
+        const uint64_t mem_available_kib = GetMemAvailableKib(kTextbufSize, g_textbuf);
+        logprintf("variant_idx=%u  mem_available_kib=%" PRIu64"\n", mem_available_kib);
       }
       if (variant_idx) {
         JoinThreads(&tg);

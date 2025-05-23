@@ -2023,10 +2023,12 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
       return kPglRetReadFail;
     }
     uintptr_t len = cur_read_end_fpos - cur_read_start_fpos;
+    PglLogprintf("fread_checked: block_offset=%" PRIu64 ", cur_read_start_fpos=%" PRIu64 ", len=%" PRIuPTR "\n", block_offset, cur_read_start_fpos, len);
     if (unlikely(fread_checked(K_CAST(unsigned char*, &(pgfip->block_base[cur_read_start_fpos - block_offset])), len, pgfip->shared_ff))) {
       if (feof_unlocked(pgfip->shared_ff)) {
         errno = 0;
       }
+      PglLogprintf("operation failed\n");
       return kPglRetReadFail;
     }
   } while (load_variant_ct);
