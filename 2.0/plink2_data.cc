@@ -5826,6 +5826,8 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
         goto MakeBedlikeMain_ret_PGR_FAIL;
       }
       if (g_debug_on) {
+        logerrputs(PglReturnLog());
+        PglResetLog();
         const uint64_t mem_available_kib = GetMemAvailableKib(kTextbufSize, g_textbuf);
         logprintf("variant_idx=%u  mem_available_kib=%" PRIu64"\n", mem_available_kib);
       }
