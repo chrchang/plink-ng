@@ -4989,7 +4989,6 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
   if (pct > 10) {
     putc_unlocked('\b', stdout);
   }
-  DPrintf("\ncompleted ComputeHweXLnPvalsMain\n");
 }
 
 THREAD_FUNC_DECL ComputeHweXLnPvalsThread(void* raw_arg) {
@@ -5007,7 +5006,6 @@ PglErr ComputeHweXLnPvals(const uintptr_t* variant_include, const uintptr_t* all
   ComputeHweXLnPvalsCtx ctx;
   {
     assert(hwe_x_ct);
-    DPrintf("Allocating space for %u (hwe_x_ct=%u, x_xallele_ct=%u) chrX p-values.\n", hwe_x_ct + x_xallele_ct, hwe_x_ct, x_xallele_ct);
     if (unlikely(bigstack_alloc_d(hwe_x_ct + x_xallele_ct, hwe_x_ln_pvals_ptr))) {
       goto ComputeHweXLnPvals_ret_NOMEM;
     }
