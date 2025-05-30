@@ -4942,6 +4942,9 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
     uint32_t female_2copy_ct = cur_raw_geno_cts[0];
     uint32_t female_1copy_ct = cur_raw_geno_cts[1];
     uint32_t female_0copy_ct = cur_raw_geno_cts[2];
+    if (debug_print) {
+      logprintf("cur_raw_geno_cts: %u %u %u\n", cur_raw_geno_cts[0], cur_raw_geno_cts[1], cur_raw_geno_cts[2]);
+    }
     if (founder_x_male_geno_cts) {
       STD_ARRAY_KREF(uint32_t, 3) cur_male_geno_cts = founder_x_male_geno_cts[variant_uidx - x_start];
       male_1copy_ct = cur_male_geno_cts[0];
@@ -4950,12 +4953,18 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
       female_1copy_ct -= male_hethap_ct;
       male_0copy_ct = cur_male_geno_cts[2];
       female_0copy_ct -= male_0copy_ct;
+      if (debug_print) {
+        logprintf("cur_male_geno_cts: %u %u %u\n", cur_male_geno_cts[0], cur_male_geno_cts[1], cur_male_geno_cts[2]);
+      }
     }
     if (founder_x_nosex_geno_cts) {
       STD_ARRAY_KREF(uint32_t, 3) cur_nosex_geno_cts = founder_x_nosex_geno_cts[variant_uidx - x_start];
       female_2copy_ct -= cur_nosex_geno_cts[0];
       female_1copy_ct -= cur_nosex_geno_cts[1];
       female_0copy_ct -= cur_nosex_geno_cts[2];
+      if (debug_print) {
+        logprintf("cur_nosex_geno_cts: %u %u %u\n", cur_nosex_geno_cts[0], cur_nosex_geno_cts[1], cur_nosex_geno_cts[2]);
+      }
     }
     if (debug_print) {
       logprintf("female_1copy_ct=%u  female_2copy_ct=%u  female_0copy_ct=%u  male_1copy_ct=%u  male_0copy_ct=%u  hwe_midp=%u\n", female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
@@ -4965,9 +4974,6 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
       logprintf("log-pval=%g\n", hwe_x_ln_pvals_iter[-1]);
     }
     if (allele_idx_offsets) {
-      if (debug_print) {
-        logprintf("entering allele_idx_offsets branch, not expected...\n");
-      }
       const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
       if (allele_ct != 2) {
         const uint32_t female_obs_ct = female_2copy_ct + female_1copy_ct + female_0copy_ct;

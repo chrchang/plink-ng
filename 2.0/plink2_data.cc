@@ -2612,7 +2612,14 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             } else {
               GenoarrCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
             }
+            const uint32_t debug_print = g_debug_on && (variant_uidx == 378664);
+            if (debug_print) {
+              logprintf("\ngenocounts[378664]: %u %u %u %u; sample_ct=%u, raw_sample_ct=%u\n", genocounts[0], genocounts[1], genocounts[2], genocounts[3], sample_ct, raw_sample_ct);
+            }
             GenoarrCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, sex_specific_genocounts);
+            if (debug_print) {
+              logprintf("sex_specific_genocounts[378664]: %u %u %u %u; male_ct=%u\n", sex_specific_genocounts[0], sex_specific_genocounts[1], sex_specific_genocounts[2], sex_specific_genocounts[3], male_ct);
+            }
             hethap_ct = sex_specific_genocounts[1];
             // Could compute imputation r2 iff there are no unknown-sex
             // samples, but probably not worth it since larger datasets could
@@ -2621,6 +2628,9 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             // let's delegate that chrX filter to other software for now.
 
             if (allele_presents_bytearr) {
+              if (debug_print) {
+                logprintf("entering allele_presents_bytearr branch\n");
+              }
               if (pgv.dosage_ct && ((sample_ct == raw_sample_ct) || (!IntersectionIsEmpty(sample_include, pgv.dosage_present, raw_sample_ctl)))) {
                 // at least one dosage value is present, that's all we need to
                 // know
@@ -2637,6 +2647,9 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               }
             }
             if (allele_ddosages) {
+              if (debug_print) {
+                logprintf("entering allele_ddosages branch\n");
+              }
               uintptr_t alt1_ct = 4 * genocounts[2] + 2 * genocounts[1] - 2 * sex_specific_genocounts[2] - hethap_ct;  // nonmales count twice
               uint64_t alt1_ddosage = 0;  // in 32768ths, nonmales count twice
               uint32_t additional_dosage_ct = 0;  // missing hardcalls only; nonmales count twice
@@ -2695,6 +2708,9 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               cur_x_male_geno_cts[2] = sex_specific_genocounts[2];
               if (x_nosex_geno_cts) {
                 GenoarrCountSubsetFreqs(pgv.genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
+                if (debug_print) {
+                  logprintf("nosex_geno_cts[378664]: %u %u %u %u; nosex_ct=%u\n", sex_specific_genocounts[0], sex_specific_genocounts[1], sex_specific_genocounts[2], sex_specific_genocounts[3], nosex_ct);
+                }
                 STD_ARRAY_REF(uint32_t, 3) cur_nosex_geno_cts = x_nosex_geno_cts[variant_uidx - x_start];
                 cur_nosex_geno_cts[0] = sex_specific_genocounts[0];
                 cur_nosex_geno_cts[1] = sex_specific_genocounts[1];
