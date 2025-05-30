@@ -1263,6 +1263,33 @@ void AlignedBitarrOrnotCopy(const uintptr_t* __restrict argyes_bitvec, const uin
   }
 }
 
+void BitvecXor3Copy(const uintptr_t* __restrict src_bitvec1, const uintptr_t* __restrict src_bitvec2, const uintptr_t* __restrict src_bitvec3, uintptr_t word_ct, uintptr_t* __restrict target_bitvec) {
+#ifdef __LP64__
+  VecW* target_bitvvec = R_CAST(VecW*, target_bitvec);
+  const VecW* src_bitvvec1 = R_CAST(const VecW*, src_bitvec1);
+  const VecW* src_bitvvec2 = R_CAST(const VecW*, src_bitvec2);
+  const VecW* src_bitvvec3 = R_CAST(const VecW*, src_bitvec3);
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  for (uintptr_t ulii = 0; ulii != full_vec_ct; ++ulii) {
+    target_bitvvec[ulii] = src_bitvvec1[ulii] ^ src_bitvvec2[ulii] ^ src_bitvvec3[ulii];
+  }
+#  ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    target_bitvec[base_idx] = src_bitvec1[base_idx] ^ src_bitvec2[base_idx] ^ src_bitvec3[base_idx];
+    target_bitvec[base_idx + 1] = src_bitvec1[base_idx] ^ src_bitvec2[base_idx] ^ src_bitvec3[base_idx];
+  }
+#  endif
+  if (word_ct & 1) {
+    target_bitvec[word_ct - 1] = src_bitvec1[word_ct - 1] ^ src_bitvec2[word_ct - 1] ^ src_bitvec3[word_ct - 1];
+  }
+#else
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+    target_bitvec[widx] = src_bitvec1[widx] ^ src_bitvec2[widx] ^ src_bitvec3[widx];
+  }
+#endif
+}
+
 int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* variant_ids, const uintptr_t* variant_include, uint32_t variant_ct) {
   const uint32_t id_blen = strlen(idstr) + 1;
   uintptr_t widx = ~k0LU;

@@ -1163,6 +1163,8 @@ void BitvecInvertAndMask(const uintptr_t* __restrict include_bitvec, uintptr_t w
 // as the size argument, and zeroes trailing bits.
 void AlignedBitarrOrnotCopy(const uintptr_t* __restrict argyes_bitvec, const uintptr_t* __restrict argno_bitvec, uintptr_t bit_ct, uintptr_t* __restrict target_bitvec);
 
+void BitvecXor3Copy(const uintptr_t* __restrict src_bitvec1, const uintptr_t* __restrict src_bitvec2, const uintptr_t* __restrict src_bitvec3, uintptr_t word_ct, uintptr_t* __restrict target_bitvec);
+
 // Address C-only incompatible-pointer-types-discards-qualifiers warning.
 #ifdef __cplusplus
 #  define TO_CONSTU32PCONSTP(u32_pp) (u32_pp)

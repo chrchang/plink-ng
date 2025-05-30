@@ -3756,7 +3756,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
         if (unlikely(bigstack_alloc_w(raw_sample_ctl, &nonfemale_tmp))) {
           goto WriteGenoCounts_ret_NOMEM;
         }
-        AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, nonfemale_tmp);
+        BitvecXor3Copy(sample_include, sex_male, sex_nm, raw_sample_ct, nonfemale_tmp);
         sex_nonfemale = nonfemale_tmp;
       }
       FillCumulativePopcounts(sex_nonfemale, raw_sample_ctl, sex_nonfemale_cumulative_popcounts);
@@ -4288,7 +4288,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       if (unlikely(bigstack_alloc_w(raw_sample_ctl, &nonfemale_tmp))) {
         goto WriteMissingnessReports_ret_NOMEM;
       }
-      AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, nonfemale_tmp);
+      BitvecXor3Copy(sample_include, sex_male, sex_nm, raw_sample_ctl, nonfemale_tmp);
       chry_missingstat_include = nonfemale_tmp;
     }
 
@@ -4934,17 +4934,10 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
   uint32_t male_0copy_ct = 0;
   for (; variant_idx != variant_idx_end; ++variant_idx) {
     const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-    const uint32_t debug_print = g_debug_on && (tidx == 0) && ((variant_idx == 4581) || (variant_idx == 4582) || (variant_idx + 2 >= variant_idx_end));
-    if (debug_print) {
-      logprintf("\nStarting (0-based, subsetted) variant %u; uidx=%u; next_print_variant_idx=%u\n", variant_idx, variant_uidx, next_print_variant_idx);
-    }
     STD_ARRAY_KREF(uint32_t, 3) cur_raw_geno_cts = founder_raw_geno_cts[variant_uidx];
     uint32_t female_2copy_ct = cur_raw_geno_cts[0];
     uint32_t female_1copy_ct = cur_raw_geno_cts[1];
     uint32_t female_0copy_ct = cur_raw_geno_cts[2];
-    if (debug_print) {
-      logprintf("cur_raw_geno_cts: %u %u %u\n", cur_raw_geno_cts[0], cur_raw_geno_cts[1], cur_raw_geno_cts[2]);
-    }
     if (founder_x_male_geno_cts) {
       STD_ARRAY_KREF(uint32_t, 3) cur_male_geno_cts = founder_x_male_geno_cts[variant_uidx - x_start];
       male_1copy_ct = cur_male_geno_cts[0];
@@ -4953,26 +4946,14 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
       female_1copy_ct -= male_hethap_ct;
       male_0copy_ct = cur_male_geno_cts[2];
       female_0copy_ct -= male_0copy_ct;
-      if (debug_print) {
-        logprintf("cur_male_geno_cts: %u %u %u\n", cur_male_geno_cts[0], cur_male_geno_cts[1], cur_male_geno_cts[2]);
-      }
     }
     if (founder_x_nosex_geno_cts) {
       STD_ARRAY_KREF(uint32_t, 3) cur_nosex_geno_cts = founder_x_nosex_geno_cts[variant_uidx - x_start];
       female_2copy_ct -= cur_nosex_geno_cts[0];
       female_1copy_ct -= cur_nosex_geno_cts[1];
       female_0copy_ct -= cur_nosex_geno_cts[2];
-      if (debug_print) {
-        logprintf("cur_nosex_geno_cts: %u %u %u\n", cur_nosex_geno_cts[0], cur_nosex_geno_cts[1], cur_nosex_geno_cts[2]);
-      }
-    }
-    if (debug_print) {
-      logprintf("female_1copy_ct=%u  female_2copy_ct=%u  female_0copy_ct=%u  male_1copy_ct=%u  male_0copy_ct=%u  hwe_midp=%u\n", female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
     }
     *hwe_x_ln_pvals_iter++ = HweXchrLnP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
-    if (debug_print) {
-      logprintf("log-pval=%g\n", hwe_x_ln_pvals_iter[-1]);
-    }
     if (allele_idx_offsets) {
       const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
       if (allele_ct != 2) {
@@ -10319,7 +10300,7 @@ PglErr CheckOrImputeSex(const uintptr_t* sample_include, const SampleIdInfo* sii
           ClearBitsNz(y_end, raw_variant_ct_rounded_up, variant_include_y);
         }
         logprintf("%s: ", flagstr);
-        reterr = LoadSampleMissingCts(sample_include, sample_include, variant_include_y, cip, "chrY valid genotype call", raw_variant_ct, used_variant_ct_y, raw_sample_ct, 0, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, sample_missing_hc_cts, nullptr, sample_hethap_cts);
+        reterr = LoadSampleMissingCts(sample_include, sample_include, sample_include, variant_include_y, cip, "chrY valid genotype call", raw_variant_ct, used_variant_ct_y, raw_sample_ct, 0, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, sample_missing_hc_cts, nullptr, sample_hethap_cts);
         if (unlikely(reterr)) {
           goto CheckOrImputeSex_ret_1;
         }

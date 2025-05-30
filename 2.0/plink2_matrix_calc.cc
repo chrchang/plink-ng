@@ -7394,7 +7394,10 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       BitvecInvmaskCopy(sex_nm, sex_male, raw_sample_ctl, sex_female_tmp);
       CopyBitarrSubset(sex_female_tmp, sample_include, sample_ct, sex_female_collapsed);
       // now invert to nonfemale
-      AlignedBitarrInvert(raw_sample_ct, sex_female_tmp);
+      BitvecInvert(raw_sample_ctl, sex_female_tmp);
+      // (not actually necessary here, but let's keep sex_nonfemale definition
+      // consistent since failure to do so has resulted in a bug)
+      BitvecAnd(sample_include, raw_sample_ctl, sex_female_tmp);
       sex_nonfemale = sex_female_tmp;
     }
     ctx.sex_female_collapsed = sex_nonmale_collapsed;

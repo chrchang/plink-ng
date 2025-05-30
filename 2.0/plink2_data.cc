@@ -2612,14 +2612,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             } else {
               GenoarrCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
             }
-            const uint32_t debug_print = g_debug_on && (variant_uidx == 378664);
-            if (debug_print) {
-              logprintf("\ngenocounts[378664]: %u %u %u %u; sample_ct=%u, raw_sample_ct=%u\n", genocounts[0], genocounts[1], genocounts[2], genocounts[3], sample_ct, raw_sample_ct);
-            }
             GenoarrCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, sex_specific_genocounts);
-            if (debug_print) {
-              logprintf("sex_specific_genocounts[378664]: %u %u %u %u; male_ct=%u\n", sex_specific_genocounts[0], sex_specific_genocounts[1], sex_specific_genocounts[2], sex_specific_genocounts[3], male_ct);
-            }
             hethap_ct = sex_specific_genocounts[1];
             // Could compute imputation r2 iff there are no unknown-sex
             // samples, but probably not worth it since larger datasets could
@@ -2628,9 +2621,6 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             // let's delegate that chrX filter to other software for now.
 
             if (allele_presents_bytearr) {
-              if (debug_print) {
-                logprintf("entering allele_presents_bytearr branch\n");
-              }
               if (pgv.dosage_ct && ((sample_ct == raw_sample_ct) || (!IntersectionIsEmpty(sample_include, pgv.dosage_present, raw_sample_ctl)))) {
                 // at least one dosage value is present, that's all we need to
                 // know
@@ -2647,9 +2637,6 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               }
             }
             if (allele_ddosages) {
-              if (debug_print) {
-                logprintf("entering allele_ddosages branch\n");
-              }
               uintptr_t alt1_ct = 4 * genocounts[2] + 2 * genocounts[1] - 2 * sex_specific_genocounts[2] - hethap_ct;  // nonmales count twice
               uint64_t alt1_ddosage = 0;  // in 32768ths, nonmales count twice
               uint32_t additional_dosage_ct = 0;  // missing hardcalls only; nonmales count twice
@@ -2708,9 +2695,6 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               cur_x_male_geno_cts[2] = sex_specific_genocounts[2];
               if (x_nosex_geno_cts) {
                 GenoarrCountSubsetFreqs(pgv.genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
-                if (debug_print) {
-                  logprintf("nosex_geno_cts[378664]: %u %u %u %u; nosex_ct=%u\n", sex_specific_genocounts[0], sex_specific_genocounts[1], sex_specific_genocounts[2], sex_specific_genocounts[3], nosex_ct);
-                }
                 STD_ARRAY_REF(uint32_t, 3) cur_nosex_geno_cts = x_nosex_geno_cts[variant_uidx - x_start];
                 cur_nosex_geno_cts[0] = sex_specific_genocounts[0];
                 cur_nosex_geno_cts[1] = sex_specific_genocounts[1];
@@ -3047,7 +3031,9 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
         goto LoadAlleleAndGenoCounts_ret_NOMEM;
       }
       if ((founder_ct == sample_ct) || (!only_founder_cts_required)) {
-        AlignedBitarrOrnotCopy(ctx.sex_male, sex_nm, raw_sample_ct, sex_nonfemale);
+        // bugfix (30 May 2025): sex_nonfemale initialization was incorrect
+        // when sample_ct != raw_sample_ct
+        BitvecXor3Copy(ctx.sample_include, ctx.sex_male, sex_nm, raw_sample_ctl, sex_nonfemale);
       } else {
         BitvecInvmaskCopy(founder_info, sex_nm, raw_sample_ctl, sex_nonfemale);
         BitvecOr(ctx.sex_male, raw_sample_ctl, sex_nonfemale);
@@ -9957,7 +9943,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr LoadSampleMissingCts(const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const char* calc_descrip_str, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t y_nosex_missing_stats, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_hc_cts, uint32_t* sample_missing_dosage_cts, uint32_t* sample_hethap_cts) {
+PglErr LoadSampleMissingCts(const uintptr_t* sample_include, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const char* calc_descrip_str, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t y_nosex_missing_stats, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_hc_cts, uint32_t* sample_missing_dosage_cts, uint32_t* sample_hethap_cts) {
   assert(sample_missing_hc_cts || sample_missing_dosage_cts);
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
@@ -9998,7 +9984,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_nm, const uintptr_t* sex_male, 
       if (unlikely(bigstack_alloc_w(raw_sample_ctl, &y_include))) {
         goto LoadSampleMissingCts_ret_NOMEM;
       }
-      AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, y_include);
+      BitvecXor3Copy(sample_include, sex_male, sex_nm, raw_sample_ctl, y_include);
       ctx.y_include = y_include;
     }
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);

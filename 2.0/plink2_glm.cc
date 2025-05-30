@@ -2074,7 +2074,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sex_nonfemale_tmp))) {
         goto GlmMain_ret_NOMEM;
       }
-      AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, sex_nonfemale_tmp);
+      BitvecXor3Copy(orig_sample_include, sex_male, sex_nm, raw_sample_ctl, sex_nonfemale_tmp);
       sex_nonfemale = sex_nonfemale_tmp;
       nonfemale_ct = PopcountWords(sex_nonfemale, raw_sample_ctl);
     }
@@ -2987,8 +2987,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         uint32_t biallelic_predictor_ct_y = 0;
         uint32_t y_samples_are_different = 0;
         if (cur_sample_include_y) {
-          BitvecAndCopy(orig_sample_include, sex_nonfemale, raw_sample_ctl, cur_sample_include_y);
-          BitvecAnd(cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_y);
+          BitvecAndCopy(cur_pheno_col->nonmiss, sex_nonfemale, raw_sample_ctl, cur_sample_include_y);
           uint16_t dummy = 0;
           if (unlikely(GlmDetermineCovars(nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_y_covar_ct, covar_max_nonnull_cat_ct, 0, 0, cur_sample_include_y, covar_include_y, &sample_ct_y, &covar_ct_y, &extra_cat_ct_y, &dummy))) {
             goto GlmMain_ret_NOMEM;
@@ -3552,8 +3551,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       uint32_t biallelic_predictor_ct_y = 0;
       uint32_t y_samples_are_different = 0;
       if (cur_sample_include_y) {
-        BitvecAndCopy(orig_sample_include, sex_nonfemale, raw_sample_ctl, cur_sample_include_y);
-        BitvecAnd(cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_y);
+        BitvecAndCopy(cur_pheno_col->nonmiss, sex_nonfemale, raw_sample_ctl, cur_sample_include_y);
         logistic_ctx.separation_found_y = 0;
         if (unlikely(GlmDetermineCovars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_y_covar_ct, covar_max_nonnull_cat_ct, is_sometimes_firth, is_always_firth, cur_sample_include_y, covar_include_y, &sample_ct_y, &covar_ct_y, &extra_cat_ct_y, &logistic_ctx.separation_found_y))) {
           goto GlmMain_ret_NOMEM;
