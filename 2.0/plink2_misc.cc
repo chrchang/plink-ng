@@ -4934,6 +4934,10 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
   uint32_t male_0copy_ct = 0;
   for (; variant_idx != variant_idx_end; ++variant_idx) {
     const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    const uint32_t debug_print = g_debug_on && (tidx == 0) && ((variant_idx == 4581) || (variant_idx == 4582) || (variant_idx + 2 >= variant_idx_end));
+    if (debug_print) {
+      logprintf("\nStarting (0-based, subsetted) variant %u; uidx=%u; next_print_variant_idx=%u\n", variant_idx, variant_uidx, next_print_variant_idx);
+    }
     STD_ARRAY_KREF(uint32_t, 3) cur_raw_geno_cts = founder_raw_geno_cts[variant_uidx];
     uint32_t female_2copy_ct = cur_raw_geno_cts[0];
     uint32_t female_1copy_ct = cur_raw_geno_cts[1];
@@ -4953,8 +4957,17 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
       female_1copy_ct -= cur_nosex_geno_cts[1];
       female_0copy_ct -= cur_nosex_geno_cts[2];
     }
+    if (debug_print) {
+      logprintf("female_1copy_ct=%u  female_2copy_ct=%u  female_0copy_ct=%u  male_1copy_ct=%u  male_0copy_ct=%u  hwe_midp=%u\n", female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
+    }
     *hwe_x_ln_pvals_iter++ = HweXchrLnP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
+    if (debug_print) {
+      logprintf("log-pval=%g\n", hwe_x_ln_pvals_iter[-1]);
+    }
     if (allele_idx_offsets) {
+      if (debug_print) {
+        logprintf("entering allele_idx_offsets branch, not expected...\n");
+      }
       const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
       if (allele_ct != 2) {
         const uint32_t female_obs_ct = female_2copy_ct + female_1copy_ct + female_0copy_ct;
@@ -4989,6 +5002,7 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
   if (pct > 10) {
     putc_unlocked('\b', stdout);
   }
+  DPrintf("\ncompleted ComputeHweXLnPvalsMain\n");
 }
 
 THREAD_FUNC_DECL ComputeHweXLnPvalsThread(void* raw_arg) {
@@ -5006,6 +5020,7 @@ PglErr ComputeHweXLnPvals(const uintptr_t* variant_include, const uintptr_t* all
   ComputeHweXLnPvalsCtx ctx;
   {
     assert(hwe_x_ct);
+    DPrintf("Allocating space for %u (hwe_x_ct=%u, x_xallele_ct=%u) chrX p-values.\n", hwe_x_ct + x_xallele_ct, hwe_x_ct, x_xallele_ct);
     if (unlikely(bigstack_alloc_d(hwe_x_ct + x_xallele_ct, hwe_x_ln_pvals_ptr))) {
       goto ComputeHweXLnPvals_ret_NOMEM;
     }
