@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.5.25"
+static const char ver_str[] = "PLINK v2.0.0-a.5.26"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.5.25"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (15 May 2025)";
+  " (4 Jun 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -100,7 +100,7 @@ static const char ver_str2[] =
 #  endif
 #endif
 
-  "  cog-genomics.org/plink/2.0/\n"
+  "   cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2025 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
@@ -4784,7 +4784,7 @@ int main(int argc, char** argv) {
           }
           uint32_t comma_ct = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            comma_ct += CountByteInStr(argvk[arg_idx], ',');
+            comma_ct += CountByteInStr(argvk[arg_idx + param_idx], ',');
           }
           const uint32_t bin_bound_ct = comma_ct + param_ct;
           if (bin_bound_ct > kClumpMaxBinBounds) {
