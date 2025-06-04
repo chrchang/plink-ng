@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6.14"
+static const char ver_str[] = "PLINK v2.0.0-a.6.15"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.0.0-a.6.14"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (30 May 2025)";
+  " (4 Jun 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -4935,7 +4935,7 @@ int main(int argc, char** argv) {
           }
           uint32_t comma_ct = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            comma_ct += CountByteInStr(argvk[arg_idx], ',');
+            comma_ct += CountByteInStr(argvk[arg_idx + param_idx], ',');
           }
           const uint32_t bin_bound_ct = comma_ct + param_ct;
           if (bin_bound_ct > kClumpMaxBinBounds) {
