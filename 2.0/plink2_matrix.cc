@@ -21,318 +21,18 @@
 #include <string.h>
 
 #ifndef NOLAPACK
-#  ifndef __APPLE__
-
-#    ifdef __cplusplus
-extern "C" {
-#    endif
-
-#    ifdef _WIN32
-
-#      ifdef LAPACK_FORTRAN_STRLEN_END
-  void dgemm_(char* transa, char* transb, int* m, int* n, int* k,
-              double* alpha, double* a, int* lda, double* b, int* ldb,
-              double* beta, double* c, int* ldc, size_t slen1, size_t slen2);
-#      else
-  void dgemm_(char* transa, char* transb, int* m, int* n, int* k,
-              double* alpha, double* a, int* lda, double* b, int* ldb,
-              double* beta, double* c, int* ldc);
-#      endif
-
-#      ifdef LAPACK_FORTRAN_STRLEN_END
-  void dsyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
-              __CLPK_doublereal* alpha, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* beta,
-              __CLPK_doublereal* c, __CLPK_integer* ldc, size_t slen1,
-              size_t slen2);
-#      else
-  void dsyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
-              __CLPK_doublereal* alpha, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* beta,
-              __CLPK_doublereal* c, __CLPK_integer* ldc);
-#      endif
-
-#      ifdef LAPACK_FORTRAN_STRLEN_END
-  void dgemv_(char* trans, __CLPK_integer* m, __CLPK_integer* n,
-              __CLPK_doublereal* alpha, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* x, __CLPK_integer* incx,
-              __CLPK_doublereal* beta, __CLPK_doublereal* y,
-              __CLPK_integer* incy, size_t slen1);
-#      else
-  void dgemv_(char* trans, __CLPK_integer* m, __CLPK_integer* n,
-              __CLPK_doublereal* alpha, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* x, __CLPK_integer* incx,
-              __CLPK_doublereal* beta, __CLPK_doublereal* y,
-              __CLPK_integer* incy);
-#      endif
-
-#      ifdef LAPACK_FORTRAN_STRLEN_END
-  void sgemm_(char* transa, char* transb, int* m, int* n, int* k,
-              float* alpha, float* a, int* lda, float* b, int* ldb,
-              float* beta, float* c, int* ldc, size_t slen1, size_t slen2);
-#      else
-  void sgemm_(char* transa, char* transb, int* m, int* n, int* k,
-              float* alpha, float* a, int* lda, float* b, int* ldb,
-              float* beta, float* c, int* ldc);
-#      endif
-
-#      ifdef LAPACK_FORTRAN_STRLEN_END
-  void sgemv_(char* trans, int* m, int* n, float* alpha, float* a, int* lda,
-              float* x, int* incx, float* beta, float* y, int* incy,
-              size_t slen1);
-#      else
-  void sgemv_(char* trans, int* m, int* n, float* alpha, float* a, int* lda,
-              float* x, int* incx, float* beta, float* y, int* incy);
-#      endif
-
-#      ifdef LAPACK_FORTRAN_STRLEN_END
-  void ssyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
-              float* alpha, float* a, __CLPK_integer* lda, float* beta,
-              float* c, __CLPK_integer* ldc, size_t slen1, size_t slen2);
-#      else
-  void ssyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
-              float* alpha, float* a, __CLPK_integer* lda, float* beta,
-              float* c, __CLPK_integer* ldc);
-#      endif
-
-#    else  // Linux
-#      ifndef USE_MKL
-  int dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
-              __CLPK_doublereal* a, __CLPK_integer* lda,
-              __CLPK_integer* ipiv, __CLPK_integer* info);
-
-  int dgetri_(__CLPK_integer* n, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_integer* ipiv,
-              __CLPK_doublereal* work, __CLPK_integer* lwork,
-              __CLPK_integer* info);
-
-#        ifdef LAPACK_FORTRAN_STRLEN_END
-  double dlange_(char* norm, __CLPK_integer* m, __CLPK_integer* n,
-                 __CLPK_doublereal* a, __CLPK_integer* lda,
-                 __CLPK_doublereal* work, size_t slen1);
-#        else
-  double dlange_(char* norm, __CLPK_integer* m, __CLPK_integer* n,
-                 __CLPK_doublereal* a, __CLPK_integer* lda,
-                 __CLPK_doublereal* work);
-#        endif
-
-#        ifdef LAPACK_FORTRAN_STRLEN_END
-  double dlansy_(char* norm, char* uplo, __CLPK_integer* n,
-                 __CLPK_doublereal* a, __CLPK_integer* lda,
-                 __CLPK_doublereal* work, size_t slen1);
-#        else
-  double dlansy_(char* norm, char* uplo, __CLPK_integer* n,
-                 __CLPK_doublereal* a, __CLPK_integer* lda,
-                 __CLPK_doublereal* work);
-#        endif
-
-#        ifdef LAPACK_FORTRAN_STRLEN_END
-  int dgecon_(char* norm, __CLPK_integer* n, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* anorm,
-              __CLPK_doublereal* rcond, __CLPK_doublereal* work,
-              __CLPK_integer* iwork, __CLPK_integer* info, size_t slen1);
-#        else
-  int dgecon_(char* norm, __CLPK_integer* n, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* anorm,
-              __CLPK_doublereal* rcond, __CLPK_doublereal* work,
-              __CLPK_integer* iwork, __CLPK_integer* info);
-#        endif
-
-#        ifdef LAPACK_FORTRAN_STRLEN_END
-  int dpocon_(char* uplo, __CLPK_integer* n, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* anorm,
-              __CLPK_doublereal* rcond, __CLPK_doublereal* work,
-              __CLPK_integer* iwork, __CLPK_integer* info, size_t slen1);
-#        else
-  int dpocon_(char* uplo, __CLPK_integer* n, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* anorm,
-              __CLPK_doublereal* rcond, __CLPK_doublereal* work,
-              __CLPK_integer* iwork, __CLPK_integer* info);
-#        endif
-
-  /*
-  void dgesdd_(char* jobs, __CLPK_integer* m, __CLPK_integer* n,
-               __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* s,
-               __CLPK_doublereal* u, __CLPK_integer* ldu,
-               __CLPK_doublereal* vt, __CLPK_integer* ldvt,
-               __CLPK_doublereal* work, __CLPK_integer* lwork,
-               __CLPK_integer* iwork, __CLPK_integer* info);
-  */
-
-#        ifdef LAPACK_FORTRAN_STRLEN_END
-  void dgesvd_(char* jobu, char* jobvt, __CLPK_integer* m, __CLPK_integer* n,
-               __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* s,
-               __CLPK_doublereal* u, __CLPK_integer* ldu,
-               __CLPK_doublereal* vt, __CLPK_integer* ldvt,
-               __CLPK_doublereal* work, __CLPK_integer* lwork,
-               __CLPK_integer* info, size_t slen1, size_t slen2);
-#        else
-  void dgesvd_(char* jobu, char* jobvt, __CLPK_integer* m, __CLPK_integer* n,
-               __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* s,
-               __CLPK_doublereal* u, __CLPK_integer* ldu,
-               __CLPK_doublereal* vt, __CLPK_integer* ldvt,
-               __CLPK_doublereal* work, __CLPK_integer* lwork,
-               __CLPK_integer* info);
-#        endif
-
-#        ifdef LAPACK_FORTRAN_STRLEN_END
-  int dsyevr_(char* jobz, char* range, char* uplo, __CLPK_integer* n,
-              __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* vl,
-              __CLPK_doublereal* vu, __CLPK_integer* il, __CLPK_integer* iu,
-              __CLPK_doublereal* abstol, __CLPK_integer* m,
-              __CLPK_doublereal* w, __CLPK_doublereal* z, __CLPK_integer* ldz,
-              __CLPK_integer* isuppz, __CLPK_doublereal* work,
-              __CLPK_integer* lwork, __CLPK_integer* iwork,
-              __CLPK_integer* liwork, __CLPK_integer* info, size_t slen1,
-              size_t slen2, size_t slen3);
-#        else
-  int dsyevr_(char* jobz, char* range, char* uplo, __CLPK_integer* n,
-              __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* vl,
-              __CLPK_doublereal* vu, __CLPK_integer* il, __CLPK_integer* iu,
-              __CLPK_doublereal* abstol, __CLPK_integer* m,
-              __CLPK_doublereal* w, __CLPK_doublereal* z, __CLPK_integer* ldz,
-              __CLPK_integer* isuppz, __CLPK_doublereal* work,
-              __CLPK_integer* lwork, __CLPK_integer* iwork,
-              __CLPK_integer* liwork, __CLPK_integer* info);
-#        endif
-
-#        ifdef LAPACK_FORTRAN_STRLEN_END
-  int dpotrf_(char* uplo, __CLPK_integer* n, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_integer* info, size_t slen1);
-#        else
-  int dpotrf_(char* uplo, __CLPK_integer* n, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_integer* info);
-#        endif
-
-#        ifdef LAPACK_FORTRAN_STRLEN_END
-  void dpotrs_(char* uplo, __CLPK_integer* n, __CLPK_integer* nrhs,
-               __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* b,
-               __CLPK_integer* ldb, __CLPK_integer* info, size_t slen1);
-#        else
-  void dpotrs_(char* uplo, __CLPK_integer* n, __CLPK_integer* nrhs,
-               __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* b,
-               __CLPK_integer* ldb, __CLPK_integer* info);
-#        endif
-
-#        ifndef USE_CBLAS_XGEMM
-#          ifdef LAPACK_FORTRAN_STRLEN_END
-  void dgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
-              __CLPK_integer* k, __CLPK_doublereal* alpha,
-              __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* b,
-              __CLPK_integer* ldb, __CLPK_doublereal* beta,
-              __CLPK_doublereal* c, __CLPK_integer* ldc, size_t slen1,
-              size_t slen2);
-#          else
-  void dgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
-              __CLPK_integer* k, __CLPK_doublereal* alpha,
-              __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* b,
-              __CLPK_integer* ldb, __CLPK_doublereal* beta,
-              __CLPK_doublereal* c, __CLPK_integer* ldc);
-#          endif
-
-#          ifdef LAPACK_FORTRAN_STRLEN_END
-  void dgemv_(char* trans, __CLPK_integer* m, __CLPK_integer* n,
-              __CLPK_doublereal* alpha, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* x, __CLPK_integer* incx,
-              __CLPK_doublereal* beta, __CLPK_doublereal* y,
-              __CLPK_integer* incy, size_t slen1);
-#          else
-  void dgemv_(char* trans, __CLPK_integer* m, __CLPK_integer* n,
-              __CLPK_doublereal* alpha, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* x, __CLPK_integer* incx,
-              __CLPK_doublereal* beta, __CLPK_doublereal* y,
-              __CLPK_integer* incy);
-#          endif
-
-#          ifdef LAPACK_FORTRAN_STRLEN_END
-  void sgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
-              __CLPK_integer* k, float* alpha, float* a, __CLPK_integer* lda,
-              float* b, __CLPK_integer* ldb, float* beta, float* c,
-              __CLPK_integer* ldc, size_t slen1, size_t slen2);
-#          else
-  void sgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
-              __CLPK_integer* k, float* alpha, float* a, __CLPK_integer* lda,
-              float* b, __CLPK_integer* ldb, float* beta, float* c,
-              __CLPK_integer* ldc);
-#          endif
-
-#          ifdef LAPACK_FORTRAN_STRLEN_END
-  void sgemv_(char* trans, __CLPK_integer* m, __CLPK_integer* n, float* alpha,
-              float* a, __CLPK_integer* lda, float* x, __CLPK_integer* incx,
-              float* beta, float* y, __CLPK_integer* incy, size_t slen1);
-#          else
-  void sgemv_(char* trans, __CLPK_integer* m, __CLPK_integer* n, float* alpha,
-              float* a, __CLPK_integer* lda, float* x, __CLPK_integer* incx,
-              float* beta, float* y, __CLPK_integer* incy);
-#          endif
-
-#          ifdef LAPACK_FORTRAN_STRLEN_END
-  void dsyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
-              __CLPK_doublereal* alpha, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* beta,
-              __CLPK_doublereal* c, __CLPK_integer* ldc, size_t slen1,
-              size_t slen2);
-#          else
-  void dsyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
-              __CLPK_doublereal* alpha, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* beta,
-              __CLPK_doublereal* c, __CLPK_integer* ldc);
-#          endif
-
-#          ifdef LAPACK_FORTRAN_STRLEN_END
-  void ssyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
-              float* alpha, float* a, __CLPK_integer* lda, float* beta,
-              float* c, __CLPK_integer* ldc, size_t slen1, size_t slen2);
-#          else
-  void ssyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
-              float* alpha, float* a, __CLPK_integer* lda, float* beta,
-              float* c, __CLPK_integer* ldc);
-#          endif
-#        endif
-#      endif  // !USE_MKL
-#    endif  // Linux
-
-  void xerbla_(void);
-#    ifdef __cplusplus
-}  // extern "C"
-#    endif  // __cplusplus
-    void xerbla_(void) {}  // fix static linking error
-#  endif  // not __APPLE__
-
-#  ifdef LAPACK_FORTRAN_STRLEN_END
-#    define dgecon_wrap(a, b, c, d, e, f, g, h, i) dgecon_((a), (b), (c), (d), (e), (f), (g), (h), (i), 1)
-#    define dgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1, 1)
-#    define dgemv_wrap(a, b, c, d, e, f, g, h, i, j, k) dgemv_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), 1)
-#    define dgesvd_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n) dgesvd_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), (n), 1, 1)
-#    define dlange_wrap(a, b, c, d, e, f) dlange_((a), (b), (c), (d), (e), (f), 1)
-#    define dlansy_wrap(a, b, c, d, e, f) dlansy_((a), (b), (c), (d), (e), (f), 1, 1)
-#    define dpocon_wrap(a, b, c, d, e, f, g, h, i) dpocon_((a), (b), (c), (d), (e), (f), (g), (h), (i), 1)
-#    define dpotrf_wrap(a, b, c, d, e) dpotrf_((a), (b), (c), (d), (e), 1)
-#    define dpotrs_wrap(a, b, c, d, e, f, g, h) dpotrs_((a), (b), (c), (d), (e), (f), (g), (h), 1)
-#    define dsyevr_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u) dsyevr_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), (n), (o), (p), (q), (r), (s), (t), (u), 1, 1, 1)
-#    define dsyrk_wrap(a, b, c, d, e, f, g, h, i, j) dsyrk_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), 1, 1)
-#    define sgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) sgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), 1, 1)
-#    define sgemv_wrap(a, b, c, d, e, f, g, h, i, j, k) sgemv_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), 1)
-#    define ssyrk_wrap(a, b, c, d, e, f, g, h, i, j) ssyrk_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), 1, 1)
-
-#  else
-
-#    define dgecon_wrap(a, b, c, d, e, f, g, h, i) dgecon_((a), (b), (c), (d), (e), (f), (g), (h), (i))
-#    define dgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) dgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m))
-#    define dgemv_wrap(a, b, c, d, e, f, g, h, i, j, k) dgemv_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k))
-#    define dgesvd_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n) dgesvd_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), (n))
-#    define dlange_wrap(a, b, c, d, e, f) dlange_((a), (b), (c), (d), (e), (f))
-#    define dlansy_wrap(a, b, c, d, e, f) dlansy_((a), (b), (c), (d), (e), (f))
-#    define dpocon_wrap(a, b, c, d, e, f, g, h, i) dpocon_((a), (b), (c), (d), (e), (f), (g), (h), (i))
-#    define dpotrf_wrap(a, b, c, d, e) dpotrf_((a), (b), (c), (d), (e))
-#    define dpotrs_wrap(a, b, c, d, e, f, g, h) dpotrs_((a), (b), (c), (d), (e), (f), (g), (h))
-#    define dsyevr_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u) dsyevr_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m), (n), (o), (p), (q), (r), (s), (t), (u))
-#    define dsyrk_wrap(a, b, c, d, e, f, g, h, i, j) dsyrk_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j))
-#    define sgemm_wrap(a, b, c, d, e, f, g, h, i, j, k, l, m) sgemm_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k), (l), (m))
-#    define sgemv_wrap(a, b, c, d, e, f, g, h, i, j, k) sgemv_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j), (k))
-#    define ssyrk_wrap(a, b, c, d, e, f, g, h, i, j) ssyrk_((a), (b), (c), (d), (e), (f), (g), (h), (i), (j))
+#  if defined(__APPLE__) || defined(USE_MKL)
+#    define LAPACK_dgecon dgecon_
+#    define LAPACK_dgesvd dgesvd_
+#    define LAPACK_dgetrf dgetrf_
+#    define LAPACK_dgetri dgetri_
+#    define LAPACK_dlange dlange_
+#    define LAPACK_dlansy dlansy_
+#    define LAPACK_dpocon dpocon_
+#    define LAPACK_dpotrf dpotrf_
+#    define LAPACK_dpotrs dpotrs_
+#    define LAPACK_dsyevr dsyevr_
 #  endif
-
 #endif  // !NOLAPACK
 
 
@@ -733,7 +433,7 @@ BoolErr InvertFmatrixFirstHalf(int32_t dim, uint32_t stride, const float* matrix
   return (!SvdcmpC(dim, half_inverted, dbl_1d_buf, dbl_2d_buf));
 }
 
-void InvertStridedMatrixSecondHalf(__CLPK_integer dim, __CLPK_integer stride, double* matrix, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
+void InvertStridedMatrixSecondHalf(lapack_int dim, lapack_int stride, double* matrix, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
   // Look for singular values
   assert(dim > 0);
   const double eps = 1e-24;
@@ -788,7 +488,7 @@ void InvertStridedMatrixSecondHalf(__CLPK_integer dim, __CLPK_integer stride, do
   }
 }
 
-void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
+void InvertFmatrixSecondHalf(lapack_int dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
   // Look for singular values
   assert(dim > 0);
   const double eps = 1e-24;
@@ -832,103 +532,103 @@ void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_i
   }
 }
 #else  // !NOLAPACK
-BoolErr InvertMatrix(__CLPK_integer dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
+BoolErr InvertMatrix(lapack_int dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   // InvertSymmdefMatrix() is noticeably faster in the symmetric
   // positive-semidefinite case.
-  __CLPK_integer info;
-  dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
+  lapack_int info;
+  LAPACK_dgetrf(&dim, &dim, matrix, &dim, int_1d_buf, &info);
   if (info) {
     return 1;
   }
-  __CLPK_integer lwork = dim * dim;
-  dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
+  lapack_int lwork = dim * dim;
+  LAPACK_dgetri(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
   assert(info == 0);
   return 0;
 }
 
-BoolErr InvertMatrixChecked(__CLPK_integer dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
+BoolErr InvertMatrixChecked(lapack_int dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   // This used to fall back on PLINK 1.07's SVD-based implementation when the
   // rcond estimate was too small, but in practice that just slowed things down
   // without meaningfully improving inversion of nonsingular matrices.  So now
   // this just exits a bit earlier, while leaving the old "binary search for
   // the first row/column causing multicollinearity" logic to the caller.
   char cc = '1';
-  double norm = dlange_wrap(&cc, &dim, &dim, matrix, &dim, dbl_2d_buf);
-  __CLPK_integer info;
-  dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
+  double norm = LAPACK_dlange(&cc, &dim, &dim, matrix, &dim, dbl_2d_buf);
+  lapack_int info;
+  LAPACK_dgetrf(&dim, &dim, matrix, &dim, int_1d_buf, &info);
   if (info > 0) {
     return 1;
   }
   double rcond;
-  dgecon_wrap(&cc, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, &(int_1d_buf[S_CAST(uint32_t, dim)]), &info);
+  LAPACK_dgecon(&cc, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, &(int_1d_buf[S_CAST(uint32_t, dim)]), &info);
   if (rcond < kMatrixSingularRcond) {
     return 1;
   }
-  __CLPK_integer lwork = dim * dim;
-  dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
+  lapack_int lwork = dim * dim;
+  LAPACK_dgetri(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
   return 0;
 }
 
-BoolErr InvertSymmdefMatrix(__CLPK_integer dim, double* matrix, __maybe_unused MatrixInvertBuf1* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
+BoolErr InvertSymmdefMatrix(lapack_int dim, double* matrix, __maybe_unused MatrixInvertBuf1* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
   char uplo = 'U';
-  __CLPK_integer info;
-  dpotrf_wrap(&uplo, &dim, matrix, &dim, &info);
+  lapack_int info;
+  LAPACK_dpotrf(&uplo, &dim, matrix, &dim, &info);
   if (info) {
     return 1;
   }
-  dpotri_wrap(&uplo, &dim, matrix, &dim, &info);
+  LAPACK_dpotri(&uplo, &dim, matrix, &dim, &info);
   assert(info == 0);
   return 0;
 }
 
-BoolErr InvertSymmdefStridedMatrix(__CLPK_integer dim, __CLPK_integer stride, double* matrix, __maybe_unused MatrixInvertBuf1* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
+BoolErr InvertSymmdefStridedMatrix(lapack_int dim, lapack_int stride, double* matrix, __maybe_unused MatrixInvertBuf1* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
   char uplo = 'U';
-  __CLPK_integer info;
-  dpotrf_wrap(&uplo, &dim, matrix, &stride, &info);
+  lapack_int info;
+  LAPACK_dpotrf(&uplo, &dim, matrix, &stride, &info);
   if (info) {
     return 1;
   }
-  dpotri_wrap(&uplo, &dim, matrix, &stride, &info);
+  LAPACK_dpotri(&uplo, &dim, matrix, &stride, &info);
   assert(info == 0);
   return 0;
 }
 
-BoolErr InvertSymmdefMatrixChecked(__CLPK_integer dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
+BoolErr InvertSymmdefMatrixChecked(lapack_int dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   char cc = '1';
   char uplo = 'U';
-  double norm = dlansy_wrap(&cc, &uplo, &dim, matrix, &dim, dbl_2d_buf);
-  __CLPK_integer info;
-  dpotrf_wrap(&uplo, &dim, matrix, &dim, &info);
+  double norm = LAPACK_dlansy(&cc, &uplo, &dim, matrix, &dim, dbl_2d_buf);
+  lapack_int info;
+  LAPACK_dpotrf(&uplo, &dim, matrix, &dim, &info);
   if (info > 0) {
     return 1;
   }
   double rcond;
-  dpocon_wrap(&uplo, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, int_1d_buf, &info);
+  LAPACK_dpocon(&uplo, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, int_1d_buf, &info);
   if (rcond < kMatrixSingularRcond) {
     return 1;
   }
-  dpotri_wrap(&uplo, &dim, matrix, &dim, &info);
+  LAPACK_dpotri(&uplo, &dim, matrix, &dim, &info);
   return 0;
 }
 
-BoolErr InvertSymmdefMatrixFirstHalf(__CLPK_integer dim, __CLPK_integer stride, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
+BoolErr InvertSymmdefMatrixFirstHalf(lapack_int dim, lapack_int stride, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   char cc = '1';
   char uplo = 'U';
-  double norm = dlansy_wrap(&cc, &uplo, &dim, matrix, &stride, dbl_2d_buf);
-  __CLPK_integer info;
-  dpotrf_wrap(&uplo, &dim, matrix, &stride, &info);
+  double norm = LAPACK_dlansy(&cc, &uplo, &dim, matrix, &stride, dbl_2d_buf);
+  lapack_int info;
+  LAPACK_dpotrf(&uplo, &dim, matrix, &stride, &info);
   if (info > 0) {
     return 1;
   }
   double rcond;
-  dpocon_wrap(&uplo, &dim, matrix, &stride, &norm, &rcond, dbl_2d_buf, int_1d_buf, &info);
+  LAPACK_dpocon(&uplo, &dim, matrix, &stride, &norm, &rcond, dbl_2d_buf, int_1d_buf, &info);
   return (rcond < kMatrixSingularRcond);
 }
 
 // quasi-bugfix (20 Sep 2017): give up on doing this with single-precision
 // numbers.  Instead, convert to double-precision, then perform the usual
 // inversion, then downcode back to single-precision.
-BoolErr InvertFmatrixFirstHalf(__CLPK_integer dim, uint32_t stride, const float* matrix, double* half_inverted, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
+BoolErr InvertFmatrixFirstHalf(lapack_int dim, uint32_t stride, const float* matrix, double* half_inverted, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   const float* read_row = matrix;
   double* write_row = half_inverted;
   for (uint32_t row_idx = 0; row_idx != S_CAST(uint32_t, dim); ++row_idx) {
@@ -941,18 +641,18 @@ BoolErr InvertFmatrixFirstHalf(__CLPK_integer dim, uint32_t stride, const float*
   }
 
   char cc = '1';
-  double norm = dlange_wrap(&cc, &dim, &dim, half_inverted, &dim, dbl_2d_buf);
-  __CLPK_integer info;
-  dgetrf_(&dim, &dim, half_inverted, &dim, int_1d_buf, &info);
+  double norm = LAPACK_dlange(&cc, &dim, &dim, half_inverted, &dim, dbl_2d_buf);
+  lapack_int info;
+  LAPACK_dgetrf(&dim, &dim, half_inverted, &dim, int_1d_buf, &info);
   if (info > 0) {
     return 1;
   }
   double rcond;
-  dgecon_wrap(&cc, &dim, half_inverted, &dim, &norm, &rcond, dbl_2d_buf, &(int_1d_buf[S_CAST(uint32_t, dim)]), &info);
+  LAPACK_dgecon(&cc, &dim, half_inverted, &dim, &norm, &rcond, dbl_2d_buf, &(int_1d_buf[S_CAST(uint32_t, dim)]), &info);
   return (rcond < kMatrixSingularRcond);
 }
 
-BoolErr InvertSymmdefFmatrixFirstHalf(__CLPK_integer dim, uint32_t stride, float* matrix, double* half_inverted, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
+BoolErr InvertSymmdefFmatrixFirstHalf(lapack_int dim, uint32_t stride, float* matrix, double* half_inverted, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   const float* read_row = matrix;
   double* write_row = half_inverted;
   for (uint32_t row_idx = 0; row_idx != S_CAST(uint32_t, dim); ++row_idx) {
@@ -966,21 +666,21 @@ BoolErr InvertSymmdefFmatrixFirstHalf(__CLPK_integer dim, uint32_t stride, float
 
   char cc = '1';
   char uplo = 'U';
-  double norm = dlansy_wrap(&cc, &uplo, &dim, half_inverted, &dim, dbl_2d_buf);
-  __CLPK_integer info;
-  dpotrf_wrap(&uplo, &dim, half_inverted, &dim, &info);
+  double norm = LAPACK_dlansy(&cc, &uplo, &dim, half_inverted, &dim, dbl_2d_buf);
+  lapack_int info;
+  LAPACK_dpotrf(&uplo, &dim, half_inverted, &dim, &info);
   if (info > 0) {
     return 1;
   }
   double rcond;
-  dpocon_wrap(&uplo, &dim, half_inverted, &dim, &norm, &rcond, dbl_2d_buf, int_1d_buf, &info);
+  LAPACK_dpocon(&uplo, &dim, half_inverted, &dim, &norm, &rcond, dbl_2d_buf, int_1d_buf, &info);
   return (rcond < kMatrixSingularRcond);
 }
 
-void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
-  __CLPK_integer lwork = dim * dim;
-  __CLPK_integer info;
-  dgetri_(&dim, half_inverted, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
+void InvertFmatrixSecondHalf(lapack_int dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
+  lapack_int lwork = dim * dim;
+  lapack_int info;
+  LAPACK_dgetri(&dim, half_inverted, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
   const double* read_row = half_inverted;
   float* write_row = inverted_result;
   for (uint32_t row_idx = 0; row_idx != S_CAST(uint32_t, dim); ++row_idx) {
@@ -993,10 +693,10 @@ void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_i
   }
 }
 
-void InvertSymmdefFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, __maybe_unused MatrixInvertBuf1* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
+void InvertSymmdefFmatrixSecondHalf(lapack_int dim, uint32_t stride, double* half_inverted, float* inverted_result, __maybe_unused MatrixInvertBuf1* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
   char uplo = 'U';
-  __CLPK_integer info;
-  dpotri_wrap(&uplo, &dim, half_inverted, &dim, &info);
+  lapack_int info;
+  LAPACK_dpotri(&uplo, &dim, half_inverted, &dim, &info);
   const double* read_row = half_inverted;
   float* write_row = inverted_result;
   for (uint32_t row_idx = 0; row_idx != S_CAST(uint32_t, dim); ++row_idx) {
@@ -1010,7 +710,7 @@ void InvertSymmdefFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double*
 }
 #endif  // !NOLAPACK
 
-void ColMajorMatrixMultiply(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* outmatrix) {
+void ColMajorMatrixMultiply(const double* inmatrix1, const double* inmatrix2, lapack_int row1_ct, lapack_int col2_ct, lapack_int common_ct, double* outmatrix) {
 #ifdef NOLAPACK
   const uintptr_t row1_ct_l = row1_ct;
   const uintptr_t col2_ct_l = col2_ct;
@@ -1027,37 +727,16 @@ void ColMajorMatrixMultiply(const double* inmatrix1, const double* inmatrix2, __
     }
   }
 #else
-#  ifndef USE_CBLAS_XGEMM
-  char blas_char = 'N';
-  double dyy = 1;
-  double dzz = 0;
-  dgemm_wrap(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &dyy, K_CAST(double*, inmatrix1), &row1_ct, K_CAST(double*, inmatrix2), &common_ct, &dzz, outmatrix, &row1_ct);
-#  else
   // bugfix (30 Aug 2017): this fails on OS X when LDB > sqrt(2^31).
   // update: Windows does not have the same problem
   // update 2 (6 Sep 2017): the OS X failure seems to have been driven by 128k
   //   thread stack size; going up to the usual 512k appears to solve the
   //   problem
-  // #ifdef LAPACK_ILP64
   cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
-  /*
-#    else
-  if (common_ct <= 46340) {
-    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
-    return;
-  }
-  for (__CLPK_integer col_idx = 0; col_idx != col2_ct; ++col_idx) {
-    cblas_dgemv(CblasColMajor, CblasNoTrans, row1_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, 1, 0.0, outmatrix, 1);
-    inmatrix2 = &(inmatrix2[(uint32_t)common_ct]);
-    outmatrix = &(outmatrix[(uint32_t)row1_ct]);
-  }
-#    endif
-  */
-#  endif  // USE_CBLAS_XGEMM
 #endif  // !NOLAPACK
 }
 
-void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, double beta, double* outmatrix) {
+void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const double* inmatrix2, lapack_int row1_ct, lapack_int stride1, lapack_int col2_ct, lapack_int stride2, lapack_int common_ct, lapack_int stride3, double beta, double* outmatrix) {
   // stride1 should be close to row1_ct
   // stride2 should be close to common_ct
   // output matrix uses stride3, which should be close to row1_ct
@@ -1079,17 +758,11 @@ void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const doubl
     }
   }
 #else
-#  ifndef USE_CBLAS_XGEMM
-  char blas_char = 'N';
-  double alpha = 1;
-  dgemm_wrap(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &alpha, K_CAST(double*, inmatrix1), &stride1, K_CAST(double*, inmatrix2), &stride2, &beta, outmatrix, &stride3);
-#  else
   cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, stride1, inmatrix2, stride2, beta, outmatrix, stride3);
-#  endif  // USE_CBLAS_XGEMM
 #endif  // !NOLAPACK
 }
 
-void ColMajorVectorMatrixMultiplyStrided(const double* in_dvec1, const double* inmatrix2, __CLPK_integer common_ct, __CLPK_integer stride2, __CLPK_integer col2_ct, double* out_dvec) {
+void ColMajorVectorMatrixMultiplyStrided(const double* in_dvec1, const double* inmatrix2, lapack_int common_ct, lapack_int stride2, lapack_int col2_ct, double* out_dvec) {
 #ifdef NOLAPACK
   const uintptr_t col2_ct_l = col2_ct;
   const uintptr_t common_ct_l = common_ct;
@@ -1103,19 +776,11 @@ void ColMajorVectorMatrixMultiplyStrided(const double* in_dvec1, const double* i
     out_dvec[col_idx] = dxx;
   }
 #else
-#  ifndef USE_CBLAS_XGEMM
-  char trans = 'T';
-  __CLPK_integer incxy = 1;
-  double dyy = 1;
-  double dzz = 0;
-  dgemv_wrap(&trans, &common_ct, &col2_ct, &dyy, K_CAST(double*, inmatrix2), &stride2, K_CAST(double*, in_dvec1), &incxy, &dzz, out_dvec, &incxy);
-#  else
   cblas_dgemv(CblasColMajor, CblasTrans, common_ct, col2_ct, 1.0, inmatrix2, stride2, in_dvec1, 1, 0.0, out_dvec, 1);
-#  endif  // USE_CBLAS_XGEMM
 #endif  // !NOLAPACK
 }
 
-void ColMajorMatrixVectorMultiplyStrided(const double* inmatrix1, const double* in_dvec2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer common_ct, double* out_dvec) {
+void ColMajorMatrixVectorMultiplyStrided(const double* inmatrix1, const double* in_dvec2, lapack_int row1_ct, lapack_int stride1, lapack_int common_ct, double* out_dvec) {
 #ifdef NOLAPACK
   ZeroDArr(row1_ct, out_dvec);
   const uintptr_t row1_ct_l = row1_ct;
@@ -1130,20 +795,12 @@ void ColMajorMatrixVectorMultiplyStrided(const double* inmatrix1, const double* 
     col_iter = &(col_iter[stride_l]);
   }
 #else
-#  ifndef USE_CBLAS_XGEMM
-  char trans = 'N';
-  __CLPK_integer incxy = 1;
-  double dyy = 1;
-  double dzz = 0;
-  dgemv_wrap(&trans, &row1_ct, &common_ct, &dyy, K_CAST(double*, inmatrix1), &stride1, K_CAST(double*, in_dvec2), &incxy, &dzz, out_dvec, &incxy);
-#  else
   cblas_dgemv(CblasColMajor, CblasNoTrans, row1_ct, common_ct, 1.0, inmatrix1, stride1, in_dvec2, 1, 0.0, out_dvec, 1);
-#  endif  // USE_CBLAS_XGEMM
 #endif  // !NOLAPACK
 }
 
 // er, should make this _addassign for consistency...
-void ColMajorFmatrixMultiplyStrided(const float* inmatrix1, const float* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, float* outmatrix) {
+void ColMajorFmatrixMultiplyStrided(const float* inmatrix1, const float* inmatrix2, lapack_int row1_ct, lapack_int stride1, lapack_int col2_ct, lapack_int stride2, lapack_int common_ct, lapack_int stride3, float* outmatrix) {
 #ifdef NOLAPACK
   const uintptr_t row1_ct_l = row1_ct;
   const uintptr_t col2_ct_l = col2_ct;
@@ -1161,18 +818,11 @@ void ColMajorFmatrixMultiplyStrided(const float* inmatrix1, const float* inmatri
     }
   }
 #else
-#  ifndef USE_CBLAS_XGEMM
-  char blas_char = 'N';
-  float fyy = 1;
-  float fzz = 0;
-  sgemm_wrap(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &fyy, K_CAST(float*, inmatrix1), &stride1, K_CAST(float*, inmatrix2), &stride2, &fzz, outmatrix, &stride3);
-#  else
   cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, stride1, inmatrix2, stride2, 0.0, outmatrix, stride3);
-#  endif  // USE_CBLAS_XGEMM
 #endif  // !NOLAPACK
 }
 
-void ColMajorFmatrixVectorMultiplyStrided(const float* inmatrix1, const float* in_fvec2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer common_ct, float* out_fvec) {
+void ColMajorFmatrixVectorMultiplyStrided(const float* inmatrix1, const float* in_fvec2, lapack_int row1_ct, lapack_int stride1, lapack_int common_ct, float* out_fvec) {
 #ifdef NOLAPACK
   ZeroFArr(row1_ct, out_fvec);
   const uintptr_t row1_ct_l = row1_ct;
@@ -1186,19 +836,11 @@ void ColMajorFmatrixVectorMultiplyStrided(const float* inmatrix1, const float* i
     }
   }
 #else
-#  ifndef USE_CBLAS_XGEMM
-  char trans = 'N';
-  __CLPK_integer incxy = 1;
-  float fyy = 1;
-  float fzz = 0;
-  sgemv_wrap(&trans, &row1_ct, &common_ct, &fyy, K_CAST(float*, inmatrix1), &stride1, K_CAST(float*, in_fvec2), &incxy, &fzz, out_fvec, &incxy);
-#  else
   cblas_sgemv(CblasColMajor, CblasNoTrans, row1_ct, common_ct, 1.0, inmatrix1, stride1, in_fvec2, 1, 0.0, out_fvec, 1);
-#  endif  // USE_CBLAS_XGEMM
 #endif  // !NOLAPACK
 }
 
-void ColMajorFvectorMatrixMultiplyStrided(const float* in_fvec1, const float* inmatrix2, __CLPK_integer common_ct, __CLPK_integer stride2, __CLPK_integer col2_ct, float* out_fvec) {
+void ColMajorFvectorMatrixMultiplyStrided(const float* in_fvec1, const float* inmatrix2, lapack_int common_ct, lapack_int stride2, lapack_int col2_ct, float* out_fvec) {
 #ifdef NOLAPACK
   const uintptr_t col2_ct_l = col2_ct;
   const uintptr_t common_ct_l = common_ct;
@@ -1212,15 +854,7 @@ void ColMajorFvectorMatrixMultiplyStrided(const float* in_fvec1, const float* in
     out_fvec[col_idx] = fxx;
   }
 #else
-#  ifndef USE_CBLAS_XGEMM
-  char trans = 'T';
-  __CLPK_integer incxy = 1;
-  float fyy = 1;
-  float fzz = 0;
-  sgemv_wrap(&trans, &common_ct, &col2_ct, &fyy, K_CAST(float*, inmatrix2), &stride2, K_CAST(float*, in_fvec1), &incxy, &fzz, out_fvec, &incxy);
-#  else
   cblas_sgemv(CblasColMajor, CblasTrans, common_ct, col2_ct, 1.0, inmatrix2, stride2, in_fvec1, 1, 0.0, out_fvec, 1);
-#  endif  // USE_CBLAS_XGEMM
 #endif  // !NOLAPACK
 }
 
@@ -1251,24 +885,24 @@ void FmatrixTransposeCopy(const float* old_matrix, uint32_t old_maj, uint32_t ne
 }
 
 /*
-__CLPK_integer qr_square_factor_float_get_lwork(uint32_t dim) {
-  __CLPK_integer dim_i = (__CLPK_integer)dim;
-  __CLPK_integer sgeqrf_lwork = -1;
+lapack_int qr_square_factor_float_get_lwork(uint32_t dim) {
+  lapack_int dim_i = (lapack_int)dim;
+  lapack_int sgeqrf_lwork = -1;
   float work[1];
-  __CLPK_integer info;
+  lapack_int info;
   float dummy;
   float dummy2;
   sgeqrf_(&dim_i, &dim_i, &dummy, &dim_i, &dummy2, work, &sgeqrf_lwork, &info);
   assert(info == 0);
-  sgeqrf_lwork = (__CLPK_integer)work[0];
-  __CLPK_integer sorgqr_lwork = -1;
+  sgeqrf_lwork = (lapack_int)work[0];
+  lapack_int sorgqr_lwork = -1;
   sorgqr_(&dim_i, &dim_i, &dim_i, &dummy, &dim_i, &dummy2, work, &sorgqr_lwork, &info);
   assert(info == 0);
-  sorgqr_lwork = (__CLPK_integer)work[0];
+  sorgqr_lwork = (lapack_int)work[0];
   return MAXV(sgeqrf_lwork, sorgqr_lwork);
 }
 
-BoolErr qr_square_factor_float(const float* input_matrix, uint32_t dim, uintptr_t stride, __CLPK_integer lwork, float* qq, float* r_determinant_ptr, float* tau_buf, float* work_buf) {
+BoolErr qr_square_factor_float(const float* input_matrix, uint32_t dim, uintptr_t stride, lapack_int lwork, float* qq, float* r_determinant_ptr, float* tau_buf, float* work_buf) {
   // only returns Q and, optionally, the product of R's diagonal entries (which
   // should be the determinant of the original matrix).
   // tau_buf should have space for dim entries
@@ -1280,8 +914,8 @@ BoolErr qr_square_factor_float(const float* input_matrix, uint32_t dim, uintptr_
       memcpy(&(qq[col_idx * dim]), &(input_matrix[col_idx * stride]), dim * sizeof(float));
     }
   }
-  __CLPK_integer dim_i = (__CLPK_integer)dim;
-  __CLPK_integer info;
+  lapack_int dim_i = (lapack_int)dim;
+  lapack_int info;
   sgeqrf_(&dim_i, &dim_i, qq, &dim_i, tau_buf, work_buf, &lwork, &info);
   if (info != 0) {
     return 1;
@@ -1315,38 +949,8 @@ void MultiplySelfTranspose(const double* input_matrix, uint32_t dim, uint32_t co
     }
   }
 #else
-#  ifndef USE_CBLAS_XGEMM
-  char uplo = 'U';
-  char trans = 'T';
-  __CLPK_integer tmp_n = dim;
-  __CLPK_integer tmp_k = col_ct;
-  double alpha = 1.0;
-  double beta = 0.0;
-  dsyrk_wrap(&uplo, &trans, &tmp_n, &tmp_k, &alpha, K_CAST(double*, input_matrix), &tmp_k, &beta, result, &tmp_n);
-#  else
   // see ColMajorMatrixMultiply() remarks; same OS X issue here.
-  // #ifdef LAPACK_ILP64
   cblas_dsyrk(CblasColMajor, CblasUpper, CblasTrans, dim, col_ct, 1.0, input_matrix, col_ct, 0.0, result, dim);
-  /*
-#    else
-  if (col_ct <= 46340) {
-    // bugfix (30 Aug 2017): for LDA > sqrt(2^31), this fails on OS X.
-    cblas_dsyrk(CblasColMajor, CblasUpper, CblasTrans, dim, col_ct, 1.0, input_matrix, col_ct, 0.0, result, dim);
-    return;
-  }
-  // this actually seems to be faster than dsyrk for small dim (at least on OS
-  // X), but that might change in the future so I won't "optimize" dispatch
-  for (uintptr_t row1_idx = 0; row1_idx != dim; ++row1_idx) {
-    const double* pred_row1 = &(input_matrix[row1_idx * col_ct]);
-    double* result_row = &(result[row1_idx * dim]);
-    for (uintptr_t row2_idx = 0; row2_idx <= row1_idx; ++row2_idx) {
-      const double* pred_row2 = &(input_matrix[row2_idx * col_ct]);
-      result_row[row2_idx] = DotprodD(pred_row1, pred_row2, col_ct);
-    }
-  }
-#    endif
-  */
-#  endif
 #endif
 }
 
@@ -1361,18 +965,7 @@ void MultiplySelfTransposeStrided(const double* input_matrix, uint32_t dim, uint
     }
   }
 #else
-#  ifndef USE_CBLAS_XGEMM
-  char uplo = 'U';
-  char trans = 'T';
-  __CLPK_integer tmp_n = dim;
-  __CLPK_integer tmp_k = col_ct;
-  __CLPK_integer tmp_lda = stride;
-  double alpha = 1.0;
-  double beta = 0.0;
-  dsyrk_wrap(&uplo, &trans, &tmp_n, &tmp_k, &alpha, K_CAST(double*, input_matrix), &tmp_lda, &beta, result, &tmp_n);
-#  else
   cblas_dsyrk(CblasColMajor, CblasUpper, CblasTrans, dim, col_ct, 1.0, input_matrix, stride, 0.0, result, dim);
-#  endif
 #endif
 }
 
@@ -1387,18 +980,7 @@ void MultiplySelfTransposeStridedF(const float* input_matrix, uint32_t dim, uint
     }
   }
 #else
-#  ifndef USE_CBLAS_XGEMM
-  char uplo = 'U';
-  char trans = 'T';
-  __CLPK_integer tmp_n = dim;
-  __CLPK_integer tmp_k = col_ct;
-  __CLPK_integer tmp_lda = stride;
-  float alpha = 1.0;
-  float beta = 0.0;
-  ssyrk_wrap(&uplo, &trans, &tmp_n, &tmp_k, &alpha, K_CAST(float*, input_matrix), &tmp_lda, &beta, result, &tmp_n);
-#  else
   cblas_ssyrk(CblasColMajor, CblasUpper, CblasTrans, dim, col_ct, 1.0, input_matrix, stride, 0.0, result, dim);
-#  endif
 #endif
 }
 
@@ -1421,30 +1003,20 @@ void TransposeMultiplySelfIncr(double* input_part, uint32_t dim, uint32_t partia
     }
   }
 #else
-#  ifndef USE_CBLAS_XGEMM
-  char uplo = 'U';
-  char trans = 'N';
-  __CLPK_integer tmp_n = dim;
-  __CLPK_integer tmp_k = partial_row_ct;
-  double alpha = 1.0;
-  double beta = 1.0;
-  dsyrk_wrap(&uplo, &trans, &tmp_n, &tmp_k, &alpha, input_part, &tmp_n, &beta, result, &tmp_n);
-#  else
   cblas_dsyrk(CblasColMajor, CblasUpper, CblasNoTrans, dim, partial_row_ct, 1.0, input_part, dim, 1.0, result, dim);
-#  endif
 #endif  // !NOLAPACK
 }
 
 #ifndef NOLAPACK
-BoolErr GetSvdRectLwork(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer* lwork_ptr) {
+BoolErr GetSvdRectLwork(uint32_t major_ct, uint32_t minor_ct, lapack_int* lwork_ptr) {
   char jobu = 'S';
   char jobvt = 'O';
-  __CLPK_integer tmp_m = minor_ct;
-  __CLPK_integer tmp_n = major_ct;
-  __CLPK_integer wkspace_size = -1;
+  lapack_int tmp_m = minor_ct;
+  lapack_int tmp_n = major_ct;
+  lapack_int wkspace_size = -1;
   double wkspace_size_d;
-  __CLPK_integer info;
-  dgesvd_wrap(&jobu, &jobvt, &tmp_m, &tmp_n, nullptr, &tmp_m, nullptr, nullptr, &tmp_m, nullptr, &tmp_m, &wkspace_size_d, &wkspace_size, &info);
+  lapack_int info;
+  LAPACK_dgesvd(&jobu, &jobvt, &tmp_m, &tmp_n, nullptr, &tmp_m, nullptr, nullptr, &tmp_m, nullptr, &tmp_m, &wkspace_size_d, &wkspace_size, &info);
 #  ifdef LAPACK_ILP64
   if (unlikely(info)) {
     return 1;
@@ -1454,28 +1026,28 @@ BoolErr GetSvdRectLwork(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer* lw
     return 1;
   }
 #  endif
-  *lwork_ptr = RoundUpPow2(S_CAST(__CLPK_integer, wkspace_size_d), kCacheline / sizeof(double));
+  *lwork_ptr = RoundUpPow2(S_CAST(lapack_int, wkspace_size_d), kCacheline / sizeof(double));
   return 0;
 }
 
-IntErr SvdRect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, double* matrix, double* ss, double* vv, unsigned char* svd_rect_wkspace) {
+IntErr SvdRect(uint32_t major_ct, uint32_t minor_ct, lapack_int lwork, double* matrix, double* ss, double* vv, unsigned char* svd_rect_wkspace) {
   double* work = R_CAST(double*, svd_rect_wkspace);
   char jobu = 'S';
   char jobvt = 'O';
-  __CLPK_integer tmp_m = minor_ct;
-  __CLPK_integer tmp_n = major_ct;
-  __CLPK_integer info;
-  dgesvd_wrap(&jobu, &jobvt, &tmp_m, &tmp_n, matrix, &tmp_m, ss, vv, &tmp_m, nullptr, &tmp_m, work, &lwork, &info);
+  lapack_int tmp_m = minor_ct;
+  lapack_int tmp_n = major_ct;
+  lapack_int info;
+  LAPACK_dgesvd(&jobu, &jobvt, &tmp_m, &tmp_n, matrix, &tmp_m, ss, vv, &tmp_m, nullptr, &tmp_m, work, &lwork, &info);
   return S_CAST(IntErr, info);
 }
 
 // dsyevr_ takes ~30% less time than dsyevd_ on OS X dev machine.  todo: retest
 // for Linux 64-bit MKL.
-BoolErr GetExtractEigvecsLworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lwork_ptr, __CLPK_integer* liwork_ptr, uintptr_t* wkspace_byte_ct_ptr) {
+BoolErr GetExtractEigvecsLworks(uint32_t dim, uint32_t pc_ct, lapack_int* lwork_ptr, lapack_int* liwork_ptr, uintptr_t* wkspace_byte_ct_ptr) {
 #ifndef LAPACK_ILP64
   if (unlikely(dim > 46340)) {
     // (30 Dec 2024) maybe this still works on some systems despite matrix size
-    // being unrepresentable by __CLPK_integer?  but it doesn't on macOS:
+    // being unrepresentable by lapack_int?  but it doesn't on macOS:
     //   https://groups.google.com/g/plink2-users/c/oteXlRFHdgk
     return 1;
   }
@@ -1483,21 +1055,21 @@ BoolErr GetExtractEigvecsLworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lw
   char jobz = 'V';
   char range = 'I';
   char uplo = 'U';
-  __CLPK_integer tmp_n = dim;
-  __CLPK_integer il = dim + 1 - pc_ct;
-  __CLPK_integer iu = dim;
+  lapack_int tmp_n = dim;
+  lapack_int il = dim + 1 - pc_ct;
+  lapack_int iu = dim;
   double abstol = -1.0;
-  __CLPK_integer lwork_dummy = -1;
+  lapack_int lwork_dummy = -1;
 
   // defined to make macOS 13.3 happy.
   double ignored_vl = 0.0;  // gcc 14 warning
   double ignored_vu = 0.0;  // gcc 14 warning
-  __CLPK_integer ignored_m;
+  lapack_int ignored_m;
 
   double lwork_d;
-  __CLPK_integer liwork;
-  __CLPK_integer info;
-  dsyevr_wrap(&jobz, &range, &uplo, &tmp_n, nullptr, &tmp_n, &ignored_vl, &ignored_vu, &il, &iu, &abstol, &ignored_m, nullptr, nullptr, &tmp_n, nullptr, &lwork_d, &lwork_dummy, &liwork, &lwork_dummy, &info);
+  lapack_int liwork;
+  lapack_int info;
+  LAPACK_dsyevr(&jobz, &range, &uplo, &tmp_n, nullptr, &tmp_n, &ignored_vl, &ignored_vu, &il, &iu, &abstol, &ignored_m, nullptr, nullptr, &tmp_n, nullptr, &lwork_d, &lwork_dummy, &liwork, &lwork_dummy, &info);
 #ifdef LAPACK_ILP64
   if (unlikely(info)) {
     return 1;
@@ -1507,30 +1079,30 @@ BoolErr GetExtractEigvecsLworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lw
     return 1;
   }
 #endif
-  const __CLPK_integer lwork = RoundUpPow2(S_CAST(__CLPK_integer, lwork_d), kCacheline / sizeof(double));
-  liwork = RoundUpPow2(liwork, kCacheline / sizeof(__CLPK_integer));
+  const lapack_int lwork = RoundUpPow2(S_CAST(lapack_int, lwork_d), kCacheline / sizeof(double));
+  liwork = RoundUpPow2(liwork, kCacheline / sizeof(lapack_int));
   *lwork_ptr = lwork;
   *liwork_ptr = liwork;
-  *wkspace_byte_ct_ptr = lwork * sizeof(double) + liwork * sizeof(__CLPK_integer) + RoundUpPow2(2 * dim * sizeof(__CLPK_integer), kCacheline);
+  *wkspace_byte_ct_ptr = lwork * sizeof(double) + liwork * sizeof(lapack_int) + RoundUpPow2(2 * dim * sizeof(lapack_int), kCacheline);
   return 0;
 }
 
-BoolErr ExtractEigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __CLPK_integer liwork, double* matrix, double* eigvals, double* reverse_eigvecs, unsigned char* extract_eigvecs_wkspace) {
+BoolErr ExtractEigvecs(uint32_t dim, uint32_t pc_ct, lapack_int lwork, lapack_int liwork, double* matrix, double* eigvals, double* reverse_eigvecs, unsigned char* extract_eigvecs_wkspace) {
   char jobz = 'V';
   char range = 'I';
   char uplo = 'U';
-  __CLPK_integer tmp_n = dim;
-  __CLPK_integer il = dim + 1 - pc_ct;
-  __CLPK_integer iu = dim;
+  lapack_int tmp_n = dim;
+  lapack_int il = dim + 1 - pc_ct;
+  lapack_int iu = dim;
   double abstol = -1.0;
-  __CLPK_integer out_m;
+  lapack_int out_m;
   double* work = R_CAST(double*, extract_eigvecs_wkspace);
-  __CLPK_integer* iwork = R_CAST(__CLPK_integer*, &(work[lwork]));
-  __CLPK_integer* isuppz = &(iwork[liwork]);
-  __CLPK_integer info;
+  lapack_int* iwork = R_CAST(lapack_int*, &(work[lwork]));
+  lapack_int* isuppz = &(iwork[liwork]);
+  lapack_int info;
   // vl and vu may actually be referenced in some implementations
   double dummy_d = 0.0;
-  dsyevr_wrap(&jobz, &range, &uplo, &tmp_n, matrix, &tmp_n, &dummy_d, &dummy_d, &il, &iu, &abstol, &out_m, eigvals, reverse_eigvecs, &tmp_n, isuppz, work, &lwork, iwork, &liwork, &info);
+  LAPACK_dsyevr(&jobz, &range, &uplo, &tmp_n, matrix, &tmp_n, &dummy_d, &dummy_d, &il, &iu, &abstol, &out_m, eigvals, reverse_eigvecs, &tmp_n, isuppz, work, &lwork, iwork, &liwork, &info);
   // bug workaround (11 Feb 2023): on macOS, when there are NaNs in the matrix,
   // info=0 is still returned but out_m=0.
   // More generally, with the current interface, we want to return an error
@@ -1539,7 +1111,7 @@ BoolErr ExtractEigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __CLP
 }
 #endif  // !NOLAPACK
 
-BoolErr invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double cc, double* __restrict ainv_b, double* k_recip_ptr) {
+BoolErr invert_rank1_symm_start(const double* a_inv, const double* bb, lapack_int orig_dim, double cc, double* __restrict ainv_b, double* k_recip_ptr) {
 #ifdef NOLAPACK
   const uintptr_t orig_dim_l = orig_dim;
   const double* a_inv_iter = a_inv;
@@ -1548,15 +1120,7 @@ BoolErr invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_in
     a_inv_iter = &(a_inv_iter[orig_dim_l]);
   }
 #else
-#  ifndef USE_CBLAS_XGEMM
-  char trans = 'N';
-  __CLPK_integer incxy = 1;
-  double dyy = 1.0;
-  double dzz = 0.0;
-  dgemv_wrap(&trans, &orig_dim, &orig_dim, &dyy, K_CAST(double*, a_inv), &orig_dim, K_CAST(double*, bb), &incxy, &dzz, ainv_b, &incxy);
-#  else
   cblas_dgemv(CblasColMajor, CblasNoTrans, orig_dim, orig_dim, 1.0, a_inv, orig_dim, bb, 1, 0.0, ainv_b, 1);
-#  endif  // USE_CBLAS_XGEMM
 #endif
   const double kk = cc - DotprodxD(bb, ainv_b, orig_dim);
   if (fabs(kk) < kMatrixSingularRcond) {
@@ -1566,7 +1130,7 @@ BoolErr invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_in
   return 0;
 }
 
-BoolErr InvertRank1Symm(const double* a_inv, const double* bb, __CLPK_integer orig_dim, uint32_t insert_idx, double cc, double* __restrict outmatrix, double* __restrict ainv_b_buf) {
+BoolErr InvertRank1Symm(const double* a_inv, const double* bb, lapack_int orig_dim, uint32_t insert_idx, double cc, double* __restrict outmatrix, double* __restrict ainv_b_buf) {
   double k_recip;
   if (invert_rank1_symm_start(a_inv, bb, orig_dim, cc, ainv_b_buf, &k_recip)) {
     return 1;
@@ -1606,7 +1170,7 @@ BoolErr InvertRank1Symm(const double* a_inv, const double* bb, __CLPK_integer or
   return 0;
 }
 
-BoolErr InvertRank1SymmDiag(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double cc, double* __restrict outdiag, double* __restrict ainv_b_buf) {
+BoolErr InvertRank1SymmDiag(const double* a_inv, const double* bb, lapack_int orig_dim, double cc, double* __restrict outdiag, double* __restrict ainv_b_buf) {
   double k_recip;
   if (invert_rank1_symm_start(a_inv, bb, orig_dim, cc, ainv_b_buf, &k_recip)) {
     return 1;
@@ -1621,7 +1185,7 @@ BoolErr InvertRank1SymmDiag(const double* a_inv, const double* bb, __CLPK_intege
   return 0;
 }
 
-BoolErr InvertRank2SymmStart(const double* a_inv, const double* bb, __CLPK_integer orig_dim, __CLPK_integer b_stride, double d11, double d12, double d22, double* __restrict b_ainv, double* __restrict s_b_ainv, double* __restrict schur11_ptr, double* __restrict schur12_ptr, double* __restrict schur22_ptr) {
+BoolErr InvertRank2SymmStart(const double* a_inv, const double* bb, lapack_int orig_dim, lapack_int b_stride, double d11, double d12, double d22, double* __restrict b_ainv, double* __restrict s_b_ainv, double* __restrict schur11_ptr, double* __restrict schur12_ptr, double* __restrict schur22_ptr) {
   const uintptr_t orig_dim_l = orig_dim;
   if (orig_dim) {
     // (have confirmed that dgemm is better than per-row multiplies even for
@@ -1662,7 +1226,7 @@ BoolErr InvertRank2SymmStart(const double* a_inv, const double* bb, __CLPK_integ
   return 0;
 }
 
-BoolErr InvertRank2Symm(const double* a_inv, const double* bb, __CLPK_integer orig_dim, __CLPK_integer b_stride, uint32_t insert_idx, double d11, double d12, double d22, double* __restrict outmatrix, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf) {
+BoolErr InvertRank2Symm(const double* a_inv, const double* bb, lapack_int orig_dim, lapack_int b_stride, uint32_t insert_idx, double d11, double d12, double d22, double* __restrict outmatrix, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf) {
   double schur11;
   double schur12;
   double schur22;
@@ -1715,7 +1279,7 @@ BoolErr InvertRank2Symm(const double* a_inv, const double* bb, __CLPK_integer or
   return 0;
 }
 
-BoolErr InvertRank2SymmDiag(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double d11, double d12, double d22, double* __restrict outdiag, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf) {
+BoolErr InvertRank2SymmDiag(const double* a_inv, const double* bb, lapack_int orig_dim, double d11, double d12, double d22, double* __restrict outdiag, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf) {
   double schur11;
   double schur12;
   double schur22;
@@ -1745,18 +1309,18 @@ BoolErr LinearRegressionInvMain(const double* xt_y_phenomaj, uint32_t predictor_
 }
 #else
 
-BoolErr LinearRegressionInvMain(const double* xt_y_phenomaj, uint32_t predictor_ct, __CLPK_integer pheno_ct, double* xtx_inv, double* fitted_coefs_phenomaj) {
+BoolErr LinearRegressionInvMain(const double* xt_y_phenomaj, uint32_t predictor_ct, lapack_int pheno_ct, double* xtx_inv, double* fitted_coefs_phenomaj) {
   char uplo = 'U';
-  __CLPK_integer tmp_n = predictor_ct;
-  __CLPK_integer info;
-  dpotrf_wrap(&uplo, &tmp_n, xtx_inv, &tmp_n, &info);
+  lapack_int tmp_n = predictor_ct;
+  lapack_int info;
+  LAPACK_dpotrf(&uplo, &tmp_n, xtx_inv, &tmp_n, &info);
   if (info) {
     return 1;
   }
   memcpy(fitted_coefs_phenomaj, xt_y_phenomaj, predictor_ct * pheno_ct * sizeof(double));
-  dpotrs_wrap(&uplo, &tmp_n, &pheno_ct, xtx_inv, &tmp_n, fitted_coefs_phenomaj, &tmp_n, &info);
+  LAPACK_dpotrs(&uplo, &tmp_n, &pheno_ct, xtx_inv, &tmp_n, fitted_coefs_phenomaj, &tmp_n, &info);
   assert(!info);
-  dpotri_wrap(&uplo, &tmp_n, xtx_inv, &tmp_n, &info);
+  LAPACK_dpotri(&uplo, &tmp_n, xtx_inv, &tmp_n, &info);
   return (info != 0);
 }
 #endif  // !NOLAPACK

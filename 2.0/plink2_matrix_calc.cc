@@ -5627,7 +5627,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       const double variant_ct_recip = 1.0 / u31tod(variant_ct);
 
       const uintptr_t gg_size = pca_sample_ct * pc_ct_x2;
-      __CLPK_integer svd_rect_lwork;
+      lapack_int svd_rect_lwork;
 #ifdef LAPACK_ILP64
       GetSvdRectLwork(MAXV(pca_sample_ct, pca_row_ct), qq_col_ct, &svd_rect_lwork);
 #else
@@ -5887,8 +5887,8 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           goto CalcPca_ret_1;
         }
       }
-      __CLPK_integer lwork;
-      __CLPK_integer liwork;
+      lapack_int lwork;
+      lapack_int liwork;
       uintptr_t wkspace_byte_ct;
       if (unlikely(GetExtractEigvecsLworks(pca_sample_ct, pc_ct, &lwork, &liwork, &wkspace_byte_ct))) {
         goto CalcPca_ret_NOMEM;
@@ -10070,7 +10070,7 @@ PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const
       goto PhenoSvd_ret_INCONSISTENT_INPUT;
     }
     const uint64_t svd_rect_size = S_CAST(uint64_t, orig_pheno_ct) * new_sample_ct;
-    __CLPK_integer svd_rect_lwork;
+    lapack_int svd_rect_lwork;
 #ifdef LAPACK_ILP64
     GetSvdRectLwork(orig_pheno_ct, new_sample_ct, &svd_rect_lwork);
 #else

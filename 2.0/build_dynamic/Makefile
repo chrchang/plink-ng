@@ -5,7 +5,6 @@
 #   Do not use SSE4.2 instructions: NO_SSE42
 #   Print clear error message if SSE42/AVX2 needed but missing: CPU_CHECK
 #   Do not link to LAPACK: NO_LAPACK
-#   Use cblas_f77 instead of cblas: PREFER_CBLAS_F77
 #   Use only -O2 optimization for zstd (may be necessary for gcc 4.x): ZSTD_O2
 #   Statically link zlib: STATIC_ZLIB
 #   Statically link zstd: STATIC_ZSTD
@@ -22,7 +21,6 @@ NO_AVX2 = 1
 NO_SSE42 = 1
 CPU_CHECK = 1
 NO_LAPACK =
-PREFER_CBLAS_F77 =
 ZSTD_O2 = 1
 STATIC_ZLIB =
 STATIC_ZSTD = 1
@@ -49,7 +47,7 @@ ARCH32=
 CPUCHECK_FLAGS = ${DEBUG}
 
 ifdef FORCE_32BIT
-  # this is targeted at Scientific Linux 6.
+  # this should work on Debian 10 with the right packages installed.
   STATIC_ZLIB = 1
   ZSTD_O2 = 1
   ARCH32 = -m32 -march=i686
@@ -85,12 +83,7 @@ endif
 # this actually needs to be named "CXXFLAGS"
 CXXFLAGS += -O2
 
-ifdef FORCE_CBLAS_F77
-  BASEFLAGS += -DFORCE_CBLAS_F77
-  BLASFLAGS=-llapack -lf77blas -latlas
-else
-  BLASFLAGS=-llapack -lblas -lcblas -latlas
-endif
+BLASFLAGS=-llapack -lblas -lcblas -latlas
 
 ifdef STATIC_ZLIB
   BASEFLAGS += -DSTATIC_ZLIB
