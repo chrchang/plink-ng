@@ -83,7 +83,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="Pgenlib",
-    version="0.92.1",
+    version="0.93.0",
     author="Christopher Chang",
     author_email="chrchang@alumni.caltech.edu",
     description="Python wrapper for pgenlib's basic reader and writer.",
