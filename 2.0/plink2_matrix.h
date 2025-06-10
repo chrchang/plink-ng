@@ -21,8 +21,7 @@
 // Wrappers for frequent BLAS/LAPACK calls (sometimes with no-BLAS/LAPACK
 // fallbacks).
 //
-// Currently supports Accelerate, AOCL, ATLAS, MKL, and OpenBLAS backends;
-// there is also a placeholder for CUDA which has not been recently tested.
+// Currently supports Accelerate, AOCL, ATLAS, MKL, and OpenBLAS backends.
 //
 // BLAS functions are referred to as cblas_<fname>(), LAPACK functions are
 // referred to as LAPACK_<fname>(), and the integer index type is lapack_int.
@@ -61,9 +60,6 @@ CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 #    ifdef USE_AOCL
 #      error "plink2 cannot use AOCL on macOS."
 #    endif
-#    ifdef USE_CUDA
-#      error "plink2 cannot currently use CUDA on macOS."
-#    endif
 #    ifdef USE_MKL
 #      error "plink2 cannot currently use MKL on macOS."
 #    endif
@@ -96,9 +92,6 @@ HEADER_INLINE void BLAS_SET_NUM_THREADS(__attribute__((unused)) int num_threads)
 #    if defined(USE_AOCL)
 #      error "USE_AOCL and USE_MKL cannot both be defined."
 #    endif
-#    if defined(USE_CUDA)
-#      error "USE_CUDA and USE_MKL cannot both be defined."
-#    endif
 #    if defined(USE_OPENBLAS)
 #      error "USE_MKL and USE_OPENBLAS cannot both be defined."
 #    endif
@@ -127,11 +120,8 @@ HEADER_INLINE void BLAS_SET_NUM_THREADS(__attribute__((unused)) int num_threads)
 // arguably *decreases* overall readability...
 #    define BLAS_SET_NUM_THREADS mkl_set_num_threads
 
-#  elif defined(USE_CUDA)
-// 2c. CUDA placeholder.
-#    include "cuda/plink2_matrix_cuda.h"  // IWYU pragma: export
 #  else
-// 2d. AOCL, ATLAS, OpenBLAS.
+// 2c. AOCL, ATLAS, OpenBLAS.
 #    if defined(USE_AOCL) && defined(USE_OPENBLAS)
 #      error "USE_AOCL and USE_OPENBLAS cannot both be defined."
 #    endif
@@ -139,8 +129,8 @@ HEADER_INLINE void BLAS_SET_NUM_THREADS(__attribute__((unused)) int num_threads)
 // only subcase that seems to need this; win32 requires it *not* be here
 extern "C" {
 #    endif
-#    include <cblas.h>
-#    include <lapacke.h>
+#    include <cblas.h>  // IWYU pragma: export
+#    include <lapacke.h>  // IWYU pragma: export
 #    if defined(__cplusplus) && !defined(__LP64__) && !defined(_WIN32)
 }  // extern "C"
 #    endif
@@ -150,6 +140,11 @@ extern "C" {
 #    else
 #      define BLAS_SET_NUM_THREADS(num)
 #    endif
+#  endif
+
+// This will probably be moved the next time CUDA work is done.
+#  ifdef USE_CUDA
+#    include "cuda/plink2_matrix_cuda.h"
 #  endif
 
 // 3. Make lapack_int and LAPACK_<fname>() work everywhere.

@@ -2937,7 +2937,8 @@ void Reduce8to4bitInplaceUnsafe(uintptr_t entry_ct, uintptr_t* mainvec) {
     vmainvec[write_vidx] = vecw_gather_even(v0, v1, m8);
   }
   uintptr_t write_idx = fullvec_ct * kWordsPerVec;
-  if (write_idx == entry_ct * 2) {
+  // bugfix (9 Jun 2025): mixed up units in this comparison
+  if (write_idx * kBitsPerWordD4 == entry_ct) {
     return;
   }
 #else
