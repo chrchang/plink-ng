@@ -14104,61 +14104,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   return reterr;
 }
 
-PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t sample_ct, uint32_t is_haploid, uintptr_t line_idx_haps, uint32_t* at_least_one_het_ptr) {
-  PglErr reterr = kPglRetSuccess;
-  {
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      const uint32_t first_hap_char_code = ctou32(*loadbuf_iter);
-      const uint32_t first_hap_int = first_hap_char_code - 48;
-      // will .haps files ever support triallelic variants?  don't worry about
-      // that for now
-      const char* post_first_hap = &(loadbuf_iter[1]);
-      if (unlikely((first_hap_int >= 2) || (ctou32(*post_first_hap) > 32))) {
-        if (first_hap_char_code <= 32) {
-          goto ScanHapsForHet_ret_MISSING_TOKENS;
-        }
-        goto ScanHapsForHet_ret_INVALID_TOKEN;
-      }
-      const char* second_hap = FirstNonTspace(post_first_hap);
-      const char* post_second_hap = &(second_hap[1]);
-      const uint32_t second_hap_char_code = ctou32(*second_hap);
-      const uint32_t second_hap_int = second_hap_char_code - 48;
-      const uint32_t post_second_hap_char_code = ctou32(*post_second_hap);
-      if ((second_hap_int >= 2) || (post_second_hap_char_code > 32)) {
-        // if haploid, permit '-' in second column
-        if (unlikely((!is_haploid) || (second_hap_char_code != 45))) {
-          if (second_hap_char_code <= 32) {
-            goto ScanHapsForHet_ret_MISSING_TOKENS;
-          }
-          if ((second_hap_char_code == 45) && (post_second_hap_char_code <= 32)) {
-            goto ScanHapsForHet_ret_HAPLOID_TOKEN;
-          }
-          goto ScanHapsForHet_ret_INVALID_TOKEN;
-        }
-      } else if (first_hap_int != second_hap_int) {
-        *at_least_one_het_ptr = 1;
-        break;
-      }
-      loadbuf_iter = FirstNonTspace(post_second_hap);
-    }
-  }
-  while (0) {
-  ScanHapsForHet_ret_HAPLOID_TOKEN:
-    snprintf(g_logbuf, kLogbufSize, "Error: Haploid-only token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
-    reterr = kPglRetInconsistentInput;
-    break;
-  ScanHapsForHet_ret_INVALID_TOKEN:
-    snprintf(g_logbuf, kLogbufSize, "Error: Invalid token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
-    reterr = kPglRetMalformedInput;
-    break;
-  ScanHapsForHet_ret_MISSING_TOKENS:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx_haps, hapsname);
-    reterr = kPglRetMalformedInput;
-    break;
-  }
-  return reterr;
-}
-
 PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_sex, uint32_t is_splitpar, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgi_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* psamfile = nullptr;
