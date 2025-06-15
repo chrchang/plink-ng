@@ -38,7 +38,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define SPECIES_HUMAN 0
 #define SPECIES_COW 1
@@ -1784,6 +1784,7 @@ HEADER_INLINE void next_unset_ul_unsafe_ck(const uintptr_t* __restrict bitarr, u
   }
 }
 
+// Can overread a single word if loc == ceil.
 uint32_t next_unset(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
 HEADER_INLINE void next_unset_ck(const uintptr_t* __restrict bitarr, uint32_t ceil, uint32_t* __restrict loc_ptr) {

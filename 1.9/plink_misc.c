@@ -692,6 +692,8 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
             if (!loaded_chrom_mask_4col) {
               goto apply_cm_map_chrom_done;
             }
+            // bugfix (15 Jun 2025): forgot to exit loop
+            break;
 	  }
 	}
 	bp_old = bp_new;

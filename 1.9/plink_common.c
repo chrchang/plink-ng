@@ -3501,8 +3501,7 @@ uintptr_t next_unset_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc) {
 #endif
 
 uint32_t next_unset(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
-  // safe version.
-  assert(ceil >= 1);
+  // Can overread a single word if loc == ceil.
   const uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
   uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % BITCT);
   const uintptr_t* bitarr_last;
