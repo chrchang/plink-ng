@@ -16,6 +16,8 @@ ZLIB_STATIC = "../../zlib-"$(ZLIB_VER)"/libz-64w.a"
 CCFLAGS += ${BASEFLAGS} ${CWARN}
 CXXFLAGS += ${BASEFLAGS} ${CXXWARN} -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
 
+all: plink prettify
+
 plink: $(CSRC2) $(CCSRC2)
 	x86_64-w64-mingw32-g++ -x c++ $(CXXFLAGS) $(CSRC2) -c
 	x86_64-w64-mingw32-g++ -c $(CXXFLAGS) $(CCSRC2) -c

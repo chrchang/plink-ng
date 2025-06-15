@@ -16,6 +16,8 @@ LINKFLAGS=-lm -static-libgcc -L. ${ZLIB_STATIC}
 CCFLAGS += ${BASEFLAGS} ${CWARN}
 CXXFLAGS += ${BASEFLAGS} ${CXXWARN}
 
+all: plink prettify
+
 plink: $(CSRC2) $(CCSRC2)
 	i686-w64-mingw32-g++ -x c++ $(CXXFLAGS) $(CSRC2) -c
 	i686-w64-mingw32-g++ $(CXXFLAGS) $(CCSRC2) -c

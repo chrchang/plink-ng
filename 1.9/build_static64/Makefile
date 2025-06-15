@@ -10,6 +10,8 @@ ZLIB64="../../zlib-"$(ZLIB_VER)"/libz-64.a"
 CCFLAGS += ${BASEFLAGS} ${CWARN}
 CXXFLAGS += ${BASEFLAGS} ${CXXWARN} -I../../2.0/simde "-I../../"$(ZLIB_VER)
 
+all: plink prettify
+
 plink: $(CSRC2) $(CCSRC2)
 	g++ -x c++ $(CXXFLAGS) $(CSRC2) -c
 	g++ -c $(CXXFLAGS) $(CCSRC2) -c

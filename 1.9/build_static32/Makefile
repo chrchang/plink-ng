@@ -15,6 +15,8 @@ ZLIB32="../../zlib-"$(ZLIB_VER)"/libz-32.a"
 CCFLAGS += ${BASEFLAGS} ${CWARN}
 CXXFLAGS += ${BASEFLAGS} ${CXXWARN} -Wno-sign-compare -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
 
+all: plink prettify
+
 plink: $(CSRC2) $(CCSRC2)
 	g++ -x c++ $(CXXFLAGS) $(CSRC2) -c
 	g++ $(CXXFLAGS) $(CCSRC2) -c
