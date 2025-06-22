@@ -9830,6 +9830,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
       write_iter = writebuf;
       const char* sample_id_end = strnul(all_ids_iter);
       reterr = ImportSampleId(all_ids_iter, sample_id_end, &isic, &write_iter);
+      if (unlikely(reterr)) {
+        goto OxSampleToPsam_ret_1;
+      }
       all_ids_iter = &(sample_id_end[1]);
       if (parental_col_exists) {
         const char* paternal_id_end = strnul(all_ids_iter);
