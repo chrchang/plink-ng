@@ -3643,6 +3643,8 @@ int main(int argc, char** argv) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "var-min-qual");
           } else if (strequal_k(flagname_p, "vscore", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "variant-score");
+          } else if (strequal_k(flagname_p, "vcf-idspace-to", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "idspace-to");
           } else {
             goto main_flag_copy;
           }
@@ -6719,6 +6721,23 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "dspace-to")) {
+          if (unlikely(id_delim == ' ')) {
+            logerrputs("Error: --idspace-to cannot be used when the --id-delim character is space.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          idspace_to = ExtractCharParam(argvk[arg_idx + 1]);
+          if (unlikely(!idspace_to)) {
+            logerrputs("Error: --idspace-to argument must be a single character.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(ctou32(idspace_to) <= ' ')) {
+            logerrputs("Error: --idspace-to argument must be a nonspace character.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
         } else if (likely(strequal_k_unsafe(flagname_p2, "mport-dosage"))) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -10971,27 +10990,6 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           vcf_max_dp = uii;
-        } else if (strequal_k_unsafe(flagname_p2, "cf-idspace-to")) {
-          if (unlikely(!(xload & (kfXloadVcf | kfXloadBcf)))) {
-            logerrputs("Error: --vcf-idspace-to must be used with --vcf/--bcf.\n");
-            goto main_ret_INVALID_CMDLINE;
-          }
-          if (unlikely(id_delim == ' ')) {
-            logerrputs("Error: --vcf-idspace-to cannot be used when the --id-delim character is space.\n");
-            goto main_ret_INVALID_CMDLINE;
-          }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
-            goto main_ret_INVALID_CMDLINE_2A;
-          }
-          idspace_to = ExtractCharParam(argvk[arg_idx + 1]);
-          if (unlikely(!idspace_to)) {
-            logerrputs("Error: --vcf-idspace-to argument must be a single character.\n");
-            goto main_ret_INVALID_CMDLINE_A;
-          }
-          if (unlikely(ctou32(idspace_to) <= ' ')) {
-            logerrputs("Error: --vcf-idspace-to argument must be a nonspace character.\n");
-            goto main_ret_INVALID_CMDLINE;
-          }
         } else if (strequal_k_unsafe(flagname_p2, "cf-half-call")) {
           if (unlikely(!(xload & (kfXloadVcf | kfXloadBcf)))) {
             logerrputs("Error: --vcf-half-call must be used with --vcf/--bcf.\n");

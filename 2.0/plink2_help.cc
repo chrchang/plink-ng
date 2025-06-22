@@ -1600,8 +1600,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                        lacks the delimiter.\n"
                );
     HelpPrint("idspace-to\0vcf\0bcf\0bgen\0id-delim\0vcf-idspace-to\0", &help_ctrl, 0,
-"  --idspace-to <c>    : Convert spaces in VCF/.bgen sample IDs to the given\n"
-"                        character.\n"
+"  --idspace-to <char>         : Convert spaces in VCF/.bgen sample IDs to the\n"
+"    (alias: --vcf-idspace-to)   given character.\n"
                );
     HelpPrint("iid-sid\0id-delim\0sample-diff\0indv\0", &help_ctrl, 0,
 "  --iid-sid           : Make --id-delim, --indv, and --sample-diff interpret\n"
