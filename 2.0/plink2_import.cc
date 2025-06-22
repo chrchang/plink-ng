@@ -406,11 +406,12 @@ PglErr ImportSampleId(const char* input_id_iter, const char* input_id_end, const
         } else if (isicp->fid_delim_mode == kImportFidDelimModeAlwaysCopy) {
           write_iter = memcpyax(write_iter, input_id_iter, first_part_slen, '\t');
         }
-        write_iter = memcpyax(write_iter, iid_start, iid_slen, '\t');
+        write_iter = memcpya(write_iter, iid_start, iid_slen);
         if (isicp->sid_delim_mode == kImportSidDelimModeCopyOr0) {
-          write_iter = strcpya_k(write_iter, "0\t");
+          write_iter = strcpya_k(write_iter, "\t0");
         } else if (isicp->sid_delim_mode == kImportSidDelimModeAlwaysCopy) {
-          write_iter = memcpyax(write_iter, second_part_start, second_part_slen, '\t');
+          *write_iter++ = '\t';
+          write_iter = memcpya(write_iter, second_part_start, second_part_slen);
         }
       } else {
         if (unlikely(second_part_slen == 0)) {
@@ -420,14 +421,15 @@ PglErr ImportSampleId(const char* input_id_iter, const char* input_id_end, const
         if (isicp->fid_delim_mode >= kImportFidDelimModeCopyOr0) {
           write_iter = memcpyax(write_iter, input_id_iter, first_part_slen, '\t');
         }
-        write_iter = memcpyax(write_iter, iid_start, iid_slen, '\t');
+        write_iter = memcpya(write_iter, iid_start, iid_slen);
         if (isicp->sid_delim_mode >= kImportSidDelimModeCopyOr0) {
           const char* sid_start = &(second_part_end[1]);
           const uint32_t sid_slen = input_id_end - sid_start;
           if (unlikely(sid_slen > kMaxIdSlen)) {
             goto ImportSampleId_ret_MALFORMED_INPUT_LONG_ID;
           }
-          write_iter = memcpyax(write_iter, sid_start, sid_slen, '\t');
+          *write_iter++ = '\t';
+          write_iter = memcpya(write_iter, sid_start, sid_slen);
         }
       }
       if (unlikely((iid_slen == 1) && (iid_start[0] == '0'))) {
