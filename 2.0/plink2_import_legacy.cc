@@ -312,7 +312,7 @@ PglErr MapToPvar(const char* mapname, const ChrInfo* cip, const char* const* all
         *cswritep++ = '\t';
         cswritep = u32toa_x(cur_bp, '\t', cswritep);
         const uint32_t variant_id_slen = variant_id_end - variant_id_start;
-        if (variant_id_slen > kMaxIdSlen) {
+        if (unlikely(variant_id_slen > kMaxIdSlen)) {
           logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
           goto MapToPvar_ret_MALFORMED_INPUT;
         }
@@ -1379,6 +1379,9 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
       raw_load_batch_size = sample_ct;
     }
     const uint32_t raw_load_batch_ct = raw_load_batch_ct_m1 + 1;
+    // TODO: low-memory fallback function.  Current memory requirement starts
+    // becoming problematic with millions of samples (though 500k -> ~16 GiB is
+    // tolerable).
     uintptr_t alloc_base_cacheline_ct;
     uint64_t mpgw_per_thread_cacheline_ct;
     uint32_t vrec_len_byte_ct;

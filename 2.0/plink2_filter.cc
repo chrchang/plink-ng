@@ -3333,7 +3333,7 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
   *variant_ct_ptr -= removed_ct;
 }
 
-void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_ln_pvals, MiscFlags misc_flags, double hwe_ln_thresh_base, double hwe_sample_size_term, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+PglErr EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_ln_pvals, MiscFlags misc_flags, double hwe_ln_thresh_base, double hwe_sample_size_term, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   uint32_t prefilter_variant_ct = *variant_ct_ptr;
   const uint32_t midp = (misc_flags / kfMiscHweMidp) & 1;
   const uint32_t keep_fewhet = (misc_flags / kfMiscHweKeepFewhet) & 1;
@@ -3496,14 +3496,16 @@ void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, c
   // 'keep-fewhet' were specified, warn if the filter is effectively more than
   // twice as stringent.
   if ((hwe_sample_size_term == -1) && (!keep_fewhet) && (u31tod(max_obs) * 0.0005 * (-kLn10) < hwe_ln_thresh_base)) {
-    logerrputs("Warning: --hwe filter is suspiciously strict for the sample size; you may be\nfiltering out many variants with association signals.\n");
+    logerrputs("Error: --hwe filter is suspiciously strict for the sample size; you may be\nfiltering out many variants with association signals.\n");
     logerrprintfww("If you are performing routine QC, consider using --hwe with a sample-size term (e.g. \"--hwe 1e-5 0.001%s\" results in a threshold of 1e-6 with 1000 observations, 1e-7 with 2000 observations, etc.), and/or specifying 'keep-fewhet' to remove only variants with heterozygosity excess.\n", midp? " midp" : "");
-    logerrputs("Alternatively, if the strictness is intentional (e.g. you are preparing data\nfor a method that requires variants to be near Hardy-Weinberg equilibrium),\nexplicitly specify a sample-size term of 0.\nThis warning will be upgraded to an error in a future build.\n");
+    logerrputs("Alternatively, if the strictness is intentional (e.g. you are preparing data\nfor a method that requires variants to be near Hardy-Weinberg equilibrium),\nexplicitly specify a sample-size term of 0.\n");
+    return kPglRetInconsistentInput;
   } else if ((hwe_sample_size_term <= 0) && (S_CAST(uint64_t, max_obs) * 9 > S_CAST(uint64_t, min_obs) * 10)) {
     logerrprintfww("Warning: --hwe observation counts vary by more than 10%. Consider using --hwe with a sample-size term (e.g. \"--hwe 1e-5 0.001%s%s\" results in a threshold of 1e-6 with 1000 observations, 1e-7 with 2000 observations, etc.), and/or filtering out high-missingness variants with --geno.\n", midp? " midp" : "", keep_fewhet? " keep-fewhet" : "");
   }
   logprintfww("--hwe%s%s: %u variant%s removed due to Hardy-Weinberg exact test (%s).\n", midp? " midp" : "", keep_fewhet? " keep-fewhet" : "", removed_ct, (removed_ct == 1)? "" : "s", nonfounders? "all samples" : "founders only");
   *variant_ct_ptr -= removed_ct;
+  return kPglRetSuccess;
 }
 
 double GetTypedFreq(const double* cur_allele_freqs, uint32_t allele_ct, FreqFilterMode mode) {

@@ -1906,8 +1906,7 @@ void CleanupChrInfo(ChrInfo* cip) {
   cip->incl_excl_name_stack = nullptr;
 }
 
-char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
-  const uint32_t output_encoding = cip->output_encoding;
+char* ChrNameStdEx(const ChrInfo* cip, uint32_t chr_idx, ChrOutput output_encoding, char* buf) {
   if (chr_idx > cip->max_numeric_code) {
     // This is usually encoding-independent; no real numeric representation of
     // PAR1/PAR2 is defined.  However, since there'd otherwise be no way to
@@ -4470,6 +4469,112 @@ PglErr InitAllelePermuteUnsafe(const uintptr_t* allele_idx_offsets, uint32_t raw
     break;
   }
   CleanupThreads(&tg);
+  return reterr;
+}
+
+typedef struct TrimAllelePermuteCtxStruct {
+  const uintptr_t* variant_include;
+  const uintptr_t* allele_idx_offsets;
+  const uintptr_t* allele_presents;
+
+  AlleleCode* allele_permute;
+
+  uint32_t* variant_uidx_starts;
+
+  uint32_t variant_ct;
+} TrimAllelePermuteCtx;
+
+void TrimAllelePermuteMain(uint32_t tidx, uint32_t thread_ct, TrimAllelePermuteCtx* ctx) {
+  const uintptr_t* variant_include = ctx->variant_include;
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const uintptr_t* allele_presents = ctx->allele_presents;
+  const uint32_t variant_ct = ctx->variant_ct;
+  const uint32_t variant_uidx_start = ctx->variant_uidx_starts[tidx];
+  const uint32_t variant_idx_start = (variant_ct * S_CAST(uint64_t, tidx)) / thread_ct;
+  const uint32_t variant_idx_end = (variant_ct * (S_CAST(uint64_t, tidx) + 1)) / thread_ct;
+  AlleleCode* allele_permute = ctx->allele_permute;
+  uintptr_t cur_allele_ct = 2;
+  uintptr_t variant_uidx_base;
+  uintptr_t cur_bits;
+  BitIter1Start(variant_include, variant_uidx_start, &variant_uidx_base, &cur_bits);
+  for (uint32_t variant_idx = variant_idx_start; variant_idx != variant_idx_end; ++variant_idx) {
+    const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    uintptr_t allele_idx_offset_base = 2 * variant_uidx;
+    if (allele_idx_offsets) {
+      allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+      cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+    }
+    uintptr_t read_aidx = 1;
+    for (; read_aidx != cur_allele_ct; ++read_aidx) {
+      if (!IsSet(allele_presents, allele_idx_offset_base + read_aidx)) {
+        break;
+      }
+    }
+    if (read_aidx != cur_allele_ct) {
+      AlleleCode* cur_allele_permute = &(allele_permute[allele_idx_offset_base]);
+      uintptr_t write_aidx = read_aidx;
+      ++read_aidx;
+      for (; read_aidx != cur_allele_ct; ++read_aidx) {
+        if (IsSet(allele_presents, allele_idx_offset_base + read_aidx)) {
+          cur_allele_permute[write_aidx] = cur_allele_permute[read_aidx];
+          ++write_aidx;
+        }
+      }
+      for (; write_aidx != cur_allele_ct; ++write_aidx) {
+        cur_allele_permute[write_aidx] = kMissingAlleleCode;
+      }
+    }
+  }
+}
+
+THREAD_FUNC_DECL TrimAllelePermuteThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uint32_t tidx = arg->tidx;
+  const uint32_t thread_ct = GetThreadCt(arg->sharedp) + 1;
+  TrimAllelePermuteCtx* ctx = S_CAST(TrimAllelePermuteCtx*, arg->sharedp->context);
+  TrimAllelePermuteMain(tidx, thread_ct, ctx);
+  THREAD_RETURN;
+}
+
+PglErr TrimAllelePermute(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* allele_presents, uint32_t variant_ct, uint32_t max_thread_ct, AlleleCode* allele_permute) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  TrimAllelePermuteCtx ctx;
+  {
+    const uint32_t thread_ct = ClipU32(variant_ct / 65536, 1, max_thread_ct);
+    if (unlikely(SetThreadCt0(thread_ct - 1, &tg) ||
+                 bigstack_alloc_u32(thread_ct, &ctx.variant_uidx_starts))) {
+      goto TrimAllelePermute_ret_NOMEM;
+    }
+    ctx.variant_include = variant_include;
+    ctx.allele_idx_offsets = allele_idx_offsets;
+    ctx.allele_presents = allele_presents;
+    ctx.allele_permute = allele_permute;
+    ctx.variant_ct = variant_ct;
+    FillU32SubsetStarts(variant_include, thread_ct, 0, variant_ct, ctx.variant_uidx_starts);
+
+    if (thread_ct > 1) {
+      SetThreadFuncAndData(TrimAllelePermuteThread, &ctx, &tg);
+      DeclareLastThreadBlock(&tg);
+      if (unlikely(SpawnThreads(&tg))) {
+        goto TrimAllelePermute_ret_THREAD_CREATE_FAIL;
+      }
+    }
+    TrimAllelePermuteMain(thread_ct - 1, thread_ct, &ctx);
+    JoinThreads0(&tg);
+  }
+  while (0) {
+  TrimAllelePermute_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  TrimAllelePermute_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+  CleanupThreads(&tg);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 

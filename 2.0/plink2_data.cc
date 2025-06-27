@@ -38,12 +38,11 @@
 namespace plink2 {
 #endif
 
-PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const double* variant_cms, uint32_t variant_ct, uint32_t max_allele_slen, char delim, char output_missing_geno_char, uint32_t output_zst, uint32_t thread_ct) {
+PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* allele_permute, const double* variant_cms, uint32_t variant_ct, uint32_t max_allele_slen, char delim, char output_missing_geno_char, uint32_t output_zst, uint32_t thread_ct) {
   // - Normally generates a .bim file.  Set max_allele_slen to zero to generate
   //   a .map.
-  // - allele_presents must be nullptr unless we're trimming alt alleles.
   // - Errors out when writing .bim if any remaining variant is multiallelic
-  //   and allele_permute is nullptr.
+  //   and allele_permute[allele_idx_offsets + 2] isn't kMissingAlleleCode.
   // - Multiallelic-split case is handled by WriteBimSplit().
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
@@ -68,7 +67,7 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
-    uint32_t a1_aidx = 1;
+    uint32_t a1_code = 1;
     uint32_t a2_aidx = 0;
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
@@ -95,35 +94,39 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
         uintptr_t allele_idx_offset_base = variant_uidx * 2;
         if (allele_idx_offsets) {
           allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-          if (!allele_permute) {
-            const uintptr_t allele_idx_offset_end = allele_idx_offsets[variant_uidx + 1];
-            if (allele_idx_offset_end != allele_idx_offset_base + 2) {
-              // not actually unlikely at this point, but simplest to stay
-              // consistent
-              // see e.g. https://www.biostars.org/p/9531649/ for a reason NOT
-              // to mention --max-alleles in the error message
-              if (unlikely((!allele_presents) || (!AllBitsAreZero(allele_presents, 2 + allele_idx_offset_base, allele_idx_offset_end)))) {
-                logputs("\n");
-                logerrprintfww("Error: %s cannot contain multiallelic variants.\n", outname);
-                goto WriteMapOrBim_ret_INCONSISTENT_INPUT;
-              }
-            }
+          const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+          if ((cur_allele_ct > 2) && ((!allele_permute) || (allele_permute[allele_idx_offset_base + 2] != kMissingAlleleCode))) {
+            // not actually unlikely at this point, but simplest to stay
+            // consistent
+            // see e.g. https://www.biostars.org/p/9531649/ for a reason NOT
+            // to mention --max-alleles in the error message
+            logputs("\n");
+            logerrprintfww("Error: %s cannot contain multiallelic variants.\n", outname);
+            goto WriteMapOrBim_ret_INCONSISTENT_INPUT;
           }
         }
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
         // note that VCF ref allele corresponds to A2, not A1
         // bugfix (16 Mar 2025): forgot to implement --output-missing-genotype
         // for .bim output
+        const char* cur_a1;
+        uint32_t cur_a1_slen;
         if (allele_permute) {
           const AlleleCode* cur_allele_permute = &(allele_permute[allele_idx_offset_base]);
-          a1_aidx = cur_allele_permute[1];
+          // shouldn't be possible for this to be missing via permute
           a2_aidx = cur_allele_permute[0];
+
+          a1_code = cur_allele_permute[1];
+          if (a1_code == kMissingAlleleCode) {
+            goto WriteMapOrBim_a1_missing;
+          }
         }
-        const char* cur_a1 = cur_alleles[a1_aidx];
-        const uint32_t cur_a1_slen = strlen(cur_a1);
-        if (((!allele_presents) || IsSet(allele_presents, a1_aidx + allele_idx_offset_base)) && (!strequal_k(cur_a1, ".", cur_a1_slen))) {
+        cur_a1 = cur_alleles[a1_code];
+        cur_a1_slen = strlen(cur_a1);
+        if (!strequal_k(cur_a1, ".", cur_a1_slen)) {
           cswritep = memcpya(cswritep, cur_a1, cur_a1_slen);
         } else {
+        WriteMapOrBim_a1_missing:
           *cswritep++ = output_missing_geno_char;
         }
         *cswritep++ = delim;
@@ -348,6 +351,9 @@ PglErr PvarInfoPermuteWrite(const AlleleCode* cur_allele_permute, const char* co
           }
           for (uint32_t write_aidx = aidx_start; write_aidx != allele_ct; ++write_aidx) {
             const uint32_t read_aidx = cur_allele_permute[write_aidx];
+            if (read_aidx == kMissingAlleleCode) {
+              break;
+            }
             write_iter = memcpyax(write_iter, info_allele_val_starts[read_aidx], info_allele_val_slens[read_aidx], ',');
           }
           write_iter[-1] = ';';
@@ -909,8 +915,7 @@ BoolErr PvarInfoWriteStatus(const uintptr_t* variant_include, const uintptr_t* n
   return ((*write_info_pr_ptr) && (info_flags & kfInfoPrNonflagPresent));
 }
 
-PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, const uint32_t* contig_lens, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t info_keys_htable_size, PvarPsamFlags pvar_psam_flags, char output_missing_geno_char, uint32_t write_info, uint32_t write_info_pr, uint32_t thread_ct, char* xheader) {
-  // allele_presents must be nullptr unless we're trimming alt alleles
+PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* allele_permute, const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, const uint32_t* contig_lens, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t info_keys_htable_size, PvarPsamFlags pvar_psam_flags, char output_missing_geno_char, uint32_t write_info, uint32_t write_info_pr, uint32_t thread_ct, char* xheader) {
   // split/join cases handled by WritePvarSplit() and WritePvarJoin()
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
@@ -1025,7 +1030,7 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
     uint32_t ref_allele_idx = 0;
-    uint32_t alt1_allele_idx = 1;
+    uint32_t alt1_code = 1;
     uint32_t cur_allele_ct = 2;
     uint32_t alleles_permuted = 0;
     uint32_t pct = 0;
@@ -1058,7 +1063,7 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
       if (allele_permute) {
         cur_allele_permute = &(allele_permute[allele_idx_offset_base]);
         ref_allele_idx = cur_allele_permute[0];
-        alt1_allele_idx = cur_allele_permute[1];
+        alt1_code = cur_allele_permute[1];
       }
       // bugfix (2 Jan 2021): forgot to apply --output-missing-genotype setting
       // here.
@@ -1072,36 +1077,29 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
         *cswritep++ = output_missing_geno_char;
       }
       *cswritep++ = '\t';
-      uint32_t alt_allele_written = 0;
-      if ((!allele_presents) || IsSet(allele_presents, allele_idx_offset_base + alt1_allele_idx)) {
-        const char* alt1_allele = cur_alleles[alt1_allele_idx];
-        const uint32_t alt1_allele_slen = strlen(alt1_allele);
-        if (!strequal_k(alt1_allele, ".", alt1_allele_slen)) {
-          cswritep = memcpya(cswritep, alt1_allele, alt1_allele_slen);
-        } else {
-          *cswritep++ = output_missing_geno_char;
-        }
-        alt_allele_written = 1;
+      if ((alt1_code != kMissingAlleleCode) && (!strequal_k_unsafe(cur_alleles[alt1_code], "."))) {
+        cswritep = strcpya(cswritep, cur_alleles[alt1_code]);
+      } else {
+        *cswritep++ = output_missing_geno_char;
       }
       if (unlikely(Cswrite(&css, &cswritep))) {
         goto WritePvar_ret_WRITE_FAIL;
       }
-      for (uint32_t aidx = 2; aidx != cur_allele_ct; ++aidx) {
-        const uint32_t write_aidx = cur_allele_permute? cur_allele_permute[aidx] : aidx;
-        if (allele_presents && (!IsSet(allele_presents, allele_idx_offset_base + write_aidx))) {
-          continue;
-        }
-        if (alt_allele_written) {
+      if (cur_allele_ct > 2) {
+        for (uint32_t aidx = 2; aidx != cur_allele_ct; ++aidx) {
+          uint32_t write_aidx = aidx;
+          if (cur_allele_permute) {
+            write_aidx = cur_allele_permute[aidx];
+            if (write_aidx == kMissingAlleleCode) {
+              break;
+            }
+          }
           *cswritep++ = ',';
+          cswritep = strcpya(cswritep, cur_alleles[write_aidx]);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto WritePvar_ret_WRITE_FAIL;
+          }
         }
-        alt_allele_written = 1;
-        cswritep = strcpya(cswritep, cur_alleles[write_aidx]);
-        if (unlikely(Cswrite(&css, &cswritep))) {
-          goto WritePvar_ret_WRITE_FAIL;
-        }
-      }
-      if (!alt_allele_written) {
-        *cswritep++ = output_missing_geno_char;
       }
 
       if (write_qual) {
@@ -3509,10 +3507,9 @@ uint32_t FillMissingFromBiallelicDosagePhased(const uintptr_t* dosage_present, c
   return dphase_write_idx;
 }
 
-uintptr_t InitWriteAlleleIdxOffsets(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const uint32_t* new_variant_idx_to_old, uint32_t variant_ct, uintptr_t* new_allele_idx_offsets) {
+uintptr_t InitWriteAlleleIdxOffsets(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const AlleleCode* allele_permute, const uint32_t* new_variant_idx_to_old, uint32_t variant_ct, uintptr_t* new_allele_idx_offsets) {
   uintptr_t cur_offset = 0;
-  if (allele_presents) {
-    uint32_t ref_allele_idx = 0;
+  if (allele_permute) {
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = 0;
     if (!new_variant_idx_to_old) {
@@ -3529,19 +3526,17 @@ uintptr_t InitWriteAlleleIdxOffsets(const uintptr_t* variant_include, const uint
       const uintptr_t old_offset_start = allele_idx_offsets[variant_uidx];
       const uintptr_t old_offset_end = allele_idx_offsets[variant_uidx + 1];
       uint32_t cur_allele_ct = old_offset_end - old_offset_start;
-      if (cur_allele_ct > 2) {
-        cur_allele_ct = PopcountBitRange(allele_presents, old_offset_start, old_offset_end);
-        if (allele_permute) {
-          ref_allele_idx = allele_permute[old_offset_start];
-        }
-        if (!IsSet(allele_presents, old_offset_start + ref_allele_idx)) {
-          ++cur_allele_ct;
-        }
-        if (cur_allele_ct < 2) {
-          cur_allele_ct = 2;
+      if (cur_allele_ct == 2) {
+        cur_offset += 2;
+        continue;
+      }
+      uint32_t aidx = 2;
+      for (; aidx != cur_allele_ct; ++aidx) {
+        if (allele_permute[old_offset_start + aidx] == kMissingAlleleCode) {
+          break;
         }
       }
-      cur_offset += cur_allele_ct;
+      cur_offset += aidx;
     }
   } else if (!new_variant_idx_to_old) {
     uintptr_t variant_uidx_base = 0;
@@ -5426,7 +5421,7 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
 }
 */
 
-void FillAllelePermuteSubset(const AlleleCode* allele_permute, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uint32_t* new_variant_idx_to_old, uint32_t variant_ct, AlleleCode* write_allele_permute) {
+void FillAllelePermuteSubset(const AlleleCode* allele_permute, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* write_allele_idx_offsets, const uint32_t* new_variant_idx_to_old, uint32_t variant_ct, AlleleCode* write_allele_permute) {
   if (!new_variant_idx_to_old) {
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
@@ -5438,12 +5433,15 @@ void FillAllelePermuteSubset(const AlleleCode* allele_permute, const uintptr_t* 
       return;
     }
     AlleleCode* write_allele_permute_iter = write_allele_permute;
+    uint32_t write_allele_ct = 2;
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       const uintptr_t allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-      const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
-      memcpy(write_allele_permute_iter, &(allele_permute[allele_idx_offset_base]), allele_ct * sizeof(AlleleCode));
-      write_allele_permute_iter = &(write_allele_permute_iter[allele_ct]);
+      if (write_allele_idx_offsets) {
+        write_allele_ct = write_allele_idx_offsets[variant_idx + 1] - write_allele_idx_offsets[variant_idx];
+      }
+      memcpy(write_allele_permute_iter, &(allele_permute[allele_idx_offset_base]), write_allele_ct * sizeof(AlleleCode));
+      write_allele_permute_iter = &(write_allele_permute_iter[write_allele_ct]);
     }
     return;
   }
@@ -5455,12 +5453,15 @@ void FillAllelePermuteSubset(const AlleleCode* allele_permute, const uintptr_t* 
     return;
   }
   AlleleCode* write_allele_permute_iter = write_allele_permute;
+  uint32_t write_allele_ct = 2;
   for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
     const uintptr_t variant_uidx = new_variant_idx_to_old[variant_idx];
     const uintptr_t allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-    const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
-    memcpy(write_allele_permute_iter, &(allele_permute[allele_idx_offset_base]), allele_ct * sizeof(AlleleCode));
-    write_allele_permute_iter = &(write_allele_permute_iter[allele_ct]);
+    if (write_allele_idx_offsets) {
+      write_allele_ct = write_allele_idx_offsets[variant_idx + 1] - write_allele_idx_offsets[variant_idx];
+    }
+    memcpy(write_allele_permute_iter, &(allele_permute[allele_idx_offset_base]), write_allele_ct * sizeof(AlleleCode));
+    write_allele_permute_iter = &(write_allele_permute_iter[write_allele_ct]);
   }
 }
 
@@ -5598,7 +5599,17 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
         //   if split: call PgrGet1()
         //   otherwise, if erase-alt2+: call PgrGet2()
         //   otherwise, error out
-        const PglErr reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec);
+        PglErr reterr;
+        if (!write_allele_permute_iter) {
+          reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec);
+        } else {
+          const uint32_t allele_idx0 = write_allele_permute_iter[write_idx * 2];
+          uint32_t allele_idx1 = write_allele_permute_iter[write_idx * 2 + 1];
+          if (allele_idx1 == kMissingAlleleCode) {
+            allele_idx1 = (allele_idx0 == 0);
+          }
+          reterr = PgrGet2(sample_include, pssi, sample_ct, variant_uidx, allele_idx0, allele_idx1, pgrp, genovec);
+        }
         if (unlikely(reterr)) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto MakeBedlikeThread_err;
@@ -5620,11 +5631,6 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
           goto MakeBedlikeThread_err;
         }
         ApplyHardCallThresh(dosage_present, dosage_main, dosage_ct, hard_call_halfdist, genovec);
-      }
-      // may need to change this when trim-alts implemented
-      if (write_allele_permute_iter && write_allele_permute_iter[write_idx * 2]) {
-        assert(write_allele_permute_iter[write_idx * 2] == 1);
-        GenovecInvertUnsafe(sample_ct, genovec);
       }
       if (set_invalid_haploid_missing && is_haploid_nonmt) {
         if (is_x) {
@@ -5915,6 +5921,9 @@ typedef struct MakePgenCtxStruct {
   uintptr_t** loadbuf_thread_starts[2];
   // phase, dosage
   unsigned char* loaded_vrtypes[2];
+  // iff trim-alts makes write_allele_idx_offsets[x+1] -
+  // write_allele_idx_offsets[x] an undercount of input alleles
+  AlleleCode* loaded_allele_cts[2];
 
   uint32_t cur_block_write_ct;
 
@@ -5963,6 +5972,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   const ChrInfo* cip = mcp->cip;
   const uint32_t* write_chr_fo_vidx_start = ctx->write_chr_fo_vidx_start;
   const uintptr_t* write_allele_idx_offsets = ctx->write_allele_idx_offsets;
+
   const AlleleCode* write_allele_permute = mcp->write_allele_permute;
   const uintptr_t* sample_include = mcp->sample_include;
   const uintptr_t* sample_include_interleaved_vec = ctx->sample_include_interleaved_vec;
@@ -6050,7 +6060,8 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
     }
   }
   uint32_t variant_idx_offset = 0;
-  uint32_t allele_ct = 2;
+  uint32_t read_allele_ct = 2;
+  uint32_t write_allele_ct = 2;
   uint32_t parity = 0;
   do {
     const uintptr_t cur_block_write_ct = ctx->cur_block_write_ct;
@@ -6058,6 +6069,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
     const uint32_t write_idx_end = MINV(write_idx + kPglVblockSize, cur_block_write_ct);
     uintptr_t* loadbuf_iter = ctx->loadbuf_thread_starts[parity][tidx];
     unsigned char* loaded_vrtypes = ctx->loaded_vrtypes[parity];
+    AlleleCode* loaded_allele_cts = ctx->loaded_allele_cts[parity];
     uint32_t loaded_vrtype = 0;
     uint32_t chr_end_bidx = 0;
     uint32_t is_x = 0;
@@ -6083,7 +6095,11 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       uintptr_t write_allele_idx_offset_base = (write_idx + variant_idx_offset) * 2;
       if (write_allele_idx_offsets) {
         write_allele_idx_offset_base = write_allele_idx_offsets[write_idx + variant_idx_offset];
-        allele_ct = write_allele_idx_offsets[write_idx + variant_idx_offset + 1] - write_allele_idx_offset_base;
+        write_allele_ct = write_allele_idx_offsets[write_idx + variant_idx_offset + 1] - write_allele_idx_offset_base;
+        read_allele_ct = write_allele_ct;
+      }
+      if (loaded_allele_cts) {
+        read_allele_ct = loaded_allele_cts[write_idx];
       }
       const uint32_t is_mhc = loaded_vrtype & 8;
       uint32_t read_rare01_ct = 0;
@@ -6093,7 +6109,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       uintptr_t* read_patch_10_set = nullptr;
       AlleleCode* read_patch_10_vals = nullptr;
       if (is_mhc) {
-        assert(allele_ct > 2);
+        assert(read_allele_ct > 2);
         read_rare01_ct = cur_vrec_end[0];
         read_rare10_ct = cur_vrec_end[1];
         cur_vrec_end = &(cur_vrec_end[RoundUpPow2(2, kWordsPerVec)]);
@@ -6143,7 +6159,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       uint32_t read_dphase_ct = 0;
       if (is_dosage) {
         // multiallelic dosage not implemented yet
-        assert(allele_ct == 2);
+        assert(read_allele_ct == 2);
 
         // this should have length dependent on dosage_ct
         cur_dosagepresent = cur_vrec_end;
@@ -6257,14 +6273,17 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       if (write_allele_permute) {
         const AlleleCode* cur_write_allele_permute = &(write_allele_permute[write_allele_idx_offset_base]);
         uint32_t allele_order_changed = 0;
-        for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
-          if (cur_write_allele_permute[aidx] != aidx) {
-            allele_order_changed = 1;
+        for (uint32_t aidx = 0; aidx != read_allele_ct; ++aidx) {
+          const uint32_t read_aidx = cur_write_allele_permute[aidx];
+          if (read_aidx != aidx) {
+            if (read_aidx != kMissingAlleleCode) {
+              allele_order_changed = 1;
+            }
             break;
           }
         }
         if (allele_order_changed) {
-          if (allele_ct == 2) {
+          if (read_allele_ct == 2) {
             GenovecInvertUnsafe(sample_ct, write_genovec);
             if (is_hphase) {
               // trailing bits don't matter
@@ -6278,7 +6297,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
             }
           } else {
             // cur_write_allele_permute[write_aidx] is read_aidx.  Invert.
-            for (uint32_t write_aidx = 0; write_aidx != allele_ct; ++write_aidx) {
+            for (uint32_t write_aidx = 0; write_aidx != write_allele_ct; ++write_aidx) {
               const uint32_t read_aidx = cur_write_allele_permute[write_aidx];
               ac_remap[read_aidx] = write_aidx;
             }
@@ -6559,12 +6578,12 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       } else {
         // multiallelic dosage not supported
         if (!is_hphase) {
-          if (unlikely(PwcAppendMultiallelicSparse(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, allele_ct, write_rare01_ct, write_rare10_ct, pwcp))) {
+          if (unlikely(PwcAppendMultiallelicSparse(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, write_allele_ct, write_rare01_ct, write_rare10_ct, pwcp))) {
             ctx->write_reterr = kPglRetVarRecordTooLarge;
             break;
           }
         } else {
-          if (unlikely(PwcAppendMultiallelicGenovecHphase(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, cur_write_phasepresent, write_phaseinfo, allele_ct, write_rare01_ct, write_rare10_ct, pwcp))) {
+          if (unlikely(PwcAppendMultiallelicGenovecHphase(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, cur_write_phasepresent, write_phaseinfo, write_allele_ct, write_rare01_ct, write_rare10_ct, pwcp))) {
             ctx->write_reterr = kPglRetVarRecordTooLarge;
             break;
           }
@@ -6596,7 +6615,7 @@ void JoinNonrefFlags() {
 // initialized mcp fields: cip, sex_male_collapsed_interleaved,
 // sex_female_collapsed_interleaved, write_allele_permute, raw_sample_ct,
 // sample_ct, plink2_write_flags
-PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, __maybe_unused const uintptr_t* allele_presents, const uintptr_t* write_allele_idx_offsets, const uint32_t* new_variant_idx_to_old, const uintptr_t* sex_male_collapsed, const uintptr_t* sex_female_collapsed, const char* writer_ver, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t write_variant_ct, uint32_t max_read_allele_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, MakeCommon* mcp, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* write_allele_idx_offsets, const uint32_t* new_variant_idx_to_old, const uintptr_t* sex_male_collapsed, const uintptr_t* sex_female_collapsed, const char* writer_ver, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t write_variant_ct, uint32_t max_read_allele_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, MakeCommon* mcp, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   // variant_uidx_new_to_old[] can be nullptr
 
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -6926,6 +6945,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       // bugfix (8 Jun 2021): forgot to include multiallelic track in
       // load_variant_vec_ct computation
       uint32_t loaded_vrtypes_needed = 0;
+      uint32_t loaded_allele_cts_needed = 0;
       if (read_gflags & kfPgenGlobalMultiallelicHardcallFound) {
         loaded_vrtypes_needed = 1;
         // raw format:
@@ -6973,11 +6993,11 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       }
 
       uintptr_t bytes_left = bigstack_left();
-      if (unlikely(bytes_left < 7 * kCacheline)) {
+      if (unlikely(bytes_left < 9 * kCacheline)) {
         goto MakePgenRobust_ret_NOMEM;
       }
-      bytes_left -= 7 * kCacheline;  // defend against adverse rounding
-      uintptr_t ulii = bytes_left / (2 * (kBytesPerVec * load_variant_vec_ct + loaded_vrtypes_needed));
+      bytes_left -= 9 * kCacheline;  // defend against adverse rounding
+      uintptr_t ulii = bytes_left / (2 * (kBytesPerVec * load_variant_vec_ct + loaded_vrtypes_needed + loaded_allele_cts_needed * sizeof(AlleleCode)));
       if (unlikely(!ulii)) {
         goto MakePgenRobust_ret_NOMEM;
       }
@@ -6997,6 +7017,13 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       } else {
         ctx.loaded_vrtypes[0] = nullptr;
         ctx.loaded_vrtypes[1] = nullptr;
+      }
+      if (loaded_allele_cts_needed) {
+        ctx.loaded_allele_cts[0] = S_CAST(AlleleCode*, bigstack_alloc_raw_rd(write_block_size * sizeof(AlleleCode)));
+        ctx.loaded_allele_cts[1] = S_CAST(AlleleCode*, bigstack_alloc_raw_rd(write_block_size * sizeof(AlleleCode)));
+      } else {
+        ctx.loaded_allele_cts[0] = nullptr;
+        ctx.loaded_allele_cts[1] = nullptr;
       }
       SetThreadFuncAndData(MakePgenThread, &ctx, &tg);
 
@@ -7040,6 +7067,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           uintptr_t* cur_loadbuf = main_loadbufs[parity];
           uintptr_t* loadbuf_iter = cur_loadbuf;
           unsigned char* cur_loaded_vrtypes = ctx.loaded_vrtypes[parity];
+          AlleleCode* cur_loaded_allele_cts = ctx.loaded_allele_cts[parity];
           ctx.loadbuf_thread_starts[parity][0] = loadbuf_iter;
           if (write_allele_idx_offsets) {
             cur_write_allele_idx_offsets = &(write_allele_idx_offsets[read_batch_idx * write_block_size]);
@@ -7051,7 +7079,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
               } else {
                 read_variant_uidx = *new_variant_idx_to_old_iter++;
               }
-              // todo: multiallelic trim-alts
               // todo: multiallelic merge
               // split: load to buffer instead of loadbuf_iter, have function
               //        for writing to loadbuf_iter given buffer contents, this
@@ -7061,12 +7088,16 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
               //        same-position block... (finish writing this later)
               if (allele_idx_offsets) {
                 cur_read_allele_ct = allele_idx_offsets[read_variant_uidx + 1] - allele_idx_offsets[read_variant_uidx];
+                if (cur_loaded_allele_cts) {
+                  // trim-alts
+                  cur_loaded_allele_cts[block_widx] = cur_read_allele_ct;
+                }
               }
             }
             if (cur_write_allele_idx_offsets) {
               cur_write_allele_ct = cur_write_allele_idx_offsets[block_widx + 1] - cur_write_allele_idx_offsets[block_widx];
             }
-            if (cur_read_allele_ct == cur_write_allele_ct) {
+            if ((cur_read_allele_ct == cur_write_allele_ct) || cur_loaded_allele_cts) {
               reterr = PgrGetRaw(read_variant_uidx, read_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[block_widx])) : nullptr);
               if (unlikely(reterr)) {
                 PgenErrPrintNV(reterr, read_variant_uidx);
@@ -7075,6 +7106,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
               ++block_widx;
               continue;
             } else if (cur_write_allele_ct == 2) {
+              // split
               if (write_aidx == 1) {
                 // 1. read into normal, not raw representation
                 if (read_phase_present) {
@@ -7489,8 +7521,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
   return reterr;
 }
 
-// allele_presents should be nullptr iff trim_alts not true
-PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, __maybe_unused const char* varid_multi_template_str, __maybe_unused const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, const char* writer_ver, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t new_variant_id_max_allele_slen, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* allele_permute, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, __maybe_unused const char* varid_multi_template_str, __maybe_unused const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, const char* writer_ver, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t new_variant_id_max_allele_slen, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -7529,13 +7560,14 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       // from alt2 so we can set calls involving the latter to missing.
       read_gflags |= kfPgenGlobalMultiallelicHardcallFound;
     }
+    const uint32_t trim_alts = (make_plink2_flags / kfMakePlink2TrimAlts) & 1;
     const uintptr_t* write_allele_idx_offsets = nullptr;
     uint32_t write_variant_ct = variant_ct;
     uint32_t max_write_allele_ct = max_allele_ct;
     uint32_t max_missalt_ct = 0;
     if (make_plink2_flags & kfMakePlink2MMask) {
       // Enforced by command-line parser.
-      assert((!allele_permute) && (!allele_presents));
+      assert(!allele_permute);
       if (make_plink2_flags & kfMakePlink2MJoin) {
         reterr = PlanMultiallelicJoin(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, make_plink2_flags, &write_variant_ct, &write_allele_idx_offsets, &max_write_allele_ct, &max_missalt_ct);
       } else if (!allele_idx_offsets) {
@@ -7548,16 +7580,12 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         goto MakePlink2NoVsort_ret_1;
       }
     } else if (allele_idx_offsets) {
-      if (allele_presents) {
-        fputs("multiallelic variants + trim-alts not yet supported\n", stderr);
-        exit(S_CAST(int32_t, kPglRetNotYetSupported));
-      }
-      if (variant_ct < raw_variant_ct) {
+      if ((variant_ct < raw_variant_ct) || trim_alts) {
         uintptr_t* new_allele_idx_offsets;
         if (bigstack_alloc_w(variant_ct + 1, &new_allele_idx_offsets)) {
           goto MakePlink2NoVsort_ret_NOMEM;
         }
-        const uintptr_t final_offset = InitWriteAlleleIdxOffsets(variant_include, allele_idx_offsets, nullptr, allele_permute, nullptr, variant_ct, new_allele_idx_offsets);
+        const uintptr_t final_offset = InitWriteAlleleIdxOffsets(variant_include, allele_idx_offsets, trim_alts? allele_permute : nullptr, nullptr, variant_ct, new_allele_idx_offsets);
         if (final_offset != 2 * variant_ct) {
           new_allele_idx_offsets[variant_ct] = final_offset;
           write_allele_idx_offsets = new_allele_idx_offsets;
@@ -7579,7 +7607,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         goto MakePlink2NoVsort_ret_INCONSISTENT_INPUT;
       }
       if (write_variant_ct == variant_ct) {
-        reterr = WriteMapOrBim(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, variant_cms, variant_ct, max_allele_slen, '\t', output_missing_geno_char, bim_zst, max_thread_ct);
+        reterr = WriteMapOrBim(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_permute, variant_cms, variant_ct, max_allele_slen, '\t', output_missing_geno_char, bim_zst, max_thread_ct);
       } else {
         assert(write_variant_ct > variant_ct);
         reterr = WriteBimSplit(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, variant_cms, varid_template_str, missing_varid_match, variant_ct, max_allele_slen, new_variant_id_max_allele_slen, (make_plink2_flags / kfMakePlink2VaridSemicolon) & 1, (make_plink2_flags / kfMakePlink2VaridDup) & 1, misc_flags, output_missing_geno_char, bim_zst, max_thread_ct);
@@ -7619,7 +7647,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
       if (write_variant_ct == variant_ct) {
-        reterr = WritePvar(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, contig_lens, info_keys, info_keys_htable, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, info_keys_htable_size, pvar_psam_flags, output_missing_geno_char, write_info, write_info_pr, max_thread_ct, xheader);
+        reterr = WritePvar(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, contig_lens, info_keys, info_keys_htable, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, info_keys_htable_size, pvar_psam_flags, output_missing_geno_char, write_info, write_info_pr, max_thread_ct, xheader);
       } else {
         if (write_variant_ct > variant_ct) {
           reterr = WritePvarSplit(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, contig_lens, varid_template_str, missing_varid_match, info_keys, info_keys_htable, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, new_variant_id_max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, info_key_ct, info_keys_htable_size, misc_flags, make_plink2_flags, pvar_psam_flags, output_missing_geno_char, write_info, write_info_pr, max_thread_ct, xheader);
@@ -7670,14 +7698,14 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       mc.sex_female_collapsed_interleaved = nullptr;
     }
     mc.write_allele_permute = allele_permute;
-    if (allele_permute && (variant_ct < raw_variant_ct)) {
+    if (allele_permute && ((variant_ct < raw_variant_ct) || trim_alts)) {
       // might want inner loop to map variant uidx -> idx instead
       const uintptr_t write_total_allele_ct = write_allele_idx_offsets? write_allele_idx_offsets[write_variant_ct] : (2 * write_variant_ct);
       AlleleCode* write_allele_permute;
       if (bigstack_alloc_ac(write_total_allele_ct, &write_allele_permute)) {
         goto MakePlink2NoVsort_ret_NOMEM;
       }
-      FillAllelePermuteSubset(allele_permute, variant_include, allele_idx_offsets, nullptr, variant_ct, write_allele_permute);
+      FillAllelePermuteSubset(allele_permute, variant_include, allele_idx_offsets, write_allele_idx_offsets, nullptr, variant_ct, write_allele_permute);
       mc.write_allele_permute = write_allele_permute;
     }
     if (make_plink2_flags & kfMakePlink2SetMixedMtMissing) {
@@ -8004,6 +8032,10 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         // ctx.loaded_vrtypes
         other_per_thread_cacheline_ct += 2 * (kPglVblockSize / kCacheline);
       }
+      if (trim_alts && allele_idx_offsets) {
+        // ctx.loaded_allele_cts
+        other_per_thread_cacheline_ct += 2 * sizeof(AlleleCode) * (kPglVblockSize / kCacheline);
+      }
       const uintptr_t cachelines_avail = bigstack_left() / kCacheline;
       if (cachelines_avail < alloc_base_cacheline_ct + (mpgw_per_thread_cacheline_ct + other_per_thread_cacheline_ct) * calc_thread_ct) {
         if (cachelines_avail < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct + other_per_thread_cacheline_ct) {
@@ -8017,9 +8049,15 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       main_loadbufs[1] = S_CAST(uintptr_t*, bigstack_alloc_raw(load_vblock_cacheline_ct * calc_thread_ct * kCacheline));
       ctx.loaded_vrtypes[0] = nullptr;
       ctx.loaded_vrtypes[1] = nullptr;
+      ctx.loaded_allele_cts[0] = nullptr;
+      ctx.loaded_allele_cts[1] = nullptr;
       if (read_or_write_phase_present || read_dosage_present || (read_gflags & kfPgenGlobalMultiallelicHardcallFound)) {
         ctx.loaded_vrtypes[0] = S_CAST(unsigned char*, bigstack_alloc_raw(kPglVblockSize * calc_thread_ct));
         ctx.loaded_vrtypes[1] = S_CAST(unsigned char*, bigstack_alloc_raw(kPglVblockSize * calc_thread_ct));
+      }
+      if (trim_alts && allele_idx_offsets) {
+        ctx.loaded_allele_cts[0] = S_CAST(AlleleCode*, bigstack_alloc_raw(kPglVblockSize * sizeof(AlleleCode) * calc_thread_ct));
+        ctx.loaded_allele_cts[1] = S_CAST(AlleleCode*, bigstack_alloc_raw(kPglVblockSize * sizeof(AlleleCode) * calc_thread_ct));
       }
       if (read_or_write_phase_present || read_or_write_dosage_present) {
         const uint32_t bitvec_writebuf_byte_ct = BitCtToCachelineCt(sample_ct) * kCacheline;
@@ -8138,6 +8176,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
           uintptr_t* cur_loadbuf = main_loadbufs[parity];
           uintptr_t* loadbuf_iter = cur_loadbuf;
           unsigned char* cur_loaded_vrtypes = ctx.loaded_vrtypes[parity];
+          AlleleCode* cur_loaded_allele_cts = ctx.loaded_allele_cts[parity];
           for (uint32_t uii = 0; uii != cur_batch_size; ++uii) {
             if (!(uii % kPglVblockSize)) {
               ctx.loadbuf_thread_starts[parity][uii / kPglVblockSize] = loadbuf_iter;
@@ -8147,6 +8186,9 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
             if (unlikely(reterr)) {
               PgenErrPrintNV(reterr, read_variant_uidx);
               goto MakePlink2NoVsort_ret_1;
+            }
+            if (cur_loaded_allele_cts) {
+              cur_loaded_allele_cts[uii] = allele_idx_offsets[read_variant_uidx + 1] - allele_idx_offsets[read_variant_uidx];
             }
           }
         }
@@ -8190,7 +8232,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       g_failed_alloc_attempt_size = 0;
       mpgwp = nullptr;
       BigstackReset(bigstack_mark2);
-      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, allele_presents, write_allele_idx_offsets, nullptr, ctx.sex_male_collapsed, ctx.sex_female_collapsed, writer_ver, raw_variant_ct, variant_ct, write_variant_ct, max_allele_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, &mc, simple_pgrp, outname, outname_end);
+      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, write_allele_idx_offsets, nullptr, ctx.sex_male_collapsed, ctx.sex_female_collapsed, writer_ver, raw_variant_ct, variant_ct, write_variant_ct, max_allele_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, &mc, simple_pgrp, outname, outname_end);
       if (unlikely(reterr)) {
         goto MakePlink2NoVsort_ret_1;
       }
@@ -9628,14 +9670,15 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
         mc.plink2_write_flags |= kfPlink2WriteSetMixedMtMissing;
       }
       mc.cip = &write_chr_info;
+      const uint32_t trim_alts = (make_plink2_flags / kfMakePlink2TrimAlts) & 1;
       const uintptr_t* write_allele_idx_offsets = nullptr;
       if (allele_idx_offsets && (!(make_plink2_flags & kfMakePlink2EraseAlt2Plus))) {
-        if ((variant_ct < raw_variant_ct) || new_variant_idx_to_old) {
+        if ((variant_ct < raw_variant_ct) || new_variant_idx_to_old || trim_alts) {
           uintptr_t* new_allele_idx_offsets;
           if (unlikely(bigstack_alloc_w(variant_ct + 1, &new_allele_idx_offsets))) {
             goto MakePlink2Vsort_ret_NOMEM;
           }
-          const uintptr_t final_offset = InitWriteAlleleIdxOffsets(variant_include, allele_idx_offsets, allele_presents, allele_permute, new_variant_idx_to_old, variant_ct, new_allele_idx_offsets);
+          const uintptr_t final_offset = InitWriteAlleleIdxOffsets(variant_include, allele_idx_offsets, trim_alts? allele_permute : nullptr, new_variant_idx_to_old, variant_ct, new_allele_idx_offsets);
           if (final_offset != 2 * variant_ct) {
             new_allele_idx_offsets[variant_ct] = final_offset;
             write_allele_idx_offsets = new_allele_idx_offsets;
@@ -9649,18 +9692,18 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
       mc.write_allele_permute = allele_permute;
       if (allele_permute) {
         // multiallelic split/join prohibited during command-line parsing
-        if (new_variant_idx_to_old || (variant_ct < raw_variant_ct)) {
+        if (new_variant_idx_to_old || (variant_ct < raw_variant_ct) || trim_alts) {
           // might want inner loop to map variant uidx -> idx instead
           const uintptr_t write_total_allele_ct = write_allele_idx_offsets? write_allele_idx_offsets[variant_ct] : (variant_ct * 2);
           AlleleCode* write_allele_permute;
           if (unlikely(bigstack_alloc_ac(write_total_allele_ct, &write_allele_permute))) {
             goto MakePlink2Vsort_ret_NOMEM;
           }
-          FillAllelePermuteSubset(allele_permute, variant_include, allele_idx_offsets, new_variant_idx_to_old, variant_ct, write_allele_permute);
+          FillAllelePermuteSubset(allele_permute, variant_include, allele_idx_offsets, write_allele_idx_offsets, new_variant_idx_to_old, variant_ct, write_allele_permute);
           mc.write_allele_permute = write_allele_permute;
         }
       }
-      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, allele_presents, write_allele_idx_offsets, new_variant_idx_to_old, sex_male_collapsed, sex_female_collapsed, writer_ver, raw_variant_ct, variant_ct, variant_ct, max_allele_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, &mc, simple_pgrp, outname, outname_end);
+      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, write_allele_idx_offsets, new_variant_idx_to_old, sex_male_collapsed, sex_female_collapsed, writer_ver, raw_variant_ct, variant_ct, variant_ct, max_allele_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, &mc, simple_pgrp, outname, outname_end);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }

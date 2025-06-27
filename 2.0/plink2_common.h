@@ -193,36 +193,37 @@ FLAGSET64_DEF_START()
   kfExportfBgen13 = (1 << 14),
   kfExportfBimbam = (1 << 15),
   kfExportfBimbam1chr = (1 << 16),
-  kfExportfFastphase = (1 << 17),
-  kfExportfFastphase1chr = (1 << 18),
-  kfExportfHaps = (1 << 19),
-  kfExportfHapsLegend = (1 << 20),
-  kfExportfHv = (1 << 21),
-  kfExportfHv1chr = (1 << 22),
-  kfExportfIndMajorBed = (1 << 23),
-  kfExportfLgen = (1 << 24),
-  kfExportfLgenRef = (1 << 25),
-  kfExportfList = (1 << 26),
-  kfExportfRlist = (1 << 27),
-  kfExportfOxGenV1 = (1 << 28),
-  kfExportfOxGenV2 = (1 << 29),
+  kfExportfEig = (1 << 17),
+  kfExportfFastphase = (1 << 18),
+  kfExportfFastphase1chr = (1 << 19),
+  kfExportfHaps = (1 << 20),
+  kfExportfHapsLegend = (1 << 21),
+  kfExportfHv = (1 << 22),
+  kfExportfHv1chr = (1 << 23),
+  kfExportfIndMajorBed = (1 << 24),
+  kfExportfLgen = (1 << 25),
+  kfExportfLgenRef = (1 << 26),
+  kfExportfList = (1 << 27),
+  kfExportfRlist = (1 << 28),
+  kfExportfOxGenV1 = (1 << 29),
+  kfExportfOxGenV2 = (1 << 30),
   kfExportfOxGen = kfExportfOxGenV1 | kfExportfOxGenV2,
-  kfExportfPed = (1 << 30),
-  kfExportfCompound = (1U << 31),
-  kfExportfPhylip = (1LLU << 32),
-  kfExportfPhylipPhased = (1LLU << 33),
-  kfExportfStructure = (1LLU << 34),
-  kfExportfTped = (1LLU << 35),
-  kfExportfVcf42 = (1LLU << 36),
-  kfExportfVcf43 = (1LLU << 37),
+  kfExportfPed = (1U << 31),
+  kfExportfCompound = (1LLU << 32),
+  kfExportfPhylip = (1LLU << 33),
+  kfExportfPhylipPhased = (1LLU << 34),
+  kfExportfStructure = (1LLU << 35),
+  kfExportfTped = (1LLU << 36),
+  kfExportfVcf42 = (1LLU << 37),
+  kfExportfVcf43 = (1LLU << 38),
   kfExportfVcf = kfExportfVcf42 | kfExportfVcf43,
   kfExportfTypemask = (2LLU * kfExportfVcf43) - kfExportf23,
-  kfExportfIncludeAlt = (1LLU << 38),
-  kfExportfBgz = (1LLU << 39),
-  kfExportfOmitNonmaleY = (1LLU << 40),
-  kfExportfSampleV2 = (1LLU << 41),
-  kfExportfBgenOmitSampleIdBlock = (1LLU << 42),
-  kfExportfPhylipUsedSites = (1LLU << 43)
+  kfExportfIncludeAlt = (1LLU << 39),
+  kfExportfBgz = (1LLU << 40),
+  kfExportfOmitNonmaleY = (1LLU << 41),
+  kfExportfSampleV2 = (1LLU << 42),
+  kfExportfBgenOmitSampleIdBlock = (1LLU << 43),
+  kfExportfPhylipUsedSites = (1LLU << 44)
 FLAGSET64_DEF_END(ExportfFlags);
 
 FLAGSET_DEF_START()
@@ -877,6 +878,13 @@ PglErr FinalizeChrInfo(ChrInfo* cip);
 
 void CleanupChrInfo(ChrInfo* cip);
 
+// --export may need to override cip->output_encoding
+char* ChrNameStdEx(const ChrInfo* cip, uint32_t chr_idx, ChrOutput output_encoding, char* buf);
+
+HEADER_INLINE char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
+  return ChrNameStdEx(cip, chr_idx, cip->output_encoding, buf);
+}
+
 // assumes chr_idx is valid
 // note that chr_idx == 0 is always rendered as '0', never 'chr0'
 char* chrtoa(const ChrInfo* cip, uint32_t chr_idx, char* buf);
@@ -901,6 +909,8 @@ uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen
 // when the chromosome name isn't null-terminated
 // requires chr_name[name_slen] to be mutable
 uint32_t GetChrCodeCounted(const ChrInfo* cip, uint32_t name_slen, char* chr_name);
+
+void ChrError(const char* chr_name, const char* file_descrip, const ChrInfo* cip, uintptr_t line_idx, uint32_t error_code);
 
 HEADER_INLINE uint32_t GetVariantChrFoIdx(const ChrInfo* cip, uintptr_t variant_uidx) {
   return LowerBoundNonemptyU32(&(cip->chr_fo_vidx_start[1]), cip->chr_ct, variant_uidx + 1);
@@ -1505,6 +1515,16 @@ HEADER_INLINE void PglLogputsb() {
     logputs(pgl_errbuf);
     PglResetLog();
   }
+}
+
+PglErr TrimAllelePermute(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* allele_presents, uint32_t variant_ct, uint32_t max_thread_ct, AlleleCode* allele_permute);
+
+HEADER_INLINE void UpdateEighash(const char* newstr, uint32_t slen, uint32_t* hash_ptr) {
+  uint32_t strhash = 0;
+  for (uint32_t uii = 0; uii != slen; ++uii) {
+    strhash = (strhash * 23) + ctou32(newstr[uii]);
+  }
+  *hash_ptr = ((*hash_ptr) * 17) ^ strhash;
 }
 
 #ifdef __cplusplus

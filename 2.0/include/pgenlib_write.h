@@ -178,7 +178,8 @@ void PreinitMpgw(MTPgenWriter* mpgwp);
 // Caller is responsible for printing open-fail error message.
 //
 // In the multiallelic case, allele_idx_offsets can be nullptr if
-// allele_ct_upper_bound is provided.
+// allele_ct_upper_bound is provided.  In the biallelic case, it's fine to pass
+// in allele_ct_upper_bound=0.
 //
 // If write_mode is kPgenWriteBackwardSeek, variant_ct_limit must be the actual
 // variant count.  Otherwise, variant_ct_limit just needs to be an upper bound,
@@ -286,7 +287,9 @@ void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint3
 // flipped (i.e. wide_codes[2n] was larger than wide_codes[2n+1] before the
 // final reordering pass; caller needs to know this to properly update
 // phaseinfo, dphase_delta, multidphase_delta).
-// It currently assumes no present alleles are being mapped to 'missing'.
+// It currently assumes no *present* alleles are being mapped to 'missing'; but
+// it's ok for remap[k] to be the missing value if allele k never appears in
+// the data.
 void PglMultiallelicSparseToDense(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const AlleleCode* __restrict remap, uint32_t sample_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, uintptr_t* __restrict flipped, AlleleCode* __restrict wide_codes);
 
 // phasepresent == nullptr ok, that indicates that ALL heterozygous calls are

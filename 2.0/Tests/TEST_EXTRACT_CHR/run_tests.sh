@@ -23,7 +23,13 @@ do
     diff -q plink2x_c$c.bim plink2_c$c.bim
 done
 
-# tmp_data is also suitable for ind-major-bed, ped, and tped round-trip tests.
+# tmp_data is also suitable for unphased-hardcall round-trip tests (eig,
+# ind-major-bed, ped, tped)
+$1/plink2 $2 $3 --bfile tmp_data --export eig --out plink2_roundtrip
+$1/plink2 $2 $3 --eigfile plink2_roundtrip --make-bed --out plink2_test
+diff -q tmp_data.bed plink2_test.bed
+diff -q tmp_data.bim plink2_test.bim
+
 $1/plink2 $2 $3 --bfile tmp_data --export ind-major-bed --out plink2_roundtrip
 $1/plink2 $2 $3 --bfile plink2_roundtrip --make-bed --out plink2_test
 diff -q tmp_data.bed plink2_test.bed

@@ -195,6 +195,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      PLINK 2 currently cannot handle omitted male columns.)\n"
 "    * If not used with --sample, new sample IDs are of the form 'per#/per#'.\n\n"
                );
+    HelpPrint("eigfile\0eiggeno\0eigind\0eigsnp\0", &help_ctrl, 1,
+"  --eigfile <prefix> : Specify .geno + .ind + .snp filename prefix.\n"
+"  --eiggeno <fname>  : Specify full name of PACKEDANCESTRYMAP .geno file.\n"
+"  --eigind <fname>   : Specify full name of EIGENSOFT .ind file.\n"
+"  --eigsnp <fname>   : Specify full name of EIGENSOFT .snp file.\n\n"
+              );
     HelpPrint("pedmap\0ped\0map\0file\0", &help_ctrl, 0,
 "  --pedmap <prefix>  : Specify .ped + .map filename prefix.\n"
 "  --ped <filename>   : Specify full name of .ped file.\n"
@@ -300,10 +306,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("make-pgen\0make-bpgen\0make-bed\0make-just-pvar\0make-just-psam\0make-pfile\0make-bpfile\0make-bfile\0", &help_ctrl, 1,
 "  --make-pgen ['vzs'] ['format='<code>] ['trim-alts'] ['erase-phase']\n"
-"              ['erase-dosage'] ['fill-missing-from-dosage']\n"
+"              ['erase-dosage'] ['fill-missing-from-dosage'] ['writer-ver']\n"
 "              ['pvar-cols='<col set desc>] ['psam-cols='<col set desc>]\n"
 "  --make-bpgen ['vzs'] ['format='<code>] ['trim-alts'] ['erase-phase']\n"
-"               ['erase-dosage'] ['fill-missing-from-dosage']\n"
+"               ['erase-dosage'] ['fill-missing-from-dosage'] ['writer-ver']\n"
 "  --make-bed ['vzs'] ['trim-alts']\n"
                /*
 "  --make-pgen ['vzs'] ['format='<code>] [{trim-alts | erase-alt2+}]\n"
@@ -333,21 +339,19 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                /*
 "        3: unphased dosage data\n"
 "        4: phased dosage data\n"
+               */
 "    * The 'trim-alts' modifier causes alternate alleles not present in the\n"
 "      dataset after sample filtering to be removed.  (This occurs before any\n"
 "      genotype/dosage erasure performed by --make-[b]pgen/--make-bed.)\n"
-               */
-    // Commented out since, while this is on the roadmap, it isn't fully
-    // implemented yet.  (This also applies to other commented-out help text.)
 "    * The 'erase-phase' and 'erase-dosage' modifiers prevent phase and dosage\n"
 "      information from being written to the new .pgen.\n"
 "    * When a hardcall is missing but the corresponding dosage is present,\n"
 "      'fill-missing-from-dosage' causes the (Euclidean-)nearest hardcall to be\n"
 "      filled in, with ties broken in favor of the lower-index allele.\n"
-               /*
 "    * The 'writer-ver' modifier causes the output .pgen to include this\n"
 "      program's version string.  Note that the resulting .pgen is not readable\n"
 "      by plink2 builds from before May 2024.\n"
+               /*
 "    * The 'multiallelics=' modifier (alias: 'm=') specifies a join or split\n"
 "      mode.  The following modes are currently supported:\n"
 "      * '-': Split all multiallelic records.\n"
@@ -364,8 +368,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      Symbolic ALT alleles are joined separately.  Additional conditions apply\n"
 "      to them, and PLINK 2 usually errors out when they aren't met.\n"
 "      When splitting with 'varid-dup', the new variants keep the original\n"
-"      variant\n"
-"      ID.  Otherwise, new variant IDs are assigned as follows:\n"
+"      variant ID.  Otherwise, new variant IDs are assigned as follows:\n"
 "      1. If --set-all-var-ids was specified, that template is applied.\n"
 "      2. Otherwise, if joining, and all source variant IDs are identical and\n"
 "         nonmissing, that ID is used.\n"
@@ -444,8 +447,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                 ['bgen-omit-sample-id-block']\n"
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
-"    (actually, only A, AD, Av, bcf, bgen-1.x, haps, hapslegend, ind-major-bed,\n"
-"    oxford, ped, phylip, phylip-phased, tped, and vcf are implemented for now)\n"
+"    (actually, only A, AD, Av, bcf, bgen-1.x, eig, haps, hapslegend,\n"
+"    ind-major-bed, oxford, ped, phylip, phylip-phased, tped, and vcf are\n"
+"    implemented for now)\n"
 "    * '23': 23andMe 4-column format.  This can only be used on a single\n"
 "            sample's data (--keep may be handy), and does not support\n"
 "            multicharacter allele codes.\n"
@@ -465,6 +469,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * 'bimbam': Regular BIMBAM format.\n"
 "    * 'bimbam-1chr': BIMBAM format, with a two-column .pos.txt file.  Does not\n"
 "                     support multiple chromosomes.\n"
+"    * 'eig': EIGENSOFT PACKEDANCESTRYMAP (.geno) + .ind + .snp format.  Does\n"
+"             not support multicharacter allele codes.\n"
 "    * 'fastphase': Per-chromosome fastPHASE files, with\n"
 "                   .chr-<chr #>.phase.inp filename extensions.\n"
 "    * 'fastphase-1chr': Single .phase.inp file.  Does not support\n"
@@ -1795,14 +1801,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                        can be appropriate for .ped-derived VCFs.\n"
                );
     HelpPrint("vcf\0vcf-allow-no-nonvar\0", &help_ctrl, 0,
-"  --vcf-allow-no-nonvar : By default, --vcf without dosage= prints a warning\n"
-"                          (to be upgraded to an error in a future build) when\n"
+"  --vcf-allow-no-nonvar : By default, --vcf without dosage= errors out when\n"
 "                          given a single-sample file with no 0, 0/0, or 0|0 GT\n"
 "                          values among 1000+ scanned variants with non-missing\n"
 "                          GT, since that implies the VCF was not generated\n"
 "                          properly (e.g. GATK GenotypeGVCFs was run without\n"
 "                          --include-non-variant-sites).  --vcf-allow-no-nonvar\n"
-"                          suppresses this warning/error.\n"
+"                          suppresses this error.\n"
               );
     HelpPrint("oxford-single-chr\0data\0gen\0bgen\0", &help_ctrl, 0,
 "  --oxford-single-chr <chr name>  : Specify single-chromosome .gen/.bgen file\n"
@@ -2258,8 +2263,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    than p * 10^{-nk}, where n is the sample size.\n"
 "    * If unspecified, k is 0.  However, because --hwe has frequently been used\n"
 "      with inappropriately strict thresholds on large datasets, this can now\n"
-"      result in a warning (to be upgraded to an error in a future build).\n"
-"      Explicitly specify k=0 to silence the warning.\n"
+"      result in an error; explicitly specify k=0 to override.\n"
 "    * By default, only founders are considered.\n"
 "    * chrX p-values are now computed using Graffelman and Weir's method.\n"
 "    * For variants with j alleles where j>2, j one-vs.-rest 'biallelic' tests\n"
@@ -2483,6 +2487,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * By default, if an allele code in the main dataset is missing, it is\n"
 "      treated as a wildcard.  'strict-missing' causes it to only match missing\n"
 "      allele codes.\n"
+              );
+    HelpPrint("allele1234\0alleleACGT\0alleleacgt\0", &help_ctrl, 0,
+"  --allele1234 ['multichar'] : Interpret/recode A/C/G/T alleles (lowercase\n"
+"                               permitted) as 1/2/3/4.  With 'multichar', longer\n"
+"                               allele codes are converted in the same manner.\n"
+"                               Now errors out if any nonmissing allele code is\n"
+"                               not fully converted.\n"
+"  --alleleACGT ['multichar'] : Reverse of --allele1234.\n"
               );
     HelpPrint("update-ids\0update-parents\0update-sex\0", &help_ctrl, 0,
 "  --update-ids <fname>       : Update sample IDs.\n"

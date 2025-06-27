@@ -1710,6 +1710,201 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
   return reterr;
 }
 
+PglErr AlleleAlphanumUpdate(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, uint32_t variant_ct, AlleleAlphanumFlags flags, __attribute__((unused)) uint32_t max_thread_ct, char** allele_storage_mutable) {
+  PglErr reterr = kPglRetSuccess;
+  {
+    // TODO: trivial to parallelize.
+    const uint32_t is_acgt_to_1234 = (flags / kfAlleleAlphanum1234) & 1;
+    const uint32_t allow_multichar = (flags / kfAlleleAlphanumMultichar) & 1;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t allele_ct = 2;
+    if (is_acgt_to_1234) {
+      // Single-character-allele conversion: operate directly on byte-offset
+      // from g_one_char_strs.  Missing code permitted.
+      const unsigned char acgtm_ptr_to_1234m[512] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '.'*2, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, '1'*2, 0, 0, 0, '2'*2, 0, 0, 0, 0, 0, 0, 0, '3'*2, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, '4'*2, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, '1'*2, 0, 0, 0, '2'*2, 0, 0, 0, 0, 0, 0, 0, '3'*2, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, '4'*2, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+      // Multi-character conversion: ACGT->1234 conversion table if
+      // allow_multichar, guaranteed-failure otherwise.  Missing allele code
+      // doesn't come into play here.
+      unsigned char acgt_to_1234[256];
+      memset(acgt_to_1234, 0, 256);
+      if (allow_multichar) {
+        acgt_to_1234['A'] = '1';
+        acgt_to_1234['C'] = '2';
+        acgt_to_1234['G'] = '3';
+        acgt_to_1234['T'] = '4';
+        acgt_to_1234['a'] = '1';
+        acgt_to_1234['c'] = '2';
+        acgt_to_1234['g'] = '3';
+        acgt_to_1234['t'] = '4';
+      }
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        uintptr_t allele_idx_offset_base = variant_uidx * 2;
+        if (allele_idx_offsets) {
+          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+          allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+        }
+        char** cur_alleles = &(allele_storage_mutable[allele_idx_offset_base]);
+        for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+          char* cur_allele = cur_alleles[aidx];
+          const uintptr_t one_char_offset = S_CAST(uintptr_t, cur_allele - K_CAST(char*, g_one_char_strs));
+          if (one_char_offset < 512) {
+            const uint32_t one_char_offset_conv = acgtm_ptr_to_1234m[one_char_offset];
+            if (unlikely(!one_char_offset_conv)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --allele1234: Variant '%s' has an allele code that isn't in {A, C, G, T, a, c, g, t, <missing>}.\n", variant_ids[variant_uidx]);
+              goto AlleleAlphanumUpdate_ret_INCONSISTENT_INPUT_WW;
+            }
+            cur_alleles[aidx] = &(K_CAST(char*, g_one_char_strs)[one_char_offset_conv]);
+          } else {
+            char* cur_allele_iter = cur_allele;
+            unsigned char ucc = *cur_allele_iter;
+            do {
+              const unsigned char ucc_conv = acgt_to_1234[ucc];
+              if (unlikely(!ucc_conv)) {
+                if (allow_multichar) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: --allele1234: Variant '%s' has a multi-character allele code containing a non-ACGT character. (You can use --snps-only to exclude all variants with multi-character allele codes.)\n", variant_ids[variant_uidx]);
+                } else {
+                  snprintf(g_logbuf, kLogbufSize, "Error: --allele1234: Variant '%s' has a multi-character allele code. (Add the 'multichar' modifier if such allele codes are expected.)\n", variant_ids[variant_uidx]);
+                }
+                goto AlleleAlphanumUpdate_ret_INCONSISTENT_INPUT_WW;
+              }
+              *cur_allele_iter = ucc_conv;
+              ucc = *(++cur_allele_iter);
+            } while (ucc);
+          }
+        }
+      }
+    } else {
+      const unsigned char acgtm_ptr_from_1234m[512] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '.'*2, 0, 0, 0,
+        0, 0, 65*2, 0, 67*2, 0, 71*2, 0, 84*2, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+      unsigned char acgt_from_1234[256];
+      memset(acgt_from_1234, 0, 256);
+      if (allow_multichar) {
+        acgt_from_1234['1'] = 'A';
+        acgt_from_1234['2'] = 'C';
+        acgt_from_1234['3'] = 'G';
+        acgt_from_1234['4'] = 'T';
+      }
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        uintptr_t allele_idx_offset_base = variant_uidx * 2;
+        if (allele_idx_offsets) {
+          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+          allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+        }
+        char** cur_alleles = &(allele_storage_mutable[allele_idx_offset_base]);
+        for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+          char* cur_allele = cur_alleles[aidx];
+          const uintptr_t one_char_offset = S_CAST(uintptr_t, cur_allele - K_CAST(char*, g_one_char_strs));
+          if (one_char_offset < 512) {
+            const uint32_t one_char_offset_conv = acgtm_ptr_from_1234m[one_char_offset];
+            if (unlikely(!one_char_offset_conv)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --alleleACGT: Variant '%s' has an allele code that isn't in {1, 2, 3, 4, <missing>}.\n", variant_ids[variant_uidx]);
+              goto AlleleAlphanumUpdate_ret_INCONSISTENT_INPUT_WW;
+            }
+            cur_alleles[aidx] = &(K_CAST(char*, g_one_char_strs)[one_char_offset_conv]);
+          } else {
+            char* cur_allele_iter = cur_allele;
+            unsigned char ucc = *cur_allele_iter;
+            do {
+              const unsigned char ucc_conv = acgt_from_1234[ucc];
+              if (unlikely(!ucc_conv)) {
+                if (allow_multichar) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: --alleleACGT: Variant '%s' has a multi-character allele code containing a non-1234 character. (You can use --snps-only to exclude all variants with multi-character allele codes.)\n", variant_ids[variant_uidx]);
+                } else {
+                  snprintf(g_logbuf, kLogbufSize, "Error: --alleleACGT: Variant '%s' has a multi-character allele code. (Add the 'multichar' modifier if such allele codes are expected.)\n", variant_ids[variant_uidx]);
+                }
+                goto AlleleAlphanumUpdate_ret_INCONSISTENT_INPUT_WW;
+              }
+              *cur_allele_iter = ucc_conv;
+              ucc = *(++cur_allele_iter);
+            } while (ucc);
+          }
+        }
+      }
+    }
+    logprintf("--allele%s: %u variant%s updated.\n", is_acgt_to_1234? "1234" : "ACGT", variant_ct, (variant_ct == 1)? "" : "s");
+  }
+  while (0) {
+  AlleleAlphanumUpdate_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+  return reterr;
+}
+
 PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;

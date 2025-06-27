@@ -2,7 +2,7 @@
 # https://github.com/ropensci/git2r/blob/master/configure.ac .
 
 AC_PREREQ([2.69])
-AC_INIT([pgenlibr],[0.4.0],[chrchang@alumni.caltech.edu])
+AC_INIT([pgenlibr],[0.5.3],[chrchang@alumni.caltech.edu])
 AC_PATH_PROG([PKGCONF],[pkg-config],[],[$PATH:/usr/local/bin:ext/bin:ext:/sw/bin:/opt/bin:/opt/local/bin])
 
 # Find the compiler and compiler flags to use for fallback version checks
@@ -80,13 +80,14 @@ else
     if "${PKGCONF}" --exists libzstd; then
       VERSION_STRING=`${PKGCONF} --modversion libzstd`
       VER=`getVersion3 ${VERSION_STRING}`
-      # The bundled 1.5.7 includes compression bugfixes relative to 1.5.2, but
-      # the Python/R interfaces currently only use zstd for decompression, so
-      # we don't need it.
-      # 1.5.2 is over three years old, and all the R build machines we're using
-      # have at least that version.  (An earlier version of this script
-      # required 1.5.4, but then I reviewed the 1.5.4 release notes and
-      # confirmed that its major bugfix only affected compression.)
+      # The bundled 1.5.5-1.5.7 includes compression bugfixes relative to
+      # 1.5.2, but the Python/R interfaces currently only use zstd for
+      # decompression, so we don't need it.
+      # (Tried to bundle 1.5.7 for CRAN, but that triggered a
+      # diagnostic-suppression complaint that did not exist for 1.5.5.  So CRAN
+      # submissions are probably pinned to 1.5.5 indefinitely.)
+      # 1.5.2 is over three years old, and most R build machines have at least
+      # that version.
       if test "${VER}" -ge 100502; then
         AC_MSG_NOTICE([zstd ${VERSION_STRING} library detected -- skipping zstd compilation])
         ZSTD_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I libzstd`
