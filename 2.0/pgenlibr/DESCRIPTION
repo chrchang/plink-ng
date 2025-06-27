@@ -1,8 +1,8 @@
 Package: pgenlibr
 Type: Package
 Title: PLINK 2 Binary (.pgen) Reader
-Version: 0.5.0
-Date: 2025-0x-yy
+Version: 0.5.2
+Date: 2025-06-23
 Authors@R: c(person(given = "Christopher",
                     family = "Chang",
                     role = c("aut", "cre"),
@@ -42,4 +42,4 @@ Copyright: This package includes sources of the libdeflate library owned by
 BugReports: https://github.com/chrchang/plink-ng/issues
 Imports: Rcpp (>= 1.0.1)
 LinkingTo: Rcpp
-RoxygenNote: 7.3.1
+RoxygenNote: 7.3.2

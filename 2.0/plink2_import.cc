@@ -333,18 +333,41 @@ PglErr GparseFlush(const GparseRecord* grp, const uintptr_t* allele_idx_offsets,
 }
 
 
+// AlwaysOmit: always present, always zero, could be either 2 or 3 input fields
+// OmitWhenPresent: --iid-sid, FID always 0 when present
+// CopyOr0: --iid-sid, present and sometimes nonzero when 3 input fields,
+//          write "0" when only 2 input fields
+// AlwaysCopy: always present, sometimes nonzero, could be either 2 or 3 inputs
+ENUM_U31_DEF_START()
+  kImportFidDelimModeAlwaysOmit,
+  kImportFidDelimModeOmitWhenPresent,
+  kImportFidDelimModeCopyOr0,
+  kImportFidDelimModeAlwaysCopy
+ENUM_U31_DEF_END(ImportFidDelimMode);
+
+// NonexistOrOmit: don't generate SID column
+//                 (caller now responsible for confirming during scanning pass
+//                 that no IDs have 4+ parts)
+// CopyOr0: present and sometimes nonzero when 3 input fields, write "0" when
+//          only 2 input fields
+// AlwaysCopy: always present, sometimes nonzero
+ENUM_U31_DEF_START()
+  kImportSidDelimModeNonexistOrOmit,
+  kImportSidDelimModeCopyOr0,
+  kImportSidDelimModeAlwaysCopy
+ENUM_U31_DEF_END(ImportSidDelimMode);
+
 typedef struct ImportSampleIdContextStruct {
   const char* const_fid;
   uint32_t const_fid_slen;
   uint32_t double_id;
-  uint32_t id_delim_sid;
-  uint32_t two_part_null_fid;
-  uint32_t two_part_null_sid;
-  uint32_t omit_fid_0;
+
+  ImportFidDelimMode fid_delim_mode;
+  ImportSidDelimMode sid_delim_mode;
   char id_delim;
 } ImportSampleIdContext;
 
-void InitImportSampleIdContext(const char* const_fid, MiscFlags misc_flags, ImportFlags import_flags, char id_delim, ImportSampleIdContext* isicp) {
+void InitImportSampleIdContext(const char* const_fid, ImportFlags import_flags, char id_delim, ImportSampleIdContext* isicp) {
   isicp->const_fid = nullptr;
   isicp->const_fid_slen = 0;
   if (const_fid && (!strequal_k_unsafe(const_fid, "0"))) {
@@ -352,10 +375,8 @@ void InitImportSampleIdContext(const char* const_fid, MiscFlags misc_flags, Impo
     isicp->const_fid = const_fid;
   }
   isicp->double_id = (import_flags / kfImportDoubleId) & 1;
-  isicp->id_delim_sid = (misc_flags / kfMiscIidSid) & 1;
-  isicp->two_part_null_fid = 0;
-  isicp->two_part_null_sid = 0;
-  isicp->omit_fid_0 = 0;
+  isicp->fid_delim_mode = kImportFidDelimModeAlwaysOmit;
+  isicp->sid_delim_mode = kImportSidDelimModeNonexistOrOmit;
   isicp->id_delim = id_delim;
 }
 
@@ -366,10 +387,7 @@ PglErr ImportSampleId(const char* input_id_iter, const char* input_id_end, const
     char* write_iter = *write_iterp;
     if (id_delim) {
       const char* first_delim = S_CAST(const char*, memchr(input_id_iter, ctou32(id_delim), input_id_end - input_id_iter));
-      if (unlikely(!first_delim)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
-        goto ImportSampleId_ret_INCONSISTENT_INPUT_2;
-      }
+      assert(first_delim);  // previously validated
       if (unlikely(*input_id_iter == id_delim)) {
         snprintf(g_logbuf, kLogbufSize, "Error: '%c' at beginning of sample ID.\n", id_delim);
         goto ImportSampleId_ret_INCONSISTENT_INPUT_2;
@@ -387,52 +405,53 @@ PglErr ImportSampleId(const char* input_id_iter, const char* input_id_end, const
         goto ImportSampleId_ret_MALFORMED_INPUT_LONG_ID;
       }
       const char* second_part_start = &(first_delim[1]);
-      const char* second_part_end = S_CAST(const char*, memchr(second_part_start, ctou32(id_delim), input_id_end - second_part_start));
-      const char* third_part_start = nullptr;
-      uint32_t third_part_slen = 0;
-      if (second_part_end) {
-        if (unlikely(second_part_start == second_part_end)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Consecutive instances of '%c' in sample ID.\n", id_delim);
-          goto ImportSampleId_ret_INCONSISTENT_INPUT_2;
-        }
-        third_part_start = &(second_part_end[1]);
-        third_part_slen = input_id_end - third_part_start;
-        if (unlikely(memchr(third_part_start, ctou32(id_delim), third_part_slen))) {
-          snprintf(g_logbuf, kLogbufSize, "Error: More than two instances of '%c' in sample ID.\n", id_delim);
-          goto ImportSampleId_ret_INCONSISTENT_INPUT_2;
-        }
-        if (unlikely(third_part_slen > kMaxIdSlen)) {
-          goto ImportSampleId_ret_MALFORMED_INPUT_LONG_ID;
-        }
-      } else {
-        second_part_end = input_id_end;
-        if (isicp->id_delim_sid) {
-          if (unlikely((first_part_slen == 1) && (*input_id_iter == '0'))) {
-            logerrputs("Error: Sample ID induces an invalid IID of '0'.\n");
-            goto ImportSampleId_ret_INCONSISTENT_INPUT;
-          }
-          if (isicp->two_part_null_fid) {
-            write_iter = strcpya_k(write_iter, "0\t");
-          }
-        }
-      }
-      if (!isicp->omit_fid_0) {
-        write_iter = memcpyax(write_iter, input_id_iter, first_part_slen, '\t');
-      }
+      const char* second_part_end = AdvToDelimOrEnd(second_part_start, input_id_end, id_delim);
       const uint32_t second_part_slen = second_part_end - second_part_start;
-      if (unlikely((third_part_start || (!isicp->id_delim_sid)) && (second_part_slen == 1) && (*second_part_end == '0'))) {
-        logerrputs("Error: Sample ID induces an invalid IID of '0'.\n");
-        goto ImportSampleId_ret_INCONSISTENT_INPUT;
-      }
       if (unlikely(second_part_slen > kMaxIdSlen)) {
         goto ImportSampleId_ret_MALFORMED_INPUT_LONG_ID;
       }
-      write_iter = memcpya(write_iter, second_part_start, second_part_slen);
-      if (third_part_start) {
-        *write_iter++ = '\t';
-        write_iter = memcpya(write_iter, third_part_start, third_part_slen);
-      } else if (isicp->two_part_null_sid) {
-        write_iter = strcpya_k(write_iter, "\t0");
+      const char* iid_start = second_part_start;
+      uint32_t iid_slen = second_part_slen;
+      if (second_part_end == input_id_end) {
+        if (isicp->fid_delim_mode == kImportFidDelimModeOmitWhenPresent) {
+          iid_start = input_id_iter;
+          iid_slen = first_part_slen;
+        } else if (isicp->fid_delim_mode == kImportFidDelimModeCopyOr0) {
+          iid_start = input_id_iter;
+          iid_slen = first_part_slen;
+          write_iter = strcpya_k(write_iter, "0\t");
+        } else if (isicp->fid_delim_mode == kImportFidDelimModeAlwaysCopy) {
+          write_iter = memcpyax(write_iter, input_id_iter, first_part_slen, '\t');
+        }
+        write_iter = memcpya(write_iter, iid_start, iid_slen);
+        if (isicp->sid_delim_mode == kImportSidDelimModeCopyOr0) {
+          write_iter = strcpya_k(write_iter, "\t0");
+        } else if (isicp->sid_delim_mode == kImportSidDelimModeAlwaysCopy) {
+          *write_iter++ = '\t';
+          write_iter = memcpya(write_iter, second_part_start, second_part_slen);
+        }
+      } else {
+        if (unlikely(second_part_slen == 0)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Consecutive instances of '%c' in sample ID.\n", id_delim);
+          goto ImportSampleId_ret_INCONSISTENT_INPUT_2;
+        }
+        if (isicp->fid_delim_mode >= kImportFidDelimModeCopyOr0) {
+          write_iter = memcpyax(write_iter, input_id_iter, first_part_slen, '\t');
+        }
+        write_iter = memcpya(write_iter, iid_start, iid_slen);
+        if (isicp->sid_delim_mode >= kImportSidDelimModeCopyOr0) {
+          const char* sid_start = &(second_part_end[1]);
+          const uint32_t sid_slen = input_id_end - sid_start;
+          if (unlikely(sid_slen > kMaxIdSlen)) {
+            goto ImportSampleId_ret_MALFORMED_INPUT_LONG_ID;
+          }
+          *write_iter++ = '\t';
+          write_iter = memcpya(write_iter, sid_start, sid_slen);
+        }
+      }
+      if (unlikely((iid_slen == 1) && (iid_start[0] == '0'))) {
+        logerrputs("Error: Sample ID induces an invalid IID of '0'.\n");
+        goto ImportSampleId_ret_INCONSISTENT_INPUT;
       }
     } else {
       const uint32_t token_slen = input_id_end - input_id_iter;
@@ -479,22 +498,21 @@ PglErr ImportIidFromSampleId(const char* input_id_iter, const char* input_id_end
         snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
         goto ImportIidFromSampleId_ret_INCONSISTENT_INPUT_2;
       }
-      if (isicp->id_delim_sid && (!isicp->two_part_null_fid)) {
-        // only possible if there's never a third field
-        iid_slen = first_delim - input_id_iter;
+      const char* second_part_start = &(first_delim[1]);
+      const char* second_part_end = AdvToDelimOrEnd(second_part_start, input_id_end, id_delim);
+      uint32_t iid_second;
+      if ((isicp->fid_delim_mode == kImportFidDelimModeAlwaysCopy) ||
+          (isicp->fid_delim_mode == kImportFidDelimModeAlwaysOmit)) {
+        iid_second = 1;
       } else {
-        const char* second_part_start = &(first_delim[1]);
-        const char* second_part_end = S_CAST(const char*, memchr(second_part_start, ctou32(id_delim), input_id_end - second_part_start));
-        if ((!isicp->id_delim_sid) || second_part_end) {
-          iid_start = second_part_start;
-          if (!second_part_end) {
-            second_part_end = input_id_end;
-          }
-          iid_slen = second_part_end - second_part_start;
-        } else {
-          iid_slen = first_delim - iid_start;
-        }
+        iid_second = (second_part_end != input_id_end);
       }
+      const char* iid_end = first_delim;
+      if (iid_second) {
+        iid_start = second_part_start;
+        iid_end = second_part_end;
+      }
+      iid_slen = iid_end - iid_start;
     } else {
       iid_slen = input_id_end - iid_start;
     }
@@ -531,8 +549,8 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
   PreinitTextStream(&psam_txs);
   {
     ImportSampleIdContext isic;
-    InitImportSampleIdContext(const_fid, misc_flags, import_flags, id_delim, &isic);
-    uint32_t write_fid = 1;
+    InitImportSampleIdContext(const_fid, import_flags, id_delim, &isic);
+    uint32_t write_fid = 0;
     uint32_t write_sid = 0;
     // Alpha 2 changes:
     // * --id-delim can no longer be used with --const-fid/--double-id.  All
@@ -554,7 +572,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
         }
       }
       const char* sample_line_iter = sample_line_first_id;
-      uint32_t nonzero_first_field_observed = 0;
+      const uint32_t iid_sid = (misc_flags / kfMiscIidSid) & 1;
       while (ctou32(sample_line_iter[0]) >= ' ') {
         const char* token_end = strchrnul_n(sample_line_iter, '\t');
         const char* first_delim = S_CAST(const char*, memchr(sample_line_iter, ctou32(id_delim), token_end - sample_line_iter));
@@ -562,41 +580,40 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
           snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
           goto VcfSampleLine_ret_INCONSISTENT_INPUT_2;
         }
-        if (!nonzero_first_field_observed) {
-          nonzero_first_field_observed = (first_delim != &(sample_line_iter[1])) || (sample_line_iter[0] != '0');
-        }
-        sample_line_iter = &(first_delim[1]);
-        if (memchr(sample_line_iter, ctou32(id_delim), token_end - sample_line_iter)) {
-          write_fid = 1;
-          write_sid = 1;
-          if (!nonzero_first_field_observed) {
-            // bugfix (22 Feb 2018): this was != instead of ==
-            while (*token_end == '\t') {
-              sample_line_iter = &(token_end[1]);
-              token_end = strchrnul_n(sample_line_iter, '\t');
-              if ((sample_line_iter[0] != '0') || (sample_line_iter[1] != id_delim)) {
-                nonzero_first_field_observed = 1;
-                break;
-              }
-            }
+        const uint32_t first_slen = first_delim - sample_line_iter;
+        const char* second_part_start = &(first_delim[1]);
+        const char* maybe_second_part_end = S_CAST(const char*, memchr(second_part_start, ctou32(id_delim), token_end - second_part_start));
+        if (maybe_second_part_end == nullptr) {
+          if (!iid_sid) {
+            write_fid |= (first_slen != 1) || (sample_line_iter[0] != '0');
+          } else {
+            const uint32_t sid_slen = token_end - second_part_start;
+            write_sid |= (sid_slen != 1) || (second_part_start[0] != '0');
           }
-          break;
+        } else {
+          write_fid |= (first_slen != 1) || (sample_line_iter[0] != '0');
+          const char* sid_start = &(maybe_second_part_end[1]);
+          const uint32_t sid_slen = token_end - sid_start;
+          if (unlikely(memchr(sid_start, ctou32(id_delim), sid_slen))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Too many instances of --id-delim argument '%c' in sample ID.\n", id_delim);
+            goto VcfSampleLine_ret_INCONSISTENT_INPUT_2;
+          }
+          write_sid |= (sid_slen != 1) || (sid_start[0] != '0');
         }
         if (*token_end != '\t') {
-          if (isic.id_delim_sid) {
-            write_fid = 0;
-            write_sid = 1;
-          }
           break;
         }
         sample_line_iter = &(token_end[1]);
       }
-      if (!nonzero_first_field_observed) {
-        write_fid = 0;
-        isic.omit_fid_0 = 1;
+      if (!iid_sid) {
+        isic.fid_delim_mode = write_fid? kImportFidDelimModeAlwaysCopy : kImportFidDelimModeAlwaysOmit;
+        isic.sid_delim_mode = write_sid? kImportSidDelimModeCopyOr0 : kImportSidDelimModeNonexistOrOmit;
+      } else {
+        isic.fid_delim_mode = write_fid? kImportFidDelimModeCopyOr0 : kImportFidDelimModeOmitWhenPresent;
+        isic.sid_delim_mode = write_sid? kImportSidDelimModeAlwaysCopy : kImportSidDelimModeNonexistOrOmit;
       }
-    } else if ((!isic.const_fid) && (!isic.double_id)) {
-      write_fid = 0;
+    } else if (isic.const_fid || isic.double_id) {
+      write_fid = 1;
     }
     const char* sample_line_iter = sample_line_first_id;
     uint32_t sample_ct = 0;
@@ -614,10 +631,6 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
       write_iter = strcpya_k(write_iter, "IID");
       if (write_sid) {
         write_iter = strcpya_k(write_iter, "\tSID");
-        if (write_fid || isic.omit_fid_0) {
-          isic.two_part_null_fid = isic.id_delim_sid;
-          isic.two_part_null_sid = 1 - isic.id_delim_sid;
-        }
       }
       write_iter = strcpya_k(write_iter, "\tSEX");
       AppendBinaryEoln(&write_iter);
@@ -9720,7 +9733,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
       }
     }
     ImportSampleIdContext isic;
-    InitImportSampleIdContext(const_fid, misc_flags, import_flags, id_delim, &isic);
+    InitImportSampleIdContext(const_fid, import_flags, id_delim, &isic);
     unsigned char* tmp_alloc_base = g_bigstack_base;
     unsigned char* tmp_alloc_end = BigstackEndRoundedDown();
     char* all_ids_start = R_CAST(char*, tmp_alloc_base);
@@ -9840,15 +9853,16 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
       goto OxSampleToPsam_ret_DEGENERATE_DATA;
     }
     const char* all_ids_iter = all_ids_start;
-    uint32_t nz_fid_exists = 0;
-    uint32_t nz_sid_exists = 0;
+    const uint32_t iid_sid = (misc_flags / kfMiscIidSid) & 1;
+    uint32_t write_fid = 0;
+    uint32_t write_sid = 0;
     uint32_t nz_parent_exists = 0;
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       if (id_delim) {
         if (id2_exists) {
           // fast path for original case
-          if (!nz_fid_exists) {
-            nz_fid_exists = !memequal(all_ids_iter, "0 ", 2);
+          if (!write_fid) {
+            write_fid = !memequal(all_ids_iter, "0 ", 2);
           }
           all_ids_iter = strnul(all_ids_iter);
         } else {
@@ -9857,6 +9871,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
             logerrprintfww("Error: No instances of --id-delim argument '%c' in sample ID '%s'.\n", id_delim, all_ids_iter);
             goto OxSampleToPsam_ret_INCONSISTENT_INPUT;
           }
+          const uint32_t first_slen = first_part_end - all_ids_iter;
           const char* second_part_start = &(first_part_end[1]);
           const char* second_part_end = Strchrnul(second_part_start, id_delim);
           if (*second_part_end) {
@@ -9866,22 +9881,14 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
               logerrprintfww("Error: Too many instances of --id-delim argument '%c' in sample ID '%s'.\n", id_delim, all_ids_iter);
               goto OxSampleToPsam_ret_INCONSISTENT_INPUT;
             }
-            if (!nz_fid_exists) {
-              nz_fid_exists = (S_CAST(uintptr_t, first_part_end - all_ids_iter) != 1) || (*all_ids_iter != '0');
-            }
-            if (!nz_sid_exists) {
-              nz_sid_exists = (S_CAST(uintptr_t, third_part_end - third_part_start) != 1) || (*third_part_start != '0');
-            }
+            write_fid |= (first_slen != 1) || (*all_ids_iter != '0');
+            write_sid |= (S_CAST(uintptr_t, third_part_end - third_part_start) != 1) || (*third_part_start != '0');
             all_ids_iter = third_part_end;
           } else {
-            if (!isic.id_delim_sid) {
-              if (!nz_fid_exists) {
-                nz_fid_exists = (S_CAST(uintptr_t, first_part_end - all_ids_iter) != 1) || (*all_ids_iter != '0');
-              }
+            if (!iid_sid) {
+              write_fid |= (first_slen != 1) || (*all_ids_iter != '0');
             } else {
-              if (!nz_sid_exists) {
-                nz_sid_exists = (S_CAST(uintptr_t, second_part_end - second_part_start) != 1) || (*second_part_start != '0');
-              }
+              write_sid |= (S_CAST(uintptr_t, second_part_end - second_part_start) != 1) || (*second_part_start != '0');
             }
             all_ids_iter = second_part_end;
           }
@@ -9901,14 +9908,16 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
         all_ids_iter = &(maternal_id_end[1]);
       }
     }
-    // This overlaps with VcfSampleLine(); probably want to pull this into its
-    // own function.
     if (id_delim) {
-      if (!nz_fid_exists) {
-        isic.omit_fid_0 = 1;
+      if (!iid_sid) {
+        isic.fid_delim_mode = write_fid? kImportFidDelimModeAlwaysCopy : kImportFidDelimModeAlwaysOmit;
+        isic.sid_delim_mode = write_sid? kImportSidDelimModeCopyOr0 : kImportSidDelimModeNonexistOrOmit;
+      } else {
+        isic.fid_delim_mode = write_fid? kImportFidDelimModeCopyOr0 : kImportFidDelimModeOmitWhenPresent;
+        isic.sid_delim_mode = write_sid? kImportSidDelimModeAlwaysCopy : kImportSidDelimModeNonexistOrOmit;
       }
-    } else if ((!isic.const_fid) && (!isic.double_id)) {
-      nz_fid_exists = 0;
+    } else if (isic.const_fid || isic.double_id) {
+      write_fid = 1;
     }
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
@@ -9926,16 +9935,12 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
     }
     char* write_iter = writebuf;
     *write_iter++ = '#';
-    if (nz_fid_exists) {
+    if (write_fid) {
       write_iter = strcpya_k(write_iter, "FID\t");
     }
     write_iter = strcpya_k(write_iter, "IID");
-    if (nz_sid_exists) {
+    if (write_sid) {
       write_iter = strcpya_k(write_iter, "\tSID");
-      if (nz_fid_exists || isic.omit_fid_0) {
-        isic.two_part_null_fid = isic.id_delim_sid;
-        isic.two_part_null_sid = 1 - isic.id_delim_sid;
-      }
     }
     if (nz_parent_exists) {
       write_iter = strcpya_k(write_iter, "\tPAT\tMAT");
@@ -9984,6 +9989,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
       write_iter = writebuf;
       const char* sample_id_end = strnul(all_ids_iter);
       reterr = ImportSampleId(all_ids_iter, sample_id_end, &isic, &write_iter);
+      if (unlikely(reterr)) {
+        goto OxSampleToPsam_ret_1;
+      }
       all_ids_iter = &(sample_id_end[1]);
       if (parental_col_exists) {
         const char* paternal_id_end = strnul(all_ids_iter);
@@ -12555,13 +12563,13 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         goto OxBgenToPgen_ret_OPEN_FAIL;
       }
       ImportSampleIdContext isic;
-      InitImportSampleIdContext(const_fid, misc_flags, import_flags, id_delim, &isic);
-      uint32_t write_fid = 1;
+      InitImportSampleIdContext(const_fid, import_flags, id_delim, &isic);
+      uint32_t write_fid = 0;
       uint32_t write_sid = 0;
       if (id_delim) {
         sample_id_block_iter = sample_id_block_main;
-        uint32_t nonzero_first_field_observed = 0;
-        for (uint32_t sample_idx = 0; ; ) {
+        const uint32_t iid_sid = (misc_flags / kfMiscIidSid) & 1;
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
           uint16_t input_id_slen;
           memcpy_k(&input_id_slen, sample_id_block_iter, sizeof(int16_t));
           char* sample_id_iter = &(sample_id_block_iter[2]);
@@ -12572,47 +12580,37 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
             goto OxBgenToPgen_ret_INCONSISTENT_INPUT_2;
           }
-          if (!nonzero_first_field_observed) {
-            nonzero_first_field_observed = (first_delim != &(sample_id_iter[1])) || (sample_id_iter[0] != '0');
-          }
-          sample_id_iter = &(first_delim[1]);
-          if (memchr(sample_id_iter, ctou32(id_delim), sample_id_end - sample_id_iter)) {
-            isic.two_part_null_fid = isic.id_delim_sid;
-            isic.two_part_null_sid = 1 - isic.id_delim_sid;
-            write_fid = 1;
-            write_sid = 1;
-            if (!nonzero_first_field_observed) {
-              sample_id_block_iter = sample_id_end;
-              while (++sample_idx != sample_ct) {
-                uint16_t new_input_id_slen;
-                memcpy_k(&new_input_id_slen, sample_id_block_iter, sizeof(int16_t));
-                sample_id_iter = &(sample_id_block_iter[2]);
-                // We actually need to error out on new_input_id_slen < 2, but
-                // that'll happen in the next loop.
-                if ((new_input_id_slen < 2) || (sample_id_iter[0] != '0') || (sample_id_iter[1] != id_delim)) {
-                  nonzero_first_field_observed = 1;
-                  break;
-                }
-                sample_id_block_iter = &(sample_id_iter[new_input_id_slen]);
-              }
+          const uint32_t first_slen = first_delim - sample_id_iter;
+          char* second_part_start = &(first_delim[1]);
+          char* maybe_second_part_end = S_CAST(char*, memchr(sample_id_iter, ctou32(id_delim), sample_id_end - second_part_start));
+          if (maybe_second_part_end == nullptr) {
+            if (!iid_sid) {
+              write_fid |= (first_slen != 1) || (sample_id_iter[0] != '0');
+            } else {
+              const uint32_t sid_slen = sample_id_end - second_part_start;
+              write_sid |= (sid_slen != 1) || (second_part_start[0] != '0');
             }
-            break;
+          } else {
+            write_fid |= (first_slen != 1) || (sample_id_iter[0] != '0');
+            char* sid_start = &(maybe_second_part_end[1]);
+            const uint32_t sid_slen = sample_id_end - sid_start;
+            if (unlikely(memchr(sid_start, ctou32(id_delim), sid_slen))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Too many instances of --id-delim argument '%c' in sample ID.\n", id_delim);
+              goto OxBgenToPgen_ret_INCONSISTENT_INPUT_2;
+            }
+            write_sid |= (sid_slen != 1) || (sid_start[0] != '0');
           }
           sample_id_block_iter = sample_id_end;
-          if (++sample_idx == sample_ct) {
-            if (isic.id_delim_sid) {
-              write_fid = 0;
-              write_sid = 1;
-            }
-            break;
-          }
         }
-        if (!nonzero_first_field_observed) {
-          write_fid = 0;
-          isic.omit_fid_0 = 1;
+        if (!iid_sid) {
+          isic.fid_delim_mode = write_fid? kImportFidDelimModeAlwaysCopy : kImportFidDelimModeAlwaysOmit;
+          isic.sid_delim_mode = write_sid? kImportSidDelimModeCopyOr0 : kImportSidDelimModeNonexistOrOmit;
+        } else {
+          isic.fid_delim_mode = write_fid? kImportFidDelimModeCopyOr0 : kImportFidDelimModeOmitWhenPresent;
+          isic.sid_delim_mode = write_sid? kImportSidDelimModeAlwaysCopy : kImportSidDelimModeNonexistOrOmit;
         }
-      } else if ((!isic.const_fid) && (!isic.double_id)) {
-        write_fid = 0;
+      } else if (isic.const_fid || isic.double_id) {
+        write_fid = 1;
       }
       char* textbuf = g_textbuf;
       char* write_iter = textbuf;
@@ -12634,6 +12632,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         char* sample_id_start = &(sample_id_block_iter[2]);
         char* sample_id_end = &(sample_id_start[input_id_slen]);
         reterr = ImportSampleId(sample_id_start, sample_id_end, &isic, &write_iter);
+        if (unlikely(reterr)) {
+          goto OxBgenToPgen_ret_1;
+        }
         // SEX
         write_iter = strcpya_k(write_iter, "\tNA");
         AppendBinaryEoln(&write_iter);

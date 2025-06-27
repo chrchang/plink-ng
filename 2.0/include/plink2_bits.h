@@ -110,8 +110,10 @@ uintptr_t AdvTo0Bit(const uintptr_t* bitarr, uintptr_t loc);
 
 // uintptr_t NextNonmissingUnsafe(const uintptr_t* genoarr, uintptr_t loc);
 
+// Can overread a single word if loc == ceil.
 uint32_t AdvBoundedTo1Bit(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
+// Can overread a single word if loc == ceil.
 uintptr_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
 
 uintptr_t FindLast1BitBefore(const uintptr_t* bitarr, uintptr_t loc);

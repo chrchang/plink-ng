@@ -217,7 +217,7 @@ void libdeflate_init_arm_cpu_features(void)
 	 *
 	 * Assume that crc32 instructions are preferable in other cases.
 	 */
-#if (defined(__APPLE__) && TARGET_OS_OSX) || defined(TEST_SUPPORT__DO_NOT_USE)
+#if (defined(__APPLE__) && TARGET_OS_OSX)
 	features |= ARM_CPU_FEATURE_PREFER_PMULL;
 #endif
 

@@ -117,9 +117,6 @@ os_supports_avx512(__attribute__((unused)) u64 xcr0)
 static inline bool
 allow_512bit_vectors(const u32 manufacturer[3], u32 family, u32 model)
 {
-#ifdef TEST_SUPPORT__DO_NOT_USE
-	return true;
-#endif
 	if (memcmp(manufacturer, "GenuineIntel", 12) != 0)
 		return true;
 	if (family != 6)

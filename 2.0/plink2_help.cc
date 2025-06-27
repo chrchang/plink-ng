@@ -437,9 +437,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("export\0recode\0", &help_ctrl, 1,
 "  --export <output format(s)...> [{01 | 12}] ['bgz'] ['id-delim='<char>]\n"
-"           ['id-paste='<column set descriptor>] ['include-alt']\n"
-"           ['omit-nonmale-y'] ['spaces'] ['vcf-dosage='<field>] ['ref-first']\n"
-"           ['bits='<#>] ['sample-v2'] ['bgen-omit-sample-id-block']\n"
+"                                 ['id-paste='<col set descrip.>] ['include-alt']\n"
+"                                 ['omit-nonmale-y'] ['spaces']\n"
+"                                 ['vcf-dosage='<field>] ['ref-first']\n"
+"                                 ['bits='<#>] ['sample-v2']\n"
+"                                 ['bgen-omit-sample-id-block']\n"
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
 "    (actually, only A, AD, Av, bcf, bgen-1.x, haps, hapslegend, ind-major-bed,\n"
@@ -1065,7 +1067,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // for kinship estimation, LD pruning isn't really advisable (if more speed
     // is needed, the humble --bp-space may lead to a better approximation?
     // and in practice speed doesn't seem to be an issue any more with
-    // --make-king.
+    // --make-king.)
     //
     // For multiallelic variants, major allele counts are theoretically
     // slightly more informative than REF allele counts, but the advantage is
@@ -1770,8 +1772,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                        lacks the delimiter.\n"
                );
     HelpPrint("idspace-to\0vcf\0bcf\0bgen\0id-delim\0vcf-idspace-to\0", &help_ctrl, 0,
-"  --idspace-to <c>    : Convert spaces in VCF/.bgen sample IDs to the given\n"
-"                        character.\n"
+"  --idspace-to <char>         : Convert spaces in VCF/.bgen sample IDs to the\n"
+"    (alias: --vcf-idspace-to)   given character.\n"
                );
     HelpPrint("iid-sid\0id-delim\0sample-diff\0indv\0", &help_ctrl, 0,
 "  --iid-sid           : Make --id-delim, --indv, and --sample-diff interpret\n"
@@ -1857,12 +1859,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                 also is; you can change this second missing\n"
 "                                 code with --input-missing-genotype.\n"
                );
-    // change this for a6
     HelpPrint("strict-extra-chr\0allow-extra-chr\0aec\0", &help_ctrl, 0,
 "  --strict-extra-chr      : Prohibit unrecognized chromosome codes, unless\n"
 "                            --allow-extra-chr is also specified.\n"
-"  --allow-extra-chr ['0'] : Permit unrecognized chromosome codes (alias --aec).\n"
-"                            The '0' modifier causes these codes to be converted\n"
+"  --allow-extra-chr ['0'] : Explicitly permit unrecognized chromosome codes.\n"
+"    (alias: --aec)          The '0' modifier causes these codes to be converted\n"
 "                            to \"0\".\n"
                );
     // possible todo: nonhuman PARs?
