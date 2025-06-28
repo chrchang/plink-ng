@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (27 Jun 2025)";
+  " (28 Jun 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3188,6 +3188,8 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
     case 'e':
       if (!strcmp(cur_modif2, "ig")) {
         cur_format = kfExportfEig;
+      } else if (!strcmp(cur_modif2, "igt")) {
+        cur_format = kfExportfEigt;
       }
       break;
     case 'f':
@@ -5576,6 +5578,10 @@ int main(int argc, char** argv) {
             logerrputs("Error: --export 'phylip' and 'phylip-phased' formats cannot be exported\nsimultaneously.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (unlikely((pc.exportf_info.flags & (kfExportfEig | kfExportfEigt)) == (kfExportfEig | kfExportfEigt))) {
+            logerrputs("Error: --export 'eig' and 'eigt' formats cannot be exported simultaneously.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             // could use AdvBoundedTo0Bit()...
             if ((format_param_idxs >> param_idx) & 1) {
@@ -5888,10 +5894,17 @@ int main(int argc, char** argv) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* fname_prefix = argvk[arg_idx + 1];
+          uint32_t fname_modif_idx = 1;
+          if (param_ct == 2) {
+            if (unlikely(CheckExtraParam(&(argvk[arg_idx]), "nohash", &fname_modif_idx))) {
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            import_flags |= kfImportEigNohash;
+          }
+          const char* fname_prefix = argvk[arg_idx + fname_modif_idx];
           const uint32_t slen = strlen(fname_prefix);
           if (unlikely(slen > (kPglFnamesize - 6))) {
             logerrputs("Error: --eigfile argument too long.\n");
@@ -5905,10 +5918,17 @@ int main(int argc, char** argv) {
           if (unlikely(load_params || (xload & (~(kfXloadEigGeno | kfXloadEigInd | kfXloadEigSnp))))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* fname = argvk[arg_idx + 1];
+          uint32_t fname_modif_idx = 1;
+          if (param_ct == 2) {
+            if (unlikely(CheckExtraParam(&(argvk[arg_idx]), "nohash", &fname_modif_idx))) {
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            import_flags |= kfImportEigNohash;
+          }
+          const char* fname = argvk[arg_idx + fname_modif_idx];
           const uint32_t slen = strlen(fname);
           if (unlikely(slen > kPglFnamesize - 1)) {
             logerrputs("Error: --eiggeno argument too long.\n");
@@ -12517,7 +12537,7 @@ int main(int argc, char** argv) {
           } else if (xload & kfXloadOxHaps) {
             reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
           } else if (xload & kfXloadEigGeno) {
-            reterr = EigGenoToPgen(pgenname, psamname, pvarname, const_fid, pc.missing_catname, pc.misc_flags, import_flags, psam_01, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = EigfileToPgen(pgenname, psamname, pvarname, const_fid, pc.missing_catname, pc.misc_flags, import_flags, psam_01, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadPlink1Dosage) {
             reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (likely(xload & kfXloadGenDummy)) {

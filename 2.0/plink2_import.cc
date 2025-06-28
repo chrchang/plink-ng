@@ -17017,10 +17017,8 @@ THREAD_FUNC_DECL EigGenoToPgenThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-// todo: EigTgenoToPgen
-PglErr EigGenoToPgen(const char* genoname, const char* indname, const char* snpname, const char* const_fid, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr EigGenoToPgen(const char* outname, const char* genoname, const uintptr_t* variant_include,  uint32_t variant_ct, uint32_t sample_ct, FILE* genofile) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* genofile = nullptr;
   PglErr reterr = kPglRetSuccess;
   // This is a decent fit for MTPgenWriter -- .pgen compression represents a
   // relatively high share of the computational workload -- but STPgenWriter
@@ -17032,34 +17030,6 @@ PglErr EigGenoToPgen(const char* genoname, const char* indname, const char* snpn
   PreinitThreads(&tg);
   EigGenoToPgenCtx ctx;
   {
-    uint32_t sample_ct;
-    uint32_t s_hash;
-    reterr = EigIndToPsam(indname, const_fid, missing_catname, misc_flags, import_flags, psam_01, id_delim, outname, outname_end, &sample_ct, &s_hash);
-    if (unlikely(reterr)) {
-      goto EigGenoToPgen_ret_1;
-    }
-    FinalizeChrset(misc_flags, cip);
-
-    // Could process .geno and .snp files together, so we don't need to save
-    // variant_include?
-    uintptr_t* variant_include;
-    uint32_t raw_variant_ct;
-    uint32_t v_hash;
-    reterr = EigSnpToPvar(snpname, cip, import_flags, max_thread_ct, outname, outname_end, &variant_include, &raw_variant_ct, &v_hash);
-    if (unlikely(reterr)) {
-      goto EigGenoToPgen_ret_1;
-    }
-    const uint32_t variant_ct = PopcountWords(variant_include, BitCtToWordCt(raw_variant_ct));
-    if (variant_ct != raw_variant_ct) {
-      if (unlikely(!variant_ct)) {
-        logerrputs("Error: All .snp variants excluded by chromosome filter.\n");
-        goto EigGenoToPgen_ret_INCONSISTENT_INPUT;
-      }
-      logprintfww("--eigsnp: %u variants scanned; %u excluded by chromosome filter, %u imported to %s .\n", raw_variant_ct, raw_variant_ct - variant_ct, variant_ct, outname);
-    } else {
-      logprintfww("--eigsnp: %u variant%s imported to %s .\n", variant_ct, (variant_ct == 1)? "" : "s", outname);
-    }
-    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
     reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, kPgenWriteBackwardSeek, kfPgenGlobal0, 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
@@ -17110,44 +17080,6 @@ PglErr EigGenoToPgen(const char* genoname, const char* indname, const char* snpn
     ctx.write_reterr = kPglRetSuccess;
     ctx.write_errno = 0;
     SetThreadFuncAndData(EigGenoToPgenThread, &ctx, &tg);
-
-    // Check file size and header.
-    if (unlikely(fopen_checked(genoname, FOPEN_RB, &genofile))) {
-      goto EigGenoToPgen_ret_OPEN_FAIL;
-    }
-    if (unlikely(fseeko(genofile, 0, SEEK_END))) {
-      goto EigGenoToPgen_ret_READ_FAIL;
-    }
-    const uint64_t fsize = ftello(genofile);
-    const uint64_t fsize_expected = (raw_variant_ct + 1LLU) * input_rec_blen;
-    if (unlikely(fsize != fsize_expected)) {
-      if (fsize < 49) {
-        snprintf(g_logbuf, kLogbufSize, "Error: %s is too small to be a valid EIGNSOFT PACKEDANCESTRYMAP file.\n", genoname);
-      } else {
-        snprintf(g_logbuf, kLogbufSize, "Error: Unexpected %s file size (%u sample%s from .ind file, %u variant%s from .snp file, thus %" PRIu64 " bytes expected; observed %" PRIu64 ").\n", genoname, sample_ct, (sample_ct == 1)? "" : "s", raw_variant_ct, (raw_variant_ct == 1)? "" : "s", fsize_expected, fsize);
-      }
-      goto EigGenoToPgen_ret_INCONSISTENT_INPUT_WW;
-    }
-    rewind(genofile);
-    const uint32_t header_slen = snprintf(g_textbuf, input_rec_blen, "GENO %7d %7d %x %x", sample_ct, raw_variant_ct, s_hash, v_hash);
-    if (unlikely(!fread_unlocked(loadbufs[0], input_rec_blen, 1, genofile))) {
-      goto EigGenoToPgen_ret_READ_FAIL;
-    }
-    if (unlikely(!memequal(g_textbuf, loadbufs[0], header_slen + 1))) {
-      const char* observed_str = R_CAST(char*, loadbufs[0]);
-      if (!memequal(observed_str, "GENO ", 5)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: %s is not an EIGENSOFT PACKEDANCESTRYMAP file.\n", genoname);
-        goto EigGenoToPgen_ret_INCONSISTENT_INPUT_WW;
-      }
-      logerrprintfww("Error: Header of %s is inconsistent with .ind and/or .snp file.\n", genoname);
-      logerrprintfww("  Expected: \"%s\"\n", g_textbuf);
-      // don't bother printing "Observed" unless it has the expected number of
-      // tokens followed by a null-terminator.
-      if ((memchr(observed_str, 0, input_rec_blen) != nullptr) && (CountTokens(observed_str) == 5)) {
-        logerrprintfww("  Observed: \"%s\"\n", observed_str);
-      }
-      goto EigGenoToPgen_ret_INCONSISTENT_INPUT;
-    }
 
     fputs("--eiggeno: 0%", stdout);
     uint32_t variant_uidx = 0;
@@ -17217,16 +17149,10 @@ PglErr EigGenoToPgen(const char* genoname, const char* indname, const char* snpn
     if (unlikely(reterr)) {
       goto EigGenoToPgen_ret_1;
     }
-
-    putc_unlocked('\r', stdout);
-    logprintfww("--eiggeno: %s written.\n", outname);
   }
   while (0) {
   EigGenoToPgen_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  EigGenoToPgen_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
     break;
   EigGenoToPgen_ret_READ_FAIL:
     if (feof_unlocked(genofile)) {
@@ -17236,12 +17162,6 @@ PglErr EigGenoToPgen(const char* genoname, const char* indname, const char* snpn
     logerrprintfww(kErrprintfFread, genoname, rstrerror(errno));
     reterr = kPglRetReadFail;
     break;
-  EigGenoToPgen_ret_INCONSISTENT_INPUT_WW:
-    WordWrapB(0);
-    logerrputsb();
-  EigGenoToPgen_ret_INCONSISTENT_INPUT:
-    reterr = kPglRetInconsistentInput;
-    break;
   EigGenoToPgen_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
@@ -17249,8 +17169,182 @@ PglErr EigGenoToPgen(const char* genoname, const char* indname, const char* snpn
  EigGenoToPgen_ret_1:
   CleanupSpgw(&spgw, &reterr);
   CleanupThreads(&tg);
-  fclose_cond(genofile);
   BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// Move this to a more central location if we ever need it elsewhere.
+const char* ScanadvHexU32(const char* hex_start, uint32_t* valp) {
+  // Mirror scanf("%x"), except prohibit leading -.
+  if (*hex_start == '+') {
+    ++hex_start;
+  }
+  if ((hex_start[0] == '0') && ((hex_start[1] & 0xdf) == 'x')) {
+    hex_start = &(hex_start[2]);
+  }
+  uint32_t val = 0;
+  for (const char* hex_iter = hex_start; ; ++hex_iter) {
+    uint32_t cur_digit = ctou32(*hex_iter) - 48;
+    if (cur_digit >= 10) {
+      // 'A'/'a' = 0, 'B'/'b' = 1, etc.
+      const uint32_t letter_idx = (cur_digit & 0xffffffdfU) - 17;
+      if (letter_idx > 5) {
+        *valp = val;
+        return (hex_iter == hex_start)? nullptr : hex_iter;
+      }
+      cur_digit = letter_idx + 10;
+    }
+    if (unlikely(val >= (1U << 28))) {
+      // overflow
+      return nullptr;
+    }
+    val = (val * 16) + cur_digit;
+  }
+}
+
+PglErr EigfileToPgen(const char* genoname, const char* indname, const char* snpname, const char* const_fid, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+  FILE* genofile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    uint32_t sample_ct;
+    uint32_t s_hash;
+    reterr = EigIndToPsam(indname, const_fid, missing_catname, misc_flags, import_flags, psam_01, id_delim, outname, outname_end, &sample_ct, &s_hash);
+    if (unlikely(reterr)) {
+      goto EigfileToPgen_ret_1;
+    }
+    FinalizeChrset(misc_flags, cip);
+
+    uintptr_t* variant_include;
+    uint32_t raw_variant_ct;
+    uint32_t v_hash;
+    reterr = EigSnpToPvar(snpname, cip, import_flags, max_thread_ct, outname, outname_end, &variant_include, &raw_variant_ct, &v_hash);
+    if (unlikely(reterr)) {
+      goto EigfileToPgen_ret_1;
+    }
+    const uint32_t variant_ct = PopcountWords(variant_include, BitCtToWordCt(raw_variant_ct));
+    if (variant_ct != raw_variant_ct) {
+      if (unlikely(!variant_ct)) {
+        logerrputs("Error: All .snp variants excluded by chromosome filter.\n");
+        goto EigfileToPgen_ret_INCONSISTENT_INPUT;
+      }
+      logprintfww("--eigsnp: %u variants scanned; %u excluded by chromosome filter, %u imported to %s .\n", raw_variant_ct, raw_variant_ct - variant_ct, variant_ct, outname);
+    } else {
+      logprintfww("--eigsnp: %u variant%s imported to %s .\n", variant_ct, (variant_ct == 1)? "" : "s", outname);
+    }
+
+    // open genofile, check header
+    if (unlikely(fopen_checked(genoname, FOPEN_RB, &genofile))) {
+      goto EigfileToPgen_ret_OPEN_FAIL;
+    }
+    if (unlikely(fseeko(genofile, 0, SEEK_END))) {
+      goto EigfileToPgen_ret_READ_FAIL;
+    }
+    const uint64_t fsize = ftello(genofile);
+    if (unlikely(fsize < 49)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s is too small to be a valid EIGENSOFT PACKEDANCESTRYMAP or TGENO file.\n", genoname);
+      goto EigfileToPgen_ret_INCONSISTENT_INPUT_WW;
+    }
+    rewind(genofile);
+    char header[48];
+    if (unlikely(!fread_unlocked(header, 48, 1, genofile))) {
+      goto EigfileToPgen_ret_READ_FAIL;
+    }
+    uint32_t is_tgeno = 0;
+    if ((!memequal(header, "GENO", 4)) || (ctou32(header[4]) > 32)) {
+      if (unlikely((!memequal(header, "TGENO", 5)) || (ctou32(header[5]) > 32))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: %s does not start with 'GENO ' or 'TGENO '.\n", genoname);
+        goto EigfileToPgen_ret_INCONSISTENT_INPUT_WW;
+      }
+      is_tgeno = 1;
+    }
+    char* sample_ct_start = &(header[5]);
+    if (unlikely(!memchr(sample_ct_start, 0, 43))) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s header is not null-terminated.\n", genoname);
+      goto EigfileToPgen_ret_INCONSISTENT_INPUT_WW;
+    }
+    sample_ct_start = FirstNonTspace(sample_ct_start);
+    char* sample_ct_end = FirstSpaceOrEoln(sample_ct_start);
+    char* variant_ct_start = FirstNonTspace(sample_ct_end);
+    char* variant_ct_end = FirstSpaceOrEoln(variant_ct_start);
+    char* sample_hash_start = FirstNonTspace(variant_ct_end);
+    char* sample_hash_end = FirstSpaceOrEoln(sample_hash_start);
+    char* variant_hash_start = FirstNonTspace(sample_hash_end);
+    if (unlikely(IsEolnKns(*variant_hash_start))) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s header has fewer tokens than expected.\n", genoname);
+      goto EigfileToPgen_ret_INCONSISTENT_INPUT_WW;
+    }
+    char* variant_hash_end = FirstSpaceOrEoln(variant_hash_start);
+    if (unlikely(!IsEolnKns(*FirstNonTspace(variant_hash_end)))) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s header has more tokens than expected.\n", genoname);
+      goto EigfileToPgen_ret_INCONSISTENT_INPUT_WW;
+    }
+
+    uint32_t header_val;
+    if (unlikely(ScanUintDefcap(sample_ct_start, &header_val) || (header_val != sample_ct))) {
+      *sample_ct_end = '\0';
+      snprintf(g_logbuf, kLogbufSize, "Error: Sample count mismatch between %s header (%s) and .ind file.\n", genoname, sample_ct_start);
+      goto EigfileToPgen_ret_INCONSISTENT_INPUT_WW;
+    }
+    if (unlikely(ScanUintDefcap(variant_ct_start, &header_val) || (header_val != raw_variant_ct))) {
+      *sample_ct_end = '\0';
+      snprintf(g_logbuf, kLogbufSize, "Error: Variant count mismatch between %s header (%s) and .snp file.\n", genoname, variant_ct_start);
+      goto EigfileToPgen_ret_INCONSISTENT_INPUT_WW;
+    }
+    if (!(import_flags & kfImportEigNohash)) {
+      uint32_t observed_hash;
+      if (unlikely((!ScanadvHexU32(sample_hash_start, &observed_hash)) || (observed_hash != s_hash))) {
+        *sample_hash_end = '\0';
+        snprintf(g_logbuf, kLogbufSize, "Error: Sample-ID hash mismatch between %s header (%s) and .ind file (%x). (If you intentionally modified the IDs, use the 'nohash' modifier to suppress this error.)\n", genoname, sample_hash_start, s_hash);
+        goto EigfileToPgen_ret_INCONSISTENT_INPUT_WW;
+      }
+      if (unlikely((!ScanadvHexU32(variant_hash_start, &observed_hash)) || (observed_hash != v_hash))) {
+        *variant_hash_end = '\0';
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant-ID hash mismatch between %s header (%s) and .snp file (%x). (If you intentionally modified the IDs, use the 'nohash' modifier to suppress this error.)\n", genoname, variant_hash_start, v_hash);
+        goto EigfileToPgen_ret_INCONSISTENT_INPUT_WW;
+      }
+    }
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+    if (!is_tgeno) {
+      const uintptr_t input_rec_blen = MAXV(48, DivUp(sample_ct, 4));
+      const uint64_t fsize_expected = (raw_variant_ct + 1LLU) * input_rec_blen;
+      if (fsize != fsize_expected) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Unexpected %s file size (%u sample%s from .ind file, %u variant%s from .snp file, thus %" PRIu64 " bytes expected; observed %" PRIu64 ").\n", genoname, sample_ct, (sample_ct == 1)? "" : "s", raw_variant_ct, (raw_variant_ct == 1)? "" : "s", fsize_expected, fsize);
+        goto EigfileToPgen_ret_INCONSISTENT_INPUT_WW;
+      }
+      reterr = EigGenoToPgen(outname, genoname, variant_include, variant_ct, sample_ct, genofile);
+    } else {
+      logerrputs("Error: TGENO import is under development.\n");
+      reterr = kPglRetNotYetSupported;
+      goto EigfileToPgen_ret_1;
+    }
+    if (unlikely(reterr)) {
+      goto EigfileToPgen_ret_1;
+    }
+
+    putc_unlocked('\r', stdout);
+    logprintfww("--eiggeno: %s written.\n", outname);
+  }
+  while (0) {
+  EigfileToPgen_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  EigfileToPgen_ret_READ_FAIL:
+    if (feof_unlocked(genofile)) {
+      errno = 0;
+    }
+    putc_unlocked('\n', stdout);
+    logerrprintfww(kErrprintfFread, genoname, rstrerror(errno));
+    reterr = kPglRetReadFail;
+    break;
+  EigfileToPgen_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  EigfileToPgen_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ EigfileToPgen_ret_1:
+  fclose_cond(genofile);
   return reterr;
 }
 

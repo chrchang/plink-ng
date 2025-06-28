@@ -195,11 +195,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      PLINK 2 currently cannot handle omitted male columns.)\n"
 "    * If not used with --sample, new sample IDs are of the form 'per#/per#'.\n\n"
                );
-    HelpPrint("eigfile\0eiggeno\0eigind\0eigsnp\0", &help_ctrl, 1,
-"  --eigfile <prefix> : Specify .geno + .ind + .snp filename prefix.\n"
-"  --eiggeno <fname>  : Specify full name of PACKEDANCESTRYMAP .geno file.\n"
-"  --eigind <fname>   : Specify full name of EIGENSOFT .ind file.\n"
-"  --eigsnp <fname>   : Specify full name of EIGENSOFT .snp file.\n\n"
+    HelpPrint("eigfile\0eigtfile\0eiggeno\0eigtgeno\0eigind\0eigsnp\0", &help_ctrl, 1,
+"  --eigfile <filename prefix> ['nohash']\n"
+"  --eiggeno <filename> ['nohash']\n"
+"  --eigind <filename>\n"
+"  --eigsnp <filename>\n"
+"    Specify a .geno + .ind + .snp PACKEDANCESTRYMAP or TGENO dataset to import.\n"
+"    * By default, this errors out when the sample-ID or variant-ID hash stored\n"
+"      in the genotype file doesn't match the value computed from the .ind or\n"
+"      .snp file.  Use the 'nohash' modifier to disable this behavior.\n"
+"    * You can specify individual filenames with --eiggeno/--eigind/--eigsnp.\n\n"
               );
     HelpPrint("pedmap\0ped\0map\0file\0", &help_ctrl, 0,
 "  --pedmap <prefix>  : Specify .ped + .map filename prefix.\n"
@@ -469,8 +474,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * 'bimbam': Regular BIMBAM format.\n"
 "    * 'bimbam-1chr': BIMBAM format, with a two-column .pos.txt file.  Does not\n"
 "                     support multiple chromosomes.\n"
-"    * 'eig': EIGENSOFT PACKEDANCESTRYMAP (.geno) + .ind + .snp format.  Does\n"
-"             not support multicharacter allele codes.\n"
+"    * 'eig', 'eigt': EIGENSOFT .geno + .ind + .snp format.  Does not support\n"
+"                     multicharacter allele codes.\n"
 "    * 'fastphase': Per-chromosome fastPHASE files, with\n"
 "                   .chr-<chr #>.phase.inp filename extensions.\n"
 "    * 'fastphase-1chr': Single .phase.inp file.  Does not support\n"
