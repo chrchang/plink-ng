@@ -10986,7 +10986,7 @@ PglErr ExportEigInd(const char* outname, const uintptr_t* sample_include, const 
       }
       *write_iter++ = sex_char;
       *write_iter++ = exportf_delim;
-      if (IsSet(pheno_nm, sample_uidx)) {
+      if (pheno_nm && IsSet(pheno_nm, sample_uidx)) {
         if (pheno_cc) {
           if (IsSet(pheno_cc, sample_uidx)) {
             write_iter = strcpya_k(write_iter, "Case");
