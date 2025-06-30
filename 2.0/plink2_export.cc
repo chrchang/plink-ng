@@ -282,7 +282,7 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
 
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uintptr_t variant_uidx_base = 0;
     uintptr_t variant_include_bits = variant_include[0];
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
@@ -443,7 +443,7 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
@@ -630,7 +630,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uint32_t ref_allele_idx = 0;
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
@@ -782,7 +782,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(bgzfclose_flush(writebuf_flush, write_iter, &bgzf, &reterr))) {
@@ -983,7 +983,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
     uint32_t chr_blen = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (variant_uidx >= chr_end) {
@@ -1075,7 +1075,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(bgzfclose_flush(writebuf_flush, write_iter, &bgzf, &reterr))) {
@@ -1476,7 +1476,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
 
     uint32_t prev_block_write_ct = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     logprintfww5("Writing %s ... ", outname);
     fputs("0%", stdout);
     fflush(stdout);
@@ -1582,7 +1582,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
       ++read_block_idx;
       prev_block_write_ct = cur_block_write_ct;
@@ -3098,7 +3098,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
 
     uint32_t prev_block_write_ct = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     logprintfww5("Writing %s ... ", outname);
     fputs("0%", stdout);
     fflush(stdout);
@@ -3232,7 +3232,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
       ++read_block_idx;
       prev_block_write_ct = cur_block_write_ct;
@@ -4562,7 +4562,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uint32_t is_x = 0;
     uint32_t is_haploid = 0;  // includes chrX and chrY
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uint32_t rls_variant_uidx = 0;
     uint32_t ref_allele_idx = 0;
     uint32_t alt1_allele_idx = 1;
@@ -5979,7 +5979,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(bgzfclose_flush(writebuf_flush, write_iter, &bgzf, &reterr))) {
@@ -8193,7 +8193,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uint32_t is_y = 0;
     uint32_t is_haploid = 0;  // includes chrX and chrY
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uint32_t rls_variant_uidx = 0;
     uint32_t ref_allele_idx = 0;
     uint32_t alt1_allele_idx = 1;
@@ -9160,7 +9160,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(bgzfclose_flush(writebuf_flush, write_iter, &bgzf, &reterr))) {
@@ -9660,7 +9660,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       uint32_t parity = 0;
       uint32_t read_block_idx = 0;
       uint32_t pct = 0;
-      uint32_t next_print_idx = variant_ct / 100;
+      uint32_t next_print_idx = (variant_ct + 99) / 100;
       for (uint32_t variant_idx = 0; ; ) {
         const uint32_t cur_block_write_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
         if (unlikely(reterr)) {
@@ -9696,7 +9696,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
 
         ++read_block_idx;
@@ -9709,7 +9709,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\bwriting... 0%", stdout);
       fflush(stdout);
       pct = 0;
-      next_print_idx = read_sample_ct / 100;
+      next_print_idx = (read_sample_ct + 99) / 100;
       uintptr_t sample_uidx_base;
       uintptr_t sample_include_bits;
       BitIter1Start(sample_include, sample_uidx_start, &sample_uidx_base, &sample_include_bits);
@@ -9764,7 +9764,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
           pct = (sample_idx * 100LLU) / read_sample_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct)) / 100;
+          next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct) + 99) / 100;
         }
       }
       sample_uidx_start = sample_uidx_end;
@@ -10597,7 +10597,7 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
       uint32_t read_block_idx = 0;
       ReinitThreads(&read_tg);
       uint32_t pct = 0;
-      uint32_t next_print_idx = variant_ct / 100;
+      uint32_t next_print_idx = (variant_ct + 99) / 100;
       putc_unlocked('\r', stdout);
       printf("--export phylip%s pass %u/%u: loading... 0%%", export_phased? "-phased" : "", pass_idx + 1, pass_ct);
       fflush(stdout);
@@ -10644,7 +10644,7 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
         ++read_block_idx;
         variant_idx += cur_block_write_ct;
@@ -10661,7 +10661,7 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
       fflush(stdout);
       pct = 0;
       uint32_t flush_write_sample_idx = 0;
-      next_print_idx = write_sample_ct / 100;
+      next_print_idx = (write_sample_ct + 99) / 100;
       for (uint32_t flush_write_sample_idx_end = 0; ; ) {
         if (!IsLastBlock(&transpose_tg)) {
           if (flush_write_sample_idx_end + write_sample_batch_size >= write_sample_ct) {
@@ -10698,7 +10698,7 @@ PglErr ExportPhylip(const uintptr_t* orig_sample_include, const SampleIdInfo* si
             pct = (flush_write_sample_idx_end * 100LLU) / write_sample_ct;
             printf("\b\b%u%%", pct++);
             fflush(stdout);
-            next_print_idx = (pct * S_CAST(uint64_t, write_sample_ct)) / 100;
+            next_print_idx = (pct * S_CAST(uint64_t, write_sample_ct) + 99) / 100;
           }
         }
         JoinThreads(&transpose_tg);
@@ -11236,7 +11236,7 @@ PglErr ExportEigGeno(const char* outname, const uintptr_t* sample_include, const
 
     uint32_t prev_block_write_ct = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     logprintfww5("Writing %s ... ", outname);
     fputs("0%", stdout);
     fflush(stdout);
@@ -11281,7 +11281,7 @@ PglErr ExportEigGeno(const char* outname, const uintptr_t* sample_include, const
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       ++read_block_idx;

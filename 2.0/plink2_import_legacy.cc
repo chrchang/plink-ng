@@ -898,7 +898,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
     char* tped_line_iter = TextLineEnd(&tped_txs);
     uint32_t variant_idx = 0;
     uint32_t pct = 0;
-    uint32_t next_print_idx = variant_ct / 100;
+    uint32_t next_print_idx = (variant_ct + 99) / 100;
     for (line_idx = 1; ; ++line_idx) {
       reterr = TextGetUnsafe(&tped_txs, &tped_line_iter);
       if (unlikely(reterr)) {
@@ -1176,7 +1176,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
       tped_line_iter = AdvPastDelim(tped_line_iter, '\n');
     }
@@ -1271,12 +1271,12 @@ typedef struct Plink1SmajTransposeCtxStruct {
 void Plink1SmajTransposeMain(uint32_t tidx, Plink1SmajTransposeCtx* ctx) {
   const uint32_t sample_ct = ctx->sample_ct;
   const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
-  const uint32_t write_batch_ct_m1 = (sample_ct - 1) / kPglNypTransposeBatch;
+  const uintptr_t transpose_block_ct_m1 = (sample_ct - 1) / kPglNypTransposeBatch;
   PgenWriterCommon* pwcp = ctx->pwcs[tidx];
   VecW* vecaligned_buf = ctx->thread_vecaligned_bufs[tidx];
   uintptr_t* write_genovec = ctx->thread_write_genovecs[tidx];
   const uintptr_t cur_block_write_ct = ctx->cur_block_write_ct;
-  const uint32_t loadbuf_ul_stride = ctx->loadbuf_ul_stride;
+  const uintptr_t loadbuf_ul_stride = ctx->loadbuf_ul_stride;
   uint32_t write_idx = tidx * kPglVblockSize;
   uintptr_t* read_iter = &(ctx->plink1_smaj_loadbuf_iter[write_idx / kBitsPerWordD2]);
   const uintptr_t* allele_flips_iter = ctx->allele_flips_iter;
@@ -1289,26 +1289,25 @@ void Plink1SmajTransposeMain(uint32_t tidx, Plink1SmajTransposeCtx* ctx) {
     // uintptr_t* write_iter = write_genovec;
     const uint32_t vblock_size = MINV(kPglNypTransposeBatch, write_idx_end - write_idx);
     uint32_t read_batch_size = kPglNypTransposeBatch;
-    for (uint32_t write_batch_idx = 0; ; ++write_batch_idx) {
-      if (write_batch_idx >= write_batch_ct_m1) {
-        if (write_batch_idx > write_batch_ct_m1) {
+    for (uintptr_t transpose_block_idx = 0; ; ++transpose_block_idx) {
+      if (transpose_block_idx >= transpose_block_ct_m1) {
+        if (transpose_block_idx > transpose_block_ct_m1) {
           break;
         }
         read_batch_size = ModNz(sample_ct, kPglNypTransposeBatch);
       }
-      TransposeNypblock(read_iter2, loadbuf_ul_stride, sample_ctaw2, read_batch_size, vblock_size, &(write_genovec[write_batch_idx * kPglNypTransposeWords]), vecaligned_buf);
+      TransposeNypblock(read_iter2, loadbuf_ul_stride, sample_ctaw2, read_batch_size, vblock_size, &(write_genovec[transpose_block_idx * kPglNypTransposeWords]), vecaligned_buf);
       read_iter2 = &(read_iter2[kPglNypTransposeBatch * loadbuf_ul_stride]);
     }
+    uintptr_t* cur_write_genovec = write_genovec;
     if (!allele_flips_iter) {
-      for (uint32_t uii = 0; uii != vblock_size; ++uii) {
-        uintptr_t* cur_write_genovec = &(write_genovec[uii * sample_ctaw2]);
+      for (uint32_t uii = 0; uii != vblock_size; ++uii, cur_write_genovec = &(cur_write_genovec[sample_ctaw2])) {
         PgrPlink1ToPlink2InplaceUnsafe(sample_ct, cur_write_genovec);
         ZeroTrailingNyps(sample_ct, cur_write_genovec);
         PwcAppendBiallelicGenovec(cur_write_genovec, pwcp);
       }
     } else {
-      for (uint32_t uii = 0; uii != vblock_size; ++uii) {
-        uintptr_t* cur_write_genovec = &(write_genovec[uii * sample_ctaw2]);
+      for (uint32_t uii = 0; uii != vblock_size; ++uii, cur_write_genovec = &(cur_write_genovec[sample_ctaw2])) {
         PgrPlink1ToPlink2InplaceUnsafe(sample_ct, cur_write_genovec);
         if (IsSet(allele_flips_iter, uii)) {
           // could have a dedicated flip-and-invert function
@@ -1336,161 +1335,62 @@ THREAD_FUNC_DECL Plink1SmajTransposeThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_flips, uintptr_t variant_ct, uintptr_t sample_ct, uint32_t real_ref_alleles, uint32_t max_thread_ct, FILE* infile) {
-  unsigned char* bigstack_mark = g_bigstack_base;
-  MTPgenWriter* mpgwp = nullptr;
-  ThreadGroup tg;
-  PreinitThreads(&tg);
-  Plink1SmajTransposeCtx ctx;
+static_assert((kPglNypTransposeBatch % kNypsPerVec == 0) && (kPglNypTransposeBatch % kVecsPerCacheline == 0), "Plink1SampleMajorToPgenLowmem() needs to be updated.");
+PglErr Plink1SampleMajorToPgenLowmem(const char* pgenname, const uintptr_t* allele_flips, uintptr_t variant_ct, uintptr_t sample_ct, uint32_t real_ref_alleles, uint32_t raw_load_batch_size, uint32_t raw_load_batch_ct, FILE* infile, unsigned char* raw_loadbuf) {
+  // caller expected to free memory
   PglErr reterr = kPglRetSuccess;
+  STPgenWriter spgw;
+  PreinitSpgw(&spgw);
   {
-    // If allele_flips is nullptr, we are being called by Plink2Core().
-    // Otherwise, we are being called by PedmapToPgen().
-    if (!allele_flips) {
-      // file size already validated by PgfiInitPhase1()
-      logprintfww("Sample-major .bed file detected.  Transposing to %s .\n", pgenname);
-    } else {
-      logprintfww("Transposing sample-major .bed to %s , and setting major alleles to provisional-REF.\n", pgenname);
-    }
-    fputs("0%", stdout);
-    fflush(stdout);
-    if (unlikely((!variant_ct) || (!sample_ct))) {
-      logputs("\n");
-      logerrputs("Error: Zero-variant/zero-sample .pgen writing is not supported.\n");
-      goto Plink1SampleMajorToPgen_ret_INCONSISTENT_INPUT;
-    }
-    const uint32_t variant_ct4 = NypCtToByteCt(variant_ct);
-    unsigned char* raw_loadbuf = nullptr;
-    uint32_t raw_load_batch_size = 1;
-    if (variant_ct4 < 5120) {
-      // assuming 4K block size, fseek won't let us avoid reading many
-      // unnecessary disk blocks
-      raw_load_batch_size += 131071 / variant_ct4;
-      if (unlikely(bigstack_alloc_uc(raw_load_batch_size * variant_ct4, &raw_loadbuf))) {
-        goto Plink1SampleMajorToPgen_ret_NOMEM;
-      }
-      // bugfix (2 Jun 2022): forgot to skip header bytes
-      if (unlikely(fseeko(infile, 3, SEEK_SET))) {
-        goto Plink1SampleMajorToPgen_ret_READ_FAIL;
-      }
-    }
-    const uint32_t raw_load_batch_ct_m1 = (sample_ct - 1) / raw_load_batch_size;
-    if (!raw_load_batch_ct_m1) {
-      raw_load_batch_size = sample_ct;
-    }
-    const uint32_t raw_load_batch_ct = raw_load_batch_ct_m1 + 1;
-    // TODO: low-memory fallback function.  Current memory requirement starts
-    // becoming problematic with millions of samples (though 500k -> ~16 GiB is
-    // tolerable).
-    uintptr_t alloc_base_cacheline_ct;
-    uint64_t mpgw_per_thread_cacheline_ct;
-    uint32_t vrec_len_byte_ct;
-    uint64_t vblock_cacheline_ct;
-    MpgwInitPhase1(nullptr, variant_ct, sample_ct, kfPgenGlobal0, &alloc_base_cacheline_ct, &mpgw_per_thread_cacheline_ct, &vrec_len_byte_ct, &vblock_cacheline_ct);
-#ifndef __LP64__
-    if (unlikely((mpgw_per_thread_cacheline_ct > (0x7fffffff / kCacheline)) || (vblock_cacheline_ct > (0x7fffffff / kCacheline)))) {
-      goto Plink1SampleMajorToPgen_ret_NOMEM;
-    }
-#endif
-
-    uint32_t calc_thread_ct = DivUp(variant_ct, kPglVblockSize);
-    if (calc_thread_ct >= max_thread_ct) {
-      calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
-    }
-    // note that BIGSTACK_ALLOC_X() doesn't work here due to variable-size
-    // array at end
-    mpgwp = S_CAST(MTPgenWriter*, bigstack_alloc((calc_thread_ct + DivUp(sizeof(MTPgenWriter), kBytesPerWord)) * sizeof(intptr_t)));
-    if (unlikely(!mpgwp)) {
-      goto Plink1SampleMajorToPgen_ret_NOMEM;
-    }
-    PreinitMpgw(mpgwp);
-    if (unlikely(bigstack_alloc_vp(calc_thread_ct, &ctx.thread_vecaligned_bufs) ||
-                 bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_genovecs))) {
-      goto Plink1SampleMajorToPgen_ret_NOMEM;
-    }
-    ctx.pwcs = &(mpgwp->pwcs[0]);
-    uintptr_t cachelines_avail = bigstack_left() / kCacheline;
-    // inner loop transposes kPglNypTransposeBatch variants at a time
-    const uintptr_t transpose_thread_cacheline_ct = kPglNypTransposeBufbytes / kCacheline + NypCtToVecCt(sample_ct) * (kPglNypTransposeBatch / kVecsPerCacheline);
-    if (unlikely(cachelines_avail < calc_thread_ct * S_CAST(uint64_t, transpose_thread_cacheline_ct))) {
-      goto Plink1SampleMajorToPgen_ret_NOMEM;
-    }
-    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-      ctx.thread_vecaligned_bufs[tidx] = S_CAST(VecW*, bigstack_alloc_raw(kPglNypTransposeBufbytes));
-      ctx.thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(NypCtToVecCt(sample_ct) * kBytesPerVec * kPglNypTransposeBatch));
-    }
-    cachelines_avail = bigstack_left() / kCacheline;
-    // Main workflow:
-    // 1. Load next calc_thread_ct * load_multiplier * kPglVblockSize
-    //    variants.
-    //    calc_thread_ct is reduced as necessary to ensure the compression
-    //    write buffers use <= 1/8 of total workspace.
-    //    with calc_thread_ct determined, load_multiplier is then chosen to use
-    //    as much of the remaining workspace as possible.
-    // 2. Repeat load_multiplier times:
-    //    a. Spawn threads processing calc_thread_ct vblocks
-    //    b. Join threads
-    //    c. Flush results
-    // 3. Goto step 1 unless eof.  (load_multiplier may be smaller on last
-    //    iteration.)
-    // No double-buffering here since main bottleneck is how many variants we
-    // can load at once.
-    if ((cachelines_avail / 8) < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) {
-      if ((cachelines_avail / 8) >= alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) {
-        calc_thread_ct = ((cachelines_avail / 8) - alloc_base_cacheline_ct) / mpgw_per_thread_cacheline_ct;
-      } else if (likely((cachelines_avail / 3) >= alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct)) {
-        calc_thread_ct = 1;
-      } else {
-        // possible todo: simple single-threaded fallback
-        // report this value since it can plausibly come up
-        g_failed_alloc_attempt_size = (alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) * kCacheline * 3;
-        goto Plink1SampleMajorToPgen_ret_NOMEM;
-      }
-    }
-    // todo: determine appropriate calc_thread_ct limit.  (should not be less
-    // than 7-8.)
-    unsigned char* mpgw_alloc = S_CAST(unsigned char*, bigstack_alloc_raw((alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) * kCacheline));
-    reterr = MpgwInitPhase2(pgenname, nullptr, variant_ct, sample_ct, kPgenWriteBackwardSeek, kfPgenGlobal0, 2 - real_ref_alleles, vrec_len_byte_ct, vblock_cacheline_ct, calc_thread_ct, mpgw_alloc, mpgwp);
+    uintptr_t spgw_alloc_cacheline_ct;
+    uint32_t max_vrec_len;
+    reterr = SpgwInitPhase1(pgenname, nullptr, nullptr, variant_ct, sample_ct, 0, kPgenWriteBackwardSeek, kfPgenGlobal0, 2 - real_ref_alleles, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
-        logputs("\n");
         logerrprintfww(kErrprintfFopen, pgenname, strerror(errno));
       }
-      goto Plink1SampleMajorToPgen_ret_1;
+      goto Plink1SampleMajorToPgenLowmem_ret_1;
     }
+    const uintptr_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+    unsigned char* spgw_alloc;
+    VecW* vecaligned_buf;
+    uintptr_t* write_genovec;
+    if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc) ||
+                 bigstack_alloc_v(kPglNypTransposeBufbytes / kBytesPerVec, &vecaligned_buf) ||
+                 bigstack_alloc_w(sample_ctaw2 * kPglNypTransposeBatch, &write_genovec))) {
+      goto Plink1SampleMajorToPgenLowmem_ret_NOMEM;
+    }
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
-    cachelines_avail = bigstack_left() / kCacheline;
-    const uint64_t full_load_vecs_req = sample_ct * S_CAST(uint64_t, NypCtToAlignedWordCt(variant_ct));
-    uintptr_t* plink1_smaj_loadbuf;
-    uint32_t load_multiplier;
+    uintptr_t cachelines_avail = bigstack_left() / kCacheline;
+    const uint64_t full_load_vecs_req = sample_ct * S_CAST(uint64_t, NypCtToVecCt(variant_ct));
+    // Tried making this a double-buffer so that load and transpose-compress
+    // could occur simultaneously; that doesn't seem any better than loading as
+    // much as much as possible per pass.
+    uintptr_t* plink1_smaj_loadbuf = R_CAST(uintptr_t*, g_bigstack_base);
     uint32_t cur_vidx_ct;
     if (full_load_vecs_req > cachelines_avail * kVecsPerCacheline) {
-      // each iteration requires ((kPglVblockSize / 4) * calc_thread_ct *
-      //   sample_ct) bytes to be loaded
-      load_multiplier = cachelines_avail / ((kPglVblockSize / (4 * kCacheline)) * calc_thread_ct * S_CAST(uintptr_t, sample_ct));
-      assert(load_multiplier);
-      cur_vidx_ct = load_multiplier * calc_thread_ct * kPglVblockSize;
-      plink1_smaj_loadbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd((cur_vidx_ct / 4) * S_CAST(uintptr_t, sample_ct)));
-      // bugfix (18 Nov 2017): this may be larger than variant_ct
-      if (cur_vidx_ct > variant_ct) {
-        cur_vidx_ct = variant_ct;
-        load_multiplier = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
+      // Load the largest multiple of kPglNypTransposeBatch variants at a time
+      // that fits into the remaining workspace.
+      const uint64_t min_load_cl_req = DivUpU64(sample_ct * NypCtToVecCt(kPglNypTransposeBatch), kVecsPerCacheline);
+      const uint32_t vbatches_per_load = cachelines_avail / min_load_cl_req;
+      if (unlikely(!vbatches_per_load)) {
+        g_failed_alloc_attempt_size = min_load_cl_req * kCacheline;
+        goto Plink1SampleMajorToPgenLowmem_ret_NOMEM;
       }
+      cur_vidx_ct = vbatches_per_load * kPglNypTransposeBatch;
     } else {
-      load_multiplier = 1 + ((variant_ct - 1) / (calc_thread_ct * kPglVblockSize));
       cur_vidx_ct = variant_ct;
-      plink1_smaj_loadbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(full_load_vecs_req * kBytesPerVec));
     }
+    // can't have any allocations past this point unless we update
+    // g_bigstack_base
+
     uint32_t cur_vidx_ct4 = NypCtToByteCt(cur_vidx_ct);
-    uint32_t cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
+    uintptr_t cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
+    const uint32_t variant_ct4 = NypCtToByteCt(variant_ct);
+    const uint32_t raw_load_batch_ct_m1 = raw_load_batch_ct - 1;
+    const uintptr_t transpose_block_ct_m1 = (sample_ct - 1) / kPglNypTransposeBatch;
     const uint32_t pass_ct = 1 + (variant_ct - 1) / cur_vidx_ct;
-    ctx.sample_ct = sample_ct;
-    ctx.loadbuf_ul_stride = NypCtToVecCt(cur_vidx_ct) * kWordsPerVec;
-    ctx.allele_flips_iter = nullptr;
-    if (unlikely(SetThreadCt0(calc_thread_ct - 1, &tg))) {
-      goto Plink1SampleMajorToPgen_ret_NOMEM;
-    }
-    SetThreadFuncAndData(Plink1SmajTransposeThread, &ctx, &tg);
     uint32_t pass_idx1 = 0;
     for (uint32_t cur_vidx_base = 0; ; ) {
       uint32_t cur_raw_load_batch_size = raw_load_batch_size;
@@ -1500,20 +1400,20 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
       printf("Pass %u/%u: loading... 0%%", pass_idx1, pass_ct);
       fflush(stdout);
       uint32_t pct = 0;
-      uint32_t next_print_idx = raw_load_batch_ct / 100;
+      uint32_t next_print_idx = (raw_load_batch_ct + 99) / 100;
       const uint64_t seek_addl_offset = 3 + cur_vidx_base / 4;
       for (uint32_t raw_load_batch_idx = 0; ; ) {
+        // possible todo: check if multithreaded reading is faster if we know
+        // we're reading from a SSD
         if (raw_load_batch_size == 1) {
-          if (unlikely(fseeko(infile, seek_addl_offset + raw_load_batch_idx * S_CAST(uint64_t, variant_ct4), SEEK_SET))) {
-            goto Plink1SampleMajorToPgen_ret_READ_FAIL;
-          }
-          if (unlikely(!fread_unlocked(smaj_loadbuf_iter, cur_vidx_ct4, 1, infile))) {
-            goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+          if (unlikely(fseeko(infile, seek_addl_offset + raw_load_batch_idx * S_CAST(uint64_t, variant_ct4), SEEK_SET) ||
+                       (!fread_unlocked(smaj_loadbuf_iter, cur_vidx_ct4, 1, infile)))) {
+            goto Plink1SampleMajorToPgenLowmem_ret_READ_FAIL;
           }
           smaj_loadbuf_iter = &(smaj_loadbuf_iter[cur_vidx_ctaw2]);
         } else {
           if (unlikely(!fread_unlocked(raw_loadbuf, cur_raw_load_batch_size * variant_ct4, 1, infile))) {
-            goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+            goto Plink1SampleMajorToPgenLowmem_ret_READ_FAIL;
           }
           unsigned char* raw_loadbuf_iter = &(raw_loadbuf[cur_vidx_base / 4]);
           for (uint32_t uii = 0; uii != cur_raw_load_batch_size; ++uii) {
@@ -1536,74 +1436,383 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
           pct = (raw_load_batch_idx * 100LLU) / raw_load_batch_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_idx = (pct * S_CAST(uint64_t, raw_load_batch_ct)) / 100;
+          next_print_idx = (pct * S_CAST(uint64_t, raw_load_batch_ct) + 99) / 100;
         }
       }
-      const uintptr_t last_tidx = calc_thread_ct - 1;
-      uint32_t load_idx = 0;
-      ctx.cur_block_write_ct = calc_thread_ct * kPglVblockSize;
       putc_unlocked('\r', stdout);
       printf("Pass %u/%u: transposing and compressing... 0%%", pass_idx1, pass_ct);
-      ReinitThreads(&tg);
+      fflush(stdout);
+      const uintptr_t* allele_flips_iter = allele_flips? &(allele_flips[cur_vidx_base / kBitsPerWord]) : nullptr;
+      uintptr_t* read_iter = plink1_smaj_loadbuf;
       pct = 0;
-      next_print_idx = load_idx / 100;
-      do {
-        if (load_idx >= next_print_idx) {
+      next_print_idx = (cur_vidx_ct + 99) / 100;
+      for (uint32_t write_idx = 0; write_idx < cur_vidx_ct; ) {
+        // loadbuf_ul_stride = cur_vidx_ctaw2
+        const uintptr_t* read_iter2 = read_iter;
+        const uint32_t vblock_size = MINV(kPglNypTransposeBatch, cur_vidx_ct - write_idx);
+        uint32_t read_batch_size = kPglNypTransposeBatch;
+        for (uintptr_t transpose_block_idx = 0; ; ++transpose_block_idx) {
+          if (transpose_block_idx >= transpose_block_ct_m1) {
+            if (transpose_block_idx > transpose_block_ct_m1) {
+              break;
+            }
+            read_batch_size = ModNz(sample_ct, kPglNypTransposeBatch);
+          }
+          TransposeNypblock(read_iter2, cur_vidx_ctaw2, sample_ctaw2, read_batch_size, vblock_size, &(write_genovec[transpose_block_idx * kPglNypTransposeWords]), vecaligned_buf);
+          read_iter2 = &(read_iter2[kPglNypTransposeBatch * cur_vidx_ctaw2]);
+        }
+        uintptr_t* cur_write_genovec = write_genovec;
+        for (uint32_t uii = 0; uii != vblock_size; ++uii, cur_write_genovec = &(cur_write_genovec[sample_ctaw2])) {
+          PgrPlink1ToPlink2InplaceUnsafe(sample_ct, cur_write_genovec);
+          if (allele_flips_iter && IsSet(allele_flips_iter, uii)) {
+            GenovecInvertUnsafe(sample_ct, cur_write_genovec);
+          }
+          ZeroTrailingNyps(sample_ct, cur_write_genovec);
+          reterr = SpgwAppendBiallelicGenovec(cur_write_genovec, &spgw);
+          if (unlikely(reterr)) {
+            goto Plink1SampleMajorToPgenLowmem_ret_WRITE_FAIL;
+          }
+        }
+        if (write_idx >= next_print_idx) {
           if (pct > 10) {
             putc_unlocked('\b', stdout);
           }
-          pct = (load_idx * 100LLU) / load_multiplier;
+          pct = (write_idx * 100LLU) / cur_vidx_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_idx = (pct * S_CAST(uint64_t, load_multiplier)) / 100;
+          next_print_idx = (pct * S_CAST(uint64_t, cur_vidx_ct) + 99) / 100;
         }
-        ctx.plink1_smaj_loadbuf_iter = &(plink1_smaj_loadbuf[load_idx * calc_thread_ct * (kPglVblockSize / kBitsPerWordD2)]);
-        if (allele_flips) {
-          ctx.allele_flips_iter = &(allele_flips[load_idx * calc_thread_ct * (kPglVblockSize / kBitsPerWord)]);
+        write_idx += vblock_size;
+        read_iter = &(read_iter[kPglNypTransposeWords]);
+        if (allele_flips_iter) {
+          allele_flips_iter = &(allele_flips_iter[kPglNypTransposeWords / 2]);
         }
-        if (++load_idx == load_multiplier) {
-          DeclareLastThreadBlock(&tg);
-          ctx.cur_block_write_ct = cur_vidx_ct - (load_idx - 1) * calc_thread_ct * kPglVblockSize;
-        }
-        if (last_tidx) {
-          if (unlikely(SpawnThreads(&tg))) {
-            goto Plink1SampleMajorToPgen_ret_THREAD_CREATE_FAIL;
-          }
-        }
-        Plink1SmajTransposeMain(last_tidx, &ctx);
-        if (last_tidx) {
-          JoinThreads(&tg);
-          // Plink1SmajTransposeThread() never errors out
-        }
-        reterr = MpgwFlush(mpgwp);
-        if (unlikely(reterr)) {
-          goto Plink1SampleMajorToPgen_ret_WRITE_FAIL;
-        }
-      } while (!IsLastBlock(&tg));
+      }
       cur_vidx_base += cur_vidx_ct;
       if (cur_vidx_base == variant_ct) {
         if (pct > 10) {
           putc_unlocked('\b', stdout);
         }
+        fputs("\b\bdone.\n", stdout);
         break;
       }
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b                     ", stdout);
-      // assumes PgfiInitPhase1() leaves file pointer at byte 3; otherwise,
-      // necessary to put this at top of main loop
       if (unlikely(fseeko(infile, 3, SEEK_SET))) {
-        goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+        goto Plink1SampleMajorToPgenLowmem_ret_READ_FAIL;
       }
       if (variant_ct - cur_vidx_base <= cur_vidx_ct) {
         cur_vidx_ct = variant_ct - cur_vidx_base;
         cur_vidx_ct4 = NypCtToByteCt(cur_vidx_ct);
         cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
-        ctx.loadbuf_ul_stride = NypCtToVecCt(cur_vidx_ct) * kWordsPerVec;
-        load_multiplier = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
       }
     }
-    mpgwp = nullptr;
-    fputs("\b\bdone.\n", stdout);
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto Plink1SampleMajorToPgenLowmem_ret_1;
+    }
     logprintf("Transpose complete.\n");
+  }
+  while (0) {
+  Plink1SampleMajorToPgenLowmem_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  Plink1SampleMajorToPgenLowmem_ret_READ_FAIL:
+    if (feof_unlocked(infile)) {
+      errno = 0;
+    }
+    logputs("\n");
+    logerrprintfww(kErrprintfFread, ".bed file", rstrerror(errno));
+    reterr = kPglRetReadFail;
+    break;
+  Plink1SampleMajorToPgenLowmem_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ Plink1SampleMajorToPgenLowmem_ret_1:
+  CleanupSpgw(&spgw, &reterr);
+  return reterr;
+}
+
+PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_flips, uintptr_t variant_ct, uintptr_t sample_ct, uint32_t real_ref_alleles, uint32_t max_thread_ct, FILE* infile) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  MTPgenWriter* mpgwp = nullptr;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  Plink1SmajTransposeCtx ctx;
+  PglErr reterr = kPglRetSuccess;
+  {
+    // If allele_flips is nullptr, we are being called by Plink2Core().
+    // Otherwise, we are being called by PedmapToPgen().
+    if (!allele_flips) {
+      // file size already validated by PgfiInitPhase1()
+      logprintfww("Sample-major .bed file detected.  Transposing to %s .\n", pgenname);
+    } else {
+      logprintfww("Transposing sample-major .bed to %s , and setting major alleles to provisional-REF.\n", pgenname);
+    }
+    if (unlikely((!variant_ct) || (!sample_ct))) {
+      logputs("\n");
+      logerrputs("Error: Zero-variant/zero-sample .pgen writing is not supported.\n");
+      goto Plink1SampleMajorToPgen_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t variant_ct4 = NypCtToByteCt(variant_ct);
+    unsigned char* raw_loadbuf = nullptr;
+    uint32_t raw_load_batch_size = 1;
+#ifndef __APPLE__
+    if (variant_ct4 < 5120) {
+      // assuming 4K block size, fseek won't let us avoid reading many
+      // unnecessary disk blocks
+      raw_load_batch_size += 131071 / variant_ct4;
+      if (unlikely(bigstack_alloc_uc(raw_load_batch_size * variant_ct4, &raw_loadbuf))) {
+        goto Plink1SampleMajorToPgen_ret_NOMEM;
+      }
+      // bugfix (2 Jun 2022): forgot to skip header bytes
+      if (unlikely(fseeko(infile, 3, SEEK_SET))) {
+        goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+      }
+    }
+#else
+    // macOS seems to suck at seek/read interleaving
+    // haven't carefully tuned these constants, but I know they shouldn't be
+    // much smaller on my test Mac.
+    if (variant_ct4 < 1048576) {
+      raw_load_batch_size += 2097151 / variant_ct4;
+      if (unlikely(bigstack_alloc_uc(raw_load_batch_size * variant_ct4, &raw_loadbuf))) {
+        goto Plink1SampleMajorToPgen_ret_NOMEM;
+      }
+      if (unlikely(fseeko(infile, 3, SEEK_SET))) {
+        goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+      }
+    }
+#endif
+    const uint32_t raw_load_batch_ct_m1 = (sample_ct - 1) / raw_load_batch_size;
+    if (!raw_load_batch_ct_m1) {
+      raw_load_batch_size = sample_ct;
+    }
+    const uint32_t raw_load_batch_ct = raw_load_batch_ct_m1 + 1;
+    unsigned char* bigstack_mark2 = g_bigstack_base;
+    if ((max_thread_ct > 1) && (variant_ct > kPglVblockSize * 2)) {
+      uintptr_t alloc_base_cacheline_ct;
+      uint64_t mpgw_per_thread_cacheline_ct;
+      uint32_t vrec_len_byte_ct;
+      uint64_t vblock_cacheline_ct;
+      MpgwInitPhase1(nullptr, variant_ct, sample_ct, kfPgenGlobal0, &alloc_base_cacheline_ct, &mpgw_per_thread_cacheline_ct, &vrec_len_byte_ct, &vblock_cacheline_ct);
+#ifndef __LP64__
+      if (unlikely((mpgw_per_thread_cacheline_ct > (0x7fffffff / kCacheline)) || (vblock_cacheline_ct > (0x7fffffff / kCacheline)))) {
+        goto Plink1SampleMajorToPgen_fallback;
+      }
+#endif
+
+      uint32_t calc_thread_ct = DivUp(variant_ct, kPglVblockSize);
+      if (calc_thread_ct >= max_thread_ct) {
+        calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+      }
+      // note that BIGSTACK_ALLOC_X() doesn't work here due to variable-size
+      // array at end
+      mpgwp = S_CAST(MTPgenWriter*, bigstack_alloc((calc_thread_ct + DivUp(sizeof(MTPgenWriter), kBytesPerWord)) * sizeof(intptr_t)));
+      if (unlikely(!mpgwp)) {
+        goto Plink1SampleMajorToPgen_fallback;
+      }
+      PreinitMpgw(mpgwp);
+      if (unlikely(bigstack_alloc_vp(calc_thread_ct, &ctx.thread_vecaligned_bufs) ||
+                   bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_genovecs))) {
+        goto Plink1SampleMajorToPgen_fallback;
+      }
+      ctx.pwcs = &(mpgwp->pwcs[0]);
+      uintptr_t cachelines_avail = bigstack_left() / kCacheline;
+      // inner loop transposes kPglNypTransposeBatch variants at a time
+      const uintptr_t transpose_thread_cacheline_ct = kPglNypTransposeBufbytes / kCacheline + NypCtToVecCt(sample_ct) * (kPglNypTransposeBatch / kVecsPerCacheline);
+      if (unlikely(cachelines_avail < calc_thread_ct * S_CAST(uint64_t, transpose_thread_cacheline_ct))) {
+        goto Plink1SampleMajorToPgen_fallback;
+      }
+      for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+        ctx.thread_vecaligned_bufs[tidx] = S_CAST(VecW*, bigstack_alloc_raw(kPglNypTransposeBufbytes));
+        ctx.thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(NypCtToVecCt(sample_ct) * kBytesPerVec * kPglNypTransposeBatch));
+      }
+      cachelines_avail = bigstack_left() / kCacheline;
+      // Main workflow:
+      // 1. Load next calc_thread_ct * load_multiplier * kPglVblockSize
+      //    variants.
+      //    calc_thread_ct is reduced as necessary to ensure the compression
+      //    write buffers use <= 1/8 of total workspace.
+      //    with calc_thread_ct determined, load_multiplier is then chosen to
+      //    use as much of the remaining workspace as possible.
+      // 2. Repeat load_multiplier times:
+      //    a. Spawn threads processing calc_thread_ct vblocks
+      //    b. Join threads
+      //    c. Flush results
+      // 3. Goto step 1 unless eof.  (load_multiplier may be smaller on last
+      //    iteration.)
+      // No double-buffering here since main bottleneck is how many variants we
+      // can load at once.
+      if ((cachelines_avail / 8) < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) {
+        if ((cachelines_avail / 8) >= alloc_base_cacheline_ct + 2 * mpgw_per_thread_cacheline_ct) {
+          calc_thread_ct = ((cachelines_avail / 8) - alloc_base_cacheline_ct) / mpgw_per_thread_cacheline_ct;
+        } else {
+          goto Plink1SampleMajorToPgen_fallback;
+        }
+      }
+      // todo: determine appropriate calc_thread_ct limit.  (should not be less
+      // than 7-8.)
+      unsigned char* mpgw_alloc = S_CAST(unsigned char*, bigstack_alloc_raw((alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) * kCacheline));
+      reterr = MpgwInitPhase2(pgenname, nullptr, variant_ct, sample_ct, kPgenWriteBackwardSeek, kfPgenGlobal0, 2 - real_ref_alleles, vrec_len_byte_ct, vblock_cacheline_ct, calc_thread_ct, mpgw_alloc, mpgwp);
+      if (unlikely(reterr)) {
+        if (reterr == kPglRetOpenFail) {
+          logerrprintfww(kErrprintfFopen, pgenname, strerror(errno));
+        }
+        goto Plink1SampleMajorToPgen_ret_1;
+      }
+
+      cachelines_avail = bigstack_left() / kCacheline;
+      const uint64_t full_load_vecs_req = sample_ct * S_CAST(uint64_t, NypCtToVecCt(variant_ct));
+      uintptr_t* plink1_smaj_loadbuf;
+      uint32_t load_multiplier;
+      uint32_t cur_vidx_ct;
+      if (full_load_vecs_req > cachelines_avail * kVecsPerCacheline) {
+        // each iteration requires ((kPglVblockSize / 4) * calc_thread_ct *
+        //   sample_ct) bytes to be loaded
+        load_multiplier = cachelines_avail / ((kPglVblockSize / (4 * kCacheline)) * calc_thread_ct * S_CAST(uintptr_t, sample_ct));
+        assert(load_multiplier);
+        cur_vidx_ct = load_multiplier * calc_thread_ct * kPglVblockSize;
+        plink1_smaj_loadbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd((cur_vidx_ct / 4) * S_CAST(uintptr_t, sample_ct)));
+        // bugfix (18 Nov 2017): this may be larger than variant_ct
+        if (cur_vidx_ct > variant_ct) {
+          cur_vidx_ct = variant_ct;
+          load_multiplier = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
+        }
+      } else {
+        load_multiplier = 1 + ((variant_ct - 1) / (calc_thread_ct * kPglVblockSize));
+        cur_vidx_ct = variant_ct;
+        plink1_smaj_loadbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(full_load_vecs_req * kBytesPerVec));
+      }
+      uint32_t cur_vidx_ct4 = NypCtToByteCt(cur_vidx_ct);
+      uint32_t cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
+      const uint32_t pass_ct = 1 + (variant_ct - 1) / cur_vidx_ct;
+      ctx.sample_ct = sample_ct;
+      ctx.loadbuf_ul_stride = NypCtToVecCt(cur_vidx_ct) * kWordsPerVec;
+      ctx.allele_flips_iter = nullptr;
+      if (unlikely(SetThreadCt0(calc_thread_ct - 1, &tg))) {
+        goto Plink1SampleMajorToPgen_ret_NOMEM;
+      }
+      SetThreadFuncAndData(Plink1SmajTransposeThread, &ctx, &tg);
+      uint32_t pass_idx1 = 0;
+      for (uint32_t cur_vidx_base = 0; ; ) {
+        uint32_t cur_raw_load_batch_size = raw_load_batch_size;
+        uintptr_t* smaj_loadbuf_iter = plink1_smaj_loadbuf;
+        putc_unlocked('\r', stdout);
+        ++pass_idx1;
+        printf("Pass %u/%u: loading... 0%%", pass_idx1, pass_ct);
+        fflush(stdout);
+        uint32_t pct = 0;
+        uint32_t next_print_idx = (raw_load_batch_ct + 99) / 100;
+        const uint64_t seek_addl_offset = 3 + cur_vidx_base / 4;
+        for (uint32_t raw_load_batch_idx = 0; ; ) {
+          if (raw_load_batch_size == 1) {
+            if (unlikely(fseeko(infile, seek_addl_offset + raw_load_batch_idx * S_CAST(uint64_t, variant_ct4), SEEK_SET))) {
+              goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+            }
+            if (unlikely(!fread_unlocked(smaj_loadbuf_iter, cur_vidx_ct4, 1, infile))) {
+              goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+            }
+            smaj_loadbuf_iter = &(smaj_loadbuf_iter[cur_vidx_ctaw2]);
+          } else {
+            if (unlikely(!fread_unlocked(raw_loadbuf, cur_raw_load_batch_size * variant_ct4, 1, infile))) {
+              goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+            }
+            unsigned char* raw_loadbuf_iter = &(raw_loadbuf[cur_vidx_base / 4]);
+            for (uint32_t uii = 0; uii != cur_raw_load_batch_size; ++uii) {
+              memcpy(smaj_loadbuf_iter, raw_loadbuf_iter, cur_vidx_ct4);
+              raw_loadbuf_iter = &(raw_loadbuf_iter[variant_ct4]);
+              smaj_loadbuf_iter = &(smaj_loadbuf_iter[cur_vidx_ctaw2]);
+            }
+          }
+          ++raw_load_batch_idx;
+          if (raw_load_batch_idx >= raw_load_batch_ct_m1) {
+            if (raw_load_batch_idx > raw_load_batch_ct_m1) {
+              break;
+            }
+            cur_raw_load_batch_size = sample_ct - raw_load_batch_idx * raw_load_batch_size;
+          }
+          if (raw_load_batch_idx >= next_print_idx) {
+            if (pct > 10) {
+              putc_unlocked('\b', stdout);
+            }
+            pct = (raw_load_batch_idx * 100LLU) / raw_load_batch_ct;
+            printf("\b\b%u%%", pct++);
+            fflush(stdout);
+            next_print_idx = (pct * S_CAST(uint64_t, raw_load_batch_ct) + 99) / 100;
+          }
+        }
+        const uintptr_t last_tidx = calc_thread_ct - 1;
+        uint32_t load_idx = 0;
+        ctx.cur_block_write_ct = calc_thread_ct * kPglVblockSize;
+        putc_unlocked('\r', stdout);
+        printf("Pass %u/%u: transposing and compressing... 0%%", pass_idx1, pass_ct);
+        ReinitThreads(&tg);
+        pct = 0;
+        next_print_idx = (load_idx + 99) / 100;
+        do {
+          if (load_idx >= next_print_idx) {
+            if (pct > 10) {
+              putc_unlocked('\b', stdout);
+            }
+            pct = (load_idx * 100LLU) / load_multiplier;
+            printf("\b\b%u%%", pct++);
+            fflush(stdout);
+            next_print_idx = (pct * S_CAST(uint64_t, load_multiplier) + 99) / 100;
+          }
+          ctx.plink1_smaj_loadbuf_iter = &(plink1_smaj_loadbuf[load_idx * calc_thread_ct * (kPglVblockSize / kBitsPerWordD2)]);
+          if (allele_flips) {
+            ctx.allele_flips_iter = &(allele_flips[load_idx * calc_thread_ct * (kPglVblockSize / kBitsPerWord)]);
+          }
+          if (++load_idx == load_multiplier) {
+            DeclareLastThreadBlock(&tg);
+            ctx.cur_block_write_ct = cur_vidx_ct - (load_idx - 1) * calc_thread_ct * kPglVblockSize;
+          }
+          if (last_tidx) {
+            if (unlikely(SpawnThreads(&tg))) {
+              goto Plink1SampleMajorToPgen_ret_THREAD_CREATE_FAIL;
+            }
+          }
+          Plink1SmajTransposeMain(last_tidx, &ctx);
+          if (last_tidx) {
+            JoinThreads(&tg);
+            // Plink1SmajTransposeThread() never errors out
+          }
+          reterr = MpgwFlush(mpgwp);
+          if (unlikely(reterr)) {
+            goto Plink1SampleMajorToPgen_ret_WRITE_FAIL;
+          }
+        } while (!IsLastBlock(&tg));
+        cur_vidx_base += cur_vidx_ct;
+        if (cur_vidx_base == variant_ct) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          break;
+        }
+        fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b                     ", stdout);
+        // assumes PgfiInitPhase1() leaves file pointer at byte 3; otherwise,
+        // necessary to put this at top of main loop
+        if (unlikely(fseeko(infile, 3, SEEK_SET))) {
+          goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+        }
+        if (variant_ct - cur_vidx_base <= cur_vidx_ct) {
+          cur_vidx_ct = variant_ct - cur_vidx_base;
+          cur_vidx_ct4 = NypCtToByteCt(cur_vidx_ct);
+          cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
+          ctx.loadbuf_ul_stride = NypCtToVecCt(cur_vidx_ct) * kWordsPerVec;
+          load_multiplier = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
+        }
+      }
+      mpgwp = nullptr;
+      fputs("\b\bdone.\n", stdout);
+      logprintf("Transpose complete.\n");
+    } else {
+    Plink1SampleMajorToPgen_fallback:
+      BigstackReset(bigstack_mark2);
+      mpgwp = nullptr;
+      reterr = Plink1SampleMajorToPgenLowmem(pgenname, allele_flips, variant_ct, sample_ct, real_ref_alleles, raw_load_batch_size, raw_load_batch_ct, infile, raw_loadbuf);
+    }
   }
   while (0) {
   Plink1SampleMajorToPgen_ret_NOMEM:

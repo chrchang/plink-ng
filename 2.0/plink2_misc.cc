@@ -3596,7 +3596,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
       uint32_t chr_buf_blen = 0;
       uint32_t suppress_imp_r2 = 0;
       uint32_t pct = 0;
-      uint32_t next_print_variant_idx = variant_ct / 100;
+      uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
       uint32_t cur_allele_ct = 2;
       printf("--freq%s%s: 0%%", output_zst? " zs" : "", counts? " counts" : "");
       fflush(stdout);
@@ -3749,7 +3749,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       if (unlikely(CswriteCloseNull(&css, cswritep))) {
@@ -4075,7 +4075,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
     uint32_t hapref_ct = 0;
     uint32_t hapalt1_ct = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     printf("--geno-counts%s: 0%%", output_zst? " zs" : "");
     fflush(stdout);
     PgrSampleSubsetIndex pssi;
@@ -4446,7 +4446,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
@@ -4729,7 +4729,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       uint32_t chr_end = 0;
       uint32_t chr_buf_blen = 0;
       uint32_t pct = 0;
-      uint32_t next_print_variant_idx = variant_ct / 100;
+      uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
       uint32_t is_y = 2;
       double nobs_recip = 0.0;
       fputs("--missing variant report: 0%", stdout);
@@ -4841,7 +4841,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       if (unlikely(CswriteCloseNull(&css, cswritep))) {
@@ -5122,7 +5122,7 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
   uint32_t pct = 0;
   uint32_t next_print_variant_idx = variant_idx_end;
   if (!tidx) {
-    next_print_variant_idx = variant_idx_end / 100;
+    next_print_variant_idx = (variant_idx_end + 99) / 100;
   }
   uint32_t male_1copy_ct = 0;
   uint32_t male_hethap_ct = 0;
@@ -5178,7 +5178,7 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
       pct = (variant_idx * 100LLU) / variant_idx_end;
       printf("\b\b%u%%", pct++);
       fflush(stdout);
-      next_print_variant_idx = (pct * S_CAST(uint64_t, variant_idx_end)) / 100;
+      next_print_variant_idx = (pct * S_CAST(uint64_t, variant_idx_end) + 99) / 100;
     }
   }
   if (pct > 10) {
@@ -5407,7 +5407,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       uint32_t chr_end = 0;
       uint32_t chr_buf_blen = 0;
       uint32_t pct = 0;
-      uint32_t next_print_variant_idx = variant_ct / 100;
+      uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
       printf("--hardy%s%s: 0%%", output_zst? " zs" : "", midp? " midp" : "");
       fflush(stdout);
       uintptr_t xgeno_idx = 0;
@@ -5546,7 +5546,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       if (unlikely(CswriteCloseNull(&css, cswritep))) {
@@ -7130,7 +7130,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
 
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     for (uint32_t variant_idx = 0; ; ) {
       const uint32_t cur_block_size = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
       if (unlikely(reterr)) {
@@ -7167,7 +7167,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
 
       ++read_block_idx;
@@ -7889,7 +7889,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uint32_t allele_ct = 2;
     fputs("--sample-diff counts-only: 0%", stdout);
     fflush(stdout);
@@ -7938,7 +7938,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
       if (allele_ct == 2) {
         if (!pgv.dosage_ct) {
@@ -8529,7 +8529,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uint32_t allele_ct = 2;
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
@@ -8579,7 +8579,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
       const uint32_t provref = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)));
       if (allele_ct == 2) {
@@ -10154,7 +10154,7 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
 
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     for (uint32_t variant_idx = 0; ; ) {
       const uint32_t cur_block_size = MultireadNonempty(ctx.variant_subset, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
       if (unlikely(reterr)) {
@@ -10191,7 +10191,7 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
 
       ++read_block_idx;
@@ -11794,7 +11794,7 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
         uint32_t chr_end = 0;
         uint32_t chr_buf_blen = 0;
         uint32_t prev_block_variant_ct = 0;
-        uint32_t next_print_variant_idx = cur_variant_ct / 100;
+        uint32_t next_print_variant_idx = (cur_variant_ct + 99) / 100;
         for (uint32_t variant_idx = 0; ; ) {
           const uint32_t cur_block_variant_ct = MultireadNonempty(cur_variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
           if (unlikely(reterr)) {
@@ -12026,7 +12026,7 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
             pct = (variant_idx * 100LLU) / cur_variant_ct;
             printf("\b\b%u%%", pct++);
             fflush(stdout);
-            next_print_variant_idx = (pct * S_CAST(uint64_t, cur_variant_ct)) / 100;
+            next_print_variant_idx = (pct * S_CAST(uint64_t, cur_variant_ct) + 99) / 100;
           }
           ++read_block_idx;
           prev_block_variant_ct = cur_block_variant_ct;

@@ -7673,7 +7673,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     uint32_t is_y = 0;
     uint32_t dosage_cur_tol = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_uidx2 = raw_variant_ct2 / 100;
+    uint32_t next_print_variant_uidx2 = (raw_variant_ct2 + 99) / 100;
     uint64_t grand_diff_ct = 0;
     uint32_t cur_allele_ct1 = 2;
     uint32_t cur_allele_ct2 = 2;
@@ -7696,7 +7696,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         pct = (variant_uidx2 * 100LLU) / raw_variant_ct2;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_uidx2 = (pct * S_CAST(uint64_t, raw_variant_ct2)) / 100;
+        next_print_variant_uidx2 = (pct * S_CAST(uint64_t, raw_variant_ct2) + 99) / 100;
       }
       {
         char* chrom_start = line_start;

@@ -5383,7 +5383,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const char* const* cur_test_names = nullptr;
     uint32_t prev_block_variant_ct = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uint32_t allele_ct = 2;
     uint32_t omitted_allele_idx = 0;
     uintptr_t valid_allele_ct = 0;
@@ -5883,7 +5883,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
       ++read_block_idx;
       prev_block_variant_ct = cur_block_variant_ct;

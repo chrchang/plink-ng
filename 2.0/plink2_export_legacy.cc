@@ -298,7 +298,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         uint32_t read_block_idx = 0;
         ReinitThreads(&read_tg);
         uint32_t pct = 0;
-        uint32_t next_print_idx = variant_ct / 100;
+        uint32_t next_print_idx = (variant_ct + 99) / 100;
         putc_unlocked('\r', stdout);
         printf("--export ind-major-bed pass %u/%u: loading... 0%%", pass_idx + 1, pass_ct);
         fflush(stdout);
@@ -337,7 +337,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
             pct = (variant_idx * 100LLU) / variant_ct;
             printf("\b\b%u%%", pct++);
             fflush(stdout);
-            next_print_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+            next_print_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
           }
 
           ++read_block_idx;
@@ -358,7 +358,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         fflush(stdout);
         pct = 0;
         uint32_t flush_sample_idx = 0;
-        next_print_idx = read_sample_ct / 100;
+        next_print_idx = (read_sample_ct + 99) / 100;
         for (uint32_t flush_sample_idx_end = 0; ; ) {
           if (!IsLastBlock(&write_tg)) {
             if (flush_sample_idx_end + sample_batch_size >= read_sample_ct) {
@@ -388,7 +388,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
               pct = (flush_sample_idx_end * 100LLU) / read_sample_ct;
               printf("\b\b%u%%", pct++);
               fflush(stdout);
-              next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct)) / 100;
+              next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct) + 99) / 100;
             }
           }
           JoinThreads(&write_tg);
@@ -483,7 +483,7 @@ PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const ui
     uint32_t chr_end = 0;
     uint32_t chr_blen = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uintptr_t variant_uidx_base = 0;
     uintptr_t variant_include_bits = variant_include[0];
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
@@ -617,7 +617,7 @@ PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const ui
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
@@ -998,7 +998,7 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
       uint32_t read_block_idx = 0;
       ReinitThreads(&read_tg);
       uint32_t pct = 0;
-      uint32_t next_print_idx = variant_ct / 100;
+      uint32_t next_print_idx = (variant_ct + 99) / 100;
       putc_unlocked('\r', stdout);
       printf("--export %s pass %u/%u: loading... 0%%", compound_genotypes? "compound-genotypes" : "ped", pass_idx + 1, pass_ct);
       fflush(stdout);
@@ -1037,7 +1037,7 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
 
         ++read_block_idx;
@@ -1058,7 +1058,7 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
       uintptr_t sample_include_bits;
       BitIter1Start(sample_include, sample_uidx_start, &sample_uidx_base, &sample_include_bits);
       uint32_t flush_sample_idx = 0;
-      next_print_idx = read_sample_ct / 100;
+      next_print_idx = (read_sample_ct + 99) / 100;
       for (uint32_t flush_sample_idx_end = 0; ; ) {
         if (!IsLastBlock(&transpose_tg)) {
           if (flush_sample_idx_end + sample_batch_size >= read_sample_ct) {
@@ -1181,7 +1181,7 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
             pct = (flush_sample_idx_end * 100LLU) / read_sample_ct;
             printf("\b\b%u%%", pct++);
             fflush(stdout);
-            next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct)) / 100;
+            next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct) + 99) / 100;
           }
         }
         JoinThreads(&transpose_tg);

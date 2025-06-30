@@ -1034,7 +1034,7 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
     uint32_t cur_allele_ct = 2;
     uint32_t alleles_permuted = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     fputs("0%", stdout);
     fflush(stdout);
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
@@ -1174,7 +1174,7 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
@@ -3230,7 +3230,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
 
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     for (uint32_t variant_idx = 0; ; ) {
       const uint32_t cur_block_size = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
       if (unlikely(reterr)) {
@@ -3267,7 +3267,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
 
       ++read_block_idx;
@@ -4487,7 +4487,7 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
     uint32_t orig_allele_ct = 2;
     uint32_t cur_info_key_ct = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     fputs("0%", stdout);
     fflush(stdout);
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
@@ -4818,7 +4818,7 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
@@ -5210,7 +5210,7 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     uintptr_t bp_start_bits = variant_include[0];
     uint32_t allele_ct = 2;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     JoinCounts jc;
     jc.snp_ct = 0;
     jc.nonsnp_ct = 0;
@@ -5388,7 +5388,7 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
         pct = (next_variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
@@ -5819,7 +5819,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
     uint32_t prev_variant_idx = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     for (uint32_t variant_idx = 0; ; ) {
       const uint32_t cur_block_write_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
       if (unlikely(reterr)) {
@@ -5862,7 +5862,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
         prev_variant_idx = variant_idx;
       }
@@ -7045,7 +7045,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uint32_t pct = 0;
       uint32_t parity = 0;
       uint32_t cur_batch_size = write_block_size;
-      uint32_t next_print_write_variant_idx = write_variant_ct / 100;
+      uint32_t next_print_write_variant_idx = (write_variant_ct + 99) / 100;
       uint32_t cur_read_allele_ct = 2;
       uint32_t cur_write_allele_ct = 2;
       uint32_t cur_het_ct = 0;
@@ -7491,7 +7491,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
             pct = (write_idx_end * 100LLU) / write_variant_ct;
             printf("\b\b%u%%", pct++);
             fflush(stdout);
-            next_print_write_variant_idx = (pct * S_CAST(uint64_t, write_variant_ct)) / 100;
+            next_print_write_variant_idx = (pct * S_CAST(uint64_t, write_variant_ct) + 99) / 100;
           }
         }
       }
@@ -8155,7 +8155,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       uint32_t parity = 0;
       uint32_t read_batch_idx = 0;
       uint32_t cur_batch_size = kPglVblockSize * calc_thread_ct;
-      uint32_t next_print_variant_idx = variant_ct / 100;
+      uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
       uintptr_t read_variant_uidx_base = 0;
       uintptr_t cur_bits = variant_include[0];
       PgrClearLdCache(simple_pgrp);
@@ -8217,7 +8217,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
             pct = (write_idx_end * 100LLU) / variant_ct;
             printf("\b\b%u%%", pct++);
             fflush(stdout);
-            next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+            next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
           }
         }
       }
@@ -9277,7 +9277,7 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     fputs("0%", stdout);
     fflush(stdout);
     for (uint32_t batch_idx = 0; batch_idx != batch_ct; ++batch_idx) {
@@ -9288,7 +9288,7 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
         pct = (variant_idx_start * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
       uint32_t variant_idx_end = MINV(variant_idx_start + batch_size, variant_ct);
       if (pvar_info_reload && variant_order_in_shard) {
@@ -10060,7 +10060,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sample_include, const uintptr_t* se
 
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     for (uint32_t variant_idx = 0; ; ) {
       const uint32_t cur_loaded_variant_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
       if (unlikely(reterr)) {
@@ -10097,7 +10097,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sample_include, const uintptr_t* se
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
 
       ++read_block_idx;

@@ -443,9 +443,6 @@ HEADER_INLINE void FPutVint64(uint64_t ullii, FILE* ff) {
   putc_unlocked(ullii, ff);
 }
 
-// TODO: make this work properly with kCacheline == 128, then fix other
-// transpose functions, etc.
-
 // main batch size
 CONSTI32(kPglNypTransposeBatch, kNypsPerCacheline);
 

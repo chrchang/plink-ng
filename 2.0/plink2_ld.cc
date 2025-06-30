@@ -1283,7 +1283,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     // 7. Assemble final results with CopyBitarrRange()
     uint32_t parity = 0;
     uint32_t pct = 0;
-    uint32_t next_print_tvidx_start = max_load / 100;
+    uint32_t next_print_tvidx_start = (max_load + 99) / 100;
     logprintf("--indep-pairwise (%u compute thread%s): ", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
     fputs("0%", stdout);
     fflush(stdout);
@@ -1402,7 +1402,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
           pct = (cur_tvidx_start * 100LLU) / max_load;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_tvidx_start = (pct * S_CAST(uint64_t, max_load)) / 100;
+          next_print_tvidx_start = (pct * S_CAST(uint64_t, max_load) + 99) / 100;
         }
       }
       if (cur_tvidx_start + tvidx_batch_size >= max_load) {
@@ -1973,7 +1973,7 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
     // 7. Assemble final results with CopyBitarrRange()
     uint32_t parity = 0;
     uint32_t pct = 0;
-    uint32_t next_print_tvidx_start = max_load / 100;
+    uint32_t next_print_tvidx_start = (max_load + 99) / 100;
     logprintf("--indep-pairphase (%u compute thread%s): ", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
     fputs("0%", stdout);
     fflush(stdout);
@@ -2118,7 +2118,7 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
           pct = (cur_tvidx_start * 100LLU) / max_load;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_tvidx_start = (pct * S_CAST(uint64_t, max_load)) / 100;
+          next_print_tvidx_start = (pct * S_CAST(uint64_t, max_load) + 99) / 100;
         }
       }
       if (cur_tvidx_start + tvidx_batch_size >= max_load) {
@@ -10205,7 +10205,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     AlleleCode aidx = 0;
     uint64_t job_done = 0;
     uint64_t next_job_done = 0;
-    uint64_t pct_thresh = job_size / 100;
+    uint64_t next_print_job_idx = (job_size + 99) / 100;
     uint32_t pct = 0;
     uint32_t cur_row_variant_idx_start = row_variant_idx_start;
     uint32_t row_window_size = usual_row_window_size;
@@ -10427,14 +10427,14 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
         }
         col_parity = 1 - col_parity;
 
-        if (job_done >= pct_thresh) {
+        if (job_done >= next_print_job_idx) {
           if (pct > 10) {
             putc_unlocked('\b', stdout);
           }
           pct = (job_done * 100) / job_size;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          pct_thresh = (pct * job_size) / 100;
+          next_print_job_idx = (pct * job_size + 99) / 100;
         }
         cur_col_variant_idx_start = cur_col_variant_idx_stop;
       } while (cur_col_variant_idx_start != col_variant_idx_stop);
@@ -11680,7 +11680,7 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
         logputs("  --ld-snp[s]\n");
       }
     }
-    uint32_t next_print_variant_ridx = row_variant_ct / 100;
+    uint32_t next_print_variant_ridx = (row_variant_ct + 99) / 100;
     uint32_t pct = 0;
     uint32_t prev_variant_ridx_start = 0;
     uint32_t cur_variant_ridx_start = 0;
@@ -11996,7 +11996,7 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
         pct = (cur_variant_ridx_start * 100LLU) / row_variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_ridx = (pct * S_CAST(uint64_t, row_variant_ct)) / 100;
+        next_print_variant_ridx = (pct * S_CAST(uint64_t, row_variant_ct) + 99) / 100;
       }
       prev_variant_ridx_start = cur_variant_ridx_start;
       cur_variant_ridx_start = cur_variant_ridx_stop;

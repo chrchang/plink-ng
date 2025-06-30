@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (28 Jun 2025)";
+  " (30 Jun 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1079,7 +1079,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         char* pgenname_end = memcpya(pgenname, outname, outname_end - outname);
         pgenname_end = strcpya_k(pgenname_end, ".pgen");
-        const uint32_t no_vmaj_ext = (pcp->command_flags1 & kfCommand1MakePlink2) && (!pcp->filter_flags) && ((make_plink2_flags & (kfMakePgen | (kfMakePgenFormatBase * 3))) == kfMakePgen);
+        const uint32_t no_vmaj_ext = (pcp->command_flags1 & kfCommand1MakePlink2) && (!pcp->filter_flags) && ((make_plink2_flags & (kfMakePgen | kfMakePlink2MJoin | (kfMakePgenFormatBase * 3) | kfMakePgenWriterVer)) == kfMakePgen);
         if (no_vmaj_ext) {
           *pgenname_end = '\0';
           make_plink2_flags &= ~kfMakePgen;
@@ -8009,6 +8009,8 @@ int main(int argc, char** argv) {
           uint32_t explicit_pvar_cols = 0;
           uint32_t explicit_psam_cols = 0;
           uint32_t varid_semicolon = 0;
+          // bugfix (28 Jun 2025): this needs to be kept in sync with
+          // auto-transpose no_vmaj_ext
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);

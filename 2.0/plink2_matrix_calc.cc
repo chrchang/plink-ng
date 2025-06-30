@@ -1897,7 +1897,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         uint32_t prev_read_block_idx = 0;
         uint32_t read_block_idx = 0;
         uint32_t pct = 0;
-        uint32_t next_print_variant_idx = variant_ct / 100;
+        uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
         uint32_t parity = 0;
         for (uint32_t variant_idx = 0; ; ) {
           const uint32_t cur_block_size = MultireadNonempty(variant_include_orig, &tg, raw_variant_ct, sparse_read_block_size, pgfip, &read_block_idx, &reterr);
@@ -1935,7 +1935,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
               pct = (variant_idx * 100LLU) / variant_ct;
               printf("\b\b%u%%", pct++);
               fflush(stdout);
-              next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+              next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
             }
           }
           prev_read_block_idx = read_block_idx;
@@ -4378,7 +4378,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     uintptr_t cur_bits = variant_include[0];
     uint32_t parity = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     // caller's responsibility to print this
     // logputs("Correcting for missingness: ");
     fputs("0%", stdout);
@@ -4451,7 +4451,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
           pct = (cur_variant_idx_start * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       if (cur_variant_idx_start + cur_batch_size == variant_ct) {
@@ -4634,7 +4634,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     uint32_t parity = 0;
     uint32_t is_not_first_block = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     logputs("Constructing GRM: ");
     fputs("0%", stdout);
     fflush(stdout);
@@ -4664,7 +4664,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           pct = (variant_idx_start * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       ctx.cur_batch_size = cur_batch_size;
@@ -9765,7 +9765,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     uintptr_t cur_bits = variant_include[0];
     uint32_t prev_block_size = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
     uint32_t chr_fo_idx = UINT32_MAX;
@@ -9942,7 +9942,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       prev_block_size = cur_block_size;
