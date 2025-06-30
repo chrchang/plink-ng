@@ -1270,13 +1270,13 @@ typedef struct Plink1SmajTransposeCtxStruct {
 
 void Plink1SmajTransposeMain(uint32_t tidx, Plink1SmajTransposeCtx* ctx) {
   const uint32_t sample_ct = ctx->sample_ct;
-  const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
-  const uint32_t write_batch_ct_m1 = (sample_ct - 1) / kPglNypTransposeBatch;
+  const uintptr_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+  const uintptr_t write_batch_ct_m1 = (sample_ct - 1) / kPglNypTransposeBatch;
   PgenWriterCommon* pwcp = ctx->pwcs[tidx];
   VecW* vecaligned_buf = ctx->thread_vecaligned_bufs[tidx];
   uintptr_t* write_genovec = ctx->thread_write_genovecs[tidx];
   const uintptr_t cur_block_write_ct = ctx->cur_block_write_ct;
-  const uint32_t loadbuf_ul_stride = ctx->loadbuf_ul_stride;
+  const uintptr_t loadbuf_ul_stride = ctx->loadbuf_ul_stride;
   uint32_t write_idx = tidx * kPglVblockSize;
   uintptr_t* read_iter = &(ctx->plink1_smaj_loadbuf_iter[write_idx / kBitsPerWordD2]);
   const uintptr_t* allele_flips_iter = ctx->allele_flips_iter;
@@ -1289,7 +1289,7 @@ void Plink1SmajTransposeMain(uint32_t tidx, Plink1SmajTransposeCtx* ctx) {
     // uintptr_t* write_iter = write_genovec;
     const uint32_t vblock_size = MINV(kPglNypTransposeBatch, write_idx_end - write_idx);
     uint32_t read_batch_size = kPglNypTransposeBatch;
-    for (uint32_t write_batch_idx = 0; ; ++write_batch_idx) {
+    for (uintptr_t write_batch_idx = 0; ; ++write_batch_idx) {
       if (write_batch_idx >= write_batch_ct_m1) {
         if (write_batch_idx > write_batch_ct_m1) {
           break;
