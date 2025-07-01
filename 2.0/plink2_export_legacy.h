@@ -26,6 +26,27 @@
 namespace plink2 {
 #endif
 
+// This may belong in a more central location.
+typedef struct MTPgenReadCtxStruct {
+  const uintptr_t* variant_include;
+  const uintptr_t* allele_idx_offsets;
+  const AlleleCode* allele_permute;
+  const uintptr_t* sample_include;
+  const uint32_t* sample_include_cumulative_popcounts;
+  uint32_t sample_ct;
+
+  PgenReader** pgr_ptrs;
+
+  uint32_t* variant_uidx_starts;
+  uint32_t cur_block_write_ct;
+
+  uintptr_t* vmaj_readbuf;
+
+  uint64_t err_info;
+} MTPgenReadCtx;
+
+THREAD_FUNC_DECL MTPgenReadThread(void* raw_arg);
+
 PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const AlleleCode* allele_permute, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
 
 PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* variant_cms, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, char exportf_delim, char lomg_char, PgenReader* simple_pgrp);

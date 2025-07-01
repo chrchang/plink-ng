@@ -1630,17 +1630,17 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
       }
       cachelines_avail = bigstack_left() / kCacheline;
       // Main workflow:
-      // 1. Load next calc_thread_ct * load_multiplier * kPglVblockSize
+      // 1. Load next calc_thread_ct * vblock_group_ct * kPglVblockSize
       //    variants.
       //    calc_thread_ct is reduced as necessary to ensure the compression
       //    write buffers use <= 1/8 of total workspace.
-      //    with calc_thread_ct determined, load_multiplier is then chosen to
+      //    with calc_thread_ct determined, vblock_group_ct is then chosen to
       //    use as much of the remaining workspace as possible.
-      // 2. Repeat load_multiplier times:
+      // 2. Repeat vblock_group_ct times:
       //    a. Spawn threads processing calc_thread_ct vblocks
       //    b. Join threads
       //    c. Flush results
-      // 3. Goto step 1 unless eof.  (load_multiplier may be smaller on last
+      // 3. Goto step 1 unless eof.  (vblock_group_ct may be smaller on last
       //    iteration.)
       // No double-buffering here since main bottleneck is how many variants we
       // can load at once.
@@ -1665,22 +1665,22 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
       cachelines_avail = bigstack_left() / kCacheline;
       const uint64_t full_load_vecs_req = sample_ct * S_CAST(uint64_t, NypCtToVecCt(variant_ct));
       uintptr_t* plink1_smaj_loadbuf;
-      uint32_t load_multiplier;
+      uint32_t vblock_group_ct;
       uint32_t cur_vidx_ct;
       if (full_load_vecs_req > cachelines_avail * kVecsPerCacheline) {
         // each iteration requires ((kPglVblockSize / 4) * calc_thread_ct *
         //   sample_ct) bytes to be loaded
-        load_multiplier = cachelines_avail / ((kPglVblockSize / (4 * kCacheline)) * calc_thread_ct * S_CAST(uintptr_t, sample_ct));
-        assert(load_multiplier);
-        cur_vidx_ct = load_multiplier * calc_thread_ct * kPglVblockSize;
+        vblock_group_ct = cachelines_avail / ((kPglVblockSize / (4 * kCacheline)) * calc_thread_ct * S_CAST(uintptr_t, sample_ct));
+        assert(vblock_group_ct);
+        cur_vidx_ct = vblock_group_ct * calc_thread_ct * kPglVblockSize;
         plink1_smaj_loadbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd((cur_vidx_ct / 4) * S_CAST(uintptr_t, sample_ct)));
         // bugfix (18 Nov 2017): this may be larger than variant_ct
         if (cur_vidx_ct > variant_ct) {
           cur_vidx_ct = variant_ct;
-          load_multiplier = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
+          vblock_group_ct = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
         }
       } else {
-        load_multiplier = 1 + ((variant_ct - 1) / (calc_thread_ct * kPglVblockSize));
+        vblock_group_ct = 1 + ((variant_ct - 1) / (calc_thread_ct * kPglVblockSize));
         cur_vidx_ct = variant_ct;
         plink1_smaj_loadbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(full_load_vecs_req * kBytesPerVec));
       }
@@ -1755,16 +1755,16 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
             if (pct > 10) {
               putc_unlocked('\b', stdout);
             }
-            pct = (load_idx * 100LLU) / load_multiplier;
+            pct = (load_idx * 100LLU) / vblock_group_ct;
             printf("\b\b%u%%", pct++);
             fflush(stdout);
-            next_print_idx = (pct * S_CAST(uint64_t, load_multiplier) + 99) / 100;
+            next_print_idx = (pct * S_CAST(uint64_t, vblock_group_ct) + 99) / 100;
           }
           ctx.plink1_smaj_loadbuf_iter = &(plink1_smaj_loadbuf[load_idx * calc_thread_ct * (kPglVblockSize / kBitsPerWordD2)]);
           if (allele_flips) {
             ctx.allele_flips_iter = &(allele_flips[load_idx * calc_thread_ct * (kPglVblockSize / kBitsPerWord)]);
           }
-          if (++load_idx == load_multiplier) {
+          if (++load_idx == vblock_group_ct) {
             DeclareLastThreadBlock(&tg);
             ctx.cur_block_write_ct = cur_vidx_ct - (load_idx - 1) * calc_thread_ct * kPglVblockSize;
           }
@@ -1801,7 +1801,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
           cur_vidx_ct4 = NypCtToByteCt(cur_vidx_ct);
           cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
           ctx.loadbuf_ul_stride = NypCtToVecCt(cur_vidx_ct) * kWordsPerVec;
-          load_multiplier = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
+          vblock_group_ct = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
         }
       }
       mpgwp = nullptr;

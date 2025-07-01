@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (30 Jun 2025)";
+  " (1 Jul 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -5745,12 +5745,12 @@ int main(int argc, char** argv) {
             }
           }
           if (pc.exportf_info.idpaste_flags || pc.exportf_info.id_delim) {
-            if (unlikely(!(pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfBgen12 | kfExportfBgen13 | kfExportfSampleV2 | kfExportfPhylip | kfExportfPhylipPhased | kfExportfEig)))) {
-              logerrputs("Error: The 'id-delim' and 'id-paste' modifiers only apply to --export's vcf,\nbcf, bgen-1.2, bgen-1.3, sample-v2, phylip, phylip-phased, and eig output\nformats.\n");
+            if (unlikely(!(pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfBgen12 | kfExportfBgen13 | kfExportfSampleV2 | kfExportfPhylip | kfExportfPhylipPhased | kfExportfEig | kfExportfEigt)))) {
+              logerrputs("Error: The 'id-delim' and 'id-paste' modifiers only apply to --export's vcf,\nbcf, bgen-1.2, bgen-1.3, sample-v2, phylip, phylip-phased, eig, and eigt output\nformats.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
           }
-          if (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfBgen12 | kfExportfBgen13 | kfExportfSampleV2 | kfExportfPhylip | kfExportfPhylipPhased | kfExportfEig)) {
+          if (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf | kfExportfBgen12 | kfExportfBgen13 | kfExportfSampleV2 | kfExportfPhylip | kfExportfPhylipPhased | kfExportfEig | kfExportfEigt)) {
             if (!pc.exportf_info.idpaste_flags) {
               pc.exportf_info.idpaste_flags = kfIdpasteDefault;
             }

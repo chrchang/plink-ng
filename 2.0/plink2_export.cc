@@ -11071,7 +11071,7 @@ THREAD_FUNC_DECL ExportEigGenoThread(void* raw_arg) {
   const uint32_t sample_ct4 = DivUp(sample_ct, 4);
   const uintptr_t output_rec_blen = MAXV(48, sample_ct4);
 #ifdef USE_SSE2
-  const uint32_t vec_ct_m1 = (sample_ct4 < kBytesPerVec)? 0 : (sample_ct - 1) / kNypsPerVec;
+  const uint32_t vec_ct_m1 = (sample_ct - 1) / kNypsPerVec;
   const uint32_t final_byte_offset = (sample_ct4 < kBytesPerVec)? 0 : (sample_ct4 - kBytesPerVec);
   const VecW mask_0f0f = vecw_set1(kMask0F0F);
   // tried EigGenoToPgenThread()'s lookup-table approach, no noticeable
@@ -11169,7 +11169,6 @@ THREAD_FUNC_DECL ExportEigGenoThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-// todo: ExportEigTgeno
 PglErr ExportEigGeno(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const AlleleCode* allele_permute, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t s_hash, uint32_t v_hash, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
@@ -11323,6 +11322,408 @@ PglErr ExportEigGeno(const char* outname, const uintptr_t* sample_include, const
   return reterr;
 }
 
+typedef struct TransposeToEigTgenoWriteCtxStruct {
+  uint32_t variant_ct;
+  uint32_t sample_ct;
+
+  const uintptr_t* vmaj_readbuf;
+
+  VecW** thread_vecaligned_bufs;
+
+  uint32_t sample_batch_size;
+
+  uintptr_t* smaj_writebufs[2];
+} TransposeToEigTgenoWriteCtx;
+
+THREAD_FUNC_DECL TransposeToEigTgenoWriteThread(void* raw_arg) {
+  // nearly identical to TransposeToPlink1SmajWriteThread().
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  TransposeToEigTgenoWriteCtx* ctx = S_CAST(TransposeToEigTgenoWriteCtx*, arg->sharedp->context);
+
+  const uint32_t variant_ct = ctx->variant_ct;
+  const uintptr_t variant_batch_ct = DivUp(variant_ct, kPglNypTransposeBatch);
+  const uintptr_t variant_batch_word_ct = variant_batch_ct * kPglNypTransposeWords;
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
+  const uintptr_t variant_batch_idx_start = (S_CAST(uint64_t, tidx) * variant_batch_ct) / calc_thread_ct;
+  VecW* vecaligned_buf = ctx->thread_vecaligned_bufs[tidx];
+  uintptr_t variant_batch_idx_full_end = ((S_CAST(uint64_t, tidx) + 1) * variant_batch_ct) / calc_thread_ct;
+  uint32_t variant_idx_end;
+  if (tidx + 1 < calc_thread_ct) {
+    variant_idx_end = variant_batch_idx_full_end * kPglNypTransposeBatch;
+  } else {
+    variant_idx_end = variant_ct;
+    if (variant_ct % kPglNypTransposeBatch) {
+      --variant_batch_idx_full_end;
+    }
+  }
+  const uint32_t thread_variant_ct = variant_idx_end - variant_batch_idx_start * kPglNypTransposeBatch;
+#ifdef USE_SSE2
+  const uint32_t last_word_idx = (thread_variant_ct - 1) / kBitsPerWordD2;
+#endif
+  uintptr_t last_word_mask = ~k0LU;
+  uint32_t trailing_zero_word_stop = 0;
+  if (variant_idx_end == variant_ct) {
+    // mask out trailing bits... except that we mask out *low* bits in the last
+    // mixed byte
+    const uint32_t mask_out_nyp_ct = (-thread_variant_ct) & (kBitsPerWordD2 - 1);
+    const uint32_t mask_out_nyp_remainder_ct = mask_out_nyp_ct % 4;
+    last_word_mask = ((k1LU - (k1LU << (2 * mask_out_nyp_remainder_ct))) << (kBitsPerWord - 8)) - 1;
+    const uint32_t mask_out_fullbyte_ct = mask_out_nyp_ct / 4;
+    last_word_mask >>= mask_out_fullbyte_ct * 8;
+    if (variant_ct <= 192 - 4 * kBytesPerWord) {
+      trailing_zero_word_stop = 48 / kBytesPerWord;
+    }
+  }
+  const uint32_t read_sample_ct = ctx->sample_ct;
+  const uintptr_t read_sample_ctaw2 = NypCtToAlignedWordCt(read_sample_ct);
+  const uintptr_t* vmaj_readbuf = ctx->vmaj_readbuf;
+  uint32_t sample_widx = 0;
+  uint32_t parity = 0;
+  do {
+    const uint32_t sample_batch_size = ctx->sample_batch_size;
+    const uintptr_t* vmaj_readbuf_iter = &(vmaj_readbuf[variant_batch_idx_start * kPglNypTransposeBatch * read_sample_ctaw2 + sample_widx]);
+    uintptr_t* smaj_writebuf_start = &(ctx->smaj_writebufs[parity][variant_batch_idx_start * kPglNypTransposeWords]);
+    uintptr_t* smaj_writebuf_iter = smaj_writebuf_start;
+    uint32_t variant_batch_size = kPglNypTransposeBatch;
+    for (uintptr_t variant_batch_idx = variant_batch_idx_start; ; ++variant_batch_idx) {
+      if (variant_batch_idx >= variant_batch_idx_full_end) {
+        if (variant_batch_idx * kPglNypTransposeBatch >= variant_idx_end) {
+          break;
+        }
+        variant_batch_size = variant_idx_end - variant_batch_idx * kPglNypTransposeBatch;
+      }
+      TransposeNypblock(vmaj_readbuf_iter, read_sample_ctaw2, variant_batch_word_ct, variant_batch_size, sample_batch_size, smaj_writebuf_iter, vecaligned_buf);
+      smaj_writebuf_iter = &(smaj_writebuf_iter[kPglNypTransposeWords]);
+      vmaj_readbuf_iter = &(vmaj_readbuf_iter[variant_batch_size * read_sample_ctaw2]);
+    }
+    smaj_writebuf_iter = smaj_writebuf_start;
+#ifdef USE_SSE2
+    const uint32_t vec_ct = NypCtToVecCt(thread_variant_ct);
+    const VecW mask_0f0f = vecw_set1(kMask0F0F);
+#  ifdef USE_SHUFFLE8
+    const VecW eig_lookup_high = vecw_setr8(10, 6, 2, 14, 9, 5, 1, 13,
+                                            8, 4, 0, 12, 11, 7, 3, 15);
+    const VecW eig_lookup_low = vecw_slli(eig_lookup_high, 4);
+#  else
+    const VecW mask_3333 = vecw_set1(kMask3333);
+    const VecW mask_5555 = vecw_set1(kMask5555);
+#  endif
+#else
+    const uint32_t word_ct = NypCtToWordCt(thread_variant_ct);
+#endif
+    for (uint32_t sample_idx = 0; sample_idx != sample_batch_size; ++sample_idx) {
+#ifdef USE_SSE2
+      VecW* __attribute__((may_alias)) smaj_writebuf_viter = R_CAST(VecW*, smaj_writebuf_iter);
+      for (uint32_t vidx = 0; vidx != vec_ct; ++vidx) {
+        const VecW input_vec = *smaj_writebuf_viter;
+        const VecW high_nybbles_shifted = vecw_srli(input_vec, 4) & mask_0f0f;
+        const VecW low_nybbles = input_vec & mask_0f0f;
+#  ifdef USE_SHUFFLE8
+        const VecW low_transformed = vecw_shuffle8(eig_lookup_low, low_nybbles);
+        const VecW high_transformed = vecw_shuffle8(eig_lookup_high, high_nybbles_shifted);
+        const VecW result = low_transformed | high_transformed;
+#  else
+        const VecW nybble_swapped = high_nybbles_shifted | vecw_slli(low_nybbles, 4);
+        const VecW high_nyps = vecw_and_notfirst(mask_3333, nybble_swapped);
+        const VecW low_nyps = mask_3333 & nybble_swapped;
+        const VecW nyp_reversed = vecw_srli(high_nyps, 2) | vecw_slli(low_nyps, 2);
+        const VecW is_even = vecw_and_notfirst(nyp_reversed, mask_5555);
+        const VecW result = nyp_reversed ^ vecw_slli(is_even, 1);
+#  endif
+        *smaj_writebuf_viter++ = result;
+      }
+      smaj_writebuf_iter[last_word_idx] &= last_word_mask;
+      if (trailing_zero_word_stop) {
+        for (uint32_t widx = last_word_idx + 1; widx != trailing_zero_word_stop; ++widx) {
+          smaj_writebuf_iter[widx] = 0;
+        }
+      }
+#else
+      for (uint32_t widx = 0; widx != word_ct; ++widx) {
+        uintptr_t input_word = smaj_writebuf_iter[widx];
+        const uintptr_t high_nybbles = input_word & (~kMask0F0F);
+        const uintptr_t low_nybbles = input_word & kMask0F0F;
+        const uintptr_t nybble_swapped = (high_nybbles >> 4) | (low_nybbles << 4);
+        const uintptr_t high_nyps = nybble_swapped & (~kMask3333);
+        const uintptr_t low_nyps = nybble_swapped & kMask3333;
+        const uintptr_t nyp_reversed = (high_nyps >> 2) | (low_nyps << 2);
+        const uintptr_t is_even = (~nyp_reversed) & kMask5555;
+        smaj_writebuf_iter[widx] = nyp_reversed ^ (is_even << 1);
+      }
+      smaj_writebuf_iter[word_ct - 1] &= last_word_mask;
+      if (trailing_zero_word_stop) {
+        for (uint32_t widx = word_ct; widx != trailing_zero_word_stop; ++widx) {
+          smaj_writebuf_iter[widx] = 0;
+        }
+      }
+#endif
+      // todo: 48-byte minimum
+      smaj_writebuf_iter = &(smaj_writebuf_iter[variant_batch_word_ct]);
+    }
+    parity = 1 - parity;
+    sample_widx += sample_batch_size / kBitsPerWordD2;
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+static_assert(kCacheline >= 48, "ExportEigTgeno() needs to be updated.");
+PglErr ExportEigTgeno(const char* outname, const uintptr_t* orig_sample_include, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const AlleleCode* allele_permute, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t s_hash, uint32_t v_hash, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip) {
+  // Nearly identical to ExportIndMajorBed().
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  ThreadGroup read_tg;
+  ThreadGroup write_tg;
+  PreinitThreads(&read_tg);
+  PreinitThreads(&write_tg);
+  MTPgenReadCtx read_ctx;
+  TransposeToEigTgenoWriteCtx write_ctx;
+  {
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportEigTgeno_ret_OPEN_FAIL;
+    }
+    {
+      char header[48];
+      memset(header, 0, 48);
+      snprintf(header, 48, "TGENO %7d %7d %x %x", sample_ct, variant_ct, s_hash, v_hash);
+      if (unlikely(!fwrite_unlocked(header, 48, 1, outfile))) {
+        goto ExportEigTgeno_ret_WRITE_FAIL;
+      }
+    }
+    uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+    // todo: if only 1 pass is needed, and no subsetting is happening, read
+    // saturates at ~4 threads?
+    STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
+    uint32_t read_block_size;
+    // note that this is restricted to half of available workspace
+    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left() / 2, pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &read_ctx.pgr_ptrs, &read_ctx.variant_uidx_starts))) {
+      goto ExportEigTgeno_ret_NOMEM;
+    }
+    if (unlikely(SetThreadCt(calc_thread_ct, &read_tg))) {
+      goto ExportEigTgeno_ret_NOMEM;
+    }
+    read_ctx.variant_include = variant_include;
+    read_ctx.allele_idx_offsets = allele_idx_offsets;
+    read_ctx.allele_permute = allele_permute;
+    read_ctx.err_info = (~0LLU) << 32;
+    SetThreadFuncAndData(MTPgenReadThread, &read_ctx, &read_tg);
+
+    const uintptr_t variant_cacheline_ct = NypCtToCachelineCt(variant_ct);
+    uint32_t output_calc_thread_ct = MINV(calc_thread_ct, variant_cacheline_ct);
+    // todo: recheck this threshold
+    if (output_calc_thread_ct > 4) {
+      output_calc_thread_ct = 4;
+    }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* sample_include;
+    uint32_t* sample_include_cumulative_popcounts;
+    if (unlikely(SetThreadCt(output_calc_thread_ct, &write_tg) ||
+                 bigstack_alloc_w(raw_sample_ctl, &sample_include) ||
+                 bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 bigstack_alloc_vp(output_calc_thread_ct, &write_ctx.thread_vecaligned_bufs))) {
+      goto ExportEigTgeno_ret_NOMEM;
+    }
+    for (uint32_t tidx = 0; tidx != output_calc_thread_ct; ++tidx) {
+      write_ctx.thread_vecaligned_bufs[tidx] = S_CAST(VecW*, bigstack_alloc_raw(kPglNypTransposeBufbytes));
+    }
+    if (unlikely(g_bigstack_base > g_bigstack_end)) {
+      goto ExportEigTgeno_ret_NOMEM;
+    }
+    // each of the two write buffers should use <= 1/8 of the remaining
+    // workspace
+    const uintptr_t writebuf_cachelines_avail = bigstack_left() / (kCacheline * 8);
+    uint32_t sample_batch_size = kPglNypTransposeBatch;
+    if (variant_cacheline_ct * kPglNypTransposeBatch > writebuf_cachelines_avail) {
+      sample_batch_size = RoundDownPow2(writebuf_cachelines_avail / variant_cacheline_ct, kBitsPerWordD2);
+      if (unlikely(!sample_batch_size)) {
+        goto ExportEigTgeno_ret_NOMEM;
+      }
+    }
+    write_ctx.smaj_writebufs[0] = S_CAST(uintptr_t*, bigstack_alloc_raw(variant_cacheline_ct * kCacheline * sample_batch_size));
+    write_ctx.smaj_writebufs[1] = S_CAST(uintptr_t*, bigstack_alloc_raw(variant_cacheline_ct * kCacheline * sample_batch_size));
+    const uintptr_t readbuf_vecs_avail = (bigstack_left() / kCacheline) * kVecsPerCacheline;
+    if (unlikely(readbuf_vecs_avail < variant_ct)) {
+      goto ExportEigTgeno_ret_NOMEM;
+    }
+    uintptr_t read_sample_ctv2 = readbuf_vecs_avail / variant_ct;
+    uint32_t read_sample_ct;
+    if (read_sample_ctv2 >= NypCtToVecCt(sample_ct)) {
+      read_sample_ct = sample_ct;
+    } else {
+      read_sample_ct = read_sample_ctv2 * kNypsPerVec;
+    }
+    uintptr_t read_sample_ctaw2 = NypCtToAlignedWordCt(read_sample_ct);
+    uintptr_t* vmaj_readbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(variant_ct * read_sample_ctaw2 * kBytesPerWord));
+    read_ctx.vmaj_readbuf = vmaj_readbuf;
+    write_ctx.variant_ct = variant_ct;
+    write_ctx.vmaj_readbuf = vmaj_readbuf;
+    SetThreadFuncAndData(TransposeToEigTgenoWriteThread, &write_ctx, &write_tg);
+    uint32_t sample_uidx_start = AdvTo1Bit(orig_sample_include, 0);
+    const uintptr_t output_rec_blen = MAXV(48, NypCtToByteCt(variant_ct));
+    const uintptr_t variant_ctaclw2 = variant_cacheline_ct * kWordsPerCacheline;
+    const uint32_t pass_ct = 1 + (sample_ct - 1) / read_sample_ct;
+    for (uint32_t pass_idx = 0; pass_idx != pass_ct; ++pass_idx) {
+      memcpy(sample_include, orig_sample_include, raw_sample_ctl * sizeof(intptr_t));
+      if (sample_uidx_start) {
+        ClearBitsNz(0, sample_uidx_start, sample_include);
+      }
+      uint32_t sample_uidx_end;
+      if (pass_idx + 1 == pass_ct) {
+        read_sample_ct = sample_ct - pass_idx * read_sample_ct;
+        read_sample_ctaw2 = NypCtToAlignedWordCt(read_sample_ct);
+        sample_uidx_end = raw_sample_ct;
+      } else {
+        sample_uidx_end = FindNth1BitFrom(orig_sample_include, sample_uidx_start + 1, read_sample_ct);
+        ClearBitsNz(sample_uidx_end, raw_sample_ct, sample_include);
+      }
+      FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+      read_ctx.sample_include = sample_include;
+      read_ctx.sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
+      read_ctx.sample_ct = read_sample_ct;
+      write_ctx.sample_ct = read_sample_ct;
+      if (pass_idx) {
+        pgfip->block_base = main_loadbufs[0];
+        // er, don't need SetBaseAndOffset0?
+        PgrSetBaseAndOffset0(main_loadbufs[0], calc_thread_ct, read_ctx.pgr_ptrs);
+      }
+      uint32_t parity = 0;
+      uint32_t read_block_idx = 0;
+      ReinitThreads(&read_tg);
+      uint32_t pct = 0;
+      uint32_t next_print_idx = (variant_ct + 99) / 100;
+      putc_unlocked('\r', stdout);
+      printf("--export eigt pass %u/%u: loading... 0%%", pass_idx + 1, pass_ct);
+      fflush(stdout);
+      for (uint32_t variant_idx = 0; ; ) {
+        const uint32_t cur_block_write_ct = MultireadNonempty(variant_include, &read_tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+        if (unlikely(reterr)) {
+          goto ExportEigTgeno_ret_PGR_FAIL;
+        }
+        if (variant_idx) {
+          JoinThreads(&read_tg);
+          reterr = S_CAST(PglErr, read_ctx.err_info);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, read_ctx.err_info >> 32);
+            goto ExportEigTgeno_ret_1;
+          }
+        }
+        if (!IsLastBlock(&read_tg)) {
+          read_ctx.cur_block_write_ct = cur_block_write_ct;
+          ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, read_ctx.variant_uidx_starts);
+          PgrCopyBaseAndOffset(pgfip, calc_thread_ct, read_ctx.pgr_ptrs);
+          if (variant_idx + cur_block_write_ct == variant_ct) {
+            DeclareLastThreadBlock(&read_tg);
+          }
+          if (unlikely(SpawnThreads(&read_tg))) {
+            goto ExportEigTgeno_ret_THREAD_CREATE_FAIL;
+          }
+        }
+        parity = 1 - parity;
+        if (variant_idx == variant_ct) {
+          break;
+        }
+        if (variant_idx >= next_print_idx) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          pct = (variant_idx * 100LLU) / variant_ct;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          next_print_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
+        }
+
+        ++read_block_idx;
+        variant_idx += cur_block_write_ct;
+        pgfip->block_base = main_loadbufs[parity];
+      }
+      ReinitThreads(&write_tg);
+      write_ctx.sample_batch_size = sample_batch_size;
+      parity = 0;
+      if (pct > 10) {
+        fputs("\b \b", stdout);
+      }
+      fputs("\b\b\b\b\b\b\b\b\b\b\b\b\bwriting... 0%", stdout);
+      fflush(stdout);
+      pct = 0;
+      uint32_t flush_sample_idx = 0;
+      next_print_idx = (read_sample_ct + 99) / 100;
+      for (uint32_t flush_sample_idx_end = 0; ; ) {
+        if (!IsLastBlock(&write_tg)) {
+          if (flush_sample_idx_end + sample_batch_size >= read_sample_ct) {
+            DeclareLastThreadBlock(&write_tg);
+            write_ctx.sample_batch_size = read_sample_ct - flush_sample_idx_end;
+          }
+          if (unlikely(SpawnThreads(&write_tg))) {
+            goto ExportEigTgeno_ret_THREAD_CREATE_FAIL;
+          }
+        }
+        if (flush_sample_idx_end) {
+          uintptr_t* smaj_writebuf_iter = write_ctx.smaj_writebufs[1 - parity];
+          for (; flush_sample_idx != flush_sample_idx_end; ++flush_sample_idx) {
+            fwrite_unlocked(smaj_writebuf_iter, output_rec_blen, 1, outfile);
+            smaj_writebuf_iter = &(smaj_writebuf_iter[variant_ctaclw2]);
+          }
+          if (unlikely(ferror_unlocked(outfile))) {
+            goto ExportEigTgeno_ret_WRITE_FAIL;
+          }
+          if (flush_sample_idx_end == read_sample_ct) {
+            break;
+          }
+          if (flush_sample_idx_end >= next_print_idx) {
+            if (pct > 10) {
+              putc_unlocked('\b', stdout);
+            }
+            pct = (flush_sample_idx_end * 100LLU) / read_sample_ct;
+            printf("\b\b%u%%", pct++);
+            fflush(stdout);
+            next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct) + 99) / 100;
+          }
+        }
+        JoinThreads(&write_tg);
+        parity = 1 - parity;
+        flush_sample_idx_end += sample_batch_size;
+        if (flush_sample_idx_end > read_sample_ct) {
+          flush_sample_idx_end = read_sample_ct;
+        }
+      }
+      if (pct > 10) {
+        fputs("\b \b", stdout);
+      }
+      sample_uidx_start = sample_uidx_end;
+    }
+    fputs("\b\bdone.\n", stdout);
+    if (unlikely(fclose_null(&outfile))) {
+      goto ExportEigTgeno_ret_WRITE_FAIL;
+    }
+    logprintfww("--export eigt: %s written.\n", outname);
+  }
+  while (0) {
+  ExportEigTgeno_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ExportEigTgeno_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  ExportEigTgeno_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
+    break;
+  ExportEigTgeno_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  ExportEigTgeno_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+ ExportEigTgeno_ret_1:
+  CleanupThreads(&write_tg);
+  CleanupThreads(&read_tg);
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  pgfip->block_base = nullptr;
+  return reterr;
+}
+
 PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* allele_permute, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const ExportfInfo* eip, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char input_missing_geno_char, char output_missing_geno_char, char legacy_output_missing_geno_char, uint32_t max_thread_ct, MakePlink2Flags make_plink2_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -11419,8 +11820,8 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
       allele_storage = subst_allele_storage;
     }
-    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped - kfExportfPed - kfExportfPhylip - kfExportfPhylipPhased - kfExportfEig - kfExportfCompound)) {
-      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, ped, tped,\ncompound-genotypes, phylip, phylip-phased, eig, and ind-major-bed output have\nbeen implemented so far.\n");
+    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped - kfExportfPed - kfExportfPhylip - kfExportfPhylipPhased - kfExportfEig - kfExportfEigt - kfExportfCompound)) {
+      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, ped, tped,\ncompound-genotypes, phylip, phylip-phased, eig, eigt, and ind-major-bed output\nhave been implemented so far.\n");
       reterr = kPglRetNotYetSupported;
       goto Exportf_ret_1;
     }
@@ -11597,7 +11998,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
     }
 
-    if (flags & kfExportfEig) {
+    if (flags & (kfExportfEig | kfExportfEigt)) {
       // .snp first, since it'll error out on multiallelic variants and
       // multi-character allele codes.
       snprintf(outname_end, kMaxOutfnameExtBlen, ".snp");
@@ -11615,7 +12016,11 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
 
       snprintf(outname_end, kMaxOutfnameExtBlen, ".geno");
-      reterr = ExportEigGeno(outname, sample_include, sample_include_cumulative_popcounts, variant_include, allele_idx_offsets, allele_permute, sample_ct, raw_variant_ct, variant_ct, s_hash, v_hash, max_thread_ct, pgr_alloc_cacheline_ct, pgfip);
+      if (flags & kfExportfEig) {
+        reterr = ExportEigGeno(outname, sample_include, sample_include_cumulative_popcounts, variant_include, allele_idx_offsets, allele_permute, sample_ct, raw_variant_ct, variant_ct, s_hash, v_hash, max_thread_ct, pgr_alloc_cacheline_ct, pgfip);
+      } else {
+        reterr = ExportEigTgeno(outname, sample_include, variant_include, allele_idx_offsets, allele_permute, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, s_hash, v_hash, max_thread_ct, pgr_alloc_cacheline_ct, pgfip);
+      }
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }
