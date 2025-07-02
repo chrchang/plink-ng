@@ -10805,7 +10805,8 @@ PglErr ExportEigSnp(const char* outname, const uintptr_t* variant_include, const
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
-    if (unlikely(cip->autosome_ct > 87)) {
+    const uint32_t autosome_ct = cip->autosome_ct;
+    if (unlikely(autosome_ct > 87)) {
       logerrputs("Error: EIGENSOFT .snp format does not support autosome_ct > 87.\n");
       goto ExportEigSnp_ret_INCONSISTENT_INPUT;
     }
@@ -10841,7 +10842,7 @@ PglErr ExportEigSnp(const char* outname, const uintptr_t* variant_include, const
         if (chr_idx > cip->max_numeric_code) {
           if (chr_idx <= cip->max_code) {
             // PAR1/PAR2 -> XY
-            chr_idx = cip->autosome_ct + (kChrOffsetXY + 1);
+            chr_idx = autosome_ct + (kChrOffsetXY + 1);
           } else {
             if (unlikely(!cip->zero_extra_chrs)) {
               snprintf(g_logbuf, kLogbufSize, "Error: %s cannot contain nonstandard chromosome codes.\n", outname);
@@ -10853,8 +10854,16 @@ PglErr ExportEigSnp(const char* outname, const uintptr_t* variant_include, const
         char* chr_name_end = chr_buf;
         if (!chr_idx) {
           *chr_name_end++ = '0';
-        } else {
+        } else if ((output_encoding & kfChrOutputMT) || (chr_idx < autosome_ct + (kChrOffsetXY + 1)) || (chr_idx > autosome_ct + (kChrOffsetMT + 1))) {
           chr_name_end = ChrNameStdEx(cip, chr_idx, output_encoding, chr_buf);
+        } else {
+          // MT -> 90, XY -> 91
+          chr_name_end = chr_buf;
+          if (output_encoding & kfChrOutputPrefix) {
+            chr_name_end = strcpya_k(chr_name_end, "chr");
+          }
+          *chr_name_end++ = '9';
+          *chr_name_end++ = '0' + (chr_idx == autosome_ct + (kChrOffsetXY + 1));
         }
         *chr_name_end = exportf_delim;
         chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
@@ -10880,7 +10889,7 @@ PglErr ExportEigSnp(const char* outname, const uintptr_t* variant_include, const
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
       if (allele_idx_offsets) {
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-        if (unlikely(allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base == 2)) {
+        if (unlikely(allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base != 2)) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s cannot contain multiallelic variants.\n", outname);
           goto ExportEigSnp_ret_INCONSISTENT_INPUT_WW_N;
         }

@@ -17251,16 +17251,80 @@ THREAD_FUNC_DECL EigTgenoRecodeThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
+typedef struct EigTgenoTransposeCtxStruct {
+  uint32_t sample_ct;
+  uint32_t loadbuf_ul_stride;
+
+  uintptr_t* tgeno_loadbuf_iter;
+
+  VecW** thread_vecaligned_bufs;
+  uintptr_t** thread_write_genovecs;
+  PgenWriterCommon** pwcs;
+
+  uint32_t cur_block_write_ct;
+} EigTgenoTransposeCtx;
+
+void EigTgenoTransposeMain(uint32_t tidx, EigTgenoTransposeCtx* ctx) {
+  // nearly identical to Plink1SmajTransposeMain().
+  const uint32_t sample_ct = ctx->sample_ct;
+  const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+  const uintptr_t transpose_block_ct_m1 = (sample_ct - 1) / kPglNypTransposeBatch;
+  PgenWriterCommon* pwcp = ctx->pwcs[tidx];
+  VecW* vecaligned_buf = ctx->thread_vecaligned_bufs[tidx];
+  uintptr_t* write_genovec = ctx->thread_write_genovecs[tidx];
+  const uintptr_t cur_block_write_ct = ctx->cur_block_write_ct;
+  const uintptr_t loadbuf_ul_stride = ctx->loadbuf_ul_stride;
+  uint32_t write_idx = tidx * kPglVblockSize;
+  uintptr_t* read_iter = &(ctx->tgeno_loadbuf_iter[write_idx / kBitsPerWordD2]);
+  const uint32_t write_idx_end = MINV(write_idx + kPglVblockSize, cur_block_write_ct);
+  while (write_idx < write_idx_end) {
+    const uintptr_t* read_iter2 = read_iter;
+    // uintptr_t* write_iter = write_genovec;
+    const uint32_t vblock_size = MINV(kPglNypTransposeBatch, write_idx_end - write_idx);
+    uint32_t read_batch_size = kPglNypTransposeBatch;
+    for (uintptr_t transpose_block_idx = 0; ; ++transpose_block_idx) {
+      if (transpose_block_idx >= transpose_block_ct_m1) {
+        if (transpose_block_idx > transpose_block_ct_m1) {
+          break;
+        }
+        read_batch_size = ModNz(sample_ct, kPglNypTransposeBatch);
+      }
+      TransposeNypblock(read_iter2, loadbuf_ul_stride, sample_ctaw2, read_batch_size, vblock_size, &(write_genovec[transpose_block_idx * kPglNypTransposeWords]), vecaligned_buf);
+      read_iter2 = &(read_iter2[kPglNypTransposeBatch * loadbuf_ul_stride]);
+    }
+    uintptr_t* cur_write_genovec = write_genovec;
+    for (uint32_t uii = 0; uii != vblock_size; ++uii, cur_write_genovec = &(cur_write_genovec[sample_ctaw2])) {
+      ZeroTrailingNyps(sample_ct, cur_write_genovec);
+      PwcAppendBiallelicGenovec(cur_write_genovec, pwcp);
+    }
+    write_idx += vblock_size;
+    read_iter = &(read_iter[kPglNypTransposeWords]);
+  }
+}
+
+THREAD_FUNC_DECL EigTgenoTransposeThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uint32_t tidx = arg->tidx;
+  EigTgenoTransposeCtx* ctx = S_CAST(EigTgenoTransposeCtx*, arg->sharedp->context);
+  do {
+    EigTgenoTransposeMain(tidx, ctx);
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
 static_assert((kPglNypTransposeBatch % kNypsPerVec == 0) && (kPglNypTransposeBatch % kBitsPerWord == 0) && ((kPglNypTransposeBatch & (kPglNypTransposeBatch - 1)) == 0), "EigTgenoToPgen() needs to be updated.");
 PglErr EigTgenoToPgen(const char* outname, const char* genoname, const uintptr_t* variant_include, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t sample_ct, uint32_t max_thread_ct, FILE* genofile) {
-  // See Plink1SampleMajorToPgenLowmem().  (Could get some further speedup for
-  // smaller sample counts with a MTPgenWriter-using mode.)
+  // See Plink1SampleMajorToPgen().
   // Wouldn't be ridiculous to merge into a single function.
   unsigned char* bigstack_mark = g_bigstack_base;
+  MTPgenWriter* mpgwp = nullptr;
   PglErr reterr = kPglRetSuccess;
   ThreadGroup recode_tg;
   PreinitThreads(&recode_tg);
+  ThreadGroup write_tg;
+  PreinitThreads(&write_tg);
   EigTgenoRecodeCtx recode_ctx;
+  EigTgenoTransposeCtx write_ctx;
   STPgenWriter spgw;
   PreinitSpgw(&spgw);
   {
@@ -17295,60 +17359,129 @@ PglErr EigTgenoToPgen(const char* outname, const char* genoname, const uintptr_t
     if (!raw_load_batch_ct_m1) {
       raw_load_batch_size = sample_ct;
     }
-    uintptr_t spgw_alloc_cacheline_ct;
-    uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, kPgenWriteBackwardSeek, kfPgenGlobal0, 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
-    if (unlikely(reterr)) {
-      if (reterr == kPglRetOpenFail) {
-        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
-      }
-      goto EigTgenoToPgen_ret_1;
-    }
-    const uintptr_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
-    unsigned char* spgw_alloc;
-    VecW* vecaligned_buf;
-    uintptr_t* write_genovec;
-    if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc) ||
-                 bigstack_alloc_v(kPglNypTransposeBufbytes / kBytesPerVec, &vecaligned_buf) ||
-                 bigstack_alloc_w(sample_ctaw2 * kPglNypTransposeBatch, &write_genovec))) {
-      goto EigTgenoToPgen_ret_NOMEM;
-    }
-    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
-    uintptr_t cachelines_avail = bigstack_left() / kCacheline;
-    const uint64_t full_load_vecs_req = sample_ct * S_CAST(uint64_t, NypCtToVecCt(raw_variant_ct));
-    uint32_t cur_vidx_ct;
-    if (full_load_vecs_req > cachelines_avail * kVecsPerCacheline) {
-      // Load the largest multiple of kPglNypTransposeBatch variants at a time
-      // that fits into the remaining workspace.
-      const uint64_t min_load_cl_req = DivUpU64(sample_ct * NypCtToVecCt(kPglNypTransposeBatch), kVecsPerCacheline);
-      const uint32_t vbatches_per_load = cachelines_avail / min_load_cl_req;
-      if (unlikely(!vbatches_per_load)) {
-        g_failed_alloc_attempt_size = min_load_cl_req * kCacheline;
+    const uintptr_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+    uint32_t cur_vidx_ct = raw_variant_ct;
+    uintptr_t cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
+    uintptr_t* tgeno_loadbuf = nullptr;
+    uint32_t write_thread_ct = 0;
+    unsigned char* bigstack_mark2 = g_bigstack_base;
+    while ((max_thread_ct > 1) && (variant_ct == raw_variant_ct) && (variant_ct > kPglVblockSize * 2)) {
+      if (bigstack_alloc_w(sample_ct * cur_vidx_ctaw2, &tgeno_loadbuf)) {
+        break;
+      }
+      uintptr_t alloc_base_cacheline_ct;
+      uint64_t mpgw_per_thread_cacheline_ct;
+      uint32_t vrec_len_byte_ct;
+      uint64_t vblock_cacheline_ct;
+      MpgwInitPhase1(nullptr, variant_ct, sample_ct, kfPgenGlobal0, &alloc_base_cacheline_ct, &mpgw_per_thread_cacheline_ct, &vrec_len_byte_ct, &vblock_cacheline_ct);
+#ifndef __LP64__
+      if ((mpgw_per_thread_cacheline_ct > (0x7fffffff / kCacheline)) || (vblock_cacheline_ct > (0x7fffffff / kCacheline))) {
+        break;
+      }
+#endif
+
+      write_thread_ct = DivUp(variant_ct, kPglVblockSize);
+      if (write_thread_ct >= max_thread_ct) {
+        write_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+      }
+      mpgwp = S_CAST(MTPgenWriter*, bigstack_alloc((write_thread_ct + DivUp(sizeof(MTPgenWriter), kBytesPerWord)) * sizeof(intptr_t)));
+      if (!mpgwp) {
+        break;
+      }
+      PreinitMpgw(mpgwp);
+      if (bigstack_alloc_vp(write_thread_ct, &write_ctx.thread_vecaligned_bufs) ||
+          bigstack_alloc_wp(write_thread_ct, &write_ctx.thread_write_genovecs)) {
+        mpgwp = nullptr;
+        break;
+      }
+      write_ctx.pwcs = &(mpgwp->pwcs[0]);
+      uintptr_t cachelines_avail = bigstack_left() / kCacheline;
+      // inner loop transposes kPglNypTransposeBatch variants at a time
+      const uintptr_t transpose_thread_cacheline_ct = kPglNypTransposeBufbytes / kCacheline + NypCtToVecCt(sample_ct) * (kPglNypTransposeBatch / kVecsPerCacheline);
+      if (cachelines_avail < write_thread_ct * S_CAST(uint64_t, transpose_thread_cacheline_ct)) {
+        mpgwp = nullptr;
+        break;
+      }
+      for (uint32_t tidx = 0; tidx != write_thread_ct; ++tidx) {
+        write_ctx.thread_vecaligned_bufs[tidx] = S_CAST(VecW*, bigstack_alloc_raw(kPglNypTransposeBufbytes));
+        write_ctx.thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(NypCtToVecCt(sample_ct) * kBytesPerVec * kPglNypTransposeBatch));
+      }
+      cachelines_avail = bigstack_left() / kCacheline;
+      // We already allocated tgeno_loadbuf, so compression write buffers are
+      // free to use all of remaining workspace.
+      if (cachelines_avail < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * write_thread_ct) {
+        if (cachelines_avail >= alloc_base_cacheline_ct + 2 * mpgw_per_thread_cacheline_ct) {
+          write_thread_ct = (cachelines_avail - alloc_base_cacheline_ct) / mpgw_per_thread_cacheline_ct;
+        } else {
+          mpgwp = nullptr;
+          break;
+        }
+      }
+      // Ok, we have enough memory to support at least 2 compressor threads.
+      unsigned char* mpgw_alloc = S_CAST(unsigned char*, bigstack_alloc_raw((alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * write_thread_ct) * kCacheline));
+      reterr = MpgwInitPhase2(outname, nullptr, variant_ct, sample_ct, kPgenWriteBackwardSeek, kfPgenGlobal0, 1, vrec_len_byte_ct, vblock_cacheline_ct, write_thread_ct, mpgw_alloc, mpgwp);
+      if (unlikely(reterr)) {
+        if (reterr == kPglRetOpenFail) {
+          logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+        }
+        goto EigTgenoToPgen_ret_1;
+      }
+      write_ctx.sample_ct = sample_ct;
+      write_ctx.loadbuf_ul_stride = cur_vidx_ctaw2;
+      if (unlikely(SetThreadCt(write_thread_ct - 1, &write_tg))) {
         goto EigTgenoToPgen_ret_NOMEM;
       }
-      cur_vidx_ct = vbatches_per_load * kPglNypTransposeBatch;
-    } else {
-      cur_vidx_ct = raw_variant_ct;
+      SetThreadFuncAndData(EigTgenoTransposeThread, &write_ctx, &write_tg);
+      break;
     }
-    if (cur_vidx_ct > variant_ct) {
-      // Possible with --chr.  Avoid loading way too much in this case.
-      // (Further optimizations possible here, but this should be a rare case
-      // so I'm just trying to get down to the right order of magnitude.)
-      cur_vidx_ct = MINV(RoundUpPow2(variant_ct, kPglNypTransposeBatch), raw_variant_ct);
+    VecW* vecaligned_buf = nullptr;
+    uintptr_t* write_genovec = nullptr;
+    if (!mpgwp) {
+      BigstackReset(bigstack_mark2);
+      uintptr_t spgw_alloc_cacheline_ct;
+      uint32_t max_vrec_len;
+      reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, kPgenWriteBackwardSeek, kfPgenGlobal0, 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      if (unlikely(reterr)) {
+        if (reterr == kPglRetOpenFail) {
+          logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+        }
+        goto EigTgenoToPgen_ret_1;
+      }
+      unsigned char* spgw_alloc;
+      if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc) ||
+                   bigstack_alloc_v(kPglNypTransposeBufbytes / kBytesPerVec, &vecaligned_buf) ||
+                   bigstack_alloc_w(sample_ctaw2 * kPglNypTransposeBatch, &write_genovec))) {
+        goto EigTgenoToPgen_ret_NOMEM;
+      }
+      SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
+
+      uintptr_t cachelines_avail = bigstack_left() / kCacheline;
+      const uint64_t full_load_vecs_req = sample_ct * S_CAST(uint64_t, NypCtToVecCt(raw_variant_ct));
+      if (full_load_vecs_req > cachelines_avail * kVecsPerCacheline) {
+        // Load the largest multiple of kPglNypTransposeBatch variants at a
+        // time that fits into the remaining workspace.
+        const uint64_t min_load_cl_req = DivUpU64(sample_ct * NypCtToVecCt(kPglNypTransposeBatch), kVecsPerCacheline);
+        const uint32_t vbatches_per_load = cachelines_avail / min_load_cl_req;
+        if (unlikely(!vbatches_per_load)) {
+          g_failed_alloc_attempt_size = min_load_cl_req * kCacheline;
+          goto EigTgenoToPgen_ret_NOMEM;
+        }
+        cur_vidx_ct = vbatches_per_load * kPglNypTransposeBatch;
+      }
+      if (cur_vidx_ct > variant_ct) {
+        // Possible with --chr.  Avoid loading way too much in this case.
+        // (Further optimizations possible here, but this should be a rare case
+        // so I'm just trying to get down to the right order of magnitude.)
+        cur_vidx_ct = MINV(RoundUpPow2(variant_ct, kPglNypTransposeBatch), raw_variant_ct);
+      }
+      cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
+      if (unlikely(bigstack_alloc_w(sample_ct * cur_vidx_ctaw2, &tgeno_loadbuf))) {
+        // this shouldn't be possible
+        assert(0);
+        goto EigTgenoToPgen_ret_NOMEM;
+      }
     }
-    uintptr_t cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
-    uintptr_t* tgeno_loadbuf;
-    if (unlikely(bigstack_alloc_w(sample_ct * cur_vidx_ctaw2, &tgeno_loadbuf))) {
-      // this shouldn't be possible
-      assert(0);
-      goto EigTgenoToPgen_ret_NOMEM;
-    }
-    // Possible todo: if max_thread_ct >= 2, variant_ct == raw_variant_ct,
-    // variant_ct > 2 * kPglVblockSize, and we have enough remaining memory,
-    // use MTPgenWriter.  (But currently awkward since we don't want to first
-    // call SpgwInitPhase1(), yet we want to reserve the correct amount of
-    // memory for it before determining cur_vidx_ct.)
 
     uint32_t cur_vidx_ct4 = NypCtToByteCt(cur_vidx_ct);
     const uint32_t raw_load_batch_ct = raw_load_batch_ct_m1 + 1;
@@ -17457,52 +17590,83 @@ PglErr EigTgenoToPgen(const char* outname, const char* genoname, const uintptr_t
       putc_unlocked('\r', stdout);
       printf("--eiggeno pass %u/%u: transposing and compressing... 0%%", pass_idx1, pass_ct);
       fflush(stdout);
-      uintptr_t* read_iter = tgeno_loadbuf;
       pct = 0;
-      next_print_idx = (cur_vidx_ct + 99) / 100;
-      for (uint32_t write_uidx = 0; write_uidx < cur_vidx_ct; ) {
-        const uintptr_t* read_iter2 = read_iter;
-        const uint32_t vblock_size = MINV(kPglNypTransposeBatch, cur_vidx_ct - write_uidx);
-        const uint32_t vblock_start = cur_vidx_base + write_uidx;
-        const uint32_t vblock_end = vblock_start + vblock_size;
-        // With --chr, we may skip many batches.
-        for (uint32_t variant_uidx = vblock_start; ; ) {
-          variant_uidx = AdvBoundedTo1Bit(variant_include, variant_uidx, vblock_end);
-          if (variant_uidx == vblock_end) {
-            break;
-          }
-          uint32_t read_batch_size = kPglNypTransposeBatch;
-          for (uintptr_t transpose_block_idx = 0; ; ++transpose_block_idx) {
-            if (transpose_block_idx >= transpose_block_ct_m1) {
-              if (transpose_block_idx > transpose_block_ct_m1) {
-                break;
+      if (!mpgwp) {
+        uintptr_t* read_iter = tgeno_loadbuf;
+        next_print_idx = (cur_vidx_ct + 99) / 100;
+        for (uint32_t write_uidx = 0; write_uidx < cur_vidx_ct; ) {
+          const uintptr_t* read_iter2 = read_iter;
+          const uint32_t vblock_size = MINV(kPglNypTransposeBatch, cur_vidx_ct - write_uidx);
+          const uint32_t vblock_start = cur_vidx_base + write_uidx;
+          const uint32_t vblock_end = vblock_start + vblock_size;
+          // With --chr, we may skip many batches.
+          for (uint32_t variant_uidx = vblock_start; ; ) {
+            variant_uidx = AdvBoundedTo1Bit(variant_include, variant_uidx, vblock_end);
+            if (variant_uidx == vblock_end) {
+              break;
+            }
+            uint32_t read_batch_size = kPglNypTransposeBatch;
+            for (uintptr_t transpose_block_idx = 0; ; ++transpose_block_idx) {
+              if (transpose_block_idx >= transpose_block_ct_m1) {
+                if (transpose_block_idx > transpose_block_ct_m1) {
+                  break;
+                }
+                read_batch_size = ModNz(sample_ct, kPglNypTransposeBatch);
               }
-              read_batch_size = ModNz(sample_ct, kPglNypTransposeBatch);
+              TransposeNypblock(read_iter2, cur_vidx_ctaw2, sample_ctaw2, read_batch_size, vblock_size, &(write_genovec[transpose_block_idx * kPglNypTransposeWords]), vecaligned_buf);
+              read_iter2 = &(read_iter2[kPglNypTransposeBatch * cur_vidx_ctaw2]);
             }
-            TransposeNypblock(read_iter2, cur_vidx_ctaw2, sample_ctaw2, read_batch_size, vblock_size, &(write_genovec[transpose_block_idx * kPglNypTransposeWords]), vecaligned_buf);
-            read_iter2 = &(read_iter2[kPglNypTransposeBatch * cur_vidx_ctaw2]);
+            uintptr_t* cur_write_genovec = &(write_genovec[(variant_uidx - vblock_start) * sample_ctaw2]);
+            const uint32_t variant_uidx_stop = AdvBoundedTo0Bit(variant_include, variant_uidx, vblock_end);
+            for (; variant_uidx != variant_uidx_stop; ++variant_uidx, cur_write_genovec = &(cur_write_genovec[sample_ctaw2])) {
+              ZeroTrailingNyps(sample_ct, cur_write_genovec);
+              reterr = SpgwAppendBiallelicGenovec(cur_write_genovec, &spgw);
+              if (unlikely(reterr)) {
+                goto EigTgenoToPgen_ret_WRITE_FAIL;
+              }
+            }
           }
-          uintptr_t* cur_write_genovec = &(write_genovec[(variant_uidx - vblock_start) * sample_ctaw2]);
-          const uint32_t variant_uidx_stop = AdvBoundedTo0Bit(variant_include, variant_uidx, vblock_end);
-          for (; variant_uidx != variant_uidx_stop; ++variant_uidx, cur_write_genovec = &(cur_write_genovec[sample_ctaw2])) {
-            ZeroTrailingNyps(sample_ct, cur_write_genovec);
-            reterr = SpgwAppendBiallelicGenovec(cur_write_genovec, &spgw);
-            if (unlikely(reterr)) {
-              goto EigTgenoToPgen_ret_WRITE_FAIL;
+          if (write_uidx >= next_print_idx) {
+            if (pct > 10) {
+              putc_unlocked('\b', stdout);
             }
+            pct = (write_uidx * 100LLU) / cur_vidx_ct;
+            printf("\b\b%u%%", pct++);
+            fflush(stdout);
+            next_print_idx = (pct * S_CAST(uint64_t, cur_vidx_ct) + 99) / 100;
+          }
+          write_uidx += vblock_size;
+          read_iter = &(read_iter[kPglNypTransposeWords]);
+        }
+      } else {
+        const uint32_t vblock_group_ct = 1 + ((variant_ct - 1) / (write_thread_ct * kPglVblockSize));
+        next_print_idx = (vblock_group_ct + 99) / 100;
+        write_ctx.cur_block_write_ct = write_thread_ct * kPglVblockSize;
+        for (uint32_t load_idx = 0; load_idx != vblock_group_ct; ++load_idx) {
+          if (load_idx >= next_print_idx) {
+            if (pct > 10) {
+              putc_unlocked('\b', stdout);
+            }
+            pct = (load_idx * 100LLU) / vblock_group_ct;
+            printf("\b\b%u%%", pct++);
+            fflush(stdout);
+            next_print_idx = (pct * S_CAST(uint64_t, vblock_group_ct) + 99) / 100;
+          }
+          write_ctx.tgeno_loadbuf_iter = &(tgeno_loadbuf[load_idx * write_thread_ct * (kPglVblockSize / kBitsPerWordD2)]);
+          if (load_idx == vblock_group_ct - 1) {
+            DeclareLastThreadBlock(&write_tg);
+            write_ctx.cur_block_write_ct = variant_ct - load_idx * write_thread_ct * kPglVblockSize;
+          }
+          if (unlikely(SpawnThreads(&write_tg))) {
+            goto EigTgenoToPgen_ret_THREAD_CREATE_FAIL;
+          }
+          EigTgenoTransposeMain(write_thread_ct - 1, &write_ctx);
+          JoinThreads(&write_tg);
+          reterr = MpgwFlush(mpgwp);
+          if (unlikely(reterr)) {
+            goto EigTgenoToPgen_ret_WRITE_FAIL;
           }
         }
-        if (write_uidx >= next_print_idx) {
-          if (pct > 10) {
-            putc_unlocked('\b', stdout);
-          }
-          pct = (write_uidx * 100LLU) / cur_vidx_ct;
-          printf("\b\b%u%%", pct++);
-          fflush(stdout);
-          next_print_idx = (pct * S_CAST(uint64_t, cur_vidx_ct) + 99) / 100;
-        }
-        write_uidx += vblock_size;
-        read_iter = &(read_iter[kPglNypTransposeWords]);
       }
       if (pass_idx1 == pass_ct) {
         break;
@@ -17513,9 +17677,13 @@ PglErr EigTgenoToPgen(const char* outname, const char* genoname, const uintptr_t
         goto EigTgenoToPgen_ret_READ_FAIL;
       }
     }
-    reterr = SpgwFinish(&spgw);
-    if (unlikely(reterr)) {
-      goto EigTgenoToPgen_ret_1;
+    if (!mpgwp) {
+      reterr = SpgwFinish(&spgw);
+      if (unlikely(reterr)) {
+        goto EigTgenoToPgen_ret_1;
+      }
+    } else {
+      mpgwp = nullptr;
     }
     if (pct > 10) {
       putc_unlocked('\b', stdout);
@@ -17542,7 +17710,9 @@ PglErr EigTgenoToPgen(const char* outname, const char* genoname, const uintptr_t
     break;
   }
  EigTgenoToPgen_ret_1:
+  CleanupThreads(&write_tg);
   CleanupThreads(&recode_tg);
+  CleanupMpgw(mpgwp, &reterr);
   CleanupSpgw(&spgw, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;

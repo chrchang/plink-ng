@@ -1597,7 +1597,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
       uint64_t vblock_cacheline_ct;
       MpgwInitPhase1(nullptr, variant_ct, sample_ct, kfPgenGlobal0, &alloc_base_cacheline_ct, &mpgw_per_thread_cacheline_ct, &vrec_len_byte_ct, &vblock_cacheline_ct);
 #ifndef __LP64__
-      if (unlikely((mpgw_per_thread_cacheline_ct > (0x7fffffff / kCacheline)) || (vblock_cacheline_ct > (0x7fffffff / kCacheline)))) {
+      if ((mpgw_per_thread_cacheline_ct > (0x7fffffff / kCacheline)) || (vblock_cacheline_ct > (0x7fffffff / kCacheline))) {
         goto Plink1SampleMajorToPgen_fallback;
       }
 #endif
@@ -1609,19 +1609,19 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
       // note that BIGSTACK_ALLOC_X() doesn't work here due to variable-size
       // array at end
       mpgwp = S_CAST(MTPgenWriter*, bigstack_alloc((calc_thread_ct + DivUp(sizeof(MTPgenWriter), kBytesPerWord)) * sizeof(intptr_t)));
-      if (unlikely(!mpgwp)) {
+      if (!mpgwp) {
         goto Plink1SampleMajorToPgen_fallback;
       }
       PreinitMpgw(mpgwp);
-      if (unlikely(bigstack_alloc_vp(calc_thread_ct, &ctx.thread_vecaligned_bufs) ||
-                   bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_genovecs))) {
+      if (bigstack_alloc_vp(calc_thread_ct, &ctx.thread_vecaligned_bufs) ||
+          bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_genovecs)) {
         goto Plink1SampleMajorToPgen_fallback;
       }
       ctx.pwcs = &(mpgwp->pwcs[0]);
       uintptr_t cachelines_avail = bigstack_left() / kCacheline;
       // inner loop transposes kPglNypTransposeBatch variants at a time
       const uintptr_t transpose_thread_cacheline_ct = kPglNypTransposeBufbytes / kCacheline + NypCtToVecCt(sample_ct) * (kPglNypTransposeBatch / kVecsPerCacheline);
-      if (unlikely(cachelines_avail < calc_thread_ct * S_CAST(uint64_t, transpose_thread_cacheline_ct))) {
+      if (cachelines_avail < calc_thread_ct * S_CAST(uint64_t, transpose_thread_cacheline_ct)) {
         goto Plink1SampleMajorToPgen_fallback;
       }
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
@@ -1749,7 +1749,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
         printf("Pass %u/%u: transposing and compressing... 0%%", pass_idx1, pass_ct);
         ReinitThreads(&tg);
         pct = 0;
-        next_print_idx = (load_idx + 99) / 100;
+        next_print_idx = (vblock_group_ct + 99) / 100;
         do {
           if (load_idx >= next_print_idx) {
             if (pct > 10) {
