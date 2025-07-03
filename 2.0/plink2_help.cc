@@ -2627,9 +2627,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("indep-order\0indep-pairwise\0", &help_ctrl, 0,
 "  --indep-order <mode> : Set LD-pruning order.\n"
-"                         * '1' = replicate PLINK 1.x (current default, will be\n"
-"                                 changed soon)\n"
-"                         * '2' = within each window, scan backwards (faster)\n"
+"                         * '1' = replicate PLINK 1.x\n"
+"                         * '2' = within each window, scan backwards (default)\n"
               );
     HelpPrint("ld-window\0ld-window-kb\0ld-window-cm\0ld-window-r2\0r-phased\0r-unphased\0r2-phased\0r2-unphased\0r\0r2\0", &help_ctrl, 0,
 "  --ld-window <#var+1> : Limit --r[2]-[un]phased variant-ct distance.\n"
