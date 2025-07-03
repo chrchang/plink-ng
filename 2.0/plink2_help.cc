@@ -2411,9 +2411,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("indep-order\0indep-pairwise\0", &help_ctrl, 0,
 "  --indep-order <mode> : Set LD-pruning order.\n"
-"                         * '1' = replicate PLINK 1.x (current default, will be\n"
-"                                 changed soon)\n"
-"                         * '2' = within each window, scan backwards (faster)\n"
+"                         * '1' = replicate PLINK 1.x\n"
+"                         * '2' = within each window, scan backwards (default)\n"
               );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,
