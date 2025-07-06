@@ -18,6 +18,7 @@
 #include "include/plink2_zstfile.h"
 #include "plink2_compress_stream.h"
 #include "plink2_export.h"
+#include "plink2_family.h"
 #include "plink2_fasta.h"
 #include "plink2_filter.h"
 #include "plink2_glm.h"
@@ -72,7 +73,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (2 Jul 2025)";
+  " (5 Jul 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -165,7 +166,9 @@ FLAGSET64_DEF_START()
   kfFilterExtractIntersectBed0 = (1 << 15),
   kfFilterExtractIntersectBed1 = (1 << 16),
   kfFilterExcludeBed0 = (1 << 17),
-  kfFilterExcludeBed1 = (1 << 18)
+  kfFilterExcludeBed1 = (1 << 18),
+  kfFilterSelectSidRepresentatives = (1 << 19),
+  kfFilterMendel = (1 << 20)
 FLAGSET64_DEF_END(FilterFlags);
 
 FLAGSET64_DEF_START()
@@ -201,7 +204,8 @@ FLAGSET64_DEF_START()
   kfCommand1Clump = (1 << 28),
   kfCommand1Vcor = (1 << 29),
   kfCommand1PhenoSvd = (1 << 30),
-  kfCommand1CheckOrImputeSex = (1U << 31)
+  kfCommand1CheckOrImputeSex = (1U << 31),
+  kfCommand1MendelReport = (1LLU << 32)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -377,6 +381,8 @@ typedef struct Plink2CmdlineStruct {
   AlleleAlphanumFlags allele_alphanum_flags;
   RmDupMode rmdup_mode;
   STD_ARRAY_DECL(FreqFilterMode, 4, filter_modes);
+  SelectSidMissingnessMode select_sid_missingness_mode;
+  SelectSidTiebreakMode select_sid_tiebreak_mode;
   GlmInfo glm_info;
   AdjustInfo adjust_info;
   ScoreInfo score_info;
@@ -394,6 +400,7 @@ typedef struct Plink2CmdlineStruct {
   VcorInfo vcor_info;
   PhenoSvdInfo pheno_svd_info;
   CheckSexInfo check_sex_info;
+  MendelInfo mendel_info;
   double ci_size;
   float var_min_qual;
   uint32_t splitpar_bound1;
@@ -600,9 +607,10 @@ uint32_t FounderAlleleDosagesAreNeeded(Command1Flags command_flags1, MiscFlags m
   return afreq_needed;
 }
 
-uint32_t SampleMissingDosageCtsAreNeeded(MiscFlags misc_flags, uint32_t smaj_missing_geno_report_requested, double mind_thresh, MissingRptFlags missing_rpt_flags) {
+uint32_t SampleMissingDosageCtsAreNeeded(MiscFlags misc_flags, uint32_t smaj_missing_geno_report_requested, double mind_thresh, SelectSidMissingnessMode select_sid_missingness_mode, MissingRptFlags missing_rpt_flags) {
   return ((mind_thresh != 1.0) && (misc_flags & kfMiscMindDosage)) ||
-    (smaj_missing_geno_report_requested && (missing_rpt_flags & (kfMissingRptScolNmissDosage | kfMissingRptScolFmissDosage)));
+    (smaj_missing_geno_report_requested && (missing_rpt_flags & (kfMissingRptScolNmissDosage | kfMissingRptScolFmissDosage))) ||
+    (select_sid_missingness_mode == kSelectSidMissingnessDosage);
 }
 
 uint32_t VariantMissingHcCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags) {
@@ -1628,12 +1636,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       const uint32_t smaj_missing_geno_report_requested = (pcp->command_flags1 & kfCommand1MissingReport) && (!(pcp->missing_rpt_flags & kfMissingRptVariantOnly));
-      if ((pcp->mind_thresh < 1.0) || smaj_missing_geno_report_requested) {
+      if ((pcp->mind_thresh < 1.0) || (pcp->select_sid_missingness_mode != kSelectSidMissingness0) || smaj_missing_geno_report_requested) {
         if (unlikely(bigstack_alloc_u32(raw_sample_ct, &sample_missing_hc_cts) ||
                      bigstack_alloc_u32(raw_sample_ct, &sample_hethap_cts))) {
           goto Plink2Core_ret_NOMEM;
         }
-        if (SampleMissingDosageCtsAreNeeded(pcp->misc_flags, smaj_missing_geno_report_requested, pcp->mind_thresh, pcp->missing_rpt_flags)) {
+        if (SampleMissingDosageCtsAreNeeded(pcp->misc_flags, smaj_missing_geno_report_requested, pcp->mind_thresh, pcp->select_sid_missingness_mode, pcp->missing_rpt_flags)) {
           if (pgfi.gflags & kfPgenGlobalDosagePresent) {
             if (unlikely(bigstack_alloc_u32(raw_sample_ct, &sample_missing_dosage_cts))) {
               goto Plink2Core_ret_NOMEM;
@@ -1659,12 +1667,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_1;
           }
         }
-        if (!smaj_missing_geno_report_requested) {
-          BigstackReset(sample_missing_hc_cts);
-        }
-        // this results in a small "memory leak" when a regular missingness
-        // report is requested, not a big deal
       }
+      if (pcp->filter_flags & kfFilterSelectSidRepresentatives) {
+        logerrputs("Error: --select-sid-representatives is under development.\n");
+        reterr = kPglRetNotYetSupported;
+        goto Plink2Core_ret_1;
+      }
+      if (sample_missing_hc_cts && (!smaj_missing_geno_report_requested)) {
+        BigstackReset(sample_missing_hc_cts);
+      }
+      // this results in a small "memory leak" when a regular missingness
+      // report is requested, not a big deal
       if (pcp->misc_flags & kfMiscMakeFoundersNotfirst) {
         reterr = MakeFounders(sample_include, raw_sample_ct, sample_ct, (pcp->misc_flags / kfMiscMakeFoundersRequire2Missing) & 1, &pii, founder_info);
         if (unlikely(reterr)) {
@@ -2407,20 +2420,25 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
           memcpy(prev_sample_include, sample_include, raw_sample_ctl * sizeof(intptr_t));
         }
-        uint32_t rel_check = 0;
+        RelConcordanceCheckMode rel_or_concordance_check = kRcCheck0;
         if (pcp->king_flags & kfKingRelCheck) {
           if (OnlyOneFid(sample_include, &pii.sii, sample_ct)) {
             logerrputs("Warning: --make-king-table 'rel-check' modifier has no effect since only one\nFID is present.\n");
           } else {
-            rel_check = 1;
+            rel_or_concordance_check = kRcCheckRel;
           }
+        } else if (pcp->king_flags & kfKingConcordanceCheck) {
+          // TODO: print warning if there are no same-FID-and-IID groups
+          logerrputs("Error: --make-king-table 'concordance-check' is under development.\n");
+          reterr = kPglRetNotYetSupported;
+          goto Plink2Core_ret_1;
         }
-        if (pcp->king_table_require_fnames || pcp->king_table_subset_fname || rel_check) {
+        if (pcp->king_table_require_fnames || pcp->king_table_subset_fname || rel_or_concordance_check) {
           // command-line parser currently guarantees
           // --king-table-subset/--king-table-require[-xor] and
           // "--make-king-table rel-check" aren't used with
           // --king-cutoff[-table] or --make-king
-          reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, pcp->king_table_subset_fname, pcp->king_table_require_fnames, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, rel_check, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, pcp->king_table_subset_fname, pcp->king_table_require_fnames, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, rel_or_concordance_check, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -3517,6 +3535,7 @@ int main(int argc, char** argv) {
   InitVcor(&pc.vcor_info);
   InitPhenoSvd(&pc.pheno_svd_info);
   InitCheckSex(&pc.check_sex_info);
+  InitMendel(&pc.mendel_info);
   GenDummyInfo gendummy_info;
   InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
@@ -3848,6 +3867,8 @@ int main(int argc, char** argv) {
     pc.recover_var_ids_flags = kfRecoverVarIds0;
     pc.vscore_flags = kfVscore0;
     pc.allele_alphanum_flags = kfAlleleAlphanum0;
+    pc.select_sid_missingness_mode = kSelectSidMissingness0;
+    pc.select_sid_tiebreak_mode = kSelectSidTiebreak0;
     pc.rmdup_mode = kRmDup0;
     for (uint32_t uii = 0; uii != 4; ++uii) {
       pc.filter_modes[uii] = kFreqFilterNonmajor;
@@ -4398,16 +4419,17 @@ int main(int argc, char** argv) {
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
-            if (unlikely(!((!strcmp(vcf_dosage_import_field, "GP-force")) || IsAlphanumeric(vcf_dosage_import_field)))) {
+            const uint32_t vcf_dosage_import_field_slen = strlen(vcf_dosage_import_field);
+            if (unlikely(!((strequal_k(vcf_dosage_import_field, "GP-force", vcf_dosage_import_field_slen)) || IsAlphanumeric(vcf_dosage_import_field)))) {
               logerrputs("Error: --bcf dosage= argument is not alphanumeric.\n");
               goto main_ret_INVALID_CMDLINE;
             }
-            if (unlikely(!strcmp(vcf_dosage_import_field, "GT"))) {
+            if (unlikely(strequal_k(vcf_dosage_import_field, "GT", vcf_dosage_import_field_slen))) {
               logerrputs("Error: --bcf dosage= argument cannot be 'GT'.\n");
               goto main_ret_INVALID_CMDLINE;
             }
             // rather not worry about string-index 0 here
-            if (unlikely(!strcmp(vcf_dosage_import_field, "PASS"))) {
+            if (unlikely(strequal_k(vcf_dosage_import_field, "PASS", vcf_dosage_import_field_slen))) {
               logerrputs("Error: --bcf dosage= argument cannot be 'PASS'.\n");
               goto main_ret_INVALID_CMDLINE;
             }
@@ -6304,9 +6326,10 @@ int main(int argc, char** argv) {
           uint32_t geno_thresh_present = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "dosage")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "dosage", cur_modif_slen)) {
               pc.misc_flags |= kfMiscGenoDosage;
-            } else if (!strcmp(cur_modif, "hh-missing")) {
+            } else if (strequal_k(cur_modif, "hh-missing", cur_modif_slen)) {
               pc.misc_flags |= kfMiscGenoHhMissing;
             } else if (unlikely(geno_thresh_present)) {
               logerrputs("Error: Invalid --geno argument sequence.\n");
@@ -6815,9 +6838,10 @@ int main(int argc, char** argv) {
           uint32_t ln_thresh_seen = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "midp")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "midp", cur_modif_slen)) {
               pc.misc_flags |= kfMiscHweMidp;
-            } else if (!strcmp(cur_modif, "keep-fewhet")) {
+            } else if (strequal_k(cur_modif, "keep-fewhet", cur_modif_slen)) {
               pc.misc_flags |= kfMiscHweKeepFewhet;
             } else if (!ln_thresh_seen) {
               if (unlikely(!ScantokLn(cur_modif, &pc.hwe_ln_thresh))) {
@@ -8319,11 +8343,9 @@ int main(int argc, char** argv) {
             } else if (strequal_k(cur_modif, "counts", cur_modif_slen)) {
               pc.king_flags |= kfKingCounts;
             } else if (strequal_k(cur_modif, "rel-check", cur_modif_slen)) {
-              if (unlikely(pc.command_flags1 & kfCommand1KingCutoff)) {
-                logerrputs("Error: --make-king-table 'rel-check' modifier cannot be used with\n--king-cutoff.\n");
-                goto main_ret_INVALID_CMDLINE;
-              }
               pc.king_flags |= kfKingRelCheck;
+            } else if (strequal_k(cur_modif, "concordance-check", cur_modif_slen)) {
+              pc.king_flags |= kfKingConcordanceCheck;
             } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
               if (unlikely(pc.king_flags & kfKingColAll)) {
                 logerrputs("Error: Multiple --make-king-table cols= modifiers.\n");
@@ -8357,6 +8379,17 @@ int main(int argc, char** argv) {
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-king-table argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          const uint32_t rel_concordance_flags = pc.king_flags & (kfKingRelCheck | kfKingConcordanceCheck);
+          if (rel_concordance_flags) {
+            if (unlikely(rel_concordance_flags == (kfKingRelCheck | kfKingConcordanceCheck))) {
+              logerrputs("Error: --make-king-table 'concordance-check' and 'rel-check' modifiers cannot\nbe used together.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
+            if (unlikely(pc.command_flags1 & kfCommand1KingCutoff)) {
+              logerrputs("Error: --make-king-table 'concordance-check'/'rel-check' cannot be used with\n--king-cutoff.\n");
+              goto main_ret_INVALID_CMDLINE;
             }
           }
           if (!(pc.king_flags & kfKingColAll)) {
@@ -8455,7 +8488,7 @@ int main(int argc, char** argv) {
           }
           if (param_ct) {
             const char* cur_modif = argvk[arg_idx + 1];
-            const char* mode_str = ScanadvDouble(cur_modif, &pc.min_maf);
+            const char* mode_str = ScantokDouble(cur_modif, &pc.min_maf);
             if (!mode_str) {
               pc.min_maf = 0.01;
               if (unlikely(param_ct == 2)) {
@@ -8505,7 +8538,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          const char* mode_str = ScanadvDouble(cur_modif, &pc.max_maf);
+          const char* mode_str = ScantokDouble(cur_modif, &pc.max_maf);
           if (unlikely(!mode_str)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-maf argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
@@ -8547,7 +8580,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
-          const char* mode_str = ScanadvDouble(cur_modif, &dxx);
+          const char* mode_str = ScantokDouble(cur_modif, &dxx);
           if (unlikely((!mode_str) || (dxx < 0.0) || (dxx > 2147483646.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mac argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE;
@@ -8591,7 +8624,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
-          const char* mode_str = ScanadvDouble(cur_modif, &dxx);
+          const char* mode_str = ScantokDouble(cur_modif, &dxx);
           if (unlikely((!mode_str) || (dxx < 0.0) || (dxx > 2147483646.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-mac argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
@@ -8633,9 +8666,10 @@ int main(int argc, char** argv) {
           uint32_t mind_thresh_present = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "dosage")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "dosage", cur_modif_slen)) {
               pc.misc_flags |= kfMiscMindDosage;
-            } else if (!strcmp(cur_modif, "hh-missing")) {
+            } else if (strequal_k(cur_modif, "hh-missing", cur_modif_slen)) {
               pc.misc_flags |= kfMiscMindHhMissing;
             } else if (unlikely(mind_thresh_present)) {
               logerrputs("Error: Invalid --mind argument sequence.\n");
@@ -9260,6 +9294,106 @@ int main(int argc, char** argv) {
           }
           pc.misc_flags |= is_first? kfMiscMakeFoundersFirst : kfMiscMakeFoundersNotfirst;
           pc.filter_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "e")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t numeric_param_ct = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            if (!strcmp(cur_modif, "var-first")) {
+              pc.mendel_info.flags |= kfMendelFilterVarFirst;
+            } else {
+              double dxx;
+              if (unlikely((numeric_param_ct == 2) || (!ScantokDouble(cur_modif, &dxx)))) {
+                logerrputs("Error: Invalid --me argument sequence.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely((dxx < 0.0) || (dxx > 1.0))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --me max per-%s error '%s'.\n", numeric_param_ct? "variant" : "trio", cur_modif);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              if (numeric_param_ct == 0) {
+                pc.mendel_info.max_trio_error = dxx;
+              } else {
+                pc.mendel_info.max_var_error = dxx;
+              }
+              ++numeric_param_ct;
+            }
+          }
+          if (unlikely(numeric_param_ct < 2)) {
+            logerrputs("Error: --me requires max per-trio and per-variant error rates.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.filter_flags |= kfFilterAllReq | kfFilterMendel;
+          logerrputs("Error: --me is under development.\n");
+          reterr = kPglRetNotYetSupported;
+          goto main_ret_1;
+        } else if (strequal_k_unsafe(flagname_p2, "e-exclude-one")) {
+          if (unlikely(!(pc.filter_flags & kfFilterMendel))) {
+            logerrputs("Error: --me-exclude-one must be used with --me.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          pc.mendel_info.exclude_one_ratio = DBL_MAX;
+          if (param_ct) {
+            const char* cur_modif = argvk[arg_idx + 1];
+            double dxx;
+            if (unlikely(!ScantokDouble(cur_modif, &dxx))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --me-exclude-one ratio '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            if (unlikely(dxx <= 1.0)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --me-exclude-one ratio '%s' (must be larger than 1).\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.mendel_info.exclude_one_ratio = dxx;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "endel")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.mendel_info.flags |= kfMendelRptZs;
+            } else if (strequal_k(cur_modif, "summaries-only", cur_modif_slen)) {
+              pc.mendel_info.flags |= kfMendelRptSummariesOnly;
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              if (unlikely(pc.mendel_info.flags & kfMendelRptColAll)) {
+                logerrputs("Error: Multiple --mendel cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[strlen("cols=")]), "maybefid\0fid\0maybesid\0sid\0chrom\0pos\0id\0code\0error\0", "mendel", kfMendelRptColMaybefid, kfMendelRptColDefault, 1, &pc.mendel_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mendel argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (!(pc.mendel_info.flags & kfMendelRptColAll)) {
+            pc.mendel_info.flags |= kfMendelRptColDefault;
+          }
+          pc.command_flags1 |= kfCommand1MendelReport;
+          pc.dependency_flags |= kfFilterAllReq;
+          logerrputs("Error: --mendel is under development.\n");
+          reterr = kPglRetNotYetSupported;
+          goto main_ret_1;
+        } else if (strequal_k_unsafe(flagname_p2, "endel-duos")) {
+          pc.mendel_info.flags |= kfMendelDuos;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "endel-multigen")) {
+          pc.mendel_info.flags |= kfMendelMultigen;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "erge-sids")) {
+          logerrputs("Error: --merge-sids is under development.\n");
+          reterr = kPglRetNotYetSupported;
+          goto main_ret_1;
         } else if (likely(strequal_k_unsafe(flagname_p2, "pheno"))) {
           logerrputs("Warning: --mpheno flag deprecated.  Use --pheno-col-nums instead.  (Note that\n--pheno-col-nums does not add 2 to the column number(s).)\n");
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -11360,6 +11494,74 @@ int main(int argc, char** argv) {
           }
           pmerge_info.flags |= kfPmergeSampleInnerJoin;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "elect-sid-representatives")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          pc.select_sid_missingness_mode = kSelectSidMissingnessHc;
+          uint32_t missingness_modes_seen = 0;
+          uint32_t tiebreak_modes_seen = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "hc", cur_modif_slen) ||
+                strequal_k(cur_modif, "hardcall", cur_modif_slen)) {
+              // default
+              ++missingness_modes_seen;
+            } else if (strequal_k(cur_modif, "hh-missing", cur_modif_slen)) {
+              pc.select_sid_missingness_mode = kSelectSidMissingnessHhMissing;
+              ++missingness_modes_seen;
+            } else if (strequal_k(cur_modif, "dosage", cur_modif_slen)) {
+              pc.select_sid_missingness_mode = kSelectSidMissingnessDosage;
+              ++missingness_modes_seen;
+            } else if (strequal_k(cur_modif, "sid-only", cur_modif_slen)) {
+              pc.select_sid_missingness_mode = kSelectSidMissingness0;
+              ++missingness_modes_seen;
+            } else if (strequal_k(cur_modif, "first", cur_modif_slen)) {
+              pc.select_sid_tiebreak_mode = kSelectSidTiebreakFirst;
+              ++tiebreak_modes_seen;
+            } else if (strequal_k(cur_modif, "first-ascii", cur_modif_slen)) {
+              pc.select_sid_tiebreak_mode = kSelectSidTiebreakFirstAscii;
+              ++tiebreak_modes_seen;
+            } else if (strequal_k(cur_modif, "last", cur_modif_slen)) {
+              pc.select_sid_tiebreak_mode = kSelectSidTiebreakLast;
+              ++tiebreak_modes_seen;
+            } else if (strequal_k(cur_modif, "last-ascii", cur_modif_slen)) {
+              pc.select_sid_tiebreak_mode = kSelectSidTiebreakLastAscii;
+              ++tiebreak_modes_seen;
+            } else if (likely(strequal_k(cur_modif, "parents-only", cur_modif_slen))) {
+              pc.misc_flags |= kfMiscSelectSidParentsOnly;
+            } else {
+              logerrputs("Error: Invalid --select-sid-representatives argument sequence.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+          if (unlikely(missingness_modes_seen > 1)) {
+            logerrputs("Error: Multiple --select-sid-representatives missingness-mode modifiers.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(tiebreak_modes_seen != 1)) {
+            if (tiebreak_modes_seen) {
+              logerrputs("Error: Multiple --select-sid-representatives tiebreak-mode modifiers.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
+            logerrputs("Error: --select-sid-representatives requires a tiebreak mode.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.filter_flags |= kfFilterPsamReq | kfFilterSelectSidRepresentatives;
+          if (pc.select_sid_missingness_mode != kSelectSidMissingness0) {
+            pc.filter_flags |= kfFilterAllReq;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "et-me-missing")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
+            logerrputs("Error: --set-mixed-mt-missing must be used with --make-[b]pgen/--make-bed.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          logerrputs("Error: --set-me-missing is under development.\n");
+          reterr = kPglRetNotYetSupported;
+          goto main_ret_1;
+          make_plink2_flags |= kfMakePlink2SetMeMissing;
+          goto main_param_zero;
         } else if (unlikely(!strequal_k_unsafe(flagname_p2, "ilent"))) {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -11697,9 +11899,10 @@ int main(int argc, char** argv) {
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "allow-mismatch")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "allow-mismatch", cur_modif_slen)) {
               pc.update_alleles_info.flags |= kfUpdateAllelesAllowMismatch;
-            } else if (!strcmp(cur_modif, "strict-missing")) {
+            } else if (strequal_k(cur_modif, "strict-missing", cur_modif_slen)) {
               pc.update_alleles_info.flags |= kfUpdateAllelesStrictMissing;
             } else {
               if (unlikely(pc.update_alleles_info.fname)) {
@@ -11765,18 +11968,19 @@ int main(int argc, char** argv) {
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
-            if (unlikely(!((!strcmp(vcf_dosage_import_field, "GP-force")) || IsAlphanumeric(vcf_dosage_import_field)))) {
+            const uint32_t vcf_dosage_import_field_slen = strlen(vcf_dosage_import_field);
+            if (unlikely(!((strequal_k(vcf_dosage_import_field, "GP-force", vcf_dosage_import_field_slen)) || IsAlphanumeric(vcf_dosage_import_field)))) {
               // special case: it is reasonble for a user who just used
               // "--export vcf vcf-dosage=DS-force" or DS-only to try DS-force
               // or DS-only here.
-              if ((!strcmp(vcf_dosage_import_field, "DS-force")) || (!strcmp(vcf_dosage_import_field, "DS-only"))) {
+              if ((strequal_k(vcf_dosage_import_field, "DS-force", vcf_dosage_import_field_slen)) || (strequal_k(vcf_dosage_import_field, "DS-only", vcf_dosage_import_field_slen))) {
                 logerrputs("Error: --vcf dosage= argument is not alphanumeric.  (It should contain just the\nname of the dosage field, i.e. 'DS' instead of 'DS-force'/'DS-only'.)\n");
               } else {
                 logerrputs("Error: --vcf dosage= argument is not alphanumeric.\n");
               }
               goto main_ret_INVALID_CMDLINE;
             }
-            if (unlikely(!strcmp(vcf_dosage_import_field, "GT"))) {
+            if (unlikely(strequal_k(vcf_dosage_import_field, "GT", vcf_dosage_import_field_slen))) {
               logerrputs("Error: --vcf dosage= argument cannot be 'GT'.\n");
               goto main_ret_INVALID_CMDLINE;
             }
@@ -12319,6 +12523,10 @@ int main(int argc, char** argv) {
     }
     if (unlikely(r2_required && (!(pc.command_flags1 & kfCommand1Vcor)))) {
       logerrputs("Error: --ld-window.../--ld-snp... must be used with --r[2]-[un]phased.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely((pc.mendel_info.flags & (kfMendelDuos | kfMendelMultigen)) && (!((pc.filter_flags & kfFilterMendel) || (pc.command_flags1 & kfCommand1MendelReport) || (make_plink2_flags & kfMakePlink2SetMeMissing))))) {
+      logerrputs("Error: --mendel-duos/--mendel-multigen must be used with --me, --mendel, or\n--set-me-missing.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (pc.extract_col_cond_info.params) {

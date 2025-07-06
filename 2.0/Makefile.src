@@ -85,6 +85,7 @@ CCSRC = $(PLINK2LIB_CCSRC) \
         plink2_decompress.cc \
         plink2_export.cc \
         plink2_export_legacy.cc \
+        plink2_family.cc \
         plink2_fasta.cc \
         plink2_filter.cc \
         plink2_glm.cc \

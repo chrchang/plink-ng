@@ -56,11 +56,12 @@ FLAGSET_DEF_START()
   kfMakePlink2SetInvalidHaploidMissingKeepDosage = (1 << 15),
   kfMakePlink2SetMixedMtMissing = (1 << 16),
   kfMakePlink2SetMixedMtMissingKeepDosage = (1 << 17),
-  kfMakePgenFormatBase = (1 << 18), // two bits
-  kfMakePgenErasePhase = (1 << 20),
-  kfMakePgenEraseDosage = (1 << 21),
-  kfMakePgenFillMissingFromDosage = (1 << 22),
-  kfMakePgenWriterVer = (1 << 23)
+  kfMakePlink2SetMeMissing = (1 << 18),
+  kfMakePgenFormatBase = (1 << 19), // two bits
+  kfMakePgenErasePhase = (1 << 21),
+  kfMakePgenEraseDosage = (1 << 22),
+  kfMakePgenFillMissingFromDosage = (1 << 23),
+  kfMakePgenWriterVer = (1 << 24)
 FLAGSET_DEF_END(MakePlink2Flags);
 
 FLAGSET_DEF_START()

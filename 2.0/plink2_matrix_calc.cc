@@ -2756,7 +2756,7 @@ THREAD_FUNC_DECL CalcKingTableSubsetThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t rel_check, uint32_t require_xor, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, RelConcordanceCheckMode rel_or_concordance_check, uint32_t require_xor, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
   PglErr reterr = kPglRetSuccess;
   {
     // In --king-table-require case, sample1_in_require + sample2_in_require
@@ -2778,7 +2778,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
-      if (rel_check) {
+      if (rel_or_concordance_check) {
         // linebuf_iter must point to the start of the second FID, while
         // line_iter points to the start of the first.
         const uint32_t first_fid_slen = CurTokenEnd(line_iter) - line_iter;
@@ -2932,10 +2932,11 @@ uint64_t CountRelCheckPairsSampleRequire(const char* nsorted_xidbox, const uint3
   return total;
 }
 
-void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t rel_check, uint32_t require_xor, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, FidPairIterator* fpip, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
-  // Support "--make-king-table rel-check" without an actual subset-file.
-  // These loops aren't really optimized, since actual rel-check use cases
-  // should have small families where it doesn't matter.
+void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, RelConcordanceCheckMode rel_or_concordance_check, uint32_t require_xor, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, FidPairIterator* fpip, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+  // Support "--make-king-table rel-check" and "--make-king-table
+  // concordance-check" without an actual subset-file.  These loops aren't
+  // really optimized, since actual rel-check use cases should have small
+  // families where it doesn't matter.
   //
   // In the is_first_parallel_scan case, *pair_idx_ptr is set to the total
   // number of eligible pairs, even if it's greater than pair_idx_stop.
@@ -3119,11 +3120,12 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
           }
         }
         pair_idx += cur_pair_ct;
-        // bugfix (21 Jun 2023): forgot to handle the usual rel_check==0 case.
+        // bugfix (21 Jun 2023): forgot to handle the usual
+        // rel_or_concordance_check==0 case.
         // (didn't notice since I was testing on IID-only data.)
         if (pair_idx == pair_idx_stop) {
           if (is_first_parallel_scan) {
-            if (!rel_check) {
+            if (!rel_or_concordance_check) {
               const uint64_t orig_sample_ct64 = orig_sample_ct;
               const uintptr_t orig_sample_ctl = BitCtToWordCt(orig_sample_ct);
               const uint64_t optional_ct = orig_sample_ct - PopcountWords(sample_require, orig_sample_ctl);
@@ -3145,7 +3147,7 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
         break;
       }
       idx2 = block_start_idx;
-      if (!rel_check) {
+      if (!rel_or_concordance_check) {
         block_end_idx = orig_sample_ct;
       } else {
         const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
@@ -3165,8 +3167,9 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
   fpip->idx2 = idx2;
 }
 
-PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, uint32_t rel_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
-  // subset_fname permitted to be nullptr when rel_check is true.
+PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, RelConcordanceCheckMode rel_or_concordance_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  // subset_fname permitted to be nullptr when rel_or_concordance_check is
+  // nonzero.
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -3434,11 +3437,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
 
     uint64_t pair_idx = 0;
     if (!subset_fname) {
-      GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, require_xor, (parallel_tot != 1), 0, pair_buf_capacity, &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+      GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_or_concordance_check, require_xor, (parallel_tot != 1), 0, pair_buf_capacity, &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
     } else {
       fputs("Scanning --king-table-subset file...", stdout);
       fflush(stdout);
-      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, require_xor, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_or_concordance_check, require_xor, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
       if (unlikely(reterr)) {
         goto CalcKingTableSubset_ret_1;
       }
@@ -3466,7 +3469,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           pair_idx = 0;
           if (!subset_fname) {
             InitFidPairIterator(&fpi);
-            GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, require_xor, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+            GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_or_concordance_check, require_xor, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
           } else {
             reterr = TextRewind(&txs);
             if (unlikely(reterr)) {
@@ -3479,7 +3482,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_TSTREAM_REWIND_FAIL;
             }
-            reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, require_xor, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+            reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_or_concordance_check, require_xor, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_1;
             }
@@ -3711,11 +3714,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       }
       pair_idx_cur_start = pair_idx;
       if (!subset_fname) {
-        GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, require_xor, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+        GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_or_concordance_check, require_xor, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
       } else {
         fputs("Scanning --king-table-subset file...", stdout);
         fflush(stdout);
-        reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, require_xor, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+        reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_or_concordance_check, require_xor, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
         if (unlikely(reterr)) {
           goto CalcKingTableSubset_ret_1;
         }

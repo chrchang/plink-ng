@@ -89,6 +89,22 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
 
 PglErr KeepRemoveCats(const char* cats_fname, const char* cat_names_flattened, const char* cat_phenoname, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t is_remove, uint32_t max_thread_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 
+// this mode is 0 in SID-only case
+ENUM_U31_DEF_START()
+  kSelectSidMissingness0,
+  kSelectSidMissingnessHhMissing,
+  kSelectSidMissingnessHc,
+  kSelectSidMissingnessDosage
+ENUM_U31_DEF_END(SelectSidMissingnessMode);
+
+ENUM_U31_DEF_START()
+  kSelectSidTiebreak0,
+  kSelectSidTiebreakFirst,
+  kSelectSidTiebreakFirstAscii,
+  kSelectSidTiebreakLast,
+  kSelectSidTiebreakLastAscii
+ENUM_U31_DEF_END(SelectSidTiebreakMode);
+
 void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_ddosages, uint32_t variant_ct, double af_pseudocount, double* allele_freqs);
 
 PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, double af_pseudocount, uint32_t max_thread_ct, double* allele_freqs, uintptr_t** variant_afreqcalcp);

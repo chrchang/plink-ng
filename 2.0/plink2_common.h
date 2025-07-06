@@ -170,7 +170,8 @@ FLAGSET64_DEF_START()
   kfMiscMakeFoundersRequire2Missing = (1LLU << 48),
   kfMiscYNosexMissingStats = (1LLU << 49),
   kfMiscNeg9PhenoReallyMissing = (1LLU << 50),
-  kfMiscAlt1Allele = (1LLU << 51)
+  kfMiscAlt1Allele = (1LLU << 51),
+  kfMiscSelectSidParentsOnly = (1LLU << 52)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()

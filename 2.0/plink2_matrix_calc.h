@@ -42,19 +42,20 @@ FLAGSET_DEF_START()
   kfKingTableZs = (1 << 6),
   kfKingCounts = (1 << 7),
   kfKingRelCheck = (1 << 8),
-  kfKingCutoffTable = (1 << 9),
-  kfKingTableRequireXor = (1 << 10),
+  kfKingConcordanceCheck = (1 << 9),
+  kfKingCutoffTable = (1 << 10),
+  kfKingTableRequireXor = (1 << 11),
 
-  kfKingColMaybefid = (1 << 11),
-  kfKingColFid = (1 << 12),
-  kfKingColId = (1 << 13),
-  kfKingColMaybesid = (1 << 14),
-  kfKingColSid = (1 << 15),
-  kfKingColNsnp = (1 << 16),
-  kfKingColHethet = (1 << 17),
-  kfKingColIbs0 = (1 << 18),
-  kfKingColIbs1 = (1 << 19),
-  kfKingColKinship = (1 << 20),
+  kfKingColMaybefid = (1 << 12),
+  kfKingColFid = (1 << 13),
+  kfKingColId = (1 << 14),
+  kfKingColMaybesid = (1 << 15),
+  kfKingColSid = (1 << 16),
+  kfKingColNsnp = (1 << 17),
+  kfKingColHethet = (1 << 18),
+  kfKingColIbs0 = (1 << 19),
+  kfKingColIbs1 = (1 << 20),
+  kfKingColKinship = (1 << 21),
   kfKingColDefault = (kfKingColMaybefid | kfKingColId | kfKingColMaybesid | kfKingColNsnp | kfKingColHethet | kfKingColIbs0 | kfKingColKinship),
   kfKingColAll = ((kfKingColKinship * 2) - kfKingColMaybefid)
 FLAGSET_DEF_END(KingFlags);
@@ -219,7 +220,13 @@ PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, ui
 
 PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
 
-PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, uint32_t rel_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+ENUM_U31_DEF_START()
+  kRcCheck0,
+  kRcCheckRel,
+  kRcCheckConcordance
+ENUM_U31_DEF_END(RelConcordanceCheckMode);
+
+PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, RelConcordanceCheckMode rel_or_concordance_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
 

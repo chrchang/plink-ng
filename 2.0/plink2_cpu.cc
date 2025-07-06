@@ -130,8 +130,13 @@ int main(int argc, char** argv) {
   // SSE4.2 doesn't deliver enough of an advantage to justify more clutter on
   // the main downloads page, but technically sophisticated users should be
   // encouraged to build from source in this case.
+#    ifdef __APPLE__
+  // Not worth explicitly discussing pre-AVX2 Intel case in 2025.
+  fputs("Error: This plink2 build requires a processor which supports AVX2/Haswell\ninstructions, but only SSE4.2 is available (probably via Rosetta emulation).\nTry an Apple Silicon (M1) build instead, or use the build_dynamic/ Makefile to\nproduce a suitable binary.\n", stderr);
+#    else
   fputs("Error: This plink2 build requires a processor which supports AVX2/Haswell\ninstructions, but only SSE4.2 is available.  Try a plain 64-bit build instead,\nor use the build_dynamic/ Makefile to produce a binary that takes advantage of\nSSE4.2 instructions but not AVX2.\n", stderr);
   exit(13);
+#    endif
 #  endif
 }
 #endif  // CPU_CHECK_SSE42 || CPU_CHECK_AVX2
