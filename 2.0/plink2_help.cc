@@ -437,7 +437,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("export\0recode\0", &help_ctrl, 1,
 "  --export <output format(s)...> [{01 | 12}] ['bgz'] ['id-delim='<char>]\n"
-"                                 ['id-paste='<col set descrip.>] ['include-alt']\n"
+"                                 ['id-paste='<col set descrip>] ['include-alt']\n"
 "                                 ['omit-nonmale-y'] ['spaces']\n"
 "                                 ['vcf-dosage='<field>] ['ref-first']\n"
 "                                 ['bits='<#>] ['sample-v2']\n"
