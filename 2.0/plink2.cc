@@ -73,7 +73,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (5 Jul 2025)";
+  " (7 Jul 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -2428,10 +2428,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             rel_or_concordance_check = kRcCheckRel;
           }
         } else if (pcp->king_flags & kfKingConcordanceCheck) {
-          // TODO: print warning if there are no same-FID-and-IID groups
-          logerrputs("Error: --make-king-table 'concordance-check' is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto Plink2Core_ret_1;
+          rel_or_concordance_check = kRcCheckConcordance;
         }
         if (pcp->king_table_require_fnames || pcp->king_table_subset_fname || rel_or_concordance_check) {
           // command-line parser currently guarantees

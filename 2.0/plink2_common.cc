@@ -1399,7 +1399,7 @@ PglErr CheckXidUniqueness(const uintptr_t* sample_include, const SampleIdInfo* s
         cur_xid = cur_sample_id;
       } else {
         char* id_iter = memcpyax(idbuf, cur_sample_id, sample_id_slen, '\t');
-        const char* cur_sid = &(sids[sample_uidx * max_sample_id_blen]);
+        const char* cur_sid = &(sids[sample_uidx * max_sid_blen]);
         const uint32_t sid_blen = 1 + strlen(cur_sid);
         memcpy(id_iter, cur_sid, sid_blen);
         xid_slen += sid_blen;

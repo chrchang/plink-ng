@@ -2787,6 +2787,16 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
           line_iter = K_CAST(char*, linebuf_iter);
           continue;
         }
+        if (rel_or_concordance_check == kRcCheckConcordance) {
+          const char* first_iid = FirstNonTspace(&(line_iter[first_fid_slen + 1]));
+          const char* second_iid = FirstNonTspace(&(linebuf_iter[second_fid_slen]));
+          const uint32_t first_iid_slen = CurTokenEnd(first_iid) - first_iid;
+          const uint32_t second_iid_slen = FirstSpaceOrEoln(second_iid) - second_iid;
+          if ((first_iid_slen != second_iid_slen) || (!memequal(first_iid, second_iid, first_iid_slen))) {
+            line_iter = K_CAST(char*, second_iid);
+            continue;
+          }
+        }
       }
       uint32_t sample_uidx2;
       if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx2, idbuf)) {
@@ -2889,15 +2899,23 @@ void InitFidPairIterator(FidPairIterator* fpip) {
   fpip->idx2 = 0;  // defensive
 }
 
-uint64_t CountRelCheckPairs(const char* nsorted_xidbox, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, char* idbuf) {
+uint64_t CountRcCheckPairs(const char* nsorted_xidbox, RelConcordanceCheckMode rel_or_concordance_check, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, char* idbuf) {
   uint64_t total = 0;
   for (uintptr_t block_start_idx = 0; block_start_idx != orig_sample_ct; ) {
     const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
-    const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
-    memcpy(idbuf, fid_start, fid_slen);
-    idbuf[fid_slen] = ' ';
+    const char* fid_end = AdvToDelim(fid_start, '\t');
+    uint32_t id_slen;
+    if (rel_or_concordance_check == kRcCheckRel) {
+      id_slen = fid_end - fid_start;
+    } else {
+      // concordance check
+      const char* iid_end = AdvToDelim(&(fid_end[1]), '\t');
+      id_slen = iid_end - fid_start;
+    }
+    memcpy(idbuf, fid_start, id_slen);
+    idbuf[id_slen] = ' ';
     // bugfix (14 Jan 2020): forgot that natural-sorting was used...
-    idbuf[fid_slen + 1] = '\0';
+    idbuf[id_slen + 1] = '\0';
     const uintptr_t block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
     const uint64_t cur_block_size = block_end_idx - block_start_idx;
     total += (cur_block_size * (cur_block_size - 1)) / 2;
@@ -2906,14 +2924,21 @@ uint64_t CountRelCheckPairs(const char* nsorted_xidbox, uintptr_t max_xid_blen, 
   return total;
 }
 
-uint64_t CountRelCheckPairsSampleRequire(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t require_xor, char* idbuf) {
+uint64_t CountRcCheckPairsSampleRequire(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, RelConcordanceCheckMode rel_or_concordance_check, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t require_xor, char* idbuf) {
   uint64_t total = 0;
   for (uintptr_t block_start_idx = 0; block_start_idx != orig_sample_ct; ) {
     const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
-    const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
-    memcpy(idbuf, fid_start, fid_slen);
-    idbuf[fid_slen] = ' ';
-    idbuf[fid_slen + 1] = '\0';
+    const char* fid_end = AdvToDelim(fid_start, '\t');
+    uint32_t id_slen;
+    if (rel_or_concordance_check == kRcCheckRel) {
+      id_slen = fid_end - fid_start;
+    } else {
+      const char* iid_end = AdvToDelim(&(fid_end[1]), '\t');
+      id_slen = iid_end - fid_start;
+    }
+    memcpy(idbuf, fid_start, id_slen);
+    idbuf[id_slen] = ' ';
+    idbuf[id_slen + 1] = '\0';
     const uintptr_t block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
     const uint64_t cur_block_size = block_end_idx - block_start_idx;
     uintptr_t required_ct = 0;
@@ -2976,7 +3001,7 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
         pair_idx += cur_pair_ct;
         if (pair_idx == pair_idx_stop) {
           if (is_first_parallel_scan) {
-            pair_idx = CountRelCheckPairs(nsorted_xidbox, max_xid_blen, orig_sample_ct, idbuf);
+            pair_idx = CountRcCheckPairs(nsorted_xidbox, rel_or_concordance_check, max_xid_blen, orig_sample_ct, idbuf);
           }
           goto GetRelCheckOrKTRequirePairs_early_exit;
         }
@@ -2988,10 +3013,17 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
       }
       idx2 = block_start_idx;
       const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
-      const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
-      memcpy(idbuf, fid_start, fid_slen);
-      idbuf[fid_slen] = ' ';
-      idbuf[fid_slen + 1] = '\0';
+      const char* fid_end = AdvToDelim(fid_start, '\t');
+      uint32_t id_slen;
+      if (rel_or_concordance_check == kRcCheckRel) {
+        id_slen = fid_end - fid_start;
+      } else {
+        const char* iid_end = AdvToDelim(&(fid_end[1]), '\t');
+        id_slen = iid_end - fid_start;
+      }
+      memcpy(idbuf, fid_start, id_slen);
+      idbuf[id_slen] = ' ';
+      idbuf[id_slen + 1] = '\0';
       block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
     }
   } else {
@@ -3135,7 +3167,7 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
                 pair_idx = orig_sample_ct64 * optional_ct;
               }
             } else {
-              pair_idx = CountRelCheckPairsSampleRequire(nsorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, require_xor, idbuf);
+              pair_idx = CountRcCheckPairsSampleRequire(nsorted_xidbox, xid_map, sample_require, rel_or_concordance_check, max_xid_blen, orig_sample_ct, require_xor, idbuf);
             }
           }
           goto GetRelCheckOrKTRequirePairs_early_exit;
@@ -3151,10 +3183,17 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
         block_end_idx = orig_sample_ct;
       } else {
         const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
-        const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
-        memcpy(idbuf, fid_start, fid_slen);
-        idbuf[fid_slen] = ' ';
-        idbuf[fid_slen + 1] = '\0';
+        const char* fid_end = AdvToDelim(fid_start, '\t');
+        uint32_t id_slen;
+        if (rel_or_concordance_check == kRcCheckRel) {
+          id_slen = fid_end - fid_start;
+        } else {
+          const char* iid_end = AdvToDelim(&(fid_end[1]), '\t');
+          id_slen = iid_end - fid_start;
+        }
+        memcpy(idbuf, fid_start, id_slen);
+        idbuf[id_slen] = ' ';
+        idbuf[id_slen + 1] = '\0';
         block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
       }
     }
