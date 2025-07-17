@@ -8,6 +8,8 @@ from cython.parallel import prange
 import numpy as np
 cimport numpy as np
 import sys
+import tempfile
+import os
 
 cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
     ctypedef uint32_t BoolErr
@@ -385,6 +387,10 @@ cdef class PgenReader:
     cdef uintptr_t* _multivar_smaj_geno_batch_buf
     cdef uintptr_t* _multivar_smaj_phaseinfo_batch_buf
     cdef uintptr_t* _multivar_smaj_phasepresent_batch_buf
+    
+    # For file-like object support
+    cdef object _temp_file
+    cdef bytes _temp_filename
 
     cdef set_allele_idx_offsets_internal(self, np.ndarray[np.uintp_t,mode="c",ndim=1] allele_idx_offsets):
         # Make a copy instead of trying to share this with the caller.
@@ -434,9 +440,36 @@ cdef class PgenReader:
         return
 
 
-    def __cinit__(self, bytes filename, object raw_sample_ct = None,
+    def __cinit__(self, object filename, object raw_sample_ct = None,
                   object variant_ct = None, object sample_subset = None,
                   object allele_idx_offsets = None, object pvar = None):
+        self._temp_file = None
+        self._temp_filename = None
+        
+        # Handle file-like objects
+        cdef bytes fname_bytes
+        if hasattr(filename, 'read'):
+            # It's a file-like object
+            self._temp_file = tempfile.NamedTemporaryFile(delete=False)
+            
+            # Copy data from file-like object to temporary file
+            filename.seek(0)  # Start from beginning
+            while True:
+                chunk = filename.read(8192)  # Read in chunks
+                if not chunk:
+                    break
+                self._temp_file.write(chunk)
+            
+            self._temp_file.close()
+            self._temp_filename = self._temp_file.name.encode('utf-8')
+            fname_bytes = self._temp_filename
+        elif isinstance(filename, str):
+            fname_bytes = filename.encode('utf-8')
+        elif isinstance(filename, bytes):
+            fname_bytes = filename
+        else:
+            raise TypeError("filename must be a string, bytes, or file-like object")
+        
         self._info_ptr = <PgenFileInfo*>PyMem_Malloc(sizeof(PgenFileInfo))
         if not self._info_ptr:
             raise MemoryError()
@@ -460,7 +493,7 @@ cdef class PgenReader:
                 allele_idx_offsets = pr.get_allele_idx_offsets()
         if variant_ct is not None:
             cur_variant_ct = variant_ct
-        cdef const char* fname = <const char*>filename
+        cdef const char* fname = <const char*>fname_bytes
         cdef PgenHeaderCtrl header_ctrl
         cdef uintptr_t pgfi_alloc_cacheline_ct
         cdef char errstr_buf[kPglErrstrBufBlen]
@@ -1698,6 +1731,14 @@ cdef class PgenReader:
             self._info_ptr = NULL
             if reterr != kPglRetSuccess:
                 raise RuntimeError("close() error " + str(reterr))
+        
+        # Clean up temporary file if it exists
+        if self._temp_filename is not None:
+            try:
+                os.unlink(self._temp_filename.decode('utf-8'))
+            except OSError:
+                pass  # File might already be deleted
+            self._temp_filename = None
         return
 
 
@@ -1722,6 +1763,13 @@ cdef class PgenReader:
                     aligned_free(PgrGetFreadBuf(self._state_ptr))
                 PyMem_Free(self._state_ptr)
             PyMem_Free(self._info_ptr)
+        
+        # Clean up temporary file if it exists
+        if self._temp_filename is not None:
+            try:
+                os.unlink(self._temp_filename.decode('utf-8'))
+            except OSError:
+                pass  # File might already be deleted
         return
 
 
