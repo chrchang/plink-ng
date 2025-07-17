@@ -78,32 +78,9 @@ ext_modules = [
               )
     ]
 
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
-
 setuptools.setup(
-    name="Pgenlib",
-    version="0.93.0",
-    author="Christopher Chang",
-    author_email="chrchang@alumni.caltech.edu",
-    description="Python wrapper for pgenlib's basic reader and writer.",
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    url="https://github.com/chrchang/plink-ng",
-    project_urls={
-        "Bug Tracker": "https://github.com/chrchang/plink-ng/issues",
-    },
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
-        "Operating System :: OS Independent",
-    ],
     package_dir={"": "src"},
     packages=setuptools.find_namespace_packages(where="src"),
-    python_requires=">=3.9",
     libraries=[clib],
     ext_modules=cythonize(ext_modules),
-    install_requires = [
-        "numpy>=1.19.3",
-    ],
 )

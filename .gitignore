@@ -6,6 +6,19 @@ pgen_spec/pgen_spec.log
 pgen_spec/pgen_spec.out
 pgen_spec/pgen_spec.toc
 
+# ignore egg files and other build artifacts
+*.egg-info/
+*.egg
+*.whl
+dist/
+build/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.dylib
+
 ## Ignore macOS system files and local dev: /test_data
 .DS_Store
 /test_data/
