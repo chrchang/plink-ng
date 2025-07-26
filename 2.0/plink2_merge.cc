@@ -964,7 +964,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
       SetAllBits(sample_ct, sample_include);
       char* sample_ids = siip->sample_ids;
       char* sids = siip->sids;
-      if (sample_sort_mode != kSortNone) {
+      if ((sample_sort_mode != kSortNone) && (sample_ct > 1)) {
         if (sample_sort_mode == kSortFile) {
           // yes, this is a bit circuitous
           unsigned char* bigstack_end_mark2 = g_bigstack_end;
