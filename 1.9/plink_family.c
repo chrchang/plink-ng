@@ -992,6 +992,10 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	if (cur_error_ct > var_error_max) {
 	  SET_BIT(marker_uidx, marker_exclude);
 	  new_marker_exclude_ct++;
+          if (var_first) {
+            // bugfix (31 Jul 2025)
+            fill_uint_zero(trio_ct, error_cts_tmp2);
+          }
 	}
 	if ((cur_error_ct <= var_error_max) || (!var_first)) {
 	  if (var_first) {
