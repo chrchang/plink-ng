@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.0.0-a.5.29.a"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (26 Jul 2025)";
+  " (1 Aug 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -2258,6 +2258,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       if (pcp->min_bp_space) {
         if (vpos_sortstatus & kfUnsortedVarBp) {
           logerrputs("Error: --bp-space requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
         EnforceMinBpSpace(cip, variant_bps, pcp->min_bp_space, variant_include, &variant_ct);
       }
