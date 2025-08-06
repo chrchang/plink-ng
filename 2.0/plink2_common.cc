@@ -2716,6 +2716,88 @@ void MaskGenoarrHetsMultiallelicUnsafe(const uintptr_t* __restrict genoarr, cons
   }
 }
 
+void SetAltxyHetMissing(uintptr_t* __restrict genoarr, uint32_t* __restrict rare10_ct_ptr, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals) {
+  const uint32_t orig_rare10_ct = *rare10_ct_ptr;
+  uintptr_t sample_widx = 0;
+  uintptr_t patch_10_bits = patch_10_set[0];
+  uint32_t read_patch_10_idx = 0;
+  while (1) {
+    const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+    const AlleleCode lo_code = patch_10_vals[read_patch_10_idx * 2];
+    const AlleleCode hi_code = patch_10_vals[read_patch_10_idx * 2 + 1];
+    if (lo_code != hi_code) {
+      // change genoarr nyp from 2 to 3, by setting the low bit.
+      // (note that one of these genoarr operations does nothing due to
+      // overflow/underflow; there may be a better way of doing this)
+      genoarr[sample_widx * 2] |= lowbit * lowbit;
+      genoarr[sample_widx * 2 + 1] |= (lowbit >> kBitsPerWordD2) * (lowbit >> kBitsPerWordD2);
+      patch_10_set[sample_widx] ^= lowbit;
+      break;
+    }
+    if (++read_patch_10_idx == orig_rare10_ct) {
+      return;
+    }
+  }
+  uint32_t write_patch_10_idx = read_patch_10_idx;
+  while (++read_patch_10_idx != orig_rare10_ct) {
+    const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+    const AlleleCode lo_code = patch_10_vals[read_patch_10_idx * 2];
+    const AlleleCode hi_code = patch_10_vals[read_patch_10_idx * 2 + 1];
+    if (lo_code != hi_code) {
+      genoarr[sample_widx * 2] |= lowbit * lowbit;
+      genoarr[sample_widx * 2 + 1] |= (lowbit >> kBitsPerWordD2) * (lowbit >> kBitsPerWordD2);
+      patch_10_set[sample_widx] ^= lowbit;
+    } else {
+      patch_10_vals[write_patch_10_idx * 2] = lo_code;
+      patch_10_vals[write_patch_10_idx * 2 + 1] = hi_code;
+      ++write_patch_10_idx;
+    }
+  }
+  *rare10_ct_ptr = write_patch_10_idx;
+}
+
+void SetMaleAltxyHetMissing(const uintptr_t* sex_male, uintptr_t* __restrict genoarr, uint32_t* __restrict rare10_ct_ptr, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals) {
+  const uint32_t orig_rare10_ct = *rare10_ct_ptr;
+  uintptr_t sample_widx = 0;
+  uintptr_t patch_10_bits = patch_10_set[0];
+  uint32_t read_patch_10_idx = 0;
+  while (1) {
+    const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+    if (sex_male[sample_widx] & lowbit) {
+      const AlleleCode lo_code = patch_10_vals[read_patch_10_idx * 2];
+      const AlleleCode hi_code = patch_10_vals[read_patch_10_idx * 2 + 1];
+      if (lo_code != hi_code) {
+        // change genoarr nyp from 2 to 3, by setting the low bit.
+        // (note that one of these genoarr operations does nothing due to
+        // overflow/underflow; there may be a better way of doing this)
+        genoarr[sample_widx * 2] |= lowbit * lowbit;
+        genoarr[sample_widx * 2 + 1] |= (lowbit >> kBitsPerWordD2) * (lowbit >> kBitsPerWordD2);
+        patch_10_set[sample_widx] ^= lowbit;
+        break;
+      }
+    }
+    if (++read_patch_10_idx == orig_rare10_ct) {
+      return;
+    }
+  }
+  uint32_t write_patch_10_idx = read_patch_10_idx;
+  while (++read_patch_10_idx != orig_rare10_ct) {
+    const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+    const AlleleCode lo_code = patch_10_vals[read_patch_10_idx * 2];
+    const AlleleCode hi_code = patch_10_vals[read_patch_10_idx * 2 + 1];
+    if ((sex_male[sample_widx] & lowbit) && (lo_code != hi_code)) {
+      genoarr[sample_widx * 2] |= lowbit * lowbit;
+      genoarr[sample_widx * 2 + 1] |= (lowbit >> kBitsPerWordD2) * (lowbit >> kBitsPerWordD2);
+      patch_10_set[sample_widx] ^= lowbit;
+    } else {
+      patch_10_vals[write_patch_10_idx * 2] = lo_code;
+      patch_10_vals[write_patch_10_idx * 2 + 1] = hi_code;
+      ++write_patch_10_idx;
+    }
+  }
+  *rare10_ct_ptr = write_patch_10_idx;
+}
+
 /*
 uint32_t chr_window_max(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bp, uint32_t chr_fo_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max) {
   if (cur_window_max >= ct_max) {
