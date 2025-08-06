@@ -23,7 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>  // open(), stat()
-#include <sys/types.h>  // open()
+#include <sys/types.h>  // open() backward compatibility
 #include <time.h>  // time(), ctime()
 #include <unistd.h>  // getcwd(), gethostname(), sysconf(), fstat()
 
@@ -1473,7 +1473,6 @@ uint32_t StrboxHtableAdd(const char* cur_id, const char* strbox, uintptr_t max_s
 }
 
 uint32_t PopulateStrboxHtable(const char* strbox, uint32_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable) {
-  // may want subset_mask parameter later
   SetAllU32Arr(str_htable_size, str_htable);
   const char* strbox_iter = strbox;
   for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
@@ -1487,7 +1486,7 @@ uint32_t PopulateStrboxHtable(const char* strbox, uint32_t str_ct, uintptr_t max
   return 0;
 }
 
-uint32_t PopulateStrboxSubsetHtableDup(const char* strbox, const uintptr_t* subset_mask, uint32_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable) {
+uint32_t PopulateStrboxSubsetHtable(const char* strbox, const uintptr_t* subset_mask, uint32_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t str_htable_size, uint32_t* str_htable) {
   SetAllU32Arr(str_htable_size, str_htable);
   uintptr_t str_uidx_base = 0;
   uintptr_t subset_mask_bits = subset_mask[0];
@@ -1495,7 +1494,11 @@ uint32_t PopulateStrboxSubsetHtableDup(const char* strbox, const uintptr_t* subs
     const uint32_t str_uidx = BitIter1(subset_mask, &str_uidx_base, &subset_mask_bits);
     const char* strptr = &(strbox[str_uidx * max_str_blen]);
     const uint32_t slen = strlen(strptr);
-    StrboxHtableAdd(strptr, strbox, max_str_blen, slen, str_htable_size, str_uidx, str_htable);
+    if (StrboxHtableAdd(strptr, strbox, max_str_blen, slen, str_htable_size, str_uidx, str_htable) != UINT32_MAX) {
+      if (!allow_dups) {
+        return str_uidx;
+      }
+    }
   }
   return 0;
 }

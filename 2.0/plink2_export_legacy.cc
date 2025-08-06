@@ -23,10 +23,10 @@
 #include "include/pgenlib_read.h"
 #include "include/plink2_base.h"
 #include "include/plink2_bits.h"
-#include "plink2_cmdline.h"
-#include "plink2_common.h"
 #include "include/plink2_string.h"
 #include "include/plink2_thread.h"
+#include "plink2_cmdline.h"
+#include "plink2_common.h"
 
 // This covers formats that are fully supported by PLINK 1.x (no multiallelic
 // variants, dosages, or phase information).

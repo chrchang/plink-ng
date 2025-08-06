@@ -23,12 +23,12 @@
 
 #include "include/pgenlib_misc.h"
 #include "include/plink2_bits.h"
-#include "plink2_compress_stream.h"
-#include "plink2_decompress.h"
-#include "plink2_matrix.h"
 #include "include/plink2_stats.h"
 #include "include/plink2_string.h"
 #include "include/plink2_thread.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "plink2_matrix.h"
 
 #ifdef __cplusplus
 namespace plink2 {

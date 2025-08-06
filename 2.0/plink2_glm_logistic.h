@@ -19,10 +19,10 @@
 
 #include "include/pgenlib_read.h"
 #include "include/plink2_base.h"
+#include "include/plink2_text.h"
 #include "plink2_cmdline.h"
 #include "plink2_common.h"
 #include "plink2_glm_shared.h"
-#include "include/plink2_text.h"
 
 #ifdef __cplusplus
 namespace plink2 {

@@ -19,8 +19,8 @@
 
 #include "include/pgenlib_misc.h"
 #include "include/pgenlib_read.h"
-#include "plink2_adjust.h"
 #include "include/plink2_base.h"
+#include "plink2_adjust.h"
 #include "plink2_common.h"
 #include "plink2_glm_shared.h"
 

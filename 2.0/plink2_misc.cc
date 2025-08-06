@@ -23,15 +23,15 @@
 #include <string.h>
 
 #include "include/plink2_bits.h"
-#include "plink2_cmdline.h"
-#include "plink2_compress_stream.h"
-#include "plink2_decompress.h"
-#include "plink2_data.h"
 #include "include/plink2_htable.h"
 #include "include/plink2_stats.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
 #include "include/plink2_thread.h"
+#include "plink2_cmdline.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "plink2_data.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -4059,12 +4059,13 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
 
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
+    const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     const uintptr_t* cur_sample_include = nullptr;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t is_autosomal_diploid = 0;
     uint32_t is_x = 0;
-    uint32_t is_y = 0;
+    uint32_t is_mt = 0;
     uint32_t nobs_base = 0;
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
@@ -4095,7 +4096,8 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
         is_autosomal_diploid = !IsSet(cip->haploid_mask, chr_idx);
         nobs_base = sample_ct;
         is_x = (chr_idx == x_code);
-        is_y = (chr_idx == y_code);
+        const uint32_t is_y = (chr_idx == y_code);
+        is_mt = (chr_idx == mt_code);
         cur_sample_include = sample_include;
         const uint32_t* cur_cumulative_popcounts = sample_include_cumulative_popcounts;
         if (!is_autosomal_diploid) {
@@ -4104,6 +4106,9 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
             cur_cumulative_popcounts = sex_nonfemale_cumulative_popcounts;
             nobs_base = nonfemale_ct;
           }
+        } else if (hap_cts) {
+          hap_cts[0] = 0;
+          hap_cts[1] = 0;
         }
         PgrSetSampleSubsetIndex(cur_cumulative_popcounts, simple_pgrp, &pssi);
         homref_ct = 0;
@@ -4171,10 +4176,16 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
             }
             missing_ct = nobs_base - homref_ct - het_ct - homalt1_ct - hapref_ct - hapalt1_ct;
           } else {
-            // chrY or other pure-haploid; hethap treated as missing
             hapref_ct = cur_raw_geno_cts[0];
             hapalt1_ct = cur_raw_geno_cts[2];
+            // treat hethap as missing in chrY or other pure-haploid case
             missing_ct = nobs_base - hapref_ct - hapalt1_ct;
+            if (is_mt) {
+              // behavior update (6 Aug 2025): mixed no longer treated as
+              // missing
+              het_ct = cur_raw_geno_cts[1];
+              missing_ct -= het_ct;
+            }
           }
         }
         if (homref_col) {
@@ -4272,8 +4283,8 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
           homref_ct = cur_raw_geno_cts[0];
           homalt1_ct = diploid_pair_cts[allele_ctp1];
           missing_ct = nobs_base - cur_raw_geno_cts[0] - cur_raw_geno_cts[1] - cur_raw_geno_cts[2];
-          hap_cts[0] = 0;
-          hap_cts[1] = 0;
+          assert(hap_cts[0] == 0);
+          assert(hap_cts[1] == 0);
         } else {
           if (is_x) {
             missing_ct = nobs_base - cur_raw_geno_cts[0] - cur_raw_geno_cts[1] - cur_raw_geno_cts[2];
@@ -4322,8 +4333,14 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
             }
             homref_ct = diploid_pair_cts[0];
             homalt1_ct = diploid_pair_cts[allele_ctp1];
+          } else if (is_mt) {
+            // behavior update (6 Aug 2025): mixed no longer treated as missing
+            missing_ct = nobs_base - cur_raw_geno_cts[0] - cur_raw_geno_cts[1] - cur_raw_geno_cts[2];
+            for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
+              hap_cts[aidx] = diploid_pair_cts[aidx * allele_ctp1];
+            }
           } else {
-            // chrY or other pure-haploid; hethap treated as missing
+            // treat hethap as missing in chrY or other pure-haploid case
             uint32_t nonmissing_ct = 0;
             for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
               const uint32_t cur_ct = diploid_pair_cts[aidx * allele_ctp1];
@@ -4371,6 +4388,14 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
               }
             }
             --cswritep;
+          } else if (is_mt) {
+            for (uint32_t aidx_hi = xy_col_altonly; aidx_hi != allele_ct; ++aidx_hi) {
+              for (uint32_t aidx_lo = xy_col_altonly; aidx_lo < aidx_hi; ++aidx_lo) {
+                cswritep = u32toa_x(diploid_pair_cts[aidx_lo * allele_ct + aidx_hi], ',', cswritep);
+              }
+              cswritep = strcpya_k(cswritep, "0,");
+            }
+            --cswritep;
           } else {
             const uint32_t triangle_base = allele_ct - xy_col_altonly;
             cswritep = u16setsa(cswritep, 0x2c30, (triangle_base * (triangle_base + 1) / 2) - 1);
@@ -4399,9 +4424,9 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
         }
         if (numeq_col) {
           *cswritep++ = '\t';
-          if (is_autosomal_diploid || is_x) {
-            for (uint32_t aidx_hi = 0; aidx_hi != allele_ct; ++aidx_hi) {
-              for (uint32_t aidx_lo = 0; aidx_lo <= aidx_hi; ++aidx_lo) {
+          if (is_autosomal_diploid || is_x || is_mt) {
+            for (uint32_t aidx_hi = is_mt; aidx_hi != allele_ct; ++aidx_hi) {
+              for (uint32_t aidx_lo = 0; aidx_lo <= aidx_hi - is_mt; ++aidx_lo) {
                 const uint32_t cur_ct = diploid_pair_cts[aidx_lo * allele_ct + aidx_hi];
                 if (cur_ct) {
                   cswritep = u32toa_x(aidx_lo, '/', cswritep);
@@ -10251,12 +10276,12 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   {
-    if (IsSet(cip->haploid_mask, 0)) {
+    if (unlikely(IsSet(cip->haploid_mask, 0))) {
       logerrputs("Error: --het cannot be used on haploid genomes.\n");
       goto HetReport_ret_INCONSISTENT_INPUT;
     }
     const uint32_t small_sample = (flags / kfHetSmallSample) & 1;
-    if (small_sample && (!founder_ct)) {
+    if (unlikely(small_sample && (!founder_ct))) {
       logerrputs("Error: '--het small-sample' requires founders.  (--make-founders may come in\nhandy here.\n)");
       goto HetReport_ret_INCONSISTENT_INPUT;
     }
@@ -10377,7 +10402,7 @@ PglErr CheckOrImputeSex(const uintptr_t* sample_include, const SampleIdInfo* sii
   {
     const CheckSexFlags flags = csip->flags;
     const char* flagstr = (flags & kfCheckSexImpute)? "--impute-sex" : "--check-sex";
-    if (IsSet(cip->haploid_mask, 0)) {
+    if (unlikely(IsSet(cip->haploid_mask, 0))) {
       snprintf(g_logbuf, kLogbufSize, "Error: %s cannot be used on haploid genomes.\n", flagstr);
       goto CheckOrImputeSex_ret_INCONSISTENT_INPUT_2;
     }

@@ -22,9 +22,9 @@
 
 #include "include/pgenlib_misc.h"
 #include "include/plink2_bits.h"
-#include "plink2_decompress.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
+#include "plink2_decompress.h"
 
 #ifdef __cplusplus
 namespace plink2 {

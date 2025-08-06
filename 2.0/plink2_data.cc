@@ -27,12 +27,12 @@
 #include "include/pgenlib_write.h"
 #include "include/plink2_bgzf.h"
 #include "include/plink2_bits.h"
-#include "plink2_compress_stream.h"
-#include "plink2_decompress.h"
 #include "include/plink2_htable.h"
-#include "plink2_pvar.h"
 #include "include/plink2_string.h"
 #include "include/plink2_thread.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "plink2_pvar.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -6460,33 +6460,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
             SetMaleHetMissingCleardosage(sex_male_collapsed, sex_male_collapsed_interleaved, sample_ctv2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
             // male x/y hets to missing
             if (write_rare10_ct) {
-              uintptr_t sample_widx = 0;
-              uintptr_t patch_10_bits = write_patch_10_set[0];
-              uint32_t read_patch_10_idx = 0;
-              for (; read_patch_10_idx != write_rare10_ct; ++read_patch_10_idx) {
-                uintptr_t lowbit = BitIter1y(write_patch_10_set, &sample_widx, &patch_10_bits);
-                AlleleCode lo_code = write_patch_10_vals[read_patch_10_idx * 2];
-                AlleleCode hi_code = write_patch_10_vals[read_patch_10_idx * 2 + 1];
-                if ((sex_male_collapsed[sample_widx] & lowbit) && (lo_code != hi_code)) {
-                  write_patch_10_set[sample_widx] ^= lowbit;
-                  uint32_t write_patch_10_idx = read_patch_10_idx;
-                  ++read_patch_10_idx;
-                  for (; read_patch_10_idx != write_rare10_ct; ++read_patch_10_idx) {
-                    lowbit = BitIter1y(write_patch_10_set, &sample_widx, &patch_10_bits);
-                    lo_code = write_patch_10_vals[read_patch_10_idx * 2];
-                    hi_code = write_patch_10_vals[read_patch_10_idx * 2 + 1];
-                    if ((sex_male_collapsed[sample_widx] & lowbit) && (lo_code != hi_code)) {
-                      write_patch_10_set[sample_widx] ^= lowbit;
-                    } else {
-                      write_patch_10_vals[write_patch_10_idx * 2] = lo_code;
-                      write_patch_10_vals[write_patch_10_idx * 2 + 1] = hi_code;
-                      ++write_patch_10_idx;
-                    }
-                  }
-                  write_rare10_ct = write_patch_10_idx;
-                  break;
-                }
-              }
+              SetMaleAltxyHetMissing(sex_male_collapsed, write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
             }
           } else {
             assert(!write_rare01_ct);
@@ -6508,9 +6482,6 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           if (write_rare01_ct) {
             ClearGenoarrMissing1bit8Unsafe(write_genovec, &write_rare01_ct, write_patch_01_set, write_patch_01_vals);
           }
-          if (write_rare10_ct) {
-            ClearGenoarrMissing1bit16Unsafe(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
-          }
         } else {
           // all hets to missing
           // may want to move is_hphase zeroing in front
@@ -6525,7 +6496,8 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           is_hphase = 0;
           write_rare01_ct = 0;
           if (write_rare10_ct) {
-            ClearGenoarrMissing1bit16Unsafe(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
+            // bugfix (6 Aug 2025): had the wrong operation here
+            SetAltxyHetMissing(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
           }
           write_dphase_ct = 0;
         }
@@ -6539,7 +6511,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         is_hphase = 0;
         write_rare01_ct = 0;
         if (write_rare10_ct) {
-          ClearGenoarrMissing1bit16Unsafe(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
+          SetAltxyHetMissing(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
         }
         write_dphase_ct = 0;
       }

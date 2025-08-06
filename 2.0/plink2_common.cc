@@ -20,9 +20,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "include/plink2_htable.h"
 #include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
-#include "include/plink2_htable.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1266,6 +1266,63 @@ PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t
   *line_idx_ptr = line_idx;
   *xid_mode_ptr = xid_mode;
   return kPglRetSuccess;
+}
+
+void MarkParents(const ParentalIdInfo* parental_id_infop, const char* sorted_xidbox, const uint32_t* xid_map, uint32_t sample_ct, uintptr_t max_xid_blen, uint32_t use_nsort, uintptr_t* dst, char* idbuf) {
+  const char* paternal_ids = parental_id_infop->paternal_ids;
+  const char* maternal_ids = parental_id_infop->maternal_ids;
+  const uintptr_t max_paternal_id_blen = parental_id_infop->max_paternal_id_blen;
+  const uintptr_t max_maternal_id_blen = parental_id_infop->max_maternal_id_blen;
+  for (uint32_t xid_idx_start = 0; xid_idx_start != sample_ct; ) {
+    const char* sorted_fam_xidbox = &(sorted_xidbox[xid_idx_start * max_xid_blen]);
+    const char* fid_start = sorted_fam_xidbox;
+    const char* fid_end = AdvToDelim(fid_start, '\t');
+    const uint32_t fid_slen = fid_end - fid_start;
+    memcpy(idbuf, fid_start, fid_slen);
+    idbuf[fid_slen] = ' ';
+    const uint32_t fid_blen = fid_slen + 1;
+    idbuf[fid_blen] = '\0';
+    uint32_t fam_xid_ct;
+    if (use_nsort) {
+      fam_xid_ct = ExpsearchNsortStrLb(idbuf, sorted_fam_xidbox, max_xid_blen, sample_ct - xid_idx_start, 1);
+    } else {
+      fam_xid_ct = ExpsearchStrLb(idbuf, sorted_fam_xidbox, fid_blen, max_xid_blen, sample_ct - xid_idx_start, 1);
+    }
+    idbuf[fid_slen] = '\t';
+    const uint32_t* fam_xid_map = &(xid_map[xid_idx_start]);
+    char* iid_write_start = &(idbuf[fid_blen]);
+    for (uint32_t fam_xid_idx = 0; fam_xid_idx != fam_xid_ct; ++fam_xid_idx) {
+      const uint32_t sample_uidx = fam_xid_map[fam_xid_idx];
+      for (uint32_t parent_idx = 0; parent_idx != 2; ++parent_idx) {
+        const char* parent_id;
+        if (parent_idx == 0) {
+          parent_id = &(paternal_ids[sample_uidx * max_paternal_id_blen]);
+        } else {
+          parent_id = &(maternal_ids[sample_uidx * max_maternal_id_blen]);
+        }
+        const uint32_t parent_id_slen = strlen(parent_id);
+        const uintptr_t xid_slen = fid_blen + parent_id_slen;
+        if (((parent_id_slen == 1) && (parent_id[0] == '0')) || (xid_slen >= max_xid_blen)) {
+          continue;
+        }
+        memcpy(iid_write_start, parent_id, parent_id_slen + 1);
+        uint32_t parent_fxid_idx_start;
+        if (use_nsort) {
+          parent_fxid_idx_start = bsearch_strbox_lb_natural(idbuf, sorted_fam_xidbox, xid_slen, max_xid_blen, fam_xid_ct);
+        } else {
+          parent_fxid_idx_start = bsearch_strbox_lb(idbuf, sorted_fam_xidbox, xid_slen, max_xid_blen, fam_xid_ct);
+        }
+        for (uint32_t uii = parent_fxid_idx_start; uii != fam_xid_ct; ++uii) {
+          const char* cur_xid = &(sorted_fam_xidbox[uii * max_xid_blen]);
+          if ((!memequal(idbuf, cur_xid, xid_slen)) || (cur_xid[xid_slen] > ' ')) {
+            break;
+          }
+          SetBit(xid_map[uii], dst);
+        }
+      }
+    }
+    xid_idx_start += fam_xid_ct;
+  }
 }
 
 // Assumes no duplicates.
@@ -2689,6 +2746,88 @@ void MaskGenoarrHetsMultiallelicUnsafe(const uintptr_t* __restrict genoarr, cons
     }
     bitarr_alias[widx] &= cur_hets;
   }
+}
+
+void SetAltxyHetMissing(uintptr_t* __restrict genoarr, uint32_t* __restrict rare10_ct_ptr, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals) {
+  const uint32_t orig_rare10_ct = *rare10_ct_ptr;
+  uintptr_t sample_widx = 0;
+  uintptr_t patch_10_bits = patch_10_set[0];
+  uint32_t read_patch_10_idx = 0;
+  while (1) {
+    const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+    const AlleleCode lo_code = patch_10_vals[read_patch_10_idx * 2];
+    const AlleleCode hi_code = patch_10_vals[read_patch_10_idx * 2 + 1];
+    if (lo_code != hi_code) {
+      // change genoarr nyp from 2 to 3, by setting the low bit.
+      // (note that one of these genoarr operations does nothing due to
+      // overflow/underflow; there may be a better way of doing this)
+      genoarr[sample_widx * 2] |= lowbit * lowbit;
+      genoarr[sample_widx * 2 + 1] |= (lowbit >> kBitsPerWordD2) * (lowbit >> kBitsPerWordD2);
+      patch_10_set[sample_widx] ^= lowbit;
+      break;
+    }
+    if (++read_patch_10_idx == orig_rare10_ct) {
+      return;
+    }
+  }
+  uint32_t write_patch_10_idx = read_patch_10_idx;
+  while (++read_patch_10_idx != orig_rare10_ct) {
+    const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+    const AlleleCode lo_code = patch_10_vals[read_patch_10_idx * 2];
+    const AlleleCode hi_code = patch_10_vals[read_patch_10_idx * 2 + 1];
+    if (lo_code != hi_code) {
+      genoarr[sample_widx * 2] |= lowbit * lowbit;
+      genoarr[sample_widx * 2 + 1] |= (lowbit >> kBitsPerWordD2) * (lowbit >> kBitsPerWordD2);
+      patch_10_set[sample_widx] ^= lowbit;
+    } else {
+      patch_10_vals[write_patch_10_idx * 2] = lo_code;
+      patch_10_vals[write_patch_10_idx * 2 + 1] = hi_code;
+      ++write_patch_10_idx;
+    }
+  }
+  *rare10_ct_ptr = write_patch_10_idx;
+}
+
+void SetMaleAltxyHetMissing(const uintptr_t* sex_male, uintptr_t* __restrict genoarr, uint32_t* __restrict rare10_ct_ptr, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals) {
+  const uint32_t orig_rare10_ct = *rare10_ct_ptr;
+  uintptr_t sample_widx = 0;
+  uintptr_t patch_10_bits = patch_10_set[0];
+  uint32_t read_patch_10_idx = 0;
+  while (1) {
+    const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+    if (sex_male[sample_widx] & lowbit) {
+      const AlleleCode lo_code = patch_10_vals[read_patch_10_idx * 2];
+      const AlleleCode hi_code = patch_10_vals[read_patch_10_idx * 2 + 1];
+      if (lo_code != hi_code) {
+        // change genoarr nyp from 2 to 3, by setting the low bit.
+        // (note that one of these genoarr operations does nothing due to
+        // overflow/underflow; there may be a better way of doing this)
+        genoarr[sample_widx * 2] |= lowbit * lowbit;
+        genoarr[sample_widx * 2 + 1] |= (lowbit >> kBitsPerWordD2) * (lowbit >> kBitsPerWordD2);
+        patch_10_set[sample_widx] ^= lowbit;
+        break;
+      }
+    }
+    if (++read_patch_10_idx == orig_rare10_ct) {
+      return;
+    }
+  }
+  uint32_t write_patch_10_idx = read_patch_10_idx;
+  while (++read_patch_10_idx != orig_rare10_ct) {
+    const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+    const AlleleCode lo_code = patch_10_vals[read_patch_10_idx * 2];
+    const AlleleCode hi_code = patch_10_vals[read_patch_10_idx * 2 + 1];
+    if ((sex_male[sample_widx] & lowbit) && (lo_code != hi_code)) {
+      genoarr[sample_widx * 2] |= lowbit * lowbit;
+      genoarr[sample_widx * 2 + 1] |= (lowbit >> kBitsPerWordD2) * (lowbit >> kBitsPerWordD2);
+      patch_10_set[sample_widx] ^= lowbit;
+    } else {
+      patch_10_vals[write_patch_10_idx * 2] = lo_code;
+      patch_10_vals[write_patch_10_idx * 2 + 1] = hi_code;
+      ++write_patch_10_idx;
+    }
+  }
+  *rare10_ct_ptr = write_patch_10_idx;
 }
 
 /*

@@ -24,14 +24,15 @@
 
 #include "include/plink2_bgzf.h"
 #include "include/plink2_bits.h"
-#include "plink2_cmdline.h"
-#include "plink2_compress_stream.h"
-#include "plink2_decompress.h"
-#include "plink2_export_legacy.h"
 #include "include/plink2_htable.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
 #include "include/plink2_thread.h"
+#include "plink2_cmdline.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "plink2_export_legacy.h"
+#include "zstd/lib/zstd.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -10812,9 +10813,11 @@ PglErr ExportEigSnp(const char* outname, const uintptr_t* variant_include, const
     }
     char chr_buf[8];
     ChrOutput output_encoding = cip->output_encoding;
-    if (output_encoding & (kfChrOutputM | kfChrOutput0M)) {
-      logputs("Note: --output-chr setting incompatible with EIGENSOFT .snp format; treating as\n'MT'.\n");
-      output_encoding = kfChrOutputMT;
+    // TODO: only respect prefix setting, since ADMIXTOOLS 2 does not support
+    // e.g. "X".
+    if (output_encoding & (kfChrOutputM | kfChrOutputMT | kfChrOutput0M)) {
+      output_encoding &= kfChrOutputPrefix;
+      logprintf("Note: --output-chr setting incompatible with ADMIXTOOLS 2 interpretation of\n.snp format; treating as '%s26'.\n", (output_encoding == kfChrOutputPrefix)? "chr" : "");
     }
     logprintfww5("Writing %s ... ", outname);
     fflush(stdout);
@@ -10854,7 +10857,7 @@ PglErr ExportEigSnp(const char* outname, const uintptr_t* variant_include, const
         char* chr_name_end = chr_buf;
         if (!chr_idx) {
           *chr_name_end++ = '0';
-        } else if ((output_encoding & kfChrOutputMT) || (chr_idx < autosome_ct + (kChrOffsetXY + 1)) || (chr_idx > autosome_ct + (kChrOffsetMT + 1))) {
+        } else if ((chr_idx < autosome_ct + (kChrOffsetXY + 1)) || (chr_idx > autosome_ct + (kChrOffsetMT + 1))) {
           chr_name_end = ChrNameStdEx(cip, chr_idx, output_encoding, chr_buf);
         } else {
           // MT -> 90, XY -> 91

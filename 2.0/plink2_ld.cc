@@ -24,15 +24,15 @@
 
 #include "include/SFMT.h"
 #include "include/plink2_bits.h"
-#include "plink2_compress_stream.h"
-#include "plink2_decompress.h"
-#include "plink2_filter.h"
 #include "include/plink2_htable.h"
-#include "plink2_set.h"
 #include "include/plink2_stats.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
 #include "include/plink2_thread.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "plink2_filter.h"
+#include "plink2_set.h"
 
 #ifdef __cplusplus
 #  include <functional>  // std::greater

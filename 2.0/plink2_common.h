@@ -31,10 +31,10 @@
 #include "include/pgenlib_read.h"
 #include "include/plink2_base.h"
 #include "include/plink2_bits.h"
-#include "plink2_cmdline.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
 #include "include/plink2_thread.h"
+#include "plink2_cmdline.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -638,6 +638,11 @@ PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderF
 // header line expected to start with FID1, ID1, or IID1
 PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t* line_idx_ptr, TextStream* txsp, XidMode* xid_mode_ptr, char** line_startp, char** line_iterp);
 
+// sorted_xidbox must be created with kfXidModeFidIid or kfXidModeFidIidSid,
+// and dst must initially be zeroed out.
+// does not check for graph cycles, etc.
+void MarkParents(const ParentalIdInfo* parental_id_infop, const char* sorted_xidbox, const uint32_t* xid_map, uint32_t sample_ct, uintptr_t max_xid_blen, uint32_t use_nsort, uintptr_t* dst, char* idbuf);
+
 // Assumes no duplicates.
 void InitXidHtable(const SampleIdInfo* siip, uint32_t sample_ct, uint32_t xid_htable_size, uint32_t* xid_htable, char* idbuf);
 
@@ -996,6 +1001,11 @@ HEADER_INLINE void MaskGenoarrHetsUnsafe(const uintptr_t* __restrict genoarr, ui
 }
 
 void MaskGenoarrHetsMultiallelicUnsafe(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr);
+
+// These require rare10_ct > 0.
+void SetAltxyHetMissing(uintptr_t* __restrict genoarr, uint32_t* __restrict rare10_ct_ptr, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals);
+
+void SetMaleAltxyHetMissing(const uintptr_t* sex_male, uintptr_t* __restrict genoarr, uint32_t* __restrict rare10_ct_ptr, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals);
 
 // vertical popcount support
 // VcountScramble1() and friends in plink2_cmdline

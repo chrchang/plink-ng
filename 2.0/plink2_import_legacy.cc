@@ -25,15 +25,15 @@
 #include "include/pgenlib_write.h"
 #include "include/plink2_base.h"
 #include "include/plink2_bits.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "include/plink2_thread.h"
 #include "plink2_cmdline.h"
 #include "plink2_common.h"
 #include "plink2_compress_stream.h"
 #include "plink2_data.h"
 #include "plink2_decompress.h"
 #include "plink2_psam.h"
-#include "include/plink2_string.h"
-#include "include/plink2_text.h"
-#include "include/plink2_thread.h"
 
 // This covers formats that are fully supported by PLINK 1.x (no multiallelic
 // variants, dosages, or phase information).

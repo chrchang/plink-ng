@@ -1656,6 +1656,8 @@ int32_t bsearch_strptr_natural(const char* idbuf, const char* const* sorted_strp
 // returns number of elements in sorted_strbox[] less than idbuf.
 uintptr_t bsearch_strbox_lb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx);
 
+uintptr_t bsearch_strbox_lb_natural(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx);
+
 // same result as bsearch_strbox_lb(), but checks against [cur_idx],
 // [cur_idx + 1], [cur_idx + 3], [cur_idx + 7], etc. before finishing with a
 // binary search, and assumes cur_id_slen <= max_id_blen and end_idx > 0.

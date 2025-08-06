@@ -20,6 +20,7 @@
 #include "include/pgenlib_misc.h"
 #include "include/pgenlib_read.h"
 #include "include/plink2_base.h"
+#include "include/plink2_thread.h"
 #include "plink2_common.h"
 
 #ifdef __cplusplus

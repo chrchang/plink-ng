@@ -1,5 +1,8 @@
+#include "include/pgenlib_misc.h"
 #include "include/pgenlib_read.h"
 #include "include/pgenlib_write.h"
+#include "include/plink2_base.h"
+#include "include/plink2_bits.h"
 
 // #define SUBSET_TEST
 

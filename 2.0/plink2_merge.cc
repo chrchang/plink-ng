@@ -28,15 +28,15 @@
 #include "include/pgenlib_write.h"
 #include "include/plink2_bgzf.h"
 #include "include/plink2_bits.h"
+#include "include/plink2_htable.h"
+#include "include/plink2_memory.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
 #include "plink2_cmdline.h"
 #include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
 #include "plink2_data.h"
-#include "include/plink2_htable.h"
-#include "include/plink2_memory.h"
 #include "plink2_pvar.h"
-#include "include/plink2_string.h"
-#include "include/plink2_text.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -282,12 +282,14 @@ PglErr LoadPmergeList(const char* list_fname, const char* list_base_dir, PmergeL
       goto LoadPmergeList_ret_TSTREAM_FAIL;
     }
     const uintptr_t fileset_ct = main_fileset_present + line_idx;
-    if (fileset_ct < 2) {
-      logerrputs("Error: --pmerge-list requires at least two filesets to be specified.\n");
+    // update (26 Jul 2025): permit just one fileset, since it makes sense for
+    // e.g. --merge-sids
+    if (unlikely(fileset_ct == 0)) {
+      logerrputs("Error: --pmerge-list requires at least one fileset to be specified.\n");
       goto LoadPmergeList_ret_INCONSISTENT_INPUT;
     }
     *fileset_ctp = fileset_ct;
-    logprintf("--pmerge-list: %" PRIuPTR " filesets specified%s.\n", fileset_ct, main_fileset_present? " (including main fileset)" : "");
+    logprintf("--pmerge-list: %" PRIuPTR " fileset%s specified%s.\n", fileset_ct, (fileset_ct == 1)? "" : "s", main_fileset_present? " (including main fileset)" : "");
   }
   while (0) {
   LoadPmergeList_ret_NOMEM:
@@ -345,6 +347,11 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
     // specified.  Phenotype-name data structure grows down from the top of
     // bigstack.
     const PmergeFlags flags = pmip->flags;
+    if (flags & kfPmergeSids) {
+      logerrputs("Error: --merge-sids is under development.\n");
+      reterr = kPglRetNotYetSupported;
+      goto MergePsams_ret_1;
+    }
     char* first_sample_ids_start = nullptr;
     const char** first_sample_ids = nullptr;
     uint32_t* first_sample_ids_htable = nullptr;
@@ -791,10 +798,11 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
     // Intermission:
     // 1. Move final set of phenotype ID strings to bottom, compute
     //    max_pheno_name_blen if --pheno-inner-join.
-    // 2. Compute max_sample_id_blen and max_sid_blen if --sample-inner-join.
-    // 3. Free all end-of-bigstack allocations.
-    // 4. Construct SampleIdInfo at end of bigstack, to be returned.
-    // 5. Construct pheno_names, hash tables.
+    // 2. (TODO: --merge-sids, once general-case merge is implemented.)
+    // 3. Compute max_sample_id_blen and max_sid_blen if --sample-inner-join.
+    // 4. Free all end-of-bigstack allocations.
+    // 5. Construct SampleIdInfo at end of bigstack, to be returned.
+    // 6. Construct pheno_names, hash tables.
     char* pheno_names = nullptr;
     uint32_t* pheno_names_htable = nullptr;
     uint32_t* sample_id_htable;
@@ -964,7 +972,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
       SetAllBits(sample_ct, sample_include);
       char* sample_ids = siip->sample_ids;
       char* sids = siip->sids;
-      if (sample_sort_mode != kSortNone) {
+      if ((sample_sort_mode != kSortNone) && (sample_ct > 1)) {
         if (sample_sort_mode == kSortFile) {
           // yes, this is a bit circuitous
           unsigned char* bigstack_end_mark2 = g_bigstack_end;
@@ -1086,12 +1094,6 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, const c
     // bugfix (22 Mar 2022): We've only checked for duplicate sample IDs in the
     // --sample-inner-join case.  The current implementation does not support
     // them, so we must error out in the non-sample-inner-join case too.
-    //
-    // We may want to support duplicate sample IDs here in the future; they are
-    // supported by plink 1.x merge, after all, and the online documentation
-    // even explicitly recommends merging a dataset with itself in one
-    // scenario.  (If we do, it should work regardless of --sample-inner-join
-    // state.)
     cur_sample_include = nullptr;
     if (!(flags & kfPmergeSampleInnerJoin)) {
       if (unlikely(bigstack_alloc_w(sample_ctl, &cur_sample_include))) {
@@ -3383,7 +3385,7 @@ void CleanupFilesetLl(PmergeInputFilesetLl* filesets_iter, PglErr* reterrp) {
   *reterrp = reterr;
 }
 
-PglErr ScrapeSampleOrder(const char* psam_fname, const SampleIdInfo* siip, const uint32_t* xid_htable, uint32_t read_sample_ct, uint32_t xid_ct, uint32_t xid_htable_size, FamCol fam_cols, uint32_t psam_linebuf_capacity, uint32_t max_thread_ct, uint32_t* old_sample_idx_to_new, uint32_t* sample_idx_increasingp, uint32_t* cur_write_sample_ctp, uintptr_t* read_sample_include, uintptr_t* sample_span) {
+PglErr ScrapeSampleOrder(const char* psam_fname, const SampleIdInfo* siip, const uint32_t* xid_htable, uint32_t read_sample_ct, uint32_t xid_ct, uint32_t xid_htable_size, FamCol fam_cols, uint32_t merge_sids, uint32_t psam_linebuf_capacity, uint32_t max_thread_ct, uint32_t* old_sample_idx_to_new, uint32_t* sample_idx_increasingp, uint32_t* cur_write_sample_ctp, uintptr_t* read_sample_include, uintptr_t* sample_span) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   TextStream txs;
@@ -3441,7 +3443,13 @@ PglErr ScrapeSampleOrder(const char* psam_fname, const SampleIdInfo* siip, const
         goto ScrapeSampleOrder_ret_REWIND_FAIL_N;
       }
       if (write_sample_idx == UINT32_MAX) {
-        continue;
+        if (!merge_sids) {
+          continue;
+        }
+        // in --merge-sids case, initial lookup could fail
+        if (unlikely(LookupXidHtable(line_start, siip, xid_htable, xid_htable_size, fid_present, 0, &write_sample_idx, g_textbuf) || (write_sample_idx == UINT32_MAX))) {
+          goto ScrapeSampleOrder_ret_REWIND_FAIL_N;
+        }
       }
       SetBit(read_sample_idx, read_sample_include);
       SetBit(write_sample_idx, sample_span);
@@ -6527,7 +6535,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       }
       mr.old_sample_idx_to_new = old_sample_idx_to_new_buf;
       uint32_t cur_write_sample_ct;
-      reterr = ScrapeSampleOrder(filesets_iter->psam_fname, siip, sample_id_htable, read_sample_ct, sample_ct, sample_id_htable_size, fam_cols, psam_linebuf_capacity, max_thread_ct, mr.old_sample_idx_to_new, &mr.sample_idx_increasing, &cur_write_sample_ct, mr.sample_include, mr.sample_span);
+      reterr = ScrapeSampleOrder(filesets_iter->psam_fname, siip, sample_id_htable, read_sample_ct, sample_ct, sample_id_htable_size, fam_cols, 0, psam_linebuf_capacity, max_thread_ct, mr.old_sample_idx_to_new, &mr.sample_idx_increasing, &cur_write_sample_ct, mr.sample_include, mr.sample_span);
       if (unlikely(reterr)) {
         goto PmergeConcat_ret_1;
       }
@@ -7091,7 +7099,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
       goto Pmerge_ret_1;
     }
     uint32_t is_concat_job = 0;
-    if (!(pmip->flags & kfPmergeVariantInnerJoin)) {
+    if (!(pmip->flags & (kfPmergeVariantInnerJoin | kfPmergeSids))) {
       reterr = DetectConcatJob(cip->chr_idx_to_foidx, fileset_ct, sort_vars_mode, &input_filesets, &is_concat_job);
       if (unlikely(reterr)) {
         goto Pmerge_ret_1;

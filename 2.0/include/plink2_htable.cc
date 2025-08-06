@@ -25,8 +25,6 @@
 #include "plink2_text.h"
 #include "plink2_thread.h"
 
-#include <errno.h>
-
 #ifdef __cplusplus
 namespace plink2 {
 #endif

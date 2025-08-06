@@ -21,6 +21,7 @@
 
 #include "include/plink2_string.h"
 #include "include/plink2_thread.h"
+#include "plink2_cmdline.h"
 
 #ifdef __cplusplus
 namespace plink2 {

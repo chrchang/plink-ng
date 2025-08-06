@@ -1212,8 +1212,9 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	  } else if ((exclude_one_ratio == -1) || (ujj == unfiltered_sample_ct) || (ukk == unfiltered_sample_ct)) {
             set_bit((uint32_t)trio_code, sample_exclude);
 	  } else {
-	    dxx = (double)((int32_t)trio_list[trio_idx * 3 + 1]);
-	    dyy = (double)((int32_t)trio_list[trio_idx * 3 + 2]);
+            // bugfix (6 Aug 2025): looked up wrong array, ugh
+	    dxx = (double)((int32_t)error_cts[trio_idx * 3 + 1]);
+	    dyy = (double)((int32_t)error_cts[trio_idx * 3 + 2]);
 	    if (dxx > exclude_one_ratio * dyy) {
 	      set_bit(ujj, sample_exclude);
 	    } else if (dyy > exclude_one_ratio * dxx) {

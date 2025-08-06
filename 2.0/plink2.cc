@@ -15,17 +15,30 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+#include "include/SFMT.h"
+#include "include/pgenlib_misc.h"
+#include "include/pgenlib_read.h"
+#include "include/plink2_base.h"
+#include "include/plink2_bits.h"
+#include "include/plink2_string.h"
+#include "include/plink2_thread.h"
 #include "include/plink2_zstfile.h"
+#include "plink2_adjust.h"
+#include "plink2_cmdline.h"
+#include "plink2_common.h"
 #include "plink2_compress_stream.h"
+#include "plink2_data.h"
 #include "plink2_export.h"
 #include "plink2_family.h"
 #include "plink2_fasta.h"
 #include "plink2_filter.h"
 #include "plink2_glm.h"
+#include "plink2_glm_shared.h"
 #include "plink2_help.h"
 #include "plink2_import.h"
 #include "plink2_import_legacy.h"
 #include "plink2_ld.h"
+#include "plink2_matrix.h"
 #include "plink2_matrix_calc.h"
 #include "plink2_merge.h"
 #include "plink2_misc.h"
@@ -34,10 +47,16 @@
 #include "plink2_random.h"
 #include "plink2_set.h"
 
+#include <assert.h>
+#include <errno.h>
+#include <float.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>  // time()
 #include <unistd.h>  // unlink()
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && defined(__x86_64__)
 #  include <fenv.h>  // fesetenv()
 #endif
 
@@ -73,7 +92,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (7 Jul 2025)";
+  " (6 Aug 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -1669,9 +1688,10 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       if (pcp->filter_flags & kfFilterSelectSidRepresentatives) {
-        logerrputs("Error: --select-sid-representatives is under development.\n");
-        reterr = kPglRetNotYetSupported;
-        goto Plink2Core_ret_1;
+        reterr = SelectSidRepresentatives(sex_nm, sex_male, (pcp->select_sid_missingness_mode == kSelectSidMissingnessDosage)? sample_missing_dosage_cts : sample_missing_hc_cts, (pcp->select_sid_missingness_mode == kSelectSidMissingnessHhMissing)? sample_hethap_cts : nullptr, &pii, pcp->select_sid_missingness_mode, pcp->select_sid_tiebreak_mode, (pcp->misc_flags / kfMiscSelectSidParentsOnly) & 1, raw_sample_ct, sample_include, &sample_ct);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
       }
       if (sample_missing_hc_cts && (!smaj_missing_geno_report_requested)) {
         BigstackReset(sample_missing_hc_cts);
@@ -2384,6 +2404,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       if (pcp->min_bp_space) {
         if (vpos_sortstatus & kfUnsortedVarBp) {
           logerrputs("Error: --bp-space requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
         EnforceMinBpSpace(cip, variant_bps, pcp->min_bp_space, variant_include, &variant_ct);
       }
@@ -2395,6 +2416,24 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_DEGENERATE_DATA;
         }
         logprintf("%u variant%s remaining after main filters.\n", variant_ct, (variant_ct == 1)? "" : "s");
+      }
+
+      if ((pcp->command_flags1 & kfCommand1MendelReport) || (pcp->filter_flags & kfFilterMendel)) {
+        if (vpos_sortstatus & kfUnsortedVarBp) {
+          logerrputs("Error: --me and --mendel require a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
+        const uint32_t generate_reports = (pcp->command_flags1 / kfCommand1MendelReport) & 1;
+        reterr = MendelErrorScan(&pii, founder_info, sex_nm, sex_male, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->mendel_info), raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, generate_reports, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, sample_include, variant_include, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+        if (pcp->filter_flags & kfFilterMendel) {
+          sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+          variant_ct = PopcountWords(variant_include, raw_variant_ctl);
+          logprintf("--me: %u sample%s and %u variant%s remaining.\n", sample_ct, (sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s");
+          UpdateSampleSubsets(sample_include, raw_sample_ct, sample_ct, founder_info, &founder_ct, sex_nm, sex_male, &male_ct, &nosex_ct);
+        }
       }
 
       if (pcp->command_flags1 & kfCommand1SampleCounts) {
@@ -2891,7 +2930,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         logerrputs("Error: --clump requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
         goto Plink2Core_ret_INCONSISTENT_INPUT;
       }
-      // currently undergoing repairs
       reterr = ClumpReports(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, founder_info, sex_nm, sex_male, &(pcp->clump_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, nosex_ct, max_variant_id_slen, max_allele_slen, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
@@ -3956,6 +3994,7 @@ int main(int argc, char** argv) {
     uint32_t mkl_native = 0;
 #endif
     uint32_t randmem = 0;
+    uint32_t pmerge_required = 0;
     uint32_t allow_misleading_out_arg = 0;
     uint32_t allow_normalize_with_split = 0;
     uint32_t import_max_allele_ct = 0x7ffffffe;
@@ -5463,6 +5502,7 @@ int main(int argc, char** argv) {
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "elete-pmerge-result")) {
           delete_pmerge_result = 1;
+          pmerge_required = 1;
         } else if (unlikely(*flagname_p2)) {
           // --d is preprocessed
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -9121,6 +9161,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-mode argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+          pmerge_required = 1;
         } else if (strequal_k_unsafe(flagname_p2, "erge-parents-mode") ||
                    strequal_k_unsafe(flagname_p2, "erge-sex-mode") ||
                    strequal_k_unsafe(flagname_p2, "erge-pheno-mode")) {
@@ -9140,6 +9181,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+          pmerge_required = 1;
           if (flagname_p2[5] == 'p') {
             if (flagname_p2[6] == 'a') {
               pmerge_info.merge_parents_mode = mode;
@@ -9167,6 +9209,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-xheader-mode argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+          pmerge_required = 1;
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "erge-equal-pos"))) {
           logerrputs("Error: --merge-equal-pos has been retired.  Use e.g. --set-all-var-ids before\nmerging instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
@@ -9188,6 +9231,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-qual-mode argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+          pmerge_required = 1;
         } else if (strequal_k_unsafe(flagname_p2, "erge-filter-mode")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -9206,6 +9250,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-filter-mode argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+          pmerge_required = 1;
         } else if (strequal_k_unsafe(flagname_p2, "erge-info-mode") ||
                    strequal_k_unsafe(flagname_p2, "erge-cm-mode")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -9226,6 +9271,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+          pmerge_required = 1;
           if (flagname_p2[5] == 'i') {
             pmerge_info.merge_info_mode = mode;
           } else {
@@ -9251,6 +9297,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, mode_str);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+          pmerge_required = 1;
           if (flagname_p2[5] == 'i') {
             pmerge_info.merge_info_sort = sort_mode;
           } else {
@@ -9271,6 +9318,7 @@ int main(int argc, char** argv) {
           pmerge_info.max_allele_ct = merge_max_allele_ct;
         } else if (strequal_k_unsafe(flagname_p2, "ultiallelics-already-joined")) {
           pmerge_info.flags |= kfPmergeMultiallelicsAlreadyJoined;
+          pmerge_required = 1;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ake-founders")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
@@ -9322,10 +9370,12 @@ int main(int argc, char** argv) {
             logerrputs("Error: --me requires max per-trio and per-variant error rates.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          pc.filter_flags |= kfFilterAllReq | kfFilterMendel;
-          logerrputs("Error: --me is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto main_ret_1;
+          if ((pc.mendel_info.max_trio_error == 1.0) && (pc.mendel_info.max_var_error == 1.0)) {
+            logputs("\"--me 1 1\" has no effect; ignoring.\n");
+            pc.mendel_info.flags &= ~kfMendelFilterVarFirst;
+          } else {
+            pc.filter_flags |= kfFilterAllReq | kfFilterMendel;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "e-exclude-one")) {
           if (unlikely(!(pc.filter_flags & kfFilterMendel))) {
             logerrputs("Error: --me-exclude-one must be used with --me.\n");
@@ -9334,7 +9384,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          pc.mendel_info.exclude_one_ratio = DBL_MAX;
+          pc.mendel_info.exclude_one_ratio = -1;
           if (param_ct) {
             const char* cur_modif = argvk[arg_idx + 1];
             double dxx;
@@ -9352,6 +9402,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          uint32_t explicit_cols = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -9360,37 +9411,46 @@ int main(int argc, char** argv) {
             } else if (strequal_k(cur_modif, "summaries-only", cur_modif_slen)) {
               pc.mendel_info.flags |= kfMendelRptSummariesOnly;
             } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
-              if (unlikely(pc.mendel_info.flags & kfMendelRptColAll)) {
+              if (unlikely(explicit_cols)) {
                 logerrputs("Error: Multiple --mendel cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[strlen("cols=")]), "maybefid\0fid\0maybesid\0sid\0chrom\0pos\0id\0code\0error\0", "mendel", kfMendelRptColMaybefid, kfMendelRptColDefault, 1, &pc.mendel_info.flags);
+              reterr = ParseColDescriptor(&(cur_modif[strlen("cols=")]), "maybefid\0fid\0maybesid\0sid\0chrom\0pos\0ref\0alt\0code\0error\0trionum\0ni\0nobsi\0fraci\0nl\0nobsl\0fracl\0", "mendel", kfMendelRptColMaybefid, kfMendelRptColDefault, 0, &pc.mendel_info.flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
+              explicit_cols = 1;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mendel argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          if (!(pc.mendel_info.flags & kfMendelRptColAll)) {
+          if (!explicit_cols) {
             pc.mendel_info.flags |= kfMendelRptColDefault;
           }
           pc.command_flags1 |= kfCommand1MendelReport;
           pc.dependency_flags |= kfFilterAllReq;
-          logerrputs("Error: --mendel is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto main_ret_1;
         } else if (strequal_k_unsafe(flagname_p2, "endel-duos")) {
           pc.mendel_info.flags |= kfMendelDuos;
           goto main_param_zero;
-        } else if (strequal_k_unsafe(flagname_p2, "endel-multigen")) {
-          pc.mendel_info.flags |= kfMendelMultigen;
+        } else if (strequal_k_unsafe(flagname_p2, "endel-missing-in-denom")) {
+          if (unlikely(!((pc.filter_flags & kfFilterMendel) || (pc.command_flags1 & kfCommand1MendelReport)))) {
+            logerrputs("Error: --mendel-missing-in-denom must be used with --me/--mendel.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          pc.mendel_info.flags |= kfMendelMissingInDenom;
           goto main_param_zero;
+        } else if (unlikely(strequal_k_unsafe(flagname_p2, "endel-multigen"))) {
+          logerrputs("Error: --mendel-multigen has been retired, since it has very limited practical\nvalue and is incompatible with how missing genotypes are now accounted for in\nMendel error rate calculations.\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "erge-sids")) {
-          logerrputs("Error: --merge-sids is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto main_ret_1;
+          if (unlikely(pc.sample_sort_mode == kSortFile)) {
+            logerrputs("Error: --merge-sids cannot be used with an --indiv-sort file.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pmerge_info.flags |= kfPmergeSids;
+          pmerge_required = 1;
+          goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "pheno"))) {
           logerrputs("Warning: --mpheno flag deprecated.  Use --pheno-col-nums instead.  (Note that\n--pheno-col-nums does not add 2 to the column number(s).)\n");
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -10223,6 +10283,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "heno-inner-join")) {
           pmerge_info.flags |= kfPmergePhenoInnerJoin;
+          pmerge_required = 1;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ed")) {
           if (unlikely(load_params || (xload & (~kfXloadMap)))) {
@@ -11489,6 +11550,10 @@ int main(int argc, char** argv) {
             logerrputs("Error: --sample-inner-join must be used with --pmerge[-list].\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (unlikely(pmerge_info.flags & kfPmergeSids)) {
+            logerrputs("Error: --sample-inner-join cannot be used with --merge-sids.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           pmerge_info.flags |= kfPmergeSampleInnerJoin;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "elect-sid-representatives")) {
@@ -12522,8 +12587,8 @@ int main(int argc, char** argv) {
       logerrputs("Error: --ld-window.../--ld-snp... must be used with --r[2]-[un]phased.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-    if (unlikely((pc.mendel_info.flags & (kfMendelDuos | kfMendelMultigen)) && (!((pc.filter_flags & kfFilterMendel) || (pc.command_flags1 & kfCommand1MendelReport) || (make_plink2_flags & kfMakePlink2SetMeMissing))))) {
-      logerrputs("Error: --mendel-duos/--mendel-multigen must be used with --me, --mendel, or\n--set-me-missing.\n");
+    if (unlikely((pc.mendel_info.flags & kfMendelDuos) && (!((pc.filter_flags & kfFilterMendel) || (pc.command_flags1 & kfCommand1MendelReport) || (make_plink2_flags & kfMakePlink2SetMeMissing))))) {
+      logerrputs("Error: --mendel-duos must be used with --me, --mendel, or --set-me-missing.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (pc.extract_col_cond_info.params) {
@@ -12566,11 +12631,43 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_A;
       }
     }
-    if (delete_pmerge_result) {
-      if (unlikely(!(pc.command_flags1 & kfCommand1Pmerge))) {
+    if (unlikely(pmerge_required && (!(pc.command_flags1 & kfCommand1Pmerge)))) {
+      if (delete_pmerge_result) {
         logerrputs("Error: --delete-pmerge-result must be used with --pmerge[-list].\n");
-        goto main_ret_INVALID_CMDLINE;
+      } else if (pmerge_info.merge_cm_mode != kMergeInfoCmModeNmFirst) {
+        logerrputs("Error: --merge-cm-mode must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.merge_filter_mode != kMergeFilterModeNmFirst) {
+        logerrputs("Error: --merge-filter-mode must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.merge_info_mode != kMergeInfoCmModeNmFirst) {
+        logerrputs("Error: --merge-info-mode must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.merge_info_sort != kSortNone) {
+        logerrputs("Error: --merge-info-sort must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.max_allele_ct != 0) {
+        logerrputs("Error: --merge-max-allele-ct must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.merge_mode != kMergeModeNmMatch) {
+        logerrputs("Error: --merge-mode must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.merge_parents_mode != kMergePhenoModeNmMatch) {
+        logerrputs("Error: --merge-parents-mode must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.merge_pheno_mode != kMergePhenoModeNmMatch) {
+        logerrputs("Error: --merge-pheno-mode must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.merge_pheno_sort != kSortNone) {
+        logerrputs("Error: --merge-pheno-sort must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.merge_qual_mode != kMergeQualModeMin) {
+        logerrputs("Error: --merge-qual-mode must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.flags & kfPmergeSids) {
+        logerrputs("Error: --merge-sids must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.merge_xheader_mode != kMergeXheaderModeFirst) {
+        logerrputs("Error: --merge-xheader-mode must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.flags & kfPmergeMultiallelicsAlreadyJoined) {
+        logerrputs("Error: --multiallelics-already-joined must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.flags & kfPmergePhenoInnerJoin) {
+        logerrputs("Error: --pheno-inner-join must be used with --pmerge[-list].\n");
+      } else {
+        assert(0);
       }
+      goto main_ret_INVALID_CMDLINE;
+    }
+    if (delete_pmerge_result) {
       if (unlikely(pc.command_flags1 == kfCommand1Pmerge)) {
         logerrputs("Error: --delete-pmerge-result doesn't make sense when --pmerge[-list] is run\nwithout any other commands.\n");
         goto main_ret_INVALID_CMDLINE_A;

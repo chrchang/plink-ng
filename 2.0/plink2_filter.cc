@@ -22,13 +22,13 @@
 #include <string.h>
 
 #include "include/plink2_bits.h"
-#include "plink2_decompress.h"
 #include "include/plink2_htable.h"
-#include "plink2_random.h"
 #include "include/plink2_stats.h"  // HweThresh(), etc.
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
 #include "include/plink2_thread.h"
+#include "plink2_decompress.h"
+#include "plink2_random.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -3292,6 +3292,119 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
   return reterr;
 }
 
+PglErr SelectSidRepresentatives(const uintptr_t* sex_nm, const uintptr_t* sex_male, const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const PedigreeIdInfo* piip, SelectSidMissingnessMode missingness_mode, SelectSidTiebreakMode tiebreak_mode, uint32_t parents_only, uint32_t raw_sample_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t orig_sample_ct = *sample_ct_ptr;
+    if (!orig_sample_ct) {
+      goto SelectSidRepresentatives_ret_1;
+    }
+    const SampleIdInfo* siip = &(piip->sii);
+    if (!siip->sids) {
+      logputs("Skipping --select-sid-representatives: all FID+IID pairs are unique.\n");
+      goto SelectSidRepresentatives_ret_1;
+    }
+    const uint32_t use_nsort = (tiebreak_mode == kSelectSidTiebreakFirst) || (tiebreak_mode == kSelectSidTiebreakLast);
+    char* sorted_3idbox;
+    uint32_t* xid_map;
+    uintptr_t max_3id_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, siip, orig_sample_ct, kfXidModeFidIidSid, use_nsort, &sorted_3idbox, &xid_map, &max_3id_blen);
+    if (unlikely(reterr)) {
+      goto SelectSidRepresentatives_ret_1;
+    }
+    char* idbuf;
+    if (unlikely(bigstack_alloc_c(siip->max_sample_id_blen + 1, &idbuf))) {
+      goto SelectSidRepresentatives_ret_NOMEM;
+    }
+    uintptr_t* all_parents = nullptr;
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    if (parents_only) {
+      if (unlikely(bigstack_calloc_w(raw_sample_ctl, &all_parents))) {
+        goto SelectSidRepresentatives_ret_NOMEM;
+      }
+      MarkParents(&(piip->parental_id_info), sorted_3idbox, xid_map, orig_sample_ct, max_3id_blen, use_nsort, all_parents, idbuf);
+      if (AllWordsAreZero(all_parents, raw_sample_ctl)) {
+        logputs("Skipping --select-sid-representatives parents-only: no parents remaining.\n");
+        goto SelectSidRepresentatives_ret_1;
+      }
+    }
+    if (missingness_mode == kSelectSidMissingness0) {
+      sample_missing_cts = nullptr;
+    }
+    const int32_t tiebreak_dir = (tiebreak_mode >= kSelectSidTiebreakLast)? -1 : 1;
+    uint32_t xid_idx_end = 0;
+    do {
+      const uint32_t xid_idx_start = xid_idx_end;
+      const char* fid_start = &(sorted_3idbox[xid_idx_start * max_3id_blen]);
+      const char* iid_end = AdvToDelim(AdvPastDelim(fid_start, '\t'), '\t');
+      const uint32_t sample_2id_slen = iid_end - fid_start;
+      memcpy(idbuf, fid_start, sample_2id_slen);
+      idbuf[sample_2id_slen] = ' ';
+      const uint32_t sample_2id_blen = sample_2id_slen + 1;
+      idbuf[sample_2id_blen] = '\0';
+      if (use_nsort) {
+        xid_idx_end = ExpsearchNsortStrLb(idbuf, sorted_3idbox, max_3id_blen, orig_sample_ct, xid_idx_start + 1);
+      } else {
+        xid_idx_end = ExpsearchStrLb(idbuf, sorted_3idbox, sample_2id_blen, max_3id_blen, orig_sample_ct, xid_idx_start + 1);
+      }
+      if (xid_idx_end == xid_idx_start + 1) {
+        continue;
+      }
+      uint32_t sample_uidx = xid_map[xid_idx_start];
+      if (all_parents && (!IsSet(all_parents, sample_uidx))) {
+        continue;
+      }
+      // intentional underflow on xid_idx_start == 0
+      uint32_t xid_idx = (tiebreak_dir == 1)? (xid_idx_start - 1) : xid_idx_end;
+      const uint32_t xid_idx_stop = (tiebreak_dir == 1)? (xid_idx_end - 1) : xid_idx_start;
+      const uint32_t sex_nm_plus_male = IsSet(sex_nm, sample_uidx) + IsSet(sex_male, sample_uidx);
+      uint32_t best_missing_ct = UINT32_MAX;
+      // keep correct sample in sid-only case
+      uint32_t cur_missing_ct = UINT32_MAXM1;
+      uint32_t best_sample_uidx = 0;
+      do {
+        xid_idx += tiebreak_dir;
+        sample_uidx = xid_map[xid_idx];
+        if (unlikely(sex_nm_plus_male != IsSet(sex_nm, sample_uidx) + IsSet(sex_male, sample_uidx))) {
+          idbuf[sample_2id_slen] = '\0';
+          TabsToSpaces(idbuf);
+          logerrprintf("Error: Inconsistent sex information for sample \"%s\".\n", idbuf);
+          goto SelectSidRepresentatives_ret_INCONSISTENT_INPUT;
+        }
+        ClearBit(sample_uidx, sample_include);
+        if (sample_missing_cts) {
+          cur_missing_ct = sample_missing_cts[sample_uidx];
+          if (sample_hethap_cts) {
+            cur_missing_ct += sample_hethap_cts[sample_uidx];
+          }
+        }
+        if (cur_missing_ct >= best_missing_ct) {
+          continue;
+        }
+        best_missing_ct = cur_missing_ct;
+        best_sample_uidx = sample_uidx;
+      } while (xid_idx != xid_idx_stop);
+      SetBit(best_sample_uidx, sample_include);
+    } while (xid_idx_end != orig_sample_ct);
+    const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+    const uint32_t removed_ct = orig_sample_ct - sample_ct;
+    logprintf("--select-sid-representatives: %u sample%s removed.\n", removed_ct, (removed_ct == 1)? "" : "s");
+    *sample_ct_ptr = sample_ct;
+  }
+  while (0) {
+  SelectSidRepresentatives_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  SelectSidRepresentatives_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ SelectSidRepresentatives_ret_1:
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
   geno_thresh *= 1 + kSmallEpsilon;
@@ -4189,7 +4302,7 @@ PglErr MakeFounders(const uintptr_t* sample_include, uint32_t raw_sample_ct, uin
     if (unlikely(HtableGoodSizeAlloc(sample_ct, bigstack_left(), &id_htable, &id_htable_size))) {
       goto MakeFounders_ret_NOMEM;
     }
-    PopulateStrboxSubsetHtableDup(sample_ids, sample_include, sample_ct, max_sample_id_blen, id_htable_size, id_htable);
+    PopulateStrboxSubsetHtable(sample_ids, sample_include, sample_ct, max_sample_id_blen, 1, id_htable_size, id_htable);
     const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
     const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
     char* paternal_ids = piip->parental_id_info.paternal_ids;

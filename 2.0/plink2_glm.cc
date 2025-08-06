@@ -17,22 +17,23 @@
 #include "plink2_glm.h"
 
 #include <assert.h>
+#include <errno.h>
 #include <float.h>
 #include <limits.h>
 #include <string.h>
 #include <unistd.h>
 
-#include "plink2_adjust.h"
 #include "include/plink2_bgzf.h"
 #include "include/plink2_bits.h"
+#include "include/plink2_htable.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "plink2_adjust.h"
 #include "plink2_cmdline.h"
 #include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
 #include "plink2_glm_linear.h"
 #include "plink2_glm_logistic.h"
-#include "include/plink2_htable.h"
-#include "include/plink2_string.h"
-#include "include/plink2_text.h"
 
 #ifdef __cplusplus
 namespace plink2 {
