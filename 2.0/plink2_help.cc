@@ -792,7 +792,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      if the mother has a nonmissing hardcall matching neither allele.\n"
 "    * The 'summaries-only' modifier causes the .mendel[.zst] file (listing\n"
 "      every single error) to be skipped.\n"
-"    * This command now errors out when duplicate variant IDs are present.\n"
 "    Supported column sets are:\n"
 "      .mendel[.zst]:\n"
 "        maybefid: FID, if that column was present in the input.\n"
