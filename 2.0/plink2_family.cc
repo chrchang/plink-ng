@@ -49,6 +49,8 @@ void PreinitFamilyInfo(FamilyInfo* fip) {
   fip->parent_to_trio_offsets = nullptr;
   fip->family_ct = 0;
   fip->trio_ct = 0;
+  fip->duo_exists = 0;
+  fip->ordered_erase_ok = 0;
   fip->max_fid_blen = 0;
   fip->max_iid_blen = 0;
   fip->max_sid_blen = 0;
@@ -65,8 +67,11 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
   PglErr reterr = kPglRetSuccess;
   {
     uint32_t sample_ct = *sample_ct_ptr;
-    const uint32_t raw_sample_ctp1l = 1 + (raw_sample_ct / kBitsPerWord);
-    const uint32_t orig_sample_ctp1l = 1 + (sample_ct / kBitsPerWord);
+    const uint32_t include_duos = (flags / kfTrioDuos) & 1;
+    const uint32_t raw_sample_ct_wduo = raw_sample_ct + include_duos;
+    const uint32_t raw_sample_ct_wduol = BitCtToWordCt(raw_sample_ct_wduo);
+    const uint32_t orig_sample_ct_wduo = sample_ct + include_duos;
+    const uint32_t orig_sample_ct_wduol = BitCtToWordCt(orig_sample_ct_wduo);
     const char* sample_ids = piip->sii.sample_ids;
     const uintptr_t max_sample_id_blen = piip->sii.max_sample_id_blen;
     const uint32_t sample_id_htable_size = GetHtableFastSize(sample_ct);
@@ -75,10 +80,10 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
     uint32_t* sample_id_htable;
     uint32_t* sample_include_cumulative_popcounts;
     char* idbuf;
-    if (unlikely(bigstack_end_alloc_w(orig_sample_ctp1l, &founder_info2) ||
+    if (unlikely(bigstack_end_alloc_w(orig_sample_ct_wduol, &founder_info2) ||
                  bigstack_end_alloc_u64(sample_ct, &trio_list_tmp) ||
                  bigstack_end_alloc_u32(sample_id_htable_size, &sample_id_htable) ||
-                 bigstack_end_alloc_u32(raw_sample_ctp1l, &sample_include_cumulative_popcounts) ||
+                 bigstack_end_alloc_u32(raw_sample_ct_wduol, &sample_include_cumulative_popcounts) ||
                  bigstack_end_alloc_c(max_sample_id_blen, &idbuf))) {
       goto GetTriosAndFamilies_ret_NOMEM;
     }
@@ -100,7 +105,6 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
     const char* maternal_ids = piip->parental_id_info.maternal_ids;
     const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
     const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
-    const uint32_t include_duos = (flags / kfTrioDuos) & 1;
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     if (trio_sample_include) {
       ZeroWArr(raw_sample_ctl, trio_sample_include);
@@ -160,12 +164,14 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
         goto GetTriosAndFamilies_ret_1;
       }
     }
-    FillCumulativePopcounts(sample_include, raw_sample_ctp1l, sample_include_cumulative_popcounts);
+    FillCumulativePopcounts(sample_include, raw_sample_ct_wduol, sample_include_cumulative_popcounts);
     CopyBitarrSubset(founder_info, sample_include, sample_ct, founder_info2);
-    if (sample_ct % kBitsPerWord) {
-      SetBit(sample_ct, founder_info2);
-    } else {
-      founder_info2[sample_ct / kBitsPerWord] = 1;
+    if (include_duos) {
+      if (sample_ct % kBitsPerWord) {
+        SetBit(sample_ct, founder_info2);
+      } else {
+        founder_info2[sample_ct / kBitsPerWord] = 1;
+      }
     }
     uint32_t* child_to_trio_idxs;
     uint32_t* sample_child_cts;
@@ -192,6 +198,7 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
     uintptr_t max_iid_blen = 2;
     uintptr_t max_sid_blen = 2;
     uint32_t family_ct = 0;
+    uint32_t duo_exists = 0;
     uintptr_t sample_uidx_base = 0;
     uintptr_t cur_bits = sample_include[0];
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
@@ -254,6 +261,7 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
           continue;
         }
         mom_uidx = raw_sample_ct;
+        duo_exists = 1;
       } else {
         if (unlikely(mom_uidx == sample_uidx)) {
           idbuf[fid_blen - 1] = ' ';
@@ -273,6 +281,8 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
       }
       if (dad_idx != sample_ct) {
         sample_child_cts[dad_idx] += 1;
+      } else {
+        duo_exists = 1;
       }
       const uint64_t family_code = (S_CAST(uint64_t, mom_idx) << 32) | dad_idx;
       // Simple linear-probing setup.  Could make this fancier if adversarial
@@ -342,11 +352,11 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
     char* sids = nullptr;
     if (populate_ids) {
       if (unlikely(bigstack_alloc_c(trio_ct * max_fid_blen, &trio_fids) ||
-                   bigstack_alloc_c((sample_ct + include_duos) * max_iid_blen, &iids))) {
+                   bigstack_alloc_c((sample_ct + duo_exists) * max_iid_blen, &iids))) {
         goto GetTriosAndFamilies_ret_NOMEM;
       }
       if (flags & kfTrioPopulateSids) {
-        if (unlikely(bigstack_alloc_c((sample_ct + include_duos) * max_sid_blen, &sids))) {
+        if (unlikely(bigstack_alloc_c((sample_ct + duo_exists) * max_sid_blen, &sids))) {
           goto GetTriosAndFamilies_ret_NOMEM;
         }
       }
@@ -368,7 +378,7 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
           }
         }
       }
-      if (include_duos) {
+      if (duo_exists) {
         strcpy_k(&(iids[sample_ct * max_iid_blen]), "0");
         if (sids) {
           strcpy_k(&(sids[sample_ct * max_sid_blen]), "0");
@@ -376,6 +386,7 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
       }
     }
     uint32_t* trio_lookup_write_iter = trio_lookup;
+    uint32_t ordered_erase_ok = 1;
     for (uintptr_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
       const uint64_t trio_code = trio_write[trio_idx];
       const uint32_t sample_uidx = S_CAST(uint32_t, trio_code);
@@ -392,6 +403,9 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
       const uint64_t family_code = family_list[family_idx];
       const uint32_t dad_idx = S_CAST(uint32_t, family_code);
       const uint32_t mom_idx = family_code >> 32;
+      if (ordered_erase_ok) {
+        ordered_erase_ok = (child_to_trio_idxs[dad_idx] == UINT32_MAX) && (child_to_trio_idxs[mom_idx] == UINT32_MAX);
+      }
       if (dad_idx != sample_ct) {
         parent_to_trio_idxs[parent_to_trio_offsets[dad_idx]++] = trio_idx;
       }
@@ -417,6 +431,8 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
     fip->child_to_trio_idxs = child_to_trio_idxs;
     fip->family_ct = family_ct;
     fip->trio_ct = trio_ct;
+    fip->duo_exists = duo_exists;
+    fip->ordered_erase_ok = ordered_erase_ok;
     fip->max_fid_blen = max_fid_blen;
     fip->max_iid_blen = max_iid_blen;
     fip->max_sid_blen = max_sid_blen;
@@ -434,6 +450,69 @@ PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeI
  GetTriosAndFamilies_ret_1:
   BigstackEndReset(bigstack_end_mark);
   return reterr;
+}
+
+void InitMultiallelicWideCodes(const uint16_t* hc_to_allele_codes, const uintptr_t* sex_male_collapsed, const uintptr_t* sex_female_collapsed, const uintptr_t* genoarr, const uintptr_t* patch_01_set, const AlleleCode* patch_01_vals, const uintptr_t* patch_10_set, const AlleleCode* patch_10_vals, uint32_t sample_ct, uint32_t male_ct, uint32_t female_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, uint32_t is_x, uint32_t is_y, AlleleCode* wide_codes) {
+  // Similar to PglMultiallelicSparseToDenseMiss().
+  GenoarrLookup256x2bx4(genoarr, hc_to_allele_codes, sample_ct, wide_codes);
+  if (!is_y) {
+    if (patch_01_ct) {
+      uintptr_t sample_idx_base = 0;
+      uintptr_t cur_bits = patch_01_set[0];
+      AlleleCode* wide_codes1 = &(wide_codes[1]);
+      for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+        const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &cur_bits);
+        wide_codes1[2 * sample_idx] = patch_01_vals[uii];
+      }
+    }
+  }
+  if (patch_10_ct) {
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = patch_10_set[0];
+    if (!is_y) {
+      const DoubleAlleleCode* patch_10_vals_alias = R_CAST(const DoubleAlleleCode*, patch_10_vals);
+      DoubleAlleleCode* __attribute__((may_alias)) wide_codes_alias = R_CAST(DoubleAlleleCode*, wide_codes);
+      for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+        const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
+        wide_codes_alias[sample_idx] = patch_10_vals_alias[uii];
+      }
+    } else {
+      const AlleleCode* patch_10_vals_stop = &(patch_10_vals[2 * patch_10_ct]);
+      for (const AlleleCode* patch_10_vals_iter = patch_10_vals; patch_10_vals_iter != patch_10_vals_stop; ) {
+        const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
+        AlleleCode ac0 = *patch_10_vals_iter++;
+        AlleleCode ac1 = *patch_10_vals_iter++;
+        if (ac0 != ac1) {
+          ac0 = kMissingAlleleCode;
+          ac1 = kMissingAlleleCode;
+        }
+        wide_codes[2 * sample_idx] = ac0;
+        wide_codes[2 * sample_idx + 1] = ac1;
+      }
+    }
+  }
+  // could vectorize these loops with logic similar to InverseMovemaskFF?
+  if (is_x) {
+    // male hets -> missing
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = sex_male_collapsed[0];
+    for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx) {
+      const uintptr_t sample_idx = BitIter1(sex_male_collapsed, &sample_idx_base, &cur_bits);
+      if (wide_codes[2 * sample_idx] != wide_codes[2 * sample_idx + 1]) {
+        wide_codes[2 * sample_idx] = kMissingAlleleCode;
+        wide_codes[2 * sample_idx + 1] = kMissingAlleleCode;
+      }
+    }
+  } else if (is_y) {
+    // female -> missing
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = sex_female_collapsed[0];
+    DoubleAlleleCode* __attribute__((may_alias)) wide_codes_alias = R_CAST(DoubleAlleleCode*, wide_codes);
+    for (uint32_t female_idx = 0; female_idx != female_ct; ++female_idx) {
+      const uintptr_t sample_idx = BitIter1(sex_female_collapsed, &sample_idx_base, &cur_bits);
+      wide_codes_alias[sample_idx] = kMissingDoubleAlleleCode;
+    }
+  }
 }
 
 typedef struct MendelErrorScanCtxStruct {
@@ -458,7 +537,7 @@ typedef struct MendelErrorScanCtxStruct {
   double max_var_error;
 
   PgenReader** pgr_ptrs;
-  // in include_duos case, each genovec must have space for trailing sample
+  // in duo_exists case, each genovec must have space for trailing sample
   uintptr_t** genovecs;
   uintptr_t** thread_read_mhc;
   uintptr_t** raregenos;
@@ -510,48 +589,47 @@ const uint16_t kHetMissingToAlleleCodes[1024] = QUAD_TABLE256(0, 0xffff, 0x101, 
 //   bit 8 set if error implicates dad
 //   bit 16 set if error implicates mom
 //   error code in bits 24+
-//   (impossible entries marked with UINT32_MAX)
 const uint32_t kBiallelicMendelErrorTableAutosomalOrX[48] = {
   0, 0, 0x6000101, 0,
   0, 0, 0x6000101, 0,
-  0x7010001, 0x7010001, 0x8000001, 0x7000001,
-  0, 0, 0x6000101, UINT32_MAX,
+  0x7010001, 0x7010001, 0x8000001, 0x7010001,
+  0, 0, 0x6000101, 0,
   0x2010101, 0, 0, 0,
   0, 0, 0, 0,
   0, 0, 0x1010101, 0,
-  0, 0, 0, UINT32_MAX,
+  0, 0, 0, 0,
   0x5000001, 0x4010001, 0x4010001, 0x4010001,
   0x3000101, 0, 0, 0,
   0x3000101, 0, 0, 0,
-  0x3000101, 0, 0, UINT32_MAX};
+  0x3000101, 0, 0, 0};
 
 const uint32_t kBiallelicMendelErrorTableChrY[48] = {
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-  0, UINT32_MAX, 0xb000101, UINT32_MAX,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-  0xc000101, UINT32_MAX, 0, UINT32_MAX};
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0, 0, 0xb000101, 0,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0xc000101, 0, 0, 0};
 
 const uint32_t kBiallelicMendelErrorTableChrM[48] = {
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0x9010001,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0xa010001,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX};
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0x9010001, 0x9010001, 0x9010001, 0x9010001,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0xa010001, 0xa010001, 0xa010001, 0xa010001,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0, 0, 0, 0};
 
 // index bits:
 //   0: dad has (or at least may have) child_ac0
@@ -559,6 +637,7 @@ const uint32_t kBiallelicMendelErrorTableChrM[48] = {
 //   2: mom has child_ac0
 //   3: mom has child_ac1
 //   4-5: (child_ac0 == 0) + (child_ac1 == 0)
+// (impossible entries marked with UINT32_MAX)
 const uint32_t kMultiallelicMendelErrorTableAutosomalOrX[48] = {
   0x5000001, 0x4010001, 0x4010001, 0x4010001,
   0x3000101, 0x1010101, 0, 0,
@@ -587,11 +666,13 @@ const uint32_t kMultiallelicMendelErrorTableChrY[48] = {
   UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
   0xb000101, UINT32_MAX, UINT32_MAX, 0};
 
+// MendelEraseErrors() doesn't force d0=d1=1, and only looks at the first 16
+// entries.
 const uint32_t kMultiallelicMendelErrorTableChrM[48] = {
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0xa010001,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0,
-  UINT32_MAX, UINT32_MAX, UINT32_MAX, 0,
+  0xa010001, 0xa010001, 0xa010001, 0xa010001,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  0, 0, 0, 0,
   UINT32_MAX, UINT32_MAX, UINT32_MAX, 0xa010001,
   UINT32_MAX, UINT32_MAX, UINT32_MAX, 0,
   UINT32_MAX, UINT32_MAX, UINT32_MAX, 0,
@@ -617,6 +698,7 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
   const uintptr_t trio_ctl = BitCtToWordCt(trio_ct);
   const uint32_t trio_vec_ct = Int32CtToVecCt(trio_ct);
   const uint32_t trio_ctav = trio_vec_ct * kInt32PerVec;
+  const uint32_t duo_exists = fip->duo_exists;
   const uintptr_t* variant_include = ctx->variant_include;
   const ChrInfo* cip = ctx->cip;
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
@@ -631,7 +713,6 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
   const uintptr_t* sex_female_collapsed = ctx->sex_female_collapsed;
   const uintptr_t* sex_male_collapsed_interleaved = ctx->sex_male_collapsed_interleaved;
   const uintptr_t* sex_female_collapsed_interleaved = ctx->sex_female_collapsed_interleaved;
-  const uint32_t include_duos = (ctx->flags / kfMendelDuos) & 1;
   const uint32_t exclude_missing_from_denom = !(ctx->flags & kfMendelMissingInDenom);
   const uint32_t var_first = (ctx->flags / kfMendelFilterVarFirst) & 1;
   const uint32_t ecode_col = (ctx->flags / kfMendelRptColCode) & 1;
@@ -749,8 +830,8 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
         if (difflist_common_geno != UINT32_MAX) {
           PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, sample_ct, difflist_len, genovec);
         }
-        if (include_duos) {
-          genovec[sample_ct / kBitsPerWordD2] |= (3 * k1LU) << (2 * (sample_ct % kBitsPerWordD2));
+        if (duo_exists) {
+          SetNyparrEntryTo3(sample_ct, genovec);
         }
         if (((difflist_common_geno == 0) || (difflist_common_geno == 2)) && (!is_xymt)) {
           if (difflist_len > 0) {
@@ -944,7 +1025,7 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
               edescrips_write_iter[1] = kMissingAlleleCode - 1;
               // mom is always rendered as diploid on chrX; try to render as
               // haploid on chrM.
-              if (mom_geno != 1) {
+              if (is_mt && (mom_geno != 1)) {
                 edescrips_write_iter[3] = kMissingAlleleCode;
               }
               if (child_geno != 1) {
@@ -970,72 +1051,8 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto MendelErrorScanThread_err;
         }
-        // Similar to PglMultiallelicSparseToDenseMiss().
-        GenoarrLookup256x2bx4(genovec, hc_to_allele_codes, sample_ct, wide_codes);
-        if (!is_y) {
-          const uint32_t patch_01_ct = pgv.patch_01_ct;
-          if (patch_01_ct) {
-            const uintptr_t* patch_01_set = pgv.patch_01_set;
-            uintptr_t sample_idx_base = 0;
-            uintptr_t cur_bits = patch_01_set[0];
-            const AlleleCode* patch_01_vals = pgv.patch_01_vals;
-            AlleleCode* wide_codes1 = &(wide_codes[1]);
-            for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
-              const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &cur_bits);
-              wide_codes1[2 * sample_idx] = patch_01_vals[uii];
-            }
-          }
-        }
-        const uint32_t patch_10_ct = pgv.patch_10_ct;
-        if (patch_10_ct) {
-          const uintptr_t* patch_10_set = pgv.patch_10_set;
-          uintptr_t sample_idx_base = 0;
-          uintptr_t cur_bits = patch_10_set[0];
-          if (!is_y) {
-            const DoubleAlleleCode* patch_10_vals_alias = R_CAST(const DoubleAlleleCode*, pgv.patch_10_vals);
-            DoubleAlleleCode* __attribute__((may_alias)) wide_codes_alias = R_CAST(DoubleAlleleCode*, wide_codes);
-            for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
-              const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
-              wide_codes_alias[sample_idx] = patch_10_vals_alias[uii];
-            }
-          } else {
-            const AlleleCode* patch_10_vals_stop = &(pgv.patch_10_vals[2 * patch_10_ct]);
-            for (const AlleleCode* patch_10_vals_iter = pgv.patch_10_vals; patch_10_vals_iter != patch_10_vals_stop; ) {
-              const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
-              AlleleCode ac0 = *patch_10_vals_iter++;
-              AlleleCode ac1 = *patch_10_vals_iter++;
-              if (ac0 != ac1) {
-                ac0 = kMissingAlleleCode;
-                ac1 = kMissingAlleleCode;
-              }
-              wide_codes[2 * sample_idx] = ac0;
-              wide_codes[2 * sample_idx + 1] = ac1;
-            }
-          }
-        }
-        // could vectorize these loops with logic similar to InverseMovemaskFF?
-        if (is_x) {
-          // male hets -> missing
-          uintptr_t sample_idx_base = 0;
-          uintptr_t cur_bits = sex_male_collapsed[0];
-          for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx) {
-            const uintptr_t sample_idx = BitIter1(sex_male_collapsed, &sample_idx_base, &cur_bits);
-            if (wide_codes[2 * sample_idx] != wide_codes[2 * sample_idx + 1]) {
-              wide_codes[2 * sample_idx] = kMissingAlleleCode;
-              wide_codes[2 * sample_idx + 1] = kMissingAlleleCode;
-            }
-          }
-        } else if (is_y) {
-          // female -> missing
-          uintptr_t sample_idx_base = 0;
-          uintptr_t cur_bits = sex_female_collapsed[0];
-          DoubleAlleleCode* __attribute__((may_alias)) wide_codes_alias = R_CAST(DoubleAlleleCode*, wide_codes);
-          for (uint32_t female_idx = 0; female_idx != female_ct; ++female_idx) {
-            const uintptr_t sample_idx = BitIter1(sex_female_collapsed, &sample_idx_base, &cur_bits);
-            wide_codes_alias[sample_idx] = kMissingDoubleAlleleCode;
-          }
-        }
-        if (include_duos) {
+        InitMultiallelicWideCodes(hc_to_allele_codes, sex_male_collapsed, sex_female_collapsed, genovec, pgv.patch_01_set, pgv.patch_01_vals, pgv.patch_10_set, pgv.patch_10_vals, sample_ct, male_ct, female_ct, pgv.patch_01_ct, pgv.patch_10_ct, is_x, is_y, wide_codes);
+        if (duo_exists) {
           wide_codes[2 * sample_ct] = kMissingAlleleCode;
           wide_codes[2 * sample_ct + 1] = kMissingAlleleCode;
         }
@@ -1133,7 +1150,7 @@ THREAD_FUNC_DECL MendelErrorScanThread(void* raw_arg) {
             edescrips_write_iter[1] = kMissingAlleleCode - 1;
             // mom is always rendered as diploid on chrX; try to render as
             // haploid on chrM.
-            if (mom_ac0 == mom_ac1) {
+            if (is_mt && (mom_ac0 == mom_ac1)) {
               edescrips_write_iter[3] = kMissingAlleleCode;
             }
             if (child_ac0 == child_ac1) {
@@ -1254,8 +1271,7 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
       goto MendelErrorScan_ret_INCONSISTENT_INPUT;
     }
     const MendelFlags flags = mip->flags;
-    const uint32_t include_duos = (flags / kfMendelDuos) & 1;
-    TrioFlags trio_flags = include_duos? (kfTrioDuos | kfTrioPopulateIds) : kfTrioPopulateIds;
+    TrioFlags trio_flags = (flags & kfMendelDuos)? (kfTrioDuos | kfTrioPopulateIds) : kfTrioPopulateIds;
     uint32_t sid_col = 0;
     if (generate_reports) {
       sid_col = SidColIsRequired(piip->sii.sids, flags / kfMendelRptColMaybesid);
@@ -1458,7 +1474,8 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
       }
       thread_xalloc_vec_ct += 2 * trio_error_acc_vec_ct;
     }
-    const uintptr_t wide_codes_vec_ct = AlleleCodeCtToVecCt(2 * (sample_ct + include_duos));
+    const uint32_t duo_exists = family_info.duo_exists;
+    const uintptr_t wide_codes_vec_ct = AlleleCodeCtToVecCt(2 * (sample_ct + duo_exists));
     ctx.thread_wide_code_bufs = nullptr;
     if (thread_mhc) {
       if (unlikely(bigstack_alloc_acp(calc_thread_ct, &ctx.thread_wide_code_bufs))) {
@@ -1485,15 +1502,15 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
 
     // defend against adverse rounding for per-variant allocations
     uintptr_t bytes_avail = bigstack_left();
-    if (unlikely(bytes_avail < 8 * kCacheline)) {
+    if (unlikely(bytes_avail < 7 * kCacheline)) {
       goto MendelErrorScan_ret_NOMEM;
     }
-    bytes_avail -= 8 * kCacheline;
+    bytes_avail -= 7 * kCacheline;
 
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     ctx.thread_read_mhc = nullptr;
     uint32_t read_block_size;
-    if (unlikely(PgenMtLoadInit(variant_include, sample_ct + include_duos, variant_ct, bytes_avail, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, 0, pgfip, &calc_thread_ct, &ctx.genovecs, thread_mhc? (&ctx.thread_read_mhc) : nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, sample_ct + duo_exists, variant_ct, bytes_avail, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, 0, pgfip, &calc_thread_ct, &ctx.genovecs, thread_mhc? (&ctx.thread_read_mhc) : nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto MendelErrorScan_ret_NOMEM;
     }
     if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
@@ -2023,6 +2040,145 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
   BigstackReset(bigstack_mark);
   pgfip->block_base = nullptr;
   return reterr;
+}
+
+uint32_t EraseMendelErrors(const FamilyInfo* fip, const uintptr_t* sex_male_collapsed, const uintptr_t* sex_male_collapsed_interleaved, const uintptr_t* sex_female_collapsed, const uintptr_t* sex_female_collapsed_interleaved, uint32_t sample_ct, uint32_t male_ct, uint32_t female_ct, uint32_t is_x, uint32_t is_y, uint32_t is_mt, uintptr_t* genoarr, uint32_t* patch_01_ctp, uintptr_t* patch_01_set, AlleleCode* patch_01_vals, uint32_t* patch_10_ctp, uintptr_t* patch_10_set, AlleleCode* patch_10_vals, uintptr_t* erase_map, uintptr_t* genovec_buf, AlleleCode* wide_codes_buf) {
+  const uint32_t* trio_lookup_iter = fip->trio_lookup;
+  const uint32_t patch_01_ct = *patch_01_ctp;
+  const uint32_t patch_10_ct = *patch_10_ctp;
+  const uintptr_t trio_ct = fip->trio_ct;
+  const uint32_t duo_exists = fip->duo_exists;
+  uint32_t variant_error_ct = 0;
+  if ((!patch_01_ct) && (!patch_10_ct)) {
+    // ok for wide_codes_buf to be nullptr in this case
+    uintptr_t* genoarr_read = genoarr;
+    const uint32_t* biallelic_mendel_error_table = kBiallelicMendelErrorTableAutosomalOrX;
+    if ((!fip->ordered_erase_ok) || duo_exists || is_x || is_y) {
+      memcpy(genovec_buf, genoarr, NypCtToWordCt(sample_ct) * sizeof(intptr_t));
+      if (is_x) {
+        SetMaleHetMissing(sex_male_collapsed_interleaved, NypCtToVecCt(sample_ct), genovec_buf);
+      } else if (is_y) {
+        InterleavedSetMissing(sex_female_collapsed_interleaved, NypCtToVecCt(sample_ct), genovec_buf);
+        biallelic_mendel_error_table = kBiallelicMendelErrorTableChrY;
+      }
+      if (duo_exists) {
+        SetNyparrEntryTo3(sample_ct, genovec_buf);
+      }
+      genoarr_read = genovec_buf;
+    }
+    if (is_mt) {
+      biallelic_mendel_error_table = kBiallelicMendelErrorTableChrM;
+    }
+    for (uintptr_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+      const uint32_t child_idx = trio_lookup_iter[0];
+      trio_lookup_iter = &(trio_lookup_iter[3]);
+      const uint32_t child_geno = GetNyparrEntry(genoarr_read, child_idx);
+      if (child_geno == 3) {
+        continue;
+      }
+      const uint32_t dad_idx = trio_lookup_iter[-2];
+      const uint32_t mom_idx = trio_lookup_iter[-1];
+      uint32_t dad_geno;
+      if (is_x && IsSet(sex_male_collapsed, child_idx)) {
+        dad_geno = 3;
+      } else {
+        dad_geno = GetNyparrEntry(genoarr_read, dad_idx);
+      }
+      const uint32_t mom_geno = GetNyparrEntry(genoarr_read, mom_idx);
+      const uint32_t error_result = biallelic_mendel_error_table[dad_geno + mom_geno * 4 + child_geno * 16];
+      if (!error_result) {
+        continue;
+      }
+      SetNyparrEntryTo3(child_idx, genoarr);
+      if (erase_map) {
+        SetBit(child_idx, erase_map);
+      }
+      if (error_result & 0x100) {
+        SetNyparrEntryTo3(dad_idx, genoarr);
+        if (erase_map) {
+          SetBit(dad_idx, erase_map);
+        }
+      }
+      if (error_result & 0x10000) {
+        SetNyparrEntryTo3(mom_idx, genoarr);
+        if (erase_map) {
+          SetBit(mom_idx, erase_map);
+        }
+      }
+      ++variant_error_ct;
+    }
+    return variant_error_ct;
+  }
+  const uint16_t* hc_to_allele_codes = is_y? kHetMissingToAlleleCodes : kHcToAlleleCodes;
+  InitMultiallelicWideCodes(hc_to_allele_codes, sex_male_collapsed, sex_female_collapsed, genoarr, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, sample_ct, male_ct, female_ct, patch_01_ct, patch_10_ct, is_x, is_y, wide_codes_buf);
+  if (duo_exists) {
+    wide_codes_buf[2 * sample_ct] = kMissingAlleleCode;
+    wide_codes_buf[2 * sample_ct + 1] = kMissingAlleleCode;
+  }
+  const uint32_t* multiallelic_mendel_error_table = kMultiallelicMendelErrorTableAutosomalOrX;
+  if (is_y) {
+    multiallelic_mendel_error_table = kMultiallelicMendelErrorTableChrY;
+  } else if (is_mt) {
+    multiallelic_mendel_error_table = kMultiallelicMendelErrorTableChrM;
+  }
+  for (uintptr_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+    const uint32_t child_idx = trio_lookup_iter[0];
+    trio_lookup_iter = &(trio_lookup_iter[3]);
+    const AlleleCode child_ac0 = wide_codes_buf[child_idx * 2];
+    if (child_ac0 == kMissingAlleleCode) {
+      continue;
+    }
+    const AlleleCode child_ac1 = wide_codes_buf[child_idx * 2 + 1];
+    const uint32_t dad_idx = trio_lookup_iter[-2];
+    const uint32_t mom_idx = trio_lookup_iter[-1];
+    const AlleleCode dad_ac0 = wide_codes_buf[dad_idx * 2];
+    uint32_t d0;
+    uint32_t d1;
+    if ((is_x && IsSet(sex_male_collapsed, child_idx)) || (dad_ac0 == kMissingAlleleCode)) {
+      d0 = 1;
+      d1 = 1;
+    } else {
+      const AlleleCode dad_ac1 = wide_codes_buf[dad_idx * 2 + 1];
+      d0 = (dad_ac0 == child_ac0) || (dad_ac1 == child_ac0);
+      d1 = (dad_ac0 == child_ac1) || (dad_ac1 == child_ac1);
+    }
+    const AlleleCode mom_ac0 = wide_codes_buf[mom_idx * 2];
+    const AlleleCode mom_ac1 = wide_codes_buf[mom_idx * 2 + 1];
+    const uint32_t m0 = (mom_ac0 == child_ac0) || (mom_ac1 == child_ac0) || (mom_ac0 == kMissingAlleleCode);
+    const uint32_t m1 = (mom_ac0 == child_ac1) || (mom_ac1 == child_ac1) || (mom_ac0 == kMissingAlleleCode);
+    // child_ref_ct only affects error code numbers, we don't need it here.
+    const uint32_t error_result = multiallelic_mendel_error_table[d0 + d1 * 2 + m0 * 4 + m1 * 8];
+    if (!error_result) {
+      continue;
+    }
+    SetNyparrEntryTo3(child_idx, genoarr);
+    if (erase_map) {
+      SetBit(child_idx, erase_map);
+    }
+    if (error_result & 0x100) {
+      SetNyparrEntryTo3(dad_idx, genoarr);
+      if (erase_map) {
+        SetBit(dad_idx, erase_map);
+      }
+    }
+    if (error_result & 0x10000) {
+      SetNyparrEntryTo3(mom_idx, genoarr);
+      if (erase_map) {
+        SetBit(mom_idx, erase_map);
+      }
+    }
+    ++variant_error_ct;
+  }
+  if (!variant_error_ct) {
+    return 0;
+  }
+  if (patch_01_ct) {
+    ClearGenoarrMissing1bit8Unsafe(genoarr, patch_01_ctp, patch_01_set, patch_01_vals);
+  }
+  if (patch_10_ct) {
+    ClearGenoarrMissing1bit16Unsafe(genoarr, patch_10_ctp, patch_10_set, patch_10_vals);
+  }
+  return variant_error_ct;
 }
 
 #ifdef __cplusplus

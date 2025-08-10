@@ -100,6 +100,8 @@ typedef struct FamilyStruct {
 
   uint32_t family_ct;
   uint32_t trio_ct;
+  uint32_t duo_exists;
+  uint32_t ordered_erase_ok;
 
   uintptr_t max_fid_blen;
   uintptr_t max_iid_blen;
@@ -118,6 +120,15 @@ void PreinitFamilyInfo(FamilyInfo* fip);
 PglErr GetTriosAndFamilies(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, uint32_t raw_sample_ct, TrioFlags flags, uint32_t* sample_ct_ptr, uintptr_t* trio_sample_include, FamilyInfo* fip);
 
 PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const MendelInfo* mip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t generate_reports, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uintptr_t* sample_include, uintptr_t* variant_include, char* outname, char* outname_end);
+
+// Sets Mendel-error-implicated genoarr/patch_01/patch_10 entries to missing.
+// - erase_map can be missing.  If nonmissing, it is updated with the positions
+//   of newly-missing genotypes.
+// - wide_codes_buf can be nullptr if variant is biallelic.
+// - sex_female_collapsed_interleaved is unsued in the biallelic case.
+// - If fip->duo_exists, genobuf and wide_codes_buf must have space for
+//   sample_ct+1 samples.
+uint32_t EraseMendelErrors(const FamilyInfo* fip, const uintptr_t* sex_male_collapsed, const uintptr_t* sex_male_collapsed_interleaved, const uintptr_t* sex_female_collapsed, const uintptr_t* sex_female_collapsed_interleaved, uint32_t sample_ct, uint32_t male_ct, uint32_t female_ct, uint32_t is_x, uint32_t is_y, uint32_t is_mt, uintptr_t* genoarr, uint32_t* patch_01_ctp, uintptr_t* patch_01_set, AlleleCode* patch_01_vals, uint32_t* patch_10_ctp, uintptr_t* patch_10_set, AlleleCode* patch_10_vals, uintptr_t* erase_map, uintptr_t* genovec_buf, AlleleCode* wide_codes_buf);
 
 #ifdef __cplusplus
 }  // namespace plink2

@@ -645,6 +645,14 @@ HEADER_INLINE void AssignNyparrEntry(uint32_t idx, uintptr_t newval, uintptr_t* 
   *wordp = ((*wordp) & (~((3 * k1LU) << bit_shift_ct))) | (newval << bit_shift_ct);
 }
 
+// todo: check if compiler is smart enough to optimize out mask in
+// AssignNyparrEntry(idx, 3, nyparr)
+HEADER_INLINE void SetNyparrEntryTo3(uint32_t idx, uintptr_t* nyparr) {
+  const uint32_t bit_shift_ct = 2 * (idx % kBitsPerWordD2);
+  uintptr_t* wordp = &(nyparr[idx / kBitsPerWordD2]);
+  *wordp = (*wordp) | ((3 * k1LU) << bit_shift_ct);
+}
+
 HEADER_INLINE void ClearNyparrEntry(uint32_t idx, uintptr_t* nyparr) {
   nyparr[idx / kBitsPerWordD2] &= ~((3 * k1LU) << (idx % kBitsPerWordD2));
 }
