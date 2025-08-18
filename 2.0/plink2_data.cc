@@ -6594,12 +6594,8 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
             BitvecInvmask(erase_map, sample_ctl, write_phasepresent);
             is_hphase = !AllWordsAreZero(write_phasepresent, sample_ctl);
           }
-          if (write_dosage_ct) {
-            // TODO
-          }
-          if (write_dphase_ct) {
-            // TODO
-          }
+          EraseDosages(erase_map, &write_dosage_ct, write_dosagepresent, write_dosagevals);
+          EraseDphases(erase_map, &write_dphase_ct, write_dphasepresent, write_dphasedeltas);
         }
       }
       // TODO: --fill-missing-with-ref
@@ -6968,11 +6964,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       ctx.thread_write_dosagepresents = nullptr;
       ctx.thread_write_dphasepresents = nullptr;
       if (read_or_write_dosage_present) {
-        if (make_plink2_flags & kfMakePlink2SetMeMissing) {
-          logerrputs("Error: --set-me-missing dosage-data handling is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto MakePgenRobust_ret_1;
-        }
         if (unlikely(bigstack_alloc_wp(1, &ctx.thread_write_dosagepresents) ||
                      bigstack_alloc_dosagep(1, &ctx.thread_write_dosagevals) ||
                      bigstack_alloc_w(sample_ctl, &(ctx.thread_write_dosagepresents[0])) ||
@@ -8141,11 +8132,6 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
           other_per_thread_cacheline_ct += 2 * BitCtToCachelineCt(sample_ct);
         }
         if (read_or_write_dosage_present) {
-          if (make_plink2_flags & kfMakePlink2SetMeMissing) {
-            logerrputs("Error: --set-me-missing dosage-data handling is under development.\n");
-            reterr = kPglRetNotYetSupported;
-            goto MakePlink2NoVsort_ret_1;
-          }
           if (bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_dosagepresents) ||
               bigstack_alloc_dosagep(calc_thread_ct, &ctx.thread_write_dosagevals)) {
             goto MakePlink2NoVsort_fallback;

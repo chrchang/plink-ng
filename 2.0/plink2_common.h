@@ -985,6 +985,12 @@ void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_
 
 void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main);
 
+void EraseDosages(const uintptr_t* __restrict erase_map, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main);
+
+HEADER_INLINE void EraseDphases(const uintptr_t* __restrict erase_map, uint32_t* __restrict write_dphase_ct_ptr, uintptr_t* __restrict dphasepresent, SDosage* dphase_delta) {
+  EraseDosages(erase_map, write_dphase_ct_ptr, dphasepresent, R_CAST(Dosage*, dphase_delta));
+}
+
 void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_t geno_vec_ct, uintptr_t* __restrict genovec);
 
 void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict write_dphase_ct_ptr, uintptr_t* __restrict dphasepresent, SDosage* dphase_delta);

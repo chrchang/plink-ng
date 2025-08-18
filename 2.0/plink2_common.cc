@@ -2572,6 +2572,33 @@ void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, cons
   InterleavedSetMissing(interleaved_set, geno_vec_ct, genovec);
 }
 
+// may move this to pgenlib_misc
+void EraseDosages(const uintptr_t* __restrict erase_map, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
+  const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
+  if (!orig_write_dosage_ct) {
+    return;
+  }
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = dosagepresent[0];
+  for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
+    uintptr_t sample_uidx = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
+    if (IsSet(erase_map, sample_uidx)) {
+      ClearBit(sample_uidx, dosagepresent);
+      uint32_t dosage_write_idx = dosage_read_idx++;
+      for (; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
+        sample_uidx = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
+        if (IsSet(erase_map, sample_uidx)) {
+          ClearBit(sample_uidx, dosagepresent);
+        } else {
+          dosage_main[dosage_write_idx++] = dosage_main[dosage_read_idx];
+        }
+      }
+      *write_dosage_ct_ptr = dosage_write_idx;
+      return;
+    }
+  }
+}
+
 void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_t geno_vec_ct, uintptr_t* __restrict genovec) {
   const uint32_t twovec_ct = geno_vec_ct / 2;
 #ifdef __LP64__
