@@ -2109,7 +2109,7 @@ uint32_t GetChrCodeRaw(const char* str_iter) {
       }
 #endif
     }
-    return UINT32_MAX;
+    return UINT32_MAXM1;
   }
   first_char_code &= 0xdf;
   uint32_t second_char_code = ctou32(str_iter[1]);
@@ -2163,7 +2163,7 @@ uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen
     return chr_code_raw;
   }
   if (chr_code_raw != UINT32_MAX) {
-    if (chr_code_raw >= kMaxContigs) {
+    if ((chr_code_raw >= kMaxContigs) && (chr_code_raw != UINT32_MAXM1)) {
       return cip->xymt_codes[chr_code_raw - kMaxContigs];
     }
     return UINT32_MAXM1;
@@ -2203,7 +2203,7 @@ void ChrError(const char* chr_name, const char* file_descrip, const ChrInfo* cip
   if ((S_CAST(int32_t, raw_code) > S_CAST(int32_t, cip->max_numeric_code)) && ((raw_code <= kMaxChrTextnum + kChrOffsetCt) || (raw_code >= kMaxContigs))) {
     // numeric code or X/Y/MT/PAR
     if (cip->chrset_source == kChrsetSourceDefault) {
-      logerrputs("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
+      logerrputs("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.)\n");
     } else if (cip->chrset_source == kChrsetSourceCmdline) {
       logerrputs("(This is disallowed by your command-line flags.)\n");
     } else {
