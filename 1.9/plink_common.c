@@ -4766,8 +4766,12 @@ int32_t get_chrom_code(const char* chrom_name, const Chrom_info* chrom_info_ptr,
   // does not perform exhaustive error-checking
   // -1 = --allow-extra-chr ok, -2 = total fail
   const int32_t chrom_code_raw = get_chrom_code_raw(chrom_name);
+  const int32_t autosome_ct = chrom_info_ptr->autosome_ct;
   if (((const uint32_t)chrom_code_raw) <= chrom_info_ptr->max_code) {
-    return chrom_code_raw;
+    if ((chrom_code_raw <= autosome_ct) || (chrom_info_ptr->xymt_codes[chrom_code_raw - autosome_ct - 1] >= 0)) {
+      return chrom_code_raw;
+    }
+    return -2;
   }
   if (chrom_code_raw != -1) {
     if (chrom_code_raw >= MAX_POSSIBLE_CHROM) {
