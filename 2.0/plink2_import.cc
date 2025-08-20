@@ -3828,7 +3828,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
               fail_on_ds_only = cip->haploid_mask[0] & 1;
             }
           } else {
-            if (chr_code_base >= kMaxContigs) {
+            if ((chr_code_base >= kMaxContigs) && (chr_code_base != UINT32_MAXM1)) {
               chr_code_base = cip->xymt_codes[chr_code_base - kMaxContigs];
             }
             if (IsI32Neg(chr_code_base) || (!IsSet(base_chr_present, chr_code_base))) {

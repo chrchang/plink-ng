@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6.21"
+static const char ver_str[] = "PLINK v2.0.0-a.6.22"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,10 +72,10 @@ static const char ver_str[] = "PLINK v2.0.0-a.6.21"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (6 Aug 2025)";
+  " (19 Aug 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -6662,8 +6662,8 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Invalid --hwe argument sequence.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (unlikely(pc.hwe_ln_thresh >= 0.0)) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --hwe threshold '%s' (must be in [0, 1)).\n", cur_modif);
+              if (unlikely(pc.hwe_ln_thresh > 0.0)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --hwe threshold '%s' (must be in [0, 1]).\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               ln_thresh_seen = 1;
@@ -6680,6 +6680,10 @@ int main(int argc, char** argv) {
           }
           if (unlikely(!ln_thresh_seen)) {
             logerrputs("Error: No --hwe p-value threshold specified.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely((pc.hwe_ln_thresh == 0.0) && (pc.hwe_sample_size_term <= 0.0))) {
+            logerrputs("Error: --hwe threshold cannot be 1 unless a nonzero sample size term is\nspecified.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if ((pc.misc_flags & kfMiscHweMidp) && (pc.hwe_ln_thresh >= -kLn2)) {
