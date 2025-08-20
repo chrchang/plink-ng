@@ -904,6 +904,7 @@ uint32_t IsAutosomalDiploidChrPresent(const ChrInfo* cip);
 
 // any character <= ' ' is considered a terminator
 // maps chrX -> kChrRawX, etc.
+// now returns UINT32_MAXM1 on too many numeric digits
 uint32_t GetChrCodeRaw(const char* str_iter);
 
 // requires chr_name to be null-terminated

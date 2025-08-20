@@ -1574,6 +1574,7 @@ PglErr LoadSampleIds(const char* fnames, const uintptr_t* sample_include, const 
       XidMode xid_mode;
       line_idx = 0;
       uint32_t skip_header = 0;
+      uint32_t debug_idx = UINT32_MAX;  // DEBUG
       if (families_only) {
         skip_header = 1;
       } else {
@@ -1596,16 +1597,27 @@ PglErr LoadSampleIds(const char* fnames, const uintptr_t* sample_include, const 
           skip_header = 1;
         }
       }
+      // DEBUG
+      for (uint32_t uii = 0; uii != sample_ct; ++uii) {
+        if (xid_map[uii] == 131) {
+          debug_idx = uii;
+          printf("debug_idx: %u\n", debug_idx);
+        }
+      }
       if (skip_header) {
         ++line_idx;
         line_start = TextGet(&txs);
       }
       for (; line_start; ++line_idx, line_start = TextGet(&txs)) {
         if (!families_only) {
+          const uint32_t debug_print = (line_idx == 8205);
           const char* linebuf_iter = line_start;
           uint32_t xid_idx_start;
           uint32_t xid_idx_end;
           if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+            if (debug_print) {
+              printf("branch 1\n");
+            }
             uint32_t sample_uidx = xid_map[xid_idx_start];
             if (IsSet(loaded_bitarr, sample_uidx)) {
               ++duplicate_ct;
@@ -2152,7 +2164,7 @@ uint32_t GetChrCodeRaw(const char* str_iter) {
       }
 #endif
     }
-    return UINT32_MAX;
+    return UINT32_MAXM1;
   }
   first_char_code &= 0xdf;
   uint32_t second_char_code = ctou32(str_iter[1]);
@@ -2206,7 +2218,7 @@ uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen
     return chr_code_raw;
   }
   if (chr_code_raw != UINT32_MAX) {
-    if (chr_code_raw >= kMaxContigs) {
+    if ((chr_code_raw >= kMaxContigs) && (chr_code_raw != UINT32_MAXM1)) {
       return cip->xymt_codes[chr_code_raw - kMaxContigs];
     }
     return UINT32_MAXM1;
@@ -2246,7 +2258,7 @@ void ChrError(const char* chr_name, const char* file_descrip, const ChrInfo* cip
   if ((S_CAST(int32_t, raw_code) > S_CAST(int32_t, cip->max_numeric_code)) && ((raw_code <= kMaxChrTextnum + kChrOffsetCt) || (raw_code >= kMaxContigs))) {
     // numeric code or X/Y/MT/PAR
     if (cip->chrset_source == kChrsetSourceDefault) {
-      logerrputs("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
+      logerrputs("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.)\n");
     } else if (cip->chrset_source == kChrsetSourceCmdline) {
       logerrputs("(This is disallowed by your command-line flags.)\n");
     } else {

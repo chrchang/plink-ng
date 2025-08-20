@@ -8540,6 +8540,110 @@ PglErr UpdateChr(const uintptr_t* variant_include, const char* const* variant_id
   return reterr;
 }
 
+PglErr RenameChrs(const char* rename_chrs_fname, uint32_t prohibit_extra_chrs, ChrInfo* cip) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    const uint32_t chr_ct = cip->chr_ct;
+    const uint32_t chr_wct = BitCtToWordCt(chr_ct);
+    uintptr_t* already_seen;  // by file-order
+    uint32_t* new_chr_file_order;
+    uint32_t* new_chr_idx_to_foidx;
+    if (unlikely(bigstack_calloc_w(chr_wct, &already_seen) ||
+                 bigstack_alloc_u32(chr_ct, &new_chr_file_order) ||
+                 bigstack_alloc_u32(kChrRawEnd, &new_chr_idx_to_foidx))) {
+      goto RenameChrs_ret_NOMEM;
+    }
+    memcpy(new_chr_file_order, cip->chr_file_order, chr_ct * sizeof(int32_t));
+    memcpy(new_chr_idx_to_foidx, cip->chr_idx_to_foidx, kChrRawEnd * sizeof(int32_t));
+
+    reterr = InitTextStream(rename_chrs_fname, kTextStreamBlenFast, 1, &txs);
+    if (unlikely(reterr)) {
+      goto RenameChrs_ret_TSTREAM_FAIL;
+    }
+    while (1) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        if (likely(!TextStreamErrcode2(&txs, &reterr))) {
+          break;
+        }
+        goto RenameChrs_ret_TSTREAM_FAIL;
+      }
+      char* old_chr_str_end = CurTokenEnd(line_start);
+      char* new_chr_str = FirstNonTspace(old_chr_str_end);
+      if (unlikely(IsEolnKns(*new_chr_str))) {
+        goto RenameChrs_ret_MISSING_TOKENS;
+      }
+      const uint32_t old_chr_idx = GetChrCodeCounted(cip, old_chr_str_end - line_start, line_start);
+      if (IsI32Neg(old_chr_idx) || (!IsSet(cip->chr_mask, old_chr_idx))) {
+        continue;
+      }
+      const uint32_t foidx = cip->chr_idx_to_foidx[old_chr_idx];
+      if (unlikely(IsSet(already_seen, foidx))) {
+        *old_chr_str_end = '\0';
+        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate old-chromosome code '%s' in --rename-chrs file.\n", line_start);
+        goto RenameChrs_ret_MALFORMED_INPUT_WW;
+      }
+      SetBit(foidx, already_seen);
+
+      char* new_chr_str_end = CurTokenEnd(new_chr_str);
+      uint32_t new_chr_code;
+      reterr = GetOrAddChrCodeDestructive("--rename-chrs file", line_idx, prohibit_extra_chrs, new_chr_str, new_chr_str_end, cip, &new_chr_code);
+      if (unlikely(reterr)) {
+        goto RenameChrs_ret_1;
+      }
+      new_chr_file_order[foidx] = new_chr_code;
+      new_chr_idx_to_foidx[new_chr_code] = foidx;
+    }
+    if (unlikely(line_idx == 1)) {
+      logerrputs("Error: Empty --rename-chrs file.\n");
+      goto RenameChrs_ret_MALFORMED_INPUT;
+    }
+    const uint32_t update_ct = PopcountWords(already_seen, chr_wct);
+    uintptr_t chr_foidx_base = 0;
+    uintptr_t cur_bits = already_seen[0];
+    for (uint32_t update_idx = 0; update_idx != update_ct; ++update_idx) {
+      const uint32_t chr_fo_idx = BitIter1(already_seen, &chr_foidx_base, &cur_bits);
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      ClearBit(chr_idx, cip->chr_mask);
+    }
+    chr_foidx_base = 0;
+    cur_bits = already_seen[0];
+    for (uint32_t update_idx = 0; update_idx != update_ct; ++update_idx) {
+      const uint32_t chr_fo_idx = BitIter1(already_seen, &chr_foidx_base, &cur_bits);
+      const uint32_t new_chr_idx = new_chr_file_order[chr_fo_idx];
+      SetBit(new_chr_idx, cip->chr_mask);
+    }
+    memcpy(cip->chr_file_order, new_chr_file_order, chr_ct * sizeof(int32_t));
+    memcpy(cip->chr_idx_to_foidx, new_chr_idx_to_foidx, kChrRawEnd * sizeof(int32_t));
+    logprintf("--rename-chrs: %u chromosome code%s updated.\n", update_ct, (update_ct == 1)? "" : "s");
+  }
+  while (0) {
+  RenameChrs_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  RenameChrs_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--rename-chrs file", &txs);
+    break;
+  RenameChrs_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --rename-chrs file has fewer tokens than expected.\n", line_idx);
+  RenameChrs_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  RenameChrs_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ RenameChrs_ret_1:
+  CleanupTextStream2("--rename-chrs file", &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 BoolErr SortChr(const ChrInfo* cip, const uint32_t* chr_idx_to_size, uint32_t use_nsort, ChrInfo* write_cip) {
   // Finishes initialization of write_cip.  Assumes chr_fo_vidx_start is
   // allocated and initialized to all-bits-one, chr_file_order/chr_idx_to_foidx
@@ -9494,7 +9598,7 @@ PglErr WritePvarResorted(const uintptr_t* variant_include, const ChrInfo* write_
   return reterr;
 }
 
-PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, const TwoColParams* update_chr_flag, const char* writer_ver, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, uint32_t use_nsort, PvarPsamFlags pvar_psam_flags, uint32_t mendel_duos, ChrInfo* cip, char* xheader, ChrIdx* chr_idxs, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, const char* rename_chrs_fname, const TwoColParams* update_chr_flag, const char* writer_ver, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, uint32_t use_nsort, PvarPsamFlags pvar_psam_flags, uint32_t mendel_duos, ChrInfo* cip, char* xheader, ChrIdx* chr_idxs, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
@@ -9530,6 +9634,11 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
         }
       }
       reterr = UpdateChr(variant_include, variant_ids, update_chr_flag, raw_variant_ct, variant_ct, max_variant_id_slen, (misc_flags / kfMiscProhibitExtraChr) & 1, max_thread_ct, cip, chr_idxs);
+      if (unlikely(reterr)) {
+        goto MakePlink2Vsort_ret_1;
+      }
+    } else if (rename_chrs_fname) {
+      reterr = RenameChrs(rename_chrs_fname, (misc_flags / kfMiscProhibitExtraChr & 1), cip);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }

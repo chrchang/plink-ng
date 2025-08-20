@@ -3829,7 +3829,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
               fail_on_ds_only = cip->haploid_mask[0] & 1;
             }
           } else {
-            if (chr_code_base >= kMaxContigs) {
+            if ((chr_code_base >= kMaxContigs) && (chr_code_base != UINT32_MAXM1)) {
               chr_code_base = cip->xymt_codes[chr_code_base - kMaxContigs];
             }
             if (IsI32Neg(chr_code_base) || (!IsSet(base_chr_present, chr_code_base))) {
@@ -16628,7 +16628,7 @@ static inline uint32_t GetEigChrCode(const ChrInfo* cip, const char* chr_code_st
     // 90 -> MT, 91 -> XY
     return cip->xymt_codes[kChrOffsetMT + 90 - chr_code_raw];
   }
-  if (likely((chr_code_raw >= kMaxContigs) && (chr_code_raw != UINT32_MAX))) {
+  if (likely((chr_code_raw >= kMaxContigs) && (chr_code_raw < UINT32_MAXM1))) {
     return cip->xymt_codes[chr_code_raw - kMaxContigs];
   }
   // EIGENSOFT also maps 2A and 2B to 2, but I don't see any need to support

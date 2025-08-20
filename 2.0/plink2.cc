@@ -92,7 +92,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (17 Aug 2025)";
+  " (19 Aug 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -535,6 +535,7 @@ typedef struct Plink2CmdlineStruct {
   char* not_pheno_flattened;
   char* not_covar_flattened;
   char* indv_str;
+  char* rename_chrs_fname;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt_allele_flag;
   TwoColParams* update_chr_flag;
@@ -2803,7 +2804,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           if (pcp->sort_vars_mode > kSortNone) {
-            reterr = MakePlink2Vsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->update_chr_flag, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2Vsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->rename_chrs_fname, pcp->update_chr_flag, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
           } else {
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
@@ -3544,6 +3545,7 @@ int main(int argc, char** argv) {
   pc.not_pheno_flattened = nullptr;
   pc.not_covar_flattened = nullptr;
   pc.indv_str = nullptr;
+  pc.rename_chrs_fname = nullptr;
   InitRangeList(&pc.snps_range_list);
   InitRangeList(&pc.exclude_snps_range_list);
   InitRangeList(&pc.pheno_range_list);
@@ -6884,8 +6886,8 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Invalid --hwe argument sequence.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (unlikely(pc.hwe_ln_thresh >= 0.0)) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --hwe threshold '%s' (must be in [0, 1)).\n", cur_modif);
+              if (unlikely(pc.hwe_ln_thresh > 0.0)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --hwe threshold '%s' (must be in [0, 1]).\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               ln_thresh_seen = 1;
@@ -6902,6 +6904,10 @@ int main(int argc, char** argv) {
           }
           if (unlikely(!ln_thresh_seen)) {
             logerrputs("Error: No --hwe p-value threshold specified.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely((pc.hwe_ln_thresh == 0.0) && (pc.hwe_sample_size_term <= 0.0))) {
+            logerrputs("Error: --hwe threshold cannot be 1 unless a nonzero sample size term is\nspecified.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if ((pc.misc_flags & kfMiscHweMidp) && (pc.hwe_ln_thresh >= -kLn2)) {
@@ -10918,16 +10924,28 @@ int main(int argc, char** argv) {
           pc.vcor_info.flags |= S_CAST(VcorFlags, (is_phased * kfVcorPhased) | (is_unsquared * kfVcorUnsquared));
           pc.command_flags1 |= kfCommand1Vcor;
           pc.dependency_flags |= kfFilterAllReq;
-        } else if (unlikely(strequal_k_unsafe(flagname_p2, "2"))) {
-          // yeah, not actually unlikely...
-          logerrputs("Error: --r2 has been replaced by --r2-phased and --r2-unphased.\n--r2-phased computes the textbook haplotype-frequency-based r^2, and\ncorresponds to PLINK 1.9 --r2's behavior when the 'd', 'dprime', or\n'dprime-signed' modifier was present.  --r2-unphased computes the simpler r^2\nbetween (unphased) dosage vectors, and corresponds to how PLINK 1.x --r2\nbehaved without a D'-related modifier.\n");
-          goto main_ret_INVALID_CMDLINE_A;
-        } else if (unlikely(strequal_k_unsafe(flagname_p2, ""))) {
-          logerrputs("Error: --r has been replaced by --r-phased and --r-unphased.\n--r-phased computes the textbook haplotype-frequency-based r, and corresponds\nto PLINK 1.9 --r's behavior when the 'd', 'dprime', or 'dprime-signed' modifier\nwas present.  --r-unphased computes the simpler r between (unphased) dosage\nvectors, and corresponds to how PLINK 1.x --r behaved without a D'-related\nmodifier.\n");
-          goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "andmem")) {
           randmem = 1;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "ename-chrs")) {
+          if (unlikely(chr_info.is_include_stack || notchr_present)) {
+            // too confusing (does the chromosome filter apply before?  after?
+            // both?)
+            logerrputs("Error: --rename-chrs cannot be used with --autosome[-par] or --[not-]chr.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.recover_var_ids_fname)) {
+            logerrputs("Error: --rename-chrs cannot be used with --recover-var-ids or --update-name.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.rename_chrs_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.dependency_flags |= kfFilterPvarReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "ice"))) {
           if (unlikely(chr_info.chrset_source)) {
             logerrputs("Error: Conflicting chromosome-set flags.\n");
@@ -10943,6 +10961,12 @@ int main(int argc, char** argv) {
           chr_info.xymt_codes[5] = UINT32_MAXM1;
           chr_info.haploid_mask[0] = 0x1fff;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "2")) {
+          logerrputs("Error: --r2 has been replaced by --r2-phased and --r2-unphased.\n--r2-phased computes the textbook haplotype-frequency-based r^2, and\ncorresponds to PLINK 1.9 --r2's behavior when the 'd', 'dprime', or\n'dprime-signed' modifier was present.  --r2-unphased computes the simpler r^2\nbetween (unphased) dosage vectors, and corresponds to how PLINK 1.x --r2\nbehaved without a D'-related modifier.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        } else if (strequal_k_unsafe(flagname_p2, "")) {
+          logerrputs("Error: --r has been replaced by --r-phased and --r-unphased.\n--r-phased computes the textbook haplotype-frequency-based r, and corresponds\nto PLINK 1.9 --r's behavior when the 'd', 'dprime', or 'dprime-signed' modifier\nwas present.  --r-unphased computes the simpler r between (unphased) dosage\nvectors, and corresponds to how PLINK 1.x --r behaved without a D'-related\nmodifier.\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -11891,6 +11915,10 @@ int main(int argc, char** argv) {
             logerrputs("Error: --update-chr cannot be used with --recover-var-ids or --update-name.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (unlikely(pc.rename_chrs_fname)) {
+            logerrputs("Error: --update-chr cannot be used with --rename-chrs.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -12596,6 +12624,10 @@ int main(int argc, char** argv) {
       logerrputs("Error: --mendel-duos must be used with --me, --mendel, or --set-me-missing.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
+    if (unlikely(pc.rename_chrs_fname && (pc.sort_vars_mode <= kSortNone))) {
+      logerrputs("Error: --rename-chrs must be used with --sort-vars.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
     if (pc.extract_col_cond_info.params) {
       if (unlikely((!pc.extract_col_cond_info.match_substr) && pc.extract_col_cond_info.match_flattened && pc.extract_col_cond_info.mismatch_flattened)) {
         logerrputs("Error: --extract-col-cond-match and --extract-col-cond-mismatch can only be\nused together when --extract-col-cond-substr is specified.\n");
@@ -13046,6 +13078,7 @@ int main(int argc, char** argv) {
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.rename_chrs_fname);
   free_cond(pc.indv_str);
   free_cond(pc.not_covar_flattened);
   free_cond(pc.not_pheno_flattened);

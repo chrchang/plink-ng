@@ -2422,7 +2422,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --export-allele <file> : With --export A/AD/Av, count alleles named in the\n"
 "                           file, instead of REF alleles.\n"
               );
-    HelpPrint("output-chr\0", &help_ctrl, 0,
+    HelpPrint("output-chr\0rename-chrs\0", &help_ctrl, 0,
 "  --output-chr <MT code> : Set chromosome coding scheme in output files by\n"
 "                           providing the desired human mitochondrial code.\n"
 "                           Options are '26', 'M', 'MT', '0M', 'chr26', 'chrM',\n"
@@ -2440,7 +2440,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                   by --make-[b]pgen/--make-bed/--export\n"
 "                                   (default 'NA' for .psam, -9 for older).\n"
                );
-    HelpPrint("sort-vars\0update-chr\0", &help_ctrl, 0,
+    HelpPrint("sort-vars\0rename-chrs\0update-chr\0", &help_ctrl, 0,
 "  --sort-vars [mode]      : Sort variants by chromosome, then position, then\n"
 "                            ID.  The following string orders are supported:\n"
 "                            * 'natural'/'n': Natural sort (default).\n"
@@ -2526,6 +2526,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --update-map  <f> [bpcol]  [IDcol]  [skip] : Update variant bp positions.\n"
 "  --update-name <f> [newcol] [oldcol] [skip] : Update variant IDs.\n"
                );
+    HelpPrint("rename-chrs\0update-chr\0", &help_ctrl, 0,
+"  --rename-chrs <fn> : Renames chromosomes/contigs, given a file with old names\n"
+"                       in the first column and new names in the second.\n"
+"                       Requires --sort-vars.\n"
+"                       Note that this does not select between PLINK's built-in\n"
+"                       ways of rendering ordinary chromosome codes (e.g. '23'\n"
+"                       vs. 'X' vs. 'chrX'); that's what --output-chr is for.\n"
+              );
     HelpPrint("recover-var-ids\0set-all-var-ids\0update-name\0", &help_ctrl, 0,
 "  --recover-var-ids <file> ['strict-bim-order'] [{rigid | force}] ['partial'] :\n"
 "    Undo --set-all-var-ids, given the original .pvar/VCF/.bim file.  Original\n"
