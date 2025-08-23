@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.5.31"
+static const char ver_str[] = "PLINK v2.0.0-a.5.32"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.5.31"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (19 Aug 2025)";
+  " (23 Aug 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -11398,6 +11398,10 @@ int main(int argc, char** argv) {
     if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Pmerge))) {
       if (unlikely(pc.sort_vars_mode > kSortNone)) {
         logerrputs("Error: --sort-vars must be used with --make-[b]pgen/--make-bed and no other\nnon-merge commands.\n");
+        goto main_ret_INVALID_CMDLINE;
+      }
+      if (unlikely(make_plink2_flags & (kfMakePlink2SetHhMissing | kfMakePlink2SetMixedMtMissing))) {
+        logerrputs("Error: --set-hh-missing/--set-mixed-mt-missing must be used with\n--make-[b]pgen/--make-bed and no other non-merge commands.\n");
         goto main_ret_INVALID_CMDLINE;
       }
       if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf | kfCommand1Pmerge))) {
