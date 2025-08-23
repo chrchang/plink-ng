@@ -2449,6 +2449,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            --make-[b]pgen/--make-bed, or\n"
 "                            --make-just-{bim,pvar}.\n"
                );
+    HelpPrint("zero-cluster\0", &help_ctrl, 0,
+"  --zero-cluster <filename> [pheno/covar name] :\n"
+"    Set blocks of genotype calls to missing.\n"
+"    * The input file should have variant IDs in the first column and category\n"
+"      IDs in the second.\n"
+"    * If multiple categorical phenotypes are loaded, you must specify the\n"
+"      phenotype to use.\n"
+              );
     HelpPrint("set-invalid-haploid-missing\0set-hh-missing\0set-mixed-mt-missing\0", &help_ctrl, 0,
 "  --set-invalid-haploid-missing ['keep-dosage'] :\n"
 "    Make --make-[b]pgen/--make-bed set non-MT heterozygous haploid hardcalls,\n"

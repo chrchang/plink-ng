@@ -2213,11 +2213,15 @@ uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen
   // redundant strlen() calls even though this uglifies the interface
   // does not perform exhaustive error-checking
   // UINT32_MAX = --allow-extra-chr ok, UINT32_MAXM1 = total fail
-  uint32_t chr_code_raw = GetChrCodeRaw(chr_name);
-  if (chr_code_raw <= cip->max_numeric_code) {
+  const uint32_t chr_code_raw = GetChrCodeRaw(chr_name);
+  const uint32_t autosome_ct = cip->autosome_ct;
+  if (chr_code_raw <= autosome_ct) {
     return chr_code_raw;
   }
   if (chr_code_raw != UINT32_MAX) {
+    if (chr_code_raw <= cip->max_numeric_code) {
+      return cip->xymt_codes[chr_code_raw - autosome_ct - 1];
+    }
     if ((chr_code_raw >= kMaxContigs) && (chr_code_raw != UINT32_MAXM1)) {
       return cip->xymt_codes[chr_code_raw - kMaxContigs];
     }

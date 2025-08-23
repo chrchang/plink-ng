@@ -961,6 +961,11 @@ HEADER_INLINE BoolErr bigstack_end_alloc_llstr(uintptr_t str_blen, LlStr** llstr
   return !(*llstr_arr_ptr);
 }
 
+HEADER_INLINE BoolErr bigstack_end_alloc_wp(uintptr_t ct, uintptr_t*** wp_arr_ptr) {
+  *wp_arr_ptr = S_CAST(uintptr_t**, bigstack_end_alloc(ct * sizeof(intptr_t)));
+  return !(*wp_arr_ptr);
+}
+
 HEADER_INLINE BoolErr bigstack_end_alloc_cp(uintptr_t ct, char*** cp_arr_ptr) {
   *cp_arr_ptr = S_CAST(char**, bigstack_end_alloc(ct * sizeof(intptr_t)));
   return !(*cp_arr_ptr);
@@ -1618,6 +1623,7 @@ HEADER_INLINE void FillWSubsetStarts(const uintptr_t* subset, uint32_t thread_ct
 }
 #endif
 
+void InvertU32Arr(const uint32_t* new_idx_to_old_uidx, uint32_t raw_old_ct, uint32_t new_ct, uint32_t max_thread_ct, uint32_t* old_uidx_to_new_idx);
 
 
 // Set multiplier to 0 to only count extra alleles, 1 to also count alt1 for

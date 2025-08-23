@@ -2085,6 +2085,15 @@ void FillWSubsetStarts(const uintptr_t* subset, uint32_t thread_ct, uintptr_t st
 }
 #endif
 
+void InvertU32Arr(const uint32_t* new_idx_to_old_uidx, uint32_t raw_old_ct, uint32_t new_ct, __attribute__((unused)) uint32_t max_thread_ct, uint32_t* old_uidx_to_new_idx) {
+  // obvious todo: multithread
+  SetAllU32Arr(raw_old_ct, old_uidx_to_new_idx);
+  for (uint32_t new_idx = 0; new_idx != new_ct; ++new_idx) {
+    const uint32_t old_uidx = new_idx_to_old_uidx[new_idx];
+    old_uidx_to_new_idx[old_uidx] = new_idx;
+  }
+}
+
 // May want to have an multiallelic_set bitarray to accelerate this type of
 // operation?  Probably only want to conditionally initialize it, and only
 // after variant filtering is complete, though.

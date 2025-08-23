@@ -92,7 +92,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (19 Aug 2025)";
+  " (23 Aug 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -536,6 +536,8 @@ typedef struct Plink2CmdlineStruct {
   char* not_covar_flattened;
   char* indv_str;
   char* rename_chrs_fname;
+  char* zero_cluster_fname;
+  char* zero_cluster_phenoname;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt_allele_flag;
   TwoColParams* update_chr_flag;
@@ -2804,12 +2806,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           if (pcp->sort_vars_mode > kSortNone) {
-            reterr = MakePlink2Vsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->rename_chrs_fname, pcp->update_chr_flag, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2Vsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->rename_chrs_fname, pcp->update_chr_flag, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, pcp->zero_cluster_fname, pcp->zero_cluster_phenoname, xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
           } else {
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
             }
-            reterr = MakePlink2NoVsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2NoVsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, pcp->zero_cluster_fname, pcp->zero_cluster_phenoname, xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           }
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
@@ -3546,6 +3548,8 @@ int main(int argc, char** argv) {
   pc.not_covar_flattened = nullptr;
   pc.indv_str = nullptr;
   pc.rename_chrs_fname = nullptr;
+  pc.zero_cluster_fname = nullptr;
+  pc.zero_cluster_phenoname = nullptr;
   InitRangeList(&pc.snps_range_list);
   InitRangeList(&pc.exclude_snps_range_list);
   InitRangeList(&pc.pheno_range_list);
@@ -9703,11 +9707,10 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (pc.misc_flags & kfMiscProhibitExtraChr) {
-            if (unlikely(IsI32Neg(GetChrCodeRaw(cur_modif)))) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --oxford-single-chr chromosome code '%s'.\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
-            }
+          const uint32_t chr_code_raw = GetChrCodeRaw(cur_modif);
+          if (unlikely((chr_code_raw == UINT32_MAXM1) || ((pc.misc_flags & kfMiscProhibitExtraChr) && (chr_code_raw == UINT32_MAX)))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --oxford-single-chr chromosome code '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
           }
           reterr = CmdlineAllocString(cur_modif, argvk[arg_idx], kMaxIdSlen, &import_single_chr_str);
           if (unlikely(reterr)) {
@@ -12446,7 +12449,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'z':
-        if (likely(strequal_k_unsafe(flagname_p2, "st-level"))) {
+        if (strequal_k_unsafe(flagname_p2, "st-level")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -12459,6 +12462,24 @@ int main(int argc, char** argv) {
           if (unlikely(ScanPosintCappedx(cur_modif, 22, &g_zst_level))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --zst-level argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
+          }
+        } else if (likely(strequal_k_unsafe(flagname_p2, "ero-cluster"))) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
+            logerrputs("Error: --zero-cluster must be used with --make-[b]pgen/--make-bed.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.zero_cluster_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          if (param_ct == 2) {
+            reterr = CmdlineAllocString(argvk[arg_idx + 2], argvk[arg_idx], kMaxIdSlen, &pc.zero_cluster_phenoname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
           }
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -12541,6 +12562,14 @@ int main(int argc, char** argv) {
     if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Pmerge))) {
       if (unlikely(pc.sort_vars_mode > kSortNone)) {
         logerrputs("Error: --sort-vars must be used with --make-[b]pgen/--make-bed and no other\nnon-merge commands.\n");
+        goto main_ret_INVALID_CMDLINE;
+      }
+      if (unlikely(make_plink2_flags & (kfMakePlink2SetInvalidHaploidMissing | kfMakePlink2SetMixedMtMissing | kfMakePlink2SetMeMissing))) {
+        logerrputs("Errpr: --set-invalid-haploid-missing/--set-mixed-mt-missing/--set-me-missing\nmust be used with --make-[b]pgen/--make-bed and no other non-merge commands.\n");
+        goto main_ret_INVALID_CMDLINE;
+      }
+      if (unlikely(pc.zero_cluster_fname)) {
+        logerrputs("Error: --zero-cluster must be used with --make-[b]pgen/--make-bed and no other\nnon-merge commands.\n");
         goto main_ret_INVALID_CMDLINE;
       }
       if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf | kfCommand1Pmerge))) {
@@ -13078,6 +13107,8 @@ int main(int argc, char** argv) {
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.zero_cluster_phenoname);
+  free_cond(pc.zero_cluster_fname);
   free_cond(pc.rename_chrs_fname);
   free_cond(pc.indv_str);
   free_cond(pc.not_covar_flattened);

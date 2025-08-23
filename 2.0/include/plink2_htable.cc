@@ -380,8 +380,6 @@ uint32_t PopulateIdHtableMtDupstoreThreadCt(uint32_t max_thread_ct, uint32_t ite
 // !store_all_dups cases.  However, the table formats are nearly identical, so
 // the code may re-converge, and it's reasonable to have just this API entry
 // point.
-//
-// It will probably be moved out of plink2_cmdline soon.
 PglErr PopulateIdHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, unsigned char** arena_bottom_ptr, uint32_t* id_htable, uint32_t* dup_ct_ptr) {
   // Change from plink 1.9: if store_all_dups is false, we don't error out on
   // the first encountered duplicate ID; instead, we just flag it in the hash
