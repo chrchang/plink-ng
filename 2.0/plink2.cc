@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.6.22"
+static const char ver_str[] = "PLINK v2.0.0-a.6.23"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.6.22"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (19 Aug 2025)";
+  " (23 Aug 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -9346,11 +9346,10 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (pc.misc_flags & kfMiscProhibitExtraChr) {
-            if (unlikely(IsI32Neg(GetChrCodeRaw(cur_modif)))) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --oxford-single-chr chromosome code '%s'.\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
-            }
+          const uint32_t chr_code_raw = GetChrCodeRaw(cur_modif);
+          if (unlikely((chr_code_raw == UINT32_MAXM1) || ((pc.misc_flags & kfMiscProhibitExtraChr) && (chr_code_raw == UINT32_MAX)))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --oxford-single-chr chromosome code '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
           }
           reterr = CmdlineAllocString(cur_modif, argvk[arg_idx], kMaxIdSlen, &import_single_chr_str);
           if (unlikely(reterr)) {
@@ -12077,6 +12076,10 @@ int main(int argc, char** argv) {
     if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Pmerge))) {
       if (unlikely(pc.sort_vars_mode > kSortNone)) {
         logerrputs("Error: --sort-vars must be used with --make-[b]pgen/--make-bed and no other\nnon-merge commands.\n");
+        goto main_ret_INVALID_CMDLINE;
+      }
+      if (unlikely(make_plink2_flags & (kfMakePlink2SetInvalidHaploidMissing | kfMakePlink2SetMixedMtMissing))) {
+        logerrputs("Error: --set-invalid-haploid-missing/--set-mixed-mt-missing must be used with\n--make-[b]pgen/--make-bed and no other non-merge commands.\n");
         goto main_ret_INVALID_CMDLINE;
       }
       if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf | kfCommand1Pmerge))) {
