@@ -92,7 +92,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (23 Aug 2025)";
+  " (24 Aug 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3703,6 +3703,8 @@ int main(int argc, char** argv) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "keep-nonfounders");
           } else if (strequal_k(flagname_p, "filter", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "keep-col-match");
+          } else if (strequal_k(flagname_p, "fill-missing-a2", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "fill-missing-with-ref");
           } else {
             goto main_flag_copy;
           }
@@ -6334,6 +6336,12 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1Fst;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ill-missing-with-ref")) {
+          logerrputs("Error: --fill-missing-with-ref is under development.\n");
+          reterr = kPglRetNotYetSupported;
+          goto main_ret_1;
+          make_plink2_flags |= kfMakePlink2FillMissingWithRef;
+          goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "amily-missing-catname"))) {
           if (unlikely(!(pc.misc_flags & kfMiscCatPhenoFamily))) {
             logerrputs("Error: --family-missing-catname must be used with --family.\n");
@@ -12564,8 +12572,8 @@ int main(int argc, char** argv) {
         logerrputs("Error: --sort-vars must be used with --make-[b]pgen/--make-bed and no other\nnon-merge commands.\n");
         goto main_ret_INVALID_CMDLINE;
       }
-      if (unlikely(make_plink2_flags & (kfMakePlink2SetInvalidHaploidMissing | kfMakePlink2SetMixedMtMissing | kfMakePlink2SetMeMissing))) {
-        logerrputs("Errpr: --set-invalid-haploid-missing/--set-mixed-mt-missing/--set-me-missing\nmust be used with --make-[b]pgen/--make-bed and no other non-merge commands.\n");
+      if (unlikely(make_plink2_flags & (kfMakePlink2SetInvalidHaploidMissing | kfMakePlink2SetMixedMtMissing | kfMakePlink2SetMeMissing | kfMakePlink2FillMissingWithRef))) {
+        logerrputs("Errpr: --set-invalid-haploid-missing/--set-mixed-mt-missing/--set-me-missing/\n--fill-missing-with-ref must be used with --make-[b]pgen/--make-bed and no\nother non-merge commands.\n");
         goto main_ret_INVALID_CMDLINE;
       }
       if (unlikely(pc.zero_cluster_fname)) {
@@ -12582,6 +12590,10 @@ int main(int argc, char** argv) {
           goto main_ret_INVALID_CMDLINE;
         }
       }
+    }
+    if (unlikely((make_plink2_flags & kfMakePlink2FillMissingWithRef) && (!(pc.command_flags1 & kfCommand1MakePlink2)))) {
+      logerrputs("Error: --fill-missing-with-ref must be used with --make-[b]pgen/--make-bed.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
     if (pc.fa_fname && (((make_plink2_flags & kfMakePvar) && (pc.pvar_psam_flags & (kfPvarColXheader | kfPvarColVcfheader))) || (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf)))) {
       pc.fa_flags |= kfFaScrapeLengths;

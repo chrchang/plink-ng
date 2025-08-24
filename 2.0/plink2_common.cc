@@ -540,6 +540,89 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, u
   } while (widx);
 }
 
+void SetMissingRef(uintptr_t word_ct, uintptr_t* genovec) {
+  // 11 -> 00, nothing else changes
+#ifdef __LP64__
+  const VecW m1 = VCONST_W(kMask5555);
+  VecW* geno_vvec_iter = R_CAST(VecW*, genovec);
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  if (full_vec_ct & 1) {
+    const VecW cur_geno_vword = *geno_vvec_iter;
+    const VecW cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    const VecW cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+  }
+  if (full_vec_ct & 2) {
+    VecW cur_geno_vword = *geno_vvec_iter;
+    VecW cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    VecW cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+    cur_geno_vword = *geno_vvec_iter;
+    cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+  }
+  for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
+    VecW cur_geno_vword = *geno_vvec_iter;
+    VecW cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    VecW cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+    cur_geno_vword = *geno_vvec_iter;
+    cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+    cur_geno_vword = *geno_vvec_iter;
+    cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+    cur_geno_vword = *geno_vvec_iter;
+    cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+  }
+#  ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    uintptr_t geno_word = genovec[base_idx];
+    uintptr_t both_set = geno_word & (geno_word >> 1) & kMask5555;
+    genovec[base_idx] = geno_word ^ (both_set * 3);
+    geno_word = genovec[base_idx + 1];
+    both_set = geno_word & (geno_word >> 1) & kMask5555;
+    genovec[base_idx + 1] = geno_word ^ (both_set * 3);
+  }
+#  endif
+  if (word_ct & 1) {
+    const uintptr_t geno_word = genovec[word_ct - 1];
+    const uintptr_t both_set = geno_word & (geno_word >> 1) & kMask5555;
+    genovec[word_ct - 1] = geno_word ^ (both_set * 3);
+  }
+#else
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+    const uintptr_t geno_word = genovec[widx];
+    const uintptr_t both_set = geno_word & (geno_word >> 1) & kMask5555;
+    genovec[widx] = geno_word ^ (both_set * 3);
+  }
+#endif
+}
+
+void SetMissingRefDosage(const uintptr_t* __restrict dosagepresent, uintptr_t sample_ct, uintptr_t* __restrict genovec) {
+  const uintptr_t word_ct = NypCtToWordCt(sample_ct);
+  const Halfword* dosagepresent_hw = DowncastKWToHW(dosagepresent);
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+    const uintptr_t geno_word = genovec[widx];
+    const Halfword dosage_hw = dosagepresent_hw[widx];
+    uintptr_t dosage_missing = geno_word & (geno_word >> 1) & kMask5555;
+#ifdef USE_AVX2
+    dosage_missing &= ~UnpackHalfwordToWord(dosage_hw);
+#else
+    if (dosage_hw) {
+      dosage_missing &= ~UnpackHalfwordToWord(dosage_hw);
+    }
+#endif
+    genovec[widx] = geno_word ^ (dosage_missing * 3);
+  }
+}
+
 // These functions may move to pgenlib_misc later.
 uint32_t CountMissingVec6(const VecW* __restrict geno_vvec, uint32_t vec_ct) {
   assert(!(vec_ct % 6));
@@ -2143,6 +2226,20 @@ uint32_t GetChrCodeRaw(const char* str_iter) {
           // accept '0X', '0Y', '0M' emitted by Oxford software
           return SingleCapLetterChrCode(second_char_code & 0xdf);
         }
+      } else if (((second_char_code - 48) < 10) && ((third_char_code - 48) < 10)) {
+        // bugfix (23 Aug 2025): we don't want to return UINT32_MAXM1 on contig
+        // names like chr1_KI270706v1_random .  We only want to do so for large
+        // numbers.
+        str_iter = &(str_iter[3]);
+        while (1) {
+          const uint32_t char_code = ctou32(*str_iter++);
+          if (char_code <= ' ') {
+            return UINT32_MAXM1;
+          }
+          if ((char_code - 48) >= 10) {
+            break;
+          }
+        }
       }
 #else
       const uint32_t second_char_toui = second_char_code - '0';
@@ -2150,10 +2247,24 @@ uint32_t GetChrCodeRaw(const char* str_iter) {
         if (third_char_code <= ' ') {
           return first_char_toui * 10 + second_char_toui;
         }
-        if (ctou32(str_iter[3]) <= ' ') {
-          const uint32_t third_char_toui = third_char_code - '0';
-          if (third_char_toui < 10) {
+        const uint32_t third_char_toui = third_char_code - '0';
+        if (third_char_toui < 10) {
+          str_iter = &(str_iter[3]);
+          const uint32_t fourth_char_code = ctou32(str_iter[3]);
+          if (fourth_char_code <= ' ') {
             return first_char_toui * 100 + second_char_toui * 10 + third_char_toui;
+          }
+          if ((fourth_char_code - 48) < 10) {
+            str_iter = &(str_iter[4]);
+            while (1) {
+              const uint32_t char_code = ctou32(*str_iter++);
+              if (char_code <= ' ') {
+                return UINT32_MAXM1;
+              }
+              if ((char_code - 48) >= 10) {
+                break;
+              }
+            }
           }
         }
       } else {
@@ -2164,7 +2275,7 @@ uint32_t GetChrCodeRaw(const char* str_iter) {
       }
 #endif
     }
-    return UINT32_MAXM1;
+    return UINT32_MAX;
   }
   first_char_code &= 0xdf;
   uint32_t second_char_code = ctou32(str_iter[1]);

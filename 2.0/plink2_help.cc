@@ -2471,6 +2471,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            (as determined from hardcalls) to missing.  All\n"
 "                            associated dosages are also erased.\n"
               );
+    HelpPrint("fill-missing-with-ref\0fill-missing-a2\0", &help_ctrl, 0,
+"  --fill-missing-with-ref : Make --make-[b]pgen/--make-bed replace all missing\n"
+"                            dosages with homozygous-REF.\n"
+              );
     HelpPrint("split-par\0merge-par\0split-x\0merge-x\0vcf\0bcf\0", &help_ctrl, 0,
 "  --split-par <bp1> <bp2> : Changes chromosome code of all X chromosome\n"
 "  --split-par <build>       variants with bp position <= bp1 to PAR1, and those\n"

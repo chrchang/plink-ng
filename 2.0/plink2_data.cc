@@ -5713,7 +5713,7 @@ FLAGSET_DEF_START()
   kfPlink2WriteSetMixedMtMissing = (1 << 2),
   kfPlink2WriteSetMixedMtMissingKeepDosage = (1 << 3),
   kfPlink2WriteSetMeMissing = (1 << 4),
-  kfPlink2WriteFillRef = (1 << 5),
+  kfPlink2WriteFillMissingWithRef = (1 << 5),
   kfPlink2WriteLateDosageErase = (1 << 6),
   kfPlink2WriteFillMissingFromDosage = (1 << 7),
   // no need for sample_sort, determined by collapsed_sort_map != nullptr?
@@ -5799,6 +5799,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
   const uint32_t set_invalid_haploid_missing = plink2_write_flags & kfPlink2WriteSetInvalidHaploidMissing;
   const uint32_t set_mixed_mt_missing = plink2_write_flags & kfPlink2WriteSetMixedMtMissing;
   const uint32_t set_me_missing = plink2_write_flags & kfPlink2WriteSetMeMissing;
+  const uint32_t fill_missing_with_ref = plink2_write_flags & kfPlink2WriteFillMissingWithRef;
   const uint32_t write_plink1 = plink2_write_flags & kfPlink2WritePlink1;
   const uint32_t sample_ct = mcp->sample_ct;
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
@@ -5925,7 +5926,9 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
         ++zero_cluster_entries_iter;
         next_zero_cluster_idx = (*zero_cluster_entries_iter >> 32) - variant_idx_offset;
       }
-      // todo: --fill-missing-with-ref
+      if (fill_missing_with_ref) {
+        SetMissingRef(sample_ctl2, genovec);
+      }
       if (write_plink1) {
         PgrPlink2ToPlink1InplaceUnsafe(sample_ct, genovec);
       }
@@ -6319,6 +6322,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   const uint32_t set_mixed_mt_missing = plink2_write_flags & kfPlink2WriteSetMixedMtMissing;
   const uint32_t set_mixed_mt_missing_keep_dosage = plink2_write_flags & kfPlink2WriteSetMixedMtMissingKeepDosage;
   const uint32_t set_me_missing = plink2_write_flags & kfPlink2WriteSetMeMissing;
+  const uint32_t fill_missing_with_ref = plink2_write_flags & kfPlink2WriteFillMissingWithRef;
   const uint32_t late_dosage_erase = plink2_write_flags & kfPlink2WriteLateDosageErase;
   const uint32_t fill_missing_from_dosage = plink2_write_flags & kfPlink2WriteFillMissingFromDosage;
 
@@ -6881,7 +6885,13 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           EraseDphases(erase_map, &write_dphase_ct, write_dphasepresent, write_dphasedeltas);
         }
       }
-      // TODO: --fill-missing-with-ref
+      if (fill_missing_with_ref) {
+        if (!write_dosage_ct) {
+          SetMissingRef(sample_ctl2, write_genovec);
+        } else {
+          SetMissingRefDosage(write_dosagepresent, sample_ct, write_genovec);
+        }
+      }
       ZeroTrailingNyps(sample_ct, write_genovec);
       if (spgwp) {
         if (pwcp->fwrite_bufp >= &(pwcp->fwrite_buf[kPglFwriteBlockSize])) {
@@ -6967,7 +6977,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
   MakePgenCtx ctx;
   {
     // plink2_write_flags assumed to be initialized w.r.t. --set-hh-missing,
-    //   --set-mixed-mt-missing, and --set-me-missing
+    //   --set-mixed-mt-missing, --set-me-missing, and --fill-missing-with-ref
     // sex_{fe}male_collapsed_interleaved assumed to be initialized if
     //   necessary
 
@@ -8092,6 +8102,9 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       if (make_plink2_flags & kfMakePlink2SetMixedMtMissingKeepDosage) {
         mc.plink2_write_flags |= kfPlink2WriteSetMixedMtMissingKeepDosage;
       }
+    }
+    if (make_plink2_flags & kfMakePlink2FillMissingWithRef) {
+      mc.plink2_write_flags |= kfPlink2WriteFillMissingWithRef;
     }
     mc.cip = cip;
     mc.raw_sample_ct = raw_sample_ct;
@@ -10227,6 +10240,9 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
       }
       if (make_plink2_flags & kfMakePlink2SetMixedMtMissing) {
         mc.plink2_write_flags |= kfPlink2WriteSetMixedMtMissing;
+      }
+      if (make_plink2_flags & kfMakePlink2FillMissingWithRef) {
+        mc.plink2_write_flags |= kfPlink2WriteFillMissingWithRef;
       }
       mc.cip = &write_chr_info;
       const uint32_t trim_alts = (make_plink2_flags / kfMakePlink2TrimAlts) & 1;
