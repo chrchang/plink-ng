@@ -2249,7 +2249,6 @@ uint32_t GetChrCodeRaw(const char* str_iter) {
         }
         const uint32_t third_char_toui = third_char_code - '0';
         if (third_char_toui < 10) {
-          str_iter = &(str_iter[3]);
           const uint32_t fourth_char_code = ctou32(str_iter[3]);
           if (fourth_char_code <= ' ') {
             return first_char_toui * 100 + second_char_toui * 10 + third_char_toui;
