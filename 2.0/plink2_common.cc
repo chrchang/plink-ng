@@ -2088,6 +2088,20 @@ uint32_t GetChrCodeRaw(const char* str_iter) {
           // accept '0X', '0Y', '0M' emitted by Oxford software
           return SingleCapLetterChrCode(second_char_code & 0xdf);
         }
+      } else if (((second_char_code - 48) < 10) && ((third_char_code - 48) < 10)) {
+        // bugfix (23 Aug 2025): we don't want to return UINT32_MAXM1 on contig
+        // names like chr1_KI270706v1_random .  We only want to do so for large
+        // numbers.
+        str_iter = &(str_iter[3]);
+        while (1) {
+          const uint32_t char_code = ctou32(*str_iter++);
+          if (char_code <= ' ') {
+            return UINT32_MAXM1;
+          }
+          if ((char_code - 48) >= 10) {
+            break;
+          }
+        }
       }
 #else
       const uint32_t second_char_toui = second_char_code - '0';
@@ -2095,10 +2109,23 @@ uint32_t GetChrCodeRaw(const char* str_iter) {
         if (third_char_code <= ' ') {
           return first_char_toui * 10 + second_char_toui;
         }
-        if (ctou32(str_iter[3]) <= ' ') {
-          const uint32_t third_char_toui = third_char_code - '0';
-          if (third_char_toui < 10) {
+        const uint32_t third_char_toui = third_char_code - '0';
+        if (third_char_toui < 10) {
+          const uint32_t fourth_char_code = ctou32(str_iter[3]);
+          if (fourth_char_code <= ' ') {
             return first_char_toui * 100 + second_char_toui * 10 + third_char_toui;
+          }
+          if ((fourth_char_code - 48) < 10) {
+            str_iter = &(str_iter[4]);
+            while (1) {
+              const uint32_t char_code = ctou32(*str_iter++);
+              if (char_code <= ' ') {
+                return UINT32_MAXM1;
+              }
+              if ((char_code - 48) >= 10) {
+                break;
+              }
+            }
           }
         }
       } else {
@@ -2109,7 +2136,7 @@ uint32_t GetChrCodeRaw(const char* str_iter) {
       }
 #endif
     }
-    return UINT32_MAXM1;
+    return UINT32_MAX;
   }
   first_char_code &= 0xdf;
   uint32_t second_char_code = ctou32(str_iter[1]);
