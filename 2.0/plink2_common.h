@@ -476,7 +476,11 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* wr
 
 void SetMissingRef(uintptr_t word_ct, uintptr_t* genovec);
 
+void SetMissingRefY(const uintptr_t* __restrict sex_female_interleaved, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec);
+
 void SetMissingRefDosage(const uintptr_t* __restrict dosagepresent, uintptr_t sample_ct, uintptr_t* __restrict genovec);
+
+void SetMissingRefDosageY(const uintptr_t* __restrict sex_female, const uintptr_t* __restrict dosagepresent, uintptr_t sample_ct, uintptr_t* __restrict genovec);
 
 uint32_t GenoarrCountMissingUnsafe(const uintptr_t* genoarr, uint32_t sample_ct);
 

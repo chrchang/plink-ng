@@ -92,7 +92,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (24 Aug 2025)";
+  " (25 Aug 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -6337,9 +6337,6 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1Fst;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "ill-missing-with-ref")) {
-          logerrputs("Error: --fill-missing-with-ref is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto main_ret_1;
           make_plink2_flags |= kfMakePlink2FillMissingWithRef;
           goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "amily-missing-catname"))) {

@@ -5665,6 +5665,7 @@ PglErr ZeroClusterInit(const uintptr_t* sample_include, const uint32_t* new_samp
         if (IsSet(seen_cats, cat_idx)) {
           const uint32_t new_idx = old_sample_uidx_to_new? old_sample_uidx_to_new[sample_uidx] : sample_idx;
           SetBit(new_idx, zero_cluster_bitmasks[cat_idx]);
+          // possible todo: replace genomask with interleaved_vec
           SetNyparrEntryTo3(new_idx, zero_cluster_genomasks[cat_idx]);
         }
       }
@@ -5927,7 +5928,11 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
         next_zero_cluster_idx = (*zero_cluster_entries_iter >> 32) - variant_idx_offset;
       }
       if (fill_missing_with_ref) {
-        SetMissingRef(sample_ctl2, genovec);
+        if (!is_y) {
+          SetMissingRef(sample_ctl2, genovec);
+        } else {
+          SetMissingRefY(sex_female_collapsed_interleaved, sample_ctv2, genovec);
+        }
       }
       if (write_plink1) {
         PgrPlink2ToPlink1InplaceUnsafe(sample_ct, genovec);
@@ -6887,9 +6892,17 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       }
       if (fill_missing_with_ref) {
         if (!write_dosage_ct) {
-          SetMissingRef(sample_ctl2, write_genovec);
+          if (!is_y) {
+            SetMissingRef(sample_ctl2, write_genovec);
+          } else {
+            SetMissingRefY(sex_female_collapsed_interleaved, sample_ctv2, write_genovec);
+          }
         } else {
-          SetMissingRefDosage(write_dosagepresent, sample_ct, write_genovec);
+          if (!is_y) {
+            SetMissingRefDosage(write_dosagepresent, sample_ct, write_genovec);
+          } else {
+            SetMissingRefDosageY(sex_female_collapsed, write_dosagepresent, sample_ct, write_genovec);
+          }
         }
       }
       ZeroTrailingNyps(sample_ct, write_genovec);
@@ -8043,18 +8056,17 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
     mc.plink2_write_flags = kfPlink2Write0;
     PreinitFamilyInfo(&mc.family_info);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-    if (make_plink2_flags & (kfMakePlink2SetInvalidHaploidMissing | kfMakePlink2SetMeMissing)) {
+    if (make_plink2_flags & (kfMakePlink2SetInvalidHaploidMissing | kfMakePlink2SetMeMissing | kfMakePlink2FillMissingWithRef)) {
       const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
       uintptr_t* new_sex_female;
-      if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_male_collapsed) ||
-                   bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_male_collapsed_interleaved) ||
-                   bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_female) ||
-                   bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_female_collapsed_interleaved))) {
+      if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_female) ||
+                   bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_female_collapsed_interleaved) ||
+                   bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_male_collapsed) ||
+                   bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_male_collapsed_interleaved))) {
         goto MakePlink2NoVsort_ret_NOMEM;
       }
       CopyBitarrSubset(sex_male, sample_include, sample_ct, mc.sex_male_collapsed);
       ZeroTrailingWords(sample_ctl, mc.sex_male_collapsed);
-      FillInterleavedMaskVec(mc.sex_male_collapsed, sample_ctv, mc.sex_male_collapsed_interleaved);
 
       CopyBitarrSubset(sex_nm, sample_include, sample_ct, new_sex_female);
       BitvecInvmask(mc.sex_male_collapsed, sample_ctl, new_sex_female);
@@ -8062,28 +8074,37 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       ctx.sex_female_collapsed = new_sex_female;
       FillInterleavedMaskVec(ctx.sex_female_collapsed, sample_ctv, mc.sex_female_collapsed_interleaved);
 
-      if (make_plink2_flags & kfMakePlink2SetInvalidHaploidMissing) {
-        mc.plink2_write_flags |= kfPlink2WriteSetInvalidHaploidMissing;
-        if (make_plink2_flags & kfMakePlink2SetInvalidHaploidMissingKeepDosage) {
-          mc.plink2_write_flags |= kfPlink2WriteSetInvalidHaploidMissingKeepDosage;
+      if (make_plink2_flags & (kfMakePlink2SetInvalidHaploidMissing | kfMakePlink2SetMeMissing)) {
+        FillInterleavedMaskVec(mc.sex_male_collapsed, sample_ctv, mc.sex_male_collapsed_interleaved);
+
+        if (make_plink2_flags & kfMakePlink2SetInvalidHaploidMissing) {
+          mc.plink2_write_flags |= kfPlink2WriteSetInvalidHaploidMissing;
+          if (make_plink2_flags & kfMakePlink2SetInvalidHaploidMissingKeepDosage) {
+            mc.plink2_write_flags |= kfPlink2WriteSetInvalidHaploidMissingKeepDosage;
+          }
+        } else {
+          assert(make_plink2_flags & kfMakePlink2SetMeMissing);
+          mc.plink2_write_flags |= kfPlink2WriteSetMeMissing;
+          if (new_sample_idx_to_old) {
+            logerrputs("Error: --indiv-sort + --set-me-missing is not implemented yet; split this\nacross two runs for now.\n");
+            reterr = kPglRetNotYetSupported;
+            goto MakePlink2NoVsort_ret_1;
+          }
+          reterr = GetTriosAndFamilies(sample_include, piip, founder_info, sex_nm, sex_male, raw_sample_ct, mendel_duos? kfTrioDuos : kfTrio0, &sample_ct, nullptr, &mc.family_info);
+          if (unlikely(reterr)) {
+            goto MakePlink2NoVsort_ret_1;
+          }
         }
       } else {
-        assert(make_plink2_flags & kfMakePlink2SetMeMissing);
-        mc.plink2_write_flags |= kfPlink2WriteSetMeMissing;
-        if (new_sample_idx_to_old) {
-          logerrputs("Error: --indiv-sort + --set-me-missing is not implemented yet; split this\nacross two runs for now.\n");
-          reterr = kPglRetNotYetSupported;
-          goto MakePlink2NoVsort_ret_1;
-        }
-        reterr = GetTriosAndFamilies(sample_include, piip, founder_info, sex_nm, sex_male, raw_sample_ct, mendel_duos? kfTrioDuos : kfTrio0, &sample_ct, nullptr, &mc.family_info);
-        if (unlikely(reterr)) {
-          goto MakePlink2NoVsort_ret_1;
-        }
+        BigstackReset(mc.sex_male_collapsed);
+        mc.sex_male_collapsed = nullptr;
+        mc.sex_male_collapsed_interleaved = nullptr;
       }
     } else {
       // defensive
       mc.sex_male_collapsed = nullptr;
       mc.sex_male_collapsed_interleaved = nullptr;
+      ctx.sex_female_collapsed = nullptr;
       mc.sex_female_collapsed_interleaved = nullptr;
     }
     mc.write_allele_permute = allele_permute;
@@ -10199,38 +10220,44 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
       mc.female_ct = sample_ct - male_ct - nosex_ct;
       PreinitFamilyInfo(&mc.family_info);
       uintptr_t* sex_female_collapsed = nullptr;
-      if (make_plink2_flags & (kfMakePlink2SetInvalidHaploidMissing | kfMakePlink2SetMeMissing)) {
+      if (make_plink2_flags & (kfMakePlink2SetInvalidHaploidMissing | kfMakePlink2SetMeMissing | kfMakePlink2FillMissingWithRef)) {
         const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
         const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-        if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_male_collapsed) ||
-                     bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_male_collapsed_interleaved) ||
-                     bigstack_alloc_w(sample_ctv * kWordsPerVec, &sex_female_collapsed) ||
-                     bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_female_collapsed_interleaved))) {
+        if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, &sex_female_collapsed) ||
+                     bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_female_collapsed_interleaved) ||
+                     bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_male_collapsed) ||
+                     bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_male_collapsed_interleaved))) {
           goto MakePlink2Vsort_ret_NOMEM;
         }
         CopyBitarrSubset(sex_male, sample_include, sample_ct, mc.sex_male_collapsed);
         ZeroTrailingWords(sample_ctl, mc.sex_male_collapsed);
-        FillInterleavedMaskVec(mc.sex_male_collapsed, sample_ctv, mc.sex_male_collapsed_interleaved);
 
         CopyBitarrSubset(sex_nm, sample_include, sample_ct, sex_female_collapsed);
         BitvecInvmask(mc.sex_male_collapsed, sample_ctl, sex_female_collapsed);
         ZeroTrailingWords(sample_ctl, sex_female_collapsed);
         FillInterleavedMaskVec(sex_female_collapsed, sample_ctv, mc.sex_female_collapsed_interleaved);
 
-        if (make_plink2_flags & kfMakePlink2SetInvalidHaploidMissing) {
-          mc.plink2_write_flags |= kfPlink2WriteSetInvalidHaploidMissing;
+        if (make_plink2_flags & (kfMakePlink2SetInvalidHaploidMissing | kfMakePlink2SetMeMissing)) {
+          FillInterleavedMaskVec(mc.sex_male_collapsed, sample_ctv, mc.sex_male_collapsed_interleaved);
+          if (make_plink2_flags & kfMakePlink2SetInvalidHaploidMissing) {
+            mc.plink2_write_flags |= kfPlink2WriteSetInvalidHaploidMissing;
+          } else {
+            assert(make_plink2_flags & kfMakePlink2SetMeMissing);
+            mc.plink2_write_flags |= kfPlink2WriteSetMeMissing;
+            if (new_sample_idx_to_old) {
+              logerrputs("Error: --indiv-sort + --set-me-missing is not implemented yet; split this\nacross two runs for now.\n");
+              reterr = kPglRetNotYetSupported;
+              goto MakePlink2Vsort_ret_1;
+            }
+            reterr = GetTriosAndFamilies(sample_include, piip, founder_info, sex_nm, sex_male, raw_sample_ct, mendel_duos? kfTrioDuos : kfTrio0, &sample_ct, nullptr, &mc.family_info);
+            if (unlikely(reterr)) {
+              goto MakePlink2Vsort_ret_1;
+            }
+          }
         } else {
-          assert(make_plink2_flags & kfMakePlink2SetMeMissing);
-          mc.plink2_write_flags |= kfPlink2WriteSetMeMissing;
-          if (new_sample_idx_to_old) {
-            logerrputs("Error: --indiv-sort + --set-me-missing is not implemented yet; split this\nacross two runs for now.\n");
-            reterr = kPglRetNotYetSupported;
-            goto MakePlink2Vsort_ret_1;
-          }
-          reterr = GetTriosAndFamilies(sample_include, piip, founder_info, sex_nm, sex_male, raw_sample_ct, mendel_duos? kfTrioDuos : kfTrio0, &sample_ct, nullptr, &mc.family_info);
-          if (unlikely(reterr)) {
-            goto MakePlink2Vsort_ret_1;
-          }
+          BigstackReset(mc.sex_male_collapsed);
+          mc.sex_male_collapsed = nullptr;
+          mc.sex_male_collapsed_interleaved = nullptr;
         }
       } else {
         // defensive

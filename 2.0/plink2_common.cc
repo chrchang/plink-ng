@@ -550,35 +550,35 @@ void SetMissingRef(uintptr_t word_ct, uintptr_t* genovec) {
     const VecW cur_geno_vword = *geno_vvec_iter;
     const VecW cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
     const VecW cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
-    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
   }
   if (full_vec_ct & 2) {
     VecW cur_geno_vword = *geno_vvec_iter;
     VecW cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
     VecW cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
-    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
     cur_geno_vword = *geno_vvec_iter;
     cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
     cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
-    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
   }
   for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
     VecW cur_geno_vword = *geno_vvec_iter;
     VecW cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
     VecW cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
-    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
     cur_geno_vword = *geno_vvec_iter;
     cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
     cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
-    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
     cur_geno_vword = *geno_vvec_iter;
     cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
     cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
-    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
     cur_geno_vword = *geno_vvec_iter;
     cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
     cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
-    *geno_vvec_iter++ = cur_geno_vword ^ cur_geno_vword_high_rshifted ^ cur_geno_vword_low_lshifted;
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
   }
 #  ifdef USE_AVX2
   if (word_ct & 2) {
@@ -605,6 +605,55 @@ void SetMissingRef(uintptr_t word_ct, uintptr_t* genovec) {
 #endif
 }
 
+void SetMissingRefY(const uintptr_t* __restrict sex_female_interleaved, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec) {
+  const uintptr_t twovec_ct = geno_vec_ct / 2;
+#ifdef __LP64__
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m1inv = VCONST_W(kMaskAAAA);
+  const VecW* sex_female_interleaved_iter = R_CAST(const VecW*, sex_female_interleaved);
+  VecW* genovvec_iter = R_CAST(VecW*, genovec);
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const VecW set_vvec = *sex_female_interleaved_iter++;
+    VecW cur_geno_vword = *genovvec_iter;
+    const VecW nonfemale_first = vecw_and_notfirst(set_vvec, m1);
+    VecW high_nonfemale_rshifted = vecw_srli(cur_geno_vword, 1) & nonfemale_first;
+    VecW low_nonfemale_lshifted = vecw_slli(cur_geno_vword & nonfemale_first, 1);
+    *genovvec_iter++ = vecw_and_notfirst(high_nonfemale_rshifted | low_nonfemale_lshifted, cur_geno_vword);
+    const VecW nonfemale_second_lshifted = vecw_and_notfirst(set_vvec, m1inv);
+    cur_geno_vword = *genovvec_iter;
+    high_nonfemale_rshifted = vecw_srli(cur_geno_vword & nonfemale_second_lshifted, 1);
+    low_nonfemale_lshifted = vecw_slli(cur_geno_vword, 1) & nonfemale_second_lshifted;
+    *genovvec_iter++ = vecw_and_notfirst(high_nonfemale_rshifted | low_nonfemale_lshifted, cur_geno_vword);
+  }
+  if (geno_vec_ct & 1) {
+    const VecW set_first = *sex_female_interleaved_iter;
+    const VecW cur_geno_vword = *genovvec_iter;
+    const VecW nonfemale_first = vecw_and_notfirst(set_first, m1);
+    const VecW high_nonfemale_rshifted = vecw_srli(cur_geno_vword, 1) & nonfemale_first;
+    const VecW low_nonfemale_lshifted = vecw_slli(cur_geno_vword & nonfemale_first, 1);
+    *genovvec_iter = vecw_and_notfirst(high_nonfemale_rshifted | low_nonfemale_lshifted, cur_geno_vword);
+  }
+#else
+  const uintptr_t* sex_female_interleaved_iter = sex_female_interleaved;
+  uintptr_t* genovec_iter = genovec;
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const uintptr_t set_word = *sex_female_interleaved_iter++;
+    uintptr_t geno_word = *genovec_iter;
+    uintptr_t both_set_and_nonfemale = geno_word & (geno_word >> 1) & kMask5555 & (~set_word);
+    *genovec_iter++ = geno_word ^ (both_set_and_nonfemale * 3);
+    geno_word = *genovec_iter;
+    both_set_and_nonfemale = geno_word & kMask5555 & ((geno_word & (~set_word)) >> 1);
+    *genovec_iter++ = geno_word ^ (both_set_and_nonfemale * 3);
+  }
+  if (geno_vec_ct & 1) {
+    const uintptr_t set_word = *sex_female_interleaved_iter;
+    const uintptr_t geno_word = *genovec_iter;
+    const uintptr_t both_set_and_nonfemale  = geno_word & (geno_word >> 1) & kMask5555 & (~set_word);
+    *genovec_iter = geno_word ^ (both_set_and_nonfemale * 3);
+  }
+#endif
+}
+
 void SetMissingRefDosage(const uintptr_t* __restrict dosagepresent, uintptr_t sample_ct, uintptr_t* __restrict genovec) {
   const uintptr_t word_ct = NypCtToWordCt(sample_ct);
   const Halfword* dosagepresent_hw = DowncastKWToHW(dosagepresent);
@@ -615,10 +664,23 @@ void SetMissingRefDosage(const uintptr_t* __restrict dosagepresent, uintptr_t sa
 #ifdef USE_AVX2
     dosage_missing &= ~UnpackHalfwordToWord(dosage_hw);
 #else
-    if (dosage_hw) {
+    if (!dosage_hw) {
       dosage_missing &= ~UnpackHalfwordToWord(dosage_hw);
     }
 #endif
+    genovec[widx] = geno_word ^ (dosage_missing * 3);
+  }
+}
+
+void SetMissingRefDosageY(const uintptr_t* __restrict sex_female, const uintptr_t* __restrict dosagepresent, uintptr_t sample_ct, uintptr_t* __restrict genovec) {
+  const uintptr_t word_ct = NypCtToWordCt(sample_ct);
+  const Halfword* sex_female_hw = DowncastKWToHW(sex_female);
+  const Halfword* dosagepresent_hw = DowncastKWToHW(dosagepresent);
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+    const uintptr_t geno_word = genovec[widx];
+    const Halfword female_or_dosage_hw = sex_female_hw[widx] | dosagepresent_hw[widx];
+    uintptr_t dosage_missing = geno_word & (geno_word >> 1) & kMask5555;
+    dosage_missing &= ~UnpackHalfwordToWord(female_or_dosage_hw);
     genovec[widx] = geno_word ^ (dosage_missing * 3);
   }
 }
