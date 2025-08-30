@@ -97,7 +97,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.9.0-b.7.11"
+  "PLINK v1.9.0-b.7.11.a"
 #else
   "PLINK v1.9.0-b.8"
 #endif
@@ -109,19 +109,19 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (21 Aug 2025)";
+  " (30 Aug 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
 #ifdef STABLE_BUILD
   " " // adjust based on length of version number
 #else
-  "    "
+  "      "
 #endif
 #ifndef NOLAPACK
   "  "
 #endif
-  "        cog-genomics.org/plink/1.9/\n"
+  "      cog-genomics.org/plink/1.9/\n"
   "(C) 2005-2025 Shaun Purcell, Christopher Chang   GNU General Public License v3"
 #if SPECIES_DEFAULT > 0
   "\nRecompiled with default species = "
@@ -6792,6 +6792,10 @@ int32_t main(int32_t argc, char** argv) {
 	  // fix for this is too messy to be worthwhile
 	  logerrprint("Error: --flip-subset cannot be used with --allele1234/ACGT.\n");
 	  goto main_ret_INVALID_CMDLINE;
+	} else if (misc_flags & MISC_FILL_MISSING_A2) {
+          // bugfix (30 Aug 2025): this wasn't correctly enforced
+	  logerrprint("Error: --fill-missing-a2 cannot be used with --flip-subset.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -6927,9 +6931,6 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ill-missing-a2", 15)) {
 	if (load_rare & LOAD_RARE_CNV) {
 	  logerrprint("Error: --fill-missing-a2 cannot be used with a .cnv fileset.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	} else if (flip_subset_fname) {
-	  logerrprint("Error: --fill-missing-a2 cannot be used with --flip-subset.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	misc_flags |= MISC_FILL_MISSING_A2;
