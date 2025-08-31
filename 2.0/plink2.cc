@@ -92,7 +92,7 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (25 Aug 2025)";
+  " (30 Aug 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -420,6 +420,7 @@ typedef struct Plink2CmdlineStruct {
   PhenoSvdInfo pheno_svd_info;
   CheckSexInfo check_sex_info;
   MendelInfo mendel_info;
+  FlipInfo flip_info;
   double ci_size;
   float var_min_qual;
   uint32_t splitpar_bound1;
@@ -1358,7 +1359,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // because it would be too weird for it to be in a different position than
     // --update-name in the order of operations.
     const uint32_t htable_needed_early = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct);
-    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params);
+    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params || (pcp->flip_info.fname && (!pcp->flip_info.subset_fname)));
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, pcp->bed_border_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1444,7 +1445,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (extract_exclude_by_id || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0)) {
+          if (extract_exclude_by_id || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0) || (pcp->flip_info.fname && (!pcp->flip_info.subset_fname))) {
             // Must (re)construct the hash table in this case.
             BigstackReset(bigstack_mark);
             dup_ct = 0;
@@ -1457,6 +1458,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
         if (pcp->update_alleles_info.fname) {
           reterr = UpdateVarAlleles(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, allele_idx_offsets, &(pcp->update_alleles_info), raw_variant_ct, max_variant_id_slen, variant_id_htable_size, max_allele_ct, pcp->input_missing_geno_char, pcp->max_thread_ct, allele_storage_mutable, &max_allele_slen, outname, outname_end);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
+
+        if (pcp->flip_info.fname && (!pcp->flip_info.subset_fname)) {
+          reterr = FlipAlleles(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, allele_idx_offsets, &(pcp->flip_info), raw_variant_ct, variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, allele_storage_mutable);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -3576,6 +3584,7 @@ int main(int argc, char** argv) {
   InitPhenoSvd(&pc.pheno_svd_info);
   InitCheckSex(&pc.check_sex_info);
   InitMendel(&pc.mendel_info);
+  InitFlip(&pc.flip_info);
   GenDummyInfo gendummy_info;
   InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
@@ -6339,6 +6348,46 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "ill-missing-with-ref")) {
           make_plink2_flags |= kfMakePlink2FillMissingWithRef;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "lip")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t fname_idx = 1;
+          if (param_ct == 2) {
+            if (unlikely(CheckExtraParam(&(argvk[arg_idx]), "permissive", &fname_idx))) {
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            pc.flip_info.flags |= kfFlipPermissive;
+          }
+          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, &pc.flip_info.fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "lip-subset")) {
+          if (unlikely(!pc.flip_info.fname)) {
+            logerrputs("Error: --flip-subset must be used with --flip.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(make_plink2_flags & kfMakePlink2FillMissingWithRef)) {
+            logerrputs("Error: --flip-subset cannot be used with --fill-missing-with-ref.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.allele_alphanum_flags != kfAlleleAlphanum0)) {
+            logerrputs("Error: --flip-subset cannot be used with --allele1234/--alleleACGT.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.flip_info.subset_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          logerrputs("Error: --flip-subset is under development.\n");
+          reterr = kPglRetNotYetSupported;
+          goto main_ret_1;
+          pc.filter_flags |= kfFilterAllReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "amily-missing-catname"))) {
           if (unlikely(!(pc.misc_flags & kfMiscCatPhenoFamily))) {
             logerrputs("Error: --family-missing-catname must be used with --family.\n");
@@ -6367,6 +6416,13 @@ int main(int argc, char** argv) {
 
       case 'g':
         if (strequal_k_unsafe(flagname_p2, "eno")) {
+          if (unlikely(make_plink2_flags & kfMakePlink2FillMissingWithRef)) {
+            // While --geno/--mind technically makes more sense before
+            // --fill-missing-with-ref than after it, it doesn't really make
+            // sense to use them together at all.
+            logerrputs("Error: --geno/--mind cannot be used with --fill-missing-with-ref.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6879,6 +6935,10 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1Hardy;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "we")) {
+          if (unlikely(pc.flip_info.subset_fname || (make_plink2_flags & kfMakePlink2FillMissingWithRef))) {
+            logerrputs("Error: --hwe cannot be used with --fill-missing-with-ref/--flip-subset.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8534,6 +8594,10 @@ int main(int argc, char** argv) {
           pc.misc_flags |= kfMiscMajRef;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
         } else if (strequal_k_unsafe(flagname_p2, "af")) {
+          if (unlikely(pc.flip_info.subset_fname || (make_plink2_flags & kfMakePlink2FillMissingWithRef))) {
+            logerrputs("Error: --maf cannot be used with --fill-missing-with-ref/--flip-subset.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8585,6 +8649,10 @@ int main(int argc, char** argv) {
             pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
           }
         } else if (strequal_k_unsafe(flagname_p2, "ax-maf")) {
+          if (unlikely(pc.flip_info.subset_fname || (make_plink2_flags & kfMakePlink2FillMissingWithRef))) {
+            logerrputs("Error: --max-maf cannot be used with --fill-missing-with-ref/--flip-subset.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8626,6 +8694,10 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
         } else if (strequal_k_unsafe(flagname_p2, "ac")) {
+          if (unlikely(pc.flip_info.subset_fname || (make_plink2_flags & kfMakePlink2FillMissingWithRef))) {
+            logerrputs("Error: --mac cannot be used with --fill-missing-with-ref/--flip-subset.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8670,6 +8742,10 @@ int main(int argc, char** argv) {
             pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
           }
         } else if (strequal_k_unsafe(flagname_p2, "ax-mac")) {
+          if (unlikely(pc.flip_info.subset_fname || (make_plink2_flags & kfMakePlink2FillMissingWithRef))) {
+            logerrputs("Error: --max-mac cannot be used with --fill-missing-with-ref/--flip-subset.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8711,6 +8787,10 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
         } else if (strequal_k_unsafe(flagname_p2, "ind")) {
+          if (unlikely(make_plink2_flags & kfMakePlink2FillMissingWithRef)) {
+            logerrputs("Error: --geno/--mind cannot be used with --fill-missing-with-ref.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8798,6 +8878,10 @@ int main(int argc, char** argv) {
             logerrputs("Error: --freq minimac3r2 output and --mach-r2-filter cannot be used together.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (unlikely(pc.flip_info.subset_fname || (make_plink2_flags & kfMakePlink2FillMissingWithRef))) {
+            logerrputs("Error: --mach-r2-filter cannot be used with\n--fill-missing-with-ref/--flip-subset.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8836,6 +8920,10 @@ int main(int argc, char** argv) {
           }
           if (unlikely(pc.freq_rpt_flags & kfAlleleFreqColMachR2)) {
             logerrputs("Error: --freq machr2 output and --minimac3-r2-filter cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.flip_info.subset_fname || (make_plink2_flags & kfMakePlink2FillMissingWithRef))) {
+            logerrputs("Error: --minimac3-r2-filter cannot be used with\n--fill-missing-with-ref/--flip-subset.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
@@ -11659,6 +11747,10 @@ int main(int argc, char** argv) {
             logerrputs("Error: --set-me-missing cannot be used with --set-invalid-haploid-missing.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (unlikely(pc.flip_info.subset_fname)) {
+            logerrputs("Error: --set-me-missing cannot be used with --flip-subset.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           make_plink2_flags |= kfMakePlink2SetMeMissing;
           goto main_param_zero;
         } else if (unlikely(!strequal_k_unsafe(flagname_p2, "ilent"))) {
@@ -12473,6 +12565,18 @@ int main(int argc, char** argv) {
             logerrputs("Error: --zero-cluster must be used with --make-[b]pgen/--make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (unlikely((pc.geno_thresh != 1.0) ||
+                       (pc.mind_thresh != 1.0) ||
+                       (pc.hwe_ln_thresh != DBL_MAX) ||
+                       (pc.min_maf != 0.0) ||
+                       (pc.max_maf != 1.0) ||
+                       pc.min_allele_ddosage ||
+                       (pc.max_allele_ddosage != (~0LLU)) ||
+                       (pc.mach_r2_max != 0.0) ||
+                       (pc.minimac3_r2_max != 0.0))) {
+            logerrputs("Error: --zero-cluster cannot be used with genotype-based filters.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -12573,6 +12677,10 @@ int main(int argc, char** argv) {
         logerrputs("Errpr: --set-invalid-haploid-missing/--set-mixed-mt-missing/--set-me-missing/\n--fill-missing-with-ref must be used with --make-[b]pgen/--make-bed and no\nother non-merge commands.\n");
         goto main_ret_INVALID_CMDLINE;
       }
+      if (unlikely(pc.flip_info.subset_fname)) {
+        logerrputs("Error: --flip-subset must be used with --flip, --make-[b]pgen/--make-bed, and\nno other non-merge commands.\n");
+        goto main_ret_INVALID_CMDLINE;
+      }
       if (unlikely(pc.zero_cluster_fname)) {
         logerrputs("Error: --zero-cluster must be used with --make-[b]pgen/--make-bed and no other\nnon-merge commands.\n");
         goto main_ret_INVALID_CMDLINE;
@@ -12588,9 +12696,11 @@ int main(int argc, char** argv) {
         }
       }
     }
-    if (unlikely((make_plink2_flags & kfMakePlink2FillMissingWithRef) && (!(pc.command_flags1 & kfCommand1MakePlink2)))) {
-      logerrputs("Error: --fill-missing-with-ref must be used with --make-[b]pgen/--make-bed.\n");
-      goto main_ret_INVALID_CMDLINE_A;
+    if (pc.flip_info.subset_fname || (make_plink2_flags & kfMakePlink2FillMissingWithRef)) {
+      if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
+        logerrprintf("Error: --%s must be used with --make-[b]pgen/--make-bed.\n", pc.flip_info.subset_fname? "flip-subset" : "fill-missing-with-ref");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
     }
     if (pc.fa_fname && (((make_plink2_flags & kfMakePvar) && (pc.pvar_psam_flags & (kfPvarColXheader | kfPvarColVcfheader))) || (pc.exportf_info.flags & (kfExportfVcf | kfExportfBcf)))) {
       pc.fa_flags |= kfFaScrapeLengths;
@@ -13197,6 +13307,7 @@ int main(int argc, char** argv) {
   }
   CleanupChrInfo(&chr_info);
   CleanupGenDummy(&gendummy_info);
+  CleanupFlip(&pc.flip_info);
   CleanupVcor(&pc.vcor_info);
   CleanupClump(&pc.clump_info);
   CleanupGwasSsf(&pc.gwas_ssf_info);

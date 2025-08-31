@@ -200,7 +200,6 @@ FLAGSET_DEF_START()
 FLAGSET_DEF_END(PhenoSvdFlags);
 
 typedef struct PhenoSvdInfoStruct {
-  NONCOPYABLE(PhenoSvdInfoStruct);
   PhenoSvdFlags flags;
   uint32_t ct;
   double min_variance_explained;

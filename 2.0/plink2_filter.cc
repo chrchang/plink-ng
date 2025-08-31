@@ -343,6 +343,8 @@ typedef struct ExtractExcludeCtxStruct {
   uintptr_t* already_seens[kMaxExtractExcludeThreads];
 } ExtractExcludeCtx;
 
+// probable todo: rename and move into plink2_cmdline (or plink2_htable if
+// VariantIdDupHtableFind is also moved).
 THREAD_FUNC_DECL ExtractExcludeThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uintptr_t tidx_p1 = arg->tidx + 1;
@@ -372,10 +374,10 @@ PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* varia
   {
     const uint32_t calc_thread_ct_m1 = MINV(max_thread_ct, kMaxExtractExcludeThreads) - 1;
     if (unlikely(SetThreadCt0(calc_thread_ct_m1, &tg))) {
-      goto ExtractExcludeFlagNorange_ret_NOMEM;
+      goto TokenExtractExclude_ret_NOMEM;
     }
     if (!(*variant_ct_ptr)) {
-      goto ExtractExcludeFlagNorange_ret_1;
+      goto TokenExtractExclude_ret_1;
     }
     uint32_t decompress_thread_ct = 1;
     if (max_thread_ct > calc_thread_ct_m1 + 2) {
@@ -384,7 +386,7 @@ PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* varia
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     for (uint32_t tidx = 0; tidx <= calc_thread_ct_m1; ++tidx) {
       if (unlikely(bigstack_calloc_w(raw_variant_ctl, &(ctx.already_seens[tidx])))) {
-        goto ExtractExcludeFlagNorange_ret_NOMEM;
+        goto TokenExtractExclude_ret_NOMEM;
       }
     }
     if (calc_thread_ct_m1) {
@@ -401,12 +403,12 @@ PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* varia
         fname_tks = fnames_iter;
         reterr = InitTokenStream(fnames_iter, decompress_thread_ct, &tks);
         if (unlikely(reterr)) {
-          goto ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL;
+          goto TokenExtractExclude_ret_TKSTREAM_FAIL;
         }
       } else {
         reterr = TokenStreamRetarget(fnames_iter, &tks);
         if (unlikely(reterr)) {
-          goto ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL;
+          goto TokenExtractExclude_ret_TKSTREAM_FAIL;
         }
         fname_tks = fnames_iter;
       }
@@ -417,14 +419,14 @@ PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* varia
         }
         if (calc_thread_ct_m1) {
           if (unlikely(SpawnThreads(&tg))) {
-            goto ExtractExcludeFlagNorange_ret_THREAD_CREATE_FAIL;
+            goto TokenExtractExclude_ret_THREAD_CREATE_FAIL;
           }
         }
         ExtractExcludeProcessTokens(variant_ids, variant_id_htable, htable_dup_base, ctx.shard_boundaries[0], ctx.shard_boundaries[1], variant_id_htable_size, max_variant_id_slen, ctx.already_seens[0]);
         JoinThreads0(&tg);
       }
       if (unlikely(reterr != kPglRetEof)) {
-        goto ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL;
+        goto TokenExtractExclude_ret_TKSTREAM_FAIL;
       }
       if (vft == kVfilterExtractIntersect) {
         for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
@@ -454,16 +456,17 @@ PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* varia
     *variant_ct_ptr = new_variant_ct;
   }
   while (0) {
-  ExtractExcludeFlagNorange_ret_NOMEM:
+  TokenExtractExclude_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL:
+  TokenExtractExclude_ret_TKSTREAM_FAIL:
     TokenStreamErrPrint(fname_tks, &tks);
     break;
-  ExtractExcludeFlagNorange_ret_THREAD_CREATE_FAIL:
+  TokenExtractExclude_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
+    break;
   }
- ExtractExcludeFlagNorange_ret_1:
+ TokenExtractExclude_ret_1:
   CleanupThreads(&tg);
   if (fname_tks) {
     CleanupTokenStream2(fname_tks, &tks, &reterr);

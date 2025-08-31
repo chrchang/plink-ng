@@ -386,7 +386,6 @@ FLAGSET_DEF_START()
 FLAGSET_DEF_END(CheckSexFlags);
 
 typedef struct CheckSexInfoStruct {
-  NONCOPYABLE(CheckSexInfoStruct);
   CheckSexFlags flags;
   double max_female_xf;
   double min_male_xf;
@@ -402,6 +401,18 @@ FLAGSET_DEF_START()
   kfAlleleAlphanumAcgt,
   kfAlleleAlphanumMultichar
 FLAGSET_DEF_END(AlleleAlphanumFlags);
+
+FLAGSET_DEF_START()
+  kfFlip0,
+  kfFlipPermissive = (1 << 0)
+FLAGSET_DEF_END(FlipFlags);
+
+typedef struct FlipInfoStruct {
+  NONCOPYABLE(FlipInfoStruct);
+  char* fname;
+  char* subset_fname;
+  FlipFlags flags;
+} FlipInfo;
 
 void InitUpdateAlleles(UpdateAllelesInfo* update_alleles_info_ptr);
 
@@ -421,6 +432,12 @@ void CleanupFst(FstInfo* fst_info_ptr);
 
 void InitCheckSex(CheckSexInfo* check_sex_info_ptr);
 
+void InitFlip(FlipInfo* flip_info_ptr);
+
+void CleanupFlip(FlipInfo* flip_info_ptr);
+
+PglErr FlipAlleles(const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const FlipInfo* flip_info_ptr, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t max_thread_ct, char** allele_storage_mutable);
+
 PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t sort_vars_in_cmd, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp);
 
 PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t htable_size, uint32_t max_thread_ct, char** variant_ids, uint32_t* max_variant_id_slen_ptr);
@@ -437,7 +454,6 @@ PglErr AlleleAlphanumUpdate(const uintptr_t* variant_include, const char* const*
 PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip);
 
 PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdInfo* parental_id_infop);
-
 
 PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint32_t raw_sample_ct, uintptr_t sample_ct, SampleIdInfo* siip);
 

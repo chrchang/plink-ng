@@ -2603,6 +2603,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      '0'/'M'/'m' = male, '1'/'F'/'f' = female, anything else other than '2' =\n"
 "      unknown-sex, add 'male0'.\n"
               );
+    HelpPrint("flip\0flip-subset\0", &help_ctrl, 0,
+"  --flip <fn> ['permissive'] : Flip alleles (A<->T, C<->G) for SNP IDs in the\n"
+"                               file.  By default, this now errors out upon\n"
+"                               encountering a non-SNP; specify 'permissive' to\n"
+"                               skip those variants instead.\n"
+"  --flip-subset <filename>   : Only apply --flip to samples in --flip-subset\n"
+"                               file.\n"
+              );
     // don't make --real-ref-alleles apply to e.g. Oxford import, since
     // explicit 'ref-first'/'ref-last' modifiers are clearer
     HelpPrint("real-ref-alleles\0", &help_ctrl, 0,

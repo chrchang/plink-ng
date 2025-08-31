@@ -2047,6 +2047,9 @@ template <class T, std::size_t N> void STD_ARRAY_FILL0(std::array<T, N>& arr) {
 // this macro ensures that we *only* use it with uint32_t array-references
 #  define STD_ARRAY_REF_FILL0(ct, aref) static_assert(ct * sizeof(aref[0]) == sizeof(aref), "invalid STD_ARRAY_REF_FILL0() invocation"); aref.fill(0)
 
+// reasonable to default to applying one of the following two restrictions to
+// pointer- and flexible-array-member-containing structs, though I haven't done
+// so exhaustively.
 #  define NONCOPYABLE(struct_name) \
   struct_name() = default; \
   struct_name(const struct_name&) = delete; \
