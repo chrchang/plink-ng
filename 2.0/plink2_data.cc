@@ -5745,7 +5745,7 @@ PglErr FlipSubsetInit(const uintptr_t* sample_include, const uint32_t* new_sampl
         }
         FillCumulativePopcounts(variant_include, raw_variant_ctl, variant_include_cumulative_popcounts);
       }
-      reterr = LoadTokensNondupReindex(flip_info_ptr->fname, variant_include, variant_include_cumulative_popcounts, old_variant_uidx_to_new, variant_ids, "flip", raw_variant_ct, variant_ct, max_variant_id_slen, max_thread_ct, flip_subset_variants);
+      reterr = LoadTokensNondupReindex(flip_info_ptr->fname, variant_include, variant_include_cumulative_popcounts, old_variant_uidx_to_new, variant_ids, "flip", variant_ct, max_variant_id_slen, max_thread_ct, flip_subset_variants);
       if (unlikely(reterr)) {
         goto FlipSubsetInit_ret_1;
       }
