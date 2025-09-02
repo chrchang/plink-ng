@@ -94,157 +94,23 @@ void InitCheckSex(CheckSexInfo* check_sex_info_ptr) {
   check_sex_info_ptr->min_male_yrate = -1.0;
 }
 
-void InitFlip(FlipInfo* flip_info_ptr) {
-  flip_info_ptr->fname = nullptr;
-  flip_info_ptr->subset_fname = nullptr;
-  flip_info_ptr->flags = kfFlip0;
-}
-
-void CleanupFlip(FlipInfo* flip_info_ptr) {
-  free_cond(flip_info_ptr->fname);
-  free_cond(flip_info_ptr->subset_fname);
-}
-
-// dupstore hash table (due to position in plink2 order of operations), but
-// duplicated (in main dataset) ID not allowed.
-//
-// repeated entries in --flip file *are* allowed, those aren't dangerous in the
-// same way that e.g. taking a '.' variant ID literally would be.
-//
-// returns UINT32_MAX on success, variant_uidx in duplicate-ID set on failure.
-//
-// could rename if any other operation wants this functionality, though this
-// function probably doesn't belong in a more-central location (due to mismatch
-// between hash table type and usage).
-uint32_t FlipAllelesProcessTokens(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* shard_start, const char* shard_end, uint32_t variant_id_htable_size, uint32_t max_variant_id_slen, uintptr_t* already_seen) {
-  const char* shard_iter = shard_start;
-  while (1) {
-    shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
-    if (shard_iter == shard_end) {
-      return UINT32_MAX;
-    }
-    const char* token_end = CurTokenEnd(shard_iter);
-    uint32_t cur_llidx;
-    uint32_t variant_uidx = VariantIdDupHtableFind(shard_iter, variant_ids, variant_id_htable, htable_dup_base, token_end - shard_iter, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
-    shard_iter = token_end;
-    if (variant_uidx == UINT32_MAX) {
-      continue;
-    }
-    if (IsSet(already_seen, variant_uidx)) {
-      continue;
-    }
-    if (cur_llidx != UINT32_MAX) {
-      return variant_uidx;
-    }
-    SetBit(variant_uidx, already_seen);
-  }
-}
-
-CONSTI32(kMaxFlipAllelesThreads, 8);
-
-typedef struct FlipAllelesCtxStruct {
-  const char* const* variant_ids;
-  const uint32_t* variant_id_htable;
-  const uint32_t* htable_dup_base;
-  uintptr_t variant_id_htable_size;
-  uint32_t max_variant_id_slen;
-
-  char* shard_boundaries[kMaxFlipAllelesThreads + 1];
-  uintptr_t* already_seens[kMaxFlipAllelesThreads];
-  uint32_t fail_variant_uidxs[kMaxFlipAllelesThreads];
-} FlipAllelesCtx;
-
-THREAD_FUNC_DECL FlipAllelesThread(void* raw_arg) {
-  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
-  const uintptr_t tidx_p1 = arg->tidx + 1;
-  FlipAllelesCtx* ctx = S_CAST(FlipAllelesCtx*, arg->sharedp->context);
-
-  const char* const* variant_ids = ctx->variant_ids;
-  const uint32_t* variant_id_htable = ctx->variant_id_htable;
-  const uint32_t* htable_dup_base = ctx->htable_dup_base;
-  const uintptr_t variant_id_htable_size = ctx->variant_id_htable_size;
-  const uint32_t max_variant_id_slen = ctx->max_variant_id_slen;
-  uintptr_t* already_seen = ctx->already_seens[tidx_p1];
-  do {
-    ctx->fail_variant_uidxs[tidx_p1] = FlipAllelesProcessTokens(variant_ids, variant_id_htable, htable_dup_base, ctx->shard_boundaries[tidx_p1], ctx->shard_boundaries[tidx_p1 + 1], variant_id_htable_size, max_variant_id_slen, already_seen);
-
-  } while (!THREAD_BLOCK_FINISH(arg));
-  THREAD_RETURN;
-}
-
 PglErr FlipAlleles(const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const FlipInfo* flip_info_ptr, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t max_thread_ct, char** allele_storage_mutable) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
-  TokenStream tks;
-  ThreadGroup tg;
-  PreinitTokenStream(&tks);
-  PreinitThreads(&tg);
-  FlipAllelesCtx ctx;
   {
     if (!variant_ct) {
       goto FlipAlleles_ret_1;
     }
-    const uint32_t calc_thread_ct_m1 = MINV(max_thread_ct, kMaxFlipAllelesThreads) - 1;
-    if (unlikely(SetThreadCt0(calc_thread_ct_m1, &tg))) {
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* flip_include;
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &flip_include))) {
       goto FlipAlleles_ret_NOMEM;
     }
-    uint32_t decompress_thread_ct = 1;
-    if (max_thread_ct > calc_thread_ct_m1 + 2) {
-      decompress_thread_ct = max_thread_ct - calc_thread_ct_m1 - 1;
-    }
-    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    for (uint32_t tidx = 0; tidx <= calc_thread_ct_m1; ++tidx) {
-      if (unlikely(bigstack_calloc_w(raw_variant_ctl, &(ctx.already_seens[tidx])))) {
-        goto FlipAlleles_ret_NOMEM;
-      }
-    }
-    // Change from plink 1.9: we no longer error out on duplicate entries in
-    // the --flip file.  Could revert behavior if we ever see a mistake driven
-    // by this.
-    if (calc_thread_ct_m1) {
-      ctx.variant_ids = variant_ids;
-      ctx.variant_id_htable = variant_id_htable;
-      ctx.htable_dup_base = htable_dup_base;
-      ctx.variant_id_htable_size = variant_id_htable_size;
-      ctx.max_variant_id_slen = max_variant_id_slen;
-      SetThreadFuncAndData(FlipAllelesThread, &ctx, &tg);
-    }
-    reterr = InitTokenStream(flip_info_ptr->fname, decompress_thread_ct, &tks);
+    reterr = LoadTokensNondup2(flip_info_ptr->fname, variant_include, variant_ids, variant_id_htable, htable_dup_base, "flip", raw_variant_ct, max_variant_id_slen, variant_id_htable_size, max_thread_ct, flip_include);
     if (unlikely(reterr)) {
-      goto FlipAlleles_ret_TKSTREAM_FAIL;
+      goto FlipAlleles_ret_1;
     }
-    while (1) {
-      reterr = TksNext(&tks, calc_thread_ct_m1 + 1, ctx.shard_boundaries);
-      if (reterr) {
-        break;
-      }
-      if (calc_thread_ct_m1) {
-        if (unlikely(SpawnThreads(&tg))) {
-          goto FlipAlleles_ret_THREAD_CREATE_FAIL;
-        }
-      }
-      ctx.fail_variant_uidxs[0] = FlipAllelesProcessTokens(variant_ids, variant_id_htable, htable_dup_base, ctx.shard_boundaries[0], ctx.shard_boundaries[1], variant_id_htable_size, max_variant_id_slen, ctx.already_seens[0]);
-      JoinThreads0(&tg);
-      for (uint32_t tidx = 0; tidx <= calc_thread_ct_m1; ++tidx) {
-        const uint32_t fail_variant_uidx = ctx.fail_variant_uidxs[tidx];
-        if (unlikely(fail_variant_uidx != UINT32_MAX)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Variant '%s' in --flip file appears multiple times in dataset.\n", variant_ids[fail_variant_uidx]);
-          goto FlipAlleles_ret_INCONSISTENT_INPUT_WW;
-        }
-      }
-    }
-    if (unlikely(reterr != kPglRetEof)) {
-      goto FlipAlleles_ret_TKSTREAM_FAIL;
-    }
-    reterr = kPglRetSuccess;
-    for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
-      BitvecOr(ctx.already_seens[tidx], raw_variant_ctl, ctx.already_seens[0]);
-    }
-    // possible for some variants to have been excluded after hash table was
-    // constructed
-    BitvecAnd(variant_include, raw_variant_ctl, ctx.already_seens[0]);
 
-    const uintptr_t* flip_include = ctx.already_seens[0];
     const uint32_t flip_ct = PopcountWords(flip_include, raw_variant_ctl);
     const uint32_t permissive = (flip_info_ptr->flags / kfFlipPermissive) & 1;
     char* dash_ptr = K_CAST(char*, &(g_one_char_strs[90]));
@@ -309,21 +175,13 @@ PglErr FlipAlleles(const uintptr_t* variant_include, const char* const* variant_
   FlipAlleles_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  FlipAlleles_ret_TKSTREAM_FAIL:
-    TokenStreamErrPrint(flip_info_ptr->fname, &tks);
-    break;
   FlipAlleles_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
     reterr = kPglRetInconsistentInput;
     break;
-  FlipAlleles_ret_THREAD_CREATE_FAIL:
-    reterr = kPglRetThreadCreateFail;
-    break;
   }
  FlipAlleles_ret_1:
-  CleanupThreads(&tg);
-  CleanupTokenStream2(flip_info_ptr->fname, &tks, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }

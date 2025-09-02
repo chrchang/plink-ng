@@ -329,6 +329,22 @@ void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip);
 // no CleanupPedigreeIdInfo function since LoadPsam() allocates the arrays in
 // bigstack.
 
+FLAGSET_DEF_START()
+  kfFlip0,
+  kfFlipPermissive = (1 << 0)
+FLAGSET_DEF_END(FlipFlags);
+
+typedef struct FlipInfoStruct {
+  NONCOPYABLE(FlipInfoStruct);
+  char* fname;
+  char* subset_fname;
+  FlipFlags flags;
+} FlipInfo;
+
+void InitFlip(FlipInfo* flip_info_ptr);
+
+void CleanupFlip(FlipInfo* flip_info_ptr);
+
 
 HEADER_INLINE BoolErr bigstack_alloc_ac(uintptr_t ct, AlleleCode** allele_arr_ptr) {
   *allele_arr_ptr = S_CAST(AlleleCode*, bigstack_alloc(ct * sizeof(AlleleCode)));
@@ -986,8 +1002,8 @@ uint32_t AllGenoEqual(const uintptr_t* genoarr, uint32_t sample_ct);
 // zeroes out samples not in the mask
 void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec);
 
-// sets samples outside the mask to missing (0b11)
-void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_set, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec);
+// sets samples outside the mask to missing (0b11), trailing bits are dirtied
+// void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_set, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec);
 
 // sets samples in the mask to missing (0b11)
 void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec);
@@ -1553,6 +1569,11 @@ HEADER_INLINE void UpdateEighash(const char* newstr, uint32_t slen, uint32_t* ha
   }
   *hash_ptr = ((*hash_ptr) * 17) ^ strhash;
 }
+
+// '2' since plain LoadTokensNondup() should be based on dupflag hash table.
+PglErr LoadTokensNondup2(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* flagname_p, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t max_thread_ct, uintptr_t* loaded_variant_set);
+
+PglErr LoadTokensNondupReindex(const char* fname, const uintptr_t* variant_include, const uint32_t* variant_include_cumulative_popcounts, const uint32_t* old_variant_uidx_to_new, const char* const* variant_ids, const char* flagname_p, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, uintptr_t* loaded_variant_set);
 
 #ifdef __cplusplus
 }  // namespace plink2

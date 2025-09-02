@@ -92,10 +92,10 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (30 Aug 2025)";
+  " (1 Sep 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -2814,12 +2814,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           if (pcp->sort_vars_mode > kSortNone) {
-            reterr = MakePlink2Vsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->rename_chrs_fname, pcp->update_chr_flag, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, pcp->zero_cluster_fname, pcp->zero_cluster_phenoname, xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2Vsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, pcp->rename_chrs_fname, pcp->update_chr_flag, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, pcp->zero_cluster_fname, pcp->zero_cluster_phenoname, &(pcp->flip_info), xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->misc_flags, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, cip, xheader, chr_idxs, &simple_pgr, outname, outname_end);
           } else {
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
             }
-            reterr = MakePlink2NoVsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, pcp->zero_cluster_fname, pcp->zero_cluster_phenoname, xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2NoVsort(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_permute, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->output_missing_pheno, pcp->legacy_output_missing_pheno, contig_lens, (make_plink2_flags & kfMakePgenWriterVer)? ver_str : nullptr, pcp->zero_cluster_fname, pcp->zero_cluster_phenoname, &(pcp->flip_info), xheader_blen, info_flags, raw_sample_ct, sample_ct, male_ct, nosex_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->output_missing_geno_char, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, (pcp->mendel_info.flags / kfMendelDuos) & 1, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           }
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
@@ -7961,8 +7961,6 @@ int main(int argc, char** argv) {
               make_plink2_flags |= kfMakeBimZs;
             } else if (strequal_k(cur_modif, "trim-alts", cur_modif_slen)) {
               make_plink2_flags |= kfMakePlink2TrimAlts;
-            } else if (strequal_k(cur_modif, "erase-alt2+", cur_modif_slen)) {
-              make_plink2_flags |= kfMakePlink2EraseAlt2Plus;
             } else if (likely(StrStartsWith(cur_modif, "m=", cur_modif_slen) ||
                               StrStartsWith(cur_modif, "multiallelics=", cur_modif_slen))) {
               if (unlikely(make_plink2_flags & kfMakePlink2MMask)) {
@@ -7993,18 +7991,6 @@ int main(int argc, char** argv) {
               *write_iter++ = '\n';
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-          }
-          if ((make_plink2_flags & (kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus)) == (kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus)) {
-            // Prohibit this combination since it's really only meaningful if
-            // alt1 is sometimes absent when a higher-numbered alt is not, and
-            // the erasure would only apply to the *post*-trimming alt2+
-            // alleles; but that's confusing, and already easy enough to
-            // achieve by splitting up the operation.
-            //
-            // todo: think about whether any multiallelics= interactions are
-            // worth prohibiting
-            logerrputs("Error: --make-bed 'trim-alts' and 'erase-alt2+' modifiers cannot be used\ntogether.\n");
-            goto main_ret_INVALID_CMDLINE_A;
           }
           make_plink2_flags |= kfMakeBed | kfMakeBim | kfMakeFam;
           pc.command_flags1 |= kfCommand1MakePlink2;
@@ -8069,8 +8055,6 @@ int main(int argc, char** argv) {
               }
             } else if (strequal_k(cur_modif, "trim-alts", cur_modif_slen)) {
               make_plink2_flags |= kfMakePlink2TrimAlts;
-            } else if (strequal_k(cur_modif, "erase-alt2+", cur_modif_slen)) {
-              make_plink2_flags |= kfMakePlink2EraseAlt2Plus;
             } else if (strequal_k(cur_modif, "varid-split", cur_modif_slen)) {
               varid_semicolon |= 1;
             } else if (strequal_k(cur_modif, "varid-split-dup", cur_modif_slen)) {
@@ -8091,10 +8075,6 @@ int main(int argc, char** argv) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bpgen argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-          }
-          if ((make_plink2_flags & (kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus)) == (kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus)) {
-            logerrputs("Error: --make-bpgen 'trim-alts' and 'erase-alt2+' modifiers cannot be used\ntogether.\n");
-            goto main_ret_INVALID_CMDLINE_A;
           }
           if (varid_semicolon) {
             if (unlikely((make_plink2_flags & kfMakePlink2VaridDup) || (varid_semicolon & (varid_semicolon - 1)))) {
@@ -8206,8 +8186,6 @@ int main(int argc, char** argv) {
               }
             } else if (strequal_k(cur_modif, "trim-alts", cur_modif_slen)) {
               make_plink2_flags |= kfMakePlink2TrimAlts;
-            } else if (strequal_k(cur_modif, "erase-alt2+", cur_modif_slen)) {
-              make_plink2_flags |= kfMakePlink2EraseAlt2Plus;
             } else if (strequal_k(cur_modif, "varid-split", cur_modif_slen)) {
               varid_semicolon |= 1;
             } else if (strequal_k(cur_modif, "varid-split-dup", cur_modif_slen)) {
@@ -8238,10 +8216,6 @@ int main(int argc, char** argv) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-pgen argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-          }
-          if ((make_plink2_flags & (kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus)) == (kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus)) {
-            logerrputs("Error: --make-pgen 'trim-alts' and 'erase-alt2+' modifiers cannot be used\ntogether.\n");
-            goto main_ret_INVALID_CMDLINE_A;
           }
           if (varid_semicolon) {
             if (unlikely((make_plink2_flags & kfMakePlink2VaridDup) || (varid_semicolon & (varid_semicolon - 1)))) {
@@ -12567,7 +12541,7 @@ int main(int argc, char** argv) {
           }
           if (unlikely((pc.geno_thresh != 1.0) ||
                        (pc.mind_thresh != 1.0) ||
-                       (pc.hwe_ln_thresh != DBL_MAX) ||
+                       (pc.hwe_ln_thresh != -DBL_MAX) ||
                        (pc.min_maf != 0.0) ||
                        (pc.max_maf != 1.0) ||
                        pc.min_allele_ddosage ||
@@ -12654,7 +12628,7 @@ int main(int argc, char** argv) {
       goto main_ret_INVALID_CMDLINE_A;
     }
     // may as well permit merge here
-    if (unlikely((make_plink2_flags & (kfMakePlink2MMask | kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus | kfMakePgenErasePhase | kfMakePgenEraseDosage)) && (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Pmerge))))) {
+    if (unlikely((make_plink2_flags & (kfMakePlink2MMask | kfMakePlink2TrimAlts | kfMakePgenErasePhase | kfMakePgenEraseDosage)) && (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Pmerge))))) {
       logerrputs("Error: When the 'multiallelics=', 'trim-alts', and/or 'erase-...' modifier is\npresent, --make-bed/--make-[b]pgen cannot be combined with other commands.\n(Other filters are fine.)\n");
       goto main_ret_INVALID_CMDLINE;
     }
@@ -12699,6 +12673,10 @@ int main(int argc, char** argv) {
     if (pc.flip_info.subset_fname || (make_plink2_flags & kfMakePlink2FillMissingWithRef)) {
       if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
         logerrprintf("Error: --%s must be used with --make-[b]pgen/--make-bed.\n", pc.flip_info.subset_fname? "flip-subset" : "fill-missing-with-ref");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+      if (unlikely(pc.flip_info.subset_fname && (make_plink2_flags & kfMakePlink2TrimAlts))) {
+        logerrputs("Error: --flip-subset cannot be used with --make-[b]pgen/--make-bed's\n'trim-alts' modifier.\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
     }

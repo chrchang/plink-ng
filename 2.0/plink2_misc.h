@@ -402,18 +402,6 @@ FLAGSET_DEF_START()
   kfAlleleAlphanumMultichar
 FLAGSET_DEF_END(AlleleAlphanumFlags);
 
-FLAGSET_DEF_START()
-  kfFlip0,
-  kfFlipPermissive = (1 << 0)
-FLAGSET_DEF_END(FlipFlags);
-
-typedef struct FlipInfoStruct {
-  NONCOPYABLE(FlipInfoStruct);
-  char* fname;
-  char* subset_fname;
-  FlipFlags flags;
-} FlipInfo;
-
 void InitUpdateAlleles(UpdateAllelesInfo* update_alleles_info_ptr);
 
 void CleanupUpdateAlleles(UpdateAllelesInfo* update_alleles_info_ptr);
@@ -431,10 +419,6 @@ void InitFst(FstInfo* fst_info_ptr);
 void CleanupFst(FstInfo* fst_info_ptr);
 
 void InitCheckSex(CheckSexInfo* check_sex_info_ptr);
-
-void InitFlip(FlipInfo* flip_info_ptr);
-
-void CleanupFlip(FlipInfo* flip_info_ptr);
 
 PglErr FlipAlleles(const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const FlipInfo* flip_info_ptr, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t max_thread_ct, char** allele_storage_mutable);
 
