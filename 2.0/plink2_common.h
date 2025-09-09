@@ -23,8 +23,18 @@
 // 2-bit genotypes).  More generic library code has been moved to plink2_base
 // and plink2_cmdline.
 
+#include <assert.h>
+#include <errno.h>
+#include <string.h>
+
+#include "include/pgenlib_misc.h"
 #include "include/pgenlib_read.h"
-#include "plink2_decompress.h"
+#include "include/plink2_base.h"
+#include "include/plink2_bits.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "include/plink2_thread.h"
+#include "plink2_cmdline.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -160,7 +170,8 @@ FLAGSET64_DEF_START()
   kfMiscMakeFoundersRequire2Missing = (1LLU << 48),
   kfMiscYNosexMissingStats = (1LLU << 49),
   kfMiscNeg9PhenoReallyMissing = (1LLU << 50),
-  kfMiscAlt1Allele = (1LLU << 51)
+  kfMiscAlt1Allele = (1LLU << 51),
+  kfMiscSelectSidParentsOnly = (1LLU << 52)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -183,36 +194,38 @@ FLAGSET64_DEF_START()
   kfExportfBgen13 = (1 << 14),
   kfExportfBimbam = (1 << 15),
   kfExportfBimbam1chr = (1 << 16),
-  kfExportfFastphase = (1 << 17),
-  kfExportfFastphase1chr = (1 << 18),
-  kfExportfHaps = (1 << 19),
-  kfExportfHapsLegend = (1 << 20),
-  kfExportfHv = (1 << 21),
-  kfExportfHv1chr = (1 << 22),
-  kfExportfIndMajorBed = (1 << 23),
-  kfExportfLgen = (1 << 24),
-  kfExportfLgenRef = (1 << 25),
-  kfExportfList = (1 << 26),
-  kfExportfRlist = (1 << 27),
-  kfExportfOxGenV1 = (1 << 28),
-  kfExportfOxGenV2 = (1 << 29),
+  kfExportfEig = (1 << 17),
+  kfExportfEigt = (1 << 18),
+  kfExportfFastphase = (1 << 19),
+  kfExportfFastphase1chr = (1 << 20),
+  kfExportfHaps = (1 << 21),
+  kfExportfHapsLegend = (1 << 22),
+  kfExportfHv = (1 << 23),
+  kfExportfHv1chr = (1 << 24),
+  kfExportfIndMajorBed = (1 << 25),
+  kfExportfLgen = (1 << 26),
+  kfExportfLgenRef = (1 << 27),
+  kfExportfList = (1 << 28),
+  kfExportfRlist = (1 << 29),
+  kfExportfOxGenV1 = (1 << 30),
+  kfExportfOxGenV2 = (1U << 31),
   kfExportfOxGen = kfExportfOxGenV1 | kfExportfOxGenV2,
-  kfExportfPed = (1 << 30),
-  kfExportfCompound = (1U << 31),
-  kfExportfPhylip = (1LLU << 32),
-  kfExportfPhylipPhased = (1LLU << 33),
-  kfExportfStructure = (1LLU << 34),
-  kfExportfTped = (1LLU << 35),
-  kfExportfVcf42 = (1LLU << 36),
-  kfExportfVcf43 = (1LLU << 37),
+  kfExportfPed = (1LLU << 32),
+  kfExportfCompound = (1LLU << 33),
+  kfExportfPhylip = (1LLU << 34),
+  kfExportfPhylipPhased = (1LLU << 35),
+  kfExportfStructure = (1LLU << 36),
+  kfExportfTped = (1LLU << 37),
+  kfExportfVcf42 = (1LLU << 38),
+  kfExportfVcf43 = (1LLU << 39),
   kfExportfVcf = kfExportfVcf42 | kfExportfVcf43,
   kfExportfTypemask = (2LLU * kfExportfVcf43) - kfExportf23,
-  kfExportfIncludeAlt = (1LLU << 38),
-  kfExportfBgz = (1LLU << 39),
-  kfExportfOmitNonmaleY = (1LLU << 40),
-  kfExportfSampleV2 = (1LLU << 41),
-  kfExportfBgenOmitSampleIdBlock = (1LLU << 42),
-  kfExportfPhylipUsedSites = (1LLU << 43)
+  kfExportfIncludeAlt = (1LLU << 40),
+  kfExportfBgz = (1LLU << 41),
+  kfExportfOmitNonmaleY = (1LLU << 42),
+  kfExportfSampleV2 = (1LLU << 43),
+  kfExportfBgenOmitSampleIdBlock = (1LLU << 44),
+  kfExportfPhylipUsedSites = (1LLU << 45)
 FLAGSET64_DEF_END(ExportfFlags);
 
 FLAGSET_DEF_START()
@@ -315,6 +328,22 @@ void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip);
 
 // no CleanupPedigreeIdInfo function since LoadPsam() allocates the arrays in
 // bigstack.
+
+FLAGSET_DEF_START()
+  kfFlip0,
+  kfFlipPermissive = (1 << 0)
+FLAGSET_DEF_END(FlipFlags);
+
+typedef struct FlipInfoStruct {
+  NONCOPYABLE(FlipInfoStruct);
+  char* fname;
+  char* subset_fname;
+  FlipFlags flags;
+} FlipInfo;
+
+void InitFlip(FlipInfo* flip_info_ptr);
+
+void CleanupFlip(FlipInfo* flip_info_ptr);
 
 
 HEADER_INLINE BoolErr bigstack_alloc_ac(uintptr_t ct, AlleleCode** allele_arr_ptr) {
@@ -460,6 +489,14 @@ void SetHetMissing(uintptr_t word_ct, uintptr_t* genovec);
 void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* dosagepresent, Dosage* dosage_main);
 
 void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* dosagepresent, Dosage* dosage_main);
+
+void SetMissingRef(uintptr_t word_ct, uintptr_t* genovec);
+
+void SetMissingRefY(const uintptr_t* __restrict sex_female_interleaved, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec);
+
+void SetMissingRefDosage(const uintptr_t* __restrict dosagepresent, uintptr_t sample_ct, uintptr_t* __restrict genovec);
+
+void SetMissingRefDosageY(const uintptr_t* __restrict sex_female, const uintptr_t* __restrict dosagepresent, uintptr_t sample_ct, uintptr_t* __restrict genovec);
 
 uint32_t GenoarrCountMissingUnsafe(const uintptr_t* genoarr, uint32_t sample_ct);
 
@@ -624,6 +661,11 @@ PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderF
 
 // header line expected to start with FID1, ID1, or IID1
 PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t* line_idx_ptr, TextStream* txsp, XidMode* xid_mode_ptr, char** line_startp, char** line_iterp);
+
+// sorted_xidbox must be created with kfXidModeFidIid or kfXidModeFidIidSid,
+// and dst must initially be zeroed out.
+// does not check for graph cycles, etc.
+void MarkParents(const ParentalIdInfo* parental_id_infop, const char* sorted_xidbox, const uint32_t* xid_map, uint32_t sample_ct, uintptr_t max_xid_blen, uint32_t use_nsort, uintptr_t* dst, char* idbuf);
 
 // Assumes no duplicates.
 void InitXidHtable(const SampleIdInfo* siip, uint32_t sample_ct, uint32_t xid_htable_size, uint32_t* xid_htable, char* idbuf);
@@ -867,6 +909,13 @@ PglErr FinalizeChrInfo(ChrInfo* cip);
 
 void CleanupChrInfo(ChrInfo* cip);
 
+// --export may need to override cip->output_encoding
+char* ChrNameStdEx(const ChrInfo* cip, uint32_t chr_idx, ChrOutput output_encoding, char* buf);
+
+HEADER_INLINE char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
+  return ChrNameStdEx(cip, chr_idx, cip->output_encoding, buf);
+}
+
 // assumes chr_idx is valid
 // note that chr_idx == 0 is always rendered as '0', never 'chr0'
 char* chrtoa(const ChrInfo* cip, uint32_t chr_idx, char* buf);
@@ -879,6 +928,7 @@ uint32_t IsAutosomalDiploidChrPresent(const ChrInfo* cip);
 
 // any character <= ' ' is considered a terminator
 // maps chrX -> kChrRawX, etc.
+// now returns UINT32_MAXM1 on too many numeric digits
 uint32_t GetChrCodeRaw(const char* str_iter);
 
 // requires chr_name to be null-terminated
@@ -891,6 +941,8 @@ uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen
 // when the chromosome name isn't null-terminated
 // requires chr_name[name_slen] to be mutable
 uint32_t GetChrCodeCounted(const ChrInfo* cip, uint32_t name_slen, char* chr_name);
+
+void ChrError(const char* chr_name, const char* file_descrip, const ChrInfo* cip, uintptr_t line_idx, uint32_t error_code);
 
 HEADER_INLINE uint32_t GetVariantChrFoIdx(const ChrInfo* cip, uintptr_t variant_uidx) {
   return LowerBoundNonemptyU32(&(cip->chr_fo_vidx_start[1]), cip->chr_ct, variant_uidx + 1);
@@ -950,13 +1002,19 @@ uint32_t AllGenoEqual(const uintptr_t* genoarr, uint32_t sample_ct);
 // zeroes out samples not in the mask
 void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec);
 
-// sets samples outside the mask to missing (0b11)
-void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_set, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec);
+// sets samples outside the mask to missing (0b11), trailing bits are dirtied
+// void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_set, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec);
 
 // sets samples in the mask to missing (0b11)
 void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec);
 
 void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main);
+
+void EraseDosages(const uintptr_t* __restrict erase_map, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main);
+
+HEADER_INLINE void EraseDphases(const uintptr_t* __restrict erase_map, uint32_t* __restrict write_dphase_ct_ptr, uintptr_t* __restrict dphasepresent, SDosage* dphase_delta) {
+  EraseDosages(erase_map, write_dphase_ct_ptr, dphasepresent, R_CAST(Dosage*, dphase_delta));
+}
 
 void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_t geno_vec_ct, uintptr_t* __restrict genovec);
 
@@ -974,6 +1032,11 @@ HEADER_INLINE void MaskGenoarrHetsUnsafe(const uintptr_t* __restrict genoarr, ui
 }
 
 void MaskGenoarrHetsMultiallelicUnsafe(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr);
+
+// These require rare10_ct > 0.
+void SetAltxyHetMissing(uintptr_t* __restrict genoarr, uint32_t* __restrict rare10_ct_ptr, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals);
+
+void SetMaleAltxyHetMissing(const uintptr_t* sex_male, uintptr_t* __restrict genoarr, uint32_t* __restrict rare10_ct_ptr, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals);
 
 // vertical popcount support
 // VcountScramble1() and friends in plink2_cmdline
@@ -1496,6 +1559,21 @@ HEADER_INLINE void PglLogputsb() {
     PglResetLog();
   }
 }
+
+PglErr TrimAllelePermute(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* allele_presents, uint32_t variant_ct, uint32_t max_thread_ct, AlleleCode* allele_permute);
+
+HEADER_INLINE void UpdateEighash(const char* newstr, uint32_t slen, uint32_t* hash_ptr) {
+  uint32_t strhash = 0;
+  for (uint32_t uii = 0; uii != slen; ++uii) {
+    strhash = (strhash * 23) + ctou32(newstr[uii]);
+  }
+  *hash_ptr = ((*hash_ptr) * 17) ^ strhash;
+}
+
+// '2' since plain LoadTokensNondup() should be based on dupflag hash table.
+PglErr LoadTokensNondup2(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* flagname_p, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t max_thread_ct, uintptr_t* loaded_variant_set);
+
+PglErr LoadTokensNondupReindex(const char* fname, const uintptr_t* variant_include, const uint32_t* variant_include_cumulative_popcounts, const uint32_t* old_variant_uidx_to_new, const char* const* variant_ids, const char* flagname_p, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, uintptr_t* loaded_variant_set);
 
 #ifdef __cplusplus
 }  // namespace plink2

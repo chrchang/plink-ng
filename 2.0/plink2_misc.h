@@ -17,7 +17,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
+#include "include/pgenlib_misc.h"
+#include "include/pgenlib_read.h"
+#include "include/plink2_base.h"
 #include "plink2_common.h"
 
 #ifdef __cplusplus
@@ -384,7 +386,6 @@ FLAGSET_DEF_START()
 FLAGSET_DEF_END(CheckSexFlags);
 
 typedef struct CheckSexInfoStruct {
-  NONCOPYABLE(CheckSexInfoStruct);
   CheckSexFlags flags;
   double max_female_xf;
   double min_male_xf;
@@ -393,6 +394,13 @@ typedef struct CheckSexInfoStruct {
   double max_female_yrate;
   double min_male_yrate;
 } CheckSexInfo;
+
+FLAGSET_DEF_START()
+  kfAlleleAlphanum0,
+  kfAlleleAlphanum1234,
+  kfAlleleAlphanumAcgt,
+  kfAlleleAlphanumMultichar
+FLAGSET_DEF_END(AlleleAlphanumFlags);
 
 void InitUpdateAlleles(UpdateAllelesInfo* update_alleles_info_ptr);
 
@@ -412,6 +420,8 @@ void CleanupFst(FstInfo* fst_info_ptr);
 
 void InitCheckSex(CheckSexInfo* check_sex_info_ptr);
 
+PglErr FlipAlleles(const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const FlipInfo* flip_info_ptr, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t max_thread_ct, char** allele_storage_mutable);
+
 PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t sort_vars_in_cmd, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp);
 
 PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t htable_size, uint32_t max_thread_ct, char** variant_ids, uint32_t* max_variant_id_slen_ptr);
@@ -422,11 +432,12 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
 
 PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, const char* missing_catname, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
 
+PglErr AlleleAlphanumUpdate(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, uint32_t variant_ct, AlleleAlphanumFlags flags, uint32_t max_thread_ct, char** allele_storage_mutable);
+
 // These functions return kPglRetEof on empty files.
 PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip);
 
 PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdInfo* parental_id_infop);
-
 
 PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint32_t raw_sample_ct, uintptr_t sample_ct, SampleIdInfo* siip);
 

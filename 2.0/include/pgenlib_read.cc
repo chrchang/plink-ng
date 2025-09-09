@@ -18,6 +18,11 @@
 #include "pgenlib_read.h"
 
 #include <errno.h>
+#include <limits.h>
+#include <string.h>
+
+// Uncomment this during e.g. pgenlibr development to enable error-throwing.
+// #include <stdexcept>
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -621,15 +626,15 @@ uintptr_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlag
 
   const uint32_t ld_compression_present = (gflags / kfPgenGlobalLdCompressionPresent) & 1;
   const uint32_t max_difflist_entry_ct_base = (raw_sample_ct / kPglMaxDifflistLenDivisor);
+  const uint32_t max_difflist_entry_ct = max_difflist_entry_ct_base * (1 + ld_compression_present);
   if ((gflags & kfPgenGlobalDifflistOrLdPresent) || (max_allele_ct > 2)) {
     // workspace_difflist_sample_ids
     // bugfix: must add 1 since several routines add a terminator element
-    cachelines_required += 1 + (max_difflist_entry_ct_base / kInt32PerCacheline);
+    cachelines_required += 1 + (max_difflist_entry_ct / kInt32PerCacheline);
   }
   if (gflags & kfPgenGlobalDifflistOrLdPresent) {
-    // const uint32_t max_difflist_entry_ct = max_difflist_entry_ct_base * (1 + ld_compression_present);
     // workspace_raregeno_vec
-    cachelines_required += NypCtToCachelineCt(max_difflist_entry_ct_base);
+    cachelines_required += NypCtToCachelineCt(max_difflist_entry_ct);
 
     // workspace_raregeno_tmp_loadbuf
     cachelines_required += NypCtToCachelineCt(max_difflist_entry_ct_base);
@@ -2096,22 +2101,22 @@ PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, 
   const uint32_t bitvec_bytes_req = BitCtToCachelineCt(raw_sample_ct) * kCacheline;
   const uint32_t ld_compression_present = (gflags / kfPgenGlobalLdCompressionPresent) & 1;
   const uint32_t max_difflist_entry_ct_base = (raw_sample_ct / kPglMaxDifflistLenDivisor);
+  const uint32_t max_difflist_entry_ct = max_difflist_entry_ct_base * (1 + ld_compression_present);
   const uint32_t max_allele_ct = pgrp->fi.max_allele_ct;
   pgrp->workspace_difflist_sample_ids = nullptr;
   if ((gflags & kfPgenGlobalDifflistOrLdPresent) || (max_allele_ct > 2)) {
-    pgrp->workspace_difflist_sample_ids = S_CAST(uint32_t*, arena_alloc_raw_rd((max_difflist_entry_ct_base + 1) * sizeof(int32_t), &pgr_alloc_iter));
+    pgrp->workspace_difflist_sample_ids = S_CAST(uint32_t*, arena_alloc_raw_rd((max_difflist_entry_ct + 1) * sizeof(int32_t), &pgr_alloc_iter));
   }
   if (gflags & kfPgenGlobalDifflistOrLdPresent) {
-    // const uint32_t max_difflist_entry_ct = max_difflist_entry_ct_base * (1 + ld_compression_present);
-
-    const uintptr_t raregeno_bytes_req = NypCtToCachelineCt(max_difflist_entry_ct_base) * kCacheline;
-    pgrp->workspace_raregeno_vec = S_CAST(uintptr_t*, arena_alloc_raw(raregeno_bytes_req, &pgr_alloc_iter));
-    pgrp->workspace_raregeno_tmp_loadbuf = S_CAST(uintptr_t*, arena_alloc_raw(raregeno_bytes_req, &pgr_alloc_iter));
+    const uintptr_t raregeno_ldmerge_bytes_req = NypCtToCachelineCt(max_difflist_entry_ct) * kCacheline;
+    pgrp->workspace_raregeno_vec = S_CAST(uintptr_t*, arena_alloc_raw(raregeno_ldmerge_bytes_req, &pgr_alloc_iter));
+    const uintptr_t raregeno_no_ld_bytes_req = NypCtToCachelineCt(max_difflist_entry_ct_base) * kCacheline;
+    pgrp->workspace_raregeno_tmp_loadbuf = S_CAST(uintptr_t*, arena_alloc_raw(raregeno_no_ld_bytes_req, &pgr_alloc_iter));
 
     if (ld_compression_present) {
       pgrp->ldbase_genovec = S_CAST(uintptr_t*, arena_alloc_raw(genovec_bytes_req, &pgr_alloc_iter));
 
-      pgrp->ldbase_raregeno = S_CAST(uintptr_t*, arena_alloc_raw(raregeno_bytes_req, &pgr_alloc_iter));
+      pgrp->ldbase_raregeno = S_CAST(uintptr_t*, arena_alloc_raw(raregeno_no_ld_bytes_req, &pgr_alloc_iter));
 
       pgrp->ldbase_difflist_sample_ids = S_CAST(uint32_t*, arena_alloc_raw_rd((max_difflist_entry_ct_base + 1) * sizeof(int32_t), &pgr_alloc_iter));
     }
@@ -2347,6 +2352,8 @@ PglErr ParseLdAndMergeDifflistSubset(const unsigned char* fread_end, const uintp
   // Used when the ldbase variant was saved as a difflist, and it's useful to
   // process the current variant as a difflist.
   // * Assumes ldbase_difflist_sample_ids[ldbase_difflist_len]==sample_ct.
+  // * However, it is not necessary for merged_difflist_sample_ids to have
+  //   space for an extra element.
   // * Assumes sample_include == nullptr if no subsetting needed.  (Otherwise,
   //   it'll still work, but performance will be worse.)
   // Trailing bits of merged_raregeno may not be zeroed out.
@@ -3137,23 +3144,31 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
   return kPglRetSuccess;
 }
 
-PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
+PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_difflist_len, uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   assert(sample_ct);
   // Side effects:
   //   may use pgr.workspace_raregeno_tmp_loadbuf
   // Trailing bits of genovec/main_raregeno may not be zeroed out.
+  // Always sets difflist_common_geno; may not set difflist_len.
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const uint32_t maintrack_vrtype = vrtype & 7;
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
-  assert(max_simple_difflist_len < raw_sample_ct);
+  assert(max_difflist_len < raw_sample_ct);
   const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
   // const uint32_t multiallelic_hc_present = fread_pp && VrtypeMultiallelic(vrtype);
   if (VrtypeLdCompressed(maintrack_vrtype)) {
-    // LD compression
-
-    // note that this can currently load a difflist longer than
-    // max_simple_difflist_len
+    // Variant of interest is LD-compressed.
+    // Before 13 Feb 2025, this branch ignored the max_difflist_len parameter,
+    // forcing callers to allocate main_raregeno and difflist_sample_ids up to
+    // 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor) entries.  Now we
+    // confirm that
+    //   len(possibly-subsetted ldbase difflist) +
+    //   len(raw differences-from-ldbase list)
+    // is no longer than max_difflist_len.  This misses some cases where we can
+    // give a sparse return (since the raw differences-from-ldbase list can
+    // contain entries outside the current subset or overlap with the first
+    // list), but should be good enough in practice.
     PglErr reterr = LdLoadMinimalSubsetIfNecessary(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp);
     if (unlikely(reterr)) {
       return reterr;
@@ -3165,19 +3180,25 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
     }
     const uint32_t ld_invert = (maintrack_vrtype == 3);
     if (pgrp->ldbase_stypes & kfPgrLdcacheDifflist) {
-      const uint32_t ldbase_common_geno = pgrp->fi.vrtypes[pgrp->ldbase_vidx] & 3;
-      // unnecessary for this to branch on LD difflist length, since that's
-      // limited to 3/4 of the ldbase difflist length.
-      *difflist_common_geno_ptr = ldbase_common_geno;
-      reterr = ParseLdAndMergeDifflistSubset(fread_end, subsetting_required? sample_include : nullptr, sample_include_cumulative_popcounts, pgrp->ldbase_raregeno, pgrp->ldbase_difflist_sample_ids, pgrp->ldbase_difflist_len, ldbase_common_geno, raw_sample_ct, sample_ct, &fread_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr, pgrp->workspace_raregeno_tmp_loadbuf);
-      if (unlikely(reterr)) {
-        return reterr;
+      const uint32_t cur_difflist_len = PeekVint31(fread_ptr, fread_end);
+      if (pgrp->ldbase_difflist_len + cur_difflist_len <= max_difflist_len) {
+        const uint32_t ldbase_common_geno = pgrp->fi.vrtypes[pgrp->ldbase_vidx] & 3;
+        *difflist_common_geno_ptr = ldbase_common_geno;
+        reterr = ParseLdAndMergeDifflistSubset(fread_end, subsetting_required? sample_include : nullptr, sample_include_cumulative_popcounts, pgrp->ldbase_raregeno, pgrp->ldbase_difflist_sample_ids, pgrp->ldbase_difflist_len, ldbase_common_geno, raw_sample_ct, sample_ct, &fread_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr, pgrp->workspace_raregeno_tmp_loadbuf);
+        if (unlikely(reterr)) {
+          return reterr;
+        }
+        if (ld_invert) {
+          *difflist_common_geno_ptr = (6 - ldbase_common_geno) & 3;
+          GenovecInvertUnsafe(*difflist_len_ptr, main_raregeno);
+        }
+        return kPglRetSuccess;
       }
-      if (ld_invert) {
-        *difflist_common_geno_ptr = (6 - ldbase_common_geno) & 3;
-        GenovecInvertUnsafe(*difflist_len_ptr, main_raregeno);
+      if (!(pgrp->ldbase_stypes & kfPgrLdcacheNyp)) {
+        const uint32_t ldbase_common_geno = pgrp->fi.vrtypes[pgrp->ldbase_vidx] & 3;
+        PgrDifflistToGenovecUnsafe(pgrp->ldbase_raregeno, pgrp->ldbase_difflist_sample_ids, ldbase_common_geno, sample_ct, pgrp->ldbase_difflist_len, pgrp->ldbase_genovec);
+        pgrp->ldbase_stypes |= kfPgrLdcacheNyp;
       }
-      return kPglRetSuccess;
     }
     if (pgrp->ldbase_stypes & kfPgrLdcacheNyp) {
       CopyNyparr(pgrp->ldbase_genovec, sample_ct, genovec);
@@ -3212,7 +3233,7 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   // no limit is slightly better than /16 but substantially worse than /32 on
   // the large test dataset (/64 is slightly worse than /32)
   // no limit is best on the small test dataset
-  if (saved_difflist_len > max_simple_difflist_len) {
+  if (saved_difflist_len > max_difflist_len) {
     *difflist_common_geno_ptr = UINT32_MAX;
     PglErr reterr = ParseNonLdGenovecSubsetUnsafe(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, vrtype, &fread_ptr, pgrp, genovec);
     if (unlikely(reterr)) {
@@ -3260,14 +3281,14 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   return kPglRetSuccess;
 }
 
-PglErr PgrGetDifflistOrGenovec(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uint32_t* __restrict difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
+PglErr PgrGetDifflistOrGenovec(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t max_difflist_len, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uint32_t* __restrict difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
   if (!sample_ct) {
     *difflist_common_geno_ptr = UINT32_MAX;
     return kPglRetSuccess;
   }
   PgenReaderMain* pgrp = GetPgrp(pgr_ptr);
   assert(vidx < pgrp->fi.raw_variant_ct);
-  return ReadDifflistOrGenovecSubsetUnsafe(sample_include, GetSicp(pssi), sample_ct, max_simple_difflist_len, vidx, pgrp, nullptr, nullptr, genovec, difflist_common_geno_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr);
+  return ReadDifflistOrGenovecSubsetUnsafe(sample_include, GetSicp(pssi), sample_ct, max_difflist_len, vidx, pgrp, nullptr, nullptr, genovec, difflist_common_geno_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr);
 }
 
 PglErr LdSubsetAdjustGenocounts(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, const uintptr_t* __restrict ldbase_genovec, uint32_t raw_sample_ct, const unsigned char** fread_pp, STD_ARRAY_REF(uint32_t, 4) genocounts, uintptr_t* __restrict raregeno_workspace) {
@@ -5541,7 +5562,7 @@ PglErr IMPLPgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t
   return reterr;
 }
 
-PglErr IMPLPgrGetInv1DifflistOrGenovec(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_invcountvec, uint32_t* __restrict difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
+PglErr IMPLPgrGetInv1DifflistOrGenovec(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_difflist_len, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_invcountvec, uint32_t* __restrict difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
   if (!sample_ct) {
     *difflist_common_geno_ptr = UINT32_MAX;
     return kPglRetSuccess;
@@ -5549,7 +5570,7 @@ PglErr IMPLPgrGetInv1DifflistOrGenovec(const uintptr_t* __restrict sample_includ
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const uint32_t multiallelic_hc_present = VrtypeMultiallelicHc(vrtype);
   if ((!allele_idx) || ((allele_idx == 1) && (!multiallelic_hc_present))) {
-    PglErr reterr = ReadDifflistOrGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, max_simple_difflist_len, vidx, pgrp, nullptr, nullptr, allele_invcountvec, difflist_common_geno_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr);
+    PglErr reterr = ReadDifflistOrGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, max_difflist_len, vidx, pgrp, nullptr, nullptr, allele_invcountvec, difflist_common_geno_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr);
     if (unlikely(reterr)) {
       return reterr;
     }
@@ -7481,6 +7502,175 @@ PglErr IMPLPgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* _
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   return ParseDosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, allele_ct, pgrp, dosage_ct_ptr, nullptr, nullptr, nullptr, dosage_present, dosage_main);
+}
+
+static const uint16_t kGenoToDosage16[4] = {0, 16384, 32768, 65535};
+
+// These tables should be renamed in a way that distinguishes them from the
+// likes of kGenoToDosage16.
+const uint16_t kHcToDosage16[1024] = QUAD_TABLE256(0, 16384, 32768, 65535);
+
+PglErr IMPLPgrGetDMaybeSparse(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t max_sparse_dosage_ct, PgenReaderMain* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uint16_t* difflist_common_dosage_ptr, uint32_t* difflist_sample_ids) {
+  assert(vidx < pgrp->fi.raw_variant_ct);
+  *difflist_common_dosage_ptr = 1;
+  if (!sample_ct) {
+    return kPglRetSuccess;
+  }
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
+  const uint32_t dosage_matters = dosage_present && VrtypeDosage(vrtype);
+  const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
+  const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
+  if (dosage_matters && (((vrtype & 0x60) != 0x20) || (subsetting_required && VrtypeHphase(vrtype)))) {
+    // If dense dosages are present, we can immediately bail to PgrGetD().
+    //
+    // If a dosage-list is present, we punt the hardcall-phase + subsetting
+    // subcase for now.  We can fill it in by calling
+    // ReadDifflistOrGenovecSubsetUnsafe() in no-subsetting mode (so we know
+    // the correct het_ct), calling SkipAux2(), and then subsetting.  (Or
+    // ReadDifflistOrGenovecSubsetUnsafe() could optionally return raw_het_ct,
+    // but I expect that approach to degrade hotter-path performance by too
+    // much to be worth it.)  Eventually, that code path will also need to
+    // support multiallelic variants.
+    return IMPLPgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genovec, dosage_present, dosage_main, dosage_ct_ptr);
+  }
+  *dosage_ct_ptr = 0;
+  uintptr_t* subsetted_raregeno = pgrp->workspace_raregeno_vec;
+  // If a dosage-list is present, we may need to merge a (sample ID, genotype)
+  // list returned by ReadDifflistOrGenovecSubsetUnsafe() with the (sample ID,
+  // dosage) list.  So we save the IDs in the first list to a workspace buffer.
+  // However, if dosages aren't present (or we're ignoring them), we can write
+  // the sample IDs directly to the final destination.
+  uint32_t* subsetted_raregeno_sample_ids = dosage_matters? pgrp->workspace_difflist_sample_ids : difflist_sample_ids;
+  const unsigned char* fread_ptr = nullptr;
+  const unsigned char* fread_end = nullptr;
+  uint32_t difflist_common_geno;
+  uint32_t subsetted_raregeno_ct;
+  PglErr reterr = ReadDifflistOrGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, max_sparse_dosage_ct, vidx, pgrp, &fread_ptr, &fread_end, genovec, &difflist_common_geno, subsetted_raregeno, subsetted_raregeno_sample_ids, &subsetted_raregeno_ct);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  if (!dosage_matters) {
+    *dosage_ct_ptr = subsetted_raregeno_ct;
+    if (difflist_common_geno != UINT32_MAX) {
+      *difflist_common_dosage_ptr = kGenoToDosage16[difflist_common_geno];
+      GenoarrLookup256x2bx4(subsetted_raregeno, kHcToDosage16, subsetted_raregeno_ct, dosage_main);
+    }
+    return kPglRetSuccess;
+  }
+  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+  const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
+  if (allele_ct != 2) {
+    // Don't need aux1-skipping logic yet.
+#ifndef PGENLIB_NOPRINT
+    fputs("multiallelic dosages not yet supported by PgrGetDMaybeSparse()\n", stderr);
+#endif
+    return kPglRetNotYetSupported;
+  }
+  if (VrtypeHphase(vrtype)) {
+    assert(!subsetting_required);
+    const uint32_t raw_het_ct = CountNyp(subsetted_raregeno, kMask5555, raw_sample_ct);
+    reterr = SkipAux2(fread_end, raw_het_ct, &fread_ptr, nullptr);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+  }
+  // Only invoke sparse-return logic iff a sufficiently-short dosage-list is
+  // stored.
+  const uint32_t peek_raw_dosage_ct = PeekVint31(fread_ptr, fread_end);
+  if (peek_raw_dosage_ct + subsetted_raregeno_ct > max_sparse_dosage_ct) {
+    if (difflist_common_geno != UINT32_MAX) {
+      PgrDifflistToGenovecUnsafe(subsetted_raregeno, subsetted_raregeno_sample_ids, difflist_common_geno, sample_ct, subsetted_raregeno_ct, genovec);
+    }
+    return ParseDosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, allele_ct, pgrp, dosage_ct_ptr, nullptr, nullptr, nullptr, dosage_present, dosage_main);
+  }
+  *difflist_common_dosage_ptr = kGenoToDosage16[difflist_common_geno];
+  if (!subsetting_required) {
+    sample_include = nullptr;
+  }
+  subsetted_raregeno_sample_ids[subsetted_raregeno_ct] = sample_ct;
+  // Rest of this function is similar to ParseLdAndMergeDifflistSubset().
+  uint32_t raw_dosage_ct;
+  const unsigned char* group_info_iter;
+  reterr = ParseDifflistHeader(fread_end, raw_sample_ct, &fread_ptr, nullptr, &group_info_iter, &raw_dosage_ct);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  const unsigned char* deltalist_iter = fread_ptr;
+  const unsigned char* cur_raw_dosage_main_start = fread_ptr;
+  reterr = SkipDeltalistIds(fread_end, group_info_iter, raw_dosage_ct, raw_sample_ct, 0, &cur_raw_dosage_main_start);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  // raw_dosage_ct == 0 is technically permitted, but shouldn't happen in
+  // practice.  So we handle it correctly but don't give it a fast-path.
+  const int32_t subgroup_idx_last = ((raw_dosage_ct + kBitsPerWordD2 - 1) / kBitsPerWordD2) - 1;
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
+  uint32_t difflist_write_idx = 0;
+  uintptr_t subsetted_raregeno_word = 0;
+  uint32_t subsetted_raregeno_sample_idx = subsetted_raregeno_sample_ids[0];
+  uintptr_t raw_sample_idx = 0;
+  uint32_t sample_idx = 0;
+  uint32_t subsetted_raregeno_difflist_idx = 0;
+  uint32_t done = 0;
+  uint32_t subgroup_len_m1 = kBitsPerWordD2 - 1;
+  for (uint32_t subgroup_idx = 0; ; ++subgroup_idx) {
+    uint32_t dosage_idx_lowbits = 0;
+    if (S_CAST(int32_t, subgroup_idx) >= subgroup_idx_last) {
+      if (S_CAST(int32_t, subgroup_idx) > subgroup_idx_last) {
+        done = 1;
+        sample_idx = sample_ct;
+        goto IMPLPgrGetDMaybeSparse_finish;
+      }
+      subgroup_len_m1 &= raw_dosage_ct - 1;
+    }
+    if (!(subgroup_idx % (kPglDifflistGroupSize / kBitsPerWordD2))) {
+      raw_sample_idx = SubU32Load(group_info_iter, sample_id_byte_ct);
+      group_info_iter = &(group_info_iter[sample_id_byte_ct]);
+    } else {
+      // May as well use cur_raw_dosage_main_start over fread_end here.
+      raw_sample_idx += GetVint31(cur_raw_dosage_main_start, &deltalist_iter);
+    }
+    for (; ; ++dosage_idx_lowbits) {
+      if (unlikely(raw_sample_idx >= raw_sample_ct)) {
+        return kPglRetMalformedInput;
+      }
+      if ((!sample_include) || IsSet(sample_include, raw_sample_idx)) {
+        sample_idx = sample_include? RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, raw_sample_idx) : raw_sample_idx;
+      IMPLPgrGetDMaybeSparse_finish:
+        while (subsetted_raregeno_sample_idx < sample_idx) {
+          if (!(subsetted_raregeno_difflist_idx % kBitsPerWordD2)) {
+            subsetted_raregeno_word = subsetted_raregeno[subsetted_raregeno_difflist_idx / kBitsPerWordD2];
+          }
+          difflist_sample_ids[difflist_write_idx] = subsetted_raregeno_sample_idx;
+          dosage_main[difflist_write_idx] = kGenoToDosage16[subsetted_raregeno_word & 3];
+          ++difflist_write_idx;
+          ++subsetted_raregeno_difflist_idx;
+          subsetted_raregeno_word >>= 2;
+          subsetted_raregeno_sample_idx = subsetted_raregeno_sample_ids[subsetted_raregeno_difflist_idx];
+        }
+        if (subsetted_raregeno_sample_idx == sample_idx) {
+          if (done) {
+            *dosage_ct_ptr = difflist_write_idx;
+            return kPglRetSuccess;
+          }
+          if (!(subsetted_raregeno_difflist_idx % kBitsPerWordD2)) {
+            subsetted_raregeno_word = subsetted_raregeno[subsetted_raregeno_difflist_idx / kBitsPerWordD2];
+          }
+          ++subsetted_raregeno_difflist_idx;
+          subsetted_raregeno_word >>= 2;
+          subsetted_raregeno_sample_idx = subsetted_raregeno_sample_ids[subsetted_raregeno_difflist_idx];
+        }
+        difflist_sample_ids[difflist_write_idx] = sample_idx;
+        CopyFromUnalignedOffsetU16(&(dosage_main[difflist_write_idx]), cur_raw_dosage_main_start, dosage_idx_lowbits);
+        ++difflist_write_idx;
+      }
+      if (dosage_idx_lowbits == subgroup_len_m1) {
+        break;
+      }
+      raw_sample_idx += GetVint31(cur_raw_dosage_main_start, &deltalist_iter);
+    }
+    cur_raw_dosage_main_start = &(cur_raw_dosage_main_start[kBitsPerWordD2 * sizeof(int16_t)]);
+  }
 }
 
 PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) {

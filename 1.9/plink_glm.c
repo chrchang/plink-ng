@@ -2868,7 +2868,7 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
       }
     }
     dgels_nrhs = (int32_t)((uint32_t)perm_vec_ct);
-    dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
+    dgels_wrap(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
     glm_linear(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, pheno_sum_base, pheno_ssq_base, cur_covars_cov_major, cur_covars_sample_major, perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, cur_constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct;) {
       if (!IS_SET(perm_fails, pidx)) {
@@ -3199,7 +3199,7 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
       }
     }
     dgels_nrhs = (int32_t)((uint32_t)perm_vec_ct);
-    dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
+    dgels_wrap(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
     glm_linear(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, pheno_sum_base, pheno_ssq_base, cur_covars_cov_major, cur_covars_sample_major, perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, cur_constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!IS_SET(perm_fails, pidx)) {
@@ -3471,7 +3471,7 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
       }
     }
     dgels_nrhs = (int32_t)((uint32_t)perm_vec_ct);
-    dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
+    dgels_wrap(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
     glm_linear(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, pheno_sum_base, pheno_ssq_base, cur_covars_cov_major, cur_covars_sample_major, perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, 0, nullptr, nullptr, nullptr, nullptr, nullptr, &perm_fail_ct, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!IS_SET(perm_fails, pidx)) {
@@ -4882,7 +4882,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       dgels_ldb = dgels_m;
       g_dgels_lwork = -1;
       // no other parameters are needed for workspace query
-      dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, g_linear_mt[0].dgels_a, &dgels_m, g_linear_mt[0].dgels_b, &dgels_ldb, &dxx, &g_dgels_lwork, &dgels_info);
+      dgels_wrap(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, g_linear_mt[0].dgels_a, &dgels_m, g_linear_mt[0].dgels_b, &dgels_ldb, &dxx, &g_dgels_lwork, &dgels_info);
       // todo: support linking to 64-bit LAPACK on Linux
       if (dxx > 2147483647.0) {
 	logerrprint("Error: Multiple linear regression problem too large for current LAPACK version.\n");
@@ -5187,7 +5187,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  dgels_n = (int32_t)((uint32_t)cur_param_ct);
 	  dgels_ldb = dgels_m;
 
-	  dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, g_linear_mt[0].dgels_a, &dgels_m, g_linear_mt[0].dgels_b, &dgels_ldb, g_linear_mt[0].dgels_work, &g_dgels_lwork, &dgels_info);
+	  dgels_wrap(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, g_linear_mt[0].dgels_a, &dgels_m, g_linear_mt[0].dgels_b, &dgels_ldb, g_linear_mt[0].dgels_work, &g_dgels_lwork, &dgels_info);
 	  if (glm_linear(1, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, g_pheno_sum, g_pheno_ssq, g_linear_mt[0].cur_covars_cov_major, g_linear_mt[0].cur_covars_sample_major, g_perm_pheno_d2, g_linear_mt[0].dgels_b, g_linear_mt[0].param_2d_buf, g_linear_mt[0].mi_buf, g_linear_mt[0].param_2d_buf2, g_linear_mt[0].regression_results, cur_constraint_ct, constraints_con_major, g_linear_mt[0].param_df_buf, g_linear_mt[0].param_df_buf2, g_linear_mt[0].df_df_buf, g_linear_mt[0].df_buf, &perm_fail_ct, g_linear_mt[0].perm_fails) || perm_fail_ct) {
 	    regression_fail = 1;
 	    if (is_set_test && is_monomorphic(loadbuf_ptr, sample_valid_ct)) {
@@ -7538,7 +7538,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   fill_double_zero(param_ctx - 1, regression_results);
   memcpy(dgels_a, covars_cov_major, param_ct * sample_valid_ct * sizeof(double));
   memcpy(dgels_b, g_perm_pheno_d2, sample_valid_ct * sizeof(double));
-  dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, &dxx, &dgels_lwork, &dgels_info);
+  dgels_wrap(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, &dxx, &dgels_lwork, &dgels_info);
   if (dxx > 2147483647.0) {
     // maybe this can't actually happen, but just in case...
     // (todo: update this, and all the other matrix logic, once LAPACK can
@@ -7553,7 +7553,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   }
   dgels_nrhs = 1;
 
-  dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
+  dgels_wrap(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
   if (dgels_info) {
     logerrprint("Warning: Skipping --linear no-snp since regression failed.\n");
     goto glm_linear_nosnp_ret_1;
@@ -7726,7 +7726,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     fill_double_zero((param_ctx - 1) * cur_batch_size, regression_results);
     memcpy(dgels_a, covars_cov_major, param_ct * sample_valid_ct * sizeof(double));
     memcpy(dgels_b, g_perm_pmajor, cur_batch_size * sample_valid_ct * sizeof(double));
-    dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
+    dgels_wrap(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
     if (glm_linear(cur_batch_size, param_ct, sample_valid_ct, 0, nullptr, 0, 0, 0, covars_cov_major, covars_sample_major, g_perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails)) {
       perm_fail_ct = cur_batch_size;
       fill_bits(0, cur_batch_size, perm_fails);
@@ -8798,7 +8798,7 @@ uint32_t glm_linear_dosage(uintptr_t sample_ct, uintptr_t* cur_samples, uintptr_
   fill_double_zero(param_ct - 1, regression_results);
   memcpy(dgels_a, covars_cov_major, param_ct * sample_valid_ct * sizeof(double));
   memcpy(dgels_b, pheno_d2, sample_valid_ct * sizeof(double));
-  dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
+  dgels_wrap(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
   glm_linear(1, param_ct, sample_valid_ct, 0, nullptr, 0, 0, 0, covars_cov_major, covars_sample_major, pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, 0, nullptr, nullptr, nullptr, nullptr, nullptr, &perm_fail_ct, perm_fails);
   if (perm_fail_ct) {
     return 0;

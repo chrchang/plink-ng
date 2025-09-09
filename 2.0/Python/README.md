@@ -8,24 +8,20 @@ pip install 'pip>=20.3'
 pip install Pgenlib
 ```
 
-To build from GitHub instead, clone the repository:
+GitHub:
+```
+pip install 'pip>=20.3'
+pip install -e 'git+https://github.com/chrchang/plink-ng.git#egg=Pgenlib&subdirectory=2.0/Python'
+```
 
+Or install from a cloned copy:
 ```
 # clone repo
 git clone https://github.com/chrchang/plink-ng
 # go to python folder
 cd plink-ng/2.0/Python
-```
-
-Then install Cython and NumPy:
-```
-pip3 install "cython>=0.29.21" "numpy>=1.19.0"
-```
-
-and then build and install the package
-```
-python3 setup.py build_clib build_ext -i
-python3 setup.py install
+# install the package
+pip install -e .
 ```
 
 You can test the package with `pytest`.
@@ -43,4 +39,4 @@ with pg.PgenWriter("test.pgen".encode("utf-8"), 2, variant_ct=3, nonref_flags=Fa
 
 ```
 
-See tests/test_pgenlib.py for more sophisticated examples.
+See [tests/test_pgenlib.py](tests/test_pgenlib.py) for more sophisticated examples.

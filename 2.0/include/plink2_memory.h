@@ -21,6 +21,8 @@
 // Double-ended stack allocator, and a few support functions (e.g.
 // GetMemAvailableKib to estimate how much memory we can afford to use).
 
+#include <assert.h>
+
 #include "plink2_base.h"
 
 #ifdef __cplusplus

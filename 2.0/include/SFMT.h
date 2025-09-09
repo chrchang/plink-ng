@@ -57,13 +57,27 @@
  * unsigned int and 64-bit unsigned int in hexadecimal format.
  */
 
+#define __USE_MINGW_ANSI_STDIO 1
+
+#ifdef __LP64__
+#  ifdef __x86_64__
+#    include <emmintrin.h>  // IWYU pragma: export
+#  else
+#    define SIMDE_ENABLE_NATIVE_ALIASES
+#    ifdef IGNORE_BUNDLED_SIMDE
+#      include <simde/x86/sse2.h>  // IWYU pragma: export
+#    else
+#      include "../simde/x86/sse2.h"  // IWYU pragma: export
+#    endif
+#  endif
+#endif
+
 #ifndef SFMTST_H
 #define SFMTST_H
 #if defined(__cplusplus)
 extern "C" {
 #endif
 
-#include <stdio.h>
 #include <assert.h>
 
 #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L)
@@ -80,13 +94,8 @@ extern "C" {
 #endif
 
 #ifndef PRIu64
-  #if defined(_MSC_VER) || defined(__BORLANDC__)
-    #define PRIu64 "I64u"
-    #define PRIx64 "I64x"
-  #else
-    #define PRIu64 "llu"
-    #define PRIx64 "llx"
-  #endif
+  #define PRIu64 "llu"
+  #define PRIx64 "llx"
 #endif
 
 
@@ -129,17 +138,6 @@ extern "C" {
   128-bit SIMD like data type for standard C
   ------------------------------------------*/
 #ifdef __LP64__
-  #ifdef __x86_64__
-    #include <emmintrin.h>
-  #else
-    #define SIMDE_ENABLE_NATIVE_ALIASES
-    #ifdef IGNORE_BUNDLED_SIMDE
-      #include <simde/x86/sse2.h>
-    #else
-      #include "../simde/x86/sse2.h"
-    #endif
-  #endif
-
 /** 128-bit data structure */
 union W128_T {
     uint32_t u[4];

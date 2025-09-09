@@ -14,8 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include "include/plink2_stats.h"
 #include "plink2_glm_shared.h"
+
+#include <assert.h>
+#include <math.h>
+#include <string.h>
+
+#include "include/plink2_bits.h"
+#include "include/plink2_string.h"
+#include "plink2_decompress.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -333,9 +340,11 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
   }
   BigstackEndSet(new_covar_name_alloc);
   if (min_ssq_minus_sqmean * 1048576.0 < max_ssq) {
-    // probable todo: automatically variance-standardize, while keeping track
-    // of the linear transformations so we can translate results back to
-    // original units in the final output.
+    // Could automatically variance-standardize, while keeping track of the
+    // linear transformations so we can translate results back to original
+    // units in the final output.
+    // However, this can have a surprising interaction with the VIF check, so
+    // it should come with an option to disable the auto-standardization.
     *glm_err_ptr = SetGlmErr0(kGlmErrcodeUnstableScale);
     return kPglRetSkipped;
   }

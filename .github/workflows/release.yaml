@@ -5,22 +5,19 @@ on: [workflow_dispatch]
 jobs:
   build_wheels:
     name: Build wheels for ${{ matrix.arch }} ${{ matrix.os }} py3.${{ matrix.python }}
-    runs-on: ${{ matrix.os }}-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python: [7, 8, 9, 10, 11, 12]
-        os: [ubuntu, macos]
+        python: [9, 10, 11, 12, 13]
+        os: [ubuntu-latest, macos-latest]
         arch: [x86_64, aarch64, universal2]
         exclude:
-          - os: macos
+          - os: ubuntu-latest
             arch: universal2
-            python: 7
-          - os: ubuntu
-            arch: universal2
-          - os: macos
+          - os: macos-latest
             arch: x86_64
-          - os: macos
+          - os: macos-latest
             arch: aarch64
 
     steps:
@@ -33,7 +30,7 @@ jobs:
           platforms: all
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.19.1
+        uses: pypa/cibuildwheel@v2.23
         with:
           package-dir: ./2.0/Python
         env:
@@ -45,7 +42,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}-${{ matrix.arch }}-3${{ matrix.python }}
+          name: wheels-${{ startsWith(matrix.os, 'ubuntu') && 'ubuntu' || 'macos' }}-${{ matrix.arch }}-3${{ matrix.python }}
           path: ./wheelhouse/*.whl
 
   merge_wheels:
@@ -62,7 +59,9 @@ jobs:
   build_sdist:
     runs-on: ubuntu-latest
     env:
-      job_python_version: "3.12"
+      # The maximum supported version of python that is not
+      # "end-of-life," "prerelease," or "feature": https://devguide.python.org/versions
+      job_python_version: "3.13"
 
     steps:
       - name: Checkout
@@ -83,7 +82,7 @@ jobs:
         with:
           name: sdist
           path: ./2.0/Python/dist/pgenlib-*.tar.gz
-      
+
       - name: Install and test
         working-directory: ./2.0/Python
         run: |
@@ -107,6 +106,7 @@ jobs:
 
       - name: Publish distribution to Test PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        if: github.ref != 'refs/heads/master'
         with:
           repository-url: https://test.pypi.org/legacy/
 

@@ -14,9 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include "plink2_export_legacy.h"
 
+#include <assert.h>
+#include <string.h>
+
+#include "include/pgenlib_misc.h"
+#include "include/pgenlib_read.h"
+#include "include/plink2_base.h"
+#include "include/plink2_bits.h"
+#include "include/plink2_string.h"
+#include "include/plink2_thread.h"
+#include "plink2_cmdline.h"
 #include "plink2_common.h"
-#include "plink2_compress_stream.h"
 
 // This covers formats that are fully supported by PLINK 1.x (no multiallelic
 // variants, dosages, or phase information).
@@ -25,28 +35,10 @@
 namespace plink2 {
 #endif
 
-typedef struct TransposeToSmajReadCtxStruct {
-  const uintptr_t* variant_include;
-  const uintptr_t* allele_idx_offsets;
-  const AlleleCode* allele_permute;
-  const uintptr_t* sample_include;
-  const uint32_t* sample_include_cumulative_popcounts;
-  uint32_t sample_ct;
-
-  PgenReader** pgr_ptrs;
-
-  uint32_t* variant_uidx_starts;
-  uint32_t cur_block_write_ct;
-
-  uintptr_t* vmaj_readbuf;
-
-  uint64_t err_info;
-} TransposeToSmajReadCtx;
-
-THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
+THREAD_FUNC_DECL MTPgenReadThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uintptr_t tidx = arg->tidx;
-  TransposeToSmajReadCtx* ctx = S_CAST(TransposeToSmajReadCtx*, arg->sharedp->context);
+  MTPgenReadCtx* ctx = S_CAST(MTPgenReadCtx*, arg->sharedp->context);
 
   const uintptr_t* variant_include = ctx->variant_include;
   const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
@@ -74,7 +66,7 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
       const PglErr reterr = PgrGet(sample_include, pssi, read_sample_ct, variant_uidx, pgrp, vmaj_readbuf_iter);
       if (unlikely(reterr)) {
         new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
-        goto TransposeToSmajReadThread_err;
+        goto MTPgenReadThread_err;
       }
       if (allele_permute) {
         const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx);
@@ -88,7 +80,7 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
     }
     prev_copy_ct += cur_block_copy_ct;
     while (0) {
-    TransposeToSmajReadThread_err:
+    MTPgenReadThread_err:
       UpdateU64IfSmaller(new_err_info, &ctx->err_info);
     }
   } while (!THREAD_BLOCK_FINISH(arg));
@@ -96,7 +88,6 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
 }
 
 typedef struct TransposeToPlink1SmajWriteCtxStruct {
-  const uintptr_t* variant_include;
   uint32_t variant_ct;
   uint32_t sample_ct;
 
@@ -175,7 +166,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
   ThreadGroup write_tg;
   PreinitThreads(&read_tg);
   PreinitThreads(&write_tg);
-  TransposeToSmajReadCtx read_ctx;
+  MTPgenReadCtx read_ctx;
   TransposeToPlink1SmajWriteCtx write_ctx;
   {
     // Possible special case: if the input file is a variant-major .bed, we do
@@ -209,7 +200,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       read_ctx.allele_idx_offsets = allele_idx_offsets;
       read_ctx.allele_permute = allele_permute;
       read_ctx.err_info = (~0LLU) << 32;
-      SetThreadFuncAndData(TransposeToSmajReadThread, &read_ctx, &read_tg);
+      SetThreadFuncAndData(MTPgenReadThread, &read_ctx, &read_tg);
 
       const uintptr_t variant_cacheline_ct = NypCtToCachelineCt(variant_ct);
       uint32_t output_calc_thread_ct = MINV(calc_thread_ct, variant_cacheline_ct);
@@ -228,6 +219,9 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       for (uint32_t tidx = 0; tidx != output_calc_thread_ct; ++tidx) {
         write_ctx.thread_vecaligned_bufs[tidx] = S_CAST(VecW*, bigstack_alloc_raw(kPglNypTransposeBufbytes));
       }
+      if (unlikely(g_bigstack_base > g_bigstack_end)) {
+        goto ExportIndMajorBed_ret_NOMEM;
+      }
       // each of the two write buffers should use <= 1/8 of the remaining
       // workspace
       const uintptr_t writebuf_cachelines_avail = bigstack_left() / (kCacheline * 8);
@@ -241,6 +235,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       write_ctx.smaj_writebufs[0] = S_CAST(uintptr_t*, bigstack_alloc_raw(variant_cacheline_ct * kCacheline * sample_batch_size));
       write_ctx.smaj_writebufs[1] = S_CAST(uintptr_t*, bigstack_alloc_raw(variant_cacheline_ct * kCacheline * sample_batch_size));
       const uintptr_t readbuf_vecs_avail = (bigstack_left() / kCacheline) * kVecsPerCacheline;
+      // possible todo: reduce this requirement
       if (unlikely(readbuf_vecs_avail < variant_ct)) {
         goto ExportIndMajorBed_ret_NOMEM;
       }
@@ -254,7 +249,6 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       uintptr_t read_sample_ctaw2 = NypCtToAlignedWordCt(read_sample_ct);
       uintptr_t* vmaj_readbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(variant_ct * read_sample_ctaw2 * kBytesPerWord));
       read_ctx.vmaj_readbuf = vmaj_readbuf;
-      write_ctx.variant_include = variant_include;
       write_ctx.variant_ct = variant_ct;
       write_ctx.vmaj_readbuf = vmaj_readbuf;
       SetThreadFuncAndData(TransposeToPlink1SmajWriteThread, &write_ctx, &write_tg);
@@ -290,7 +284,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         uint32_t read_block_idx = 0;
         ReinitThreads(&read_tg);
         uint32_t pct = 0;
-        uint32_t next_print_idx = variant_ct / 100;
+        uint32_t next_print_idx = (variant_ct + 99) / 100;
         putc_unlocked('\r', stdout);
         printf("--export ind-major-bed pass %u/%u: loading... 0%%", pass_idx + 1, pass_ct);
         fflush(stdout);
@@ -329,7 +323,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
             pct = (variant_idx * 100LLU) / variant_ct;
             printf("\b\b%u%%", pct++);
             fflush(stdout);
-            next_print_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+            next_print_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
           }
 
           ++read_block_idx;
@@ -350,7 +344,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         fflush(stdout);
         pct = 0;
         uint32_t flush_sample_idx = 0;
-        next_print_idx = read_sample_ct / 100;
+        next_print_idx = (read_sample_ct + 99) / 100;
         for (uint32_t flush_sample_idx_end = 0; ; ) {
           if (!IsLastBlock(&write_tg)) {
             if (flush_sample_idx_end + sample_batch_size >= read_sample_ct) {
@@ -380,7 +374,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
               pct = (flush_sample_idx_end * 100LLU) / read_sample_ct;
               printf("\b\b%u%%", pct++);
               fflush(stdout);
-              next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct)) / 100;
+              next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct) + 99) / 100;
             }
           }
           JoinThreads(&write_tg);
@@ -475,7 +469,7 @@ PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const ui
     uint32_t chr_end = 0;
     uint32_t chr_blen = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uintptr_t variant_uidx_base = 0;
     uintptr_t variant_include_bits = variant_include[0];
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
@@ -609,7 +603,7 @@ PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const ui
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
@@ -660,7 +654,7 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
   ThreadGroup transpose_tg;
   PreinitThreads(&read_tg);
   PreinitThreads(&transpose_tg);
-  TransposeToSmajReadCtx read_ctx;
+  MTPgenReadCtx read_ctx;
   TransposeToPlink1SmajWriteCtx transpose_ctx;
   {
     if (unlikely(((4 * k1LU) - compound_genotypes) * variant_ct > kMaxLongLine - 4 * kMaxIdSlen - 32)) {
@@ -903,7 +897,7 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
     read_ctx.allele_idx_offsets = nullptr;
     read_ctx.allele_permute = nullptr;
     read_ctx.err_info = (~0LLU) << 32;
-    SetThreadFuncAndData(TransposeToSmajReadThread, &read_ctx, &read_tg);
+    SetThreadFuncAndData(MTPgenReadThread, &read_ctx, &read_tg);
 
     const uintptr_t variant_cacheline_ct = NypCtToCachelineCt(variant_ct);
     // transpose_calc_thread_ct == 1, since transposition is much cheaper than
@@ -945,7 +939,6 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
     uintptr_t read_sample_ctaw2 = NypCtToAlignedWordCt(read_sample_ct);
     uintptr_t* vmaj_readbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(variant_ct * read_sample_ctaw2 * kBytesPerWord));
     read_ctx.vmaj_readbuf = vmaj_readbuf;
-    transpose_ctx.variant_include = variant_include;
     transpose_ctx.variant_ct = variant_ct;
     transpose_ctx.vmaj_readbuf = vmaj_readbuf;
     SetThreadFuncAndData(TransposeToPlink1SmajWriteThread, &transpose_ctx, &transpose_tg);
@@ -990,7 +983,7 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
       uint32_t read_block_idx = 0;
       ReinitThreads(&read_tg);
       uint32_t pct = 0;
-      uint32_t next_print_idx = variant_ct / 100;
+      uint32_t next_print_idx = (variant_ct + 99) / 100;
       putc_unlocked('\r', stdout);
       printf("--export %s pass %u/%u: loading... 0%%", compound_genotypes? "compound-genotypes" : "ped", pass_idx + 1, pass_ct);
       fflush(stdout);
@@ -1029,7 +1022,7 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
 
         ++read_block_idx;
@@ -1050,7 +1043,7 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
       uintptr_t sample_include_bits;
       BitIter1Start(sample_include, sample_uidx_start, &sample_uidx_base, &sample_include_bits);
       uint32_t flush_sample_idx = 0;
-      next_print_idx = read_sample_ct / 100;
+      next_print_idx = (read_sample_ct + 99) / 100;
       for (uint32_t flush_sample_idx_end = 0; ; ) {
         if (!IsLastBlock(&transpose_tg)) {
           if (flush_sample_idx_end + sample_batch_size >= read_sample_ct) {
@@ -1173,7 +1166,7 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
             pct = (flush_sample_idx_end * 100LLU) / read_sample_ct;
             printf("\b\b%u%%", pct++);
             fflush(stdout);
-            next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct)) / 100;
+            next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct) + 99) / 100;
           }
         }
         JoinThreads(&transpose_tg);

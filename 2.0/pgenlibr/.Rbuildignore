@@ -2,3 +2,5 @@
 ^\.Rproj\.user$
 ^LICENSE\.md
 ^cran-comments\.md
+\.o$
+\.so$

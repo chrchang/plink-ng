@@ -14,8 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 #include "plink2_fasta.h"
+
+#include <assert.h>
+#include <string.h>
+
+#include "include/plink2_bits.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "plink2_cmdline.h"
+#include "plink2_decompress.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -523,7 +531,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
 
     while (1) {
       ++line_idx;
-      char* line_iter;
+      char* line_iter = nullptr;  // gcc 14 warning
       reterr = TextNextLine(&fa_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {

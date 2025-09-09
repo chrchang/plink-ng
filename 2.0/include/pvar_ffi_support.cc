@@ -15,9 +15,16 @@
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "pvar_ffi_support.h"
-#include "plink2_htable.h"
-#include "plink2_text.h"
+
+#include <assert.h>
 #include <errno.h>
+#include <string.h>
+
+#include "pgenlib_misc.h"
+#include "plink2_bits.h"
+#include "plink2_htable.h"
+#include "plink2_string.h"
+#include "plink2_text.h"
 
 namespace plink2 {
 

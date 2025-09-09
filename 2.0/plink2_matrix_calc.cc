@@ -14,10 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "plink2_compress_stream.h"
-#include "plink2_matrix.h"
 #include "plink2_matrix_calc.h"
+
+#include <assert.h>
+#include <errno.h>
+#include <float.h>
+#include <limits.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "include/plink2_bits.h"
+#include "include/plink2_htable.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "include/plink2_thread.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "plink2_matrix.h"
 #include "plink2_random.h"
 
 #ifdef USE_CUDA
@@ -1883,7 +1897,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         uint32_t prev_read_block_idx = 0;
         uint32_t read_block_idx = 0;
         uint32_t pct = 0;
-        uint32_t next_print_variant_idx = variant_ct / 100;
+        uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
         uint32_t parity = 0;
         for (uint32_t variant_idx = 0; ; ) {
           const uint32_t cur_block_size = MultireadNonempty(variant_include_orig, &tg, raw_variant_ct, sparse_read_block_size, pgfip, &read_block_idx, &reterr);
@@ -1921,7 +1935,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
               pct = (variant_idx * 100LLU) / variant_ct;
               printf("\b\b%u%%", pct++);
               fflush(stdout);
-              next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+              next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
             }
           }
           prev_read_block_idx = read_block_idx;
@@ -2742,7 +2756,7 @@ THREAD_FUNC_DECL CalcKingTableSubsetThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t rel_check, uint32_t require_xor, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, RelConcordanceCheckMode rel_or_concordance_check, uint32_t require_xor, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
   PglErr reterr = kPglRetSuccess;
   {
     // In --king-table-require case, sample1_in_require + sample2_in_require
@@ -2764,7 +2778,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
-      if (rel_check) {
+      if (rel_or_concordance_check) {
         // linebuf_iter must point to the start of the second FID, while
         // line_iter points to the start of the first.
         const uint32_t first_fid_slen = CurTokenEnd(line_iter) - line_iter;
@@ -2772,6 +2786,16 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, c
         if ((first_fid_slen != second_fid_slen) || (!memequal(line_iter, linebuf_iter, first_fid_slen))) {
           line_iter = K_CAST(char*, linebuf_iter);
           continue;
+        }
+        if (rel_or_concordance_check == kRcCheckConcordance) {
+          const char* first_iid = FirstNonTspace(&(line_iter[first_fid_slen + 1]));
+          const char* second_iid = FirstNonTspace(&(linebuf_iter[second_fid_slen]));
+          const uint32_t first_iid_slen = CurTokenEnd(first_iid) - first_iid;
+          const uint32_t second_iid_slen = FirstSpaceOrEoln(second_iid) - second_iid;
+          if ((first_iid_slen != second_iid_slen) || (!memequal(first_iid, second_iid, first_iid_slen))) {
+            line_iter = K_CAST(char*, second_iid);
+            continue;
+          }
         }
       }
       uint32_t sample_uidx2;
@@ -2875,15 +2899,23 @@ void InitFidPairIterator(FidPairIterator* fpip) {
   fpip->idx2 = 0;  // defensive
 }
 
-uint64_t CountRelCheckPairs(const char* nsorted_xidbox, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, char* idbuf) {
+uint64_t CountRcCheckPairs(const char* nsorted_xidbox, RelConcordanceCheckMode rel_or_concordance_check, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, char* idbuf) {
   uint64_t total = 0;
   for (uintptr_t block_start_idx = 0; block_start_idx != orig_sample_ct; ) {
     const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
-    const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
-    memcpy(idbuf, fid_start, fid_slen);
-    idbuf[fid_slen] = ' ';
+    const char* fid_end = AdvToDelim(fid_start, '\t');
+    uint32_t id_slen;
+    if (rel_or_concordance_check == kRcCheckRel) {
+      id_slen = fid_end - fid_start;
+    } else {
+      // concordance check
+      const char* iid_end = AdvToDelim(&(fid_end[1]), '\t');
+      id_slen = iid_end - fid_start;
+    }
+    memcpy(idbuf, fid_start, id_slen);
+    idbuf[id_slen] = ' ';
     // bugfix (14 Jan 2020): forgot that natural-sorting was used...
-    idbuf[fid_slen + 1] = '\0';
+    idbuf[id_slen + 1] = '\0';
     const uintptr_t block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
     const uint64_t cur_block_size = block_end_idx - block_start_idx;
     total += (cur_block_size * (cur_block_size - 1)) / 2;
@@ -2892,14 +2924,21 @@ uint64_t CountRelCheckPairs(const char* nsorted_xidbox, uintptr_t max_xid_blen, 
   return total;
 }
 
-uint64_t CountRelCheckPairsSampleRequire(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t require_xor, char* idbuf) {
+uint64_t CountRcCheckPairsSampleRequire(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, RelConcordanceCheckMode rel_or_concordance_check, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t require_xor, char* idbuf) {
   uint64_t total = 0;
   for (uintptr_t block_start_idx = 0; block_start_idx != orig_sample_ct; ) {
     const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
-    const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
-    memcpy(idbuf, fid_start, fid_slen);
-    idbuf[fid_slen] = ' ';
-    idbuf[fid_slen + 1] = '\0';
+    const char* fid_end = AdvToDelim(fid_start, '\t');
+    uint32_t id_slen;
+    if (rel_or_concordance_check == kRcCheckRel) {
+      id_slen = fid_end - fid_start;
+    } else {
+      const char* iid_end = AdvToDelim(&(fid_end[1]), '\t');
+      id_slen = iid_end - fid_start;
+    }
+    memcpy(idbuf, fid_start, id_slen);
+    idbuf[id_slen] = ' ';
+    idbuf[id_slen + 1] = '\0';
     const uintptr_t block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
     const uint64_t cur_block_size = block_end_idx - block_start_idx;
     uintptr_t required_ct = 0;
@@ -2918,10 +2957,11 @@ uint64_t CountRelCheckPairsSampleRequire(const char* nsorted_xidbox, const uint3
   return total;
 }
 
-void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t rel_check, uint32_t require_xor, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, FidPairIterator* fpip, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
-  // Support "--make-king-table rel-check" without an actual subset-file.
-  // These loops aren't really optimized, since actual rel-check use cases
-  // should have small families where it doesn't matter.
+void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid_map, const uintptr_t* sample_require, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, RelConcordanceCheckMode rel_or_concordance_check, uint32_t require_xor, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, FidPairIterator* fpip, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+  // Support "--make-king-table rel-check" and "--make-king-table
+  // concordance-check" without an actual subset-file.  These loops aren't
+  // really optimized, since actual rel-check use cases should have small
+  // families where it doesn't matter.
   //
   // In the is_first_parallel_scan case, *pair_idx_ptr is set to the total
   // number of eligible pairs, even if it's greater than pair_idx_stop.
@@ -2961,7 +3001,7 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
         pair_idx += cur_pair_ct;
         if (pair_idx == pair_idx_stop) {
           if (is_first_parallel_scan) {
-            pair_idx = CountRelCheckPairs(nsorted_xidbox, max_xid_blen, orig_sample_ct, idbuf);
+            pair_idx = CountRcCheckPairs(nsorted_xidbox, rel_or_concordance_check, max_xid_blen, orig_sample_ct, idbuf);
           }
           goto GetRelCheckOrKTRequirePairs_early_exit;
         }
@@ -2973,10 +3013,17 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
       }
       idx2 = block_start_idx;
       const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
-      const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
-      memcpy(idbuf, fid_start, fid_slen);
-      idbuf[fid_slen] = ' ';
-      idbuf[fid_slen + 1] = '\0';
+      const char* fid_end = AdvToDelim(fid_start, '\t');
+      uint32_t id_slen;
+      if (rel_or_concordance_check == kRcCheckRel) {
+        id_slen = fid_end - fid_start;
+      } else {
+        const char* iid_end = AdvToDelim(&(fid_end[1]), '\t');
+        id_slen = iid_end - fid_start;
+      }
+      memcpy(idbuf, fid_start, id_slen);
+      idbuf[id_slen] = ' ';
+      idbuf[id_slen + 1] = '\0';
       block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
     }
   } else {
@@ -3105,11 +3152,12 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
           }
         }
         pair_idx += cur_pair_ct;
-        // bugfix (21 Jun 2023): forgot to handle the usual rel_check==0 case.
+        // bugfix (21 Jun 2023): forgot to handle the usual
+        // rel_or_concordance_check==0 case.
         // (didn't notice since I was testing on IID-only data.)
         if (pair_idx == pair_idx_stop) {
           if (is_first_parallel_scan) {
-            if (!rel_check) {
+            if (!rel_or_concordance_check) {
               const uint64_t orig_sample_ct64 = orig_sample_ct;
               const uintptr_t orig_sample_ctl = BitCtToWordCt(orig_sample_ct);
               const uint64_t optional_ct = orig_sample_ct - PopcountWords(sample_require, orig_sample_ctl);
@@ -3119,7 +3167,7 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
                 pair_idx = orig_sample_ct64 * optional_ct;
               }
             } else {
-              pair_idx = CountRelCheckPairsSampleRequire(nsorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, require_xor, idbuf);
+              pair_idx = CountRcCheckPairsSampleRequire(nsorted_xidbox, xid_map, sample_require, rel_or_concordance_check, max_xid_blen, orig_sample_ct, require_xor, idbuf);
             }
           }
           goto GetRelCheckOrKTRequirePairs_early_exit;
@@ -3131,14 +3179,21 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
         break;
       }
       idx2 = block_start_idx;
-      if (!rel_check) {
+      if (!rel_or_concordance_check) {
         block_end_idx = orig_sample_ct;
       } else {
         const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
-        const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
-        memcpy(idbuf, fid_start, fid_slen);
-        idbuf[fid_slen] = ' ';
-        idbuf[fid_slen + 1] = '\0';
+        const char* fid_end = AdvToDelim(fid_start, '\t');
+        uint32_t id_slen;
+        if (rel_or_concordance_check == kRcCheckRel) {
+          id_slen = fid_end - fid_start;
+        } else {
+          const char* iid_end = AdvToDelim(&(fid_end[1]), '\t');
+          id_slen = iid_end - fid_start;
+        }
+        memcpy(idbuf, fid_start, id_slen);
+        idbuf[id_slen] = ' ';
+        idbuf[id_slen + 1] = '\0';
         block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
       }
     }
@@ -3151,8 +3206,9 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
   fpip->idx2 = idx2;
 }
 
-PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, uint32_t rel_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
-  // subset_fname permitted to be nullptr when rel_check is true.
+PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, RelConcordanceCheckMode rel_or_concordance_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  // subset_fname permitted to be nullptr when rel_or_concordance_check is
+  // nonzero.
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -3256,7 +3312,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         memcpy(g_textbuf, subset_fname, fname_slen);
         strcpy_k(&(g_textbuf[fname_slen]), "~");
         if (unlikely(rename(subset_fname, g_textbuf))) {
-          logerrputs("Error: Failed to append '~' to --king-table-subset input filename.\n");
+          logerrprintf("Error: Failed to append '~' to --king-table-subset input filename: %s.\n", strerror(errno));
           goto CalcKingTableSubset_ret_OPEN_FAIL;
         }
         subset_fname = g_textbuf;
@@ -3420,11 +3476,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
 
     uint64_t pair_idx = 0;
     if (!subset_fname) {
-      GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, require_xor, (parallel_tot != 1), 0, pair_buf_capacity, &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+      GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_or_concordance_check, require_xor, (parallel_tot != 1), 0, pair_buf_capacity, &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
     } else {
       fputs("Scanning --king-table-subset file...", stdout);
       fflush(stdout);
-      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, require_xor, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_or_concordance_check, require_xor, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
       if (unlikely(reterr)) {
         goto CalcKingTableSubset_ret_1;
       }
@@ -3452,7 +3508,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           pair_idx = 0;
           if (!subset_fname) {
             InitFidPairIterator(&fpi);
-            GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, require_xor, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+            GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_or_concordance_check, require_xor, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
           } else {
             reterr = TextRewind(&txs);
             if (unlikely(reterr)) {
@@ -3465,7 +3521,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_TSTREAM_REWIND_FAIL;
             }
-            reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, require_xor, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+            reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_or_concordance_check, require_xor, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_1;
             }
@@ -3697,11 +3753,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       }
       pair_idx_cur_start = pair_idx;
       if (!subset_fname) {
-        GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_check, require_xor, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+        GetRelCheckOrKTRequirePairs(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, rel_or_concordance_check, require_xor, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
       } else {
         fputs("Scanning --king-table-subset file...", stdout);
         fflush(stdout);
-        reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, require_xor, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+        reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, sample_require, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_or_concordance_check, require_xor, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
         if (unlikely(reterr)) {
           goto CalcKingTableSubset_ret_1;
         }
@@ -4364,7 +4420,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     uintptr_t cur_bits = variant_include[0];
     uint32_t parity = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     // caller's responsibility to print this
     // logputs("Correcting for missingness: ");
     fputs("0%", stdout);
@@ -4437,7 +4493,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
           pct = (cur_variant_idx_start * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       if (cur_variant_idx_start + cur_batch_size == variant_ct) {
@@ -4620,7 +4676,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     uint32_t parity = 0;
     uint32_t is_not_first_block = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     logputs("Constructing GRM: ");
     fputs("0%", stdout);
     fflush(stdout);
@@ -4650,7 +4706,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           pct = (variant_idx_start * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       ctx.cur_batch_size = cur_batch_size;
@@ -5613,7 +5669,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       const double variant_ct_recip = 1.0 / u31tod(variant_ct);
 
       const uintptr_t gg_size = pca_sample_ct * pc_ct_x2;
-      __CLPK_integer svd_rect_lwork;
+      lapack_int svd_rect_lwork;
 #ifdef LAPACK_ILP64
       GetSvdRectLwork(MAXV(pca_sample_ct, pca_row_ct), qq_col_ct, &svd_rect_lwork);
 #else
@@ -5873,8 +5929,8 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           goto CalcPca_ret_1;
         }
       }
-      __CLPK_integer lwork;
-      __CLPK_integer liwork;
+      lapack_int lwork;
+      lapack_int liwork;
       uintptr_t wkspace_byte_ct;
       if (unlikely(GetExtractEigvecsLworks(pca_sample_ct, pc_ct, &lwork, &liwork, &wkspace_byte_ct))) {
         goto CalcPca_ret_NOMEM;
@@ -6315,7 +6371,7 @@ typedef struct CalcScoreCtxStruct {
   uint32_t score_final_col_ct;
   uint32_t sample_shard_size;
   uint32_t sample_ct;
-  uint32_t max_returned_difflist_len;
+  uint32_t max_difflist_len;
   ScoreFlags flags;
   uint32_t qsr_ct;
 
@@ -6373,9 +6429,9 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
   const uint32_t shard_sizel = BitCtToWordCt(sample_shard_size);
   const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
-  const uint32_t max_returned_difflist_len = ctx->max_returned_difflist_len;
-  const uintptr_t raregeno_stride = NypCtToAlignedWordCt(max_returned_difflist_len);
-  const uintptr_t difflist_sample_ids_stride = RoundUpPow2(max_returned_difflist_len, kInt32PerVec);
+  const uint32_t max_difflist_len = ctx->max_difflist_len;
+  const uintptr_t raregeno_stride = NypCtToAlignedWordCt(max_difflist_len);
+  const uintptr_t difflist_sample_ids_stride = RoundUpPow2(max_difflist_len, kInt32PerVec);
   const uint32_t dosage_main_stride = RoundUpPow2(sample_ct, kDosagePerVec);
   const uintptr_t* shard_sex_nonmale_collapsed = &(ctx->sex_nonmale_collapsed[sample_idx_startl]);
   const uintptr_t* shard_sex_female_collapsed = &(ctx->sex_female_collapsed[sample_idx_startl]);
@@ -7312,13 +7368,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uint32_t domrec = !!(flags & (kfScoreDominant | kfScoreRecessive));
     uint32_t* common_geno_sum_incrs = nullptr;
     double* common_score_incrs = nullptr;
-    uint32_t max_returned_difflist_len = 0;
+    uint32_t max_difflist_len = 0;
     uintptr_t raregeno_stride = 0;
     uintptr_t difflist_sample_ids_stride = 0;
     if ((!ctx.dosage_presents[0]) && (!domrec)) {
-      max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
-      raregeno_stride = NypCtToAlignedWordCt(max_returned_difflist_len);
-      difflist_sample_ids_stride = RoundUpPow2(max_returned_difflist_len, kInt32PerVec);
+      max_difflist_len = (score_final_col_ct == 1)? (sample_ct / 16) : (sample_ct / 32);
+      raregeno_stride = NypCtToAlignedWordCt(max_difflist_len);
+      difflist_sample_ids_stride = RoundUpPow2(max_difflist_len, kInt32PerVec);
       if (unlikely(bigstack_alloc_u32(qsr_ct_nz, &common_geno_sum_incrs) ||
                    bigstack_alloc_d(score_final_col_ct, &common_score_incrs) ||
                    bigstack_alloc_w(kScoreVariantBlockSize * raregeno_stride, &ctx.raregenos[0]) ||
@@ -7345,7 +7401,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       ctx.score_sparse_coefs_vmaj[0] = nullptr;
       ctx.score_sparse_coefs_vmaj[1] = nullptr;
     }
-    ctx.max_returned_difflist_len = max_returned_difflist_len;
+    ctx.max_difflist_len = max_difflist_len;
     if (allele_freqs) {
       if (unlikely(bigstack_alloc_d(kScoreVariantBlockSize, &ctx.allele_freqs[0]) ||
                    bigstack_alloc_d(kScoreVariantBlockSize, &ctx.allele_freqs[1]) ||
@@ -7380,7 +7436,10 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       BitvecInvmaskCopy(sex_nm, sex_male, raw_sample_ctl, sex_female_tmp);
       CopyBitarrSubset(sex_female_tmp, sample_include, sample_ct, sex_female_collapsed);
       // now invert to nonfemale
-      AlignedBitarrInvert(raw_sample_ct, sex_female_tmp);
+      BitvecInvert(raw_sample_ctl, sex_female_tmp);
+      // (not actually necessary here, but let's keep sex_nonfemale definition
+      // consistent since failure to do so has resulted in a bug)
+      BitvecAnd(sample_include, raw_sample_ctl, sex_female_tmp);
       sex_nonfemale = sex_female_tmp;
     }
     ctx.sex_female_collapsed = sex_nonmale_collapsed;
@@ -7433,7 +7492,6 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uint32_t lines_to_skip_p1 = 1 + ((flags / kfScoreHeaderIgnore) & 1);
     // Stricter threshold for multi-score since standard matrix-multiply
     // workflow is more likely to pay off
-    const uint32_t max_sparse = (score_final_col_ct == 1)? (sample_ct / 16) : (sample_ct / 32);
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
@@ -7731,7 +7789,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           // Sparse-genotype optimization.  We limit this to the no-dosage,
           // all-diploid, biallelic, no 'dominant'/'recessive' case to keep
           // code size under control.
-          reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_sparse, variant_uidx, simple_pgrp, genovec_iter, &difflist_common_geno, raregeno_iter, difflist_sample_ids_iter, &difflist_len);
+          reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_difflist_len, variant_uidx, simple_pgrp, genovec_iter, &difflist_common_geno, raregeno_iter, difflist_sample_ids_iter, &difflist_len);
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, variant_uidx);
             goto ScoreReport_ret_1;
@@ -8522,7 +8580,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     }
     snprintf(outname_end, kMaxOutfnameExtBlen, ".sscore.tmp");
     if (unlink(outname)) {
-      logerrprintfww("Error: Failed to delete %s .\n", outname);
+      logerrprintfww("Error: Failed to delete %s : %s.\n", outname, strerror(errno));
       goto ScoreReport_ret_WRITE_FAIL;
     }
   }
@@ -8615,6 +8673,7 @@ typedef struct VscoreCtxStruct {
   uint32_t sample_ct;
   uint32_t male_ct;
   uint32_t is_xchr_model_1;
+  uint32_t max_difflist_len;
 
   PgenReader** pgr_ptrs;
   uintptr_t** genovecs;
@@ -8684,14 +8743,12 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
   const uint32_t is_xchr_model_1 = ctx->is_xchr_model_1;
+  const uint32_t max_difflist_len = ctx->max_difflist_len;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
 
   const uint32_t single_prec = (wts_f_smaj != nullptr);
 #ifdef USE_CUDA
   CublasFmultiplier* cfmp = ctx->cfms? &(ctx->cfms[tidx]) : nullptr;
-  const uint32_t max_sparse = sample_ct / (single_prec? (cfmp? 64 : 32) : 16);
-#else
-  const uint32_t max_sparse = sample_ct / (single_prec? 32 : 16);
 #endif
 
   float* tmp_f_result_buf = nullptr;
@@ -8763,7 +8820,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
       if (!dosage_present) {
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
-        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_sparse, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto VscoreThread_err;
@@ -8876,7 +8933,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto VscoreThread_err;
         }
-        if ((!is_x_or_y) && (dosage_ct <= max_sparse)) {
+        if ((!is_x_or_y) && (dosage_ct <= max_difflist_len)) {
           STD_ARRAY_DECL(uint32_t, 4, genocounts);
           ZeroTrailingNyps(sample_ct, genovec);
           if (!dosage_ct) {
@@ -8885,7 +8942,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
             ZeroWArr(BitCtToWordCt(sample_ct), dosage_present);
           }
           GenoarrCountInvsubsetFreqs2(genovec, dosage_present, sample_ct, sample_ct - dosage_ct, genocounts);
-          if (genocounts[0] >= sample_ct - max_sparse) {
+          if (genocounts[0] >= sample_ct - max_difflist_len) {
             float* target_f = nullptr;
             double* target_d = nullptr;
             if (single_prec) {
@@ -9668,15 +9725,20 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       ctx.missing_cts[1] = nullptr;
     }
 
-    const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+#ifdef USE_CUDA
+    const uint32_t max_difflist_len = sample_ct / (single_prec? (ctx.cfms? 64 : 32) : 16);
+#else
+    const uint32_t max_difflist_len = sample_ct / (single_prec? 32 : 16);
+#endif
+    ctx.max_difflist_len = max_difflist_len;
     // * Per-thread raregeno buffers must have space for
-    //   max_returned_difflist_len nyps, and difflist_sample_ids buffers need
-    //   space for that many uint32s.
+    //   max_difflist_len nyps, and difflist_sample_ids buffers need space for
+    //   that many uint32s.
     // * Per-thread dosage_vmaj buffers must have space for
     //   kVscoreBlockSize * sample_ct elements.
     // * Per-thread result buffers must have space for kVscoreBlockSize *
     //   vscore_ct elements.
-    const uintptr_t thread_xalloc_cacheline_ct = DivUp(max_returned_difflist_len, kNypsPerCacheline) + DivUp(max_returned_difflist_len, kInt32PerCacheline) + DivUp(kVscoreBlockSize * S_CAST(uintptr_t, sample_ct) * sizeof(double), kCacheline) + DivUp(kVscoreBlockSize * vscore_ct * sizeof(double), kCacheline);
+    const uintptr_t thread_xalloc_cacheline_ct = DivUp(max_difflist_len, kNypsPerCacheline) + DivUp(max_difflist_len, kInt32PerCacheline) + DivUp(kVscoreBlockSize * S_CAST(uintptr_t, sample_ct) * sizeof(double), kCacheline) + DivUp(kVscoreBlockSize * vscore_ct * sizeof(double), kCacheline);
 
     // ctx.results must have space for 2 * vscore_ct * read_block_size values.
     const uintptr_t per_variant_xalloc_byte_ct = 2 * vscore_ct * ((8 * k1LU) >> single_prec);
@@ -9694,8 +9756,8 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     {
       // could vector-align individual allocations and only cacheline-align at
       // thread boundaries, but the savings are microscopic
-      const uintptr_t raregeno_alloc = kCacheline * DivUp(max_returned_difflist_len, kNypsPerCacheline);
-      const uintptr_t difflist_sample_ids_alloc = RoundUpPow2(max_returned_difflist_len * sizeof(int32_t), kCacheline);
+      const uintptr_t raregeno_alloc = kCacheline * DivUp(max_difflist_len, kNypsPerCacheline);
+      const uintptr_t difflist_sample_ids_alloc = RoundUpPow2(max_difflist_len * sizeof(int32_t), kCacheline);
       const uintptr_t dosage_vmaj_alloc = RoundUpPow2(kVscoreBlockSize * S_CAST(uintptr_t, sample_ct) * ((8 * k1LU) >> single_prec), kCacheline);
       const uintptr_t tmp_result_alloc = RoundUpPow2(kVscoreBlockSize * vscore_ct * ((8 * k1LU) >> single_prec), kCacheline);
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
@@ -9745,7 +9807,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     uintptr_t cur_bits = variant_include[0];
     uint32_t prev_block_size = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
     uint32_t chr_fo_idx = UINT32_MAX;
@@ -9922,7 +9984,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       prev_block_size = cur_block_size;
@@ -10050,7 +10112,7 @@ PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const
       goto PhenoSvd_ret_INCONSISTENT_INPUT;
     }
     const uint64_t svd_rect_size = S_CAST(uint64_t, orig_pheno_ct) * new_sample_ct;
-    __CLPK_integer svd_rect_lwork;
+    lapack_int svd_rect_lwork;
 #ifdef LAPACK_ILP64
     GetSvdRectLwork(orig_pheno_ct, new_sample_ct, &svd_rect_lwork);
 #else

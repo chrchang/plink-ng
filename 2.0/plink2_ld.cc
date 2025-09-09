@@ -14,14 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "include/plink2_stats.h"
-#include "plink2_compress_stream.h"
-#include "plink2_filter.h"
 #include "plink2_ld.h"
-#include "plink2_set.h"
 
+#include <assert.h>
+#include <errno.h>
+#include <math.h>
+#include <string.h>
 #include <unistd.h>  // unlink()
+
+#include "include/SFMT.h"
+#include "include/plink2_bits.h"
+#include "include/plink2_htable.h"
+#include "include/plink2_stats.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "include/plink2_thread.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "plink2_filter.h"
+#include "plink2_set.h"
 
 #ifdef __cplusplus
 #  include <functional>  // std::greater
@@ -1272,7 +1283,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     // 7. Assemble final results with CopyBitarrRange()
     uint32_t parity = 0;
     uint32_t pct = 0;
-    uint32_t next_print_tvidx_start = max_load / 100;
+    uint32_t next_print_tvidx_start = (max_load + 99) / 100;
     logprintf("--indep-pairwise (%u compute thread%s): ", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
     fputs("0%", stdout);
     fflush(stdout);
@@ -1391,7 +1402,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
           pct = (cur_tvidx_start * 100LLU) / max_load;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_tvidx_start = (pct * S_CAST(uint64_t, max_load)) / 100;
+          next_print_tvidx_start = (pct * S_CAST(uint64_t, max_load) + 99) / 100;
         }
       }
       if (cur_tvidx_start + tvidx_batch_size >= max_load) {
@@ -1962,7 +1973,7 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
     // 7. Assemble final results with CopyBitarrRange()
     uint32_t parity = 0;
     uint32_t pct = 0;
-    uint32_t next_print_tvidx_start = max_load / 100;
+    uint32_t next_print_tvidx_start = (max_load + 99) / 100;
     logprintf("--indep-pairphase (%u compute thread%s): ", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
     fputs("0%", stdout);
     fflush(stdout);
@@ -2107,7 +2118,7 @@ PglErr IndepPairphase(const uintptr_t* variant_include, const ChrInfo* cip, cons
           pct = (cur_tvidx_start * 100LLU) / max_load;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_tvidx_start = (pct * S_CAST(uint64_t, max_load)) / 100;
+          next_print_tvidx_start = (pct * S_CAST(uint64_t, max_load) + 99) / 100;
         }
       }
       if (cur_tvidx_start + tvidx_batch_size >= max_load) {
@@ -4647,24 +4658,23 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
       // + x^3 - (2K + f12 + f21)x^2 + (K + f12)(K + f21)x = 0
       cubic_sol_ct = CubicRealRoots(0.5 * (freq_majmaj + freq_minmin - freq_majmin - freq_minmaj - 3 * half_unphased_hethet_share), 0.5 * (freq_majmaj * freq_minmin + freq_majmin * freq_minmaj + half_unphased_hethet_share * (freq_majmin + freq_minmaj - freq_majmaj - freq_minmin + half_unphased_hethet_share)), -0.5 * half_unphased_hethet_share * freq_majmaj * freq_minmin, cubic_sols);
       if (cubic_sol_ct > 1) {
-        // have encountered 7.9e-11 difference in testing, which is more than
-        // twice kSmallishEpsilon.
-        while (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share + 8 * kSmallishEpsilon) {
+        // have encountered 7.9e-11 difference in testing.
+        while (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share + k2m32) {
           --cubic_sol_ct;
           if (cubic_sol_ct == 1) {
             break;
           }
         }
-        if (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share - 8 * kSmallishEpsilon) {
+        if (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share - k2m32) {
           cubic_sols[cubic_sol_ct - 1] = half_unphased_hethet_share;
         }
-        while ((cubic_sols[first_relevant_sol_idx] < 8 * -kSmallishEpsilon) && (first_relevant_sol_idx + 1 < cubic_sol_ct)) {
+        while ((cubic_sols[first_relevant_sol_idx] < -k2m32) && (first_relevant_sol_idx + 1 < cubic_sol_ct)) {
           ++first_relevant_sol_idx;
         }
       }
       // bugfix (29 Jan 2025): Also need to clip up to 0 when there's only one
       // solution.
-      if (cubic_sols[first_relevant_sol_idx] < 8 * kSmallishEpsilon) {
+      if (cubic_sols[first_relevant_sol_idx] < k2m32) {
         cubic_sols[first_relevant_sol_idx] = 0.0;
       }
     } else {
@@ -4683,7 +4693,7 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
       const double nonzero_freq_xx = freq_majmaj + freq_minmin;
       const double nonzero_freq_xy = freq_majmin + freq_minmaj;
       // (current code still works if three or all four values are zero)
-      if ((nonzero_freq_xx + kSmallishEpsilon < half_unphased_hethet_share + nonzero_freq_xy) && (nonzero_freq_xy + kSmallishEpsilon < half_unphased_hethet_share + nonzero_freq_xx)) {
+      if ((nonzero_freq_xx + k2m35 < half_unphased_hethet_share + nonzero_freq_xy) && (nonzero_freq_xy + k2m35 < half_unphased_hethet_share + nonzero_freq_xx)) {
         cubic_sol_ct = 3;
         cubic_sols[1] = (half_unphased_hethet_share + nonzero_freq_xy - nonzero_freq_xx) * 0.5;
         cubic_sols[2] = half_unphased_hethet_share;
@@ -5749,8 +5759,8 @@ uintptr_t UnpackedByteStride(const ClumpCtx* ctx, R2PhaseType phase_type, uint32
 #ifndef USE_AVX2
     const uint32_t founder_ct = ctx->founder_ct;
     const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
-    const uint32_t max_simple_difflist_len = founder_ct / 64;
-    const uintptr_t sparse_req = RoundUpPow2((6 + max_simple_difflist_len) * sizeof(int32_t), kBytesPerVec) + NypCtToVecCt(max_simple_difflist_len) * kBytesPerVec + RoundUpPow2(founder_ctl * (kBytesPerWord + sizeof(int32_t)), kBytesPerVec);
+    const uint32_t max_difflist_len = founder_ct / 64;
+    const uintptr_t sparse_req = RoundUpPow2((6 + max_difflist_len) * sizeof(int32_t), kBytesPerVec) + NypCtToVecCt(max_difflist_len) * kBytesPerVec + RoundUpPow2(founder_ctl * (kBytesPerWord + sizeof(int32_t)), kBytesPerVec);
     if (sparse_req > stride) {
       stride = sparse_req;
     }
@@ -6196,7 +6206,7 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
   const R2PhaseType phase_type = S_CAST(R2PhaseType, ctx->phase_type);
   const uint32_t load_dosage = ctx->load_dosage;
   const uintptr_t allele_idx_start = IdxToUidxW(observed_alleles, observed_alleles_cumulative_popcounts_w, ctx->allele_widx_start, ctx->allele_widx_end, oaidx);
-  const uint32_t max_simple_difflist_len = founder_ct / 64;
+  const uint32_t max_difflist_len = founder_ct / 64;
   uintptr_t* raregeno = nullptr;
   uint32_t* difflist_sample_ids = nullptr;
   if (phase_type == kR2PhaseTypeUnphased) {
@@ -6235,12 +6245,12 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
       if ((phase_type == kR2PhaseTypeUnphased) && (!is_y)) {
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
-        reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_simple_difflist_len, variant_uidx, aidx, pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_difflist_len, variant_uidx, aidx, pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
           goto ClumpHighmemUnpack_err;
         }
         if (difflist_common_geno != UINT32_MAX) {
-          if (difflist_len <= max_simple_difflist_len) {
+          if (difflist_len <= max_difflist_len) {
             LdUnpackNondosageSparse(raregeno, difflist_sample_ids, founder_male_collapsed, founder_ct, founder_male_ct, difflist_common_geno, difflist_len, write_iter);
             continue;
           }
@@ -8244,6 +8254,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     }
     const uintptr_t pgv_byte_stride = g_bigstack_base - R_CAST(unsigned char*, ctx.pgv_base.genovec);
 
+    const uint32_t max_difflist_len = founder_ct / 64;
     uintptr_t unpacked_byte_stride;
     if (check_dosage) {
       const uintptr_t dosage_trail_byte_ct = LdDosageTrailAlignedByteCt(S_CAST(R2PhaseType, phased_r2), x_exists);
@@ -8251,8 +8262,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     } else {
       unpacked_byte_stride = RoundUpPow2(16, kBytesPerVec) + bitvec_byte_ct * (3 + 2 * check_phase);
 #ifndef USE_AVX2
-      const uint32_t max_simple_difflist_len = founder_ct / 64;
-      const uintptr_t sparse_req = RoundUpPow2((6 + max_simple_difflist_len) * sizeof(int32_t), kBytesPerVec) + NypCtToVecCt(max_simple_difflist_len) * kBytesPerVec + RoundUpPow2(founder_ctl * (kBytesPerWord + sizeof(int32_t)), kBytesPerVec);
+      const uintptr_t sparse_req = RoundUpPow2((6 + max_difflist_len) * sizeof(int32_t), kBytesPerVec) + NypCtToVecCt(max_difflist_len) * kBytesPerVec + RoundUpPow2(founder_ctl * (kBytesPerWord + sizeof(int32_t)), kBytesPerVec);
       if (sparse_req > unpacked_byte_stride) {
         unpacked_byte_stride = sparse_req;
       }
@@ -8284,9 +8294,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       const uintptr_t dosage_ct_alloc = check_dosage * min_u32_alloc;
       const uintptr_t dphase_ct_alloc = dosage_ct_alloc * check_phase;
       if (!phased_r2) {
-        const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
-        const uintptr_t raregeno_vec_ct = DivUp(max_returned_difflist_len, kNypsPerVec);
-        const uintptr_t difflist_sample_id_vec_ct = DivUp(max_returned_difflist_len, kInt32PerVec);
+        const uintptr_t raregeno_vec_ct = DivUp(max_difflist_len, kNypsPerVec);
+        const uintptr_t difflist_sample_id_vec_ct = DivUp(max_difflist_len, kInt32PerVec);
         sparse_alloc = RoundUpPow2((raregeno_vec_ct + difflist_sample_id_vec_ct) * kBytesPerVec, kCacheline);
         raregeno_word_ct = raregeno_vec_ct * kWordsPerVec;
       }
@@ -9916,11 +9925,10 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
 
     uintptr_t* raregeno = nullptr;
     uint32_t* difflist_sample_ids = nullptr;
-    const uint32_t max_simple_difflist_len = founder_ct / 64;
+    const uint32_t max_difflist_len = founder_ct / 64;
     if (!phased_calc) {
-      const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
-      if (unlikely(bigstack_alloc_w(NypCtToWordCt(max_returned_difflist_len), &raregeno) ||
-                   bigstack_alloc_u32(max_returned_difflist_len, &difflist_sample_ids))) {
+      if (unlikely(bigstack_alloc_w(NypCtToWordCt(max_difflist_len), &raregeno) ||
+                   bigstack_alloc_u32(max_difflist_len, &difflist_sample_ids))) {
         goto VcorMatrix_ret_NOMEM;
       }
     }
@@ -10057,7 +10065,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     } else {
       unpacked_variant_byte_stride = RoundUpPow2(16, kBytesPerVec) + bitvec_byte_ct * (3 + 2 * check_phase);
 #ifndef USE_AVX2
-      const uintptr_t sparse_req = RoundUpPow2((6 + max_simple_difflist_len) * sizeof(int32_t), kBytesPerVec) + NypCtToVecCt(max_simple_difflist_len) * kBytesPerVec + RoundUpPow2(founder_ctl * (kBytesPerWord + sizeof(int32_t)), kBytesPerVec);
+      const uintptr_t sparse_req = RoundUpPow2((6 + max_difflist_len) * sizeof(int32_t), kBytesPerVec) + NypCtToVecCt(max_difflist_len) * kBytesPerVec + RoundUpPow2(founder_ctl * (kBytesPerWord + sizeof(int32_t)), kBytesPerVec);
       if (sparse_req > unpacked_variant_byte_stride) {
         unpacked_variant_byte_stride = sparse_req;
       }
@@ -10197,7 +10205,7 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
     AlleleCode aidx = 0;
     uint64_t job_done = 0;
     uint64_t next_job_done = 0;
-    uint64_t pct_thresh = job_size / 100;
+    uint64_t next_print_job_idx = (job_size + 99) / 100;
     uint32_t pct = 0;
     uint32_t cur_row_variant_idx_start = row_variant_idx_start;
     uint32_t row_window_size = usual_row_window_size;
@@ -10256,12 +10264,12 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
           if ((!phased_calc) && (!is_y)) {
             uint32_t difflist_common_geno;
             uint32_t difflist_len;
-            reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_simple_difflist_len, variant_uidx, aidx, simple_pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+            reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_difflist_len, variant_uidx, aidx, simple_pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
             if (unlikely(reterr)) {
               goto VcorMatrix_ret_PGR_FAIL;
             }
             if (difflist_common_geno != UINT32_MAX) {
-              if (difflist_len <= max_simple_difflist_len) {
+              if (difflist_len <= max_difflist_len) {
                 LdUnpackNondosageSparse(raregeno, difflist_sample_ids, founder_male_collapsed, founder_ct, founder_male_ct, difflist_common_geno, difflist_len, row_load_iter);
                 continue;
               }
@@ -10338,12 +10346,12 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
             if ((!phased_calc) && (!is_y)) {
               uint32_t difflist_common_geno;
               uint32_t difflist_len;
-              reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_simple_difflist_len, variant_uidx, aidx, simple_pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+              reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_difflist_len, variant_uidx, aidx, simple_pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
               if (unlikely(reterr)) {
                 goto VcorMatrix_ret_PGR_FAIL;
               }
               if (difflist_common_geno != UINT32_MAX) {
-                if (difflist_len <= max_simple_difflist_len) {
+                if (difflist_len <= max_difflist_len) {
                   LdUnpackNondosageSparse(raregeno, difflist_sample_ids, founder_male_collapsed, founder_ct, founder_male_ct, difflist_common_geno, difflist_len, col_load_iter);
                   continue;
                 }
@@ -10419,14 +10427,14 @@ PglErr VcorMatrix(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
         }
         col_parity = 1 - col_parity;
 
-        if (job_done >= pct_thresh) {
+        if (job_done >= next_print_job_idx) {
           if (pct > 10) {
             putc_unlocked('\b', stdout);
           }
           pct = (job_done * 100) / job_size;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          pct_thresh = (pct * job_size) / 100;
+          next_print_job_idx = (pct * job_size + 99) / 100;
         }
         cur_col_variant_idx_start = cur_col_variant_idx_stop;
       } while (cur_col_variant_idx_start != col_variant_idx_stop);
@@ -11400,11 +11408,10 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
 
     uintptr_t* raregeno = nullptr;
     uint32_t* difflist_sample_ids = nullptr;
-    const uint32_t max_simple_difflist_len = founder_ct / 64;
+    const uint32_t max_difflist_len = founder_ct / 64;
     if (!phased_calc) {
-      const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
-      if (unlikely(bigstack_alloc_w(NypCtToWordCt(max_returned_difflist_len), &raregeno) ||
-                   bigstack_alloc_u32(max_returned_difflist_len, &difflist_sample_ids))) {
+      if (unlikely(bigstack_alloc_w(NypCtToWordCt(max_difflist_len), &raregeno) ||
+                   bigstack_alloc_u32(max_difflist_len, &difflist_sample_ids))) {
         goto VcorTable_ret_NOMEM;
       }
     }
@@ -11503,7 +11510,7 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
     } else {
       unpacked_variant_byte_stride = RoundUpPow2(16, kBytesPerVec) + bitvec_byte_ct * (3 + 2 * check_phase);
 #ifndef USE_AVX2
-      const uintptr_t sparse_req = RoundUpPow2((6 + max_simple_difflist_len) * sizeof(int32_t), kBytesPerVec) + NypCtToVecCt(max_simple_difflist_len) * kBytesPerVec + RoundUpPow2(founder_ctl * (kBytesPerWord + sizeof(int32_t)), kBytesPerVec);
+      const uintptr_t sparse_req = RoundUpPow2((6 + max_difflist_len) * sizeof(int32_t), kBytesPerVec) + NypCtToVecCt(max_difflist_len) * kBytesPerVec + RoundUpPow2(founder_ctl * (kBytesPerWord + sizeof(int32_t)), kBytesPerVec);
       if (sparse_req > unpacked_variant_byte_stride) {
         unpacked_variant_byte_stride = sparse_req;
       }
@@ -11673,7 +11680,7 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
         logputs("  --ld-snp[s]\n");
       }
     }
-    uint32_t next_print_variant_ridx = row_variant_ct / 100;
+    uint32_t next_print_variant_ridx = (row_variant_ct + 99) / 100;
     uint32_t pct = 0;
     uint32_t prev_variant_ridx_start = 0;
     uint32_t cur_variant_ridx_start = 0;
@@ -11812,12 +11819,12 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
             if ((!phased_calc) && (!is_y)) {
               uint32_t difflist_common_geno;
               uint32_t difflist_len;
-              reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_simple_difflist_len, row_variant_uidx, aidx, simple_pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+              reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_difflist_len, row_variant_uidx, aidx, simple_pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
               if (unlikely(reterr)) {
                 goto VcorTable_ret_PGR_FAIL;
               }
               if (difflist_common_geno != UINT32_MAX) {
-                if (difflist_len <= max_simple_difflist_len) {
+                if (difflist_len <= max_difflist_len) {
                   LdUnpackNondosageSparse(raregeno, difflist_sample_ids, founder_male_collapsed, founder_ct, founder_male_ct, difflist_common_geno, difflist_len, row_load_iter);
                   continue;
                 }
@@ -11933,12 +11940,12 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
             if ((!phased_calc) && (!is_y)) {
               uint32_t difflist_common_geno;
               uint32_t difflist_len;
-              reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_simple_difflist_len, col_variant_uidx, aidx, simple_pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+              reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_difflist_len, col_variant_uidx, aidx, simple_pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
               if (unlikely(reterr)) {
                 goto VcorTable_ret_PGR_FAIL;
               }
               if (difflist_common_geno != UINT32_MAX) {
-                if (difflist_len <= max_simple_difflist_len) {
+                if (difflist_len <= max_difflist_len) {
                   LdUnpackNondosageSparse(raregeno, difflist_sample_ids, founder_male_collapsed, founder_ct, founder_male_ct, difflist_common_geno, difflist_len, col_load_iter);
                   goto VcorTable_col_finish;
                 }
@@ -11989,7 +11996,7 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
         pct = (cur_variant_ridx_start * 100LLU) / row_variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_ridx = (pct * S_CAST(uint64_t, row_variant_ct)) / 100;
+        next_print_variant_ridx = (pct * S_CAST(uint64_t, row_variant_ct) + 99) / 100;
       }
       prev_variant_ridx_start = cur_variant_ridx_start;
       cur_variant_ridx_start = cur_variant_ridx_stop;

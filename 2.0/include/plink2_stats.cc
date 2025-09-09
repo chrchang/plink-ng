@@ -16,6 +16,12 @@
 
 #include "plink2_stats.h"
 
+#include <assert.h>
+#include <math.h>
+#include <stdlib.h>  // exit()
+
+#include "plink2_string.h"
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif
@@ -1097,7 +1103,7 @@ double binomial_ccdf_ln(uint32_t nn, uint32_t kk, double xx, double yy, uint32_t
     //   (n choose (i - 1)) / (n choose i)
     //   i!(n-i)! / (i-1)!(n-i+1)!
     // = i / (n-i+1)
-    if (cur_term < kRecip2m53) {
+    if (cur_term < k2m53) {
       // Only need to finish computing shifted_inv_binom_coeff: multiply by
       // i!, divide by n!/(n-i)!.
       // Since we support n up to 2^31, n!/(n-i)! may overflow for i>33.
@@ -1874,7 +1880,7 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
       // point.
       double centerp = 0;
       // rescale this at the end.
-      while (curr_hets > 1.5) {
+      while (curr_hets > 1) {
         curr_homr += 1;
         curr_homc += 1;
         lastp *= (curr_hets * (curr_hets - 1)) / (4 * curr_homr * curr_homc);
@@ -1893,7 +1899,7 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
       return log(1 - centerp);
     }
     double tailp = 1;
-    while (curr_homr > 0.5) {
+    while (curr_homr > 0) {
       curr_hets += 2;
       lastp *= (4 * curr_homr * curr_homc) / (curr_hets * (curr_hets - 1));
       curr_homr -= 1;
@@ -1953,7 +1959,7 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
     // Lfact() should be accurate enough for us to use a smaller-than-usual
     // epsilon for identifying ties here; this isn't enough to cancel out the
     // effective increase in epsilon from working in log-space, but it helps.
-    const double max_diff = starting_lnprob_other_component * (kSmallEpsilon / 8);
+    const double max_diff = MAXV(k2m47, starting_lnprob_other_component * k2m47);
     while (1) {
       curr_hets = rare_ctd - curr_homr * 2;
       curr_homc = curr_homr + c_minus_r;
@@ -1987,15 +1993,13 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
         // We're guaranteed to make progress, since lnprob_diff >= 62 * log(2)
         // and sample_ct < 2^31.
         curr_homr -= S_CAST(int64_t, lnprob_diff / ll_deriv);
-        if (curr_homr < 0) {
-          curr_homr = 0;
-        }
+        assert(curr_homr >= 0);
       }
     }
     // Sum toward center, until lastp >= 1 or we're about to double-count the
     // starting cell (possible when midp true).
     double lastp_tail = lastp;
-    if (lastp < 1 - kSmallEpsilon) {
+    if (lastp < 1 - k2m34) {
       const double starting_homr_p1 = obs_homr + 1;
       double curr_homr_center = curr_homr;
       double curr_homc_center = curr_homc;
@@ -2004,14 +2008,14 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
         tailp += lastp;
         curr_hets_center += 2;
         lastp *= (4 * curr_homr_center * curr_homc_center) / (curr_hets_center * (curr_hets_center - 1));
-        if (lastp >= 1 - kSmallEpsilon) {
+        if (lastp >= 1 - k2m34) {
           break;
         }
         curr_homr_center -= 1;
         curr_homc_center -= 1;
       }
     }
-    if ((lastp >= 1 - kSmallEpsilon) && (lastp < 1 + kSmallEpsilon)) {
+    if ((lastp >= 1 - k2m34) && (lastp <= 1 + k2m34)) {
       tailp += lastp;
       ++tie_ct;
     }
@@ -2066,7 +2070,7 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
     return log(1 - centerp);
   }
   double tailp = 1;
-  while (curr_hets > 1.5) {
+  while (curr_hets > 1) {
     curr_homr += 1;
     curr_homc += 1;
     lastp *= curr_hets * (curr_hets - 1) / (4 * curr_homr * curr_homc);
@@ -2088,8 +2092,10 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
       curr_homr = 0;
     }
   }
-  const double max_diff = starting_lnprob_other_component * (kSmallEpsilon / 8);
+  const double max_diff = MAXV(k2m47, starting_lnprob_other_component * k2m47);
+#ifndef NDEBUG
   const double max_homr = S_CAST(double, rare_ct / 2);
+#endif
   while (1) {
     curr_hets = rare_ctd - curr_homr * 2;
     curr_homc = curr_homr + c_minus_r;
@@ -2114,15 +2120,13 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
     } else {
       const double ll_deriv = log(4 * (curr_homr + 1) * (curr_homc + 1) / (curr_hets * (curr_hets - 1)));
       curr_homr += S_CAST(int64_t, lnprob_diff / ll_deriv);
-      if (curr_homr > max_homr) {
-        curr_homr = max_homr;
-      }
+      assert(curr_homr <= max_homr);
     }
   }
   // Sum toward center, until lastp >= 1 or we're about to double-count the
   // starting cell.
   double lastp_tail = lastp;
-  if (lastp < 1 - kSmallEpsilon) {
+  if (lastp < 1 - k2m34) {
     const double starting_homr_m1 = obs_homr - 1;
     double curr_homr_center = curr_homr;
     double curr_homc_center = curr_homc;
@@ -2132,13 +2136,13 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mid
       curr_homr_center += 1;
       curr_homc_center += 1;
       lastp *= curr_hets_center * (curr_hets_center - 1) / (4 * curr_homr_center * curr_homc_center);
-      if (lastp >= 1 - kSmallEpsilon) {
+      if (lastp >= 1 - k2m34) {
         break;
       }
       curr_hets_center -= 2;
     }
   }
-  if ((lastp >= 1 - kSmallEpsilon) && (lastp < 1 + kSmallEpsilon)) {
+  if ((lastp >= 1 - k2m34) && (lastp <= 1 + k2m34)) {
     tailp += lastp;
     ++tie_ct;
   }
@@ -2680,7 +2684,7 @@ uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, u
         curr_homr = max_homr;
       }
     }
-    const double max_diff = starting_lnprob_other_component * (kSmallEpsilon / 8);
+    const double max_diff = MAXV(k2m47, fabs(starting_lnprob_other_component) * k2m47);
     while (1) {
       curr_hets = rare_ctd - curr_homr * 2;
       curr_homc = curr_homr + c_minus_r;
@@ -2707,7 +2711,7 @@ uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, u
       }
     }
     double lastp_tail = lastp;
-    if (lastp < 1 - kSmallEpsilon) {
+    if (lastp < 1 - k2m34) {
       double curr_homr_center = curr_homr;
       double curr_homc_center = curr_homc;
       double curr_hets_center = curr_hets;
@@ -2718,14 +2722,14 @@ uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, u
         }
         curr_hets_center += 2;
         lastp *= (4 * curr_homr_center * curr_homc_center) / (curr_hets_center * (curr_hets_center - 1));
-        if (lastp >= 1 - kSmallEpsilon) {
+        if (lastp >= 1 - k2m34) {
           break;
         }
         curr_homr_center -= 1;
         curr_homc_center -= 1;
       }
     }
-    if (lastp < 1 + kSmallEpsilon) {
+    if (lastp <= 1 + k2m34) {
       tailp += lastp * (1 - midp_d * 0.5);
       if (tailp >= tail_thresh) {
         return 0;
@@ -2758,7 +2762,7 @@ uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, u
     }
     // unreachable
   }
-  while (curr_hets > 1.5) {
+  while (curr_hets > 1) {
     curr_homr += 1;
     curr_homc += 1;
     lastp *= curr_hets * (curr_hets - 1) / (4 * curr_homr * curr_homc);
@@ -2780,7 +2784,7 @@ uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, u
       curr_homr = 0;
     }
   }
-  const double max_diff = starting_lnprob_other_component * (kSmallEpsilon / 8);
+  const double max_diff = MAXV(k2m47, fabs(starting_lnprob_other_component) * k2m47);
   while (1) {
     curr_hets = rare_ctd - curr_homr * 2;
     curr_homc = curr_homr + c_minus_r;
@@ -2807,7 +2811,7 @@ uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, u
     }
   }
   double lastp_tail = lastp;
-  if (lastp < 1 - kSmallEpsilon) {
+  if (lastp < 1 - k2m34) {
     double curr_homr_center = curr_homr;
     double curr_homc_center = curr_homc;
     double curr_hets_center = curr_hets;
@@ -2819,13 +2823,13 @@ uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, u
       curr_homr_center += 1;
       curr_homc_center += 1;
       lastp *= curr_hets_center * (curr_hets_center - 1) / (4 * curr_homr_center * curr_homc_center);
-      if (lastp >= 1 - kSmallEpsilon) {
+      if (lastp >= 1 - k2m34) {
         break;
       }
       curr_hets_center -= 2;
     }
   }
-  if (lastp < 1 + kSmallEpsilon) {
+  if (lastp <= 1 + k2m34) {
     tailp += lastp * (1 - midp_d * 0.5);
     if (tailp >= tail_thresh) {
       return 0;
@@ -2854,12 +2858,9 @@ uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, u
   }
 }
 
-// 2^{-40} for now, since 2^{-44} was too small on real data
-static const double kExactTestEpsilon2 = 0.0000000000009094947017729282379150390625;
-
 double FisherExact2x2P(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp) {
   // Basic 2x2 Fisher exact test p-value calculation.
-  double tprob = (1 - kExactTestEpsilon2) * kExactTestBias;
+  double tprob = (1 - k2m40) * kExactTestBias;
   double cur_prob = tprob;
   double cprob = 0;
   int32_t tie_ct = 1;
@@ -2902,7 +2903,7 @@ double FisherExact2x2P(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, u
       return 0;
     }
     if (cur_prob < kExactTestBias) {
-      if (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias) {
+      if (cur_prob > (1 - 2 * k2m40) * kExactTestBias) {
         tie_ct++;
       }
       tprob += cur_prob;
@@ -2930,7 +2931,7 @@ double FisherExact2x2P(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, u
     cur12 = m12;
     cur21 = m21;
     cur22 = m22;
-    cur_prob = (1 - kExactTestEpsilon2) * kExactTestBias;
+    cur_prob = (1 - k2m40) * kExactTestBias;
     do {
       cur12 += 1;
       cur21 += 1;
@@ -2943,14 +2944,14 @@ double FisherExact2x2P(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, u
         if (!midp) {
           return preaddp / (cprob + preaddp);
         }
-        return (preaddp - ((1 - kExactTestEpsilon2) * kExactTestBias * 0.5) * tie_ct) / (cprob + preaddp);
+        return (preaddp - ((1 - k2m40) * kExactTestBias * 0.5) * tie_ct) / (cprob + preaddp);
       }
     } while (cur11 > 0.5);
   }
   if (!midp) {
     return tprob / (cprob + tprob);
   }
-  return (tprob - ((1 - kExactTestEpsilon2) * kExactTestBias * 0.5) * tie_ct) / (cprob + tprob);
+  return (tprob - ((1 - k2m40) * kExactTestBias * 0.5) * tie_ct) / (cprob + tprob);
 }
 
 void HweLnFirstRow(double hetab, double homa, double homb, double* tailp_ptr, double* starting_lnprob_ptr, uint32_t* tie_ct_ptr, double* orig_base_lnprobl_ptr, double* orig_base_lnprobr_ptr, double* orig_saved_lhets_ptr, double* orig_saved_lhoma_ptr, double* orig_saved_lhomb_ptr, double* orig_saved_rhets_ptr, double* orig_saved_rhoma_ptr, double* orig_saved_rhomb_ptr) {
@@ -2976,7 +2977,7 @@ void HweLnFirstRow(double hetab, double homa, double homb, double* tailp_ptr, do
       double centerp = 0;
       double tmp_homa = homa;
       double tmp_homb = homb;
-      while (tmp_hets > 1.5) {
+      while (tmp_hets > 1) {
         tmp_homa += 1;
         tmp_homb += 1;
         lastp *= (tmp_hets * (tmp_hets - 1)) / (4 * tmp_homa * tmp_homb);
@@ -3011,7 +3012,7 @@ void HweLnFirstRow(double hetab, double homa, double homb, double* tailp_ptr, do
     }
     const double orig_homr = tmp_homr;
     double tailp = 1;
-    while (tmp_homr > 0.5) {
+    while (tmp_homr > 0) {
       tmp_hets += 2;
       lastp *= (4 * tmp_homr * tmp_homc) / (tmp_hets * (tmp_hets - 1));
       tmp_homr -= 1;
@@ -3034,7 +3035,7 @@ void HweLnFirstRow(double hetab, double homa, double homb, double* tailp_ptr, do
         tmp_homr = max_homr;
       }
     }
-    const double max_diff = starting_lnprob_other_component * (kSmallEpsilon / 8);
+    const double max_diff = MAXV(k2m47, fabs(starting_lnprob_other_component) * k2m47);
     while (1) {
       tmp_hets = rare_ctd - tmp_homr * 2;
       tmp_homc = tmp_homr + c_minus_r;
@@ -3088,8 +3089,8 @@ void HweLnFirstRow(double hetab, double homa, double homb, double* tailp_ptr, do
       double tmp_homc_center = tmp_homc;
       double tmp_hets_center = tmp_hets;
       while (tmp_homr_center > orig_homr) {
-        if (lastp >= 1 - kSmallEpsilon) {
-          if (lastp < 1 + kSmallEpsilon) {
+        if (lastp >= 1 - k2m34) {
+          if (lastp <= 1 + k2m34) {
             tailp += lastp;
             ++tie_ct;
           }
@@ -3168,7 +3169,7 @@ void HweLnFirstRow(double hetab, double homa, double homb, double* tailp_ptr, do
   }
   const double orig_homr = tmp_homr;
   double tailp = 1;
-  while (tmp_hets > 1.5) {
+  while (tmp_hets > 1) {
     tmp_homr += 1;
     tmp_homc += 1;
     lastp *= tmp_hets * (tmp_hets - 1) / (4 * tmp_homr * tmp_homc);
@@ -3191,7 +3192,7 @@ void HweLnFirstRow(double hetab, double homa, double homb, double* tailp_ptr, do
       tmp_homr = 0;
     }
   }
-  const double max_diff = starting_lnprob_other_component * (kSmallEpsilon / 8);
+  const double max_diff = MAXV(k2m47, fabs(starting_lnprob_other_component) * k2m47);
   const double max_homr = S_CAST(double, S_CAST(int32_t, rare_ctd * 0.5));
   while (1) {
     tmp_hets = rare_ctd - tmp_homr * 2;
@@ -3234,8 +3235,8 @@ void HweLnFirstRow(double hetab, double homa, double homb, double* tailp_ptr, do
     double tmp_homc_center = tmp_homc;
     double tmp_hets_center = tmp_hets;
     while (tmp_homr_center < orig_homr) {
-      if (lastp >= 1 - kSmallEpsilon) {
-        if (lastp < 1 + kSmallEpsilon) {
+      if (lastp >= 1 - k2m34) {
+        if (lastp <= 1 + k2m34) {
           tailp += lastp;
           ++tie_ct;
         }
@@ -3281,7 +3282,7 @@ int32_t HweXchrLnPTailsum(uint32_t high_het_side, double* base_lnprobp, double* 
   double tmps_hom2;
   // identify beginning of tail
   if (high_het_side) {
-    if (cur_lnprob > kExactTestEpsilon2) {
+    if (cur_lnprob > k2m34) {
       double prev_numer = tmp_hom1 * tmp_hom2;
       // Tried conditionally moving out of log-space, but wasn't able to make
       // that faster.
@@ -3290,7 +3291,7 @@ int32_t HweXchrLnPTailsum(uint32_t high_het_side, double* base_lnprobp, double* 
         cur_lnprob += log((4 * prev_numer) / (tmp_hets * (tmp_hets - 1)));
         tmp_hom1 -= 1;
         tmp_hom2 -= 1;
-        if (cur_lnprob <= kExactTestEpsilon2) {
+        if (cur_lnprob <= k2m34) {
           break;
         }
         prev_numer = tmp_hom1 * tmp_hom2;
@@ -3314,8 +3315,8 @@ int32_t HweXchrLnPTailsum(uint32_t high_het_side, double* base_lnprobp, double* 
           return 1;
         }
         tmp_hets -= 2;
-        if (cur_lnprob > -kExactTestEpsilon2) {
-          if (cur_lnprob > kExactTestEpsilon2) {
+        if (cur_lnprob >= -k2m34) {
+          if (cur_lnprob > k2m34) {
             break;
           }
           *tie_ctp += 1;
@@ -3327,13 +3328,13 @@ int32_t HweXchrLnPTailsum(uint32_t high_het_side, double* base_lnprobp, double* 
       *base_lnprobp = prev_lnprob;
     }
   } else {
-    if (cur_lnprob > kExactTestEpsilon2) {
+    if (cur_lnprob > k2m34) {
       while (tmp_hets > 1.5) {
         tmp_hom1 += 1;
         tmp_hom2 += 1;
         cur_lnprob += log((tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2));
         tmp_hets -= 2;
-        if (cur_lnprob <= kExactTestEpsilon2) {
+        if (cur_lnprob <= k2m34) {
           break;
         }
       }
@@ -3354,8 +3355,8 @@ int32_t HweXchrLnPTailsum(uint32_t high_het_side, double* base_lnprobp, double* 
         }
         tmp_hom1 -= 1;
         tmp_hom2 -= 1;
-        if (cur_lnprob > -kExactTestEpsilon2) {
-          if (cur_lnprob > kExactTestEpsilon2) {
+        if (cur_lnprob >= -k2m34) {
+          if (cur_lnprob > k2m34) {
             break;
           }
           *tie_ctp += 1;
@@ -3370,8 +3371,8 @@ int32_t HweXchrLnPTailsum(uint32_t high_het_side, double* base_lnprobp, double* 
   *saved_hetsp = tmp_hets;
   *saved_hom1p = tmp_hom1;
   *saved_hom2p = tmp_hom2;
-  if (cur_lnprob > -kExactTestEpsilon2) {
-    if (cur_lnprob > kExactTestEpsilon2) {
+  if (cur_lnprob >= -k2m34) {
+    if (cur_lnprob > k2m34) {
       // even most extreme table on this side is too probable
       *totalp = 0;
       return 0;

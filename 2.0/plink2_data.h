@@ -17,7 +17,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
+#include "include/pgenlib_misc.h"
+#include "include/pgenlib_read.h"
+#include "include/plink2_base.h"
+#include "include/plink2_text.h"
+#include "plink2_cmdline.h"
 #include "plink2_common.h"
 
 #ifdef __cplusplus
@@ -44,19 +48,20 @@ FLAGSET_DEF_START()
   // handling of MNP/'other' classes
   kfMakePlink2TrimAlts = (1 << 10),
   kfMakePlink2MMask = kfMakePlink2TrimAlts - kfMakePlink2MSplitBase,
-  kfMakePlink2EraseAlt2Plus = (1 << 11),
-  kfMakePlink2VaridSemicolon = (1 << 12),
-  kfMakePlink2VaridDup = (1 << 13),
+  kfMakePlink2VaridSemicolon = (1 << 11),
+  kfMakePlink2VaridDup = (1 << 12),
 
-  kfMakePlink2SetInvalidHaploidMissing = (1 << 14),
-  kfMakePlink2SetInvalidHaploidMissingKeepDosage = (1 << 15),
-  kfMakePlink2SetMixedMtMissing = (1 << 16),
-  kfMakePlink2SetMixedMtMissingKeepDosage = (1 << 17),
-  kfMakePgenFormatBase = (1 << 18), // two bits
-  kfMakePgenErasePhase = (1 << 20),
-  kfMakePgenEraseDosage = (1 << 21),
-  kfMakePgenFillMissingFromDosage = (1 << 22),
-  kfMakePgenWriterVer = (1 << 23)
+  kfMakePlink2SetInvalidHaploidMissing = (1 << 13),
+  kfMakePlink2SetInvalidHaploidMissingKeepDosage = (1 << 14),
+  kfMakePlink2SetMixedMtMissing = (1 << 15),
+  kfMakePlink2SetMixedMtMissingKeepDosage = (1 << 16),
+  kfMakePlink2SetMeMissing = (1 << 17),
+  kfMakePlink2FillMissingWithRef = (1 << 18),
+  kfMakePgenFormatBase = (1 << 19), // two bits
+  kfMakePgenErasePhase = (1 << 21),
+  kfMakePgenEraseDosage = (1 << 22),
+  kfMakePgenFillMissingFromDosage = (1 << 23),
+  kfMakePgenWriterVer = (1 << 24)
 FLAGSET_DEF_END(MakePlink2Flags);
 
 FLAGSET_DEF_START()
@@ -70,7 +75,8 @@ FLAGSET_DEF_START()
   kfImportPolyploidMissing = (1 << 6),
   kfImportPolyploidExplicitError = (1 << 7),
   kfImportVcfAllowNoNonvar = (1 << 8),
-  kfImportLaxBgen = (1 << 9)
+  kfImportLaxBgen = (1 << 9),
+  kfImportEigNohash = (1 << 10)
 FLAGSET_DEF_END(ImportFlags);
 
 CONSTI32(kMaxInfoKeySlen, kMaxIdSlen);
@@ -115,7 +121,7 @@ typedef struct InfoVtypeStruct {
   char key[];
 } InfoVtype;
 
-PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const double* variant_cms, uint32_t variant_ct, uint32_t max_allele_slen, char delim, char output_missing_geno_char, uint32_t output_zst, uint32_t thread_ct);
+PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* allele_permute, const double* variant_cms, uint32_t variant_ct, uint32_t max_allele_slen, char delim, char output_missing_geno_char, uint32_t output_zst, uint32_t thread_ct);
 
 PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const SampleIdInfo* siip, const ParentalIdInfo* parental_id_infop, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const char* output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, PvarPsamFlags pvar_psam_flags, uint32_t psam_01);
 
@@ -167,13 +173,13 @@ uint32_t ApplyHardCallThreshPhased(const uintptr_t* dosage_present, const Dosage
 
 BoolErr FillInfoVtypeNum(const char* numstr, uint32_t num_slen, uint32_t* info_has_g_keyp, int32_t* info_vtype_num_ptr);
 
-PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, __maybe_unused const char* varid_multi_template_str, __maybe_unused const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, const char* writer_ver, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t new_variant_id_max_allele_slen, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* allele_permute, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, __maybe_unused const char* varid_multi_template_str, __maybe_unused const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, const char* writer_ver, const char* zero_cluster_fname, const char* zero_cluster_phenoname, const FlipInfo* flip_info_ptr, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t new_variant_id_max_allele_slen, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uint32_t mendel_duos, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
-PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, const TwoColParams* update_chr_flag, const char* writer_ver, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, uint32_t use_nsort, PvarPsamFlags pvar_psam_flags, ChrInfo* cip, char* xheader, ChrIdx* chr_idxs, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const AlleleCode* allele_permute, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* output_missing_pheno, const char* legacy_output_missing_pheno, const uint32_t* contig_lens, const char* rename_chrs_fname, const TwoColParams* update_chr_flag, const char* writer_ver, const char* zero_cluster_fname, const char* zero_cluster_phenoname, const FlipInfo* flip_info_ptr, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, char output_missing_geno_char, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, uint32_t use_nsort, PvarPsamFlags pvar_psam_flags, uint32_t mendel_duos, ChrInfo* cip, char* xheader, ChrIdx* chr_idxs, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* sample_sort_fname, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t** new_sample_idx_to_old_ptr);
 
-PglErr LoadSampleMissingCts(const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const char* calc_descrip_str, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t y_nosex_missing_stats, uint32_t raw_sample_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_hc_cts, uint32_t* sample_missing_dosage_cts, uint32_t* sample_hethap_cts);
+PglErr LoadSampleMissingCts(const uintptr_t* sample_include, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const char* calc_descrip_str, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t y_nosex_missing_stats, uint32_t raw_sample_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_hc_cts, uint32_t* sample_missing_dosage_cts, uint32_t* sample_hethap_cts);
 
 #ifdef __cplusplus
 }  // namespace plink2

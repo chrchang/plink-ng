@@ -76,20 +76,11 @@ int memcmp(const void *s1, const void *s2, size_t n);
 
 #undef LIBDEFLATE_ENABLE_ASSERTIONS
 #else
-#include <string.h>
+#  include <string.h>
+// Assertion support has been removed to simplify CRAN submission.
 #endif
 
-/*
- * Runtime assertion support.  Don't enable this in production builds; it may
- * hurt performance significantly.
- */
-#ifdef LIBDEFLATE_ENABLE_ASSERTIONS
-void libdeflate_assertion_failed(const char *expr, const char *file, int line);
-#define ASSERT(expr) { if (unlikely(!(expr))) \
-	libdeflate_assertion_failed(#expr, __FILE__, __LINE__); }
-#else
 #define ASSERT(expr) (void)(expr)
-#endif
 
 #define CONCAT_IMPL(a, b)	a##b
 #define CONCAT(a, b)		CONCAT_IMPL(a, b)

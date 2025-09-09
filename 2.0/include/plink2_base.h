@@ -77,10 +77,11 @@
 //   valid input types, NOT counting VecW*.
 
 
-// gcc 8.3.0 has been miscompiling the ParseOnebitUnsafe() function in
-// pgenlib_read.cc for the last several years.  gcc 8.4 does not have this
-// problem, and neither does any other gcc major version I've tested to date.
-#ifndef __clang__
+// gcc 8.3.0 has been miscompiling the vector code in the ParseOnebitUnsafe()
+// function in pgenlib_read.cc for the last several years.  gcc 8.4 does not
+// have this problem, and neither does any other gcc major version I've tested
+// to date.
+#if !defined(__clang__) && defined(__LP64__)
 #  if (__GNUC__ == 8) && (__GNUC_MINOR__ < 4)
 #    error "gcc 8.3 is known to have a miscompilation bug that was fixed in 8.4."
 #  endif
@@ -106,24 +107,33 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 817
+#define PLINK2_BASE_VERNUM 823
 
+// We now try to adhere to include-what-you-use in simple cases.  However,
+// we don't want to repeat either platform-specific ifdefs, or stuff like
+// "#define _FILE_OFFSET_BITS 64" before "#include <stdio.h>", so we use
+// "IWYU pragma: export" for those cases.
+// TODO: unfortunately, there is no straightforward way to tell IWYU to stop
+// looking behind the likes of <stdio.h> or "../simde/x86/sse2.h".  I'm
+// manually ignoring the associated false-positives for now, but this should be
+// systematized.
 
 #define _FILE_OFFSET_BITS 64
+#ifdef __USE_MINGW_ANSI_STDIO
+#  undef __USE_MINGW_ANSI_STDIO
+#endif
+#define __USE_MINGW_ANSI_STDIO 1
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stddef.h>  // offsetof()
-#include <stdint.h>
+#include <assert.h>
 #ifndef __STDC_FORMAT_MACROS
 #  define __STDC_FORMAT_MACROS 1
 #endif
-#include <inttypes.h>
+#include <inttypes.h>  // IWYU pragma: export
 #include <limits.h>  // CHAR_BIT, PATH_MAX
-
-// #define NDEBUG
-#include <assert.h>
+#include <stddef.h>  // offsetof()
+#include <stdio.h>  // IWYU pragma: export
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef _WIN32
   // needed for EnterCriticalSection, etc.
@@ -135,11 +145,11 @@
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
 #  endif
-#  include <windows.h>
+#  include <windows.h>  // IWYU pragma: export
 #endif
 
 #if __cplusplus >= 201103L
-#  include <array>
+#  include <array>  // IWYU pragma: export
 #endif
 
 #ifdef __LP64__
@@ -149,7 +159,7 @@
 // (But not yet aware of a use case that matters.)
 #  define USE_SSE2
 #  ifdef __x86_64__
-#    include <emmintrin.h>
+#    include <emmintrin.h>  // IWYU pragma: export
 #  else
 #    define SIMDE_ENABLE_NATIVE_ALIASES
 // Since e.g. an old zstd system header breaks the build, and plink2 is
@@ -158,9 +168,9 @@
 // are manually updated as necessary.
 // To use system headers, define IGNORE_BUNDLED_{ZSTD,LIBDEFLATE.SIMDE}.
 #    ifdef IGNORE_BUNDLED_SIMDE
-#      include <simde/x86/sse2.h>
+#      include <simde/x86/sse2.h>  // IWYU pragma: export
 #    else
-#      include "../simde/x86/sse2.h"
+#      include "../simde/x86/sse2.h"  // IWYU pragma: export
 #    endif
 #    ifdef SIMDE_ARM_NEON_A32V8_NATIVE
 // For Apple M1, we effectively use SSE2 + constrained _mm_shuffle_epi8().
@@ -354,7 +364,13 @@ HEADER_INLINE unsigned char* CToUc(char* pp) {
 // * IntErr allows implicit conversion from int, but conversion back to
 //   int32_t requires an explicit cast.  It mainly serves as a holding pen for
 //   C standard library error return values, which can be negative.
-#if __cplusplus >= 201103L
+#if __cplusplus >= 201103L && !defined(NO_CPP11_TYPE_ENFORCEMENT)
+// Cython doesn't support these, and the previous workaround of forcing C++98
+// is breaking down.  So allow this C++11 feature to be selectively disabled.
+#  define CPP11_TYPE_ENFORCEMENT
+#endif
+
+#ifdef CPP11_TYPE_ENFORCEMENT
 struct PglErr {
   enum class ec
 #else
@@ -399,7 +415,7 @@ typedef enum
   kPglRetHelp = 125,
   kPglRetLongLine = 126,
   kPglRetEof = 127}
-#if __cplusplus >= 201103L
+#ifdef CPP11_TYPE_ENFORCEMENT
   ;
 
   PglErr() {}
@@ -468,7 +484,7 @@ const PglErr kPglRetEof = PglErr::ec::kPglRetEof;
   PglErr;
 #endif
 
-#if __cplusplus >= 201103L
+#ifdef CPP11_TYPE_ENFORCEMENT
 // allow efficient arithmetic on these, but force them to require explicit
 // int32_t/uint32_t casts; only permit implicit assignment from
 // int32_t/uint32_t by default.
@@ -566,16 +582,9 @@ extern const char kErrprintfDecompress[];
 #  endif
 #endif
 
-#ifdef _WIN32
-#  undef PRId64
-#  undef PRIu64
-#  define PRId64 "I64d"
-#  define PRIu64 "I64u"
-#else
-#  ifdef __cplusplus
-#    ifndef PRId64
-#      define PRId64 "lld"
-#    endif
+#ifdef __cplusplus
+#  ifndef PRId64
+#    define PRId64 "lld"
 #  endif
 #endif
 
@@ -642,26 +651,13 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 #endif
 
 #ifdef __LP64__
-#  ifdef _WIN32 // i.e. Win64
-
-#    undef PRIuPTR
-#    undef PRIdPTR
-#    define PRIuPTR PRIu64
-#    define PRIdPTR PRId64
-#    define PRIxPTR2 "016I64x"
-
-#  else  // not _WIN32
-
-#    ifndef PRIuPTR
-#      define PRIuPTR "lu"
-#    endif
-#    ifndef PRIdPTR
-#      define PRIdPTR "ld"
-#    endif
-#    define PRIxPTR2 "016lx"
-
-#  endif  // Win64
-
+#  ifndef PRIuPTR
+#    define PRIuPTR "lu"
+#  endif
+#  ifndef PRIdPTR
+#    define PRIdPTR "ld"
+#  endif
+#  define PRIxPTR2 "016lx"
 #else  // not __LP64__
 
   // without this, we get ridiculous warning spew...
@@ -672,6 +668,15 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 #    undef PRIdPTR
 #    define PRIuPTR "lu"
 #    define PRIdPTR "ld"
+#  endif
+
+#  ifdef _WIN32
+#    ifndef PRIuPTR
+#      define PRIuPTR "u"
+#    endif
+#    ifndef PRIdPTR
+#      define PRIdPTR "d"
+#    endif
 #  endif
 
 #  define PRIxPTR2 "08lx"
@@ -1167,8 +1172,16 @@ HEADER_INLINE VecW vecw_sad(VecW v1, VecW v2) {
   return VecToW(_mm256_sad_epu8(WToVec(v1), WToVec(v2)));
 }
 
+HEADER_INLINE VecUc vecuc_add(VecUc v1, VecUc v2) {
+  return VecToUc(_mm256_add_epi8(UcToVec(v1), UcToVec(v2)));
+}
+
 HEADER_INLINE VecUc vecuc_adds(VecUc v1, VecUc v2) {
   return VecToUc(_mm256_adds_epu8(UcToVec(v1), UcToVec(v2)));
+}
+
+HEADER_INLINE VecUc vecuc_signed_cmpgt(VecUc v1, VecUc v2) {
+  return VecToUc(_mm256_cmpgt_epi8(UcToVec(v1), UcToVec(v2)));
 }
 
 HEADER_INLINE VecU16 vecu16_min8(VecU16 v1, VecU16 v2) {
@@ -1651,8 +1664,16 @@ HEADER_INLINE VecW vecw_sad(VecW v1, VecW v2) {
   return VecToW(_mm_sad_epu8(WToVec(v1), WToVec(v2)));
 }
 
+HEADER_INLINE VecUc vecuc_add(VecUc v1, VecUc v2) {
+  return VecToUc(_mm_add_epi8(UcToVec(v1), UcToVec(v2)));
+}
+
 HEADER_INLINE VecUc vecuc_adds(VecUc v1, VecUc v2) {
   return VecToUc(_mm_adds_epu8(UcToVec(v1), UcToVec(v2)));
+}
+
+HEADER_INLINE VecUc vecuc_signed_cmpgt(VecUc v1, VecUc v2) {
+  return VecToUc(_mm_cmpgt_epi8(UcToVec(v1), UcToVec(v2)));
 }
 
 HEADER_INLINE VecU16 vecu16_min8(VecU16 v1, VecU16 v2) {
@@ -1994,7 +2015,7 @@ HEADER_INLINE void PrintVecD(const VecD* vv_ptr, const char* preprint) {
   fputs("\n", stdout);
 }
 
-#if __cplusplus >= 201103L
+#ifdef CPP11_TYPE_ENFORCEMENT
 // Main application of std::array in this codebase is enforcing length when
 // passing references between functions.  Conversely, if the array type has
 // different lengths in different functions (e.g. col_skips[]/col_types[]), we
@@ -2026,6 +2047,9 @@ template <class T, std::size_t N> void STD_ARRAY_FILL0(std::array<T, N>& arr) {
 // this macro ensures that we *only* use it with uint32_t array-references
 #  define STD_ARRAY_REF_FILL0(ct, aref) static_assert(ct * sizeof(aref[0]) == sizeof(aref), "invalid STD_ARRAY_REF_FILL0() invocation"); aref.fill(0)
 
+// reasonable to default to applying one of the following two restrictions to
+// pointer- and flexible-array-member-containing structs, though I haven't done
+// so exhaustively.
 #  define NONCOPYABLE(struct_name) \
   struct_name() = default; \
   struct_name(const struct_name&) = delete; \
@@ -4296,7 +4320,7 @@ HEADER_INLINE uint32_t VintBytect(uintptr_t ulii) {
 //   enum base type to make it safe for the enum to serve as the flagset type.
 // * Implicit conversion to int is not prevented for now, since I'm trying to
 //   keep PglErr-style code duplication to a minimum.
-#if __cplusplus >= 201103L
+#ifdef CPP11_TYPE_ENFORCEMENT
 
   // could avoid the typedef here, but that leads to a bit more verbosity.
 #  define FLAGSET_DEF_START() typedef enum : uint32_t {
@@ -4408,7 +4432,7 @@ private: \
 #  define ENUM_U31_DEF_START() typedef enum : uint32_t {
 #  define ENUM_U31_DEF_END(tname) } tname
 
-#else  // !__cplusplus >= 201103L
+#else  // !CPP11_TYPE_ENFORCEMENT
 
 #  define FLAGSET_DEF_START() enum {
 #  define FLAGSET_DEF_END(tname) } ; \

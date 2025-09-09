@@ -5,7 +5,6 @@
 #   Do not use SSE4.2 instructions: NO_SSE42
 #   Print clear error message if SSE42/AVX2 needed but missing: CPU_CHECK
 #   Do not link to LAPACK: NO_LAPACK
-#   Use cblas_f77 instead of cblas: PREFER_CBLAS_F77
 #   Use only -O2 optimization for zstd (may be necessary for gcc 4.x): ZSTD_O2
 #   Statically link zlib: STATIC_ZLIB
 #   Statically link zstd: STATIC_ZSTD
@@ -22,15 +21,14 @@ NO_AVX2 = 1
 NO_SSE42 = 1
 CPU_CHECK = 1
 NO_LAPACK =
-PREFER_CBLAS_F77 =
 ZSTD_O2 = 1
 STATIC_ZLIB =
 STATIC_ZSTD = 1
 DYNAMIC_MKL =
-MKLROOT = /home/ubuntu/intel/mkl
-MKL_IOMP5_DIR = /home/ubuntu/intel/compilers_and_libraries_2017.2.174/linux/compiler/lib/intel64
+MKLROOT = /opt/intel/oneapi/mkl/2025.1
+MKL_IOMP5_DIR = /opt/intel/oneapi/compiler/2025.1/lib
 STATIC_AOCL =
-AOCLROOT = /home/ubuntu/amd/aocl/3.2.0
+AOCLROOT = /home/admin/aocl/5.1.0/gcc
 FORCE_32BIT =
 DEBUG =
 CC ?= gcc
@@ -49,7 +47,7 @@ ARCH32=
 CPUCHECK_FLAGS = ${DEBUG}
 
 ifdef FORCE_32BIT
-  # this is targeted at Scientific Linux 6.
+  # this should work on Debian 10 with the right packages installed.
   STATIC_ZLIB = 1
   ZSTD_O2 = 1
   ARCH32 = -m32 -march=i686
@@ -85,12 +83,7 @@ endif
 # this actually needs to be named "CXXFLAGS"
 CXXFLAGS += -O2
 
-ifdef FORCE_CBLAS_F77
-  BASEFLAGS += -DFORCE_CBLAS_F77
-  BLASFLAGS=-llapack -lf77blas -latlas
-else
-  BLASFLAGS=-llapack -lblas -lcblas -latlas
-endif
+BLASFLAGS=-llapack -lblas -lcblas -latlas
 
 ifdef STATIC_ZLIB
   BASEFLAGS += -DSTATIC_ZLIB
@@ -152,7 +145,7 @@ else
       $(error STATIC_AOCL + FORCE_32BIT not supported)
     endif
     BASEFLAGS += -DUSE_AOCL -DLAPACK_ILP64 -I${AOCLROOT}/include
-    BLASFLAGS = -L. ${AOCLROOT}/lib/libflame.a -L. ${AOCLROOT}/lib/libblis.a
+    BLASFLAGS = -L. ${AOCLROOT}/lib/libflame.a -L. ${AOCLROOT}/lib/libblis.a -L. ${AOCLROOT}/lib/libau_cpuid.a -lgomp
     LINKFLAGS += -ldl
   endif
 endif

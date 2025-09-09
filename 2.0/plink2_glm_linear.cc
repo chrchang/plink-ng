@@ -14,9 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include "include/plink2_stats.h"
-#include "plink2_compress_stream.h"
 #include "plink2_glm_linear.h"
+
+#include <assert.h>
+#include <float.h>
+#include <math.h>
+#include <string.h>
+
+#include "include/pgenlib_misc.h"
+#include "include/plink2_bits.h"
+#include "include/plink2_stats.h"
+#include "include/plink2_string.h"
+#include "include/plink2_thread.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "plink2_matrix.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -193,7 +205,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsQt(const uintptr_t* sample_include, const 
   return 0;
 }
 
-uintptr_t GetLinearWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predictor_ct, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct, uint32_t max_returned_difflist_len) {
+uintptr_t GetLinearWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predictor_ct, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct, uint32_t max_difflist_len) {
   // sample_ct * max_predictor_ct < 2^31, and max_predictor_ct < sqrt(2^31), so
   // no overflows
 
@@ -234,10 +246,10 @@ uintptr_t GetLinearWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predicto
   workspace_size += RoundUpPow2((2 + max_extra_allele_ct) * sizeof(uint64_t) * 2, kCacheline);
 
   // raregeno
-  workspace_size += DivUp(max_returned_difflist_len, kNypsPerCacheline) * kCacheline;
+  workspace_size += DivUp(max_difflist_len, kNypsPerCacheline) * kCacheline;
 
   // difflist_sample_ids
-  workspace_size += DivUp(max_returned_difflist_len, kInt32PerCacheline) * kCacheline;
+  workspace_size += DivUp(max_difflist_len, kInt32PerCacheline) * kCacheline;
 
   if (constraint_ct) {
     // tmphxs_buf, h_transpose_buf = constraint_ct * max_predictor_ct doubles
@@ -331,7 +343,6 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
   for (uint32_t uii = 1; uii != 9; ++uii) {
     covarless_inverse_buf[uii] = 0.0;
   }
-  uint32_t max_sparse = 0;
   uint32_t difflist_len = 0;
   uint32_t parity = 0;
   uint64_t new_err_info = 0;
@@ -478,11 +489,11 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
       const uint32_t difflist_eligible = sparse_optimization_eligible && (!pgv.dosage_present) && (!cur_covar_ct);
       uintptr_t* raregeno = nullptr;
       uint32_t* difflist_sample_ids = nullptr;
+      uint32_t max_difflist_len = 0;
       if (difflist_eligible) {
-        max_sparse = cur_sample_ct / kPglMaxDifflistLenDivisor;
-        const uint32_t max_returned_difflist_len = ctx->max_returned_difflist_len;
-        raregeno = S_CAST(uintptr_t*, arena_alloc_raw(DivUp(max_returned_difflist_len, kNypsPerCacheline) * kCacheline, &workspace_iter));
-        difflist_sample_ids = S_CAST(uint32_t*, arena_alloc_raw(DivUp(max_returned_difflist_len, kInt32PerCacheline) * kCacheline, &workspace_iter));
+        max_difflist_len = ctx->max_difflist_len;
+        raregeno = S_CAST(uintptr_t*, arena_alloc_raw(DivUp(max_difflist_len, kNypsPerCacheline) * kCacheline, &workspace_iter));
+        difflist_sample_ids = S_CAST(uint32_t*, arena_alloc_raw(DivUp(max_difflist_len, kInt32PerCacheline) * kCacheline, &workspace_iter));
       }
 
       // joint test only
@@ -503,7 +514,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
       }
       // <= instead of == since WorkspaceSize doesn't exclude difflist space on
       // chrX
-      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) <= GetLinearWorkspaceSize(cur_sample_ct, cur_biallelic_predictor_ct, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, ctx->max_returned_difflist_len));
+      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) <= GetLinearWorkspaceSize(cur_sample_ct, cur_biallelic_predictor_ct, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, max_difflist_len));
       const double pheno_ssq_base = DotprodD(cur_pheno, cur_pheno, cur_sample_ct);
       const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
       const double cur_sample_ct_m1_recip = 1.0 / u31tod(cur_sample_ct - 1);
@@ -565,7 +576,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         PglErr reterr;
         if (!allele_ct_m2) {
           if (difflist_eligible) {
-            reterr = PgrGetDifflistOrGenovec(cur_sample_include, pssi, cur_sample_ct, max_sparse, variant_uidx, pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+            reterr = PgrGetDifflistOrGenovec(cur_sample_include, pssi, cur_sample_ct, max_difflist_len, variant_uidx, pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
           } else {
             reterr = PgrGetD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
           }
@@ -1783,16 +1794,16 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
 
     const uint32_t main_omitted = (parameter_subset && (!IsSet(parameter_subset, 1)));
     const uint32_t xmain_ct = main_mutated + main_omitted;
-    const uint32_t max_returned_difflist_len = ctx->max_returned_difflist_len;
-    uintptr_t workspace_alloc = GetLinearWorkspaceSize(sample_ct, biallelic_predictor_ct, max_extra_allele_ct, constraint_ct, xmain_ct, max_returned_difflist_len);
+    const uint32_t max_difflist_len = ctx->max_difflist_len;
+    uintptr_t workspace_alloc = GetLinearWorkspaceSize(sample_ct, biallelic_predictor_ct, max_extra_allele_ct, constraint_ct, xmain_ct, max_difflist_len);
     if (sample_ct_x) {
-      const uintptr_t workspace_alloc_x = GetLinearWorkspaceSize(sample_ct_x, biallelic_predictor_ct_x, max_extra_allele_ct, constraint_ct_x, xmain_ct, max_returned_difflist_len);
+      const uintptr_t workspace_alloc_x = GetLinearWorkspaceSize(sample_ct_x, biallelic_predictor_ct_x, max_extra_allele_ct, constraint_ct_x, xmain_ct, max_difflist_len);
       if (workspace_alloc_x > workspace_alloc) {
         workspace_alloc = workspace_alloc_x;
       }
     }
     if (sample_ct_y) {
-      const uintptr_t workspace_alloc_y = GetLinearWorkspaceSize(sample_ct_y, biallelic_predictor_ct_y, max_extra_allele_ct, constraint_ct_y, xmain_ct, max_returned_difflist_len);
+      const uintptr_t workspace_alloc_y = GetLinearWorkspaceSize(sample_ct_y, biallelic_predictor_ct_y, max_extra_allele_ct, constraint_ct_y, xmain_ct, max_difflist_len);
       if (workspace_alloc_y > workspace_alloc) {
         workspace_alloc = workspace_alloc_y;
       }
@@ -1980,7 +1991,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     const char* const* cur_test_names = nullptr;
     uint32_t prev_block_variant_ct = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uint32_t allele_ct = 2;
     uint32_t omitted_allele_idx = 0;
     uintptr_t valid_allele_ct = 0;
@@ -2421,7 +2432,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
       ++read_block_idx;
       prev_block_variant_ct = cur_block_variant_ct;
@@ -2469,7 +2480,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
   return reterr;
 }
 
-uintptr_t GetLinearSubbatchWorkspaceSize(uint32_t sample_ct, uint32_t subbatch_size, uint32_t biallelic_predictor_ct, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct, uint32_t max_returned_difflist_len) {
+uintptr_t GetLinearSubbatchWorkspaceSize(uint32_t sample_ct, uint32_t subbatch_size, uint32_t biallelic_predictor_ct, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct, uint32_t max_difflist_len) {
   // sample_ct * max_predictor_ct < 2^31, sample_ct * subbatch_size < 2^31,
   // subbatch_size <= 240, and max_predictor_ct < sqrt(2^31), so no overflows
 
@@ -2509,10 +2520,10 @@ uintptr_t GetLinearSubbatchWorkspaceSize(uint32_t sample_ct, uint32_t subbatch_s
   workspace_size += RoundUpPow2((2 + max_extra_allele_ct) * sizeof(uint64_t) * 2, kCacheline);
 
   // raregeno
-  workspace_size += DivUp(max_returned_difflist_len, kNypsPerCacheline) * kCacheline;
+  workspace_size += DivUp(max_difflist_len, kNypsPerCacheline) * kCacheline;
 
   // difflist_sample_ids
-  workspace_size += DivUp(max_returned_difflist_len, kInt32PerCacheline) * kCacheline;
+  workspace_size += DivUp(max_difflist_len, kInt32PerCacheline) * kCacheline;
 
   // pheno_ssq_bases, geno_pheno_prods, domdev_pheno_prods: subbatch_size
   workspace_size += 3 * RoundUpPow2(subbatch_size * sizeof(double), kCacheline);
@@ -2606,7 +2617,6 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
   for (uint32_t uii = 1; uii != 9; ++uii) {
     covarless_inverse_buf[uii] = 0.0;
   }
-  uint32_t max_sparse = 0;
   uint32_t difflist_len = 0;
   uint32_t parity = 0;
   uint64_t new_err_info = 0;
@@ -2755,11 +2765,11 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
       const uint32_t difflist_eligible = sparse_optimization_eligible && (!pgv.dosage_present) && (!cur_covar_ct);
       uintptr_t* raregeno = nullptr;
       uint32_t* difflist_sample_ids = nullptr;
+      uint32_t max_difflist_len = 0;
       if (difflist_eligible) {
-        max_sparse = cur_sample_ct / kPglMaxDifflistLenDivisor;
-        const uint32_t max_returned_difflist_len = ctx->max_returned_difflist_len;
-        raregeno = S_CAST(uintptr_t*, arena_alloc_raw(DivUp(max_returned_difflist_len, kNypsPerCacheline) * kCacheline, &workspace_iter));
-        difflist_sample_ids = S_CAST(uint32_t*, arena_alloc_raw(DivUp(max_returned_difflist_len, kInt32PerCacheline) * kCacheline, &workspace_iter));
+        max_difflist_len = ctx->max_difflist_len;
+        raregeno = S_CAST(uintptr_t*, arena_alloc_raw(DivUp(max_difflist_len, kNypsPerCacheline) * kCacheline, &workspace_iter));
+        difflist_sample_ids = S_CAST(uint32_t*, arena_alloc_raw(DivUp(max_difflist_len, kInt32PerCacheline) * kCacheline, &workspace_iter));
       }
 
       // joint test only
@@ -2778,7 +2788,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         // Rest of this matrix must be updated later, since cur_predictor_ct
         // changes at multiallelic variants.
       }
-      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) <= GetLinearSubbatchWorkspaceSize(cur_sample_ct, subbatch_size, cur_biallelic_predictor_ct, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, ctx->max_returned_difflist_len));
+      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) <= GetLinearSubbatchWorkspaceSize(cur_sample_ct, subbatch_size, cur_biallelic_predictor_ct, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, ctx->max_difflist_len));
       for (uint32_t pheno_idx = 0; pheno_idx != subbatch_size; ++pheno_idx) {
         const double* cur_pheno = &(cur_pheno_pmaj[pheno_idx * cur_sample_ct]);
         pheno_ssq_bases[pheno_idx] = DotprodD(cur_pheno, cur_pheno, cur_sample_ct);
@@ -2842,7 +2852,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         PglErr reterr;
         if (!allele_ct_m2) {
           if (difflist_eligible) {
-            reterr = PgrGetDifflistOrGenovec(cur_sample_include, pssi, cur_sample_ct, max_sparse, variant_uidx, pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+            reterr = PgrGetDifflistOrGenovec(cur_sample_include, pssi, cur_sample_ct, max_difflist_len, variant_uidx, pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
           } else {
             reterr = PgrGetD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
           }
@@ -4113,7 +4123,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
 
     const uint32_t main_omitted = (parameter_subset && (!IsSet(parameter_subset, 1)));
     const uint32_t xmain_ct = main_mutated + main_omitted;
-    const uint32_t max_returned_difflist_len = ctx->max_returned_difflist_len;
+    const uint32_t max_difflist_len = ctx->max_difflist_len;
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
     common->thread_mhc = nullptr;
     common->dosage_presents = nullptr;
@@ -4169,15 +4179,15 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           }
         }
       }
-      workspace_alloc = GetLinearSubbatchWorkspaceSize(sample_ct, subbatch_size, biallelic_predictor_ct, max_extra_allele_ct, constraint_ct, xmain_ct, max_returned_difflist_len);
+      workspace_alloc = GetLinearSubbatchWorkspaceSize(sample_ct, subbatch_size, biallelic_predictor_ct, max_extra_allele_ct, constraint_ct, xmain_ct, max_difflist_len);
       if (sample_ct_x) {
-        const uintptr_t workspace_alloc_x = GetLinearSubbatchWorkspaceSize(sample_ct_x, subbatch_size, biallelic_predictor_ct_x, max_extra_allele_ct, constraint_ct_x, xmain_ct, max_returned_difflist_len);
+        const uintptr_t workspace_alloc_x = GetLinearSubbatchWorkspaceSize(sample_ct_x, subbatch_size, biallelic_predictor_ct_x, max_extra_allele_ct, constraint_ct_x, xmain_ct, max_difflist_len);
         if (workspace_alloc_x > workspace_alloc) {
           workspace_alloc = workspace_alloc_x;
         }
       }
       if (sample_ct_y) {
-        const uintptr_t workspace_alloc_y = GetLinearSubbatchWorkspaceSize(sample_ct_y, subbatch_size, biallelic_predictor_ct_y, max_extra_allele_ct, constraint_ct_y, xmain_ct, max_returned_difflist_len);
+        const uintptr_t workspace_alloc_y = GetLinearSubbatchWorkspaceSize(sample_ct_y, subbatch_size, biallelic_predictor_ct_y, max_extra_allele_ct, constraint_ct_y, xmain_ct, max_difflist_len);
         if (workspace_alloc_y > workspace_alloc) {
           workspace_alloc = workspace_alloc_y;
         }
@@ -4434,7 +4444,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
       const char* const* cur_test_names = nullptr;
       uint32_t prev_block_variant_ct = 0;
       uint32_t pct = 0;
-      uint32_t next_print_variant_idx = variant_ct / 100;
+      uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
       uint32_t allele_ct = 2;
       uint32_t omitted_allele_idx = 0;
       if (subbatch_size > 1) {
@@ -4870,7 +4880,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
         ++read_block_idx;
         prev_block_variant_ct = cur_block_variant_ct;

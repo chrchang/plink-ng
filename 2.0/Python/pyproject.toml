@@ -1,9 +1,10 @@
 [build-system]
 requires = [
     "wheel",
-    "setuptools",
-    "Cython>=0.29.21",
-    "oldest-supported-numpy>=2022.8.16; python_version < '3.9'",
-    "numpy>=2.0.0; python_version >= '3.9'",
+    # pin setuptools on pypy to workaround this bug: https://github.com/pypa/distutils/issues/283 https://github.com/pypa/cibuildwheel/issues/1983
+    "setuptools < 72.2; platform_python_implementation == 'PyPy'",
+    "setuptools ; platform_python_implementation != 'PyPy'",
+    "Cython>=3.1.0",
+    "numpy>=2.0.0",
 ]
 build-backend = "setuptools.build_meta"

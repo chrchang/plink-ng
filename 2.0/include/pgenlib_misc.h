@@ -74,15 +74,20 @@
 //   on the fly, since that tends to be faster than having to access twice as
 //   much memory.
 
-#include "plink2_bits.h"
+#include <assert.h>
 #ifndef NDEBUG
 #  include <stdarg.h> // va_start()
 #endif
+#include <stdlib.h>
+#include <string.h>
+
+#include "plink2_base.h"
+#include "plink2_bits.h"
 
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 2006
+#define PGENLIB_INTERNAL_VERNUM 2100
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -438,9 +443,6 @@ HEADER_INLINE void FPutVint64(uint64_t ullii, FILE* ff) {
   putc_unlocked(ullii, ff);
 }
 
-// TODO: make this work properly with kCacheline == 128, then fix other
-// transpose functions, etc.
-
 // main batch size
 CONSTI32(kPglNypTransposeBatch, kNypsPerCacheline);
 
@@ -647,6 +649,7 @@ HEADER_INLINE uint32_t GenoIter1x(const uintptr_t* __restrict genoarr, uintptr_t
 
 // For every missing entry in genoarr, clear the corresponding subset and
 // sparse_vals entries.
+// 'Unsafe' since they assume 'subset' trailing bits are clear.
 void ClearGenoarrMissing1bit8Unsafe(const uintptr_t* __restrict genoarr, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals);
 
 void ClearGenoarrMissing1bit16Unsafe(const uintptr_t* __restrict genoarr, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals);

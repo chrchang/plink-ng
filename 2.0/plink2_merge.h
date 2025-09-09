@@ -17,7 +17,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
+#include "include/pgenlib_read.h"
+#include "include/plink2_base.h"
 #include "plink2_common.h"
 
 #ifdef __cplusplus
@@ -36,8 +37,9 @@ FLAGSET_DEF_START()
   kfPmergeSampleInnerJoin = (1 << 0),
   kfPmergeVariantInnerJoin = (1 << 1),
   kfPmergePhenoInnerJoin = (1 << 2),
-  kfPmergeMultiallelicsAlreadyJoined = (1 << 3),
-  kfPmergeOutputVzs = (1 << 4)
+  kfPmergeSids = (1 << 3),
+  kfPmergeMultiallelicsAlreadyJoined = (1 << 4),
+  kfPmergeOutputVzs = (1 << 5)
 FLAGSET_DEF_END(PmergeFlags);
 
 ENUM_U31_DEF_START()

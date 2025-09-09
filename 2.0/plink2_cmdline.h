@@ -22,18 +22,14 @@
 // initialization/allocation, basic multithreading code, and a few numeric
 // constants.
 
+#include <assert.h>
+#include <stdarg.h>
+#include <string.h>
+
+#include "include/plink2_base.h"
 #include "include/plink2_bits.h"
-#include "include/plink2_htable.h"
 #include "include/plink2_memory.h"
 #include "include/plink2_string.h"
-#include "include/plink2_thread.h"
-
-#include <errno.h>
-#include <stdarg.h>
-
-#ifndef _WIN32
-#  include <sys/stat.h>
-#endif
 
 #ifdef _WIN32
 #  define NULL_STREAM_NAME "nul"
@@ -171,6 +167,8 @@ HEADER_INLINE void DPrintf(const char* fmt, ...) {
     logputsb();
   }
 }
+
+uint32_t FileExists(const char* fname);
 
 // Returns kPglRetOpenFail if file doesn't exist, or kPglRetRewindFail if file
 // is process-substitution/named-pipe.  Does not print an error message.
@@ -443,10 +441,6 @@ CONSTI32(kNonBigstackMin, 67108864);
 
 CONSTI32(kBigstackMinMib, 640);
 CONSTI32(kBigstackDefaultMib, 2048);
-
-static const double kSmallishEpsilon = 0.00000000002910383045673370361328125;
-static const double kRecip2m32 = 0.00000000023283064365386962890625;
-static const double k2m64 = 18446744073709551616.0;
 
 static const double kLnPvalError = 9.0;
 
@@ -782,7 +776,7 @@ HEADER_INLINE BoolErr bigstack_calloc64_d(uint64_t ct, double** d_arr_ptr) {
 BoolErr bigstack_calloc64_d(uint64_t ct, double** d_arr_ptr);
 #endif
 
-#if __cplusplus >= 201103L
+#ifdef CPP11_TYPE_ENFORCEMENT
 
 template <class T> BoolErr BigstackAllocX(uintptr_t ct, T** x_arr_ptr) {
   *x_arr_ptr = S_CAST(T*, bigstack_alloc(ct * sizeof(T)));
@@ -965,6 +959,11 @@ HEADER_INLINE BoolErr bigstack_end_alloc_u64(uintptr_t ct, uint64_t** u64_arr_pt
 HEADER_INLINE BoolErr bigstack_end_alloc_llstr(uintptr_t str_blen, LlStr** llstr_arr_ptr) {
   *llstr_arr_ptr = S_CAST(LlStr*, bigstack_end_alloc(str_blen + sizeof(LlStr)));
   return !(*llstr_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_end_alloc_wp(uintptr_t ct, uintptr_t*** wp_arr_ptr) {
+  *wp_arr_ptr = S_CAST(uintptr_t**, bigstack_end_alloc(ct * sizeof(intptr_t)));
+  return !(*wp_arr_ptr);
 }
 
 HEADER_INLINE BoolErr bigstack_end_alloc_cp(uintptr_t ct, char*** cp_arr_ptr) {
@@ -1169,6 +1168,8 @@ void BitvecInvertAndMask(const uintptr_t* __restrict include_bitvec, uintptr_t w
 // as the size argument, and zeroes trailing bits.
 void AlignedBitarrOrnotCopy(const uintptr_t* __restrict argyes_bitvec, const uintptr_t* __restrict argno_bitvec, uintptr_t bit_ct, uintptr_t* __restrict target_bitvec);
 
+void BitvecXor3Copy(const uintptr_t* __restrict src_bitvec1, const uintptr_t* __restrict src_bitvec2, const uintptr_t* __restrict src_bitvec3, uintptr_t word_ct, uintptr_t* __restrict target_bitvec);
+
 // Address C-only incompatible-pointer-types-discards-qualifiers warning.
 #ifdef __cplusplus
 #  define TO_CONSTU32PCONSTP(u32_pp) (u32_pp)
@@ -1336,7 +1337,7 @@ uint32_t StrboxHtableAdd(const char* cur_id, const char* strbox, uintptr_t max_s
 // of a duplicate pair if they're present
 uint32_t PopulateStrboxHtable(const char* strbox, uint32_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable);
 
-uint32_t PopulateStrboxSubsetHtableDup(const char* strbox, const uintptr_t* subset_mask, uint32_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable);
+uint32_t PopulateStrboxSubsetHtable(const char* strbox, const uintptr_t* subset_mask, uint32_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t str_htable_size, uint32_t* str_htable);
 
 // last variant_ids entry must be at least kMaxIdBlen bytes before end of
 // bigstack
@@ -1622,6 +1623,7 @@ HEADER_INLINE void FillWSubsetStarts(const uintptr_t* subset, uint32_t thread_ct
 }
 #endif
 
+void InvertU32Arr(const uint32_t* new_idx_to_old_uidx, uint32_t raw_old_ct, uint32_t new_ct, uint32_t max_thread_ct, uint32_t* old_uidx_to_new_idx);
 
 
 // Set multiplier to 0 to only count extra alleles, 1 to also count alt1 for
@@ -1706,10 +1708,20 @@ char ExtractCharParam(const char* ss);
 
 PglErr CmdlineAllocString(const char* source, const char* flag_name, uint32_t max_slen, char** sbuf_ptr);
 
-PglErr AllocFname(const char* source, const char* flagname_p, uint32_t extra_size, char** fnbuf_ptr);
+// AllocFname() and AllocFnamePrefix() now confirm file-existence.
+PglErr AllocFname(const char* source, const char* flagname_p, char** fnbuf_ptr);
 
-PglErr AllocAndFlatten(const char* const* sources, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr);
+PglErr AllocFnamePrefix(const char* fname_prefix, const char* flattened_suffixes, const char* flagname_p, char** fnbuf_ptr);
 
+PglErr AllocAndFlattenEx(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t max_blen, uint32_t check_file_existence, char** flattened_buf_ptr);
+
+HEADER_INLINE PglErr AllocAndFlatten(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr) {
+  return AllocAndFlattenEx(sources, flagname_p, param_ct, max_blen, 0, flattened_buf_ptr);
+}
+
+HEADER_INLINE PglErr AllocAndFlattenFnames(const char* const* sources, const char* flagname_p, uint32_t param_ct, char** flattened_buf_ptr) {
+  return AllocAndFlattenEx(sources, flagname_p, param_ct, kPglFnamesize, 1, flattened_buf_ptr);
+}
 
 typedef struct Plink2CmdlineMetaStruct {
   NONCOPYABLE(Plink2CmdlineMetaStruct);

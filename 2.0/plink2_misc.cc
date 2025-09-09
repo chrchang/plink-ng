@@ -14,11 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "include/plink2_stats.h"
-#include "plink2_compress_stream.h"
-#include "plink2_data.h"
 #include "plink2_misc.h"
+
+#include <assert.h>
+#include <errno.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "include/plink2_bits.h"
+#include "include/plink2_htable.h"
+#include "include/plink2_stats.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "include/plink2_thread.h"
+#include "plink2_cmdline.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
+#include "plink2_data.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -79,6 +92,98 @@ void InitCheckSex(CheckSexInfo* check_sex_info_ptr) {
   check_sex_info_ptr->min_male_ycount = UINT32_MAX;
   check_sex_info_ptr->max_female_yrate = -1.0;
   check_sex_info_ptr->min_male_yrate = -1.0;
+}
+
+PglErr FlipAlleles(const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const FlipInfo* flip_info_ptr, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t max_thread_ct, char** allele_storage_mutable) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    if (!variant_ct) {
+      goto FlipAlleles_ret_1;
+    }
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* flip_include;
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &flip_include))) {
+      goto FlipAlleles_ret_NOMEM;
+    }
+    reterr = LoadTokensNondup2(flip_info_ptr->fname, variant_include, variant_ids, variant_id_htable, htable_dup_base, "flip", raw_variant_ct, max_variant_id_slen, variant_id_htable_size, max_thread_ct, flip_include);
+    if (unlikely(reterr)) {
+      goto FlipAlleles_ret_1;
+    }
+
+    const uint32_t flip_ct = PopcountWords(flip_include, raw_variant_ctl);
+    const uint32_t permissive = (flip_info_ptr->flags / kfFlipPermissive) & 1;
+    char* dash_ptr = K_CAST(char*, &(g_one_char_strs[90]));
+    // dash = ASCII 45.  relevant allele codes are '.' (46), 'A' (65), 'C'
+    // (67), 'G' (71), 'N' (78), 'T' (84), and lowercase letters (+32).
+    // When table entry is nonzero, flipped allele code is
+    // &(dash_ptr[table entry]).
+    uint8_t dash_ptrdiff_table[144] = {
+      0, 0, 2, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 78, 0, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 44, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 66, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 78, 0, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 44, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 66, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 40, 0};
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = flip_include[0];
+    uint32_t cur_allele_ct = 2;
+    uint32_t nonsnp_ct = 0;
+    // possible todo: multithread this part
+    for (uint32_t flip_idx = 0; flip_idx != flip_ct; ++flip_idx) {
+      const uint32_t variant_uidx = BitIter1(flip_include, &variant_uidx_base, &cur_bits);
+      uintptr_t allele_idx_offset_base;
+      if (!allele_idx_offsets) {
+        allele_idx_offset_base = 2 * variant_uidx;
+      } else {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+      }
+      char** cur_alleles = &(allele_storage_mutable[allele_idx_offset_base]);
+      uint32_t non_acgtn_found = 0;
+      for (uint32_t aidx = 0; aidx != cur_allele_ct; ++aidx) {
+        const uintptr_t ptr_diff = cur_alleles[aidx] - dash_ptr;
+        if ((ptr_diff > 144) || (!dash_ptrdiff_table[ptr_diff])) {
+          non_acgtn_found = 1;
+          break;
+        }
+      }
+      if (non_acgtn_found) {
+        if (unlikely(!permissive)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Variant '%s' in --flip file is not a SNP. (Add the 'permissive' modifier to skip instead of erroring out.)\n", variant_ids[variant_uidx]);
+          goto FlipAlleles_ret_INCONSISTENT_INPUT_WW;
+        }
+        ++nonsnp_ct;
+        continue;
+      }
+      for (uint32_t aidx = 0; aidx != cur_allele_ct; ++aidx) {
+        const uintptr_t ptr_diff = cur_alleles[aidx] - dash_ptr;
+        cur_alleles[aidx] = &(dash_ptr[dash_ptrdiff_table[ptr_diff]]);
+      }
+    }
+    if (!nonsnp_ct) {
+      logprintf("--flip: %u variant%s flipped.\n", flip_ct, (flip_ct == 1)? "" : "s");
+    } else {
+      logprintf("--flip: %u variant%s flipped, %u non-SNP%s skipped.\n", flip_ct - nonsnp_ct, (flip_ct - nonsnp_ct == 1)? "" : "s", nonsnp_ct, (nonsnp_ct == 1)? "" : "s");
+    }
+  }
+  while (0) {
+  FlipAlleles_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  FlipAlleles_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ FlipAlleles_ret_1:
+  BigstackReset(bigstack_mark);
+  return reterr;
 }
 
 PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t sort_vars_in_cmd, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp) {
@@ -1697,6 +1802,201 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
   return reterr;
 }
 
+PglErr AlleleAlphanumUpdate(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, uint32_t variant_ct, AlleleAlphanumFlags flags, __attribute__((unused)) uint32_t max_thread_ct, char** allele_storage_mutable) {
+  PglErr reterr = kPglRetSuccess;
+  {
+    // TODO: trivial to parallelize.
+    const uint32_t is_acgt_to_1234 = (flags / kfAlleleAlphanum1234) & 1;
+    const uint32_t allow_multichar = (flags / kfAlleleAlphanumMultichar) & 1;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t allele_ct = 2;
+    if (is_acgt_to_1234) {
+      // Single-character-allele conversion: operate directly on byte-offset
+      // from g_one_char_strs.  Missing code permitted.
+      const unsigned char acgtm_ptr_to_1234m[512] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '.'*2, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, '1'*2, 0, 0, 0, '2'*2, 0, 0, 0, 0, 0, 0, 0, '3'*2, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, '4'*2, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, '1'*2, 0, 0, 0, '2'*2, 0, 0, 0, 0, 0, 0, 0, '3'*2, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, '4'*2, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+      // Multi-character conversion: ACGT->1234 conversion table if
+      // allow_multichar, guaranteed-failure otherwise.  Missing allele code
+      // doesn't come into play here.
+      unsigned char acgt_to_1234[256];
+      memset(acgt_to_1234, 0, 256);
+      if (allow_multichar) {
+        acgt_to_1234['A'] = '1';
+        acgt_to_1234['C'] = '2';
+        acgt_to_1234['G'] = '3';
+        acgt_to_1234['T'] = '4';
+        acgt_to_1234['a'] = '1';
+        acgt_to_1234['c'] = '2';
+        acgt_to_1234['g'] = '3';
+        acgt_to_1234['t'] = '4';
+      }
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        uintptr_t allele_idx_offset_base = variant_uidx * 2;
+        if (allele_idx_offsets) {
+          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+          allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+        }
+        char** cur_alleles = &(allele_storage_mutable[allele_idx_offset_base]);
+        for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+          char* cur_allele = cur_alleles[aidx];
+          const uintptr_t one_char_offset = S_CAST(uintptr_t, cur_allele - K_CAST(char*, g_one_char_strs));
+          if (one_char_offset < 512) {
+            const uint32_t one_char_offset_conv = acgtm_ptr_to_1234m[one_char_offset];
+            if (unlikely(!one_char_offset_conv)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --allele1234: Variant '%s' has an allele code that isn't in {A, C, G, T, a, c, g, t, <missing>}.\n", variant_ids[variant_uidx]);
+              goto AlleleAlphanumUpdate_ret_INCONSISTENT_INPUT_WW;
+            }
+            cur_alleles[aidx] = &(K_CAST(char*, g_one_char_strs)[one_char_offset_conv]);
+          } else {
+            char* cur_allele_iter = cur_allele;
+            unsigned char ucc = *cur_allele_iter;
+            do {
+              const unsigned char ucc_conv = acgt_to_1234[ucc];
+              if (unlikely(!ucc_conv)) {
+                if (allow_multichar) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: --allele1234: Variant '%s' has a multi-character allele code containing a non-ACGT character. (You can use --snps-only to exclude all variants with multi-character allele codes.)\n", variant_ids[variant_uidx]);
+                } else {
+                  snprintf(g_logbuf, kLogbufSize, "Error: --allele1234: Variant '%s' has a multi-character allele code. (Add the 'multichar' modifier if such allele codes are expected.)\n", variant_ids[variant_uidx]);
+                }
+                goto AlleleAlphanumUpdate_ret_INCONSISTENT_INPUT_WW;
+              }
+              *cur_allele_iter = ucc_conv;
+              ucc = *(++cur_allele_iter);
+            } while (ucc);
+          }
+        }
+      }
+    } else {
+      const unsigned char acgtm_ptr_from_1234m[512] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '.'*2, 0, 0, 0,
+        0, 0, 65*2, 0, 67*2, 0, 71*2, 0, 84*2, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+      unsigned char acgt_from_1234[256];
+      memset(acgt_from_1234, 0, 256);
+      if (allow_multichar) {
+        acgt_from_1234['1'] = 'A';
+        acgt_from_1234['2'] = 'C';
+        acgt_from_1234['3'] = 'G';
+        acgt_from_1234['4'] = 'T';
+      }
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        uintptr_t allele_idx_offset_base = variant_uidx * 2;
+        if (allele_idx_offsets) {
+          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+          allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+        }
+        char** cur_alleles = &(allele_storage_mutable[allele_idx_offset_base]);
+        for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+          char* cur_allele = cur_alleles[aidx];
+          const uintptr_t one_char_offset = S_CAST(uintptr_t, cur_allele - K_CAST(char*, g_one_char_strs));
+          if (one_char_offset < 512) {
+            const uint32_t one_char_offset_conv = acgtm_ptr_from_1234m[one_char_offset];
+            if (unlikely(!one_char_offset_conv)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --alleleACGT: Variant '%s' has an allele code that isn't in {1, 2, 3, 4, <missing>}.\n", variant_ids[variant_uidx]);
+              goto AlleleAlphanumUpdate_ret_INCONSISTENT_INPUT_WW;
+            }
+            cur_alleles[aidx] = &(K_CAST(char*, g_one_char_strs)[one_char_offset_conv]);
+          } else {
+            char* cur_allele_iter = cur_allele;
+            unsigned char ucc = *cur_allele_iter;
+            do {
+              const unsigned char ucc_conv = acgt_from_1234[ucc];
+              if (unlikely(!ucc_conv)) {
+                if (allow_multichar) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: --alleleACGT: Variant '%s' has a multi-character allele code containing a non-1234 character. (You can use --snps-only to exclude all variants with multi-character allele codes.)\n", variant_ids[variant_uidx]);
+                } else {
+                  snprintf(g_logbuf, kLogbufSize, "Error: --alleleACGT: Variant '%s' has a multi-character allele code. (Add the 'multichar' modifier if such allele codes are expected.)\n", variant_ids[variant_uidx]);
+                }
+                goto AlleleAlphanumUpdate_ret_INCONSISTENT_INPUT_WW;
+              }
+              *cur_allele_iter = ucc_conv;
+              ucc = *(++cur_allele_iter);
+            } while (ucc);
+          }
+        }
+      }
+    }
+    logprintf("--allele%s: %u variant%s updated.\n", is_acgt_to_1234? "1234" : "ACGT", variant_ct, (variant_ct == 1)? "" : "s");
+  }
+  while (0) {
+  AlleleAlphanumUpdate_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+  return reterr;
+}
+
 PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
@@ -3238,7 +3538,7 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
     } else {
       const char* binstr_iter = binstr;
       while (1) {
-        const char* tok_end = strchrnul(binstr_iter, ',');
+        const char* tok_end = Strchrnul(binstr_iter, ',');
         reterr = ProcessBoundaryToken(binstr_iter, tok_end, "--freq {ref,alt1}bins= list", max_boundary_ct, kPglRetInvalidCmdline, &prev_boundary, &boundary_ct, freq_bounds_ptr, ddosage_bounds_ptr);
         if (unlikely(reterr)) {
           goto InitHistogramFromFileOrCommalist_ret_1;
@@ -3388,7 +3688,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
       uint32_t chr_buf_blen = 0;
       uint32_t suppress_imp_r2 = 0;
       uint32_t pct = 0;
-      uint32_t next_print_variant_idx = variant_ct / 100;
+      uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
       uint32_t cur_allele_ct = 2;
       printf("--freq%s%s: 0%%", output_zst? " zs" : "", counts? " counts" : "");
       fflush(stdout);
@@ -3495,7 +3795,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
                   goto WriteAlleleFreqs_ret_WRITE_FAIL;
                 }
                 const char* cur_allele = cur_alleles[allele_idx];
-                const char* cur_allele_end_or_eq = strchrnul(cur_allele, '=');
+                const char* cur_allele_end_or_eq = Strchrnul(cur_allele, '=');
                 if (unlikely(*cur_allele_end_or_eq == '=')) {
                   logerrputs("Error: --freq's 'eq', 'eqz', 'alteq', and 'alteqz' columns cannot be requested\nwhen an allele code contains a '='.\n");
                   goto WriteAlleleFreqs_ret_INCONSISTENT_INPUT;
@@ -3541,7 +3841,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       if (unlikely(CswriteCloseNull(&css, cswritep))) {
@@ -3743,7 +4043,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
         if (unlikely(bigstack_alloc_w(raw_sample_ctl, &nonfemale_tmp))) {
           goto WriteGenoCounts_ret_NOMEM;
         }
-        AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, nonfemale_tmp);
+        BitvecXor3Copy(sample_include, sex_male, sex_nm, raw_sample_ct, nonfemale_tmp);
         sex_nonfemale = nonfemale_tmp;
       }
       FillCumulativePopcounts(sex_nonfemale, raw_sample_ctl, sex_nonfemale_cumulative_popcounts);
@@ -3851,12 +4151,13 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
 
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
+    const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     const uintptr_t* cur_sample_include = nullptr;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t is_autosomal_diploid = 0;
     uint32_t is_x = 0;
-    uint32_t is_y = 0;
+    uint32_t is_mt = 0;
     uint32_t nobs_base = 0;
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
@@ -3867,7 +4168,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
     uint32_t hapref_ct = 0;
     uint32_t hapalt1_ct = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     printf("--geno-counts%s: 0%%", output_zst? " zs" : "");
     fflush(stdout);
     PgrSampleSubsetIndex pssi;
@@ -3887,7 +4188,8 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
         is_autosomal_diploid = !IsSet(cip->haploid_mask, chr_idx);
         nobs_base = sample_ct;
         is_x = (chr_idx == x_code);
-        is_y = (chr_idx == y_code);
+        const uint32_t is_y = (chr_idx == y_code);
+        is_mt = (chr_idx == mt_code);
         cur_sample_include = sample_include;
         const uint32_t* cur_cumulative_popcounts = sample_include_cumulative_popcounts;
         if (!is_autosomal_diploid) {
@@ -3896,6 +4198,9 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
             cur_cumulative_popcounts = sex_nonfemale_cumulative_popcounts;
             nobs_base = nonfemale_ct;
           }
+        } else if (hap_cts) {
+          hap_cts[0] = 0;
+          hap_cts[1] = 0;
         }
         PgrSetSampleSubsetIndex(cur_cumulative_popcounts, simple_pgrp, &pssi);
         homref_ct = 0;
@@ -3963,10 +4268,16 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
             }
             missing_ct = nobs_base - homref_ct - het_ct - homalt1_ct - hapref_ct - hapalt1_ct;
           } else {
-            // chrY or other pure-haploid; hethap treated as missing
             hapref_ct = cur_raw_geno_cts[0];
             hapalt1_ct = cur_raw_geno_cts[2];
+            // treat hethap as missing in chrY or other pure-haploid case
             missing_ct = nobs_base - hapref_ct - hapalt1_ct;
+            if (is_mt) {
+              // behavior update (6 Aug 2025): mixed no longer treated as
+              // missing
+              het_ct = cur_raw_geno_cts[1];
+              missing_ct -= het_ct;
+            }
           }
         }
         if (homref_col) {
@@ -4064,8 +4375,8 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
           homref_ct = cur_raw_geno_cts[0];
           homalt1_ct = diploid_pair_cts[allele_ctp1];
           missing_ct = nobs_base - cur_raw_geno_cts[0] - cur_raw_geno_cts[1] - cur_raw_geno_cts[2];
-          hap_cts[0] = 0;
-          hap_cts[1] = 0;
+          assert(hap_cts[0] == 0);
+          assert(hap_cts[1] == 0);
         } else {
           if (is_x) {
             missing_ct = nobs_base - cur_raw_geno_cts[0] - cur_raw_geno_cts[1] - cur_raw_geno_cts[2];
@@ -4114,8 +4425,14 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
             }
             homref_ct = diploid_pair_cts[0];
             homalt1_ct = diploid_pair_cts[allele_ctp1];
+          } else if (is_mt) {
+            // behavior update (6 Aug 2025): mixed no longer treated as missing
+            missing_ct = nobs_base - cur_raw_geno_cts[0] - cur_raw_geno_cts[1] - cur_raw_geno_cts[2];
+            for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
+              hap_cts[aidx] = diploid_pair_cts[aidx * allele_ctp1];
+            }
           } else {
-            // chrY or other pure-haploid; hethap treated as missing
+            // treat hethap as missing in chrY or other pure-haploid case
             uint32_t nonmissing_ct = 0;
             for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
               const uint32_t cur_ct = diploid_pair_cts[aidx * allele_ctp1];
@@ -4163,6 +4480,14 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
               }
             }
             --cswritep;
+          } else if (is_mt) {
+            for (uint32_t aidx_hi = xy_col_altonly; aidx_hi != allele_ct; ++aidx_hi) {
+              for (uint32_t aidx_lo = xy_col_altonly; aidx_lo < aidx_hi; ++aidx_lo) {
+                cswritep = u32toa_x(diploid_pair_cts[aidx_lo * allele_ct + aidx_hi], ',', cswritep);
+              }
+              cswritep = strcpya_k(cswritep, "0,");
+            }
+            --cswritep;
           } else {
             const uint32_t triangle_base = allele_ct - xy_col_altonly;
             cswritep = u16setsa(cswritep, 0x2c30, (triangle_base * (triangle_base + 1) / 2) - 1);
@@ -4191,9 +4516,9 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
         }
         if (numeq_col) {
           *cswritep++ = '\t';
-          if (is_autosomal_diploid || is_x) {
-            for (uint32_t aidx_hi = 0; aidx_hi != allele_ct; ++aidx_hi) {
-              for (uint32_t aidx_lo = 0; aidx_lo <= aidx_hi; ++aidx_lo) {
+          if (is_autosomal_diploid || is_x || is_mt) {
+            for (uint32_t aidx_hi = is_mt; aidx_hi != allele_ct; ++aidx_hi) {
+              for (uint32_t aidx_lo = 0; aidx_lo <= aidx_hi - is_mt; ++aidx_lo) {
                 const uint32_t cur_ct = diploid_pair_cts[aidx_lo * allele_ct + aidx_hi];
                 if (cur_ct) {
                   cswritep = u32toa_x(aidx_lo, '/', cswritep);
@@ -4238,7 +4563,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
@@ -4275,7 +4600,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       if (unlikely(bigstack_alloc_w(raw_sample_ctl, &nonfemale_tmp))) {
         goto WriteMissingnessReports_ret_NOMEM;
       }
-      AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, nonfemale_tmp);
+      BitvecXor3Copy(sample_include, sex_male, sex_nm, raw_sample_ctl, nonfemale_tmp);
       chry_missingstat_include = nonfemale_tmp;
     }
 
@@ -4521,7 +4846,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       uint32_t chr_end = 0;
       uint32_t chr_buf_blen = 0;
       uint32_t pct = 0;
-      uint32_t next_print_variant_idx = variant_ct / 100;
+      uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
       uint32_t is_y = 2;
       double nobs_recip = 0.0;
       fputs("--missing variant report: 0%", stdout);
@@ -4633,7 +4958,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       if (unlikely(CswriteCloseNull(&css, cswritep))) {
@@ -4914,7 +5239,7 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
   uint32_t pct = 0;
   uint32_t next_print_variant_idx = variant_idx_end;
   if (!tidx) {
-    next_print_variant_idx = variant_idx_end / 100;
+    next_print_variant_idx = (variant_idx_end + 99) / 100;
   }
   uint32_t male_1copy_ct = 0;
   uint32_t male_hethap_ct = 0;
@@ -4970,7 +5295,7 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
       pct = (variant_idx * 100LLU) / variant_idx_end;
       printf("\b\b%u%%", pct++);
       fflush(stdout);
-      next_print_variant_idx = (pct * S_CAST(uint64_t, variant_idx_end)) / 100;
+      next_print_variant_idx = (pct * S_CAST(uint64_t, variant_idx_end) + 99) / 100;
     }
   }
   if (pct > 10) {
@@ -5199,7 +5524,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       uint32_t chr_end = 0;
       uint32_t chr_buf_blen = 0;
       uint32_t pct = 0;
-      uint32_t next_print_variant_idx = variant_ct / 100;
+      uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
       printf("--hardy%s%s: 0%%", output_zst? " zs" : "", midp? " midp" : "");
       fflush(stdout);
       uintptr_t xgeno_idx = 0;
@@ -5338,7 +5663,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           pct = (variant_idx * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
         }
       }
       if (unlikely(CswriteCloseNull(&css, cswritep))) {
@@ -5987,6 +6312,7 @@ typedef struct SampleCountsCtxStruct {
   uint32_t sample_ct;
   uint32_t male_ct;
   uint32_t y_nonmale_needed;
+  uint32_t max_difflist_len;
 
   PgenReader** pgr_ptrs;
   uintptr_t** genovecs;
@@ -6054,6 +6380,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
   const uintptr_t* sex_male_collapsed = ctx->sex_male_collapsed;
   const uintptr_t sample_ct = ctx->sample_ct;
   const uint32_t male_ct = ctx->male_ct;
+  const uint32_t max_difflist_len = ctx->max_difflist_len;
   const uint32_t skip_y = (!male_ct) && (!ctx->y_nonmale_needed);
   uintptr_t* genovec = ctx->genovecs[tidx];
   PgenVariant pgv;
@@ -6061,9 +6388,6 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
   SetPgvThreadMhcNull(sample_ct, tidx, ctx->thread_read_mhc, &pgv);
   uintptr_t* raregeno = ctx->raregenos[tidx];
   uint32_t* difflist_sample_ids = ctx->difflist_sample_id_bufs[tidx];
-
-  // todo: tune this threshold
-  const uint32_t max_simple_difflist_len = sample_ct / 32;
 
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   const uint32_t acc2_vec_ct = NypCtToVecCt(sample_ct);
@@ -6183,7 +6507,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
         // Finally, a scenario where exposing this capability really pays off.
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
-        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto SampleCountsThread_err;
@@ -6746,10 +7070,12 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
                  bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_sparse_common0_cts))) {
       goto SampleCounts_ret_NOMEM;
     }
-    const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+    // todo: tune this threshold
+    const uint32_t max_difflist_len = sample_ct / 32;
+    ctx.max_difflist_len = max_difflist_len;
 
-    const uintptr_t raregeno_vec_ct = DivUp(max_returned_difflist_len, kNypsPerVec);
-    const uintptr_t difflist_sample_id_vec_ct = DivUp(max_returned_difflist_len, kInt32PerVec);
+    const uintptr_t raregeno_vec_ct = DivUp(max_difflist_len, kNypsPerVec);
+    const uintptr_t difflist_sample_id_vec_ct = DivUp(max_difflist_len, kInt32PerVec);
 
     const uintptr_t acc2_vec_ct = NypCtToVecCt(sample_ct);
     const uintptr_t dense_counts_vstride = acc2_vec_ct * 23;
@@ -6921,7 +7247,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
 
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     for (uint32_t variant_idx = 0; ; ) {
       const uint32_t cur_block_size = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
       if (unlikely(reterr)) {
@@ -6958,7 +7284,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
 
       ++read_block_idx;
@@ -7680,7 +8006,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uint32_t allele_ct = 2;
     fputs("--sample-diff counts-only: 0%", stdout);
     fflush(stdout);
@@ -7729,7 +8055,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
       if (allele_ct == 2) {
         if (!pgv.dosage_ct) {
@@ -8320,7 +8646,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t pct = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     uint32_t allele_ct = 2;
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
@@ -8370,7 +8696,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
       const uint32_t provref = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)));
       if (allele_ct == 2) {
@@ -9443,6 +9769,7 @@ typedef struct HetCtxStruct {
   const double* allele_freqs;  // nullptr if small-sample
   uint32_t sample_ct;
   uint32_t founder_ct;
+  uint32_t max_difflist_len;
 
   PgenReader** pgr_ptrs;
   uintptr_t** genovecs;
@@ -9492,9 +9819,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
   if (ctx->thread_read_mhc) {
     allele_nobs = ctx->allele_nobs_bufs[tidx];
   }
-
-  // todo: tune this threshold
-  const uint32_t max_simple_difflist_len = sample_ct / 32;
+  const uint32_t max_difflist_len = ctx->max_difflist_len;
 
   double ehet_base = 0.0;
   uint32_t nobs_base = 0;
@@ -9537,14 +9862,14 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
         if (allele_freqs) {
           const double ref_freq = allele_freqs[allele_idx_offset_base - variant_uidx];
           ehet = 2 * ref_freq * (1 - ref_freq);
-          if (ehet < kSmallishEpsilon) {
+          if (ehet < k2m35) {
             ++monomorphic_ct;
             continue;
           }
         }
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
-        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto HetThread_err;
@@ -9665,7 +9990,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
           }
           const double last_allele_freq = 1.0 - freq_sum;
           ehet = 1.0 - freq_ssq - last_allele_freq * last_allele_freq;
-          if (ehet < kSmallishEpsilon) {
+          if (ehet < k2m35) {
             ++monomorphic_ct;
             continue;
           }
@@ -9878,9 +10203,11 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
                  bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_nobs_incrs))) {
       goto HetCalcMain_ret_NOMEM;
     }
-    const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
-    const uintptr_t raregeno_vec_ct = DivUp(max_returned_difflist_len, kNypsPerVec);
-    const uintptr_t difflist_sample_id_vec_ct = DivUp(max_returned_difflist_len, kInt32PerVec);
+    // todo: tune this threshold
+    const uint32_t max_difflist_len = sample_ct / 32;
+    ctx.max_difflist_len = max_difflist_len;
+    const uintptr_t raregeno_vec_ct = DivUp(max_difflist_len, kNypsPerVec);
+    const uintptr_t difflist_sample_id_vec_ct = DivUp(max_difflist_len, kInt32PerVec);
     const uint32_t mhc_needed = (max_allele_ct > 2);
     uintptr_t allele_nobs_vec_ct = 0;
     ctx.allele_nobs_bufs = nullptr;
@@ -9944,7 +10271,7 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
 
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
-    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t next_print_variant_idx = (variant_ct + 99) / 100;
     for (uint32_t variant_idx = 0; ; ) {
       const uint32_t cur_block_size = MultireadNonempty(ctx.variant_subset, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
       if (unlikely(reterr)) {
@@ -9981,7 +10308,7 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
 
       ++read_block_idx;
@@ -10041,12 +10368,12 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   {
-    if (IsSet(cip->haploid_mask, 0)) {
+    if (unlikely(IsSet(cip->haploid_mask, 0))) {
       logerrputs("Error: --het cannot be used on haploid genomes.\n");
       goto HetReport_ret_INCONSISTENT_INPUT;
     }
     const uint32_t small_sample = (flags / kfHetSmallSample) & 1;
-    if (small_sample && (!founder_ct)) {
+    if (unlikely(small_sample && (!founder_ct))) {
       logerrputs("Error: '--het small-sample' requires founders.  (--make-founders may come in\nhandy here.\n)");
       goto HetReport_ret_INCONSISTENT_INPUT;
     }
@@ -10167,7 +10494,7 @@ PglErr CheckOrImputeSex(const uintptr_t* sample_include, const SampleIdInfo* sii
   {
     const CheckSexFlags flags = csip->flags;
     const char* flagstr = (flags & kfCheckSexImpute)? "--impute-sex" : "--check-sex";
-    if (IsSet(cip->haploid_mask, 0)) {
+    if (unlikely(IsSet(cip->haploid_mask, 0))) {
       snprintf(g_logbuf, kLogbufSize, "Error: %s cannot be used on haploid genomes.\n", flagstr);
       goto CheckOrImputeSex_ret_INCONSISTENT_INPUT_2;
     }
@@ -10283,7 +10610,7 @@ PglErr CheckOrImputeSex(const uintptr_t* sample_include, const SampleIdInfo* sii
           ClearBitsNz(y_end, raw_variant_ct_rounded_up, variant_include_y);
         }
         logprintf("%s: ", flagstr);
-        reterr = LoadSampleMissingCts(sample_include, sample_include, variant_include_y, cip, "chrY valid genotype call", raw_variant_ct, used_variant_ct_y, raw_sample_ct, 0, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, sample_missing_hc_cts, nullptr, sample_hethap_cts);
+        reterr = LoadSampleMissingCts(sample_include, sample_include, sample_include, variant_include_y, cip, "chrY valid genotype call", raw_variant_ct, used_variant_ct_y, raw_sample_ct, 0, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, sample_missing_hc_cts, nullptr, sample_hethap_cts);
         if (unlikely(reterr)) {
           goto CheckOrImputeSex_ret_1;
         }
@@ -10532,6 +10859,7 @@ typedef struct FstCtxStruct {
   const uint32_t* haploid_pop_sizes;
   uint32_t sample_ct;
   uint32_t pop_ct;
+  uint32_t max_difflist_len;
 
   PgenReader** pgr_ptrs;
   uintptr_t** genovecs;
@@ -10587,9 +10915,7 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
   uint32_t* difflist_sample_ids = ctx->difflist_sample_id_bufs[tidx];
   uint32_t* pop_geno_buf = ctx->pop_geno_bufs[tidx];
   const uintptr_t pop_geno_buf_size = pop_ct_x4 << haploid_present;
-
-  // todo: tune this threshold
-  const uint32_t max_simple_difflist_len = sample_ct / 32;
+  const uint32_t max_difflist_len = ctx->max_difflist_len;
 
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
 
@@ -10639,7 +10965,7 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
       uint32_t difflist_common_geno = UINT32_MAX;
       if (allele_ct == 2) {
         uint32_t difflist_len;
-        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto FstThread_err;
@@ -11279,9 +11605,11 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
     const uint32_t fstfrac_vcol = (flags / kfFstVcolFstfrac) & 1;
     const uint32_t fst_vcol = (flags / kfFstVcolFst) & 1;
     const uint32_t jackknife_blocksize = fst_infop->blocksize;
-    const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
-    const uintptr_t raregeno_vec_ct = DivUp(max_returned_difflist_len, kNypsPerVec);
-    const uintptr_t difflist_sample_id_vec_ct = DivUp(max_returned_difflist_len, kInt32PerVec);
+    // todo: tune this threshold
+    const uint32_t max_difflist_len = sample_ct / 32;
+    ctx.max_difflist_len = max_difflist_len;
+    const uintptr_t raregeno_vec_ct = DivUp(max_difflist_len, kNypsPerVec);
+    const uintptr_t difflist_sample_id_vec_ct = DivUp(max_difflist_len, kInt32PerVec);
     const uint32_t mhc_needed = (max_allele_ct > 2);
 
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
@@ -11583,7 +11911,7 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
         uint32_t chr_end = 0;
         uint32_t chr_buf_blen = 0;
         uint32_t prev_block_variant_ct = 0;
-        uint32_t next_print_variant_idx = cur_variant_ct / 100;
+        uint32_t next_print_variant_idx = (cur_variant_ct + 99) / 100;
         for (uint32_t variant_idx = 0; ; ) {
           const uint32_t cur_block_variant_ct = MultireadNonempty(cur_variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
           if (unlikely(reterr)) {
@@ -11815,7 +12143,7 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
             pct = (variant_idx * 100LLU) / cur_variant_ct;
             printf("\b\b%u%%", pct++);
             fflush(stdout);
-            next_print_variant_idx = (pct * S_CAST(uint64_t, cur_variant_ct)) / 100;
+            next_print_variant_idx = (pct * S_CAST(uint64_t, cur_variant_ct) + 99) / 100;
           }
           ++read_block_idx;
           prev_block_variant_ct = cur_block_variant_ct;

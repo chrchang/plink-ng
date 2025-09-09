@@ -16,6 +16,8 @@
 
 #include "pgenlib_ffi_support.h"
 
+#include "plink2_bits.h"
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif

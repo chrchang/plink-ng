@@ -1469,7 +1469,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       dgels_nrhs = 1;
       dgels_ldb = dgels_m;
       dgels_lwork = -1;
-      dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, &dxx, &dgels_lwork, &dgels_info);
+      dgels_wrap(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, &dxx, &dgels_lwork, &dgels_info);
       if (dxx > 2147483647.0) {
 	logerrprint("Error: Multiple linear regression problem too large for current LAPACK version.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;

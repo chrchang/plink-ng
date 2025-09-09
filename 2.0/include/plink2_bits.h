@@ -20,6 +20,10 @@
 
 // Bitarray support.  (Inline single-word operations are in plink2_base.h.)
 
+#include <assert.h>
+#include <limits.h>
+#include <string.h>
+
 #include "plink2_base.h"
 
 #ifdef __cplusplus
@@ -106,8 +110,10 @@ uintptr_t AdvTo0Bit(const uintptr_t* bitarr, uintptr_t loc);
 
 // uintptr_t NextNonmissingUnsafe(const uintptr_t* genoarr, uintptr_t loc);
 
+// Can overread a single word if loc == ceil.
 uint32_t AdvBoundedTo1Bit(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
+// Can overread a single word if loc == ceil.
 uintptr_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
 
 uintptr_t FindLast1BitBefore(const uintptr_t* bitarr, uintptr_t loc);
@@ -637,6 +643,14 @@ HEADER_INLINE void AssignNyparrEntry(uint32_t idx, uintptr_t newval, uintptr_t* 
   const uint32_t bit_shift_ct = 2 * (idx % kBitsPerWordD2);
   uintptr_t* wordp = &(nyparr[idx / kBitsPerWordD2]);
   *wordp = ((*wordp) & (~((3 * k1LU) << bit_shift_ct))) | (newval << bit_shift_ct);
+}
+
+// todo: check if compiler is smart enough to optimize out mask in
+// AssignNyparrEntry(idx, 3, nyparr)
+HEADER_INLINE void SetNyparrEntryTo3(uint32_t idx, uintptr_t* nyparr) {
+  const uint32_t bit_shift_ct = 2 * (idx % kBitsPerWordD2);
+  uintptr_t* wordp = &(nyparr[idx / kBitsPerWordD2]);
+  *wordp = (*wordp) | ((3 * k1LU) << bit_shift_ct);
 }
 
 HEADER_INLINE void ClearNyparrEntry(uint32_t idx, uintptr_t* nyparr) {

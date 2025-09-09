@@ -658,7 +658,7 @@ uintptr_t FirstUnequal4(const void* arr1, const void* arr2, uintptr_t nbytes) {
     const VecUc v1 = vecuc_loadu(&(arr1_alias[vidx]));
     const VecUc v2 = vecuc_loadu(&(arr2_alias[vidx]));
 #  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
-    const uint32_t eq_result = vecw_movemask(v1 == v2);
+    const uint32_t eq_result = vecuc_movemask(v1 == v2);
     if (eq_result != kVec8thUintMax) {
       return vidx * kBytesPerVec + ctzu32(~eq_result);
     }
@@ -673,10 +673,12 @@ uintptr_t FirstUnequal4(const void* arr1, const void* arr2, uintptr_t nbytes) {
     const uintptr_t final_offset = nbytes - kBytesPerVec;
     const char* s1 = S_CAST(const char*, arr1);
     const char* s2 = S_CAST(const char*, arr2);
-    const VecW v1 = vecw_loadu(&(s1[final_offset]));
-    const VecW v2 = vecw_loadu(&(s2[final_offset]));
+    // bugfix (5 Jul 2025): this must be VecUc on ARM, not VecW
+    // (disturbing that arm_shrn4_uc() call compiled at all...)
+    const VecUc v1 = vecuc_loadu(&(s1[final_offset]));
+    const VecUc v2 = vecuc_loadu(&(s2[final_offset]));
 #  ifndef SIMDE_ARM_NEON_A32V8_NATIVE
-    const uint32_t eq_result = vecw_movemask(v1 == v2);
+    const uint32_t eq_result = vecuc_movemask(v1 == v2);
     if (eq_result != kVec8thUintMax) {
       return final_offset + ctzu32(~eq_result);
     }

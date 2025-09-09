@@ -38,6 +38,7 @@ ZCSRC = zstd/lib/common/debug.c \
         zstd/lib/compress/zstd_lazy.c \
         zstd/lib/compress/zstd_ldm.c \
         zstd/lib/compress/zstd_opt.c \
+        zstd/lib/compress/zstd_preSplit.c \
         zstd/lib/compress/zstdmt_compress.c \
         zstd/lib/decompress/huf_decompress.c \
         zstd/lib/decompress/zstd_ddict.c \
@@ -84,6 +85,7 @@ CCSRC = $(PLINK2LIB_CCSRC) \
         plink2_decompress.cc \
         plink2_export.cc \
         plink2_export_legacy.cc \
+        plink2_family.cc \
         plink2_fasta.cc \
         plink2_filter.cc \
         plink2_glm.cc \
@@ -135,9 +137,9 @@ OBJ3 = $(CSRC3:.c=.o) $(ZCSRC3:.c=.o) $(ZSSRC3:.S=.o) $(CCSRC3:.cc=.o)
 CINCLUDE = -Ilibdeflate
 CINCLUDE2 = -I../libdeflate
 CINCLUDE3 = -I../../libdeflate
-CXXINCLUDE = -Ilibdeflate
-CXXINCLUDE2 = -I../libdeflate
-CXXINCLUDE2 = -I../../libdeflate
+CXXINCLUDE = -Ilibdeflate "-I../zlib-"$(ZLIB_VER)
+CXXINCLUDE2 = -I../libdeflate "-I../../zlib-"$(ZLIB_VER)
+CXXINCLUDE3 = -I../../libdeflate "-I../../../zlib-"$(ZLIB_VER)
 ZSTD_INCLUDE =
 ZSTD_INCLUDE2 =
 ZSTD_INCLUDE3 =
@@ -158,5 +160,6 @@ CLEAN = *.o \
         pgenlibr/src/*.o \
         pgenlibr/src/Makevars \
         pgenlibr/src/pgenlibr.so \
+        utils/vcf_subset/*.o \
         bin/plink2 bin/pgen_compress
 CLEAN2 = $(foreach expr,$(CLEAN),../$(expr))

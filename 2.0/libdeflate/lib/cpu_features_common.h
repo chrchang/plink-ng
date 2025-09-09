@@ -28,18 +28,6 @@
 #ifndef LIB_CPU_FEATURES_COMMON_H
 #define LIB_CPU_FEATURES_COMMON_H
 
-#if defined(TEST_SUPPORT__DO_NOT_USE) && !defined(FREESTANDING)
-   /* for strdup() and strtok_r() */
-#  undef _ANSI_SOURCE
-#  ifndef __APPLE__
-#    undef _GNU_SOURCE
-#    define _GNU_SOURCE
-#  endif
-#  include <stdio.h>
-#  include <stdlib.h>
-#  include <string.h>
-#endif
-
 #include "lib_common.h"
 
 struct cpu_feature {
@@ -47,47 +35,11 @@ struct cpu_feature {
 	const char *name;
 };
 
-#if defined(TEST_SUPPORT__DO_NOT_USE) && !defined(FREESTANDING)
-/* Disable any features that are listed in $LIBDEFLATE_DISABLE_CPU_FEATURES. */
-static inline void
-disable_cpu_features_for_testing(u32 *features,
-				 const struct cpu_feature *feature_table,
-				 size_t feature_table_length)
-{
-	char *env_value, *strbuf, *p, *saveptr = NULL;
-	size_t i;
-
-	env_value = getenv("LIBDEFLATE_DISABLE_CPU_FEATURES");
-	if (!env_value)
-		return;
-	strbuf = strdup(env_value);
-	if (!strbuf)
-		abort();
-	p = strtok_r(strbuf, ",", &saveptr);
-	while (p) {
-		for (i = 0; i < feature_table_length; i++) {
-			if (strcmp(p, feature_table[i].name) == 0) {
-				*features &= ~feature_table[i].bit;
-				break;
-			}
-		}
-		if (i == feature_table_length) {
-			fprintf(stderr,
-				"unrecognized feature in LIBDEFLATE_DISABLE_CPU_FEATURES: \"%s\"\n",
-				p);
-			abort();
-		}
-		p = strtok_r(NULL, ",", &saveptr);
-	}
-	free(strbuf);
-}
-#else /* TEST_SUPPORT__DO_NOT_USE */
 static inline void
 disable_cpu_features_for_testing(__attribute__((unused)) u32 *features,
 				 __attribute__((unused)) const struct cpu_feature *feature_table,
 				 __attribute__((unused)) size_t feature_table_length)
 {
 }
-#endif /* !TEST_SUPPORT__DO_NOT_USE */
 
 #endif /* LIB_CPU_FEATURES_COMMON_H */

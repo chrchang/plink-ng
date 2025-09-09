@@ -2,7 +2,7 @@
 # https://github.com/ropensci/git2r/blob/master/configure.ac .
 
 AC_PREREQ([2.69])
-AC_INIT([pgenlibr],[0.4.0],[chrchang@alumni.caltech.edu])
+AC_INIT([pgenlibr],[0.5.3],[chrchang@alumni.caltech.edu])
 AC_PATH_PROG([PKGCONF],[pkg-config],[],[$PATH:/usr/local/bin:ext/bin:ext:/sw/bin:/opt/bin:/opt/local/bin])
 
 # Find the compiler and compiler flags to use for fallback version checks
@@ -80,12 +80,15 @@ else
     if "${PKGCONF}" --exists libzstd; then
       VERSION_STRING=`${PKGCONF} --modversion libzstd`
       VER=`getVersion3 ${VERSION_STRING}`
-      # The bundled 1.5.5 includes a compression bugfix, but the Python/R
-      # interfaces currently only use zstd for decompression, so we don't need
-      # it.
-      # 1.5.4 is over a year old, and its release notes mention 32-bit
-      # bugfixes, so we now require it.
-      if test "${VER}" -ge 100504; then
+      # The bundled 1.5.5-1.5.7 includes compression bugfixes relative to
+      # 1.5.2, but the Python/R interfaces currently only use zstd for
+      # decompression, so we don't need it.
+      # (Tried to bundle 1.5.7 for CRAN, but that triggered a
+      # diagnostic-suppression complaint that did not exist for 1.5.5.  So CRAN
+      # submissions are probably pinned to 1.5.5 indefinitely.)
+      # 1.5.2 is over three years old, and most R build machines have at least
+      # that version.
+      if test "${VER}" -ge 100502; then
         AC_MSG_NOTICE([zstd ${VERSION_STRING} library detected -- skipping zstd compilation])
         ZSTD_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I libzstd`
         ZSTD_LIBS=`"${PKGCONF}" --libs libzstd`
@@ -130,11 +133,9 @@ else
     if "${PKGCONF}" --exists libdeflate; then
       VERSION_STRING=`${PKGCONF} --modversion libdeflate`
       VER=`getVersion2 ${VERSION_STRING}`
-      # 1.14 is over a year old, and includes significant performance
-      # improvements.
-      # Don't see anything important in subsequent versions.  1.20 breaks
-      # compatibility with gcc <4.9, which I'm still using for 32-bit plink2
-      # builds, so bundled version is likely to remain 1.19 for a long time.
+      # 1.14 is over two years old, and includes significant performance
+      # improvements over its predecessor.  Subsequent updates have been less
+      # significant.
       if test "${VER}" -ge 1014; then
         AC_MSG_NOTICE([libdeflate ${VERSION_STRING} library detected -- skipping libdeflate compilation])
         LIBDEFLATE_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I libdeflate`
@@ -178,7 +179,6 @@ else
     if "${PKGCONF}" --exists simde; then
       VERSION_STRING=`${PKGCONF} --modversion simde`
       VER=`getVersion3 ${VERSION_STRING}`
-      # TODO: verify v0.8.x doesn't break anything.
       if test "${VER}" -ge 702; then
         AC_MSG_NOTICE([simde ${VERSION_STRING} library detected -- ignoring bundled simde header files])
         SIMDE_INCLUDE_PATH=`"${PKGCONF}" --cflags-only-I simde`

@@ -17,7 +17,8 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
-
+#include "include/plink2_base.h"
+#include "plink2_cmdline.h"
 #include "plink2_common.h"
 
 #ifdef __cplusplus

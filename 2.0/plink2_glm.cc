@@ -14,9 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include "plink2_adjust.h"
-#include "plink2_compress_stream.h"
 #include "plink2_glm.h"
+
+#include <assert.h>
+#include <errno.h>
+#include <float.h>
+#include <limits.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "include/plink2_bgzf.h"
+#include "include/plink2_bits.h"
+#include "include/plink2_htable.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "plink2_adjust.h"
+#include "plink2_cmdline.h"
+#include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
 #include "plink2_glm_linear.h"
 #include "plink2_glm_logistic.h"
 
@@ -2060,7 +2075,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sex_nonfemale_tmp))) {
         goto GlmMain_ret_NOMEM;
       }
-      AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, sex_nonfemale_tmp);
+      BitvecXor3Copy(orig_sample_include, sex_male, sex_nm, raw_sample_ctl, sex_nonfemale_tmp);
       sex_nonfemale = sex_nonfemale_tmp;
       nonfemale_ct = PopcountWords(sex_nonfemale, raw_sample_ctl);
     }
@@ -2973,8 +2988,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         uint32_t biallelic_predictor_ct_y = 0;
         uint32_t y_samples_are_different = 0;
         if (cur_sample_include_y) {
-          BitvecAndCopy(orig_sample_include, sex_nonfemale, raw_sample_ctl, cur_sample_include_y);
-          BitvecAnd(cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_y);
+          BitvecAndCopy(cur_pheno_col->nonmiss, sex_nonfemale, raw_sample_ctl, cur_sample_include_y);
           uint16_t dummy = 0;
           if (unlikely(GlmDetermineCovars(nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_y_covar_ct, covar_max_nonnull_cat_ct, 0, 0, cur_sample_include_y, covar_include_y, &sample_ct_y, &covar_ct_y, &extra_cat_ct_y, &dummy))) {
             goto GlmMain_ret_NOMEM;
@@ -3218,9 +3232,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           common.sample_include_y_cumulative_popcounts = nullptr;
           common.covar_ct_y = 0;
         }
-        linear_ctx.max_returned_difflist_len = 0;
+        linear_ctx.max_difflist_len = 0;
         if ((is_qt_residualize || (!common.covar_ct) || (sample_ct_y && (!common.covar_ct_y))) && common.nm_precomp && (!(pgfip->gflags & kfPgenGlobalDosagePresent))) {
-          linear_ctx.max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+          linear_ctx.max_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
         }
 
         uint32_t* subset_chr_fo_vidx_start;
@@ -3538,8 +3552,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       uint32_t biallelic_predictor_ct_y = 0;
       uint32_t y_samples_are_different = 0;
       if (cur_sample_include_y) {
-        BitvecAndCopy(orig_sample_include, sex_nonfemale, raw_sample_ctl, cur_sample_include_y);
-        BitvecAnd(cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_y);
+        BitvecAndCopy(cur_pheno_col->nonmiss, sex_nonfemale, raw_sample_ctl, cur_sample_include_y);
         logistic_ctx.separation_found_y = 0;
         if (unlikely(GlmDetermineCovars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_y_covar_ct, covar_max_nonnull_cat_ct, is_sometimes_firth, is_always_firth, cur_sample_include_y, covar_include_y, &sample_ct_y, &covar_ct_y, &extra_cat_ct_y, &logistic_ctx.separation_found_y))) {
           goto GlmMain_ret_NOMEM;
@@ -3947,9 +3960,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &logistic_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, orig_permstat, &valid_allele_ct);
       } else {
         // keep in sync with GlmLinearThread() difflist_eligible
-        linear_ctx.max_returned_difflist_len = 0;
+        linear_ctx.max_difflist_len = 0;
         if (((!common.covar_ct) || (sample_ct_y && (!common.covar_ct_y))) && common.nm_precomp && (!(pgfip->gflags & kfPgenGlobalDosagePresent))) {
-          linear_ctx.max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+          linear_ctx.max_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
         }
         reterr = GlmLinear(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &linear_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, &valid_allele_ct);
       }
@@ -3982,7 +3995,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         // files here.
         if (delete_orig_glm) {
           if (unlikely(unlink(in_fname))) {
-            logerrprintfww("Error: --gwas-ssf delete-orig-glm: Failed to delete %s .\n", in_fname);
+            logerrprintfww("Error: --gwas-ssf delete-orig-glm: Failed to delete %s : %s.\n", in_fname, strerror(errno));
             goto GlmMain_ret_WRITE_FAIL;
           }
         }

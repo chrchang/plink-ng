@@ -17,11 +17,18 @@
 
 #include "plink2_cmdline.h"
 
-#include <sys/types.h>  // open()
-#include <sys/stat.h>  // open()
+#include <errno.h>
 #include <fcntl.h>  // open()
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>  // open(), stat()
+#include <sys/types.h>  // open() backward compatibility
 #include <time.h>  // time(), ctime()
 #include <unistd.h>  // getcwd(), gethostname(), sysconf(), fstat()
+
+#include "include/plink2_htable.h"
+#include "include/plink2_thread.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -94,6 +101,11 @@ void logerrputsb() {
   fflush(stdout);
   fputs(g_logbuf, stderr);
   g_stderr_written_to = 1;
+}
+
+uint32_t FileExists(const char* fname) {
+  struct stat statbuf;
+  return (stat(fname, &statbuf) == 0);
 }
 
 PglErr ForceNonFifo(const char* fname) {
@@ -1251,6 +1263,33 @@ void AlignedBitarrOrnotCopy(const uintptr_t* __restrict argyes_bitvec, const uin
   }
 }
 
+void BitvecXor3Copy(const uintptr_t* __restrict src_bitvec1, const uintptr_t* __restrict src_bitvec2, const uintptr_t* __restrict src_bitvec3, uintptr_t word_ct, uintptr_t* __restrict target_bitvec) {
+#ifdef __LP64__
+  VecW* target_bitvvec = R_CAST(VecW*, target_bitvec);
+  const VecW* src_bitvvec1 = R_CAST(const VecW*, src_bitvec1);
+  const VecW* src_bitvvec2 = R_CAST(const VecW*, src_bitvec2);
+  const VecW* src_bitvvec3 = R_CAST(const VecW*, src_bitvec3);
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  for (uintptr_t ulii = 0; ulii != full_vec_ct; ++ulii) {
+    target_bitvvec[ulii] = src_bitvvec1[ulii] ^ src_bitvvec2[ulii] ^ src_bitvvec3[ulii];
+  }
+#  ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    target_bitvec[base_idx] = src_bitvec1[base_idx] ^ src_bitvec2[base_idx] ^ src_bitvec3[base_idx];
+    target_bitvec[base_idx + 1] = src_bitvec1[base_idx] ^ src_bitvec2[base_idx] ^ src_bitvec3[base_idx];
+  }
+#  endif
+  if (word_ct & 1) {
+    target_bitvec[word_ct - 1] = src_bitvec1[word_ct - 1] ^ src_bitvec2[word_ct - 1] ^ src_bitvec3[word_ct - 1];
+  }
+#else
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+    target_bitvec[widx] = src_bitvec1[widx] ^ src_bitvec2[widx] ^ src_bitvec3[widx];
+  }
+#endif
+}
+
 int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* variant_ids, const uintptr_t* variant_include, uint32_t variant_ct) {
   const uint32_t id_blen = strlen(idstr) + 1;
   uintptr_t widx = ~k0LU;
@@ -1434,7 +1473,6 @@ uint32_t StrboxHtableAdd(const char* cur_id, const char* strbox, uintptr_t max_s
 }
 
 uint32_t PopulateStrboxHtable(const char* strbox, uint32_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable) {
-  // may want subset_mask parameter later
   SetAllU32Arr(str_htable_size, str_htable);
   const char* strbox_iter = strbox;
   for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
@@ -1448,7 +1486,7 @@ uint32_t PopulateStrboxHtable(const char* strbox, uint32_t str_ct, uintptr_t max
   return 0;
 }
 
-uint32_t PopulateStrboxSubsetHtableDup(const char* strbox, const uintptr_t* subset_mask, uint32_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable) {
+uint32_t PopulateStrboxSubsetHtable(const char* strbox, const uintptr_t* subset_mask, uint32_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t str_htable_size, uint32_t* str_htable) {
   SetAllU32Arr(str_htable_size, str_htable);
   uintptr_t str_uidx_base = 0;
   uintptr_t subset_mask_bits = subset_mask[0];
@@ -1456,7 +1494,11 @@ uint32_t PopulateStrboxSubsetHtableDup(const char* strbox, const uintptr_t* subs
     const uint32_t str_uidx = BitIter1(subset_mask, &str_uidx_base, &subset_mask_bits);
     const char* strptr = &(strbox[str_uidx * max_str_blen]);
     const uint32_t slen = strlen(strptr);
-    StrboxHtableAdd(strptr, strbox, max_str_blen, slen, str_htable_size, str_uidx, str_htable);
+    if (StrboxHtableAdd(strptr, strbox, max_str_blen, slen, str_htable_size, str_uidx, str_htable) != UINT32_MAX) {
+      if (!allow_dups) {
+        return str_uidx;
+      }
+    }
   }
   return 0;
 }
@@ -2042,6 +2084,15 @@ void FillWSubsetStarts(const uintptr_t* subset, uint32_t thread_ct, uintptr_t st
   }
 }
 #endif
+
+void InvertU32Arr(const uint32_t* new_idx_to_old_uidx, uint32_t raw_old_ct, uint32_t new_ct, __attribute__((unused)) uint32_t max_thread_ct, uint32_t* old_uidx_to_new_idx) {
+  // obvious todo: multithread
+  SetAllU32Arr(raw_old_ct, old_uidx_to_new_idx);
+  for (uint32_t new_idx = 0; new_idx != new_ct; ++new_idx) {
+    const uint32_t old_uidx = new_idx_to_old_uidx[new_idx];
+    old_uidx_to_new_idx[old_uidx] = new_idx;
+  }
+}
 
 // May want to have an multiallelic_set bitarray to accelerate this type of
 // operation?  Probably only want to conditionally initialize it, and only
@@ -2723,25 +2774,82 @@ PglErr CmdlineAllocString(const char* source, const char* flag_name, uint32_t ma
   return kPglRetSuccess;
 }
 
-PglErr AllocFname(const char* source, const char* flagname_p, uint32_t extra_size, char** fnbuf_ptr) {
+PglErr AllocFname(const char* source, const char* flagname_p, char** fnbuf_ptr) {
   const uint32_t blen = strlen(source) + 1;
-  if (unlikely(blen > (kPglFnamesize - extra_size))) {
+  if (unlikely(blen > kPglFnamesize)) {
     logerrprintf("Error: --%s filename too long.\n", flagname_p);
     return kPglRetOpenFail;
   }
-  if (unlikely(pgl_malloc(blen + extra_size, fnbuf_ptr))) {
+  // Update (2 Mar 2025): It's appropriate to verify file's existence at this
+  // point; see https://github.com/chrchang/plink-ng/issues/221 .
+  // However, sophisticated users may be taking advantage of the order of
+  // operations and specifying input files that don't exist at command-line
+  // parsing time, but are generated before processing time.  If this is really
+  // happening (and there is no better way to address the use cases), a
+  // --disable-file-existence-checks flag should be added.
+  if (unlikely(!FileExists(source))) {
+    logerrprintfww("Error: --%s: %s does not exist.\n", flagname_p, source);
+    return kPglRetOpenFail;
+  }
+  if (unlikely(pgl_malloc(blen, fnbuf_ptr))) {
     return kPglRetNomem;
   }
   memcpy(*fnbuf_ptr, source, blen);
   return kPglRetSuccess;
 }
 
-PglErr AllocAndFlatten(const char* const* sources, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr) {
+PglErr AllocFnamePrefix(const char* fname_prefix, const char* flattened_suffixes, const char* flagname_p, char** fnbuf_ptr) {
+  assert(flattened_suffixes[0]);
+  uint32_t max_suffix_blen = 0;
+  {
+    const char* suffix_iter = flattened_suffixes;
+    do {
+      const uintptr_t suffix_blen = strlen(suffix_iter) + 1;
+      if (suffix_blen > max_suffix_blen) {
+        max_suffix_blen = suffix_blen;
+      }
+      suffix_iter = &(suffix_iter[suffix_blen]);
+    } while (*suffix_iter);
+  }
+  const uint32_t prefix_slen = strlen(fname_prefix);
+  if (unlikely(prefix_slen + max_suffix_blen > kPglFnamesize)) {
+    logerrprintf("Error: --%s filename prefix too long.\n", flagname_p);
+    return kPglRetOpenFail;
+  }
+  if (unlikely(pgl_malloc(prefix_slen + max_suffix_blen, fnbuf_ptr))) {
+    return kPglRetNomem;
+  }
+  char* dst = *fnbuf_ptr;
+  memcpy(dst, fname_prefix, prefix_slen);
+  char* dst_suffix_start = &(dst[prefix_slen]);
+  const char* suffix_iter = flattened_suffixes;
+  do {
+    const uint32_t suffix_blen = strlen(suffix_iter) + 1;
+    memcpy(dst_suffix_start, suffix_iter, suffix_blen);
+    if (unlikely(!FileExists(dst))) {
+      logerrprintfww("Error: --%s: %s does not exist.\n", flagname_p, dst);
+      return kPglRetOpenFail;
+    }
+    suffix_iter = &(suffix_iter[suffix_blen]);
+  } while (*suffix_iter);
+  *dst_suffix_start = '\0';
+  return kPglRetSuccess;
+}
+
+PglErr AllocAndFlattenEx(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t max_blen, uint32_t check_file_existence, char** flattened_buf_ptr) {
   uintptr_t tot_blen = 1;
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
-    const uint32_t cur_blen = 1 + strlen(sources[param_idx]);
+    const char* cur_param = sources[param_idx];
+    const uint32_t cur_blen = 1 + strlen(cur_param);
     if (cur_blen > max_blen) {
+      logerrprintf("Error: --%s: argument too long.\n", flagname_p);
       return kPglRetInvalidCmdline;
+    }
+    if (check_file_existence) {
+      if (unlikely(!FileExists(cur_param))) {
+        logerrprintfww("Error: --%s: %s does not exist.\n", flagname_p, cur_param);
+        return kPglRetOpenFail;
+      }
     }
     tot_blen += cur_blen;
   }
@@ -3822,7 +3930,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
       memcpy_k(maybebuf, "maybe", 5);
       while (1) {
         const char* id_start = &(col_descriptor_iter[1]);
-        const char* tok_end = strchrnul(id_start, ',');
+        const char* tok_end = Strchrnul(id_start, ',');
         const uint32_t slen = tok_end - id_start;
         int32_t alpha_idx = bsearch_strbox(id_start, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
@@ -3851,7 +3959,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
           }
         }
         // bugfix (16 Oct 2017): forgot to switch from !tok_end to !(*tok_end)
-        // after use of strchrnul().
+        // after use of Strchrnul().
         if (!(*tok_end)) {
           break;
         }
@@ -3862,7 +3970,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
       }
     } else if (*col_descriptor_iter) {
       while (1) {
-        const char* tok_end = strchrnul(col_descriptor_iter, ',');
+        const char* tok_end = Strchrnul(col_descriptor_iter, ',');
         const uint32_t slen = tok_end - col_descriptor_iter;
         const int32_t alpha_idx = bsearch_strbox(col_descriptor_iter, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {

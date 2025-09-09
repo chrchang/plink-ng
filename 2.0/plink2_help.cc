@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-// necessary to include this instead of plink2_common so kCmdlineFormatStr[]
-// is known to have external linkage
 #include "plink2_help.h"
+
+#include <string.h>
+
+#include "include/plink2_bits.h"
+#include "plink2_cmdline.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -193,6 +195,17 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      PLINK 2 currently cannot handle omitted male columns.)\n"
 "    * If not used with --sample, new sample IDs are of the form 'per#/per#'.\n\n"
                );
+    HelpPrint("eigfile\0eigtfile\0eiggeno\0eigtgeno\0eigind\0eigsnp\0", &help_ctrl, 1,
+"  --eigfile <filename prefix> ['nohash']\n"
+"  --eiggeno <filename> ['nohash']\n"
+"  --eigind <filename>\n"
+"  --eigsnp <filename>\n"
+"    Specify a .geno + .ind + .snp PACKEDANCESTRYMAP or TGENO dataset to import.\n"
+"    * By default, this errors out when the sample-ID or variant-ID hash stored\n"
+"      in the genotype file doesn't match the value computed from the .ind or\n"
+"      .snp file.  Use the 'nohash' modifier to disable this behavior.\n"
+"    * You can specify individual filenames with --eiggeno/--eigind/--eigsnp.\n\n"
+              );
     HelpPrint("pedmap\0ped\0map\0file\0", &help_ctrl, 0,
 "  --pedmap <prefix>  : Specify .ped + .map filename prefix.\n"
 "  --ped <filename>   : Specify full name of .ped file.\n"
@@ -298,23 +311,22 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("make-pgen\0make-bpgen\0make-bed\0make-just-pvar\0make-just-psam\0make-pfile\0make-bpfile\0make-bfile\0", &help_ctrl, 1,
 "  --make-pgen ['vzs'] ['format='<code>] ['trim-alts'] ['erase-phase']\n"
-"              ['erase-dosage'] ['fill-missing-from-dosage']\n"
+"              ['erase-dosage'] ['fill-missing-from-dosage'] ['writer-ver']\n"
 "              ['pvar-cols='<col set desc>] ['psam-cols='<col set desc>]\n"
 "  --make-bpgen ['vzs'] ['format='<code>] ['trim-alts'] ['erase-phase']\n"
-"               ['erase-dosage'] ['fill-missing-from-dosage']\n"
+"               ['erase-dosage'] ['fill-missing-from-dosage'] ['writer-ver']\n"
 "  --make-bed ['vzs'] ['trim-alts']\n"
                /*
-"  --make-pgen ['vzs'] ['format='<code>] [{trim-alts | erase-alt2+}]\n"
-"              ['erase-phase'] ['erase-dosage'] ['fill-missing-from-dosage']\n"
-"              ['writer-ver'] ['multiallelics='<mode>]\n"
+"  --make-pgen ['vzs'] ['format='<code>] ['trim-alts'] ['erase-phase']\n"
+"              ['erase-dosage'] ['fill-missing-from-dosage'] ['writer-ver']\n"
+"              ['multiallelics='<mode>]\n"
 "              [{varid-split | varid-split-dup | varid-dup | varid-join}]\n"
 "              ['pvar-cols='<col set desc>] ['psam-cols='<col set desc>]\n"
-"  --make-bpgen ['vzs'] ['format='<code>] [{trim-alts | erase-alt2+}]\n"
-"               ['erase-phase'] ['erase-dosage'] ['fill-missing-from-dosage']\n"
-"               ['writer-ver'] ['multiallelics='<mode>]\n"
+"  --make-bpgen ['vzs'] ['format='<code>] ['trim-alts'] ['erase-phase']\n"
+"               ['erase-dosage'] ['fill-missing-from-dosage'] ['writer-ver']\n"
+"               ['multiallelics='<mode>]\n"
 "               [{varid-split | varid-split-dup | varid-dup | varid-join}]\n"
-"  --make-bed ['vzs'] [{trim-alts | erase-alt2+}]\n"
-"             ['multiallelics='<split mode>]\n"
+"  --make-bed ['vzs'] ['trim-alts'] ['multiallelics='<split mode>]\n"
                */
 "    Create a new PLINK 2 binary fileset (--make-pgen = .pgen + .pvar[.zst] +\n"
 "    .psam, --make-bpgen = .pgen + .bim[.zst] + .fam).\n"
@@ -331,21 +343,19 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                /*
 "        3: unphased dosage data\n"
 "        4: phased dosage data\n"
+               */
 "    * The 'trim-alts' modifier causes alternate alleles not present in the\n"
 "      dataset after sample filtering to be removed.  (This occurs before any\n"
 "      genotype/dosage erasure performed by --make-[b]pgen/--make-bed.)\n"
-               */
-    // Commented out since, while this is on the roadmap, it isn't fully
-    // implemented yet.  (This also applies to other commented-out help text.)
 "    * The 'erase-phase' and 'erase-dosage' modifiers prevent phase and dosage\n"
 "      information from being written to the new .pgen.\n"
 "    * When a hardcall is missing but the corresponding dosage is present,\n"
 "      'fill-missing-from-dosage' causes the (Euclidean-)nearest hardcall to be\n"
 "      filled in, with ties broken in favor of the lower-index allele.\n"
-               /*
 "    * The 'writer-ver' modifier causes the output .pgen to include this\n"
 "      program's version string.  Note that the resulting .pgen is not readable\n"
 "      by plink2 builds from before May 2024.\n"
+               /*
 "    * The 'multiallelics=' modifier (alias: 'm=') specifies a join or split\n"
 "      mode.  The following modes are currently supported:\n"
 "      * '-': Split all multiallelic records.\n"
@@ -362,8 +372,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      Symbolic ALT alleles are joined separately.  Additional conditions apply\n"
 "      to them, and PLINK 2 usually errors out when they aren't met.\n"
 "      When splitting with 'varid-dup', the new variants keep the original\n"
-"      variant\n"
-"      ID.  Otherwise, new variant IDs are assigned as follows:\n"
+"      variant ID.  Otherwise, new variant IDs are assigned as follows:\n"
 "      1. If --set-all-var-ids was specified, that template is applied.\n"
 "      2. Otherwise, if joining, and all source variant IDs are identical and\n"
 "         nonmissing, that ID is used.\n"
@@ -383,10 +392,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      FILTER values.\n"
 "      INFO splitting/merging is under development; for now, 'bcftools norm'\n"
 "      (possibly on a single-sample file) can be used for this.\n"
-"    * The 'erase-alt2+' modifier causes alt alleles past the first to be\n"
-"      removed; substantially affected genotypes/dosages (alt2+ dosage >= 0.5)\n"
-"      are set to missing, and slightly affected dosages are rescaled.  This is\n"
-"      applied after 'multiallelics=' merge.\n"
 "    * When the 'trim-alts', 'multiallelics=', and/or 'erase-...' modifier is\n"
 "      present, --make-bed/--make-[b]pgen cannot be combined with other\n"
 "      commands.  (They can be combined with other filters.)\n"
@@ -435,13 +440,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("export\0recode\0", &help_ctrl, 1,
 "  --export <output format(s)...> [{01 | 12}] ['bgz'] ['id-delim='<char>]\n"
-"           ['id-paste='<column set descriptor>] ['include-alt']\n"
-"           ['omit-nonmale-y'] ['spaces'] ['vcf-dosage='<field>] ['ref-first']\n"
-"           ['bits='<#>] ['sample-v2'] ['bgen-omit-sample-id-block']\n"
+"                                 ['id-paste='<col set descrip>] ['include-alt']\n"
+"                                 ['omit-nonmale-y'] ['spaces']\n"
+"                                 ['vcf-dosage='<field>] ['ref-first']\n"
+"                                 ['bits='<#>] ['sample-v2']\n"
+"                                 ['bgen-omit-sample-id-block']\n"
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
-"    (actually, only A, AD, Av, bcf, bgen-1.x, haps, hapslegend, ind-major-bed,\n"
-"    oxford, ped, phylip, phylip-phased, tped, and vcf are implemented for now)\n"
+"    (actually, only A, AD, Av, bcf, bgen-1.x, eig, haps, hapslegend,\n"
+"    ind-major-bed, oxford, ped, phylip, phylip-phased, tped, and vcf are\n"
+"    implemented for now)\n"
 "    * '23': 23andMe 4-column format.  This can only be used on a single\n"
 "            sample's data (--keep may be handy), and does not support\n"
 "            multicharacter allele codes.\n"
@@ -461,6 +469,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * 'bimbam': Regular BIMBAM format.\n"
 "    * 'bimbam-1chr': BIMBAM format, with a two-column .pos.txt file.  Does not\n"
 "                     support multiple chromosomes.\n"
+"    * 'eig', 'eigt': EIGENSOFT .geno + .ind + .snp format.  Does not support\n"
+"                     multicharacter allele codes.\n"
 "    * 'fastphase': Per-chromosome fastPHASE files, with\n"
 "                   .chr-<chr #>.phase.inp filename extensions.\n"
 "    * 'fastphase-1chr': Single .phase.inp file.  Does not support\n"
@@ -590,7 +600,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Variant-based hardcall genotype count report (considering both alleles\n"
 "    simultaneously in the diploid case).  Nonfounders are now included; use\n"
 "    --keep-founders if this is a problem.  Heterozygous haploid calls are\n"
-"    treated as missing.\n"
+"    treated as missing; mixed MT calls are not.\n"
 "    Supported column sets are:\n"
 "      chrom: Chromosome ID.\n"
 "      pos: Base-pair coordinate.\n"
@@ -735,6 +745,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      method described in Graffelman J, Weir BS (2016) Hardy-Weinberg\n"
 "      equilibrium and the X chromosome.\n"
 "    * The 'log10' modifier causes p-values to be reported in -log10(p) form.\n"
+"      Note that PLINK 2 accurately calculates and reports p-values smaller than\n"
+"      DBL_MIN, but other software may not be able to read such values unless\n"
+"      they are reported in -log10(p) form.\n"
 "    * For variants with j alleles where j>2, j separate 'biallelic' tests are\n"
 "      performed, each reported on its own line.  However, biallelic variants\n"
 "      are normally reported on a single line, since the counts/frequencies\n"
@@ -765,6 +778,43 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      p: Hardy-Weinberg equilibrium exact test p/midp-value (or -log10(p)).\n"
 "    The default is chrom,maybeprovref,ax,gcounts,hetfreq,sexaf,p.\n\n"
                );
+    HelpPrint("mendel\0", &help_ctrl, 1,
+"  --mendel ['zs'] ['summaries-only'] ['cols='<column set descriptor>]\n"
+"    Generate a Mendel error report.\n"
+"    * chrY and chrM are no longer excluded from this analysis.\n"
+"    * Heterozygous chrX male and chrY genotypes are treated as missing.\n"
+"    * On chrM, when a child has a mixed hardcall, there is only a Mendel error\n"
+"      if the mother has a nonmissing hardcall matching neither allele.\n"
+"    * The 'summaries-only' modifier causes the .mendel[.zst] file (listing\n"
+"      every single error) to be skipped.\n"
+"    Supported column sets are:\n"
+"      .mendel[.zst]:\n"
+"        maybefid: FID, if that column was present in the input.\n"
+"        fid: Force FID column to be written even when absent in the input.\n"
+"        (KID with the kid's IID is always present, and positioned here.)\n"
+"        maybesid: (Kid's) SID, if that column was present in the input.\n"
+"        sid: Force SID column to be written even when absent in the input.\n"
+"        chrom: Chromosome ID.\n"
+"        pos: Base-pair coordinate.\n"
+"        (ID with the variant ID is always present, and positioned here.)\n"
+"        ref: Reference allele.\n"
+"        alt: All alternate alleles, comma-separated.\n"
+"        code: Numeric error code.\n"
+"        error: Description of error.\n"
+"      Specific to .imendel:\n"
+"        trionum: 1-based trio/duo number.\n"
+"        ni: Sample's Mendel error count (only considering trio/duo).\n"
+"        nobsi: Number of variants considered.\n"
+"        fraci: Sample's Mendel error rate (only considering trio/duo).\n"
+"      Specific to .lmendel[.zst]:\n"
+"        nl: Variant's Mendel error count.\n"
+"        nobsl: Number of trios considered.\n"
+"        fracl: Variant's Mendel error rate.\n"
+"    The default is maybefid,maybesid,chrom,code,error,ni,nl.\n"
+"    The maybefid/fid settings also apply to the .fmendel output file;\n"
+"    maybefid/fid/maybesid/sid to the .imendel output file; and\n"
+"    chrom/pos/ref/alt to the .lmendel[.zst] output file.\n\n"
+              );
     HelpPrint("het\0", &help_ctrl, 1,
 "  --het ['zs'] ['small-sample'] ['cols='<column set descriptor>]\n"
 "    Inbreeding coefficient report.  Supports multiallelic variants.\n"
@@ -1060,7 +1110,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // for kinship estimation, LD pruning isn't really advisable (if more speed
     // is needed, the humble --bp-space may lead to a better approximation?
     // and in practice speed doesn't seem to be an issue any more with
-    // --make-king.
+    // --make-king.)
     //
     // For multiallelic variants, major allele counts are theoretically
     // slightly more informative than REF allele counts, but the advantage is
@@ -1092,12 +1142,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * The computation can be subdivided with --parallel.\n"
               );
     HelpPrint("make-king\0make-king-table\0genome\0", &help_ctrl, 1,
-"  --make-king-table ['zs'] ['counts'] ['rel-check'] ['cols='<col set descrip.>]\n"
+"  --make-king-table ['zs'] ['counts'] ['rel-check' | 'concordance-check']\n"
+"                    ['cols='<col set descrip.>]\n"
 "    Similar to --make-king, except results are reported in KING's original\n"
 "    .kin0 text table format (with minor changes, e.g. row order is more\n"
-"    friendly to incremental addition of samples), --king-table-filter can be\n"
-"    used to restrict the report to high kinship values, and the 'rel-check'\n"
-"    modifier can be used to restrict to same-FID pairs.\n"
+"    friendly to incremental addition of samples).  'rel-check' restricts the\n"
+"    calculation to same-FID pairs, while 'concordance-check' restricts to\n"
+"    same-FID-and-IID.\n"
 "    Supported column sets are:\n"
 "      maybefid: FID1/FID2, if that column was in the input.  Requires 'id'.\n"
 "      fid: Force FID1/FID2 even when FID was absent in the input.\n"
@@ -1765,8 +1816,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                        lacks the delimiter.\n"
                );
     HelpPrint("idspace-to\0vcf\0bcf\0bgen\0id-delim\0vcf-idspace-to\0", &help_ctrl, 0,
-"  --idspace-to <c>    : Convert spaces in VCF/.bgen sample IDs to the given\n"
-"                        character.\n"
+"  --idspace-to <char> : Convert spaces in VCF/.bgen/.ind sample IDs to the\n"
+"                        given character.\n"
                );
     HelpPrint("iid-sid\0id-delim\0sample-diff\0indv\0", &help_ctrl, 0,
 "  --iid-sid           : Make --id-delim, --indv, and --sample-diff interpret\n"
@@ -1788,14 +1839,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                        can be appropriate for .ped-derived VCFs.\n"
                );
     HelpPrint("vcf\0vcf-allow-no-nonvar\0", &help_ctrl, 0,
-"  --vcf-allow-no-nonvar : By default, --vcf without dosage= prints a warning\n"
-"                          (to be upgraded to an error in a future build) when\n"
+"  --vcf-allow-no-nonvar : By default, --vcf without dosage= errors out when\n"
 "                          given a single-sample file with no 0, 0/0, or 0|0 GT\n"
 "                          values among 1000+ scanned variants with non-missing\n"
 "                          GT, since that implies the VCF was not generated\n"
 "                          properly (e.g. GATK GenotypeGVCFs was run without\n"
 "                          --include-non-variant-sites).  --vcf-allow-no-nonvar\n"
-"                          suppresses this warning/error.\n"
+"                          suppresses this error.\n"
               );
     HelpPrint("oxford-single-chr\0data\0gen\0bgen\0", &help_ctrl, 0,
 "  --oxford-single-chr <chr name>  : Specify single-chromosome .gen/.bgen file\n"
@@ -1852,12 +1902,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                 also is; you can change this second missing\n"
 "                                 code with --input-missing-genotype.\n"
                );
-    // change this for a6
     HelpPrint("strict-extra-chr\0allow-extra-chr\0aec\0", &help_ctrl, 0,
 "  --strict-extra-chr      : Prohibit unrecognized chromosome codes, unless\n"
 "                            --allow-extra-chr is also specified.\n"
-"  --allow-extra-chr ['0'] : Permit unrecognized chromosome codes (alias --aec).\n"
-"                            The '0' modifier causes these codes to be converted\n"
+"  --allow-extra-chr ['0'] : Explicitly permit unrecognized chromosome codes.\n"
+"    (alias: --aec)          The '0' modifier causes these codes to be converted\n"
 "                            to \"0\".\n"
                );
     // possible todo: nonhuman PARs?
@@ -2187,6 +2236,26 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --y-nosex-missing-stats : On chrY, include unknown-sex samples when computing\n"
 "                            missing-genotype and heterozygous-haploid stats.\n"
               );
+    HelpPrint("select-sid-representatives\0", &help_ctrl, 0,
+"  --select-sid-representatives [missingness mode] <tiebreak mode>\n"
+"                               ['parents-only'] :\n"
+"    For each group of samples with matching FID+IID, filter out all but one.\n"
+"    * This normally keeps the sample with the lowest missing call rate.  There\n"
+"      are four missingness modes:\n"
+"      'hc'/'hardcall' (default): Look at hardcalls (i.e. when a dosage is\n"
+"                                 present but a hardcall is not, the call is\n"
+"                                 considered to be missing).\n"
+"      'hh-missing': Same as above, except heterozygous haploid hardcalls are\n"
+"                    also treated as missing.\n"
+"      'dosage': Treat both cases discussed above as nonmissing.\n"
+"      'sid-only': Ignore missing call rate, just use SID.\n"
+"    * The following SID-based tiebreak modes are supported:\n"
+"      'first': Natural-sort SIDs and keep the first one.\n"
+"      'first-ascii': ASCII-sort SIDs and keep the first one.\n"
+"      'last': Natural-sort SIDs and keep the last one.\n"
+"      'last-ascii': Natural-sort SIDs and keep the last one.\n"
+"    * With 'parents-only', this filter is only applied to parents.\n"
+              );
     /*
     HelpPrint("oblig-clusters\0oblig-missing\0", &help_ctrl, 0,
 "  --oblig-missing <f1> <f2> : Specify blocks of missing genotype calls for\n"
@@ -2252,8 +2321,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    than p * 10^{-nk}, where n is the sample size.\n"
 "    * If unspecified, k is 0.  However, because --hwe has frequently been used\n"
 "      with inappropriately strict thresholds on large datasets, this can now\n"
-"      result in a warning (to be upgraded to an error in a future build).\n"
-"      Explicitly specify k=0 to silence the warning.\n"
+"      result in an error; explicitly specify k=0 to override.\n"
 "    * By default, only founders are considered.\n"
 "    * chrX p-values are now computed using Graffelman and Weir's method.\n"
 "    * For variants with j alleles where j>2, j one-vs.-rest 'biallelic' tests\n"
@@ -2286,6 +2354,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                       to filter on precomputed Minimac3 R2 in\n"
 "                                       a VCF/.pvar INFO column.)\n"
                );
+    HelpPrint("me\0me-exclude-one\0", &help_ctrl, 0,
+"  --me <t> <v> ['var-first'] : Filter out trios and variants with Mendel error\n"
+"                               rates exceeding the given thresholds.\n"
+"  --me-exclude-one [ratio]   : Make --me exclude only one sample per trio.\n"
+              );
     HelpPrint("keep-females\0keep-males\0keep-nosex\0remove-females\0remove-males\0remove-nosex\0filter-males\0filter-females\0", &help_ctrl, 0,
 "  --keep-females     : Exclude male and unknown-sex samples.\n"
 "  --keep-males       : Exclude female and unknown-sex samples.\n"
@@ -2344,7 +2417,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --export-allele <file> : With --export A/AD/Av, count alleles named in the\n"
 "                           file, instead of REF alleles.\n"
               );
-    HelpPrint("output-chr\0", &help_ctrl, 0,
+    HelpPrint("output-chr\0rename-chrs\0", &help_ctrl, 0,
 "  --output-chr <MT code> : Set chromosome coding scheme in output files by\n"
 "                           providing the desired human mitochondrial code.\n"
 "                           Options are '26', 'M', 'MT', '0M', 'chr26', 'chrM',\n"
@@ -2362,7 +2435,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                   by --make-[b]pgen/--make-bed/--export\n"
 "                                   (default 'NA' for .psam, -9 for older).\n"
                );
-    HelpPrint("sort-vars\0update-chr\0", &help_ctrl, 0,
+    HelpPrint("sort-vars\0rename-chrs\0update-chr\0", &help_ctrl, 0,
 "  --sort-vars [mode]      : Sort variants by chromosome, then position, then\n"
 "                            ID.  The following string orders are supported:\n"
 "                            * 'natural'/'n': Natural sort (default).\n"
@@ -2371,6 +2444,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            --make-[b]pgen/--make-bed, or\n"
 "                            --make-just-{bim,pvar}.\n"
                );
+    HelpPrint("zero-cluster\0", &help_ctrl, 0,
+"  --zero-cluster <filename> [pheno/covar name] :\n"
+"    Set blocks of genotype calls to missing.\n"
+"    * The input file should have variant IDs in the first column and category\n"
+"      IDs in the second.\n"
+"    * If multiple categorical phenotypes are loaded, you must specify the\n"
+"      phenotype to use.\n"
+              );
     HelpPrint("set-invalid-haploid-missing\0set-hh-missing\0set-mixed-mt-missing\0", &help_ctrl, 0,
 "  --set-invalid-haploid-missing ['keep-dosage'] :\n"
 "    Make --make-[b]pgen/--make-bed set non-MT heterozygous haploid hardcalls,\n"
@@ -2380,6 +2461,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --set-mixed-mt-missing ['keep-dosage'] : Make --make-[b]pgen/--make-bed set\n"
 "                                           mixed MT hardcalls to missing.\n"
                );
+    HelpPrint("set-me-missing\0", &help_ctrl, 0,
+"  --set-me-missing        : Make --make-[b]pgen/--make-bed set Mendel errors\n"
+"                            (as determined from hardcalls) to missing.  All\n"
+"                            associated dosages are also erased.\n"
+              );
+    HelpPrint("fill-missing-with-ref\0fill-missing-a2\0", &help_ctrl, 0,
+"  --fill-missing-with-ref : Make --make-[b]pgen/--make-bed replace all missing\n"
+"                            dosages with homozygous-REF.\n"
+              );
     HelpPrint("split-par\0merge-par\0split-x\0merge-x\0vcf\0bcf\0", &help_ctrl, 0,
 "  --split-par <bp1> <bp2> : Changes chromosome code of all X chromosome\n"
 "  --split-par <build>       variants with bp position <= bp1 to PAR1, and those\n"
@@ -2443,6 +2533,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --update-map  <f> [bpcol]  [IDcol]  [skip] : Update variant bp positions.\n"
 "  --update-name <f> [newcol] [oldcol] [skip] : Update variant IDs.\n"
                );
+    HelpPrint("rename-chrs\0update-chr\0", &help_ctrl, 0,
+"  --rename-chrs <fn> : Renames chromosomes/contigs, given a file with old names\n"
+"                       in the first column and new names in the second.\n"
+"                       Requires --sort-vars.\n"
+"                       Note that this does not select between PLINK's built-in\n"
+"                       ways of rendering ordinary chromosome codes (e.g. '23'\n"
+"                       vs. 'X' vs. 'chrX'); that's what --output-chr is for.\n"
+              );
     HelpPrint("recover-var-ids\0set-all-var-ids\0update-name\0", &help_ctrl, 0,
 "  --recover-var-ids <file> ['strict-bim-order'] [{rigid | force}] ['partial'] :\n"
 "    Undo --set-all-var-ids, given the original .pvar/VCF/.bim file.  Original\n"
@@ -2478,6 +2576,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      treated as a wildcard.  'strict-missing' causes it to only match missing\n"
 "      allele codes.\n"
               );
+    HelpPrint("allele1234\0alleleACGT\0alleleacgt\0", &help_ctrl, 0,
+"  --allele1234 ['multichar'] : Interpret/recode A/C/G/T alleles (lowercase\n"
+"                               permitted) as 1/2/3/4.  With 'multichar', longer\n"
+"                               allele codes are converted in the same manner.\n"
+"                               Now errors out if any nonmissing allele code is\n"
+"                               not fully converted.\n"
+"  --alleleACGT ['multichar'] : Reverse of --allele1234.\n"
+              );
     HelpPrint("update-ids\0update-parents\0update-sex\0", &help_ctrl, 0,
 "  --update-ids <fname>       : Update sample IDs.\n"
 "  --update-parents <fname>   : Update parental IDs.\n"
@@ -2491,6 +2597,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      and '0'/'N'/'U'/'u' is interpreted as unknown-sex.  To change this to\n"
 "      '0'/'M'/'m' = male, '1'/'F'/'f' = female, anything else other than '2' =\n"
 "      unknown-sex, add 'male0'.\n"
+              );
+    HelpPrint("flip\0flip-subset\0", &help_ctrl, 0,
+"  --flip <fn> ['permissive'] : Flip alleles (A<->T, C<->G) for SNP IDs in the\n"
+"                               file.  By default, this now errors out upon\n"
+"                               encountering a non-SNP; specify 'permissive' to\n"
+"                               skip those variants instead.\n"
+"  --flip-subset <filename>   : Only apply --flip to samples in --flip-subset\n"
+"                               file.\n"
               );
     // don't make --real-ref-alleles apply to e.g. Oxford import, since
     // explicit 'ref-first'/'ref-last' modifiers are clearer
@@ -2522,14 +2636,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    necessary to prevent allele-swapping.)  For multiallelic variants, this\n"
 "    also sorts ALT alleles by decreasing frequency, with ties going to the\n"
 "    originally-earlier allele.\n"
-"  * This is always based on current-dataset allele frequencies.  To reduce\n"
-"    potential for confusion, --maj-ref and --read-freq are no longer allowed to\n"
-"    be in the same run.\n"
-"  * This can only be used in runs with --make-bed/--make-[b]pgen/--export and\n"
-"    no other commands.\n"
-"  * By default, this only affects variants marked as having 'provisional'\n"
-"    reference alleles.  Add 'force' to apply this to all variants.\n"
-"  * All new reference alleles are marked as provisional.\n"
+"    * This is always based on current-dataset allele frequencies.  To reduce\n"
+"      potential for confusion, --maj-ref and --read-freq are no longer allowed\n"
+"      to be in the same run.\n"
+"    * This can only be used in runs with --make-bed/--make-[b]pgen/--export and\n"
+"      no other commands.\n"
+"    * By default, this only affects variants marked as having 'provisional'\n"
+"      reference alleles.  Add 'force' to apply this to all variants.\n"
+"    * All new reference alleles are marked as provisional.\n"
                );
     HelpPrint("ref-from-fa\0maj-ref\0ref-allele\0reference-allele\0update-ref-allele\0a2-allele\0keep-allele-order\0fa\0", &help_ctrl, 0,
 "  --ref-from-fa ['force'] : This sets reference alleles from the --fa file when\n"
@@ -2610,10 +2724,22 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --merge-max-alleles <ct> : Exclude merged variants with more than the\n"
 "                             specified number of alleles.\n"
               );
-    HelpPrint("pmerge\0pmerge-list\0multiallelics-already-joined\0", &help_ctrl, 0,
+    HelpPrint("merge-sids\0pmerge\0pmerge-list\0", &help_ctrl, 0,
+"  --merge-sids             : When --pmerge[-list] encounters multiple samples\n"
+"                             with identical FID+IID, merge them into a single\n"
+"                             sample with SID 0.\n"
+              );
+    HelpPrint("multiallelics-already-joined\0pmerge\0pmerge-list\0", &help_ctrl, 0,
 "  --multiallelics-already-joined : Prevent --pmerge[-list] from erroring out\n"
 "                                   when a .pvar file appears to have a 'split'\n"
 "                                   multiallelic variant.\n"
+              );
+    HelpPrint("mendel-duos\0mendel-missing-in-denom\0me\0mendel\0set-me-missing\0", &help_ctrl, 0,
+"  --mendel-duos             : Make Mendel error checks consider samples with\n"
+"                              only one parent in the dataset.\n"
+"  --mendel-missing-in-denom : When the child has a missing genotype, or both\n"
+"                              parents have missing genotypes, don't exclude the\n"
+"                              observation from error rate denominators.\n"
               );
     HelpPrint("indep-preferred\0indep-pairwise\0", &help_ctrl, 0,
 "  --indep-preferred <filename>   : Make LD-pruning commands try to keep the\n"
@@ -2621,9 +2747,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("indep-order\0indep-pairwise\0", &help_ctrl, 0,
 "  --indep-order <mode> : Set LD-pruning order.\n"
-"                         * '1' = replicate PLINK 1.x (current default, will be\n"
-"                                 changed soon)\n"
-"                         * '2' = within each window, scan backwards (faster)\n"
+"                         * '1' = replicate PLINK 1.x\n"
+"                         * '2' = within each window, scan backwards (default)\n"
               );
     HelpPrint("ld-window\0ld-window-kb\0ld-window-cm\0ld-window-r2\0r-phased\0r-unphased\0r2-phased\0r2-unphased\0r\0r2\0", &help_ctrl, 0,
 "  --ld-window <#var+1> : Limit --r[2]-[un]phased variant-ct distance.\n"

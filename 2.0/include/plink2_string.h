@@ -21,36 +21,16 @@
 // Standalone string-printing and parsing functions which neither make
 // permanent memory allocations nor use g_bigstack for temporary allocations.
 
+#include <math.h>  // fabs(), isfinite()
+#include <stdlib.h>
+#include <string.h>
+
 #include "plink2_base.h"
 
-#include <math.h>  // fabs(), isfinite()
-#include <stddef.h>  // offsetof()
-
 #ifdef __cplusplus
-#  include <algorithm>
+#  include <algorithm>  // IWYU pragma: export
 #  if __cplusplus >= 201902L && defined(__GNUC__) && !defined(__clang__)
-#    include <execution>
-#  endif
-#  ifdef _WIN32
-    // Windows C++11 <algorithm> resets these values :(
-#    undef PRIu64
-#    undef PRId64
-#    define PRIu64 "I64u"
-#    define PRId64 "I64d"
-#    undef PRIuPTR
-#    undef PRIdPTR
-#    ifdef __LP64__
-#      define PRIuPTR PRIu64
-#      define PRIdPTR PRId64
-#    else
-#      if __cplusplus < 201103L
-#        define PRIuPTR "lu"
-#        define PRIdPTR "ld"
-#      else
-#        define PRIuPTR "u"
-#        define PRIdPTR "d"
-#      endif
-#    endif
+#    include <execution>  // IWYU pragma: export
 #  endif
 #endif
 
@@ -78,15 +58,23 @@ static const double kE = 2.7182818284590452;
 static const double kPi = 3.1415926535897932;
 static const double kSqrt2 = 1.4142135623730951;
 static const double kRecipE = 0.36787944117144233;
-static const double kRecip2m53 = 0.00000000000000011102230246251565404236316680908203125;
 
-// floating point comparison-to-nonzero tolerance, currently 2^{-30}
-static const double kEpsilon = 0.000000000931322574615478515625;
-// less tolerant versions (2^{-35}, 2^{-44}) for some exact calculations
-static const double kSmallEpsilon = 0.00000000000005684341886080801486968994140625;
-
-// 2^{-21}, must be >= sqrt(kSmallEpsilon)
-static const double kBigEpsilon = 0.000000476837158203125;
+static const double k2p64 = 18446744073709551616.0;
+// Negative powers of 2, mostly used as tolerances for floating-point
+// approximate-equality checks.
+static const double k2m21 = 1.0 / (1 << 21);
+// must be >= sqrt(kSmallEpsilon)
+static const double kBigEpsilon = k2m21;
+static const double k2m30 = 1.0 / (1 << 30);
+static const double kEpsilon = k2m30;
+static const double k2m32 = 1.0 / (1LLU << 32);
+static const double k2m34 = 1.0 / (1LLU << 34);
+static const double k2m35 = 1.0 / (1LLU << 35);
+static const double k2m40 = 1.0 / (1LLU << 40);
+static const double k2m44 = 1.0 / (1LLU << 44);
+static const double kSmallEpsilon = k2m44;
+static const double k2m47 = 1.0 / (1LLU << 47);
+static const double k2m53 = 1.0 / (1LLU << 53);
 
 // 2^{-83} bias to give exact tests maximum ability to determine tiny p-values.
 // (~2^{-53} is necessary to take advantage of denormalized small numbers, then
@@ -254,13 +242,25 @@ HEADER_INLINE char* strchrnul3(char* ss, unsigned char ucc1, unsigned char ucc2,
 }
 #endif
 
-#ifndef _GNU_SOURCE
+#ifdef _GNU_SOURCE
+// Now capitalized to avoid headache introduced by macOS 15.4.
+//
+// The runtime __builtin_available() mechanism is fine for larger or
+// rarely-called functions.  But if the macOS 15.4 strchrnul() implementation
+// is currently good enough to be worth using despite the runtime-dispatch
+// overhead, that means rawmemchr2() and similar functions should be fixed; it
+// does not mean runtime dispatch should actually be used for this type of
+// inner-loop function.
+HEADER_INLINE CXXCONST_CP Strchrnul(const char* str, int needle) {
+  return S_CAST(CXXCONST_CP, strchrnul(str, needle));
+}
+#else
 #  ifdef __LP64__
-HEADER_INLINE CXXCONST_CP strchrnul(const char* str, int needle) {
+HEADER_INLINE CXXCONST_CP Strchrnul(const char* str, int needle) {
   return S_CAST(CXXCONST_CP, rawmemchr2(str, 0, needle));
 }
 #  else
-HEADER_INLINE CXXCONST_CP strchrnul(const char* str, int cc) {
+HEADER_INLINE CXXCONST_CP Strchrnul(const char* str, int cc) {
   const char* strchr_result = strchr(str, cc);
   if (strchr_result) {
     return S_CAST(CXXCONST_CP, strchr_result);
@@ -268,12 +268,12 @@ HEADER_INLINE CXXCONST_CP strchrnul(const char* str, int cc) {
   return S_CAST(CXXCONST_CP, strnul(str));
 }
 #  endif
+#endif
 
-#  ifdef __cplusplus
-HEADER_INLINE char* strchrnul(char* ss, int needle) {
-  return const_cast<char*>(strchrnul(const_cast<const char*>(ss), needle));
+#ifdef __cplusplus
+HEADER_INLINE char* Strchrnul(char* ss, int needle) {
+  return const_cast<char*>(Strchrnul(const_cast<const char*>(ss), needle));
 }
-#  endif
 #endif
 
 // These return 1 at eoln.
@@ -1655,6 +1655,8 @@ int32_t bsearch_strptr_natural(const char* idbuf, const char* const* sorted_strp
 
 // returns number of elements in sorted_strbox[] less than idbuf.
 uintptr_t bsearch_strbox_lb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx);
+
+uintptr_t bsearch_strbox_lb_natural(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx);
 
 // same result as bsearch_strbox_lb(), but checks against [cur_idx],
 // [cur_idx + 1], [cur_idx + 3], [cur_idx + 7], etc. before finishing with a

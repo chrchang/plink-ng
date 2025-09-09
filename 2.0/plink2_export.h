@@ -17,7 +17,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
+#include "include/pgenlib_misc.h"
+#include "include/pgenlib_read.h"
+#include "include/plink2_base.h"
+#include "plink2_common.h"
 #include "plink2_data.h"
 
 #ifdef __cplusplus

@@ -16,6 +16,19 @@
 
 #include "plink2_psam.h"
 
+#include <assert.h>
+#include <math.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "include/pgenlib_misc.h"
+#include "include/plink2_bits.h"
+#include "include/plink2_htable.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "plink2_decompress.h"
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif
@@ -138,7 +151,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
         }
         char* dup_id = FindSortedStrboxDuplicate(cmdline_pheno_sorted_ids, cmdline_pheno_name_ct, max_cmdline_pheno_id_blen);
         if (unlikely(dup_id)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate phentoype ID '%s'.\n", dup_id);
+          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate phenotype ID '%s'.\n", dup_id);
           goto LoadPsam_ret_MALFORMED_INPUT_WW;
         }
         BigstackReset(dummy_bitarr);
@@ -810,6 +823,11 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
     if (fid_present) {
       piip->sii.flags |= kfSampleIdFidPresent;
     }
+    // bugfix (30 May 2025): this needs to be before pheno_cols finalization.
+    reterr = CheckXidUniqueness(*sample_include_ptr, &(piip->sii), nullptr, raw_sample_ct);
+    if (unlikely(reterr)) {
+      goto LoadPsam_ret_1;
+    }
     // special case: if there's exactly one phenotype, it has the default name,
     // and it's all-missing, discard it.  This removes forced .fam-derived and
     // similar phenotype columns, and is unlikely to break anything else.
@@ -822,11 +840,6 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
     } else {
       *pheno_cols_ptr = pheno_cols;
       *pheno_ct_ptr = pheno_ct;
-    }
-
-    reterr = CheckXidUniqueness(*sample_include_ptr, &(piip->sii), nullptr, raw_sample_ct);
-    if (unlikely(reterr)) {
-      goto LoadPsam_ret_1;
     }
   }
   while (0) {

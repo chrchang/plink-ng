@@ -17,12 +17,36 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
+#include "include/pgenlib_misc.h"
+#include "include/pgenlib_read.h"
+#include "include/plink2_base.h"
+#include "include/plink2_thread.h"
 #include "plink2_common.h"
 
 #ifdef __cplusplus
 namespace plink2 {
 #endif
+
+// This may belong in a more central location.
+typedef struct MTPgenReadCtxStruct {
+  const uintptr_t* variant_include;
+  const uintptr_t* allele_idx_offsets;
+  const AlleleCode* allele_permute;
+  const uintptr_t* sample_include;
+  const uint32_t* sample_include_cumulative_popcounts;
+  uint32_t sample_ct;
+
+  PgenReader** pgr_ptrs;
+
+  uint32_t* variant_uidx_starts;
+  uint32_t cur_block_write_ct;
+
+  uintptr_t* vmaj_readbuf;
+
+  uint64_t err_info;
+} MTPgenReadCtx;
+
+THREAD_FUNC_DECL MTPgenReadThread(void* raw_arg);
 
 PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const AlleleCode* allele_permute, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
 

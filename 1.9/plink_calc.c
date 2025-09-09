@@ -2279,10 +2279,10 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     }
     blas_char = 'U';
     jj = 1;
-    dsymv_(&blas_char, &sample_ct_i32, &dyy, wkbase, &sample_ct_i32, pheno, &jj, &dzz, row2, &jj);
-    dsymv_(&blas_char, &sample_ct_i32, &dyy, matrix_pvg, &sample_ct_i32, row2, &jj, &dzz, row, &jj);
+    dsymv_wrap(&blas_char, &sample_ct_i32, &dyy, wkbase, &sample_ct_i32, pheno, &jj, &dzz, row2, &jj);
+    dsymv_wrap(&blas_char, &sample_ct_i32, &dyy, matrix_pvg, &sample_ct_i32, row2, &jj, &dzz, row, &jj);
     dlg += ddot_(&sample_ct_i32, pheno, &jj, row, &jj);
-    dsymv_(&blas_char, &sample_ct_i32, &dyy, wkbase, &sample_ct_i32, row2, &jj, &dzz, row, &jj);
+    dsymv_wrap(&blas_char, &sample_ct_i32, &dyy, wkbase, &sample_ct_i32, row2, &jj, &dzz, row, &jj);
     dle += ddot_(&sample_ct_i32, pheno, &jj, row, &jj);
 #else
     cblas_dger(CblasColMajor, sample_ct, sample_ct, dxx, row, 1, row, 1, wkbase, sample_ct);
@@ -7111,7 +7111,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   fill_int_zero(2 * pc_ct * (sizeof(__CLPK_integer) / sizeof(int32_t)), (int32_t*)isuppz);
   ldz = mdim;
 
-  dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
+  dsyevr_wrap(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
   lwork = (int32_t)optim_lwork;
   if (bigstack_calloc_d(lwork, &work)) {
     goto calc_pca_ret_NOMEM;
@@ -7122,7 +7122,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     goto calc_pca_ret_NOMEM;
   }
   fill_int_zero(liwork * (sizeof(__CLPK_integer) / sizeof(int32_t)), (int32_t*)iwork);
-  dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
+  dsyevr_wrap(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
   if ((info != 0) || (out_w[0] != out_w[0])) {
     logprint("\n");
     logerrprint("Error: Failed to extract eigenvector(s) from GRM.\n");

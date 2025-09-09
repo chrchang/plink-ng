@@ -4,6 +4,10 @@ PKG_CPPFLAGS = -DNO_UNALIGNED -DPGENLIB_NOPRINT @ZSTD_COMPILE_FLAG@ @LIBDEFLATE_
 PKG_LIBS = -lPLINK2 -L. @ZSTD_LIBS@ @LIBDEFLATE_LIBS@ -lz -lpthread
 
 ZSTD_SOURCES = $(INCL)/zstd/lib/compress/zstdmt_compress.c $(INCL)/zstd/lib/compress/zstd_opt.c $(INCL)/zstd/lib/compress/zstd_ldm.c $(INCL)/zstd/lib/compress/zstd_lazy.c $(INCL)/zstd/lib/compress/zstd_fast.c $(INCL)/zstd/lib/compress/zstd_double_fast.c $(INCL)/zstd/lib/compress/zstd_compress_superblock.c $(INCL)/zstd/lib/compress/zstd_compress_sequences.c $(INCL)/zstd/lib/compress/zstd_compress_literals.c $(INCL)/zstd/lib/compress/zstd_compress.c $(INCL)/zstd/lib/compress/huf_compress.c $(INCL)/zstd/lib/compress/hist.c $(INCL)/zstd/lib/compress/fse_compress.c $(INCL)/zstd/lib/decompress/zstd_decompress_block.c $(INCL)/zstd/lib/decompress/zstd_decompress.c $(INCL)/zstd/lib/decompress/zstd_ddict.c $(INCL)/zstd/lib/decompress/huf_decompress.c $(INCL)/zstd/lib/common/zstd_common.c $(INCL)/zstd/lib/common/xxhash.c $(INCL)/zstd/lib/common/threading.c $(INCL)/zstd/lib/common/pool.c $(INCL)/zstd/lib/common/fse_decompress.c $(INCL)/zstd/lib/common/error_private.c $(INCL)/zstd/lib/common/entropy_common.c $(INCL)/zstd/lib/common/debug.c
+# GitHub plink2/pgenlibr bundles zstd 1.5.7, but unfortunately that includes
+# diagnostic-suppressing pragma(s?) which are unacceptable to CRAN.  So we
+# bundle zstd 1.5.5 for CRAN instead, and comment the following line out.
+ZSTD_SOURCES += $(INCL)/zstd/lib/compress/zstd_preSplit.c
 LIBZSTD = $(ZSTD_SOURCES:.c=.o)
 
 LIBDEFLATE_SOURCES = $(INCL)/libdeflate/lib/zlib_decompress.c $(INCL)/libdeflate/lib/zlib_compress.c $(INCL)/libdeflate/lib/utils.c $(INCL)/libdeflate/lib/gzip_compress.c $(INCL)/libdeflate/lib/crc32.c $(INCL)/libdeflate/lib/adler32.c $(INCL)/libdeflate/lib/deflate_decompress.c $(INCL)/libdeflate/lib/deflate_compress.c $(INCL)/libdeflate/lib/gzip_decompress.c $(INCL)/libdeflate/lib/arm/arm_cpu_features.c $(INCL)/libdeflate/lib/x86/x86_cpu_features.c

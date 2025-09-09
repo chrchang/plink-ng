@@ -28,17 +28,8 @@
 #include "../cpu_features_common.h" /* must be included first */
 #include "cpu_features.h"
 
-#if HAVE_DYNAMIC_X86_CPU_FEATURES
-
-/*
- * With old GCC versions we have to manually save and restore the x86_32 PIC
- * register (ebx).  See: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=47602
- */
-#if defined(ARCH_X86_32) && defined(__PIC__)
-#  define EBX_CONSTRAINT "=&r"
-#else
-#  define EBX_CONSTRAINT "=b"
-#endif
+#ifdef X86_CPU_FEATURES_KNOWN
+/* Runtime x86 CPU feature detection is supported. */
 
 /* Execute the CPUID instruction. */
 static inline void
@@ -53,20 +44,17 @@ cpuid(u32 leaf, u32 subleaf, u32 *a, u32 *b, u32 *c, u32 *d)
 	*c = result[2];
 	*d = result[3];
 #else
-	__asm__ volatile(".ifnc %%ebx, %1; mov  %%ebx, %1; .endif\n"
-			 "cpuid                                  \n"
-			 ".ifnc %%ebx, %1; xchg %%ebx, %1; .endif\n"
-			 : "=a" (*a), EBX_CONSTRAINT (*b), "=c" (*c), "=d" (*d)
+	__asm__ volatile("cpuid" : "=a" (*a), "=b" (*b), "=c" (*c), "=d" (*d)
 			 : "a" (leaf), "c" (subleaf));
 #endif
 }
 
 /* Read an extended control register. */
 static inline u64
-read_xcr(u32 indx)
+read_xcr(u32 index)
 {
 #ifdef _MSC_VER
-	return _xgetbv(indx);
+	return _xgetbv(index);
 #else
 	u32 d, a;
 
@@ -78,7 +66,7 @@ read_xcr(u32 indx)
 	 * from under the check for OSXSAVE.
 	 */
 	__asm__ volatile(".byte 0x0f, 0x01, 0xd0" :
-			 "=d" (d), "=a" (a) : "c" (indx));
+			 "=d" (d), "=a" (a) : "c" (index));
 
 	return ((u64)d << 32) | a;
 #endif
@@ -86,32 +74,98 @@ read_xcr(u32 indx)
 
 static const struct cpu_feature x86_cpu_feature_table[] = {
 	{X86_CPU_FEATURE_SSE2,		"sse2"},
-	{X86_CPU_FEATURE_PCLMUL,	"pclmul"},
+	{X86_CPU_FEATURE_PCLMULQDQ,	"pclmulqdq"},
 	{X86_CPU_FEATURE_AVX,		"avx"},
 	{X86_CPU_FEATURE_AVX2,		"avx2"},
 	{X86_CPU_FEATURE_BMI2,		"bmi2"},
+	{X86_CPU_FEATURE_ZMM,		"zmm"},
+	{X86_CPU_FEATURE_AVX512BW,	"avx512bw"},
+	{X86_CPU_FEATURE_AVX512VL,	"avx512vl"},
+	{X86_CPU_FEATURE_VPCLMULQDQ,	"vpclmulqdq"},
+	{X86_CPU_FEATURE_AVX512VNNI,	"avx512_vnni"},
+	{X86_CPU_FEATURE_AVXVNNI,	"avx_vnni"},
 };
 
 volatile u32 libdeflate_x86_cpu_features = 0;
 
+static inline bool
+os_supports_avx512(__attribute__((unused)) u64 xcr0)
+{
+#ifdef __APPLE__
+	/*
+	 * The Darwin kernel had a bug where it could corrupt the opmask
+	 * registers.  See
+	 * https://community.intel.com/t5/Software-Tuning-Performance/MacOS-Darwin-kernel-bug-clobbers-AVX-512-opmask-register-state/m-p/1327259
+	 * Darwin also does not initially set the XCR0 bits for AVX512, but they
+	 * are set if the thread tries to use AVX512 anyway.  Thus, to safely
+	 * and consistently use AVX512 on macOS we'd need to check the kernel
+	 * version as well as detect AVX512 support using a macOS-specific
+	 * method.  We don't bother with this, especially given Apple's
+	 * transition to arm64.
+	 */
+	return false;
+#else
+	return (xcr0 & 0xe6) == 0xe6;
+#endif
+}
+
+/*
+ * Don't use 512-bit vectors (ZMM registers) on Intel CPUs before Rocket Lake
+ * and Sapphire Rapids, due to the overly-eager downclocking which can reduce
+ * the performance of workloads that use ZMM registers only occasionally.
+ */
+static inline bool
+allow_512bit_vectors(const u32 manufacturer[3], u32 family, u32 model)
+{
+	if (memcmp(manufacturer, "GenuineIntel", 12) != 0)
+		return true;
+	if (family != 6)
+		return true;
+	switch (model) {
+	case 85: /* Skylake (Server), Cascade Lake, Cooper Lake */
+	case 106: /* Ice Lake (Server) */
+	case 108: /* Ice Lake (Server) */
+	case 126: /* Ice Lake (Client) */
+	case 140: /* Tiger Lake */
+	case 141: /* Tiger Lake */
+		return false;
+	}
+	return true;
+}
+
 /* Initialize libdeflate_x86_cpu_features. */
 void libdeflate_init_x86_cpu_features(void)
 {
-	u32 max_leaf, a, b, c, d;
+	u32 max_leaf;
+	u32 manufacturer[3];
+	u32 family, model;
+	u32 a, b, c, d;
 	u64 xcr0 = 0;
 	u32 features = 0;
 
 	/* EAX=0: Highest Function Parameter and Manufacturer ID */
-	cpuid(0, 0, &max_leaf, &b, &c, &d);
+	cpuid(0, 0, &max_leaf, &manufacturer[0], &manufacturer[2],
+	      &manufacturer[1]);
 	if (max_leaf < 1)
 		goto out;
 
 	/* EAX=1: Processor Info and Feature Bits */
 	cpuid(1, 0, &a, &b, &c, &d);
+	family = (a >> 8) & 0xf;
+	model = (a >> 4) & 0xf;
+	if (family == 6 || family == 0xf)
+		model += (a >> 12) & 0xf0;
+	if (family == 0xf)
+		family += (a >> 20) & 0xff;
 	if (d & (1 << 26))
 		features |= X86_CPU_FEATURE_SSE2;
-	if (c & (1 << 1))
-		features |= X86_CPU_FEATURE_PCLMUL;
+	/*
+	 * No known CPUs have pclmulqdq without sse4.1, so in practice code
+	 * targeting pclmulqdq can use sse4.1 instructions.  But to be safe,
+	 * explicitly check for both the pclmulqdq and sse4.1 bits.
+	 */
+	if ((c & (1 << 1)) && (c & (1 << 19)))
+		features |= X86_CPU_FEATURE_PCLMULQDQ;
 	if (c & (1 << 27))
 		xcr0 = read_xcr(0);
 	if ((c & (1 << 28)) && ((xcr0 & 0x6) == 0x6))
@@ -122,10 +176,29 @@ void libdeflate_init_x86_cpu_features(void)
 
 	/* EAX=7, ECX=0: Extended Features */
 	cpuid(7, 0, &a, &b, &c, &d);
-	if ((b & (1 << 5)) && ((xcr0 & 0x6) == 0x6))
-		features |= X86_CPU_FEATURE_AVX2;
 	if (b & (1 << 8))
 		features |= X86_CPU_FEATURE_BMI2;
+	if ((xcr0 & 0x6) == 0x6) {
+		if (b & (1 << 5))
+			features |= X86_CPU_FEATURE_AVX2;
+		if (c & (1 << 10))
+			features |= X86_CPU_FEATURE_VPCLMULQDQ;
+	}
+	if (os_supports_avx512(xcr0)) {
+		if (allow_512bit_vectors(manufacturer, family, model))
+			features |= X86_CPU_FEATURE_ZMM;
+		if (b & (1 << 30))
+			features |= X86_CPU_FEATURE_AVX512BW;
+		if (b & (1U << 31))
+			features |= X86_CPU_FEATURE_AVX512VL;
+		if (c & (1 << 11))
+			features |= X86_CPU_FEATURE_AVX512VNNI;
+	}
+
+	/* EAX=7, ECX=1: Extended Features */
+	cpuid(7, 1, &a, &b, &c, &d);
+	if ((a & (1 << 4)) && ((xcr0 & 0x6) == 0x6))
+		features |= X86_CPU_FEATURE_AVXVNNI;
 
 out:
 	disable_cpu_features_for_testing(&features, x86_cpu_feature_table,
@@ -134,4 +207,4 @@ out:
 	libdeflate_x86_cpu_features = features | X86_CPU_FEATURES_KNOWN;
 }
 
-#endif /* HAVE_DYNAMIC_X86_CPU_FEATURES */
+#endif /* X86_CPU_FEATURES_KNOWN */

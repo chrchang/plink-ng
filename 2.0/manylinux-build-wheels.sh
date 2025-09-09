@@ -19,6 +19,9 @@ for PYBIN in /opt/python/*/bin; do
     if [ "${PYBIN}" = "/opt/python/pp39-pypy39_pp73/bin" ]; then
         continue
     fi
+    if [ "${PYBIN}" = "/opt/python/cp38-cp38/bin" ]; then
+        continue
+    fi
     "${PYBIN}/pip" install -r Python/dev-requirements.txt
     "${PYBIN}/pip" wheel Python/ --no-deps -w wheelhouse/
 done

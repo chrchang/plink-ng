@@ -14,10 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "include/plink2_stats.h"  // HweThresh(), etc.
-#include "plink2_compress_stream.h"
 #include "plink2_filter.h"
+
+#include <assert.h>
+#include <errno.h>
+#include <math.h>
+#include <string.h>
+
+#include "include/plink2_bits.h"
+#include "include/plink2_htable.h"
+#include "include/plink2_stats.h"  // HweThresh(), etc.
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "include/plink2_thread.h"
+#include "plink2_decompress.h"
 #include "plink2_random.h"
 
 #ifdef __cplusplus
@@ -333,6 +343,8 @@ typedef struct ExtractExcludeCtxStruct {
   uintptr_t* already_seens[kMaxExtractExcludeThreads];
 } ExtractExcludeCtx;
 
+// probable todo: rename and move into plink2_cmdline (or plink2_htable if
+// VariantIdDupHtableFind is also moved).
 THREAD_FUNC_DECL ExtractExcludeThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uintptr_t tidx_p1 = arg->tidx + 1;
@@ -362,10 +374,10 @@ PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* varia
   {
     const uint32_t calc_thread_ct_m1 = MINV(max_thread_ct, kMaxExtractExcludeThreads) - 1;
     if (unlikely(SetThreadCt0(calc_thread_ct_m1, &tg))) {
-      goto ExtractExcludeFlagNorange_ret_NOMEM;
+      goto TokenExtractExclude_ret_NOMEM;
     }
     if (!(*variant_ct_ptr)) {
-      goto ExtractExcludeFlagNorange_ret_1;
+      goto TokenExtractExclude_ret_1;
     }
     uint32_t decompress_thread_ct = 1;
     if (max_thread_ct > calc_thread_ct_m1 + 2) {
@@ -374,7 +386,7 @@ PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* varia
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     for (uint32_t tidx = 0; tidx <= calc_thread_ct_m1; ++tidx) {
       if (unlikely(bigstack_calloc_w(raw_variant_ctl, &(ctx.already_seens[tidx])))) {
-        goto ExtractExcludeFlagNorange_ret_NOMEM;
+        goto TokenExtractExclude_ret_NOMEM;
       }
     }
     if (calc_thread_ct_m1) {
@@ -391,12 +403,12 @@ PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* varia
         fname_tks = fnames_iter;
         reterr = InitTokenStream(fnames_iter, decompress_thread_ct, &tks);
         if (unlikely(reterr)) {
-          goto ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL;
+          goto TokenExtractExclude_ret_TKSTREAM_FAIL;
         }
       } else {
         reterr = TokenStreamRetarget(fnames_iter, &tks);
         if (unlikely(reterr)) {
-          goto ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL;
+          goto TokenExtractExclude_ret_TKSTREAM_FAIL;
         }
         fname_tks = fnames_iter;
       }
@@ -407,14 +419,14 @@ PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* varia
         }
         if (calc_thread_ct_m1) {
           if (unlikely(SpawnThreads(&tg))) {
-            goto ExtractExcludeFlagNorange_ret_THREAD_CREATE_FAIL;
+            goto TokenExtractExclude_ret_THREAD_CREATE_FAIL;
           }
         }
         ExtractExcludeProcessTokens(variant_ids, variant_id_htable, htable_dup_base, ctx.shard_boundaries[0], ctx.shard_boundaries[1], variant_id_htable_size, max_variant_id_slen, ctx.already_seens[0]);
         JoinThreads0(&tg);
       }
       if (unlikely(reterr != kPglRetEof)) {
-        goto ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL;
+        goto TokenExtractExclude_ret_TKSTREAM_FAIL;
       }
       if (vft == kVfilterExtractIntersect) {
         for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
@@ -444,16 +456,17 @@ PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* varia
     *variant_ct_ptr = new_variant_ct;
   }
   while (0) {
-  ExtractExcludeFlagNorange_ret_NOMEM:
+  TokenExtractExclude_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL:
+  TokenExtractExclude_ret_TKSTREAM_FAIL:
     TokenStreamErrPrint(fname_tks, &tks);
     break;
-  ExtractExcludeFlagNorange_ret_THREAD_CREATE_FAIL:
+  TokenExtractExclude_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
+    break;
   }
- ExtractExcludeFlagNorange_ret_1:
+ TokenExtractExclude_ret_1:
   CleanupThreads(&tg);
   if (fname_tks) {
     CleanupTokenStream2(fname_tks, &tks, &reterr);
@@ -737,7 +750,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
       logputs("--rm-dup: Loading INFO field... ");
       fflush(stdout);
       unsigned char* tmp_alloc_end = g_bigstack_end;
-      char* line_iter;
+      char* line_iter = nullptr;  // gcc 14 warning
       // if INFO column exists, #CHROM header line guaranteed
       do {
         reterr = TextNextLineLstrip(&pvar_txs, &line_iter);
@@ -3282,6 +3295,119 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
   return reterr;
 }
 
+PglErr SelectSidRepresentatives(const uintptr_t* sex_nm, const uintptr_t* sex_male, const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const PedigreeIdInfo* piip, SelectSidMissingnessMode missingness_mode, SelectSidTiebreakMode tiebreak_mode, uint32_t parents_only, uint32_t raw_sample_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t orig_sample_ct = *sample_ct_ptr;
+    if (!orig_sample_ct) {
+      goto SelectSidRepresentatives_ret_1;
+    }
+    const SampleIdInfo* siip = &(piip->sii);
+    if (!siip->sids) {
+      logputs("Skipping --select-sid-representatives: all FID+IID pairs are unique.\n");
+      goto SelectSidRepresentatives_ret_1;
+    }
+    const uint32_t use_nsort = (tiebreak_mode == kSelectSidTiebreakFirst) || (tiebreak_mode == kSelectSidTiebreakLast);
+    char* sorted_3idbox;
+    uint32_t* xid_map;
+    uintptr_t max_3id_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, siip, orig_sample_ct, kfXidModeFidIidSid, use_nsort, &sorted_3idbox, &xid_map, &max_3id_blen);
+    if (unlikely(reterr)) {
+      goto SelectSidRepresentatives_ret_1;
+    }
+    char* idbuf;
+    if (unlikely(bigstack_alloc_c(siip->max_sample_id_blen + 1, &idbuf))) {
+      goto SelectSidRepresentatives_ret_NOMEM;
+    }
+    uintptr_t* all_parents = nullptr;
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    if (parents_only) {
+      if (unlikely(bigstack_calloc_w(raw_sample_ctl, &all_parents))) {
+        goto SelectSidRepresentatives_ret_NOMEM;
+      }
+      MarkParents(&(piip->parental_id_info), sorted_3idbox, xid_map, orig_sample_ct, max_3id_blen, use_nsort, all_parents, idbuf);
+      if (AllWordsAreZero(all_parents, raw_sample_ctl)) {
+        logputs("Skipping --select-sid-representatives parents-only: no parents remaining.\n");
+        goto SelectSidRepresentatives_ret_1;
+      }
+    }
+    if (missingness_mode == kSelectSidMissingness0) {
+      sample_missing_cts = nullptr;
+    }
+    const int32_t tiebreak_dir = (tiebreak_mode >= kSelectSidTiebreakLast)? -1 : 1;
+    uint32_t xid_idx_end = 0;
+    do {
+      const uint32_t xid_idx_start = xid_idx_end;
+      const char* fid_start = &(sorted_3idbox[xid_idx_start * max_3id_blen]);
+      const char* iid_end = AdvToDelim(AdvPastDelim(fid_start, '\t'), '\t');
+      const uint32_t sample_2id_slen = iid_end - fid_start;
+      memcpy(idbuf, fid_start, sample_2id_slen);
+      idbuf[sample_2id_slen] = ' ';
+      const uint32_t sample_2id_blen = sample_2id_slen + 1;
+      idbuf[sample_2id_blen] = '\0';
+      if (use_nsort) {
+        xid_idx_end = ExpsearchNsortStrLb(idbuf, sorted_3idbox, max_3id_blen, orig_sample_ct, xid_idx_start + 1);
+      } else {
+        xid_idx_end = ExpsearchStrLb(idbuf, sorted_3idbox, sample_2id_blen, max_3id_blen, orig_sample_ct, xid_idx_start + 1);
+      }
+      if (xid_idx_end == xid_idx_start + 1) {
+        continue;
+      }
+      uint32_t sample_uidx = xid_map[xid_idx_start];
+      if (all_parents && (!IsSet(all_parents, sample_uidx))) {
+        continue;
+      }
+      // intentional underflow on xid_idx_start == 0
+      uint32_t xid_idx = (tiebreak_dir == 1)? (xid_idx_start - 1) : xid_idx_end;
+      const uint32_t xid_idx_stop = (tiebreak_dir == 1)? (xid_idx_end - 1) : xid_idx_start;
+      const uint32_t sex_nm_plus_male = IsSet(sex_nm, sample_uidx) + IsSet(sex_male, sample_uidx);
+      uint32_t best_missing_ct = UINT32_MAX;
+      // keep correct sample in sid-only case
+      uint32_t cur_missing_ct = UINT32_MAXM1;
+      uint32_t best_sample_uidx = 0;
+      do {
+        xid_idx += tiebreak_dir;
+        sample_uidx = xid_map[xid_idx];
+        if (unlikely(sex_nm_plus_male != IsSet(sex_nm, sample_uidx) + IsSet(sex_male, sample_uidx))) {
+          idbuf[sample_2id_slen] = '\0';
+          TabsToSpaces(idbuf);
+          logerrprintf("Error: Inconsistent sex information for sample \"%s\".\n", idbuf);
+          goto SelectSidRepresentatives_ret_INCONSISTENT_INPUT;
+        }
+        ClearBit(sample_uidx, sample_include);
+        if (sample_missing_cts) {
+          cur_missing_ct = sample_missing_cts[sample_uidx];
+          if (sample_hethap_cts) {
+            cur_missing_ct += sample_hethap_cts[sample_uidx];
+          }
+        }
+        if (cur_missing_ct >= best_missing_ct) {
+          continue;
+        }
+        best_missing_ct = cur_missing_ct;
+        best_sample_uidx = sample_uidx;
+      } while (xid_idx != xid_idx_stop);
+      SetBit(best_sample_uidx, sample_include);
+    } while (xid_idx_end != orig_sample_ct);
+    const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+    const uint32_t removed_ct = orig_sample_ct - sample_ct;
+    logprintf("--select-sid-representatives: %u sample%s removed.\n", removed_ct, (removed_ct == 1)? "" : "s");
+    *sample_ct_ptr = sample_ct;
+  }
+  while (0) {
+  SelectSidRepresentatives_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  SelectSidRepresentatives_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ SelectSidRepresentatives_ret_1:
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
   geno_thresh *= 1 + kSmallEpsilon;
@@ -3323,7 +3449,7 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
   *variant_ct_ptr -= removed_ct;
 }
 
-void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_ln_pvals, MiscFlags misc_flags, double hwe_ln_thresh_base, double hwe_sample_size_term, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+PglErr EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_ln_pvals, MiscFlags misc_flags, double hwe_ln_thresh_base, double hwe_sample_size_term, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   uint32_t prefilter_variant_ct = *variant_ct_ptr;
   const uint32_t midp = (misc_flags / kfMiscHweMidp) & 1;
   const uint32_t keep_fewhet = (misc_flags / kfMiscHweKeepFewhet) & 1;
@@ -3486,14 +3612,16 @@ void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, c
   // 'keep-fewhet' were specified, warn if the filter is effectively more than
   // twice as stringent.
   if ((hwe_sample_size_term == -1) && (!keep_fewhet) && (u31tod(max_obs) * 0.0005 * (-kLn10) < hwe_ln_thresh_base)) {
-    logerrputs("Warning: --hwe filter is suspiciously strict for the sample size; you may be\nfiltering out many variants with association signals.\n");
+    logerrputs("Error: --hwe filter is suspiciously strict for the sample size; you may be\nfiltering out many variants with association signals.\n");
     logerrprintfww("If you are performing routine QC, consider using --hwe with a sample-size term (e.g. \"--hwe 1e-5 0.001%s\" results in a threshold of 1e-6 with 1000 observations, 1e-7 with 2000 observations, etc.), and/or specifying 'keep-fewhet' to remove only variants with heterozygosity excess.\n", midp? " midp" : "");
-    logerrputs("Alternatively, if the strictness is intentional (e.g. you are preparing data\nfor a method that requires variants to be near Hardy-Weinberg equilibrium),\nexplicitly specify a sample-size term of 0.\nThis warning will be upgraded to an error in a future build.\n");
+    logerrputs("Alternatively, if the strictness is intentional (e.g. you are preparing data\nfor a method that requires variants to be near Hardy-Weinberg equilibrium),\nexplicitly specify a sample-size term of 0.\n");
+    return kPglRetInconsistentInput;
   } else if ((hwe_sample_size_term <= 0) && (S_CAST(uint64_t, max_obs) * 9 > S_CAST(uint64_t, min_obs) * 10)) {
     logerrprintfww("Warning: --hwe observation counts vary by more than 10%. Consider using --hwe with a sample-size term (e.g. \"--hwe 1e-5 0.001%s%s\" results in a threshold of 1e-6 with 1000 observations, 1e-7 with 2000 observations, etc.), and/or filtering out high-missingness variants with --geno.\n", midp? " midp" : "", keep_fewhet? " keep-fewhet" : "");
   }
   logprintfww("--hwe%s%s: %u variant%s removed due to Hardy-Weinberg exact test (%s).\n", midp? " midp" : "", keep_fewhet? " keep-fewhet" : "", removed_ct, (removed_ct == 1)? "" : "s", nonfounders? "all samples" : "founders only");
   *variant_ct_ptr -= removed_ct;
+  return kPglRetSuccess;
 }
 
 double GetTypedFreq(const double* cur_allele_freqs, uint32_t allele_ct, FreqFilterMode mode) {
@@ -3638,8 +3766,8 @@ void EnforceFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t*
 
 void EnforceImpR2Thresh(const ChrInfo* cip, const double* imp_r2_vals, double imp_r2_min, double imp_r2_max, uint32_t is_minimac3_r2, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
-  imp_r2_min *= 1 - kSmallishEpsilon;
-  imp_r2_max *= 1 + kSmallishEpsilon;
+  imp_r2_min *= 1 - k2m35;
+  imp_r2_max *= 1 + k2m35;
   uint32_t removed_ct = 0;
   uint32_t relevant_variant_ct = prefilter_variant_ct;
   // skip X, MT
@@ -4177,7 +4305,7 @@ PglErr MakeFounders(const uintptr_t* sample_include, uint32_t raw_sample_ct, uin
     if (unlikely(HtableGoodSizeAlloc(sample_ct, bigstack_left(), &id_htable, &id_htable_size))) {
       goto MakeFounders_ret_NOMEM;
     }
-    PopulateStrboxSubsetHtableDup(sample_ids, sample_include, sample_ct, max_sample_id_blen, id_htable_size, id_htable);
+    PopulateStrboxSubsetHtable(sample_ids, sample_include, sample_ct, max_sample_id_blen, 1, id_htable_size, id_htable);
     const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
     const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
     char* paternal_ids = piip->parental_id_info.paternal_ids;

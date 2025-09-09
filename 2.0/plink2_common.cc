@@ -14,9 +14,15 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
-
 #include "plink2_common.h"
+
+#include <math.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#include "include/plink2_htable.h"
 #include "plink2_compress_stream.h"
+#include "plink2_decompress.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -43,6 +49,17 @@ void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip) {
   piip->parental_id_info.maternal_ids = nullptr;
   piip->parental_id_info.max_paternal_id_blen = 2;
   piip->parental_id_info.max_maternal_id_blen = 2;
+}
+
+void InitFlip(FlipInfo* flip_info_ptr) {
+  flip_info_ptr->fname = nullptr;
+  flip_info_ptr->subset_fname = nullptr;
+  flip_info_ptr->flags = kfFlip0;
+}
+
+void CleanupFlip(FlipInfo* flip_info_ptr) {
+  free_cond(flip_info_ptr->fname);
+  free_cond(flip_info_ptr->subset_fname);
 }
 
 BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenGlobalFlags gflags, PgenVariant* pgvp) {
@@ -216,10 +233,9 @@ char* PrintDdosageDecimal(uint32_t remainder, char* start) {
   return start;
 }
 
-static const uint16_t kHcToDosage[1024] = QUAD_TABLE256(0, kDosageMid, kDosageMax, kDosageMissing);
-
+static_assert(sizeof(Dosage) == 2, "PopulateDenseDosage() needs to be updated.");
 void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage) {
-  GenoarrLookup256x2bx4(genoarr, kHcToDosage, sample_ct, dense_dosage);
+  GenoarrLookup256x2bx4(genoarr, kHcToDosage16, sample_ct, dense_dosage);
   // fill trailing bits with missing values so vector operations work
   const uint32_t trailing_entry_ct = (-sample_ct) % kDosagePerVec;
   if (trailing_entry_ct) {
@@ -239,9 +255,10 @@ void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_prese
 }
 
 // workspace must have at least NypCtToWordCt(sample_ct) words
+static_assert(sizeof(Dosage) == 2, "PopulateDenseDosageNonemptySubset() needs to be updated.");
 void PopulateDenseDosageNonemptySubset(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage, uintptr_t* workspace) {
   CopyNyparrNonemptySubset(genoarr, sample_include, raw_sample_ct, sample_ct, workspace);
-  GenoarrLookup256x2bx4(workspace, kHcToDosage, sample_ct, dense_dosage);
+  GenoarrLookup256x2bx4(workspace, kHcToDosage16, sample_ct, dense_dosage);
   // fill trailing bits with missing values so vector operations work
   const uint32_t trailing_entry_ct = (-sample_ct) % kDosagePerVec;
   if (trailing_entry_ct) {
@@ -532,6 +549,151 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, u
       genovec[widx] = geno_word | (geno_hets << 1);
     }
   } while (widx);
+}
+
+void SetMissingRef(uintptr_t word_ct, uintptr_t* genovec) {
+  // 11 -> 00, nothing else changes
+#ifdef __LP64__
+  const VecW m1 = VCONST_W(kMask5555);
+  VecW* geno_vvec_iter = R_CAST(VecW*, genovec);
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  if (full_vec_ct & 1) {
+    const VecW cur_geno_vword = *geno_vvec_iter;
+    const VecW cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    const VecW cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
+  }
+  if (full_vec_ct & 2) {
+    VecW cur_geno_vword = *geno_vvec_iter;
+    VecW cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    VecW cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
+    cur_geno_vword = *geno_vvec_iter;
+    cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
+  }
+  for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
+    VecW cur_geno_vword = *geno_vvec_iter;
+    VecW cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    VecW cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
+    cur_geno_vword = *geno_vvec_iter;
+    cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
+    cur_geno_vword = *geno_vvec_iter;
+    cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
+    cur_geno_vword = *geno_vvec_iter;
+    cur_geno_vword_high_rshifted = vecw_srli(cur_geno_vword, 1) & m1;
+    cur_geno_vword_low_lshifted = vecw_slli(cur_geno_vword & m1, 1);
+    *geno_vvec_iter++ = vecw_and_notfirst(cur_geno_vword_high_rshifted | cur_geno_vword_low_lshifted, cur_geno_vword);
+  }
+#  ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    uintptr_t geno_word = genovec[base_idx];
+    uintptr_t both_set = geno_word & (geno_word >> 1) & kMask5555;
+    genovec[base_idx] = geno_word ^ (both_set * 3);
+    geno_word = genovec[base_idx + 1];
+    both_set = geno_word & (geno_word >> 1) & kMask5555;
+    genovec[base_idx + 1] = geno_word ^ (both_set * 3);
+  }
+#  endif
+  if (word_ct & 1) {
+    const uintptr_t geno_word = genovec[word_ct - 1];
+    const uintptr_t both_set = geno_word & (geno_word >> 1) & kMask5555;
+    genovec[word_ct - 1] = geno_word ^ (both_set * 3);
+  }
+#else
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+    const uintptr_t geno_word = genovec[widx];
+    const uintptr_t both_set = geno_word & (geno_word >> 1) & kMask5555;
+    genovec[widx] = geno_word ^ (both_set * 3);
+  }
+#endif
+}
+
+void SetMissingRefY(const uintptr_t* __restrict sex_female_interleaved, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec) {
+  const uintptr_t twovec_ct = geno_vec_ct / 2;
+#ifdef __LP64__
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m1inv = VCONST_W(kMaskAAAA);
+  const VecW* sex_female_interleaved_iter = R_CAST(const VecW*, sex_female_interleaved);
+  VecW* genovvec_iter = R_CAST(VecW*, genovec);
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const VecW set_vvec = *sex_female_interleaved_iter++;
+    VecW cur_geno_vword = *genovvec_iter;
+    const VecW nonfemale_first = vecw_and_notfirst(set_vvec, m1);
+    VecW high_nonfemale_rshifted = vecw_srli(cur_geno_vword, 1) & nonfemale_first;
+    VecW low_nonfemale_lshifted = vecw_slli(cur_geno_vword & nonfemale_first, 1);
+    *genovvec_iter++ = vecw_and_notfirst(high_nonfemale_rshifted | low_nonfemale_lshifted, cur_geno_vword);
+    const VecW nonfemale_second_lshifted = vecw_and_notfirst(set_vvec, m1inv);
+    cur_geno_vword = *genovvec_iter;
+    high_nonfemale_rshifted = vecw_srli(cur_geno_vword & nonfemale_second_lshifted, 1);
+    low_nonfemale_lshifted = vecw_slli(cur_geno_vword, 1) & nonfemale_second_lshifted;
+    *genovvec_iter++ = vecw_and_notfirst(high_nonfemale_rshifted | low_nonfemale_lshifted, cur_geno_vword);
+  }
+  if (geno_vec_ct & 1) {
+    const VecW set_first = *sex_female_interleaved_iter;
+    const VecW cur_geno_vword = *genovvec_iter;
+    const VecW nonfemale_first = vecw_and_notfirst(set_first, m1);
+    const VecW high_nonfemale_rshifted = vecw_srli(cur_geno_vword, 1) & nonfemale_first;
+    const VecW low_nonfemale_lshifted = vecw_slli(cur_geno_vword & nonfemale_first, 1);
+    *genovvec_iter = vecw_and_notfirst(high_nonfemale_rshifted | low_nonfemale_lshifted, cur_geno_vword);
+  }
+#else
+  const uintptr_t* sex_female_interleaved_iter = sex_female_interleaved;
+  uintptr_t* genovec_iter = genovec;
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const uintptr_t set_word = *sex_female_interleaved_iter++;
+    uintptr_t geno_word = *genovec_iter;
+    uintptr_t both_set_and_nonfemale = geno_word & (geno_word >> 1) & kMask5555 & (~set_word);
+    *genovec_iter++ = geno_word ^ (both_set_and_nonfemale * 3);
+    geno_word = *genovec_iter;
+    both_set_and_nonfemale = geno_word & kMask5555 & ((geno_word & (~set_word)) >> 1);
+    *genovec_iter++ = geno_word ^ (both_set_and_nonfemale * 3);
+  }
+  if (geno_vec_ct & 1) {
+    const uintptr_t set_word = *sex_female_interleaved_iter;
+    const uintptr_t geno_word = *genovec_iter;
+    const uintptr_t both_set_and_nonfemale  = geno_word & (geno_word >> 1) & kMask5555 & (~set_word);
+    *genovec_iter = geno_word ^ (both_set_and_nonfemale * 3);
+  }
+#endif
+}
+
+void SetMissingRefDosage(const uintptr_t* __restrict dosagepresent, uintptr_t sample_ct, uintptr_t* __restrict genovec) {
+  const uintptr_t word_ct = NypCtToWordCt(sample_ct);
+  const Halfword* dosagepresent_hw = DowncastKWToHW(dosagepresent);
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+    const uintptr_t geno_word = genovec[widx];
+    const Halfword dosage_hw = dosagepresent_hw[widx];
+    uintptr_t dosage_missing = geno_word & (geno_word >> 1) & kMask5555;
+#ifdef USE_AVX2
+    dosage_missing &= ~UnpackHalfwordToWord(dosage_hw);
+#else
+    if (!dosage_hw) {
+      dosage_missing &= ~UnpackHalfwordToWord(dosage_hw);
+    }
+#endif
+    genovec[widx] = geno_word ^ (dosage_missing * 3);
+  }
+}
+
+void SetMissingRefDosageY(const uintptr_t* __restrict sex_female, const uintptr_t* __restrict dosagepresent, uintptr_t sample_ct, uintptr_t* __restrict genovec) {
+  const uintptr_t word_ct = NypCtToWordCt(sample_ct);
+  const Halfword* sex_female_hw = DowncastKWToHW(sex_female);
+  const Halfword* dosagepresent_hw = DowncastKWToHW(dosagepresent);
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+    const uintptr_t geno_word = genovec[widx];
+    const Halfword female_or_dosage_hw = sex_female_hw[widx] | dosagepresent_hw[widx];
+    uintptr_t dosage_missing = geno_word & (geno_word >> 1) & kMask5555;
+    dosage_missing &= ~UnpackHalfwordToWord(female_or_dosage_hw);
+    genovec[widx] = geno_word ^ (dosage_missing * 3);
+  }
 }
 
 // These functions may move to pgenlib_misc later.
@@ -1262,6 +1424,63 @@ PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t
   return kPglRetSuccess;
 }
 
+void MarkParents(const ParentalIdInfo* parental_id_infop, const char* sorted_xidbox, const uint32_t* xid_map, uint32_t sample_ct, uintptr_t max_xid_blen, uint32_t use_nsort, uintptr_t* dst, char* idbuf) {
+  const char* paternal_ids = parental_id_infop->paternal_ids;
+  const char* maternal_ids = parental_id_infop->maternal_ids;
+  const uintptr_t max_paternal_id_blen = parental_id_infop->max_paternal_id_blen;
+  const uintptr_t max_maternal_id_blen = parental_id_infop->max_maternal_id_blen;
+  for (uint32_t xid_idx_start = 0; xid_idx_start != sample_ct; ) {
+    const char* sorted_fam_xidbox = &(sorted_xidbox[xid_idx_start * max_xid_blen]);
+    const char* fid_start = sorted_fam_xidbox;
+    const char* fid_end = AdvToDelim(fid_start, '\t');
+    const uint32_t fid_slen = fid_end - fid_start;
+    memcpy(idbuf, fid_start, fid_slen);
+    idbuf[fid_slen] = ' ';
+    const uint32_t fid_blen = fid_slen + 1;
+    idbuf[fid_blen] = '\0';
+    uint32_t fam_xid_ct;
+    if (use_nsort) {
+      fam_xid_ct = ExpsearchNsortStrLb(idbuf, sorted_fam_xidbox, max_xid_blen, sample_ct - xid_idx_start, 1);
+    } else {
+      fam_xid_ct = ExpsearchStrLb(idbuf, sorted_fam_xidbox, fid_blen, max_xid_blen, sample_ct - xid_idx_start, 1);
+    }
+    idbuf[fid_slen] = '\t';
+    const uint32_t* fam_xid_map = &(xid_map[xid_idx_start]);
+    char* iid_write_start = &(idbuf[fid_blen]);
+    for (uint32_t fam_xid_idx = 0; fam_xid_idx != fam_xid_ct; ++fam_xid_idx) {
+      const uint32_t sample_uidx = fam_xid_map[fam_xid_idx];
+      for (uint32_t parent_idx = 0; parent_idx != 2; ++parent_idx) {
+        const char* parent_id;
+        if (parent_idx == 0) {
+          parent_id = &(paternal_ids[sample_uidx * max_paternal_id_blen]);
+        } else {
+          parent_id = &(maternal_ids[sample_uidx * max_maternal_id_blen]);
+        }
+        const uint32_t parent_id_slen = strlen(parent_id);
+        const uintptr_t xid_slen = fid_blen + parent_id_slen;
+        if (((parent_id_slen == 1) && (parent_id[0] == '0')) || (xid_slen >= max_xid_blen)) {
+          continue;
+        }
+        memcpy(iid_write_start, parent_id, parent_id_slen + 1);
+        uint32_t parent_fxid_idx_start;
+        if (use_nsort) {
+          parent_fxid_idx_start = bsearch_strbox_lb_natural(idbuf, sorted_fam_xidbox, xid_slen, max_xid_blen, fam_xid_ct);
+        } else {
+          parent_fxid_idx_start = bsearch_strbox_lb(idbuf, sorted_fam_xidbox, xid_slen, max_xid_blen, fam_xid_ct);
+        }
+        for (uint32_t uii = parent_fxid_idx_start; uii != fam_xid_ct; ++uii) {
+          const char* cur_xid = &(sorted_fam_xidbox[uii * max_xid_blen]);
+          if ((!memequal(idbuf, cur_xid, xid_slen)) || (cur_xid[xid_slen] > ' ')) {
+            break;
+          }
+          SetBit(xid_map[uii], dst);
+        }
+      }
+    }
+    xid_idx_start += fam_xid_ct;
+  }
+}
+
 // Assumes no duplicates.
 void InitXidHtable(const SampleIdInfo* siip, uint32_t sample_ct, uint32_t xid_htable_size, uint32_t* xid_htable, char* idbuf) {
   SetAllU32Arr(xid_htable_size, xid_htable);
@@ -1393,7 +1612,7 @@ PglErr CheckXidUniqueness(const uintptr_t* sample_include, const SampleIdInfo* s
         cur_xid = cur_sample_id;
       } else {
         char* id_iter = memcpyax(idbuf, cur_sample_id, sample_id_slen, '\t');
-        const char* cur_sid = &(sids[sample_uidx * max_sample_id_blen]);
+        const char* cur_sid = &(sids[sample_uidx * max_sid_blen]);
         const uint32_t sid_blen = 1 + strlen(cur_sid);
         memcpy(id_iter, cur_sid, sid_blen);
         xid_slen += sid_blen;
@@ -1900,8 +2119,7 @@ void CleanupChrInfo(ChrInfo* cip) {
   cip->incl_excl_name_stack = nullptr;
 }
 
-char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
-  const uint32_t output_encoding = cip->output_encoding;
+char* ChrNameStdEx(const ChrInfo* cip, uint32_t chr_idx, ChrOutput output_encoding, char* buf) {
   if (chr_idx > cip->max_numeric_code) {
     // This is usually encoding-independent; no real numeric representation of
     // PAR1/PAR2 is defined.  However, since there'd otherwise be no way to
@@ -2069,6 +2287,20 @@ uint32_t GetChrCodeRaw(const char* str_iter) {
           // accept '0X', '0Y', '0M' emitted by Oxford software
           return SingleCapLetterChrCode(second_char_code & 0xdf);
         }
+      } else if (((second_char_code - 48) < 10) && ((third_char_code - 48) < 10)) {
+        // bugfix (23 Aug 2025): we don't want to return UINT32_MAXM1 on contig
+        // names like chr1_KI270706v1_random .  We only want to do so for large
+        // numbers.
+        str_iter = &(str_iter[3]);
+        while (1) {
+          const uint32_t char_code = ctou32(*str_iter++);
+          if (char_code <= ' ') {
+            return UINT32_MAXM1;
+          }
+          if ((char_code - 48) >= 10) {
+            break;
+          }
+        }
       }
 #else
       const uint32_t second_char_toui = second_char_code - '0';
@@ -2076,10 +2308,23 @@ uint32_t GetChrCodeRaw(const char* str_iter) {
         if (third_char_code <= ' ') {
           return first_char_toui * 10 + second_char_toui;
         }
-        if (ctou32(str_iter[3]) <= ' ') {
-          const uint32_t third_char_toui = third_char_code - '0';
-          if (third_char_toui < 10) {
+        const uint32_t third_char_toui = third_char_code - '0';
+        if (third_char_toui < 10) {
+          const uint32_t fourth_char_code = ctou32(str_iter[3]);
+          if (fourth_char_code <= ' ') {
             return first_char_toui * 100 + second_char_toui * 10 + third_char_toui;
+          }
+          if ((fourth_char_code - 48) < 10) {
+            str_iter = &(str_iter[4]);
+            while (1) {
+              const uint32_t char_code = ctou32(*str_iter++);
+              if (char_code <= ' ') {
+                return UINT32_MAXM1;
+              }
+              if ((char_code - 48) >= 10) {
+                break;
+              }
+            }
           }
         }
       } else {
@@ -2139,12 +2384,16 @@ uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen
   // redundant strlen() calls even though this uglifies the interface
   // does not perform exhaustive error-checking
   // UINT32_MAX = --allow-extra-chr ok, UINT32_MAXM1 = total fail
-  uint32_t chr_code_raw = GetChrCodeRaw(chr_name);
-  if (chr_code_raw <= cip->max_numeric_code) {
+  const uint32_t chr_code_raw = GetChrCodeRaw(chr_name);
+  const uint32_t autosome_ct = cip->autosome_ct;
+  if (chr_code_raw <= autosome_ct) {
     return chr_code_raw;
   }
   if (chr_code_raw != UINT32_MAX) {
-    if (chr_code_raw >= kMaxContigs) {
+    if (chr_code_raw <= cip->max_numeric_code) {
+      return cip->xymt_codes[chr_code_raw - autosome_ct - 1];
+    }
+    if ((chr_code_raw >= kMaxContigs) && (chr_code_raw != UINT32_MAXM1)) {
       return cip->xymt_codes[chr_code_raw - kMaxContigs];
     }
     return UINT32_MAXM1;
@@ -2184,7 +2433,7 @@ void ChrError(const char* chr_name, const char* file_descrip, const ChrInfo* cip
   if ((S_CAST(int32_t, raw_code) > S_CAST(int32_t, cip->max_numeric_code)) && ((raw_code <= kMaxChrTextnum + kChrOffsetCt) || (raw_code >= kMaxContigs))) {
     // numeric code or X/Y/MT/PAR
     if (cip->chrset_source == kChrsetSourceDefault) {
-      logerrputs("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
+      logerrputs("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.)\n");
     } else if (cip->chrset_source == kChrsetSourceCmdline) {
       logerrputs("(This is disallowed by your command-line flags.)\n");
     } else {
@@ -2405,6 +2654,9 @@ void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t
 #endif
 }
 
+/*
+// Set genovec entry missing iff interleaved_mask bit is NOT set.  Trailing
+// genovec bits are dirtied.
 void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_mask, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec) {
   const uintptr_t twovec_ct = geno_vec_ct / 2;
 #ifdef __LP64__
@@ -2444,6 +2696,7 @@ void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_mask, uintpt
   }
 #endif
 }
+*/
 
 void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec) {
   const uintptr_t twovec_ct = geno_vec_ct / 2;
@@ -2508,6 +2761,33 @@ void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, cons
     }
   }
   InterleavedSetMissing(interleaved_set, geno_vec_ct, genovec);
+}
+
+// may move this to pgenlib_misc
+void EraseDosages(const uintptr_t* __restrict erase_map, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
+  const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
+  if (!orig_write_dosage_ct) {
+    return;
+  }
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = dosagepresent[0];
+  for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
+    uintptr_t sample_uidx = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
+    if (IsSet(erase_map, sample_uidx)) {
+      ClearBit(sample_uidx, dosagepresent);
+      uint32_t dosage_write_idx = dosage_read_idx++;
+      for (; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
+        sample_uidx = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
+        if (IsSet(erase_map, sample_uidx)) {
+          ClearBit(sample_uidx, dosagepresent);
+        } else {
+          dosage_main[dosage_write_idx++] = dosage_main[dosage_read_idx];
+        }
+      }
+      *write_dosage_ct_ptr = dosage_write_idx;
+      return;
+    }
+  }
 }
 
 void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_t geno_vec_ct, uintptr_t* __restrict genovec) {
@@ -2684,6 +2964,88 @@ void MaskGenoarrHetsMultiallelicUnsafe(const uintptr_t* __restrict genoarr, cons
     }
     bitarr_alias[widx] &= cur_hets;
   }
+}
+
+void SetAltxyHetMissing(uintptr_t* __restrict genoarr, uint32_t* __restrict rare10_ct_ptr, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals) {
+  const uint32_t orig_rare10_ct = *rare10_ct_ptr;
+  uintptr_t sample_widx = 0;
+  uintptr_t patch_10_bits = patch_10_set[0];
+  uint32_t read_patch_10_idx = 0;
+  while (1) {
+    const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+    const AlleleCode lo_code = patch_10_vals[read_patch_10_idx * 2];
+    const AlleleCode hi_code = patch_10_vals[read_patch_10_idx * 2 + 1];
+    if (lo_code != hi_code) {
+      // change genoarr nyp from 2 to 3, by setting the low bit.
+      // (note that one of these genoarr operations does nothing due to
+      // overflow/underflow; there may be a better way of doing this)
+      genoarr[sample_widx * 2] |= lowbit * lowbit;
+      genoarr[sample_widx * 2 + 1] |= (lowbit >> kBitsPerWordD2) * (lowbit >> kBitsPerWordD2);
+      patch_10_set[sample_widx] ^= lowbit;
+      break;
+    }
+    if (++read_patch_10_idx == orig_rare10_ct) {
+      return;
+    }
+  }
+  uint32_t write_patch_10_idx = read_patch_10_idx;
+  while (++read_patch_10_idx != orig_rare10_ct) {
+    const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+    const AlleleCode lo_code = patch_10_vals[read_patch_10_idx * 2];
+    const AlleleCode hi_code = patch_10_vals[read_patch_10_idx * 2 + 1];
+    if (lo_code != hi_code) {
+      genoarr[sample_widx * 2] |= lowbit * lowbit;
+      genoarr[sample_widx * 2 + 1] |= (lowbit >> kBitsPerWordD2) * (lowbit >> kBitsPerWordD2);
+      patch_10_set[sample_widx] ^= lowbit;
+    } else {
+      patch_10_vals[write_patch_10_idx * 2] = lo_code;
+      patch_10_vals[write_patch_10_idx * 2 + 1] = hi_code;
+      ++write_patch_10_idx;
+    }
+  }
+  *rare10_ct_ptr = write_patch_10_idx;
+}
+
+void SetMaleAltxyHetMissing(const uintptr_t* sex_male, uintptr_t* __restrict genoarr, uint32_t* __restrict rare10_ct_ptr, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals) {
+  const uint32_t orig_rare10_ct = *rare10_ct_ptr;
+  uintptr_t sample_widx = 0;
+  uintptr_t patch_10_bits = patch_10_set[0];
+  uint32_t read_patch_10_idx = 0;
+  while (1) {
+    const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+    if (sex_male[sample_widx] & lowbit) {
+      const AlleleCode lo_code = patch_10_vals[read_patch_10_idx * 2];
+      const AlleleCode hi_code = patch_10_vals[read_patch_10_idx * 2 + 1];
+      if (lo_code != hi_code) {
+        // change genoarr nyp from 2 to 3, by setting the low bit.
+        // (note that one of these genoarr operations does nothing due to
+        // overflow/underflow; there may be a better way of doing this)
+        genoarr[sample_widx * 2] |= lowbit * lowbit;
+        genoarr[sample_widx * 2 + 1] |= (lowbit >> kBitsPerWordD2) * (lowbit >> kBitsPerWordD2);
+        patch_10_set[sample_widx] ^= lowbit;
+        break;
+      }
+    }
+    if (++read_patch_10_idx == orig_rare10_ct) {
+      return;
+    }
+  }
+  uint32_t write_patch_10_idx = read_patch_10_idx;
+  while (++read_patch_10_idx != orig_rare10_ct) {
+    const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+    const AlleleCode lo_code = patch_10_vals[read_patch_10_idx * 2];
+    const AlleleCode hi_code = patch_10_vals[read_patch_10_idx * 2 + 1];
+    if ((sex_male[sample_widx] & lowbit) && (lo_code != hi_code)) {
+      genoarr[sample_widx * 2] |= lowbit * lowbit;
+      genoarr[sample_widx * 2 + 1] |= (lowbit >> kBitsPerWordD2) * (lowbit >> kBitsPerWordD2);
+      patch_10_set[sample_widx] ^= lowbit;
+    } else {
+      patch_10_vals[write_patch_10_idx * 2] = lo_code;
+      patch_10_vals[write_patch_10_idx * 2 + 1] = hi_code;
+      ++write_patch_10_idx;
+    }
+  }
+  *rare10_ct_ptr = write_patch_10_idx;
 }
 
 /*
@@ -3915,12 +4277,12 @@ PglErr EmbedPgenIndex(char* outname, char* outname_end) {
       goto EmbedPgenIndex_ret_WRITE_FAIL;
     }
     if (unlikely(unlink(outname))) {
-      logerrprintfww("Error: Failed to delete %s .\n", outname);
+      logerrprintfww("Error: Failed to delete %s : %s.\n", outname, strerror(errno));
       goto EmbedPgenIndex_ret_WRITE_FAIL;
     }
     strcpy_k(outname_end, ".tmp.pgen.pgi");
     if (unlikely(unlink(outname))) {
-      logerrprintfww("Error: Failed to delete %s .\n", outname);
+      logerrprintfww("Error: Failed to delete %s : %s.\n", outname, strerror(errno));
       goto EmbedPgenIndex_ret_WRITE_FAIL;
     }
   }
@@ -4464,6 +4826,435 @@ PglErr InitAllelePermuteUnsafe(const uintptr_t* allele_idx_offsets, uint32_t raw
     break;
   }
   CleanupThreads(&tg);
+  return reterr;
+}
+
+typedef struct TrimAllelePermuteCtxStruct {
+  const uintptr_t* variant_include;
+  const uintptr_t* allele_idx_offsets;
+  const uintptr_t* allele_presents;
+
+  AlleleCode* allele_permute;
+
+  uint32_t* variant_uidx_starts;
+
+  uint32_t variant_ct;
+} TrimAllelePermuteCtx;
+
+void TrimAllelePermuteMain(uint32_t tidx, uint32_t thread_ct, TrimAllelePermuteCtx* ctx) {
+  const uintptr_t* variant_include = ctx->variant_include;
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const uintptr_t* allele_presents = ctx->allele_presents;
+  const uint32_t variant_ct = ctx->variant_ct;
+  const uint32_t variant_uidx_start = ctx->variant_uidx_starts[tidx];
+  const uint32_t variant_idx_start = (variant_ct * S_CAST(uint64_t, tidx)) / thread_ct;
+  const uint32_t variant_idx_end = (variant_ct * (S_CAST(uint64_t, tidx) + 1)) / thread_ct;
+  AlleleCode* allele_permute = ctx->allele_permute;
+  uintptr_t cur_allele_ct = 2;
+  uintptr_t variant_uidx_base;
+  uintptr_t cur_bits;
+  BitIter1Start(variant_include, variant_uidx_start, &variant_uidx_base, &cur_bits);
+  for (uint32_t variant_idx = variant_idx_start; variant_idx != variant_idx_end; ++variant_idx) {
+    const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    uintptr_t allele_idx_offset_base = 2 * variant_uidx;
+    if (allele_idx_offsets) {
+      allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+      cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+    }
+    uintptr_t read_aidx = 1;
+    for (; read_aidx != cur_allele_ct; ++read_aidx) {
+      if (!IsSet(allele_presents, allele_idx_offset_base + read_aidx)) {
+        break;
+      }
+    }
+    if (read_aidx != cur_allele_ct) {
+      AlleleCode* cur_allele_permute = &(allele_permute[allele_idx_offset_base]);
+      uintptr_t write_aidx = read_aidx;
+      ++read_aidx;
+      for (; read_aidx != cur_allele_ct; ++read_aidx) {
+        if (IsSet(allele_presents, allele_idx_offset_base + read_aidx)) {
+          cur_allele_permute[write_aidx] = cur_allele_permute[read_aidx];
+          ++write_aidx;
+        }
+      }
+      for (; write_aidx != cur_allele_ct; ++write_aidx) {
+        cur_allele_permute[write_aidx] = kMissingAlleleCode;
+      }
+    }
+  }
+}
+
+THREAD_FUNC_DECL TrimAllelePermuteThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uint32_t tidx = arg->tidx;
+  const uint32_t thread_ct = GetThreadCt(arg->sharedp) + 1;
+  TrimAllelePermuteCtx* ctx = S_CAST(TrimAllelePermuteCtx*, arg->sharedp->context);
+  TrimAllelePermuteMain(tidx, thread_ct, ctx);
+  THREAD_RETURN;
+}
+
+PglErr TrimAllelePermute(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* allele_presents, uint32_t variant_ct, uint32_t max_thread_ct, AlleleCode* allele_permute) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  TrimAllelePermuteCtx ctx;
+  {
+    const uint32_t thread_ct = ClipU32(variant_ct / 65536, 1, max_thread_ct);
+    if (unlikely(SetThreadCt0(thread_ct - 1, &tg) ||
+                 bigstack_alloc_u32(thread_ct, &ctx.variant_uidx_starts))) {
+      goto TrimAllelePermute_ret_NOMEM;
+    }
+    ctx.variant_include = variant_include;
+    ctx.allele_idx_offsets = allele_idx_offsets;
+    ctx.allele_presents = allele_presents;
+    ctx.allele_permute = allele_permute;
+    ctx.variant_ct = variant_ct;
+    FillU32SubsetStarts(variant_include, thread_ct, 0, variant_ct, ctx.variant_uidx_starts);
+
+    if (thread_ct > 1) {
+      SetThreadFuncAndData(TrimAllelePermuteThread, &ctx, &tg);
+      DeclareLastThreadBlock(&tg);
+      if (unlikely(SpawnThreads(&tg))) {
+        goto TrimAllelePermute_ret_THREAD_CREATE_FAIL;
+      }
+    }
+    TrimAllelePermuteMain(thread_ct - 1, thread_ct, &ctx);
+    JoinThreads0(&tg);
+  }
+  while (0) {
+  TrimAllelePermute_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  TrimAllelePermute_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+  CleanupThreads(&tg);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+
+
+// dupstore hash table (due to position in plink2 order of operations), but
+// duplicated (in main dataset) ID not allowed.
+//
+// repeated entries in --flip file *are* allowed, those aren't dangerous in the
+// same way that e.g. taking a '.' variant ID literally would be.
+//
+// returns UINT32_MAX on success, variant_uidx in duplicate-ID set on failure.
+//
+// could rename if any other operation wants this functionality, though this
+// function probably doesn't belong in a more-central location (due to mismatch
+// between hash table type and usage).
+uint32_t LoadNondup2ProcessTokens(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* shard_start, const char* shard_end, uint32_t variant_id_htable_size, uint32_t max_variant_id_slen, uintptr_t* already_seen) {
+  const char* shard_iter = shard_start;
+  while (1) {
+    shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
+    if (shard_iter == shard_end) {
+      return UINT32_MAX;
+    }
+    const char* token_end = CurTokenEnd(shard_iter);
+    uint32_t cur_llidx;
+    uint32_t variant_uidx = VariantIdDupHtableFind(shard_iter, variant_ids, variant_id_htable, htable_dup_base, token_end - shard_iter, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
+    shard_iter = token_end;
+    if (variant_uidx == UINT32_MAX) {
+      continue;
+    }
+    if (IsSet(already_seen, variant_uidx)) {
+      continue;
+    }
+    if (cur_llidx != UINT32_MAX) {
+      return variant_uidx;
+    }
+    SetBit(variant_uidx, already_seen);
+  }
+}
+
+CONSTI32(kMaxLoadTokensNondup2Threads, 8);
+
+typedef struct LoadTokensNondup2CtxStruct {
+  const char* const* variant_ids;
+  const uint32_t* variant_id_htable;
+  const uint32_t* htable_dup_base;
+  uintptr_t variant_id_htable_size;
+  uint32_t max_variant_id_slen;
+
+  char* shard_boundaries[kMaxLoadTokensNondup2Threads + 1];
+  uintptr_t* already_seens[kMaxLoadTokensNondup2Threads];
+  uint32_t fail_variant_uidxs[kMaxLoadTokensNondup2Threads];
+} LoadTokensNondup2Ctx;
+
+THREAD_FUNC_DECL LoadTokensNondup2Thread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx_p1 = arg->tidx + 1;
+  LoadTokensNondup2Ctx* ctx = S_CAST(LoadTokensNondup2Ctx*, arg->sharedp->context);
+
+  const char* const* variant_ids = ctx->variant_ids;
+  const uint32_t* variant_id_htable = ctx->variant_id_htable;
+  const uint32_t* htable_dup_base = ctx->htable_dup_base;
+  const uintptr_t variant_id_htable_size = ctx->variant_id_htable_size;
+  const uint32_t max_variant_id_slen = ctx->max_variant_id_slen;
+  uintptr_t* already_seen = ctx->already_seens[tidx_p1];
+  do {
+    ctx->fail_variant_uidxs[tidx_p1] = LoadNondup2ProcessTokens(variant_ids, variant_id_htable, htable_dup_base, ctx->shard_boundaries[tidx_p1], ctx->shard_boundaries[tidx_p1 + 1], variant_id_htable_size, max_variant_id_slen, already_seen);
+
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+PglErr LoadTokensNondup2(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* flagname_p, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t max_thread_ct, uintptr_t* loaded_variant_set) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  TokenStream tks;
+  ThreadGroup tg;
+  PreinitTokenStream(&tks);
+  PreinitThreads(&tg);
+  LoadTokensNondup2Ctx ctx;
+  {
+    const uint32_t calc_thread_ct_m1 = MINV(max_thread_ct, kMaxLoadTokensNondup2Threads) - 1;
+    if (unlikely(SetThreadCt0(calc_thread_ct_m1, &tg))) {
+      goto LoadTokensNondup2_ret_NOMEM;
+    }
+    uint32_t decompress_thread_ct = 1;
+    if (max_thread_ct > calc_thread_ct_m1 + 2) {
+      decompress_thread_ct = max_thread_ct - calc_thread_ct_m1 - 1;
+    }
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    ZeroWArr(raw_variant_ctl, loaded_variant_set);
+    ctx.already_seens[0] = loaded_variant_set;
+    for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
+      if (unlikely(bigstack_calloc_w(raw_variant_ctl, &(ctx.already_seens[tidx])))) {
+        goto LoadTokensNondup2_ret_NOMEM;
+      }
+    }
+    if (calc_thread_ct_m1) {
+      ctx.variant_ids = variant_ids;
+      ctx.variant_id_htable = variant_id_htable;
+      ctx.htable_dup_base = htable_dup_base;
+      ctx.variant_id_htable_size = variant_id_htable_size;
+      ctx.max_variant_id_slen = max_variant_id_slen;
+      SetThreadFuncAndData(LoadTokensNondup2Thread, &ctx, &tg);
+    }
+    reterr = InitTokenStream(fname, decompress_thread_ct, &tks);
+    if (unlikely(reterr)) {
+      goto LoadTokensNondup2_ret_TKSTREAM_FAIL;
+    }
+    while (1) {
+      reterr = TksNext(&tks, calc_thread_ct_m1 + 1, ctx.shard_boundaries);
+      if (reterr) {
+        break;
+      }
+      if (calc_thread_ct_m1) {
+        if (unlikely(SpawnThreads(&tg))) {
+          goto LoadTokensNondup2_ret_THREAD_CREATE_FAIL;
+        }
+      }
+      ctx.fail_variant_uidxs[0] = LoadNondup2ProcessTokens(variant_ids, variant_id_htable, htable_dup_base, ctx.shard_boundaries[0], ctx.shard_boundaries[1], variant_id_htable_size, max_variant_id_slen, ctx.already_seens[0]);
+      JoinThreads0(&tg);
+      for (uint32_t tidx = 0; tidx <= calc_thread_ct_m1; ++tidx) {
+        const uint32_t fail_variant_uidx = ctx.fail_variant_uidxs[tidx];
+        if (unlikely(fail_variant_uidx != UINT32_MAX)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Variant '%s' in --%s file appears multiple times in dataset.\n", variant_ids[fail_variant_uidx], flagname_p);
+          goto LoadTokensNondup2_ret_INCONSISTENT_INPUT_WW;
+        }
+      }
+    }
+    if (unlikely(reterr != kPglRetEof)) {
+      goto LoadTokensNondup2_ret_TKSTREAM_FAIL;
+    }
+    reterr = kPglRetSuccess;
+    for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
+      BitvecOr(ctx.already_seens[tidx], raw_variant_ctl, loaded_variant_set);
+    }
+    // possible for some variants to have been excluded after hash table was
+    // constructed
+    BitvecAnd(variant_include, raw_variant_ctl, loaded_variant_set);
+  }
+  while (0) {
+  LoadTokensNondup2_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadTokensNondup2_ret_TKSTREAM_FAIL:
+    TokenStreamErrPrint(fname, &tks);
+    break;
+  LoadTokensNondup2_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  LoadTokensNondup2_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+  CleanupThreads(&tg);
+  CleanupTokenStream2(fname, &tks, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// dupflag case, except we want (possibly post-permutation) variant_idx instead
+// of variant_uidx
+uint32_t LoadNondupReindexProcessTokens(const uintptr_t* variant_include, const uint32_t* variant_include_cumulative_popcounts, const uint32_t* old_variant_uidx_to_new, const char* const* variant_ids, const uint32_t* variant_id_htable, const char* shard_start, const char* shard_end, uint32_t variant_id_htable_size, uint32_t max_variant_id_slen, uintptr_t* already_seen) {
+  const char* shard_iter = shard_start;
+  while (1) {
+    shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
+    if (shard_iter == shard_end) {
+      return UINT32_MAX;
+    }
+    const char* token_end = CurTokenEnd(shard_iter);
+    uint32_t variant_uidx = VariantIdDupflagHtableFind(shard_iter, variant_ids, variant_id_htable, token_end - shard_iter, variant_id_htable_size, max_variant_id_slen);
+    shard_iter = token_end;
+    if (variant_uidx >> 31) {
+      if (unlikely(variant_uidx != UINT32_MAX)) {
+        return variant_uidx & 0x7fffffff;
+      }
+      continue;
+    }
+    uint32_t variant_idx;
+    if (old_variant_uidx_to_new) {
+      variant_idx = old_variant_uidx_to_new[variant_uidx];
+    } else {
+      // could add a just-set-variant_uidx branch
+      variant_idx = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx);
+    }
+    SetBit(variant_idx, already_seen);
+  }
+}
+
+CONSTI32(kMaxLoadTokensNondupReindexThreads, 8);
+
+typedef struct LoadTokensNondupReindexCtxStruct {
+  const uintptr_t* variant_include;
+  const uint32_t* variant_include_cumulative_popcounts;
+  const uint32_t* old_variant_uidx_to_new;
+  const char* const* variant_ids;
+  const uint32_t* variant_id_htable;
+  uintptr_t variant_id_htable_size;
+  uint32_t max_variant_id_slen;
+
+  char* shard_boundaries[kMaxLoadTokensNondupReindexThreads + 1];
+  uintptr_t* already_seens[kMaxLoadTokensNondupReindexThreads];
+  uint32_t fail_variant_uidxs[kMaxLoadTokensNondupReindexThreads];
+} LoadTokensNondupReindexCtx;
+
+THREAD_FUNC_DECL LoadTokensNondupReindexThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx_p1 = arg->tidx + 1;
+  LoadTokensNondupReindexCtx* ctx = S_CAST(LoadTokensNondupReindexCtx*, arg->sharedp->context);
+
+  const uintptr_t* variant_include = ctx->variant_include;
+  const uint32_t* variant_include_cumulative_popcounts = ctx->variant_include_cumulative_popcounts;
+  const uint32_t* old_variant_uidx_to_new = ctx->old_variant_uidx_to_new;
+  const char* const* variant_ids = ctx->variant_ids;
+  const uint32_t* variant_id_htable = ctx->variant_id_htable;
+  const uintptr_t variant_id_htable_size = ctx->variant_id_htable_size;
+  const uint32_t max_variant_id_slen = ctx->max_variant_id_slen;
+  uintptr_t* already_seen = ctx->already_seens[tidx_p1];
+  do {
+    ctx->fail_variant_uidxs[tidx_p1] = LoadNondupReindexProcessTokens(variant_include, variant_include_cumulative_popcounts, old_variant_uidx_to_new, variant_ids, variant_id_htable, ctx->shard_boundaries[tidx_p1], ctx->shard_boundaries[tidx_p1 + 1], variant_id_htable_size, max_variant_id_slen, already_seen);
+
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+PglErr LoadTokensNondupReindex(const char* fname, const uintptr_t* variant_include, const uint32_t* variant_include_cumulative_popcounts, const uint32_t* old_variant_uidx_to_new, const char* const* variant_ids, const char* flagname_p, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, uintptr_t* loaded_variant_set) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  TokenStream tks;
+  ThreadGroup tg;
+  PreinitTokenStream(&tks);
+  PreinitThreads(&tg);
+  LoadTokensNondupReindexCtx ctx;
+  {
+    const uint32_t calc_thread_ct_m1 = MINV(max_thread_ct, kMaxLoadTokensNondupReindexThreads) - 1;
+    if (unlikely(SetThreadCt0(calc_thread_ct_m1, &tg))) {
+      goto LoadTokensNondupReindex_ret_NOMEM;
+    }
+    uint32_t decompress_thread_ct = 1;
+    if (max_thread_ct > calc_thread_ct_m1 + 2) {
+      decompress_thread_ct = max_thread_ct - calc_thread_ct_m1 - 1;
+    }
+    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+    ZeroWArr(variant_ctl, loaded_variant_set);
+    ctx.already_seens[0] = loaded_variant_set;
+    for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
+      if (unlikely(bigstack_calloc_w(variant_ctl, &(ctx.already_seens[tidx])))) {
+        goto LoadTokensNondupReindex_ret_NOMEM;
+      }
+    }
+
+    reterr = InitTokenStream(fname, decompress_thread_ct, &tks);
+    if (unlikely(reterr)) {
+      goto LoadTokensNondupReindex_ret_TKSTREAM_FAIL;
+    }
+
+    uint32_t* variant_id_htable;
+    uint32_t variant_id_htable_size = 0;
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, 0, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
+    if (unlikely(reterr)) {
+      goto LoadTokensNondupReindex_ret_1;
+    }
+    if (calc_thread_ct_m1) {
+      ctx.variant_include = variant_include;
+      ctx.variant_include_cumulative_popcounts = variant_include_cumulative_popcounts;
+      ctx.old_variant_uidx_to_new = old_variant_uidx_to_new;
+      ctx.variant_ids = variant_ids;
+      ctx.variant_id_htable = variant_id_htable;
+      ctx.variant_id_htable_size = variant_id_htable_size;
+      ctx.max_variant_id_slen = max_variant_id_slen;
+      SetThreadFuncAndData(LoadTokensNondupReindexThread, &ctx, &tg);
+    }
+
+    while (1) {
+      reterr = TksNext(&tks, calc_thread_ct_m1 + 1, ctx.shard_boundaries);
+      if (reterr) {
+        break;
+      }
+      if (calc_thread_ct_m1) {
+        if (unlikely(SpawnThreads(&tg))) {
+          goto LoadTokensNondupReindex_ret_THREAD_CREATE_FAIL;
+        }
+      }
+      ctx.fail_variant_uidxs[0] = LoadNondupReindexProcessTokens(variant_include, variant_include_cumulative_popcounts, old_variant_uidx_to_new, variant_ids, variant_id_htable, ctx.shard_boundaries[0], ctx.shard_boundaries[1], variant_id_htable_size, max_variant_id_slen, ctx.already_seens[0]);
+      JoinThreads0(&tg);
+      for (uint32_t tidx = 0; tidx <= calc_thread_ct_m1; ++tidx) {
+        const uint32_t fail_variant_uidx = ctx.fail_variant_uidxs[tidx];
+        if (unlikely(fail_variant_uidx != UINT32_MAX)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Variant '%s' in --%s file appears multiple times in dataset.\n", variant_ids[fail_variant_uidx], flagname_p);
+          goto LoadTokensNondupReindex_ret_INCONSISTENT_INPUT_WW;
+        }
+      }
+    }
+    if (unlikely(reterr != kPglRetEof)) {
+      goto LoadTokensNondupReindex_ret_TKSTREAM_FAIL;
+    }
+    reterr = kPglRetSuccess;
+    for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
+      BitvecOr(ctx.already_seens[tidx], variant_ctl, loaded_variant_set);
+    }
+  }
+  while (0) {
+  LoadTokensNondupReindex_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadTokensNondupReindex_ret_TKSTREAM_FAIL:
+    TokenStreamErrPrint(fname, &tks);
+    break;
+  LoadTokensNondupReindex_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  LoadTokensNondupReindex_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+ LoadTokensNondupReindex_ret_1:
+  CleanupThreads(&tg);
+  CleanupTokenStream2(fname, &tks, &reterr);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 

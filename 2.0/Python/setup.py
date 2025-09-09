@@ -39,6 +39,7 @@ clib = ('clib',
                      'src/plink2/zstd/lib/compress/zstd_lazy.c',
                      'src/plink2/zstd/lib/compress/zstd_ldm.c',
                      'src/plink2/zstd/lib/compress/zstd_opt.c',
+                     'src/plink2/zstd/lib/compress/zstd_preSplit.c',
                      'src/plink2/zstd/lib/compress/zstdmt_compress.c',
                      'src/plink2/zstd/lib/decompress/huf_decompress.c',
                      'src/plink2/zstd/lib/decompress/zstd_ddict.c',
@@ -66,12 +67,13 @@ ext_modules = [
                          'src/plink2/include/plink2_thread.cc',
                          'src/plink2/include/plink2_zstfile.cc'],
               language = "c++",
-              # do not compile as c++11, since cython doesn't yet support
-              # overload of uint32_t operator
-              # extra_compile_args = ["-std=c++11", "-Wno-unused-function"],
-              # extra_link_args = ["-std=c++11"],
-              extra_compile_args = ["-std=c++98", "-Wno-unused-function", "-Wno-macro-redefined", "-Wno-c++11-extensions", "-Wno-cpp", "-DZSTD_DISABLE_ASM", "-DLIBDEFLATE_STATIC"],
-              extra_link_args = ["-std=c++98", "-lz"],
+              # Cython doesn't yet support overload of e.g. uint32_t operator,
+              # so it's necessary to compile plink2 with
+              # NO_CPP11_TYPE_ENFORCEMENT defined.  (Previously, we compiled as
+              # c++98 here, but I don't blame them for no longer maintaining
+              # that well.)
+              extra_compile_args = ["-std=c++11", "-Wno-unused-function", "-Wno-cpp", "-DNO_CPP11_TYPE_ENFORCEMENT", "-DZSTD_DISABLE_ASM", "-DLIBDEFLATE_STATIC"],
+              extra_link_args = ["-std=c++11", "-lz"],
               include_dirs = [np.get_include()] + ['src/plink2/libdeflate']
               )
     ]
@@ -81,7 +83,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="Pgenlib",
-    version="0.92.0",
+    version="0.93.0",
     author="Christopher Chang",
     author_email="chrchang@alumni.caltech.edu",
     description="Python wrapper for pgenlib's basic reader and writer.",
@@ -98,10 +100,10 @@ setuptools.setup(
     ],
     package_dir={"": "src"},
     packages=setuptools.find_namespace_packages(where="src"),
-    python_requires=">=3.5",
+    python_requires=">=3.9",
     libraries=[clib],
     ext_modules=cythonize(ext_modules),
     install_requires = [
-        "numpy>=1.19.0",
+        "numpy>=1.19.3",
     ],
 )

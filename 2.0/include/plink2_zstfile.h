@@ -24,16 +24,16 @@
 // all-caps FILE at the end to indicate that, like FILE and unlike gzFile, it's
 // a struct instead of a pointer-to-struct.
 
-#include "plink2_base.h"
-
 #ifdef IGNORE_BUNDLED_ZSTD
-#  include <zstd.h>
+#  include <zstd.h>  // IWYU pragma: export
 #  if !defined(ZSTD_VERSION_NUMBER) || (ZSTD_VERSION_NUMBER < 10404)
 #    error "plink2_zstfile requires zstd 1.4.4 or later."
 #  endif
 #else
-#  include "../zstd/lib/zstd.h"
+#  include "../zstd/lib/zstd.h"  // IWYU pragma: export
 #endif
+
+#include "plink2_base.h"
 
 #ifdef __cplusplus
 namespace plink2 {

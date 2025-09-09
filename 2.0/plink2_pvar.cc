@@ -16,6 +16,16 @@
 
 #include "plink2_pvar.h"
 
+#include <limits.h>
+#include <stddef.h>
+#include <string.h>
+
+#include "include/pgenlib_misc.h"
+#include "include/plink2_bits.h"
+#include "include/plink2_string.h"
+#include "include/plink2_text.h"
+#include "plink2_decompress.h"
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif
@@ -1603,6 +1613,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
         }
         // POS
+        // could error out on floating-point number?
         int32_t cur_bp;
         if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, pvarname);

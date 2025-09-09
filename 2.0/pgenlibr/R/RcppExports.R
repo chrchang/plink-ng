@@ -190,6 +190,38 @@ Read <- function(pgen, buf, variant_num, allele_num = 2L) {
     invisible(.Call(`_pgenlibr_Read`, pgen, buf, variant_num, allele_num))
 }
 
+#' Returns whether dosages for the variant_numth variant and given allele
+#' are represented in a sparse manner that is supported by
+#' ReadSparse(), under the current sample subset.
+#'
+#' @param pgen Object returned by NewPgen().
+#' @param variant_num Variant index (1-based).
+#' @param allele_num Allele index; 1 corresponds to REF, 2 to the first ALT
+#' allele, 3 to the second ALT allele if it exists, etc.  Optional, defaults
+#' to 2.
+#' @return True iff the (variant, allele) pair has a sparse representation
+#' that can be returned by ReadSparse().
+#' @export
+HasSparse <- function(pgen, variant_num, allele_num = 2L) {
+    .Call(`_pgenlibr_HasSparse`, pgen, variant_num, allele_num)
+}
+
+#' If HasSparse() is true, returns a sparse representation for the
+#' (variant, allele) pair.  If HasSparse() is false, the function fails.
+#'
+#' @param pgen Object returned by NewPgen().
+#' @param variant_num Variant index (1-based).
+#' @param allele_num Allele index; 1 corresponds to REF, 2 to the first ALT
+#' allele, 3 to the second ALT allele if it exists, etc.  Optional, defaults
+#' to 2.
+#' @return An object where "sample_nums" is an increasing sequence of positive
+#' integers listing which samples have the allele, and "dosages" is a vector
+#' listing the dosages (on a 0-2 scale) for those samples.
+#' @export
+ReadSparse <- function(pgen, variant_num, allele_num = 2L) {
+    .Call(`_pgenlibr_ReadSparse`, pgen, variant_num, allele_num)
+}
+
 #' Loads the variant_numth variant, and then fills acbuf with integer allele
 #' codes, where each column of the buffer corresponds to a sample.  An allele
 #' code of 0 corresponds to the REF allele, 1 to the first ALT, 2 to the

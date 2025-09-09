@@ -17,7 +17,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
+#include "include/pgenlib_read.h"
+#include "include/plink2_base.h"
+#include "include/plink2_text.h"
+#include "plink2_cmdline.h"
+#include "plink2_common.h"
 #include "plink2_glm_shared.h"
 
 #ifdef __cplusplus
@@ -52,7 +56,7 @@ typedef struct GlmLinearCtxStruct {
   double* local_covars_vcmaj_d[2];
   LinearAuxResult* block_aux;
 
-  uint32_t max_returned_difflist_len;
+  uint32_t max_difflist_len;
   uint32_t subbatch_size;
 } GlmLinearCtx;
 

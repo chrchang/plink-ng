@@ -14,8 +14,9 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
-
 #include "pgenlib_misc.h"
+
+#include <limits.h>
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -3524,7 +3525,7 @@ void PglMultiallelicSparseToDenseMiss(const PgenVariant* pgvp, uint32_t sample_c
     uintptr_t sample_idx_base = 0;
     uintptr_t cur_bits = patch_10_set[0];
     const DoubleAlleleCode* patch_10_vals_alias = R_CAST(const DoubleAlleleCode*, pgvp->patch_10_vals);
-    DoubleAlleleCode* wide_codes_alias = R_CAST(DoubleAlleleCode*, wide_codes);
+    DoubleAlleleCode* __attribute__((may_alias)) wide_codes_alias = R_CAST(DoubleAlleleCode*, wide_codes);
     for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
       const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
       wide_codes_alias[sample_idx] = patch_10_vals_alias[uii];

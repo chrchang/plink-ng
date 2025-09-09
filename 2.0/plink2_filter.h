@@ -17,9 +17,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "plink2_common.h"
 #include "include/SFMT.h"
+#include "include/pgenlib_misc.h"
+#include "include/pgenlib_read.h"
+#include "include/plink2_base.h"
+#include "plink2_cmdline.h"
+#include "plink2_common.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -48,8 +51,6 @@ PglErr InterpretVariantRangeList(const char* const* variant_ids, const uint32_t*
 PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const RangeList* snps_range_list_ptr, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
 PglErr TokenExtractExclude(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, const char* flagname, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
-
-// probable todo: DupflagIdLoad()
 
 PglErr ExtractColCond(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const ExtractColCondInfo* eccip, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
@@ -86,6 +87,22 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
 
 PglErr KeepRemoveCats(const char* cats_fname, const char* cat_names_flattened, const char* cat_phenoname, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t is_remove, uint32_t max_thread_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 
+// this mode is 0 in SID-only case
+ENUM_U31_DEF_START()
+  kSelectSidMissingness0,
+  kSelectSidMissingnessHhMissing,
+  kSelectSidMissingnessHc,
+  kSelectSidMissingnessDosage
+ENUM_U31_DEF_END(SelectSidMissingnessMode);
+
+ENUM_U31_DEF_START()
+  kSelectSidTiebreak0,
+  kSelectSidTiebreakFirst,
+  kSelectSidTiebreakFirstAscii,
+  kSelectSidTiebreakLast,
+  kSelectSidTiebreakLastAscii
+ENUM_U31_DEF_END(SelectSidTiebreakMode);
+
 void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_ddosages, uint32_t variant_ct, double af_pseudocount, double* allele_freqs);
 
 PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, double af_pseudocount, uint32_t max_thread_ct, double* allele_freqs, uintptr_t** variant_afreqcalcp);
@@ -94,9 +111,11 @@ void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* allele
 
 PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, uintptr_t* sex_male, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
 
+PglErr SelectSidRepresentatives(const uintptr_t* sex_nm, const uintptr_t* sex_male, const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const PedigreeIdInfo* piip, SelectSidMissingnessMode missingness_mode, SelectSidTiebreakMode tiebreak_mode, uint32_t parents_only, uint32_t raw_sample_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
+
 void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
-void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_ln_pvals, MiscFlags misc_flags, double hwe_ln_thresh, double hwe_sample_size_term, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
+PglErr EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_ln_pvals, MiscFlags misc_flags, double hwe_ln_thresh, double hwe_sample_size_term, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
 // main loop has a bitwise Nref-or-Alt1 check
 ENUM_U31_DEF_START()

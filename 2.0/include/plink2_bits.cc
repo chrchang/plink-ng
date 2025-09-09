@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
-
 #include "plink2_bits.h"
 
 #ifdef __cplusplus
@@ -387,7 +386,7 @@ uintptr_t NextNonmissingUnsafe(const uintptr_t* genoarr, uintptr_t loc) {
 */
 
 uint32_t AdvBoundedTo1Bit(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
-  // safe version.
+  // Can overread a single word if loc == ceil.
   const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
   uintptr_t ulii = (*bitarr_iter) >> (loc % kBitsPerWord);
   if (ulii) {
@@ -406,7 +405,7 @@ uint32_t AdvBoundedTo1Bit(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) 
 }
 
 uintptr_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
-  assert(ceil >= 1);
+  // Can overread a single word if loc == ceil.
   const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
   uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % kBitsPerWord);
   if (ulii) {
@@ -2938,7 +2937,8 @@ void Reduce8to4bitInplaceUnsafe(uintptr_t entry_ct, uintptr_t* mainvec) {
     vmainvec[write_vidx] = vecw_gather_even(v0, v1, m8);
   }
   uintptr_t write_idx = fullvec_ct * kWordsPerVec;
-  if (write_idx == entry_ct * 2) {
+  // bugfix (9 Jun 2025): mixed up units in this comparison
+  if (write_idx * kBitsPerWordD4 == entry_ct) {
     return;
   }
 #else

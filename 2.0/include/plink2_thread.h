@@ -30,9 +30,9 @@
 #include "plink2_base.h"
 
 #ifdef _WIN32
-#  include <process.h>
+#  include <process.h>  // IWYU pragma: export
 #else
-#  include <pthread.h>
+#  include <pthread.h>  // IWYU pragma: export
 #endif
 
 // Most thread functions should be of the form
@@ -302,7 +302,7 @@ BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap);
 
 // Convenience functions for potentially-small-and-frequent jobs where
 // thread_ct == 0 corresponds to not wanting to launch threads at all; see
-// MakeDupflagHtable in plink2_cmdline for a typical use case.
+// MakeDupflagHtable in plink2_htable.cc for a typical use case.
 HEADER_INLINE BoolErr SetThreadCt0(uint32_t thread_ct, ThreadGroup* tg_ptr) {
   if (!thread_ct) {
     return 0;

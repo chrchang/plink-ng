@@ -17,7 +17,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
+#include "include/pgenlib_misc.h"
+#include "include/pgenlib_read.h"
+#include "include/plink2_base.h"
+#include "include/plink2_text.h"
+#include "plink2_cmdline.h"
 #include "plink2_common.h"
 #include "plink2_matrix.h"
 
@@ -218,7 +222,7 @@ ENUM_U31_DEF_START()
   kGlmErrcodeUnstableScale
 ENUM_U31_DEF_END(GlmErrcode);
 
-#if __cplusplus >= 201103L
+#ifdef CPP11_TYPE_ENFORCEMENT
 // see IntErr in plink2_base.h
 struct GlmErr {
   GlmErr() {}
