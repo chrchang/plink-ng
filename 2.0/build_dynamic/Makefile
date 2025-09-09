@@ -34,7 +34,7 @@ DEBUG =
 CC ?= gcc
 CXX ?= g++
 
-BASEFLAGS=-DZSTD_MULTITHREAD
+BASEFLAGS= -DZSTD_MULTITHREAD
 # ***** end configuration *****
 
 BASEFLAGS += ${DEBUG}
@@ -118,7 +118,7 @@ ifeq ($(UNAME), Darwin)
   endif
   BLASFLAGS=-framework Accelerate
   CFLAGS += -I/usr/local/include
-  CXXFLAGS += -I/usr/local/include -stdlib=libc++ -DACCELERATE_NEW_LAPACK
+  CXXFLAGS += -I/usr/local/include -stdlib=libc++ #-DACCELERATE_NEW_LAPACK
   LINKFLAGS += -L/usr/local/lib
   LIBTOOL=libtool
   STATIC=-static
