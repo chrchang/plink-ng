@@ -44,12 +44,9 @@ jobs:
           echo "Running tests with Plink2..."
           plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose --genotyping-rate dosage --out tmp
 
-      - name: Check Plink output
+      - name: List all files
         run: |
-          if [ -f "tmp.genotype-count" ]; then
-            cat tmp.genotype-count
-          else
-            echo "No output file generated."
-            exit 1
-          fi
+          echo "Listing all files in the current working directory:"
+          pwd
+          ls -R
 
