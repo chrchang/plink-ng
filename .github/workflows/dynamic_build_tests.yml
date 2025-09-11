@@ -7,7 +7,7 @@ on:
 
 jobs:
   test_plink:
-    runs-on: ubuntu-20.04 #ubuntu-latest
+    runs-on: ubuntu-22.04 #ubuntu-latest
 
     steps:
       - name: Checkout Plink2 repository code
