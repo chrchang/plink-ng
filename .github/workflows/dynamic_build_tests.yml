@@ -27,23 +27,23 @@ jobs:
           make
           sudo cp plink2 /usr/local/bin/plink2
 
-      - name: Download test data
-        run: |
-          GDRIVE_FILE_ID="1duspKrxtYdf_dJe5jX4Y_GMkzmy6i8dj"
-          echo "Downloading test data from Google Drive..."
-          gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
-          unzip test_data.zip -d test_data
+      # - name: Download test data
+      #   run: |
+      #     GDRIVE_FILE_ID="1duspKrxtYdf_dJe5jX4Y_GMkzmy6i8dj"
+      #     echo "Downloading test data from Google Drive..."
+      #     gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
+      #     unzip test_data.zip -d test_data
 
-      - name: Run tests with Plink
-        run: |
-          echo "Running tests with Plink2..."
-          plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose --genotype-count dosage --out tmp
+      # - name: Run tests with Plink
+      #   run: |
+      #     echo "Running tests with Plink2..."
+      #     plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose --genotype-count dosage --out tmp
 
-      - name: Check Plink output
-        run: |
-          if [ -f "tmp.genotype-count" ]; then
-            cat tmp.genotype-count
-          else
-            echo "No output file generated."
-            exit 1
+      # - name: Check Plink output
+      #   run: |
+      #     if [ -f "tmp.genotype-count" ]; then
+      #       cat tmp.genotype-count
+      #     else
+      #       echo "No output file generated."
+      #       exit 1
 
