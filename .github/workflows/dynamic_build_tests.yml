@@ -40,7 +40,7 @@ jobs:
         run: |
           source venv/bin/activate
           echo "Running tests with Plink2..."
-          plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose --genotype-count dosage --out tmp
+          plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose --genotyping-rate dosage --out tmp
 
       - name: Check Plink output
         run: |
