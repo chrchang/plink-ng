@@ -35,6 +35,8 @@ jobs:
           echo "Downloading test data from Google Drive..."
           gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
           unzip test_data.zip -d test_data
+          mv test_data/yesmiss_testdata/* test_data/
+          rmdir test_data/yesmiss_testdata
 
       - name: Run tests with Plink
         run: |
