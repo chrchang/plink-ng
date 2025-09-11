@@ -42,6 +42,7 @@ jobs:
         run: |
           source venv/bin/activate
           echo "Running tests with Plink2..."
+          mkdir ./derivatives/
           plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose --genotyping-rate dosage --out ./derivatives/tmp
 
       - name: List all files
