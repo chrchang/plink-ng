@@ -16,11 +16,14 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python3 -m venv venv
+          source venv/bin/activate
           python3 -m pip install --upgrade pip
-          pip3 install gdown
+          pip install gdown
 
       - name: Build Plink2 from source
         run: |
+          source venv/bin/activate
           cd 2.0/build_dynamic
           make
           sudo cp plink2 /usr/local/bin/plink2
