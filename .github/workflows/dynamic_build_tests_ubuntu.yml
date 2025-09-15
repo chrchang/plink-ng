@@ -27,8 +27,10 @@ jobs:
           sudo apt-get install -y \
           libblas-dev \
           liblapack-dev \
+          liblapacke-dev \
           libatlas-base-dev \
-          libopenblas-dev
+          libopenblas-dev 
+          
 
       - name: Build Plink2 from source
         run: |
