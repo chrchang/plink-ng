@@ -21,6 +21,15 @@ jobs:
           python3 -m pip install --upgrade pip
           pip install gdown
 
+      - name: Install BLAS/LAPACK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+          libblas-dev \
+          liblapack-dev \
+          libatlas-base-dev \
+          libopenblas-dev
+
       - name: Build Plink2 from source
         run: |
           source venv/bin/activate
