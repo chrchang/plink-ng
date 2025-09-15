@@ -1,6 +1,6 @@
 # This is a basic workflow that is manually triggered
 
-name: PLINK2 DYNAMIC BUILD TESTS
+name: PLINK2 DYNAMIC BUILD TESTS UBUNTU
 
 on:
   workflow_dispatch:
