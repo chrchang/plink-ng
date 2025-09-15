@@ -1,0 +1,32 @@
+# This is a basic workflow that is manually triggered
+
+name: PLINK2 DYNAMIC BUILD TESTS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test_plink:
+    runs-on: ubuntu-latest
+    
+
+    steps:
+      - name: Checkout Plink2 repository code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          python3 -m venv venv
+          source venv/bin/activate
+          python3 -m pip install --upgrade pip
+          pip install gdown
+
+      - name: Build Plink2 from source
+        run: |
+          source venv/bin/activate
+          cd 2.0/build_dynamic
+          make
+          sudo cp plink2 /usr/local/bin/plink2
+
+      
+
