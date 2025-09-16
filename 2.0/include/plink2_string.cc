@@ -3310,7 +3310,8 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
     const VecUc pre33_vvec0 = vecuc_signed_cmpgt(vecuc_add(*str_rev_viter, vvec_all95), vvec_all94);
     const uint64_t nontoken_nybbles = arm_shrn4_uc(pre33_vvec1 | pre33_vvec0);
     if (nontoken_nybbles) {
-      const uint32_t nontoken_nybbles1 = arm_shrn4_uc(pre33_vvec1);
+      // bugfix (15 Sep 2025)
+      const uint64_t nontoken_nybbles1 = arm_shrn4_uc(pre33_vvec1);
       if (nontoken_nybbles1) {
         const uint32_t byte_offset_in_vec = bsrw(nontoken_nybbles1) / 4;
         return &(DowncastToXC(&(str_rev_viter[1]))[byte_offset_in_vec]);

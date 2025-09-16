@@ -92,10 +92,10 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (1 Sep 2025)";
+  " (15 Sep 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -4750,8 +4750,16 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           int32_t signed_autosome_ct;
-          if (unlikely(ScanIntAbsBoundedx(cur_modif, kMaxChrTextnum, &signed_autosome_ct) || (!signed_autosome_ct))) {
+          if (unlikely(ScanInt32x(cur_modif, &signed_autosome_ct) || (!signed_autosome_ct))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --chr-set argument '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (unlikely(abs_i32(signed_autosome_ct) > kMaxChrTextnum)) {
+            if (abs_i32(signed_autosome_ct) <= kMaxContigs) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --chr-set argument '%s' (max %u). (If you're dealing with a draft assembly with lots of contigs, rather than actual autosomes, PLINK can handle it if you name your contigs e.g. 'contig1', 'contig2', etc.)\n", cur_modif, kMaxChrTextnum);
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --chr-set argument '%s' (max %u).\n", cur_modif, kMaxChrTextnum);
+            }
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           // see plink2_common FinalizeChrset()
@@ -6384,9 +6392,6 @@ int main(int argc, char** argv) {
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-          logerrputs("Error: --flip-subset is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto main_ret_1;
           pc.filter_flags |= kfFilterAllReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "amily-missing-catname"))) {
           if (unlikely(!(pc.misc_flags & kfMiscCatPhenoFamily))) {

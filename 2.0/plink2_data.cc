@@ -5745,6 +5745,7 @@ PglErr FlipSubsetInit(const uintptr_t* sample_include, const uint32_t* new_sampl
         }
         FillCumulativePopcounts(variant_include, raw_variant_ctl, variant_include_cumulative_popcounts);
       }
+      // TODO: debug this
       reterr = LoadTokensNondupReindex(flip_info_ptr->fname, variant_include, variant_include_cumulative_popcounts, old_variant_uidx_to_new, variant_ids, "flip", variant_ct, max_variant_id_slen, max_thread_ct, flip_subset_variants);
       if (unlikely(reterr)) {
         goto FlipSubsetInit_ret_1;
@@ -5769,6 +5770,10 @@ PglErr FlipSubsetInit(const uintptr_t* sample_include, const uint32_t* new_sampl
       }
     } else {
       CopyBitarrSubset(subset_uidxs, sample_include, sample_ct, flip_subset_samples);
+#ifdef USE_SSE2
+      const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+      ZeroWArr(sample_ctaw - sample_ctl, &(flip_subset_samples[sample_ctl]));
+#endif
     }
     const uint32_t sample_ctv = sample_ctaw / kWordsPerVec;
     FillInterleavedMaskVec(flip_subset_samples, sample_ctv, *flip_subset_samples_interleaved_ptr);
@@ -5860,6 +5865,10 @@ PglErr FlipSubsetInit(const uintptr_t* sample_include, const uint32_t* new_sampl
         ++nonsnp_ct;
         continue;
       }
+      // 'N' allele code is allowed to appear in a genotype, but '.' is not
+      // allowed to appear.
+      flip_aidxs[2] = kMissingAlleleCode;
+
       AlleleCode* cur_permute_write = &(flip_subset_permute[write_allele_idx_offset_base]);
       for (uint32_t aidx = 0; aidx != cur_allele_ct; ++aidx) {
         const uint32_t string_aidx = cur_allele_permute? cur_allele_permute[aidx] : aidx;
@@ -5900,11 +5909,103 @@ PglErr FlipSubsetInit(const uintptr_t* sample_include, const uint32_t* new_sampl
   return reterr;
 }
 
-/*
-BoolErr FlipSubsetBiallelicGenovec(const uintptr_t* flip_subset_samples_interleaved, const AlleleCode* cur_flip_subset_permute, uint32_t sample_ct, uintptr_t* genovec) {
+BoolErr FlipSubsetBiallelicGenovecIrreg(const uintptr_t* flip_subset_samples_interleaved, const AlleleCode* cur_flip_subset_permute, const uintptr_t* genovec, uint32_t sample_ctv2) {
+  // Irregular possibilities:
+  // - Both cur_flip_subset_permute entries are kMissingAlleleCode; this occurs
+  //   for A/C, A/G, C/T, and G/T SNPs.  Error out unless all genotypes are
+  //   missing.
+  // - cur_flip_subset_permute[k]=k for one k (happens with a 'N' allele code),
+  //   and the other entry is kMissingAlleleCode.
+  if (cur_flip_subset_permute[0] == 0) {
+    assert(cur_flip_subset_permute[1] == kMissingAlleleCode);
+    return !InterleavedSubsetIs03(genovec, flip_subset_samples_interleaved, sample_ctv2);
+  }
+  assert(cur_flip_subset_permute[0] == kMissingAlleleCode);
+  if (cur_flip_subset_permute[1] == 1) {
+    return !InterleavedSubsetIs23(genovec, flip_subset_samples_interleaved, sample_ctv2);
+  }
+  assert(cur_flip_subset_permute[1] == kMissingAlleleCode);
+  return !InterleavedSubsetAllMissing(genovec, flip_subset_samples_interleaved, sample_ctv2);
+}
+
+BoolErr FlipSubsetBiallelicGenovec(const uintptr_t* flip_subset_samples_interleaved, const AlleleCode* cur_flip_subset_permute, uint32_t sample_ctv2, uintptr_t* genovec) {
+  if (cur_flip_subset_permute[0] == 1) {
+    // Ordinary flip.
+    InterleavedInvert(flip_subset_samples_interleaved, sample_ctv2, genovec);
+    return 0;
+  }
+  return FlipSubsetBiallelicGenovecIrreg(flip_subset_samples_interleaved, cur_flip_subset_permute, genovec, sample_ctv2);
+}
+
+// May set extraneous phaseinfo bits.
+BoolErr FlipSubsetBiallelic(const uintptr_t* flip_subset_samples_interleaved, const uintptr_t* flip_subset_samples, const AlleleCode* cur_flip_subset_permute, const uintptr_t* dosagepresent, const uintptr_t* dphasepresent, uint32_t sample_ct, uint32_t is_hphase, uint32_t dosage_ct, uint32_t dphase_ct, uintptr_t* genovec, uintptr_t* phaseinfo, Dosage* dosage_main, SDosage* dphase_delta) {
+  const uint32_t sample_ctv2 = NypCtToVecCt(sample_ct);
+  if (cur_flip_subset_permute[0] == 1) {
+    // Ordinary flip.
+    InterleavedInvert(flip_subset_samples_interleaved, sample_ctv2, genovec);
+    if (is_hphase) {
+      const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+      BitvecXor(flip_subset_samples, sample_ctl, phaseinfo);
+    }
+    if (dosage_ct) {
+      BiallelicDosage16InvertSubset(dosagepresent, flip_subset_samples, dosage_ct, dosage_main);
+      if (dphase_ct) {
+        BiallelicDphase16InvertSubset(dphasepresent, flip_subset_samples, dphase_ct, dphase_delta);
+      }
+    }
+    return 0;
+  }
+  // In these cases, error out if any --flip-subset sample has a dosage.
+  if (dosage_ct) {
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    if (!IntersectionIsEmpty(flip_subset_samples, dosagepresent, sample_ctl)) {
+      return 1;
+    }
+    // no need to check dphasepresent since it must be a subset of
+    // dosagepresent
+  }
+  return FlipSubsetBiallelicGenovecIrreg(flip_subset_samples_interleaved, cur_flip_subset_permute, genovec, sample_ctv2);
+}
+
+BoolErr FlipSubsetMultiallelic(const uintptr_t* flip_subset_samples, const AlleleCode* cur_flip_subset_permute, uint32_t sample_ct, uint32_t is_hphase, uintptr_t* genovec, uint32_t* rare01_ctp, uintptr_t* patch_01_set, AlleleCode* patch_01_vals, uint32_t* rare10_ctp, uintptr_t* patch_10_set, AlleleCode* patch_10_vals, uintptr_t* phaseinfo, AlleleCode* wide_codes_buf) {
+  PglMultiallelicSparseToDense(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, nullptr, sample_ct, *rare01_ctp, *rare10_ctp, nullptr, wide_codes_buf);
+  const uint32_t word_ct = BitCtToWordCt(sample_ct);
+  for (uint32_t widx = 0; widx != word_ct; ++widx) {
+    uintptr_t flip_subset_word = flip_subset_samples[widx];
+    if (!flip_subset_word) {
+      continue;
+    }
+    uintptr_t phase_reverse_word = 0;
+    AlleleCode* word_wide_codes = &(wide_codes_buf[widx * (2 * kBitsPerWord)]);
+    do {
+      const uint32_t sample_idx_lowbits = ctzw(flip_subset_word);
+      AlleleCode* cur_wide_codes = &(word_wide_codes[2 * sample_idx_lowbits]);
+      const AlleleCode in_ac0 = cur_wide_codes[0];
+      if (in_ac0 != kMissingAlleleCode) {
+        const AlleleCode in_ac1 = cur_wide_codes[1];
+        AlleleCode out_ac0 = cur_flip_subset_permute[in_ac0];
+        AlleleCode out_ac1 = cur_flip_subset_permute[in_ac1];
+        if (out_ac0 > out_ac1) {
+          const AlleleCode tmp_ac = out_ac0;
+          out_ac0 = out_ac1;
+          out_ac1 = tmp_ac;
+          phase_reverse_word |= flip_subset_word & (-flip_subset_word);
+        }
+        if (unlikely(out_ac1 == kMissingAlleleCode)) {
+          return 1;
+        }
+        cur_wide_codes[0] = out_ac0;
+        cur_wide_codes[1] = out_ac1;
+      }
+      flip_subset_word &= flip_subset_word - 1;
+    } while (flip_subset_word);
+    if (is_hphase) {
+      phaseinfo[widx] ^= phase_reverse_word;
+    }
+  }
+  PglMultiallelicDenseToSparse(wide_codes_buf, sample_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, rare01_ctp, rare10_ctp);
   return 0;
 }
-*/
 
 FLAGSET_DEF_START()
   kfPlink2Write0,
@@ -5998,11 +6099,9 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
   const uint64_t* zero_cluster_entries = mcp->zero_cluster_entries;
   const uint64_t* zero_cluster_entries_iter = nullptr;
   uintptr_t** zero_cluster_interleaved_masks = mcp->zero_cluster_interleaved_masks;
-  /*
   const uintptr_t* flip_subset_samples_interleaved = mcp->flip_subset_samples_interleaved;
   const uintptr_t* flip_subset_variants = mcp->flip_subset_variants;
   const AlleleCode* flip_subset_permute = mcp->flip_subset_permute;
-  */
   const uint32_t* old_sample_idx_to_new = ctx->old_sample_idx_to_new;
   const Plink2WriteFlags plink2_write_flags = mcp->plink2_write_flags;
   const uint32_t set_invalid_haploid_missing = plink2_write_flags & kfPlink2WriteSetInvalidHaploidMissing;
@@ -6135,14 +6234,12 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
         ++zero_cluster_entries_iter;
         next_zero_cluster_idx = (*zero_cluster_entries_iter >> 32) - variant_idx_offset;
       }
-      /*
       if (flip_subset_variants && IsSet(flip_subset_variants, variant_idx_offset + write_idx)) {
-        if (unlikely(FlipSubsetBiallelicGenovec(flip_subset_samples_interleaved, &(flip_subset_permute[(variant_idx_offset + write_idx) * 2]), sample_ct, genovec))) {
+        if (unlikely(FlipSubsetBiallelicGenovec(flip_subset_samples_interleaved, &(flip_subset_permute[(variant_idx_offset + write_idx) * 2]), sample_ctv2, genovec))) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
           goto MakeBedlikeThread_err;
         }
       }
-      */
       if (fill_missing_with_ref) {
         if (!is_y) {
           SetMissingRef(sample_ctl2, genovec);
@@ -6357,7 +6454,13 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
         if (unlikely(reterr)) {
           // this should only be possible in MakePgenRobust()
           assert(reterr != kPglRetWriteFail);
-          PgenErrPrintNV(reterr, ctx.err_info >> 32);
+
+          if (reterr == kPglRetInconsistentInput) {
+            logputs("\n");
+            logerrprintfww("Error: --flip-subset: Cannot flip (0-based) variant #%u.\n", ctx.err_info >> 32);
+          } else {
+            PgenErrPrintNV(reterr, ctx.err_info >> 32);
+          }
           goto MakeBedlikeMain_ret_1;
         }
       }
@@ -6476,7 +6579,7 @@ typedef struct MakePgenCtxStruct {
   uintptr_t** thread_write_dphasepresents;
   SDosage** thread_write_dphasedeltas;
   uint64_t* thread_mendel_error_cts;
-  PglErr write_reterr;
+  uint64_t err_info;
   int32_t write_errno;
 } MakePgenCtx;
 
@@ -6522,6 +6625,10 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   const uint64_t* zero_cluster_entries_iter = nullptr;
   uintptr_t** zero_cluster_interleaved_masks = mcp->zero_cluster_interleaved_masks;
   uintptr_t** zero_cluster_bitmasks = mcp->zero_cluster_bitmasks;
+  const uintptr_t* flip_subset_samples_interleaved = mcp->flip_subset_samples_interleaved;
+  const uintptr_t* flip_subset_samples = mcp->flip_subset_samples;
+  const uintptr_t* flip_subset_variants = mcp->flip_subset_variants;
+  const AlleleCode* flip_subset_permute = mcp->flip_subset_permute;
   const uint32_t raw_sample_ct = mcp->raw_sample_ct;
   const uint32_t sample_ct = mcp->sample_ct;
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
@@ -6620,6 +6727,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   uint32_t read_allele_ct = 2;
   uint32_t write_allele_ct = 2;
   uint32_t parity = 0;
+  uint64_t new_err_info = 0;
   do {
     const uintptr_t cur_block_write_ct = ctx->cur_block_write_ct;
     uint32_t write_idx = tidx * kPglVblockSize;
@@ -7106,6 +7214,21 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           EraseDphases(erase_map, &write_dphase_ct, write_dphasepresent, write_dphasedeltas);
         }
       }
+      if (flip_subset_variants && IsSet(flip_subset_variants, variant_idx_offset + write_idx)) {
+        const AlleleCode* cur_flip_subset_permute = &(flip_subset_permute[write_allele_idx_offset_base]);
+        if (write_allele_ct == 2) {
+          if (unlikely(FlipSubsetBiallelic(flip_subset_samples_interleaved, flip_subset_samples, cur_flip_subset_permute, write_dosagepresent, write_dphasepresent, sample_ct, is_hphase, write_dosage_ct, write_dphase_ct, write_genovec, write_phaseinfo, write_dosagevals, write_dphasedeltas))) {
+            new_err_info = (S_CAST(uint64_t, write_idx + variant_idx_offset)) | S_CAST(uint32_t, kPglRetInconsistentInput);
+            goto MakePgenThread_err;
+          }
+        } else {
+          // multiallelic, no dosage for now
+          if (unlikely(FlipSubsetMultiallelic(flip_subset_samples, cur_flip_subset_permute, sample_ct, is_hphase, write_genovec, &write_rare01_ct, write_patch_01_set, write_patch_01_vals, &write_rare10_ct, write_patch_10_set, write_patch_10_vals, write_phaseinfo, wide_codes_buf))) {
+            new_err_info = (S_CAST(uint64_t, write_idx + variant_idx_offset)) | S_CAST(uint32_t, kPglRetInconsistentInput);
+            goto MakePgenThread_err;
+          }
+        }
+      }
       if (fill_missing_with_ref) {
         if (!write_dosage_ct) {
           if (!is_y) {
@@ -7126,9 +7249,12 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         if (pwcp->fwrite_bufp >= &(pwcp->fwrite_buf[kPglFwriteBlockSize])) {
           const uintptr_t cur_byte_ct = pwcp->fwrite_bufp - pwcp->fwrite_buf;
           if (unlikely(fwrite_checked(pwcp->fwrite_buf, cur_byte_ct, GET_PRIVATE(*spgwp, pgen_outfile)))) {
-            ctx->write_reterr = kPglRetWriteFail;
+            // only one writer thread, so don't need to worry about clobbering
+            // information about another error
             ctx->write_errno = errno;
-            break;
+
+            new_err_info = (S_CAST(uint64_t, write_idx + variant_idx_offset) << 32) | S_CAST(uint32_t, kPglRetWriteFail);
+            goto MakePgenThread_err;
           }
           pwcp->vblock_fpos_offset += cur_byte_ct;
           pwcp->fwrite_bufp = pwcp->fwrite_buf;
@@ -7137,8 +7263,8 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       if ((!write_rare01_ct) && (!write_rare10_ct)) {
         if ((!is_hphase) && (!write_dphase_ct)) {
           if (unlikely(PwcAppendBiallelicGenovecDosage16(write_genovec, write_dosagepresent, write_dosagevals, write_dosage_ct, pwcp))) {
-            ctx->write_reterr = kPglRetVarRecordTooLarge;
-            break;
+            new_err_info = (S_CAST(uint64_t, write_idx + variant_idx_offset) << 32) | S_CAST(uint32_t, kPglRetVarRecordTooLarge);
+            goto MakePgenThread_err;
           }
         } else {
           if (!is_hphase) {
@@ -7146,21 +7272,21 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           }
           // extraneous phaseinfo bits may be set
           if (unlikely(PwcAppendBiallelicGenovecDphase16(write_genovec, cur_write_phasepresent, write_phaseinfo, write_dosagepresent, write_dphasepresent, write_dosagevals, write_dphasedeltas, write_dosage_ct, write_dphase_ct, pwcp))) {
-            ctx->write_reterr = kPglRetVarRecordTooLarge;
-            break;
+            new_err_info = (S_CAST(uint64_t, write_idx + variant_idx_offset) << 32) | S_CAST(uint32_t, kPglRetVarRecordTooLarge);
+            goto MakePgenThread_err;
           }
         }
       } else {
         // multiallelic dosage not supported
         if (!is_hphase) {
           if (unlikely(PwcAppendMultiallelicSparse(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, write_allele_ct, write_rare01_ct, write_rare10_ct, pwcp))) {
-            ctx->write_reterr = kPglRetVarRecordTooLarge;
-            break;
+            new_err_info = (S_CAST(uint64_t, write_idx + variant_idx_offset) << 32) | S_CAST(uint32_t, kPglRetVarRecordTooLarge);
+            goto MakePgenThread_err;
           }
         } else {
           if (unlikely(PwcAppendMultiallelicGenovecHphase(write_genovec, write_patch_01_set, write_patch_01_vals, write_patch_10_set, write_patch_10_vals, cur_write_phasepresent, write_phaseinfo, write_allele_ct, write_rare01_ct, write_rare10_ct, pwcp))) {
-            ctx->write_reterr = kPglRetVarRecordTooLarge;
-            break;
+            new_err_info = (S_CAST(uint64_t, write_idx + variant_idx_offset) << 32) | S_CAST(uint32_t, kPglRetVarRecordTooLarge);
+            goto MakePgenThread_err;
           }
         }
       }
@@ -7168,6 +7294,10 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
     }
     parity = 1 - parity;
     variant_idx_offset += cur_block_write_ct;
+    while (0) {
+    MakePgenThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    }
   } while (!THREAD_BLOCK_FINISH(arg));
   if (ctx->thread_mendel_error_cts) {
     ctx->thread_mendel_error_cts[tidx] = mendel_error_ct;
@@ -7221,7 +7351,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     mcp->sample_include = subsetting_required? sample_include : nullptr;
     ctx.sex_female_collapsed = sex_female_collapsed;
-    ctx.write_reterr = kPglRetSuccess;
+    ctx.err_info = (~0LLU) << 32;
     if ((make_plink2_flags & kfMakeBed) || ((make_plink2_flags & (kfMakePgen | (kfMakePgenFormatBase * 3))) == (kfMakePgen | kfMakePgenFormatBase))) {
       logerrputs("Error: Fixed-width .bed/.pgen output doesn't support sorting yet.  Generate a\nregular sorted .pgen first, and then reformat it.\n");
       reterr = kPglRetNotYetSupported;
@@ -7394,7 +7524,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       ctx.sample_include_interleaved_vec = nullptr;
       const AlleleCode* write_allele_permute = mcp->write_allele_permute;
       const uint32_t set_me_missing = (make_plink2_flags / kfMakePlink2SetMeMissing) & 1;
-      const uint32_t wide_codes_needed = (!input_biallelic) && (set_me_missing || write_allele_permute);
+      const uint32_t wide_codes_needed = (!input_biallelic) && (set_me_missing || write_allele_permute || mcp->flip_subset_samples_interleaved);
       uint32_t write_mhc_needed = wide_codes_needed;
       if (new_sample_idx_to_old || subsetting_required) {
         if (unlikely(bigstack_alloc_wp(1, &ctx.thread_write_genovecs))) {
@@ -8062,10 +8192,13 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         }
         if (read_batch_idx) {
           JoinThreads(&tg);
-          reterr = ctx.write_reterr;
+          reterr = S_CAST(PglErr, ctx.err_info);
           if (unlikely(reterr)) {
             if (reterr == kPglRetWriteFail) {
               errno = ctx.write_errno;
+            } else if (reterr == kPglRetInconsistentInput) {
+              logputs("\n");
+              logerrprintfww("Error: --flip-subset: Cannot flip (0-based) output variant #%u.\n", ctx.err_info >> 32);
             }
             goto MakePgenRobust_ret_1;
           }
@@ -8527,7 +8660,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       // this is frequently I/O-bound even when resorting, but I'll postpone
       // tuning thread count there
       const uint32_t set_me_missing = (make_plink2_flags / kfMakePlink2SetMeMissing) & 1;
-      const uint32_t wide_codes_needed = (!input_biallelic) && (set_me_missing || allele_permute);
+      const uint32_t wide_codes_needed = (!input_biallelic) && (set_me_missing || allele_permute || mc.flip_subset_samples_interleaved);
       uint32_t write_mhc_needed = wide_codes_needed;
       mpgwp = S_CAST(MTPgenWriter*, bigstack_alloc((calc_thread_ct + DivUp(sizeof(MTPgenWriter), kBytesPerWord)) * sizeof(intptr_t)));
       if (!mpgwp) {
@@ -8822,7 +8955,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       mc.sample_include = subsetting_required? sample_include : nullptr;
       ctx.mcp = &mc;
       ctx.spgwp = nullptr;
-      ctx.write_reterr = kPglRetSuccess;
+      ctx.err_info = (~0LLU) << 32;
       SetThreadFuncAndData(MakePgenThread, &ctx, &tg);
 
       // Main workflow:
@@ -8883,9 +9016,14 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         }
         if (read_batch_idx) {
           JoinThreads(&tg);
-          reterr = ctx.write_reterr;
+          reterr = S_CAST(PglErr, ctx.err_info);
           if (unlikely(reterr)) {
-            // only possible error is kPglRetVarRecordTooLarge?
+            if (reterr == kPglRetInconsistentInput) {
+              logputs("\n");
+              logerrprintfww("Error: --flip-subset: Cannot flip (0-based) output variant #%u.\n", ctx.err_info >> 32);
+            } else {
+              assert(reterr == kPglRetVarRecordTooLarge);
+            }
             goto MakePlink2NoVsort_ret_1;
           }
         }
