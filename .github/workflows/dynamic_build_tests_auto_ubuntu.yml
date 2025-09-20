@@ -24,5 +24,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          chmod +x dynamic_build/CI-SCRIPTS/autocheckcommits_dynamicbuild_plink2tests_template.sh
-          ./dynamic_build/CI-SCRIPTS/autocheckcommits_dynamicbuild_plink2tests_template.sh
+          chmod +x 2.0/dynamic_build/CI-SCRIPTS/autocheckcommits_dynamicbuild_plink2tests_template.sh
+          2.0/dynamic_build/CI-SCRIPTS/autocheckcommits_dynamicbuild_plink2tests_template.sh
