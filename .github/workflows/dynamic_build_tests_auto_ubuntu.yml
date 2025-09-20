@@ -1,4 +1,4 @@
-name: PLINK2 DYNAMIC BUILD TESTS UBUNTU
+name: PLINK2 DYNAMIC BUILD TESTS UBUNTU - AUTO
 
 on:
   workflow_dispatch:   # manual trigger
@@ -33,7 +33,7 @@ jobs:
 
           # Get last successful workflow SHA
           LAST_RUN_COMMIT=$(gh run list \
-            --workflow="PLINK2 DYNAMIC BUILD TESTS UBUNTU" \
+            --workflow="PLINK2 DYNAMIC BUILD TESTS UBUNTU - AUTO" \
             --branch master \
             --status success \
             --limit 1 \
