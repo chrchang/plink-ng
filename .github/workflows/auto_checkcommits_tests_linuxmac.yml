@@ -1,0 +1,79 @@
+name: PLINK2 AUTO RUN TESTS - LINUX & MAC - CHECK COMMIT HX FIRST
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'  # every Sunday at midnight
+
+jobs:
+  # Step 1: Single commit check job
+  check_commits:
+    runs-on: ubuntu-latest
+    outputs:
+      new_commits: ${{ steps.commit_check.outputs.new_commits }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commits
+        id: commit_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get latest commit
+          LATEST_MASTER=$(git rev-parse origin/master)
+          echo "LATEST MASTER commit: $LATEST_MASTER"
+
+          # Get last successful workflow commit
+          LAST_WORKFLOW=$(gh run list \
+            --workflow="PLINK2 AUTO RUN TESTS - LINUX & MAC - CHECK COMMIT HX FIRST" \
+            --branch master \
+            --status success \
+            --limit 1 \
+            --json headSha \
+            --jq '.[0].headSha')
+          
+          echo "LAST WORKFLOW successful workflow commit: $LAST_WORKFLOW"
+
+          # Decide if there are new commits
+          if [ "$LATEST_MASTER" != "$LAST_WORKFLOW" ]; then
+            echo "New commits detected."
+            echo "new_commits=true" >> $GITHUB_OUTPUT
+          else
+            echo "No new commits."
+            echo "new_commits=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Step 2: Matrix job to run hello.sh
+  run_dynamicbuild_plink2tests:
+    needs: check_commits
+    if: needs.check_commits.outputs.new_commits == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Linux-specific dependencies
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libopenblas-dev \
+            liblapack-dev \
+            liblapacke-dev \
+            zlib1g-dev \
+            unzip
+
+      - name: Run dynamicbuild_plink2tests_linuxmac.sh
+        run: |
+          chmod +x 2.0/build_dynamic/CI-SCRIPTS/dynamicbuild_plink2tests_linuxmac.sh
+          2.0/build_dynamic/CI-SCRIPTS/dynamicbuild_plink2tests_linuxmac.sh
