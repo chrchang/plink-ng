@@ -2155,14 +2155,17 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       pseudo-autosomal region.\n"
                );
     HelpPrint("snps-only\0", &help_ctrl, 0,
-"  --snps-only ['just-acgt'] : Exclude non-SNP variants.  By default, SNP = all\n"
-"                              allele codes are single-character (so\n"
-"                              multiallelic variants with a mix of SNPs and\n"
-"                              non-SNPs are excluded; split your variants first\n"
-"                              if that's a problem).\n"
-"                              The 'just-acgt' modifier restricts SNP codes to\n"
-"                              {A,C,G,T,a,c,g,t,<missing>}.\n"
+"  --snps-only ['just-acgt']  : Exclude non-SNP variants.  By default, SNP = all\n"
+"                               allele codes are single-character (so\n"
+"                               multiallelic variants with a mix of SNPs and\n"
+"                               non-SNPs are excluded; split your variants first\n"
+"                               if that's a problem).\n"
+"                               The 'just-acgt' modifier restricts SNP codes to\n"
+"                               {A,C,G,T,a,c,g,t,<missing>}.\n"
                );
+    HelpPrint("exclude-palindromic-snps\0", &help_ctrl, 0,
+"  --exclude-palindromic-snps : Exclude A/T and C/G biallelic SNPs.\n"
+              );
     // best to only support --chr with --from-bp/--to-bp/etc., now that
     // FinalizeChrset() is deferred
     HelpPrint("from\0to\0snp\0window\0from-bp\0to-bp\0from-kb\0to-kb\0from-mb\0to-mb\0exclude-snp\0extract-snp\0", &help_ctrl, 0,

@@ -64,7 +64,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.0.0-a.7"
+static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -92,8 +92,8 @@ static const char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (15 Sep 2025)";
-static const char ver_str2[] =
+  " (20 Sep 2025)";
+static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
 
@@ -120,8 +120,11 @@ static const char ver_str2[] =
 #  endif
 #endif
 
-  "      cog-genomics.org/plink/2.0/\n"
-  "(C) 2005-2025 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
+  "       cog-genomics.org/plink/2.0/\n"
+  "(C) 2005-2025 Shaun Purcell, Christopher Chang    GNU General Public License v3\n";
+#ifdef HAS_CONSTEXPR
+static_assert(CompileTimeSlen(ver_str) + CompileTimeSlen(ver_str2) == 160, "ver_str/ver_str2 must be updated");
+#endif
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
 #ifndef NOLAPACK
@@ -180,14 +183,15 @@ FLAGSET64_DEF_START()
   kfFilterExclNonfounders = (1 << 10),
   kfFilterSnpsOnly = (1 << 11),
   kfFilterSnpsOnlyJustAcgt = (1 << 12),
-  kfFilterExtractBed0 = (1 << 13),
-  kfFilterExtractBed1 = (1 << 14),
-  kfFilterExtractIntersectBed0 = (1 << 15),
-  kfFilterExtractIntersectBed1 = (1 << 16),
-  kfFilterExcludeBed0 = (1 << 17),
-  kfFilterExcludeBed1 = (1 << 18),
-  kfFilterSelectSidRepresentatives = (1 << 19),
-  kfFilterMendel = (1 << 20)
+  kfFilterPalindromicSnps = (1 << 13),
+  kfFilterExtractBed0 = (1 << 14),
+  kfFilterExtractBed1 = (1 << 15),
+  kfFilterExtractIntersectBed0 = (1 << 16),
+  kfFilterExtractIntersectBed1 = (1 << 17),
+  kfFilterExcludeBed0 = (1 << 18),
+  kfFilterExcludeBed1 = (1 << 19),
+  kfFilterSelectSidRepresentatives = (1 << 20),
+  kfFilterMendel = (1 << 21)
 FLAGSET64_DEF_END(FilterFlags);
 
 FLAGSET64_DEF_START()
@@ -1009,7 +1013,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       const uint32_t xheader_needed = (pcp->exportf_info.flags & (kfExportfVcf | kfExportfBcf))? 1 : 0;
       const uint32_t qualfilter_needed = xheader_needed || ((pcp->rmdup_mode != kRmDup0) && (pcp->rmdup_mode <= kRmDupExcludeMismatch));
 
-      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, &(pcp->extract_if_info_expr), &(pcp->exclude_if_info_expr), pcp->misc_flags, pcp->pvar_psam_flags, xheader_needed, qualfilter_needed, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->filter_min_allele_ct, pcp->filter_max_allele_ct, pcp->input_missing_geno_char, pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &allele_idx_offsets, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
+      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, &(pcp->extract_if_info_expr), &(pcp->exclude_if_info_expr), pcp->misc_flags, pcp->pvar_psam_flags, xheader_needed, qualfilter_needed, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, (pcp->filter_flags / kfFilterPalindromicSnps), !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->filter_min_allele_ct, pcp->filter_max_allele_ct, pcp->input_missing_geno_char, pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &allele_idx_offsets, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -6057,6 +6061,9 @@ int main(int argc, char** argv) {
           }
           memcpy(pvarname, fname, slen + 1);
           xload |= kfXloadEigSnp;
+        } else if (strequal_k_unsafe(flagname_p2, "xclude-palindromic-snps")) {
+          pc.filter_flags |= kfFilterPvarReq | kfFilterPalindromicSnps;
+          goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "rror-on-freq-calc"))) {
           pc.misc_flags |= kfMiscErrorOnFreqCalc;
           goto main_param_zero;
