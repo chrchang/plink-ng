@@ -83,7 +83,26 @@ endif
 # this actually needs to be named "CXXFLAGS"
 CXXFLAGS += -O2
 
-BLASFLAGS=-llapack -lblas -lcblas -latlas
+############################
+# PLINK2 Linux build update:
+
+# Old BLASFLAGS=-llapack -lblas -lcblas -latlas fails on Ubuntu 22.04/24.04 (lcblas/Atlas gone).
+
+# Fixed: BLASFLAGS=-llapacke -llapack -lopenblas 
+
+# Install: libopenblas-dev liblapack-dev liblapacke-dev zlib1g-dev
+
+# macOS build unaffected (still uses Accelerate)
+
+# Works cleanly in Docker / GitHub Actions
+
+## Old:
+# BLASFLAGS=-llapack -lblas -lcblas -latlas
+
+## Update:
+BLASFLAGS=-llapacke -llapack -lopenblas
+
+###########################
 
 ifdef STATIC_ZLIB
   BASEFLAGS += -DSTATIC_ZLIB

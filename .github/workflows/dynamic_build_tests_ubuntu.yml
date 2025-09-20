@@ -1,4 +1,4 @@
-# This is a basic workflow that is manually triggered
+# PLINK2 Dynamic Build Workflow for Ubuntu
 
 name: PLINK2 DYNAMIC BUILD TESTS UBUNTU
 
@@ -8,36 +8,36 @@ on:
 jobs:
   test_plink:
     runs-on: ubuntu-latest
-    
 
     steps:
       - name: Checkout Plink2 repository code
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Set up Python environment (for optional tools like gdown)
         run: |
           python3 -m venv venv
           source venv/bin/activate
           python3 -m pip install --upgrade pip
           pip install gdown
 
-      - name: Install BLAS/LAPACK
+      - name: Install BLAS/LAPACK dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-          libblas-dev \
-          liblapack-dev \
-          liblapacke-dev \
-          libatlas-base-dev \
-          libopenblas-dev 
-          
+            build-essential \
+            libopenblas-dev \
+            liblapack-dev \
+            liblapacke-dev \
+            zlib1g-dev
 
       - name: Build Plink2 from source
         run: |
           source venv/bin/activate
           cd 2.0/build_dynamic
+          make clean
           make
           sudo cp plink2 /usr/local/bin/plink2
 
-      
-
+      - name: Verify build
+        run: |
+          /usr/local/bin/plink2 --help | head -n 5
