@@ -26,7 +26,7 @@ jobs:
       - name: Check for new commits since last successful run
         id: commit_check
         run: |
-          LATEST_COMMIT=$(git rev-parse origin/main)
+          LATEST_COMMIT=$(git rev-parse origin/master)
           echo "Latest commit on main: $LATEST_COMMIT"
 
           # Get last successful workflow SHA
