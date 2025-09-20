@@ -1,4 +1,4 @@
-name: PLINK2 DYNAMIC BUILD TESTS - AUTO
+name: PLINK2 AUTO RUN TESTS - LINUX & MAC - CHECK COMMIT HX FIRST
 
 on:
   workflow_dispatch:
@@ -28,7 +28,7 @@ jobs:
 
           # Get last successful workflow commit
           LAST_WORKFLOW=$(gh run list \
-            --workflow="PLINK2 DYNAMIC BUILD TESTS - AUTO" \
+            --workflow="PLINK2 AUTO RUN TESTS - LINUX & MAC - CHECK COMMIT HX FIRST" \
             --branch master \
             --status success \
             --limit 1 \
