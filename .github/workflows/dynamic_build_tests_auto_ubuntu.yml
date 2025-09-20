@@ -1,12 +1,12 @@
-name: PLINK2 DYNAMIC BUILD TESTS UBUNTU - AUTO
+name: PLINK2 DYNAMIC BUILD TESTS UBUNTU
 
 on:
   workflow_dispatch:   # manual trigger
   schedule:           # weekly trigger
     - cron: '0 0 * * 0'  # every Sunday at 00:00 UTC
-#   push:
-#     branches:
-#       - master
+  # push:                # disabled automatic push trigger
+  #   branches:
+  #     - master
 
 jobs:
   test_plink:
@@ -31,9 +31,8 @@ jobs:
           LATEST_COMMIT=$(git rev-parse origin/master)
           echo "Latest commit on master: $LATEST_COMMIT"
 
-          # Get last successful workflow SHA
           LAST_RUN_COMMIT=$(gh run list \
-            --workflow="PLINK2 DYNAMIC BUILD TESTS UBUNTU - AUTO" \
+            --workflow="dynamic_build_tests_ubuntu.yml" \
             --branch master \
             --status success \
             --limit 1 \
@@ -43,9 +42,8 @@ jobs:
           echo "Last successful workflow commit: $LAST_RUN_COMMIT"
 
           if [ "$LATEST_COMMIT" = "$LAST_RUN_COMMIT" ]; then
-            echo "No new commits since last successful run. Exiting."
-            exit 0
-          fi
+            echo "No new commits since last successful run. Skipping workflow."
+            exit 78
 
       - name: Set up Python environment
         run: |
