@@ -486,6 +486,11 @@ void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_main);
 // replaces each x with -x
 void BiallelicDphase16Invert(uint32_t dphase_ct, int16_t* dphase_delta);
 
+// assumes dosage_ct > 0
+void BiallelicDosage16InvertSubset(const uintptr_t* dosage_present, const uintptr_t* subset, uint32_t dosage_ct, uint16_t* dosage_main_iter);
+
+void BiallelicDphase16InvertSubset(const uintptr_t* dphase_present, const uintptr_t* subset, uint32_t dphase_ct, int16_t* dphase_delta_iter);
+
 void PackWordsToHalfwordsInvmatch(const uintptr_t* __restrict genoarr, uintptr_t inv_match_word, uint32_t inword_ct, uintptr_t* __restrict dst);
 
 void PackWordsToHalfwordsMismatch(const uintptr_t* __restrict genoarr, uintptr_t mismatch_word, uint32_t inword_ct, uintptr_t* __restrict dst);

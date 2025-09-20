@@ -355,6 +355,7 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecHphaseDosage16(const uintptr_t* _
 
 // dosage_present cannot be null for nonzero dosage_ct
 // trailing bits of dosage_present MUST be zeroed out
+// dphase_present must be a subset of dosage_present
 // could make dosage_main[] has length dosage_ct + dphase_ct instead of having
 // separate dphase_delta[]?
 BoolErr PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* dosage_main, const int16_t* dphase_delta, uint32_t dosage_ct, uint32_t dphase_ct, PgenWriterCommon* pwcp);

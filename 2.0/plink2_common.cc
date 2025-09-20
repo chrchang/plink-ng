@@ -2615,6 +2615,194 @@ uint32_t AllGenoEqual(const uintptr_t* genoarr, uint32_t sample_ct) {
   return !bzhi_max(genoarr[word_ct_m1] ^ match_word, 2 * remainder);
 }
 
+void InterleavedInvert(const uintptr_t* __restrict interleaved_set, uint32_t sample_ctv2, uintptr_t* __restrict genovec) {
+  const uintptr_t twovec_ct = sample_ctv2 / 2;
+#ifdef __LP64__
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW* interleaved_set_iter = R_CAST(const VecW*, interleaved_set);
+  VecW* genovvec_iter = R_CAST(VecW*, genovec);
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const VecW set_vvec = *interleaved_set_iter++;
+    const VecW set_first_lo = set_vvec & m1;
+    const VecW set_second_hi = vecw_and_notfirst(m1, set_vvec);
+    const VecW genovvec_first = *genovvec_iter;
+    // Flip high bit iff (low geno bit is unset) & interleaved_set.
+    *genovvec_iter = genovvec_first ^ vecw_slli(vecw_and_notfirst(genovvec_first, set_first_lo), 1);
+    ++genovvec_iter;
+    const VecW genovvec_second = *genovvec_iter;
+    *genovvec_iter = genovvec_second ^ vecw_and_notfirst(vecw_slli(genovvec_second, 1), set_second_hi);
+    ++genovvec_iter;
+  }
+  if (sample_ctv2 & 1) {
+    const VecW set_vvec = *interleaved_set_iter;
+    const VecW set_first_lo = set_vvec & m1;
+    const VecW genovvec_first = *genovvec_iter;
+    *genovvec_iter = genovvec_first ^ vecw_slli(vecw_and_notfirst(genovvec_first, set_first_lo), 1);
+  }
+#else
+  const uintptr_t* interleaved_set_iter = interleaved_set;
+  uintptr_t* genovec_iter = genovec;
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const uintptr_t set_word = *interleaved_set_iter++;
+    const uintptr_t set_first_lo = set_word & kMask5555;
+    const uintptr_t set_second_hi = (~kMask5555) & set_word;
+    const uintptr_t genoword_first = *genovec_iter;
+    *genovec_iter = genoword_first ^ (((~genoword_first) & set_first_lo) << 1);
+    ++genovec_iter;
+    const uintptr_t genoword_second = *genovec_iter;
+    *genovec_iter = genoword_second ^ ((~(genoword_second << 1)) & set_second_hi);
+    ++genovec_iter;
+  }
+  if (sample_ctv2 & 1) {
+    const uintptr_t set_word = *interleaved_set_iter;
+    const uintptr_t set_first_lo = set_word & kMask5555;
+    const uintptr_t genoword_first = *genovec_iter;
+    *genovec_iter = genoword_first ^ (((~genoword_first) & set_first_lo) << 1);
+  }
+#endif
+}
+
+uint32_t InterleavedSubsetIs03(const uintptr_t* genovec, const uintptr_t* interleaved_set, uint32_t sample_ctv2) {
+  const uintptr_t twovec_ct = sample_ctv2 / 2;
+#ifdef __LP64__
+  const VecU16 m1 = VCONST_S(0x5555);
+  const VecU16* interleaved_set_iter = R_CAST(const VecU16*, interleaved_set);
+  const VecU16* genovvec_iter = R_CAST(const VecU16*, genovec);
+  // This is expected to return true, so it's reasonable to bitwise-or all
+  // intermediate failures and only check for a nonzero bit at the end.
+  VecU16 result_vvec = vecu16_setzero();
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const VecU16 set_vvec = *interleaved_set_iter++;
+    const VecU16 set_first_lo = set_vvec & m1;
+    const VecU16 set_second_hi = vecu16_and_notfirst(m1, set_vvec);
+    const VecU16 genovvec_first = *genovvec_iter++;
+    const VecU16 genovvec_second = *genovvec_iter++;
+    result_vvec |= (genovvec_first ^ vecu16_srli(genovvec_first, 1)) & set_first_lo;
+    result_vvec |= (vecu16_slli(genovvec_second, 1) ^ genovvec_second) & set_second_hi;
+  }
+  if (sample_ctv2 & 1) {
+    const VecU16 set_vvec = *interleaved_set_iter;
+    const VecU16 set_first_lo = set_vvec & m1;
+    const VecU16 genovvec_first = *genovvec_iter;
+    result_vvec |= (genovvec_first ^ vecu16_srli(genovvec_first, 1)) & set_first_lo;
+  }
+  const VecU16 zero_vvec = vecu16_setzero();
+  return vecu16s_are_equal(result_vvec, zero_vvec);
+#else
+  const uintptr_t* interleaved_set_iter = interleaved_set;
+  const uintptr_t* genovec_iter = genovec;
+  uintptr_t result_word = 0;
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const uintptr_t set_word = *interleaved_set_iter++;
+    const uintptr_t set_first_lo = set_word & kMask5555;
+    const uintptr_t set_second_hi = (~kMask5555) & set_word;
+    const uintptr_t genoword_first = *genovec_iter++;
+    const uintptr_t genoword_second = *genovec_iter++;
+    result_word |= (genoword_first ^ (genoword_first >> 1)) & set_first_lo;
+    result_word |= ((genoword_second << 1) ^ genoword_second) & set_second_hi;
+  }
+  if (sample_ctv2 & 1) {
+    const uintptr_t set_word = *interleaved_set_iter;
+    const uintptr_t set_first_lo = set_word & kMask5555;
+    const uintptr_t genoword_first = *genovec_iter;
+    result_word |= (genoword_first ^ (genoword_first >> 1)) & set_first_lo;
+  }
+  return (result_word == 0);
+#endif
+}
+
+uint32_t InterleavedSubsetIs23(const uintptr_t* genovec, const uintptr_t* interleaved_set, uint32_t sample_ctv2) {
+  const uintptr_t twovec_ct = sample_ctv2 / 2;
+#ifdef __LP64__
+  const VecU16 m1 = VCONST_S(0x5555);
+  const VecU16* interleaved_set_iter = R_CAST(const VecU16*, interleaved_set);
+  const VecU16* genovvec_iter = R_CAST(const VecU16*, genovec);
+  // This is expected to return true, so it's reasonable to bitwise-or all
+  // intermediate failures and only check for a nonzero bit at the end.
+  VecU16 result_vvec = vecu16_setzero();
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const VecU16 set_vvec = *interleaved_set_iter++;
+    const VecU16 set_first_hi = vecu16_slli(set_vvec & m1, 1);
+    const VecU16 set_second_hi = vecu16_and_notfirst(m1, set_vvec);
+    result_vvec |= vecu16_and_notfirst(*genovvec_iter++, set_first_hi);
+    result_vvec |= vecu16_and_notfirst(*genovvec_iter++, set_second_hi);
+  }
+  if (sample_ctv2 & 1) {
+    const VecU16 set_vvec = *interleaved_set_iter;
+    const VecU16 set_first_hi = vecu16_slli(set_vvec & m1, 1);
+    result_vvec |= vecu16_and_notfirst(*genovvec_iter++, set_first_hi);
+  }
+  const VecU16 zero_vvec = vecu16_setzero();
+  return vecu16s_are_equal(result_vvec, zero_vvec);
+#else
+  const uintptr_t* interleaved_set_iter = interleaved_set;
+  const uintptr_t* genovec_iter = genovec;
+  uintptr_t result_word = 0;
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const uintptr_t set_word = *interleaved_set_iter++;
+    const uintptr_t set_first_hi = (set_word & kMask5555) << 1;
+    const uintptr_t set_second_hi = (~kMask5555) & set_word;
+    result_word |= (~(*genovec_iter++)) & set_first_hi;
+    result_word |= (~(*genovec_iter++)) & set_second_hi;
+  }
+  if (sample_ctv2 & 1) {
+    const uintptr_t set_word = *interleaved_set_iter;
+    const uintptr_t set_first_hi = (set_word & kMask5555) << 1;
+    result_word |= (~(*genovec_iter)) & set_first_hi;
+  }
+  return (result_word == 0);
+#endif
+}
+
+uint32_t InterleavedSubsetAllMissing(const uintptr_t* genovec, const uintptr_t* interleaved_set, uint32_t sample_ctv2) {
+  const uintptr_t twovec_ct = sample_ctv2 / 2;
+#ifdef __LP64__
+  const VecU16 m1 = VCONST_S(0x5555);
+  const VecU16* interleaved_set_iter = R_CAST(const VecU16*, interleaved_set);
+  const VecU16* genovvec_iter = R_CAST(const VecU16*, genovec);
+  // This is expected to return true, so it's reasonable to bitwise-or all
+  // intermediate failures and only check for a nonzero bit at the end.
+  VecU16 result_vvec = vecu16_setzero();
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const VecU16 set_vvec = *interleaved_set_iter++;
+    const VecU16 set_first_lo = set_vvec & m1;
+    const VecU16 set_second_hi = vecu16_and_notfirst(m1, set_vvec);
+    const VecU16 set_first = set_first_lo | vecu16_slli(set_first_lo, 1);
+    const VecU16 set_second = set_second_hi | vecu16_srli(set_second_hi, 1);
+    result_vvec |= set_first & (set_first ^ (*genovvec_iter++));
+    result_vvec |= set_second & (set_second ^ (*genovvec_iter++));
+  }
+  if (sample_ctv2 & 1) {
+    const VecU16 set_vvec = *interleaved_set_iter;
+    const VecU16 set_first_lo = set_vvec & m1;
+    const VecU16 set_first = set_first_lo | vecu16_slli(set_first_lo, 1);
+    result_vvec |= set_first & (set_first ^ (*genovvec_iter));
+  }
+  const VecU16 zero_vvec = vecu16_setzero();
+  return vecu16s_are_equal(result_vvec, zero_vvec);
+#else
+  const uintptr_t* interleaved_set_iter = interleaved_set;
+  const uintptr_t* genovec_iter = genovec;
+  uintptr_t result_word = 0;
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const uintptr_t set_word = *interleaved_set_iter++;
+    const uintptr_t set_first_lo = set_word & kMask5555;
+    const uintptr_t set_second_hi = (~kMask5555) & set_word;
+    const uintptr_t set_first = set_first_lo * 3;
+    const uintptr_t set_second = set_second_hi | (set_second_hi >> 1);
+    result_word |= set_first & (set_first ^ (*genovec_iter++));
+    result_word |= set_second & (set_first ^ (*genovec_iter++));
+  }
+  if (sample_ctv2 & 1) {
+    const uintptr_t set_word = *interleaved_set_iter;
+    const uintptr_t set_first_lo = set_word & kMask5555;
+    const uintptr_t set_first = set_first_lo * 3;
+    result_word |= set_first & (set_first ^ (*genovec_iter));
+  }
+  return (result_word == 0);
+#endif
+}
+
 void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec) {
   const uintptr_t twovec_ct = geno_vec_ct / 2;
 #ifdef __LP64__

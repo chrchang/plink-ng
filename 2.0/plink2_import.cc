@@ -12366,6 +12366,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
           ZeroTrailingNyps(sample_ct, genovec);
           if (dosage_ct) {
             BiallelicDosage16Invert(dosage_ct, dosage_main);
+            // currently no code path here where dosage_ct < dphase_ct
             if (dphase_ct) {
               BiallelicDphase16Invert(dphase_ct, dphase_delta);
             }

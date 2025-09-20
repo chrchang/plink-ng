@@ -1555,6 +1555,50 @@ void BiallelicDphase16Invert(uint32_t dphase_ct, int16_t* dphase_delta) {
   }
 }
 
+void BiallelicDosage16InvertSubset(const uintptr_t* dosage_present, const uintptr_t* subset, uint32_t dosage_ct, uint16_t* dosage_main_iter) {
+  uint16_t* dosage_main_end = &(dosage_main_iter[dosage_ct]);
+  for (uint32_t widx = 0; ; ++widx) {
+    uintptr_t dosage_present_word = dosage_present[widx];
+    if (!dosage_present_word) {
+      continue;
+    }
+    const uintptr_t subset_word = subset[widx];
+    do {
+      const uintptr_t shifted_bit = dosage_present_word & (-dosage_present_word);
+      if (shifted_bit & subset_word) {
+        *dosage_main_iter = 32768 - (*dosage_main_iter);
+      }
+      ++dosage_main_iter;
+      dosage_present_word ^= shifted_bit;
+    } while (dosage_present_word);
+    if (dosage_main_iter == dosage_main_end) {
+      return;
+    }
+  }
+}
+
+void BiallelicDphase16InvertSubset(const uintptr_t* dphase_present, const uintptr_t* subset, uint32_t dphase_ct, int16_t* dphase_delta_iter) {
+  int16_t* dphase_delta_end = &(dphase_delta_iter[dphase_ct]);
+  for (uint32_t widx = 0; ; ++widx) {
+    uintptr_t dphase_present_word = dphase_present[widx];
+    if (!dphase_present_word) {
+      continue;
+    }
+    const uintptr_t subset_word = subset[widx];
+    do {
+      const uintptr_t shifted_bit = dphase_present_word & (-dphase_present_word);
+      if (shifted_bit & subset_word) {
+        *dphase_delta_iter = -(*dphase_delta_iter);
+      }
+      ++dphase_delta_iter;
+      dphase_present_word ^= shifted_bit;
+    } while (dphase_present_word);
+    if (dphase_delta_iter == dphase_delta_end) {
+      return;
+    }
+  }
+}
+
 #if defined(USE_SSE2) && !defined(USE_AVX2)
 void PackWordsToHalfwordsInvmatch(const uintptr_t* __restrict genoarr, uintptr_t inv_match_word, uint32_t inword_ct, uintptr_t* __restrict dst) {
   // In shuffle8 case, this takes ~30% less time than a

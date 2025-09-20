@@ -1611,7 +1611,6 @@ PglErr TextAdvance(TextStream* txs_ptr) {
       }
       // pthread_cond_signal(consumer_progress_condvarp);
       pthread_mutex_unlock(sync_mutexp);
-      // printf("consuming %lx..%lx\n", (uintptr_t)(*consume_iterp), (uintptr_t)rlsp->consume_stop);
       return kPglRetSuccess;
     }
     // We've processed all the consume-ready bytes...

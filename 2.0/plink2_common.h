@@ -999,6 +999,14 @@ HEADER_INLINE PglErr GetOrAddChrCodeDestructive(const char* file_descrip, uintpt
 // Assumes sample_ct positive.  Does not require trailing bits to be clear.
 uint32_t AllGenoEqual(const uintptr_t* genoarr, uint32_t sample_ct);
 
+void InterleavedInvert(const uintptr_t* __restrict interleaved_set, uint32_t sample_ctv2, uintptr_t* __restrict genovec);
+
+uint32_t InterleavedSubsetIs03(const uintptr_t* genovec, const uintptr_t* interleaved_set, uint32_t sample_ctv2);
+
+uint32_t InterleavedSubsetIs23(const uintptr_t* genovec, const uintptr_t* interleaved_set, uint32_t sample_ctv2);
+
+uint32_t InterleavedSubsetAllMissing(const uintptr_t* genovec, const uintptr_t* interleaved_set, uint32_t sample_ctv2);
+
 // zeroes out samples not in the mask
 void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec);
 
