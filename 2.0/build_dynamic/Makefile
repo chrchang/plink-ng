@@ -88,7 +88,7 @@ CXXFLAGS += -O2
 
 # Old BLASFLAGS=-llapack -lblas -lcblas -latlas fails on Ubuntu 22.04/24.04 (lcblas/Atlas gone).
 
-# Fixed: BLASFLAGS=-llapacke -llapack -lopenblas 
+# Fixed: BLASFLAGS=-llapacke -llapack -lopenblas
 
 # Install: libopenblas-dev liblapack-dev liblapacke-dev zlib1g-dev
 
@@ -137,7 +137,7 @@ ifeq ($(UNAME), Darwin)
   endif
   BLASFLAGS=-framework Accelerate
   CFLAGS += -I/usr/local/include
-  CXXFLAGS += -I/usr/local/include -stdlib=libc++ #-DACCELERATE_NEW_LAPACK
+  CXXFLAGS += -I/usr/local/include -stdlib=libc++ -DACCELERATE_NEW_LAPACK
   LINKFLAGS += -L/usr/local/lib
   LIBTOOL=libtool
   STATIC=-static
