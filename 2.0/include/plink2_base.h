@@ -230,6 +230,8 @@ namespace plink2 {
 // RoundUpPow2()...), or (ii) it allows a useful static_assert to be inserted
 // for a hardcoded constant.
 #  if __cplusplus >= 201103L
+#    define HAS_CONSTEXPR
+#    define PREFER_CONSTEXPR constexpr
 #    define HEADER_CINLINE constexpr
 #    define CSINLINE static constexpr
 #    if __cplusplus > 201103L
@@ -240,6 +242,7 @@ namespace plink2 {
 #      define CSINLINE2 static inline
 #    endif
 #  else
+#    define PREFER_CONSTEXPR const
 #    define HEADER_CINLINE inline
 #    define HEADER_CINLINE2 inline
 #    define CSINLINE static inline
@@ -253,6 +256,7 @@ namespace plink2 {
 #    endif
 #  endif
 #else
+#  define PREFER_CONSTEXPR const
 #  define HEADER_INLINE static inline
 #  define HEADER_CINLINE static inline
 #  define HEADER_CINLINE2 static inline
@@ -3720,7 +3724,7 @@ HEADER_INLINE char* strcpya(char* __restrict dst, const void* __restrict src) {
   return memcpya(dst, src, slen);
 }
 
-#if defined(__LP64__) && (__cplusplus >= 201103L)
+#if __cplusplus >= 201103L
 constexpr uint32_t CompileTimeSlen(const char* k_str) {
   return k_str[0]? (1 + CompileTimeSlen(&(k_str[1]))) : 0;
 }
