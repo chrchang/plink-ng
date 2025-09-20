@@ -24,24 +24,25 @@ jobs:
         run: |
           # Get latest commit on origin/master
           LATEST=$(git rev-parse origin/master)
-          # Get last successful workflow commit
+          echo "LATEST commit: $LATEST"
+
+          # Get last successful workflow commit; default to empty if none
           LAST=$(gh run list \
             --workflow="PLINK2 DYNAMIC BUILD TESTS - AUTO" \
             --branch master \
             --status success \
             --limit 1 \
             --json headSha \
-            --jq '.[0].headSha')
-
-          echo "LATEST commit: $LATEST"
+            --jq '.[0].headSha' || echo "")
           echo "LAST successful workflow commit: $LAST"
 
-          if [ "$LATEST" = "$LAST" ]; then
-            echo "No new commits."
-            echo "new_commits=false" >> $GITHUB_OUTPUT
-          else
+          # Decide if there are new commits
+          if [ -z "$LAST" ] || [ "$LATEST" != "$LAST" ]; then
             echo "New commits detected."
             echo "new_commits=true" >> $GITHUB_OUTPUT
+          else
+            echo "No new commits."
+            echo "new_commits=false" >> $GITHUB_OUTPUT
 
   # Step 2: Matrix job to run hello.sh
   run_hello:
