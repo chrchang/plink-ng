@@ -1,25 +1,6 @@
 #!/bin/bash
 set -e
 
-echo "Checking for new commits..."
-LATEST_COMMIT=$(git rev-parse origin/master)
-echo "Latest commit on master: $LATEST_COMMIT"
-
-LAST_RUN_COMMIT=$(gh run list \
-  --workflow="PLINK2 DYNAMIC BUILD TESTS UBUNTU - AUTO" \
-  --branch master \
-  --status success \
-  --limit 1 \
-  --json headSha \
-  --jq '.[0].headSha')
-
-echo "Last successful workflow commit: $LAST_RUN_COMMIT"
-
-if [ "$LATEST_COMMIT" = "$LAST_RUN_COMMIT" ]; then
-  echo "No new commits since last successful run. Exiting cleanly."
-  exit 0
-fi
-
 echo "Setting up Python environment..."
 python3 -m venv venv
 source venv/bin/activate

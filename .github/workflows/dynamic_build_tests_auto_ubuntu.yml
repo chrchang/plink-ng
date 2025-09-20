@@ -13,16 +13,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full commit history needed
+          fetch-depth: 0  # needed for full commit history
 
       - name: Install GitHub CLI
         run: |
           sudo apt-get update
           sudo apt-get install -y gh
 
-      - name: Run Plink2 build/test script
+      - name: Check for new commits and run Plink2 build/test
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          chmod +x 2.0/dynamic_build/CI-SCRIPTS/autocheckcommits_dynamicbuild_plink2tests_template.sh
-          2.0/dynamic_build/CI-SCRIPTS/autocheckcommits_dynamicbuild_plink2tests_template.sh
+          echo "Checking for new commits..."
+          LATEST_COMMIT=$(git rev-parse origin/master)
+          echo "Latest commit on master: $LATEST_COMMIT"
+
+          LAST_RUN_COMMIT=$(gh run list \
+            --workflow="PLINK2 DYNAMIC BUILD TESTS UBUNTU - AUTO" \
+            --branch master \
+            --status success \
+            --limit 1 \
+            --json headSha \
+            --jq '.[0].headSha')
+
+          echo "Last successful workflow commit: $LAST_RUN_COMMIT"
+
+          if [ "$LATEST_COMMIT" = "$LAST_RUN_COMMIT" ]; then
+            echo "No new commits since last successful run. Exiting cleanly."
+            exit 0
+          fi
+
+          echo "New commit detected, running Plink2 build/test script..."
+          chmod +x 2.0/build_dynamic/CI-SCRIPTS/dynamicbuild_plink2tests_template.sh
+          2.0/build_dynamic/CI-SCRIPTS/dynamicbuild_plink2tests_template.sh
