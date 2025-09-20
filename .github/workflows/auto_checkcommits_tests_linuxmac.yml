@@ -47,7 +47,7 @@ jobs:
           fi
 
   # Step 2: Matrix job to run hello.sh
-  run_hello:
+  run_dynamicbuild_plink2tests:
     needs: check_commits
     if: needs.check_commits.outputs.new_commits == 'true'
     runs-on: ${{ matrix.os }}
@@ -73,7 +73,7 @@ jobs:
             zlib1g-dev \
             unzip
 
-      - name: Run hello.sh
+      - name: Run dynamicbuild_plink2tests_linuxmac.sh
         run: |
           chmod +x 2.0/build_dynamic/CI-SCRIPTS/dynamicbuild_plink2tests_linuxmac.sh
           2.0/build_dynamic/CI-SCRIPTS/dynamicbuild_plink2tests_linuxmac.sh
