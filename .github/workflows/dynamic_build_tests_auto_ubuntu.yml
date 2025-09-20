@@ -6,7 +6,7 @@ on:
     - cron: '0 0 * * 0'  # every Sunday at 00:00 UTC
   push:
     branches:
-      - main
+      - master
 
 jobs:
   test_plink:
@@ -28,13 +28,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}   # GitHub-provided token
         run: |
-          LATEST_COMMIT=$(git rev-parse origin/main)
-          echo "Latest commit on main: $LATEST_COMMIT"
+          LATEST_COMMIT=$(git rev-parse origin/master)
+          echo "Latest commit on master: $LATEST_COMMIT"
 
           # Get last successful workflow SHA
           LAST_RUN_COMMIT=$(gh run list \
             --workflow="PLINK2 DYNAMIC BUILD TESTS UBUNTU" \
-            --branch main \
+            --branch master \
             --status success \
             --limit 1 \
             --json headSha \
