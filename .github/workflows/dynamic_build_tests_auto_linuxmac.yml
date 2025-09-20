@@ -37,13 +37,7 @@ jobs:
           
           echo "LAST successful workflow commit: $LAST"
 
-          # Decide if there are new commits
-          if [ "$LATEST" != "$LAST" ]; then
-            echo "New commits detected."
-            echo "new_commits=true" >> $GITHUB_OUTPUT
-          else
-            echo "No new commits."
-            echo "new_commits=false" >> $GITHUB_OUTPUT
+
 
   # Step 2: Matrix job to run hello.sh
   run_hello:
