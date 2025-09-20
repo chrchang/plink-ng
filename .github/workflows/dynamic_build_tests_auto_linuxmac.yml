@@ -23,11 +23,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Get latest commit
-          LATEST=$(git rev-parse origin/master)
-          echo "LATEST commit: $LATEST"
+          LATEST_MASTER=$(git rev-parse origin/master)
+          echo "LATEST MASTER commit: $LATEST_MASTER"
 
           # Get last successful workflow commit
-          LAST_RUN_COMMIT=$(gh run list \
+          LAST_WORKFLOW=$(gh run list \
             --workflow="PLINK2 DYNAMIC BUILD TESTS - AUTO" \
             --branch master \
             --status success \
@@ -35,10 +35,10 @@ jobs:
             --json headSha \
             --jq '.[0].headSha')
           
-          echo "LAST successful workflow commit: $LAST"
+          echo "LAST WORKFLOW successful workflow commit: $LAST_WORKFLOW"
 
           # Decide if there are new commits
-          if [ "$LATEST" != "$LAST" ]; then
+          if [ "$LATEST_MASTER" != "$LAST_WORKFLOW" ]; then
             echo "New commits detected."
             echo "new_commits=true" >> $GITHUB_OUTPUT
           else
