@@ -3,7 +3,7 @@ name: PLINK2 DYNAMIC BUILD TESTS - AUTO
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * 0'
+    - cron: '0 0 * * 0'  # every Sunday at midnight
 
 jobs:
   # Step 1: Single commit check job
@@ -22,7 +22,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Get latest commit on origin/master
           LATEST=$(git rev-parse origin/master)
+          # Get last successful workflow commit
           LAST=$(gh run list \
             --workflow="PLINK2 DYNAMIC BUILD TESTS - AUTO" \
             --branch master \
@@ -30,7 +32,10 @@ jobs:
             --limit 1 \
             --json headSha \
             --jq '.[0].headSha')
-          
+
+          echo "LATEST commit: $LATEST"
+          echo "LAST successful workflow commit: $LAST"
+
           if [ "$LATEST" = "$LAST" ]; then
             echo "No new commits."
             echo "new_commits=false" >> $GITHUB_OUTPUT
@@ -38,8 +43,8 @@ jobs:
             echo "New commits detected."
             echo "new_commits=true" >> $GITHUB_OUTPUT
 
-  # Step 2: Matrix build/test job
-  test_plink2:
+  # Step 2: Matrix job to run hello.sh
+  run_hello:
     needs: check_commits
     if: needs.check_commits.outputs.new_commits == 'true'
     runs-on: ${{ matrix.os }}
@@ -52,7 +57,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run Plink2 build/test script
+      - name: Run hello.sh
         run: |
           chmod +x 2.0/build_dynamic/CI-SCRIPTS/hello.sh
           2.0/build_dynamic/CI-SCRIPTS/hello.sh
