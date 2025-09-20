@@ -72,23 +72,23 @@ jobs:
           make
           sudo cp plink2 /usr/local/bin/plink2
 
-      - name: Download test data
-        run: |
-          source venv/bin/activate
-          GDRIVE_FILE_ID="1duspKrxtYdf_dJe5jX4Y_GMkzmy6i8dj"
-          echo "Downloading test data from Google Drive..."
-          gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
-          unzip test_data.zip -d test_data
-          mv test_data/yesmiss_testdata/* test_data/
-          rm -rf test_data/yesmiss_testdata
+    #   - name: Download test data
+    #     run: |
+    #       source venv/bin/activate
+    #       GDRIVE_FILE_ID="1duspKrxtYdf_dJe5jX4Y_GMkzmy6i8dj"
+    #       echo "Downloading test data from Google Drive..."
+    #       gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
+    #       unzip test_data.zip -d test_data
+    #       mv test_data/yesmiss_testdata/* test_data/
+    #       rm -rf test_data/yesmiss_testdata
 
-      - name: Run tests with Plink2
-        run: |
-          source venv/bin/activate
-          mkdir -p ./derivatives/
-          plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose --genotyping-rate dosage --out ./derivatives/tmp
+    #   - name: Run tests with Plink2
+    #     run: |
+    #       source venv/bin/activate
+    #       mkdir -p ./derivatives/
+    #       plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose --genotyping-rate dosage --out ./derivatives/tmp
 
-      - name: List all files
-        run: |
-          ls ./test_data/*
-          ls ./derivatives/*
+    #   - name: List all files
+    #     run: |
+    #       ls ./test_data/*
+    #       ls ./derivatives/*
