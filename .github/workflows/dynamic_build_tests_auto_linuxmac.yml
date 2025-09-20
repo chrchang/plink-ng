@@ -26,14 +26,19 @@ jobs:
           LATEST=$(git rev-parse origin/master)
           echo "LATEST commit: $LATEST"
 
-          # Get last successful workflow commit; default to empty if none
+          # Get last successful workflow commit
           LAST=$(gh run list \
             --workflow="PLINK2 DYNAMIC BUILD TESTS - AUTO" \
             --branch master \
             --status success \
             --limit 1 \
             --json headSha \
-            --jq '.[0].headSha' || echo "")
+            --jq '.[0].headSha')
+
+          # Fallback if LAST is empty
+          if [ -z "$LAST" ]; then
+            LAST=""
+          fi
           echo "LAST successful workflow commit: $LAST"
 
           # Decide if there are new commits
