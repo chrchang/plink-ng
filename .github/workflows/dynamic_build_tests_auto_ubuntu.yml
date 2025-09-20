@@ -1,4 +1,4 @@
-name: PLINK2 DYNAMIC BUILD TESTS UBUNTU
+name: PLINK2 DYNAMIC BUILD TESTS UBUNTU - AUTO
 
 on:
   workflow_dispatch:   # manual trigger
@@ -32,7 +32,7 @@ jobs:
           echo "Latest commit on master: $LATEST_COMMIT"
 
           LAST_RUN_COMMIT=$(gh run list \
-            --workflow="dynamic_build_tests_ubuntu.yml" \
+            --workflow="PLINK2 DYNAMIC BUILD TESTS UBUNTU - AUTO" \
             --branch master \
             --status success \
             --limit 1 \
