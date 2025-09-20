@@ -1,0 +1,58 @@
+name: PLINK2 DYNAMIC BUILD TESTS - AUTO
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'
+
+jobs:
+  # Step 1: Single commit check job
+  check_commits:
+    runs-on: ubuntu-latest
+    outputs:
+      new_commits: ${{ steps.commit_check.outputs.new_commits }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commits
+        id: commit_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST=$(git rev-parse origin/master)
+          LAST=$(gh run list \
+            --workflow="PLINK2 DYNAMIC BUILD TESTS - AUTO" \
+            --branch master \
+            --status success \
+            --limit 1 \
+            --json headSha \
+            --jq '.[0].headSha')
+          
+          if [ "$LATEST" = "$LAST" ]; then
+            echo "No new commits."
+            echo "new_commits=false" >> $GITHUB_OUTPUT
+          else
+            echo "New commits detected."
+            echo "new_commits=true" >> $GITHUB_OUTPUT
+
+  # Step 2: Matrix build/test job
+  test_plink2:
+    needs: check_commits
+    if: needs.check_commits.outputs.new_commits == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Plink2 build/test script
+        run: |
+          chmod +x 2.0/build_dynamic/CI-SCRIPTS/hello.sh
+          2.0/build_dynamic/CI-SCRIPTS/hello.sh
