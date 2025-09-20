@@ -4,9 +4,9 @@ on:
   workflow_dispatch:   # manual trigger
   schedule:           # weekly trigger
     - cron: '0 0 * * 0'  # every Sunday at 00:00 UTC
-  push:
-    branches:
-      - master
+#   push:
+#     branches:
+#       - master
 
 jobs:
   test_plink:
