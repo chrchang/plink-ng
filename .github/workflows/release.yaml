@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: [9, 10, 11, 12, 13]
+        python: [10, 11, 12, 13, 14]
         os: [ubuntu-latest, macos-latest]
         arch: [x86_64, aarch64, universal2]
         exclude:
@@ -61,7 +61,7 @@ jobs:
     env:
       # The maximum supported version of python that is not
       # "end-of-life," "prerelease," or "feature": https://devguide.python.org/versions
-      job_python_version: "3.13"
+      job_python_version: "3.14"
 
     steps:
       - name: Checkout

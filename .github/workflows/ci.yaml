@@ -12,8 +12,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, macos-latest]
-        python-version: [9, 10, 11, 12, 13]
+        os: [ubuntu-latest, macos-15-intel, macos-latest]
+        python-version: [10, 11, 12, 13, 14]
 
     steps:
       - name: Checkout
@@ -43,9 +43,9 @@ jobs:
 
       - name: Test against oldest supported numpy version
         working-directory: ./2.0/Python
-        if: matrix.python-version <= 9 && matrix.os == 'ubuntu-latest'
+        if: matrix.python-version == 10
         run: |
-          pip install --force-reinstall --no-cache-dir 'numpy==1.19.3'
+          pip install --force-reinstall --no-cache-dir 'numpy==1.21.3'
           pytest tests/
 
       - name: Test against newest numpy version
@@ -62,7 +62,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         # The minimum and maximum supported versions of python that are not
         # "end-of-life," "prerelease," or "feature": https://devguide.python.org/versions
-        python-version: [9, 13]
+        python-version: [10, 14]
 
     steps:
       - name: Checkout
