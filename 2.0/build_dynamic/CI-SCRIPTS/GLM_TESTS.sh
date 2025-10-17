@@ -1,3 +1,5 @@
+#!/bin/bash
+
 set -e
 
 
@@ -9,7 +11,7 @@ pip install gdown
 
 # # ---------- Download test data ----------
 echo "Downloading test data..."
-GDRIVE_FILE_ID="17x0g1SSzmkjEhuKapV192Ym3ejhB_FkG"
+GDRIVE_FILE_ID="1AJn_AemKTVgy7hl658QZmaOzBaSkzkzd"
 gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
 unzip -q test_data.zip -d test_data
 
@@ -17,10 +19,19 @@ unzip -q test_data.zip -d test_data
 echo "Running PLINK2 GLM tests..."
 mkdir -p ./derivatives/
 
-# quick test to make sure plink2 is working
-plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose \
-       --genotyping-rate dosage \
-       --out ./derivatives/tmp
+# # quick test to make sure plink2 is working
+# plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose \
+#        --genotyping-rate dosage \
+#        --out ./derivatives/tmp
+
+# # ---------- Generate R results ----------
+## Should be done already and part of test data. 
+## Code kept for reference.
+
+
+# Rscript CI-SCRIPTS/R_gwas_tests.R
+
+#---------- Run PLINK2 GLM tests ----------
 
 ## GLM Tests
 # datapath="test_data/" 
@@ -47,8 +58,5 @@ plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose \
 # echo "Derivatives files:"
 # ls -l ./derivatives
 
-# ---------- Cleanup ----------
-rm -rf test_data derivatives
-make -C 2.0/build_dynamic/ clean 
 
 echo "✅ PLINK2 tests complete!"

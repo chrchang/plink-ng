@@ -82,3 +82,8 @@ jobs:
         run: |
           chmod +x 2.0/build_dynamic/CI-SCRIPTS/GLM_TESTS.sh
           2.0/build_dynamic/CI-SCRIPTS/GLM_TESTS.sh
+
+      - name: Cleanup
+        run: |
+          chmod +x 2.0/build_dynamic/CI-SCRIPTS/CLEANUP.sh
+          2.0/build_dynamic/CI-SCRIPTS/CLEANUP.sh
