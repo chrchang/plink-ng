@@ -1,13 +1,6 @@
 #!/bin/bash
 set -e
 
-echo "Setting up Python environment..."
-python3 -m venv venv
-source venv/bin/activate
-python3 -m pip install --upgrade pip
-pip install gdown
-
-
 echo "Building Plink2..."
 
 ## goto build directory

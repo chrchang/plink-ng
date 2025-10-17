@@ -1,5 +1,12 @@
 set -e
 
+
+echo "Setting up Python environment..."
+python3 -m venv venv
+source venv/bin/activate
+python3 -m pip install --upgrade pip
+pip install gdown
+
 # # ---------- Download test data ----------
 echo "Downloading test data..."
 GDRIVE_FILE_ID="17x0g1SSzmkjEhuKapV192Ym3ejhB_FkG"
