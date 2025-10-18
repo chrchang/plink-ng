@@ -11,13 +11,13 @@ pip install gdown
 
 # # ---------- Download test data ----------
 echo "Downloading test data..."
-GDRIVE_FILE_ID="1AJn_AemKTVgy7hl658QZmaOzBaSkzkzd"
+GDRIVE_FILE_ID="1EigsYulIrMZKOl_1eWVTPjgb-0PGPJmu"
 gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
 unzip -q test_data.zip -d test_data
 
 # ---------- Run PLINK2 tests ----------
 echo "Running PLINK2 GLM tests..."
-mkdir -p ./derivatives/
+mkdir -p ./results/
 
 # # quick test to make sure plink2 is working
 # plink2 --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose \
@@ -33,23 +33,34 @@ mkdir -p ./derivatives/
 
 #---------- Run PLINK2 GLM tests ----------
 
-## GLM Tests
-# datapath="test_data/" 
-# pfile="1kgp3_50k_nomiss_Av_nonintdose"
-# phenotype="ybool"
-# phenofile="1kgp3_50k_nomiss_Av_nonintdose_combined_phenocov.csv"
-# d1="" #--thin-indiv-count $((1000))"
-# d2="--threads 4"
+## Run GLM
+## Logistic - no firth, all samples, and one covariate
 
-# plink2 --glm \
-#   --pfile "$datapath$pfile" \
-#   --allow-extra-chr \
-#   --pheno "$datapath$phenofile" \
-#   --pheno-name "$phenotype" \
-#   --covar "$datapath$phenofile" \
-#   --covar-name "COV_1" "COV_2" "COV_3"\
-#   $d1 $d2 \
-#   --out "./derivatives/${phenofile}_${phenotype}_glm"
+datapath="test_data/" 
+pfile="1kgp3_50k_nomiss_Av_nonintdose_recode_varIDs"
+phenotype="ybool"
+nofirth="no-firth"
+phenofile="1kgp3_50k_nomiss_Av_nonintdose_combined_phenocov.csv"
+cov="COV_1"
+d1="" #--thin-indiv-count $((1000))"
+d2="--threads 4"
+
+plink2 --glm $nofirth hide-covar \
+  --pfile "$datapath$pfile" \
+  --allow-extra-chr \
+  --pheno "$datapath$phenofile" \
+  --pheno-name "$phenotype" \
+  --covar "$datapath$phenofile" \
+  --covar-name $cov\
+  $d1 $d2 \
+  --out "./results/${phenofile}_${phenotype}_${nofirth}_glm"
+
+## Compare to R results
+
+python CI-SCRIPTS/compare_plink2_R_results.py \
+  "results/${phenofile}_${phenotype}_${nofirth}_glm.assoc.logistic" \
+  "test_data/1kgp3_50k_nomiss_Av_nonintdose_ybool_COV_1_glm_logistic_logistic.csv"
+
 
 
 # # ---------- List files ----------

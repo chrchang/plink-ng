@@ -3,7 +3,7 @@ import numpy as np
 import sys
 import re
 
-def compare_plink2_R_glm(plink_file, R_file):
+def COMPARE_GLM_PLINK2_R(plink_file, R_file):
     """
     Compare PLINK 2.0 and R glm regression results (linear or logistic).
     
@@ -76,4 +76,4 @@ if __name__ == "__main__":
     plink_file = sys.argv[1]
     R_file = sys.argv[2]
 
-    corr_beta, corr_p = compare_plink2_R_glm(plink_file, R_file)
+    corr_beta, corr_p = COMPARE_GLM_PLINK2_R(plink_file, R_file)
