@@ -11,7 +11,8 @@ pip install gdown
 
 # # ---------- Download test data ----------
 echo "Downloading test data..."
-GDRIVE_FILE_ID="1EigsYulIrMZKOl_1eWVTPjgb-0PGPJmu"
+
+GDRIVE_FILE_ID="1QIZ0OPnUjnB0mchuCP7xamFk9H2uOGey"
 gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
 unzip -q test_data.zip -d test_data
 
