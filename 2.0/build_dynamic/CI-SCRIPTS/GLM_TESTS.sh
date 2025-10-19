@@ -7,7 +7,7 @@ echo "Setting up Python environment..."
 python3 -m venv venv
 source venv/bin/activate
 python3 -m pip install --upgrade pip
-pip install gdown
+pip install gdown pandas numpy 
 
 # # ---------- Download test data ----------
 echo "Downloading test data..."
