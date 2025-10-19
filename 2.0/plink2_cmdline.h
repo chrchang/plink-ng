@@ -1758,6 +1758,49 @@ PglErr CmdlineParsePhase3(uintptr_t max_default_mib, uintptr_t malloc_size_mib, 
 
 void CleanupPlink2CmdlineMeta(Plink2CmdlineMeta* pcmp);
 
+/*
+ENUM_U31_DEF_START()
+  kCmpExprTypeNoteq,
+  kCmpExprTypeLe,
+  kCmpExprTypeLeq,
+  kCmpExprTypeGe,
+  kCmpExprTypeGeq,
+  kCmpExprTypeEq,
+
+  kCmpExprTypeAnd,
+  kCmpExprTypeOr,
+
+  kCmpExprTypeNot
+ENUM_U31_DEF_END(CmpExprType);
+
+struct CmpExprStruct;
+
+typedef struct CmpExprKSStruct {
+  char* str_value;
+  char* key;
+} CmpExprKS;
+
+typedef struct CmpExprKNStruct {
+  double value;
+  char* key;
+} CmpExprKN;
+
+typedef struct CmpExprJctStruct {
+  struct CmpExprStruct* children[2];
+} CmpExprJct;
+
+typedef union {
+  CmpExprKS ks;
+  CmpExprKN kn;
+  CmpExprJunction jct;
+} CmpExprArgs;
+
+typedef struct CmpExprStruct {
+  CmpExprType etype;
+  CmpExprArgs args;
+} CmpExpr;
+*/
+
 // order is such that (kCmpOperatorEq - x) is the inverse of x
 ENUM_U31_DEF_START()
   kCmpOperatorNoteq,

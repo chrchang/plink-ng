@@ -102,11 +102,11 @@ GlmErr CheckMaxCorrAndVifF(const float* predictors_pmaj, uint32_t predictor_ct, 
   const double sample_ct_m1_d = u31tod(sample_ct - 1);
   const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
   for (uint32_t pred_idx1 = 0; pred_idx1 != predictor_ct; ++pred_idx1) {
-    double* sample_corr_row = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
+    double* sample_cov_row = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
     const float* predictor_dotprod_row = &(predictor_dotprod_buf[pred_idx1 * predictor_ct]);
-    const double covar1_mean_adj = dbl_2d_buf[pred_idx1] * sample_ct_recip;
+    const double pred1_mean_adj = dbl_2d_buf[pred_idx1] * sample_ct_recip;
     for (uint32_t pred_idx2 = 0; pred_idx2 <= pred_idx1; ++pred_idx2) {
-      sample_corr_row[pred_idx2] = (S_CAST(double, predictor_dotprod_row[pred_idx2]) - covar1_mean_adj * dbl_2d_buf[pred_idx2]) * sample_ct_m1_recip;
+      sample_cov_row[pred_idx2] = (S_CAST(double, predictor_dotprod_row[pred_idx2]) - pred1_mean_adj * dbl_2d_buf[pred_idx2]) * sample_ct_m1_recip;
     }
   }
   // now use dbl_2d_buf to store inverse-sqrts, to get to correlation matrix
@@ -116,6 +116,7 @@ GlmErr CheckMaxCorrAndVifF(const float* predictors_pmaj, uint32_t predictor_ct, 
   // invert_symmdef_matrix only cares about bottom left of inverse_corr_buf[]
   for (uint32_t pred_idx1 = 1; pred_idx1 != predictor_ct; ++pred_idx1) {
     const double inverse_stdev1 = dbl_2d_buf[pred_idx1];
+    // convert from covariances to correlations here
     double* corr_row_iter = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
     const double* inverse_stdev2_iter = dbl_2d_buf;
     for (uintptr_t pred_idx2 = 0; pred_idx2 != pred_idx1; ++pred_idx2) {

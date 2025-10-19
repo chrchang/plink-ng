@@ -50,36 +50,42 @@ char* AppendGlmErrstr(GlmErr glm_err, char* write_iter) {
 // * first_predictor_idx should be 1 if first term is constant-1 intercept, 0
 //   otherwise
 // * dbl_2d_buf[n] expected to be sum of predictor row n on input, is destroyed
-// * if corr_buf is not nullptr, lower left is filled with uninverted
-//   correlation matrix on exit
+// * if corr_buf is not nullptr, lower left of (relevant_predictor_ct x
+//   relevant_predictor_ct) body is filled with uninverted correlation matrix
+//   on exit, then the next relevant_predictor_ct elements are inverse-stdevs
+//   of the relevant predictors
 // * lower left of inverse_corr_buf is filled on return
 GlmErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_predictor_idx, uint32_t predictor_ct, uintptr_t sample_ct, double max_corr, double vif_thresh, double* dbl_2d_buf, double* corr_buf, double* inverse_corr_buf, MatrixInvertBuf1* matrix_invert_buf1) {
   // we have dot products, now determine
   //   (dotprod - sum(a)mean(b)) / (N-1)
   // to get small-sample covariance
   const uintptr_t relevant_predictor_ct = predictor_ct - first_predictor_idx;
+  const double sample_ct_recip = 1.0 / u31tod(sample_ct);
+  const double sample_ct_m1_d = u31tod(sample_ct - 1);
+  const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
   if (relevant_predictor_ct == 1) {
     // bugfix (31 Jul 2019): precomputed images are wrong if these aren't
     // initialized
     if (corr_buf) {
       corr_buf[0] = 1.0;
-      corr_buf[1] = 1.0;
+      // bugfix (19 Oct 2025): this was previously initialized incorrectly
+      const double pred1_sum = dbl_2d_buf[first_predictor_idx];
+      const double pred1_mean_adj = dbl_2d_buf[first_predictor_idx] * sample_ct_recip;
+      const double pred1_sample_variance = (predictor_dotprods[first_predictor_idx * predictor_ct] - pred1_mean_adj * pred1_sum) * sample_ct_m1_recip;
+      corr_buf[1] = 1.0 / sqrt(pred1_sample_variance);
     }
     inverse_corr_buf[0] = 1.0;
     return 0;
   }
   const uintptr_t relevant_predictor_ct_p1 = relevant_predictor_ct + 1;
-  const double sample_ct_recip = 1.0 / u31tod(sample_ct);
-  const double sample_ct_m1_d = u31tod(sample_ct - 1);
-  const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
   for (uintptr_t pred_idx1 = 0; pred_idx1 != relevant_predictor_ct; ++pred_idx1) {
-    double* sample_corr_row = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
+    double* sample_cov_row = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
     const uintptr_t input_pred_idx1 = pred_idx1 + first_predictor_idx;
     const double* predictor_dotprods_row = &(predictor_dotprods[input_pred_idx1 * predictor_ct]);
-    const double covar1_mean_adj = dbl_2d_buf[input_pred_idx1] * sample_ct_recip;
+    const double pred1_mean_adj = dbl_2d_buf[input_pred_idx1] * sample_ct_recip;
     for (uintptr_t pred_idx2 = 0; pred_idx2 <= pred_idx1; ++pred_idx2) {
       const uintptr_t input_pred_idx2 = pred_idx2 + first_predictor_idx;
-      sample_corr_row[pred_idx2] = (predictor_dotprods_row[input_pred_idx2] - covar1_mean_adj * dbl_2d_buf[input_pred_idx2]) * sample_ct_m1_recip;
+      sample_cov_row[pred_idx2] = (predictor_dotprods_row[input_pred_idx2] - pred1_mean_adj * dbl_2d_buf[input_pred_idx2]) * sample_ct_m1_recip;
     }
   }
   // now use dbl_2d_buf to store inverse-sqrts, to get to correlation matrix
@@ -89,6 +95,7 @@ GlmErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_predi
   // invert_symmdef_matrix only cares about bottom left of inverse_corr_buf[]
   for (uintptr_t pred_idx1 = 1; pred_idx1 != relevant_predictor_ct; ++pred_idx1) {
     const double inverse_stdev1 = dbl_2d_buf[pred_idx1];
+    // convert from covariances to correlations here
     double* corr_row_iter = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
     const double* inverse_stdev2_iter = dbl_2d_buf;
     for (uintptr_t pred_idx2 = 0; pred_idx2 != pred_idx1; ++pred_idx2) {
@@ -145,24 +152,24 @@ GlmErr CheckMaxCorrAndVifNm(const double* predictor_dotprods, const double* corr
   // predictor_dotprods[] *rows* 1 (and 2, if geno_pred_ct == 2) are filled,
   // rather than columns
   {
-    const double covar1_mean_adj = predictor_dotprods[predictor_ct] * sample_ct_recip;
-    semicomputed_corr_matrix[0] = (predictor_dotprods[predictor_ct + 1] - covar1_mean_adj * predictor_dotprods[predictor_ct]) * sample_ct_m1_recip;
+    const double pred1_mean_adj = predictor_dotprods[predictor_ct] * sample_ct_recip;
+    semicomputed_corr_matrix[0] = (predictor_dotprods[predictor_ct + 1] - pred1_mean_adj * predictor_dotprods[predictor_ct]) * sample_ct_m1_recip;
   }
   for (uintptr_t pred_idx1 = 1; pred_idx1 != relevant_predictor_ct; ++pred_idx1) {
-    double* sample_corr_row = &(semicomputed_corr_matrix[pred_idx1 * relevant_predictor_ct]);
+    double* sample_cov_row = &(semicomputed_corr_matrix[pred_idx1 * relevant_predictor_ct]);
     const uintptr_t input_pred_idx1 = pred_idx1 + 1;
     const double* predictor_dotprods_row = &(predictor_dotprods[input_pred_idx1 * predictor_ct]);
-    const double covar1_mean_adj = predictor_dotprods_row[0] * sample_ct_recip;
+    const double pred1_mean_adj = predictor_dotprods_row[0] * sample_ct_recip;
     uintptr_t pred_idx2 = 0;
     for (; pred_idx2 != geno_pred_ct; ++pred_idx2) {
       const uintptr_t input_pred_idx2 = pred_idx2 + 1;
-      sample_corr_row[pred_idx2] = (predictor_dotprods[input_pred_idx2 * predictor_ct + input_pred_idx1] - covar1_mean_adj * predictor_dotprods[input_pred_idx2 * predictor_ct]) * sample_ct_m1_recip;
+      sample_cov_row[pred_idx2] = (predictor_dotprods[input_pred_idx2 * predictor_ct + input_pred_idx1] - pred1_mean_adj * predictor_dotprods[input_pred_idx2 * predictor_ct]) * sample_ct_m1_recip;
     }
     // document whether pred_idx2 guaranteed to be <= input_pred_idx1 if this
     // code is revisited
     for (; pred_idx2 < input_pred_idx1; ++pred_idx2) {
       const uintptr_t input_pred_idx2 = pred_idx2 + 1;
-      sample_corr_row[pred_idx2] = (predictor_dotprods_row[input_pred_idx2] - covar1_mean_adj * predictor_dotprods[input_pred_idx2 * predictor_ct]) * sample_ct_m1_recip;
+      sample_cov_row[pred_idx2] = (predictor_dotprods_row[input_pred_idx2] - pred1_mean_adj * predictor_dotprods[input_pred_idx2 * predictor_ct]) * sample_ct_m1_recip;
     }
   }
   // assumes semicomputed_inv_corr_sqrts[geno_pred_ct..] is pre-initialized
@@ -351,7 +358,7 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
   assert(covar_write_iter == &(covars_cmaj[new_nonlocal_covar_ct * sample_ct]));
   MultiplySelfTranspose(covars_cmaj, new_nonlocal_covar_ct, sample_ct, covar_dotprod);
   // intentionally ignore error code, since all callers check glm_err
-  *glm_err_ptr = CheckMaxCorrAndVif(covar_dotprod, 0, new_nonlocal_covar_ct, sample_ct, max_corr, vif_thresh, dbl_2d_buf, corr_buf, inverse_corr_buf,  matrix_invert_buf1);
+  *glm_err_ptr = CheckMaxCorrAndVif(covar_dotprod, 0, new_nonlocal_covar_ct, sample_ct, max_corr, vif_thresh, dbl_2d_buf, corr_buf, inverse_corr_buf, matrix_invert_buf1);
   BigstackReset(matrix_invert_buf1);
   return kPglRetSuccess;
 }
