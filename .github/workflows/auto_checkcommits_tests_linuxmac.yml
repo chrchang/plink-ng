@@ -46,7 +46,7 @@ jobs:
             echo "new_commits=false" >> $GITHUB_OUTPUT
           fi
 
-  # Step 2: Matrix job to run hello.sh
+  # Step 2: Matrix job 
   run_dynamicbuild_plink2tests:
     needs: check_commits
     if: needs.check_commits.outputs.new_commits == 'true'
@@ -73,7 +73,17 @@ jobs:
             zlib1g-dev \
             unzip
 
-      - name: Run dynamicbuild_plink2tests_linuxmac.sh
+      - name: Run DYNAMICBUILD
         run: |
-          chmod +x 2.0/build_dynamic/CI-SCRIPTS/dynamicbuild_plink2tests_linuxmac.sh
-          2.0/build_dynamic/CI-SCRIPTS/dynamicbuild_plink2tests_linuxmac.sh
+          chmod +x 2.0/build_dynamic/CI-SCRIPTS/DYNAMICBUILD_LINUXMAC_ROOT.sh
+          2.0/build_dynamic/CI-SCRIPTS/DYNAMICBUILD_LINUXMAC_ROOT.sh
+
+      - name: Run GLM TESTS
+        run: |
+          chmod +x 2.0/build_dynamic/CI-SCRIPTS/GLM_TESTS.sh
+          2.0/build_dynamic/CI-SCRIPTS/GLM_TESTS.sh
+
+      - name: Cleanup
+        run: |
+          chmod +x 2.0/build_dynamic/CI-SCRIPTS/CLEANUP.sh
+          2.0/build_dynamic/CI-SCRIPTS/CLEANUP.sh

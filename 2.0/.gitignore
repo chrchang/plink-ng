@@ -7,3 +7,5 @@
 plink2_src.zip
 zstd/lib/libzstd.pc
 zstd/lib/libzstd-nomt
+.DS_Store
+/build_dynamic/CI-DATA/
