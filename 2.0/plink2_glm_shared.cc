@@ -60,24 +60,15 @@ GlmErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_predi
   //   (dotprod - sum(a)mean(b)) / (N-1)
   // to get small-sample covariance
   const uintptr_t relevant_predictor_ct = predictor_ct - first_predictor_idx;
+  // bugfix (19 Oct 2025): relevant_predictor_ct == 1 fast-path incorrectly
+  // initialized corr_buf[1] to 1 instead of the predictor's inverse-stdev.
+  // Fast-path has been deleted since exactly-1-covariate is very rare (which
+  // is why the bug wasn't caught for >6 years...) and the regular-branch logic
+  // doesn't break.
+  const uintptr_t relevant_predictor_ct_p1 = relevant_predictor_ct + 1;
   const double sample_ct_recip = 1.0 / u31tod(sample_ct);
   const double sample_ct_m1_d = u31tod(sample_ct - 1);
   const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
-  if (relevant_predictor_ct == 1) {
-    // bugfix (31 Jul 2019): precomputed images are wrong if these aren't
-    // initialized
-    if (corr_buf) {
-      corr_buf[0] = 1.0;
-      // bugfix (19 Oct 2025): this was previously initialized incorrectly
-      const double pred1_sum = dbl_2d_buf[first_predictor_idx];
-      const double pred1_mean_adj = dbl_2d_buf[first_predictor_idx] * sample_ct_recip;
-      const double pred1_sample_variance = (predictor_dotprods[first_predictor_idx * predictor_ct] - pred1_mean_adj * pred1_sum) * sample_ct_m1_recip;
-      corr_buf[1] = 1.0 / sqrt(pred1_sample_variance);
-    }
-    inverse_corr_buf[0] = 1.0;
-    return 0;
-  }
-  const uintptr_t relevant_predictor_ct_p1 = relevant_predictor_ct + 1;
   for (uintptr_t pred_idx1 = 0; pred_idx1 != relevant_predictor_ct; ++pred_idx1) {
     double* sample_cov_row = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
     const uintptr_t input_pred_idx1 = pred_idx1 + first_predictor_idx;
