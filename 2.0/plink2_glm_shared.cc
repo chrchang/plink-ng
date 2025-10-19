@@ -51,16 +51,9 @@ GlmErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_predi
   //   (dotprod - sum(a)mean(b)) / (N-1)
   // to get small-sample covariance
   const uintptr_t relevant_predictor_ct = predictor_ct - first_predictor_idx;
-  if (relevant_predictor_ct == 1) {
-    // bugfix (31 Jul 2019): precomputed images are wrong if these aren't
-    // initialized
-    if (corr_buf) {
-      corr_buf[0] = 1.0;
-      corr_buf[1] = 1.0;
-    }
-    inverse_corr_buf[0] = 1.0;
-    return 0;
-  }
+  // bugfix (19 Oct 2025): relevant_predictor_ct == 1 fast-path was
+  // initializing corr_buf[1] incorrectly, and is not needed for correctness,
+  // so it has been deleted.
   const uintptr_t relevant_predictor_ct_p1 = relevant_predictor_ct + 1;
   const double sample_ct_recip = 1.0 / u31tod(sample_ct);
   const double sample_ct_m1_d = u31tod(sample_ct - 1);
