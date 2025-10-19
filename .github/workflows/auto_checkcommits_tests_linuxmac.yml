@@ -46,7 +46,7 @@ jobs:
             echo "new_commits=false" >> $GITHUB_OUTPUT
           fi
 
-  # Step 2: Matrix job to run hello.sh
+  # Step 2: Matrix job 
   run_dynamicbuild_plink2tests:
     needs: check_commits
     if: needs.check_commits.outputs.new_commits == 'true'
