@@ -58,7 +58,7 @@ plink2 --glm $nofirth hide-covar \
 
 ## Compare to R results
 
-python CI-SCRIPTS/COMPARE_GLM_PLINK2_R.py \
+python 2.0/build_dynamic/CI-SCRIPTS/COMPARE_GLM_PLINK2_R.py \
   "results/${phenofile}_${phenotype}_${nofirth}_glm.assoc.logistic" \
   "test_data/1kgp3_50k_nomiss_Av_nonintdose_ybool_COV_1_glm_logistic_logistic.csv"
 
