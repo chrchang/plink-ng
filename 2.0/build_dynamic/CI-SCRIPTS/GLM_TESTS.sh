@@ -31,11 +31,13 @@ mkdir -p ./results/
 ## Run GLM
 ## Logistic - no firth, all samples, and one covariate
 
+gtype="yesmiss"
+
 datapath="test_data/" 
-pfile="1kgp3_50k_nomiss_Av_nonintdose_recode_varIDs"
+pfile="1kgp3_50k_${gtype}_Av_nonintdose_recode_varIDs"
 phenotype="ybool"
 nofirth="no-firth"
-phenofile="1kgp3_50k_nomiss_Av_nonintdose_combined_phenocov.csv"
+phenofile="1kgp3_50k_${gtype}_Av_nonintdose_combined_phenocov.csv"
 cov="COV_1"
 d1="" #--thin-indiv-count $((1000))"
 d2="--threads 4"
