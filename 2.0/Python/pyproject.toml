@@ -1,9 +1,7 @@
 [build-system]
 requires = [
     "wheel",
-    # pin setuptools on pypy to workaround this bug: https://github.com/pypa/distutils/issues/283 https://github.com/pypa/cibuildwheel/issues/1983
-    "setuptools < 72.2; platform_python_implementation == 'PyPy'",
-    "setuptools ; platform_python_implementation != 'PyPy'",
+    "setuptools",
     "Cython>=3.1.0",
     "numpy>=2.0.0",
 ]

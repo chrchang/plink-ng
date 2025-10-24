@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: [9, 10, 11, 12, 13]
+        python: [10, 11, 12, 13, 14]
         os: [ubuntu-latest, macos-latest]
         arch: [x86_64, aarch64, universal2]
         exclude:
@@ -21,7 +21,7 @@ jobs:
             arch: aarch64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up QEMU for aarch64 emulation
         if: runner.os == 'Linux' && matrix.arch == 'aarch64'
@@ -30,7 +30,7 @@ jobs:
           platforms: all
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.23
+        uses: pypa/cibuildwheel@v3.2.1
         with:
           package-dir: ./2.0/Python
         env:
@@ -61,14 +61,14 @@ jobs:
     env:
       # The maximum supported version of python that is not
       # "end-of-life," "prerelease," or "feature": https://devguide.python.org/versions
-      job_python_version: "3.13"
+      job_python_version: "3.14"
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python ${{ env.job_python_version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.job_python_version }}
 
@@ -99,7 +99,7 @@ jobs:
 
     steps:
       - name: Get artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           merge-multiple: true
           path: dist
