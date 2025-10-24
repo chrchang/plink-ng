@@ -1,0 +1,37 @@
+name: Cache Test Data
+
+on:
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  cache-test-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        run: |
+          python3 -m venv venv
+          source venv/bin/activate
+          python3 -m pip install --upgrade pip
+          pip install gdown
+
+      - name: Restore cache if available
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: test_data
+          key: test-data-v1
+
+      - name: Download and unzip test data if not cached
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          echo "Downloading test data..."
+          source venv/bin/activate
+          GDRIVE_FILE_ID="1ZxHvT4L8U-V_xSVTmEIJhuiTHUaRyc1r"
+          gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
+          unzip -q test_data.zip -d test_data
+
+      - name: Verify cached test data
+        run: ls -l test_data
