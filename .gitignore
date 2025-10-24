@@ -5,3 +5,5 @@ pgen_spec/pgen_spec.aux
 pgen_spec/pgen_spec.log
 pgen_spec/pgen_spec.out
 pgen_spec/pgen_spec.toc
+
+.DS_Store
