@@ -9,12 +9,12 @@ source venv/bin/activate
 python3 -m pip install --upgrade pip
 pip install gdown pandas numpy 
 
-# # ---------- Download test data ----------
-echo "Downloading test data..."
+# # # ---------- Download test data ----------
+# echo "Downloading test data..."
 
-GDRIVE_FILE_ID="1ZxHvT4L8U-V_xSVTmEIJhuiTHUaRyc1r"
-gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
-unzip -q test_data.zip -d test_data
+# GDRIVE_FILE_ID="1ZxHvT4L8U-V_xSVTmEIJhuiTHUaRyc1r"
+# gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
+# unzip -q test_data.zip -d test_data
 
 # ---------- Run PLINK2 tests ----------
 echo "Running PLINK2 GLM tests..."
