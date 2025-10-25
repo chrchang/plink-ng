@@ -73,6 +73,17 @@ jobs:
             zlib1g-dev \
             unzip
 
+      # Restore cached test data
+      - name: Restore cached test data
+        uses: actions/cache@v3
+        id: test-data-cache
+        with:
+          path: test_data
+          key: test-data-v1
+
+      - name: Verify test data
+        run: ls -l test_data
+
       - name: Run DYNAMICBUILD
         run: |
           chmod +x 2.0/build_dynamic/CI-SCRIPTS/DYNAMICBUILD_LINUXMAC_ROOT.sh

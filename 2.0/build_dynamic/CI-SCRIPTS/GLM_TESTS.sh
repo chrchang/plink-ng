@@ -7,14 +7,8 @@ echo "Setting up Python environment..."
 python3 -m venv venv
 source venv/bin/activate
 python3 -m pip install --upgrade pip
-pip install gdown pandas numpy 
+pip install pandas numpy 
 
-# # ---------- Download test data ----------
-echo "Downloading test data..."
-
-GDRIVE_FILE_ID="1ZxHvT4L8U-V_xSVTmEIJhuiTHUaRyc1r"
-gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
-unzip -q test_data.zip -d test_data
 
 # ---------- Run PLINK2 tests ----------
 echo "Running PLINK2 GLM tests..."
@@ -37,11 +31,13 @@ mkdir -p ./results/
 ## Run GLM
 ## Logistic - no firth, all samples, and one covariate
 
+gtype="yesmiss"
+
 datapath="test_data/" 
-pfile="1kgp3_50k_nomiss_Av_nonintdose_recode_varIDs"
+pfile="1kgp3_50k_${gtype}_Av_nonintdose_recode_varIDs"
 phenotype="ybool"
 nofirth="no-firth"
-phenofile="1kgp3_50k_nomiss_Av_nonintdose_combined_phenocov.csv"
+phenofile="1kgp3_50k_${gtype}_Av_nonintdose_combined_phenocov.csv"
 cov="COV_1"
 d1="" #--thin-indiv-count $((1000))"
 d2="--threads 4"
