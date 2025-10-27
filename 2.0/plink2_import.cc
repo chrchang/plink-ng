@@ -14283,7 +14283,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           // we may stop before main_block_size due to insufficient space in
           // compressed_geno_buf.  if so, the file pointer is right before the
           // genotype data, rather than at the beginning of a variant record.
-          skip_chr = 0;  // bugfix (25 Oct 2025)
+          skip_chr = 0;  // defensive
           while (1) {
             grp = &(cur_gparse[block_vidx]);
             grp->record_start = bgen_geno_iter;
