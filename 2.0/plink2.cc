@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.5.33"
+static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.5.34"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,7 +72,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.5.33"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (19 Oct 2025)";
+  " (26 Oct 2025)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""

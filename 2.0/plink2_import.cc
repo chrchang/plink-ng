@@ -8742,6 +8742,8 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
                 continue;
               }
               if (sidx == gt_sidx) {
+                // bugfix (25 Oct 2025)
+                gt_exists = 1;
                 gt_start = type_start;
                 gt_type_blen = type_blen;
                 gt_main_blen = vec_byte_ct;
@@ -14610,14 +14612,15 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     if (unlikely(CswriteCloseNull(&pvar_css, pvar_cswritep))) {
       goto OxHapslegendToPgen_ret_WRITE_FAIL;
     }
+    // bugfix (25 Oct 2025): this check needs to happen before SpgwFinish()
+    if (unlikely(!variant_ct)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: All %" PRIuPTR " variant%s in %s skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s", hapsname);
+      goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
+    }
     reterr = SpgwFinish(&spgw);
     if (unlikely(reterr)) {
       PgenWriteFinishErrPrint(reterr, outname, outname_end);
       goto OxHapslegendToPgen_ret_1;
-    }
-    if (unlikely(!variant_ct)) {
-      snprintf(g_logbuf, kLogbufSize, "Error: All %" PRIuPTR " variant%s in %s skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s", hapsname);
-      goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
     }
     putc_unlocked('\r', stdout);
     char* write_iter = strcpya_k(g_logbuf, "--haps");
