@@ -372,6 +372,7 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restr
 }
 
 // Writes footer if present, backfills header, then closes the file.
+// Currently assumes variant_ct > 0.
 PglErr SpgwFinish(STPgenWriter* spgwp);
 
 // Last flush automatically writes footer if present, backfills header, and

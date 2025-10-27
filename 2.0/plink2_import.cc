@@ -2763,7 +2763,7 @@ static const char kGpText[] = "GP";
 // pgen_generated and psam_generated assumed to be initialized to 1.
 static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
-PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t no_samples_ok, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Performs a 2-pass load.  Probably staying that way after sequential writer
   // is implemented since header lines are a pain.
   //
@@ -3037,7 +3037,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       logerrputs("Error: --vcf-ref-n-missing was specified, but the VCF does not have the\nINFO/PR header line that should be present in any .ped-derived VCF.\n");
       goto VcfToPgen_ret_INCONSISTENT_INPUT;
     }
-    const uint32_t require_gt = (import_flags / kfImportVcfRequireGt) & 1;
+    const uint32_t require_gt = (load_filter_log_import_flags / kfLoadFilterLogVcfRequireGt) & 1;
     if (unlikely((!format_gt_exists) && require_gt)) {
       logerrputs("Error: No FORMAT/GT key found in --vcf file header, when --vcf-require-gt was\nspecified.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
       goto VcfToPgen_ret_INCONSISTENT_INPUT;
@@ -3066,7 +3066,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     } else if ((!format_dosage_relevant) && dosage_import_field) {
       logerrprintfww("Warning: No FORMAT/%s key found in --vcf file header. Dosages will not be imported. (If this header line is actually present, but with extra spaces or unusual field ordering, standardize the header with e.g. bcftools.)\n", dosage_import_field);
     }
-    FinalizeChrset(misc_flags, cip);
+    FinalizeChrset(load_filter_log_import_flags, cip);
     // don't call FinalizeChrInfo here, since this may be followed by --pmerge,
     // etc.
 
@@ -3379,18 +3379,50 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         *nonref_flags_iter = nonref_word;
       }
     } else if (unlikely(!variant_ct)) {
-      logerrputs("Error: No variants in --vcf file.\n");
-      goto VcfToPgen_ret_DEGENERATE_DATA;
+      if (!variant_skip_ct) {
+        logerrputs("Error: No variants in --vcf file.\n");
+        goto VcfToPgen_ret_DEGENERATE_DATA;
+      }
+      char* write_iter = strcpya_k(g_logbuf, "Error: All ");
+      write_iter = wtoa(variant_skip_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (variant_skip_ct != 1) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, " in --vcf file excluded by ");
+      AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+      strcpy_k(write_iter, ".\n");
+      goto VcfToPgen_ret_INCONSISTENT_INPUT_WW;
     }
 
     putc_unlocked('\r', stdout);
-    if (!variant_skip_ct) {
-      logprintf("--vcf: %u variant%s scanned.\n", variant_ct, (variant_ct == 1)? "" : "s");
-    } else {
-      logprintf("--vcf: %u variant%s scanned (%" PRIuPTR " skipped).\n", variant_ct, (variant_ct == 1)? "" : "s", variant_skip_ct);
+    {
+      char* write_iter = strcpya_k(g_logbuf, "--vcf: ");
+      write_iter = wtoa(variant_ct + variant_skip_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (variant_ct + variant_skip_ct != 1) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, " scanned");
+      if (variant_skip_ct) {
+        write_iter = strcpya_k(write_iter, "; ");
+        write_iter = wtoa(variant_skip_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " excluded by ");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        write_iter = strcpya_k(write_iter, ", ");
+        write_iter = u32toa(variant_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " remaining");
+      } else if (load_filter_log_import_flags) {
+        write_iter = strcpya_k(write_iter, " (");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        write_iter = strcpya_k(write_iter, " had no effect)");
+      }
+      strcpy_k(write_iter, ".\n");
+      WordWrapB(0);
+      logputsb();
     }
     if ((!not_single_sample_no_nonvar) && (nonvar_nonmissing_ct >= 1000)) {
-      logerrputs("Error: All genotypes contain at least one ALT allele; this implies the VCF was\nincorrectly generated.  You probably need to backtrack and e.g. rerun GATK\nGenotypeGVCFs with the --include-non-variant-sites flag added.\n");
+      logerrputs("Error: All genotypes in single-sample VCF contain at least one ALT allele; this\nimplies the VCF was incorrectly generated.  You probably need to backtrack and\ne.g. rerun GATK GenotypeGVCFs with the --include-non-variant-sites flag added.\n");
       goto VcfToPgen_ret_INCONSISTENT_INPUT;
     }
 
@@ -4144,6 +4176,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     logerrputsb();
     reterr = kPglRetMalformedInput;
     break;
+  VcfToPgen_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
   VcfToPgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
@@ -7291,7 +7326,7 @@ THREAD_FUNC_DECL BcfGenoToPgenThread(void* raw_arg) {
 }
 
 // pgen_generated and psam_generated assumed to be initialized to 1.
-PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t no_samples_ok, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Yes, lots of this is copied-and-pasted from VcfToPgen(), but there are
   // enough differences that I don't think trying to handle them with the same
   // function is wise.
@@ -7648,7 +7683,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       }
     }
 
-    FinalizeChrset(misc_flags, cip);
+    FinalizeChrset(load_filter_log_import_flags, cip);
     // don't call FinalizeChrInfo here, since this may be followed by --pmerge,
     // etc.
 
@@ -7885,7 +7920,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       }
       BigstackEndSet(tmp_alloc_end);
     }
-    const uint32_t require_gt = (import_flags / kfImportVcfRequireGt) & 1;
+    const uint32_t require_gt = (load_filter_log_import_flags / kfLoadFilterLogVcfRequireGt) & 1;
     if (unlikely((!gt_sidx) && require_gt)) {
       logerrputs("Error: No FORMAT/GT key found in BCF text header block, when --vcf-require-gt\nwas specified.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
       goto BcfToPgen_ret_INCONSISTENT_INPUT;
@@ -8375,21 +8410,53 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         fflush(stdout);
       }
     }
+    const uintptr_t variant_skip_ct = vrec_idx - 1 - variant_ct;
     if (variant_ct % kBitsPerWord) {
       if (nonref_flags_iter) {
         *nonref_flags_iter = nonref_word;
       }
     } else if (unlikely(!variant_ct)) {
-      logerrputs("Error: No variants in --bcf file.\n");
-      goto BcfToPgen_ret_DEGENERATE_DATA;
+      if (!variant_skip_ct) {
+        logerrputs("Error: No variants in --bcf file.\n");
+        goto BcfToPgen_ret_DEGENERATE_DATA;
+      }
+      char* write_iter = strcpya_k(g_logbuf, "Error: All ");
+      write_iter = wtoa(variant_skip_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (variant_skip_ct != 1) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, " in --bcf file excluded by ");
+      AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+      strcpy_k(write_iter, ".\n");
+      goto BcfToPgen_ret_INCONSISTENT_INPUT_WW;
     }
 
-    const uintptr_t variant_skip_ct = vrec_idx - 1 - variant_ct;
     putc_unlocked('\r', stdout);
-    if (!variant_skip_ct) {
-      logprintf("--bcf: %u variant%s scanned.\n", variant_ct, (variant_ct == 1)? "" : "s");
-    } else {
-      logprintf("--bcf: %u variant%s scanned (%" PRIuPTR " skipped).\n", variant_ct, (variant_ct == 1)? "" : "s", variant_skip_ct);
+    {
+      char* write_iter = strcpya_k(g_logbuf, "--bcf: ");
+      write_iter = wtoa(variant_ct + variant_skip_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (variant_ct + variant_skip_ct != 1) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, " scanned");
+      if (variant_skip_ct) {
+        write_iter = strcpya_k(write_iter, "; ");
+        write_iter = wtoa(variant_skip_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " excluded by ");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        write_iter = strcpya_k(write_iter, ", ");
+        write_iter = u32toa(variant_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " remaining");
+      } else if (load_filter_log_import_flags) {
+        write_iter = strcpya_k(write_iter, " (");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        write_iter = strcpya_k(write_iter, " had no effect)");
+      }
+      strcpy_k(write_iter, ".\n");
+      WordWrapB(0);
+      logputsb();
     }
 
     if (allele_idx_end > 2 * variant_ct) {
@@ -8886,6 +8953,8 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
                 continue;
               }
               if (sidx == gt_sidx) {
+                // bugfix (25 Oct 2025)
+                gt_exists = 1;
                 gt_start = type_start;
                 gt_type_blen = type_blen;
                 gt_main_blen = vec_byte_ct;
@@ -9438,6 +9507,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     logerrputs("Error: Malformed BCF text header block.\n");
     reterr = kPglRetMalformedInput;
     break;
+  BcfToPgen_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
   BcfToPgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
@@ -10275,7 +10347,7 @@ PglErr InitOxfordSingleChr(const char* ox_single_chr_str, const char* file_descr
 }
 
 static_assert(sizeof(Dosage) == 2, "OxGenToPgen() needs to be updated.");
-PglErr OxGenToPgen(const char* genname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxGenToPgen(const char* genname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   // Experimented with making this single-pass; that actually benchmarked a bit
   // slower than the current 2-pass algorithm.  Yes, that might be because the
   // Mac I tested on has a crappy filesystem, but it's still enough reason to
@@ -10331,7 +10403,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
       goto OxGenToPgen_ret_TSTREAM_FAIL;
     }
     const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
-    FinalizeChrset(misc_flags, cip);
+    FinalizeChrset(load_filter_log_import_flags, cip);
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
     const uint32_t output_zst = (import_flags / kfImportKeepAutoconvVzs) & 1;
@@ -10588,10 +10660,49 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
       goto OxGenToPgen_ret_WRITE_FAIL;
     }
     if (unlikely(!variant_ct)) {
-      logerrprintfww("Error: All %" PRIuPTR " variant%s in .gen file skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s");
-      goto OxGenToPgen_ret_INCONSISTENT_INPUT;
+      if (!variant_skip_ct) {
+        logerrputs("Error: No variants in .gen file.\n");
+        goto OxGenToPgen_ret_INCONSISTENT_INPUT;
+      }
+      char* write_iter = strcpya_k(g_logbuf, "Error: All ");
+      write_iter = wtoa(variant_skip_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (variant_skip_ct != 1) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, " in .gen file excluded by ");
+      AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+      strcpy_k(write_iter, ".\n");
+      goto OxGenToPgen_ret_INCONSISTENT_INPUT_WW;
     }
-    logprintf("--data/--gen: %u variant%s scanned%s.\n", variant_ct, (variant_ct == 1)? "" : "s", dosage_exists? "" : " (all hardcalls)");
+    {
+      char* write_iter = strcpya_k(g_logbuf, "--data/--gen: ");
+      write_iter = wtoa(variant_ct + variant_skip_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (variant_ct + variant_skip_ct != 1) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, " scanned");
+      if (!dosage_exists) {
+        write_iter = strcpya_k(write_iter, " (all hardcalls)");
+      }
+      if (variant_skip_ct) {
+        write_iter = strcpya_k(write_iter, "; ");
+        write_iter = wtoa(variant_skip_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " excluded by ");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        write_iter = strcpya_k(write_iter, ", ");
+        write_iter = u32toa(variant_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " remaining");
+      } else if (load_filter_log_import_flags) {
+        write_iter = strcpya_k(write_iter, " (");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        write_iter = strcpya_k(write_iter, " had no effect)");
+      }
+      strcpy_k(write_iter, ".\n");
+      WordWrapB(0);
+      logputsb();
+    }
 
     // second pass
     BigstackReset(bigstack_mark2);
@@ -10831,6 +10942,9 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
   OxGenToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
+  OxGenToPgen_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
   OxGenToPgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
@@ -12393,7 +12507,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
 }
 
 static_assert(sizeof(Dosage) == 2, "OxBgenToPgen() needs to be updated.");
-PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* bgenfile = nullptr;
@@ -12667,7 +12781,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       goto OxBgenToPgen_ret_READ_FAIL;
     }
     const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
-    FinalizeChrset(misc_flags, cip);
+    FinalizeChrset(load_filter_log_import_flags, cip);
     const uint32_t autosome_ct_p1 = cip->autosome_ct + 1;
     uint32_t chr_filter_exists = (PopcountBitRange(cip->chr_mask, 0, autosome_ct_p1) != autosome_ct_p1) || ((!prohibit_extra_chr) && (cip->is_include_stack || cip->incl_excl_name_stack));
     if (!chr_filter_exists) {
@@ -12734,6 +12848,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         par_warn_code = x_code;
       }
     }
+    uint32_t variant_ct = 0;
+    // temporary kludge
+    uint32_t multiallelic_tmp_skip_ct = 0;
     if (layout == 1) {
       // v1.1
       // this block belongs in its own function...
@@ -12854,7 +12971,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       // the first blocks to be small so we bail quickly; to handle the second
       // case efficiently, we want large blocks on average.  so we start with
       // a minimal block size and then repeatedly double.
-      uint32_t variant_ct = 0;
       uint32_t block_vidx = 0;
       uint32_t cur_block_size = calc_thread_ct;
       uint32_t parity = 0;
@@ -13032,8 +13148,16 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         if (variant_ct < calc_thread_ct) {
           if (unlikely(!variant_ct)) {
             putc_unlocked('\n', stdout);
-            logerrprintfww("Error: All %u variant%s in .bgen file skipped due to chromosome filter.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
-            goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
+            char* write_iter = strcpya_k(g_logbuf, "Error: All ");
+            write_iter = u32toa(raw_variant_ct, write_iter);
+            write_iter = strcpya_k(write_iter, " variant");
+            if (raw_variant_ct != 1) {
+              *write_iter++ = 's';
+            }
+            write_iter = strcpya_k(write_iter, " in .bgen file excluded by ");
+            AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+            strcpy_k(write_iter, ".\n");
+            goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WW;
           }
           // bugfix (7 Oct 2017): with fewer variants than threads, need to
           // force initial launch here
@@ -13525,8 +13649,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       scan_ctx.error_on_polyploid = !(import_flags & kfImportPolyploidMissing);
       SetThreadFuncAndData(Bgen13DosageOrPhaseScanThread, &scan_ctx, &tg);
 
-      uint32_t variant_ct = 0;
-
       uint32_t block_vidx = 0;
 
       // bgen-1.2 and -1.3 records can vary wildly in size, so we're a bit more
@@ -13552,10 +13674,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       uint32_t max_uncompressed_geno_blen = 0;
       uint32_t uncompressed_genodata_byte_ct = 0;
       uint32_t skip_chr = 0;
-      uint32_t import_max_alleles_skip_ct = 0;
-
-      // temporary kludge
-      uint32_t multiallelic_tmp_skip_ct = 0;
+      // uint32_t import_max_alleles_skip_ct = 0;
 
       for (uint32_t variant_uidx = 0; variant_uidx != header_variant_ct; ) {
         // format is mostly identical to bgen 1.1; but there's no sample count,
@@ -13671,10 +13790,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         if (skip_chr || (cur_allele_ct > 2)) {
           if (!skip_chr) {
             if (cur_allele_ct > import_max_allele_ct) {
-              ++import_max_alleles_skip_ct;
+              // ++import_max_alleles_skip_ct;
             } else {
               ++multiallelic_tmp_skip_ct;
             }
+          } else {
+            chr_filter_exists = 1;
           }
           for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
             uint32_t cur_allele_slen;
@@ -13933,18 +14054,25 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         compressed_geno_starts[++block_vidx] = bgen_geno_iter;
       }
       variant_ct += block_vidx;
-      if (import_max_alleles_skip_ct) {
-        putc_unlocked('\n', stdout);
-        logprintf("--import-max-alleles: %u variant%s skipped.\n", import_max_alleles_skip_ct, (import_max_alleles_skip_ct == 1)? "" : "s");
-      }
       if (multiallelic_tmp_skip_ct) {
         putc_unlocked('\n', stdout);
         logerrprintfww("Warning: %u multiallelic variant%s skipped%s (not yet supported).\n", multiallelic_tmp_skip_ct, (multiallelic_tmp_skip_ct == 1)? "" : "s", (import_max_allele_ct < 0x7ffffffe)? ", on top of --import-max-alleles filter" : "");
       }
       if (unlikely(!variant_ct)) {
         putc_unlocked('\n', stdout);
-        logerrprintf("Error: All %u variant%s in .bgen file skipped.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
-        goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
+        char* write_iter = strcpya_k(g_logbuf, "Error: All ");
+        if (multiallelic_tmp_skip_ct) {
+          write_iter = strcpya_k(write_iter, "remaining ");
+        }
+        write_iter = u32toa(raw_variant_ct - multiallelic_tmp_skip_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " variant");
+        if (raw_variant_ct - multiallelic_tmp_skip_ct != 1) {
+          *write_iter++ = 's';
+        }
+        write_iter = strcpya_k(write_iter, " in .bgen file excluded by ");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        strcpy_k(write_iter, ".\n");
+        goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WW;
       }
       if (variant_ct == block_vidx) {
         // with multiple threads, there's no guarantee that even the first
@@ -13957,7 +14085,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
         block_vidx = 0;
       }
-      chr_filter_exists = (variant_ct + import_max_alleles_skip_ct + multiallelic_tmp_skip_ct != raw_variant_ct);
       if (ThreadsAreActive(&tg)) {
         JoinThreads(&tg);
         reterr = S_CAST(PglErr, scan_ctx.err_info & 255);
@@ -14156,6 +14283,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           // we may stop before main_block_size due to insufficient space in
           // compressed_geno_buf.  if so, the file pointer is right before the
           // genotype data, rather than at the beginning of a variant record.
+          skip_chr = 0;  // bugfix (25 Oct 2025)
           while (1) {
             grp = &(cur_gparse[block_vidx]);
             grp->record_start = bgen_geno_iter;
@@ -14338,6 +14466,25 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     }
     putc_unlocked('\r', stdout);
     char* write_iter = strcpya_k(g_logbuf, "--bgen: ");
+    write_iter = u32toa(variant_ct, write_iter);
+    write_iter = strcpya_k(write_iter, " variant");
+    if (variant_ct != 1) {
+      *write_iter++ = 's';
+    }
+    write_iter = strcpya_k(write_iter, " remaining");
+    if (load_filter_log_import_flags) {
+      write_iter = strcpya_k(write_iter, " (");
+      if (raw_variant_ct - multiallelic_tmp_skip_ct != variant_ct) {
+        write_iter = u32toa(raw_variant_ct - multiallelic_tmp_skip_ct - variant_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " excluded by ");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        *write_iter++ = ')';
+      } else {
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        write_iter = strcpya_k(write_iter, " had no effect)");
+      }
+    }
+    write_iter = strcpya_k(write_iter, "; ");
     const uint32_t outname_base_slen = outname_end - outname;
     write_iter = memcpya(write_iter, outname, outname_base_slen + 5);
     write_iter = strcpya_k(write_iter, " + ");
@@ -14350,7 +14497,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     if (!dosage_exists) {
       write_iter = strcpya_k(write_iter, " (only unphased hardcalls)");
     }
-    snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, ".\n");
+    snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 512, ".\n");
     WordWrapB(0);
     logputsb();
     if (print_splitpar_warning) {
@@ -14378,6 +14525,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   OxBgenToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
+  OxBgenToPgen_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
   OxBgenToPgen_ret_INCONSISTENT_INPUT_2:
     logerrputsb();
   OxBgenToPgen_ret_INCONSISTENT_INPUT:
@@ -14433,7 +14582,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   return reterr;
 }
 
-PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgi_generated_ptr) {
+PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgi_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* psamfile = nullptr;
   uintptr_t line_idx_haps = 0;
@@ -14499,7 +14648,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       goto OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS;
     }
     const uint32_t token_ct = CountTokens(haps_line_iter);
-    FinalizeChrset(misc_flags, cip);
+    FinalizeChrset(load_filter_log_import_flags, cip);
     const char* single_chr_str = nullptr;
     char* legend_line_start = nullptr;
     uint32_t single_chr_slen = 0;
@@ -14945,14 +15094,25 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     if (unlikely(CswriteCloseNull(&pvar_css, pvar_cswritep))) {
       goto OxHapslegendToPgen_ret_WRITE_FAIL;
     }
+    // bugfix (25 Oct 2025): this check needs to happen before SpgwFinish()
+    if (unlikely(!variant_ct)) {
+      char* write_iter = strcpya_k(g_logbuf, "Error: All ");
+      write_iter = wtoa(variant_skip_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (variant_skip_ct != 1) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, " in ");
+      write_iter = strcpya(write_iter, hapsname);
+      write_iter = strcpya_k(write_iter, " excluded by ");
+      AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+      strcpy_k(write_iter, ".\n");
+      goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
+    }
     reterr = SpgwFinish(&spgw);
     if (unlikely(reterr)) {
       PgenWriteFinishErrPrint(reterr, outname, outname_end);
       goto OxHapslegendToPgen_ret_1;
-    }
-    if (unlikely(!variant_ct)) {
-      snprintf(g_logbuf, kLogbufSize, "Error: All %" PRIuPTR " variant%s in %s skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s", hapsname);
-      goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
     }
     putc_unlocked('\r', stdout);
     char* write_iter = strcpya_k(g_logbuf, "--haps");
@@ -14960,6 +15120,28 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       write_iter = strcpya_k(write_iter, " + --legend");
     }
     write_iter = strcpya_k(write_iter, ": ");
+    write_iter = u32toa(variant_ct, write_iter);
+    write_iter = strcpya_k(write_iter, " variant");
+    if (variant_ct != 1) {
+      *write_iter++ = 's';
+    }
+    if (variant_skip_ct) {
+      write_iter = strcpya_k(write_iter, " remaining (");
+      write_iter = wtoa(variant_ct + variant_skip_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " processed, ");
+      write_iter = wtoa(variant_skip_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " excluded by ");
+      AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+      *write_iter++ = ')';
+    } else {
+      write_iter = strcpya_k(write_iter, " processed");
+      if (load_filter_log_import_flags) {
+        write_iter = strcpya_k(write_iter, " (");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        write_iter = strcpya_k(write_iter, " had no effect)");
+      }
+    }
+    write_iter = strcpya_k(write_iter, "; ");
     const uint32_t outname_base_slen = outname_end - outname;
     write_iter = memcpya(write_iter, outname, outname_base_slen);
     write_iter = strcpya_k(write_iter, ".pgen + ");
@@ -15041,7 +15223,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
 // probable todo: use the VCF/BGEN-import parallelization strategy to speed
 // this up.
 static_assert(sizeof(Dosage) == 2, "Plink1DosageToPgen() needs to be updated.");
-PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   // Tried making this single-pass, doesn't appear to be an improvement.
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -15278,9 +15460,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     uintptr_t* variant_already_seen = nullptr;
     uint32_t variant_id_htable_size = 0;
     uint32_t map_variant_ct = 0;
-    FinalizeChrset(misc_flags, cip);
+    FinalizeChrset(load_filter_log_import_flags, cip);
     if (mapname) {
-      reterr = LoadMap(mapname, misc_flags, cip, &max_variant_id_slen, &variant_chr_codes, &variant_bps, &variant_ids, &variant_cms, &map_variant_ct);
+      reterr = LoadMap(mapname, misc_flags, load_filter_log_import_flags, cip, &max_variant_id_slen, &variant_chr_codes, &variant_bps, &variant_ids, &variant_cms, &map_variant_ct);
       if (unlikely(reterr)) {
         goto Plink1DosageToPgen_ret_1;
       }
@@ -15661,10 +15843,45 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         logerrputs("Error: Empty --import-dosage file.\n");
         goto Plink1DosageToPgen_ret_DEGENERATE_DATA;
       }
-      logerrprintfww("Error: All %" PRIuPTR " variant%s in --import-dosage file skipped.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s");
-      goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT;
+      char* log_write_iter = strcpya_k(g_logbuf, "Error: All ");
+      log_write_iter = wtoa(variant_skip_ct, log_write_iter);
+      log_write_iter = strcpya_k(log_write_iter, " variant");
+      if (variant_skip_ct != 1) {
+        *log_write_iter++ = 's';
+      }
+      log_write_iter = strcpya_k(log_write_iter, " in --import-dosage file excluded by ");
+      AppendLoadFilterFlagnames(load_filter_log_import_flags, &log_write_iter);
+      strcpy_k(log_write_iter, ".\n");
+      goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT_WW;
     }
-    logprintf("--import-dosage: %u variant%s scanned%s.\n", variant_ct, (variant_ct == 1)? "" : "s", dosage_exists? "" : " (all hardcalls)");
+    {
+      char* log_write_iter = strcpya_k(g_logbuf, "--import-dosage: ");
+      log_write_iter = wtoa(variant_ct + variant_skip_ct, log_write_iter);
+      log_write_iter = strcpya_k(log_write_iter, " variant");
+      if (variant_ct + variant_skip_ct != 1) {
+        *log_write_iter++ = 's';
+      }
+      log_write_iter = strcpya_k(log_write_iter, " scanned");
+      if (!dosage_exists) {
+        log_write_iter = strcpya_k(log_write_iter, " (all hardcalls)");
+      }
+      if (variant_skip_ct) {
+        log_write_iter = strcpya_k(log_write_iter, "; ");
+        log_write_iter = wtoa(variant_skip_ct, log_write_iter);
+        log_write_iter = strcpya_k(log_write_iter, " excluded by ");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &log_write_iter);
+        log_write_iter = strcpya_k(log_write_iter, ", ");
+        log_write_iter = u32toa(variant_ct, log_write_iter);
+        log_write_iter = strcpya_k(log_write_iter, " remaining");
+      } else if (load_filter_log_import_flags) {
+        log_write_iter = strcpya_k(log_write_iter, " (");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &log_write_iter);
+        log_write_iter = strcpya_k(log_write_iter, " had no effect)");
+      }
+      strcpy_k(log_write_iter, ".\n");
+      WordWrapB(0);
+      logputsb();
+    }
 
     // 5. Dosage file pass 2: write .pgen.
     BigstackReset(bigstack_mark2);
@@ -17748,7 +17965,7 @@ const char* ScanadvHexU32(const char* hex_start, uint32_t* valp) {
   }
 }
 
-PglErr EigfileToPgen(const char* genoname, const char* indname, const char* snpname, const char* const_fid, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr EigfileToPgen(const char* genoname, const char* indname, const char* snpname, const char* const_fid, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t psam_01, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   FILE* genofile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
@@ -17758,7 +17975,7 @@ PglErr EigfileToPgen(const char* genoname, const char* indname, const char* snpn
     if (unlikely(reterr)) {
       goto EigfileToPgen_ret_1;
     }
-    FinalizeChrset(misc_flags, cip);
+    FinalizeChrset(load_filter_log_import_flags, cip);
 
     uintptr_t* variant_include;
     uint32_t raw_variant_ct;
@@ -17768,14 +17985,45 @@ PglErr EigfileToPgen(const char* genoname, const char* indname, const char* snpn
       goto EigfileToPgen_ret_1;
     }
     const uint32_t variant_ct = PopcountWords(variant_include, BitCtToWordCt(raw_variant_ct));
-    if (variant_ct != raw_variant_ct) {
-      if (unlikely(!variant_ct)) {
-        logerrputs("Error: All .snp variants excluded by chromosome filter.\n");
-        goto EigfileToPgen_ret_INCONSISTENT_INPUT;
+    if (unlikely(!variant_ct)) {
+      char* write_iter = strcpya_k(g_logbuf, "Error: All ");
+      write_iter = u32toa(raw_variant_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (raw_variant_ct != 1) {
+        *write_iter++ = 's';
       }
-      logprintfww("--eigsnp: %u variants scanned; %u excluded by chromosome filter, %u imported to %s .\n", raw_variant_ct, raw_variant_ct - variant_ct, variant_ct, outname);
-    } else {
-      logprintfww("--eigsnp: %u variant%s imported to %s .\n", variant_ct, (variant_ct == 1)? "" : "s", outname);
+      write_iter = strcpya_k(write_iter, " in .snp file excluded by ");
+      AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+      strcpy_k(write_iter, ".\n");
+      WordWrapB(0);
+      logputsb();
+      goto EigfileToPgen_ret_INCONSISTENT_INPUT;
+    }
+    {
+      char* write_iter = strcpya_k(g_logbuf, "--eigsnp: ");
+      write_iter = u32toa(raw_variant_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (raw_variant_ct != 1) {
+        *write_iter++ = 's';
+      }
+      if (variant_ct != raw_variant_ct) {
+        write_iter = strcpya_k(write_iter, " scanned; ");
+        write_iter = u32toa(raw_variant_ct - variant_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " excluded by ");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        write_iter = strcpya_k(write_iter, ", ");
+        write_iter = u32toa(variant_ct, write_iter);
+      }
+      write_iter = strcpya_k(write_iter, " imported to ");
+      write_iter = strcpyax(write_iter, outname, ' ');
+      if (load_filter_log_import_flags && (variant_ct == raw_variant_ct)) {
+        *write_iter++ = '(';
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        write_iter = strcpya_k(write_iter, " had no effect)");
+      }
+      strcpy_k(write_iter, ".\n");
+      WordWrapB(0);
+      logputsb();
     }
 
     // open genofile, check header
@@ -17899,7 +18147,7 @@ PglErr EigfileToPgen(const char* genoname, const char* indname, const char* snpn
 }
 
 static_assert(sizeof(Dosage) == 2, "GenerateDummy() needs to be updated.");
-PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, sfmt_t* sfmtp, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t psam_01, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, sfmt_t* sfmtp, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* psamfile = nullptr;
   char* pvar_cswritep = nullptr;
@@ -17911,7 +18159,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
   PglErr reterr = kPglRetSuccess;
   PreinitSpgw(&spgw);
   {
-    FinalizeChrset(misc_flags, cip);
+    FinalizeChrset(load_filter_log_import_flags, cip);
     if (unlikely(!IsSet(cip->chr_mask, 1))) {
       logerrputs("Error: --dummy cannot be used when chromosome 1 is excluded.\n");
       goto GenerateDummy_ret_INVALID_CMDLINE;
