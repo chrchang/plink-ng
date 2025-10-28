@@ -28,39 +28,73 @@ mkdir -p ./results/
 
 #---------- Run PLINK2 GLM tests ----------
 
+
+
 ## Run GLM
-## Logistic - no firth, all samples, and one covariate
+datapath="./test_data/"
 
-gtype="yesmiss"
-
-datapath="test_data/" 
-pfile="1kgp3_50k_${gtype}_Av_nonintdose_recode_varIDs"
-phenotype="y"
-nofirth=""
-phenofile="1kgp3_50k_${gtype}_Av_nonintdose_combined_phenocov.csv"
+## Config
 cov="COV_1"
-d1="" #--thin-indiv-count $((1000))"
+d1="" # --thin-indiv-count $((1000))
 d2="--threads 4"
 
-plink2 --glm $nofirth hide-covar \
-  --pfile "$datapath$pfile" \
-  --allow-extra-chr \
-  --pheno "$datapath$phenofile" \
-  --pheno-name "$phenotype" \
-  --covar "$datapath$phenofile" \
-  --covar-name $cov\
-  $d1 $d2 \
-  --out "./results/${phenofile}_${phenotype}_${nofirth}_glm"
+gtype_=("nomiss" "yesmiss")
+phenotypes=("y" "ybool")
 
-## Compare to R results
+for gtype in "${gtype_[@]}"; do
+  pfile="1kgp3_50k_${gtype}_Av_nonintdose_recode_varIDs"
+  phenofile="1kgp3_50k_${gtype}_Av_nonintdose_combined_phenocov.csv"
 
-# python 2.0/build_dynamic/CI-SCRIPTS/COMPARE_GLM_PLINK2_R.py \
-#   "results/${phenofile}_${phenotype}_${nofirth}_glm.ybool.glm.logistic" \
-#   "test_data/1kgp3_50k_${gtype}_Av_nonintdose_ybool_COV_1_glm_logistic_logistic.csv"
+  for phenotype in "${phenotypes[@]}"; do
 
-python 2.0/build_dynamic/CI-SCRIPTS/COMPARE_GLM_PLINK2_R.py \
-  "results/${phenofile}_${phenotype}_${nofirth}_glm.y.glm.linear" \
-  "test_data/1kgp3_50k_${gtype}_Av_nonintdose_y_COV_1_glm_linear_linear.csv"
+    if [ "$phenotype" == "ybool" ]; then
+      for nofirth in "" "no-firth"; do
+        if [ "$nofirth" == "no-firth" ]; then
+          model0="logistic"
+          model="logistic"
+        else
+          model0="logistic.hybrid"
+          model="firth"
+        fi
+
+        plink2 --glm $nofirth hide-covar \
+          --pfile "${datapath}${pfile}" \
+          --allow-extra-chr \
+          --pheno "${datapath}${phenofile}" \
+          --pheno-name "$phenotype" \
+          --covar "${datapath}${phenofile}" \
+          --covar-name "$cov" \
+          $d1 $d2 \
+          --out "./results/${phenofile}_${phenotype}_${nofirth}_glm"
+
+        python 2.0/build_dynamic/CI-SCRIPTS/COMPARE_GLM_PLINK2_R.py \
+          "results/${phenofile}_${phenotype}_${nofirth}_glm.${phenotype}.glm.${model0}" \
+          "test_data/1kgp3_50k_${gtype}_Av_nonintdose_${phenotype}_${cov}_glm_${model}_${model}.csv"
+
+      done
+    else
+      nofirth=""
+      model="linear"
+
+      plink2 --glm hide-covar \
+        --pfile "${datapath}${pfile}" \
+        --allow-extra-chr \
+        --pheno "${datapath}${phenofile}" \
+        --pheno-name "$phenotype" \
+        --covar "${datapath}${phenofile}" \
+        --covar-name "$cov" \
+        $d1 $d2 \
+        --out "./results/${phenofile}_${phenotype}_${nofirth}_glm"
+
+      python 2.0/build_dynamic/CI-SCRIPTS/COMPARE_GLM_PLINK2_R.py \
+        "results/${phenofile}_${phenotype}_${nofirth}_glm.${phenotype}.glm.${model}" \
+        "test_data/1kgp3_50k_${gtype}_Av_nonintdose_${phenotype}_${cov}_glm_${model}_${model}.csv"
+    fi
+
+  done
+done
+        
+
 
 
 
