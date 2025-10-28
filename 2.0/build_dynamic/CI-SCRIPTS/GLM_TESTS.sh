@@ -31,12 +31,12 @@ mkdir -p ./results/
 ## Run GLM
 ## Logistic - no firth, all samples, and one covariate
 
-gtype="yesmiss"
+gtype="nomiss"
 
 datapath="test_data/" 
 pfile="1kgp3_50k_${gtype}_Av_nonintdose_recode_varIDs"
-phenotype="ybool"
-nofirth="no-firth"
+phenotype="y"
+nofirth=""
 phenofile="1kgp3_50k_${gtype}_Av_nonintdose_combined_phenocov.csv"
 cov="COV_1"
 d1="" #--thin-indiv-count $((1000))"
@@ -54,9 +54,13 @@ plink2 --glm $nofirth hide-covar \
 
 ## Compare to R results
 
+# python 2.0/build_dynamic/CI-SCRIPTS/COMPARE_GLM_PLINK2_R.py \
+#   "results/${phenofile}_${phenotype}_${nofirth}_glm.ybool.glm.logistic" \
+#   "test_data/1kgp3_50k_${gtype}_Av_nonintdose_ybool_COV_1_glm_logistic_logistic.csv"
+
 python 2.0/build_dynamic/CI-SCRIPTS/COMPARE_GLM_PLINK2_R.py \
-  "results/${phenofile}_${phenotype}_${nofirth}_glm.ybool.glm.logistic" \
-  "test_data/1kgp3_50k_nomiss_Av_nonintdose_ybool_COV_1_glm_logistic_logistic.csv"
+  "results/${phenofile}_${phenotype}_${nofirth}_glm.y.glm.linear" \
+  "test_data/1kgp3_50k_${gtype}_Av_nonintdose_y_COV_1_glm_linear_linear.csv"
 
 
 
@@ -68,3 +72,7 @@ python 2.0/build_dynamic/CI-SCRIPTS/COMPARE_GLM_PLINK2_R.py \
 
 
 echo "✅ PLINK2 tests complete!"
+
+
+## If run locally, cleanup
+rm -rf venv results
