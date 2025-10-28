@@ -31,7 +31,7 @@ mkdir -p ./results/
 ## Run GLM
 ## Logistic - no firth, all samples, and one covariate
 
-gtype="nomiss"
+gtype="yesmiss"
 
 datapath="test_data/" 
 pfile="1kgp3_50k_${gtype}_Av_nonintdose_recode_varIDs"
