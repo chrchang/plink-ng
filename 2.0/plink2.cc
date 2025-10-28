@@ -92,7 +92,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (19 Oct 2025)";
+  " (26 Oct 2025)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -369,6 +369,9 @@ typedef struct Plink2CmdlineStruct {
   // modified.
   FilterFlags filter_flags;
   FilterFlags dependency_flags;
+
+  // .log should show where --chr, --exclude-if-info, etc. are applied
+  LoadFilterLogFlags load_filter_log_flags;
 
   Command1Flags command_flags1;
   PvarPsamFlags pvar_psam_flags;
@@ -1013,24 +1016,79 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       const uint32_t xheader_needed = (pcp->exportf_info.flags & (kfExportfVcf | kfExportfBcf))? 1 : 0;
       const uint32_t qualfilter_needed = xheader_needed || ((pcp->rmdup_mode != kRmDup0) && (pcp->rmdup_mode <= kRmDupExcludeMismatch));
 
-      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, &(pcp->extract_if_info_expr), &(pcp->exclude_if_info_expr), pcp->misc_flags, pcp->pvar_psam_flags, xheader_needed, qualfilter_needed, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, (pcp->filter_flags / kfFilterPalindromicSnps), !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->filter_min_allele_ct, pcp->filter_max_allele_ct, pcp->input_missing_geno_char, pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &allele_idx_offsets, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
+      uint32_t neg_bp_seen = 0;
+      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, &(pcp->extract_if_info_expr), &(pcp->exclude_if_info_expr), pcp->misc_flags, pcp->pvar_psam_flags, pcp->load_filter_log_flags, xheader_needed, qualfilter_needed, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, (pcp->filter_flags / kfFilterPalindromicSnps), !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->filter_min_allele_ct, pcp->filter_max_allele_ct, pcp->input_missing_geno_char, pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &allele_idx_offsets, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &neg_bp_seen, &max_allele_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
+      LoadFilterLogFlags load_filter_log_flags = pcp->load_filter_log_flags;
+      if (load_filter_log_flags & kfLoadFilterLogImportMergeAlreadyApplied) {
+        load_filter_log_flags &= ~kfLoadFilterLogImportMergeMask;
+      }
       if (unlikely(!variant_ct)) {
         // conditionally permit this?
-        if (raw_variant_ct) {
-          logerrprintfww("Error: No variants loaded from %s.\n", pvarname);
-          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        if (!raw_variant_ct) {
+          logerrprintfww("Error: No variants in %s.\n", pvarname);
+          goto Plink2Core_ret_MALFORMED_INPUT;
         }
-        logerrprintfww("Error: No variants in %s.\n", pvarname);
-        goto Plink2Core_ret_MALFORMED_INPUT;
+        char* write_iter = strcpya_k(g_logbuf, "Error: All ");
+        write_iter = u32toa(raw_variant_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " variant");
+        if (raw_variant_ct != 1) {
+          *write_iter++ = 's';
+        }
+        write_iter = strcpya_k(write_iter, " in ");
+        write_iter = strcpya(write_iter, pvarname);
+        write_iter = strcpya_k(write_iter, " excluded by ");
+        if (load_filter_log_flags) {
+          AppendLoadFilterFlagnames(load_filter_log_flags, &write_iter);
+        }
+        if (neg_bp_seen) {
+          if (load_filter_log_flags) {
+            write_iter = strcpya_k(write_iter, " and/or ");
+          }
+          write_iter = strcpya_k(write_iter, "negative bp coordinates");
+        }
+        strcpy_k(write_iter, ".\n");
+        goto Plink2Core_ret_INCONSISTENT_INPUT_WW;
       }
       pvar_filter_storage = TO_CONSTCPCONSTP(pvar_filter_storage_mutable);
-      if (variant_ct == raw_variant_ct) {
-        logprintfww("%u variant%s loaded from %s.\n", variant_ct, (variant_ct == 1)? "" : "s", pvarname);
-      } else {
-        logprintfww("%u out of %u variant%s loaded from %s.\n", variant_ct, raw_variant_ct, (raw_variant_ct == 1)? "" : "s", pvarname);
+      {
+        char* write_iter = u32toa(raw_variant_ct, g_logbuf);
+        write_iter = strcpya_k(write_iter, " variant");
+        if (raw_variant_ct != 1) {
+          *write_iter++ = 's';
+        }
+        if (raw_variant_ct != variant_ct) {
+          write_iter = strcpya_k(write_iter, " in ");
+          write_iter = strcpya(write_iter, pvarname);
+          write_iter = strcpya_k(write_iter, "; ");
+          write_iter = u32toa(raw_variant_ct - variant_ct, write_iter);
+          write_iter = strcpya_k(write_iter, " excluded by ");
+          if (load_filter_log_flags) {
+            AppendLoadFilterFlagnames(load_filter_log_flags, &write_iter);
+          }
+          if (neg_bp_seen) {
+            if (load_filter_log_flags) {
+              write_iter = strcpya_k(write_iter, " and/or ");
+            }
+            write_iter = strcpya_k(write_iter, "negative bp coordinates");
+          }
+          write_iter = strcpya_k(write_iter, ", ");
+          write_iter = u32toa(variant_ct, write_iter);
+          write_iter = strcpya_k(write_iter, " remaining");
+        } else {
+          write_iter = strcpya_k(write_iter, " loaded from ");
+          write_iter = strcpya(write_iter, pvarname);
+          if (load_filter_log_flags) {
+            write_iter = strcpya_k(write_iter, " (");
+            AppendLoadFilterFlagnames(load_filter_log_flags, &write_iter);
+            write_iter = strcpya_k(write_iter, " had no effect)");
+          }
+        }
+        strcpy_k(write_iter, ".\n");
+        WordWrapB(0);
+        logputsb();
       }
       if (info_reload_slen && (make_plink2_flags & (kfMakeBim | kfMakePvar)) && (!pvar_renamed)) {
         // need to be careful with .pvar in this case
@@ -2963,6 +3021,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
   Plink2Core_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
+  Plink2Core_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
   Plink2Core_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
@@ -3183,8 +3244,8 @@ void PrintVer() {
   fputs(ver_str2, stdout);
 }
 
-uint32_t CmdlineSingleChr(const ChrInfo* cip, MiscFlags misc_flags) {
-  if ((misc_flags & (kfMiscAutosomeOnly | kfMiscAutosomePar)) || (!cip->is_include_stack)) {
+uint32_t CmdlineSingleChr(const ChrInfo* cip, LoadFilterLogFlags load_filter_log_flags) {
+  if ((load_filter_log_flags & (kfLoadFilterLogAutosome | kfLoadFilterLogAutosomePar)) || (!cip->is_include_stack)) {
     return 0;
   }
   const uint32_t main_chr_ct = PopcountWords(cip->chr_mask, kChrExcludeWords) + PopcountWord(cip->chr_mask[kChrMaskWords - 1]);
@@ -3496,6 +3557,7 @@ int main(int argc, char** argv) {
   Plink2Cmdline pc;
   pc.filter_flags = kfFilter0;
   pc.dependency_flags = kfFilter0;
+  pc.load_filter_log_flags = kfLoadFilterLog0;
   pc.pginame = nullptr;
   pc.var_filter_exceptions_flattened = nullptr;
   pc.varid_template_str = nullptr;
@@ -4050,16 +4112,16 @@ int main(int argc, char** argv) {
           }
           pc.misc_flags &= ~kfMiscProhibitExtraChr;
         } else if (strequal_k_unsafe(flagname_p2, "utosome")) {
-          pc.misc_flags |= kfMiscAutosomeOnly;
           chr_info.is_include_stack = 1;
+          pc.load_filter_log_flags |= kfLoadFilterLogAutosome;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "utosome-par")) {
-          if (unlikely(pc.misc_flags & kfMiscAutosomeOnly)) {
+          if (unlikely(pc.load_filter_log_flags & kfLoadFilterLogAutosome)) {
             logerrputs("Error: --autosome-par cannot be used with --autosome.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          pc.misc_flags |= kfMiscAutosomePar;
           chr_info.is_include_stack = 1;
+          pc.load_filter_log_flags |= kfLoadFilterLogAutosomePar;
           goto main_param_zero;
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "llow-no-samples"))) {
           logerrputs("Error: --allow-no-samples is retired.  (If you are performing a set of\noperations which doesn't require sample information, the sample file won't be\nloaded at all.)\n");
@@ -4597,7 +4659,7 @@ int main(int argc, char** argv) {
 
       case 'c':
         if (strequal_k_unsafe(flagname_p2, "hr")) {
-          if (unlikely(pc.misc_flags & (kfMiscAutosomePar | kfMiscAutosomeOnly))) {
+          if (unlikely(pc.load_filter_log_flags & (kfLoadFilterLogAutosome | kfLoadFilterLogAutosomePar))) {
             logerrputs("Error: --chr cannot be used with --autosome[-par].\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -4609,6 +4671,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           chr_info.is_include_stack = 1;
+          pc.load_filter_log_flags |= kfLoadFilterLogChr;
         } else if (strequal_k_unsafe(flagname_p2, "ovar")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -5964,6 +6027,7 @@ int main(int argc, char** argv) {
           }
           // LoadPvar() currently checks value string if nonnumeric
           pc.filter_flags |= kfFilterPvarReq;
+          pc.load_filter_log_flags |= kfLoadFilterLogExtractIfInfo;
         } else if (strequal_k_unsafe(flagname_p2, "xclude-if-info")) {
           reterr = ValidateAndAllocCmpExpr(&(argvk[arg_idx + 1]), argvk[arg_idx], param_ct, &pc.exclude_if_info_expr);
           if (unlikely(reterr)) {
@@ -5977,6 +6041,7 @@ int main(int argc, char** argv) {
           }
           // LoadPvar() currently checks value string if nonnumeric
           pc.filter_flags |= kfFilterPvarReq;
+          pc.load_filter_log_flags |= kfLoadFilterLogExcludeIfInfo;
         } else if (strequal_k_unsafe(flagname_p2, "igfile")) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -6063,6 +6128,7 @@ int main(int argc, char** argv) {
           xload |= kfXloadEigSnp;
         } else if (strequal_k_unsafe(flagname_p2, "xclude-palindromic-snps")) {
           pc.filter_flags |= kfFilterPvarReq | kfFilterPalindromicSnps;
+          pc.load_filter_log_flags |= kfLoadFilterLogExcludePalindromicSnps;
           goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "rror-on-freq-calc"))) {
           pc.misc_flags |= kfMiscErrorOnFreqCalc;
@@ -6165,7 +6231,7 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "rom-bp") ||
                    strequal_k_unsafe(flagname_p2, "rom-kb") ||
                    strequal_k_unsafe(flagname_p2, "rom-mb")) {
-          if (unlikely(!CmdlineSingleChr(&chr_info, pc.misc_flags))) {
+          if (unlikely(!CmdlineSingleChr(&chr_info, pc.load_filter_log_flags))) {
             logerrputs("Error: --from-bp/-kb/-mb and --to-bp/-kb/-mb must be used with --chr, and only\none chromosome.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -7321,6 +7387,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-max-alleles argument '%s'.\n", argvk[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+          pc.load_filter_log_flags |= kfLoadFilterLogImportMaxAlleles;
         } else if (strequal_k_unsafe(flagname_p2, "mpute-sex")) {
           if (unlikely(pc.command_flags1 & kfCommand1CheckOrImputeSex)) {
             logerrputs("Error: --check-sex is redundant with --impute-sex.\n");
@@ -9209,6 +9276,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.filter_flags |= kfFilterPvarReq;
+          pc.load_filter_log_flags |= kfLoadFilterLogMaxAlleles;
         } else if (strequal_k_unsafe(flagname_p2, "in-alleles")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -9226,6 +9294,7 @@ int main(int argc, char** argv) {
             pc.filter_min_allele_ct = 0;
           }
           pc.filter_flags |= kfFilterPvarReq;
+          pc.load_filter_log_flags |= kfLoadFilterLogMinAlleles;
         } else if (strequal_k_unsafe(flagname_p2, "erge-mode")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -9625,6 +9694,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           notchr_present = 1;
+          pc.load_filter_log_flags |= kfLoadFilterLogNotChr;
           // remaining processing now postponed to FinalizeChrset()
         } else if (strequal_k_unsafe(flagname_p2, "ew-id-max-allele-len")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
@@ -10681,6 +10751,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
+          pc.load_filter_log_flags |= kfLoadFilterLogRequireInfo;
         } else if (strequal_k_unsafe(flagname_p2, "equire-no-info")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -10690,6 +10761,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
+          pc.load_filter_log_flags |= kfLoadFilterLogRequireNoInfo;
         } else if (strequal_k_unsafe(flagname_p2, "emove-if")) {
           reterr = ValidateAndAllocCmpExpr(&(argvk[arg_idx + 1]), argvk[arg_idx], param_ct, &pc.remove_if_expr);
           if (unlikely(reterr)) {
@@ -11249,6 +11321,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterSnpsOnly;
+          pc.load_filter_log_flags |= kfLoadFilterLogSnpsOnly;
         } else if (strequal_k_unsafe(flagname_p2, "core") || strequal_k_unsafe(flagname_p2, "core-list")) {
           const uint32_t multi_input = (flagname_p2[4] == '-');
           if (multi_input) {
@@ -11774,7 +11847,7 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
         } else if (strequal_k_unsafe(flagname_p2, "o-bp") || strequal_k_unsafe(flagname_p2, "o-kb") || strequal_k_unsafe(flagname_p2, "o-mb")) {
-          if (unlikely(!CmdlineSingleChr(&chr_info, pc.misc_flags))) {
+          if (unlikely(!CmdlineSingleChr(&chr_info, pc.load_filter_log_flags))) {
             logerrputs("Error: --from-bp/-kb/-mb and --to-bp/-kb/-mb must be used with --chr, and only\none chromosome.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -12117,6 +12190,7 @@ int main(int argc, char** argv) {
           }
           pc.var_min_qual *= S_CAST(float, 1 - kBigEpsilon);
           pc.filter_flags |= kfFilterPvarReq;
+          pc.load_filter_log_flags |= kfLoadFilterLogVarMinQual;
         } else if (strequal_k_unsafe(flagname_p2, "ar-filter")) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.var_filter_exceptions_flattened);
@@ -12126,6 +12200,7 @@ int main(int argc, char** argv) {
           }
           pc.misc_flags |= kfMiscExcludePvarFilterFail;
           pc.filter_flags |= kfFilterPvarReq;
+          pc.load_filter_log_flags |= kfLoadFilterLogVarFilter;
         } else if (strequal_k_unsafe(flagname_p2, "cf")) {
           // permit accompanying .fam/.psam
           // IIDs must match VCF sample line order
@@ -12247,7 +12322,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --vcf-require-gt must be used with --vcf/--bcf.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          import_flags |= kfImportVcfRequireGt;
+          pc.load_filter_log_flags |= kfLoadFilterLogVcfRequireGt;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "cf-ref-n-missing")) {
           if (unlikely(!(xload & (kfXloadVcf | kfXloadBcf)))) {
@@ -12955,6 +13030,7 @@ int main(int argc, char** argv) {
           import_flags |= kfImportKeepAutoconv;
         }
         const uint32_t convname_slen = convname_end - outname;
+        const LoadFilterLogFlags load_filter_log_import_flags = pc.load_filter_log_flags & kfLoadFilterLogImportMask;
         uint32_t pgen_generated = 1;
         uint32_t pgi_generated = 0;
         uint32_t psam_generated = 1;
@@ -12988,9 +13064,9 @@ int main(int argc, char** argv) {
             g_zst_level = 1;
           }
           if (is_vcf) {
-            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, load_filter_log_import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           } else {
-            reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, load_filter_log_import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           }
           g_zst_level = zst_level;
         } else {
@@ -13006,21 +13082,21 @@ int main(int argc, char** argv) {
           //   use 1/2 coding.
           const uint32_t psam_01 = (pc.misc_flags & kfMiscAffection01) && pc.command_flags1;
           if (xload & kfXloadPed) {
-            reterr = PedmapToPgen(pgenname, pvarname, pc.missing_catname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = PedmapToPgen(pgenname, pvarname, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadTped) {
-            reterr = TpedToPgen(pgenname, psamname, pc.missing_catname, pc.misc_flags, import_flags, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info, &psam_generated);
+            reterr = TpedToPgen(pgenname, psamname, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info, &psam_generated);
           } else if (xload & kfXloadOxGen) {
-            reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, oxford_import_flags, psam_01, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxBgen) {
-            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxHaps) {
-            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
+            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
           } else if (xload & kfXloadEigGeno) {
-            reterr = EigfileToPgen(pgenname, psamname, pvarname, const_fid, pc.missing_catname, pc.misc_flags, import_flags, psam_01, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = EigfileToPgen(pgenname, psamname, pvarname, const_fid, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadPlink1Dosage) {
-            reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (likely(xload & kfXloadGenDummy)) {
-            reterr = GenerateDummy(&gendummy_info, pc.misc_flags, import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, &main_sfmt, outname, convname_end, &chr_info);
+            reterr = GenerateDummy(&gendummy_info, import_flags, load_filter_log_import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, &main_sfmt, outname, convname_end, &chr_info);
           } else {
             // We should have errored out with a better message before this
             // point.
@@ -13031,6 +13107,10 @@ int main(int argc, char** argv) {
         }
         if (reterr || (!pc.command_flags1)) {
           goto main_ret_1;
+        }
+
+        if (load_filter_log_import_flags) {
+          pc.load_filter_log_flags |= kfLoadFilterLogImportMergeAlreadyApplied;
         }
 
         pc.hard_call_thresh = UINT32_MAX;
@@ -13107,11 +13187,12 @@ int main(int argc, char** argv) {
       }
 
       if (pc.command_flags1 & kfCommand1Pmerge) {
+        const LoadFilterLogFlags load_filter_log_merge_flags = pc.load_filter_log_flags & kfLoadFilterLogMergeMask;
         char* merge_outname_end = outname_end;
         if (make_plink2_flags & (kfMakePgen | kfMakePvar | kfMakePsam)) {
           merge_outname_end = strcpya_k(merge_outname_end, "-merge");
         }
-        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.missing_catname, pc.varid_template_str, pc.varid_multi_template_str, pc.varid_multi_nonsnp_template_str, pc.missing_varid_match, pc.misc_flags, pc.sample_sort_mode, pc.fam_cols, pc.missing_pheno, pc.new_variant_id_max_allele_slen, pc.input_missing_geno_char, pc.max_thread_ct, pc.sort_vars_mode, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
+        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.missing_catname, pc.varid_template_str, pc.varid_multi_template_str, pc.varid_multi_nonsnp_template_str, pc.missing_varid_match, pc.misc_flags, load_filter_log_merge_flags, pc.sample_sort_mode, pc.fam_cols, pc.missing_pheno, pc.new_variant_id_max_allele_slen, pc.input_missing_geno_char, pc.max_thread_ct, pc.sort_vars_mode, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
         if (unlikely(reterr)) {
           goto main_ret_1;
         }
@@ -13130,6 +13211,9 @@ int main(int argc, char** argv) {
         if (pc.varid_template_str) {
           free(pc.varid_template_str);
           pc.varid_template_str = nullptr;
+        }
+        if (load_filter_log_merge_flags) {
+          pc.load_filter_log_flags |= kfLoadFilterLogImportMergeAlreadyApplied;
         }
         // --real-ref-alleles communicates to --pmerge[-list] that all input
         // .bed filesets have real REF alleles.

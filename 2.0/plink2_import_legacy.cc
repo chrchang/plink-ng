@@ -48,7 +48,7 @@ namespace plink2 {
 // Assumes FinalizeChrset() has already been called.
 // Errors out on .bim file.
 // variant_include assumed to be initialized to nullptr.
-PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* at_least_one_nzero_cm_ptr, uintptr_t** variant_include_ptr) {
+PglErr ScanMap(const char* mapname, MiscFlags misc_flags, LoadFilterLogFlags load_filter_log_import_flags, ChrInfo* cip, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* neg_bp_seen_ptr, uint32_t* at_least_one_nzero_cm_ptr, uintptr_t** variant_include_ptr) {
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -105,6 +105,7 @@ PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     uint32_t at_least_one_nzero_cm = 0;
     uint32_t raw_variant_ct = 0;
     uint32_t variant_ct = 0;
+    uint32_t neg_bp_seen = 0;
     uintptr_t variant_include_word = 0;
     uint32_t variant_uidx_lowbits = 0;
     char* line_iter = line_start;
@@ -144,6 +145,7 @@ PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
         }
         line_iter = bp_start;
         if (cur_bp < 0) {
+          neg_bp_seen = 1;
           goto ScanMap_skip_variant;
         }
         if ((map_cols == 4) && (!at_least_one_nzero_cm)) {
@@ -180,11 +182,28 @@ PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     }
   ScanMap_eof:
     if (unlikely(!variant_ct)) {
-      logerrputs("Error: All variants in .map file skipped due to chromosome filter or negative\nbp coordinates.\n");
-      goto ScanMap_ret_INCONSISTENT_INPUT;
+      char* write_iter = strcpya_k(g_logbuf, "Error: All ");
+      write_iter = u32toa(raw_variant_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (raw_variant_ct != 1) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, " in .map file excluded by ");
+      if (load_filter_log_import_flags) {
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+      }
+      if (neg_bp_seen) {
+        if (load_filter_log_import_flags) {
+          write_iter = strcpya_k(write_iter, " and/or ");
+        }
+        write_iter = strcpya_k(write_iter, "negative bp coordinates");
+      }
+      strcpy_k(write_iter, ".\n");
+      goto ScanMap_ret_INCONSISTENT_INPUT_WW;
     }
     *raw_variant_ct_ptr = raw_variant_ct;
     *variant_ct_ptr = variant_ct;
+    *neg_bp_seen_ptr = neg_bp_seen;
     *at_least_one_nzero_cm_ptr = at_least_one_nzero_cm;
     if (raw_variant_ct != variant_ct) {
       if (variant_uidx_lowbits) {
@@ -209,7 +228,9 @@ PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
   ScanMap_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  ScanMap_ret_INCONSISTENT_INPUT:
+  ScanMap_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
     reterr = kPglRetInconsistentInput;
     break;
   ScanMap_ret_DEGENERATE_DATA:
@@ -388,7 +409,7 @@ CONSTI32(kLoadMapBlockSize, 65536);
 
 // assumes FinalizeChrset() has already been called.
 // .bim ok
-PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, ChrIdx** variant_chr_codes_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, double** variant_cms_ptr, uint32_t* variant_ct_ptr) {
+PglErr LoadMap(const char* mapname, MiscFlags misc_flags, LoadFilterLogFlags load_filter_log_import_flags, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, ChrIdx** variant_chr_codes_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, double** variant_cms_ptr, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -453,6 +474,8 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     double cur_cm = 0.0;
     uint32_t at_least_one_nzero_cm = 0;
     uint32_t variant_ct = 0;
+    uint32_t neg_bp_seen = 0;
+    uintptr_t variant_skip_ct = 0;
     char* line_iter = line_start;
     while (1) {
       {
@@ -505,6 +528,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
         }
         line_iter = linebuf_iter;
         if (cur_bp < 0) {
+          neg_bp_seen = 1;
           goto LoadMap_skip_variant;
         }
 
@@ -529,6 +553,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
         ++variant_ct;
       }
     LoadMap_skip_variant:
+      ++variant_skip_ct;
       do {
         ++line_idx;
         line_iter = AdvPastDelim(line_iter, '\n');
@@ -547,8 +572,24 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     }
 
     if (unlikely(!variant_ct)) {
-      logerrputs("Error: All variants in .map/.bim file skipped due to chromosome filter or\nnegative bp coordinates.\n");
-      goto LoadMap_ret_INCONSISTENT_INPUT;
+      char* write_iter = strcpya_k(g_logbuf, "Error: All ");
+      write_iter = wtoa(variant_skip_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (variant_skip_ct != 1) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, " in .map file excluded by ");
+      if (load_filter_log_import_flags) {
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+      }
+      if (neg_bp_seen) {
+        if (load_filter_log_import_flags) {
+          write_iter = strcpya_k(write_iter, " and/or ");
+        }
+        write_iter = strcpya_k(write_iter, "negative bp coordinates");
+      }
+      strcpy_k(write_iter, ".\n");
+      goto LoadMap_ret_INCONSISTENT_INPUT_WW;
     }
     // true requirement is weaker, but whatever
     g_bigstack_end = g_bigstack_base;
@@ -620,7 +661,9 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
   LoadMap_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  LoadMap_ret_INCONSISTENT_INPUT:
+  LoadMap_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
     reterr = kPglRetInconsistentInput;
     break;
   LoadMap_ret_DEGENERATE_DATA:
@@ -713,7 +756,7 @@ BoolErr TpedToPgenSnp(uint32_t sample_idx_start, uint32_t sample_idx_stop, char 
 // It's possible to parallelize this more, but it isn't realistically worth the
 // effort, since there's so little reason to use this format over VCF for
 // larger datasets.
-PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr) {
+PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   TextStream tped_txs;
   PreinitTextStream(&tped_txs);
@@ -780,10 +823,11 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
       }
       logprintf("--tped: %u sample%s present.\n", sample_ct, (sample_ct == 1)? "" : "s");
     }
-    FinalizeChrset(misc_flags, cip);
+    FinalizeChrset(load_filter_log_import_flags, cip);
     const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
     uint32_t max_line_blen = TextLineEnd(&tped_txs) - tped_line_start;
     uint32_t variant_ct = 0;
+    uint32_t neg_bp_seen = 0;
     uint32_t at_least_one_nzero_cm = 0;
     while (1) {
       char* chr_code_end = CurTokenEnd(tped_line_start);
@@ -821,6 +865,8 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
             }
             at_least_one_nzero_cm = (cur_cm != 0.0);
           }
+        } else {
+          neg_bp_seen = 1;
         }
       }
 
@@ -837,19 +883,67 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
     if (unlikely(TextStreamErrcode2(&tped_txs, &reterr))) {
       goto TpedToPgen_ret_TSTREAM_FAIL;
     }
+    const uintptr_t variant_skip_ct = line_idx - 1 - variant_ct;
     if (unlikely(!variant_ct)) {
-      logerrputs("Error: All .tped variants excluded by chromosome filter or negative bp\ncoordinates.\n");
-      goto TpedToPgen_ret_INCONSISTENT_INPUT;
+      if (!variant_skip_ct) {
+        logerrputs("Error: No variants in --tped file.\n");
+        goto TpedToPgen_ret_INCONSISTENT_INPUT;
+      }
+      char* write_iter = strcpya_k(g_logbuf, "Error: All ");
+      write_iter = wtoa(variant_skip_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (variant_skip_ct != 1) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, " in --tped file excluded by ");
+      if (load_filter_log_import_flags) {
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+      }
+      if (neg_bp_seen) {
+        if (load_filter_log_import_flags) {
+          write_iter = strcpya_k(write_iter, " and/or ");
+        }
+        write_iter = strcpya_k(write_iter, "negative bp coordinates");
+      }
+      strcpy_k(write_iter, ".\n");
+      goto TpedToPgen_ret_INCONSISTENT_INPUT_WW;
     }
     if (unlikely(CleanupTextStream2(tpedname, &tped_txs, &reterr))) {
       goto TpedToPgen_ret_1;
     }
     BigstackReset(bigstack_mark);
-    const uint32_t variant_skip_ct = line_idx - 1 - variant_ct;
-    if (variant_skip_ct) {
-      logprintfww("--tped: %" PRIuPTR " variants scanned; %u excluded by chromosome filter or negative bp coordinates, %u remaining.\n", line_idx - 1, variant_skip_ct, variant_ct);
-    } else {
-      logprintf("--tped: %u variant%s scanned.\n", variant_ct, (variant_ct == 1)? "" : "s");
+    {
+      char* write_iter = strcpya_k(g_logbuf, "--tped: ");
+      write_iter = wtoa(line_idx - 1, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (line_idx != 2) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, " scanned");
+      if (variant_skip_ct) {
+        write_iter = strcpya_k(write_iter, "; ");
+        write_iter = wtoa(variant_skip_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " excluded by ");
+        if (load_filter_log_import_flags) {
+          AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        }
+        if (neg_bp_seen) {
+          if (load_filter_log_import_flags) {
+            write_iter = strcpya_k(write_iter, " and/or ");
+          }
+          write_iter = strcpya_k(write_iter, "negative bp coordinates");
+        }
+        write_iter = strcpya_k(write_iter, ", ");
+        write_iter = u32toa(variant_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " remaining");
+      } else if (load_filter_log_import_flags) {
+        write_iter = strcpya_k(write_iter, " (");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        write_iter = strcpya_k(write_iter, " had no effect)");
+      }
+      strcpy_k(write_iter, ".\n");
+      WordWrapB(0);
+      logputsb();
     }
     reterr = InitTextStream(tpedname, MAXV(max_line_blen, kTextStreamBlenFast), decompress_thread_ct, &tped_txs);
     if (unlikely(reterr)) {
@@ -1238,6 +1332,9 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
   TpedToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
+  TpedToPgen_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
   TpedToPgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
@@ -1843,7 +1940,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
   return reterr;
 }
 
-PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* indmaj_bed_file = nullptr;
@@ -1869,12 +1966,13 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
     // 6. Transpose sample-major .bed to .pgen, while flipping the necessary
     //    variants.
     // 7. Delete temporary files.
-    FinalizeChrset(misc_flags, cip);
+    FinalizeChrset(load_filter_log_import_flags, cip);
     uintptr_t* variant_include = nullptr;
     uint32_t raw_variant_ct;
     uint32_t variant_ct;
+    uint32_t neg_bp_seen;
     uint32_t at_least_one_nzero_cm;
-    reterr = ScanMap(mapname, misc_flags, cip, &raw_variant_ct, &variant_ct, &at_least_one_nzero_cm, &variant_include);
+    reterr = ScanMap(mapname, misc_flags, load_filter_log_import_flags, cip, &raw_variant_ct, &variant_ct, &neg_bp_seen, &at_least_one_nzero_cm, &variant_include);
     if (unlikely(reterr)) {
       goto PedmapToPgen_ret_1;
     }
@@ -1882,10 +1980,38 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
       logerrputs("Error: Too many variants for .ped file converter.\n");
       goto PedmapToPgen_ret_MALFORMED_INPUT;
     }
-    if (raw_variant_ct != variant_ct) {
-      logprintfww("--pedmap: %u variant%s in .map file; %u excluded by chromosome filter or negative bp coordinates, %u remaining.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s", raw_variant_ct - variant_ct, variant_ct);
-    } else {
-      logprintf("--pedmap: %u variant%s in .map file.\n", variant_ct, (variant_ct == 1)? "" : "s");
+    {
+      char* write_iter = strcpya_k(g_logbuf, "--pedmap: ");
+      write_iter = u32toa(raw_variant_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " variant");
+      if (line_idx != 2) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, " in .map file");
+      if (raw_variant_ct != variant_ct) {
+        write_iter = strcpya_k(write_iter, "; ");
+        write_iter = u32toa(raw_variant_ct - variant_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " excluded by ");
+        if (load_filter_log_import_flags) {
+          AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        }
+        if (neg_bp_seen) {
+          if (load_filter_log_import_flags) {
+            write_iter = strcpya_k(write_iter, " and/or ");
+          }
+          write_iter = strcpya_k(write_iter, "negative bp coordinates");
+        }
+        write_iter = strcpya_k(write_iter, ", ");
+        write_iter = u32toa(variant_ct, write_iter);
+        write_iter = strcpya_k(write_iter, " remaining");
+      } else if (load_filter_log_import_flags) {
+        write_iter = strcpya_k(write_iter, " (");
+        AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
+        write_iter = strcpya_k(write_iter, " had no effect)");
+      }
+      strcpy_k(write_iter, ".\n");
+      WordWrapB(0);
+      logputsb();
     }
 
     const uint32_t variant_ctl = BitCtToWordCt(variant_ct);

@@ -126,52 +126,50 @@ FLAGSET64_DEF_START()
   kfMiscMajRefForce = (1 << 4),
   kfMiscNonfounders = (1 << 5),
   kfMiscExcludePvarFilterFail = (1 << 6),
-  kfMiscAutosomePar = (1 << 7),
-  kfMiscAutosomeOnly = (1 << 8),
-  kfMiscMergePar = (1 << 9),
-  kfMiscPhenoColNums = (1 << 10),
-  kfMiscCovarColNums = (1 << 11),
-  kfMiscHweMidp = (1 << 12),
-  kfMiscHweKeepFewhet = (1 << 13),
-  kfMiscWriteSnplistZs = (1 << 14),
-  kfMiscWriteSnplistAllowDups = (1 << 15),
-  kfMiscGenoDosage = (1 << 16),
-  kfMiscGenoHhMissing = (1 << 17),
-  kfMiscMindDosage = (1 << 18),
-  kfMiscMindHhMissing = (1 << 19),
-  kfMiscGenotypingRateDosage = (1 << 20),
-  kfMiscSetMissingVarIds = (1 << 21),
-  kfMiscChrOverrideCmdline = (1 << 22),
-  kfMiscChrOverrideFile = (1 << 23),
-  kfMiscNewVarIdOverflowMissing = (1 << 24),
-  kfMiscNewVarIdOverflowTruncate = (1 << 25),
-  kfMiscRequirePheno = (1 << 26),
-  kfMiscRequireCovar = (1 << 27),
-  kfMiscCatPhenoFamily = (1 << 28),
-  kfMiscRefAlleleForce = (1 << 29),
-  kfMiscAltAlleleForce = (1 << 30),
-  kfMiscMergeX = (1U << 31),
-  kfMiscNoIdHeader = (1LLU << 32),
-  kfMiscNoIdHeaderIidOnly = (1LLU << 33),
-  kfMiscBiallelicOnly = (1LLU << 34),
-  kfMiscBiallelicOnlyStrict = (1LLU << 35),
-  kfMiscBiallelicOnlyList = (1LLU << 36),
-  kfMiscStrictSid0 = (1LLU << 37),
-  kfMiscAllowBadFreqs = (1LLU << 38),
-  kfMiscIidSid = (1LLU << 39),
-  kfMiscPhenoIidOnly = (1LLU << 40),
-  kfMiscCovarIidOnly = (1LLU << 41),
-  kfMiscAllowBadLd = (1LLU << 42),
-  kfMiscErrorOnFreqCalc = (1LLU << 43),
-  kfMiscNoCategorical = (1LLU << 44),
-  kfMiscAcFounders = (1LLU << 45),
-  kfMiscMakeFoundersFirst = (1LLU << 46),
-  kfMiscMakeFoundersNotfirst = (1LLU << 47),
-  kfMiscMakeFoundersRequire2Missing = (1LLU << 48),
-  kfMiscYNosexMissingStats = (1LLU << 49),
-  kfMiscNeg9PhenoReallyMissing = (1LLU << 50),
-  kfMiscAlt1Allele = (1LLU << 51),
-  kfMiscSelectSidParentsOnly = (1LLU << 52)
+  kfMiscMergePar = (1 << 7),
+  kfMiscPhenoColNums = (1 << 8),
+  kfMiscCovarColNums = (1 << 9),
+  kfMiscHweMidp = (1 << 10),
+  kfMiscHweKeepFewhet = (1 << 11),
+  kfMiscWriteSnplistZs = (1 << 12),
+  kfMiscWriteSnplistAllowDups = (1 << 13),
+  kfMiscGenoDosage = (1 << 14),
+  kfMiscGenoHhMissing = (1 << 15),
+  kfMiscMindDosage = (1 << 16),
+  kfMiscMindHhMissing = (1 << 17),
+  kfMiscGenotypingRateDosage = (1 << 18),
+  kfMiscSetMissingVarIds = (1 << 19),
+  kfMiscChrOverrideCmdline = (1 << 20),
+  kfMiscChrOverrideFile = (1 << 21),
+  kfMiscNewVarIdOverflowMissing = (1 << 22),
+  kfMiscNewVarIdOverflowTruncate = (1 << 23),
+  kfMiscRequirePheno = (1 << 24),
+  kfMiscRequireCovar = (1 << 25),
+  kfMiscCatPhenoFamily = (1 << 26),
+  kfMiscRefAlleleForce = (1 << 27),
+  kfMiscAltAlleleForce = (1 << 28),
+  kfMiscMergeX = (1 << 29),
+  kfMiscNoIdHeader = (1 << 30),
+  kfMiscNoIdHeaderIidOnly = (1U << 31),
+  kfMiscBiallelicOnly = (1LLU << 32),
+  kfMiscBiallelicOnlyStrict = (1LLU << 33),
+  kfMiscBiallelicOnlyList = (1LLU << 34),
+  kfMiscStrictSid0 = (1LLU << 35),
+  kfMiscAllowBadFreqs = (1LLU << 36),
+  kfMiscIidSid = (1LLU << 37),
+  kfMiscPhenoIidOnly = (1LLU << 38),
+  kfMiscCovarIidOnly = (1LLU << 39),
+  kfMiscAllowBadLd = (1LLU << 40),
+  kfMiscErrorOnFreqCalc = (1LLU << 41),
+  kfMiscNoCategorical = (1LLU << 42),
+  kfMiscAcFounders = (1LLU << 43),
+  kfMiscMakeFoundersFirst = (1LLU << 44),
+  kfMiscMakeFoundersNotfirst = (1LLU << 45),
+  kfMiscMakeFoundersRequire2Missing = (1LLU << 46),
+  kfMiscYNosexMissingStats = (1LLU << 47),
+  kfMiscNeg9PhenoReallyMissing = (1LLU << 48),
+  kfMiscAlt1Allele = (1LLU << 49),
+  kfMiscSelectSidParentsOnly = (1LLU << 50)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -278,6 +276,36 @@ FLAGSET_DEF_START()
   kfSampleIdStrictSid0 = (1 << 4)
 FLAGSET_DEF_END(SampleIdFlags);
 
+FLAGSET_DEF_START()
+  kfLoadFilterLog0,
+  // import-only
+  kfLoadFilterLogImportMaxAlleles = (1 << 0),
+  kfLoadFilterLogVcfRequireGt = (1 << 1),
+  // merge-only
+  kfLoadFilterLogMergeMaxAlleles = (1 << 2),
+  // chromosome filters: always applied, but omitted from .pvar-load log if
+  // import or merge already occurred
+  kfLoadFilterLogAutosome = (1 << 3),
+  kfLoadFilterLogAutosomePar = (1 << 4),
+  kfLoadFilterLogChr = (1 << 5),
+  kfLoadFilterLogNotChr = (1 << 6),
+  kfLoadFilterLogImportMask = ((kfLoadFilterLogNotChr * 2) - kfLoadFilterLogMergeMaxAlleles - kfLoadFilterLogImportMaxAlleles),
+  kfLoadFilterLogMergeMask = ((kfLoadFilterLogNotChr * 2) - kfLoadFilterLogMergeMaxAlleles),
+  kfLoadFilterLogImportMergeAlreadyApplied = (1 << 7),
+  kfLoadFilterLogImportMergeMask = ((kfLoadFilterLogImportMergeAlreadyApplied * 2) - kfLoadFilterLogImportMaxAlleles),
+  // main .pvar load only
+  kfLoadFilterLogExcludeIfInfo = (1 << 8),
+  kfLoadFilterLogExcludePalindromicSnps = (1 << 9),
+  kfLoadFilterLogExtractIfInfo = (1 << 10),
+  kfLoadFilterLogMaxAlleles = (1 << 11),
+  kfLoadFilterLogMinAlleles = (1 << 12),
+  kfLoadFilterLogRequireInfo = (1 << 13),
+  kfLoadFilterLogRequireNoInfo = (1 << 14),
+  kfLoadFilterLogSnpsOnly = (1 << 15),
+  kfLoadFilterLogVarFilter = (1 << 16),
+  kfLoadFilterLogVarMinQual = (1 << 17)
+FLAGSET_DEF_END(LoadFilterLogFlags);
+
 // These structs are small enough and ownership of the pointed-to arrays is
 // generally clear enough that the noncopyable annotation is just intended to
 // be a tripwire.
@@ -345,6 +373,8 @@ void InitFlip(FlipInfo* flip_info_ptr);
 
 void CleanupFlip(FlipInfo* flip_info_ptr);
 
+
+void AppendLoadFilterFlagnames(LoadFilterLogFlags load_filter_log_flags, char** write_iter_ptr);
 
 HEADER_INLINE BoolErr bigstack_alloc_ac(uintptr_t ct, AlleleCode** allele_arr_ptr) {
   *allele_arr_ptr = S_CAST(AlleleCode*, bigstack_alloc(ct * sizeof(AlleleCode)));
@@ -885,14 +915,14 @@ extern const char g_xymt_log_names[kChrOffsetCt][5];
 
 PglErr InitChrInfo(ChrInfo* cip);
 
-void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip);
+void FinalizeChrset(LoadFilterLogFlags load_filter_log_flags, ChrInfo* cip);
 
 HEADER_INLINE PglErr InitChrInfoHuman(ChrInfo* cip) {
   // convenience wrapper
   if (unlikely(InitChrInfo(cip))) {
     return kPglRetNomem;
   }
-  FinalizeChrset(kfMisc0, cip);
+  FinalizeChrset(kfLoadFilterLog0, cip);
   return kPglRetSuccess;
 }
 

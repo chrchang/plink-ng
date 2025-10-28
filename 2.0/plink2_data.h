@@ -69,14 +69,13 @@ FLAGSET_DEF_START()
   kfImportKeepAutoconv = (1 << 0),
   kfImportKeepAutoconvVzs = (1 << 1),
   kfImportDoubleId = (1 << 2),
-  kfImportVcfRequireGt = (1 << 3),
-  kfImportVcfRefNMissing = (1 << 4),
-  kfImportLaxChrX = (1 << 5),
-  kfImportPolyploidMissing = (1 << 6),
-  kfImportPolyploidExplicitError = (1 << 7),
-  kfImportVcfAllowNoNonvar = (1 << 8),
-  kfImportLaxBgen = (1 << 9),
-  kfImportEigNohash = (1 << 10)
+  kfImportVcfRefNMissing = (1 << 3),
+  kfImportLaxChrX = (1 << 4),
+  kfImportPolyploidMissing = (1 << 5),
+  kfImportPolyploidExplicitError = (1 << 6),
+  kfImportVcfAllowNoNonvar = (1 << 7),
+  kfImportLaxBgen = (1 << 8),
+  kfImportEigNohash = (1 << 9)
 FLAGSET_DEF_END(ImportFlags);
 
 CONSTI32(kMaxInfoKeySlen, kMaxIdSlen);

@@ -1999,7 +1999,7 @@ BoolErr ScrapeLastVarid(const RescanOnePosContext* ctxp, unsigned char* arena_bo
 // info_keys, pointed-to InfoVtype entries, and info_keys_htable are allocated
 // at the end of bigstack.
 static_assert(kCompressStreamBlock <= kDecompressChunkSize, "ScanPvarsAndMergeHeader() needs to be updated.");
-PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid_match, MiscFlags misc_flags, uint32_t missing_varid_match_slen, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, VaridTemplate* varid_templatep, VaridTemplate* varid_multi_templatep, VaridTemplate* varid_multi_nonsnp_templatep, char* outname, char* outname_end, PmergeInputFilesetLl** filesets_ptr, ChrInfo* cip, uintptr_t* fileset_ctp, uint32_t* info_has_g_keyp, const char* const** info_keys_ptr, uint32_t* info_key_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep, uint32_t* info_conflict_presentp) {
+PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid_match, MiscFlags misc_flags, LoadFilterLogFlags load_filter_log_merge_flags, uint32_t missing_varid_match_slen, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, VaridTemplate* varid_templatep, VaridTemplate* varid_multi_templatep, VaridTemplate* varid_multi_nonsnp_templatep, char* outname, char* outname_end, PmergeInputFilesetLl** filesets_ptr, ChrInfo* cip, uintptr_t* fileset_ctp, uint32_t* info_has_g_keyp, const char* const** info_keys_ptr, uint32_t* info_key_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep, uint32_t* info_conflict_presentp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   const char* cur_fname = nullptr;
@@ -2136,6 +2136,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
     uint32_t max_xheader_line_blen = 0;
     uint32_t at_least_one_info_exists = 0;
     uint32_t max_allele_overflow_slen = 0;
+    uint32_t neg_bp_seen = 0;
     uintptr_t info_conflict_ct = 0;
     for (uintptr_t fileset_idx = 0; fileset_idx != fileset_ct; ++fileset_idx) {
       PmergeInputFilesetLl* cur_fileset = *filesets_iterp;
@@ -2367,7 +2368,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
         goto ScanPvarsAndMergeHeader_ret_INCONSISTENTLY_PRESENT_CHRSET;
       }
       if (!fileset_idx) {
-        FinalizeChrset(misc_flags, cip);
+        FinalizeChrset(load_filter_log_merge_flags, cip);
       }
       if (max_xheader_line_blen < max_line_blen) {
         max_xheader_line_blen = max_line_blen;
@@ -2703,6 +2704,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
         }
         if (cur_bp <= prev_bp) {
           if (cur_bp < 0) {
+            neg_bp_seen = 1;
             ++nonwrite_variant_ct;
             continue;
           }
@@ -2850,8 +2852,18 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
       }
     }
     if (unlikely(null_fileset_ct && ((null_fileset_ct == fileset_ct) || (pmip->flags & kfPmergeVariantInnerJoin)))) {
-      logerrputs("Error: No variants remaining.\n");
-      goto ScanPvarsAndMergeHeader_ret_INCONSISTENT_INPUT;
+      char* write_iter = strcpya_k(g_logbuf, "Error: --pmerge[-list]: All variants excluded by ");
+      if (load_filter_log_merge_flags) {
+        AppendLoadFilterFlagnames(load_filter_log_merge_flags, &write_iter);
+      }
+      if (neg_bp_seen) {
+        if (load_filter_log_merge_flags) {
+          write_iter = strcpya_k(write_iter, " and/or ");
+        }
+        write_iter = strcpya_k(write_iter, "negative bp coordinates");
+      }
+      strcpy_k(write_iter, ".\n");
+      goto ScanPvarsAndMergeHeader_ret_INCONSISTENT_INPUT_WW;
     }
     cip->chrset_source = orig_chrset_source;
 
@@ -3170,7 +3182,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, const char* missing_varid
     // to log "headers merged"
     logprintf("--pmerge%s: %" PRIuPTR " .pvar files scanned%s.\n", pmip->list_fname? "-list" : "", fileset_ct, (xheader_entry_ct || (info_pr_exists && xheader_entries))? ", headers merged" : "");
     if (null_fileset_ct) {
-      logprintfww("Note: Ignoring %" PRIuPTR " .pgen file%s since it doesn't intersect the chromosome filter.\n", null_fileset_ct, (null_fileset_ct == 1)? "" : "s");
+      logprintfww("Note: Ignoring %" PRIuPTR " .pgen file%s intersect the chromosome filter.\n", null_fileset_ct, (null_fileset_ct == 1)? " since it doesn't" : "s since they don't");
       *fileset_ctp -= null_fileset_ct;
     }
     if (info_conflict_ct) {
@@ -7003,7 +7015,7 @@ PglErr PmergePass(__attribute__((unused)) const PmergeInfo* pmip, __attribute__(
   return reterr;
 }
 
-PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char* missing_catname, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t new_variant_id_max_allele_slen, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char* missing_catname, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, MiscFlags misc_flags, LoadFilterLogFlags load_filter_log_merge_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t new_variant_id_max_allele_slen, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 
@@ -7094,7 +7106,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
     uint32_t info_key_ct = 0;
     uint32_t info_keys_htable_size = 0;
     uint32_t info_conflict_present;
-    reterr = ScanPvarsAndMergeHeader(pmip, missing_varid_match, misc_flags, missing_varid_match_slen, input_missing_geno_char, max_thread_ct, sort_vars_mode, varid_templatep, varid_multi_templatep, varid_multi_nonsnp_templatep, outname, outname_end, &input_filesets, cip, &fileset_ct, &info_has_g_key, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size, &info_conflict_present);
+    reterr = ScanPvarsAndMergeHeader(pmip, missing_varid_match, misc_flags, load_filter_log_merge_flags, missing_varid_match_slen, input_missing_geno_char, max_thread_ct, sort_vars_mode, varid_templatep, varid_multi_templatep, varid_multi_nonsnp_templatep, outname, outname_end, &input_filesets, cip, &fileset_ct, &info_has_g_key, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size, &info_conflict_present);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }

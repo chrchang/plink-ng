@@ -62,6 +62,43 @@ void CleanupFlip(FlipInfo* flip_info_ptr) {
   free_cond(flip_info_ptr->subset_fname);
 }
 
+const char kLoadFilterLogFlagnames[18][25] = {
+  "import-max-alleles",
+  "vcf-require-gt",
+  "merge-max-alleles",
+  "autosome",
+  "autosome-par",
+  "chr",
+  "not-chr",
+  "",
+  "exclude-if-info",
+  "exclude-palindromic-snps",
+  "extract-if-info",
+  "max-alleles",
+  "min-alleles",
+  "require-info",
+  "require-no-info",
+  "snps-only",
+  "var-filter",
+  "var-min-qual"
+};
+
+void AppendLoadFilterFlagnames(LoadFilterLogFlags load_filter_log_flags, char** write_iter_ptr) {
+  assert(load_filter_log_flags);
+  char* write_iter = *write_iter_ptr;
+  while (1) {
+    write_iter = strcpya_k(write_iter, "--");
+    const uint32_t flag_idx = ctzu32(load_filter_log_flags);
+    write_iter = strcpya(write_iter, kLoadFilterLogFlagnames[flag_idx]);
+    load_filter_log_flags = S_CAST(LoadFilterLogFlags, load_filter_log_flags & (load_filter_log_flags - 1));
+    if (!load_filter_log_flags) {
+      break;
+    }
+    write_iter = strcpya_k(write_iter, " + ");
+  } while (load_filter_log_flags);
+  *write_iter_ptr = write_iter;
+}
+
 BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenGlobalFlags gflags, PgenVariant* pgvp) {
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   if (unlikely(bigstack_allocv_w(sample_ctl2, &(pgvp->genovec)))) {
@@ -1951,7 +1988,7 @@ PglErr InitChrInfo(ChrInfo* cip) {
 // sheep: 26, X, Y
 
 // must be safe to call this twice.
-void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip) {
+void FinalizeChrset(LoadFilterLogFlags load_filter_log_flags, ChrInfo* cip) {
   uint32_t autosome_ct = cip->autosome_ct;
   uint32_t max_code = autosome_ct;
   for (uint32_t xymt_idx_p1 = kChrOffsetCt; xymt_idx_p1; --xymt_idx_p1) {
@@ -1991,10 +2028,10 @@ void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip) {
         SetBit(cur_chr_code, chr_mask);
       }
     }
-  } else if (misc_flags & (kfMiscAutosomePar | kfMiscAutosomeOnly)) {
+  } else if (load_filter_log_flags & (kfLoadFilterLogAutosome | kfLoadFilterLogAutosomePar)) {
     FillBitsNz(1, cip->autosome_ct + 1, chr_mask);
     ClearBitsNz(cip->autosome_ct + 1, kChrExcludeWords * kBitsPerWord, chr_mask);
-    if (misc_flags & kfMiscAutosomePar) {
+    if (load_filter_log_flags & kfLoadFilterLogAutosomePar) {
       uint32_t par_chr_code = cip->xymt_codes[kChrOffsetXY];
       if (!IsI32Neg(par_chr_code)) {
         SetBit(par_chr_code, chr_mask);
@@ -4396,21 +4433,20 @@ PglErr EmbedPgenIndex(char* outname, char* outname_end) {
       if (unlikely(pgi_fsize < 12 + vblock_ct * 8)) {
         goto EmbedPgenIndex_ret_INVALID_INDEX;
       }
-      const uint32_t kPglFwriteBlockSizeD8 = kPglFwriteBlockSize / 8;
       const uint64_t offset_incr = pgi_fsize - 3;
       uint32_t remaining_vblock_ct = vblock_ct;
-      uint64_t offset_buf[kPglFwriteBlockSizeD8];
-      while (remaining_vblock_ct > kPglFwriteBlockSizeD8) {
+      uint64_t offset_buf[kPglFwriteBlockSize / 8];
+      while (remaining_vblock_ct > kPglFwriteBlockSize / 8) {
         if (unlikely(!fread(offset_buf, kPglFwriteBlockSize, 1, infile))) {
           goto EmbedPgenIndex_ret_READ_PGI_FAIL;
         }
-        for (uint32_t uii = 0; uii != kPglFwriteBlockSizeD8; ++uii) {
+        for (uint32_t uii = 0; uii != kPglFwriteBlockSize / 8; ++uii) {
           offset_buf[uii] += offset_incr;
         }
         if (unlikely(!fwrite_unlocked(offset_buf, kPglFwriteBlockSize, 1, outfile))) {
           goto EmbedPgenIndex_ret_WRITE_FAIL;
         }
-        remaining_vblock_ct -= kPglFwriteBlockSizeD8;
+        remaining_vblock_ct -= kPglFwriteBlockSize / 8;
       }
       if (unlikely(!fread(offset_buf, remaining_vblock_ct * 8, 1, infile))) {
         goto EmbedPgenIndex_ret_READ_PGI_FAIL;

@@ -29,9 +29,6 @@ mkdir -p ./results/
 #---------- Run PLINK2 GLM tests ----------
 
 
-#!/usr/bin/env bash
-set -euo pipefail
-
 ## Run GLM
 datapath="./test_data/"
 
