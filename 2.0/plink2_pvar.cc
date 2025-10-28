@@ -906,7 +906,7 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
   return kPglRetSuccess;
 }
 
-PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr* extract_if_info_exprp, const CmpExpr* exclude_if_info_exprp, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, LoadFilterLogFlags load_filter_log_flags, uint32_t xheader_needed, uint32_t qualfilter_needed, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t exclude_palindromic_snps, uint32_t split_chr_ok, uint32_t filter_min_allele_ct, uint32_t filter_max_allele_ct, char input_missing_geno_char, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** allele_idx_offsets_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* neg_bp_seen_ptr, uint32_t* max_allele_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr) {
+PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr* extract_if_info_exprp, const CmpExpr* exclude_if_info_exprp, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, LoadFilterLogFlags load_filter_log_flags, uint32_t xheader_needed, uint32_t qualfilter_needed, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only_just_acgt, uint32_t split_chr_ok, uint32_t filter_min_allele_ct, uint32_t filter_max_allele_ct, char input_missing_geno_char, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** allele_idx_offsets_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* neg_bp_seen_ptr, uint32_t* max_allele_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
   // not kept in memory for now.  This has a speed penalty, of course; maybe
@@ -1138,7 +1138,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           info_col_present = 1;
         } else if (token_slen == 6) {
           if (memequal_sk(linebuf_iter, "FILTER")) {
-            load_filter_col = 2 * ((pvar_psam_flags & (kfPvarColMaybefilter | kfPvarColFilter)) || qualfilter_needed) + ((misc_flags / kfMiscExcludePvarFilterFail) & 1);
+            load_filter_col = 2 * ((pvar_psam_flags & (kfPvarColMaybefilter | kfPvarColFilter)) || qualfilter_needed) + ((load_filter_log_flags / kfLoadFilterLogVarFilter) & 1);
             if (!load_filter_col) {
               continue;
             }
@@ -1384,6 +1384,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t max_filter_slen = 0;
     uint32_t exclude_ct = 0;
 
+    const uint32_t exclude_palindromic_snps = (load_filter_log_flags / kfLoadFilterLogExcludePalindromicSnps) & 1;
+    const uint32_t snps_only = (load_filter_log_flags / kfLoadFilterLogSnpsOnly) & 1;
     // only allocated when necessary
     // if we want to scale this approach to more fields, we'll need to add a
     // few pointers to the start of each block.  right now, we force cur_cms[]
@@ -1658,7 +1660,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           if ((token_slens[2] != 1) || (remaining_alt_char_ct != 2 * extra_alt_ct + 1)) {
             goto LoadPvar_skip_variant;
           }
-          if (snps_only > 1) {
+          if (snps_only_just_acgt) {
             // just-acgt
             if (!acgtm_table[ctou32(token_ptrs[2][0])]) {
               goto LoadPvar_skip_variant;
