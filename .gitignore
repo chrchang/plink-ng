@@ -6,4 +6,6 @@ pgen_spec/pgen_spec.log
 pgen_spec/pgen_spec.out
 pgen_spec/pgen_spec.toc
 
+## Ignore macOS system files and local dev: /test_data
 .DS_Store
+/test_data/
