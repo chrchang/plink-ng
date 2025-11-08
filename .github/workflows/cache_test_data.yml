@@ -30,7 +30,7 @@ jobs:
           echo "Downloading test data..."
           source venv/bin/activate
      
-          GDRIVE_FILE_ID="1qdj5B8vra389vwVFAzAxAtKh0om8mv2E"
+          GDRIVE_FILE_ID="1lW5s8kwMeOwHPrbRoREtO5pwgKKK_8FR"
           gdown "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O test_data.zip
           unzip -q test_data.zip -d test_data
 
