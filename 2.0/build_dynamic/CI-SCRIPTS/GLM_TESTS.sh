@@ -22,8 +22,8 @@ mkdir -p ./results/
 
 
 #---------- Run PLINK2 GLM tests ----------
-
-./CI-SCRIPTS/LOCAL_PLINK2_GLM_TESTING.sh
+chmod +x ./2.0/build_dynamic/CI-SCRIPTS/LOCAL_PLINK2_GLM_TESTING.sh
+./2.0/build_dynamic/CI-SCRIPTS/LOCAL_PLINK2_GLM_TESTING.sh
 
 
 ## If run locally, cleanup
