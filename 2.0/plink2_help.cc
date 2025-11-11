@@ -1159,6 +1159,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      hethet: Proportion/count of considered call pairs which are het-het.\n"
 "      ibs0: Proportion/count of considered call pairs which are opposite homs.\n"
 "      ibs1: HET1_HOM2 and HET2_HOM1 proportions/counts.\n"
+"      ibs: Hamming distance (2 * ibs0 + ibs1), / (2 * nsnp) if proportion.\n"
 "      kinship: KING-robust between-family kinship estimator.\n"
 "    The default is maybefid,id,maybesid,nsnp,hethet,ibs0,kinship.\n"
 "    hethet/ibs0/ibs1 values are proportions unless the 'counts' modifier is\n"
@@ -1935,18 +1936,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --var-filter [exception(s)...]   : Skip variants which have FILTER failures.\n"
                );
     HelpPrint("extract-if-info\0exclude-if-info\0require-info\0require-no-info\0extract-if\0exclude-if\0keep-if-info\0remove-if-info\0var-min-qual\0var-filter\0vcf-min-qual\0vcf-filter\0", &help_ctrl, 0,
-"  --extract-if-info <key> <op> <val> : Exclude variants which don't/do satisfy\n"
-"  --exclude-if-info <key> <op> <val>   a comparison predicate on an INFO key,\n"
-"  (aliases: --extract-if,              e.g.\n"
-"            --exclude-if)                --extract-if-info \"VT == SNP\"\n"
-"                                       As a special case, val=';' specifies the\n"
-"                                       empty-string.\n"
-"                                       Unless the operator is !=, the predicate\n"
-"                                       always evaluates to false when the key\n"
-"                                       is missing.\n"
-"  --require-info <key(s)...>         : Exclude variants based on nonexistence\n"
-"  --require-no-info <key(s)...>        or existence of an INFO key.  \"<key>=.\"\n"
-"                                       is treated as nonexistence.\n"
+"  --extract-if-info <expr...> : Exclude variants which don't/do satisfy a\n"
+"  --exclude-if-info <expr...>   boolean expression on INFO key(s), e.g.\n"
+"  (aliases: --extract-if,         --extract-if-info '(VT==SNP)&&(999<DP<99999)'\n"
+"            --exclude-if)       As a special case, a value of ';' specifies the\n"
+"                                empty-string.\n"
+"                                Unless the operator is !=, a predicate always\n"
+"                                evaluates to false when the key is missing.\n"
+"  --require-info <key(s)...>  : Exclude variants based on nonexistence or\n"
+"  --require-no-info <k...>      existence of an INFO key.  \"<key>=.\" is treated\n"
+"                                as nonexistence.\n"
               );
     HelpPrint("extract-col-cond\0extract-col-cond-match\0extract-col-cond-mismatch\0extract-col-cond-substr\0extract-col-cond-min\0extract-col-cond-max\0extract-fcol\0extract-fcol-match\0extract-fcol-mismatch\0extract-fcol-substr\0extract-fcol-min\0extract-fcol-max\0qual-scores\0qual-threshold\0qual-max-threshold\0attrib\0", &help_ctrl, 0,
 "  --extract-col-cond <f> [valcol] [IDcol] [skip] :\n"
@@ -2019,8 +2018,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                  --neg9-pheno-really-missing suppresses the\n"
 "                                  error.\n"
 "  --1                           : Expect case/control phenotypes in input files\n"
-"                                  to be coded as 0 = control, 1 = case, instead\n"
-"                                  of the usual 0 = missing, 1 = ctrl, 2 = case.\n"
+"                                  and the command line to be coded as 0 =\n"
+"                                  control, 1 = case, instead of the usual 0 =\n"
+"                                  missing, 1 = ctrl, 2 = case.\n"
 "                                  (Unlike PLINK 1.x, this does not force all\n"
 "                                  phenotypes to be interpreted as case/ctrl.)\n"
 "  --missing-catname <str>       : Set missing-categorical-phenotype string\n"
@@ -2378,12 +2378,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // best if syntax allows for '=' character inside phenotype/covariate
     // names, though...
     HelpPrint("keep-if\0remove-if\0filter-cases\0filter-controls\0prune\0", &help_ctrl, 0,
-"  --keep-if <pheno/covar> <op> <val> : Exclude samples which don't/do satisfy a\n"
-"  --remove-if <pheno/covar> <op> <v>   comparison predicate, e.g.\n"
-"                                         --keep-if \"PHENO1 == case\"\n"
-"                                       Unless the operator is !=, the predicate\n"
-"                                       always evaluates to false when the\n"
-"                                       phenotype/covariate is missing.\n"
+"  --keep-if <expr...>   : Exclude samples which don't/do satisfy a boolean\n"
+"  --remove-if <ex...>     expression on phenotypes/covariates, e.g.\n"
+"                            --keep-if '(PHENO1 == case) || (0 < PHENO2 < 1)'\n"
+"                          Unless the operator is !=, a predicate always\n"
+"                          evaluates to false when the phenotype/covariate is\n"
+"                          missing.\n"
                );
     HelpPrint("ac-founders\0nonfounders\0freq\0hardy\0hwe\0bad-freqs\0maf\0min-af\0max-maf\0max-af\0mac\0min-ac\0max-mac\0max-ac\0", &help_ctrl, 0,
 "  --nonfounders      : Include nonfounders in allele freq/count/HWE\n"

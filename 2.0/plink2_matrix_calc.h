@@ -55,7 +55,8 @@ FLAGSET_DEF_START()
   kfKingColHethet = (1 << 18),
   kfKingColIbs0 = (1 << 19),
   kfKingColIbs1 = (1 << 20),
-  kfKingColKinship = (1 << 21),
+  kfKingColHamming = (1 << 21),
+  kfKingColKinship = (1 << 22),
   kfKingColDefault = (kfKingColMaybefid | kfKingColId | kfKingColMaybesid | kfKingColNsnp | kfKingColHethet | kfKingColIbs0 | kfKingColKinship),
   kfKingColAll = ((kfKingColKinship * 2) - kfKingColMaybefid)
 FLAGSET_DEF_END(KingFlags);

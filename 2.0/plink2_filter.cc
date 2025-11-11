@@ -1587,205 +1587,288 @@ PglErr RequirePheno(const PhenoCol* pheno_cols, const char* pheno_names, const c
   return reterr;
 }
 
+typedef struct KeepIfInternalTStruct {
+  const PhenoCol* pheno_cols;
+  const PhenoCol* covar_cols;
+  const char* pheno_names;
+  const char* covar_names;
+  const char* errmsg_start;  // "Error: --keep-if " or "Error: --remove-if "
+  uintptr_t max_pheno_name_blen;
+  uintptr_t max_covar_name_blen;
+  uint32_t raw_sample_ctl;
+  uint32_t pheno_ct;
+  uint32_t covar_ct;
+  uint32_t affection_01;
+} KeepIfInternalT;
+
+const PhenoCol* GetPhenoCovarCol(const char* cur_name, const KeepIfInternalT* ctx) {
+  const uint32_t name_blen = strlen(cur_name) + 1;
+  const uintptr_t max_pheno_name_blen = ctx->max_pheno_name_blen;
+  if (name_blen <= max_pheno_name_blen) {
+    const char* pheno_names = ctx->pheno_names;
+    const uint32_t pheno_ct = ctx->pheno_ct;
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      if (memequal(cur_name, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
+        return &(ctx->pheno_cols[pheno_idx]);
+      }
+    }
+  }
+  const uintptr_t max_covar_name_blen = ctx->max_covar_name_blen;
+  if (name_blen <= max_covar_name_blen) {
+    const char* covar_names = ctx->covar_names;
+    const uint32_t covar_ct = ctx->pheno_ct;
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+      if (memequal(cur_name, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
+        return &(ctx->covar_cols[covar_idx]);
+      }
+    }
+  }
+  return nullptr;
+}
+
+PglErr KeepIfInternal(const CmpExpr* cmp_expr, const KeepIfInternalT* ctx, uintptr_t* cur_include) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  const char* key = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t raw_sample_ctl = ctx->raw_sample_ctl;
+    const CmpExprType etype = cmp_expr->etype;
+    if (etype == kCmpExprTypeExists) {
+      key = cmp_expr->args.k.key;
+      const PhenoCol* cur_pheno_col = GetPhenoCovarCol(key, ctx);
+      if (unlikely(!cur_pheno_col)) {
+        goto KeepIfInternal_ret_PHENO_NAME_NOT_FOUND;
+      }
+      const uintptr_t* pheno_nm = cur_pheno_col->nonmiss;
+      BitvecAnd(pheno_nm, raw_sample_ctl, cur_include);
+    } else if (etype <= kCmpExprTypeStrEq) {
+      uint32_t is_neq;
+      if (etype <= kCmpExprTypeGeq) {
+        key = cmp_expr->args.kn.key;
+        is_neq = (etype == kCmpExprTypeNoteq);
+      } else {
+        key = cmp_expr->args.ks.key;
+        is_neq = (etype == kCmpExprTypeStrNoteq);
+      }
+      const PhenoCol* cur_pheno_col = GetPhenoCovarCol(key, ctx);
+      if (unlikely(!cur_pheno_col)) {
+        goto KeepIfInternal_ret_PHENO_NAME_NOT_FOUND;
+      }
+      const uintptr_t* pheno_nm = cur_pheno_col->nonmiss;
+      if (!is_neq) {
+        BitvecAnd(pheno_nm, raw_sample_ctl, cur_include);
+      }
+      uintptr_t* cur_include_intersect;
+      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &cur_include_intersect))) {
+        goto KeepIfInternal_ret_NOMEM;
+      }
+      memcpy(cur_include_intersect, cur_include, raw_sample_ctl * sizeof(intptr_t));
+      if (is_neq) {
+        BitvecAnd(pheno_nm, raw_sample_ctl, cur_include_intersect);
+      }
+      const uint32_t intersect_ct = PopcountWords(cur_include_intersect, raw_sample_ctl);
+      if (cur_pheno_col->type_code == kPhenoDtypeQt) {
+        if (unlikely(etype > kCmpExprTypeGeq)) {
+          snprintf(g_logbuf, kLogbufSize, "%squantitative phenotype/covariate '%s' must be compared to a number, not '%s'.", ctx->errmsg_start, key, cmp_expr->args.ks.str_value);
+          goto KeepIfInternal_ret_INCONSISTENT_INPUT_WW;
+        }
+        const double* pheno_vals = cur_pheno_col->data.qt;
+        const double val = cmp_expr->args.kn.value;
+        uintptr_t sample_uidx_base = 0;
+        uintptr_t cur_bits = cur_include_intersect[0];
+        if (etype == kCmpExprTypeLe) {
+          for (uint32_t sample_idx = 0; sample_idx != intersect_ct; ++sample_idx) {
+            const uintptr_t sample_uidx = BitIter1(cur_include_intersect, &sample_uidx_base, &cur_bits);
+            if (pheno_vals[sample_uidx] >= val) {
+              ClearBit(sample_uidx, cur_include);
+            }
+          }
+        } else if (etype == kCmpExprTypeLeq) {
+          for (uint32_t sample_idx = 0; sample_idx != intersect_ct; ++sample_idx) {
+            const uintptr_t sample_uidx = BitIter1(cur_include_intersect, &sample_uidx_base, &cur_bits);
+            if (pheno_vals[sample_uidx] > val) {
+              ClearBit(sample_uidx, cur_include);
+            }
+          }
+        } else if (etype == kCmpExprTypeNoteq) {
+          for (uint32_t sample_idx = 0; sample_idx != intersect_ct; ++sample_idx) {
+            const uintptr_t sample_uidx = BitIter1(cur_include_intersect, &sample_uidx_base, &cur_bits);
+            if (pheno_vals[sample_uidx] == val) {
+              ClearBit(sample_uidx, cur_include);
+            }
+          }
+        } else if (etype == kCmpExprTypeEq) {
+          for (uint32_t sample_idx = 0; sample_idx != intersect_ct; ++sample_idx) {
+            const uintptr_t sample_uidx = BitIter1(cur_include_intersect, &sample_uidx_base, &cur_bits);
+            if (pheno_vals[sample_uidx] != val) {
+              ClearBit(sample_uidx, cur_include);
+            }
+          }
+        } else if (etype == kCmpExprTypeGe) {
+          for (uint32_t sample_idx = 0; sample_idx != intersect_ct; ++sample_idx) {
+            const uintptr_t sample_uidx = BitIter1(cur_include_intersect, &sample_uidx_base, &cur_bits);
+            if (pheno_vals[sample_uidx] <= val) {
+              ClearBit(sample_uidx, cur_include);
+            }
+          }
+        } else {
+          assert(etype == kCmpExprTypeGeq);
+          for (uint32_t sample_idx = 0; sample_idx != intersect_ct; ++sample_idx) {
+            const uintptr_t sample_uidx = BitIter1(cur_include_intersect, &sample_uidx_base, &cur_bits);
+            if (pheno_vals[sample_uidx] < val) {
+              ClearBit(sample_uidx, cur_include);
+            }
+          }
+        }
+      } else if (cur_pheno_col->type_code == kPhenoDtypeCc) {
+        const uint32_t affection_01 = ctx->affection_01;
+        uint32_t val_12 = 0;  // 1 = control, 2 = case
+        if (etype > kCmpExprTypeGeq) {
+          const char* str_value = cmp_expr->args.ks.str_value;
+          const uint32_t val_slen = strlen(str_value);
+          if (val_slen == 4) {
+            if (MatchUpperK(str_value, "CASE")) {
+              val_12 = 2;
+            } else if (MatchUpperK(str_value, "CTRL")) {
+              val_12 = 1;
+            }
+          } else if (MatchUpperKLen(str_value, "CONTROL", val_slen)) {
+            val_12 = 1;
+          }
+        } else {
+          if (unlikely((!is_neq) && (etype != kCmpExprTypeEq))) {
+            snprintf(g_logbuf, kLogbufSize, "%sbinary phenotype/covariate '%s' must be compared with == or !=; <, <=, >=, and > are not allowed.\n", ctx->errmsg_start, key);
+            goto KeepIfInternal_ret_INCONSISTENT_INPUT_WW;
+          }
+          const double val = cmp_expr->args.kn.value;
+          if (val == u31tod(1 - affection_01)) {
+            val_12 = 1;
+          } else if (val == u31tod(2 - affection_01)) {
+            val_12 = 2;
+          }
+        }
+        if (unlikely(!val_12)) {
+          snprintf(g_logbuf, kLogbufSize, "%sbinary phenotype/covariate must be compared to case/%c or control/ctrl/%c.\n", ctx->errmsg_start, '2' - affection_01, '1' - affection_01);
+          goto KeepIfInternal_ret_INCONSISTENT_INPUT_WW;
+        }
+        if (val_12 == 2) {
+          BitvecAnd(cur_pheno_col->data.cc, raw_sample_ctl, cur_include);
+        } else {
+          BitvecInvmask(cur_pheno_col->data.cc, raw_sample_ctl, cur_include);
+        }
+      } else {
+        assert(cur_pheno_col->type_code == kPhenoDtypeCat);
+        if (unlikely(etype <= kCmpExprTypeGeq)) {
+          snprintf(g_logbuf, kLogbufSize, "%scategorical phenotype/covariate '%s' must be compared to a category name, not a number.", ctx->errmsg_start, key);
+          goto KeepIfInternal_ret_INCONSISTENT_INPUT_WW;
+        }
+        const char* str_value = cmp_expr->args.ks.str_value;
+        const uint32_t nonnull_cat_ct = cur_pheno_col->nonnull_category_ct;
+        const uint32_t cat_idx = 1 + bsearch_strptr_natural(str_value, &(cur_pheno_col->category_names[1]), nonnull_cat_ct);
+        if (!cat_idx) {
+          logerrprintfww("Warning%scategorical phenotype/covariate '%s' does not have a category named '%s'.\n", &(ctx->errmsg_start[5]), key, str_value);
+          if (!is_neq) {
+            ZeroWArr(raw_sample_ctl, cur_include);
+          }
+        } else {
+          const uint32_t* cur_cats = cur_pheno_col->data.cat;
+          uintptr_t sample_uidx_base = 0;
+          uintptr_t cur_bits = cur_include_intersect[0];
+          if (!is_neq) {
+            for (uint32_t sample_idx = 0; sample_idx != intersect_ct; ++sample_idx) {
+              const uintptr_t sample_uidx = BitIter1(cur_include_intersect, &sample_uidx_base, &cur_bits);
+              if (cur_cats[sample_uidx] != cat_idx) {
+                ClearBit(sample_uidx, cur_include);
+              }
+            }
+          } else {
+            for (uint32_t sample_idx = 0; sample_idx != intersect_ct; ++sample_idx) {
+              const uintptr_t sample_uidx = BitIter1(cur_include_intersect, &sample_uidx_base, &cur_bits);
+              if (cur_cats[sample_uidx] == cat_idx) {
+                ClearBit(sample_uidx, cur_include);
+              }
+            }
+          }
+        }
+      }
+    } else {
+      uintptr_t* other_include;
+      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &other_include))) {
+        goto KeepIfInternal_ret_NOMEM;
+      }
+      memcpy(other_include, cur_include, raw_sample_ctl * sizeof(intptr_t));
+      reterr = KeepIfInternal(cmp_expr->args.jct.children[0], ctx, other_include);
+      if (unlikely(reterr)) {
+        goto KeepIfInternal_ret_1;
+      }
+      if (etype == kCmpExprTypeNot) {
+        BitvecInvmask(other_include, raw_sample_ctl, cur_include);
+      } else {
+        reterr = KeepIfInternal(cmp_expr->args.jct.children[1], ctx, cur_include);
+        if (unlikely(reterr)) {
+          goto KeepIfInternal_ret_1;
+        }
+        if (etype == kCmpExprTypeAnd) {
+          BitvecAnd(other_include, raw_sample_ctl, cur_include);
+        } else {
+          assert(etype == kCmpExprTypeOr);
+          BitvecOr(other_include, raw_sample_ctl, cur_include);
+        }
+      }
+    }
+  }
+  while (0) {
+  KeepIfInternal_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  KeepIfInternal_ret_PHENO_NAME_NOT_FOUND:
+    snprintf(g_logbuf, kLogbufSize, "%sphenotype/covariate '%s' not loaded.\n", ctx->errmsg_start, key);
+  KeepIfInternal_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ KeepIfInternal_ret_1:
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t affection_01, uint32_t is_remove, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
+  KeepIfInternalT ctx;
   {
     const uint32_t orig_sample_ct = *sample_ct_ptr;
     if (!orig_sample_ct) {
       goto KeepRemoveIf_ret_1;
     }
-    const char* cur_name = cmp_expr->pheno_name;
-    const uintptr_t name_blen = 1 + strlen(cur_name);
-    const PhenoCol* cur_pheno_col = nullptr;
-    if (name_blen <= max_pheno_name_blen) {
-      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-        if (memequal(cur_name, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
-          cur_pheno_col = &(pheno_cols[pheno_idx]);
-          break;
-        }
-      }
-    }
-    if (!cur_pheno_col) {
-      if (name_blen <= max_covar_name_blen) {
-        for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
-          if (memequal(cur_name, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
-            cur_pheno_col = &(covar_cols[covar_idx]);
-            break;
-          }
-        }
-      }
-    }
-    if (unlikely(!cur_pheno_col)) {
-      // could no-op for --remove-if?  don't implement that unless/until
-      // someone asks for it, though.
-      snprintf(g_logbuf, kLogbufSize, "Error: --%s-if phenotype/covariate not loaded.\n", is_remove? "remove" : "keep");
-      goto KeepRemoveIf_ret_INCONSISTENT_INPUT_2;
-    }
+    ctx.pheno_cols = pheno_cols;
+    ctx.covar_cols = covar_cols;
+    ctx.pheno_names = pheno_names;
+    ctx.covar_names = covar_names;
+    ctx.errmsg_start = is_remove? "Error: --remove-if " : "Error: --keep-if ";
+    ctx.max_pheno_name_blen = max_pheno_name_blen;
+    ctx.max_covar_name_blen = max_covar_name_blen;
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    CmpBinaryOp binary_op = cmp_expr->binary_op;
-    const uint32_t pheno_must_exist = is_remove ^ (binary_op != kCmpOperatorNoteq);
-    const uintptr_t* pheno_nm = cur_pheno_col->nonmiss;
-    if (pheno_must_exist) {
-      BitvecAnd(pheno_nm, raw_sample_ctl, sample_include);
+    ctx.raw_sample_ctl = raw_sample_ctl;
+    ctx.pheno_ct = pheno_ct;
+    ctx.covar_ct = covar_ct;
+    ctx.affection_01 = affection_01;
+    CmpExpr cmp_expr_slot;
+    if (is_remove) {
+      cmp_expr_slot.etype = kCmpExprTypeNot;
+      cmp_expr_slot.args.jct.children[0] = K_CAST(CmpExpr*, cmp_expr);
+      cmp_expr = &cmp_expr_slot;
     }
-    uintptr_t* sample_include_intersect;
-    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include_intersect))) {
-      goto KeepRemoveIf_ret_NOMEM;
+    reterr = KeepIfInternal(cmp_expr, &ctx, sample_include);
+    if (unlikely(reterr)) {
+      goto KeepRemoveIf_ret_1;
     }
-    memcpy(sample_include_intersect, sample_include, raw_sample_ctl * sizeof(intptr_t));
-    if (!pheno_must_exist) {
-      BitvecAnd(pheno_nm, raw_sample_ctl, sample_include_intersect);
-    }
-    const uint32_t sample_intersect_ct = PopcountWords(sample_include_intersect, raw_sample_ctl);
-    const char* cur_val_str = &(cur_name[name_blen]);
-    const uint32_t val_slen = strlen(cur_val_str);
-    if (cur_pheno_col->type_code == kPhenoDtypeQt) {
-      double val;
-      if (unlikely(!ScantokDouble(cur_val_str, &val))) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s-if value (finite number expected).\n", is_remove? "remove" : "keep");
-        goto KeepRemoveIf_ret_INCONSISTENT_INPUT_2;
-      }
-      if (is_remove) {
-        binary_op = S_CAST(CmpBinaryOp, kCmpOperatorEq - S_CAST(uint32_t, binary_op));
-      }
-      const double* pheno_vals = cur_pheno_col->data.qt;
-      uintptr_t sample_uidx_base = 0;
-      uintptr_t cur_bits = sample_include_intersect[0];
-      switch (binary_op) {
-        case kCmpOperatorNoteq:
-          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
-            const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
-            if (pheno_vals[sample_uidx] == val) {
-              ClearBit(sample_uidx, sample_include);
-            }
-          }
-          break;
-        case kCmpOperatorLe:
-          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
-            const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
-            if (pheno_vals[sample_uidx] >= val) {
-              ClearBit(sample_uidx, sample_include);
-            }
-          }
-          break;
-        case kCmpOperatorLeq:
-          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
-            const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
-            if (pheno_vals[sample_uidx] > val) {
-              ClearBit(sample_uidx, sample_include);
-            }
-          }
-          break;
-        case kCmpOperatorGe:
-          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
-            const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
-            if (pheno_vals[sample_uidx] <= val) {
-              ClearBit(sample_uidx, sample_include);
-            }
-          }
-          break;
-        case kCmpOperatorGeq:
-          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
-            const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
-            if (pheno_vals[sample_uidx] < val) {
-              ClearBit(sample_uidx, sample_include);
-            }
-          }
-          break;
-        case kCmpOperatorEq:
-          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
-            const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
-            if (pheno_vals[sample_uidx] != val) {
-              ClearBit(sample_uidx, sample_include);
-            }
-          }
-          break;
-      }
-    } else {
-      if (unlikely((binary_op != kCmpOperatorNoteq) && (binary_op != kCmpOperatorEq))) {
-        snprintf(g_logbuf, kLogbufSize, "Error: --%s-if operator type mismatch (binary and categorical phenotypes only support == and !=).\n", is_remove? "remove" : "keep");
-        goto KeepRemoveIf_ret_INCONSISTENT_INPUT_WW;
-      }
-      if (cur_pheno_col->type_code == kPhenoDtypeCc) {
-        uint32_t val_12 = 0;  // 1 = control, 2 = case
-        if (val_slen == 1) {
-          val_12 = affection_01 + ctou32(cur_val_str[0]) - 48;
-          if ((val_12 != 1) && (val_12 != 2)) {
-            val_12 = 0;
-          }
-        } else if (val_slen == 4) {
-          if (MatchUpperK(cur_val_str, "CASE")) {
-            val_12 = 2;
-          } else if (MatchUpperK(cur_val_str, "CTRL")) {
-            val_12 = 1;
-          }
-        } else if (MatchUpperKLen(cur_val_str, "CONTROL", val_slen)) {
-          val_12 = 1;
-        }
-        if (unlikely(!val_12)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s-if value ('case'/'%c' or 'control'/'ctrl'/'%c' expected).\n", is_remove? "remove" : "keep", '2' - affection_01, '1' - affection_01);
-          goto KeepRemoveIf_ret_INCONSISTENT_INPUT_WW;
-        }
-        if (is_remove ^ (val_12 == 2)) {
-          BitvecAnd(cur_pheno_col->data.cc, raw_sample_ctl, sample_include);
-        } else {
-          BitvecInvmask(cur_pheno_col->data.cc, raw_sample_ctl, sample_include);
-        }
-      } else {
-        assert(cur_pheno_col->type_code == kPhenoDtypeCat);
-        const uint32_t nonnull_cat_ct = cur_pheno_col->nonnull_category_ct;
-        const uint32_t cat_idx = 1 + bsearch_strptr_natural(cur_val_str, &(cur_pheno_col->category_names[1]), nonnull_cat_ct);
-        if (!cat_idx) {
-          double dxx;
-          if (unlikely(ScanadvDouble(cur_val_str, &dxx))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s-if value (category name expected).\n", is_remove? "remove" : "keep");
-            goto KeepRemoveIf_ret_INCONSISTENT_INPUT_2;
-          }
-          // tolerate this, there are legitimate reasons for empty categories
-          // to exist
-          logerrprintfww("Warning: Categorical phenotype/covariate '%s' does not have a category named '%s'.\n", cur_name, cur_val_str);
-          if (pheno_must_exist) {
-            ZeroWArr(raw_sample_ctl, sample_include);
-          }
-        } else {
-          const uint32_t* cur_cats = cur_pheno_col->data.cat;
-          uintptr_t sample_uidx_base = 0;
-          uintptr_t cur_bits = sample_include_intersect[0];
-          if (pheno_must_exist) {
-            for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
-              const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
-              if (cur_cats[sample_uidx] != cat_idx) {
-                ClearBit(sample_uidx, sample_include);
-              }
-            }
-          } else {
-            for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
-              const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
-              if (cur_cats[sample_uidx] == cat_idx) {
-                ClearBit(sample_uidx, sample_include);
-              }
-            }
-          }
-        }
-      }
-    }
-
     const uint32_t new_sample_ct = PopcountWords(sample_include, raw_sample_ctl);
     const uint32_t removed_sample_ct = orig_sample_ct - new_sample_ct;
     logprintf("--%s-if: %u sample%s removed.\n", is_remove? "remove" : "keep", removed_sample_ct, (removed_sample_ct == 1)? "" : "s");
     *sample_ct_ptr = new_sample_ct;
-  }
-  while (0) {
-  KeepRemoveIf_ret_NOMEM:
-    reterr = kPglRetNomem;
-    break;
-  KeepRemoveIf_ret_INCONSISTENT_INPUT_WW:
-    WordWrapB(0);
-  KeepRemoveIf_ret_INCONSISTENT_INPUT_2:
-    logerrputsb();
-    reterr = kPglRetInconsistentInput;
-    break;
   }
  KeepRemoveIf_ret_1:
   BigstackReset(bigstack_mark);

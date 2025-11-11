@@ -1639,6 +1639,9 @@ char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_fid, uint32_
   if (king_flags & kfKingColIbs1) {
     cswritep = strcpya_k(cswritep, "HET1_HOM2\tHET2_HOM1\t");
   }
+  if (king_flags & kfKingColHamming) {
+    cswritep = strcpya_k(cswritep, "IBS\t");
+  }
   if (king_flags & kfKingColKinship) {
     cswritep = strcpya_k(cswritep, "KINSHIP\t");
   }
@@ -1730,7 +1733,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
     if (!calc_thread_ct) {
       calc_thread_ct = 1;
     }
-    const uint32_t homhom_needed = (king_flags & kfKingColNsnp) || ((!(king_flags & kfKingCounts)) && (king_flags & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
+    const uint32_t homhom_needed = (king_flags & kfKingColNsnp) || ((!(king_flags & kfKingCounts)) && (king_flags & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1 | kfKingColHamming)));
     CalcKingSparseCtx sparse_ctx;
     uint32_t sparse_read_block_size = 0;
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
@@ -2271,6 +2274,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
           const uint32_t king_col_hethet = king_flags & kfKingColHethet;
           const uint32_t king_col_ibs0 = king_flags & kfKingColIbs0;
           const uint32_t king_col_ibs1 = king_flags & kfKingColIbs1;
+          const uint32_t king_col_hamming = king_flags & kfKingColHamming;
           const uint32_t king_col_kinship = king_flags & kfKingColKinship;
           const uint32_t report_counts = king_flags & kfKingCounts;
           uint32_t* results_iter = dense_ctx.king_counts;
@@ -2339,6 +2343,15 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
                   cswritetp = dtoa_g(nonmiss_recip * u31tod(het1hom2_ct), cswritetp);
                   *cswritetp++ = '\t';
                   cswritetp = dtoa_g(nonmiss_recip * u31tod(het2hom1_ct), cswritetp);
+                }
+                *cswritetp++ = '\t';
+              }
+              if (king_col_hamming) {
+                const uint32_t hamming_dist = 2 * ibs0_ct + het1hom2_ct + het2hom1_ct;
+                if (report_counts) {
+                  cswritetp = u32toa(hamming_dist, cswritetp);
+                } else {
+                  cswritetp = dtoa_g(nonmiss_recip * 0.5 * S_CAST(double, hamming_dist), cswritetp);
                 }
                 *cswritetp++ = '\t';
               }
@@ -3454,7 +3467,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       goto CalcKingTableSubset_ret_NOMEM;
     }
 
-    ctx.homhom_needed = (king_flags & kfKingColNsnp) || ((!(king_flags & kfKingCounts)) && (king_flags & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
+    ctx.homhom_needed = (king_flags & kfKingColNsnp) || ((!(king_flags & kfKingCounts)) && (king_flags & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1 | kfKingColHamming)));
     const uint32_t homhom_needed_p4 = ctx.homhom_needed + 4;
     // if homhom_needed, 8 + 20 bytes per pair, otherwise 8 + 16
     uintptr_t pair_buf_capacity = bigstack_left();
@@ -3677,6 +3690,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       const uint32_t king_col_hethet = king_flags & kfKingColHethet;
       const uint32_t king_col_ibs0 = king_flags & kfKingColIbs0;
       const uint32_t king_col_ibs1 = king_flags & kfKingColIbs1;
+      const uint32_t king_col_hamming = king_flags & kfKingColHamming;
       const uint32_t king_col_kinship = king_flags & kfKingColKinship;
       const uint32_t report_counts = king_flags & kfKingCounts;
       uint32_t* results_iter = ctx.king_counts;
@@ -3732,6 +3746,15 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
             cswritep = dtoa_g(nonmiss_recip * u31tod(het1hom2_ct), cswritep);
             *cswritep++ = '\t';
             cswritep = dtoa_g(nonmiss_recip * u31tod(het2hom1_ct), cswritep);
+          }
+          *cswritep++ = '\t';
+        }
+        if (king_col_hamming) {
+          const uint32_t hamming_dist = 2 * ibs0_ct + het1hom2_ct + het2hom1_ct;
+          if (report_counts) {
+            cswritep = u32toa(hamming_dist, cswritep);
+          } else {
+            cswritep = dtoa_g(nonmiss_recip * 0.5 * S_CAST(double, hamming_dist), cswritep);
           }
           *cswritep++ = '\t';
         }

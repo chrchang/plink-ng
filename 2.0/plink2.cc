@@ -92,7 +92,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (27 Oct 2025)";
+  " (11 Nov 2025)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1802,13 +1802,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
       }
-      if (pcp->keep_if_expr.pheno_name) {
+      if (pcp->keep_if_expr.etype != kCmpExprTypeNull) {
         reterr = KeepRemoveIf(&(pcp->keep_if_expr), pheno_cols, pheno_names, covar_cols, covar_names, raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, (pcp->misc_flags / kfMiscAffection01) & 1, 0, sample_include, &sample_ct);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
       }
-      if (pcp->remove_if_expr.pheno_name) {
+      if (pcp->remove_if_expr.etype != kCmpExprTypeNull) {
         reterr = KeepRemoveIf(&(pcp->remove_if_expr), pheno_cols, pheno_names, covar_cols, covar_names, raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, (pcp->misc_flags / kfMiscAffection01) & 1, 1, sample_include, &sample_ct);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
@@ -6016,13 +6016,8 @@ int main(int argc, char** argv) {
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-          // validator doesn't currently check for ';'.  also theoretically
-          // possible for '=' to be in key
-          if (unlikely(strchr(pc.extract_if_info_expr.pheno_name, ';') || strchr(pc.extract_if_info_expr.pheno_name, '='))) {
-            logerrputs("Error: Invalid --extract-if-info expression.\n");
-            goto main_ret_INVALID_CMDLINE;
-          }
-          // LoadPvar() currently checks value string if nonnumeric
+          // TODO: prohibit ';' and '=' in keys
+          // LoadPvar() currently checks value strings when nonnumeric
           pc.filter_flags |= kfFilterPvarReq;
           pc.load_filter_log_flags |= kfLoadFilterLogExtractIfInfo;
         } else if (strequal_k_unsafe(flagname_p2, "xclude-if-info")) {
@@ -6030,13 +6025,6 @@ int main(int argc, char** argv) {
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-          // validator doesn't currently check for ';'.  also theoretically
-          // possible for '=' to be in key
-          if (unlikely(strchr(pc.exclude_if_info_expr.pheno_name, ';') || strchr(pc.exclude_if_info_expr.pheno_name, '='))) {
-            logerrputs("Error: Invalid --exclude-if-info expression.\n");
-            goto main_ret_INVALID_CMDLINE;
-          }
-          // LoadPvar() currently checks value string if nonnumeric
           pc.filter_flags |= kfFilterPvarReq;
           pc.load_filter_log_flags |= kfLoadFilterLogExcludeIfInfo;
         } else if (strequal_k_unsafe(flagname_p2, "igfile")) {
@@ -8512,7 +8500,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --make-king-table cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0id\0maybesid\0sid\0nsnp\0hethet\0ibs0\0ibs1\0kinship\0", "make-king-table", kfKingColMaybefid, kfKingColDefault, 1, &pc.king_flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0id\0maybesid\0sid\0nsnp\0hethet\0ibs0\0ibs1\0ibs\0kinship\0", "make-king-table", kfKingColMaybefid, kfKingColDefault, 1, &pc.king_flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
