@@ -1016,7 +1016,7 @@ uint32_t InfoConditionSatisfiedInternal(const InfoExpr* exprp, const char* info_
     }
     if (etype <= kCmpExprTypeGeq) {
       if (etype == kCmpExprTypeExists) {
-        return negate;
+        return !negate;
       }
       double* cur_value_ptr = &(filterp->cur_values[kidx]);
       double value = *cur_value_ptr;
