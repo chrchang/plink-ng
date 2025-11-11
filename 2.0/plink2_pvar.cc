@@ -1056,10 +1056,10 @@ uint32_t InfoConditionSatisfiedInternal(const InfoExpr* exprp, const char* info_
   }
   const uint32_t first_result = InfoConditionSatisfiedInternal(exprp->args.jct.children[0], info_token, filterp);
   // short-circuit: if kCmpExprTypeAnd, can return 0; if Or, can return 1
-  if (first_result == (etype - kCmpExprTypeAnd)) {
-    return first_result;
+  if (first_result == etype - kCmpExprTypeAnd) {
+    return first_result != negate;
   }
-  return InfoConditionSatisfiedInternal(exprp->args.jct.children[1], info_token, filterp);
+  return InfoConditionSatisfiedInternal(exprp->args.jct.children[1], info_token, filterp) != negate;
 }
 
 uint32_t InfoConditionSatisfied(const char* info_token, InfoFilter* filterp) {
