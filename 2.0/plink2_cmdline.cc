@@ -3777,9 +3777,8 @@ uint32_t CmpExprIneq(const char* cur_param, uint32_t num_first, uint32_t* offset
 // Key-ending characters (if un-escaped):
 //   all ASCII <= 32
 //   ! (33)
-//   " (34) (reserved for possible fiddlier escaping)
+//   " (34)
 //   & (38)
-//   ' (39)
 //   ( (40)
 //   ) (41)
 //   < (60)
@@ -3789,7 +3788,7 @@ uint32_t CmpExprIneq(const char* cur_param, uint32_t num_first, uint32_t* offset
 const uint8_t kCmpExprIsKeyEnd[256] = {
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-  1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
+  1, 1, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -3807,30 +3806,26 @@ const uint8_t kCmpExprIsKeyEnd[256] = {
 
 // On success, *new_str_ptr is allocated and initialized, and *offset_ptr is
 // advanced.  Initialization includes un-escaping, and possible stripping of
-// one level of single-quotes (in which case no un-escaping occurs).
+// one level of double-quotes (in which case no un-escaping occurs).
 // On failure, no allocation is made.
 PglErr CmpExprNewStr(const char* cur_param, uint32_t* offset_ptr, char** new_str_ptr) {
   uint32_t offset_start = *offset_ptr;
   uint32_t char_ui = ctou32(cur_param[offset_start]);
   uint32_t escape_ct = 0;
   uint32_t slen;
-  if (char_ui == '\'') {
+  if (char_ui == '"') {
     // No-escape mode.
     ++offset_start;
     const char* str_body_start = &(cur_param[offset_start]);
     // Still need to prohibit space.
     const char* str_body_bound = FirstSpaceOrEoln(str_body_start);
-    const char* str_body_end = S_CAST(const char*, memchr(str_body_start, '\'', str_body_bound - str_body_start));
+    const char* str_body_end = S_CAST(const char*, memchr(str_body_start, '"', str_body_bound - str_body_start));
     if (unlikely(!str_body_end)) {
       return kPglRetInvalidCmdline;
     }
     slen = str_body_end - str_body_start;
     *offset_ptr = offset_start + slen + 1;
   } else {
-    if (unlikely(char_ui == '"')) {
-      // Currently prohibited.  Maybe define this later.
-      return kPglRetInvalidCmdline;
-    }
     uint32_t read_offset = offset_start;
     while (!(kCmpExprIsKeyEnd[char_ui])) {
       if (char_ui == '\\') {
