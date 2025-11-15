@@ -3964,7 +3964,7 @@ PglErr CmpExprParse(const char* const* sources, uint32_t param_ct, uint32_t min_
       // continue to possible conjunction/disjunction parse
     } else if (unlikely(lookahead_ui == ')')) {
       // bugfix (15 Nov 2025): forgot to enforce subexpression nonemptiness
-      assert(cmp_expr_type->etype == kCmpExprTypeNull);
+      assert(cmp_expr_ptr->etype == kCmpExprTypeNull);
       // Unexpected right-parenthesis.
       if (!open_lparen_ct) {
         strcpy_k(g_textbuf, "This right-parenthesis lacks a matching left-parenthesis.");
