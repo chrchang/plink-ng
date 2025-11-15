@@ -3732,6 +3732,36 @@ uint32_t CmpExprOr(const char* cur_param, uint32_t* offset_ptr) {
   return 0;
 }
 
+// Key-ending characters (if un-escaped):
+//   all ASCII <= 32
+//   ! (33)
+//   " (34)
+//   & (38)
+//   ( (40)
+//   ) (41)
+//   < (60)
+//   = (61)
+//   > (62)
+//   ~ (126) (reserved for possible future regex matcher)
+const uint8_t kCmpExprIsKeyEnd[256] = {
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
+
 // If we're at the start of a number-token, returns 1, advances offset past it,
 // and initializes *num_ptr to the parsed value.  Otherwise returns 0.
 uint32_t CmpExprNumber(const char* cur_param, uint32_t* offset_ptr, double* num_ptr) {
@@ -3742,8 +3772,8 @@ uint32_t CmpExprNumber(const char* cur_param, uint32_t* offset_ptr, double* num_
     return 0;
   }
   const uint32_t char_ui = ctou32(*num_end);
-  // acceptable terminators are {whitespace, '!', ')', '<', '=', '>'}
-  if ((char_ui <= 33) || (char_ui == ')') || ((char_ui >= 60) && (char_ui <= 62))) {
+  // update (15 Nov 2025): best for this to match end-of-key logic.
+  if (kCmpExprIsKeyEnd[char_ui]) {
     *offset_ptr = offset + S_CAST(uintptr_t, num_end - num_start);
     return 1;
   }
@@ -3774,36 +3804,6 @@ uint32_t CmpExprNumCompare(const char* cur_param, uint32_t num_first, uint32_t* 
   *etype_ptr = S_CAST(CmpExprType, kCmpExprTypeLe + (2 * le0_eq1_ge2) + (next_is_eq || (first_char_ui == '=')));
   return 1;
 }
-
-// Key-ending characters (if un-escaped):
-//   all ASCII <= 32
-//   ! (33)
-//   " (34)
-//   & (38)
-//   ( (40)
-//   ) (41)
-//   < (60)
-//   = (61)
-//   > (62)
-//   ~ (126) (reserved for possible future regex matcher)
-const uint8_t kCmpExprIsKeyEnd[256] = {
-  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-  1, 1, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-};
 
 // On success, *new_str_ptr is allocated and initialized, and *offset_ptr is
 // advanced.  Initialization includes un-escaping, and possible stripping of
