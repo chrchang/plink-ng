@@ -1858,6 +1858,8 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
     CmpExpr cmp_expr_slot;
     if (is_remove) {
       cmp_expr_slot.etype = kCmpExprTypeNot;
+      // not thrilled by this cast, but the alternatives all have comparable
+      // drawbacks
       cmp_expr_slot.args.jct.children[0] = K_CAST(CmpExpr*, cmp_expr);
       cmp_expr = &cmp_expr_slot;
     }
