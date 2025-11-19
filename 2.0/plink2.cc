@@ -92,7 +92,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (15 Nov 2025)";
+  " (18 Nov 2025)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -376,6 +376,7 @@ typedef struct Plink2CmdlineStruct {
   SortMode sample_sort_mode;
   SortMode sort_vars_mode;
   GrmFlags grm_flags;
+  double grm_sparse_cutoff;
   PcaFlags pca_flags;
   WriteCovarFlags write_covar_flags;
   PhenoTransformFlags pheno_transform_flags;
@@ -2583,7 +2584,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       if ((pcp->command_flags1 & kfCommand1MakeRel) || keep_grm) {
-        reterr = CalcGrm(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->grm_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
+        reterr = CalcGrm(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->grm_flags, pcp->grm_sparse_cutoff, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3965,6 +3966,7 @@ int main(int argc, char** argv) {
     pc.sample_sort_mode = kSort0;
     pc.sort_vars_mode = kSort0;
     pc.grm_flags = kfGrm0;
+    pc.grm_sparse_cutoff = -DBL_MAX;
     pc.pca_flags = kfPca0;
     pc.write_covar_flags = kfWriteCovar0;
     pc.pheno_transform_flags = kfPhenoTransform0;
@@ -9074,6 +9076,8 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1MakeRel;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "ake-grm-gz") || strequal_k_unsafe(flagname_p2, "ake-grm-list")) {
+          // While --make-grm-gz is otherwise retired, it's painless to accept
+          // and translate "--make-grm-gz no-gz".
           if (unlikely(pc.command_flags1 & kfCommand1MakeRel)) {
             if (pc.grm_flags & kfGrmBin) {
               logerrputs("Error: --make-grm-list cannot be used with --make-grm-bin.\n");
@@ -9085,8 +9089,8 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          uint32_t compress_stream_type = 0;  // 1 = no-gz, 2 = zs
-          pc.grm_flags |= kfGrmNoIdHeader;
+          uint32_t no_gz = 0;
+          pc.grm_flags |= kfGrmNoIdHeader | kfGrmList;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -9095,18 +9099,8 @@ int main(int argc, char** argv) {
             } else if (strequal_k(cur_modif, "meanimpute", cur_modif_slen)) {
               pc.grm_flags |= kfGrmMeanimpute;
             } else if (strequal_k(cur_modif, "no-gz", cur_modif_slen)) {
-              if (unlikely(compress_stream_type)) {
-                logerrputs("Error: Multiple --make-grm-list compression type modifiers.\n");
-                goto main_ret_INVALID_CMDLINE_A;
-              }
-              compress_stream_type = 1;
-              pc.grm_flags |= kfGrmListNoGz;
+              no_gz = 1;
             } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
-              if (unlikely(compress_stream_type)) {
-                logerrputs("Error: Multiple --make-grm-list compression type modifiers.\n");
-                goto main_ret_INVALID_CMDLINE_A;
-              }
-              compress_stream_type = 2;
               pc.grm_flags |= kfGrmListZs;
             } else if (strequal_k(cur_modif, "id-header", cur_modif_slen) ||
                        strequal_k(cur_modif, "idheader", cur_modif_slen)) {
@@ -9119,15 +9113,12 @@ int main(int argc, char** argv) {
             }
           }
           if (flagname_p2[8] == 'g') {
-            if (unlikely(!compress_stream_type)) {
+            if (unlikely(!no_gz)) {
               // screw it, life is too much better with multithreaded .zst
               logerrputs("Error: --make-grm-list no longer supports gzipped output.  Use 'zs' for\nzstd-compressed output (much faster), or use PLINK 1.9 for this function.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             logerrputs("Warning: --make-grm-gz has been renamed to --make-grm-list.\n");
-          } else if (!compress_stream_type) {
-            compress_stream_type = 1;
-            pc.grm_flags |= kfGrmListNoGz;
           }
           if (unlikely((pc.grm_flags & (kfGrmNoIdHeader | kfGrmNoIdHeaderIidOnly)) == kfGrmNoIdHeaderIidOnly)) {
             logerrputs("Error: --make-grm-list 'id-header' and 'iid-only' modifiers cannot be used\ntogether.\n");
@@ -9135,9 +9126,59 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1MakeRel;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ake-grm-sparse")) {
+          if (unlikely(pc.command_flags1 & kfCommand1MakeRel)) {
+            // easy to support, but I don't know why anyone would want it since
+            // GCTA is the main sparse-GRM consumer and it has --make-bK-sparse
+            // to subset.
+            if (pc.grm_flags & kfGrmBin) {
+              logerrputs("Error: --make-grm-sparse cannot be used with --make-grm-bin.\n");
+            } else {
+              logerrputs("Error: --make-grm-sparse cannot be used with --make-grm-list.\n");
+            }
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 5))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          {
+            const char* cur_modif = argvk[arg_idx + 1];
+            double dxx;
+            if (unlikely(!ScantokDouble(cur_modif, &dxx))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-grm-sparse threshold '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.grm_sparse_cutoff = dxx * (1 - kSmallEpsilon);
+          }
+          pc.grm_flags |= kfGrmNoIdHeader | kfGrmSparse;
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "cov", cur_modif_slen)) {
+              pc.grm_flags |= kfGrmCov;
+            } else if (strequal_k(cur_modif, "meanimpute", cur_modif_slen)) {
+              pc.grm_flags |= kfGrmMeanimpute;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.grm_flags |= kfGrmListZs;
+            } else if (strequal_k(cur_modif, "id-header", cur_modif_slen) ||
+                       strequal_k(cur_modif, "idheader", cur_modif_slen)) {
+              pc.grm_flags &= ~kfGrmNoIdHeader;
+            } else if (likely(strequal_k(cur_modif, "iid-only", cur_modif_slen))) {
+              pc.grm_flags |= kfGrmNoIdHeaderIidOnly;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-grm-sparse argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (unlikely((pc.grm_flags & (kfGrmNoIdHeader | kfGrmNoIdHeaderIidOnly)) == kfGrmNoIdHeaderIidOnly)) {
+            logerrputs("Error: --make-grm-sparse 'id-header' and 'iid-only' modifiers cannot be used\ntogether.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.command_flags1 |= kfCommand1MakeRel;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "ake-rel")) {
           if (unlikely(pc.command_flags1 & kfCommand1MakeRel)) {
-            logerrputs("Error: --make-rel cannot be used with --make-grm-list/--make-grm-bin.\n");
+            logerrputs("Error: --make-rel cannot be used with --make-grm-{bin,list,sparse}.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
@@ -10117,11 +10158,11 @@ int main(int argc, char** argv) {
             const uint32_t pca_meanimpute = (pc.pca_flags / kfPcaMeanimpute) & 1;
             if (pc.command_flags1 & kfCommand1MakeRel) {
               if (unlikely(((pc.grm_flags / kfGrmMeanimpute) & 1) != pca_meanimpute)) {
-                logerrputs("Error: --make-rel/--make-grm-list/--make-grm-bin meanimpute setting must match\n--pca meanimpute setting.\n");
+                logerrputs("Error: --make-rel/--make-grm-{bin,list,sparse} meanimpute setting must match\n--pca meanimpute setting.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
               if (unlikely(pc.grm_flags & kfGrmCov)) {
-                logerrputs("Error: --make-rel/--make-grm-list/--make-grm-bin cannot be used to compute a\ncovariance matrix in the same run as non-approximate --pca.\n");
+                logerrputs("Error: --make-rel/--make-grm-{bin,list,sparse} cannot be used to compute a\ncovariance matrix in the same run as non-approximate --pca.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
             } else {

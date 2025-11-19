@@ -61,6 +61,12 @@ FLAGSET_DEF_START()
   kfKingColAll = ((kfKingColKinship * 2) - kfKingColMaybefid)
 FLAGSET_DEF_END(KingFlags);
 
+// --make-rel, --make-grm-list, --make-grm-bin, --make-grm-sparse
+//   --make-rel iff kfGrmMatrixShapemask nonzero
+//   --make-grm-list iff kfGrmList
+//   --make-grm-bin iff kfGrmBin
+//   --make-grm-sparse iff kfGrmSparse
+//   (no GRM output possible in --pca case)
 FLAGSET_DEF_START()
   kfGrm0,
   kfGrmMatrixZs = (1 << 0),
@@ -71,15 +77,16 @@ FLAGSET_DEF_START()
   kfGrmMatrixSq0 = (1 << 4),
   kfGrmMatrixTri = (1 << 5),
   kfGrmMatrixShapemask = (kfGrmMatrixSq0 | kfGrmMatrixSq | kfGrmMatrixTri),
-  kfGrmListNoGz = (1 << 6),
+  kfGrmList = (1 << 6),
   kfGrmListZs = (1 << 7),
-  kfGrmListmask = (kfGrmListNoGz | kfGrmListZs),
   kfGrmBin = (1 << 8),
+  kfGrmSparse = (1 << 9),
+  kfGrmOutputMask = (kfGrmMatrixShapemask | kfGrmList | kfGrmBin | kfGrmSparse),
 
-  kfGrmMeanimpute = (1 << 9),
-  kfGrmCov = (1 << 10),
-  kfGrmNoIdHeader = (1 << 11),
-  kfGrmNoIdHeaderIidOnly = (1 << 12)
+  kfGrmMeanimpute = (1 << 10),
+  kfGrmCov = (1 << 11),
+  kfGrmNoIdHeader = (1 << 12),
+  kfGrmNoIdHeaderIidOnly = (1 << 13)
 FLAGSET_DEF_END(GrmFlags);
 
 FLAGSET_DEF_START()
@@ -228,7 +235,7 @@ ENUM_U31_DEF_END(RelConcordanceCheckMode);
 
 PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, RelConcordanceCheckMode rel_or_concordance_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
-PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
+PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, double grm_sparse_cutoff, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
 
 #ifndef NOLAPACK
 PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end);

@@ -1165,7 +1165,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    hethet/ibs0/ibs1 values are proportions unless the 'counts' modifier is\n"
 "    present.  If id is omitted, a .kin0.id file is also written.\n\n"
                );
-    HelpPrint("make-rel\0make-grm\0make-grm-bin\0make-grm-list\0make-grm-gz\0", &help_ctrl, 1,
+    // possible todo: --king-table-subset analogue for fast-approximate
+    // --make-grm-sparse
+    HelpPrint("make-rel\0make-grm\0make-grm-bin\0make-grm-list\0make-grm-gz\0make-grm-sparse\0", &help_ctrl, 1,
 "  --make-rel ['cov'] ['meanimpute'] [{square | square0 | triangle}]\n"
 "             [{zs | bin | bin4}]\n"
 "    Write a lower-triangular variance-standardized relationship matrix to\n"
@@ -1187,7 +1189,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    them in GCTA 1.1+'s single-precision triangular binary format.  Note that\n"
 "    these formats explicitly report the number of valid observations (where\n"
 "    neither sample has a missing call) for each pair, which is useful input for\n"
-"    some scripts.\n\n"
+"    some scripts.\n"
+"  --make-grm-sparse <threshold> ['cov'] ['meanimpute'] ['zs']\n"
+"                    [{id-header | iid-only}]\n"
+"    --make-grm-sparse generates a \"sparse GRM\" containing only relationship\n"
+"    coefficients greater than or equal to the given threshold.\n\n"
                );
 #ifndef NOLAPACK
     // GRM, PCA, etc. based on major vs. nonmajor alleles

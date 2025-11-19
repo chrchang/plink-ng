@@ -4549,7 +4549,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
   return reterr;
 }
 
-PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr) {
+PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, double grm_sparse_cutoff, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* outfile = nullptr;
@@ -4629,7 +4629,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         logerrputs("Error: Out of memory.  If you are SURE you are performing the right matrix\ncomputation, you can split it into smaller pieces with --parallel, and then\nconcatenate the results.  But before you try this, make sure the program you're\nproviding the matrix to can actually handle such a large input file.\n");
       } else {
         // Need to edit this if there are ever non-PCA ways to get here.
-        if (!(grm_flags & (kfGrmMatrixShapemask | kfGrmListmask | kfGrmBin))) {
+        if (!(grm_flags & kfGrmOutputMask)) {
           logerrputs("Error: Out of memory.  Consider \"--pca approx\" instead.\n");
         } else {
           logerrputs("Error: Out of memory.  Consider \"--pca approx\" (and not writing the GRM to\ndisk) instead.\n");
@@ -4786,10 +4786,10 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     // N.B. Only the lower right of grm[] is valid when parallel_tot == 1.
 
     // possible todo: allow simultaneous --make-rel and
-    // --make-grm-list/--make-grm-bin
+    // --make-grm-list/--make-grm-bin/--make-grm-sparse
     // (note that this routine may also be called by --pca, which may not write
     // a matrix to disk at all.)
-    if (grm_flags & (kfGrmMatrixShapemask | kfGrmListmask | kfGrmBin)) {
+    if (grm_flags & kfGrmOutputMask) {
       const GrmFlags matrix_shape = grm_flags & kfGrmMatrixShapemask;
       char* log_write_iter;
       if (matrix_shape) {
@@ -5037,45 +5037,70 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           log_write_iter = strcpya_k(log_write_iter, "observation counts to ");
           log_write_iter = memcpya(log_write_iter, outname, outname_end2 - outname);
         } else {
-          // --make-grm-list
+          // --make-grm-list/--make-grm-sparse
           char* outname_end2 = strcpya_k(outname_end, ".grm");
+          const uint32_t is_sparse = (grm_flags / kfGrmSparse) & 1;
+          if (is_sparse) {
+            outname_end2 = strcpya_k(outname_end2, ".sp");
+          }
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
             outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
-          if (grm_flags & kfGrmListZs) {
+          const uint32_t is_zst = (grm_flags / kfGrmListZs) & 1;
+          if (is_zst) {
             outname_end2 = strcpya_k(outname_end2, ".zst");
           }
           *outname_end2 = '\0';
-          reterr = InitCstreamAlloc(outname, 0, !(grm_flags & kfGrmListNoGz), max_thread_ct, kCompressStreamBlock + kMaxMediumLine, &css, &cswritep);
+          reterr = InitCstreamAlloc(outname, 0, is_zst, max_thread_ct, kCompressStreamBlock + kMaxMediumLine, &css, &cswritep);
           if (unlikely(reterr)) {
             goto CalcGrm_ret_1;
           }
-          fputs("--make-grm-list: Writing...", stdout);
+          printf("--make-grm-%s: Writing...", is_sparse? "sparse" : "list");
           fflush(stdout);
-          for (uintptr_t row_idx = row_start_idx; row_idx != row_end_idx; ++row_idx) {
-            uint32_t variant_ct_base = variant_ct;
-            if (missing_cts) {
-              variant_ct_base -= missing_cts[row_idx];
-            }
-            const double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
-            for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
-              cswritep = u32toa_x(row_idx + 1, '\t', cswritep);
-              cswritep = u32toa_x(col_idx + 1, '\t', cswritep);
-              if (missing_cts) {
-                uint32_t cur_obs_ct = variant_ct_base;
-                if (col_idx != row_idx) {
-                  cur_obs_ct = cur_obs_ct - missing_cts[col_idx] + (*missing_dbl_exclude_iter++);
+          if (is_sparse) {
+            for (uintptr_t row_idx = row_start_idx; row_idx != row_end_idx; ++row_idx) {
+              const double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
+              for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
+                const double rel_coeff = *grm_iter++;
+                if (rel_coeff < grm_sparse_cutoff) {
+                  continue;
                 }
-                cswritep = u32toa(cur_obs_ct, cswritep);
-              } else {
-                cswritep = u32toa(variant_ct_base, cswritep);
+                cswritep = u32toa_x(row_idx, '\t', cswritep);
+                cswritep = u32toa_x(col_idx, '\t', cswritep);
+                // GCTA uses 8-digit precision here.
+                cswritep = dtoa_g_p8(rel_coeff, cswritep);
+                AppendBinaryEoln(&cswritep);
+                if (unlikely(Cswrite(&css, &cswritep))) {
+                  goto CalcGrm_ret_WRITE_FAIL;
+                }
               }
-              *cswritep++ = '\t';
-              cswritep = dtoa_g(*grm_iter++, cswritep);
-              AppendBinaryEoln(&cswritep);
-              if (unlikely(Cswrite(&css, &cswritep))) {
-                goto CalcGrm_ret_WRITE_FAIL;
+            }
+          } else {
+            for (uintptr_t row_idx = row_start_idx; row_idx != row_end_idx; ++row_idx) {
+              uint32_t variant_ct_base = variant_ct;
+              if (missing_cts) {
+                variant_ct_base -= missing_cts[row_idx];
+              }
+              const double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
+              for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
+                cswritep = u32toa_x(row_idx + 1, '\t', cswritep);
+                cswritep = u32toa_x(col_idx + 1, '\t', cswritep);
+                if (missing_cts) {
+                  uint32_t cur_obs_ct = variant_ct_base;
+                  if (col_idx != row_idx) {
+                    cur_obs_ct = cur_obs_ct - missing_cts[col_idx] + (*missing_dbl_exclude_iter++);
+                  }
+                  cswritep = u32toa(cur_obs_ct, cswritep);
+                } else {
+                  cswritep = u32toa(variant_ct_base, cswritep);
+                }
+                *cswritep++ = '\t';
+                cswritep = dtoa_g(*grm_iter++, cswritep);
+                AppendBinaryEoln(&cswritep);
+                if (unlikely(Cswrite(&css, &cswritep))) {
+                  goto CalcGrm_ret_WRITE_FAIL;
+                }
               }
             }
           }
@@ -5083,7 +5108,13 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto CalcGrm_ret_WRITE_FAIL;
           }
           putc_unlocked('\r', stdout);
-          log_write_iter = strcpya_k(g_logbuf, "--make-grm-list: GRM ");
+          log_write_iter = strcpya_k(g_logbuf, "--make-grm-");
+          if (is_sparse) {
+            log_write_iter = strcpya_k(log_write_iter, "sparse");
+          } else {
+            log_write_iter = strcpya_k(log_write_iter, "list");
+          }
+          log_write_iter = strcpya_k(log_write_iter, ": GRM ");
           if (parallel_tot != 1) {
             log_write_iter = strcpya_k(log_write_iter, "component ");
           }
