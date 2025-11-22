@@ -2534,20 +2534,27 @@ extern uint64_t g_failed_alloc_attempt_size;
 // number is printed as well; see e.g.
 //   https://stackoverflow.com/questions/15884793/how-to-get-the-name-or-file-and-line-of-caller-method
 
-#if (((__GNUC__ == 4) && (__GNUC_MINOR__ < 7)) || (__GNUC__ >= 11)) && !defined(__APPLE__)
+#if (__GNUC__ == 4) && (__GNUC_MINOR__ < 7)
 // putting this in the header file caused a bunch of gcc 4.4 strict-aliasing
 // warnings, while not doing so seems to inhibit some malloc-related compiler
 // optimizations, bleah
 // compromise: header-inline iff gcc version >= 4.7 (might not be the right
 // cutoff?)
-// update (18 Feb 2022): looks like inlined pgl_malloc is not compiled as
-// intended by gcc 11, due to new ipa-modref pass?  Open to suggestions on how
-// to fix this; maybe it's now necessary to define type-specific malloc
-// wrappers, ugh...
 BoolErr pgl_malloc(uintptr_t size, void* pp);
 #else
 // Unfortunately, defining the second parameter to be of type void** doesn't do
 // the right thing.
+
+// update (18 Feb 2022): looks like inlined pgl_malloc is not compiled as
+// intended by gcc 11, due to new ipa-modref pass?  Open to suggestions on how
+// to fix this; maybe it's now necessary to define type-specific malloc
+// wrappers, ugh...
+// update (22 Nov 2025): now explicitly disabling ipa-modref instead of making
+// this non-inline, since the latter doesn't hold up under LTO.
+#  if (__GNUC__ >= 11) && !defined(__clang__)
+#    pragma GCC push_options
+#    pragma GCC optimize("-fno-ipa-modref")
+#  endif
 HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, void* pp) {
   *S_CAST(unsigned char**, pp) = S_CAST(unsigned char*, malloc(size));
   if (likely(*S_CAST(unsigned char**, pp))) {
@@ -2556,6 +2563,9 @@ HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, void* pp) {
   g_failed_alloc_attempt_size = size;
   return 1;
 }
+#  if (__GNUC__ >= 11) && !defined(__clang__)
+#    pragma GCC pop_options
+#  endif
 #endif
 
 // This must be used for all fwrite() calls where len could be >= 2^31, since

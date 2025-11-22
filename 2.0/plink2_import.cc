@@ -15571,7 +15571,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
             }
             double a1_dosage;
             char* str_end = ScanadvDouble(linebuf_iter, &a1_dosage);
-            if ((!linebuf_iter) || (a1_dosage < (0.5 / 32768.0)) || (a1_dosage >= dosage_ceil)) {
+            if ((!str_end) || (a1_dosage < (0.5 / 32768.0)) || (a1_dosage >= dosage_ceil)) {
               linebuf_iter = NextToken(linebuf_iter);
               continue;
             }
