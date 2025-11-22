@@ -38,6 +38,10 @@ namespace plink2 {
 // probable todo: try making this more parallel.  could e.g. repeatedly peek at
 // end of ReadLineStream buffer, count # of '\n's, and divvy them up between
 // worker threads.
+//
+// possible todo: https://crates.io/crates/memchr should be faster than strstr
+// when the needle is constant, port that to include/plink2_string and use it
+// here.
 CONSTI32(kLoadPvarBlockSize, 65536);
 static_assert(!(kLoadPvarBlockSize & (kLoadPvarBlockSize - 1)), "kLoadPvarBlockSize must be a power of 2.");
 static_assert(kLoadPvarBlockSize >= (kMaxMediumLine / 8), "kLoadPvarBlockSize cannot be smaller than kMaxMediumLine / 8.");

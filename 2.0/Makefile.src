@@ -1,8 +1,8 @@
-CWARN = -Wall -Wextra -Wshadow -Wformat-security -Wdouble-promotion -Wfloat-conversion
+CWARN = -Wall -Wextra -Wshadow -Wformat-security -Wstrict-aliasing -Wdouble-promotion -Wfloat-conversion
 CXXWARN = ${CWARN} -Wold-style-cast
 
 # Necessary for older gcc versions.
-CWARN2 = -Wall -Wextra -Wshadow -Wformat-security
+CWARN2 = -Wall -Wextra -Wshadow -Wformat-security -Wstrict-aliasing
 CXXWARN2 = ${CWARN2} -Wold-style-cast
 
 CSRC = include/SFMT.c \

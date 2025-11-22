@@ -1851,7 +1851,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
 // now
 // todo: recalibrate these numbers before each beta release
 #ifndef __LP64__
-  // 2047 seems to consistently fail on both OS X and Windows
+  // 2047 seems to consistently fail on both macOS and Windows
 #  ifdef _WIN32
 CONSTI32(kMalloc32bitMibMax, 1728);
 #  else

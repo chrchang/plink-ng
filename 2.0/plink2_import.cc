@@ -15597,14 +15597,14 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     if (check_pos_col) {
       parse_table[relevant_initial_col_ct++] = (S_CAST(uint64_t, pdip->pos_col_idx) << 32) + 1;
     }
-#if (__GNUC__ >= 12) && (__GNUC__ <= 14)
+#if (__GNUC__ >= 12) && (__GNUC__ <= 15)
     // https://github.com/cms-sw/cmssw/issues/44582
-    // confirmed this fires for both gcc 12 and 14, haven't tested gcc 15 yet
+    // confirmed this fires for gcc 12, 14, and 15
 #  pragma GCC diagnostic push
 #  pragma GCC diagnostic ignored "-Warray-bounds"
 #endif
     STD_SORT(relevant_initial_col_ct, u64cmp, parse_table);
-#if (__GNUC__ >= 12) && (__GNUC__ <= 14)
+#if (__GNUC__ >= 12) && (__GNUC__ <= 15)
 #  pragma GCC diagnostic pop
 #endif
     uint32_t col_skips[6];
@@ -15752,7 +15752,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
             }
             double a1_dosage;
             char* str_end = ScanadvDouble(linebuf_iter, &a1_dosage);
-            if ((!linebuf_iter) || (a1_dosage < (0.5 / 32768.0)) || (a1_dosage >= dosage_ceil)) {
+            if ((!str_end) || (a1_dosage < (0.5 / 32768.0)) || (a1_dosage >= dosage_ceil)) {
               linebuf_iter = NextToken(linebuf_iter);
               continue;
             }

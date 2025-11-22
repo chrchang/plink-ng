@@ -6,9 +6,9 @@
 
 # Does not currently support -DCPU_CHECK_...
 
-BASEFLAGS=-g -DZSTD_MULTITHREAD -DIGNORE_BUNDLED_ZSTD
-# BASEFLAGS=-g -mavx2 -mbmi -mbmi2 -mfma -mlzcnt -DZSTD_MULTITHREAD
-# BASEFLAGS=-g -msse4.2 -DZSTD_MULTITHREAD
+BASEFLAGS=-g -flto -DZSTD_MULTITHREAD -DIGNORE_BUNDLED_ZSTD
+# BASEFLAGS=-g -flto -mavx2 -mbmi -mbmi2 -mfma -mlzcnt -DZSTD_MULTITHREAD
+# BASEFLAGS=-g -flto -msse4.2 -DZSTD_MULTITHREAD
 
 include Makefile.src
 
@@ -31,7 +31,7 @@ ARCH32		?=
 # Mandatory flags added to defaults or env settings
 CFLAGS		+= -std=gnu99 $(BASEFLAGS) $(CWARN) $(CINCLUDE)
 CXXFLAGS	+= -std=c++14 $(BASEFLAGS) $(CXXWARN) $(CXXINCLUDE)
-LDFLAGS		+= -lm -lpthread $(ZLIB) $(ZSTD)
+LDFLAGS		+= -lm -lpthread -flto $(ZLIB) $(ZSTD)
 
 # Installation defaults
 MKDIR		?= mkdir
@@ -47,7 +47,7 @@ ifeq ($(UNAME), Darwin)
   CXXFLAGS += -I/opt/homebrew/include -I/usr/local/include -DACCELERATE_NEW_LAPACK
   BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
-  LDFLAGS=-ldl -lpthread -lz -lzstd -L/opt/homebrew/lib -L/usr/local/lib
+  LDFLAGS=-ldl -lpthread -lz -lzstd -flto -L/opt/homebrew/lib -L/usr/local/lib
 endif
 
 %.o: %.c

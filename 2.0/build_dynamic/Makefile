@@ -1,4 +1,4 @@
-# Linux/OS X Makefile for PLINK 2.00.
+# Linux/macOS Makefile for PLINK 2.00.
 #
 # Compilation options (leave blank after "=" to disable, put "= 1" to enable):
 #   Do not use AVX2 instructions: NO_AVX2
@@ -34,17 +34,17 @@ DEBUG =
 CC ?= gcc
 CXX ?= g++
 
-BASEFLAGS= -DZSTD_MULTITHREAD
+BASEFLAGS= -flto -DZSTD_MULTITHREAD
 # ***** end configuration *****
 
 BASEFLAGS += ${DEBUG}
 
 include ../Makefile.src
 
-LINKFLAGS=-lm -lpthread ${DEBUG}
+LINKFLAGS=-lm -lpthread -flto ${DEBUG}
 ZLIB=
 ARCH32=
-CPUCHECK_FLAGS = ${DEBUG}
+CPUCHECK_FLAGS = -flto ${DEBUG}
 
 ifdef FORCE_32BIT
   # this should work on Debian 10 with the right packages installed.
@@ -58,14 +58,14 @@ else
       BASEFLAGS += -msse4.2
       ifdef CPU_CHECK
         BASEFLAGS += -DCPU_CHECK_SSE42
-        CPUCHECK_FLAGS = -O2 -DCPU_CHECK_SSE42 ${CXXWARN2}
+        CPUCHECK_FLAGS = -O2 -flto -DCPU_CHECK_SSE42 ${CXXWARN2}
       endif
     endif
   else
     BASEFLAGS += -mavx2 -mbmi -mbmi2 -mfma -mlzcnt
     ifdef CPU_CHECK
       BASEFLAGS += -DCPU_CHECK_AVX2
-      CPUCHECK_FLAGS = -O2 -DCPU_CHECK_AVX2 ${CXXWARN2}
+      CPUCHECK_FLAGS = -O2 -flto -DCPU_CHECK_AVX2 ${CXXWARN2}
     endif
   endif
   CXXFLAGS = -std=c++11

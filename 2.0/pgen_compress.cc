@@ -173,10 +173,10 @@ int32_t main(int32_t argc, char** argv) {
     SetAllBits(sample_ct, sample_include);
 #endif
     FillCumulativePopcounts(sample_include, 1 + (sample_ct / kBitsPerWord), sample_include_cumulative_popcounts);
+    uint32_t difflist_common_geno = 0;  // spurious uninit-variable warning
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, &pgr, &pssi);
     for (uint32_t vidx = 0; vidx < variant_ct; ) {
-      uint32_t difflist_common_geno;
       uint32_t difflist_len;
       reterr = PgrGetDifflistOrGenovec(sample_include, pssi, write_sample_ct, max_read_difflist_len, vidx, &pgr, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
       if (reterr) {

@@ -3368,7 +3368,7 @@ static_assert(sizeof(Dosage) == 2, "plink2_ld dosage-handling routines must be u
 #  ifdef USE_AVX2
 void FillDosageHet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage_het) {
   const __m256i* dosage_vvec_iter = R_CAST(const __m256i*, dosage_vec);
-#    if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
+#    if defined(__clang__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
   const __m256i all_n32768 = _mm256_set1_epi16(0x8000);
   const __m256i all_n16384 = _mm256_set1_epi16(0xc000);
 #    else
@@ -3707,7 +3707,7 @@ void DosagePhasedDotprodComponents(const Dosage* dosage_vec0, const Dosage* dosa
   const __m256i* dphase_delta1_iter = R_CAST(const __m256i*, dphase_delta1);
   const __m256i all_16384 = _mm256_set1_epi16(0x4000);
   const __m256i all_32767 = _mm256_set1_epi16(0x7fff);
-#    if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
+#    if defined(__clang__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
   const __m256i all_n32768 = _mm256_set1_epi16(0x8000);
 #    else
   const __m256i all_n32768 = _mm256_set1_epi64x(-0x7fff7fff7fff8000LL);
@@ -3785,7 +3785,7 @@ void DosagePhasedDotprodComponentsSubset(const Dosage* subset_invmask, const Dos
   const __m256i* dphase_delta1_iter = R_CAST(const __m256i*, dphase_delta1);
   const __m256i all_16384 = _mm256_set1_epi16(0x4000);
   const __m256i all_32767 = _mm256_set1_epi16(0x7fff);
-#    if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
+#    if defined(__clang__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
   const __m256i all_n32768 = _mm256_set1_epi16(0x8000);
 #    else
   const __m256i all_n32768 = _mm256_set1_epi64x(-0x7fff7fff7fff8000LL);
@@ -3857,7 +3857,7 @@ void DosagePhasedDotprodComponentsSubset(const Dosage* subset_invmask, const Dos
 #  else  // !USE_AVX2
 void FillDosageHet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage_het) {
   const __m128i* dosage_vvec_iter = R_CAST(const __m128i*, dosage_vec);
-#    if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
+#    if defined(__clang__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
   const __m128i all_n32768 = _mm_set1_epi16(0x8000);
   const __m128i all_n16384 = _mm_set1_epi16(0xc000);
 #    else
@@ -4165,7 +4165,7 @@ void DosagePhasedDotprodComponents(const Dosage* dosage_vec0, const Dosage* dosa
   const __m128i* dphase_delta1_iter = R_CAST(const __m128i*, dphase_delta1);
   const __m128i all_16384 = _mm_set1_epi16(0x4000);
   const __m128i all_32767 = _mm_set1_epi16(0x7fff);
-#      if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
+#      if defined(__clang__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
   const __m128i all_n32768 = _mm_set1_epi16(0x8000);
 #      else
   const __m128i all_n32768 = _mm_set1_epi64x(-0x7fff7fff7fff8000LL);
@@ -4256,7 +4256,7 @@ void DosagePhasedDotprodComponentsSubset(const Dosage* subset_invmask, const Dos
   const __m128i* dphase_delta1_iter = R_CAST(const __m128i*, dphase_delta1);
   const __m128i all_16384 = _mm_set1_epi16(0x4000);
   const __m128i all_32767 = _mm_set1_epi16(0x7fff);
-#      if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
+#      if defined(__clang__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
   const __m128i all_n32768 = _mm_set1_epi16(0x8000);
 #      else
   const __m128i all_n32768 = _mm_set1_epi64x(-0x7fff7fff7fff8000LL);
