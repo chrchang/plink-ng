@@ -107,7 +107,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 825
+#define PLINK2_BASE_VERNUM 826
 
 // We now try to adhere to include-what-you-use in simple cases.  However,
 // we don't want to repeat either platform-specific ifdefs, or stuff like
@@ -2547,17 +2547,42 @@ BoolErr pgl_malloc(uintptr_t size, void* pp);
 #else
 // Unfortunately, defining the second parameter to be of type void** doesn't do
 // the right thing.
-
 // update (18 Feb 2022): looks like inlined pgl_malloc is not compiled as
 // intended by gcc 11, due to new ipa-modref pass?  Open to suggestions on how
 // to fix this; maybe it's now necessary to define type-specific malloc
 // wrappers for clean compilation, ugh...
 // update (22 Nov 2025): now explicitly disabling ipa-modref instead of making
 // this non-inline, since the latter doesn't hold up under LTO.
-#  if (__GNUC__ >= 11) && !defined(__clang__)
-#    pragma GCC push_options
-#    pragma GCC optimize("-fno-ipa-modref")
-#  endif
+#  if defined(__cplusplus)
+template <class T> HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, T** pp) {
+  *pp = S_CAST(T*, malloc(size));
+  if (likely(*pp)) {
+    return 0;
+  }
+  g_failed_alloc_attempt_size = size;
+  return 1;
+}
+
+#    if (__GNUC__ >= 11) && !defined(__clang__)
+#      pragma GCC push_options
+#      pragma GCC optimize("-fno-ipa-modref")
+#    endif
+HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, uintptr_t* addr_ptr) {
+  *addr_ptr = R_CAST(uintptr_t, malloc(size));
+  if (likely(*addr_ptr)) {
+    return 0;
+  }
+  g_failed_alloc_attempt_size = size;
+  return 1;
+}
+#    if (__GNUC__ >= 11) && !defined(__clang__)
+#      pragma GCC pop_options
+#    endif
+#  else
+#    if (__GNUC__ >= 11) && !defined(__clang__)
+#      pragma GCC push_options
+#      pragma GCC optimize("-fno-ipa-modref")
+#    endif
 HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, void* pp) {
   *S_CAST(unsigned char**, pp) = S_CAST(unsigned char*, malloc(size));
   if (likely(*S_CAST(unsigned char**, pp))) {
@@ -2566,8 +2591,9 @@ HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, void* pp) {
   g_failed_alloc_attempt_size = size;
   return 1;
 }
-#  if (__GNUC__ >= 11) && !defined(__clang__)
-#    pragma GCC pop_options
+#    if (__GNUC__ >= 11) && !defined(__clang__)
+#      pragma GCC pop_options
+#    endif
 #  endif
 #endif
 
@@ -3298,7 +3324,7 @@ HEADER_INLINE BoolErr vecaligned_malloc(uintptr_t size, void* aligned_pp) {
   return aligned_malloc(size, kBytesPerVec, aligned_pp);
 #else
 #  if defined(__APPLE__) || !defined(__LP64__)
-  const BoolErr ret_boolerr = pgl_malloc(size, aligned_pp);
+  const BoolErr ret_boolerr = pgl_malloc(size, S_CAST(uintptr_t*, aligned_pp));
   assert(IsVecAligned(*S_CAST(uintptr_t**, aligned_pp)));
   return ret_boolerr;
 #  else

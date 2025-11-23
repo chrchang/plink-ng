@@ -373,7 +373,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
       return 1;
     }
     memcpy(*tmp_alloc_endp, vtp->missing_id_match, overflow_substitute_blen);
-    id_slen = 0;
+    id_slen = overflow_substitute_blen - 1;
     cur_overflow = 1;
   } else {
     if (PtrWSubCk(tmp_alloc_base, id_slen + 1, tmp_alloc_endp)) {
@@ -491,7 +491,7 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
     }
     const uint32_t overflow_substitute_blen = vtp->overflow_substitute_blen;
     if (overflow_substitute_blen) {
-      return memcpya(dst, vtp->missing_id_match, overflow_substitute_blen);
+      return memcpya(dst, vtp->missing_id_match, overflow_substitute_blen - 1);
     }
   }
   char* id_iter = dst;

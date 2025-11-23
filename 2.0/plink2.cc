@@ -92,7 +92,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (22 Nov 2025)";
+  " (23 Nov 2025)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""

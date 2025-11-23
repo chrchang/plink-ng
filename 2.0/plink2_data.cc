@@ -4530,12 +4530,11 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
           } else {
             cur_varid_templatep = nullptr;
             if (varid_split) {
+              varid_token_start = nullptr;
               if (VaridSplitOk(orig_variant_id, orig_allele_ct)) {
                 varid_token_start = orig_variant_id;
               } else if (varid_dup) {
                 keep_orig_id = 1;
-              } else {
-                varid_token_start = nullptr;
               }
             }
             if ((!varid_token_start) && varid_templatep) {
