@@ -757,26 +757,6 @@ BoolErr bigstack_calloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr);
 
 BoolErr bigstack_calloc_cpp(uintptr_t ct, char**** cpp_arr_ptr);
 
-HEADER_INLINE BoolErr bigstack_calloc_c(uintptr_t ct, char** c_arr_ptr) {
-  return bigstack_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
-}
-
-HEADER_INLINE BoolErr bigstack_calloc_i16(uintptr_t ct, int16_t** i16_arr_ptr) {
-  return bigstack_calloc_u16(ct, R_CAST(uint16_t**, i16_arr_ptr));
-}
-
-HEADER_INLINE BoolErr bigstack_calloc_i32(uintptr_t ct, int32_t** i32_arr_ptr) {
-  return bigstack_calloc_u32(ct, R_CAST(uint32_t**, i32_arr_ptr));
-}
-
-HEADER_INLINE BoolErr bigstack_calloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
-  return bigstack_calloc_u64(ct, R_CAST(uint64_t**, i64_arr_ptr));
-}
-
-HEADER_INLINE BoolErr bigstack_calloc_u32p(uintptr_t ct, uint32_t*** u32p_arr_ptr) {
-  return bigstack_calloc_w(ct, R_CAST(uintptr_t**, u32p_arr_ptr));
-}
-
 #ifdef __LP64__
 HEADER_INLINE BoolErr bigstack_calloc64_d(uint64_t ct, double** d_arr_ptr) {
   return bigstack_calloc_d(ct, d_arr_ptr);
@@ -1000,6 +980,31 @@ BoolErr bigstack_end_calloc_wp(uintptr_t ct, uintptr_t*** wp_arr_ptr);
 
 BoolErr bigstack_end_calloc_cp(uintptr_t ct, char*** cp_arr_ptr);
 
+// Not sure if this is needed.
+#if (__GNUC__ >= 11) && !defined(__clang__)
+#  pragma GCC push_options
+#  pragma GCC optimize("-fno-ipa-modref")
+#endif
+HEADER_INLINE BoolErr bigstack_calloc_c(uintptr_t ct, char** c_arr_ptr) {
+  return bigstack_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
+}
+
+HEADER_INLINE BoolErr bigstack_calloc_i16(uintptr_t ct, int16_t** i16_arr_ptr) {
+  return bigstack_calloc_u16(ct, R_CAST(uint16_t**, i16_arr_ptr));
+}
+
+HEADER_INLINE BoolErr bigstack_calloc_i32(uintptr_t ct, int32_t** i32_arr_ptr) {
+  return bigstack_calloc_u32(ct, R_CAST(uint32_t**, i32_arr_ptr));
+}
+
+HEADER_INLINE BoolErr bigstack_calloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
+  return bigstack_calloc_u64(ct, R_CAST(uint64_t**, i64_arr_ptr));
+}
+
+HEADER_INLINE BoolErr bigstack_calloc_u32p(uintptr_t ct, uint32_t*** u32p_arr_ptr) {
+  return bigstack_calloc_w(ct, R_CAST(uintptr_t**, u32p_arr_ptr));
+}
+
 HEADER_INLINE BoolErr bigstack_end_calloc_c(uintptr_t ct, char** c_arr_ptr) {
   return bigstack_end_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
 }
@@ -1015,6 +1020,9 @@ HEADER_INLINE BoolErr bigstack_end_calloc_i64(uintptr_t ct, int64_t** i64_arr_pt
 HEADER_INLINE BoolErr bigstack_end_calloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr) {
   return bigstack_end_calloc_cp(ct, K_CAST(char***, kcp_arr_ptr));
 }
+#if (__GNUC__ >= 11) && !defined(__clang__)
+#  pragma GCC pop_options
+#endif
 
 // and here's the interface for a non-global arena (necessary for some
 // multithreaded code).
