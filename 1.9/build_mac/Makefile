@@ -9,8 +9,8 @@ include ../Makefile.src
 # don't have to edit the Makefile to build in a different environment.
 CC ?=		gcc
 CXX ?=		g++
-CCFLAGS ?=	-Wall -O2
-CXXFLAGS ?=	-Wall -O2 -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
+CCFLAGS ?=	-Wall -Wstrict-aliasing -O2
+CXXFLAGS ?=	-Wall -Wstrict-aliasing -O2 -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
 AMDFLAGS ?=     --target=x86_64-apple-macosx10.9
 ARMFLAGS ?=     --target=arm64-apple-macos11
 
@@ -22,7 +22,7 @@ STRIP ?=	strip
 ifeq ($(SYS), MAC)
   GCC_GTEQ_43 := $(shell expr `g++ -dumpversion | sed -e 's/\.\([0-9][0-9]\)/\1/g' -e 's/\.\([0-9]\)/0\1/g' -e 's/^[0-9]\{3,4\}$$/&00/'` \>= 40300)
   ifeq "$(GCC_GTEQ_43)" "1"
-    CFLAGS ?= -Wall -O2 -flax-vector-conversions
+    CFLAGS ?= -Wall -Wstrict-aliasing -O2 -flax-vector-conversions
   endif
   CFLAGS += $(MACFLAGS)
   CXXFLAGS += $(MACFLAGS)

@@ -3684,6 +3684,10 @@ uint32_t prev_unset(uintptr_t* bitarr, uint32_t loc, uint32_t floor) {
 */
 
 
+#if (__GNUC__ >= 11) && !defined(__clang__)
+#  pragma GCC push_options
+#  pragma GCC optimize("-fno-ipa-modref")
+#endif
 int32_t bigstack_calloc_uc(uintptr_t ct, unsigned char** ucp_ptr) {
   *ucp_ptr = (unsigned char*)bigstack_alloc(ct);
   if (!(*ucp_ptr)) {
@@ -3791,6 +3795,9 @@ int32_t bigstack_end_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
   fill_ull_zero(ct, *ullp_ptr);
   return 0;
 }
+#if (__GNUC__ >= 11) && !defined(__clang__)
+#  pragma GCC pop_options
+#endif
 
 
 // MurmurHash3, from

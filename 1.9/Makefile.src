@@ -1,4 +1,4 @@
-CWARN = -Wall
+CWARN = -Wall -Wstrict-aliasing
 CXXWARN = ${CWARN}
 
 ZLIB_VER = 1.3.1
