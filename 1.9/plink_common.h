@@ -1969,18 +1969,6 @@ int32_t bigstack_calloc_ul(uintptr_t ct, uintptr_t** ulp_ptr);
 
 int32_t bigstack_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr);
 
-HEADER_INLINE int32_t bigstack_calloc_c(uintptr_t ct, char** cp_ptr) {
-  return bigstack_calloc_uc(ct, (unsigned char**)cp_ptr);
-}
-
-HEADER_INLINE int32_t bigstack_calloc_i(uintptr_t ct, int32_t** ip_ptr) {
-  return bigstack_calloc_ui(ct, (uint32_t**)ip_ptr);
-}
-
-HEADER_INLINE int32_t bigstack_calloc_ll(uintptr_t ct, int64_t** llp_ptr) {
-  return bigstack_calloc_ull(ct, (uint64_t**)llp_ptr);
-}
-
 int32_t bigstack_end_calloc_uc(uintptr_t ct, unsigned char** ucp_ptr);
 
 int32_t bigstack_end_calloc_d(uintptr_t ct, double** dp_ptr);
@@ -1993,6 +1981,22 @@ int32_t bigstack_end_calloc_ul(uintptr_t ct, uintptr_t** ulp_ptr);
 
 int32_t bigstack_end_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr);
 
+#if (__GNUC__ >= 11) && !defined(__clang__)
+#  pragma GCC push_options
+#  pragma GCC optimize("-fno-ipa-modref")
+#endif
+HEADER_INLINE int32_t bigstack_calloc_c(uintptr_t ct, char** cp_ptr) {
+  return bigstack_calloc_uc(ct, (unsigned char**)cp_ptr);
+}
+
+HEADER_INLINE int32_t bigstack_calloc_i(uintptr_t ct, int32_t** ip_ptr) {
+  return bigstack_calloc_ui(ct, (uint32_t**)ip_ptr);
+}
+
+HEADER_INLINE int32_t bigstack_calloc_ll(uintptr_t ct, int64_t** llp_ptr) {
+  return bigstack_calloc_ull(ct, (uint64_t**)llp_ptr);
+}
+
 HEADER_INLINE int32_t bigstack_end_calloc_c(uintptr_t ct, char** cp_ptr) {
   return bigstack_end_calloc_uc(ct, (unsigned char**)cp_ptr);
 }
@@ -2004,6 +2008,9 @@ HEADER_INLINE int32_t bigstack_end_calloc_i(uintptr_t ct, int32_t** ip_ptr) {
 HEADER_INLINE int32_t bigstack_end_calloc_ll(uintptr_t ct, int64_t** llp_ptr) {
   return bigstack_end_calloc_ull(ct, (uint64_t**)llp_ptr);
 }
+#if (__GNUC__ >= 11) && !defined(__clang__)
+#  pragma GCC pop_options
+#endif
 
 
 uint32_t murmurhash3_32(const void* key, uint32_t len);
