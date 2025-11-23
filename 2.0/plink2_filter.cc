@@ -850,7 +850,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
       logputs("--rm-dup: Loading INFO field... ");
       fflush(stdout);
       unsigned char* tmp_alloc_end = g_bigstack_end;
-      char* line_iter;
+      char* line_iter = nullptr;  // gcc 14 warning
       // if INFO column exists, #CHROM header line guaranteed
       do {
         reterr = TextNextLineLstrip(&pvar_txs, &line_iter);

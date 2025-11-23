@@ -817,7 +817,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uintptr_t variant_idx = 0;
     while (line_idx < line_ct) {
       ++line_idx;
-      const char* line_start;
+      const char* line_start = nullptr;  // gcc 14 warning
       reterr = TextNextLineLstripK(&adjust_txs, &line_start);
       if (unlikely(reterr)) {
         goto AdjustFile_ret_TSTREAM_REWIND_FAIL;
