@@ -3266,7 +3266,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
       // reordering (28 Nov 2025): this is now after --import-max-alleles
       if (unlikely(S_CAST(uintptr_t, id_end - pos_end) > kMaxIdBlen)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID on line %" PRIuPTR " of --vcf file (>" MAX_ID_SLEN_STR " chars). (%slpha 7 and later builds have an --import-overlong-var-ids flag.)\n", line_idx, (alt_ct > 10)? "This variant has >10 ALT alleles, so --import-max-alleles may be a reasonable way to filter it out. Alternatively, a" : "A");
+        snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID (>" MAX_ID_SLEN_STR " chars) on line %" PRIuPTR " of --vcf file. (%slpha 7 and later builds have an --import-overlong-var-ids flag.)\n", line_idx, (alt_ct > 10)? "This variant has >10 ALT alleles, so --import-max-alleles may be a reasonable way to filter it out. Alternatively, a" : "A");
         goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
       }
 
