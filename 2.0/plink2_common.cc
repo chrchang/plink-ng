@@ -62,8 +62,9 @@ void CleanupFlip(FlipInfo* flip_info_ptr) {
   free_cond(flip_info_ptr->subset_fname);
 }
 
-const char kLoadFilterLogFlagnames[18][25] = {
+const char kLoadFilterLogFlagnames[19][25] = {
   "import-max-alleles",
+  "import-overlong-var-ids",
   "vcf-require-gt",
   "merge-max-alleles",
   "autosome",

@@ -2317,6 +2317,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --import-max-alleles <ct> : Exclude variants with more than the given # of\n"
 "                              alleles during VCF/BCF/BGEN import.\n"
               );
+    HelpPrint("import-overlong-var-ids\0", &help_ctrl, 0,
+"  --import-overlong-var-ids <mode> :\n"
+"    Specify how variants with overlong (>" MAX_ID_SLEN_STR " chars) IDs should\n"
+"    be handled during import of non-PLINK formats.  Available modes:\n"
+"    * 'error'/'e' (default): Error out.\n"
+"    * 'missing'/'m': Keep variant, change ID to --missing-var-code string.\n"
+"    * 'skip'/'s': Skip variant.\n"
+"    * 'truncate'/'t': Keep variant, truncate ID to first " MAX_ID_SLEN_STR " chars.\n"
+              );
     HelpPrint("read-freq\0bad-freqs\0", &help_ctrl, 0,
 "  --read-freq <file> : Load allele frequency estimates from the given --freq or\n"
 "                       --geno-counts (or PLINK 1.9 --freqx) report, instead of\n"
@@ -2533,8 +2542,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("missing-var-code\0rm-dup\0set-all-var-ids\0set-missing-var-ids\0", &help_ctrl, 0,
 "  --missing-var-code <str>   : Change unnamed variant code for --rm-dup,\n"
-"                               --set-{missing|all}-var-ids, and\n"
-"                               --recover-var-ids (default '.').\n"
+"                               --set-{missing|all}-var-ids, --recover-var-ids,\n"
+"                               and --import-overlong-var-ids (default '.').\n"
                );
     HelpPrint("update-chr\0update-map\0update-name\0", &help_ctrl, 0,
 "  --update-chr  <f> [chrcol] [IDcol]  [skip] : Update variant chromosome codes.\n"

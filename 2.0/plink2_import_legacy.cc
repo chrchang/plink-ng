@@ -184,11 +184,7 @@ PglErr ScanMap(const char* mapname, MiscFlags misc_flags, LoadFilterLogFlags loa
     if (unlikely(!variant_ct)) {
       char* write_iter = strcpya_k(g_logbuf, "Error: All ");
       write_iter = u32toa(raw_variant_ct, write_iter);
-      write_iter = strcpya_k(write_iter, " variant");
-      if (raw_variant_ct != 1) {
-        *write_iter++ = 's';
-      }
-      write_iter = strcpya_k(write_iter, " in .map file excluded by ");
+      write_iter = strcpya_k(write_iter, " variant(s) in .map file excluded by ");
       if (load_filter_log_import_flags) {
         AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
       }
@@ -574,11 +570,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, LoadFilterLogFlags loa
     if (unlikely(!variant_ct)) {
       char* write_iter = strcpya_k(g_logbuf, "Error: All ");
       write_iter = wtoa(variant_skip_ct, write_iter);
-      write_iter = strcpya_k(write_iter, " variant");
-      if (variant_skip_ct != 1) {
-        *write_iter++ = 's';
-      }
-      write_iter = strcpya_k(write_iter, " in .map file excluded by ");
+      write_iter = strcpya_k(write_iter, " variant(s) in .map file excluded by ");
       if (load_filter_log_import_flags) {
         AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
       }
@@ -891,11 +883,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
       }
       char* write_iter = strcpya_k(g_logbuf, "Error: All ");
       write_iter = wtoa(variant_skip_ct, write_iter);
-      write_iter = strcpya_k(write_iter, " variant");
-      if (variant_skip_ct != 1) {
-        *write_iter++ = 's';
-      }
-      write_iter = strcpya_k(write_iter, " in --tped file excluded by ");
+      write_iter = strcpya_k(write_iter, " variant(s) in --tped file excluded by ");
       if (load_filter_log_import_flags) {
         AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
       }

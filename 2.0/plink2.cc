@@ -92,7 +92,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (23 Nov 2025)";
+  " (28 Nov 2025)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4063,6 +4063,7 @@ int main(int argc, char** argv) {
     char id_delim = '\0';
     char idspace_to = '\0';
     ImportFlags import_flags = kfImport0;
+    ImportOverlongVarIdsMode import_overlong_varids_mode = kImportOverlongVarIds0;
     uint32_t delete_pmerge_result = 0;
     uint32_t aperm_present = 0;
     uint32_t clump_log10_p1_present = 0;
@@ -7398,6 +7399,30 @@ int main(int argc, char** argv) {
           if (unlikely(ctou32(idspace_to) <= ' ')) {
             logerrputs("Error: --idspace-to argument must be a nonspace character.\n");
             goto main_ret_INVALID_CMDLINE;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "mport-overlong-var-ids")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* mode_str = argvk[arg_idx + 1];
+          const char first_char_upcase_match = mode_str[0] & 0xdf;
+          const uint32_t mode_slen = strlen(mode_str);
+          if (((mode_slen == 1) && (first_char_upcase_match == 'E')) ||
+                     strequal_k(mode_str, "error", mode_slen)) {
+            import_overlong_varids_mode = kImportOverlongVarIdsExplicitError;
+          } else if (((mode_slen == 1) && (first_char_upcase_match == 'M')) ||
+                     strequal_k(mode_str, "missing", mode_slen)) {
+            import_overlong_varids_mode = kImportOverlongVarIdsMissing;
+          } else if (((mode_slen == 1) && (first_char_upcase_match == 'S')) ||
+                     strequal_k(mode_str, "skip", mode_slen)) {
+            import_overlong_varids_mode = kImportOverlongVarIdsSkip;
+            pc.load_filter_log_flags |= kfLoadFilterLogImportOverlongVarIds;
+          } else if (((mode_slen == 1) && (first_char_upcase_match == 'T')) ||
+                     strequal_k(mode_str, "truncate", mode_slen)) {
+            import_overlong_varids_mode = kImportOverlongVarIdsTruncate;
+          } else {
+            snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --import-overlong-var-ids.\n", mode_str);
+            goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (likely(strequal_k_unsafe(flagname_p2, "mport-dosage"))) {
           if (unlikely(load_params || xload)) {
@@ -13060,6 +13085,7 @@ int main(int argc, char** argv) {
         uint32_t pgi_generated = 0;
         uint32_t psam_generated = 1;
 
+        const char* missing_varid = pc.missing_varid_match? pc.missing_varid_match : &(g_one_char_strs[92]);
         const uint32_t is_update_or_impute_sex = (pc.update_sex_info.fname || (pc.check_sex_info.flags & kfCheckSexImpute));
         // Compress by default for VCF/BCF due to potentially large INFO
         // section; otherwise only do it in "--keep-autoconv vzs" case.
@@ -13089,9 +13115,9 @@ int main(int argc, char** argv) {
             g_zst_level = 1;
           }
           if (is_vcf) {
-            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, load_filter_log_import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           } else {
-            reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, load_filter_log_import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, no_samples_ok, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, import_max_allele_ct, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           }
           g_zst_level = zst_level;
         } else {
@@ -13111,13 +13137,13 @@ int main(int argc, char** argv) {
           } else if (xload & kfXloadTped) {
             reterr = TpedToPgen(pgenname, psamname, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info, &psam_generated);
           } else if (xload & kfXloadOxGen) {
-            reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, oxford_import_flags, psam_01, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, oxford_import_flags, psam_01, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxBgen) {
-            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, import_max_allele_ct, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, import_max_allele_ct, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxHaps) {
-            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
+            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, id_delim, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
           } else if (xload & kfXloadEigGeno) {
-            reterr = EigfileToPgen(pgenname, psamname, pvarname, const_fid, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = EigfileToPgen(pgenname, psamname, pvarname, const_fid, pc.missing_catname, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, id_delim, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadPlink1Dosage) {
             reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (likely(xload & kfXloadGenDummy)) {

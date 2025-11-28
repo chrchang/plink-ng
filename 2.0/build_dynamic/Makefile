@@ -16,7 +16,7 @@
 #   32-bit binary (also sets STATIC_ZLIB and ZSTD_O2):
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
-#   Debug symbols: set DEBUG to -g
+#   Debug symbols: change DEBUG to -g (still incompatible with -flto?)
 NO_AVX2 = 1
 NO_SSE42 = 1
 CPU_CHECK = 1
@@ -30,7 +30,7 @@ MKL_IOMP5_DIR = /opt/intel/oneapi/compiler/2025.1/lib
 STATIC_AOCL =
 AOCLROOT = /home/admin/aocl/5.1.0/gcc
 FORCE_32BIT =
-DEBUG =
+DEBUG = -flto
 CC ?= gcc
 CXX ?= g++
 
@@ -41,10 +41,10 @@ BASEFLAGS += ${DEBUG}
 
 include ../Makefile.src
 
-LINKFLAGS=-lm -lpthread -flto ${DEBUG}
+LINKFLAGS=-lm -lpthread ${DEBUG}
 ZLIB=
 ARCH32=
-CPUCHECK_FLAGS = -flto ${DEBUG}
+CPUCHECK_FLAGS = ${DEBUG}
 
 ifdef FORCE_32BIT
   # this should work on Debian 10 with the right packages installed.

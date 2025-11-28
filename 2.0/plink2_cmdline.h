@@ -56,7 +56,7 @@ CONSTI32(kTextbufMainSize, 2 * kMaxMediumLine);
 // Maximum length of chromosome, variant, FID, IID, cluster, and set IDs (not
 // including terminating null).  This value supports up to 8 IDs per line
 // (maximum so far is 5, for e.g. --hom).
-// Assumed by plink2_pvar to be a multiple of 16.
+// Assumed by plink2_pvar to be a multiple of kCacheline (64 or 128).
 CONSTI32(kMaxIdSlen, 16000);
 CONSTI32(kMaxIdBlen, kMaxIdSlen + 1);
 // Don't see a better option than #define for this.

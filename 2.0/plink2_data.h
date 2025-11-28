@@ -78,6 +78,14 @@ FLAGSET_DEF_START()
   kfImportEigNohash = (1 << 9)
 FLAGSET_DEF_END(ImportFlags);
 
+ENUM_U31_DEF_START()
+  kImportOverlongVarIds0,
+  kImportOverlongVarIdsExplicitError,
+  kImportOverlongVarIdsSkip,
+  kImportOverlongVarIdsMissing,
+  kImportOverlongVarIdsTruncate,
+ENUM_U31_DEF_END(ImportOverlongVarIdsMode);
+
 CONSTI32(kMaxInfoKeySlen, kMaxIdSlen);
 #define MAX_INFO_KEY_SLEN_STR MAX_ID_SLEN_STR
 

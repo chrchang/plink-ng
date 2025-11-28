@@ -279,30 +279,31 @@ FLAGSET_DEF_START()
   kfLoadFilterLog0,
   // import-only
   kfLoadFilterLogImportMaxAlleles = (1 << 0),
-  kfLoadFilterLogVcfRequireGt = (1 << 1),
+  kfLoadFilterLogImportOverlongVarIds = (1 << 1),
+  kfLoadFilterLogVcfRequireGt = (1 << 2),
   // merge-only
-  kfLoadFilterLogMergeMaxAlleles = (1 << 2),
+  kfLoadFilterLogMergeMaxAlleles = (1 << 3),
   // chromosome filters: always applied, but omitted from .pvar-load log if
   // import or merge already occurred
-  kfLoadFilterLogAutosome = (1 << 3),
-  kfLoadFilterLogAutosomePar = (1 << 4),
-  kfLoadFilterLogChr = (1 << 5),
-  kfLoadFilterLogNotChr = (1 << 6),
+  kfLoadFilterLogAutosome = (1 << 4),
+  kfLoadFilterLogAutosomePar = (1 << 5),
+  kfLoadFilterLogChr = (1 << 6),
+  kfLoadFilterLogNotChr = (1 << 7),
   kfLoadFilterLogImportMask = ((kfLoadFilterLogNotChr * 2) - kfLoadFilterLogMergeMaxAlleles - kfLoadFilterLogImportMaxAlleles),
   kfLoadFilterLogMergeMask = ((kfLoadFilterLogNotChr * 2) - kfLoadFilterLogMergeMaxAlleles),
-  kfLoadFilterLogImportMergeAlreadyApplied = (1 << 7),
+  kfLoadFilterLogImportMergeAlreadyApplied = (1 << 8),
   kfLoadFilterLogImportMergeMask = ((kfLoadFilterLogImportMergeAlreadyApplied * 2) - kfLoadFilterLogImportMaxAlleles),
   // main .pvar load only
-  kfLoadFilterLogExcludeIfInfo = (1 << 8),
-  kfLoadFilterLogExcludePalindromicSnps = (1 << 9),
-  kfLoadFilterLogExtractIfInfo = (1 << 10),
-  kfLoadFilterLogMaxAlleles = (1 << 11),
-  kfLoadFilterLogMinAlleles = (1 << 12),
-  kfLoadFilterLogRequireInfo = (1 << 13),
-  kfLoadFilterLogRequireNoInfo = (1 << 14),
-  kfLoadFilterLogSnpsOnly = (1 << 15),
-  kfLoadFilterLogVarFilter = (1 << 16),
-  kfLoadFilterLogVarMinQual = (1 << 17)
+  kfLoadFilterLogExcludeIfInfo = (1 << 9),
+  kfLoadFilterLogExcludePalindromicSnps = (1 << 19),
+  kfLoadFilterLogExtractIfInfo = (1 << 11),
+  kfLoadFilterLogMaxAlleles = (1 << 12),
+  kfLoadFilterLogMinAlleles = (1 << 13),
+  kfLoadFilterLogRequireInfo = (1 << 14),
+  kfLoadFilterLogRequireNoInfo = (1 << 15),
+  kfLoadFilterLogSnpsOnly = (1 << 16),
+  kfLoadFilterLogVarFilter = (1 << 17),
+  kfLoadFilterLogVarMinQual = (1 << 18)
 FLAGSET_DEF_END(LoadFilterLogFlags);
 
 // These structs are small enough and ownership of the pointed-to arrays is

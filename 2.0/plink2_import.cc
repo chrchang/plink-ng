@@ -2763,7 +2763,7 @@ static const char kGpText[] = "GP";
 // pgen_generated and psam_generated assumed to be initialized to 1.
 static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
-PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t no_samples_ok, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, const char* missing_varid, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t no_samples_ok, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, ImportOverlongVarIdsMode overlong_varids_mode, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Performs a 2-pass load.  Probably staying that way after sequential writer
   // is implemented since header lines are a pain.
   //
@@ -3155,25 +3155,23 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       if (unlikely(*chr_code_end != '\t')) {
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
-      // QUAL/FILTER enforcement is now postponed till .pvar loading.  only
-      // other things we do during the scanning pass are (i) count alt alleles,
-      // and (ii) check whether any phased genotype calls are present.
+      // QUAL/FILTER enforcement is now postponed till .pvar loading.
+      // Other things we do during this scanning pass:
+      // - count ALT alleles
+      // - count skipped variants
+      // - enforce variant ID length limit if necessary
+      // - check whether any phased genotype calls are present
 
       char* pos_end = NextPrespace(chr_code_end);
       if (unlikely(*pos_end != '\t')) {
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
-
-      // may as well check ID length here
       // postpone POS validation till second pass so we only have to parse it
       // once
+
       char* id_end = NextPrespace(pos_end);
       if (unlikely(*id_end != '\t')) {
         goto VcfToPgen_ret_MISSING_TOKENS;
-      }
-      if (unlikely(S_CAST(uintptr_t, id_end - pos_end) > kMaxIdBlen)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Invalid ID on line %" PRIuPTR " of --vcf file (max " MAX_ID_SLEN_STR " chars).\n", line_idx);
-        goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
       }
 
       // note REF length
@@ -3248,6 +3246,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           continue;
         }
       }
+
       const uint32_t cur_qualfilterinfo_slen = info_end - qual_start_m1;
 
       // all converters *do* respect chromosome filters
@@ -3264,6 +3263,21 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         line_iter = info_end;
         continue;
       }
+
+      // Check ID length here, we may now need it for accurate variant count.
+      // This should be done after all other skip checks, so that if e.g. all
+      // variants with overlong IDs are already filtered out by
+      // --import-max-alleles, we don't error out.
+      if ((S_CAST(uintptr_t, id_end - pos_end) > kMaxIdBlen) && (overlong_varids_mode <= kImportOverlongVarIdsSkip)) {
+        if (unlikely(overlong_varids_mode <= kImportOverlongVarIdsExplicitError)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID (>" MAX_ID_SLEN_STR " chars) on line %" PRIuPTR " of --vcf file.%s\n", line_idx, overlong_varids_mode? "" : " (--import-overlong-var-ids controls how such variants are handled.)");
+          goto VcfToPgen_ret_INCONSISTENT_INPUT_WWN;
+        }
+        ++variant_skip_ct;
+        line_iter = linebuf_iter;
+        continue;
+      }
+
       if (cur_max_allele_slen > max_allele_slen) {
         max_allele_slen = cur_max_allele_slen;
       }
@@ -3385,11 +3399,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       }
       char* write_iter = strcpya_k(g_logbuf, "Error: All ");
       write_iter = wtoa(variant_skip_ct, write_iter);
-      write_iter = strcpya_k(write_iter, " variant");
-      if (variant_skip_ct != 1) {
-        *write_iter++ = 's';
-      }
-      write_iter = strcpya_k(write_iter, " in --vcf file excluded by ");
+      write_iter = strcpya_k(write_iter, " variant(s) in --vcf file excluded by ");
       AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
       strcpy_k(write_iter, ".\n");
       goto VcfToPgen_ret_INCONSISTENT_INPUT_WW;
@@ -3575,7 +3585,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       if (line_last[-1] == '\r') {
         --line_last;
       }
-      // NOT safe to use AppendBinaryEoln here.
+      // NOT safe to use AppendBinaryEoln here (may overflow 1 char)
       if (unlikely(CsputsStd(line_iter, line_last - line_iter, &pvar_css, &pvar_cswritep))) {
         goto VcfToPgen_ret_WRITE_FAIL;
       }
@@ -3842,7 +3852,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           }
 
           // 1. check if we skip this variant.  chromosome filter,
-          //    import_max_allele_ct, and require_gt can cause this.
+          //    --import-overlong-var-ids skip, import_max_allele_ct, and
+          //    require_gt can cause this.
           char* chr_code_end = AdvToDelim(line_iter, '\t');
           uint32_t chr_code_base = GetChrCodeRaw(line_iter);
           if (chr_code_base == UINT32_MAX) {
@@ -3877,8 +3888,14 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           // non-contigs, and UINT32_MAX if it's a contig name
           char* pos_str = &(chr_code_end[1]);
           char* pos_str_end = AdvToDelim(pos_str, '\t');
-          // copy ID, REF verbatim...
-          linebuf_iter = AdvToNthDelim(&(pos_str_end[1]), 2, '\t');
+          char* id_str_end = AdvToDelim(&(pos_str_end[1]), '\t');
+          const uint32_t varid_blen = id_str_end - pos_str_end;
+          if ((overlong_varids_mode == kImportOverlongVarIdsSkip) && (varid_blen > kMaxIdBlen)) {
+            line_iter = id_str_end;
+            goto VcfToPgen_load_start;
+          }
+          // copy REF verbatim
+          linebuf_iter = AdvToDelim(&(id_str_end[1]), '\t');
           if (ref_n_missing && memequal_sk(&(linebuf_iter[-2]), "\tN")) {
             // ...unless --vcf-ref-n-missing applies.
             linebuf_iter[-1] = '.';
@@ -3937,8 +3954,16 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           *pvar_cswritep++ = '\t';
           pvar_cswritep = u32toa(cur_bp, pvar_cswritep);
 
+          if (varid_blen <= kMaxIdBlen) {
+            pvar_cswritep = memcpya(pvar_cswritep, pos_str_end, varid_blen);
+          } else if (overlong_varids_mode == kImportOverlongVarIdsMissing) {
+            *pvar_cswritep++ = '\t';
+            pvar_cswritep = strcpya(pvar_cswritep, missing_varid);
+          } else {
+            pvar_cswritep = memcpya(pvar_cswritep, pos_str_end, kMaxIdBlen);
+          }
           // first copy includes both REF and ALT1
-          char* copy_start = pos_str_end;
+          char* copy_start = id_str_end;
           uint32_t alt_ct;
           for (alt_ct = 1; ; ++alt_ct) {
             ++linebuf_iter;
@@ -4176,6 +4201,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     logerrputsb();
     reterr = kPglRetMalformedInput;
     break;
+  VcfToPgen_ret_INCONSISTENT_INPUT_WWN:
+    putc_unlocked('\n', stdout);
   VcfToPgen_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
@@ -7326,7 +7353,7 @@ THREAD_FUNC_DECL BcfGenoToPgenThread(void* raw_arg) {
 }
 
 // pgen_generated and psam_generated assumed to be initialized to 1.
-PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t no_samples_ok, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, const char* missing_varid, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t no_samples_ok, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t import_max_allele_ct, ImportOverlongVarIdsMode overlong_varids_mode, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Yes, lots of this is copied-and-pasted from VcfToPgen(), but there are
   // enough differences that I don't think trying to handle them with the same
   // function is wise.
@@ -8005,6 +8032,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     uint32_t par_warn_bcf_chrom = UINT32_MAX;
     while (1) {
+      if ((!(vrec_idx % 10000)) && vrec_idx) {
+        printf("\r--bcf: %" PRIuPTR "k variants scanned.", vrec_idx / 1000);
+        fflush(stdout);
+      }
       ++vrec_idx;  // 1-based since it's only used in error messages
       unsigned char* loadbuf_read_iter = loadbuf;
       reterr = BgzfRawMtStreamRead(&(loadbuf[32]), &bgzf, &loadbuf_read_iter, &bgzf_errmsg);
@@ -8020,17 +8051,14 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         goto BcfToPgen_ret_VREC_GENERIC;
       }
       const uint32_t* vrec_header = R_CAST(uint32_t*, loadbuf);
-      // IMPORTANT: Official specification is wrong about the ordering of these
-      // fields as of Feb 2020!!  The correct ordering can be inferred from
-      // bcf_read1_core() in htslib vcf.c:
-      //   [0]: l_shared
-      //   [1]: l_indiv
-      //   [2]: chrom
-      //   [3]: pos
-      //   [4]: rlen
-      //   [5]: qual, NOT n_allele_info
-      //   [6]: low 16 bits n_info, high 16 bits n_allele
-      //   [7]: low 24 bits n_sample, high 8 bits n_fmt
+      // [0]: l_shared
+      // [1]: l_indiv
+      // [2]: chrom
+      // [3]: pos
+      // [4]: rlen
+      // [5]: qual, NOT n_allele_info
+      // [6]: low 16 bits n_info, high 16 bits n_allele
+      // [7]: low 24 bits n_sample, high 8 bits n_fmt
       const uint32_t l_shared = vrec_header[0];
       const uint32_t l_indiv = vrec_header[1];
       const uint32_t chrom = vrec_header[2];
@@ -8063,9 +8091,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       }
 
       // We've now decompressed to the end of the variant record, and can
-      // safely skip the variant with "continue;".  There are currently three
+      // safely skip the variant with "continue;".  There are currently four
       // cases where we might want to do this: chromosome filters,
-      // --import-max-alleles, and --vcf-require-gt.
+      // --import-overlong-var-ids skip, --import-max-alleles, and
+      // --vcf-require-gt.
       if (n_allele > import_max_allele_ct) {
         continue;
       }
@@ -8187,19 +8216,43 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           }
         }
       }
+      parse_iter = loadbuf;
+      // Variant ID
+      {
+        const char* variant_id_start;
+        uint32_t slen;
+        if (unlikely(ScanBcfTypedString(shared_end, &parse_iter, &variant_id_start, &slen))) {
+          goto BcfToPgen_ret_VREC_GENERIC;
+        }
+        if (slen > kMaxIdSlen) {
+          if (overlong_varids_mode <= kImportOverlongVarIdsSkip) {
+            if (unlikely(overlong_varids_mode <= kImportOverlongVarIdsExplicitError)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID (>" MAX_ID_SLEN_STR " chars) in variant record #%" PRIuPTR " of --bcf file.%s\n", vrec_idx, overlong_varids_mode? "" : " (--import-overlong-var-ids controls how such variants are handled.)");
+              goto BcfToPgen_ret_INCONSISTENT_INPUT_WWN;
+            }
+            continue;
+          } else if (overlong_varids_mode == kImportOverlongVarIdsMissing) {
+            slen = strlen(missing_varid);
+          } else {
+            slen = kMaxIdSlen;
+          }
+        }
+        if (slen > other_slen_ubound) {
+          other_slen_ubound = slen;
+        }
+      }
+
       // We finally know for sure that we need to convert this variant.
 
       // Remainder of l_shared:
-      //   ID (typed string)
       //   REF+ALT (n_allele typed strings)
       //   FILTER (typed vector of integers)
       //   INFO (n_info (typed integer, typed vector) pairs)
       // We scan these fields to compute an upper bound on the necessary .pvar
       // write-buffer size.  In the unlikely pr_sidx != UINT32_MAX case, we
       // also need to scan for presence of INFO/PR.
-      parse_iter = loadbuf;
-      // ID, REF, ALT
-      const uint32_t str_ignore_ct = n_allele + 1;
+      // REF, ALT
+      const uint32_t str_ignore_ct = n_allele;
       for (uint32_t uii = 0; uii != str_ignore_ct; ++uii) {
         const char* str_start;
         uint32_t slen;
@@ -8405,10 +8458,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
 #endif
         goto BcfToPgen_ret_NOMEM;
       }
-      if (!(variant_ct % 10000)) {
-        printf("\r--bcf: %uk variants scanned.", variant_ct / 1000);
-        fflush(stdout);
-      }
     }
     const uintptr_t variant_skip_ct = vrec_idx - 1 - variant_ct;
     if (variant_ct % kBitsPerWord) {
@@ -8422,11 +8471,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       }
       char* write_iter = strcpya_k(g_logbuf, "Error: All ");
       write_iter = wtoa(variant_skip_ct, write_iter);
-      write_iter = strcpya_k(write_iter, " variant");
-      if (variant_skip_ct != 1) {
-        *write_iter++ = 's';
-      }
-      write_iter = strcpya_k(write_iter, " in --bcf file excluded by ");
+      write_iter = strcpya_k(write_iter, " variant(s) in --bcf file excluded by ");
       AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
       strcpy_k(write_iter, ".\n");
       goto BcfToPgen_ret_INCONSISTENT_INPUT_WW;
@@ -8617,12 +8662,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       if (idxeq_clipped) {
         *pvar_cswritep++ = '>';
       }
-      // NOT safe to use AppendBinaryEoln here.
-#ifdef _WIN32
-      pvar_cswritep = strcpya_k(pvar_cswritep, "\r\n");
-#else
-      *pvar_cswritep++ = '\n';
-#endif
+      AppendBinaryEoln(&pvar_cswritep);
     }
     if (cip->chrset_source) {
       AppendChrsetLine(cip, &pvar_cswritep);
@@ -8843,6 +8883,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     uint32_t hds_main_blen = 0;
     uint32_t record_input_vec_ct = 0;
     uint32_t unflushed_line = 0;
+    const char* variant_id_start = nullptr;
+    const unsigned char* parse_iter = nullptr;
+    uint32_t variant_id_slen = 0;
 
     uint32_t parity = 0;
     for (uint32_t vidx_start = 0; ; ) {
@@ -8908,21 +8951,27 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
               goto BcfToPgen_ret_BGZF_FAIL_N;
             }
             if (unlikely(indiv_end != loadbuf_read_iter)) {
-              DPrintf("read only %" PRIdPTR " out of %" PRIu64 " later bytes, vrec_idx=%" PRIuPTR "\n", loadbuf_read_iter - &(loadbuf[32]), second_load_size - 32, vrec_idx);
+              DPrintf("read only %" PRIdPTR " out of %" PRIu64 " later bytes, vrec_idx=%" PRIuPTR "\n", loadbuf_read_iter - loadbuf, second_load_size, vrec_idx);
               goto BcfToPgen_ret_REWIND_FAIL_N;
             }
 
             // 1. check if we skip this variant.  chromosome filter,
-            //    import_max_allele_ct, and require_gt can cause this.
+            //    --import-overlong-var-ids skip, import_max_allele_ct, and
+            //    require_gt can cause this.
             if ((n_allele > import_max_allele_ct) || (!IsSet(bcf_contig_keep, chrom))) {
+              continue;
+            }
+            // obvious todo: move duplicated code between first and second pass
+            // into separate functions
+            shared_end = indiv_end - l_indiv;
+            parse_iter = loadbuf;
+            ScanBcfTypedString(shared_end, &parse_iter, &variant_id_start, &variant_id_slen);
+            if ((overlong_varids_mode == kImportOverlongVarIdsSkip) && (variant_id_slen > kMaxIdSlen)) {
               continue;
             }
             const uint32_t fail_on_ds_only = bcf_haploid_mask && IsSet(bcf_haploid_mask, chrom);
 
-            // obvious todo: move duplicated code between first and second pass
-            // into separate functions
-            shared_end = indiv_end - l_indiv;
-            const unsigned char* parse_iter = shared_end;
+            const unsigned char* fmt_parse_iter = shared_end;
 
             gt_start = nullptr;
             qual_starts[0] = nullptr;
@@ -8937,15 +8986,15 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
               //    byte)
               // 3. sample_ct entries
               // previously validated
-              ScanBcfTypedInt(&parse_iter, &sidx);
-              const unsigned char* type_start = parse_iter;
+              ScanBcfTypedInt(&fmt_parse_iter, &sidx);
+              const unsigned char* type_start = fmt_parse_iter;
               uint32_t value_type;
               uint32_t value_ct;
-              ScanBcfType(&parse_iter, &value_type, &value_ct);
+              ScanBcfType(&fmt_parse_iter, &value_type, &value_ct);
               const uint32_t bytes_per_elem = kBcfBytesPerElem[value_type];
               const uint32_t vec_byte_ct = bytes_per_elem * value_ct * sample_ct;
-              const uint32_t type_blen = parse_iter - type_start;
-              parse_iter = &(parse_iter[vec_byte_ct]);
+              const uint32_t type_blen = fmt_parse_iter - type_start;
+              fmt_parse_iter = &(fmt_parse_iter[vec_byte_ct]);
               if ((!sidx) || (!value_ct)) {
                 if (sidx == gt_sidx) {
                   gt_exists = 1;
@@ -9035,23 +9084,28 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           }
 
           // ID
-          const unsigned char* parse_iter = loadbuf;
-          uint32_t slen;
-          {
-            const char* id_start;
-            ScanBcfTypedString(shared_end, &parse_iter, &id_start, &slen);
-            if (slen) {
-              pvar_cswritep = memcpya(pvar_cswritep, id_start, slen);
+          if (variant_id_slen) {
+            if (variant_id_slen <= kMaxIdSlen) {
+              pvar_cswritep = memcpya(pvar_cswritep, variant_id_start, variant_id_slen);
+            } else if (overlong_varids_mode == kImportOverlongVarIdsMissing) {
+              pvar_cswritep = strcpya(pvar_cswritep, missing_varid);
             } else {
-              *pvar_cswritep++ = '.';
+              pvar_cswritep = memcpya(pvar_cswritep, variant_id_start, kMaxIdSlen);
             }
-            *pvar_cswritep++ = '\t';
-            if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
-              goto BcfToPgen_ret_WRITE_FAIL;
-            }
+          } else {
+            // even though it's fiddly, making this ignore --missing-var-code
+            // seems best?
+            *pvar_cswritep++ = '.';
+          }
+          *pvar_cswritep++ = '\t';
+          if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
+            goto BcfToPgen_ret_WRITE_FAIL;
+          }
 
+          {
             // REF
             const char* ref_start;
+            uint32_t slen;
             ScanBcfTypedString(shared_end, &parse_iter, &ref_start, &slen);
             pvar_cswritep = memcpyax(pvar_cswritep, ref_start, slen, '\t');
             if (ref_n_missing && (ref_start[0] == 'N') && (slen == 1)) {
@@ -9507,6 +9561,8 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     logerrputs("Error: Malformed BCF text header block.\n");
     reterr = kPglRetMalformedInput;
     break;
+  BcfToPgen_ret_INCONSISTENT_INPUT_WWN:
+    putc_unlocked('\n', stdout);
   BcfToPgen_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
@@ -10347,7 +10403,7 @@ PglErr InitOxfordSingleChr(const char* ox_single_chr_str, const char* file_descr
 }
 
 static_assert(sizeof(Dosage) == 2, "OxGenToPgen() needs to be updated.");
-PglErr OxGenToPgen(const char* genname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxGenToPgen(const char* genname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, const char* missing_varid, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, ImportOverlongVarIdsMode overlong_varids_mode, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   // Experimented with making this single-pass; that actually benchmarked a bit
   // slower than the current 2-pass algorithm.  Yes, that might be because the
   // Mac I tested on has a crappy filesystem, but it's still enough reason to
@@ -10388,7 +10444,8 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
       if (reterr == kPglRetOpenFail) {
         const uint32_t slen = strlen(genname);
         if ((!StrEndsWith(genname, ".gen", slen)) &&
-            (!StrEndsWith(genname, ".gen.gz", slen))) {
+            (!StrEndsWith(genname, ".gen.gz", slen)) &&
+            (!StrEndsWith(genname, ".gen.zst", slen))) {
           logerrprintfww("Error: Failed to open %s : %s. (--gen expects a complete filename; did you forget '.gen' at the end?)\n", genname, strerror(errno));
         } else {
           logerrprintfww(kErrprintfFopen, genname, strerror(errno));
@@ -10477,7 +10534,10 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
     goto OxGenToPgen_loop_start;
     for (; TextGetUnsafe2(&gen_txs, &line_iter); ++line_idx) {
     OxGenToPgen_loop_start:
-      ;  // make this work with plain C, as opposed to just C++, compilers
+      if (!((variant_ct + variant_skip_ct) % 1000)) {
+        printf("\r--data/--gen: %" PRIuPTR "k variants scanned.", (variant_ct + variant_skip_ct) / 1000);
+        fflush(stdout);
+      }
       char* chr_code_str = line_iter;
       char* chr_code_end = CurTokenEnd(chr_code_str);
       const char* variant_id_str = FirstNonTspace(chr_code_end);
@@ -10491,6 +10551,18 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
         }
       }
 
+      const char* variant_id_end = CurTokenEnd(variant_id_str);
+      const uint32_t variant_id_slen = variant_id_end - variant_id_str;
+      if ((overlong_varids_mode <= kImportOverlongVarIdsSkip) && (variant_id_slen > kMaxIdSlen)) {
+        if (unlikely(overlong_varids_mode <= kImportOverlongVarIdsExplicitError)) {
+          putc_unlocked('\n', stdout);
+          snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID (>" MAX_ID_SLEN_STR " chars) on line %" PRIuPTR " of %s.%s\n", line_idx, genname, overlong_varids_mode? "" : " (--import-overlong-var-ids controls how such variants are handled.");
+          goto OxGenToPgen_ret_MALFORMED_INPUT_WW;
+        }
+        ++variant_skip_ct;
+        line_iter = AdvPastDelim(K_CAST(char*, variant_id_end), '\n');
+        continue;
+      }
       if (!single_chr_str) {
         reterr = GetOrAddChrCodeDestructive(".gen file", line_idx, prohibit_extra_chr, chr_code_str, chr_code_end, cip, &cur_chr_code);
         if (unlikely(reterr)) {
@@ -10501,8 +10573,11 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
         }
         if (!IsSet(cip->chr_mask, cur_chr_code)) {
           ++variant_skip_ct;
+          // bugfix (28 Nov 2025): forgot this
+          line_iter = AdvPastDelim(K_CAST(char*, variant_id_end), '\n');
           continue;
         }
+        // Variant-skip not possible past this point.
         pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
       } else {
         pvar_cswritep = memcpya(pvar_cswritep, single_chr_str, single_chr_slen);
@@ -10510,7 +10585,6 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
       *pvar_cswritep++ = '\t';
       ++variant_ct;
 
-      const char* variant_id_end = CurTokenEnd(variant_id_str);
       const char* pos_str = FirstNonTspace(variant_id_end);
       if (unlikely(IsEolnKns(*pos_str))) {
         goto OxGenToPgen_ret_MISSING_TOKENS;
@@ -10535,13 +10609,14 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
           par_warn_code = UINT32_MAX;
         }
       }
-      const uint32_t variant_id_slen = variant_id_end - variant_id_str;
-      if (unlikely(variant_id_slen > kMaxIdSlen)) {
-        putc_unlocked('\n', stdout);
-        logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
-        goto OxGenToPgen_ret_MALFORMED_INPUT;
+      if (variant_id_slen <= kMaxIdSlen) {
+        pvar_cswritep = memcpya(pvar_cswritep, variant_id_str, variant_id_slen);
+      } else if (overlong_varids_mode == kImportOverlongVarIdsMissing) {
+        pvar_cswritep = strcpya(pvar_cswritep, missing_varid);
+      } else {
+        pvar_cswritep = memcpya(pvar_cswritep, variant_id_str, kMaxIdSlen);
       }
-      pvar_cswritep = memcpyax(pvar_cswritep, variant_id_str, variant_id_slen, '\t');
+      *pvar_cswritep++ = '\t';
 
       // .gen specification does not define which column should be expected to
       // be the reference allele, and which the alternate.  plink 1.9 assumed
@@ -10646,10 +10721,6 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
           }
         }
       }
-      if (!(variant_ct % 1000)) {
-        printf("\r--data/--gen: %uk variants scanned.", variant_ct / 1000);
-        fflush(stdout);
-      }
       line_iter = AdvPastDelim(K_CAST(char*, linebuf_iter), '\n');
     }
     if (unlikely(TextStreamErrcode2(&gen_txs, &reterr))) {
@@ -10666,11 +10737,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
       }
       char* write_iter = strcpya_k(g_logbuf, "Error: All ");
       write_iter = wtoa(variant_skip_ct, write_iter);
-      write_iter = strcpya_k(write_iter, " variant");
-      if (variant_skip_ct != 1) {
-        *write_iter++ = 's';
-      }
-      write_iter = strcpya_k(write_iter, " in .gen file excluded by ");
+      write_iter = strcpya_k(write_iter, " variant(s) in .gen file excluded by ");
       AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
       strcpy_k(write_iter, ".\n");
       goto OxGenToPgen_ret_INCONSISTENT_INPUT_WW;
@@ -10939,7 +11006,6 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
   OxGenToPgen_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
-  OxGenToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   OxGenToPgen_ret_INCONSISTENT_INPUT_WW:
@@ -12507,7 +12573,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
 }
 
 static_assert(sizeof(Dosage) == 2, "OxBgenToPgen() needs to be updated.");
-PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t import_max_allele_ct, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, const char* missing_varid, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t import_max_allele_ct, ImportOverlongVarIdsMode overlong_varids_mode, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* bgenfile = nullptr;
@@ -12966,6 +13032,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       }
       SetThreadFuncAndData(Bgen11DosageScanThread, &scan_ctx, &tg);
 
+      uint32_t filter_exists = chr_filter_exists || (overlong_varids_mode == kImportOverlongVarIdsSkip);
       // likely cases are (i) non-hardcall near top of the file, and (ii) no
       // non-hardcalls at all.  to handle the first case efficiently, we want
       // the first blocks to be small so we bail quickly; to handle the second
@@ -12977,7 +13044,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       uintptr_t compressed_block_byte_ct = 6LU * sample_ct;
       unsigned char** compressed_geno_starts = common.compressed_geno_starts[0];
       unsigned char* bgen_geno_iter = compressed_geno_bufs[0];
-      uint32_t skip = 0;
       for (uint32_t variant_uidx = 0; variant_uidx != header_variant_ct; ) {
         uint32_t uii;
         {
@@ -13029,6 +13095,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         if (unlikely(!fread_unlocked(&chr_name_slen, 2, 1, bgenfile))) {
           goto OxBgenToPgen_ret_READ_FAIL;
         }
+        uint32_t skip = (overlong_varids_mode == kImportOverlongVarIdsSkip) && (rsid_slen > kMaxIdSlen);
         if (ox_single_chr_str) {
           if (unlikely(fseeko(bgenfile, chr_name_slen, SEEK_CUR))) {
             goto OxBgenToPgen_ret_READ_FAIL;
@@ -13055,7 +13122,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           if (unlikely(reterr)) {
             goto OxBgenToPgen_ret_1;
           }
-          skip = !IsSet(cip->chr_mask, cur_chr_code);
+          skip |= !IsSet(cip->chr_mask, cur_chr_code);
         }
 
         uint32_t cur_bp;  // ignore in this pass
@@ -13118,7 +13185,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             if (dosage_exists) {
               // don't need to scan for any more dosages
               StopThreads(&tg);
-              if ((!chr_filter_exists) && (!allow_overstated_variant_ct)) {
+              if ((!filter_exists) && (!allow_overstated_variant_ct)) {
                 break;
               }
               continue;
@@ -13141,23 +13208,18 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
       }
 
-      if (!chr_filter_exists) {
+      if (!filter_exists) {
         variant_ct = raw_variant_ct;
       } else {
         variant_ct += block_vidx;
         if (variant_ct < calc_thread_ct) {
           if (unlikely(!variant_ct)) {
-            putc_unlocked('\n', stdout);
             char* write_iter = strcpya_k(g_logbuf, "Error: All ");
             write_iter = u32toa(raw_variant_ct, write_iter);
-            write_iter = strcpya_k(write_iter, " variant");
-            if (raw_variant_ct != 1) {
-              *write_iter++ = 's';
-            }
-            write_iter = strcpya_k(write_iter, " in .bgen file excluded by ");
+            write_iter = strcpya_k(write_iter, " variant(s) in .bgen file excluded by ");
             AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
             strcpy_k(write_iter, ".\n");
-            goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WW;
+            goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WWN;
           }
           // bugfix (7 Oct 2017): with fewer variants than threads, need to
           // force initial launch here
@@ -13283,6 +13345,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             if (unlikely(!fread_unlocked(&chr_name_slen, 2, 1, bgenfile))) {
               goto OxBgenToPgen_ret_READ_FAIL;
             }
+            uint32_t skip = (overlong_varids_mode == kImportOverlongVarIdsSkip) && (rsid_slen > kMaxIdSlen);
             if (ox_single_chr_str) {
               if (unlikely(fseeko(bgenfile, chr_name_slen, SEEK_CUR))) {
                 goto OxBgenToPgen_ret_READ_FAIL;
@@ -13310,7 +13373,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               }
               chr_name_start[chr_name_slen] = '\0';
               cur_chr_code = GetChrCode(chr_name_start, cip, chr_name_slen);
-              skip = !IsSet(cip->chr_mask, cur_chr_code);
+              skip |= !IsSet(cip->chr_mask, cur_chr_code);
             }
 
             uint32_t cur_bp;
@@ -13407,7 +13470,17 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               }
             }
             pvar_cswritep = u32toa_x(cur_bp, '\t', pvar_cswritep);
-            pvar_cswritep = memcpyax(pvar_cswritep, rsid_start, rsid_slen, '\t');
+            if (rsid_slen <= kMaxIdSlen) {
+              pvar_cswritep = memcpya(pvar_cswritep, rsid_start, rsid_slen);
+            } else if (overlong_varids_mode == kImportOverlongVarIdsMissing) {
+              pvar_cswritep = strcpya(pvar_cswritep, missing_varid);
+            } else if (likely(overlong_varids_mode == kImportOverlongVarIdsTruncate)) {
+              pvar_cswritep = memcpya(pvar_cswritep, rsid_start, kMaxIdSlen);
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID (>" MAX_ID_SLEN_STR " chars) in .bgen file.%s\n", overlong_varids_mode? "" : " (--import-overlong-var-ids controls how such variants are handled.)");
+              goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WWN;
+            }
+            *pvar_cswritep++ = '\t';
             if (prov_ref_allele_second) {
               uint32_t swap_slen = a1_slen;
               a1_slen = a2_slen;
@@ -13673,8 +13746,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       uint32_t max_compressed_geno_blen = 0;
       uint32_t max_uncompressed_geno_blen = 0;
       uint32_t uncompressed_genodata_byte_ct = 0;
-      uint32_t skip_chr = 0;
-      // uint32_t import_max_alleles_skip_ct = 0;
 
       for (uint32_t variant_uidx = 0; variant_uidx != header_variant_ct; ) {
         // format is mostly identical to bgen 1.1; but there's no sample count,
@@ -13733,6 +13804,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         if (unlikely(!fread_unlocked(&chr_name_slen, 2, 1, bgenfile))) {
           goto OxBgenToPgen_ret_READ_FAIL;
         }
+        uint32_t skip = (overlong_varids_mode == kImportOverlongVarIdsSkip) && (rsid_slen > kMaxIdSlen);
         if (ox_single_chr_str) {
           if (unlikely(fseeko(bgenfile, chr_name_slen, SEEK_CUR))) {
             goto OxBgenToPgen_ret_READ_FAIL;
@@ -13765,7 +13837,10 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           if (unlikely(reterr)) {
             goto OxBgenToPgen_ret_1;
           }
-          skip_chr = !IsSet(cip->chr_mask, cur_chr_code);
+          if (!IsSet(cip->chr_mask, cur_chr_code)) {
+            skip = 1;
+            chr_filter_exists = 1;
+          }
         }
 
         uint32_t cur_bp;
@@ -13786,17 +13861,18 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           fflush(stdout);
         }
 
-        // the "cur_allele_ct > 2" part is a temporary kludge
-        if (skip_chr || (cur_allele_ct > 2)) {
-          if (!skip_chr) {
-            if (cur_allele_ct > import_max_allele_ct) {
-              // ++import_max_alleles_skip_ct;
-            } else {
+        if (cur_allele_ct > 2) {
+          // temporary kludge, update when multiallelic-variant import
+          // implemented
+          if (!skip) {
+            skip = 1;
+            if (cur_allele_ct <= import_max_allele_ct) {
               ++multiallelic_tmp_skip_ct;
             }
-          } else {
-            chr_filter_exists = 1;
           }
+        }
+
+        if (skip) {
           for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
             uint32_t cur_allele_slen;
             if (unlikely((!fread_unlocked(&cur_allele_slen, 4, 1, bgenfile)) ||
@@ -13810,12 +13886,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             goto OxBgenToPgen_ret_READ_FAIL;
           }
           continue;
-        }
-        if (unlikely(rsid_slen > kMaxIdSlen)) {
-          // enforce this iff we aren't skipping
-          putc_unlocked('\n', stdout);
-          logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
-          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         // special handling of first two alleles since either may be
         // reference, so we may need to swap order
@@ -13881,7 +13951,17 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           }
         }
         pvar_cswritep = u32toa_x(cur_bp, '\t', pvar_cswritep);
-        pvar_cswritep = memcpyax(pvar_cswritep, rsid_start, rsid_slen, '\t');
+        if (rsid_slen <= kMaxIdSlen) {
+          pvar_cswritep = memcpya(pvar_cswritep, rsid_start, rsid_slen);
+        } else if (overlong_varids_mode == kImportOverlongVarIdsMissing) {
+          pvar_cswritep = strcpya(pvar_cswritep, missing_varid);
+        } else if (likely(overlong_varids_mode == kImportOverlongVarIdsTruncate)) {
+          pvar_cswritep = memcpya(pvar_cswritep, rsid_start, kMaxIdSlen);
+        } else {
+          snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID (>" MAX_ID_SLEN_STR " chars) in .bgen file.%s\n", overlong_varids_mode? "" : " (--import-overlong-var-ids controls how such variants are handled.)");
+          goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WWN;
+        }
+        *pvar_cswritep++ = '\t';
         if (prov_ref_allele_second) {
           const uint32_t swap_slen = a1_slen;
           a1_slen = a2_slen;
@@ -14059,20 +14139,15 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         logerrprintfww("Warning: %u multiallelic variant%s skipped%s (not yet supported).\n", multiallelic_tmp_skip_ct, (multiallelic_tmp_skip_ct == 1)? "" : "s", (import_max_allele_ct < 0x7ffffffe)? ", on top of --import-max-alleles filter" : "");
       }
       if (unlikely(!variant_ct)) {
-        putc_unlocked('\n', stdout);
         char* write_iter = strcpya_k(g_logbuf, "Error: All ");
         if (multiallelic_tmp_skip_ct) {
           write_iter = strcpya_k(write_iter, "remaining ");
         }
         write_iter = u32toa(raw_variant_ct - multiallelic_tmp_skip_ct, write_iter);
-        write_iter = strcpya_k(write_iter, " variant");
-        if (raw_variant_ct - multiallelic_tmp_skip_ct != 1) {
-          *write_iter++ = 's';
-        }
-        write_iter = strcpya_k(write_iter, " in .bgen file excluded by ");
+        write_iter = strcpya_k(write_iter, " variant(s) in .bgen file excluded by ");
         AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
         strcpy_k(write_iter, ".\n");
-        goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WW;
+        goto OxBgenToPgen_ret_INCONSISTENT_INPUT_WWN;
       }
       if (variant_ct == block_vidx) {
         // with multiple threads, there's no guarantee that even the first
@@ -14276,6 +14351,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           uint32_t genodata_byte_ct = prev_genodata_byte_ct;
           uint32_t cur_allele_ct = prev_allele_ct;
           uintptr_t record_byte_ct = prev_record_byte_ct;
+          uint32_t skip_chr = 0;
           GparseRecord* grp;
           if (!genodata_byte_ct) {
             goto OxBgenToPgen_load13_start;
@@ -14283,7 +14359,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           // we may stop before main_block_size due to insufficient space in
           // compressed_geno_buf.  if so, the file pointer is right before the
           // genotype data, rather than at the beginning of a variant record.
-          skip_chr = 0;  // defensive
           while (1) {
             grp = &(cur_gparse[block_vidx]);
             grp->record_start = bgen_geno_iter;
@@ -14389,7 +14464,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             }
 
             // "cur_allele_ct > 2" is temporary kludge
-            if (skip_chr || (cur_allele_ct > 2)) {
+            if (skip_chr || (cur_allele_ct > 2) || ((overlong_varids_mode == kImportOverlongVarIdsSkip) && (rsid_slen > kMaxIdSlen))) {
               if (unlikely(fseeko(bgenfile, genodata_byte_ct, SEEK_CUR))) {
                 goto OxBgenToPgen_ret_READ_FAIL;
               }
@@ -14525,7 +14600,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   OxBgenToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  OxBgenToPgen_ret_INCONSISTENT_INPUT_WW:
+  OxBgenToPgen_ret_INCONSISTENT_INPUT_WWN:
+    putc_unlocked('\n', stdout);
     WordWrapB(0);
   OxBgenToPgen_ret_INCONSISTENT_INPUT_2:
     logerrputsb();
@@ -14582,7 +14658,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   return reterr;
 }
 
-PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgi_generated_ptr) {
+PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, const char* missing_catname, const char* missing_varid, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t is_update_or_impute_sex, uint32_t is_splitpar, uint32_t is_sortvars, char id_delim, ImportOverlongVarIdsMode overlong_varids_mode, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgi_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* psamfile = nullptr;
   uintptr_t line_idx_haps = 0;
@@ -14789,7 +14865,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         if (legend_line_start) {
           if (unlikely(TextGet(&legend_txs) != nullptr)) {
             snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
-            goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
+            goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WWN;
           }
         }
         reterr = kPglRetSuccess;
@@ -14801,7 +14877,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         legend_line_start = TextGet(&legend_txs);
         if (unlikely(legend_line_start == nullptr)) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", legendname, hapsname);
-          goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
+          goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WWN;
         }
       }
       char* linebuf_iter = haps_line_iter;
@@ -14836,7 +14912,6 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           haps_line_iter = AdvPastDelim(linebuf_iter, '\n');
           continue;
         }
-        pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
         is_haploid = IsSet(cip->haploid_mask, cur_chr_code);
       } else {
         variant_id_start = legend_line_start;
@@ -14850,24 +14925,47 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           goto OxHapslegendToPgen_ret_MISSING_TOKENS_LEGEND;
         }
         allele1_end = FirstSpaceOrEoln(allele1_start);
+      }
+      const uint32_t id_slen = variant_id_end - variant_id_start;
+      if ((id_slen > kMaxIdSlen) && (overlong_varids_mode <= kImportOverlongVarIdsSkip)) {
+        if (unlikely(overlong_varids_mode <= kImportOverlongVarIdsExplicitError)) {
+          const char* errprint_fname;
+          uintptr_t errprint_line_idx;
+          if (legend_line_start) {
+            errprint_fname = legendname;
+            errprint_line_idx = line_idx_legend;
+          } else {
+            errprint_fname = hapsname;
+            errprint_line_idx = line_idx_haps;
+          }
+          snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID (>" MAX_ID_SLEN_STR " chars) on line %" PRIuPTR " of %s.%s\n", errprint_line_idx, errprint_fname, overlong_varids_mode? "" : " (--import-overlong-var-ids controls how such variants are handled.)");
+          goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WWN;
+        }
+        ++variant_skip_ct;
+        haps_line_iter = AdvPastDelim(linebuf_iter, '\n');
+        continue;
+      }
 
+      // No ways to skip variant past this point.
+      if (!legend_line_start) {
+        pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
+      } else {
         pvar_cswritep = memcpya(pvar_cswritep, single_chr_str, single_chr_slen);
       }
       *pvar_cswritep++ = '\t';
-      const uint32_t id_slen = variant_id_end - variant_id_start;
-      if (unlikely(id_slen > kMaxIdSlen)) {
-        putc_unlocked('\n', stdout);
-        logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
-        goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
-      }
       uint32_t cur_bp;
       if (unlikely(ScanUintDefcap(bp_start, &cur_bp))) {
         putc_unlocked('\n', stdout);
+        const char* errprint_fname;
+        uintptr_t errprint_line_idx;
         if (legend_line_start) {
-          logprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_legend, legendname);
+          errprint_fname = legendname;
+          errprint_line_idx = line_idx_legend;
         } else {
-          logprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
+          errprint_fname = hapsname;
+          errprint_line_idx = line_idx_haps;
         }
+        logerrprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", errprint_line_idx, errprint_fname);
         goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
       }
       if (par_warn_code == cur_chr_code) {
@@ -14887,7 +14985,14 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         }
       }
       pvar_cswritep = u32toa_x(cur_bp, '\t', pvar_cswritep);
-      pvar_cswritep = memcpyax(pvar_cswritep, variant_id_start, id_slen, '\t');
+      if (id_slen <= kMaxIdSlen) {
+        pvar_cswritep = memcpya(pvar_cswritep, variant_id_start, id_slen);
+      } else if (overlong_varids_mode == kImportOverlongVarIdsMissing) {
+        pvar_cswritep = strcpya(pvar_cswritep, missing_varid);
+      } else {
+        pvar_cswritep = memcpya(pvar_cswritep, variant_id_start, kMaxIdSlen);
+      }
+      *pvar_cswritep++ = '\t';
       if (!prov_ref_allele_second) {
         pvar_cswritep = memcpyax(pvar_cswritep, allele0_start, allele0_end - allele0_start, '\t');
         pvar_cswritep = memcpya(pvar_cswritep, allele1_start, allele1_end - allele1_start);
@@ -15098,16 +15203,12 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     if (unlikely(!variant_ct)) {
       char* write_iter = strcpya_k(g_logbuf, "Error: All ");
       write_iter = wtoa(variant_skip_ct, write_iter);
-      write_iter = strcpya_k(write_iter, " variant");
-      if (variant_skip_ct != 1) {
-        *write_iter++ = 's';
-      }
-      write_iter = strcpya_k(write_iter, " in ");
+      write_iter = strcpya_k(write_iter, " variant(s) in ");
       write_iter = strcpya(write_iter, hapsname);
       write_iter = strcpya_k(write_iter, " excluded by ");
       AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
       strcpy_k(write_iter, ".\n");
-      goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
+      goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WWN;
     }
     reterr = SpgwFinish(&spgw);
     if (unlikely(reterr)) {
@@ -15201,8 +15302,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     logerrputsb();
     reterr = legendname[0]? kPglRetInconsistentInput : kPglRetMalformedInput;
     break;
-  OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW:
+  OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WWN:
     putc_unlocked('\n', stdout);
+  OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
   OxHapslegendToPgen_ret_INCONSISTENT_INPUT:
@@ -15845,11 +15947,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       }
       char* log_write_iter = strcpya_k(g_logbuf, "Error: All ");
       log_write_iter = wtoa(variant_skip_ct, log_write_iter);
-      log_write_iter = strcpya_k(log_write_iter, " variant");
-      if (variant_skip_ct != 1) {
-        *log_write_iter++ = 's';
-      }
-      log_write_iter = strcpya_k(log_write_iter, " in --import-dosage file excluded by ");
+      log_write_iter = strcpya_k(log_write_iter, " variant(s) in --import-dosage file excluded by ");
       AppendLoadFilterFlagnames(load_filter_log_import_flags, &log_write_iter);
       strcpy_k(log_write_iter, ".\n");
       goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT_WW;
@@ -16854,7 +16952,7 @@ static inline uint32_t GetEigChrCode(const ChrInfo* cip, const char* chr_code_st
   return UINT32_MAX;
 }
 
-PglErr EigSnpToPvar(const char* snpname, const ChrInfo* cip, ImportFlags import_flags, uint32_t max_thread_ct, char* outname, char* outname_end, uintptr_t** variant_include_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* hash_ptr) {
+PglErr EigSnpToPvar(const char* snpname, const ChrInfo* cip, const char* missing_varid, ImportFlags import_flags, ImportOverlongVarIdsMode overlong_varids_mode, uint32_t max_thread_ct, char* outname, char* outname_end, uintptr_t** variant_include_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* hash_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   TextStream snp_txs;
   PreinitTextStream(&snp_txs);
@@ -16890,7 +16988,7 @@ PglErr EigSnpToPvar(const char* snpname, const ChrInfo* cip, ImportFlags import_
     }
 
     // First pass: just check for nonzero centimorgan value (after applying
-    // chromosome filter).
+    // chromosome and "--import-overlong-var-ids skip" filters).
     reterr = SizeAndInitTextStream(snpname, bigstack_left(), output_zst? 1 : io_thread_ct, &snp_txs);
     if (unlikely(reterr)) {
       goto EigSnpToPvar_ret_TSTREAM_FAIL;
@@ -16907,7 +17005,9 @@ PglErr EigSnpToPvar(const char* snpname, const ChrInfo* cip, ImportFlags import_
         goto EigSnpToPvar_ret_TSTREAM_FAIL;
       }
       ++line_idx;
-      char* chr_code_start = FirstNonTspace(FirstSpaceOrEoln(line_iter));
+      char* variant_id_start = line_iter;
+      char* variant_id_end = FirstSpaceOrEoln(line_iter);
+      char* chr_code_start = FirstNonTspace(variant_id_end);
       char* chr_code_end = FirstSpaceOrEoln(chr_code_start);
       char* cm_start = FirstNonTspace(chr_code_end);
       if (unlikely(IsEolnKns(*cm_start))) {
@@ -16922,7 +17022,8 @@ PglErr EigSnpToPvar(const char* snpname, const ChrInfo* cip, ImportFlags import_
         ChrError(chr_code_start, ".snp file", cip, line_idx, UINT32_MAXM1);
         goto EigSnpToPvar_ret_MALFORMED_INPUT;
       }
-      if (!IsSet(cip->chr_mask, chr_code)) {
+      if ((!IsSet(cip->chr_mask, chr_code)) ||
+          ((overlong_varids_mode == kImportOverlongVarIdsSkip) && (S_CAST(uintptr_t, variant_id_end - variant_id_start) > kMaxIdSlen))) {
         continue;
       }
       double cur_cm;
@@ -16990,7 +17091,7 @@ PglErr EigSnpToPvar(const char* snpname, const ChrInfo* cip, ImportFlags import_
         ChrError(chr_code_start, ".snp file", cip, line_idx, UINT32_MAXM1);
         goto EigSnpToPvar_ret_MALFORMED_INPUT;
       }
-      const uintptr_t keep_variant = IsSet(cip->chr_mask, chr_code);
+      const uintptr_t keep_variant = IsSet(cip->chr_mask, chr_code) && ((overlong_varids_mode != kImportOverlongVarIdsSkip) || (variant_id_slen <= kMaxIdSlen));
       const uint32_t variant_uidx_lowbits = variant_uidx % kBitsPerWord;
       variant_include_word |= keep_variant << (variant_uidx % kBitsPerWord);
       if (variant_uidx_lowbits == kBitsPerWord - 1) {
@@ -17010,11 +17111,17 @@ PglErr EigSnpToPvar(const char* snpname, const ChrInfo* cip, ImportFlags import_
       }
       cswritep = u32toa_x(cur_bp, '\t', cswritep);
 
-      if (unlikely(variant_id_slen > kMaxIdSlen)) {
-        logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
-        goto EigSnpToPvar_ret_MALFORMED_INPUT;
+      if (variant_id_slen <= kMaxIdSlen) {
+        cswritep = memcpya(cswritep, variant_id_start, variant_id_slen);
+      } else if (overlong_varids_mode == kImportOverlongVarIdsMissing) {
+        cswritep = strcpya(cswritep, missing_varid);
+      } else if (likely(overlong_varids_mode == kImportOverlongVarIdsTruncate)) {
+        cswritep = memcpya(cswritep, variant_id_start, kMaxIdSlen);
+      } else {
+        logerrprintfww("Error: Overlong variant ID (>" MAX_ID_SLEN_STR " chars) on line %" PRIuPTR " of .snp file.%s\n", line_idx, overlong_varids_mode? "" : " (--import-overlong-var-ids controls how such variants are handled.)");
+        goto EigSnpToPvar_ret_INCONSISTENT_INPUT;
       }
-      cswritep = memcpyax(cswritep, variant_id_start, variant_id_slen, '\t');
+      *cswritep++ = '\t';
 
       const uint32_t ref_slen = ref_end - ref_start;
       const uint32_t alt_slen = alt_end - alt_start;
@@ -17965,7 +18072,7 @@ const char* ScanadvHexU32(const char* hex_start, uint32_t* valp) {
   }
 }
 
-PglErr EigfileToPgen(const char* genoname, const char* indname, const char* snpname, const char* const_fid, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t psam_01, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr EigfileToPgen(const char* genoname, const char* indname, const char* snpname, const char* const_fid, const char* missing_catname, const char* missing_varid, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t psam_01, char id_delim, ImportOverlongVarIdsMode overlong_varids_mode, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   FILE* genofile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
@@ -17980,7 +18087,7 @@ PglErr EigfileToPgen(const char* genoname, const char* indname, const char* snpn
     uintptr_t* variant_include;
     uint32_t raw_variant_ct;
     uint32_t v_hash;
-    reterr = EigSnpToPvar(snpname, cip, import_flags, max_thread_ct, outname, outname_end, &variant_include, &raw_variant_ct, &v_hash);
+    reterr = EigSnpToPvar(snpname, cip, missing_varid, import_flags, overlong_varids_mode, max_thread_ct, outname, outname_end, &variant_include, &raw_variant_ct, &v_hash);
     if (unlikely(reterr)) {
       goto EigfileToPgen_ret_1;
     }
@@ -17988,11 +18095,7 @@ PglErr EigfileToPgen(const char* genoname, const char* indname, const char* snpn
     if (unlikely(!variant_ct)) {
       char* write_iter = strcpya_k(g_logbuf, "Error: All ");
       write_iter = u32toa(raw_variant_ct, write_iter);
-      write_iter = strcpya_k(write_iter, " variant");
-      if (raw_variant_ct != 1) {
-        *write_iter++ = 's';
-      }
-      write_iter = strcpya_k(write_iter, " in .snp file excluded by ");
+      write_iter = strcpya_k(write_iter, " variant(s) in .snp file excluded by ");
       AppendLoadFilterFlagnames(load_filter_log_import_flags, &write_iter);
       strcpy_k(write_iter, ".\n");
       WordWrapB(0);

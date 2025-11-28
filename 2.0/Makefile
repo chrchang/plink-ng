@@ -6,9 +6,10 @@
 
 # Does not currently support -DCPU_CHECK_...
 
-BASEFLAGS=-g -flto -DZSTD_MULTITHREAD -DIGNORE_BUNDLED_ZSTD
-# BASEFLAGS=-g -flto -mavx2 -mbmi -mbmi2 -mfma -mlzcnt -DZSTD_MULTITHREAD
-# BASEFLAGS=-g -flto -msse4.2 -DZSTD_MULTITHREAD
+BASEFLAGS=-flto -DZSTD_MULTITHREAD -DIGNORE_BUNDLED_ZSTD
+# BASEFLAGS=-g -DZSTD_MULTITHREAD -DIGNORE_BUNDLED_ZSTD
+# BASEFLAGS=-flto -mavx2 -mbmi -mbmi2 -mfma -mlzcnt -DZSTD_MULTITHREAD
+# BASEFLAGS=-flto -msse4.2 -DZSTD_MULTITHREAD
 
 include Makefile.src
 
