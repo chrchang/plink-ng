@@ -12991,6 +12991,11 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           variant_ct += 1 - skip;
           continue;
         }
+        if (unlikely(rsid_slen > kMaxIdSlen)) {
+          putc_unlocked('\n', stdout);
+          logerrputs("Error: Overlong variant ID (>" MAX_ID_SLEN_STR " chars) in .bgen file.  (Alpha 7 and later\nbuilds have an --import-overlong-var-ids flag.)\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
+        }
         compressed_geno_starts[block_vidx] = bgen_geno_iter;
         if (compression_mode) {
           memcpy(bgen_geno_iter, &compressed_block_byte_ct, 4);
