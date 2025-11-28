@@ -3081,9 +3081,12 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       if (unlikely(*chr_code_end != '\t')) {
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
-      // QUAL/FILTER enforcement is now postponed till .pvar loading.  only
-      // other things we do during the scanning pass are (i) count alt alleles,
-      // and (ii) check whether any phased genotype calls are present.
+      // QUAL/FILTER enforcement is now postponed till .pvar loading.
+      // Other things we do during this scanning pass:
+      // - enforce variant ID length limit
+      // - count ALT alleles
+      // - check whether any phased genotype calls are present
+      // - count skipped variants
 
       char* pos_end = NextPrespace(chr_code_end);
       if (unlikely(*pos_end != '\t')) {
@@ -3098,7 +3101,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
       if (unlikely(S_CAST(uintptr_t, id_end - pos_end) > kMaxIdBlen)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Invalid ID on line %" PRIuPTR " of --vcf file (max " MAX_ID_SLEN_STR " chars).\n", line_idx);
+        snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID on line %" PRIuPTR " of --vcf file (>" MAX_ID_SLEN_STR " chars). (Alpha 7 and later builds have an --import-overlong-var-ids flag.)\n", line_idx);
         goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
       }
 
@@ -3494,7 +3497,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       goto VcfToPgen_ret_WRITE_FAIL;
     }
     if (max_alt_ct > kPglMaxAltAlleleCt) {
-      logerrprintfww("Error: VCF file has a variant with %u ALT alleles; this build of " PROG_NAME_STR " is limited to " PGL_MAX_ALT_ALLELE_CT_STR ".\n", max_alt_ct);
+      logerrprintfww("Error: VCF file has a variant with %u ALT alleles; this build of " PROG_NAME_STR " is limited to " PGL_MAX_ALT_ALLELE_CT_STR ". (Alpha 6 and later builds have an --import-max-alleles flag.)\n", max_alt_ct);
       reterr = kPglRetNotYetSupported;
       goto VcfToPgen_ret_1;
     }
@@ -8177,7 +8180,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       if (max_allele_ct < n_allele) {
         if (n_allele > kPglMaxAlleleCt) {
           putc_unlocked('\n', stdout);
-          logerrprintfww("Error: Variant record #%" PRIuPTR " in --bcf file has %u alleles; this build of " PROG_NAME_STR " is limited to " PGL_MAX_ALLELE_CT_STR ".\n", vrec_idx, n_allele);
+          logerrprintfww("Error: Variant record #%" PRIuPTR " in --bcf file has %u alleles; this build of " PROG_NAME_STR " is limited to " PGL_MAX_ALLELE_CT_STR ". (Alpha 6 and later builds have an --import-max-alleles flag.)\n", vrec_idx, n_allele);
           reterr = kPglRetNotYetSupported;
           goto BcfToPgen_ret_1;
         }
@@ -8697,7 +8700,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
               goto BcfToPgen_ret_BGZF_FAIL_N;
             }
             if (unlikely(indiv_end != loadbuf_read_iter)) {
-              DPrintf("read only %" PRIdPTR " out of %" PRIu64 " later bytes, vrec_idx=%" PRIuPTR "\n", loadbuf_read_iter - &(loadbuf[32]), second_load_size - 32, vrec_idx);
+              DPrintf("read only %" PRIdPTR " out of %" PRIu64 " later bytes, vrec_idx=%" PRIuPTR "\n", loadbuf_read_iter, second_load_size, vrec_idx);
               goto BcfToPgen_ret_REWIND_FAIL_N;
             }
 
@@ -8826,6 +8829,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             const char* id_start;
             ScanBcfTypedString(shared_end, &parse_iter, &id_start, &slen);
             if (slen) {
+              if (unlikely(slen > kMaxIdSlen)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID (>" MAX_ID_SLEN_STR " chars) in variant record #%" PRIuPTR " of --bcf file. (Alpha 7 and later builds have an --import-overlong-var-ids flag.)\n", vrec_idx);
+                goto BcfToPgen_ret_MALFORMED_INPUT_WWN;
+              }
               pvar_cswritep = memcpya(pvar_cswritep, id_start, slen);
             } else {
               *pvar_cswritep++ = '.';
@@ -10275,6 +10282,8 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
         }
         if (!IsSet(cip->chr_mask, cur_chr_code)) {
           ++variant_skip_ct;
+          // bugfix (28 Nov 2025): forgot this
+          line_iter = AdvPastDelim(K_CAST(char*, variant_id_str), '\n');
           continue;
         }
         pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
