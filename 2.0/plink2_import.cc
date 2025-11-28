@@ -14732,9 +14732,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       if (unlikely(ScanUintDefcap(bp_start, &cur_bp))) {
         putc_unlocked('\n', stdout);
         if (legend_line_start) {
-          logprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_legend, legendname);
+          logerrprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_legend, legendname);
         } else {
-          logprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
+          logerrprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
         }
         goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
       }
