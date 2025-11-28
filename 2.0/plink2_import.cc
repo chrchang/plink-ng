@@ -3085,8 +3085,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // Other things we do during this scanning pass:
       // - enforce variant ID length limit
       // - count ALT alleles
-      // - check whether any phased genotype calls are present
       // - count skipped variants
+      // - check whether any phased genotype calls are present
 
       char* pos_end = NextPrespace(chr_code_end);
       if (unlikely(*pos_end != '\t')) {
