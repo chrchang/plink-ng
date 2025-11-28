@@ -3101,7 +3101,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
       if (unlikely(S_CAST(uintptr_t, id_end - pos_end) > kMaxIdBlen)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID on line %" PRIuPTR " of --vcf file (>" MAX_ID_SLEN_STR " chars). (Alpha 7 and later builds have an --import-overlong-var-ids flag.)\n", line_idx);
+        snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID (>" MAX_ID_SLEN_STR " chars) on line %" PRIuPTR " of --vcf file. (Alpha 7 and later builds have an --import-overlong-var-ids flag.)\n", line_idx);
         goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
       }
 
@@ -14402,9 +14402,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       if (unlikely(ScanUintDefcap(bp_start, &cur_bp))) {
         putc_unlocked('\n', stdout);
         if (legend_line_start) {
-          logprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_legend, legendname);
+          logerrprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_legend, legendname);
         } else {
-          logprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
+          logerrprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
         }
         goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
       }
