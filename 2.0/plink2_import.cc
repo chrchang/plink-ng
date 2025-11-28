@@ -3163,17 +3163,12 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       if (unlikely(*pos_end != '\t')) {
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
-
-      // may as well check ID length here
       // postpone POS validation till second pass so we only have to parse it
       // once
+
       char* id_end = NextPrespace(pos_end);
       if (unlikely(*id_end != '\t')) {
         goto VcfToPgen_ret_MISSING_TOKENS;
-      }
-      if (unlikely(S_CAST(uintptr_t, id_end - pos_end) > kMaxIdBlen)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Invalid ID on line %" PRIuPTR " of --vcf file (max " MAX_ID_SLEN_STR " chars).\n", line_idx);
-        goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
       }
 
       // note REF length
@@ -3247,6 +3242,12 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           line_iter = linebuf_iter;
           continue;
         }
+      }
+
+      // reordering (28 Nov 2025): this is now after --import-max-alleles
+      if (unlikely(S_CAST(uintptr_t, id_end - pos_end) > kMaxIdBlen)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID on line %" PRIuPTR " of --vcf file (>" MAX_ID_SLEN_STR " chars). (%slpha 7 and later builds have an --import-overlong-var-ids flag.)\n", line_idx, (alt_ct > 10)? "This variant has >10 ALT alleles, so --import-max-alleles may be a reasonable way to filter it out. Alternatively, a" : "A");
+        goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
       }
       const uint32_t cur_qualfilterinfo_slen = info_end - qual_start_m1;
 
@@ -8973,6 +8974,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             const char* id_start;
             ScanBcfTypedString(shared_end, &parse_iter, &id_start, &slen);
             if (slen) {
+              if (unlikely(slen > kMaxIdSlen)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID in variant record #%" PRIuPTR " of --bcf file (>" MAX_ID_SLEN_STR " chars). (%slpha 7 and later builds have an --import-overlong-var-ids flag.)\n", vrec_idx, (n_allele > 11)? "This variant has >10 ALT alleles, so --import-max-alleles may be a reasonable way to filter it out. Alternatively, a" : "A");
+                goto BcfToPgen_ret_MALFORMED_INPUT_WWN;
+              }
               pvar_cswritep = memcpya(pvar_cswritep, id_start, slen);
             } else {
               *pvar_cswritep++ = '.';
@@ -10430,6 +10435,8 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
         }
         if (!IsSet(cip->chr_mask, cur_chr_code)) {
           ++variant_skip_ct;
+          // bugfix (28 Nov 2025): forgot this
+          line_iter = AdvPastDelim(K_CAST(char*, variant_id_str), '\n');
           continue;
         }
         pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
