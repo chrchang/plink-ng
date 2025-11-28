@@ -3155,9 +3155,12 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       if (unlikely(*chr_code_end != '\t')) {
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
-      // QUAL/FILTER enforcement is now postponed till .pvar loading.  only
-      // other things we do during the scanning pass are (i) count alt alleles,
-      // and (ii) check whether any phased genotype calls are present.
+      // QUAL/FILTER enforcement is now postponed till .pvar loading.
+      // Other things we do during this scanning pass:
+      // - count ALT alleles
+      // - count skipped variants
+      // - enforce variant ID length limit if necessary
+      // - check whether any phased genotype calls are present
 
       char* pos_end = NextPrespace(chr_code_end);
       if (unlikely(*pos_end != '\t')) {
@@ -3244,11 +3247,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         }
       }
 
-      // reordering (28 Nov 2025): this is now after --import-max-alleles
-      if (unlikely(S_CAST(uintptr_t, id_end - pos_end) > kMaxIdBlen)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID on line %" PRIuPTR " of --vcf file (>" MAX_ID_SLEN_STR " chars). (%slpha 7 and later builds have an --import-overlong-var-ids flag.)\n", line_idx, (alt_ct > 10)? "This variant has >10 ALT alleles, so --import-max-alleles may be a reasonable way to filter it out. Alternatively, a" : "A");
-        goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
-      }
       const uint32_t cur_qualfilterinfo_slen = info_end - qual_start_m1;
 
       // all converters *do* respect chromosome filters
@@ -3265,6 +3263,13 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         line_iter = info_end;
         continue;
       }
+
+      // reordering (28 Nov 2025): this is now after --import-max-alleles
+      if (unlikely(S_CAST(uintptr_t, id_end - pos_end) > kMaxIdBlen)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID on line %" PRIuPTR " of --vcf file (>" MAX_ID_SLEN_STR " chars). (%slpha 7 and later builds have an --import-overlong-var-ids flag.)\n", line_idx, (alt_ct > 10)? "This variant has >10 ALT alleles, so --import-max-alleles may be a reasonable way to filter it out. Alternatively, a" : "A");
+        goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
+      }
+
       if (cur_max_allele_slen > max_allele_slen) {
         max_allele_slen = cur_max_allele_slen;
       }
@@ -8841,7 +8846,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
               goto BcfToPgen_ret_BGZF_FAIL_N;
             }
             if (unlikely(indiv_end != loadbuf_read_iter)) {
-              DPrintf("read only %" PRIdPTR " out of %" PRIu64 " later bytes, vrec_idx=%" PRIuPTR "\n", loadbuf_read_iter - &(loadbuf[32]), second_load_size - 32, vrec_idx);
+              DPrintf("read only %" PRIdPTR " out of %" PRIu64 " later bytes, vrec_idx=%" PRIuPTR "\n", loadbuf_read_iter, second_load_size, vrec_idx);
               goto BcfToPgen_ret_REWIND_FAIL_N;
             }
 
@@ -8975,7 +8980,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             ScanBcfTypedString(shared_end, &parse_iter, &id_start, &slen);
             if (slen) {
               if (unlikely(slen > kMaxIdSlen)) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID in variant record #%" PRIuPTR " of --bcf file (>" MAX_ID_SLEN_STR " chars). (%slpha 7 and later builds have an --import-overlong-var-ids flag.)\n", vrec_idx, (n_allele > 11)? "This variant has >10 ALT alleles, so --import-max-alleles may be a reasonable way to filter it out. Alternatively, a" : "A");
+                snprintf(g_logbuf, kLogbufSize, "Error: Overlong variant ID (>" MAX_ID_SLEN_STR " chars) in variant record #%" PRIuPTR " of --bcf file. (%slpha 7 and later builds have an --import-overlong-var-ids flag.)\n", vrec_idx, (n_allele > 11)? "This variant has >10 ALT alleles, so --import-max-alleles may be a reasonable way to filter it out. Alternatively, a" : "A");
                 goto BcfToPgen_ret_MALFORMED_INPUT_WWN;
               }
               pvar_cswritep = memcpya(pvar_cswritep, id_start, slen);
