@@ -580,7 +580,11 @@ def main():
             raise SystemExit(1)
         retval = subprocess.call('diff -q test1.model test2.model', shell=True)
         if not retval == 0:
-            print('--model test failed.')
+            # Spurious failure possible when true chi-square stat is 0 and
+            # PLINK 1.07 reports something like 1.601e-30.
+            # (Can address this by filtering out such lines with e.g. awk
+            # before comparing.)
+            print('--model test failed (could be spurious, check diff and rerun test_setup.sh if necessary).')
             raise SystemExit(1)
     print('--model test passed.')
 
