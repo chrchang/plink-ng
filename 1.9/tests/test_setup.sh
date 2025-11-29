@@ -31,9 +31,9 @@ echo "fam1 mom 0 0 2 1" >> trio_tmp.fam
 echo "fam1 son dad mom 1 1" >> trio_tmp.fam
 plink19 --silent --bfile trio_tmp --geno 0.6 --make-bed --out trio
 rm trio_tmp*
-rm set.txt
+rm -f set.txt
 echo "1 10 20 set1" > set.txt
 echo "1 15 40 set2" >> set.txt
-rm score.txt
+rm -f score.txt
 echo "snp1 A 0.1" > score.txt
 echo "snp3 A 0.04" >> score.txt
