@@ -2,7 +2,7 @@
 
 # This generates a few datasets for our tests to run on.  (It is not efficient
 # to just store them in GitHub.)  It is assumed that the PLINK 1.9 build to be
-# tested is named/symlinked as "plink2", and a PLINK 1.07 build is
+# tested is named/symlinked as "plink19", and a PLINK 1.07 build is
 # named/symlinked as "plink1".
 
 # When the number of samples isn't divisible by 4, special-case logic is
