@@ -2512,6 +2512,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   uint64_t* om_entry_ptr = nullptr;
   uintptr_t* cur_omidxs = nullptr;
   char* pzwritep = nullptr;
+  const uintptr_t overflow_buf_blen = PIGZ_BLOCK_SIZE + MAXLINELEN;
   uint32_t* sample_to_cluster = nullptr;
   uint32_t* missing_ct_by_cluster = nullptr;
   uint32_t* oblig_missing_ct_by_cluster = nullptr;
@@ -2560,7 +2561,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   uint32_t umm;
   uint32_t unn;
   pzwrite_init_null(&ps);
-  if (bigstack_alloc_uc(PIGZ_BLOCK_SIZE + MAXLINELEN, &overflow_buf) ||
+  if (bigstack_alloc_uc(overflow_buf_blen, &overflow_buf) ||
       bigstack_calloc_ui(unfiltered_sample_ct, &missing_cts) ||
       bigstack_alloc_ul(unfiltered_sample_ctv2, &loadbuf) ||
       bigstack_alloc_ul(unfiltered_sample_ctv2, &sample_include2) ||
@@ -2642,7 +2643,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
     snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us       CLST   N_MISS   N_CLST   N_GENO   F_MISS" EOLN_STR, plink_maxsnp);
   }
 
-  pzwritep += sprintf(pzwritep, g_textbuf, "SNP");
+  pzwritep += snprintf(pzwritep, overflow_buf_blen, g_textbuf, "SNP");
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
@@ -2790,7 +2791,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   }
   pzwritep = (char*)overflow_buf;
   snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us MISS_PHENO   N_MISS   N_GENO   F_MISS" EOLN_STR, plink_maxfid, plink_maxiid);
-  pzwritep += sprintf(pzwritep, g_textbuf, "FID", "IID");
+  pzwritep += snprintf(pzwritep, overflow_buf_blen, g_textbuf, "FID", "IID");
   do {
     sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
     sample_uidx_stop = next_set(sample_exclude, sample_uidx, unfiltered_sample_ct);
@@ -2896,6 +2897,8 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
   uintptr_t marker_idx = 0;
   uint32_t hwe_midp = hwe_modifier & HWE_MIDP;
   uint32_t output_gz = (hwe_modifier / HWE_GZ) & 1;
+  const uintptr_t overflow_buf_blen = PIGZ_BLOCK_SIZE + 2 * max_marker_allele_len + MAXLINELEN;
+  const uintptr_t writebuf_blen = 2 * max_marker_allele_len + MAXLINELEN;
   int32_t retval = 0;
   uint32_t pct = 0;
   Pigz_state ps;
@@ -2925,9 +2928,9 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
     report_type = 2;
   }
   uii = report_type? 1 : 3;
-  if (bigstack_alloc_uc(PIGZ_BLOCK_SIZE + 2 * max_marker_allele_len + MAXLINELEN, &overflow_buf) ||
+  if (bigstack_alloc_uc(overflow_buf_blen, &overflow_buf) ||
       bigstack_alloc_d(uii * marker_ct, &p_values) ||
-      bigstack_alloc_c(2 * max_marker_allele_len + MAXLINELEN, &writebuf)) {
+      bigstack_alloc_c(writebuf_blen, &writebuf)) {
     goto hardy_report_ret_NOMEM;
   }
 
@@ -2957,8 +2960,8 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
   LOGPRINTFWW5("--hardy: Writing Hardy-Weinberg report (%s) to %s ... ", nonfounders? "all samples" : "founders only", outname);
   fputs("0%", stdout);
   fflush(stdout);
-  sprintf(writebuf, " CHR %%%us     TEST   A1   A2                 GENO   O(HET)   E(HET)            P " EOLN_STR, plink_maxsnp);
-  pzwritep += sprintf(pzwritep, writebuf, "SNP");
+  snprintf(writebuf, writebuf_blen, " CHR %%%us     TEST   A1   A2                 GENO   O(HET)   E(HET)            P " EOLN_STR, plink_maxsnp);
+  pzwritep += snprintf(pzwritep, overflow_buf_blen, writebuf, "SNP");
 
   chrom_fo_idx = 0;
   refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);

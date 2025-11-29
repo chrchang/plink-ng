@@ -2516,9 +2516,11 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   uint32_t a1_obs;
   uint32_t tot_obs;
   uint32_t uii;
+  uintptr_t overflow_buf_blen;
   pzwrite_init_null(&ps);
   uii = 2 * max_marker_allele_len + max_marker_id_len + max_cluster_id_len + 256;
-  if (bigstack_alloc_uc(uii + PIGZ_BLOCK_SIZE, &overflow_buf) ||
+  overflow_buf_blen = uii + PIGZ_BLOCK_SIZE;
+  if (bigstack_alloc_uc(overflow_buf_blen, &overflow_buf) ||
       bigstack_alloc_ul(unfiltered_sample_ctl2, &readbuf)) {
     goto write_stratified_freqs_ret_NOMEM;
   }
@@ -2592,7 +2594,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   }
   pzwritep = (char*)overflow_buf;
   snprintf(g_textbuf, TEXTBUF_SIZE, " CHR %%%us     CLST   A1   A2      MAF    MAC  NCHROBS" EOLN_STR, plink_maxsnp);
-  pzwritep += sprintf(pzwritep, g_textbuf, "SNP");
+  pzwritep += snprintf(pzwritep, overflow_buf_blen, g_textbuf, "SNP");
   if (bigstack_alloc_c(2 * max_marker_allele_len + 16, &csptr)) {
     goto write_stratified_freqs_ret_NOMEM;
   }
@@ -3817,6 +3819,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   uintptr_t* loadbuf_f = nullptr;
   uintptr_t* founder_vec11 = nullptr;
   char* pzwritep = nullptr;
+  const uintptr_t overflow_buf_blen = PIGZ_BLOCK_SIZE + MAXLINELEN;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
@@ -3860,7 +3863,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     logerrprint("Error: --het cannot be used on haploid genomes.\n");
     goto het_report_ret_INVALID_CMDLINE;
   }
-  if (bigstack_alloc_uc(PIGZ_BLOCK_SIZE + MAXLINELEN, &overflow_buf) ||
+  if (bigstack_alloc_uc(overflow_buf_blen, &overflow_buf) ||
       bigstack_alloc_ul(unfiltered_sample_ctl2, &loadbuf_raw) ||
       bigstack_alloc_ul(sample_ctl2, &loadbuf) ||
       bigstack_calloc_ui(sample_ct, &het_cts) ||
@@ -3988,7 +3991,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   }
   pzwritep = (char*)overflow_buf;
   snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us %%%us       O(HOM)       E(HOM)        N(NM)            F\n", plink_maxfid, plink_maxiid);
-  pzwritep += sprintf(pzwritep, g_textbuf, "FID", "IID");
+  pzwritep += snprintf(pzwritep, overflow_buf_blen, g_textbuf, "FID", "IID");
   sample_uidx = 0;
   for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, sample_uidx++) {
     next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
@@ -4954,7 +4957,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   if (fopen_checked(outname, "w", &outfile)) {
     goto score_report_ret_OPEN_FAIL;
   }
-  sprintf(tbuf2, "%%%us %%%us  PHENO    CNT   CNT2 %s\n", plink_maxfid, plink_maxiid, report_average? "   SCORE" : "SCORESUM");
+  snprintf(tbuf2, MAXLINELEN, "%%%us %%%us  PHENO    CNT   CNT2 %s\n", plink_maxfid, plink_maxiid, report_average? "   SCORE" : "SCORESUM");
   fprintf(outfile, tbuf2, "FID", "IID");
   for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
     next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
