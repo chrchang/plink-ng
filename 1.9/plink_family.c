@@ -1736,7 +1736,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   return 0;
 }
 
-int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double output_min_p, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct_ax, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, uintptr_t* sample_male_include2, uint32_t* trio_nuclear_lookup, uint32_t family_ct, Aperm_info* apip, uint32_t mperm_save, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip, uintptr_t* loadbuf, uintptr_t* workbuf, char* textbuf, double* orig_chisq, uint32_t* trio_error_lookup, uintptr_t trio_ct) {
+int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double output_min_p, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct_ax, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, uintptr_t* sample_male_include2, uint32_t* trio_nuclear_lookup, uint32_t family_ct, Aperm_info* apip, uint32_t mperm_save, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip, uintptr_t* loadbuf, uintptr_t* workbuf, char* textbuf, uintptr_t textbuf_blen, double* orig_chisq, uint32_t* trio_error_lookup, uintptr_t trio_ct) {
   FILE* outfile = nullptr;
   // uint64_t mendel_error_ct = 0;
   double pat_a2transmit_recip = 0.0;
@@ -1809,7 +1809,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
   if (fopen_checked(outname, "w", &outfile)) {
     goto tdt_poo_ret_OPEN_FAIL;
   }
-  sprintf(textbuf, " CHR %%%us  A1:A2      T:U_PAT    CHISQ_PAT        P_PAT      T:U_MAT    CHISQ_MAT        P_MAT        Z_POO        P_POO \n", plink_maxsnp);
+  snprintf(textbuf, textbuf_blen, " CHR %%%us  A1:A2      T:U_PAT    CHISQ_PAT        P_PAT      T:U_MAT    CHISQ_MAT        P_MAT        Z_POO        P_POO \n", plink_maxsnp);
   fprintf(outfile, textbuf, "SNP");
   fputs("--tdt poo: 0%", stdout);
   fflush(stdout);
@@ -1994,6 +1994,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* textbuf = g_textbuf;
+  uintptr_t textbuf_blen = MAXLINELEN;
   double* orig_chisq = nullptr; // pval if exact test
   uint64_t last_parents = 0;
   // uint64_t mendel_error_ct = 0;
@@ -2211,13 +2212,14 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     goto tdt_ret_1;
   }
   ulii = 2 * max_marker_allele_len + plink_maxsnp + MAX_ID_SLEN + 256;
-  if (ulii > MAXLINELEN) {
+  if (ulii > textbuf_blen) {
     if (bigstack_alloc_c(ulii, &textbuf)) {
       goto tdt_ret_NOMEM;
     }
+    textbuf_blen = ulii;
   }
   if (poo_test) {
-    retval = tdt_poo(threads, bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_sample_ct, sex_male, sample_male_include2, trio_nuclear_lookup, family_ct, apip, mperm_save, sample_ids, max_sample_id_len, chrom_info_ptr, hh_exists, fam_ip, loadbuf, workbuf, textbuf, orig_chisq, trio_error_lookup, trio_ct);
+    retval = tdt_poo(threads, bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_sample_ct, sex_male, sample_male_include2, trio_nuclear_lookup, family_ct, apip, mperm_save, sample_ids, max_sample_id_len, chrom_info_ptr, hh_exists, fam_ip, loadbuf, workbuf, textbuf, textbuf_blen, orig_chisq, trio_error_lookup, trio_ct);
     if (retval) {
       goto tdt_ret_1;
     }
@@ -2232,7 +2234,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   if (fopen_checked(outname, "w", &outfile)) {
     goto tdt_ret_OPEN_FAIL;
   }
-  sprintf(textbuf, " CHR %%%us           BP  A1  A2      T      U           OR ", plink_maxsnp);
+  snprintf(textbuf, textbuf_blen, " CHR %%%us           BP  A1  A2      T      U           OR ", plink_maxsnp);
   fprintf(outfile, textbuf, "SNP");
   if (display_ci) {
     uii = (uint32_t)((int32_t)(ci_size * (100 + EPSILON)));
@@ -3811,6 +3813,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   FILE* outfile = nullptr;
   FILE* outfile_msa = nullptr;
   char* textbuf = g_textbuf;
+  uintptr_t textbuf_blen = MAXLINELEN;
   uintptr_t marker_ct_orig_autosomal = marker_ct_orig;
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
@@ -4293,10 +4296,11 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
 
   ulii = 2 * max_marker_allele_len + plink_maxsnp + MAX_ID_SLEN + 256;
-  if (ulii > MAXLINELEN) {
+  if (ulii > textbuf_blen) {
     if (bigstack_alloc_c(ulii, &textbuf)) {
       goto dfam_ret_NOMEM;
     }
+    textbuf_blen = ulii;
   }
 
   // permutation test boilerplate mostly copied from qassoc() in plink_assoc.c,
@@ -4350,7 +4354,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   LOGPRINTFWW5("Writing --dfam results to %s ... ", outname);
   fflush(stdout);
-  sprintf(textbuf, " CHR %%%us   A1   A2      OBS      EXP        CHISQ            P \n", plink_maxsnp);
+  snprintf(textbuf, textbuf_blen, " CHR %%%us   A1   A2      OBS      EXP        CHISQ            P \n", plink_maxsnp);
   fprintf(outfile, textbuf, "SNP");
   loop_end = marker_ct / 100;
   marker_unstopped_ct = marker_ct;

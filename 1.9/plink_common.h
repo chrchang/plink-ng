@@ -37,7 +37,7 @@
 // #define NOLAPACK
 
 // Uncomment this to prevent all unstable features from being accessible from
-// the command line.
+// the command line.  (Or build with -DSTABLE_BUILD.)
 // #define STABLE_BUILD
 
 #define SPECIES_HUMAN 0

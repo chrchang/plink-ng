@@ -1,6 +1,9 @@
 # 32-bit Linux build on Debian 10.
 
 BASEFLAGS=
+CXEXTRA ?= -DSTABLE_BUILD
+
+BASEFLAGS += ${CXEXTRA}
 CCFLAGS=-O2
 CXXFLAGS=-O2 -std=c++0x
 

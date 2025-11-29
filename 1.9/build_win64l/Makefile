@@ -1,9 +1,10 @@
 OPENBLAS_ROOT = ../../../openblas-64
 
 BASEFLAGS=
+CXEXTRA ?= -DSTABLE_BUILD
 # ***** end configuration *****
 
-BASEFLAGS += -fno-exceptions
+BASEFLAGS += ${CXEXTRA} -fno-exceptions
 LINKFLAGS=-lm -static-libgcc -L. ${ZLIB_STATIC}
 BLASFLAGS=-Wl,-Bstatic -L. ${OPENBLAS_ROOT}/lib/libopenblas.a
 

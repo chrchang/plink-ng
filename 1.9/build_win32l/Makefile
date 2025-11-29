@@ -1,9 +1,10 @@
 OPENBLAS_ROOT = ../../../openblas-32
 
+CXEXTRA ?= -DSTABLE_BUILD
 BASEFLAGS=
 # ***** end configuration *****
 
-BASEFLAGS += -fno-exceptions
+BASEFLAGS += ${CXEXTRA} -fno-exceptions
 BLASFLAGS=-Wl,-Bstatic -L. ${OPENBLAS_ROOT}/lib/libopenblas.a
 
 BASEFLAGS += -I${OPENBLAS_ROOT}/include

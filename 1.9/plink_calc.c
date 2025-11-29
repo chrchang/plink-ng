@@ -4295,7 +4295,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   if (!sample2idx) {
     // first line, if not 2nd or later part of parallel write
     if (!sample1idx) {
-      sptr_cur += sprintf(sptr_cur, g_textbuf, " FID1", " IID1", " FID2", " IID2");
+      sptr_cur += snprintf(sptr_cur, readbuf_end - sptr_cur, g_textbuf, " FID1", " IID1", " FID2", " IID2");
     }
     sample1idx = g_thread_start[0];
     sample2idx = sample1idx + 1;
@@ -4988,9 +4988,9 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 
   if (!parallel_idx) {
     if (genome_modifier & GENOME_OUTPUT_FULL) {
-      sprintf(g_textbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO    IBS0    IBS1    IBS2  HOMHOM  HETHET\n", plink_maxfid, plink_maxiid, plink_maxfid, plink_maxiid);
+      snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO    IBS0    IBS1    IBS2  HOMHOM  HETHET\n", plink_maxfid, plink_maxiid, plink_maxfid, plink_maxiid);
     } else {
-      sprintf(g_textbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO\n", plink_maxfid, plink_maxiid, plink_maxfid, plink_maxiid);
+      snprintf(g_textbuf, TEXTBUF_SIZE, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO\n", plink_maxfid, plink_maxiid, plink_maxfid, plink_maxiid);
     }
   }
   g_pct = 1;

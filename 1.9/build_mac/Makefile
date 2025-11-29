@@ -13,6 +13,7 @@ CCFLAGS ?=	-Wall -Wstrict-aliasing -O2
 CXXFLAGS ?=	-Wall -Wstrict-aliasing -O2 -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
 AMDFLAGS ?=     --target=x86_64-apple-macosx10.9
 ARMFLAGS ?=     --target=arm64-apple-macos11
+CXEXTRA ?=	-DSTABLE_BUILD
 
 PREFIX ?=	/usr/local
 DESTDIR ?=	.
@@ -31,6 +32,9 @@ ifeq ($(SYS), MAC)
   ZLIB_AMD ?= -L. "../../zlib-"$(ZLIB_VER)"/libz-amd64.a"
   ZLIB_ARM ?= -L. "../../zlib-"$(ZLIB_VER)"/libz-arm64.a"
 endif
+
+CFLAGS += $(CXEXTRA)
+CXXFLAGS += $(CXEXTRA)
 
 CCSRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_common.c plink_data.c plink_dosage.c plink_family.c plink_filter.c plink_glm.c plink_help.c plink_homozyg.c plink_lasso.c plink_ld.c plink_matrix.c plink_misc.c plink_perm.c plink_rserve.c plink_set.c plink_stats.c SFMT.c dcdflib.c pigz.c yarn.c Rconnection.cc hfile.c bgzf.c
 CCSRC2 = $(foreach fname,$(CCSRC),../$(fname))

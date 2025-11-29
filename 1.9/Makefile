@@ -34,6 +34,7 @@ CXX ?=		g++
 CFLAGS ?=	-Wall -O2 -g -I../2.0/simde "-I../zlib-"$(ZLIB_VER)
 CXXFLAGS ?=	-Wall -O2 -g -I../2.0/simde "-I../zlib-"$(ZLIB_VER)
 MACFLAGS ?=	-DACCELERATE_NEW_LAPACK
+CXEXTRA ?=	-DSTABLE_BUILD
 
 PREFIX ?=	/usr/local
 DESTDIR ?=	.
@@ -62,6 +63,9 @@ ifeq ($(SYS), WIN)
   LDFLAGS ?= -lm -static-libgcc
   ZLIB ?= -L. "../zlib-"$(ZLIB_VER)"/libz.a"
 endif
+
+CFLAGS += $(CXEXTRA)
+CXXFLAGS += $(CXEXTRA)
 
 # These must appear after the MAC/WIN-specific ?= statements.
 BLASFLAGS ?=	-L/usr/lib64/atlas -llapack -lblas -lcblas -latlas

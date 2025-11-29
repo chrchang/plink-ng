@@ -2253,7 +2253,7 @@ char* dtoa_f_p2(double dxx, char* start) {
     return memcpyl3a(start, "inf");
   }
   // just punt larger numbers to glibc for now, this isn't a bottleneck
-  start += sprintf(start, "%.2f", dxx);
+  start += snprintf(start, 384, "%.2f", dxx);
   return start;
 }
 
@@ -2304,7 +2304,7 @@ char* dtoa_f_p3(double dxx, char* start) {
   if (dxx == INFINITY) {
     return memcpyl3a(start, "inf");
   }
-  start += sprintf(start, "%.3f", dxx);
+  start += snprintf(start, 384, "%.3f", dxx);
   return start;
 }
 
@@ -2338,7 +2338,7 @@ char* dtoa_f_w9p6(double dxx, char* start) {
   if (dxx == INFINITY) {
     return memcpya(start, "      inf", 9);
   }
-  start += sprintf(start, "%.6f", dxx);
+  start += snprintf(start, 384, "%.6f", dxx);
   return start;
 }
 
@@ -2386,7 +2386,7 @@ char* dtoa_f_w7p4(double dxx, char* start) {
   if (dxx == INFINITY) {
     return memcpya(start, "    inf", 7);
   }
-  start += sprintf(start, "%.4f", dxx);
+  start += snprintf(start, 384, "%.4f", dxx);
   return start;
 }
 
