@@ -3,8 +3,12 @@
 # This generates a few datasets for our tests to run on.  (It is not efficient
 # to just store them in GitHub.)  It is assumed that the PLINK 1.9 build to be
 # tested is named/symlinked as "plink19", and a PLINK 1.07 build is
-# named/symlinked as "plink107".  (Note that when I compiled PLINK 1.07 in Nov
-# 2025, it was necessary to rename a few iterators-shadowing-ints.)
+# named/symlinked as "plink107".
+#
+# Note that when I compiled PLINK 1.07 in Nov 2025, it was necessary to rename
+# a few iterators-shadowing-ints, and with gcc 15 it was also necessary to
+# add 'const' to some less-operator declarations (end of plink.h line 390,
+# homozyg.cpp lines 36 and 73, genogroup.h line 45).
 
 # When the number of samples isn't divisible by 4, special-case logic is
 # sometimes needed to handle the last data byte for each variant.  This has
