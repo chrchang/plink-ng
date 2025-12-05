@@ -42,6 +42,7 @@ namespace plink2 {
 void InitGlm(GlmInfo* glm_info_ptr) {
   glm_info_ptr->flags = kfGlm0;
   glm_info_ptr->cols = kfGlmCol0;
+  glm_info_ptr->perm_flags = kfGlmPerm0;
   glm_info_ptr->mperm_ct = 0;
   glm_info_ptr->local_cat_ct = 0;
   glm_info_ptr->local_header_line_ct = 0;
@@ -1971,7 +1972,7 @@ void SexInteractionReshuffle(uint32_t first_interaction_pred_uidx, uint32_t raw_
   memcpy(parameters_or_tests, parameter_subset_reshuffle_buf, biallelic_raw_predictor_ctl * sizeof(intptr_t));
 }
 
-PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, const GwasSsfInfo* gsip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, const GwasSsfInfo* gsip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, __attribute__((unused)) MiscFlags misc_flags, uint32_t xchr_model, double ci_size, double vif_thresh, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 
@@ -2022,7 +2023,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     common.dosage_presents = nullptr;
     common.dosage_mains = nullptr;
     const uint32_t output_zst = (glm_flags / kfGlmZs) & 1;
-    const uint32_t perm_adapt = (glm_flags / kfGlmPerm) & 1;
+    const GlmPermFlags perm_flags = glm_info_ptr->perm_flags;
+    const uint32_t perm_adapt = (perm_flags / kfGlmPermAdaptive) & 1;
     const uint32_t perms_total = perm_adapt? aperm_ptr->max : glm_info_ptr->mperm_ct;
     // <output prefix>.<pheno name>.glm.logistic.hybrid{,.perm,.mperm}[.zst]
     uint32_t pheno_name_blen_capacity = kPglFnamesize - 21 - (4 * output_zst) - S_CAST(uintptr_t, outname_end - outname);
@@ -3884,7 +3886,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
 
       double* orig_ln_pvals = nullptr;
-      double* orig_permstat = nullptr;
+      double* orig_logistic_permstat = nullptr;
       if (report_adjust || perms_total) {
         const uintptr_t cur_allele_ct = cur_variant_ct + CountExtraAlleles(cur_variant_include, allele_idx_offsets, 0, raw_variant_ct, 0);
         if (unlikely(bigstack_alloc_d(cur_allele_ct, &orig_ln_pvals))) {
@@ -3892,14 +3894,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
         memcpy(valid_variants, cur_variant_include, raw_variant_ctl * sizeof(intptr_t));
         ZeroWArr(raw_allele_ctl, valid_alleles);
-        if (perms_total) {
-          if (is_logistic) {
-            if (unlikely(bigstack_alloc_d(cur_allele_ct, &orig_permstat))) {
-              goto GlmMain_ret_NOMEM;
-            }
-          } else {
-            // unfortunately, signs are reversed
-            orig_permstat = orig_ln_pvals;
+        if (perms_total && is_logistic) {
+          if (unlikely(bigstack_alloc_d(cur_allele_ct, &orig_logistic_permstat))) {
+            goto GlmMain_ret_NOMEM;
           }
         }
       }
@@ -3957,7 +3954,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
 
       uintptr_t valid_allele_ct = 0;
       if (is_logistic) {
-        reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &logistic_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, orig_permstat, &valid_allele_ct);
+        reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &logistic_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, orig_logistic_permstat, &valid_allele_ct);
       } else {
         // keep in sync with GlmLinearThread() difflist_eligible
         linear_ctx.max_difflist_len = 0;

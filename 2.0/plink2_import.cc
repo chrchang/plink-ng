@@ -8379,11 +8379,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             //
             // value_ct == 0, value_type == 7 is also valid (string, missing).
             //
-            // Otherwise, value_ct == 0 should not happen.
-            if (value_type) {
-              if (unlikely(value_type != 7)) {
-                goto BcfToPgen_ret_VREC_GENERIC;
-              }
+            // Otherwise, value_ct == 0 should not happen... (5 Dec 2025) but I
+            // guess in the Flag case it's permitted with any value_type?
+            if (value_type == 7) {
               // Emit '=' with empty-string value.
               ++cur_info_slen_ubound;
             }

@@ -4937,6 +4937,37 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
   return reterr;
 }
 
+/*
+PglErr GlmLinearPerm(const char* cur_pheno_name, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const double* orig_ln_pvals, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ln_pfilter, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, MiscFlags misc_flags, PgenFileInfo* pgfip, GlmLinearCtx* ctx, TextStream* local_covar_txsp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  char* mperm_all_cswritep = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  CompressStreamState css;
+  CompressStreamState mperm_all_css;
+  ThreadGroup tg;
+  PreinitCstream(&css);
+  PreinitThreads(&tg);
+  {
+    GlmCtx* common = ctx->common;
+    const uintptr_t* variant_include = common->variant_include;
+    const ChrInfo* cip = common->cip;
+    const uintptr_t* allele_idx_offsets = common->allele_idx_offsets;
+    const AlleleCode* omitted_alleles = common->omitted_alleles;
+
+    ;;;
+  }
+  while (0) {
+  }
+  CleanupThreads(&tg);
+  CswriteCloseCond(&mperm_all_css, mperm_all_cswritep);
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  pgfip->block_base = nullptr;
+  return reterr;
+}
+*/
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

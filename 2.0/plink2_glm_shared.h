@@ -54,22 +54,20 @@ FLAGSET_DEF_START()
   kfGlmSkipInvalidPheno = (1 << 13),
   kfGlmNoFirth = (1 << 14),
   kfGlmFirth = (1 << 15),
-  kfGlmPerm = (1 << 16),
-  kfGlmPermCount = (1 << 17),
-  kfGlmConditionDominant = (1 << 18),
-  kfGlmConditionRecessive = (1 << 19),
-  kfGlmConditionMultiallelic = (1 << 20),
-  kfGlmLocalOmitLast = (1 << 21),
-  kfGlmTestsAll = (1 << 22),
-  kfGlmPhenoIds = (1 << 23),
-  kfGlmLocalHaps = (1 << 24),
-  kfGlmLocalCats1based = (1 << 25),
-  kfGlmFirthResidualize = (1 << 26),
-  kfGlmCcResidualize = (1 << 27),
-  kfGlmQtResidualize = (1 << 28),
+  kfGlmConditionDominant = (1 << 16),
+  kfGlmConditionRecessive = (1 << 17),
+  kfGlmConditionMultiallelic = (1 << 18),
+  kfGlmLocalOmitLast = (1 << 19),
+  kfGlmTestsAll = (1 << 20),
+  kfGlmPhenoIds = (1 << 21),
+  kfGlmLocalHaps = (1 << 22),
+  kfGlmLocalCats1based = (1 << 23),
+  kfGlmFirthResidualize = (1 << 24),
+  kfGlmCcResidualize = (1 << 25),
+  kfGlmQtResidualize = (1 << 26),
   kfGlmResidualizeMask = (kfGlmFirthResidualize | kfGlmCcResidualize | kfGlmQtResidualize),
-  kfGlmSinglePrecCc = (1 << 29),
-  kfGlmAllowNoCovars = (1 << 30)
+  kfGlmSinglePrecCc = (1 << 27),
+  kfGlmAllowNoCovars = (1 << 28)
 FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()
@@ -109,10 +107,27 @@ FLAGSET_DEF_START()
   kfGlmColGwasSsfReq = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColOmitted | kfGlmColA1freq | kfGlmColTest | kfGlmColNobs | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP)
 FLAGSET_DEF_END(GlmColFlags);
 
+FLAGSET_DEF_START()
+  kfGlmPerm0,
+  kfGlmPermAdaptive = (1 << 0),
+  kfGlmPermCount = (1 << 1),
+
+  kfGlmPermColChrom = (1 << 2),
+  kfGlmPermColPos = (1 << 3),
+  kfGlmPermColRef = (1 << 4),
+  kfGlmPermColAlt1 = (1 << 5),
+  kfGlmPermColAlt = (1 << 6),
+  kfGlmPermColMaybeprovref = (1 << 7),
+  kfGlmPermColProvref = (1 << 8),
+  kfGlmPermColOmitted = (1 << 9),
+  kfGlmPermColDefault = (kfGlmPermColChrom | kfGlmPermColRef | kfGlmPermColAlt | kfGlmColMaybeprovref | kfGlmPermColOmitted)
+FLAGSET_DEF_END(GlmPermFlags);
+
 typedef struct GlmInfoStruct {
   NONCOPYABLE(GlmInfoStruct);
   GlmFlags flags;
   GlmColFlags cols;
+  GlmPermFlags perm_flags;
   uint32_t mperm_ct;
   uint32_t local_cat_ct;
   uint32_t local_header_line_ct;

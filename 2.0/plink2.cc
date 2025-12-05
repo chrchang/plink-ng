@@ -92,7 +92,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (28 Nov 2025)";
+  " (5 Dec 2025)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -120,7 +120,7 @@ static PREFER_CONSTEXPR char ver_str2[] =
 #  endif
 #endif
 
-  "       cog-genomics.org/plink/2.0/\n"
+  "        cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2025 Shaun Purcell, Christopher Chang    GNU General Public License v3\n";
 #ifdef HAS_CONSTEXPR
 static_assert(CompileTimeSlen(ver_str) + CompileTimeSlen(ver_str2) == 160, "ver_str/ver_str2 must be updated");
@@ -2990,7 +2990,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: --glm + local-pos-cols= requires a sorted .pvar/.bim.  Retry this\ncommand after using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
-        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, &(pcp->gwas_ssf_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->ln_pfilter, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, &(pcp->gwas_ssf_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->misc_flags, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->ln_pfilter, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3995,7 +3995,7 @@ int main(int argc, char** argv) {
     pc.aperm.alpha = 0.0;
     pc.aperm.beta = 0.0001;
     pc.aperm.init_interval = 1.0;
-    pc.aperm.interval_slope = 0.001;
+    pc.aperm.interval_slope = 0.001 * (1 + kSmallEpsilon);
     pc.ci_size = 0.0;
 
     // Default value is 1638 = 32768 / 20, and that's applied to imported
@@ -4330,25 +4330,22 @@ int main(int argc, char** argv) {
             if (param_ct > 3) {
               cur_modif = argvk[arg_idx + 4];
               if (unlikely((!ScantokDouble(cur_modif, &pc.aperm.beta)) || (pc.aperm.beta <= 0.0))) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm beta '%s'.\n", cur_modif);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm beta '%s' (must be >0).\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               if (param_ct > 4) {
                 cur_modif = argvk[arg_idx + 5];
-                if (unlikely(!ScantokDouble(cur_modif, &pc.aperm.init_interval))) {
-                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm initial pruning interval '%s'.\n", cur_modif);
-                  goto main_ret_INVALID_CMDLINE_WWA;
-                }
-                if (unlikely((pc.aperm.init_interval < 1.0) || (pc.aperm.init_interval > 1000000.0))) {
-                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm initial pruning interval '%s'.\n", cur_modif);
+                if (unlikely((!ScantokDouble(cur_modif, &pc.aperm.init_interval) || (pc.aperm.init_interval < 1.0)))) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm initial pruning interval '%s' (must be >= 1).\n", cur_modif);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }
                 if (param_ct == 6) {
                   cur_modif = argvk[arg_idx + 6];
-                  if (unlikely((!ScantokDouble(cur_modif, &pc.aperm.interval_slope)) || (pc.aperm.interval_slope < 0.0) || (pc.aperm.interval_slope > 1.0))) {
-                    snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm pruning interval slope '%s'.\n", cur_modif);
+                  if (unlikely((!ScantokDouble(cur_modif, &pc.aperm.interval_slope)) || (pc.aperm.interval_slope < 0.0))) {
+                    snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm pruning interval slope '%s' (must be >= 0).\n", cur_modif);
                     goto main_ret_INVALID_CMDLINE_WWA;
                   }
+                  pc.aperm.interval_slope *= 1 + kSmallEpsilon;
                 }
               }
             }
@@ -6558,10 +6555,11 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1GenoCounts;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "lm")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 18))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 24))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t explicit_firth_fallback = 0;
+          uint32_t explicit_perm_cols = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -6617,9 +6615,9 @@ int main(int argc, char** argv) {
               logerrputs("Error: --glm 'standard-beta' modifier has been retired.  Use\n--{covar-}variance-standardize instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
             } else if (strequal_k(cur_modif, "perm", cur_modif_slen)) {
-              pc.glm_info.flags |= kfGlmPerm;
+              pc.glm_info.perm_flags |= kfGlmPermAdaptive;
             } else if (strequal_k(cur_modif, "perm-count", cur_modif_slen)) {
-              pc.glm_info.flags |= kfGlmPermCount;
+              pc.glm_info.perm_flags |= kfGlmPermCount;
             } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
               if (unlikely(pc.glm_info.cols)) {
                 logerrputs("Error: Multiple --glm cols= modifiers.\n");
@@ -6637,6 +6635,10 @@ int main(int argc, char** argv) {
                 logerrputs("Warning: --glm 'ax' column is deprecated; you probably want 'omitted' instead.\nIf you think you need ax's current behavior, contact the developers and\ndescribe your use case.\n");
               }
             } else if (StrStartsWith0(cur_modif, "mperm", cur_modif_slen)) {
+              if (unlikely(pc.glm_info.mperm_ct)) {
+                logerrputs("Error: Multiple --glm mperm= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
               if (unlikely((cur_modif_slen < 7) || (cur_modif[5] != '='))) {
                 logerrputs("Error: Improper --glm mperm syntax.  (Use --glm mperm=[value]'.)\n");
                 goto main_ret_INVALID_CMDLINE_A;
@@ -6729,6 +6731,16 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Invalid --glm local-cats0= category count (must be in [2, 4095]).\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
+            } else if (StrStartsWith(cur_modif, "perm-cols=", cur_modif_slen)) {
+              if (unlikely(explicit_perm_cols)) {
+                logerrputs("Error: Multiple --glm perm-cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[strlen("perm-cols=")]), "chrom\0pos\0ref\0alt1\0alt\0maybeprovref\0provref\0omitted\0", "glm perm-cols", kfGlmPermColChrom, kfGlmPermColDefault, 0, &pc.glm_info.perm_flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              explicit_perm_cols = 1;
             } else if (likely(strequal_k(cur_modif, "allow-no-covars", cur_modif_slen))) {
               pc.glm_info.flags |= kfGlmAllowNoCovars;
             } else {
@@ -6747,9 +6759,18 @@ int main(int argc, char** argv) {
             logerrputs("Error: Conflicting --glm arguments.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely((pc.glm_info.flags & kfGlmPerm) && pc.glm_info.mperm_ct)) {
-            logerrputs("Error: --glm 'perm' and 'mperm=' cannot be used together.\n");
-            goto main_ret_INVALID_CMDLINE_A;
+          {
+            const uint32_t perm_adapt = (pc.glm_info.perm_flags & kfGlmPermAdaptive);
+            const uint32_t mperm_ct = pc.glm_info.mperm_ct;
+            if (perm_adapt || mperm_ct) {
+              if (unlikely(perm_adapt && mperm_ct)) {
+                logerrputs("Error: --glm 'perm' and 'mperm=' cannot be used together.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (!explicit_perm_cols) {
+                pc.glm_info.perm_flags |= kfGlmPermColDefault;
+              }
+            }
           }
           if (pc.glm_info.flags & kfGlmResidualizeMask) {
             if ((pc.glm_info.flags & (kfGlmFirthResidualize | kfGlmCcResidualize)) == (kfGlmFirthResidualize | kfGlmCcResidualize)) {
@@ -9659,6 +9680,12 @@ int main(int argc, char** argv) {
           }
           pmerge_info.flags |= kfPmergeSids;
           pmerge_required = 1;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "perm-save")) {
+          pc.misc_flags |= kfMiscMpermSave;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "perm-save-all")) {
+          pc.misc_flags |= kfMiscMpermSaveAll;
           goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "pheno"))) {
           logerrputs("Warning: --mpheno flag deprecated.  Use --pheno-col-nums instead.  (Note that\n--pheno-col-nums does not add 2 to the column number(s).)\n");
@@ -12826,7 +12853,7 @@ int main(int argc, char** argv) {
     if (pc.remove_cat_phenoname && (!pc.remove_cat_names_flattened) && (!pc.remove_cats_fname)) {
       logerrputs("Error: --remove-cat-pheno must be used with --remove-cats and/or\n--remove-cat-names.\n");
     }
-    if (aperm_present && (pc.command_flags1 & kfCommand1Glm) && (!(pc.glm_info.flags & kfGlmPerm))) {
+    if (aperm_present && (pc.command_flags1 & kfCommand1Glm) && (!(pc.glm_info.perm_flags & kfGlmPermAdaptive))) {
       // If --aperm is present, at least one association analysis command which
       // supports adaptive permutation testing was also specified, but no
       // actual adaptive permutation test is happening, the user is likely to

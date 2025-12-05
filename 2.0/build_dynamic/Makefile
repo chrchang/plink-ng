@@ -30,11 +30,15 @@ MKL_IOMP5_DIR = /opt/intel/oneapi/compiler/2025.1/lib
 STATIC_AOCL =
 AOCLROOT = /home/admin/aocl/5.1.0/gcc
 FORCE_32BIT =
+# Warning: I have observed intermittent (i.e. has always disappeared on retry
+# in my testing so far) gcc 10.2 crashes with -flto.  I'm leaving -flto here
+# for now since I have yet to see a miscompilation when gcc doesn't crash, but
+# this requires further investigation.
 DEBUG = -flto
 CC ?= gcc
 CXX ?= g++
 
-BASEFLAGS= -flto -DZSTD_MULTITHREAD
+BASEFLAGS= -DZSTD_MULTITHREAD
 # ***** end configuration *****
 
 BASEFLAGS += ${DEBUG}
@@ -58,14 +62,14 @@ else
       BASEFLAGS += -msse4.2
       ifdef CPU_CHECK
         BASEFLAGS += -DCPU_CHECK_SSE42
-        CPUCHECK_FLAGS = -O2 -flto -DCPU_CHECK_SSE42 ${CXXWARN2}
+        CPUCHECK_FLAGS = ${DEBUG} -O2 -DCPU_CHECK_SSE42 ${CXXWARN2}
       endif
     endif
   else
     BASEFLAGS += -mavx2 -mbmi -mbmi2 -mfma -mlzcnt
     ifdef CPU_CHECK
       BASEFLAGS += -DCPU_CHECK_AVX2
-      CPUCHECK_FLAGS = -O2 -flto -DCPU_CHECK_AVX2 ${CXXWARN2}
+      CPUCHECK_FLAGS = ${DEBUG} -O2 -DCPU_CHECK_AVX2 ${CXXWARN2}
     endif
   endif
   CXXFLAGS = -std=c++11
