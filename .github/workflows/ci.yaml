@@ -5,6 +5,12 @@ on:
     paths:
       - 2.0/Python/**
       - .github/workflows/ci.yaml
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 2.0/Python/**
+      - .github/workflows/ci.yaml
 
 jobs:
   wheel:
@@ -83,3 +89,4 @@ jobs:
         working-directory: ./2.0/Python
         run: |
           pytest -s tests/
+
