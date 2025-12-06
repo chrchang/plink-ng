@@ -5,6 +5,12 @@ on:
     paths:
       - 2.0/Python/**
       - .github/workflows/ci.yaml
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 2.0/Python/**
+      - .github/workflows/ci.yaml
 
 jobs:
   wheel:
@@ -36,23 +42,18 @@ jobs:
           pip wheel --wheel-dir dist --no-deps .
           pip install dist/*.whl
 
-      - name: Run tests
+      - name: Test with latest numpy version
         working-directory: ./2.0/Python
         run: |
-          pytest tests/
+          pip install --upgrade numpy
+          pytest -s tests/
 
-      - name: Test against oldest supported numpy version
+      - name: Test with oldest supported numpy version
         working-directory: ./2.0/Python
         if: matrix.python-version == 10
         run: |
           pip install --force-reinstall --no-cache-dir 'numpy==1.21.3'
-          pytest tests/
-
-      - name: Test against newest numpy version
-        working-directory: ./2.0/Python
-        run: |
-          pip install -U numpy
-          pytest tests/
+          pytest -s tests/
 
 
   sdist:
@@ -87,4 +88,5 @@ jobs:
       - name: Run tests
         working-directory: ./2.0/Python
         run: |
-          pytest tests/
+          pytest -s tests/
+
