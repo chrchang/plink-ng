@@ -2889,6 +2889,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
               logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s', and other(s) with identical missingness patterns.\n", first_pheno_name);
             } else {
+              if (unlikely(x_samples_are_different && local_covar_ct)) {
+                logerrprintfww("Error: --glm regression on phenotype '%s', and other(s) with identical missingness patterns, would use different samples on chrX than the rest of the genome; this is not currently compatible with inclusion of local covariates.\n", first_pheno_name);
+                reterr = kPglRetNotYetSupported;
+                goto GlmMain_ret_1;
+              }
               biallelic_predictor_ct_x = 2 + domdev_present + (covar_ct_x + extra_cat_ct_x) * (1 + add_interactions * domdev_present_p1);
               if (raw_parameter_subset) {
                 biallelic_predictor_ct_x = CollapseParamOrTestSubset(covar_include, raw_parameter_subset, domdev_present, raw_covar_ct, covar_ct_x, add_interactions, common.parameter_subset_x);
@@ -2980,6 +2985,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
               logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s', and other(s) with identical missingness patterns.\n", first_pheno_name);
             } else {
+              if (unlikely(y_samples_are_different && local_covar_ct)) {
+                logerrprintfww("Error: --glm regression on phenotype '%s', and other(s) with identical missingness patterns, would use different samples on chrY than the rest of the genome; this is not currently compatible with inclusion of local covariates.\n", first_pheno_name);
+                reterr = kPglRetNotYetSupported;
+                goto GlmMain_ret_1;
+              }
               biallelic_predictor_ct_y = 2 + domdev_present + (covar_ct_y + extra_cat_ct_y) * (1 + add_interactions * domdev_present_p1);
               if (raw_parameter_subset) {
                 biallelic_predictor_ct_y = CollapseParamOrTestSubset(covar_include, raw_parameter_subset, domdev_present, raw_covar_ct, covar_ct_y, add_interactions, common.parameter_subset_y);
@@ -3435,6 +3445,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             }
             logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s'.\n", cur_pheno_name);
           } else {
+            if (unlikely(x_samples_are_different && local_covar_ct)) {
+              logerrprintfww("Error: --glm regression on phenotype '%s' would use different samples on chrX than the rest of the genome; this is not currently compatible with inclusion of local covariates.\n", cur_pheno_name);
+              reterr = kPglRetNotYetSupported;
+              goto GlmMain_ret_1;
+            }
             biallelic_predictor_ct_x = 2 + domdev_present + (covar_ct_x + extra_cat_ct_x) * (1 + add_interactions * domdev_present_p1);
             if (raw_parameter_subset) {
               biallelic_predictor_ct_x = CollapseParamOrTestSubset(covar_include, raw_parameter_subset, domdev_present, raw_covar_ct, covar_ct_x, add_interactions, common.parameter_subset_x);
@@ -3541,6 +3556,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             }
             logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s'.\n", cur_pheno_name);
           } else {
+            if (unlikely(y_samples_are_different && local_covar_ct)) {
+              logerrprintfww("Error: --glm regression on phenotype '%s' would use different samples on chrY than the rest of the genome; this is not currently compatible with inclusion of local covariates.\n", cur_pheno_name);
+              reterr = kPglRetNotYetSupported;
+              goto GlmMain_ret_1;
+            }
             biallelic_predictor_ct_y = 2 + domdev_present + (covar_ct_y + extra_cat_ct_y) * (1 + add_interactions * domdev_present_p1);
             if (raw_parameter_subset) {
               biallelic_predictor_ct_y = CollapseParamOrTestSubset(covar_include, raw_parameter_subset, domdev_present, raw_covar_ct, covar_ct_y, add_interactions, common.parameter_subset_y);
