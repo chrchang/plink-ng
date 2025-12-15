@@ -234,6 +234,7 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
         size_t (*read_unlocked)(void* context, void* buffer, size_t size, size_t count) noexcept
         int (*pgl_getc_unlocked)(void* context) noexcept
         int (*pgl_error_unlocked)(void* context) noexcept
+        int (*pyfl_error_unlocked)(void* context) noexcept
         int (*pgl_eof_unlocked)(void* context) noexcept
 
 
@@ -273,81 +274,96 @@ cdef extern from "../plink2/include/pgenlib_write.h" namespace "plink2":
     BoolErr CleanupSpgw(STPgenWriter* spgwp, PglErr* reterrp)
 
 
-cdef class S3FileInterface:
-    cdef object s3file
+
+cdef class PyflFileInterface:
+    cdef object pyfile
     cdef PglFileInterface* pgl_interface
 
-    def __cinit__(self, s3file):
-        self.s3file = s3file
-        self.pgl_interface = create_s3_pgl_interface(<void*>self)
+    def __cinit__(self, pyfile):
+        self.pyfile = pyfile
+        self.pgl_interface = create_pyfl_pgl_interface(<void*>self)
 
     def get_interface(self):
         # Return as int for passing to C, not as Python object
         return <long>self.pgl_interface
 
-cdef int s3_seek(void* context, int64_t offset, int whence) noexcept:
-    pyself = <S3FileInterface>context
-    pyself.s3file.seek(offset, whence)
+
+cdef int pyfl_seek(void* context, int64_t offset, int whence) noexcept:
+    pyself = <PyflFileInterface>context
+    pyself.pyfile.seek(offset, whence)
     return 0
 
-cdef int64_t s3_tell(void* context) noexcept:
-    pyself = <S3FileInterface>context
-    return pyself.s3file.tell()
 
-cdef int s3_rewind(void* context) noexcept:
-    pyself = <S3FileInterface>context
-    pyself.s3file.seek(0)
+cdef int64_t pyfl_tell(void* context) noexcept:
+    pyself = <PyflFileInterface>context
+    return pyself.pyfile.tell()
+
+
+cdef int pyfl_rewind(void* context) noexcept:
+    pyself = <PyflFileInterface>context
+    pyself.pyfile.seek(0)
     return 0
 
-cdef size_t s3_read(void* context, void* buffer, size_t size, size_t count) noexcept:
-    pyself = <S3FileInterface>context
-    data = pyself.s3file.read(size * count)
+
+cdef size_t pyfl_read(void* context, void* buffer, size_t size, size_t count) noexcept:
+    pyself = <PyflFileInterface>context
+    data = pyself.pyfile.read(size * count)
     n = len(data)
     memcpy(buffer, <const char*>data, n)
     return n // size if size else 0
 
-cdef int s3_eof(void* context) noexcept:
-    pyself = <S3FileInterface>context
+
+cdef int pyfl_eof(void* context) noexcept:
+    pyself = <PyflFileInterface>context
     try:
-        return pyself.s3file.tell() >= pyself.s3file.size
+        return pyself.pyfile.tell() >= pyself.pyfile.size
     except AttributeError:
         return 0
 
-cdef int s3_close(void* context) noexcept:
-    pyself = <S3FileInterface>context
-    pyself.s3file.close()
+
+cdef int pyfl_close(void* context) noexcept:
+    pyself = <PyflFileInterface>context
+    pyself.pyfile.close()
     return 0
 
-cdef size_t s3_read_unlocked(void* context, void* buffer, size_t size, size_t count) noexcept:
-    return s3_read(context, buffer, size, count)
 
-cdef int s3_getc_unlocked(void* context) noexcept:
-    pyself = <S3FileInterface>context
-    data = pyself.s3file.read(1)
+cdef size_t pyfl_read_unlocked(void* context, void* buffer, size_t size, size_t count) noexcept:
+    return pyfl_read(context, buffer, size, count)
+
+
+cdef int pyfl_getc_unlocked(void* context) noexcept:
+    pyself = <PyflFileInterface>context
+    data = pyself.pyfile.read(1)
     if not data:
         return -1
     return data[0]
 
-cdef int s3_error_unlocked(void* context) noexcept:
+    # ...existing code...
     return 0
 
-cdef int s3_eof_unlocked(void* context) noexcept:
-    return s3_eof(context)
 
-cdef PglFileInterface* create_s3_pgl_interface(void* context):
+cdef int pyfl_eof_unlocked(void* context) noexcept:
+    return pyfl_eof(context)
+
+
+cdef PglFileInterface* create_pyfl_pgl_interface(void* context):
     cdef PglFileInterface* iface = <PglFileInterface*>malloc(sizeof(PglFileInterface))
     iface.context = context
-    iface.seek = s3_seek
-    iface.tell = s3_tell
-    iface.rewind = s3_rewind
-    iface.read = s3_read
-    iface.eof = s3_eof
-    iface.close = s3_close
-    iface.read_unlocked = s3_read_unlocked
-    iface.pgl_getc_unlocked = s3_getc_unlocked
-    iface.pgl_error_unlocked = s3_error_unlocked
-    iface.pgl_eof_unlocked = s3_eof_unlocked
+    iface.seek = pyfl_seek
+    iface.tell = pyfl_tell
+    iface.rewind = pyfl_rewind
+    iface.read = pyfl_read
+    iface.eof = pyfl_eof
+    iface.close = pyfl_close
+    iface.read_unlocked = pyfl_read_unlocked
+    iface.pgl_getc_unlocked = pyfl_getc_unlocked
+        iface.pgl_error_unlocked = pyfl_error_unlocked
+        iface.pyfl_error_unlocked = pyfl_error_unlocked
+    iface.pgl_eof_unlocked = pyfl_eof_unlocked
     return iface
+def pyfl_error_unlocked(void* context) noexcept:
+    # No error state for Python file-like objects by default
+    return 0
 
 
 cdef class PvarReader:
@@ -485,7 +501,7 @@ cdef class PgenReader:
     # For file-like object support
     cdef object _temp_file
     cdef bytes _temp_filename
-    cdef object _s3_context  # Keep S3FileInterface alive
+    cdef object _pyfl_context  # Keep PyflFileInterface alive
 
     cdef set_allele_idx_offsets_internal(self, np.ndarray[np.uintp_t,mode="c",ndim=1] allele_idx_offsets):
         # Make a copy instead of trying to share this with the caller.
@@ -540,16 +556,16 @@ cdef class PgenReader:
                   object allele_idx_offsets = None, object pvar = None):
         self._temp_file = None
         self._temp_filename = None
-        self._s3_context = None
+        self._pyfl_context = None
         
         # Handle file-like objects using the helper function
         cdef bytes fname_bytes
         cdef PglFileInterface* file_iface = NULL
         cdef long interface_ptr
         if hasattr(filename, 'read'):
-            # Create S3 file interface for file-like objects
-            self._s3_context = S3FileInterface(filename)
-            interface_ptr = self._s3_context.get_interface()
+            # Create Python file-like interface for file-like objects
+            self._pyfl_context = PyflFileInterface(filename)
+            interface_ptr = self._pyfl_context.get_interface()
             file_iface = <PglFileInterface*>interface_ptr
         elif isinstance(filename, str):
             fname_bytes = filename.encode('utf-8')
