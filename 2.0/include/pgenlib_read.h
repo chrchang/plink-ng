@@ -30,6 +30,33 @@
 namespace plink2 {
 #endif
 
+// Generic file interface to abstract FILE* operations
+// This allows replacement with Python file-like objects or other custom implementations
+typedef struct PglFileInterface {
+  // Context pointer (e.g., FILE* or Python object)
+  void* context;
+  
+  // Function pointers for file operations
+  // Returns 0 on success, non-zero on error
+  int (*seek)(void* context, int64_t offset, int whence);  // like fseeko
+  int64_t (*tell)(void* context);  // like ftello, returns position or -1 on error
+  int (*rewind)(void* context);  // like rewind, returns 0 on success
+  size_t (*read)(void* context, void* buffer, size_t size, size_t count);  // like fread
+  int (*eof)(void* context);  // like feof
+  int (*close)(void* context);  // like fclose, returns 0 on success
+  // Unlocked versions for thread-unsafe but faster operations
+  size_t (*read_unlocked)(void* context, void* buffer, size_t size, size_t count);  // like fread_unlocked
+  int (*pgl_getc_unlocked)(void* context);  // like getc_unlocked
+  int (*pgl_error_unlocked)(void* context);  // like ferror_unlocked
+  int (*pgl_eof_unlocked)(void* context);  // like feof_unlocked
+} PglFileInterface;
+
+// Helper function to create a PglFileInterface from a FILE*
+PglFileInterface* PglCreateFileInterface(FILE* file_ptr);
+
+// Helper function to destroy a PglFileInterface
+void PglDestroyFileInterface(PglFileInterface* file_interface);
+
 FLAGSET_DEF_START()
   kfPgrLdcache0,
   kfPgrLdcacheNyp = (1 << 0),
@@ -99,12 +126,12 @@ typedef struct PgenFileInfoStruct {
   // if using per-variant fread(), this is non-null during PgenFileInfo
   // initialization, but it's then "moved" to the first Pgen_reader and set to
   // nullptr.
-  FILE* shared_ff;
+  PglFileInterface* shared_ff;
 
   // can only be non-null after PgfiInitPhase1 and before PgfiInitPhase2 /
   // PgfiInitLoadExts, and only if the external-index-file representation is
   // used.
-  FILE* pgi_ff;
+  PglFileInterface* pgi_ff;
 
   const unsigned char* block_base;  // nullptr if using per-variant fread()
   uint64_t block_offset;
@@ -121,7 +148,7 @@ typedef struct PgenReaderMainStruct {
   uint32_t fp_vidx;
 
   // ** per-variant fread()-only **
-  FILE* ff;
+  PglFileInterface* ff;
   unsigned char* fread_buf;
   // ** end per-variant fread()-only **
 

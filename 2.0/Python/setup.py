@@ -75,7 +75,7 @@ ext_modules = [
               extra_compile_args = ["-std=c++11", "-Wno-unused-function", "-Wno-cpp", "-DNO_CPP11_TYPE_ENFORCEMENT", "-DZSTD_DISABLE_ASM", "-DLIBDEFLATE_STATIC"],
               extra_link_args = ["-std=c++11", "-lz"],
               include_dirs = [np.get_include()] + ['src/plink2/libdeflate']
-              )
+              ),
     ]
 
 setuptools.setup(

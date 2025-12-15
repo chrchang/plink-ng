@@ -1,8 +1,10 @@
 # cython: language_level=3
-# from libc.stdlib cimport malloc, free
-from libc.stdint cimport int64_t, uintptr_t, uint32_t, int32_t, uint16_t, uint8_t, int8_t
+from libc.stdlib cimport malloc, free
+from libc.stdint cimport int64_t, uint64_t, uintptr_t, uint32_t, int32_t, uint16_t, uint8_t, int8_t
+from libc.stddef cimport size_t
 from libc.string cimport memcpy
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
+
 # from cpython.view cimport array as cvarray
 from cython.parallel import prange
 import numpy as np
@@ -184,6 +186,8 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
 
     PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf)
 
+    PglErr PgfiInitPhase1_FileInterface(PglFileInterface* file_iface, const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf)
+
     PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf)
 
     cdef struct PgenReaderStruct:
@@ -218,6 +222,19 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
 
     BoolErr CleanupPgfi(PgenFileInfo* pgfip, PglErr* reterrp)
     BoolErr CleanupPgr(PgenReaderStruct* pgr_ptr, PglErr* reterrp)
+
+    cdef struct PglFileInterface:
+        void* context
+        int (*seek)(void* context, int64_t offset, int whence) noexcept
+        int64_t (*tell)(void* context) noexcept
+        int (*rewind)(void* context) noexcept
+        size_t (*read)(void* context, void* buffer, size_t size, size_t count) noexcept
+        int (*eof)(void* context) noexcept
+        int (*close)(void* context) noexcept
+        size_t (*read_unlocked)(void* context, void* buffer, size_t size, size_t count) noexcept
+        int (*pgl_getc_unlocked)(void* context) noexcept
+        int (*pgl_error_unlocked)(void* context) noexcept
+        int (*pgl_eof_unlocked)(void* context) noexcept
 
 
 cdef extern from "../plink2/include/pgenlib_write.h" namespace "plink2":
@@ -254,6 +271,83 @@ cdef extern from "../plink2/include/pgenlib_write.h" namespace "plink2":
     PglErr SpgwFinish(STPgenWriter* spgwp)
 
     BoolErr CleanupSpgw(STPgenWriter* spgwp, PglErr* reterrp)
+
+
+cdef class S3FileInterface:
+    cdef object s3file
+    cdef PglFileInterface* pgl_interface
+
+    def __cinit__(self, s3file):
+        self.s3file = s3file
+        self.pgl_interface = create_s3_pgl_interface(<void*>self)
+
+    def get_interface(self):
+        # Return as int for passing to C, not as Python object
+        return <long>self.pgl_interface
+
+cdef int s3_seek(void* context, int64_t offset, int whence) noexcept:
+    pyself = <S3FileInterface>context
+    pyself.s3file.seek(offset, whence)
+    return 0
+
+cdef int64_t s3_tell(void* context) noexcept:
+    pyself = <S3FileInterface>context
+    return pyself.s3file.tell()
+
+cdef int s3_rewind(void* context) noexcept:
+    pyself = <S3FileInterface>context
+    pyself.s3file.seek(0)
+    return 0
+
+cdef size_t s3_read(void* context, void* buffer, size_t size, size_t count) noexcept:
+    pyself = <S3FileInterface>context
+    data = pyself.s3file.read(size * count)
+    n = len(data)
+    memcpy(buffer, <const char*>data, n)
+    return n // size if size else 0
+
+cdef int s3_eof(void* context) noexcept:
+    pyself = <S3FileInterface>context
+    try:
+        return pyself.s3file.tell() >= pyself.s3file.size
+    except AttributeError:
+        return 0
+
+cdef int s3_close(void* context) noexcept:
+    pyself = <S3FileInterface>context
+    pyself.s3file.close()
+    return 0
+
+cdef size_t s3_read_unlocked(void* context, void* buffer, size_t size, size_t count) noexcept:
+    return s3_read(context, buffer, size, count)
+
+cdef int s3_getc_unlocked(void* context) noexcept:
+    pyself = <S3FileInterface>context
+    data = pyself.s3file.read(1)
+    if not data:
+        return -1
+    return data[0]
+
+cdef int s3_error_unlocked(void* context) noexcept:
+    return 0
+
+cdef int s3_eof_unlocked(void* context) noexcept:
+    return s3_eof(context)
+
+cdef PglFileInterface* create_s3_pgl_interface(void* context):
+    cdef PglFileInterface* iface = <PglFileInterface*>malloc(sizeof(PglFileInterface))
+    iface.context = context
+    iface.seek = s3_seek
+    iface.tell = s3_tell
+    iface.rewind = s3_rewind
+    iface.read = s3_read
+    iface.eof = s3_eof
+    iface.close = s3_close
+    iface.read_unlocked = s3_read_unlocked
+    iface.pgl_getc_unlocked = s3_getc_unlocked
+    iface.pgl_error_unlocked = s3_error_unlocked
+    iface.pgl_eof_unlocked = s3_eof_unlocked
+    return iface
 
 
 cdef class PvarReader:
@@ -391,6 +485,7 @@ cdef class PgenReader:
     # For file-like object support
     cdef object _temp_file
     cdef bytes _temp_filename
+    cdef object _s3_context  # Keep S3FileInterface alive
 
     cdef set_allele_idx_offsets_internal(self, np.ndarray[np.uintp_t,mode="c",ndim=1] allele_idx_offsets):
         # Make a copy instead of trying to share this with the caller.
@@ -445,24 +540,17 @@ cdef class PgenReader:
                   object allele_idx_offsets = None, object pvar = None):
         self._temp_file = None
         self._temp_filename = None
+        self._s3_context = None
         
-        # Handle file-like objects
+        # Handle file-like objects using the helper function
         cdef bytes fname_bytes
+        cdef PglFileInterface* file_iface = NULL
+        cdef long interface_ptr
         if hasattr(filename, 'read'):
-            # It's a file-like object
-            self._temp_file = tempfile.NamedTemporaryFile(delete=False)
-            
-            # Copy data from file-like object to temporary file
-            filename.seek(0)  # Start from beginning
-            while True:
-                chunk = filename.read(8192)  # Read in chunks
-                if not chunk:
-                    break
-                self._temp_file.write(chunk)
-            
-            self._temp_file.close()
-            self._temp_filename = self._temp_file.name.encode('utf-8')
-            fname_bytes = self._temp_filename
+            # Create S3 file interface for file-like objects
+            self._s3_context = S3FileInterface(filename)
+            interface_ptr = self._s3_context.get_interface()
+            file_iface = <PglFileInterface*>interface_ptr
         elif isinstance(filename, str):
             fname_bytes = filename.encode('utf-8')
         elif isinstance(filename, bytes):
@@ -493,12 +581,20 @@ cdef class PgenReader:
                 allele_idx_offsets = pr.get_allele_idx_offsets()
         if variant_ct is not None:
             cur_variant_ct = variant_ct
-        cdef const char* fname = <const char*>fname_bytes
+        
+        cdef const char* fname = NULL  # Initialize fname
         cdef PgenHeaderCtrl header_ctrl
         cdef uintptr_t pgfi_alloc_cacheline_ct
         cdef char errstr_buf[kPglErrstrBufBlen]
-        if PgfiInitPhase1(fname, NULL, cur_variant_ct, cur_sample_ct, &header_ctrl, self._info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf) != kPglRetSuccess:
-            raise RuntimeError(errstr_buf[7:])
+        
+        # Use the appropriate initialization function
+        if file_iface != NULL:
+            if PgfiInitPhase1_FileInterface(file_iface, NULL, "opened file", cur_variant_ct, cur_sample_ct, &header_ctrl, self._info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf) != kPglRetSuccess:
+                raise RuntimeError(errstr_buf[7:])
+        else:
+            fname = <const char*>fname_bytes
+            if PgfiInitPhase1(fname, NULL, cur_variant_ct, cur_sample_ct, &header_ctrl, self._info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf) != kPglRetSuccess:
+                raise RuntimeError(errstr_buf[7:])
         cdef uint32_t file_variant_ct = self._info_ptr[0].raw_variant_ct
         if allele_idx_offsets is not None:
             self.set_allele_idx_offsets_internal(allele_idx_offsets)
@@ -545,7 +641,14 @@ cdef class PgenReader:
         cdef unsigned char* pgr_alloc
         if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglNypTransposeBatch + 7) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglNypTransposeBatch) * genovec_byte_ct + patch_01_vals_byte_ct + patch_10_vals_byte_ct + dosage_main_byte_ct + kPglBitTransposeBufbytes + 4 * (kPglNypTransposeBatch * kPglNypTransposeBatch // 8), &pgr_alloc):
             raise MemoryError()
-        cdef PglErr reterr = PgrInit(fname, max_vrec_width, self._info_ptr, self._state_ptr, pgr_alloc)
+        
+        # Use appropriate fname for PgrInit (placeholder for file interface)
+        cdef const char* pgr_fname
+        if file_iface == NULL:
+            pgr_fname = fname
+        else:
+            pgr_fname = b"<file_interface>"
+        cdef PglErr reterr = PgrInit(pgr_fname, max_vrec_width, self._info_ptr, self._state_ptr, pgr_alloc)
         if reterr != kPglRetSuccess:
             if not PgrGetFreadBuf(self._state_ptr):
                 aligned_free(pgr_alloc)
