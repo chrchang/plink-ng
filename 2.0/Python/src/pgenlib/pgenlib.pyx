@@ -357,11 +357,12 @@ cdef PglFileInterface* create_pyfl_pgl_interface(void* context):
     iface.close = pyfl_close
     iface.read_unlocked = pyfl_read_unlocked
     iface.pgl_getc_unlocked = pyfl_getc_unlocked
-        iface.pgl_error_unlocked = pyfl_error_unlocked
-        iface.pyfl_error_unlocked = pyfl_error_unlocked
+    iface.pgl_error_unlocked = pyfl_error_unlocked
     iface.pgl_eof_unlocked = pyfl_eof_unlocked
     return iface
-def pyfl_error_unlocked(void* context) noexcept:
+
+
+cdef int pyfl_error_unlocked(void* context) noexcept:
     # No error state for Python file-like objects by default
     return 0
 

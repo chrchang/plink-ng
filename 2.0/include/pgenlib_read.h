@@ -468,6 +468,8 @@ void PreinitPgfi(PgenFileInfo* pgfip);
 //   2^31 - 2].
 PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf);
 
+PglErr PgfiInitPhase1_FileInterface(PglFileInterface* file_iface, const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf);
+
 // If allele_cts_already_loaded is set, but they're present in the file,
 // they'll be validated; similarly for nonref_flags_already_loaded.
 //
