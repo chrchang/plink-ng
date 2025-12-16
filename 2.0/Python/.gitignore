@@ -3,3 +3,5 @@ pgenlib.c
 pgenlib.cpp
 pgenlib.so
 __pycache__
+.venv/
+.pytest_cache/

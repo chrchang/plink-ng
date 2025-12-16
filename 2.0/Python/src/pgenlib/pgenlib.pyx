@@ -288,61 +288,68 @@ cdef class PyflFileInterface:
         return <long>self.pgl_interface
 
 
-cdef int pyfl_seek(void* context, int64_t offset, int whence) noexcept:
-    pyself = <PyflFileInterface>context
-    pyself.pyfile.seek(offset, whence)
+cdef int pyfl_seek(void* context, int64_t offset, int whence) noexcept nogil:
+    with gil:
+        pyself = <PyflFileInterface>context
+        pyself.pyfile.seek(offset, whence)
     return 0
 
 
-cdef int64_t pyfl_tell(void* context) noexcept:
-    pyself = <PyflFileInterface>context
-    return pyself.pyfile.tell()
+cdef int64_t pyfl_tell(void* context) noexcept nogil:
+    with gil:
+        pyself = <PyflFileInterface>context
+        return pyself.pyfile.tell()
 
 
-cdef int pyfl_rewind(void* context) noexcept:
-    pyself = <PyflFileInterface>context
-    pyself.pyfile.seek(0)
+cdef int pyfl_rewind(void* context) noexcept nogil:
+    with gil:
+        pyself = <PyflFileInterface>context
+        pyself.pyfile.seek(0)
     return 0
 
 
-cdef size_t pyfl_read(void* context, void* buffer, size_t size, size_t count) noexcept:
-    pyself = <PyflFileInterface>context
-    data = pyself.pyfile.read(size * count)
-    n = len(data)
-    memcpy(buffer, <const char*>data, n)
-    return n // size if size else 0
+cdef size_t pyfl_read(void* context, void* buffer, size_t size, size_t count) noexcept nogil:
+    with gil:
+        pyself = <PyflFileInterface>context
+        data = pyself.pyfile.read(size * count)
+        n = len(data)
+        memcpy(buffer, <const char*>data, n)
+        return n // size if size else 0
 
 
-cdef int pyfl_eof(void* context) noexcept:
-    pyself = <PyflFileInterface>context
-    try:
-        return pyself.pyfile.tell() >= pyself.pyfile.size
-    except AttributeError:
-        return 0
+cdef int pyfl_eof(void* context) noexcept nogil:
+    with gil:
+        pyself = <PyflFileInterface>context
+        try:
+            return pyself.pyfile.tell() >= pyself.pyfile.size
+        except AttributeError:
+            return 0
 
 
-cdef int pyfl_close(void* context) noexcept:
-    pyself = <PyflFileInterface>context
-    pyself.pyfile.close()
+cdef int pyfl_close(void* context) noexcept nogil:
+    with gil:
+        pyself = <PyflFileInterface>context
+        pyself.pyfile.close()
     return 0
 
 
-cdef size_t pyfl_read_unlocked(void* context, void* buffer, size_t size, size_t count) noexcept:
+cdef size_t pyfl_read_unlocked(void* context, void* buffer, size_t size, size_t count) noexcept nogil:
     return pyfl_read(context, buffer, size, count)
 
 
-cdef int pyfl_getc_unlocked(void* context) noexcept:
-    pyself = <PyflFileInterface>context
-    data = pyself.pyfile.read(1)
-    if not data:
-        return -1
-    return data[0]
+cdef int pyfl_getc_unlocked(void* context) noexcept nogil:
+    with gil:
+        pyself = <PyflFileInterface>context
+        data = pyself.pyfile.read(1)
+        if not data:
+            return -1
+        return data[0]
 
     # ...existing code...
     return 0
 
 
-cdef int pyfl_eof_unlocked(void* context) noexcept:
+cdef int pyfl_eof_unlocked(void* context) noexcept nogil:
     return pyfl_eof(context)
 
 
@@ -362,7 +369,7 @@ cdef PglFileInterface* create_pyfl_pgl_interface(void* context):
     return iface
 
 
-cdef int pyfl_error_unlocked(void* context) noexcept:
+cdef int pyfl_error_unlocked(void* context) noexcept nogil:
     # No error state for Python file-like objects by default
     return 0
 
@@ -552,7 +559,7 @@ cdef class PgenReader:
         return
 
 
-    def __cinit__(self, object filename, object raw_sample_ct = None,
+    def __cinit__(self, object filelike_or_filename, object raw_sample_ct = None,
                   object variant_ct = None, object sample_subset = None,
                   object allele_idx_offsets = None, object pvar = None):
         self._temp_file = None
@@ -563,17 +570,36 @@ cdef class PgenReader:
         cdef bytes fname_bytes
         cdef PglFileInterface* file_iface = NULL
         cdef long interface_ptr
-        if hasattr(filename, 'read'):
-            # Create Python file-like interface for file-like objects
-            self._pyfl_context = PyflFileInterface(filename)
-            interface_ptr = self._pyfl_context.get_interface()
-            file_iface = <PglFileInterface*>interface_ptr
-        elif isinstance(filename, str):
-            fname_bytes = filename.encode('utf-8')
-        elif isinstance(filename, bytes):
-            fname_bytes = filename
+        if hasattr(filelike_or_filename, 'read'):
+            # Check if the file-like object has a real file descriptor
+            # If so, we can use the fast C FILE* path via /dev/fd/<fd>
+            import os
+            import io
+            if hasattr(filelike_or_filename, 'fileno'):
+                try:
+                    fd = filelike_or_filename.fileno()
+                    # Use /dev/fd/<fd> to open the file descriptor as a regular file
+                    # This gives us full C performance with nogil support
+                    fd_path = f"/dev/fd/{fd}"
+                    fname_bytes = fd_path.encode('utf-8')
+                    # Keep the original file object alive so the fd doesn't get closed
+                    self._temp_file = filelike_or_filename
+                except (AttributeError, OSError, io.UnsupportedOperation):
+                    # fileno() failed or isn't a real file descriptor, fall back to Python callbacks
+                    self._pyfl_context = PyflFileInterface(filelike_or_filename)
+                    interface_ptr = self._pyfl_context.get_interface()
+                    file_iface = <PglFileInterface*>interface_ptr
+            else:
+                # No fileno(), use Python callbacks (e.g., BytesIO, s3fs)
+                self._pyfl_context = PyflFileInterface(filelike_or_filename)
+                interface_ptr = self._pyfl_context.get_interface()
+                file_iface = <PglFileInterface*>interface_ptr
+        elif isinstance(filelike_or_filename, str):
+            fname_bytes = filelike_or_filename.encode('utf-8')
+        elif isinstance(filelike_or_filename, bytes):
+            fname_bytes = filelike_or_filename
         else:
-            raise TypeError("filename must be a string, bytes, or file-like object")
+            raise TypeError("filelike_or_filename must be a string, bytes, or file-like object")
         
         self._info_ptr = <PgenFileInfo*>PyMem_Malloc(sizeof(PgenFileInfo))
         if not self._info_ptr:
