@@ -1642,24 +1642,25 @@ static const double kIvnD[] =
 static const double kIvnLow = 0.02425;
 static const double kIvnHigh = 0.97575;
 
-double QuantileToZscore(double pp) {
-  // assumes 0 < pp < 1
+double QuantileToZscore(double pval) {
+  // This was named ltqnorm() in PLINK 1.x.
+  // assumes 0 < pval < 1
   double q, r;
 
-  if (pp < kIvnLow) {
+  if (pval < kIvnLow) {
     // Rational approximation for lower region
-    q = sqrt(-2*log(pp));
+    q = sqrt(-2*log(pval));
     return (((((kIvnC[0]*q+kIvnC[1])*q+kIvnC[2])*q+kIvnC[3])*q+kIvnC[4])*q+kIvnC[5]) /
       ((((kIvnD[0]*q+kIvnD[1])*q+kIvnD[2])*q+kIvnD[3])*q+1);
   }
-  if (pp > kIvnHigh) {
+  if (pval > kIvnHigh) {
     // Rational approximation for upper region
-    q  = sqrt(-2*log(1-pp));
+    q  = sqrt(-2*log(1-pval));
     return -(((((kIvnC[0]*q+kIvnC[1])*q+kIvnC[2])*q+kIvnC[3])*q+kIvnC[4])*q+kIvnC[5]) /
       ((((kIvnD[0]*q+kIvnD[1])*q+kIvnD[2])*q+kIvnD[3])*q+1);
   }
   // Rational approximation for central region
-  q = pp - 0.5;
+  q = pval - 0.5;
   r = q*q;
   return (((((kIvnA[0]*r+kIvnA[1])*r+kIvnA[2])*r+kIvnA[3])*r+kIvnA[4])*r+kIvnA[5])*q /
     (((((kIvnB[0]*r+kIvnB[1])*r+kIvnB[2])*r+kIvnB[3])*r+kIvnB[4])*r+1);

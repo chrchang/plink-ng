@@ -753,15 +753,15 @@ BoolErr LogisticRegressionResidualizedF(const float* yy, const float* xx, const 
     return 1;
   }
   const uintptr_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kFloatPerFVec);
-  const uint32_t domdev_present_p1 = cc_residualize->domdev_present_p1;
-  for (uint32_t geno_idx = 0; geno_idx != domdev_present_p1; ++geno_idx) {
+  const uint32_t domdev_third_p1 = cc_residualize->domdev_third_p1;
+  for (uint32_t geno_idx = 0; geno_idx != domdev_third_p1; ++geno_idx) {
     CopyAndMeanCenterF(&(xx[(geno_idx + 1) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[geno_idx * nm_sample_ctav]));
   }
   const uint32_t prefitted_pred_ct = cc_residualize->prefitted_pred_ct;
-  const uint32_t orig_biallelic_predictor_ct = domdev_present_p1 + prefitted_pred_ct;
+  const uint32_t orig_biallelic_predictor_ct = domdev_third_p1 + prefitted_pred_ct;
   const uint32_t extra_allele_ct = orig_predictor_ct - orig_biallelic_predictor_ct;
   for (uint32_t extra_allele_idx = 0; extra_allele_idx != extra_allele_ct; ++extra_allele_idx) {
-    CopyAndMeanCenterF(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_present_p1) * nm_sample_ctav]));
+    CopyAndMeanCenterF(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_third_p1) * nm_sample_ctav]));
   }
   const float* sample_offsets = cc_residualize->logistic_nm_sample_offsets_f;
   if (nm_sample_ct != cc_residualize->sample_ct) {
@@ -777,7 +777,7 @@ BoolErr LogisticRegressionResidualizedF(const float* yy, const float* xx, const 
     sample_offsets = sample_offsets_buf;
   }
   // genotype, domdev?, other alleles
-  const uint32_t regressed_predictor_ct = domdev_present_p1 + extra_allele_ct;
+  const uint32_t regressed_predictor_ct = domdev_third_p1 + extra_allele_ct;
   const uint32_t regressed_predictor_ctav = RoundUpPow2(regressed_predictor_ct, kFloatPerFVec);
   if (LogisticRegressionF(yy, mean_centered_pmaj_buf, sample_offsets, nm_sample_ct, regressed_predictor_ct, &(coef[1]), is_unfinished_ptr, ll, pp, vv, hh, grad, dcoef)) {
     return 1;
@@ -1013,15 +1013,15 @@ BoolErr FirthRegressionF(const float* yy, const float* xx, const float* sample_o
 BoolErr FirthRegressionResidualizedF(const float* yy, const float* xx, const uintptr_t* sample_nm, const CcResidualizeCtx* cc_residualize, uint32_t nm_sample_ct, uint32_t orig_predictor_ct, float* beta, uint32_t* is_unfinished_ptr, float* hh, double* half_inverted_buf, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* ustar, float* delta, float* hdiag, float* ww, float* hh0_buf, float* tmpnxk_buf, float* mean_centered_pmaj_buf, float* sample_offsets_buf) {
   // todo: deduplicate with LogisticRegressionResidualizedF()
   const uintptr_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kFloatPerFVec);
-  const uint32_t domdev_present_p1 = cc_residualize->domdev_present_p1;
-  for (uint32_t geno_idx = 0; geno_idx != domdev_present_p1; ++geno_idx) {
+  const uint32_t domdev_third_p1 = cc_residualize->domdev_third_p1;
+  for (uint32_t geno_idx = 0; geno_idx != domdev_third_p1; ++geno_idx) {
     CopyAndMeanCenterF(&(xx[(geno_idx + 1) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[geno_idx * nm_sample_ctav]));
   }
   const uint32_t prefitted_pred_ct = cc_residualize->prefitted_pred_ct;
-  const uint32_t orig_biallelic_predictor_ct = domdev_present_p1 + prefitted_pred_ct;
+  const uint32_t orig_biallelic_predictor_ct = domdev_third_p1 + prefitted_pred_ct;
   const uint32_t extra_allele_ct = orig_predictor_ct - orig_biallelic_predictor_ct;
   for (uint32_t extra_allele_idx = 0; extra_allele_idx != extra_allele_ct; ++extra_allele_idx) {
-    CopyAndMeanCenterF(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_present_p1) * nm_sample_ctav]));
+    CopyAndMeanCenterF(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_third_p1) * nm_sample_ctav]));
   }
   const float* sample_offsets = cc_residualize->firth_nm_sample_offsets_f;
   if (nm_sample_ct != cc_residualize->sample_ct) {
@@ -1035,7 +1035,7 @@ BoolErr FirthRegressionResidualizedF(const float* yy, const float* xx, const uin
     ZeroFArr(remainder, &(sample_offsets_buf[nm_sample_ct]));
     sample_offsets = sample_offsets_buf;
   }
-  const uint32_t regressed_predictor_ct = domdev_present_p1 + extra_allele_ct;
+  const uint32_t regressed_predictor_ct = domdev_third_p1 + extra_allele_ct;
   const uint32_t regressed_predictor_ctav = RoundUpPow2(regressed_predictor_ct, kFloatPerFVec);
   if (FirthRegressionF(yy, mean_centered_pmaj_buf, sample_offsets, nm_sample_ct, regressed_predictor_ct, &(beta[1]), is_unfinished_ptr, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf, pp, vv, ustar, delta, hdiag, ww, hh0_buf, tmpnxk_buf)) {
     return 1;
@@ -1053,7 +1053,7 @@ BoolErr FirthRegressionResidualizedF(const float* yy, const float* xx, const uin
   return 0;
 }
 
-uintptr_t GetLogisticWorkspaceSizeF(uint32_t sample_ct, uint32_t biallelic_predictor_ct, uint32_t domdev_present_p1, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct, uint32_t gcount_cc, uint32_t is_sometimes_firth, uint32_t is_cc_residualize) {
+uintptr_t GetLogisticWorkspaceSizeF(uint32_t sample_ct, uint32_t biallelic_predictor_ct, uint32_t domdev_third_p1, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct, uint32_t gcount_cc, uint32_t is_sometimes_firth, uint32_t is_cc_residualize) {
   // sample_ctav * max_predictor_ct < 2^31, and sample_ct >=
   // biallelic_predictor_ct, so no overflows?
   // could round everything up to multiples of 16 instead of 64
@@ -1127,9 +1127,9 @@ uintptr_t GetLogisticWorkspaceSizeF(uint32_t sample_ct, uint32_t biallelic_predi
     workspace_size += RoundUpPow2(max_predictor_ct * sample_ctav * sizeof(float), kCacheline);
   }
   if (is_cc_residualize) {
-    // mean_centered_pmaj_buf = (domdev_present_p1 + max_extra_allele_ct) *
+    // mean_centered_pmaj_buf = (domdev_third_p1 + max_extra_allele_ct) *
     //   sample_ctav floats
-    workspace_size += RoundUpPow2((domdev_present_p1 + max_extra_allele_ct) * sample_ctav * sizeof(float), kCacheline);
+    workspace_size += RoundUpPow2((domdev_third_p1 + max_extra_allele_ct) * sample_ctav * sizeof(float), kCacheline);
 
     // sample_offsets_buf
     workspace_size += RoundUpPow2(sample_ctav * sizeof(float), kCacheline);
@@ -1184,12 +1184,11 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
   const uint32_t model_dominant = (glm_flags / kfGlmDominant) & 1;
   const uint32_t model_recessive = (glm_flags / kfGlmRecessive) & 1;
   const uint32_t model_hetonly = (glm_flags / kfGlmHetonly) & 1;
-  const uint32_t joint_genotypic = (glm_flags / kfGlmGenotypic) & 1;
-  const uint32_t joint_hethom = (glm_flags / kfGlmHethom) & 1;
+  const uint32_t model_hethom = (glm_flags / kfGlmHethom) & 1;
   const double max_corr = common->max_corr;
   const double vif_thresh = common->vif_thresh;
-  const uint32_t domdev_present = joint_genotypic || joint_hethom;
-  const uint32_t domdev_present_p1 = domdev_present + 1;
+  const uint32_t domdev_third = model_hethom || (glm_flags & kfGlmGenotypic);
+  const uint32_t domdev_third_p1 = domdev_third + 1;
   const uint32_t reported_pred_uidx_start = 1 - include_intercept;
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
@@ -1198,7 +1197,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
   const uintptr_t local_covar_ct = common->local_covar_ct;
   const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
   // bugfix (20 Mar 2020): Also need to exclude dominant/recessive.
-  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!model_dominant) && (!model_recessive) && (!model_hetonly) && (!common->tests_flag) && (!add_interactions);
+  const uint32_t beta_se_multiallelic_fused = (!domdev_third) && (!model_dominant) && (!model_recessive) && (!model_hetonly) && (!common->tests_flag) && (!add_interactions);
   uintptr_t max_sample_ct = MAXV(common->sample_ct, common->sample_ct_x);
   if (max_sample_ct < common->sample_ct_y) {
     max_sample_ct = common->sample_ct_y;
@@ -1317,21 +1316,21 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
       const uint32_t sample_ctl = BitCtToWordCt(cur_sample_ct);
       const uint32_t sample_ctav = RoundUpPow2(cur_sample_ct, kFloatPerFVec);
       const uint32_t cur_case_ct = PopcountWords(cur_pheno_cc, sample_ctl);
-      const uint32_t cur_biallelic_predictor_ct_base = 2 + domdev_present + cur_covar_ct * (1 + add_interactions * domdev_present_p1);
+      const uint32_t cur_biallelic_predictor_ct_base = 2 + domdev_third + cur_covar_ct * (1 + add_interactions * domdev_third_p1);
       uint32_t cur_biallelic_predictor_ct = cur_biallelic_predictor_ct_base;
       uint32_t literal_covar_ct = cur_covar_ct;
       if (cur_parameter_subset) {
         cur_biallelic_predictor_ct = PopcountWords(cur_parameter_subset, BitCtToWordCt(cur_biallelic_predictor_ct_base));
-        literal_covar_ct = PopcountBitRange(cur_parameter_subset, 2 + domdev_present, 2 + domdev_present + cur_covar_ct);
+        literal_covar_ct = PopcountBitRange(cur_parameter_subset, 2 + domdev_third, 2 + domdev_third + cur_covar_ct);
       }
       const uint32_t max_predictor_ct = cur_biallelic_predictor_ct + max_extra_allele_ct;
       const uint32_t max_predictor_ctav = RoundUpPow2(max_predictor_ct, kFloatPerFVec);
       uint32_t reported_pred_uidx_biallelic_end;
       if (hide_covar) {
         if (!cur_parameter_subset) {
-          reported_pred_uidx_biallelic_end = 2 + domdev_present;
+          reported_pred_uidx_biallelic_end = 2 + domdev_third;
         } else {
-          reported_pred_uidx_biallelic_end = 1 + IsSet(cur_parameter_subset, 1) + domdev_present;
+          reported_pred_uidx_biallelic_end = 1 + IsSet(cur_parameter_subset, 1) + domdev_third;
         }
       } else {
         reported_pred_uidx_biallelic_end = cur_biallelic_predictor_ct;
@@ -1351,7 +1350,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
       //    interaction, we want a copy of what the main genotype column's
       //    contents would have been to refer to.
       const uint32_t main_omitted = cur_parameter_subset && (!IsSet(cur_parameter_subset, 1));
-      const uint32_t main_mutated = model_dominant || model_recessive || model_hetonly || joint_hethom;
+      const uint32_t main_mutated = model_dominant || model_recessive || model_hetonly || model_hethom;
       unsigned char* workspace_iter = workspace_buf;
       uintptr_t* sample_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
       uintptr_t* pheno_cc_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
@@ -1404,7 +1403,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
       float* mean_centered_pmaj_buf = nullptr;
       float* sample_offsets_buf = nullptr;
       if (cur_cc_residualize) {
-        mean_centered_pmaj_buf = S_CAST(float*, arena_alloc_raw_rd(sample_ctav * sizeof(float) * (domdev_present_p1 + max_extra_allele_ct), &workspace_iter));
+        mean_centered_pmaj_buf = S_CAST(float*, arena_alloc_raw_rd(sample_ctav * sizeof(float) * (domdev_third_p1 + max_extra_allele_ct), &workspace_iter));
         sample_offsets_buf = S_CAST(float*, arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter));
       }
 
@@ -1427,17 +1426,17 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
         // Rest of this matrix must be updated later, since cur_predictor_ct
         // changes at multiallelic variants.
       }
-      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetLogisticWorkspaceSizeF(cur_sample_ct, cur_biallelic_predictor_ct, domdev_present_p1, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, cur_gcount_case_interleaved_vec != nullptr, is_sometimes_firth, cur_cc_residualize != nullptr));
+      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetLogisticWorkspaceSizeF(cur_sample_ct, cur_biallelic_predictor_ct, domdev_third_p1, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, cur_gcount_case_interleaved_vec != nullptr, is_sometimes_firth, cur_cc_residualize != nullptr));
       const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
       const double cur_sample_ct_m1_recip = 1.0 / u31tod(cur_sample_ct - 1);
       const double* corr_inv = nullptr;
       if (nm_precomp) {
         memcpy(semicomputed_biallelic_xtx, nm_precomp->xtx_image, cur_biallelic_predictor_ct * cur_biallelic_predictor_ct * sizeof(double));
         corr_inv = nm_precomp->corr_inv;
-        const uintptr_t nongeno_pred_ct = cur_biallelic_predictor_ct - domdev_present - 2;
+        const uintptr_t nongeno_pred_ct = cur_biallelic_predictor_ct - domdev_third - 2;
         const uintptr_t nonintercept_biallelic_pred_ct = cur_biallelic_predictor_ct - 1;
         memcpy(semicomputed_biallelic_corr_matrix, nm_precomp->corr_image, nonintercept_biallelic_pred_ct * nonintercept_biallelic_pred_ct * sizeof(double));
-        memcpy(&(semicomputed_biallelic_inv_corr_sqrts[domdev_present_p1]), nm_precomp->corr_inv_sqrts, nongeno_pred_ct * sizeof(double));
+        memcpy(&(semicomputed_biallelic_inv_corr_sqrts[domdev_third_p1]), nm_precomp->corr_inv_sqrts, nongeno_pred_ct * sizeof(double));
       }
       PgrSampleSubsetIndex pssi;
       PgrSetSampleSubsetIndex(cur_sample_include_cumulative_popcounts, pgrp, &pssi);
@@ -1997,7 +1996,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
             a1_dosages[omitted_allele_idx] = omitted_dosage;
             a1_case_dosages[omitted_allele_idx] = omitted_case_dosage;
           }
-          uint32_t parameter_uidx = 2 + domdev_present;
+          uint32_t parameter_uidx = 2 + domdev_third;
           float* nm_predictors_pmaj_istart = nullptr;
           // only need to do this part once per variant in multiallelic case
           float* nm_predictors_pmaj_iter = &(nm_predictors_pmaj_buf[nm_sample_ctav * (parameter_uidx - main_omitted)]);
@@ -2108,7 +2107,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
               // if main_mutated, this will be filled below
               // if not, this aliases genotype_vals
               main_vals = &(nm_predictors_pmaj_buf[(cur_predictor_ct + main_mutated) * nm_sample_ctav]);
-            } else if (joint_genotypic || joint_hethom) {
+            } else if (domdev_third) {
               // in hethom case, do this before clobbering genotype data
               domdev_vals = &(main_vals[nm_sample_ctav]);
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
@@ -2129,7 +2128,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                 }
                 main_vals[sample_idx] = cur_genotype_val;
               }
-            } else if (model_recessive || joint_hethom) {
+            } else if (model_recessive || model_hethom) {
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 float cur_genotype_val = genotype_vals[sample_idx];
                 // 0..0..1
@@ -2171,7 +2170,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                   ZeromovFArr(nm_sample_ct_rem, &nm_predictors_pmaj_iter);
                 }
                 ++parameter_uidx;
-                if (domdev_present) {
+                if (domdev_third) {
                   if ((!cur_parameter_subset) || IsSet(cur_parameter_subset, parameter_uidx)) {
                     uintptr_t sample_midx_base = 0;
                     uintptr_t sample_nm_bits = sample_nm[0];
@@ -2187,8 +2186,8 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
             }
             if (corr_inv && prev_nm && (!allele_ct_m2)) {
               uintptr_t start_pred_idx = 0;
-              if (!(model_dominant || model_recessive || model_hetonly || joint_hethom)) {
-                start_pred_idx = domdev_present + 2;
+              if (!(model_dominant || model_recessive || model_hetonly || model_hethom)) {
+                start_pred_idx = domdev_third + 2;
                 semicomputed_biallelic_xtx[cur_predictor_ct] = main_dosage_sum;
                 semicomputed_biallelic_xtx[cur_predictor_ct + 1] = main_dosage_ssq;
               }
@@ -2198,14 +2197,14 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                   semicomputed_biallelic_xtx[cur_predictor_ct + uii] = S_CAST(double, predictor_dotprod_buf[uii]);
                 }
               }
-              if (domdev_present) {
+              if (domdev_third) {
                 ColMajorFvectorMatrixMultiplyStrided(&(nm_predictors_pmaj_buf[2 * nm_sample_ctav]), nm_predictors_pmaj_buf, nm_sample_ct, nm_sample_ctav, cur_predictor_ct, predictor_dotprod_buf);
                 for (uint32_t uii = 0; uii != cur_predictor_ct; ++uii) {
                   semicomputed_biallelic_xtx[2 * cur_predictor_ct + uii] = S_CAST(double, predictor_dotprod_buf[uii]);
                 }
                 semicomputed_biallelic_xtx[cur_predictor_ct + 2] = semicomputed_biallelic_xtx[2 * cur_predictor_ct + 1];
               }
-              glm_err = CheckMaxCorrAndVifNm(semicomputed_biallelic_xtx, corr_inv, cur_predictor_ct, domdev_present_p1, cur_sample_ct_recip, cur_sample_ct_m1_recip, max_corr, vif_thresh, semicomputed_biallelic_corr_matrix, semicomputed_biallelic_inv_corr_sqrts, dbl_2d_buf, &(dbl_2d_buf[2 * cur_predictor_ct]), &(dbl_2d_buf[3 * cur_predictor_ct]));
+              glm_err = CheckMaxCorrAndVifNm(semicomputed_biallelic_xtx, corr_inv, cur_predictor_ct, domdev_third_p1, cur_sample_ct_recip, cur_sample_ct_m1_recip, max_corr, vif_thresh, semicomputed_biallelic_corr_matrix, semicomputed_biallelic_inv_corr_sqrts, dbl_2d_buf, &(dbl_2d_buf[2 * cur_predictor_ct]), &(dbl_2d_buf[3 * cur_predictor_ct]));
               if (glm_err) {
                 goto GlmLogisticThreadF_skip_regression;
               }
@@ -2253,10 +2252,10 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                   goto GlmLogisticThreadF_skip_regression;
                 }
                 is_residualized = 1;
-                cur_regressed_predictor_stop = domdev_present + allele_ct;
+                cur_regressed_predictor_stop = domdev_third + allele_ct;
                 cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kFloatPerFVec);
                 cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
-                cur_biallelic_regressed_predictor_stop = domdev_present + 2;
+                cur_biallelic_regressed_predictor_stop = domdev_third + 2;
               }
               // unlike FirthRegressionF(), hh_return isn't inverted yet, do
               // that here
@@ -2310,10 +2309,10 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                   goto GlmLogisticThreadF_skip_regression;
                 }
                 is_residualized = 1;
-                cur_regressed_predictor_stop = domdev_present + allele_ct;
+                cur_regressed_predictor_stop = domdev_third + allele_ct;
                 cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kFloatPerFVec);
                 cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
-                cur_biallelic_regressed_predictor_stop = domdev_present + 2;
+                cur_biallelic_regressed_predictor_stop = domdev_third + 2;
               }
             }
             // validParameters() check
@@ -2940,15 +2939,15 @@ BoolErr LogisticRegressionResidualizedD(const double* yy, const double* xx, cons
     return 1;
   }
   const uintptr_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kDoublePerDVec);
-  const uint32_t domdev_present_p1 = cc_residualize->domdev_present_p1;
-  for (uint32_t geno_idx = 0; geno_idx != domdev_present_p1; ++geno_idx) {
+  const uint32_t domdev_third_p1 = cc_residualize->domdev_third_p1;
+  for (uint32_t geno_idx = 0; geno_idx != domdev_third_p1; ++geno_idx) {
     CopyAndMeanCenterD(&(xx[(geno_idx + 1) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[geno_idx * nm_sample_ctav]));
   }
   const uint32_t prefitted_pred_ct = cc_residualize->prefitted_pred_ct;
-  const uint32_t orig_biallelic_predictor_ct = domdev_present_p1 + prefitted_pred_ct;
+  const uint32_t orig_biallelic_predictor_ct = domdev_third_p1 + prefitted_pred_ct;
   const uint32_t extra_allele_ct = orig_predictor_ct - orig_biallelic_predictor_ct;
   for (uint32_t extra_allele_idx = 0; extra_allele_idx != extra_allele_ct; ++extra_allele_idx) {
-    CopyAndMeanCenterD(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_present_p1) * nm_sample_ctav]));
+    CopyAndMeanCenterD(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_third_p1) * nm_sample_ctav]));
   }
   const double* sample_offsets = cc_residualize->logistic_nm_sample_offsets_d;
   if (nm_sample_ct != cc_residualize->sample_ct) {
@@ -2964,7 +2963,7 @@ BoolErr LogisticRegressionResidualizedD(const double* yy, const double* xx, cons
     sample_offsets = sample_offsets_buf;
   }
   // genotype, domdev?, other alleles
-  const uint32_t regressed_predictor_ct = domdev_present_p1 + extra_allele_ct;
+  const uint32_t regressed_predictor_ct = domdev_third_p1 + extra_allele_ct;
   const uint32_t regressed_predictor_ctav = RoundUpPow2(regressed_predictor_ct, kDoublePerDVec);
   if (LogisticRegressionD(yy, mean_centered_pmaj_buf, sample_offsets, nm_sample_ct, regressed_predictor_ct, is_unfinished_ptr, &(coef[1]), ll, pp, vv, hh, grad, dcoef, inv_1d_buf, dbl_2d_buf)) {
     return 1;
@@ -3190,15 +3189,15 @@ BoolErr FirthRegressionD(const double* yy, const double* xx, const double* sampl
 BoolErr FirthRegressionResidualizedD(const double* yy, const double* xx, const uintptr_t* sample_nm, const CcResidualizeCtx* cc_residualize, uint32_t nm_sample_ct, uint32_t orig_predictor_ct, double* beta, uint32_t* is_unfinished_ptr, double* hh, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, double* pp, double* vv, double* ustar, double* delta, double* hdiag, double* ww, double* hh0_buf, double* tmpnxk_buf, double* mean_centered_pmaj_buf, double* sample_offsets_buf) {
   // todo: deduplicate with LogisticRegressionResidualizedD()
   const uintptr_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kDoublePerDVec);
-  const uint32_t domdev_present_p1 = cc_residualize->domdev_present_p1;
-  for (uint32_t geno_idx = 0; geno_idx != domdev_present_p1; ++geno_idx) {
+  const uint32_t domdev_third_p1 = cc_residualize->domdev_third_p1;
+  for (uint32_t geno_idx = 0; geno_idx != domdev_third_p1; ++geno_idx) {
     CopyAndMeanCenterD(&(xx[(geno_idx + 1) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[geno_idx * nm_sample_ctav]));
   }
   const uint32_t prefitted_pred_ct = cc_residualize->prefitted_pred_ct;
-  const uint32_t orig_biallelic_predictor_ct = domdev_present_p1 + prefitted_pred_ct;
+  const uint32_t orig_biallelic_predictor_ct = domdev_third_p1 + prefitted_pred_ct;
   const uint32_t extra_allele_ct = orig_predictor_ct - orig_biallelic_predictor_ct;
   for (uint32_t extra_allele_idx = 0; extra_allele_idx != extra_allele_ct; ++extra_allele_idx) {
-    CopyAndMeanCenterD(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_present_p1) * nm_sample_ctav]));
+    CopyAndMeanCenterD(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_third_p1) * nm_sample_ctav]));
   }
   const double* sample_offsets = cc_residualize->firth_nm_sample_offsets_d;
   if (nm_sample_ct != cc_residualize->sample_ct) {
@@ -3212,7 +3211,7 @@ BoolErr FirthRegressionResidualizedD(const double* yy, const double* xx, const u
     ZeroDArr(remainder, &(sample_offsets_buf[nm_sample_ct]));
     sample_offsets = sample_offsets_buf;
   }
-  const uint32_t regressed_predictor_ct = domdev_present_p1 + extra_allele_ct;
+  const uint32_t regressed_predictor_ct = domdev_third_p1 + extra_allele_ct;
   const uint32_t regressed_predictor_ctav = RoundUpPow2(regressed_predictor_ct, kDoublePerDVec);
   if (FirthRegressionD(yy, mean_centered_pmaj_buf, sample_offsets, nm_sample_ct, regressed_predictor_ct, &(beta[1]), is_unfinished_ptr, hh, inv_1d_buf, dbl_2d_buf, pp, vv, ustar, delta, hdiag, ww, hh0_buf, tmpnxk_buf)) {
     return 1;
@@ -3226,7 +3225,7 @@ BoolErr FirthRegressionResidualizedD(const double* yy, const double* xx, const u
   return 0;
 }
 
-BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t domdev_present_p1, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, GlmFlags glm_flags, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, double** pheno_d_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, double** covars_cmaj_d_ptr, CcResidualizeCtx** cc_residualize_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
+BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t domdev_third_p1, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, GlmFlags glm_flags, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, double** pheno_d_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, double** covars_cmaj_d_ptr, CcResidualizeCtx** cc_residualize_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
   const uint32_t is_single_prec = (glm_flags / kfGlmSinglePrecCc) & 1;
   const uintptr_t sample_ctav = is_single_prec? RoundUpPow2(sample_ct, kFloatPerFVec) : RoundUpPow2(sample_ct, kDoublePerDVec);
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
@@ -3281,7 +3280,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
       }
     }
     (*cc_residualize_ptr)->prefitted_pred_ct = 1 + new_covar_ct;
-    (*cc_residualize_ptr)->domdev_present_p1 = domdev_present_p1;
+    (*cc_residualize_ptr)->domdev_third_p1 = domdev_third_p1;
     (*cc_residualize_ptr)->sample_ct = sample_ct;
   }
   double* corr_buf = nullptr;
@@ -3495,7 +3494,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
   return 0;
 }
 
-uintptr_t GetLogisticWorkspaceSizeD(uint32_t sample_ct, uint32_t biallelic_predictor_ct, uint32_t domdev_present_p1, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct, uint32_t gcount_cc, uint32_t is_sometimes_firth, uint32_t is_cc_residualize) {
+uintptr_t GetLogisticWorkspaceSizeD(uint32_t sample_ct, uint32_t biallelic_predictor_ct, uint32_t domdev_third_p1, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct, uint32_t gcount_cc, uint32_t is_sometimes_firth, uint32_t is_cc_residualize) {
   // sample_ctav * max_predictor_ct < 2^31, and sample_ct >=
   // biallelic_predictor_ct, so no overflows?
   // could round everything up to multiples of 16 instead of 64
@@ -3570,9 +3569,9 @@ uintptr_t GetLogisticWorkspaceSizeD(uint32_t sample_ct, uint32_t biallelic_predi
     workspace_size += RoundUpPow2(max_predictor_ct * sample_ctav * sizeof(double), kCacheline);
   }
   if (is_cc_residualize) {
-    // mean_centered_pmaj_buf = (domdev_present_p1 + max_extra_allele_ct) *
+    // mean_centered_pmaj_buf = (domdev_third_p1 + max_extra_allele_ct) *
     //   sample_ctav doubles
-    workspace_size += RoundUpPow2((domdev_present_p1 + max_extra_allele_ct) * sample_ctav * sizeof(double), kCacheline);
+    workspace_size += RoundUpPow2((domdev_third_p1 + max_extra_allele_ct) * sample_ctav * sizeof(double), kCacheline);
 
     // sample_offsets_buf
     workspace_size += RoundUpPow2(sample_ctav * sizeof(double), kCacheline);
@@ -3626,12 +3625,11 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
   const uint32_t model_dominant = (glm_flags / kfGlmDominant) & 1;
   const uint32_t model_recessive = (glm_flags / kfGlmRecessive) & 1;
   const uint32_t model_hetonly = (glm_flags / kfGlmHetonly) & 1;
-  const uint32_t joint_genotypic = (glm_flags / kfGlmGenotypic) & 1;
-  const uint32_t joint_hethom = (glm_flags / kfGlmHethom) & 1;
+  const uint32_t model_hethom = (glm_flags / kfGlmHethom) & 1;
   const double max_corr = common->max_corr;
   const double vif_thresh = common->vif_thresh;
-  const uint32_t domdev_present = joint_genotypic || joint_hethom;
-  const uint32_t domdev_present_p1 = domdev_present + 1;
+  const uint32_t domdev_third = model_hethom || (glm_flags & kfGlmGenotypic);
+  const uint32_t domdev_third_p1 = domdev_third + 1;
   const uint32_t reported_pred_uidx_start = 1 - include_intercept;
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
@@ -3640,7 +3638,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
   const uintptr_t local_covar_ct = common->local_covar_ct;
   const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
   // bugfix (20 Mar 2020): Also need to exclude dominant/recessive.
-  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!model_dominant) && (!model_recessive) && (!model_hetonly) && (!common->tests_flag) && (!add_interactions);
+  const uint32_t beta_se_multiallelic_fused = (!domdev_third) && (!model_dominant) && (!model_recessive) && (!model_hetonly) && (!common->tests_flag) && (!add_interactions);
   uintptr_t max_sample_ct = MAXV(common->sample_ct, common->sample_ct_x);
   if (max_sample_ct < common->sample_ct_y) {
     max_sample_ct = common->sample_ct_y;
@@ -3758,21 +3756,21 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
       const uint32_t sample_ctl = BitCtToWordCt(cur_sample_ct);
       const uint32_t sample_ctav = RoundUpPow2(cur_sample_ct, kDoublePerDVec);
       const uint32_t cur_case_ct = PopcountWords(cur_pheno_cc, sample_ctl);
-      const uint32_t cur_biallelic_predictor_ct_base = 2 + domdev_present + cur_covar_ct * (1 + add_interactions * domdev_present_p1);
+      const uint32_t cur_biallelic_predictor_ct_base = 2 + domdev_third + cur_covar_ct * (1 + add_interactions * domdev_third_p1);
       uint32_t cur_biallelic_predictor_ct = cur_biallelic_predictor_ct_base;
       uint32_t literal_covar_ct = cur_covar_ct;
       if (cur_parameter_subset) {
         cur_biallelic_predictor_ct = PopcountWords(cur_parameter_subset, BitCtToWordCt(cur_biallelic_predictor_ct_base));
-        literal_covar_ct = PopcountBitRange(cur_parameter_subset, 2 + domdev_present, 2 + domdev_present + cur_covar_ct);
+        literal_covar_ct = PopcountBitRange(cur_parameter_subset, 2 + domdev_third, 2 + domdev_third + cur_covar_ct);
       }
       const uint32_t max_predictor_ct = cur_biallelic_predictor_ct + max_extra_allele_ct;
       const uint32_t max_predictor_ctav = RoundUpPow2(max_predictor_ct, kDoublePerDVec);
       uint32_t reported_pred_uidx_biallelic_end;
       if (hide_covar) {
         if (!cur_parameter_subset) {
-          reported_pred_uidx_biallelic_end = 2 + domdev_present;
+          reported_pred_uidx_biallelic_end = 2 + domdev_third;
         } else {
-          reported_pred_uidx_biallelic_end = 1 + IsSet(cur_parameter_subset, 1) + domdev_present;
+          reported_pred_uidx_biallelic_end = 1 + IsSet(cur_parameter_subset, 1) + domdev_third;
         }
       } else {
         reported_pred_uidx_biallelic_end = cur_biallelic_predictor_ct;
@@ -3792,7 +3790,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
       //    interaction, we want a copy of what the main genotype column's
       //    contents would have been to refer to.
       const uint32_t main_omitted = cur_parameter_subset && (!IsSet(cur_parameter_subset, 1));
-      const uint32_t main_mutated = model_dominant || model_recessive || model_hetonly || joint_hethom;
+      const uint32_t main_mutated = model_dominant || model_recessive || model_hetonly || model_hethom;
       unsigned char* workspace_iter = workspace_buf;
       uintptr_t* sample_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
       uintptr_t* pheno_cc_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
@@ -3845,7 +3843,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
       double* mean_centered_pmaj_buf = nullptr;
       double* sample_offsets_buf = nullptr;
       if (cur_cc_residualize) {
-        mean_centered_pmaj_buf = S_CAST(double*, arena_alloc_raw_rd(sample_ctav * sizeof(double) * (domdev_present_p1 + max_extra_allele_ct), &workspace_iter));
+        mean_centered_pmaj_buf = S_CAST(double*, arena_alloc_raw_rd(sample_ctav * sizeof(double) * (domdev_third_p1 + max_extra_allele_ct), &workspace_iter));
         sample_offsets_buf = S_CAST(double*, arena_alloc_raw_rd(sample_ctav * sizeof(double), &workspace_iter));
       }
 
@@ -3867,17 +3865,17 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
         // Rest of this matrix must be updated later, since cur_predictor_ct
         // changes at multiallelic variants.
       }
-      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetLogisticWorkspaceSizeD(cur_sample_ct, cur_biallelic_predictor_ct, domdev_present_p1, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, cur_gcount_case_interleaved_vec != nullptr, is_sometimes_firth, cur_cc_residualize != nullptr));
+      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetLogisticWorkspaceSizeD(cur_sample_ct, cur_biallelic_predictor_ct, domdev_third_p1, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, cur_gcount_case_interleaved_vec != nullptr, is_sometimes_firth, cur_cc_residualize != nullptr));
       const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
       const double cur_sample_ct_m1_recip = 1.0 / u31tod(cur_sample_ct - 1);
       const double* corr_inv = nullptr;
       if (nm_precomp) {
         memcpy(semicomputed_biallelic_xtx, nm_precomp->xtx_image, cur_biallelic_predictor_ct * cur_biallelic_predictor_ct * sizeof(double));
         corr_inv = nm_precomp->corr_inv;
-        const uintptr_t nongeno_pred_ct = cur_biallelic_predictor_ct - domdev_present - 2;
+        const uintptr_t nongeno_pred_ct = cur_biallelic_predictor_ct - domdev_third - 2;
         const uintptr_t nonintercept_biallelic_pred_ct = cur_biallelic_predictor_ct - 1;
         memcpy(semicomputed_biallelic_corr_matrix, nm_precomp->corr_image, nonintercept_biallelic_pred_ct * nonintercept_biallelic_pred_ct * sizeof(double));
-        memcpy(&(semicomputed_biallelic_inv_corr_sqrts[domdev_present_p1]), nm_precomp->corr_inv_sqrts, nongeno_pred_ct * sizeof(double));
+        memcpy(&(semicomputed_biallelic_inv_corr_sqrts[domdev_third_p1]), nm_precomp->corr_inv_sqrts, nongeno_pred_ct * sizeof(double));
       }
       PgrSampleSubsetIndex pssi;
       PgrSetSampleSubsetIndex(cur_sample_include_cumulative_popcounts, pgrp, &pssi);
@@ -4435,7 +4433,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
             a1_dosages[omitted_allele_idx] = omitted_dosage;
             a1_case_dosages[omitted_allele_idx] = omitted_case_dosage;
           }
-          uint32_t parameter_uidx = 2 + domdev_present;
+          uint32_t parameter_uidx = 2 + domdev_third;
           double* nm_predictors_pmaj_istart = nullptr;
           // only need to do this part once per variant in multiallelic case
           double* nm_predictors_pmaj_iter = &(nm_predictors_pmaj_buf[nm_sample_ctav * (parameter_uidx - main_omitted)]);
@@ -4545,7 +4543,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
               // if main_mutated, this will be filled below
               // if not, this aliases genotype_vals
               main_vals = &(nm_predictors_pmaj_buf[(cur_predictor_ct + main_mutated) * nm_sample_ctav]);
-            } else if (joint_genotypic || joint_hethom) {
+            } else if (domdev_third) {
               // in hethom case, do this before clobbering genotype data
               domdev_vals = &(main_vals[nm_sample_ctav]);
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
@@ -4566,7 +4564,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 }
                 main_vals[sample_idx] = cur_genotype_val;
               }
-            } else if (model_recessive || joint_hethom) {
+            } else if (model_recessive || model_hethom) {
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 double cur_genotype_val = genotype_vals[sample_idx];
                 // 0..0..1
@@ -4608,7 +4606,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                   ZeromovDArr(nm_sample_ct_rem, &nm_predictors_pmaj_iter);
                 }
                 ++parameter_uidx;
-                if (domdev_present) {
+                if (domdev_third) {
                   if ((!cur_parameter_subset) || IsSet(cur_parameter_subset, parameter_uidx)) {
                     uintptr_t sample_midx_base = 0;
                     uintptr_t sample_nm_bits = sample_nm[0];
@@ -4624,8 +4622,8 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
             }
             if (corr_inv && prev_nm && (!allele_ct_m2)) {
               uintptr_t start_pred_idx = 0;
-              if (!(model_dominant || model_recessive || model_hetonly || joint_hethom)) {
-                start_pred_idx = domdev_present + 2;
+              if (!(model_dominant || model_recessive || model_hetonly || model_hethom)) {
+                start_pred_idx = domdev_third + 2;
                 semicomputed_biallelic_xtx[cur_predictor_ct] = main_dosage_sum;
                 semicomputed_biallelic_xtx[cur_predictor_ct + 1] = main_dosage_ssq;
               }
@@ -4635,14 +4633,14 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                   semicomputed_biallelic_xtx[cur_predictor_ct + uii] = predictor_dotprod_buf[uii];
                 }
               }
-              if (domdev_present) {
+              if (domdev_third) {
                 ColMajorVectorMatrixMultiplyStrided(&(nm_predictors_pmaj_buf[2 * nm_sample_ctav]), nm_predictors_pmaj_buf, nm_sample_ct, nm_sample_ctav, cur_predictor_ct, predictor_dotprod_buf);
                 for (uint32_t uii = 0; uii != cur_predictor_ct; ++uii) {
                   semicomputed_biallelic_xtx[2 * cur_predictor_ct + uii] = predictor_dotprod_buf[uii];
                 }
                 semicomputed_biallelic_xtx[cur_predictor_ct + 2] = semicomputed_biallelic_xtx[2 * cur_predictor_ct + 1];
               }
-              glm_err = CheckMaxCorrAndVifNm(semicomputed_biallelic_xtx, corr_inv, cur_predictor_ct, domdev_present_p1, cur_sample_ct_recip, cur_sample_ct_m1_recip, max_corr, vif_thresh, semicomputed_biallelic_corr_matrix, semicomputed_biallelic_inv_corr_sqrts, dbl_2d_buf, &(dbl_2d_buf[2 * cur_predictor_ct]), &(dbl_2d_buf[3 * cur_predictor_ct]));
+              glm_err = CheckMaxCorrAndVifNm(semicomputed_biallelic_xtx, corr_inv, cur_predictor_ct, domdev_third_p1, cur_sample_ct_recip, cur_sample_ct_m1_recip, max_corr, vif_thresh, semicomputed_biallelic_corr_matrix, semicomputed_biallelic_inv_corr_sqrts, dbl_2d_buf, &(dbl_2d_buf[2 * cur_predictor_ct]), &(dbl_2d_buf[3 * cur_predictor_ct]));
               if (glm_err) {
                 goto GlmLogisticThreadD_skip_regression;
               }
@@ -4699,10 +4697,10 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                   goto GlmLogisticThreadD_skip_regression;
                 }
                 is_residualized = 1;
-                cur_regressed_predictor_stop = domdev_present + allele_ct;
+                cur_regressed_predictor_stop = domdev_third + allele_ct;
                 cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kDoublePerDVec);
                 cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
-                cur_biallelic_regressed_predictor_stop = domdev_present + 2;
+                cur_biallelic_regressed_predictor_stop = domdev_third + 2;
               }
               // unlike FirthRegressionD(), hh_return isn't inverted yet, do
               // that here
@@ -4746,28 +4744,6 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 }
               }
               if (!cur_cc_residualize) {
-#ifndef NDEBUG
-                if (g_debug_on && (variant_uidx == 0)) {
-                  // Dump phenotype values and predictor matrix to .inputs .
-                  char fname_buf[kPglFnamesize + 8];
-                  const uint32_t outname_slen = strlen(common->outname);
-                  char* fname_write_iter = memcpya(fname_buf, common->outname, outname_slen);
-                  strcpy_k(fname_write_iter, ".inputs");
-                  FILE* outfile;
-                  if (unlikely(fopen_checked(fname_buf, FOPEN_WB, &outfile))) {
-                    fprintf(stderr, "\nPanic: Failed to open .inputs file for writing.\n");
-                    exit(S_CAST(int, kPglRetOpenFail));
-                  }
-                  for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
-                    fprintf(outfile, "%g ", nm_pheno_buf[sample_idx]);
-                    for (uintptr_t pred_idx = 1; pred_idx != cur_predictor_ct; ++pred_idx) {
-                      fprintf(outfile, " %g", nm_predictors_pmaj_buf[nm_sample_ctav * pred_idx + sample_idx]);
-                    }
-                    fprintf(outfile, "\n");
-                  }
-                  fclose(outfile);
-                }
-#endif
                 if (FirthRegressionD(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, hdiag_buf, score_buf, hh0_buf, tmpnxk_buf)) {
                   glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
                   goto GlmLogisticThreadD_skip_regression;
@@ -4778,10 +4754,10 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                   goto GlmLogisticThreadD_skip_regression;
                 }
                 is_residualized = 1;
-                cur_regressed_predictor_stop = domdev_present + allele_ct;
+                cur_regressed_predictor_stop = domdev_third + allele_ct;
                 cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kDoublePerDVec);
                 cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
-                cur_biallelic_regressed_predictor_stop = domdev_present + 2;
+                cur_biallelic_regressed_predictor_stop = domdev_third + 2;
               }
             }
             // validParameters() check
@@ -5033,17 +5009,17 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     }
     const uint32_t report_neglog10p = (glm_flags / kfGlmLog10) & 1;
     const uint32_t add_interactions = (glm_flags / kfGlmInteraction) & 1;
-    const uint32_t domdev_present = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
-    const uint32_t domdev_present_p1 = domdev_present + 1;
+    const uint32_t domdev_third = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
+    const uint32_t domdev_third_p1 = domdev_third + 1;
 
     const uint32_t constraint_ct = common->constraint_ct;
     const uint32_t constraint_ct_x = common->constraint_ct_x;
     const uint32_t constraint_ct_y = common->constraint_ct_y;
 
     const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
-    uint32_t biallelic_predictor_ct = 2 + domdev_present + covar_ct * (1 + add_interactions * domdev_present_p1);
-    uint32_t biallelic_predictor_ct_x = 2 + domdev_present + covar_ct_x * (1 + add_interactions * domdev_present_p1);
-    uint32_t biallelic_predictor_ct_y = 2 + domdev_present + covar_ct_y * (1 + add_interactions * domdev_present_p1);
+    uint32_t biallelic_predictor_ct = 2 + domdev_third + covar_ct * (1 + add_interactions * domdev_third_p1);
+    uint32_t biallelic_predictor_ct_x = 2 + domdev_third + covar_ct_x * (1 + add_interactions * domdev_third_p1);
+    uint32_t biallelic_predictor_ct_y = 2 + domdev_third + covar_ct_y * (1 + add_interactions * domdev_third_p1);
     const uintptr_t* parameter_subset = common->parameter_subset;
     const uintptr_t* parameter_subset_x = common->parameter_subset_x;
     const uintptr_t* parameter_subset_y = common->parameter_subset_y;
@@ -5088,7 +5064,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t main_mutated = ((glm_flags & (kfGlmDominant | kfGlmRecessive | kfGlmHetonly | kfGlmHethom)) != kfGlm0);
     // if 'fused', one row per variant
     // otherwise, one row per tested allele
-    const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!main_mutated) && (!common->tests_flag) && (!add_interactions);
+    const uint32_t beta_se_multiallelic_fused = (!domdev_third) && (!main_mutated) && (!common->tests_flag) && (!add_interactions);
     if (beta_se_multiallelic_fused || (!hide_covar)) {
       max_reported_test_ct += max_extra_allele_ct;
     }
@@ -5133,29 +5109,29 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     // workflow is similar to --make-bed
     uintptr_t workspace_alloc;
     if (is_single_prec) {
-      workspace_alloc = GetLogisticWorkspaceSizeF(sample_ct, biallelic_predictor_ct, domdev_present_p1, max_extra_allele_ct, constraint_ct, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
+      workspace_alloc = GetLogisticWorkspaceSizeF(sample_ct, biallelic_predictor_ct, domdev_third_p1, max_extra_allele_ct, constraint_ct, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
       if (sample_ct_x) {
-        const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSizeF(sample_ct_x, biallelic_predictor_ct_x, domdev_present_p1, max_extra_allele_ct, constraint_ct_x, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
+        const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSizeF(sample_ct_x, biallelic_predictor_ct_x, domdev_third_p1, max_extra_allele_ct, constraint_ct_x, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
         if (workspace_alloc_x > workspace_alloc) {
           workspace_alloc = workspace_alloc_x;
         }
       }
       if (sample_ct_y) {
-        const uintptr_t workspace_alloc_y = GetLogisticWorkspaceSizeF(sample_ct_y, biallelic_predictor_ct_y, domdev_present_p1, max_extra_allele_ct, constraint_ct_y, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
+        const uintptr_t workspace_alloc_y = GetLogisticWorkspaceSizeF(sample_ct_y, biallelic_predictor_ct_y, domdev_third_p1, max_extra_allele_ct, constraint_ct_y, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
         if (workspace_alloc_y > workspace_alloc) {
           workspace_alloc = workspace_alloc_y;
         }
       }
     } else {
-      workspace_alloc = GetLogisticWorkspaceSizeD(sample_ct, biallelic_predictor_ct, domdev_present_p1, max_extra_allele_ct, constraint_ct, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
+      workspace_alloc = GetLogisticWorkspaceSizeD(sample_ct, biallelic_predictor_ct, domdev_third_p1, max_extra_allele_ct, constraint_ct, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
       if (sample_ct_x) {
-        const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSizeD(sample_ct_x, biallelic_predictor_ct_x, domdev_present_p1, max_extra_allele_ct, constraint_ct_x, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
+        const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSizeD(sample_ct_x, biallelic_predictor_ct_x, domdev_third_p1, max_extra_allele_ct, constraint_ct_x, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
         if (workspace_alloc_x > workspace_alloc) {
           workspace_alloc = workspace_alloc_x;
         }
       }
       if (sample_ct_y) {
-        const uintptr_t workspace_alloc_y = GetLogisticWorkspaceSizeD(sample_ct_y, biallelic_predictor_ct_y, domdev_present_p1, max_extra_allele_ct, constraint_ct_y, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
+        const uintptr_t workspace_alloc_y = GetLogisticWorkspaceSizeD(sample_ct_y, biallelic_predictor_ct_y, domdev_third_p1, max_extra_allele_ct, constraint_ct_y, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
         if (workspace_alloc_y > workspace_alloc) {
           workspace_alloc = workspace_alloc_y;
         }
@@ -5225,10 +5201,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       common->workspace_bufs[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(workspace_alloc));
     }
     common->err_info = (~0LLU) << 32;
-#ifndef NDEBUG
-    // temporary debug
-    common->outname = outname;
-#endif
     SetThreadFuncAndData(is_single_prec? GlmLogisticThreadF : GlmLogisticThreadD, ctx, &tg);
 
     const uint32_t ref_col = glm_cols & kfGlmColRef;
@@ -5367,7 +5339,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     // 6. Join threads
     // 7. Goto step 2 unless eof
     //
-    // 8, Write results for last block
+    // 8. Write results for last block
     uintptr_t write_variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t parity = 0;

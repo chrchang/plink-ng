@@ -87,10 +87,14 @@
 #  endif
 #endif
 
-#if (__GNUC__ < 4)
-// may eventually add MSVC support to gain access to MKL on Windows, but can't
+#ifndef __clang__
+#  if (__GNUC__ < 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ < 9))
+// May eventually add MSVC support to gain access to MKL on Windows, but can't
 // justify doing that before all major features are implemented.
-#  error "gcc 4.x+ or clang equivalent required."
+// We're currently building with a version of libdeflate requiring 4.9+; may as
+// well drop the remaining bits of our own code requiring an earlier version.
+#    error "gcc 4.9+ or clang equivalent required."
+#  endif
 #endif
 
 // The -Wshorten-64-to-32 diagnostic forces the code to be cluttered with
@@ -262,20 +266,7 @@ namespace plink2 {
 #  define HEADER_CINLINE2 static inline
 #  define CSINLINE static inline
 #  define CSINLINE2 static inline
-  // _Static_assert() should work in gcc 4.6+
-#  if (__GNUC__ == 4) && (__GNUC_MINOR__ < 6)
-#    if defined(__clang__) && defined(__has_feature) && defined(__has_extension)
-#      if __has_feature(c_static_assert) || __has_extension(c_static_assert)
-#        define static_assert _Static_assert
-#      else
-#        define static_assert(cond, msg)
-#      endif
-#    else
-#      define static_assert(cond, msg)
-#    endif
-#  else
-#    define static_assert _Static_assert
-#  endif
+#  define static_assert _Static_assert
 #endif
 
 #define __maybe_unused __attribute__((unused))
@@ -639,19 +630,6 @@ HEADER_INLINE uint32_t ctzw(unsigned long ulii) {
 HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
   return (8 * sizeof(intptr_t) - 1) - __builtin_clzl(ulii);
 }
-#  ifndef __LP64__
-    // needed to prevent GCC 6 build failure
-#    if (__GNUC__ == 4) && (__GNUC_MINOR__ < 8)
-#      if (__cplusplus < 201103L) && !defined(__clang__)
-#        ifndef uintptr_t
-#          define uintptr_t unsigned long
-#        endif
-#        ifndef intptr_t
-#          define intptr_t long
-#        endif
-#      endif
-#    endif
-#  endif
 #endif
 
 #ifdef __LP64__
@@ -663,16 +641,6 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 #  endif
 #  define PRIxPTR2 "016lx"
 #else  // not __LP64__
-
-  // without this, we get ridiculous warning spew...
-  // not 100% sure this is the right cutoff, but this has been tested on 4.7
-  // and 4.8 build machines, so it plausibly is.
-#  if (__GNUC__ == 4) && (__GNUC_MINOR__ < 8) && (__cplusplus < 201103L)
-#    undef PRIuPTR
-#    undef PRIdPTR
-#    define PRIuPTR "lu"
-#    define PRIdPTR "ld"
-#  endif
 
 #  ifdef _WIN32
 #    ifndef PRIuPTR
@@ -2537,14 +2505,6 @@ extern uint64_t g_failed_alloc_attempt_size;
 // number is printed as well; see e.g.
 //   https://stackoverflow.com/questions/15884793/how-to-get-the-name-or-file-and-line-of-caller-method
 
-#if (__GNUC__ == 4) && (__GNUC_MINOR__ < 7)
-// putting this in the header file caused a bunch of gcc 4.4 strict-aliasing
-// warnings, while not doing so seems to inhibit some malloc-related compiler
-// optimizations, bleah
-// compromise: header-inline iff gcc version >= 4.7 (might not be the right
-// cutoff?)
-BoolErr pgl_malloc(uintptr_t size, void* pp);
-#else
 // Unfortunately, defining the second parameter to be of type void** doesn't do
 // the right thing.
 // update (18 Feb 2022): looks like inlined pgl_malloc is not compiled as
@@ -2553,7 +2513,7 @@ BoolErr pgl_malloc(uintptr_t size, void* pp);
 // wrappers for clean compilation, ugh...
 // update (22 Nov 2025): now explicitly disabling ipa-modref instead of making
 // this non-inline, since the latter doesn't hold up under LTO.
-#  if defined(__cplusplus)
+#if defined(__cplusplus)
 template <class T> HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, T** pp) {
   *pp = S_CAST(T*, malloc(size));
   if (likely(*pp)) {
@@ -2563,10 +2523,10 @@ template <class T> HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, T** pp) {
   return 1;
 }
 
-#    if (__GNUC__ >= 11) && !defined(__clang__)
-#      pragma GCC push_options
-#      pragma GCC optimize("-fno-ipa-modref")
-#    endif
+#  if (__GNUC__ >= 11) && !defined(__clang__)
+#    pragma GCC push_options
+#    pragma GCC optimize("-fno-ipa-modref")
+#  endif
 HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, uintptr_t* addr_ptr) {
   *addr_ptr = R_CAST(uintptr_t, malloc(size));
   if (likely(*addr_ptr)) {
@@ -2575,14 +2535,14 @@ HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, uintptr_t* addr_ptr) {
   g_failed_alloc_attempt_size = size;
   return 1;
 }
-#    if (__GNUC__ >= 11) && !defined(__clang__)
-#      pragma GCC pop_options
-#    endif
-#  else
-#    if (__GNUC__ >= 11) && !defined(__clang__)
-#      pragma GCC push_options
-#      pragma GCC optimize("-fno-ipa-modref")
-#    endif
+#  if (__GNUC__ >= 11) && !defined(__clang__)
+#    pragma GCC pop_options
+#  endif
+#else
+#  if (__GNUC__ >= 11) && !defined(__clang__)
+#    pragma GCC push_options
+#    pragma GCC optimize("-fno-ipa-modref")
+#  endif
 HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, void* pp) {
   *S_CAST(unsigned char**, pp) = S_CAST(unsigned char*, malloc(size));
   if (likely(*S_CAST(unsigned char**, pp))) {
@@ -2591,9 +2551,8 @@ HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, void* pp) {
   g_failed_alloc_attempt_size = size;
   return 1;
 }
-#    if (__GNUC__ >= 11) && !defined(__clang__)
-#      pragma GCC pop_options
-#    endif
+#  if (__GNUC__ >= 11) && !defined(__clang__)
+#    pragma GCC pop_options
 #  endif
 #endif
 

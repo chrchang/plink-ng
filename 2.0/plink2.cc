@@ -92,7 +92,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (5 Dec 2025)";
+  " (27 Dec 2025)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -120,7 +120,7 @@ static PREFER_CONSTEXPR char ver_str2[] =
 #  endif
 #endif
 
-  "        cog-genomics.org/plink/2.0/\n"
+  "       cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2025 Shaun Purcell, Christopher Chang    GNU General Public License v3\n";
 #ifdef HAS_CONSTEXPR
 static_assert(CompileTimeSlen(ver_str) + CompileTimeSlen(ver_str2) == 160, "ver_str/ver_str2 must be updated");
@@ -2990,7 +2990,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: --glm + local-pos-cols= requires a sorted .pvar/.bim.  Retry this\ncommand after using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
-        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, &(pcp->gwas_ssf_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->misc_flags, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->ln_pfilter, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, &(pcp->gwas_ssf_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->misc_flags, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->ln_pfilter, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, sfmtp, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -4304,7 +4304,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanPosintDefcapx(cur_modif, &pc.aperm.min))) {
+          if (unlikely(ScanUintDefcapx(cur_modif, &pc.aperm.min))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm min permutation count '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -6614,10 +6614,14 @@ int main(int argc, char** argv) {
             } else if (unlikely(strequal_k(cur_modif, "standard-beta", cur_modif_slen))) {
               logerrputs("Error: --glm 'standard-beta' modifier has been retired.  Use\n--{covar-}variance-standardize instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
-            } else if (strequal_k(cur_modif, "perm", cur_modif_slen)) {
+            } else if (strequal_k(cur_modif, "aperm", cur_modif_slen)) {
+              // intentional rename: adaptive permutation shouldn't look like
+              // more of a default than max(T)
               pc.glm_info.perm_flags |= kfGlmPermAdaptive;
             } else if (strequal_k(cur_modif, "perm-count", cur_modif_slen)) {
               pc.glm_info.perm_flags |= kfGlmPermCount;
+            } else if (strequal_k(cur_modif, "permute-qt-residuals", cur_modif_slen)) {
+              pc.glm_info.perm_flags |= kfGlmPermQtResiduals;
             } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
               if (unlikely(pc.glm_info.cols)) {
                 logerrputs("Error: Multiple --glm cols= modifiers.\n");
@@ -6764,12 +6768,21 @@ int main(int argc, char** argv) {
             const uint32_t mperm_ct = pc.glm_info.mperm_ct;
             if (perm_adapt || mperm_ct) {
               if (unlikely(perm_adapt && mperm_ct)) {
-                logerrputs("Error: --glm 'perm' and 'mperm=' cannot be used together.\n");
+                logerrputs("Error: --glm 'aperm' and 'mperm=' cannot be used together.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               if (!explicit_perm_cols) {
                 pc.glm_info.perm_flags |= kfGlmPermColDefault;
               }
+            } else {
+              if (unlikely(pc.glm_info.perm_flags & kfGlmPermCount)) {
+                logerrputs("Error: --glm 'perm-count' must be used with a permutation test.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+            }
+            if (unlikely((pc.glm_info.perm_flags & kfGlmPermQtResiduals) && ((!(perm_adapt || mperm_ct)) || (!(pc.glm_info.flags & kfGlmQtResidualize))))) {
+              logerrputs("Error: --glm 'permute-qt-residuals' must be used with 'qt-residualize' and a\npermutation test.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             }
           }
           if (pc.glm_info.flags & kfGlmResidualizeMask) {
@@ -9682,7 +9695,7 @@ int main(int argc, char** argv) {
           pmerge_required = 1;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "perm-save")) {
-          pc.misc_flags |= kfMiscMpermSave;
+          pc.misc_flags |= kfMiscMpermSaveBest;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "perm-save-all")) {
           pc.misc_flags |= kfMiscMpermSaveAll;
@@ -10126,6 +10139,12 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
         } else if (strequal_k_unsafe(flagname_p2, "filter")) {
+          if (unlikely(pc.misc_flags & kfMiscMpermSaveAll)) {
+            // may as well prohibit this combination, since in this case the
+            // .mperm file would not be aligned with .mperm.dump.all columns
+            logerrputs("Error: --pfilter cannot be used with --mperm-save-all.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -10665,6 +10684,17 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1PhenoSvd;
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ermute-within")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (param_ct) {
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, 1, kMaxIdBlen, &pc.glm_info.permute_within_phenoname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          pc.misc_flags |= kfMiscPermuteWithin;
         } else if (likely(strequal_k_unsafe(flagname_p2, "heno-quantile-normalize"))) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.quantnorm_flattened);

@@ -111,16 +111,17 @@ FLAGSET_DEF_START()
   kfGlmPerm0,
   kfGlmPermAdaptive = (1 << 0),
   kfGlmPermCount = (1 << 1),
+  kfGlmPermQtResiduals = (1 << 2),
 
-  kfGlmPermColChrom = (1 << 2),
-  kfGlmPermColPos = (1 << 3),
-  kfGlmPermColRef = (1 << 4),
-  kfGlmPermColAlt1 = (1 << 5),
-  kfGlmPermColAlt = (1 << 6),
-  kfGlmPermColMaybeprovref = (1 << 7),
-  kfGlmPermColProvref = (1 << 8),
-  kfGlmPermColOmitted = (1 << 9),
-  kfGlmPermColDefault = (kfGlmPermColChrom | kfGlmPermColRef | kfGlmPermColAlt | kfGlmColMaybeprovref | kfGlmPermColOmitted)
+  kfGlmPermColChrom = (1 << 3),
+  kfGlmPermColPos = (1 << 4),
+  kfGlmPermColRef = (1 << 5),
+  kfGlmPermColAlt1 = (1 << 6),
+  kfGlmPermColAlt = (1 << 7),
+  kfGlmPermColMaybeprovref = (1 << 8),
+  kfGlmPermColProvref = (1 << 9),
+  kfGlmPermColOmitted = (1 << 10),
+  kfGlmPermColDefault = (kfGlmPermColChrom | kfGlmPermColRef | kfGlmPermColAlt | kfGlmPermColMaybeprovref | kfGlmPermColOmitted)
 FLAGSET_DEF_END(GlmPermFlags);
 
 typedef struct GlmInfoStruct {
@@ -137,6 +138,7 @@ typedef struct GlmInfoStruct {
   double max_corr;
   char* condition_varname;
   char* condition_list_fname;
+  char* permute_within_phenoname;
   RangeList parameters_range_list;
   RangeList tests_range_list;
 } GlmInfo;
@@ -144,12 +146,12 @@ typedef struct GlmInfoStruct {
 // Useful precomputed values for linear and logistic regression, for variants
 // with no missing genotypes.
 typedef struct {
-  double* xtx_image;  // (covar_ct + domdev_present + 2)^2, genotype cols empty
+  double* xtx_image;  // (covar_ct + domdev_third + 2)^2, genotype cols empty
   double* covarx_dotprod_inv;  // (covar_ct + 1) x (covar_ct + 1), reflected
   double* corr_inv;  // covar_ct x covar_ct, reflected
-  double* corr_image;  // (covar_ct + domdev_present_p1)^2, genotype cols empty
+  double* corr_image;  // (covar_ct + domdev_third_p1)^2, genotype cols empty
   double* corr_inv_sqrts;  // covar_ct x 1
-  double* xt_y_image;  // (covar_ct + domdev_present + 2) x 1
+  double* xt_y_image;  // (covar_ct + domdev_third + 2) x 1
 } RegressionNmPrecomp;
 
 typedef struct GlmCtxStruct {
@@ -157,7 +159,7 @@ typedef struct GlmCtxStruct {
   const ChrInfo* cip;
   const uintptr_t* allele_idx_offsets;
   const AlleleCode* omitted_alleles;
-  const uint32_t* subset_chr_fo_vidx_start;
+  uint32_t* subset_chr_fo_vidx_start;
   const uintptr_t* sample_include;
   const uintptr_t* sample_include_x;
   const uintptr_t* sample_include_y;
@@ -189,11 +191,6 @@ typedef struct GlmCtxStruct {
   double max_corr;
   double vif_thresh;
   uintptr_t max_reported_test_ct;
-
-#ifndef NDEBUG
-  // temporary debug
-  const char* outname;
-#endif
 
   RegressionNmPrecomp* nm_precomp;
   RegressionNmPrecomp* nm_precomp_x;

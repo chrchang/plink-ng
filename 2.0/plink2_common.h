@@ -169,8 +169,9 @@ FLAGSET64_DEF_START()
   kfMiscNeg9PhenoReallyMissing = (1LLU << 47),
   kfMiscAlt1Allele = (1LLU << 48),
   kfMiscSelectSidParentsOnly = (1LLU << 49),
-  kfMiscMpermSave = (1LLU << 50),
-  kfMiscMpermSaveAll = (1LLU << 51)
+  kfMiscMpermSaveBest = (1LLU << 50),
+  kfMiscMpermSaveAll = (1LLU << 51),
+  kfMiscPermuteWithin = (1LLU << 52)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -1264,7 +1265,8 @@ uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include
 // returns number of nonempty categories, null included
 uint32_t IdentifyRemainingCats(const uintptr_t* sample_include, const PhenoCol* covar_col, uint32_t sample_ct, uintptr_t* observed_cat_bitarr);
 
-// returns index of most common category
+// returns index of most common non-null category
+// always fills cat_sizes; observed_cat_bitarr is filled if non-null
 uint32_t IdentifyRemainingCatsAndMostCommon(const uintptr_t* sample_include, const PhenoCol* covar_col, uint32_t sample_ct, uintptr_t* observed_cat_bitarr, uint32_t* cat_obs_buf);
 
 uint32_t GetCatSamples(const uintptr_t* sample_include_base, const PhenoCol* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* cur_cat_samples);

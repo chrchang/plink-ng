@@ -30,17 +30,6 @@ const char kErrprintfDecompress[] = "Error: %s decompression failure: %s.\n";
 
 uint64_t g_failed_alloc_attempt_size = 0;
 
-#if (__GNUC__ == 4) && (__GNUC_MINOR__ < 7)
-BoolErr pgl_malloc(uintptr_t size, void* pp) {
-  *S_CAST(unsigned char**, pp) = S_CAST(unsigned char*, malloc(size));
-  if (likely(*S_CAST(unsigned char**, pp))) {
-    return 0;
-  }
-  g_failed_alloc_attempt_size = size;
-  return 1;
-}
-#endif
-
 BoolErr fwrite_checked(const void* buf, uintptr_t len, FILE* outfile) {
   while (len > kMaxBytesPerIO) {
     // OS X fwrite() doesn't support 2GiB+ writes

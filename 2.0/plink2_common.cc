@@ -3616,39 +3616,41 @@ uint32_t IdentifyRemainingCats(const uintptr_t* sample_include, const PhenoCol* 
   return PopcountWords(observed_cat_bitarr, word_ct);
 }
 
-// returns index of most common category
-uint32_t IdentifyRemainingCatsAndMostCommon(const uintptr_t* sample_include, const PhenoCol* covar_col, uint32_t sample_ct, uintptr_t* observed_cat_bitarr, uint32_t* cat_obs_buf) {
+// returns index of most common non-null category
+// always fills cat_sizes; observed_cat_bitarr is filled if non-null
+uint32_t IdentifyRemainingCatsAndMostCommon(const uintptr_t* sample_include, const PhenoCol* covar_col, uint32_t sample_ct, uintptr_t* observed_cat_bitarr, uint32_t* cat_sizes) {
   // assumes covar_col->type_code == kPhenoTypeCat
   const uint32_t nonnull_cat_ct = covar_col->nonnull_category_ct;
   const uint32_t* covar_cats = covar_col->data.cat;
-  const uint32_t word_ct = 1 + (nonnull_cat_ct / kBitsPerWord);
-  ZeroWArr(word_ct, observed_cat_bitarr);
-  ZeroU32Arr(nonnull_cat_ct + 1, cat_obs_buf);
+  ZeroU32Arr(nonnull_cat_ct + 1, cat_sizes);
   uintptr_t sample_uidx_base = 0;
   uintptr_t cur_bits = sample_include[0];
   for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
     const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-    cat_obs_buf[covar_cats[sample_uidx]] += 1;
-    SetBit(covar_cats[sample_uidx], observed_cat_bitarr);
+    cat_sizes[covar_cats[sample_uidx]] += 1;
   }
-  if (cat_obs_buf[0]) {
-    // don't actually need this for now since we're only calling this with the
-    // missing category excluded, but let's be consistent.
-    SetBit(0, observed_cat_bitarr);
+  if (observed_cat_bitarr) {
+    const uint32_t word_ct = 1 + (nonnull_cat_ct / kBitsPerWord);
+    ZeroWArr(word_ct, observed_cat_bitarr);
+    if (cat_sizes[0]) {
+      SetBit(0, observed_cat_bitarr);
+    }
   }
-  uint32_t best_cat_idx = 0;
-  uint32_t best_cat_obs_ct = 0;
+  uint32_t largest_cat_idx = 0;
+  uint32_t largest_cat_obs_ct = 0;
   for (uint32_t cat_idx = 1; cat_idx <= nonnull_cat_ct; ++cat_idx) {
-    const uint32_t cat_obs_ct = cat_obs_buf[cat_idx];
+    const uint32_t cat_obs_ct = cat_sizes[cat_idx];
     if (cat_obs_ct) {
-      SetBit(cat_idx, observed_cat_bitarr);
-      if (cat_obs_ct > best_cat_obs_ct) {
-        best_cat_idx = cat_idx;
-        best_cat_obs_ct = cat_obs_ct;
+      if (observed_cat_bitarr) {
+        SetBit(cat_idx, observed_cat_bitarr);
+      }
+      if (cat_obs_ct > largest_cat_obs_ct) {
+        largest_cat_idx = cat_idx;
+        largest_cat_obs_ct = cat_obs_ct;
       }
     }
   }
-  return best_cat_idx;
+  return largest_cat_idx;
 }
 
 uint32_t GetCatSamples(const uintptr_t* sample_include_base, const PhenoCol* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* cur_cat_samples) {

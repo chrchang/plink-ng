@@ -37,6 +37,25 @@ PglErr FillGaussianDArr(uintptr_t entry_pair_ct, uint32_t thread_ct, sfmt_t* sfm
 
 PglErr RandomizeBigstack(uint32_t thread_ct, sfmt_t* sfmtp);
 
+HEADER_INLINE uint32_t RandU32(uint32_t range, sfmt_t* sfmtp) {
+  // [0, range)
+  // https://lemire.me/blog/2016/06/30/fast-random-shuffling/
+  uint64_t random32bit = sfmt_genrand_uint32(sfmtp);
+  uint64_t multiresult = random32bit * range;
+  uint32_t leftover = S_CAST(uint32_t, multiresult);
+  if (leftover < range) {
+    const uint32_t threshold = -range % range;
+    while (leftover < threshold) {
+      random32bit = sfmt_genrand_uint32(sfmtp);
+      multiresult = random32bit * range;
+      leftover = S_CAST(uint32_t, multiresult);
+    }
+  }
+  return multiresult >> 32;
+}
+
+void PermuteU32(uint32_t entry_ct, sfmt_t* sfmtp, uint32_t* u32arr);
+
 // might not need plink 1.9-style interleaving, but I'll postpone ripping that
 // out.
 // currently requires tot_bit_ct > 1, due to quotient operation.

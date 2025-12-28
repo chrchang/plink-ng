@@ -204,6 +204,17 @@ PglErr RandomizeBigstack(uint32_t thread_ct, sfmt_t* sfmtp) {
   return reterr;
 }
 
+void PermuteU32(uint32_t entry_ct, sfmt_t* sfmtp, uint32_t* u32arr) {
+  uint32_t* u32arr_iter = u32arr;
+  for (uintptr_t remaining_entry_ct = entry_ct; remaining_entry_ct > 1; --remaining_entry_ct) {
+    const uint32_t old_val = *u32arr_iter;
+    const uint32_t swap_offset = RandU32(remaining_entry_ct, sfmtp);
+    u32arr_iter[0] = u32arr_iter[swap_offset];
+    u32arr_iter[swap_offset] = old_val;
+    ++u32arr_iter;
+  }
+}
+
 void GeneratePerm1Interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_t perm_start_idx, uintptr_t perm_end_idx, uintptr_t* perm_buf, sfmt_t* sfmtp) {
   assert(tot_bit_ct > 1);
   const uintptr_t tot_bit_ctl = BitCtToWordCt(tot_bit_ct);

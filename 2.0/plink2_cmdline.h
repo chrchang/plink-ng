@@ -62,8 +62,8 @@ CONSTI32(kMaxIdBlen, kMaxIdSlen + 1);
 // Don't see a better option than #define for this.
 #define MAX_ID_SLEN_STR "16000"
 
-// allow extensions like .model.trend.fisher.set.score.adjusted
-CONSTI32(kMaxOutfnameExtBlen, 39);
+// allow extensions like .glm.logistic.hybrid.mperm.dump.all.zst
+CONSTI32(kMaxOutfnameExtBlen, 40);
 
 // All global variables not initialized at compile time start with g_ (even if
 // they're initialized very early and never changed afterwards, like

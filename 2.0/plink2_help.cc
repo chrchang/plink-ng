@@ -1373,7 +1373,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        ['cols='<col set desc>] ['local-covar='<file>] ['local-psam='<file>]\n"
 "        ['local-pos-cols='<key col #s> | 'local-pvar='<file>] ['local-haps']\n"
 "        ['local-omit-last' | 'local-cats[0]='<category ct>]\n"
-"        ['perm' | 'mperm='<value>] ['perm-count'] ['perm-cols='<col set desc>]\n"
+"        ['aperm' | 'mperm='<value>] ['perm-count'] ['perm-cols='<col set desc>]\n"
+"        ['permute-qt-residuals']\n"
 "    Basic association analysis on quantitative and/or case/control phenotypes.\n"
 "    For each variant, a linear (for quantitative traits) or logistic (for\n"
 "    case/control) regression is run with the phenotype as the dependent\n"
@@ -1400,7 +1401,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      recessiveness, respectively, for the ref allele.  I.e. the genotype\n"
 "      column is recoded as 0..1..1 or 0..0..1, respectively.\n"
 "    * 'hetonly' replaces the genotype column with a dominance-deviation column.\n"
-// 'interaction' now ok with permutation?
+// 'interaction' now ok with permutation
 "    * 'interaction' adds genotype x covariate interactions to the model.  Note\n"
 "      that this tends to produce 'NA' results (due to the multicollinearity\n"
 "      check) when the reference allele is 'wrong'; --maj-ref can be used to\n"
@@ -1455,11 +1456,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      start col #>,<first covariate col #>.\n"
 "      'local-haps' indicates that there's one column or column-group per\n"
 "      haplotype instead of per sample; they are averaged by --glm.\n"
-"    * 'perm' normally causes an adaptive permutation test to be performed on\n"
+"    * 'aperm' normally causes an adaptive permutation test to be performed on\n"
 "      the main effect, while 'mperm='<value> starts a max(T) permutation test.\n"
 "    * 'perm-count' causes the permutation test report to include counts instead\n"
 "      of frequencies.\n"
-// May want to change or leave out set-based test; punt for now.
+"    * For quantitative phenotypes, 'permute-qt-residuals' causes permutation to\n"
+"      occur on phenotype residuals instead of the original phenotype.\n"
+// Original set-based test not worth keeping.  Probable todo: review current
+// rare-variant and gene-based testing methods.
 "    The main report supports the following column sets:\n"
 "      chrom: Chromosome ID.\n"
 "      pos: Base-pair coordinate.\n"
@@ -1499,7 +1503,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      p: Asymptotic p-value (or -log10(p)) for T/Z-statistic.\n"
 "      err: Error code for NA results.\n"
 "    The default is chrom,pos,ref,alt,provref,omitted,a1freq,firth,test,nobs,\n"
-"    orbeta,se,ci,tz,p,err.\n\n"
+"    orbeta,se,ci,tz,p,err.\n"
+"    Permutation reports support the chrom, pos, ref, alt[1], [maybe]provref,\n"
+"    and omitted column sets; their default is\n"
+"    chrom,ref,alt,maybeprovref,omitted.\n\n"
                );
     HelpPrint("gwas-ssf\0glm\0linear\0logistic\0assoc\0", &help_ctrl, 1,
 "  --gwas-ssf ['zs'] ['delete-orig-glm'] ['a1freq-lower-limit='<bound>]\n"
@@ -2863,6 +2870,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("pfilter\0", &help_ctrl, 0,
 "  --pfilter <val>    : Filter out assoc. test results with higher p-values.\n"
                );
+    HelpPrint("permute-within\0within\0", &help_ctrl, 0,
+"  --permute-within [cat. pheno/covar name] : Restrict permutation to clusters.\n"
+              );
     HelpPrint("aperm\0", &help_ctrl, 0,
 "  --aperm <min perms - 1> [max perms] [alpha] [beta] [init interval] [slope] :\n"
 "    Set up to six parameters controlling adaptive permutation tests.\n"

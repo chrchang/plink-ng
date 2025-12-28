@@ -98,16 +98,12 @@ BoolErr GzRawInit(const void* buf, uint32_t nbytes, GzRawDecompressStream* gzp) 
   dsp->zalloc = nullptr;
   dsp->zfree = nullptr;
   dsp->opaque = nullptr;
-#if defined(__clang__) || (__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 6))
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wold-style-cast"
-#endif
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
   if (unlikely(inflateInit2(dsp, MAX_WBITS | 16) != Z_OK)) {
     return 1;
   }
-#if defined(__clang__) || (__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 6))
-#  pragma GCC diagnostic pop
-#endif
+#pragma GCC diagnostic pop
   gzp->ds_initialized = 1;
   gzp->eof = 0;
   return 0;

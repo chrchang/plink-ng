@@ -428,19 +428,19 @@ uint32_t DosageIsConstant(uint64_t dosage_sum, uint64_t dosage_ssq, uint32_t nm_
 uint32_t GetBiallelicReportedTestCt(const uintptr_t* parameter_subset, GlmFlags glm_flags, uint32_t covar_ct, uint32_t tests_flag) {
   const uint32_t hide_covar = (glm_flags / kfGlmHideCovar) & 1;
   const uint32_t include_intercept = (glm_flags / kfGlmIntercept) & 1;
-  const uint32_t domdev_present = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
-  const uint32_t joint_test = domdev_present || tests_flag;
+  const uint32_t domdev_third = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
+  const uint32_t joint_test = domdev_third || tests_flag;
 
   if (hide_covar) {
     if (!parameter_subset) {
-      return 1 + include_intercept + domdev_present + joint_test;
+      return 1 + include_intercept + domdev_third + joint_test;
     }
-    return include_intercept + domdev_present + joint_test + IsSet(parameter_subset, 1);
+    return include_intercept + domdev_third + joint_test + IsSet(parameter_subset, 1);
   }
 
-  const uint32_t domdev_present_p1 = domdev_present + 1;
+  const uint32_t domdev_third_p1 = domdev_third + 1;
   const uint32_t add_interactions = (glm_flags / kfGlmInteraction) & 1;
-  const uint32_t biallelic_predictor_ct_base = 2 + domdev_present + covar_ct * (1 + add_interactions * domdev_present_p1);
+  const uint32_t biallelic_predictor_ct_base = 2 + domdev_third + covar_ct * (1 + add_interactions * domdev_third_p1);
   uint32_t biallelic_predictor_ct = biallelic_predictor_ct_base;
   if (parameter_subset) {
     biallelic_predictor_ct = PopcountWords(parameter_subset, BitCtToWordCt(biallelic_predictor_ct_base));
