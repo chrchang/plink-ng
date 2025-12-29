@@ -4412,7 +4412,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           ClearNmPrecompCovars(sample_ct_x, domdev_present_p1, common->nm_precomp_x);
         }
         if (sample_ct_y) {
-          ClearNmPrecompCovars(sample_ct_y, domdev_present_p1, common->nm_precomp_x);
+          ClearNmPrecompCovars(sample_ct_y, domdev_present_p1, common->nm_precomp_y);
         }
       }
 
