@@ -51,6 +51,21 @@ void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip) {
   piip->parental_id_info.max_maternal_id_blen = 2;
 }
 
+void InitPermConfig(PermConfig* perm_config_ptr) {
+  perm_config_ptr->within_phenoname = nullptr;
+  perm_config_ptr->aperm_min = 6;
+  perm_config_ptr->aperm_max = 1000000;
+  perm_config_ptr->aperm_alpha = 0.0;
+  perm_config_ptr->aperm_beta = 0.0001;
+  perm_config_ptr->aperm_init_interval = 1.0;
+  perm_config_ptr->aperm_interval_slope = 0.001 * (1 + kSmallEpsilon);
+  perm_config_ptr->flags = kfPermColDefault;
+}
+
+void CleanupPermConfig(PermConfig* perm_config_ptr) {
+  free_cond(perm_config_ptr->within_phenoname);
+}
+
 void InitFlip(FlipInfo* flip_info_ptr) {
   flip_info_ptr->fname = nullptr;
   flip_info_ptr->subset_fname = nullptr;

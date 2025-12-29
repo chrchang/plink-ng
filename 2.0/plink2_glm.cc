@@ -52,7 +52,6 @@ void InitGlm(GlmInfo* glm_info_ptr) {
   glm_info_ptr->max_corr = 0.999;
   glm_info_ptr->condition_varname = nullptr;
   glm_info_ptr->condition_list_fname = nullptr;
-  glm_info_ptr->permute_within_phenoname = nullptr;
   InitRangeList(&(glm_info_ptr->parameters_range_list));
   InitRangeList(&(glm_info_ptr->tests_range_list));
 }
@@ -60,7 +59,6 @@ void InitGlm(GlmInfo* glm_info_ptr) {
 void CleanupGlm(GlmInfo* glm_info_ptr) {
   free_cond(glm_info_ptr->condition_varname);
   free_cond(glm_info_ptr->condition_list_fname);
-  free_cond(glm_info_ptr->permute_within_phenoname);
   CleanupRangeList(&(glm_info_ptr->parameters_range_list));
   CleanupRangeList(&(glm_info_ptr->tests_range_list));
 }
@@ -1974,7 +1972,7 @@ void SexInteractionReshuffle(uint32_t first_interaction_pred_uidx, uint32_t raw_
   memcpy(parameters_or_tests, parameter_subset_reshuffle_buf, biallelic_raw_predictor_ctl * sizeof(intptr_t));
 }
 
-PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, const GwasSsfInfo* gsip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, MiscFlags misc_flags, uint32_t xchr_model, double ci_size, double vif_thresh, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, sfmt_t* sfmtp, char* outname, char* outname_end) {
+PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const PermConfig* perm_config_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, const GwasSsfInfo* gsip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, sfmt_t* sfmtp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 
@@ -2025,9 +2023,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     common.dosage_presents = nullptr;
     common.dosage_mains = nullptr;
     const uint32_t output_zst = (glm_flags / kfGlmZs) & 1;
-    const GlmPermFlags perm_flags = glm_info_ptr->perm_flags;
-    const uint32_t perm_adapt = (perm_flags / kfGlmPermAdaptive) & 1;
-    const uint32_t perms_total = perm_adapt? aperm_ptr->max : glm_info_ptr->mperm_ct;
+    const PermFlags perm_flags = perm_config_ptr->flags;
+    const GlmPermFlags glm_perm_flags = glm_info_ptr->perm_flags;
+    const uint32_t perm_adapt = (glm_perm_flags / kfGlmPermAdaptive) & 1;
+    const uint32_t perms_total = perm_adapt? perm_config_ptr->aperm_max : glm_info_ptr->mperm_ct;
     // <output prefix>.<pheno name>.glm.logistic.hybrid{.perm,.mperm,.mperm.dump.best,.mperm.dump.all}[.zst]
     uint32_t pheno_name_blen_capacity = kPglFnamesize - 21 - (4 * output_zst) - S_CAST(uintptr_t, outname_end - outname);
     if (perms_total) {
@@ -2035,12 +2034,12 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         pheno_name_blen_capacity -= 5;
       } else {
         uint32_t longest_ext_incr = 6;
-        if (misc_flags & kfMiscMpermSaveBest) {
+        if (perm_flags & kfPermMpermSaveBest) {
           // .zst does not apply to .mperm.save.best since there is no
           // per-variant dimension
           longest_ext_incr = 16 - (4 * output_zst);
         }
-        if ((misc_flags & kfMiscMpermSaveAll) && (longest_ext_incr < 15)) {
+        if ((perm_flags & kfPermMpermSaveAll) && (longest_ext_incr < 15)) {
           longest_ext_incr = 15;
         }
         pheno_name_blen_capacity -= longest_ext_incr;
@@ -2211,8 +2210,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     }
 
     const PhenoCol* permute_within_phenocol = nullptr;
-    if (misc_flags & kfMiscPermuteWithin) {
-      const char* permute_within_phenoname = glm_info_ptr->permute_within_phenoname;
+    if (perm_flags & kfPermWithin) {
+      const char* permute_within_phenoname = perm_config_ptr->within_phenoname;
       const uint32_t phenoname_blen = permute_within_phenoname? (1 + strlen(permute_within_phenoname)) : 0;
       for (uint32_t pheno_uidx = 0; pheno_uidx != pheno_ct; ++pheno_uidx) {
         const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_uidx]);
@@ -2792,7 +2791,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
       }
     }
-    if (unlikely((perm_flags & kfGlmPermQtResiduals) && (cur_sample_include_x_buf || cur_sample_include_y_buf))) {
+    if (unlikely((glm_perm_flags & kfGlmPermQtResiduals) && (cur_sample_include_x_buf || cur_sample_include_y_buf))) {
       logerrputs("Error: --glm 'permute-qt-residuals' does not support chrX/chrY unless the\nsamples/covariates are unchanged there.\n");
       goto GlmMain_ret_INCONSISTENT_INPUT;
     }
@@ -4075,7 +4074,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             reterr = kPglRetNotYetSupported;
             goto GlmMain_ret_1;
           } else {
-            reterr = GlmLinearPerm(cur_pheno_name, cur_pheno_col, (perm_flags & kfGlmPermColPos)? variant_bps : nullptr, variant_ids, valid_alleles, allele_storage, glm_info_ptr, aperm_ptr, local_sample_uidx_order, cur_local_variant_include, orig_ln_pvals, permute_within_phenocol, raw_sample_ct, raw_variant_ct, valid_allele_ct, max_chr_blen, ln_pfilter, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, misc_flags, pgfip, &linear_ctx, sfmtp, &local_covar_txs, valid_variants, outname, outname_end2);
+            reterr = GlmLinearPerm(cur_pheno_name, cur_pheno_col, (perm_flags & kfPermColPos)? variant_bps : nullptr, variant_ids, valid_alleles, allele_storage, glm_info_ptr, perm_config_ptr, local_sample_uidx_order, cur_local_variant_include, orig_ln_pvals, permute_within_phenocol, raw_sample_ct, raw_variant_ct, valid_allele_ct, max_chr_blen, ln_pfilter, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &linear_ctx, sfmtp, &local_covar_txs, valid_variants, outname, outname_end2);
           }
           if (unlikely(reterr)) {
             goto GlmMain_ret_1;

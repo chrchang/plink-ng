@@ -138,7 +138,6 @@ typedef struct GlmInfoStruct {
   double max_corr;
   char* condition_varname;
   char* condition_list_fname;
-  char* permute_within_phenoname;
   RangeList parameters_range_list;
   RangeList tests_range_list;
 } GlmInfo;

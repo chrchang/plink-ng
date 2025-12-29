@@ -4940,7 +4940,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
 }
 
 static_assert(kMaxLinearSubbatchSize * (12 + kMaxDoubleGSlen) <= kTextbufSize, "GlmLinearPerm() needs to be updated.");
-PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* valid_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const APerm* aperm_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const double* orig_ln_pvals, const PhenoCol* permute_within_phenocol, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uintptr_t valid_allele_ct, uint32_t max_chr_blen, double ln_pfilter, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, MiscFlags misc_flags, PgenFileInfo* pgfip, GlmLinearCtx* ctx, sfmt_t* sfmtp, TextStream* local_covar_txsp, uintptr_t* remaining_variants, char* outname, char* outname_end) {
+PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* valid_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const PermConfig* perm_config_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const double* orig_ln_pvals, const PhenoCol* permute_within_phenocol, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uintptr_t valid_allele_ct, uint32_t max_chr_blen, double ln_pfilter, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLinearCtx* ctx, sfmt_t* sfmtp, TextStream* local_covar_txsp, uintptr_t* remaining_variants, char* outname, char* outname_end) {
   // This is based on GlmLinearSubbatchThread, so initialization is similar
   // to GlmLinearBatch().
   // TODO: explicitly pass in covariates for qt-residualize without
@@ -4969,8 +4969,8 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     const GlmFlags glm_flags = glm_info_ptr->flags;
     const uint32_t domdev_third = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
     const uint32_t domdev_third_p1 = domdev_third + 1;
-    const GlmPermFlags perm_flags = glm_info_ptr->perm_flags;
-    const uint32_t permute_residuals = (perm_flags / kfGlmPermQtResiduals) & 1;
+    const GlmPermFlags glm_perm_flags = glm_info_ptr->perm_flags;
+    const uint32_t permute_residuals = (glm_perm_flags / kfGlmPermQtResiduals) & 1;
     const uintptr_t* sample_include = common->sample_include;
     const double* orig_pheno_qt = orig_pheno_col->data.qt;
     if (permute_residuals) {
@@ -5137,7 +5137,8 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     if (sample_ct_y) {
       GetXymtCodeStartAndEndUnsafe(cip, kChrOffsetY, &y_code, &y_start, &y_end);
     }
-    const uint32_t chr_col = perm_flags & kfGlmPermColChrom;
+    const PermFlags perm_flags = perm_config_ptr->flags;
+    const uint32_t chr_col = perm_flags & kfPermColChrom;
 
     char* chr_buf = nullptr;
     if (chr_col) {
@@ -5236,10 +5237,10 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
       goto GlmLinearPerm_ret_NOMEM;
     }
 
-    const uint32_t perm_adapt = (perm_flags / kfGlmPermAdaptive) & 1;
-    const uint32_t perms_total = perm_adapt? aperm_ptr->max : glm_info_ptr->mperm_ct;
-    const uint32_t mperm_save_best = (misc_flags / kfMiscMpermSaveBest) & 1;
-    const uint32_t mperm_save_all = (misc_flags / kfMiscMpermSaveAll) & 1;
+    const uint32_t perm_adapt = (glm_perm_flags / kfGlmPermAdaptive) & 1;
+    const uint32_t perms_total = perm_adapt? perm_config_ptr->aperm_max : glm_info_ptr->mperm_ct;
+    const uint32_t mperm_save_best = (perm_flags / kfPermMpermSaveBest) & 1;
+    const uint32_t mperm_save_all = (perm_flags / kfPermMpermSaveAll) & 1;
     uint32_t* valid_allele_emp1_denoms = nullptr;  // 0 iff incomplete
     double* mperm_best_stats = nullptr;
     if (perm_adapt) {
@@ -5259,15 +5260,15 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     common->thread_mhc = nullptr;
     common->dosage_presents = nullptr;
     common->dosage_mains = nullptr;
-    const uint32_t output_zst = (glm_flags / kfGlmZs) & 1;
-    const uint32_t ref_col = perm_flags & kfGlmPermColRef;
-    const uint32_t alt1_col = perm_flags & kfGlmPermColAlt1;
-    const uint32_t alt_col = perm_flags & kfGlmPermColAlt;
+    const uint32_t output_zst = (perm_flags / kfPermZs) & 1;
+    const uint32_t ref_col = perm_flags & kfPermColRef;
+    const uint32_t alt1_col = perm_flags & kfPermColAlt1;
+    const uint32_t alt_col = perm_flags & kfPermColAlt;
     const uintptr_t* nonref_flags = pgfip->nonref_flags;
     const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
-    const uint32_t provref_col = ref_col && ProvrefCol(orig_variant_include, nonref_flags, perm_flags / kfGlmPermColMaybeprovref, raw_variant_ct, all_nonref);
-    const uint32_t omitted_col = perm_flags & kfGlmPermColOmitted;
-    const uint32_t perm_count = (perm_flags / kfGlmPermCount) & 1;
+    const uint32_t provref_col = ref_col && ProvrefCol(orig_variant_include, nonref_flags, perm_flags / kfPermColMaybeprovref, raw_variant_ct, all_nonref);
+    const uint32_t omitted_col = perm_flags & kfPermColOmitted;
+    const uint32_t perm_count = (perm_flags / kfPermCounts) & 1;
 
     char* outname_end2 = outname_end;
     *outname_end2++ = '.';
@@ -5534,13 +5535,13 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     common->err_info = (~0LLU) << 32;
     SetThreadFuncAndData(GlmLinearSubbatchThread, ctx, &tg);
 
-    const double aperm_alpha = aperm_ptr->alpha;
-    const double adaptive_intercept = aperm_ptr->init_interval;
-    const double adaptive_slope = aperm_ptr->interval_slope;
-    uint32_t first_adapt_check_pidx = aperm_ptr->min - 1;
+    const double aperm_alpha = perm_config_ptr->aperm_alpha;
+    const double adaptive_intercept = perm_config_ptr->aperm_init_interval;
+    const double adaptive_slope = perm_config_ptr->aperm_interval_slope;
+    uint32_t first_adapt_check_pidx = perm_config_ptr->aperm_min - 1;
     double adaptive_ci_zt = 0.0;
     if (perm_adapt) {
-      adaptive_ci_zt = QuantileToZscore(1.0 - aperm_ptr->beta / (2.0 * u31tod(remaining_variant_ct)));
+      adaptive_ci_zt = QuantileToZscore(1.0 - perm_config_ptr->aperm_beta / (2.0 * u31tod(remaining_variant_ct)));
     }
     uint32_t subbatch_size = max_subbatch_size;
     for (uint32_t perm_idx_start = 0; perm_idx_start != perms_total; perm_idx_start += subbatch_size) {

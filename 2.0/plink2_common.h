@@ -168,10 +168,7 @@ FLAGSET64_DEF_START()
   kfMiscYNosexMissingStats = (1LLU << 46),
   kfMiscNeg9PhenoReallyMissing = (1LLU << 47),
   kfMiscAlt1Allele = (1LLU << 48),
-  kfMiscSelectSidParentsOnly = (1LLU << 49),
-  kfMiscMpermSaveBest = (1LLU << 50),
-  kfMiscMpermSaveAll = (1LLU << 51),
-  kfMiscPermuteWithin = (1LLU << 52)
+  kfMiscSelectSidParentsOnly = (1LLU << 49)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -334,16 +331,46 @@ typedef struct PedigreeIdInfoStruct {
   ParentalIdInfo parental_id_info;
 } PedigreeIdInfo;
 
-typedef struct APermStruct {
-  uint32_t min;
-  uint32_t max;
-  double alpha;
-  double beta;
-  double init_interval;
-  double interval_slope;
-} APerm;
+void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip);
+
+FLAGSET_DEF_START()
+  kfPerm0,
+  kfPermZs = (1 << 0),
+  kfPermWithin = (1 << 1),
+  kfPermMpermSaveBest = (1 << 2),
+  kfPermMpermSaveAll = (1 << 3),
+  kfPermCounts = (1 << 4),
+
+  kfPermColChrom = (1 << 5),
+  kfPermColPos = (1 << 6),
+  kfPermColRef = (1 << 7),
+  kfPermColAlt1 = (1 << 8),
+  kfPermColAlt = (1 << 9),
+  kfPermColMaybeprovref = (1 << 10),
+  kfPermColProvref = (1 << 11),
+  kfPermColOmitted = (1 << 12),
+  kfPermColDefault = (kfPermColChrom | kfPermColRef | kfPermColAlt | kfPermColMaybeprovref | kfPermColOmitted),
+  kfPermColAll = ((kfPermColOmitted * 2) - kfPermColChrom)
+FLAGSET_DEF_END(PermFlags);
+
+typedef struct PermConfigStruct {
+  char* within_phenoname;
+  uint32_t aperm_min;
+  uint32_t aperm_max;
+  double aperm_alpha;
+  double aperm_beta;
+  double aperm_init_interval;
+  double aperm_interval_slope;
+  PermFlags flags;
+} PermConfig;
+
+void InitPermConfig(PermConfig* perm_config_ptr);
+
+void CleanupPermConfig(PermConfig* perm_config_ptr);
 
 // (2^31 - 1000001) / 2
+// ...reason for specifically -1000001 is no longer present, but this does need
+// to be <2^30 so I'll leave this unchanged from plink 1.9
 CONSTI32(kApermMax, 1073241823);
 
 typedef struct TwoColParamsStruct {
@@ -354,8 +381,6 @@ typedef struct TwoColParamsStruct {
   char skipchar;
   char fname[];
 } TwoColParams;
-
-void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip);
 
 // no CleanupPedigreeIdInfo function since LoadPsam() allocates the arrays in
 // bigstack.

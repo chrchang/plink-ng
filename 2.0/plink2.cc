@@ -92,7 +92,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (27 Dec 2025)";
+  " (29 Dec 2025)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -413,7 +413,7 @@ typedef struct Plink2CmdlineStruct {
   ScoreInfo score_info;
   FstInfo fst_info;
   PgenDiffInfo pgen_diff_info;
-  APerm aperm;
+  PermConfig perm_config;
   CmpExpr keep_if_expr;
   CmpExpr remove_if_expr;
   CmpExpr extract_if_info_expr;
@@ -2990,7 +2990,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: --glm + local-pos-cols= requires a sorted .pvar/.bim.  Retry this\ncommand after using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
-        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, &(pcp->gwas_ssf_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->misc_flags, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->ln_pfilter, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, sfmtp, outname, outname_end);
+        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->perm_config), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, &(pcp->gwas_ssf_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->ln_pfilter, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, sfmtp, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3649,6 +3649,7 @@ int main(int argc, char** argv) {
   InitPhenoSvd(&pc.pheno_svd_info);
   InitCheckSex(&pc.check_sex_info);
   InitMendel(&pc.mendel_info);
+  InitPermConfig(&pc.perm_config);
   InitFlip(&pc.flip_info);
   GenDummyInfo gendummy_info;
   InitGenDummy(&gendummy_info);
@@ -3990,12 +3991,6 @@ int main(int argc, char** argv) {
     for (uint32_t uii = 0; uii != 4; ++uii) {
       pc.filter_modes[uii] = kFreqFilterNonmajor;
     }
-    pc.aperm.min = 6;
-    pc.aperm.max = 1000000;
-    pc.aperm.alpha = 0.0;
-    pc.aperm.beta = 0.0001;
-    pc.aperm.init_interval = 1.0;
-    pc.aperm.interval_slope = 0.001 * (1 + kSmallEpsilon);
     pc.ci_size = 0.0;
 
     // Default value is 1638 = 32768 / 20, and that's applied to imported
@@ -4080,6 +4075,17 @@ int main(int argc, char** argv) {
     uint32_t allow_misleading_out_arg = 0;
     uint32_t allow_normalize_with_split = 0;
     uint32_t import_max_allele_ct = 0x7ffffffe;
+    // In retrospect, plink 1.9's per-flag perm-count modifiers were a bit
+    // silly; reasonable to drop that bit of flexibility so we can organize
+    // permutation-test formatting under a single --perm-format flag.
+    //
+    // We error out on the very-unlikely case where that flexibility was
+    // actually used (i.e. multiple association tests requested, at least one
+    // with perm-count and at least one without, and --perm-count not
+    // specified), and otherwise just treat perm-count modifiers (and the
+    // --perm-count flag) like "--perm-format counts".
+    uint32_t explicit_perm_count_modifier = 0;
+    uint32_t implicit_perm_count_omission = 0;
     Plink1DosageInfo plink1_dosage_info;
     InitPlink1Dosage(&plink1_dosage_info);
     do {
@@ -4304,48 +4310,48 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanUintDefcapx(cur_modif, &pc.aperm.min))) {
+          if (unlikely(ScanUintDefcapx(cur_modif, &pc.perm_config.aperm_min))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm min permutation count '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          ++pc.aperm.min;
+          ++pc.perm_config.aperm_min;
           if (param_ct > 1) {
             cur_modif = argvk[arg_idx + 2];
-            if (unlikely(ScanPosintCappedx(cur_modif, kApermMax, &pc.aperm.max))) {
+            if (unlikely(ScanPosintCappedx(cur_modif, kApermMax, &pc.perm_config.aperm_max))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm max permutation count '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          if (unlikely(pc.aperm.min >= pc.aperm.max)) {
+          if (unlikely(pc.perm_config.aperm_min >= pc.perm_config.aperm_max)) {
             logerrputs("Error: --aperm min permutation count must be smaller than max.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           aperm_present = 1;
           if (param_ct > 2) {
             cur_modif = argvk[arg_idx + 3];
-            if (unlikely(!ScantokDouble(cur_modif, &pc.aperm.alpha))) {
+            if (unlikely(!ScantokDouble(cur_modif, &pc.perm_config.aperm_alpha))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm alpha threshold '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
             if (param_ct > 3) {
               cur_modif = argvk[arg_idx + 4];
-              if (unlikely((!ScantokDouble(cur_modif, &pc.aperm.beta)) || (pc.aperm.beta <= 0.0))) {
+              if (unlikely((!ScantokDouble(cur_modif, &pc.perm_config.aperm_beta)) || (pc.perm_config.aperm_beta <= 0.0))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm beta '%s' (must be >0).\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               if (param_ct > 4) {
                 cur_modif = argvk[arg_idx + 5];
-                if (unlikely((!ScantokDouble(cur_modif, &pc.aperm.init_interval) || (pc.aperm.init_interval < 1.0)))) {
+                if (unlikely((!ScantokDouble(cur_modif, &pc.perm_config.aperm_init_interval) || (pc.perm_config.aperm_init_interval < 1.0)))) {
                   snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm initial pruning interval '%s' (must be >= 1).\n", cur_modif);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }
                 if (param_ct == 6) {
                   cur_modif = argvk[arg_idx + 6];
-                  if (unlikely((!ScantokDouble(cur_modif, &pc.aperm.interval_slope)) || (pc.aperm.interval_slope < 0.0))) {
+                  if (unlikely((!ScantokDouble(cur_modif, &pc.perm_config.aperm_interval_slope)) || (pc.perm_config.aperm_interval_slope < 0.0))) {
                     snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm pruning interval slope '%s' (must be >= 0).\n", cur_modif);
                     goto main_ret_INVALID_CMDLINE_WWA;
                   }
-                  pc.aperm.interval_slope *= 1 + kSmallEpsilon;
+                  pc.perm_config.aperm_interval_slope *= 1 + kSmallEpsilon;
                 }
               }
             }
@@ -6559,7 +6565,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t explicit_firth_fallback = 0;
-          uint32_t explicit_perm_cols = 0;
+          uint32_t explicit_glm_perm_count = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -6619,7 +6625,7 @@ int main(int argc, char** argv) {
               // more of a default than max(T)
               pc.glm_info.perm_flags |= kfGlmPermAdaptive;
             } else if (strequal_k(cur_modif, "perm-count", cur_modif_slen)) {
-              pc.glm_info.perm_flags |= kfGlmPermCount;
+              explicit_glm_perm_count = 1;
             } else if (strequal_k(cur_modif, "permute-qt-residuals", cur_modif_slen)) {
               pc.glm_info.perm_flags |= kfGlmPermQtResiduals;
             } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
@@ -6735,16 +6741,6 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Invalid --glm local-cats0= category count (must be in [2, 4095]).\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-            } else if (StrStartsWith(cur_modif, "perm-cols=", cur_modif_slen)) {
-              if (unlikely(explicit_perm_cols)) {
-                logerrputs("Error: Multiple --glm perm-cols= modifiers.\n");
-                goto main_ret_INVALID_CMDLINE;
-              }
-              reterr = ParseColDescriptor(&(cur_modif[strlen("perm-cols=")]), "chrom\0pos\0ref\0alt1\0alt\0maybeprovref\0provref\0omitted\0", "glm perm-cols", kfGlmPermColChrom, kfGlmPermColDefault, 0, &pc.glm_info.perm_flags);
-              if (unlikely(reterr)) {
-                goto main_ret_1;
-              }
-              explicit_perm_cols = 1;
             } else if (likely(strequal_k(cur_modif, "allow-no-covars", cur_modif_slen))) {
               pc.glm_info.flags |= kfGlmAllowNoCovars;
             } else {
@@ -6771,12 +6767,14 @@ int main(int argc, char** argv) {
                 logerrputs("Error: --glm 'aperm' and 'mperm=' cannot be used together.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (!explicit_perm_cols) {
-                pc.glm_info.perm_flags |= kfGlmPermColDefault;
+              if (explicit_glm_perm_count) {
+                explicit_perm_count_modifier = 1;
+              } else {
+                implicit_perm_count_omission = 1;
               }
             } else {
-              if (unlikely(pc.glm_info.perm_flags & kfGlmPermCount)) {
-                logerrputs("Error: --glm 'perm-count' must be used with a permutation test.\n");
+              if (unlikely(explicit_glm_perm_count)) {
+                logerrputs("Error: --glm 'perm-count' specified without a permutation test.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
             }
@@ -9695,10 +9693,10 @@ int main(int argc, char** argv) {
           pmerge_required = 1;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "perm-save")) {
-          pc.misc_flags |= kfMiscMpermSaveBest;
+          pc.perm_config.flags |= kfPermMpermSaveBest;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "perm-save-all")) {
-          pc.misc_flags |= kfMiscMpermSaveAll;
+          pc.perm_config.flags |= kfPermMpermSaveAll;
           goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "pheno"))) {
           logerrputs("Warning: --mpheno flag deprecated.  Use --pheno-col-nums instead.  (Note that\n--pheno-col-nums does not add 2 to the column number(s).)\n");
@@ -10139,7 +10137,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
         } else if (strequal_k_unsafe(flagname_p2, "filter")) {
-          if (unlikely(pc.misc_flags & kfMiscMpermSaveAll)) {
+          if (unlikely(pc.perm_config.flags & kfPermMpermSaveAll)) {
             // may as well prohibit this combination, since in this case the
             // .mperm file would not be aligned with .mperm.dump.all columns
             logerrputs("Error: --pfilter cannot be used with --mperm-save-all.\n");
@@ -10689,12 +10687,42 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, 1, kMaxIdBlen, &pc.glm_info.permute_within_phenoname);
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, 1, kMaxIdBlen, &pc.perm_config.within_phenoname);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
           }
-          pc.misc_flags |= kfMiscPermuteWithin;
+          pc.perm_config.flags |= kfPermWithin;
+        } else if (strequal_k_unsafe(flagname_p2, "erm-format")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t explicit_cols = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.perm_config.flags |= kfPermZs;
+            } else if (strequal_k(cur_modif, "counts", cur_modif_slen)) {
+              pc.perm_config.flags |= kfPermCounts;
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              if (unlikely(explicit_cols)) {
+                logerrputs("Error: Multiple --perm-format cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              pc.perm_config.flags &= ~kfPermColAll;
+              reterr = ParseColDescriptor(&(cur_modif[strlen("cols=")]), "chrom\0pos\0ref\0alt1\0alt\0maybeprovref\0provref\0omitted\0", "perm-format", kfPermColChrom, kfPermColDefault, 0, &pc.perm_config.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              explicit_cols = 1;
+            } else {
+              logerrputs("Error: Invalid --perm-format argument sequence.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "erm-count")) {
+          pc.perm_config.flags |= kfPermCounts;
         } else if (likely(strequal_k_unsafe(flagname_p2, "heno-quantile-normalize"))) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &pc.quantnorm_flattened);
@@ -12969,6 +12997,21 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_A;
       }
     }
+    if (explicit_perm_count_modifier || implicit_perm_count_omission) {
+      // at least one permutation test requested
+      if (explicit_perm_count_modifier) {
+        if (unlikely(implicit_perm_count_omission && (!(pc.perm_config.flags & kfPermCounts)))) {
+          // not actually possible yet, but it will be once another
+          // permutation-supporting association test is implemented
+          logerrputs("Error: " PROG_NAME_STR " does not support different perm-count settings across different\npermutation tests in the same run.  Split your command across two runs or\nchoose a single setting.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        }
+        pc.perm_config.flags |= kfPermCounts;
+      }
+      if ((pc.within_fname || (pc.misc_flags & kfMiscCatPhenoFamily)) && (!(pc.perm_config.flags & kfPermWithin))) {
+        logerrputs("Warning: By itself, --within/--family no longer specifies that permutation is\nrestricted to its categories.  Add --permute-within if you want that.\n");
+      }
+    }
     if (!permit_multiple_inclusion_filters) {
       // Permit only one position- or ID-based variant inclusion filter, since
       // it's not immediately obvious whether the union or intersection should
@@ -13490,6 +13533,7 @@ int main(int argc, char** argv) {
   CleanupChrInfo(&chr_info);
   CleanupGenDummy(&gendummy_info);
   CleanupFlip(&pc.flip_info);
+  CleanupPermConfig(&pc.perm_config);
   CleanupVcor(&pc.vcor_info);
   CleanupClump(&pc.clump_info);
   CleanupGwasSsf(&pc.gwas_ssf_info);
