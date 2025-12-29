@@ -3980,6 +3980,10 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     if (max_sample_ct < sample_ct_y) {
       max_sample_ct = sample_ct_y;
     }
+    uint32_t max_covar_ct = MAXV(covar_ct, covar_ct_x);
+    if (max_covar_ct < covar_ct_y) {
+      max_covar_ct = covar_ct_y;
+    }
     const uintptr_t* sample_include = common->sample_include;
     uint32_t* local_sample_idx_order = nullptr;
     uint32_t local_line_idx = 0;
@@ -4136,7 +4140,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     }
     unsigned char* bigstack_mark2 = g_bigstack_base;
     const uint32_t is_qt_residualize = (glm_flags / kfGlmQtResidualize) & 1;
-    const uintptr_t qt_residualize_alloc_size = is_qt_residualize? GetResidualizedPhenoAndXtYWorkspaceSize(max_sample_ct, covar_ct) : 0;
+    const uintptr_t qt_residualize_alloc_size = is_qt_residualize? GetResidualizedPhenoAndXtYWorkspaceSize(max_sample_ct, max_covar_ct) : 0;
     double* pheno_d = nullptr;
     double* pheno_x_d = nullptr;
     double* pheno_y_d = nullptr;
