@@ -2328,10 +2328,10 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   if (ci_col) {
                     *cswritep++ = '\t';
                     if (test_is_valid) {
-                      const double ci_halfwidth = ci_zt * se;
-                      cswritep = dtoa_g(beta - ci_halfwidth, cswritep);
+                      const double ci_radius = ci_zt * se;
+                      cswritep = dtoa_g(beta - ci_radius, cswritep);
                       *cswritep++ = '\t';
-                      cswritep = dtoa_g(beta + ci_halfwidth, cswritep);
+                      cswritep = dtoa_g(beta + ci_radius, cswritep);
                     } else {
                       cswritep = strcpya_k(cswritep, "NA\tNA");
                     }
@@ -3979,6 +3979,10 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     if (max_sample_ct < sample_ct_y) {
       max_sample_ct = sample_ct_y;
     }
+    uint32_t max_covar_ct = MAXV(covar_ct, covar_ct_x);
+    if (max_covar_ct < covar_ct_y) {
+      max_covar_ct = covar_ct_y;
+    }
     const uintptr_t* sample_include = common->sample_include;
     uint32_t* local_sample_idx_order = nullptr;
     uint32_t local_line_idx = 0;
@@ -4135,7 +4139,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     }
     unsigned char* bigstack_mark2 = g_bigstack_base;
     const uint32_t is_qt_residualize = (glm_flags / kfGlmQtResidualize) & 1;
-    const uintptr_t qt_residualize_alloc_size = is_qt_residualize? GetResidualizedPhenoAndXtYWorkspaceSize(max_sample_ct, covar_ct) : 0;
+    const uintptr_t qt_residualize_alloc_size = is_qt_residualize? GetResidualizedPhenoAndXtYWorkspaceSize(max_sample_ct, max_covar_ct) : 0;
     double* pheno_d = nullptr;
     double* pheno_x_d = nullptr;
     double* pheno_y_d = nullptr;
@@ -4414,7 +4418,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           ClearNmPrecompCovars(sample_ct_x, domdev_third_p1, common->nm_precomp_x);
         }
         if (sample_ct_y) {
-          ClearNmPrecompCovars(sample_ct_y, domdev_third_p1, common->nm_precomp_x);
+          ClearNmPrecompCovars(sample_ct_y, domdev_third_p1, common->nm_precomp_y);
         }
       }
 
@@ -4785,10 +4789,10 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       if (ci_col) {
                         *cswritep++ = '\t';
                         if (test_is_valid) {
-                          const double ci_halfwidth = ci_zt * se;
-                          cswritep = dtoa_g(beta - ci_halfwidth, cswritep);
+                          const double ci_radius = ci_zt * se;
+                          cswritep = dtoa_g(beta - ci_radius, cswritep);
                           *cswritep++ = '\t';
-                          cswritep = dtoa_g(beta + ci_halfwidth, cswritep);
+                          cswritep = dtoa_g(beta + ci_radius, cswritep);
                         } else {
                           cswritep = strcpya_k(cswritep, "NA\tNA");
                         }
@@ -4940,11 +4944,9 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
 }
 
 static_assert(kMaxLinearSubbatchSize * (12 + kMaxDoubleGSlen) <= kTextbufSize, "GlmLinearPerm() needs to be updated.");
-PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* valid_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const PermConfig* perm_config_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const double* orig_ln_pvals, const PhenoCol* permute_within_phenocol, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uintptr_t valid_allele_ct, uint32_t max_chr_blen, double ln_pfilter, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLinearCtx* ctx, sfmt_t* sfmtp, TextStream* local_covar_txsp, uintptr_t* remaining_variants, char* outname, char* outname_end) {
+PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* valid_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const PermConfig* perm_config_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const double* orig_ln_pvals, const PhenoCol* permute_within_phenocol, const uintptr_t* orig_covar_include, const uintptr_t* orig_covar_include_x, const uintptr_t* orig_covar_include_y, const PhenoCol* covar_cols, const char* covar_names, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uintptr_t valid_allele_ct, uint32_t max_chr_blen, double ln_pfilter, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, uint32_t orig_covar_ct, uint32_t orig_covar_ct_x, uint32_t orig_covar_ct_y, uint32_t covar_max_nonnull_cat_ct, uint32_t extra_cat_ct, uint32_t extra_cat_ct_x, uint32_t extra_cat_ct_y, uintptr_t max_covar_name_blen, PgenFileInfo* pgfip, GlmLinearCtx* ctx, sfmt_t* sfmtp, TextStream* local_covar_txsp, uintptr_t* remaining_variants, char* outname, char* outname_end) {
   // This is based on GlmLinearSubbatchThread, so initialization is similar
   // to GlmLinearBatch().
-  // TODO: explicitly pass in covariates for qt-residualize without
-  // permute-qt-residuals case.
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* mperm_all_cswritep = nullptr;
@@ -4963,6 +4965,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     const uintptr_t* allele_idx_offsets = common->allele_idx_offsets;
     const AlleleCode* omitted_alleles = common->omitted_alleles;
 
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t sample_ct = common->sample_ct;
     const uint32_t sample_ct_x = common->sample_ct_x;
     const uint32_t sample_ct_y = common->sample_ct_y;
@@ -4973,7 +4976,31 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     const uint32_t permute_residuals = (glm_perm_flags / kfGlmPermQtResiduals) & 1;
     const uintptr_t* sample_include = common->sample_include;
     const double* orig_pheno_qt = orig_pheno_col->data.qt;
-    if (permute_residuals) {
+    const uint32_t late_qt_residualize = (glm_flags & kfGlmQtResidualize) && (!permute_residuals);
+    double* late_qtr_covars_cmaj_d = nullptr;
+    double* late_qtr_covars_cmaj_x_d = nullptr;
+    double* late_qtr_covars_cmaj_y_d = nullptr;
+    if (late_qt_residualize) {
+      const double max_corr = common->max_corr;
+      const double vif_thresh = common->vif_thresh;
+      // this technically wastes a bit of memory
+      const char** cur_covar_names_unused = nullptr;
+      GlmErr glm_err;
+      if (unlikely(GlmAllocFillAndTestCovarsQt(sample_include, orig_covar_include, covar_cols, covar_names, sample_ct, orig_covar_ct, 0, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, domdev_third_p1, &(common->nm_precomp), &late_qtr_covars_cmaj_d, &cur_covar_names_unused, &glm_err))) {
+        goto GlmLinearPerm_ret_NOMEM;
+      }
+      assert(!glm_err);
+      if (sample_ct_x) {
+        if (unlikely(GlmAllocFillAndTestCovarsQt(common->sample_include_x, orig_covar_include_x, covar_cols, covar_names, sample_ct_x, orig_covar_ct_x, 0, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, max_corr, vif_thresh, domdev_third_p1, &(common->nm_precomp_x), &late_qtr_covars_cmaj_x_d, &cur_covar_names_unused, &glm_err))) {
+          goto GlmLinearPerm_ret_NOMEM;
+        }
+      }
+      if (sample_ct_y) {
+        if (unlikely(GlmAllocFillAndTestCovarsQt(common->sample_include_y, orig_covar_include_y, covar_cols, covar_names, sample_ct_y, orig_covar_ct_y, 0, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, max_corr, vif_thresh, domdev_third_p1, &(common->nm_precomp_y), &late_qtr_covars_cmaj_y_d, &cur_covar_names_unused, &glm_err))) {
+          goto GlmLinearPerm_ret_NOMEM;
+        }
+      }
+    } else if (permute_residuals) {
       // Synthesize orig_pheno_qt with residuals stored in pheno_d.
       const double* residuals = ctx->pheno_d;
       double* orig_pheno_qt_write;
@@ -4997,6 +5024,10 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     uint32_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
     if (max_sample_ct < sample_ct_y) {
       max_sample_ct = sample_ct_y;
+    }
+    uint32_t max_orig_covar_ct = MAXV(orig_covar_ct, orig_covar_ct_x);
+    if (max_orig_covar_ct < orig_covar_ct_y) {
+      max_orig_covar_ct = orig_covar_ct_y;
     }
     uint32_t* local_sample_idx_order = nullptr;
     uint32_t local_line_idx = 0;
@@ -5032,7 +5063,6 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     }
 
     const uintptr_t* sample_include_union = sample_include;
-    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uint32_t sample_union_ct = sample_ct;
     if (sample_ct_x || sample_ct_y) {
       const uint32_t x_samples_are_different = (sample_ct_x != sample_ct) || (!wordsequal(sample_include, common->sample_include_x, raw_sample_ctl));
@@ -5408,13 +5438,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     //   block_beta_se_bufs
     //   mperm_all_stats (if --mperm-save-all)
     unsigned char* bigstack_mark2 = g_bigstack_base;
-    const uint32_t is_qt_residualize = (glm_flags & kfGlmQtResidualize) && (!permute_residuals);
-    if (is_qt_residualize) {
-      logerrputs("Error: --glm 'qt-residualize' permutation test currently requires\n'permute-qt-residuals'.\n");
-      reterr = kPglRetNotYetSupported;
-      goto GlmLinearPerm_ret_1;
-    }
-    const uintptr_t qt_residualize_alloc_size = is_qt_residualize? GetResidualizedPhenoAndXtYWorkspaceSize(max_sample_ct, covar_ct) : 0;
+    const uintptr_t late_qt_residualize_alloc_size = late_qt_residualize? GetResidualizedPhenoAndXtYWorkspaceSize(max_sample_ct, max_orig_covar_ct) : 0;
     double* pheno_d = nullptr;
     double* pheno_x_d = nullptr;
     double* pheno_y_d = nullptr;
@@ -5432,7 +5456,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
         continue;
       }
       if (common->nm_precomp) {
-        if (bigstack_alloc_d((2 + domdev_third + (1 - is_qt_residualize) * covar_ct) * max_subbatch_size, &(common->nm_precomp->xt_y_image))) {
+        if (bigstack_alloc_d((2 + domdev_third + covar_ct) * max_subbatch_size, &(common->nm_precomp->xt_y_image))) {
           continue;
         }
       }
@@ -5442,7 +5466,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
         }
         if (common->nm_precomp_x) {
           // domdev_third can't be set here.
-          if (bigstack_alloc_d((2 + (1 - is_qt_residualize) * covar_ct_x) * max_subbatch_size, &(common->nm_precomp_x->xt_y_image))) {
+          if (bigstack_alloc_d((2 + covar_ct_x) * max_subbatch_size, &(common->nm_precomp_x->xt_y_image))) {
             continue;
           }
         }
@@ -5452,7 +5476,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
           continue;
         }
         if (common->nm_precomp_y) {
-          if (bigstack_alloc_d((2 + (1 - is_qt_residualize) * covar_ct_y) * max_subbatch_size, &(common->nm_precomp_y->xt_y_image))) {
+          if (bigstack_alloc_d((2 + covar_ct_y) * max_subbatch_size, &(common->nm_precomp_y->xt_y_image))) {
             continue;
           }
         }
@@ -5487,10 +5511,10 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
       }
 
       uintptr_t bytes_avail = bigstack_left();
-      if (bytes_avail < qt_residualize_alloc_size) {
+      if (bytes_avail < late_qt_residualize_alloc_size) {
         continue;
       }
-      bytes_avail -= qt_residualize_alloc_size;
+      bytes_avail -= late_qt_residualize_alloc_size;
       if (!PgenMtLoadInit(remaining_variants, max_sample_ct, remaining_variant_ct, bytes_avail, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, per_alt_allele_xalloc_byte_ct, pgfip, &calc_thread_ct, &common->genovecs, max_extra_allele_ct? (&common->thread_mhc) : nullptr, nullptr, nullptr, dosage_is_present? (&common->dosage_presents) : nullptr, dosage_is_present? (&common->dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, &max_alt_allele_block_size, main_loadbufs, &common->pgr_ptrs, &common->read_variant_uidx_starts)) {
         break;
       }
@@ -5579,39 +5603,31 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
           cur_cat_offset = next_cat_offset;
         }
 
-        if (!is_qt_residualize) {
-          FillPhenoAndXtY(common->sample_include, pheno_qt_tmp, ctx->covars_cmaj_d, sample_ct, domdev_third_p1, covar_ct, common->nm_precomp? (&(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct)])) : nullptr, &(pheno_d[pidx * sample_ct]));
+        if (!late_qt_residualize) {
+          FillPhenoAndXtY(sample_include, pheno_qt_tmp, ctx->covars_cmaj_d, sample_ct, domdev_third_p1, covar_ct, common->nm_precomp? (&(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct)])) : nullptr, &(pheno_d[pidx * sample_ct]));
           if (sample_ct_x) {
-            FillPhenoAndXtY(common->sample_include_x, pheno_qt_tmp, ctx->covars_cmaj_x_d, sample_ct_x, domdev_third_p1, covar_ct_x, common->nm_precomp? (&(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct_x)])) : nullptr, &(pheno_x_d[pidx * sample_ct_x]));
+            FillPhenoAndXtY(common->sample_include_x, pheno_qt_tmp, ctx->covars_cmaj_x_d, sample_ct_x, domdev_third_p1, covar_ct_x, common->nm_precomp_x? (&(common->nm_precomp_x->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct_x)])) : nullptr, &(pheno_x_d[pidx * sample_ct_x]));
           }
           if (sample_ct_y) {
-            FillPhenoAndXtY(common->sample_include_y, pheno_qt_tmp, ctx->covars_cmaj_y_d, sample_ct_y, domdev_third_p1, covar_ct_y, common->nm_precomp? (&(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct_y)])) : nullptr, &(pheno_y_d[pidx * sample_ct_y]));
+            FillPhenoAndXtY(common->sample_include_y, pheno_qt_tmp, ctx->covars_cmaj_y_d, sample_ct_y, domdev_third_p1, covar_ct_y, common->nm_precomp_y? (&(common->nm_precomp_y->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct_y)])) : nullptr, &(pheno_y_d[pidx * sample_ct_y]));
           }
         } else {
-          // TODO: is_qt_residualize currently results in covar_ct=0 here, etc.
-          // Need to mirror more of GlmLinearBatch()'s setup before this can
-          // work.
-          /*
-          if (unlikely(FillResidualizedPhenoAndXtY(common->sample_include, pheno_qt_tmp, ctx->covars_cmaj_d, sample_ct, domdev_third_p1, covar_ct, &(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_d[pidx * sample_ct])))) {
+          if (unlikely(FillResidualizedPhenoAndXtY(sample_include, pheno_qt_tmp, late_qtr_covars_cmaj_d, sample_ct, domdev_third_p1, orig_covar_ct, &(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_d[pidx * sample_ct])))) {
             assert(0);
             goto GlmLinearPerm_ret_NOMEM;
           }
           if (sample_ct_x) {
-            FillResidualizedPhenoAndXtY(common->sample_include_x, pheno_qt_tmp, ctx->covars_cmaj_x_d, sample_ct_x, domdev_third_p1, covar_ct_x, &(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_x_d[pidx * sample_ct_x]));
+            FillResidualizedPhenoAndXtY(common->sample_include_x, pheno_qt_tmp, late_qtr_covars_cmaj_x_d, sample_ct_x, domdev_third_p1, orig_covar_ct_x, &(common->nm_precomp_x->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_x_d[pidx * sample_ct_x]));
           }
           if (sample_ct_y) {
-            FillResidualizedPhenoAndXtY(common->sample_include_y, pheno_qt_tmp, ctx->covars_cmaj_y_d, sample_ct_y, domdev_third_p1, covar_ct_y, &(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_y_d[pidx * sample_ct_y]));
+            FillResidualizedPhenoAndXtY(common->sample_include_y, pheno_qt_tmp, late_qtr_covars_cmaj_y_d, sample_ct_y, domdev_third_p1, orig_covar_ct_y, &(common->nm_precomp_y->xt_y_image[pidx * (1 + domdev_third_p1)]), &(pheno_y_d[pidx * sample_ct_y]));
           }
-          */
         }
       }
       ctx->pheno_d = pheno_d;
       ctx->pheno_x_d = pheno_x_d;
       ctx->pheno_y_d = pheno_y_d;
-      if (is_qt_residualize) {
-        common->covar_ct = 0;
-        common->covar_ct_x = 0;
-        common->covar_ct_y = 0;
+      if (late_qt_residualize) {
         ClearNmPrecompCovars(sample_ct, domdev_third_p1, common->nm_precomp);
         if (sample_ct_x) {
           ClearNmPrecompCovars(sample_ct_x, domdev_third_p1, common->nm_precomp_x);
@@ -5786,8 +5802,8 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
                     if (pidx == adapt_check_pidx) {
                       const uint32_t perm_ct = perm_idx_start + pidx + 1;
                       const double emp1 = u31tod(valid_allele_emp1_ctx2s[valid_allele_idx] + 2) / u31tod(2 * (perm_ct + 1));
-                      const double ci_halfwidth = adaptive_ci_zt * sqrt(emp1 * (1 - emp1) / u31tod(perm_ct));
-                      if ((emp1 - ci_halfwidth > aperm_alpha) || (emp1 + ci_halfwidth < aperm_alpha)) {
+                      const double ci_radius = adaptive_ci_zt * sqrt(emp1 * (1 - emp1) / u31tod(perm_ct));
+                      if ((emp1 - ci_radius > aperm_alpha) || (emp1 + ci_radius < aperm_alpha)) {
                         valid_allele_emp1_denoms[valid_allele_idx] = perm_ct + 1;
                         goto GlmLinearPerm_allele_iterate;
                       }

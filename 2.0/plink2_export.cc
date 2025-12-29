@@ -487,14 +487,14 @@ char* PrintGenDosage(uint32_t rawval, char* start) {
     return start;
   }
   *start++ = '.';
-  const uint32_t halfwidth_65536ths = 3 - (2 * (rawval % 2));
+  const uint32_t radius_65536ths = 3 - (2 * (rawval % 2));
   // (rawval * 4) is in 65536ths
   // 65536 * 625 = 40960k
 
-  const uint32_t range_top_40960k = (rawval * 4 + halfwidth_65536ths) * 625;
+  const uint32_t range_top_40960k = (rawval * 4 + radius_65536ths) * 625;
   // this is technically checking a half-open rather than a fully-open
   // interval, but that's fine since we never hit the boundary points
-  if ((range_top_40960k % 4096) < 1250 * halfwidth_65536ths) {
+  if ((range_top_40960k % 4096) < 1250 * radius_65536ths) {
     // when this is true, the four-decimal-place approximation is in the range
     // which round-trips back to our original number.
     const uint32_t four_decimal_places = range_top_40960k / 4096;

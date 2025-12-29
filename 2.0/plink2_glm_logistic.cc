@@ -5738,15 +5738,15 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   if (ci_col) {
                     *cswritep++ = '\t';
                     if (test_is_valid) {
-                      const double ci_halfwidth = ci_zt * se;
+                      const double ci_radius = ci_zt * se;
                       if (report_beta_instead_of_odds_ratio) {
-                        cswritep = dtoa_g(beta - ci_halfwidth, cswritep);
+                        cswritep = dtoa_g(beta - ci_radius, cswritep);
                         *cswritep++ = '\t';
-                        cswritep = dtoa_g(beta + ci_halfwidth, cswritep);
+                        cswritep = dtoa_g(beta + ci_radius, cswritep);
                       } else {
-                        cswritep = lntoa_g(beta - ci_halfwidth, cswritep);
+                        cswritep = lntoa_g(beta - ci_radius, cswritep);
                         *cswritep++ = '\t';
-                        cswritep = lntoa_g(beta + ci_halfwidth, cswritep);
+                        cswritep = lntoa_g(beta + ci_radius, cswritep);
                       }
                     } else {
                       cswritep = strcpya_k(cswritep, "NA\tNA");
