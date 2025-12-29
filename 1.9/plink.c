@@ -97,7 +97,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.9.0-b.7.11.c"
+  "PLINK v1.9.0-b.7.11.d"
 #else
   "PLINK v1.9.0-b.8"
 #endif
@@ -109,7 +109,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (29 Nov 2025)";
+  " (29 Dec 2025)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -10051,7 +10051,6 @@ int32_t main(int32_t argc, char** argv) {
 	family_info.dfam_modifier |= DFAM_PERM_COUNT;
         family_info.qfam_modifier |= QFAM_PERM_COUNT;
 	cluster.modifier |= CLUSTER_CMH_PERM_COUNT;
-	logprint("Note: --perm-count flag deprecated.  Use e.g. \"--model perm-count\".\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "2", 2)) {
 	logerrprint("Error: --p2 has been provisionally retired.  Contact the developers if you need\nthis functionality.\n");
