@@ -265,8 +265,8 @@ uintptr_t GetLinearWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predicto
   return workspace_size;
 }
 
-// possible todo: delete this, and GlmLinear(), if GlmLinearBatchThread is good
-// enough at the same job.
+// possible todo: delete this, and GlmLinear(), if GlmLinearSubbatchThread is
+// good enough at the same job.
 THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uintptr_t tidx = arg->tidx;
@@ -4969,7 +4969,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     const uint32_t sample_ct = common->sample_ct;
     const uint32_t sample_ct_x = common->sample_ct_x;
     const uint32_t sample_ct_y = common->sample_ct_y;
-    const GlmFlags glm_flags = glm_info_ptr->flags;
+    const GlmFlags glm_flags = (glm_info_ptr->flags & (~kfGlmIntercept)) | kfGlmHideCovar;
     const uint32_t domdev_third = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
     const uint32_t domdev_third_p1 = domdev_third + 1;
     const GlmPermFlags glm_perm_flags = glm_info_ptr->perm_flags;
@@ -5891,6 +5891,9 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
           remaining_variants[variant_widx] = next_variants_word;
         }
         remaining_variant_ct = PopcountWords(remaining_variants, raw_variant_ctl);
+        if (!remaining_variant_ct) {
+          break;
+        }
       } else {
         const uint32_t perm_idx_stop = perm_idx_start + subbatch_size;
         if (mperm_best_file) {
