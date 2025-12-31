@@ -3707,7 +3707,6 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
               // major categorical optimization possible here, some
               // multiallelic optimizations possible
               MultiplySelfTranspose(nm_predictors_pmaj_buf, cur_predictor_ct, nm_sample_ct, xtx_inv);
-
               for (uint32_t pred_idx = 1; pred_idx != cur_predictor_ct; ++pred_idx) {
                 dbl_2d_buf[pred_idx] = xtx_inv[pred_idx * cur_predictor_ct];
               }
@@ -5568,6 +5567,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
       adaptive_ci_zt = QuantileToZscore(1.0 - perm_config_ptr->aperm_beta / (2.0 * u31tod(remaining_variant_ct)));
     }
     uint32_t subbatch_size = max_subbatch_size;
+    uint32_t perms_actual = perms_total;
     for (uint32_t perm_idx_start = 0; perm_idx_start != perms_total; perm_idx_start += subbatch_size) {
       printf("\r%u permutation%s complete.", perm_idx_start, (perm_idx_start == 1)? "" : "s");
       fflush(stdout);
@@ -5892,8 +5892,16 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
         }
         remaining_variant_ct = PopcountWords(remaining_variants, raw_variant_ctl);
         if (!remaining_variant_ct) {
+          perms_actual = valid_allele_emp1_denoms[0];
+          for (uintptr_t valid_allele_idx = 1; valid_allele_idx != valid_allele_ct; ++valid_allele_idx) {
+            if (valid_allele_emp1_denoms[valid_allele_idx] > perms_actual) {
+              perms_actual = valid_allele_emp1_denoms[valid_allele_idx];
+            }
+          }
+          --perms_actual;
           break;
         }
+        FillSubsetChrFoVidxStart(remaining_variants, cip, common->subset_chr_fo_vidx_start);
       } else {
         const uint32_t perm_idx_stop = perm_idx_start + subbatch_size;
         if (mperm_best_file) {
@@ -5951,7 +5959,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
       }
     }
     putc_unlocked('\r', stdout);
-    logprintf("%u %s permutation%s complete.\n", perms_total, perm_adapt? "(adaptive)" : "max(T)", (perms_total == 1)? "" : "s");
+    logprintf("%u %s permutation%s complete.\n", perms_actual, perm_adapt? "(adaptive)" : "max(T)", (perms_total == 1)? "" : "s");
     if (perm_adapt) {
       const uint32_t perms_total_p1 = perms_total + 1;
       for (uintptr_t valid_allele_idx = 0; valid_allele_idx != valid_allele_ct; ++valid_allele_idx) {
