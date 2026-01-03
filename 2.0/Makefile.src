@@ -100,6 +100,7 @@ CCSRC = $(PLINK2LIB_CCSRC) \
         plink2_matrix_calc.cc \
         plink2_merge.cc \
         plink2_misc.cc \
+        plink2_perm.cc \
         plink2_psam.cc \
         plink2_pvar.cc \
         plink2_random.cc \

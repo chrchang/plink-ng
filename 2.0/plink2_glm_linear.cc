@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
+// This file is part of PLINK 2.0, copyright (C) 2005-2026 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -29,7 +29,7 @@
 #include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
 #include "plink2_matrix.h"
-#include "plink2_random.h"
+#include "plink2_perm.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1627,7 +1627,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLinearCtx* ctx, TextStream* local_covar_txsp, LlStr** outfnames_ll_ptr, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, uintptr_t* valid_allele_ct_ptr) {
+PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLinearCtx* ctx, TextStream* local_covar_txsp, LlStr** outfnames_ll_ptr, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, uintptr_t* valid_allele_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -1685,8 +1685,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
         local_sample_idx_order[uii] = cur_idx;
       }
     }
-
-    const uint32_t variant_ct = common->variant_ct;
 
     const GlmFlags glm_flags = glm_info_ptr->flags;
     const uint32_t output_zst = (glm_flags / kfGlmZs) & 1;
@@ -3951,7 +3949,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
 CONSTI32(kMaxLinearSubbatchSize, 240);
 static_assert(kMaxLinearSubbatchSize + 12 <= kMaxOpenFiles, "kMaxLinearSubbatchSize can't be too close to or larger than kMaxOpenFiles.");
 
-PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, const char* pheno_names, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, uint32_t raw_variant_ct, uint32_t completed_pheno_ct, uint32_t batch_size, uintptr_t max_pheno_name_blen, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLinearCtx* ctx, TextStream* local_covar_txsp, LlStr** outfnames_ll_ptr, char* outname, char* outname_end) {
+PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, const char* pheno_names, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t completed_pheno_ct, uint32_t batch_size, uintptr_t max_pheno_name_blen, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLinearCtx* ctx, TextStream* local_covar_txsp, LlStr** outfnames_ll_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char** cswritep_arr = nullptr;
   CompressStreamState* css_arr = nullptr;
@@ -4014,8 +4012,6 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         local_sample_idx_order[uii] = cur_idx;
       }
     }
-
-    const uint32_t variant_ct = common->variant_ct;
 
     const GlmFlags glm_flags = glm_info_ptr->flags;
     const uint32_t report_neglog10p = (glm_flags / kfGlmLog10) & 1;
@@ -4943,10 +4939,12 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
 }
 
 static_assert(kMaxLinearSubbatchSize * (12 + kMaxDoubleGSlen) <= kTextbufSize, "GlmLinearPerm() needs to be updated.");
-PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* valid_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const PermConfig* perm_config_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const double* orig_ln_pvals, const PhenoCol* permute_within_phenocol, const uintptr_t* orig_covar_include, const uintptr_t* orig_covar_include_x, const uintptr_t* orig_covar_include_y, const PhenoCol* covar_cols, const char* covar_names, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uintptr_t valid_allele_ct, uint32_t max_chr_blen, double ln_pfilter, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, uint32_t orig_covar_ct, uint32_t orig_covar_ct_x, uint32_t orig_covar_ct_y, uint32_t covar_max_nonnull_cat_ct, uint32_t extra_cat_ct, uint32_t extra_cat_ct_x, uint32_t extra_cat_ct_y, uintptr_t max_covar_name_blen, PgenFileInfo* pgfip, GlmLinearCtx* ctx, sfmt_t* sfmtp, TextStream* local_covar_txsp, uintptr_t* remaining_variants, char* outname, char* outname_end) {
+PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* valid_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const PermConfig* perm_config_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const double* orig_ln_pvals, const PhenoCol* permute_within_phenocol, const uintptr_t* orig_covar_include, const uintptr_t* orig_covar_include_x, const uintptr_t* orig_covar_include_y, const PhenoCol* covar_cols, const char* covar_names, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uintptr_t orig_allele_ct, uintptr_t valid_allele_ct, uint32_t max_chr_blen, double ln_pfilter, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, uint32_t orig_covar_ct, uint32_t orig_covar_ct_x, uint32_t orig_covar_ct_y, uint32_t covar_max_nonnull_cat_ct, uint32_t extra_cat_ct, uint32_t extra_cat_ct_x, uint32_t extra_cat_ct_y, uintptr_t max_covar_name_blen, PgenFileInfo* pgfip, GlmLinearCtx* ctx, sfmt_t* sfmtp, TextStream* local_covar_txsp, uintptr_t* remaining_variants, char* outname, char* outname_end) {
   // This is based on GlmLinearSubbatchThread, so initialization is similar
   // to GlmLinearBatch().
   unsigned char* bigstack_mark = g_bigstack_base;
+  // GlmAllocFillAndTestCovarsQt() allocates off bigstack_end
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   char* cswritep = nullptr;
   char* mperm_all_cswritep = nullptr;
   FILE* mperm_best_file = nullptr;
@@ -4968,13 +4966,14 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     const uint32_t sample_ct = common->sample_ct;
     const uint32_t sample_ct_x = common->sample_ct_x;
     const uint32_t sample_ct_y = common->sample_ct_y;
-    const GlmFlags glm_flags = (glm_info_ptr->flags & (~kfGlmIntercept)) | kfGlmHideCovar;
+    // common->glm_flags has been updated with hide-covar and ~intercept;
+    // this is *not* true for glm_info_ptr->flags.
+    const GlmFlags glm_flags = common->glm_flags;
     const uint32_t domdev_third = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
     const uint32_t domdev_third_p1 = domdev_third + 1;
     const GlmPermFlags glm_perm_flags = glm_info_ptr->perm_flags;
     const uint32_t permute_residuals = (glm_perm_flags / kfGlmPermQtResiduals) & 1;
     const uintptr_t* sample_include = common->sample_include;
-    const double* orig_pheno_qt = orig_pheno_col->data.qt;
     const uint32_t late_qt_residualize = (glm_flags & kfGlmQtResidualize) && (!permute_residuals);
     double* late_qtr_covars_cmaj_d = nullptr;
     double* late_qtr_covars_cmaj_x_d = nullptr;
@@ -5083,12 +5082,10 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
       }
     }
 
-    const uint32_t orig_variant_ct = common->variant_ct;
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uint32_t remaining_variant_ct = PopcountWords(remaining_variants, raw_variant_ctl);
     FillSubsetChrFoVidxStart(remaining_variants, cip, common->subset_chr_fo_vidx_start);
     common->variant_include = remaining_variants;
-    common->variant_ct = remaining_variant_ct;
 
     const uintptr_t raw_allele_ct = allele_idx_offsets? allele_idx_offsets[raw_variant_ct] : (2 * raw_variant_ct);
     const uintptr_t raw_allele_ctl = BitCtToWordCt(raw_allele_ct);
@@ -5181,80 +5178,11 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
       calc_thread_ct = remaining_variant_ct;
     }
 
-    // --permute-within:
-    //   cat_cumulative_sizes[k] = cat_sizes[0] + ... + cat_sizes[k-1]
-    //   perm_idx_to_orig_uidx[0..(cat_cumulative_sizes[1]-1)] has category-0
-    //     sample_uidx values; perm_idx_to_orig_uidx[cat_cumulative_sizes[1]..
-    //     (cat_cumulative_sizes[2]-1)] has category-1 sample_uidx values, etc.
-    uint32_t* cat_cumulative_sizes;
     uint32_t* perm_idx_to_orig_uidx;
+    uint32_t* cat_cumulative_sizes;
     uint32_t cat_ct;
-    if (permute_within_phenocol) {
-      cat_ct = permute_within_phenocol->nonnull_category_ct + 1;
-      if (unlikely(bigstack_alloc_u32(sample_union_ct, &perm_idx_to_orig_uidx) ||
-                   bigstack_alloc_u32(cat_ct + 1, &cat_cumulative_sizes))) {
-        goto GlmLinearPerm_ret_NOMEM;
-      }
-      // 1. compute cat_sizes
-      // 2. transform to working write-offsets, fill perm_idx_to_orig_uidx
-      // 3. reinterpret final array as cat_cumulative_sizes, set [0] to 0
-      // 4. remove empty categories
-      uint32_t* cat_sizes = &(cat_cumulative_sizes[1]);
-      IdentifyRemainingCatsAndMostCommon(sample_include_union, permute_within_phenocol, sample_union_ct, nullptr, cat_sizes);
-
-      uint32_t cat_offset = 0;
-      for (uint32_t cat_idx = 0; cat_idx != cat_ct; ++cat_idx) {
-        const uint32_t cur_cat_size = cat_sizes[cat_idx];
-        cat_sizes[cat_idx] = cat_offset;
-        cat_offset += cur_cat_size;
-      }
-      uint32_t* cat_offsets = cat_sizes;
-      const uint32_t* phenocats = permute_within_phenocol->data.cat;
-      uintptr_t sample_uidx_base = 0;
-      uintptr_t cur_bits = sample_include[0];
-      for (uint32_t sample_idx = 0; sample_idx != sample_union_ct; ++sample_idx) {
-        const uintptr_t sample_uidx = BitIter1(sample_include_union, &sample_uidx_base, &cur_bits);
-        const uint32_t cur_cat_idx = phenocats[sample_uidx];
-        perm_idx_to_orig_uidx[cat_offsets[cur_cat_idx]] = sample_uidx;
-        cat_offsets[cur_cat_idx] += 1;
-      }
-
-      cat_cumulative_sizes[0] = 0;
-
-      cat_offset = 0;
-      uint32_t read_idx = 1;
-      for (; read_idx <= cat_ct; ++read_idx) {
-        if (cat_offsets[read_idx] == cat_offset) {
-          break;
-        }
-        cat_offset = cat_offsets[read_idx];
-      }
-      if (read_idx <= cat_ct) {
-        uint32_t write_idx = read_idx - 1;
-        while (++read_idx <= cat_ct) {
-          if (cat_offsets[read_idx] == cat_offset) {
-            continue;
-          }
-          cat_offsets[write_idx++] = cat_offset;
-          cat_offset = cat_offsets[read_idx];
-        }
-        cat_offsets[write_idx] = cat_offset;
-        cat_ct = write_idx;
-      }
-    } else {
-      if (unlikely(bigstack_alloc_u32(sample_union_ct, &perm_idx_to_orig_uidx) ||
-                   bigstack_alloc_u32(2, &cat_cumulative_sizes))) {
-        goto GlmLinearPerm_ret_NOMEM;
-      }
-      cat_cumulative_sizes[0] = 0;
-      cat_cumulative_sizes[1] = sample_union_ct;
-      cat_ct = 1;
-      uintptr_t sample_uidx_base = 0;
-      uintptr_t cur_bits = sample_include[0];
-      for (uint32_t sample_idx = 0; sample_idx != sample_union_ct; ++sample_idx) {
-        const uintptr_t sample_uidx = BitIter1(sample_include_union, &sample_uidx_base, &cur_bits);
-        perm_idx_to_orig_uidx[sample_idx] = sample_uidx;
-      }
+    if (unlikely(PermuteWithinInit(sample_include_union, permute_within_phenocol, nullptr, raw_sample_ctl, sample_union_ct, &cat_ct, &perm_idx_to_orig_uidx, &cat_cumulative_sizes, nullptr))) {
+      goto GlmLinearPerm_ret_NOMEM;
     }
 
     uint32_t* valid_allele_emp1_ctx2s;  // x2 since tie treated as 0.5
@@ -5291,67 +5219,17 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     common->dosage_mains = nullptr;
     const uint32_t output_zst = (perm_flags / kfPermZs) & 1;
     const uint32_t ref_col = perm_flags & kfPermColRef;
-    const uint32_t alt1_col = perm_flags & kfPermColAlt1;
-    const uint32_t alt_col = perm_flags & kfPermColAlt;
     const uintptr_t* nonref_flags = pgfip->nonref_flags;
     const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
     const uint32_t provref_col = ref_col && ProvrefCol(orig_variant_include, nonref_flags, perm_flags / kfPermColMaybeprovref, raw_variant_ct, all_nonref);
-    const uint32_t omitted_col = perm_flags & kfPermColOmitted;
-    const uint32_t perm_count = (perm_flags / kfPermCounts) & 1;
 
     char* outname_end2 = outname_end;
-    *outname_end2++ = '.';
-    *outname_end2++ = perm_adapt? 'a' : 'm';
-    outname_end2 = strcpya_k(outname_end2, "perm");
-    *outname_end2 = '\0';
-    if (output_zst) {
-      strcpy_k(outname_end2, ".zst");
-    }
-    // forced-singlethreaded
-    reterr = InitCstreamAlloc(outname, 0, output_zst, 1, overflow_buf_size, &css, &cswritep);
+    reterr = InitPermReportWriter(perm_flags, perm_adapt, provref_col, overflow_buf_size, outname, &outname_end2, &css, &cswritep);
     if (unlikely(reterr)) {
       goto GlmLinearPerm_ret_1;
     }
-    *cswritep++ = '#';
-    if (chr_col) {
-      cswritep = strcpya_k(cswritep, "CHROM\t");
-    }
-    if (variant_bps) {
-      cswritep = strcpya_k(cswritep, "POS\t");
-    }
-    cswritep = strcpya_k(cswritep, "ID\t");
-    if (ref_col) {
-      cswritep = strcpya_k(cswritep, "REF\t");
-    }
-    if (alt1_col) {
-      cswritep = strcpya_k(cswritep, "ALT1\t");
-    }
-    if (alt_col) {
-      cswritep = strcpya_k(cswritep, "ALT\t");
-    }
-    if (provref_col) {
-      cswritep = strcpya_k(cswritep, "PROVISIONAL_REF?\t");
-    }
-    cswritep = strcpya_k(cswritep, "A1\t");
-    if (omitted_col) {
-      cswritep = strcpya_k(cswritep, "OMITTED\t");
-    }
-    if (perm_adapt) {
-      if (perm_count) {
-        cswritep = strcpya_k(cswritep, "EMP1_CT\tPERM_CT");
-      } else {
-        cswritep = strcpya_k(cswritep, "EMP1\tPERM_CT");
-      }
-    } else {
-      if (perm_count) {
-        cswritep = strcpya_k(cswritep, "EMP1_CT\tEMP2_CT");
-      } else {
-        cswritep = strcpya_k(cswritep, "EMP1\tEMP2");
-      }
-    }
-    AppendBinaryEoln(&cswritep);
 
-    logprintfww("Starting %s permutation for phenotype '%s'.\n", perm_adapt? "adaptive" : "max(T)", cur_pheno_name);
+    logprintfww("Starting %s permutation for phenotype '%s' (%" PRIuPTR " valid allele test%s).\n", perm_adapt? "adaptive" : "max(T)", cur_pheno_name, valid_allele_ct, (valid_allele_ct == 1)? "" : "s");
     if (mperm_save_best) {
       strcpy_k(outname_end2, ".dump.best");
       logprintfww("Dumping best permutation absolute-log-pvals to %s .\n", outname);
@@ -5360,12 +5238,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
       }
       // no header line
       // static_assert ensures g_textbuf is large enough for an entire subbatch
-      double best_orig_ln_pval = 0.0;
-      for (uintptr_t valid_allele_idx = 0; valid_allele_idx != valid_allele_ct; ++valid_allele_idx) {
-        if (orig_ln_pvals[valid_allele_idx] < best_orig_ln_pval) {
-          best_orig_ln_pval = orig_ln_pvals[valid_allele_idx];
-        }
-      }
+      const double best_orig_ln_pval = MinElementD(orig_ln_pvals, valid_allele_ct);
       char* write_iter = strcpya_k(g_textbuf, "0\t");
       write_iter = dtoa_g(-best_orig_ln_pval, write_iter);
       AppendBinaryEoln(&write_iter);
@@ -5564,7 +5437,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
     uint32_t first_adapt_check_pidx = perm_config_ptr->aperm_min - 1;
     double adaptive_ci_zt = 0.0;
     if (perm_adapt) {
-      adaptive_ci_zt = QuantileToZscore(1.0 - perm_config_ptr->aperm_beta / (2.0 * u31tod(remaining_variant_ct)));
+      adaptive_ci_zt = QuantileToZscore(1.0 - perm_config_ptr->aperm_beta / (2.0 * u63tod(orig_allele_ct)));
     }
     uint32_t subbatch_size = max_subbatch_size;
     uint32_t perms_actual = perms_total;
@@ -5589,20 +5462,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
       double* cur_mperm_best_stats = perm_adapt? nullptr : &(mperm_best_stats[perm_idx_start]);
       // Generate and preprocess phenotype permutations.
       for (uint32_t pidx = 0; pidx != subbatch_size; ++pidx) {
-        memcpy(perm_buf, perm_idx_to_orig_uidx, sample_union_ct * sizeof(int32_t));
-        uint32_t cur_cat_offset = cat_cumulative_sizes[0];
-        for (uint32_t cat_idx = 0; cat_idx != cat_ct; ++cat_idx) {
-          const uint32_t* cat_sample_idx_to_uidx = &(perm_idx_to_orig_uidx[cur_cat_offset]);
-          const uint32_t next_cat_offset = cat_cumulative_sizes[cat_idx + 1];
-          const uint32_t cur_cat_size = next_cat_offset - cur_cat_offset;
-          uint32_t* cur_perm_buf = &(perm_buf[cur_cat_offset]);
-          PermuteU32(cur_cat_size, sfmtp, cur_perm_buf);
-          for (uint32_t cat_sample_idx = 0; cat_sample_idx != cur_cat_size; ++cat_sample_idx) {
-            pheno_qt_tmp[cat_sample_idx_to_uidx[cat_sample_idx]] = orig_pheno_qt[cur_perm_buf[cat_sample_idx]];
-          }
-          cur_cat_offset = next_cat_offset;
-        }
-
+        PermuteWithinD(perm_idx_to_orig_uidx, cat_cumulative_sizes, orig_pheno_qt, cat_ct, sfmtp, pheno_qt_tmp, perm_buf);
         if (!late_qt_residualize) {
           FillPhenoAndXtY(sample_include, pheno_qt_tmp, ctx->covars_cmaj_d, sample_ct, domdev_third_p1, covar_ct, common->nm_precomp? (&(common->nm_precomp->xt_y_image[pidx * (1 + domdev_third_p1 + covar_ct)])) : nullptr, &(pheno_d[pidx * sample_ct]));
           if (sample_ct_x) {
@@ -5641,13 +5501,13 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
       // 1. Set n=0, load/skip block 0
       //
       // 2. Spawn threads processing block n
-      // 3. If n>0, process results for block (n-1)
+      // 3. If n>0, save results for block (n-1)
       // 4. Increment n by 1
       // 5. Load/skip block n unless eof
       // 6. Join threads
       // 7. Goto step 2 unless eof
       //
-      // 8. Process results for last block
+      // 8. Save results for last block
       //
       // 9. If mperm, calculate mperm_best_stats, etc.
       // 10. If adaptive, update remaining_variants
@@ -5838,67 +5698,12 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
         ++read_block_idx;
         prev_block_variant_ct = cur_block_variant_ct;
         variant_idx += cur_block_variant_ct;
-        // crucially, this is independent of the PgenReader block_base
-        // pointers
+        // crucially, this is independent of the PgenReader block_base pointers
         pgfip->block_base = main_loadbufs[parity];
       }
       if (perm_adapt) {
-        const uint32_t perm_idx_start_p1 = perm_idx_start + 1;
-        while (first_adapt_check_pidx < subbatch_size) {
-          const uint32_t perm_ct = first_adapt_check_pidx + perm_idx_start_p1;
-          first_adapt_check_pidx += S_CAST(int32_t, adaptive_intercept + u31tod(perm_ct) * adaptive_slope);
-        }
-        first_adapt_check_pidx -= subbatch_size;
-        // Update remaining_variants from valid_allele_emp1_denoms.
-        for (uint32_t variant_widx = 0; variant_widx != raw_variant_ctl; ++variant_widx) {
-          uintptr_t prev_variants_word = remaining_variants[variant_widx];
-          if (!prev_variants_word) {
-            continue;
-          }
-          uintptr_t next_variants_word = 0;
-          if (!allele_idx_offsets) {
-            const uint32_t variant_uidx_offset = variant_widx * kBitsPerWord;
-            do {
-              const uint32_t variant_uidx_lowbits = ctzw(prev_variants_word);
-              const uint32_t variant_uidx = variant_uidx_offset + variant_uidx_lowbits;
-              if (omitted_alleles) {
-                omitted_allele_idx = omitted_alleles[variant_uidx];
-              }
-              const uint32_t allele_uidx = 2 * variant_uidx + 1 - omitted_allele_idx;
-              const uint32_t valid_allele_idx = RawToSubsettedPosW(valid_alleles, valid_alleles_cumulative_popcounts_w, allele_uidx);
-              if (!valid_allele_emp1_denoms[valid_allele_idx]) {
-                next_variants_word |= k1LU << variant_uidx_lowbits;
-              }
-              prev_variants_word &= prev_variants_word - 1;
-            } while (prev_variants_word);
-          } else {
-            const uintptr_t* cur_allele_idx_offsets = &(allele_idx_offsets[variant_widx * kBitsPerWord]);
-            do {
-              const uint32_t variant_uidx_lowbits = ctzw(prev_variants_word);
-              const uintptr_t allele_uidx_start = cur_allele_idx_offsets[variant_uidx_lowbits];
-              const uintptr_t allele_uidx_stop = cur_allele_idx_offsets[variant_uidx_lowbits + 1];
-              const uintptr_t valid_allele_idx_start = RawToSubsettedPosW(valid_alleles, valid_alleles_cumulative_popcounts_w, allele_uidx_start);
-              const uintptr_t valid_allele_idx_stop = RawToSubsettedPosW(valid_alleles, valid_alleles_cumulative_popcounts_w, allele_uidx_stop);
-              for (uint32_t valid_allele_idx = valid_allele_idx_start; valid_allele_idx != valid_allele_idx_stop; ++valid_allele_idx) {
-                if (!valid_allele_emp1_denoms[valid_allele_idx]) {
-                  next_variants_word |= k1LU << variant_uidx_lowbits;
-                  break;
-                }
-              }
-              prev_variants_word &= prev_variants_word - 1;
-            } while (prev_variants_word);
-          }
-          remaining_variants[variant_widx] = next_variants_word;
-        }
-        remaining_variant_ct = PopcountWords(remaining_variants, raw_variant_ctl);
+        remaining_variant_ct = UpdateAdaptiveRemainingVariants(valid_alleles, valid_alleles_cumulative_popcounts_w, allele_idx_offsets, omitted_alleles, raw_variant_ctl, valid_allele_ct, perm_idx_start, subbatch_size, adaptive_intercept, adaptive_slope, valid_allele_emp1_denoms, remaining_variants, &first_adapt_check_pidx, &perms_actual);
         if (!remaining_variant_ct) {
-          perms_actual = valid_allele_emp1_denoms[0];
-          for (uintptr_t valid_allele_idx = 1; valid_allele_idx != valid_allele_ct; ++valid_allele_idx) {
-            if (valid_allele_emp1_denoms[valid_allele_idx] > perms_actual) {
-              perms_actual = valid_allele_emp1_denoms[valid_allele_idx];
-            }
-          }
-          --perms_actual;
           break;
         }
         FillSubsetChrFoVidxStart(remaining_variants, cip, common->subset_chr_fo_vidx_start);
@@ -5959,153 +5764,13 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
       }
     }
     putc_unlocked('\r', stdout);
-    logprintf("%u %s permutation%s complete.\n", perms_actual, perm_adapt? "(adaptive)" : "max(T)", (perms_total == 1)? "" : "s");
-    if (perm_adapt) {
-      const uint32_t perms_total_p1 = perms_total + 1;
-      for (uintptr_t valid_allele_idx = 0; valid_allele_idx != valid_allele_ct; ++valid_allele_idx) {
-        if (!valid_allele_emp1_denoms[valid_allele_idx]) {
-          valid_allele_emp1_denoms[valid_allele_idx] = perms_total_p1;
-        }
-      }
-    } else {
-      if (mperm_all_stats) {
-        if (unlikely(CswriteCloseNull(&mperm_all_css, mperm_all_cswritep))) {
-          goto GlmLinearPerm_ret_WRITE_FAIL;
-        }
-      }
-      STD_SORT(perms_total, double_cmp, mperm_best_stats);
-    }
-    const double pfilter = (ln_pfilter <= 0.0)? exp(ln_pfilter) : 2.0;
-    const double emp2_denomx2_recip = 0.5 / u31tod(perms_total + 1);
-    uint32_t chr_fo_idx = UINT32_MAX;
-    uint32_t chr_end = 0;
-    uint32_t chr_buf_blen = 0;
-    uint32_t emp1_ct_x2 = 0;
-    uintptr_t valid_allele_idx = 0;
-    uintptr_t variant_uidx_base = 0;
-    uintptr_t cur_bits = orig_variant_include[0];
-    for (uint32_t variant_idx = 0; variant_idx != orig_variant_ct; ++variant_idx) {
-      const uint32_t variant_uidx = BitIter1(orig_variant_include, &variant_uidx_base, &cur_bits);
-      uintptr_t allele_idx_offset_base = variant_uidx * 2;
-      if (allele_idx_offsets) {
-        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
-      }
-      if (omitted_alleles) {
-        omitted_allele_idx = omitted_alleles[variant_uidx];
-      }
-      if (variant_uidx >= chr_end) {
-        do {
-          ++chr_fo_idx;
-          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-        } while (variant_uidx >= chr_end);
-        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-        if (chr_col) {
-          char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
-          *chr_name_end = '\t';
-          chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
-        }
-      }
-      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-      for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
-        if (aidx == omitted_allele_idx) {
-          continue;
-        }
-        const uint32_t is_valid = IsSet(valid_alleles, aidx + allele_idx_offset_base);
-        double emp1 = 1.5;
-        if (is_valid) {
-          emp1_ct_x2 = valid_allele_emp1_ctx2s[valid_allele_idx];
-          if (perm_adapt) {
-            emp1 = u31tod(emp1_ct_x2 + 2) / u31tod(2 * valid_allele_emp1_denoms[valid_allele_idx]);
-          } else {
-            emp1 = u31tod(emp1_ct_x2 + 2) * emp2_denomx2_recip;
-          }
-        }
-        if (emp1 > pfilter) {
-          valid_allele_idx += is_valid;
-          continue;
-        }
-        if (chr_col) {
-          cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
-        }
-        if (variant_bps) {
-          cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
-        }
-        cswritep = strcpyax(cswritep, variant_ids[variant_uidx], '\t');
-        if (ref_col) {
-          cswritep = strcpyax(cswritep, cur_alleles[0], '\t');
-        }
-        if (alt1_col) {
-          cswritep = strcpyax(cswritep, cur_alleles[1], '\t');
-        }
-        if (alt_col) {
-          for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
-            if (unlikely(Cswrite(&css, &cswritep))) {
-              goto GlmLinearPerm_ret_WRITE_FAIL;
-            }
-            cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
-          }
-          cswritep[-1] = '\t';
-        }
-        if (provref_col) {
-          *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
-          *cswritep++ = '\t';
-        }
-        cswritep = strcpyax(cswritep, cur_alleles[aidx], '\t');
-        if (omitted_col) {
-          cswritep = strcpyax(cswritep, cur_alleles[omitted_allele_idx], '\t');
-        }
-        if (perm_adapt) {
-          if (!is_valid) {
-            cswritep = strcpya_k(cswritep, "NA\tNA");
-          } else {
-            if (perm_count) {
-              cswritep = u32toa(emp1_ct_x2 / 2, cswritep);
-              if (emp1_ct_x2 % 2) {
-                cswritep = strcpya_k(cswritep, ".5");
-              }
-            } else {
-              cswritep = dtoa_g(emp1, cswritep);
-            }
-            *cswritep++ = '\t';
-            cswritep = u32toa(valid_allele_emp1_denoms[valid_allele_idx] - 1, cswritep);
-          }
-        } else {
-          if (!is_valid) {
-            cswritep = strcpya_k(cswritep, "NA\tNA");
-          } else {
-            const double orig_ln_pval = orig_ln_pvals[valid_allele_idx];
-            const uint32_t emp2_lower_bound = LowerBoundNonemptyD(mperm_best_stats, perms_total, orig_ln_pval);
-            uint32_t emp2_upper_bound = emp2_lower_bound;
-            while ((emp2_upper_bound != perms_total) && (mperm_best_stats[emp2_upper_bound] == orig_ln_pval)) {
-              ++emp2_upper_bound;
-            }
-            const uint32_t emp2_ct_x2 = emp2_lower_bound + emp2_upper_bound;
-            if (perm_count) {
-              cswritep = u32toa(emp1_ct_x2 / 2, cswritep);
-              if (emp1_ct_x2 % 2) {
-                cswritep = strcpya_k(cswritep, ".5");
-              }
-              *cswritep++ = '\t';
-              cswritep = u32toa(emp2_ct_x2 / 2, cswritep);
-              if (emp2_ct_x2 % 2) {
-                cswritep = strcpya_k(cswritep, ".5");
-              }
-            } else {
-              cswritep = dtoa_g(emp1, cswritep);
-              *cswritep++ = '\t';
-              cswritep = dtoa_g(u31tod(emp2_ct_x2 + 2) * emp2_denomx2_recip, cswritep);
-            }
-          }
-        }
-        AppendBinaryEoln(&cswritep);
-        if (unlikely(Cswrite(&css, &cswritep))) {
-          goto GlmLinearPerm_ret_WRITE_FAIL;
-        }
-        valid_allele_idx += is_valid;
+    logprintf("%u %s permutation%s complete.\n", perms_actual, perm_adapt? "(adaptive)" : "max(T)", (perms_actual == 1)? "" : "s");
+    if (mperm_all_stats) {
+      if (unlikely(CswriteCloseNull(&mperm_all_css, mperm_all_cswritep))) {
+        goto GlmLinearPerm_ret_WRITE_FAIL;
       }
     }
-    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+    if (unlikely(WritePermReportBody(orig_variant_include, cip, variant_bps, variant_ids, valid_alleles, allele_idx_offsets, allele_storage, omitted_alleles, nonref_flags, orig_ln_pvals, valid_allele_emp1_ctx2s, valid_allele_emp1_denoms, orig_variant_ct, all_nonref, provref_col, ln_pfilter, perm_flags, perms_total, 1, mperm_best_stats, &css, &cswritep, chr_buf))) {
       goto GlmLinearPerm_ret_WRITE_FAIL;
     }
     *outname_end2 = '\0';
@@ -6139,7 +5804,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const PhenoCol* orig_pheno_col,
   CswriteCloseCond(&mperm_all_css, mperm_all_cswritep);
   CswriteCloseCond(&css, cswritep);
   fclose_cond(mperm_best_file);
-  BigstackReset(bigstack_mark);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   pgfip->block_base = nullptr;
   return reterr;
 }

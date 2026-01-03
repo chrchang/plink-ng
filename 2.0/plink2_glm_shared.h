@@ -1,7 +1,7 @@
 #ifndef __PLINK2_GLM_SHARED_H__
 #define __PLINK2_GLM_SHARED_H__
 
-// This file is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
+// This file is part of PLINK 2.0, copyright (C) 2005-2026 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -111,17 +111,7 @@ FLAGSET_DEF_START()
   kfGlmPerm0,
   kfGlmPermAdaptive = (1 << 0),
   kfGlmPermCount = (1 << 1),
-  kfGlmPermQtResiduals = (1 << 2),
-
-  kfGlmPermColChrom = (1 << 3),
-  kfGlmPermColPos = (1 << 4),
-  kfGlmPermColRef = (1 << 5),
-  kfGlmPermColAlt1 = (1 << 6),
-  kfGlmPermColAlt = (1 << 7),
-  kfGlmPermColMaybeprovref = (1 << 8),
-  kfGlmPermColProvref = (1 << 9),
-  kfGlmPermColOmitted = (1 << 10),
-  kfGlmPermColDefault = (kfGlmPermColChrom | kfGlmPermColRef | kfGlmPermColAlt | kfGlmPermColMaybeprovref | kfGlmPermColOmitted)
+  kfGlmPermQtResiduals = (1 << 2)
 FLAGSET_DEF_END(GlmPermFlags);
 
 typedef struct GlmInfoStruct {
@@ -172,7 +162,7 @@ typedef struct GlmCtxStruct {
   uintptr_t* joint_test_params;
   uintptr_t* joint_test_params_x;
   uintptr_t* joint_test_params_y;
-  uint32_t variant_ct;
+  // uint32_t variant_ct;
   uint32_t sample_ct;
   uint32_t sample_ct_x;
   uint32_t sample_ct_y;

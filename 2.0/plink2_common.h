@@ -1,7 +1,7 @@
 #ifndef __PLINK2_COMMON_H__
 #define __PLINK2_COMMON_H__
 
-// This library is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
+// This library is part of PLINK 2.0, copyright (C) 2005-2026 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -332,46 +332,6 @@ typedef struct PedigreeIdInfoStruct {
 } PedigreeIdInfo;
 
 void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip);
-
-FLAGSET_DEF_START()
-  kfPerm0,
-  kfPermZs = (1 << 0),
-  kfPermWithin = (1 << 1),
-  kfPermMpermSaveBest = (1 << 2),
-  kfPermMpermSaveAll = (1 << 3),
-  kfPermCounts = (1 << 4),
-
-  kfPermColChrom = (1 << 5),
-  kfPermColPos = (1 << 6),
-  kfPermColRef = (1 << 7),
-  kfPermColAlt1 = (1 << 8),
-  kfPermColAlt = (1 << 9),
-  kfPermColMaybeprovref = (1 << 10),
-  kfPermColProvref = (1 << 11),
-  kfPermColOmitted = (1 << 12),
-  kfPermColDefault = (kfPermColChrom | kfPermColRef | kfPermColAlt | kfPermColMaybeprovref | kfPermColOmitted),
-  kfPermColAll = ((kfPermColOmitted * 2) - kfPermColChrom)
-FLAGSET_DEF_END(PermFlags);
-
-typedef struct PermConfigStruct {
-  char* within_phenoname;
-  uint32_t aperm_min;
-  uint32_t aperm_max;
-  double aperm_alpha;
-  double aperm_beta;
-  double aperm_init_interval;
-  double aperm_interval_slope;
-  PermFlags flags;
-} PermConfig;
-
-void InitPermConfig(PermConfig* perm_config_ptr);
-
-void CleanupPermConfig(PermConfig* perm_config_ptr);
-
-// (2^31 - 1000001) / 2
-// ...reason for specifically -1000001 is no longer present, but this does need
-// to be <2^30 so I'll leave this unchanged from plink 1.9
-CONSTI32(kApermMax, 1073241823);
 
 typedef struct TwoColParamsStruct {
   NONCOPYABLE(TwoColParamsStruct);

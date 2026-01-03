@@ -1,7 +1,7 @@
 #ifndef __PLINK2_BASE_H__
 #define __PLINK2_BASE_H__
 
-// This library is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
+// This library is part of PLINK 2.0, copyright (C) 2005-2026 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -4067,6 +4067,43 @@ HEADER_INLINE void SetAllU32Arr(uintptr_t entry_ct, uint32_t* u32arr) {
   for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
     *u32arr++ = ~0U;
   }
+}
+
+HEADER_INLINE uint32_t MaxElementU32(const uint32_t* u32arr, uintptr_t entry_ct) {
+  // confirmed that *std::max_element() has horrible performance on at least
+  // macOS
+  // also confirmed that macOS compiler autovectorizes this; main loop
+  // processes 4 vectors at a time
+  uint32_t result = u32arr[0];
+  for (uintptr_t entry_idx = 1; entry_idx != entry_ct; ++entry_idx) {
+    const uint32_t cur_element = u32arr[entry_idx];
+    if (cur_element > result) {
+      result = cur_element;
+    }
+  }
+  return result;
+}
+
+HEADER_INLINE double MaxElementD(const double* darr, uintptr_t entry_ct) {
+  double result = darr[0];
+  for (uintptr_t entry_idx = 1; entry_idx != entry_ct; ++entry_idx) {
+    const double cur_element = darr[entry_idx];
+    if (cur_element > result) {
+      result = cur_element;
+    }
+  }
+  return result;
+}
+
+HEADER_INLINE double MinElementD(const double* darr, uintptr_t entry_ct) {
+  double result = darr[0];
+  for (uintptr_t entry_idx = 1; entry_idx != entry_ct; ++entry_idx) {
+    const double cur_element = darr[entry_idx];
+    if (cur_element < result) {
+      result = cur_element;
+    }
+  }
+  return result;
 }
 
 

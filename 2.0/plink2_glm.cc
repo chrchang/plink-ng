@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
+// This file is part of PLINK 2.0, copyright (C) 2005-2026 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -3159,7 +3159,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         // Expand categorical covariates and perform VIF and correlation checks
         // here.
         const char** cur_covar_names = nullptr;
-        GlmErr glm_err;
+        GlmErr glm_err = 0;
         {
           double* covars_cmaj_d = nullptr;
           if (unlikely(GlmAllocFillAndTestCovarsQt(cur_sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &common.nm_precomp, &covars_cmaj_d, &cur_covar_names, &glm_err))) {
@@ -3325,7 +3325,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
         common.subset_chr_fo_vidx_start = subset_chr_fo_vidx_start;
         common.variant_include = cur_variant_include;
-        common.variant_ct = cur_variant_ct;
 
         if (glm_flags & kfGlmPhenoIds) {
           // Possible todo: have file-copy library function which uses
@@ -3356,7 +3355,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             }
           }
         }
-        reterr = GlmLinearBatch(pheno_batch, pheno_cols, pheno_names, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, raw_variant_ct, completed_pheno_ct, batch_size, max_pheno_name_blen, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &linear_ctx, &local_covar_txs, gwas_ssf_ll_ptr, outname, outname_end);
+        reterr = GlmLinearBatch(pheno_batch, pheno_cols, pheno_names, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, raw_variant_ct, cur_variant_ct, completed_pheno_ct, batch_size, max_pheno_name_blen, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &linear_ctx, &local_covar_txs, gwas_ssf_ll_ptr, outname, outname_end);
         if (unlikely(reterr)) {
           goto GlmMain_ret_1;
         }
@@ -3372,6 +3371,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
     }
 
+    uintptr_t cur_allele_ct = 0;
     for (uint32_t pheno_uidx = 0; pheno_uidx != pheno_ct; ++pheno_uidx) {
       if (!IsSet(pheno_include, pheno_uidx)) {
         continue;
@@ -3393,6 +3393,16 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       const uint32_t is_logistic = (dtype_code == kPhenoDtypeCc);
       uint32_t sample_ct = PopcountWords(cur_sample_include, raw_sample_ctl);
       if (is_logistic) {
+        if (unlikely(perms_total && (!is_always_firth))) {
+          // Rather not worry about different permutations having different
+          // separation properties, or comparisons between logistic and Firth
+          // p-values.
+          // The user always has the option of performing a linear regression
+          // permutation test (by encoding the phenotype as e.g. ctrl=3 case=4)
+          // if this is too slow.
+          logerrputs("Error: --glm case/control permutation test requires 'firth' modifier.\n");
+          goto GlmMain_ret_INCONSISTENT_INPUT;
+        }
         const uint32_t initial_case_ct = PopcountWordsIntersect(cur_sample_include, cur_pheno_col->data.cc, raw_sample_ctl);
         if ((!initial_case_ct) || (initial_case_ct == sample_ct)) {
           if (unlikely(!skip_invalid_pheno)) {
@@ -3744,7 +3754,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       // Expand categorical covariates and perform VIF and correlation checks
       // here.
       const char** cur_covar_names = nullptr;
-      GlmErr glm_err;
+      GlmErr glm_err = 0;
       logistic_ctx.pheno_cc = nullptr;
       logistic_ctx.gcount_case_interleaved_vec = nullptr;
       logistic_ctx.cc_residualize = nullptr;
@@ -3974,16 +3984,16 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
 
       double* orig_ln_pvals = nullptr;
-      double* orig_logistic_permstat = nullptr;
+      double* orig_logistic_permstats = nullptr;
       if (report_adjust || perms_total) {
-        const uintptr_t cur_allele_ct = cur_variant_ct + CountExtraAlleles(cur_variant_include, allele_idx_offsets, 0, raw_variant_ct, 0);
+        cur_allele_ct = cur_variant_ct + CountExtraAlleles(cur_variant_include, allele_idx_offsets, 0, raw_variant_ct, 0);
         if (unlikely(bigstack_alloc_d(cur_allele_ct, &orig_ln_pvals))) {
           goto GlmMain_ret_NOMEM;
         }
         memcpy(valid_variants, cur_variant_include, raw_variant_ctl * sizeof(intptr_t));
         ZeroWArr(raw_allele_ctl, valid_alleles);
         if (perms_total && is_logistic) {
-          if (unlikely(bigstack_alloc_d(cur_allele_ct, &orig_logistic_permstat))) {
+          if (unlikely(bigstack_alloc_d(cur_allele_ct, &orig_logistic_permstats))) {
             goto GlmMain_ret_NOMEM;
           }
         }
@@ -3995,7 +4005,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
       common.subset_chr_fo_vidx_start = subset_chr_fo_vidx_start;
       common.variant_include = cur_variant_include;
-      common.variant_ct = cur_variant_ct;
       // this is safe, see pheno_name_blen_capacity check above
       char* outname_end2 = strcpya(&(outname_end[1]), cur_pheno_name);
       if (is_logistic) {
@@ -4042,14 +4051,14 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
 
       uintptr_t valid_allele_ct = 0;
       if (is_logistic) {
-        reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &logistic_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, orig_logistic_permstat, &valid_allele_ct);
+        reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, cur_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &logistic_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, orig_logistic_permstats, &valid_allele_ct);
       } else {
         // keep in sync with GlmLinearThread() difflist_eligible
         linear_ctx.max_difflist_len = 0;
         if (((!common.covar_ct) || (sample_ct_y && (!common.covar_ct_y))) && common.nm_precomp && (!(pgfip->gflags & kfPgenGlobalDosagePresent))) {
           linear_ctx.max_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
         }
-        reterr = GlmLinear(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &linear_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, &valid_allele_ct);
+        reterr = GlmLinear(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, cur_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &linear_ctx, &local_covar_txs, gwas_ssf_ll_ptr, valid_variants, valid_alleles, orig_ln_pvals, &valid_allele_ct);
       }
       if (unlikely(reterr)) {
         goto GlmMain_ret_1;
@@ -4068,11 +4077,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           common.glm_flags |= kfGlmHideCovar;
           common.glm_flags &= ~kfGlmIntercept;
           if (is_logistic) {
-            logerrputs("Error: --glm logistic/Firth permutation tests are under development.\n");
+            logerrputs("Error: --glm Firth permutation test are under development.\n");
             reterr = kPglRetNotYetSupported;
             goto GlmMain_ret_1;
           } else {
-            reterr = GlmLinearPerm(cur_pheno_name, cur_pheno_col, (perm_flags & kfPermColPos)? variant_bps : nullptr, variant_ids, valid_alleles, allele_storage, glm_info_ptr, perm_config_ptr, local_sample_uidx_order, cur_local_variant_include, orig_ln_pvals, permute_within_phenocol, covar_include, covar_include_x, covar_include_y, covar_cols, covar_names, raw_sample_ct, raw_variant_ct, valid_allele_ct, max_chr_blen, ln_pfilter, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, covar_ct, covar_ct_x, covar_ct_y, covar_max_nonnull_cat_ct, extra_cat_ct, extra_cat_ct_x, extra_cat_ct_y, max_covar_name_blen, pgfip, &linear_ctx, sfmtp, &local_covar_txs, valid_variants, outname, outname_end2);
+            reterr = GlmLinearPerm(cur_pheno_name, cur_pheno_col->data.qt, (perm_flags & kfPermColPos)? variant_bps : nullptr, variant_ids, valid_alleles, allele_storage, glm_info_ptr, perm_config_ptr, local_sample_uidx_order, cur_local_variant_include, orig_ln_pvals, permute_within_phenocol, covar_include, covar_include_x, covar_include_y, covar_cols, covar_names, raw_sample_ct, raw_variant_ct, cur_variant_ct, cur_allele_ct, valid_allele_ct, max_chr_blen, ln_pfilter, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, covar_ct, covar_ct_x, covar_ct_y, covar_max_nonnull_cat_ct, extra_cat_ct, extra_cat_ct_x, extra_cat_ct_y, max_covar_name_blen, pgfip, &linear_ctx, sfmtp, &local_covar_txs, valid_variants, outname, outname_end2);
           }
           if (unlikely(reterr)) {
             goto GlmMain_ret_1;

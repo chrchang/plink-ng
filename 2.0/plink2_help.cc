@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
+// This file is part of PLINK 2.0, copyright (C) 2005-2026 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -2873,11 +2873,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --aperm <min perms - 1> [max perms] [alpha] [beta] [init interval] [slope] :\n"
 "    Set up to six parameters controlling adaptive permutation tests.\n"
 "    * The first two control the minimum and maximum number of permutations that\n"
-"      may be run for each variant; default values are 5 and 1000000.\n"
+"      may be run for each allele; default values are 5 and 1000000.\n"
 "    * The next two control the early termination condition.  A\n"
 "      100% * (1 - beta/2T) confidence interval is calculated for each empirical\n"
-"      p-value, where T is the total number of variants; whenever this\n"
-"      confidence interval doesn't contain alpha, the variant is exempted from\n"
+"      p-value, where T is the total number of tested alleles; whenever this\n"
+"      confidence interval doesn't contain alpha, the allele is exempted from\n"
 "      further permutation testing.  Default values are 0 and 1e-4.\n"
 "    * The last two control when the early termination condition is checked.  If\n"
 "      a check occurs at permutation #p, the next check occurs after\n"

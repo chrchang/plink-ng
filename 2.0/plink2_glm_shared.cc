@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
+// This file is part of PLINK 2.0, copyright (C) 2005-2026 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -1175,6 +1175,82 @@ BoolErr LinearHypothesisChisq(const double* coef, const double* constraints_con_
     result = 0.0;
   }
   *chisq_ptr = result;
+  return 0;
+}
+
+BoolErr PermuteWithinInit(const uintptr_t* sample_include, const PhenoCol* permute_within_phenocol, uint32_t sample_ct, uint32_t* cat_ct_ptr, uint32_t** perm_idx_to_orig_uidx_ptr, uint32_t** cat_cumulative_sizes_ptr) {
+  if (!permute_within_phenocol) {
+    if (unlikely(bigstack_alloc_u32(sample_ct, perm_idx_to_orig_uidx_ptr) ||
+                 bigstack_alloc_u32(2, cat_cumulative_sizes_ptr))) {
+      return 1;
+    }
+    uint32_t* perm_idx_to_orig_uidx = *perm_idx_to_orig_uidx_ptr;
+    uint32_t* cat_cumulative_sizes = *cat_cumulative_sizes_ptr;
+    cat_cumulative_sizes[0] = 0;
+    cat_cumulative_sizes[1] = sample_ct;
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+      perm_idx_to_orig_uidx[sample_idx] = sample_uidx;
+    }
+    *cat_ct_ptr = 1;
+    return 0;
+  }
+  uint32_t cat_ct = permute_within_phenocol->nonnull_category_ct + 1;
+  if (unlikely(bigstack_alloc_u32(sample_ct, perm_idx_to_orig_uidx_ptr) ||
+               bigstack_alloc_u32(cat_ct + 1, cat_cumulative_sizes_ptr))) {
+    return 1;
+  }
+  uint32_t* perm_idx_to_orig_uidx = *perm_idx_to_orig_uidx_ptr;
+  uint32_t* cat_cumulative_sizes = *cat_cumulative_sizes_ptr;
+  // 1. compute cat_sizes
+  // 2. transform to working write-offsets, fill perm_idx_to_orig_uidx
+  // 3. reinterpret final array as cat_cumulative_sizes, set [0] to 0
+  // 4. remove empty categories
+  uint32_t* cat_sizes = &(cat_cumulative_sizes[1]);
+  IdentifyRemainingCatsAndMostCommon(sample_include, permute_within_phenocol, sample_ct, nullptr, cat_sizes);
+
+  uint32_t cat_offset = 0;
+  for (uint32_t cat_idx = 0; cat_idx != cat_ct; ++cat_idx) {
+    const uint32_t cur_cat_size = cat_sizes[cat_idx];
+    cat_sizes[cat_idx] = cat_offset;
+    cat_offset += cur_cat_size;
+  }
+  uint32_t* cat_offsets = cat_sizes;
+  const uint32_t* phenocats = permute_within_phenocol->data.cat;
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = sample_include[0];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+    const uint32_t cur_cat_idx = phenocats[sample_uidx];
+    perm_idx_to_orig_uidx[cat_offsets[cur_cat_idx]] = sample_uidx;
+    cat_offsets[cur_cat_idx] += 1;
+  }
+
+  cat_cumulative_sizes[0] = 0;
+
+  cat_offset = 0;
+  uint32_t read_idx = 1;
+  for (; read_idx <= cat_ct; ++read_idx) {
+    if (cat_offsets[read_idx] == cat_offset) {
+      break;
+    }
+    cat_offset = cat_offsets[read_idx];
+  }
+  if (read_idx <= cat_ct) {
+    uint32_t write_idx = read_idx - 1;
+    while (++read_idx <= cat_ct) {
+      if (cat_offsets[read_idx] == cat_offset) {
+        continue;
+      }
+      cat_offsets[write_idx++] = cat_offset;
+      cat_offset = cat_offsets[read_idx];
+    }
+    cat_offsets[write_idx] = cat_offset;
+    cat_ct = write_idx;
+  }
+  *cat_ct_ptr = cat_ct;
   return 0;
 }
 

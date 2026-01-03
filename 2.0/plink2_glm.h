@@ -1,7 +1,7 @@
 #ifndef __PLINK2_GLM_H__
 #define __PLINK2_GLM_H__
 
-// This file is part of PLINK 2.0, copyright (C) 2005-2025 Shaun Purcell,
+// This file is part of PLINK 2.0, copyright (C) 2005-2026 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -24,6 +24,7 @@
 #include "plink2_adjust.h"
 #include "plink2_common.h"
 #include "plink2_glm_shared.h"
+#include "plink2_perm.h"
 
 #ifdef __cplusplus
 namespace plink2 {
