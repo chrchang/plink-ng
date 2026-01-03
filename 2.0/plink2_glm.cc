@@ -3086,7 +3086,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         // Expand categorical covariates and perform VIF and correlation checks
         // here.
         const char** cur_covar_names = nullptr;
-        GlmErr glm_err;
+        GlmErr glm_err = 0;
         {
           double* covars_cmaj_d = nullptr;
           if (unlikely(GlmAllocFillAndTestCovarsQt(cur_sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &common.nm_precomp, &covars_cmaj_d, &cur_covar_names, &glm_err))) {
@@ -3671,7 +3671,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       // Expand categorical covariates and perform VIF and correlation checks
       // here.
       const char** cur_covar_names = nullptr;
-      GlmErr glm_err;
+      GlmErr glm_err = 0;
       logistic_ctx.pheno_cc = nullptr;
       logistic_ctx.gcount_case_interleaved_vec = nullptr;
       logistic_ctx.cc_residualize = nullptr;
