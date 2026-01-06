@@ -5824,9 +5824,11 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   double beta = beta_se_iter[2 * test_idx];
                   double se = beta_se_iter[2 * test_idx + 1];
                   test_is_valid = (se != -9.0);
+                  double zscore = 0.0;
                   if (test_is_valid) {
-                    permstat = beta / se;
-                    ln_pval = ZscoreToLnP(permstat);
+                    zscore = beta / se;
+                    permstat = fabs(zscore);
+                    ln_pval = ZscoreToLnP(zscore);
                   }
                   if (orbeta_col) {
                     *cswritep++ = '\t';
@@ -5868,7 +5870,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   if (z_col) {
                     *cswritep++ = '\t';
                     if (test_is_valid) {
-                      cswritep = dtoa_g(permstat, cswritep);
+                      cswritep = dtoa_g(zscore, cswritep);
                     } else {
                       cswritep = strcpya_k(cswritep, "NA");
                     }
@@ -6017,8 +6019,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
   return reterr;
 }
 
-/*
-PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* valid_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const PermConfig* perm_config_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const double* orig_logistic_permstats, const PhenoCol* permute_within_phenocol, const uintptr_t* orig_covar_include, const uintptr_t* orig_covar_include_x, const uintptr_t* orig_covar_include_y, const PhenoCol* covar_cols, const char* covar_names, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uintptr_t orig_allele_ct, uintptr_t valid_allele_ct, uint32_t max_chr_blen, double ln_pfilter, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, uint32_t orig_covar_ct, uint32_t orig_covar_ct_x, uint32_t orig_covar_ct_y, uint32_t covar_max_nonnull_cat_ct, uint32_t extra_cat_ct, uint32_t extra_cat_ct_x, uint32_t extra_cat_ct_y, uintptr_t max_covar_name_blen, PgenFileInfo* pgfip, GlmLogisticCtx* ctx, sfmt_t* sfmtp, TextStream* local_covar_txsp, uintptr_t* remaining_variants, char* outname, char* outname_end) {
+PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* valid_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const PermConfig* perm_config_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const double* orig_logistic_permstats, const PhenoCol* permute_within_phenocol, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uintptr_t orig_allele_ct, uintptr_t valid_allele_ct, uint32_t max_chr_blen, double ln_pfilter, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, GlmLogisticCtx* ctx, sfmt_t* sfmtp, TextStream* local_covar_txsp, uintptr_t* remaining_variants, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* mperm_all_cswritep = nullptr;
@@ -6229,10 +6230,11 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
     const GlmPermFlags glm_perm_flags = glm_info_ptr->perm_flags;
     const uint32_t perm_adapt = (glm_perm_flags / kfGlmPermAdaptive) & 1;
     const uint32_t perms_total = perm_adapt? perm_config_ptr->aperm_max : glm_info_ptr->mperm_ct;
-    const uint32_t mperm_save_best = (perm_flags / kfPermMpermSaveBest) & 1;
-    const uint32_t mperm_save_all = (perm_flags / kfPermMpermSaveAll) & 1;
+    const uint32_t mperm_save_best = (!perm_adapt) && (perm_flags & kfPermMpermSaveBest);
+    const uint32_t mperm_save_all = (!perm_adapt) && (perm_flags & kfPermMpermSaveAll);
     uint32_t* valid_allele_emp1_denoms = nullptr;  // 0 iff incomplete
     double* mperm_best_stats = nullptr;
+    double* mperm_all_stats = nullptr;
     if (perm_adapt) {
       if (unlikely(bigstack_calloc_u32(valid_allele_ct, &valid_allele_emp1_denoms))) {
         goto GlmFirthPerm_ret_NOMEM;
@@ -6241,41 +6243,44 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
       if (unlikely(bigstack_calloc_d(perms_total, &mperm_best_stats))) {
         goto GlmFirthPerm_ret_NOMEM;
       }
+      if (mperm_save_all) {
+        if (unlikely(bigstack_alloc_d(valid_allele_ct, &mperm_all_stats))) {
+          goto GlmFirthPerm_ret_NOMEM;
+        }
+      }
     }
 
     // Firth regression is slow enough that we may as well just process only
     // one permutation at a time
-    const uint32_t is_sometimes_firth = !(glm_flags & kfGlmNoFirth);
-    const uint32_t is_always_firth = (glm_flags / kfGlmFirth) & 1;
-    const uint32_t is_cc_residualize = !!(glm_flags & (kfGlmFirthResidualize | kfGlmCcResidualize));
+    const uint32_t is_firth_residualize = !!(glm_flags & (kfGlmFirthResidualize | kfGlmCcResidualize));
     const uint32_t is_single_prec = (glm_flags / kfGlmSinglePrecCc) & 1;
     const uint32_t main_omitted = parameter_subset && (!IsSet(parameter_subset, 1));
     const uint32_t xmain_ct = main_mutated + main_omitted;
     uintptr_t workspace_alloc;
     if (is_single_prec) {
-      workspace_alloc = GetLogisticWorkspaceSizeF(sample_ct, biallelic_predictor_ct, domdev_third_p1, max_extra_allele_ct, constraint_ct, xmain_ct, 0, is_sometimes_firth, is_cc_residualize);
+      workspace_alloc = GetLogisticWorkspaceSizeF(sample_ct, biallelic_predictor_ct, domdev_third_p1, max_extra_allele_ct, constraint_ct, xmain_ct, 0, 1, is_firth_residualize);
       if (sample_ct_x) {
-        const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSizeF(sample_ct_x, biallelic_predictor_ct_x, domdev_third_p1, max_extra_allele_ct, constraint_ct_x, xmain_ct, 0, is_sometimes_firth, is_cc_residualize);
+        const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSizeF(sample_ct_x, biallelic_predictor_ct_x, domdev_third_p1, max_extra_allele_ct, constraint_ct_x, xmain_ct, 0, 1, is_firth_residualize);
         if (workspace_alloc_x > workspace_alloc) {
           workspace_alloc = workspace_alloc_x;
         }
       }
       if (sample_ct_y) {
-        const uintptr_t workspace_alloc_y = GetLogisticWorkspaceSizeF(sample_ct_y, biallelic_predictor_ct_y, domdev_third_p1, max_extra_allele_ct, constraint_ct_y, xmain_ct, 0, is_sometimes_firth, is_cc_residualize);
+        const uintptr_t workspace_alloc_y = GetLogisticWorkspaceSizeF(sample_ct_y, biallelic_predictor_ct_y, domdev_third_p1, max_extra_allele_ct, constraint_ct_y, xmain_ct, 0, 1, is_firth_residualize);
         if (workspace_alloc_y > workspace_alloc) {
           workspace_alloc = workspace_alloc_y;
         }
       }
     } else {
-      workspace_alloc = GetLogisticWorkspaceSizeD(sample_ct, biallelic_predictor_ct, domdev_third_p1, max_extra_allele_ct, constraint_ct, xmain_ct, 0, is_sometimes_firth, is_cc_residualize);
+      workspace_alloc = GetLogisticWorkspaceSizeD(sample_ct, biallelic_predictor_ct, domdev_third_p1, max_extra_allele_ct, constraint_ct, xmain_ct, 0, 1, is_firth_residualize);
       if (sample_ct_x) {
-        const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSizeD(sample_ct_x, biallelic_predictor_ct_x, domdev_third_p1, max_extra_allele_ct, constraint_ct_x, xmain_ct, 0, is_sometimes_firth, is_cc_residualize);
+        const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSizeD(sample_ct_x, biallelic_predictor_ct_x, domdev_third_p1, max_extra_allele_ct, constraint_ct_x, xmain_ct, 0, 1, is_firth_residualize);
         if (workspace_alloc_x > workspace_alloc) {
           workspace_alloc = workspace_alloc_x;
         }
       }
       if (sample_ct_y) {
-        const uintptr_t workspace_alloc_y = GetLogisticWorkspaceSizeD(sample_ct_y, biallelic_predictor_ct_y, domdev_third_p1, max_extra_allele_ct, constraint_ct_y, xmain_ct, 0, is_sometimes_firth, is_cc_residualize);
+        const uintptr_t workspace_alloc_y = GetLogisticWorkspaceSizeD(sample_ct_y, biallelic_predictor_ct_y, domdev_third_p1, max_extra_allele_ct, constraint_ct_y, xmain_ct, 0, 1, is_firth_residualize);
         if (workspace_alloc_y > workspace_alloc) {
           workspace_alloc = workspace_alloc_y;
         }
@@ -6307,10 +6312,34 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
       goto GlmFirthPerm_ret_1;
     }
 
-    logprintfww("Starting %s permutation for phenotype '%s' (%" PRIuPTR " valid allele test%s).\n", perm_adapt? "adaptive" : "max(T)", cur_pheno_name, valid_allele_ct, (valid_allele_ct == 1)? "" : "s");
+    {
+      char* write_iter = strcpya_k(g_logbuf, "Starting ");
+      if (perm_adapt) {
+        write_iter = strcpya_k(write_iter, "adaptive");
+      } else {
+        write_iter = strcpya_k(write_iter, "max(T)");
+      }
+      write_iter = strcpya_k(write_iter, " permutation for phenotype '");
+      write_iter = strcpya(write_iter, cur_pheno_name);
+      write_iter = strcpya_k(write_iter, "' (");
+      write_iter = wtoa(orig_allele_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " allele test");
+      if (orig_allele_ct != 1) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, ", ");
+      if (orig_allele_ct == valid_allele_ct) {
+        write_iter = strcpya_k(write_iter, "all");
+      } else {
+        write_iter = wtoa(valid_allele_ct, write_iter);
+      }
+      strcpy_k(write_iter, " valid).\n");
+      WordWrapB(0);
+      logputsb();
+    }
     if (mperm_save_best) {
       strcpy_k(outname_end2, ".dump.best");
-      logprintfww("Dumping best permutation %s to %s .\n", constraint_ct? "absolute-log-pvals" : "Z-scores", outname);
+      logprintfww("Dumping best permutation %s to %s .\n", constraint_ct? "absolute-log-pvals" : "absolute Z-scores", outname);
       if (unlikely(fopen_checked(outname, FOPEN_WB, &mperm_best_file))) {
         goto GlmFirthPerm_ret_OPEN_FAIL;
       }
@@ -6337,7 +6366,7 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
       } else {
         strcpy_k(outname_end2, ".dump.all");
       }
-      logprintfww("Dumping all permutation %s to %s .\n", constraint_ct? "absolute-log-pvals" : "Z-scores", outname);
+      logprintfww("Dumping all permutation %s to %s .\n", constraint_ct? "absolute-log-pvals" : "absolute Z-scores", outname);
       reterr = InitCstreamAlloc(outname, 0, output_zst, 1, kCompressStreamBlock + kMaxMediumLine, &mperm_all_css, &mperm_all_cswritep);
       if (unlikely(reterr)) {
         goto GlmFirthPerm_ret_1;
@@ -6377,7 +6406,7 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
     }
 
     uintptr_t bytes_avail = bigstack_left();
-    if (is_cc_residualize) {
+    if (is_firth_residualize) {
       uintptr_t cc_residualize_alloc_size = is_single_prec? GetFillSampleOffsetsWorkspaceSizeF(max_sample_ct, max_covar_ct, 1) : GetFillSampleOffsetsWorkspaceSizeD(max_sample_ct, max_covar_ct, 1);
       if (unlikely(bytes_avail < cc_residualize_alloc_size)) {
         goto GlmFirthPerm_ret_NOMEM;
@@ -6446,7 +6475,11 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
     uintptr_t converge_fail_ct = 0;
     for (uint32_t perm_idx = 0; perm_idx != perms_total; ++perm_idx) {
       if (perm_idx == next_print_perm_idx) {
-        printf("\r%u permutations complete.", perm_idx);
+        if (perm_adapt) {
+          printf("\r%u permutations complete, %u variant%s remaining.         \b\b\b\b\b\b\b\b\b", perm_idx, remaining_variant_ct, (remaining_variant_ct == 1)? "" : "s");
+        } else {
+          printf("\r%u permutations complete.", perm_idx);
+        }
         fflush(stdout);
         if (next_print_perm_idx < 20) {
           next_print_perm_idx += 4;
@@ -6461,7 +6494,7 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
         GlmErr glm_err = 0;
         PermuteWithinB(perm_idx_to_orig_uidx, cat_cumulative_sizes, cat_case_cts, raw_sample_ctl, cat_ct, sfmtp, pheno_cc_tmp);
         FillPhenoCc(sample_include, pheno_cc_tmp, sample_ct, ctx->pheno_cc, ctx->pheno_f, ctx->pheno_d);
-        if (is_cc_residualize) {
+        if (is_firth_residualize) {
           if (is_single_prec) {
             if (unlikely(FillSampleOffsetsF(ctx->pheno_f, ctx->covars_cmaj_f, sample_ct, covar_ct, ctx->cc_residualize, &glm_err))) {
               assert(0);
@@ -6479,7 +6512,7 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
         }
         if (sample_ct_x) {
           FillPhenoCc(common->sample_include_x, pheno_cc_tmp, sample_ct_x, ctx->pheno_x_cc, ctx->pheno_x_f, ctx->pheno_x_d);
-          if (is_cc_residualize) {
+          if (is_firth_residualize) {
             if (is_single_prec) {
               if (unlikely(FillSampleOffsetsF(ctx->pheno_x_f, ctx->covars_cmaj_x_f, sample_ct_x, covar_ct_x, ctx->cc_residualize_x, &glm_err))) {
                 assert(0);
@@ -6498,7 +6531,7 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
         }
         if (sample_ct_y) {
           FillPhenoCc(common->sample_include_y, pheno_cc_tmp, sample_ct_y, ctx->pheno_y_cc, ctx->pheno_y_f, ctx->pheno_y_d);
-          if (is_cc_residualize) {
+          if (is_firth_residualize) {
             if (is_single_prec) {
               if (unlikely(FillSampleOffsetsF(ctx->pheno_y_f, ctx->covars_cmaj_y_f, sample_ct_y, covar_ct_y, ctx->cc_residualize_y, &glm_err))) {
                 assert(0);
@@ -6542,10 +6575,11 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
 
       uint32_t cur_biallelic_reported_test_ct = 0;
       uint32_t primary_reported_test_idx = 0;
-      uint32_t cur_biallelic_predictor_ct = 0;
       uint32_t cur_constraint_ct = 0;
 
       uint32_t prev_block_variant_ct = 0;
+      pgfip->block_base = main_loadbufs[0];
+      ReinitThreads(&tg);
       for (uint32_t variant_idx = 0; ; ) {
         const uint32_t cur_block_variant_ct = MultireadNonempty(remaining_variants, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
         if (unlikely(reterr)) {
@@ -6583,11 +6617,11 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
         if (!IsLastBlock(&tg)) {
           common->cur_block_variant_ct = cur_block_variant_ct;
           const uint32_t uidx_start = read_block_idx * read_block_size;
-          ComputeUidxStartPartition(variant_include, cur_block_variant_ct, calc_thread_ct, uidx_start, common->read_variant_uidx_starts);
+          ComputeUidxStartPartition(remaining_variants, cur_block_variant_ct, calc_thread_ct, uidx_start, common->read_variant_uidx_starts);
           PgrCopyBaseAndOffset(pgfip, calc_thread_ct, common->pgr_ptrs);
           ctx->block_aux = logistic_block_aux_bufs[parity];
           common->block_beta_se = block_beta_se_bufs[parity];
-          if (variant_idx + cur_block_variant_ct == variant_ct) {
+          if (variant_idx + cur_block_variant_ct == remaining_variant_ct) {
             DeclareLastThreadBlock(&tg);
           }
           if (unlikely(SpawnThreads(&tg))) {
@@ -6596,60 +6630,48 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
         }
         parity = 1 - parity;
         if (variant_idx) {
-          // write *previous* block results
+          // save *previous* block results
           const double* beta_se_iter = block_beta_se_bufs[parity];
           const LogisticAuxResult* cur_block_aux = logistic_block_aux_bufs[parity];
           uintptr_t allele_bidx = 0;
           for (uint32_t variant_bidx = 0; variant_bidx != prev_block_variant_ct; ++variant_bidx) {
-            const uint32_t write_variant_uidx = BitIter1(variant_include, &write_variant_uidx_base, &cur_bits);
-            if (write_variant_uidx >= chr_end) {
+            const uint32_t calc_variant_uidx = BitIter1(remaining_variants, &calc_variant_uidx_base, &cur_bits);
+            if (calc_variant_uidx >= chr_end) {
               do {
                 ++chr_fo_idx;
                 chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-              } while (write_variant_uidx >= chr_end);
+              } while (calc_variant_uidx >= chr_end);
               const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
               if ((chr_idx == x_code) && sample_ct_x) {
                 cur_biallelic_reported_test_ct = biallelic_reported_test_ct_x;
                 cur_constraint_ct = constraint_ct_x;
-                cur_test_names = test_names_x;
               } else if ((chr_idx == y_code) && sample_ct_y) {
                 cur_biallelic_reported_test_ct = biallelic_reported_test_ct_y;
                 cur_constraint_ct = constraint_ct_y;
-                cur_test_names = test_names_y;
               } else {
                 cur_biallelic_reported_test_ct = biallelic_reported_test_ct;
                 cur_constraint_ct = constraint_ct;
-                cur_test_names = test_names;
               }
-              suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
               if (cur_constraint_ct) {
-                // bugfix (17 May 2018): this was using reported_test_ct instead
-                // of cur_reported_test_ct.
                 primary_reported_test_idx = cur_biallelic_reported_test_ct - 1;
               }
-              if (chr_col) {
-                char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
-                *chr_name_end = '\t';
-                chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
-              }
             }
-            uintptr_t allele_idx_offset_base = write_variant_uidx * 2;
+            uintptr_t allele_idx_offset_base = calc_variant_uidx * 2;
             if (allele_idx_offsets) {
-              allele_idx_offset_base = allele_idx_offsets[write_variant_uidx];
-              allele_ct = allele_idx_offsets[write_variant_uidx + 1] - allele_idx_offsets[write_variant_uidx];
+              allele_idx_offset_base = allele_idx_offsets[calc_variant_uidx];
+              allele_ct = allele_idx_offsets[calc_variant_uidx + 1] - allele_idx_offsets[calc_variant_uidx];
             }
             const uint32_t allele_ct_m1 = allele_ct - 1;
-            const uint32_t extra_allele_ct = allele_ct - 2;
             if (omitted_alleles) {
-              omitted_allele_idx = omitted_alleles[write_variant_uidx];
+              omitted_allele_idx = omitted_alleles[calc_variant_uidx];
             }
-            const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-            uint32_t variant_is_valid = 0;
             uint32_t a1_allele_idx = 0;
             for (uint32_t nonomitted_allele_idx = 0; nonomitted_allele_idx != allele_ct_m1; ++nonomitted_allele_idx, ++a1_allele_idx) {
               if (beta_se_multiallelic_fused) {
+                // er, do we actually need this if-statement or can we just
+                // always use the second formula?
                 if (!nonomitted_allele_idx) {
-                  primary_reported_test_idx = include_intercept;
+                  primary_reported_test_idx = 0;
                 } else {
                   primary_reported_test_idx = cur_biallelic_reported_test_ct + nonomitted_allele_idx - 1;
                 }
@@ -6657,384 +6679,65 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
               if (nonomitted_allele_idx == omitted_allele_idx) {
                 ++a1_allele_idx;
               }
-              const double primary_beta = beta_se_iter[primary_reported_test_idx * 2];
-              const double primary_se = beta_se_iter[primary_reported_test_idx * 2 + 1];
-              const uint32_t allele_is_valid = (primary_se != -9.0);
-              variant_is_valid |= allele_is_valid;
-              {
+              const uintptr_t allele_uidx = allele_idx_offset_base + a1_allele_idx;
+              if (IsSet(valid_alleles, allele_uidx)) {
+                const uintptr_t valid_allele_idx = RawToSubsettedPosW(valid_alleles, valid_alleles_cumulative_popcounts_w, allele_uidx);
+                if (perm_adapt) {
+                  if (valid_allele_emp1_denoms[valid_allele_idx]) {
+                    goto GlmFirthPerm_allele_iterate;
+                  }
+                }
+                const double primary_beta = beta_se_iter[primary_reported_test_idx * 2];
+                const double primary_se = beta_se_iter[primary_reported_test_idx * 2 + 1];
                 const LogisticAuxResult* auxp = &(cur_block_aux[allele_bidx]);
-                if (ln_pfilter <= 0.0) {
-                  if (!allele_is_valid) {
-                    goto GlmFirthPerm_allele_iterate;
-                  }
-                  double permstat;
-                  double primary_ln_pval;
-                  if (!cur_constraint_ct) {
+                double permstat;
+                if (primary_se == -9.0) {
+                  permstat = -1.0;
+                } else if (!cur_constraint_ct) {
+                  if (primary_beta == 0.0) {
+                    permstat = 0.0;
+                  } else if (primary_se == 0.0) {
+                    permstat = DBL_MAX;
+                  } else {
                     permstat = fabs(primary_beta / primary_se);
-                    // could precompute a tstat threshold instead
-                    primary_ln_pval = ZscoreToLnP(permstat);
-                  } else {
-                    // cur_constraint_ct may be different on chrX/chrY than it is
-                    // on autosomes, so just have permstat be -log(pval) to be
-                    // safe
-                    primary_ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
-                    permstat = -primary_ln_pval;
                   }
-                  if (primary_ln_pval > ln_pfilter) {
-                    if (orig_ln_pvals) {
-                      orig_ln_pvals[valid_allele_ct] = primary_ln_pval;
-                    }
-                    if (orig_permstat) {
-                      orig_permstat[valid_allele_ct] = permstat;
-                    }
-                    goto GlmFirthPerm_allele_iterate;
-                  }
+                } else {
+                  permstat = -FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
                 }
-                uint32_t inner_reported_test_ct = cur_biallelic_reported_test_ct;
-                if (extra_allele_ct) {
-                  if (beta_se_multiallelic_fused) {
-                    // in fused case, we're only performing a single multiple
-                    // regression, so list all additive results together,
-                    // possibly with intercept before.
-                    if (!nonomitted_allele_idx) {
-                      inner_reported_test_ct = 1 + include_intercept;
-                    } else if (nonomitted_allele_idx == extra_allele_ct) {
-                      inner_reported_test_ct -= include_intercept;
-                    } else {
-                      inner_reported_test_ct = 1;
-                    }
-                  } else if (!hide_covar) {
-                    inner_reported_test_ct += extra_allele_ct;
-                  }
+                const double orig_permstat = orig_logistic_permstats[valid_allele_idx];
+                if (orig_permstat <= permstat) {
+                  valid_allele_emp1_ctx2s[valid_allele_idx] += 1 + (orig_permstat < permstat);
                 }
-                // possible todo: make number-to-string operations, strlen(),
-                // etc. happen only once per variant.
-                for (uint32_t allele_test_idx = 0; allele_test_idx != inner_reported_test_ct; ++allele_test_idx) {
-                  uint32_t test_idx = allele_test_idx;
-                  if (beta_se_multiallelic_fused && nonomitted_allele_idx) {
-                    if (!allele_test_idx) {
-                      test_idx = primary_reported_test_idx;
-                    } else {
-                      // bugfix (26 Jun 2019): only correct to add 1 here in
-                      // include_intercept case
-                      test_idx += include_intercept;
+                if (perm_adapt) {
+                  if (perm_idx == adapt_check_pidx) {
+                    const uint32_t perm_ct = perm_idx + 1;
+                    const double emp1 = u31tod(valid_allele_emp1_ctx2s[valid_allele_idx] + 2) / u31tod(2 * (perm_ct + 1));
+                    const double ci_radius = adaptive_ci_zt * sqrt(emp1 * (1 - emp1) / u31tod(perm_ct));
+                    if ((emp1 - ci_radius > aperm_alpha) || (emp1 + ci_radius < aperm_alpha)) {
+                      valid_allele_emp1_denoms[valid_allele_idx] = perm_ct + 1;
                     }
                   }
-                  if (chr_col) {
-                    cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
+                } else {
+                  if (permstat > mperm_best_stats[perm_idx]) {
+                    mperm_best_stats[perm_idx] = permstat;
                   }
-                  if (variant_bps) {
-                    cswritep = u32toa_x(variant_bps[write_variant_uidx], '\t', cswritep);
-                  }
-                  cswritep = strcpya(cswritep, variant_ids[write_variant_uidx]);
-                  if (ref_col) {
-                    *cswritep++ = '\t';
-                    cswritep = strcpya(cswritep, cur_alleles[0]);
-                  }
-                  if (alt1_col) {
-                    *cswritep++ = '\t';
-                    cswritep = strcpya(cswritep, cur_alleles[1]);
-                  }
-                  if (alt_col) {
-                    *cswritep++ = '\t';
-                    for (uint32_t tmp_allele_idx = 1; tmp_allele_idx != allele_ct; ++tmp_allele_idx) {
-                      if (unlikely(Cswrite(&css, &cswritep))) {
-                        goto GlmFirthPerm_ret_WRITE_FAIL;
-                      }
-                      cswritep = strcpyax(cswritep, cur_alleles[tmp_allele_idx], ',');
-                    }
-                    --cswritep;
-                  }
-                  *cswritep++ = '\t';
-                  if (provref_col) {
-                    *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, write_variant_uidx)))? 'Y' : 'N';
-                    *cswritep++ = '\t';
-                  }
-                  const uint32_t multi_a1 = extra_allele_ct && beta_se_multiallelic_fused && (test_idx != primary_reported_test_idx);
-                  if (multi_a1) {
-                    for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
-                      if (allele_idx == omitted_allele_idx) {
-                        continue;
-                      }
-                      if (unlikely(Cswrite(&css, &cswritep))) {
-                        goto GlmFirthPerm_ret_WRITE_FAIL;
-                      }
-                      cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
-                    }
-                    --cswritep;
-                  } else {
-                    cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
-                  }
-                  if (omitted_col) {
-                    *cswritep++ = '\t';
-                    cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                  }
-                  if (ax_col) {
-                    *cswritep++ = '\t';
-                    if (beta_se_multiallelic_fused && (test_idx != primary_reported_test_idx)) {
-                      if (unlikely(Cswrite(&css, &cswritep))) {
-                        goto GlmFirthPerm_ret_WRITE_FAIL;
-                      }
-                      cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
-                    } else {
-                      for (uint32_t tmp_allele_idx = 0; tmp_allele_idx != allele_ct; ++tmp_allele_idx) {
-                        if (tmp_allele_idx == a1_allele_idx) {
-                          continue;
-                        }
-                        if (unlikely(Cswrite(&css, &cswritep))) {
-                          goto GlmFirthPerm_ret_WRITE_FAIL;
-                        }
-                        cswritep = strcpyax(cswritep, cur_alleles[tmp_allele_idx], ',');
-                      }
-                      --cswritep;
-                    }
-                  }
-                  if (a1_ct_col) {
-                    *cswritep++ = '\t';
-                    if (!multi_a1) {
-                      cswritep = dtoa_g(auxp->a1_dosage, cswritep);
-                    } else {
-                      cswritep = strcpya_k(cswritep, "NA");
-                    }
-                  }
-                  if (tot_allele_col) {
-                    *cswritep++ = '\t';
-                    cswritep = u32toa(auxp->allele_obs_ct, cswritep);
-                  }
-                  if (a1_ct_cc_col) {
-                    *cswritep++ = '\t';
-                    if (!multi_a1) {
-                      cswritep = dtoa_g(auxp->a1_case_dosage, cswritep);
-                      *cswritep++ = '\t';
-                      cswritep = dtoa_g(auxp->a1_dosage - auxp->a1_case_dosage, cswritep);
-                    } else {
-                      cswritep = strcpya_k(cswritep, "NA\tNA");
-                    }
-                  }
-                  if (tot_allele_cc_col) {
-                    *cswritep++ = '\t';
-                    cswritep = u32toa_x(auxp->case_allele_obs_ct, '\t', cswritep);
-                    cswritep = u32toa(auxp->allele_obs_ct - auxp->case_allele_obs_ct, cswritep);
-                  }
-                  if (gcount_cc_col) {
-                    if (!multi_a1) {
-                      STD_ARRAY_KREF(uint32_t, 6) cur_geno_hardcall_cts = auxp->geno_hardcall_cts;
-                      for (uint32_t uii = 0; uii != 6; ++uii) {
-                        *cswritep++ = '\t';
-                        cswritep = u32toa(cur_geno_hardcall_cts[uii], cswritep);
-                      }
-                    } else {
-                      cswritep = strcpya_k(cswritep, "\tNA\tNA\tNA\tNA\tNA\tNA");
-                    }
-                  }
-                  if (a1_freq_col) {
-                    *cswritep++ = '\t';
-                    if (!multi_a1) {
-                      cswritep = dtoa_g(auxp->a1_dosage / S_CAST(double, auxp->allele_obs_ct), cswritep);
-                    } else {
-                      cswritep = strcpya_k(cswritep, "NA");
-                    }
-                  }
-                  if (a1_freq_cc_col) {
-                    *cswritep++ = '\t';
-                    if (!multi_a1) {
-                      cswritep = dtoa_g(auxp->a1_case_dosage / S_CAST(double, auxp->case_allele_obs_ct), cswritep);
-                      *cswritep++ = '\t';
-                      cswritep = dtoa_g((auxp->a1_dosage - auxp->a1_case_dosage) / S_CAST(double, auxp->allele_obs_ct - auxp->case_allele_obs_ct), cswritep);
-                    } else {
-                      cswritep = strcpya_k(cswritep, "NA\tNA");
-                    }
-                  }
-                  if (mach_r2_col) {
-                    *cswritep++ = '\t';
-                    if (!suppress_mach_r2) {
-                      cswritep = dtoa_g(auxp->mach_r2, cswritep);
-                    } else {
-                      cswritep = strcpya_k(cswritep, "NA");
-                    }
-                  }
-                  if (firth_yn_col) {
-                    *cswritep++ = '\t';
-                    // 'Y' - 'N' = 11
-                    *cswritep++ = 'N' + 11 * auxp->firth_fallback;
-                  }
-                  if (test_col) {
-                    *cswritep++ = '\t';
-                    if (test_idx < cur_biallelic_reported_test_ct) {
-                      cswritep = strcpya(cswritep, cur_test_names[test_idx]);
-                    } else {
-                      // always use basic dosage for untested alleles
-                      cswritep = strcpya_k(cswritep, "ADD");
-                      if (!beta_se_multiallelic_fused) {
-                        // extra alt allele covariate.
-                        uint32_t test_xallele_idx = test_idx - cur_biallelic_reported_test_ct;
-                        // now we have the 0-based relative position in a list
-                        // with the omitted_allele_idx and a1_allele_idx removed.
-                        // correct this to the absolute index.  (there may be a
-                        // cleaner way to do this with nonomitted_allele_idx?)
-                        if (omitted_allele_idx < a1_allele_idx) {
-                          test_xallele_idx = test_xallele_idx + (test_xallele_idx >= omitted_allele_idx);
-                        }
-                        test_xallele_idx = test_xallele_idx + (test_xallele_idx >= a1_allele_idx);
-                        if (a1_allele_idx < omitted_allele_idx) {
-                          test_xallele_idx = test_xallele_idx + (test_xallele_idx >= omitted_allele_idx);
-                        }
-                        if (!test_xallele_idx) {
-                          cswritep = strcpya_k(cswritep, "_REF");
-                        } else {
-                          cswritep = strcpya_k(cswritep, "_ALT");
-                          cswritep = u32toa(test_xallele_idx, cswritep);
-                        }
-                      }
-                    }
-                  }
-                  if (nobs_col) {
-                    *cswritep++ = '\t';
-                    cswritep = u32toa(auxp->sample_obs_ct, cswritep);
-                  }
-                  double ln_pval = kLnPvalError;
-                  double permstat = 0.0;
-                  uint32_t test_is_valid;
-                  if ((!cur_constraint_ct) || (test_idx != primary_reported_test_idx)) {
-                    double beta = beta_se_iter[2 * test_idx];
-                    double se = beta_se_iter[2 * test_idx + 1];
-                    test_is_valid = (se != -9.0);
-                    if (test_is_valid) {
-                      permstat = beta / se;
-                      ln_pval = ZscoreToLnP(permstat);
-                    }
-                    if (orbeta_col) {
-                      *cswritep++ = '\t';
-                      if (test_is_valid) {
-                        if (report_beta_instead_of_odds_ratio) {
-                          cswritep = dtoa_g(beta, cswritep);
-                        } else {
-                          cswritep = lntoa_g(beta, cswritep);
-                        }
-                      } else {
-                        cswritep = strcpya_k(cswritep, "NA");
-                      }
-                    }
-                    if (se_col) {
-                      *cswritep++ = '\t';
-                      if (test_is_valid) {
-                        cswritep = dtoa_g(se, cswritep);
-                      } else {
-                        cswritep = strcpya_k(cswritep, "NA");
-                      }
-                    }
-                    if (ci_col) {
-                      *cswritep++ = '\t';
-                      if (test_is_valid) {
-                        const double ci_radius = ci_zt * se;
-                        if (report_beta_instead_of_odds_ratio) {
-                          cswritep = dtoa_g(beta - ci_radius, cswritep);
-                          *cswritep++ = '\t';
-                          cswritep = dtoa_g(beta + ci_radius, cswritep);
-                        } else {
-                          cswritep = lntoa_g(beta - ci_radius, cswritep);
-                          *cswritep++ = '\t';
-                          cswritep = lntoa_g(beta + ci_radius, cswritep);
-                        }
-                      } else {
-                        cswritep = strcpya_k(cswritep, "NA\tNA");
-                      }
-                    }
-                    if (z_col) {
-                      *cswritep++ = '\t';
-                      if (test_is_valid) {
-                        cswritep = dtoa_g(permstat, cswritep);
-                      } else {
-                        cswritep = strcpya_k(cswritep, "NA");
-                      }
-                    }
-                  } else {
-                    // joint test: use F-test instead of Wald test
-                    test_is_valid = allele_is_valid;
-                    if (orbeta_col) {
-                      cswritep = strcpya_k(cswritep, "\tNA");
-                    }
-                    if (se_col) {
-                      cswritep = strcpya_k(cswritep, "\tNA");
-                    }
-                    if (ci_col) {
-                      cswritep = strcpya_k(cswritep, "\tNA\tNA");
-                    }
-                    if (z_col) {
-                      *cswritep++ = '\t';
-                      if (test_is_valid) {
-                        cswritep = dtoa_g(primary_se / u31tod(cur_constraint_ct), cswritep);
-                      } else {
-                        cswritep = strcpya_k(cswritep, "NA");
-                      }
-                    }
-                    // could avoid recomputing
-                    if (test_is_valid) {
-                      ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
-                      permstat = -ln_pval;
-                    }
-                  }
-                  if (p_col) {
-                    *cswritep++ = '\t';
-                    if (test_is_valid) {
-                      if (report_neglog10p) {
-                        double reported_val = (-kRecipLn10) * ln_pval;
-                        cswritep = dtoa_g(reported_val, cswritep);
-                      } else {
-                        double reported_ln = MAXV(ln_pval, output_min_ln);
-                        cswritep = lntoa_g(reported_ln, cswritep);
-                      }
-                    } else {
-                      cswritep = strcpya_k(cswritep, "NA");
-                    }
-                  }
-                  if (err_col) {
-                    *cswritep++ = '\t';
-                    if (test_is_valid) {
-                      if (!auxp->is_unfinished) {
-                        *cswritep++ = '.';
-                      } else {
-                        cswritep = strcpya_k(cswritep, "UNFINISHED");
-                      }
-                    } else {
-                      uint64_t glm_errcode;
-                      memcpy(&glm_errcode, &(beta_se_iter[2 * test_idx]), 8);
-                      cswritep = AppendGlmErrstr(glm_errcode, cswritep);
-                    }
-                  }
-                  AppendBinaryEoln(&cswritep);
-                  if (unlikely(Cswrite(&css, &cswritep))) {
-                    goto GlmFirthPerm_ret_WRITE_FAIL;
-                  }
-                  if ((test_idx == primary_reported_test_idx) && allele_is_valid) {
-                    if (orig_ln_pvals) {
-                      orig_ln_pvals[valid_allele_ct] = ln_pval;
-                    }
-                    if (orig_permstat) {
-                      orig_permstat[valid_allele_ct] = permstat;
-                    }
+                  if (mperm_all_stats) {
+                    mperm_all_stats[valid_allele_idx] = permstat;
                   }
                 }
               }
             GlmFirthPerm_allele_iterate:
               ++allele_bidx;
-              valid_allele_ct += allele_is_valid;
-              if (valid_alleles && allele_is_valid) {
-                SetBit(allele_idx_offset_base + a1_allele_idx, valid_alleles);
-              }
               if (!beta_se_multiallelic_fused) {
                 beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
               }
-            }
+            }  // for nonomitted_allele_idx
             if (beta_se_multiallelic_fused) {
               beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
             }
-            if ((!variant_is_valid) && valid_alleles) {
-              ClearBit(write_variant_uidx, valid_variants);
-            }
-          }
+          }  // for variant_bidx
         }
-        if (variant_idx == variant_ct) {
+        if (variant_idx == remaining_variant_ct) {
           break;
         }
         ++read_block_idx;
@@ -7044,11 +6747,88 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
         // pointers
         pgfip->block_base = main_loadbufs[parity];
       }
+      if (perm_adapt) {
+        if ((perm_idx == adapt_check_pidx) || (perm_idx + 1 == perms_total)) {
+          uint32_t first_adapt_check_pidx = adapt_check_pidx - perm_idx;
+          remaining_variant_ct = UpdateAdaptiveRemainingVariants(valid_alleles, valid_alleles_cumulative_popcounts_w, allele_idx_offsets, omitted_alleles, raw_variant_ctl, valid_allele_ct, perm_idx, 1, adaptive_intercept, adaptive_slope, valid_allele_emp1_denoms, remaining_variants, &first_adapt_check_pidx, &perms_actual);
+          if (!remaining_variant_ct) {
+            break;
+          }
+          adapt_check_pidx = first_adapt_check_pidx + perm_idx + 1;
+          FillSubsetChrFoVidxStart(remaining_variants, cip, common->subset_chr_fo_vidx_start);
+        }
+      } else {
+        if (mperm_best_file) {
+          char* write_iter = u32toa_x(perm_idx + 1, '\t', g_textbuf);
+          write_iter = dtoa_g(mperm_best_stats[perm_idx], write_iter);
+          AppendBinaryEoln(&write_iter);
+          if (fwrite_checked(g_textbuf, write_iter - g_textbuf, mperm_best_file)) {
+            goto GlmFirthPerm_ret_WRITE_FAIL;
+          }
+        }
+        if (mperm_all_stats) {
+          mperm_all_cswritep = u32toa(perm_idx + 1, mperm_all_cswritep);
+          uintptr_t valid_allele_idx = 0;
+          uintptr_t variant_uidx_base = 0;
+          uintptr_t variant_uidx_bits = orig_variant_include[0];
+          for (uint32_t variant_idx = 0; variant_idx != orig_variant_ct; ++variant_idx) {
+            const uint32_t variant_uidx = BitIter1(orig_variant_include, &variant_uidx_base, &variant_uidx_bits);
+            uintptr_t allele_idx_offset_base = variant_uidx * 2;
+            if (allele_idx_offsets) {
+              allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+              allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+            }
+            if (omitted_alleles) {
+              omitted_allele_idx = omitted_alleles[variant_uidx];
+            }
+            for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+              if (aidx == omitted_allele_idx) {
+                continue;
+              }
+              *mperm_all_cswritep++ = '\t';
+              if (!IsSet(valid_alleles, allele_idx_offset_base + aidx)) {
+                mperm_all_cswritep = strcpya_k(mperm_all_cswritep, "NA");
+                continue;
+              }
+              const double cur_permstat = mperm_all_stats[valid_allele_idx];
+              if (cur_permstat < 0.0) {
+                mperm_all_cswritep = strcpya_k(mperm_all_cswritep, "NA");
+              } else {
+                mperm_all_cswritep = dtoa_g(cur_permstat, mperm_all_cswritep);
+              }
+              ++valid_allele_idx;
+            }
+            if (unlikely(Cswrite(&mperm_all_css, &mperm_all_cswritep))) {
+              goto GlmFirthPerm_ret_WRITE_FAIL;
+            }
+          }
+          AppendBinaryEoln(&mperm_all_cswritep);
+        }
+      }
     }
-    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+    putc_unlocked('\r', stdout);
+    logprintf("%u %s permutation%s complete.", perms_actual, perm_adapt? "(adaptive)" : "max(T)", (perms_actual == 1)? "" : "s");
+    if (perm_adapt) {
+      // strlen(" xxxxxxxxxx variants remaining.") - strlen(" (adaptive)")
+      fputs("                    ", stdout);
+    }
+    logputs("\n");
+    if (converge_fail_ct) {
+      logerrprintfww("Warning: %" PRIuPTR " permutation%s skipped due to residual convergence failure.\n", converge_fail_ct, (converge_fail_ct == 1)? "" : "s");
+    }
+    if (mperm_all_stats) {
+      if (unlikely(CswriteCloseNull(&mperm_all_css, mperm_all_cswritep))) {
+        goto GlmFirthPerm_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(WritePermReportBody(orig_variant_include, cip, variant_bps, variant_ids, valid_alleles, allele_idx_offsets, allele_storage, omitted_alleles, nonref_flags, orig_logistic_permstats, valid_allele_emp1_ctx2s, valid_allele_emp1_denoms, orig_variant_ct, all_nonref, provref_col, ln_pfilter, perm_flags, perms_total, 0, mperm_best_stats, &css, &cswritep, chr_buf))) {
       goto GlmFirthPerm_ret_WRITE_FAIL;
     }
-    ;;;
+    *outname_end2 = '\0';
+    if (output_zst) {
+      strcpy_k(outname_end2, ".zst");
+    }
+    logprintfww("Permutation test report written to %s .\n", outname);
   }
   while (0) {
   GlmFirthPerm_ret_NOMEM:
@@ -7079,7 +6859,6 @@ PglErr GlmFirthPerm(const char* cur_pheno_name, const uintptr_t* orig_pheno_cc, 
   pgfip->block_base = nullptr;
   return reterr;
 }
-*/
 
 /*
 static inline BoolErr vecaligned_malloc2(uintptr_t size, void* aligned_pp) {

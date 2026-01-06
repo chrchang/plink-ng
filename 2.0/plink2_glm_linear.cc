@@ -5196,8 +5196,8 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
 
     const uint32_t perm_adapt = (glm_perm_flags / kfGlmPermAdaptive) & 1;
     const uint32_t perms_total = perm_adapt? perm_config_ptr->aperm_max : glm_info_ptr->mperm_ct;
-    const uint32_t mperm_save_best = (perm_flags / kfPermMpermSaveBest) & 1;
-    const uint32_t mperm_save_all = (perm_flags / kfPermMpermSaveAll) & 1;
+    const uint32_t mperm_save_best = (!perm_adapt) && (perm_flags & kfPermMpermSaveBest);
+    const uint32_t mperm_save_all = (!perm_adapt) && (perm_flags & kfPermMpermSaveAll);
     uint32_t* valid_allele_emp1_denoms = nullptr;  // 0 iff incomplete
     double* mperm_best_stats = nullptr;
     if (perm_adapt) {
@@ -5229,7 +5229,31 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
       goto GlmLinearPerm_ret_1;
     }
 
-    logprintfww("Starting %s permutation for phenotype '%s' (%" PRIuPTR " valid allele test%s).\n", perm_adapt? "adaptive" : "max(T)", cur_pheno_name, valid_allele_ct, (valid_allele_ct == 1)? "" : "s");
+    {
+      char* write_iter = strcpya_k(g_logbuf, "Starting ");
+      if (perm_adapt) {
+        write_iter = strcpya_k(write_iter, "adaptive");
+      } else {
+        write_iter = strcpya_k(write_iter, "max(T)");
+      }
+      write_iter = strcpya_k(write_iter, " permutation for phenotype '");
+      write_iter = strcpya(write_iter, cur_pheno_name);
+      write_iter = strcpya_k(write_iter, "' (");
+      write_iter = wtoa(orig_allele_ct, write_iter);
+      write_iter = strcpya_k(write_iter, " allele test");
+      if (orig_allele_ct != 1) {
+        *write_iter++ = 's';
+      }
+      write_iter = strcpya_k(write_iter, ", ");
+      if (orig_allele_ct == valid_allele_ct) {
+        write_iter = strcpya_k(write_iter, "all");
+      } else {
+        write_iter = wtoa(valid_allele_ct, write_iter);
+      }
+      strcpy_k(write_iter, " valid).\n");
+      WordWrapB(0);
+      logputsb();
+    }
     if (mperm_save_best) {
       strcpy_k(outname_end2, ".dump.best");
       logprintfww("Dumping best permutation absolute-log-pvals to %s .\n", outname);
@@ -5442,7 +5466,11 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
     uint32_t subbatch_size = max_subbatch_size;
     uint32_t perms_actual = perms_total;
     for (uint32_t perm_idx_start = 0; perm_idx_start != perms_total; perm_idx_start += subbatch_size) {
-      printf("\r%u permutation%s complete.", perm_idx_start, (perm_idx_start == 1)? "" : "s");
+      if (perm_adapt) {
+        printf("\r%u permutations complete, %u variant%s remaining.         \b\b\b\b\b\b\b\b\b", perm_idx_start, remaining_variant_ct, (remaining_variant_ct == 1)? "" : "s");
+      } else {
+        printf("\r%u permutations complete.", perm_idx_start);
+      }
       fflush(stdout);
       if (perm_adapt && (perm_idx_start <= max_subbatch_size)) {
         if (perm_idx_start < max_subbatch_size / 6) {
@@ -5571,7 +5599,7 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
         }
         parity = 1 - parity;
         if (variant_idx) {
-          // process *previous* block results
+          // save *previous* block results
           const double* beta_se_iter = block_beta_se_bufs[parity];
           const LinearAuxResult* cur_block_aux = linear_block_aux_bufs[parity];
           uintptr_t allele_bidx = 0;
@@ -5764,7 +5792,12 @@ PglErr GlmLinearPerm(const char* cur_pheno_name, const double* orig_pheno_qt, co
       }
     }
     putc_unlocked('\r', stdout);
-    logprintf("%u %s permutation%s complete.\n", perms_actual, perm_adapt? "(adaptive)" : "max(T)", (perms_actual == 1)? "" : "s");
+    logprintf("%u %s permutation%s complete.", perms_actual, perm_adapt? "(adaptive)" : "max(T)", (perms_actual == 1)? "" : "s");
+    if (perm_adapt) {
+      // strlen(" xxxxxxxxxx variants remaining.") - strlen(" (adaptive)")
+      fputs("                    ", stdout);
+    }
+    logputs("\n");
     if (mperm_all_stats) {
       if (unlikely(CswriteCloseNull(&mperm_all_css, mperm_all_cswritep))) {
         goto GlmLinearPerm_ret_WRITE_FAIL;

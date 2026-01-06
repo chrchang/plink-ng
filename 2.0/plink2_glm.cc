@@ -4077,9 +4077,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           common.glm_flags |= kfGlmHideCovar;
           common.glm_flags &= ~kfGlmIntercept;
           if (is_logistic) {
-            logerrputs("Error: --glm Firth permutation test are under development.\n");
-            reterr = kPglRetNotYetSupported;
-            goto GlmMain_ret_1;
+            reterr = GlmFirthPerm(cur_pheno_name, cur_pheno_col->data.cc, (perm_flags & kfPermColPos)? variant_bps : nullptr, variant_ids, valid_alleles, allele_storage, glm_info_ptr, perm_config_ptr, local_sample_uidx_order, cur_local_variant_include, orig_logistic_permstats, permute_within_phenocol, raw_sample_ct, raw_variant_ct, cur_variant_ct, cur_allele_ct, valid_allele_ct, max_chr_blen, ln_pfilter, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &logistic_ctx, sfmtp, &local_covar_txs, valid_variants, outname, outname_end2);
           } else {
             reterr = GlmLinearPerm(cur_pheno_name, cur_pheno_col->data.qt, (perm_flags & kfPermColPos)? variant_bps : nullptr, variant_ids, valid_alleles, allele_storage, glm_info_ptr, perm_config_ptr, local_sample_uidx_order, cur_local_variant_include, orig_ln_pvals, permute_within_phenocol, covar_include, covar_include_x, covar_include_y, covar_cols, covar_names, raw_sample_ct, raw_variant_ct, cur_variant_ct, cur_allele_ct, valid_allele_ct, max_chr_blen, ln_pfilter, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, covar_ct, covar_ct_x, covar_ct_y, covar_max_nonnull_cat_ct, extra_cat_ct, extra_cat_ct_x, extra_cat_ct_y, max_covar_name_blen, pgfip, &linear_ctx, sfmtp, &local_covar_txs, valid_variants, outname, outname_end2);
           }
