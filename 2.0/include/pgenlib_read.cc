@@ -24,9 +24,194 @@
 // Uncomment this during e.g. pgenlibr development to enable error-throwing.
 // #include <stdexcept>
 
+
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif
+
+// Implementation of FILE* wrapper functions for PglFileInterface
+static int PglFileSeek(void* context, int64_t offset, int whence) {
+  FILE* fp = (FILE*)context;
+  return fseeko(fp, offset, whence);
+}
+
+static int64_t PglFileTell(void* context) {
+  FILE* fp = (FILE*)context;
+  return ftello(fp);
+}
+
+static int PglFileRewind(void* context) {
+  FILE* fp = (FILE*)context;
+  rewind(fp);
+  return 0; // rewind doesn't return an error code
+}
+
+static size_t PglFileRead(void* context, void* buffer, size_t size, size_t count) {
+  FILE* fp = (FILE*)context;
+  return fread(buffer, size, count, fp);
+}
+
+static size_t PglFileReadUnlocked(void* context, void* buffer, size_t size, size_t count) {
+  FILE* fp = (FILE*)context;
+  return fread_unlocked(buffer, size, count, fp);
+}
+
+static int PglFileEof(void* context) {
+  FILE* fp = (FILE*)context;
+  return feof(fp);
+}
+
+static int PglFileEofUnlocked(void* context) {
+  FILE* fp = (FILE*)context;
+  return feof_unlocked(fp);
+}
+
+static int PglFileErrorUnlocked(void* context) {
+  FILE* fp = (FILE*)context;
+  return ferror_unlocked(fp);
+}
+
+static int PglFileGetcUnlocked(void* context) {
+  FILE* fp = (FILE*)context;
+  return getc_unlocked(fp);
+}
+
+static int PglFileClose(void* context) {
+  FILE* fp = (FILE*)context;
+  if (fp) {
+    return fclose(fp);
+  }
+  return 0;
+}
+
+PglFileInterface* PglCreateFileInterface(FILE* file_ptr) {
+  if (!file_ptr) {
+    return nullptr;
+  }
+  
+  PglFileInterface* interface = (PglFileInterface*)malloc(sizeof(PglFileInterface));
+  if (!interface) {
+    return nullptr;
+  }
+  
+  interface->context = file_ptr;
+  interface->seek = PglFileSeek;
+  interface->tell = PglFileTell;
+  interface->rewind = PglFileRewind;
+  interface->read = PglFileRead;
+  interface->eof = PglFileEof;
+  interface->close = PglFileClose;
+  interface->read_unlocked = PglFileReadUnlocked;
+  interface->pgl_getc_unlocked = PglFileGetcUnlocked;
+  interface->pgl_error_unlocked = PglFileErrorUnlocked;
+  interface->pgl_eof_unlocked = PglFileEofUnlocked;
+
+  return interface;
+}
+
+void PglDestroyFileInterface(PglFileInterface* file_interface) {
+  if (file_interface) {
+    free(file_interface);
+  }
+}
+
+// Convenience macros for using PglFileInterface like FILE*
+#define PGL_FSEEKO(pfi, offset, whence) ((pfi)->seek((pfi)->context, (offset), (whence)))
+#define PGL_FTELLO(pfi) ((pfi)->tell((pfi)->context))
+#define PGL_REWIND(pfi) ((pfi)->rewind((pfi)->context))
+#define PGL_FREAD(buf, size, count, pfi) ((pfi)->read((pfi)->context, (buf), (size), (count)))
+#define PGL_FEOF(pfi) ((pfi)->eof((pfi)->context))
+#define PGL_FCLOSE(pfi) ((pfi)->close((pfi)->context))
+#define PGL_FREAD_UNLOCKED(buf, size, count, pfi) ((pfi)->read_unlocked((pfi)->context, (buf), (size), (count)))
+#define PGL_GETC_UNLOCKED(pfi) ((pfi)->pgl_getc_unlocked((pfi)->context))
+#define PGL_FERROR_UNLOCKED(pfi) ((pfi)->pgl_error_unlocked((pfi)->context))
+#define PGL_FEOF_UNLOCKED(pfi) ((pfi)->pgl_eof_unlocked((pfi)->context))
+
+// Helper functions for more complex operations
+static int PglFcloseNull(PglFileInterface** pfi_ptr) {
+  if (*pfi_ptr) {
+    int result = (*pfi_ptr)->close((*pfi_ptr)->context);
+    PglDestroyFileInterface(*pfi_ptr);
+    *pfi_ptr = nullptr;
+    return result;
+  }
+  return 0;
+}
+
+#ifdef __LP64__
+static BoolErr PglFreadChecked(void* buf, uintptr_t len, PglFileInterface* pfi) {
+  // For large reads, we need to chunk them on 32-bit systems
+  return (PGL_FREAD(buf, len, 1, pfi) != 1);
+}
+#else
+static BoolErr PglFreadChecked(void* buf, uintptr_t len, PglFileInterface* pfi) {
+  return (PGL_FREAD(buf, 1, len, pfi) != len);
+}
+#endif
+
+
+
+static inline PglFileInterface* PglOpenFile(const char* fname, const char* mode) {
+  FILE* fp = fopen(fname, mode);
+  if (!fp) {
+    return nullptr;
+  }
+  
+  PglFileInterface* pfi = PglCreateFileInterface(fp);
+  if (!pfi) {
+    fclose(fp);
+    return nullptr;
+  }
+  
+  return pfi;
+}
+
+/*
+inline void FPutVint31(uint32_t uii, FILE* ff) {
+  // caller's responsibility to periodically check ferror
+  while (uii > 127) {
+    putc_unlocked((uii & 127) + 128, ff);
+    uii >>= 7;
+  }
+  putc_unlocked(uii, ff);
+}
+*/
+
+static inline BoolErr FSkipVint(PglFileInterface* ff) {
+  while (1) {
+    int cur_byte = PGL_GETC_UNLOCKED(ff);
+    if (cur_byte <= 127) {
+      return 0;
+    }
+    if (unlikely(cur_byte > 255 || cur_byte < 0)) {
+      return 1;
+    }
+  }
+}
+
+static inline uint64_t FGetVint63(PglFileInterface* ff) {
+  // Can't be used when multiple threads are reading from ff.
+  int first_byte = PGL_GETC_UNLOCKED(ff);
+  if (first_byte <= 127) {
+    return (uint64_t)first_byte;
+  }
+  if (unlikely(first_byte > 255 || first_byte < 0)) {
+    return (1LLU << 63);
+  }
+  uint64_t vint64 = first_byte & 127;
+  for (uint32_t shift = 7; ; shift += 7) {
+    int next_byte = PGL_GETC_UNLOCKED(ff);
+    vint64 |= ((uint64_t)(next_byte & 127)) << shift;
+    if (next_byte <= 127) {
+      return vint64;
+    }
+    if (unlikely((next_byte > 255) || (next_byte < 0) || (shift == 56))) {
+      return (1LLU << 63);
+    }
+  }
+}
+
 
 static inline PgenReaderMain* GetPgrp(PgenReader* pgr_ptr) {
   return &GET_PRIVATE(*pgr_ptr, m);
@@ -686,7 +871,7 @@ uintptr_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlag
 }
 
 static_assert(kPglMaxAlleleCt == 255, "Need to update PgfiInitPhase1().");
-PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf) {
+PglErr PgfiInitPhase1_FileInterface(PglFileInterface* file_iface, const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf) {
   pgfip->var_fpos = nullptr;
   pgfip->vrtypes = nullptr;
   pgfip->allele_idx_offsets = nullptr;
@@ -705,23 +890,20 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
   uint64_t fsize;
   const unsigned char* fread_ptr;
   unsigned char small_readbuf[3];
-  FILE* shared_ff = fopen(fname, FOPEN_RB);
+  PglFileInterface* shared_ff = file_iface;
   pgfip->shared_ff = shared_ff;
-  if (unlikely(!shared_ff)) {
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
-    return kPglRetOpenFail;
-  }
-  if (unlikely(fseeko(shared_ff, 0, SEEK_END))) {
+
+  if (unlikely(shared_ff->seek(shared_ff->context, 0, SEEK_END))) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", fname, strerror(errno));
     return kPglRetReadFail;
   }
-  fsize = ftello(shared_ff);
+  fsize = shared_ff->tell(shared_ff->context);
   if (unlikely(fsize < 4)) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s is too small to be a valid .pgen file.\n", fname);
     return kPglRetMalformedInput;
   }
-  rewind(shared_ff);
-  if (unlikely(!fread_unlocked(small_readbuf, 3, 1, shared_ff))) {
+  shared_ff->rewind(shared_ff->context);
+  if (unlikely(!shared_ff->read(shared_ff->context, small_readbuf, 3, 1))) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", fname, strerror(errno));
     return kPglRetReadFail;
   }
@@ -790,7 +972,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
     return kPglRetSuccess;
   }
 
-  FILE* header_ff = shared_ff;
+  PglFileInterface* header_ff = shared_ff;
   const char* header_fname = fname;
 
   // Must declare here, rather than inside else{} block, since the buffer would
@@ -821,13 +1003,19 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       strcpy_k(fname_iter, ".pgi");
       header_fname = pgi_fname_buf;
     }
-    header_ff = fopen(header_fname, FOPEN_RB);
-    pgfip->pgi_ff = header_ff;
-    if (unlikely(!header_ff)) {
+    FILE* header_file = fopen(header_fname, FOPEN_RB);
+    if (unlikely(!header_file)) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", header_fname, strerror(errno));
       return kPglRetOpenFail;
     }
-    if (unlikely(!fread_unlocked(small_readbuf, 3, 1, header_ff))) {
+    header_ff = PglCreateFileInterface(header_file);
+    if (unlikely(!header_ff)) {
+      fclose(header_file);
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to create file interface for %s.\n", header_fname);
+      return kPglRetOpenFail;
+    }
+    pgfip->pgi_ff = header_ff;
+    if (unlikely(!header_ff->read(header_ff->context, small_readbuf, 3, 1))) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", header_fname, strerror(errno));
       return kPglRetReadFail;
     }
@@ -836,9 +1024,9 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
       return kPglRetMalformedInput;
     }
   }
-  if (unlikely((!fread_unlocked(&(pgfip->raw_variant_ct), sizeof(int32_t), 1, header_ff)) ||
-               (!fread_unlocked(&(pgfip->raw_sample_ct), sizeof(int32_t), 1, header_ff)) ||
-               (!fread_unlocked(header_ctrl_ptr, 1, 1, header_ff)))) {
+  if (unlikely((!header_ff->read(header_ff->context, &(pgfip->raw_variant_ct), sizeof(int32_t), 1)) ||
+               (!header_ff->read(header_ff->context, &(pgfip->raw_sample_ct), sizeof(int32_t), 1)) ||
+               (!header_ff->read(header_ff->context, header_ctrl_ptr, 1, 1)))) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", header_fname, strerror(errno));
     return kPglRetReadFail;
   }
@@ -960,6 +1148,27 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
   return kPglRetSuccess;
 }
 
+PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf) {
+  // open file
+  FILE* shared_file = fopen(fname, FOPEN_RB);
+  if (unlikely(!shared_file)) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
+    return kPglRetOpenFail;
+  }
+  // create file interface
+  PglFileInterface* shared_ff = PglCreateFileInterface(shared_file);
+  if (unlikely(!shared_ff)) {
+    fclose(shared_file);
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to create file interface for %s.\n", fname);
+    return kPglRetOpenFail;
+  }
+  pgfip->shared_ff = shared_ff;
+  // Call the new function, passing all arguments including comments
+  PglErr ret = PgfiInitPhase1_FileInterface(shared_ff, fname, pgi_fname, raw_variant_ct, raw_sample_ct, header_ctrl_ptr, pgfip, pgfi_alloc_cacheline_ct_ptr, errstr_buf);
+  // Do not close the file interface here - it needs to remain open for subsequent operations
+  return ret;
+}
+
 void FillPgenHeaderReadErrstrFromNzErrno(uint32_t is_pgi, char* errstr_buf) {
   snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen%s read failure: %s.\n", is_pgi? ".pgi" : "", strerror(errno));
 }
@@ -980,14 +1189,14 @@ void FillPgenReadErrstrFromErrno(char* errstr_buf) {
   return FillPgenHeaderReadErrstrFromErrno(0, errstr_buf);
 }
 
-void FillPgenHeaderReadErrstr(FILE* ff, uint32_t is_pgi, char* errstr_buf) {
-  if (feof_unlocked(ff)) {
+void FillPgenHeaderReadErrstr(PglFileInterface* ff, uint32_t is_pgi, char* errstr_buf) {
+  if (PGL_FEOF_UNLOCKED(ff)) {
     errno = 0;
   }
   FillPgenHeaderReadErrstrFromErrno(is_pgi, errstr_buf);
 }
 
-void FillPgenReadErrstr(FILE* ff, char* errstr_buf) {
+void FillPgenReadErrstr(PglFileInterface* ff, char* errstr_buf) {
   FillPgenHeaderReadErrstr(ff, 0, errstr_buf);
 }
 
@@ -999,15 +1208,15 @@ void FillPgenReadErrstr(FILE* ff, char* errstr_buf) {
 // to first byte of footer-extension-set varint on successful exit.  If
 // preprocessing footer_exts, footer_fpos_ptr must be non-null, will be filled
 // if footer exists, and ff will be advanced past that on successful exit.
-PglErr PgfiInitPhase2PreprocessExts(uint32_t is_pgi, FILE* ff, PgenExtensionLl* exts_iter, uint64_t* footer_fpos_ptr, char* errstr_buf) {
+PglErr PgfiInitPhase2PreprocessExts(uint32_t is_pgi, PglFileInterface* ff, PgenExtensionLl* exts_iter, uint64_t* footer_fpos_ptr, char* errstr_buf) {
   uint32_t cur_type_idx = exts_iter? exts_iter->type_idx : UINT32_MAX;
   uint32_t type_idx_start = 0;
   uint32_t prev_ct = 0;
   while (1) {
     const uint32_t type_idx_stop = type_idx_start + 7;
-    const int32_t ii = getc_unlocked(ff);
+    const int32_t ii = PGL_GETC_UNLOCKED(ff);
     if (unlikely(ii == EOF)) {
-      if (ferror_unlocked(ff)) {
+      if (PGL_FERROR_UNLOCKED(ff)) {
         FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
         return kPglRetReadFail;
       }
@@ -1037,7 +1246,7 @@ PglErr PgfiInitPhase2PreprocessExts(uint32_t is_pgi, FILE* ff, PgenExtensionLl* 
     if (!(cur_byte & 128)) {
       if (footer_fpos_ptr) {
         if (cur_byte || prev_ct) {
-          if (unlikely(!fread_unlocked(footer_fpos_ptr, sizeof(int64_t), 1, ff))) {
+          if (unlikely(!PGL_FREAD_UNLOCKED(footer_fpos_ptr, sizeof(int64_t), 1, ff))) {
             FillPgenHeaderReadErrstr(ff, is_pgi, errstr_buf);
             return kPglRetReadFail;
           }
@@ -1066,7 +1275,7 @@ PglErr PgfiInitPhase2PreprocessExts(uint32_t is_pgi, FILE* ff, PgenExtensionLl* 
   return kPglRetSuccess;
 }
 
-PglErr PgfiInitPhase2FillExtSizes(uint32_t is_pgi, FILE* ff, PgenExtensionLl* exts_iter, char* errstr_buf) {
+PglErr PgfiInitPhase2FillExtSizes(uint32_t is_pgi, PglFileInterface* ff, PgenExtensionLl* exts_iter, char* errstr_buf) {
   uint32_t next_seq_idx = 0;
   for (; exts_iter; exts_iter = exts_iter->next) {
     if (exts_iter->size == ~0LLU) {
@@ -1087,7 +1296,7 @@ PglErr PgfiInitPhase2FillExtSizes(uint32_t is_pgi, FILE* ff, PgenExtensionLl* ex
   }
   return kPglRetSuccess;
  PgfiInitPhase2FillExtSizes_error_or_eof:
-  if (ferror_unlocked(ff)) {
+  if (PGL_FERROR_UNLOCKED(ff)) {
     FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
     return kPglRetReadFail;
   }
@@ -1126,7 +1335,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
   const uint32_t nonref_flags_stored = ((header_ctrl >> 6) == 3);
   unsigned char* nonref_flags_iter = DowncastToUc(pgfip->nonref_flags);
   const unsigned char* fread_ptr = nullptr;  // maybe-uninitialized warning
-  FILE* header_ff = pgfip->pgi_ff;
+  PglFileInterface* header_ff = pgfip->pgi_ff;
   const uint32_t is_pgi = (header_ff != nullptr);
   if (!is_pgi) {
     header_ff = pgfip->shared_ff;
@@ -1177,7 +1386,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
         cur_byte_ct = 1 + ((raw_variant_ct - 1) % (kPglVblockSize * 32)) / CHAR_BIT;
       }
       unsigned char* loadptr = nonref_flags_already_loaded? loadbuf : nonref_flags_iter;
-      if (unlikely(!fread_unlocked(loadptr, cur_byte_ct, 1, header_ff))) {
+      if (unlikely(!PGL_FREAD_UNLOCKED(loadptr, cur_byte_ct, 1, header_ff))) {
         FillPgenHeaderReadErrstr(header_ff, is_pgi, errstr_buf);
         return kPglRetReadFail;
       }
@@ -1200,19 +1409,19 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
   uint32_t max_vrec_width = 0;
   uint64_t variant_fpos;
   if (vblock_idx_start) {
-    if (unlikely(fseeko(header_ff, vblock_idx_start * sizeof(int64_t), SEEK_CUR))) {
+    if (unlikely(PGL_FSEEKO(header_ff, vblock_idx_start * sizeof(int64_t), SEEK_CUR))) {
       FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
       return kPglRetReadFail;
     }
   }
-  if (unlikely(!fread_unlocked(&variant_fpos, sizeof(int64_t), 1, header_ff))) {
+  if (unlikely(!PGL_FREAD_UNLOCKED(&variant_fpos, sizeof(int64_t), 1, header_ff))) {
     FillPgenHeaderReadErrstr(header_ff, is_pgi, errstr_buf);
     return kPglRetReadFail;
   }
   // May also need to load the rest of these values in the future, if we want
   // to support dynamic insertion into a memory-mapped file.  But skip them
   // for now.
-  if (unlikely(fseeko(header_ff, (vblock_ct_m1 - vblock_idx_start) * sizeof(int64_t), SEEK_CUR))) {
+  if (unlikely(PGL_FSEEKO(header_ff, (vblock_ct_m1 - vblock_idx_start) * sizeof(int64_t), SEEK_CUR))) {
     FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
     return kPglRetReadFail;
   }
@@ -1242,7 +1451,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
       }
       header_vblock_byte_ct += kPglVblockSize * (1 + (vrtype_and_fpos_storage & 3));
     }
-    if (unlikely(fseeko(header_ff, header_vblock_byte_ct * S_CAST(uint64_t, vblock_idx), SEEK_CUR))) {
+    if (unlikely(PGL_FSEEKO(header_ff, header_vblock_byte_ct * S_CAST(uint64_t, vblock_idx), SEEK_CUR))) {
       FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
       return kPglRetReadFail;
     }
@@ -1327,7 +1536,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
       const uint32_t entry_mask = (1 << entry_bit_width) - 1;
       const uint32_t cur_byte_ct = 1 + ((cur_vblock_variant_ct - 1) >> (3 - log2_entry_bit_width));
       const unsigned char* loadbuf_biter;
-      if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, header_ff))) {
+      if (unlikely(!PGL_FREAD_UNLOCKED(loadbuf, cur_byte_ct, 1, header_ff))) {
         FillPgenHeaderReadErrstr(header_ff, is_pgi, errstr_buf);
         return kPglRetReadFail;
       }
@@ -1357,7 +1566,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
       if (vrtype_and_fpos_storage < 4) {
         // no phase or dosage present, 4-bit vrtypes
         const uint32_t cur_byte_ct = DivUp(cur_vblock_variant_ct, 2);
-        if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, header_ff))) {
+        if (unlikely(!PGL_FREAD_UNLOCKED(loadbuf, cur_byte_ct, 1, header_ff))) {
           FillPgenHeaderReadErrstr(header_ff, is_pgi, errstr_buf);
           return kPglRetReadFail;
         }
@@ -1366,7 +1575,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
         vrtypes_iter = &(vrtypes_iter[cur_vblock_variant_ct]);
       } else {
         // phase and dosage
-        if (unlikely(!fread_unlocked(vrtypes_iter, cur_vblock_variant_ct, 1, header_ff))) {
+        if (unlikely(!PGL_FREAD_UNLOCKED(vrtypes_iter, cur_vblock_variant_ct, 1, header_ff))) {
           FillPgenHeaderReadErrstr(header_ff, is_pgi, errstr_buf);
           return kPglRetReadFail;
         }
@@ -1374,7 +1583,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
       }
       const uint32_t vrec_len_byte_ct = 1 + (vrtype_and_fpos_storage & 3);
       const uint32_t cur_byte_ct = cur_vblock_variant_ct * vrec_len_byte_ct;
-      if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, header_ff))) {
+      if (unlikely(!PGL_FREAD_UNLOCKED(loadbuf, cur_byte_ct, 1, header_ff))) {
         FillPgenHeaderReadErrstr(header_ff, is_pgi, errstr_buf);
         return kPglRetReadFail;
       }
@@ -1436,7 +1645,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
     // 2. allele counts?
     if (alt_allele_ct_byte_ct) {
       assert(alt_allele_ct_byte_ct == 1);
-      if (unlikely(!fread_unlocked(loadbuf, cur_vblock_variant_ct * alt_allele_ct_byte_ct, 1, header_ff))) {
+      if (unlikely(!PGL_FREAD_UNLOCKED(loadbuf, cur_vblock_variant_ct * alt_allele_ct_byte_ct, 1, header_ff))) {
         FillPgenHeaderReadErrstr(header_ff, is_pgi, errstr_buf);
         return kPglRetReadFail;
       }
@@ -1474,7 +1683,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
     if (nonref_flags_stored) {
       const uint32_t cur_byte_ct = DivUp(cur_vblock_variant_ct, CHAR_BIT);
       unsigned char* loadptr = nonref_flags_already_loaded? loadbuf : nonref_flags_iter;
-      if (unlikely(!fread_unlocked(loadptr, cur_byte_ct, 1, header_ff))) {
+      if (unlikely(!PGL_FREAD_UNLOCKED(loadptr, cur_byte_ct, 1, header_ff))) {
         FillPgenHeaderReadErrstr(header_ff, is_pgi, errstr_buf);
         return kPglRetReadFail;
       }
@@ -1502,7 +1711,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
       const uint32_t vrec_len_byte_ct = 1 + (vrtype_and_fpos_storage & 3);
       const uint32_t phase_or_dosage_present = (vrtype_and_fpos_storage >= 4);
       const uint64_t ext_fpos = PglHeaderBaseEndOffset(raw_variant_ct, vrec_len_byte_ct, phase_or_dosage_present, nonref_flags_stored);
-      if (unlikely(fseeko(header_ff, ext_fpos, SEEK_SET))) {
+      if (unlikely(PGL_FSEEKO(header_ff, ext_fpos, SEEK_SET))) {
         FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
         return kPglRetReadFail;
       }
@@ -1522,13 +1731,13 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
   }
 
   if (is_pgi && (!header_exts) && (!footer_exts)) {
-    if (unlikely(fclose_null(&pgfip->pgi_ff))) {
+    if (unlikely(PglFcloseNull(&pgfip->pgi_ff))) {
       FillPgenHeaderReadErrstrFromNzErrno(1, errstr_buf);
       return kPglRetReadFail;
     }
   }
 
-  const uint64_t actual_fpos = ftello(pgfip->shared_ff);
+  const uint64_t actual_fpos = PGL_FTELLO(pgfip->shared_ff);
   if (actual_fpos != pgfip->var_fpos[0]) {
     // now > instead of != to allow additional information to be stored between
     // header and first variant record (e.g. mode 0x11).
@@ -1536,13 +1745,13 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen%s.\n", is_pgi? ".pgi file" : " header");
       return kPglRetMalformedInput;
     }
-    if (unlikely(fseeko(pgfip->shared_ff, pgfip->var_fpos[0], SEEK_SET))) {
+    if (unlikely(PGL_FSEEKO(pgfip->shared_ff, pgfip->var_fpos[0], SEEK_SET))) {
       FillPgenReadErrstrFromNzErrno(errstr_buf);
       return kPglRetReadFail;
     }
   }
   if (footer_extensions_fpos && footer_exts) {
-    if (unlikely(fseeko(pgfip->shared_ff, footer_extensions_fpos, SEEK_SET))) {
+    if (unlikely(PGL_FSEEKO(pgfip->shared_ff, footer_extensions_fpos, SEEK_SET))) {
       FillPgenReadErrstrFromNzErrno(errstr_buf);
       return kPglRetReadFail;
     }
@@ -1550,7 +1759,7 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
     if (unlikely(reterr)) {
       return reterr;
     }
-    if (unlikely(fseeko(pgfip->shared_ff, pgfip->var_fpos[0], SEEK_SET))) {
+    if (unlikely(PGL_FSEEKO(pgfip->shared_ff, pgfip->var_fpos[0], SEEK_SET))) {
       FillPgenReadErrstrFromNzErrno(errstr_buf);
       return kPglRetReadFail;
     }
@@ -1678,16 +1887,16 @@ PglErr PgfiInitPhase2Ex(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_
   return kPglRetSuccess;
 }
 
-PglErr PgfiInitReloadExtSet(uint32_t is_pgi, FILE* ff, uintptr_t* ext_bitarr, uint32_t* ext_bitarr_cumulative_popcounts, uint64_t* footer_fpos_ptr, uint32_t* word_ct_ptr, char* errstr_buf) {
+PglErr PgfiInitReloadExtSet(uint32_t is_pgi, PglFileInterface* ff, uintptr_t* ext_bitarr, uint32_t* ext_bitarr_cumulative_popcounts, uint64_t* footer_fpos_ptr, uint32_t* word_ct_ptr, char* errstr_buf) {
   uintptr_t cur_output_word = 0;
   uintptr_t nonzero_present = 0;
   uint32_t write_idx_lowbits = 0;
   uint32_t widx = 0;
   ext_bitarr_cumulative_popcounts[0] = 0;
   while (1) {
-    const int32_t ii = getc_unlocked(ff);
+    const int32_t ii = PGL_GETC_UNLOCKED(ff);
     if (unlikely(ii == EOF)) {
-      if (ferror_unlocked(ff)) {
+      if (PGL_FERROR_UNLOCKED(ff)) {
         FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
         return kPglRetReadFail;
       }
@@ -1718,7 +1927,7 @@ PglErr PgfiInitReloadExtSet(uint32_t is_pgi, FILE* ff, uintptr_t* ext_bitarr, ui
   nonzero_present |= cur_output_word;
   *word_ct_ptr = widx + 1;
   if (footer_fpos_ptr && nonzero_present) {
-    if (unlikely(!fread_unlocked(footer_fpos_ptr, sizeof(int64_t), 1, ff))) {
+    if (unlikely(!PGL_FREAD_UNLOCKED(footer_fpos_ptr, sizeof(int64_t), 1, ff))) {
       FillPgenHeaderReadErrstr(ff, is_pgi, errstr_buf);
       return kPglRetReadFail;
     }
@@ -1726,7 +1935,7 @@ PglErr PgfiInitReloadExtSet(uint32_t is_pgi, FILE* ff, uintptr_t* ext_bitarr, ui
   return kPglRetSuccess;
 }
 
-PglErr PgfiInitFillExts(const uintptr_t* ext_bitarr, const uint32_t* ext_cumulative_popcounts, uint32_t word_ct, uint32_t is_pgi, FILE* ff, PgenExtensionLl* exts, char* errstr_buf) {
+PglErr PgfiInitFillExts(const uintptr_t* ext_bitarr, const uint32_t* ext_cumulative_popcounts, uint32_t word_ct, uint32_t is_pgi, PglFileInterface* ff, PgenExtensionLl* exts, char* errstr_buf) {
   {
     const uint32_t ext_ct = ext_cumulative_popcounts[word_ct - 1] + PopcountWord(ext_bitarr[word_ct - 1]);
     uint64_t sizes[256];
@@ -1758,12 +1967,12 @@ PglErr PgfiInitFillExts(const uintptr_t* ext_bitarr, const uint32_t* ext_cumulat
         for (uint32_t uii = next_seq_idx; uii != seq_idx; ++uii) {
           bytes_to_skip += sizes[uii];
         }
-        if (unlikely(fseeko(ff, bytes_to_skip, SEEK_CUR))) {
+        if (unlikely(PGL_FSEEKO(ff, bytes_to_skip, SEEK_CUR))) {
           FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
           return kPglRetReadFail;
         }
       }
-      if (unlikely(fread_checked(exts_iter->contents, cur_size, ff))) {
+      if (unlikely(PglFreadChecked(exts_iter->contents, cur_size, ff))) {
         FillPgenHeaderReadErrstr(ff, is_pgi, errstr_buf);
         return kPglRetReadFail;
       }
@@ -1772,7 +1981,7 @@ PglErr PgfiInitFillExts(const uintptr_t* ext_bitarr, const uint32_t* ext_cumulat
     return kPglRetSuccess;
   }
  PgfiInitFillExts_error_or_eof:
-  if (ferror_unlocked(ff)) {
+  if (PGL_FERROR_UNLOCKED(ff)) {
     FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
     return kPglRetReadFail;
   }
@@ -1781,8 +1990,8 @@ PglErr PgfiInitFillExts(const uintptr_t* ext_bitarr, const uint32_t* ext_cumulat
 }
 
 PglErr PgfiInitLoadExts(PgenHeaderCtrl header_ctrl, PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenExtensionLl* footer_exts, char* errstr_buf) {
-  const uint64_t starting_fpos = ftello(pgfip->shared_ff);
-  FILE* header_ff = pgfip->pgi_ff;
+  const uint64_t starting_fpos = PGL_FTELLO(pgfip->shared_ff);
+  PglFileInterface* header_ff = pgfip->pgi_ff;
   const uint32_t is_pgi = (header_ff != nullptr);
   if (!is_pgi) {
     header_ff = pgfip->shared_ff;
@@ -1794,7 +2003,7 @@ PglErr PgfiInitLoadExts(PgenHeaderCtrl header_ctrl, PgenFileInfo* pgfip, PgenExt
     const uint32_t phase_or_dosage_present = (vrtype_and_fpos_storage >= 4);
     const uint32_t nonref_flags_stored = ((header_ctrl >> 6) == 3);
     const uint64_t ext_fpos = PglHeaderBaseEndOffset(pgfip->raw_variant_ct, vrec_len_byte_ct, phase_or_dosage_present, nonref_flags_stored);
-    if (unlikely(fseeko(header_ff, ext_fpos, SEEK_SET))) {
+    if (unlikely(PGL_FSEEKO(header_ff, ext_fpos, SEEK_SET))) {
       FillPgenHeaderReadErrstrFromNzErrno(is_pgi, errstr_buf);
       return kPglRetReadFail;
     }
@@ -1821,13 +2030,13 @@ PglErr PgfiInitLoadExts(PgenHeaderCtrl header_ctrl, PgenFileInfo* pgfip, PgenExt
     }
   }
   if (is_pgi) {
-    if (unlikely(fclose_null(&pgfip->pgi_ff))) {
+    if (unlikely(PglFcloseNull(&pgfip->pgi_ff))) {
       FillPgenHeaderReadErrstrFromNzErrno(1, errstr_buf);
       return kPglRetReadFail;
     }
   }
   if (footer_exts) {
-    if (unlikely(fseeko(pgfip->shared_ff, footer_extensions_fpos, SEEK_SET))) {
+    if (unlikely(PGL_FSEEKO(pgfip->shared_ff, footer_extensions_fpos, SEEK_SET))) {
       FillPgenReadErrstrFromNzErrno(errstr_buf);
       return kPglRetReadFail;
     }
@@ -1836,7 +2045,7 @@ PglErr PgfiInitLoadExts(PgenHeaderCtrl header_ctrl, PgenFileInfo* pgfip, PgenExt
       return reterr;
     }
   }
-  if (unlikely(fseeko(pgfip->shared_ff, starting_fpos, SEEK_SET))) {
+  if (unlikely(PGL_FSEEKO(pgfip->shared_ff, starting_fpos, SEEK_SET))) {
     FillPgenReadErrstrFromNzErrno(errstr_buf);
     return kPglRetReadFail;
   }
@@ -2019,12 +2228,12 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
         break;
       }
     }
-    if (unlikely(fseeko(pgfip->shared_ff, cur_read_start_fpos, SEEK_SET))) {
+    if (unlikely(PGL_FSEEKO(pgfip->shared_ff, cur_read_start_fpos, SEEK_SET))) {
       return kPglRetReadFail;
     }
     uintptr_t len = cur_read_end_fpos - cur_read_start_fpos;
-    if (unlikely(fread_checked(K_CAST(unsigned char*, &(pgfip->block_base[cur_read_start_fpos - block_offset])), len, pgfip->shared_ff))) {
-      if (feof_unlocked(pgfip->shared_ff)) {
+    if (unlikely(PglFreadChecked(K_CAST(unsigned char*, &(pgfip->block_base[cur_read_start_fpos - block_offset])), len, pgfip->shared_ff))) {
+      if (PGL_FEOF_UNLOCKED(pgfip->shared_ff)) {
         errno = 0;
       }
       return kPglRetReadFail;
@@ -2064,7 +2273,7 @@ PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, 
       pgrp->ff = pgfip->shared_ff;
       pgfip->shared_ff = nullptr;
     } else {
-      pgrp->ff = fopen(fname, FOPEN_RB);
+      pgrp->ff = PglOpenFile(fname, FOPEN_RB);
       if (unlikely(!pgrp->ff)) {
         return kPglRetOpenFail;
       }
@@ -2077,7 +2286,7 @@ PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, 
     } else {
       seek_pos = pgfip->const_fpos_offset;
     }
-    if (unlikely(fseeko(pgrp->ff, seek_pos, SEEK_SET))) {
+    if (unlikely(PGL_FSEEKO(pgrp->ff, seek_pos, SEEK_SET))) {
       return kPglRetReadFail;
     }
   }
@@ -2774,14 +2983,14 @@ BoolErr InitReadPtrs(uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** 
     return 0;
   }
   if (pgrp->fp_vidx != vidx) {
-    if (unlikely(fseeko(pgrp->ff, GetPgfiFpos(&(pgrp->fi), vidx), SEEK_SET))) {
+    if (unlikely(PGL_FSEEKO(pgrp->ff, GetPgfiFpos(&(pgrp->fi), vidx), SEEK_SET))) {
       return 1;
     }
   }
   const uintptr_t cur_vrec_width = GetPgfiVrecWidth(&(pgrp->fi), vidx);
 #ifdef __LP64__
-  if (unlikely(fread_checked(pgrp->fread_buf, cur_vrec_width, pgrp->ff))) {
-    if (feof_unlocked(pgrp->ff)) {
+  if (unlikely(PglFreadChecked(pgrp->fread_buf, cur_vrec_width, pgrp->ff))) {
+    if (PGL_FEOF_UNLOCKED(pgrp->ff)) {
       errno = 0;
     }
     return 1;
@@ -3096,7 +3305,7 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
     }
     pgrp->fp_vidx = ldbase_vidx + 1;
   } else {
-    if (unlikely(fseeko(pgrp->ff, pgrp->fi.var_fpos[ldbase_vidx], SEEK_SET))) {
+    if (unlikely(PGL_FSEEKO(pgrp->ff, pgrp->fi.var_fpos[ldbase_vidx], SEEK_SET))) {
       return kPglRetReadFail;
     }
     const uintptr_t cur_vrec_width = pgrp->fi.var_fpos[ldbase_vidx + 1] - cur_vidx_fpos;
@@ -3104,8 +3313,8 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
     if (!(ldbase_vrtype & 7)) {
       // don't actually need to fread the whole record in this case
       const uint32_t raw_sample_ct4 = NypCtToByteCt(raw_sample_ct);
-      if (unlikely(!fread_unlocked(raw_genovec, raw_sample_ct4, 1, pgrp->ff))) {
-        if (feof_unlocked(pgrp->ff)) {
+      if (unlikely(!PGL_FREAD_UNLOCKED(raw_genovec, raw_sample_ct4, 1, pgrp->ff))) {
+        if (PGL_FEOF_UNLOCKED(pgrp->ff)) {
           errno = 0;
         }
         return kPglRetReadFail;
@@ -3116,8 +3325,8 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
       }
       goto LdLoadMinimalSubsetIfNecessary_genovec_finish;
     }
-    if (unlikely(!fread_unlocked(pgrp->fread_buf, cur_vrec_width, 1, pgrp->ff))) {
-      if (feof_unlocked(pgrp->ff)) {
+    if (unlikely(!PGL_FREAD_UNLOCKED(pgrp->fread_buf, cur_vrec_width, 1, pgrp->ff))) {
+      if (PGL_FEOF_UNLOCKED(pgrp->ff)) {
         errno = 0;
       }
       return kPglRetReadFail;
@@ -10539,12 +10748,12 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
   }
   // file size may not be validated yet.
   uint64_t fsize;
-  FILE* ff = pgrp->ff;
-  if (unlikely(fseeko(ff, 0, SEEK_END))) {
+  PglFileInterface* ff = pgrp->ff;
+  if (unlikely(PGL_FSEEKO(ff, 0, SEEK_END))) {
     FillPgenReadErrstrFromNzErrno(errstr_buf);
     return kPglRetReadFail;
   }
-  fsize = ftello(ff);
+  fsize = PGL_FTELLO(ff);
   pgrp->fp_vidx = 1;  // force fseek when loading first variant
   // todo: verify equality if no mode-0x11 footer; and if there is a footer,
   // validate it
@@ -10559,18 +10768,18 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
   }
   const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
   uint32_t header_ctrl = 0;
-  if (unlikely(fseeko(ff, 11, SEEK_SET))) {
+  if (unlikely(PGL_FSEEKO(ff, 11, SEEK_SET))) {
     FillPgenReadErrstrFromNzErrno(errstr_buf);
     return kPglRetReadFail;
   }
-  header_ctrl = getc_unlocked(ff);
+  header_ctrl = PGL_GETC_UNLOCKED(ff);
   if (unlikely(header_ctrl > 255)) {
     FillPgenReadErrstr(ff, errstr_buf);
     return kPglRetReadFail;
   }
   for (uint32_t vblock_idx = 0; vblock_idx != vblock_ct; ++vblock_idx) {
     uint64_t vblock_start_fpos;
-    if (unlikely(!fread_unlocked(&vblock_start_fpos, sizeof(int64_t), 1, ff))) {
+    if (unlikely(!PGL_FREAD_UNLOCKED(&vblock_start_fpos, sizeof(int64_t), 1, ff))) {
       FillPgenReadErrstr(ff, errstr_buf);
       return kPglRetReadFail;
     }
@@ -10617,11 +10826,11 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
   }
   if (last_vrtype_byte_offset) {
     uint32_t last_vrtype_byte = 0;
-    if (unlikely(fseeko(ff, last_vrtype_byte_offset, SEEK_SET))) {
+    if (unlikely(PGL_FSEEKO(ff, last_vrtype_byte_offset, SEEK_SET))) {
       FillPgenReadErrstrFromNzErrno(errstr_buf);
       return kPglRetReadFail;
     }
-    last_vrtype_byte = getc_unlocked(ff);
+    last_vrtype_byte = PGL_GETC_UNLOCKED(ff);
     if (unlikely(last_vrtype_byte > 255)) {
       FillPgenReadErrstr(ff, errstr_buf);
       return kPglRetReadFail;
@@ -10706,9 +10915,9 @@ BoolErr CleanupPgfi(PgenFileInfo* pgfip, PglErr* reterrp) {
   if (pgfip->shared_ff) {
     BoolErr pgi_fclose_err = 0;
     if (pgfip->pgi_ff) {
-      pgi_fclose_err = fclose_null(&pgfip->pgi_ff);
+      pgi_fclose_err = PglFcloseNull(&pgfip->pgi_ff);
     }
-    if (unlikely(fclose_null(&pgfip->shared_ff) || pgi_fclose_err)) {
+    if (unlikely(PglFcloseNull(&pgfip->shared_ff) || pgi_fclose_err)) {
       if (*reterrp == kPglRetSuccess) {
         *reterrp = kPglRetReadFail;
         return 1;
@@ -10727,7 +10936,7 @@ BoolErr CleanupPgr(PgenReader* pgr_ptr, PglErr* reterrp) {
   if (!pgrp->ff) {
     return 0;
   }
-  if (fclose_null(&(pgrp->ff))) {
+  if (PglFcloseNull(&(pgrp->ff))) {
     if (*reterrp == kPglRetSuccess) {
       *reterrp = kPglRetReadFail;
       return 1;

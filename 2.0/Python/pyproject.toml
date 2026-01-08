@@ -8,3 +8,30 @@ requires = [
     "numpy>=2.0.0",
 ]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "Pgenlib"
+version = "0.93.0"
+description = "Python wrapper for pgenlib's basic reader and writer."
+authors = [
+    {name = "Christopher Chang", email = "chrchang@alumni.caltech.edu"}
+]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.19.3",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/chrchang/plink-ng"
+"Bug Tracker" = "https://github.com/chrchang/plink-ng/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+]

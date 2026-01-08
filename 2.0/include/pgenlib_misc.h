@@ -364,50 +364,6 @@ HEADER_INLINE uint32_t PeekVint31(const unsigned char* buf_iter, const unsigned 
   return 0x80000000U;
 }
 
-/*
-HEADER_INLINE void FPutVint31(uint32_t uii, FILE* ff) {
-  // caller's responsibility to periodically check ferror
-  while (uii > 127) {
-    putc_unlocked((uii & 127) + 128, ff);
-    uii >>= 7;
-  }
-  putc_unlocked(uii, ff);
-}
-*/
-
-HEADER_INLINE BoolErr FSkipVint(FILE* ff) {
-  while (1) {
-    const uint32_t cur_byte = getc_unlocked(ff);
-    if (cur_byte <= 127) {
-      return 0;
-    }
-    if (unlikely(cur_byte > 255)) {
-      return 1;
-    }
-  }
-}
-
-HEADER_INLINE uint64_t FGetVint63(FILE* ff) {
-  // Can't be used when multiple threads are reading from ff.
-  uint64_t vint64 = getc_unlocked(ff);
-  if (vint64 <= 127) {
-    return vint64;
-  }
-  if (unlikely(vint64 > 255)) {
-    return (1LLU << 63);
-  }
-  vint64 &= 127;
-  for (uint32_t shift = 7; ; shift += 7) {
-    const uint64_t ullii = getc_unlocked(ff);
-    vint64 |= (ullii & 127) << shift;
-    if (ullii <= 127) {
-      return vint64;
-    }
-    if (unlikely((ullii > 255) || (shift == 56))) {
-      return (1LLU << 63);
-    }
-  }
-}
 
 // Need this for sparse multiallelic dosage.
 HEADER_INLINE unsigned char* Vint64Append(uint64_t ullii, unsigned char* buf) {
