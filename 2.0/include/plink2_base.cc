@@ -600,6 +600,43 @@ char* i64toa(int64_t llii, char* start) {
   return uitoa_z8(bottom_eight, start);
 }
 
+uint32_t MaxElementU32(const uint32_t* u32arr, uintptr_t entry_ct) {
+  // confirmed that *std::max_element() has horrible performance on at least
+  // macOS
+  // also confirmed that macOS compiler autovectorizes this; main loop
+  // processes 4 vectors at a time
+  uint32_t result = u32arr[0];
+  for (uintptr_t entry_idx = 1; entry_idx != entry_ct; ++entry_idx) {
+    const uint32_t cur_element = u32arr[entry_idx];
+    if (cur_element > result) {
+      result = cur_element;
+    }
+  }
+  return result;
+}
+
+double MaxElementD(const double* darr, uintptr_t entry_ct) {
+  double result = darr[0];
+  for (uintptr_t entry_idx = 1; entry_idx != entry_ct; ++entry_idx) {
+    const double cur_element = darr[entry_idx];
+    if (cur_element > result) {
+      result = cur_element;
+    }
+  }
+  return result;
+}
+
+double MinElementD(const double* darr, uintptr_t entry_ct) {
+  double result = darr[0];
+  for (uintptr_t entry_idx = 1; entry_idx != entry_ct; ++entry_idx) {
+    const double cur_element = darr[entry_idx];
+    if (cur_element < result) {
+      result = cur_element;
+    }
+  }
+  return result;
+}
+
 #if defined(USE_SSE2) && !defined(NO_UNALIGNED)
 uintptr_t FirstUnequal4(const void* arr1, const void* arr2, uintptr_t nbytes) {
   // Similar to memequal().

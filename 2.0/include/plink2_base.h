@@ -4069,42 +4069,11 @@ HEADER_INLINE void SetAllU32Arr(uintptr_t entry_ct, uint32_t* u32arr) {
   }
 }
 
-HEADER_INLINE uint32_t MaxElementU32(const uint32_t* u32arr, uintptr_t entry_ct) {
-  // confirmed that *std::max_element() has horrible performance on at least
-  // macOS
-  // also confirmed that macOS compiler autovectorizes this; main loop
-  // processes 4 vectors at a time
-  uint32_t result = u32arr[0];
-  for (uintptr_t entry_idx = 1; entry_idx != entry_ct; ++entry_idx) {
-    const uint32_t cur_element = u32arr[entry_idx];
-    if (cur_element > result) {
-      result = cur_element;
-    }
-  }
-  return result;
-}
+uint32_t MaxElementU32(const uint32_t* u32arr, uintptr_t entry_ct);
 
-HEADER_INLINE double MaxElementD(const double* darr, uintptr_t entry_ct) {
-  double result = darr[0];
-  for (uintptr_t entry_idx = 1; entry_idx != entry_ct; ++entry_idx) {
-    const double cur_element = darr[entry_idx];
-    if (cur_element > result) {
-      result = cur_element;
-    }
-  }
-  return result;
-}
+double MaxElementD(const double* darr, uintptr_t entry_ct);
 
-HEADER_INLINE double MinElementD(const double* darr, uintptr_t entry_ct) {
-  double result = darr[0];
-  for (uintptr_t entry_idx = 1; entry_idx != entry_ct; ++entry_idx) {
-    const double cur_element = darr[entry_idx];
-    if (cur_element < result) {
-      result = cur_element;
-    }
-  }
-  return result;
-}
+double MinElementD(const double* darr, uintptr_t entry_ct);
 
 
 // tried _bzhi_u64() in AVX2 case, it was actually worse on my Mac (more

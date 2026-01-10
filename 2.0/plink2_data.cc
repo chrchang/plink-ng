@@ -3892,7 +3892,6 @@ PglErr PlanMultiallelicJoin(const uintptr_t* variant_include, const ChrInfo* cip
 }
 
 PglErr PlanMultiallelicSplit(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t max_allele_ct, MakePlink2Flags flags, uint32_t* write_variant_ctp, const uintptr_t** write_allele_idx_offsetsp) {
-  uint32_t variant_uidx = 0;
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t variant_ct = *write_variant_ctp;
@@ -3915,7 +3914,7 @@ PglErr PlanMultiallelicSplit(const uintptr_t* variant_include, const uintptr_t* 
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-      variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       const uintptr_t allele_idx_offset_base = allele_idx_offsets[variant_uidx];
       const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       if (allele_ct == 2) {
@@ -7304,9 +7303,31 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-void SplitNonrefFlags() {
-  logerrputs("Provisional-reference flag split is not implemented yet.\n");
-  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+void SplitNonrefFlags(const uintptr_t* old_nonref_flags, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t variant_ct, uint32_t only_split_snps, uintptr_t* nonref_flags_write) {
+  // Variant-iteration logic based off PlanMultiallelicSplit().
+  // Assumes nonref_flags_write zeroed out.
+  uint32_t write_variant_idx = 0;
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+    const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    const uintptr_t allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+    const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+    uint32_t write_variant_idx_next = write_variant_idx + allele_ct - 1;
+    if ((allele_ct > 2) && only_split_snps) {
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+        if (cur_alleles[aidx][1] != '\0') {
+          write_variant_idx_next = write_variant_idx + 1;
+          break;
+        }
+      }
+    }
+    if (IsSet(old_nonref_flags, variant_idx)) {
+      FillBitsNz(write_variant_idx, write_variant_idx_next, nonref_flags_write);
+    }
+    write_variant_idx = write_variant_idx_next;
+  }
 }
 
 void JoinNonrefFlags() {
@@ -7323,7 +7344,7 @@ void JoinNonrefFlags() {
 // sex_male_collapsed_interleaved, sex_female_collapsed_interleaved,
 // write_allele_permute, flip_subset_*, raw_sample_ct, sample_ct,
 // plink2_write_flags
-PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* write_allele_idx_offsets, const uint32_t* new_variant_idx_to_old, const uintptr_t* sex_female_collapsed, const char* writer_ver, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t write_variant_ct, uint32_t max_read_allele_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, MakeCommon* mcp, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* write_allele_idx_offsets, const char* const* allele_storage, const uint32_t* new_variant_idx_to_old, const uintptr_t* sex_female_collapsed, const char* writer_ver, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t write_variant_ct, uint32_t max_read_allele_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, MakeCommon* mcp, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   // variant_uidx_new_to_old[] can be nullptr
 
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -7443,9 +7464,10 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uintptr_t* nonref_flags_write = PgrGetNonrefFlags(simple_pgrp);
       if (!nonref_flags_write) {
         nonref_flags_storage = (PgrGetGflags(simple_pgrp) & kfPgenGlobalAllNonref)? 2 : 1;
-      } else if ((variant_ct < raw_variant_ct) || new_variant_idx_to_old) {
+      } else if ((variant_ct < raw_variant_ct) || (variant_ct != write_variant_ct) || new_variant_idx_to_old) {
         // bugfix (9 Jun 2024): nonref_flags reorder may be necessary when
         // variant_ct == raw_variant_ct
+        // bugfix (10 Jan 2026): forgot variant_ct != write_variant_ct
         const uint32_t write_variant_ctl = BitCtToWordCt(write_variant_ct);
         uintptr_t* old_nonref_flags = nonref_flags_write;
         if (bigstack_alloc_w(write_variant_ctl, &nonref_flags_write)) {
@@ -7454,6 +7476,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         if ((variant_ct == write_variant_ct) && (!new_variant_idx_to_old)) {
           CopyBitarrSubset(old_nonref_flags, variant_include, variant_ct, nonref_flags_write);
         } else {
+          // variant_ct != write_variant_ct and/or variants reordered
           ZeroWArr(write_variant_ctl, nonref_flags_write);
           if (variant_ct == write_variant_ct) {
             for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
@@ -7463,7 +7486,8 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
               }
             }
           } else if (!input_biallelic) {
-            SplitNonrefFlags();
+            assert(!new_variant_idx_to_old);  // not implemented in MakePlink2Vsort() yet
+            SplitNonrefFlags(old_nonref_flags, variant_include, allele_idx_offsets, allele_storage, variant_ct, ((make_plink2_flags & kfMakePlink2MMask) == kfMakePlink2MSplitSnps), nonref_flags_write);
           } else {
             JoinNonrefFlags();
           }
@@ -8680,16 +8704,8 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         if (bigstack_alloc_w(write_variant_ctl, &nonref_flags_write)) {
           goto MakePlink2NoVsort_fallback;
         }
-        if (variant_ct == write_variant_ct) {
-          CopyBitarrSubset(old_nonref_flags, variant_include, variant_ct, nonref_flags_write);
-        } else {
-          ZeroWArr(write_variant_ctl, nonref_flags_write);
-          if (input_biallelic) {
-            SplitNonrefFlags();
-          } else {
-            JoinNonrefFlags();
-          }
-        }
+        assert(variant_ct == write_variant_ct);
+        CopyBitarrSubset(old_nonref_flags, variant_include, variant_ct, nonref_flags_write);
         if (nonref_flags_write[0] & 1) {
           if (AllBitsAreOne(nonref_flags_write, write_variant_ct)) {
             BigstackReset(nonref_flags_write);
@@ -9065,7 +9081,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       g_failed_alloc_attempt_size = 0;
       mpgwp = nullptr;
       BigstackReset(bigstack_mark2);
-      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, write_allele_idx_offsets, nullptr, ctx.sex_female_collapsed, writer_ver, raw_variant_ct, variant_ct, write_variant_ct, max_allele_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, &mc, simple_pgrp, outname, outname_end);
+      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, write_allele_idx_offsets, allele_storage, nullptr, ctx.sex_female_collapsed, writer_ver, raw_variant_ct, variant_ct, write_variant_ct, max_allele_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, &mc, simple_pgrp, outname, outname_end);
       if (unlikely(reterr)) {
         goto MakePlink2NoVsort_ret_1;
       }
@@ -10687,7 +10703,7 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
         mc.zero_cluster_bitmasks = nullptr;
         mc.zero_cluster_entry_ct = 0;
       }
-      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, write_allele_idx_offsets, new_variant_idx_to_old, sex_female_collapsed, writer_ver, raw_variant_ct, variant_ct, variant_ct, max_allele_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, &mc, simple_pgrp, outname, outname_end);
+      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, write_allele_idx_offsets, allele_storage, new_variant_idx_to_old, sex_female_collapsed, writer_ver, raw_variant_ct, variant_ct, variant_ct, max_allele_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, &mc, simple_pgrp, outname, outname_end);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }

@@ -1256,6 +1256,425 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
   return reterr;
 }
 
+PglErr GlmCondition(const char* condition_varname, const char* condition_list_fname, const uintptr_t* sex_male, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* omitted_alleles, const char* const* allele_storage, uint32_t raw_sample_ct, uint32_t male_ct, uint32_t local_covar_ct, uint32_t orig_variant_ct, uint32_t raw_variant_ctl, uint32_t max_variant_id_slen, uint32_t xchr_model, GlmFlags glm_flags, uint32_t add_sex_covar, uint32_t max_thread_ct, uint32_t* raw_covar_ct_ptr, uintptr_t* new_max_covar_name_blen_ptr, PgenReader* simple_pgrp, uint32_t* condition_ct_ptr, PhenoCol** new_covar_cols_ptr, char** new_covar_names_ptr) {
+  // allocates new_covar_cols and new_covar_names at bottom of bigstack
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  PglErr reterr = kPglRetSuccess;
+  TokenStream tks;
+  PreinitTokenStream(&tks);
+  {
+    // reserve space for condition-list worst case (roughly sqrt(2^31)),
+    // since that's relatively small
+    const uint32_t condition_ct_max = 46338;
+    uint32_t condition_variant_ct = 0;
+    uint32_t* condition_variant_uidxs;
+    if (unlikely(bigstack_end_alloc_u32(condition_ct_max, &condition_variant_uidxs))) {
+      goto GlmCondition_ret_NOMEM;
+    }
+    uintptr_t skip_ct = 0;
+    uintptr_t duplicate_ct = 0;
+    if (condition_varname) {
+      int32_t ii = GetVariantUidxWithoutHtable(condition_varname, variant_ids, orig_variant_include, orig_variant_ct);
+      if (ii >= 0) {
+        condition_variant_uidxs[0] = ii;
+        condition_variant_ct = 1;
+      } else {
+        if (unlikely(ii == -2)) {
+          logerrprintfww("Error: --condition variant ID '%s' appears multiple times in dataset.\n", condition_varname);
+          goto GlmCondition_ret_INCONSISTENT_INPUT;
+        }
+        logerrprintfww("Warning: --condition variant ID '%s' not found.\n", condition_varname);
+      }
+    } else {
+      // 1. (re)construct variant ID hash table
+      uintptr_t* already_seen;
+      if (unlikely(bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
+        goto GlmCondition_ret_NOMEM;
+      }
+      reterr = InitTokenStream(condition_list_fname, MAXV(max_thread_ct - 1, 1), &tks);
+      if (unlikely(reterr)) {
+        goto GlmCondition_ret_TKSTREAM_FAIL;
+      }
+      uint32_t* variant_id_htable = nullptr;
+      uint32_t variant_id_htable_size;
+      reterr = AllocAndPopulateIdHtableMt(orig_variant_include, variant_ids, orig_variant_ct, 0, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
+      if (unlikely(reterr)) {
+        goto GlmCondition_ret_1;
+      }
+
+      // 2. iterate through --condition-list file, make sure no IDs are
+      //    duplicate in loaded fileset, warn about duplicates in
+      //    --condition-list file
+      while (1) {
+        char* shard_boundaries[2];
+        reterr = TksNext(&tks, 1, shard_boundaries);
+        if (reterr) {
+          break;
+        }
+        const char* shard_iter = shard_boundaries[0];
+        const char* shard_end = shard_boundaries[1];
+        while (1) {
+          shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
+          if (shard_iter == shard_end) {
+            break;
+          }
+          const char* token_end = CurTokenEnd(shard_iter);
+          const uint32_t token_slen = token_end - shard_iter;
+          uint32_t variant_uidx = VariantIdDupflagHtableFind(shard_iter, variant_ids, variant_id_htable, token_slen, variant_id_htable_size, max_variant_id_slen);
+          if (variant_uidx >> 31) {
+            if (unlikely(variant_uidx != UINT32_MAX)) {
+              logerrprintfww("Error: --condition-list variant ID '%s' appears multiple times in dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
+              goto GlmCondition_ret_INCONSISTENT_INPUT;
+            }
+            ++skip_ct;
+          } else if (IsSet(already_seen, variant_uidx)) {
+            ++duplicate_ct;
+          } else {
+            if (unlikely(condition_variant_ct == condition_ct_max)) {
+              goto GlmCondition_ret_TOO_MANY_CONDITIONS;
+            }
+            SetBit(variant_uidx, already_seen);
+            condition_variant_uidxs[condition_variant_ct++] = variant_uidx;
+          }
+          shard_iter = token_end;
+        }
+      }
+      if (unlikely(reterr != kPglRetEof)) {
+        goto GlmCondition_ret_TKSTREAM_FAIL;
+      }
+      if (CleanupTokenStream3("--condition-list file", &tks, &reterr)) {
+        goto GlmCondition_ret_1;
+      }
+      // free hash table, duplicate tracker, TokenStream
+      BigstackReset(already_seen);
+    }
+    const uint32_t condition_multiallelic = (glm_flags / kfGlmConditionMultiallelic) & 1;
+    uintptr_t new_max_covar_name_blen = *new_max_covar_name_blen_ptr;
+    uint32_t condition_ct = -condition_variant_ct;  // underflow ok
+    uint32_t allele_ct = 2;
+    uint32_t omitted_allele_idx = 0;
+    for (uint32_t cvidx = 0; cvidx != condition_variant_ct; ++cvidx) {
+      const uint32_t variant_uidx = condition_variant_uidxs[cvidx];
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+      }
+      condition_ct += allele_ct;
+      uint32_t condition_slen_base = 1 + strlen(variant_ids[variant_uidx]);
+      if (condition_multiallelic) {
+        const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+        if (omitted_alleles) {
+          omitted_allele_idx = omitted_alleles[variant_uidx];
+        }
+        for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+          if (aidx == omitted_allele_idx) {
+            continue;
+          }
+          const uint32_t condition_slen = condition_slen_base + strlen(cur_alleles[aidx]);
+          if (new_max_covar_name_blen <= condition_slen) {
+            new_max_covar_name_blen = condition_slen + 1;
+          }
+        }
+      } else {
+        // drop "CSNP" column name for sanity's sake
+        if (new_max_covar_name_blen < condition_slen_base) {
+          new_max_covar_name_blen = condition_slen_base;
+        }
+      }
+    }
+    if (unlikely((condition_ct > condition_variant_ct) && (!condition_multiallelic))) {
+      logerrputs("Error: --condition[-list] includes a multiallelic variant, but 'multiallelic'\nmodifier was not specified.\n");
+      goto GlmCondition_ret_INCONSISTENT_INPUT;
+    }
+    if (unlikely(condition_ct > condition_ct_max)) {
+      goto GlmCondition_ret_TOO_MANY_CONDITIONS;
+    }
+    if (unlikely(new_max_covar_name_blen > kMaxIdBlen)) {
+      // --glm actually tolerates ~twice this for now when splitting
+      // categorical covariates; might want to remove that exception.
+      logerrputs("Error: --condition[-list] <variant>_<allele> covariate name too long (max 16000\nchars).\n");
+      goto GlmCondition_ret_INCONSISTENT_INPUT;
+    }
+    logprintf("--condition[-list]: %u covariate%s added.\n", condition_ct, (condition_ct == 1)? "" : "s");
+    if (skip_ct || duplicate_ct) {
+      if (skip_ct && duplicate_ct) {
+        logerrprintfww("Warning: %" PRIuPTR " --condition-list variant ID%s not found, and %" PRIuPTR " duplicate ID%s present.\n", skip_ct, (skip_ct == 1)? "" : "s", duplicate_ct, (duplicate_ct == 1)? "" : "s");
+      } else if (skip_ct) {
+        logerrprintf("Warning: %" PRIuPTR " --condition-list variant ID%s not found.\n", skip_ct, (skip_ct == 1)? "" : "s");
+      } else {
+        logerrprintf("Warning: %" PRIuPTR " duplicate --condition-list variant ID%s present.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s");
+      }
+    }
+    const uint32_t raw_covar_ct = (*raw_covar_ct_ptr) + condition_ct;
+    *raw_covar_ct_ptr = raw_covar_ct;
+    if (unlikely(BIGSTACK_ALLOC_X(PhenoCol, raw_covar_ct + add_sex_covar, new_covar_cols_ptr) ||
+                 bigstack_alloc_c((raw_covar_ct + add_sex_covar) * new_max_covar_name_blen, new_covar_names_ptr))) {
+      goto GlmCondition_ret_NOMEM;
+    }
+    PhenoCol* new_covar_cols = *new_covar_cols_ptr;
+    char* new_covar_names = *new_covar_names_ptr;
+    if (condition_ct) {
+      BigstackEndSet(condition_variant_uidxs);
+      const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+      PgenVariant pgv;
+      if (unlikely(bigstack_end_alloc_w(NypCtToWordCt(raw_sample_ct), &pgv.genovec) ||
+                   bigstack_end_alloc_w(raw_sample_ctl, &pgv.dosage_present) ||
+                   bigstack_end_alloc_dosage(raw_sample_ct, &pgv.dosage_main))) {
+        goto GlmCondition_ret_NOMEM;
+      }
+      pgv.patch_01_set = nullptr;
+      pgv.patch_01_vals = nullptr;
+      pgv.patch_10_set = nullptr;
+      pgv.patch_10_vals = nullptr;
+      if (condition_ct > condition_variant_ct) {
+        if (unlikely(bigstack_end_alloc_w(raw_sample_ctl, &pgv.patch_01_set) ||
+                     bigstack_end_alloc_ac(raw_sample_ct, &pgv.patch_01_vals) ||
+                     bigstack_end_alloc_w(raw_sample_ctl, &pgv.patch_10_set) ||
+                     bigstack_end_alloc_ac(raw_sample_ct, &pgv.patch_10_vals))) {
+          goto GlmCondition_ret_NOMEM;
+        }
+      }
+      uint32_t write_covar_idx = local_covar_ct;
+      PgrSampleSubsetIndex null_pssi;
+      PgrClearSampleSubsetIndex(simple_pgrp, &null_pssi);
+      for (uint32_t cvidx = 0; cvidx != condition_variant_ct; ++cvidx) {
+        const uint32_t variant_uidx = condition_variant_uidxs[cvidx];
+        uintptr_t allele_idx_offset_base = variant_uidx * 2;
+        if (allele_idx_offsets) {
+          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+          allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+        }
+        if (omitted_alleles) {
+          omitted_allele_idx = omitted_alleles[variant_uidx];
+        }
+        const char* cur_variant_id = variant_ids[variant_uidx];
+        const uint32_t variant_id_slen = strlen(cur_variant_id);
+        const uint32_t chr_idx = GetVariantChr(cip, variant_uidx);
+        if (allele_ct == 2) {
+          const uint32_t aidx = 1 - omitted_allele_idx;
+          uint32_t dosage_ct;
+          reterr = PgrGet1D(nullptr, null_pssi, raw_sample_ct, variant_uidx, aidx, simple_pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &dosage_ct);
+          if (unlikely(reterr)) {
+            PgenErrPrintV(reterr, variant_uidx);
+            goto GlmCondition_ret_1;
+          }
+          PhenoCol* cur_covar_col = &(new_covar_cols[write_covar_idx]);
+          uintptr_t* cur_nonmiss;
+          double* cur_covar_vals;
+          if (unlikely(bigstack_alloc_w(raw_sample_ctl, &cur_nonmiss) ||
+                       bigstack_alloc_d(raw_sample_ct, &cur_covar_vals))) {
+            goto GlmCondition_ret_NOMEM;
+          }
+          cur_covar_col->category_names = nullptr;
+          cur_covar_col->nonmiss = cur_nonmiss;
+          cur_covar_col->data.qt = cur_covar_vals;
+          cur_covar_col->type_code = kPhenoDtypeQt;
+          cur_covar_col->nonnull_category_ct = 0;
+          GenoarrToNonmissing(pgv.genovec, raw_sample_ct, cur_nonmiss);
+          GenoarrLookup16x8bx2(pgv.genovec, kSmallDoublePairs, raw_sample_ct, cur_covar_vals);
+          if (dosage_ct) {
+            uintptr_t sample_uidx_base = 0;
+            uintptr_t cur_bits = pgv.dosage_present[0];
+            for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+              const uintptr_t sample_uidx = BitIter1(pgv.dosage_present, &sample_uidx_base, &cur_bits);
+              cur_covar_vals[sample_uidx] = kRecipDosageMid * u31tod(pgv.dosage_main[dosage_idx]);
+            }
+            BitvecOr(pgv.dosage_present, raw_sample_ctl, cur_nonmiss);
+          }
+          if (glm_flags & kfGlmConditionDominant) {
+            for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+              if (cur_covar_vals[sample_uidx] > 1.0) {
+                cur_covar_vals[sample_uidx] = 1.0;
+              }
+            }
+          } else if (glm_flags & kfGlmConditionRecessive) {
+            for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+              double dxx = cur_covar_vals[sample_uidx];
+              if (dxx <= 1.0) {
+                dxx = 0;
+              } else {
+                dxx -= 1.0;
+              }
+              cur_covar_vals[sample_uidx] = dxx;
+            }
+          }
+          // quasi-bugfix (21 Feb 2018): also should respect
+          // "--xchr-model 1", and divide by 2 in haploid case.
+          if (IsSet(cip->haploid_mask, chr_idx)) {
+            if (chr_idx == cip->xymt_codes[kChrOffsetX]) {
+              if (xchr_model == 1) {
+                if (unlikely(glm_flags & (kfGlmConditionDominant | kfGlmConditionRecessive))) {
+                  // this is technically allowed when all samples are female,
+                  // but unimportant to mention that in the error message.
+                  logerrputs("Error: --condition[-list] 'dominant'/'recessive' cannot be used with a chrX\nvariant when \"--xchr-model 1\" is in effect.\n");
+                  goto GlmCondition_ret_INCONSISTENT_INPUT;
+                }
+                uintptr_t sample_uidx_base = 0;
+                uintptr_t cur_bits = sex_male[0];
+                for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx) {
+                  const uintptr_t sample_uidx = BitIter1(sex_male, &sample_uidx_base, &cur_bits);
+                  cur_covar_vals[sample_uidx] *= 0.5;
+                }
+              }
+            } else {
+              if (unlikely(glm_flags & (kfGlmConditionDominant | kfGlmConditionRecessive))) {
+                logerrputs("Error: --condition[-list] 'dominant'/'recessive' cannot be used with haploid\nvariants.\n");
+                goto GlmCondition_ret_INCONSISTENT_INPUT;
+              }
+              for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+                cur_covar_vals[sample_uidx] *= 0.5;
+              }
+            }
+          }
+          char* write_iter = memcpya(&(new_covar_names[write_covar_idx * new_max_covar_name_blen]), cur_variant_id, variant_id_slen);
+          *write_iter = '\0';
+          if (condition_multiallelic) {
+            *write_iter++ = '_';
+            strcpy(write_iter, allele_storage[allele_idx_offset_base + aidx]);
+          }
+          ++write_covar_idx;
+        } else {
+          // todo: proper multiallelic dosage support
+          reterr = PgrGetM(nullptr, null_pssi, raw_sample_ct, variant_uidx, simple_pgrp, &pgv);
+          if (unlikely(reterr)) {
+            PgenErrPrintV(reterr, variant_uidx);
+            goto GlmCondition_ret_1;
+          }
+          const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+          for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+            if (aidx == omitted_allele_idx) {
+              continue;
+            }
+            PhenoCol* cur_covar_col = &(new_covar_cols[write_covar_idx]);
+            uintptr_t* cur_nonmiss;
+            double* cur_covar_vals;
+            if (unlikely(bigstack_alloc_w(raw_sample_ctl, &cur_nonmiss) ||
+                         bigstack_alloc_d(raw_sample_ct, &cur_covar_vals))) {
+              goto GlmCondition_ret_NOMEM;
+            }
+            cur_covar_col->category_names = nullptr;
+            cur_covar_col->nonmiss = cur_nonmiss;
+            cur_covar_col->data.qt = cur_covar_vals;
+            cur_covar_col->type_code = kPhenoDtypeQt;
+            cur_covar_col->nonnull_category_ct = 0;
+            GenoarrToNonmissing(pgv.genovec, raw_sample_ct, cur_nonmiss);
+            if (aidx == 0) {
+              GenoarrLookup16x8bx2(pgv.genovec, kSmallInvDoublePairs, raw_sample_ct, cur_covar_vals);
+            } else if (aidx == 1) {
+              GenoarrLookup16x8bx2(pgv.genovec, kSmallDoublePairs, raw_sample_ct, cur_covar_vals);
+              if (pgv.patch_01_ct) {
+                const uintptr_t* patch_01_set = pgv.patch_01_set;
+                uintptr_t sample_uidx_base = 0;
+                uintptr_t cur_bits = patch_01_set[0];
+                for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
+                  const uintptr_t sample_uidx = BitIter1(patch_01_set, &sample_uidx_base, &cur_bits);
+                  cur_covar_vals[sample_uidx] = 0.0;
+                }
+              }
+              if (pgv.patch_10_ct) {
+                const uintptr_t* patch_10_set = pgv.patch_10_set;
+                const AlleleCode* patch_10_vals = pgv.patch_10_vals;
+                uintptr_t sample_uidx_base = 0;
+                uintptr_t cur_bits = patch_10_set[0];
+                for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
+                  const uintptr_t sample_uidx = BitIter1(patch_10_set, &sample_uidx_base, &cur_bits);
+                  cur_covar_vals[sample_uidx] = S_CAST(double, (patch_10_vals[2 * uii] == 1));
+                }
+              }
+            } else {
+              ZeroDArr(raw_sample_ct, cur_covar_vals);
+              if (pgv.patch_01_ct) {
+                const uintptr_t* patch_01_set = pgv.patch_01_set;
+                const AlleleCode* patch_01_vals = pgv.patch_01_vals;
+                uintptr_t sample_uidx_base = 0;
+                uintptr_t cur_bits = patch_01_set[0];
+                for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
+                  const uintptr_t sample_uidx = BitIter1(patch_01_set, &sample_uidx_base, &cur_bits);
+                  cur_covar_vals[sample_uidx] = S_CAST(double, (patch_01_vals[uii] == aidx));
+                }
+              }
+              if (pgv.patch_10_ct) {
+                const uintptr_t* patch_10_set = pgv.patch_10_set;
+                const AlleleCode* patch_10_vals = pgv.patch_10_vals;
+                uintptr_t sample_uidx_base = 0;
+                uintptr_t cur_bits = patch_10_set[0];
+                for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
+                  const uintptr_t sample_uidx = BitIter1(patch_10_set, &sample_uidx_base, &cur_bits);
+                  cur_covar_vals[sample_uidx] = S_CAST(double, (patch_10_vals[2 * uii] == aidx) + (patch_10_vals[2 * uii + 1] == aidx));
+                }
+              }
+            }
+            if (glm_flags & kfGlmConditionDominant) {
+              for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+                if (cur_covar_vals[sample_uidx] > 1.0) {
+                  cur_covar_vals[sample_uidx] = 1.0;
+                }
+              }
+            } else if (glm_flags & kfGlmConditionRecessive) {
+              for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+                double dxx = cur_covar_vals[sample_uidx];
+                if (dxx <= 1.0) {
+                  dxx = 0;
+                } else {
+                  dxx -= 1.0;
+                }
+                cur_covar_vals[sample_uidx] = dxx;
+              }
+            }
+            if (IsSet(cip->haploid_mask, chr_idx)) {
+              if (chr_idx == cip->xymt_codes[kChrOffsetX]) {
+                if (xchr_model == 1) {
+                  if (unlikely(glm_flags & (kfGlmConditionDominant | kfGlmConditionRecessive))) {
+                    logerrputs("Error: --condition[-list] 'dominant'/'recessive' cannot be used with a chrX\nvariant when \"--xchr-model 1\" is in effect.\n");
+                    goto GlmCondition_ret_INCONSISTENT_INPUT;
+                  }
+                  uintptr_t sample_uidx_base = 0;
+                  uintptr_t cur_bits = sex_male[0];
+                  for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx) {
+                    const uintptr_t sample_uidx = BitIter1(sex_male, &sample_uidx_base, &cur_bits);
+                    cur_covar_vals[sample_uidx] *= 0.5;
+                  }
+                }
+              } else {
+                if (unlikely(glm_flags & (kfGlmConditionDominant | kfGlmConditionRecessive))) {
+                  logerrputs("Error: --condition[-list] 'dominant'/'recessive' cannot be used with haploid\nvariants.\n");
+                  goto GlmCondition_ret_INCONSISTENT_INPUT;
+                }
+                for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+                  cur_covar_vals[sample_uidx] *= 0.5;
+                }
+              }
+            }
+            char* write_iter = memcpyax(&(new_covar_names[write_covar_idx * new_max_covar_name_blen]), cur_variant_id, variant_id_slen, '_');
+            strcpy(write_iter, cur_alleles[aidx]);
+            ++write_covar_idx;
+          }
+        }
+      }
+    }
+    *new_max_covar_name_blen_ptr = new_max_covar_name_blen;
+    *condition_ct_ptr = condition_ct;
+  }
+  while (0) {
+  GlmCondition_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  GlmCondition_ret_TKSTREAM_FAIL:
+    TokenStreamErrPrint("--condition-list file", &tks);
+    break;
+  GlmCondition_ret_TOO_MANY_CONDITIONS:
+    logerrputs("Error: --condition-list: Too many conditions (max 46338).\n");
+  GlmCondition_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ GlmCondition_ret_1:
+  CleanupTokenStream2("--condition-list file", &tks, &reterr);
+  BigstackEndReset(bigstack_end_mark);
+  return reterr;
+}
+
 uint32_t CheckForSeparatedQtCovar(const uintptr_t* pheno_cc, const uintptr_t* cur_sample_include, const double* covar_vals, uint32_t sample_ct, double* covar_val_keep_ptr) {
   const uint32_t first_sample_uidx = AdvTo1Bit(cur_sample_include, 0);
   double cur_covar_val = covar_vals[first_sample_uidx];
@@ -1985,9 +2404,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   LlStr* gwas_ssf_ll = nullptr;
   PglErr reterr = kPglRetSuccess;
   TextStream local_covar_txs;
-  TokenStream tks;
   PreinitTextStream(&local_covar_txs);
-  PreinitTokenStream(&tks);
   GlmCtx common;
   GlmLogisticCtx logistic_ctx;
   GlmLinearCtx linear_ctx;
@@ -2272,230 +2689,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
       if (glm_info_ptr->condition_varname || glm_info_ptr->condition_list_fname) {
         assert(g_bigstack_end == bigstack_end_mark);
-        const uint32_t condition_multiallelic = (glm_flags / kfGlmConditionMultiallelic) & 1;
-        if (condition_multiallelic) {
-          logerrputs("Error: --condition[-list] 'multiallelic' implementation is under development.\n");
-          reterr = kPglRetNotYetSupported;
+        reterr = GlmCondition(glm_info_ptr->condition_varname, glm_info_ptr->condition_list_fname, sex_male, orig_variant_include, cip, variant_ids, allele_idx_offsets, common.omitted_alleles, allele_storage, raw_sample_ct, male_ct, local_covar_ct, orig_variant_ct, raw_variant_ctl, max_variant_id_slen, xchr_model, glm_flags, add_sex_covar, max_thread_ct, &raw_covar_ct, &new_max_covar_name_blen, simple_pgrp, &condition_ct, &new_covar_cols, &new_covar_names);
+        if (unlikely(reterr)) {
           goto GlmMain_ret_1;
-        }
-        // reserve space for condition-list worst case (roughly sqrt(2^31)),
-        // since that's relatively small
-        const uint32_t condition_ct_max = 46338;
-        uint32_t* condition_uidxs;
-        if (unlikely(bigstack_end_alloc_u32(condition_ct_max, &condition_uidxs))) {
-          goto GlmMain_ret_NOMEM;
-        }
-        if (glm_info_ptr->condition_varname) {
-          int32_t ii = GetVariantUidxWithoutHtable(glm_info_ptr->condition_varname, variant_ids, orig_variant_include, orig_variant_ct);
-          if (ii >= 0) {
-            condition_uidxs[0] = ii;
-            condition_ct = 1;
-            const uint32_t condition_blen = strlen(glm_info_ptr->condition_varname) + 1;
-            // drop "CSNP" column name for sanity's sake
-            if (new_max_covar_name_blen < condition_blen) {
-              new_max_covar_name_blen = condition_blen;
-            }
-            // TODO: this count will be different with a multiallelic variant
-            logputs("--glm: One --condition covariate added.\n");
-          } else {
-            if (unlikely(ii == -2)) {
-              logerrprintfww("Error: Duplicate --condition variant ID '%s'.\n", glm_info_ptr->condition_varname);
-              goto GlmMain_ret_INVALID_CMDLINE;
-            }
-            logerrprintfww("Warning: --condition variant ID '%s' not found.\n", glm_info_ptr->condition_varname);
-          }
-        } else {
-          // 1. (re)construct variant ID hash table
-          uintptr_t* already_seen;
-          if (unlikely(bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
-            goto GlmMain_ret_NOMEM;
-          }
-          reterr = InitTokenStream(glm_info_ptr->condition_list_fname, MAXV(max_thread_ct - 1, 1), &tks);
-          if (unlikely(reterr)) {
-            goto GlmMain_ret_TKSTREAM_FAIL;
-          }
-          uint32_t* variant_id_htable = nullptr;
-          uint32_t variant_id_htable_size;
-          reterr = AllocAndPopulateIdHtableMt(orig_variant_include, variant_ids, orig_variant_ct, 0, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
-          if (unlikely(reterr)) {
-            goto GlmMain_ret_1;
-          }
-
-          // 2. iterate through --condition-list file, make sure no IDs are
-          //    duplicate in loaded fileset, warn about duplicates in
-          //    --condition-list file
-          uintptr_t skip_ct = 0;
-          uintptr_t duplicate_ct = 0;
-          while (1) {
-            char* shard_boundaries[2];
-            reterr = TksNext(&tks, 1, shard_boundaries);
-            if (reterr) {
-              break;
-            }
-            const char* shard_iter = shard_boundaries[0];
-            const char* shard_end = shard_boundaries[1];
-            while (1) {
-              shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
-              if (shard_iter == shard_end) {
-                break;
-              }
-              const char* token_end = CurTokenEnd(shard_iter);
-              const uint32_t token_slen = token_end - shard_iter;
-              uint32_t cur_variant_uidx = VariantIdDupflagHtableFind(shard_iter, variant_ids, variant_id_htable, token_slen, variant_id_htable_size, max_variant_id_slen);
-              if (cur_variant_uidx >> 31) {
-                if (unlikely(cur_variant_uidx != UINT32_MAX)) {
-                  logerrprintfww("Error: --condition-list variant ID '%s' appears multiple times.\n", variant_ids[cur_variant_uidx & 0x7fffffff]);
-                  goto GlmMain_ret_INCONSISTENT_INPUT;
-                }
-                ++skip_ct;
-              } else if (IsSet(already_seen, cur_variant_uidx)) {
-                ++duplicate_ct;
-              } else {
-                if (unlikely(condition_ct == condition_ct_max)) {
-                  logerrputs("Error: Too many --condition-list variant IDs.\n");
-                  goto GlmMain_ret_MALFORMED_INPUT;
-                }
-                SetBit(cur_variant_uidx, already_seen);
-                condition_uidxs[condition_ct++] = cur_variant_uidx;
-                if (new_max_covar_name_blen <= token_slen) {
-                  new_max_covar_name_blen = token_slen + 1;
-                }
-              }
-              shard_iter = token_end;
-            }
-          }
-          if (unlikely(reterr != kPglRetEof)) {
-            goto GlmMain_ret_TKSTREAM_FAIL;
-          }
-          if (CleanupTokenStream3("--condition-list file", &tks, &reterr)) {
-            goto GlmMain_ret_1;
-          }
-          if (skip_ct || duplicate_ct) {
-            if (skip_ct && duplicate_ct) {
-              logerrprintfww("Warning: %" PRIuPTR " --condition-list variant ID%s not found, and %" PRIuPTR " duplicate ID%s present.\n", skip_ct, (skip_ct == 1)? "" : "s", duplicate_ct, (duplicate_ct == 1)? "" : "s");
-            } else if (skip_ct) {
-              logerrprintf("Warning: %" PRIuPTR " --condition-list variant ID%s not found.\n", skip_ct, (skip_ct == 1)? "" : "s");
-            } else {
-              logerrprintf("Warning: %" PRIuPTR " duplicate --condition-list variant ID%s present.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s");
-            }
-          }
-          logprintf("--condition-list: %u variant ID%s loaded.\n", condition_ct, (condition_ct == 1)? "" : "s");
-
-          // free hash table, duplicate tracker, TokenStream
-          BigstackReset(already_seen);
-        }
-        raw_covar_ct += condition_ct;
-        if (unlikely(BIGSTACK_ALLOC_X(PhenoCol, raw_covar_ct + add_sex_covar, &new_covar_cols) ||
-                     bigstack_alloc_c((raw_covar_ct + add_sex_covar) * new_max_covar_name_blen, &new_covar_names))) {
-          goto GlmMain_ret_NOMEM;
-        }
-        if (condition_ct) {
-          BigstackEndSet(condition_uidxs);
-          uintptr_t* genovec;
-          uintptr_t* dosage_present;
-          Dosage* dosage_main;
-          if (unlikely(bigstack_end_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec) ||
-                       bigstack_end_alloc_w(raw_sample_ctl, &dosage_present) ||
-                       bigstack_end_alloc_dosage(raw_sample_ct, &dosage_main))) {
-            goto GlmMain_ret_NOMEM;
-          }
-          PgrSampleSubsetIndex null_pssi;
-          PgrClearSampleSubsetIndex(simple_pgrp, &null_pssi);
-          uint32_t allele_ct = 2;
-          for (uint32_t condition_idx = 0; condition_idx != condition_ct; ++condition_idx) {
-            const uint32_t cur_variant_uidx = condition_uidxs[condition_idx];
-            if (allele_idx_offsets) {
-              allele_ct = allele_idx_offsets[cur_variant_uidx + 1] - allele_idx_offsets[cur_variant_uidx];
-              if ((allele_ct != 2) && (!condition_multiallelic)) {
-                logerrputs("Error: --condition[-list] includes a multiallelic variant, but 'multiallelic'\nmodifier was not specified.\n");
-                goto GlmMain_ret_INCONSISTENT_INPUT;
-              }
-            }
-            uint32_t dosage_ct;
-            reterr = PgrGetD(nullptr, null_pssi, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
-            if (unlikely(reterr)) {
-              PgenErrPrintV(reterr, cur_variant_uidx);
-              goto GlmMain_ret_1;
-            }
-            // alpha 2 update: default to major allele, respect omit-ref
-            if (common.omitted_alleles && common.omitted_alleles[cur_variant_uidx]) {
-              GenovecInvertUnsafe(raw_sample_ct, genovec);
-              if (dosage_ct) {
-                BiallelicDosage16Invert(dosage_ct, dosage_main);
-              }
-            }
-            PhenoCol* cur_covar_col = &(new_covar_cols[local_covar_ct + condition_idx]);
-            uintptr_t* cur_nonmiss;
-            double* cur_covar_vals;
-            if (unlikely(bigstack_alloc_w(raw_sample_ctl, &cur_nonmiss) ||
-                         bigstack_alloc_d(raw_sample_ct, &cur_covar_vals))) {
-              goto GlmMain_ret_NOMEM;
-            }
-            cur_covar_col->category_names = nullptr;
-            cur_covar_col->nonmiss = cur_nonmiss;
-            cur_covar_col->data.qt = cur_covar_vals;
-            cur_covar_col->type_code = kPhenoDtypeQt;
-            cur_covar_col->nonnull_category_ct = 0;
-            GenoarrToNonmissing(genovec, raw_sample_ct, cur_nonmiss);
-            GenoarrLookup16x8bx2(genovec, kSmallDoublePairs, raw_sample_ct, cur_covar_vals);
-            if (dosage_ct) {
-              uintptr_t sample_uidx_base = 0;
-              uintptr_t cur_bits = dosage_present[0];
-              for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
-                const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
-                cur_covar_vals[sample_uidx] = kRecipDosageMid * u31tod(dosage_main[dosage_idx]);
-              }
-              BitvecOr(dosage_present, raw_sample_ctl, cur_nonmiss);
-            }
-            if (glm_flags & kfGlmConditionDominant) {
-              for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
-                if (cur_covar_vals[sample_uidx] > 1.0) {
-                  cur_covar_vals[sample_uidx] = 1.0;
-                }
-              }
-            } else if (glm_flags & kfGlmConditionRecessive) {
-              for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
-                double dxx = cur_covar_vals[sample_uidx];
-                if (dxx <= 1.0) {
-                  dxx = 0;
-                } else {
-                  dxx -= 1.0;
-                }
-                cur_covar_vals[sample_uidx] = dxx;
-              }
-            }
-            // quasi-bugfix (21 Feb 2018): also should respect
-            // "--xchr-model 1", and divide by 2 in haploid case.
-            const uint32_t chr_idx = GetVariantChr(cip, cur_variant_uidx);
-            if (IsSet(cip->haploid_mask, chr_idx)) {
-              if (chr_idx == cip->xymt_codes[kChrOffsetX]) {
-                if (xchr_model == 1) {
-                  if (unlikely(glm_flags & (kfGlmConditionDominant | kfGlmConditionRecessive))) {
-                    // this is technically allowed when all samples are female,
-                    // but unimportant to mention that in the error message.
-                    logerrputs("Error: --condition[-list] 'dominant'/'recessive' cannot be used with a chrX\nvariant when \"--xchr-model 1\" is in effect.\n");
-                    goto GlmMain_ret_INCONSISTENT_INPUT;
-                  }
-                  uintptr_t sample_uidx_base = 0;
-                  uintptr_t cur_bits = sex_male[0];
-                  for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx) {
-                    const uintptr_t sample_uidx = BitIter1(sex_male, &sample_uidx_base, &cur_bits);
-                    cur_covar_vals[sample_uidx] *= 0.5;
-                  }
-                }
-              } else {
-                if (unlikely(glm_flags & (kfGlmConditionDominant | kfGlmConditionRecessive))) {
-                  logerrputs("Error: --condition[-list] 'dominant'/'recessive' cannot be used with haploid\nvariants.\n");
-                  goto GlmMain_ret_INCONSISTENT_INPUT;
-                }
-                for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
-                  cur_covar_vals[sample_uidx] *= 0.5;
-                }
-              }
-            }
-            strcpy(&(new_covar_names[(local_covar_ct + condition_idx) * new_max_covar_name_blen]), variant_ids[cur_variant_uidx]);
-          }
-          BigstackEndReset(bigstack_end_mark);
         }
       } else {
         if (unlikely(BIGSTACK_ALLOC_X(PhenoCol, raw_covar_ct + add_sex_covar, &new_covar_cols) ||
@@ -4112,17 +4308,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   GlmMain_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  GlmMain_ret_TKSTREAM_FAIL:
-    TokenStreamErrPrint("--condition-list file", &tks);
-    break;
   GlmMain_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
   GlmMain_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
-    break;
-  GlmMain_ret_MALFORMED_INPUT:
-    reterr = kPglRetMalformedInput;
     break;
   GlmMain_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
@@ -4133,7 +4323,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   }
  GlmMain_ret_1:
   llstr_free_cond(gwas_ssf_ll);
-  CleanupTokenStream2("--condition-list file", &tks, &reterr);
   CleanupTextStream2(local_covar_fname, &local_covar_txs, &reterr);
   if (x_fully_diploid) {
     SetBit(cip->xymt_codes[kChrOffsetX], cip->haploid_mask);
