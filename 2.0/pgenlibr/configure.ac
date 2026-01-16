@@ -2,7 +2,7 @@
 # https://github.com/ropensci/git2r/blob/master/configure.ac .
 
 AC_PREREQ([2.69])
-AC_INIT([pgenlibr],[0.5.3],[chrchang@alumni.caltech.edu])
+AC_INIT([pgenlibr],[0.5.4],[chrchang@alumni.caltech.edu])
 AC_PATH_PROG([PKGCONF],[pkg-config],[],[$PATH:/usr/local/bin:ext/bin:ext:/sw/bin:/opt/bin:/opt/local/bin])
 
 # Find the compiler and compiler flags to use for fallback version checks
