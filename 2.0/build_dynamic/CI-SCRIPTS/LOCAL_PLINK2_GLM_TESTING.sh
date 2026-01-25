@@ -1,5 +1,12 @@
 #!/bin/bash
-set -e
+# Don't use set -e - we want to control error handling explicitly
+set -o pipefail
+
+# Force unbuffered output for GitHub Actions
+export PYTHONUNBUFFERED=1
+
+# Error trap to show where failures occur
+trap 'echo "❌ ERROR at line $LINENO in ${BASH_SOURCE[0]}" >&2; exit 1' ERR
 
 # ==========================================================
 #  PLINK2 vs R GLM Comparison Pipeline
@@ -259,6 +266,14 @@ declare -a passed_tests
 declare -a failed_tests
 total_tests=${#params[@]}
 
+echo -e "${YELLOW}DEBUG: params array has ${#params[@]} elements${RESET}"
+echo -e "${YELLOW}DEBUG: First param: ${params[0]}${RESET}"
+echo -e "${YELLOW}DEBUG: All params:${RESET}"
+for p in "${params[@]}"; do
+    echo -e "${YELLOW}  - $p${RESET}"
+done
+echo ""
+
 # ------------------------------
 # Loop through parameter list from config
 # ------------------------------
@@ -266,17 +281,30 @@ for param in "${params[@]}"; do
    [[ -z "$param" || "$param" =~ ^# ]] && continue
    
    ((test_counter++))
+   
    echo -e "\n${GREEN}═══════════════════════════════════════════════════════════${RESET}"
    echo -e "${BOLD}${GREEN}TEST $test_counter of $total_tests${RESET}"
    echo -e "${GREEN}═══════════════════════════════════════════════════════════${RESET}"
+   echo -e "${YELLOW}DEBUG: Parsing parameter line: $param${RESET}"
    
    IFS=',' read -r fname model n cov threads <<< "$param"
+   
+   echo -e "${YELLOW}DEBUG: Parsed values:${RESET}"
+   echo -e "${YELLOW}  fname=$fname${RESET}"
+   echo -e "${YELLOW}  model=$model${RESET}"
+   echo -e "${YELLOW}  n=$n${RESET}"
+   echo -e "${YELLOW}  cov=$cov${RESET}"
+   echo -e "${YELLOW}  threads=$threads${RESET}"
    
    # Track current test info
    current_test="Test $test_counter: $fname, $model, n=$n, cov=${cov:-none}, threads=$threads"
    
+   echo -e "${YELLOW}DEBUG: About to call run_plink...${RESET}"
+   
    # Run the test (will exit if correlation fails)
    run_plink "$fname" "$model" "$n" "$cov" "$threads"
+   
+   echo -e "${YELLOW}DEBUG: run_plink completed successfully${RESET}"
    
    # If we reach here, test passed
    passed_tests+=("$current_test")
