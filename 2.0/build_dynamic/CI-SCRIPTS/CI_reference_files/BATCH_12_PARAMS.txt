@@ -1,0 +1,16 @@
+# Batch 12 of 12
+# Tests 100-108 of 108
+# Contains 9 test configurations
+#
+# Format: dataset_name,model,n,covariate,threads
+#
+
+1kgp3_50k_yesmiss_Av_nonintdose,firth,32017,,8
+1kgp3_50k_nomiss_Av_nonintdose,linear,32017,COV_1,8
+1kgp3_50k_nomiss_Av_nonintdose,logistic,32000,COV_1,4
+1kgp3_50k_nomiss_Av_nonintdose,logistic,32017,,4
+1kgp3_50k_nomiss_Av_nonintdose,logistic,32017,COV_1,8
+1kgp3_50k_yesmiss_Av_nonintdose,firth,1000,COV_1,4
+1kgp3_50k_nomiss_Av_nonintdose,linear,1000,COV_1,1
+1kgp3_50k_nomiss_Av_nonintdose,linear,32017,,8
+1kgp3_50k_yesmiss_Av_nonintdose,logistic,32000,COV_1,1

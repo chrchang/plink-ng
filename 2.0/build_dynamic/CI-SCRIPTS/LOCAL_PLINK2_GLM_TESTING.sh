@@ -14,6 +14,7 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
   echo "❌ Config file not found: $CONFIG_FILE"
   exit 1
 fi
+
 source "$CONFIG_FILE"
 
 mkdir -p "$outdir"
@@ -153,21 +154,70 @@ compare_to_r() {
         # Capture Python output
         comparison_output=$(python3 "$compare_script" "$glm_file" "$ref_file" 2>&1)
 
-        echo -e "\n${BOLD}${YELLOW}================== CORRELATION RESULTS ==================${RESET}"
-        # Highlight numeric values (correlations) in yellow, rest green
-        echo "$comparison_output" | while IFS= read -r line; do
-            if [[ "$line" =~ [0-9]+\.[0-9]+ ]]; then
-                echo -e "${YELLOW}${line}${RESET}"
+        echo -e "\n${BOLD}${BLUE}╔════════════════════════════════════════════════════════════╗${RESET}"
+        echo -e "${BOLD}${BLUE}║           CORRELATION RESULTS vs THRESHOLD                 ║${RESET}"
+        echo -e "${BOLD}${BLUE}║           Required: ≥ ${correlation_threshold}                                  ║${RESET}"
+        echo -e "${BOLD}${BLUE}╚════════════════════════════════════════════════════════════╝${RESET}"
+        
+        # Check for correlations below threshold
+        correlation_failed=false
+        while IFS= read -r line; do
+            # Extract correlation values from lines containing numbers
+            if [[ "$line" =~ ([0-9]+\.[0-9]+) ]]; then
+                corr_value="${BASH_REMATCH[1]}"
+                
+                # Use bc for floating point comparison
+                if (( $(echo "$corr_value < $correlation_threshold" | bc -l) )); then
+                    correlation_failed=true
+                    echo -e "${RED}  ❌ FAIL: $line${RESET}"
+                    echo -e "${RED}     └─ Correlation $corr_value < $correlation_threshold (BELOW THRESHOLD)${RESET}"
+                else
+                    echo -e "${GREEN}  ✓ PASS: $line${RESET}"
+                    echo -e "${GREEN}     └─ Correlation $corr_value ≥ $correlation_threshold${RESET}"
+                fi
             else
-                echo -e "${GREEN}${line}${RESET}"
+                # Print non-numeric lines normally
+                echo -e "${YELLOW}  $line${RESET}"
             fi
-        done
-        echo -e "${BOLD}${YELLOW}=========================================================${RESET}\n"
+        done <<< "$comparison_output"
+        
+        echo -e "${BOLD}${BLUE}════════════════════════════════════════════════════════════${RESET}\n"
+        
+        # Exit if correlation threshold not met
+        if [[ "$correlation_failed" == "true" ]]; then
+            echo -e "\n${RED}╔════════════════════════════════════════════════════════════╗${RESET}"
+            echo -e "${RED}║                    ❌ TEST FAILED ❌                       ║${RESET}"
+            echo -e "${RED}║  One or more correlations below ${correlation_threshold} threshold          ║${RESET}"
+            echo -e "${RED}╚════════════════════════════════════════════════════════════╝${RESET}"
+            echo -e "${RED}${BOLD}Failed Test Details:${RESET}"
+            echo -e "${RED}  Test:       $test_counter of $total_tests${RESET}"
+            echo -e "${RED}  Dataset:    $fname${RESET}"
+            echo -e "${RED}  Model:      $model${RESET}"
+            echo -e "${RED}  Subset:     $n samples${RESET}"
+            echo -e "${RED}  Covariate:  $cov_suffix${RESET}"
+            echo -e "${RED}  Missing:    $missing_geno${RESET}"
+            echo -e ""
+            echo -e "${YELLOW}${BOLD}Progress Before Failure:${RESET}"
+            echo -e "${YELLOW}  Completed: $((test_counter - 1)) of $total_tests tests${RESET}"
+            echo -e "${YELLOW}  Remaining: $((total_tests - test_counter)) tests (not run)${RESET}"
+            echo -e ""
+            echo -e "${RED}${BOLD}Required Action: Fix correlation issues before proceeding${RESET}\n"
+            exit 1
+        else
+            echo -e "${GREEN}${BOLD}✅ ALL CORRELATIONS PASSED (≥ $correlation_threshold)${RESET}\n"
+        fi
 
     else
         echo -e "${RED}⚠️  Skipping comparison: one or both files missing.${RESET}"
         [[ ! -f "$glm_file" ]] && echo -e "   Missing: ${glm_file}"
         [[ ! -f "$ref_file" ]] && echo -e "   Missing: ${ref_file}"
+        echo -e ""
+        echo -e "${YELLOW}${BOLD}Progress Before Failure:${RESET}"
+        echo -e "${YELLOW}  Completed: $((test_counter - 1)) of $total_tests tests${RESET}"
+        echo -e "${YELLOW}  Remaining: $((total_tests - test_counter)) tests (not run)${RESET}"
+        echo -e ""
+        echo -e "${RED}This is a FAILURE condition - missing reference files${RESET}"
+        exit 1
     fi
 }
 
@@ -175,20 +225,64 @@ compare_to_r() {
 # ====================== MAIN LOOP =========================
 # ==========================================================
 echo -e "${BLUE}=================== PLINK2 vs R TESTS ===================${RESET}"
+echo -e "${BOLD}Batch:${RESET} $BATCH_NUM of 12"
+echo -e "${BOLD}Number of tests:${RESET} ${#params[@]}"
+echo -e "${BOLD}Correlation threshold:${RESET} $correlation_threshold"
+echo -e "${BLUE}=========================================================${RESET}\n"
+
+# Start timer
+start_time=$(date +%s)
 
 # ------------------------------
-# Single permutation test example
+# Initialize test tracking
 # ------------------------------
-# Example: Uncomment to run a single test
-# run_plink "1kgp3_50k_nomiss_Av_nonintdose" "firth" 1000 "COV_1" 4
+test_counter=0
+declare -a passed_tests
+declare -a failed_tests
+total_tests=${#params[@]}
 
 # ------------------------------
-# Loop through full parameter list
+# Loop through parameter list from config
 # ------------------------------
 for param in "${params[@]}"; do
    [[ -z "$param" || "$param" =~ ^# ]] && continue
+   
+   ((test_counter++))
+   echo -e "\n${GREEN}═══════════════════════════════════════════════════════════${RESET}"
+   echo -e "${BOLD}${GREEN}TEST $test_counter of $total_tests${RESET}"
+   echo -e "${GREEN}═══════════════════════════════════════════════════════════${RESET}"
+   
    IFS=',' read -r fname model n cov threads <<< "$param"
+   
+   # Track current test info
+   current_test="Test $test_counter: $fname, $model, n=$n, cov=${cov:-none}, threads=$threads"
+   
+   # Run the test (will exit if correlation fails)
    run_plink "$fname" "$model" "$n" "$cov" "$threads"
+   
+   # If we reach here, test passed
+   passed_tests+=("$current_test")
 done
 
-echo -e "${GREEN}=================== ALL TESTS COMPLETE ===================${RESET}"
+echo -e "\n${GREEN}╔════════════════════════════════════════════════════════════╗${RESET}"
+echo -e "${GREEN}║                  🎉 ALL TESTS PASSED 🎉                    ║${RESET}"
+echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${RESET}"
+
+# Calculate elapsed time
+end_time=$(date +%s)
+elapsed=$((end_time - start_time))
+elapsed_min=$((elapsed / 60))
+elapsed_sec=$((elapsed % 60))
+
+echo -e "${BOLD}${GREEN}Summary:${RESET}"
+echo -e "${GREEN}  ✓ Batch:       $BATCH_NUM of 12${RESET}"
+echo -e "${GREEN}  ✓ Completed:   $test_counter / $total_tests tests${RESET}"
+echo -e "${GREEN}  ✓ Threshold:   All correlations ≥ $correlation_threshold${RESET}"
+echo -e "${GREEN}  ✓ Time:        ${elapsed_min}m ${elapsed_sec}s${RESET}"
+
+echo -e "\n${BOLD}${GREEN}Parameters Tested:${RESET}"
+for i in "${!passed_tests[@]}"; do
+    echo -e "${GREEN}  $((i+1)). ${passed_tests[$i]}${RESET}"
+done
+
+echo -e "${GREEN}=========================================================${RESET}\n"

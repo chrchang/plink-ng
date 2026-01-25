@@ -1,0 +1,152 @@
+============================================================
+PLINK2 vs R GWAS GLM Testing Pipeline
+MASTER BATCH LIST - All 108 Permutations
+============================================================
+
+BATCH 1 (File: BATCH_01_PARAMS.txt)
+------------------------------------------------------------
+  1. 1kgp3_50k_yesmiss_Av_nonintdose,linear,1000,COV_1,8
+  2. 1kgp3_50k_nomiss_Av_nonintdose,linear,32000,COV_1,1
+  3. 1kgp3_50k_nomiss_Av_nonintdose,linear,1000,,4
+  4. 1kgp3_50k_yesmiss_Av_nonintdose,linear,32000,COV_1,8
+  5. 1kgp3_50k_yesmiss_Av_nonintdose,firth,32017,,1
+  6. 1kgp3_50k_nomiss_Av_nonintdose,linear,32017,COV_1,1
+  7. 1kgp3_50k_yesmiss_Av_nonintdose,linear,32000,,8
+  8. 1kgp3_50k_yesmiss_Av_nonintdose,linear,32017,,4
+  9. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,32017,,4
+
+BATCH 2 (File: BATCH_02_PARAMS.txt)
+------------------------------------------------------------
+ 10. 1kgp3_50k_nomiss_Av_nonintdose,logistic,32000,,8
+ 11. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,32017,,1
+ 12. 1kgp3_50k_yesmiss_Av_nonintdose,firth,32017,COV_1,8
+ 13. 1kgp3_50k_nomiss_Av_nonintdose,logistic,32017,,1
+ 14. 1kgp3_50k_nomiss_Av_nonintdose,logistic,32017,,8
+ 15. 1kgp3_50k_yesmiss_Av_nonintdose,linear,32017,,8
+ 16. 1kgp3_50k_nomiss_Av_nonintdose,firth,32000,,8
+ 17. 1kgp3_50k_yesmiss_Av_nonintdose,linear,32000,,1
+ 18. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,32000,COV_1,4
+
+BATCH 3 (File: BATCH_03_PARAMS.txt)
+------------------------------------------------------------
+ 19. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,32000,,8
+ 20. 1kgp3_50k_nomiss_Av_nonintdose,firth,32017,,8
+ 21. 1kgp3_50k_nomiss_Av_nonintdose,firth,32000,COV_1,8
+ 22. 1kgp3_50k_yesmiss_Av_nonintdose,linear,32000,COV_1,1
+ 23. 1kgp3_50k_yesmiss_Av_nonintdose,linear,32017,COV_1,4
+ 24. 1kgp3_50k_nomiss_Av_nonintdose,firth,32000,,1
+ 25. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,1000,,8
+ 26. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,32000,,4
+ 27. 1kgp3_50k_yesmiss_Av_nonintdose,linear,32000,,4
+
+BATCH 4 (File: BATCH_04_PARAMS.txt)
+------------------------------------------------------------
+ 28. 1kgp3_50k_nomiss_Av_nonintdose,linear,32000,,8
+ 29. 1kgp3_50k_nomiss_Av_nonintdose,logistic,1000,COV_1,1
+ 30. 1kgp3_50k_nomiss_Av_nonintdose,firth,1000,,4
+ 31. 1kgp3_50k_yesmiss_Av_nonintdose,linear,32017,,1
+ 32. 1kgp3_50k_nomiss_Av_nonintdose,logistic,32017,COV_1,1
+ 33. 1kgp3_50k_nomiss_Av_nonintdose,linear,32000,COV_1,4
+ 34. 1kgp3_50k_yesmiss_Av_nonintdose,linear,1000,,8
+ 35. 1kgp3_50k_yesmiss_Av_nonintdose,linear,1000,,4
+ 36. 1kgp3_50k_yesmiss_Av_nonintdose,firth,32000,COV_1,4
+
+BATCH 5 (File: BATCH_05_PARAMS.txt)
+------------------------------------------------------------
+ 37. 1kgp3_50k_nomiss_Av_nonintdose,firth,32017,COV_1,4
+ 38. 1kgp3_50k_nomiss_Av_nonintdose,linear,32000,,1
+ 39. 1kgp3_50k_nomiss_Av_nonintdose,firth,1000,COV_1,8
+ 40. 1kgp3_50k_yesmiss_Av_nonintdose,linear,1000,COV_1,4
+ 41. 1kgp3_50k_nomiss_Av_nonintdose,firth,32017,,4
+ 42. 1kgp3_50k_yesmiss_Av_nonintdose,firth,32017,COV_1,4
+ 43. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,32000,,1
+ 44. 1kgp3_50k_yesmiss_Av_nonintdose,firth,1000,,4
+ 45. 1kgp3_50k_yesmiss_Av_nonintdose,firth,32000,,4
+
+BATCH 6 (File: BATCH_06_PARAMS.txt)
+------------------------------------------------------------
+ 46. 1kgp3_50k_nomiss_Av_nonintdose,firth,1000,,1
+ 47. 1kgp3_50k_nomiss_Av_nonintdose,logistic,1000,COV_1,8
+ 48. 1kgp3_50k_nomiss_Av_nonintdose,firth,1000,COV_1,1
+ 49. 1kgp3_50k_nomiss_Av_nonintdose,firth,1000,COV_1,4
+ 50. 1kgp3_50k_nomiss_Av_nonintdose,logistic,1000,,1
+ 51. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,32000,COV_1,8
+ 52. 1kgp3_50k_nomiss_Av_nonintdose,linear,1000,COV_1,8
+ 53. 1kgp3_50k_nomiss_Av_nonintdose,logistic,32000,,1
+ 54. 1kgp3_50k_nomiss_Av_nonintdose,linear,32000,,4
+
+BATCH 7 (File: BATCH_07_PARAMS.txt)
+------------------------------------------------------------
+ 55. 1kgp3_50k_nomiss_Av_nonintdose,logistic,32017,COV_1,4
+ 56. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,32017,COV_1,1
+ 57. 1kgp3_50k_nomiss_Av_nonintdose,firth,32000,COV_1,4
+ 58. 1kgp3_50k_nomiss_Av_nonintdose,linear,1000,,8
+ 59. 1kgp3_50k_nomiss_Av_nonintdose,firth,32017,COV_1,1
+ 60. 1kgp3_50k_nomiss_Av_nonintdose,linear,32017,COV_1,4
+ 61. 1kgp3_50k_nomiss_Av_nonintdose,firth,1000,,8
+ 62. 1kgp3_50k_nomiss_Av_nonintdose,logistic,1000,COV_1,4
+ 63. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,1000,,4
+
+BATCH 8 (File: BATCH_08_PARAMS.txt)
+------------------------------------------------------------
+ 64. 1kgp3_50k_nomiss_Av_nonintdose,firth,32000,COV_1,1
+ 65. 1kgp3_50k_nomiss_Av_nonintdose,linear,32017,,1
+ 66. 1kgp3_50k_nomiss_Av_nonintdose,firth,32017,,1
+ 67. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,32017,COV_1,8
+ 68. 1kgp3_50k_yesmiss_Av_nonintdose,firth,32000,,8
+ 69. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,1000,,1
+ 70. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,32017,COV_1,4
+ 71. 1kgp3_50k_nomiss_Av_nonintdose,logistic,1000,,4
+ 72. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,1000,COV_1,4
+
+BATCH 9 (File: BATCH_09_PARAMS.txt)
+------------------------------------------------------------
+ 73. 1kgp3_50k_nomiss_Av_nonintdose,firth,32000,,4
+ 74. 1kgp3_50k_yesmiss_Av_nonintdose,firth,1000,,8
+ 75. 1kgp3_50k_nomiss_Av_nonintdose,logistic,1000,,8
+ 76. 1kgp3_50k_nomiss_Av_nonintdose,linear,1000,,1
+ 77. 1kgp3_50k_yesmiss_Av_nonintdose,firth,32017,,4
+ 78. 1kgp3_50k_yesmiss_Av_nonintdose,firth,1000,COV_1,1
+ 79. 1kgp3_50k_yesmiss_Av_nonintdose,linear,1000,COV_1,1
+ 80. 1kgp3_50k_yesmiss_Av_nonintdose,firth,32000,COV_1,8
+ 81. 1kgp3_50k_nomiss_Av_nonintdose,firth,32017,COV_1,8
+
+BATCH 10 (File: BATCH_10_PARAMS.txt)
+------------------------------------------------------------
+ 82. 1kgp3_50k_yesmiss_Av_nonintdose,firth,1000,COV_1,8
+ 83. 1kgp3_50k_nomiss_Av_nonintdose,logistic,32000,,4
+ 84. 1kgp3_50k_yesmiss_Av_nonintdose,linear,32017,COV_1,8
+ 85. 1kgp3_50k_yesmiss_Av_nonintdose,firth,1000,,1
+ 86. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,1000,COV_1,8
+ 87. 1kgp3_50k_yesmiss_Av_nonintdose,linear,32000,COV_1,4
+ 88. 1kgp3_50k_nomiss_Av_nonintdose,logistic,32000,COV_1,8
+ 89. 1kgp3_50k_nomiss_Av_nonintdose,logistic,32000,COV_1,1
+ 90. 1kgp3_50k_yesmiss_Av_nonintdose,firth,32000,,1
+
+BATCH 11 (File: BATCH_11_PARAMS.txt)
+------------------------------------------------------------
+ 91. 1kgp3_50k_yesmiss_Av_nonintdose,firth,32017,COV_1,1
+ 92. 1kgp3_50k_nomiss_Av_nonintdose,linear,1000,COV_1,4
+ 93. 1kgp3_50k_yesmiss_Av_nonintdose,linear,1000,,1
+ 94. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,1000,COV_1,1
+ 95. 1kgp3_50k_nomiss_Av_nonintdose,linear,32000,COV_1,8
+ 96. 1kgp3_50k_yesmiss_Av_nonintdose,linear,32017,COV_1,1
+ 97. 1kgp3_50k_yesmiss_Av_nonintdose,firth,32000,COV_1,1
+ 98. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,32017,,8
+ 99. 1kgp3_50k_nomiss_Av_nonintdose,linear,32017,,4
+
+BATCH 12 (File: BATCH_12_PARAMS.txt)
+------------------------------------------------------------
+100. 1kgp3_50k_yesmiss_Av_nonintdose,firth,32017,,8
+101. 1kgp3_50k_nomiss_Av_nonintdose,linear,32017,COV_1,8
+102. 1kgp3_50k_nomiss_Av_nonintdose,logistic,32000,COV_1,4
+103. 1kgp3_50k_nomiss_Av_nonintdose,logistic,32017,,4
+104. 1kgp3_50k_nomiss_Av_nonintdose,logistic,32017,COV_1,8
+105. 1kgp3_50k_yesmiss_Av_nonintdose,firth,1000,COV_1,4
+106. 1kgp3_50k_nomiss_Av_nonintdose,linear,1000,COV_1,1
+107. 1kgp3_50k_nomiss_Av_nonintdose,linear,32017,,8
+108. 1kgp3_50k_yesmiss_Av_nonintdose,logistic,32000,COV_1,1
+
+============================================================
+Total: 108 tests across 12 batches
+============================================================
