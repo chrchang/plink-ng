@@ -23,14 +23,16 @@ compare_script="./2.0/build_dynamic/CI-SCRIPTS/COMPARE_GLM_PLINK2_R.py"
 
 # Correlation threshold for pass/fail (must be between 0 and 1)
 # Tests will FAIL if any correlation is below this threshold
-correlation_threshold=0.8
+correlation_threshold=0.9
 
 # -------------------
 #  BATCH SELECTION
 # -------------------
 # Select which batch to run (1-12)
-# Change this number to run different batches
-BATCH_NUM=10
+# Can be overridden by GLM_BATCH_NUM environment variable (used in CI)
+BATCH_NUM=${GLM_BATCH_NUM:-1}
+
+echo "Using Batch Number: $BATCH_NUM"
 
 # -------------------
 #  LOAD BATCH PARAMETERS

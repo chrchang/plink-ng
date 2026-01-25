@@ -111,14 +111,11 @@ jobs:
           # Export for use in later steps
           echo "batch_number=$NEXT_BATCH" >> $GITHUB_OUTPUT
 
-      # Update config with batch number
-      - name: Update config with batch number
+      # Set batch number as environment variable
+      - name: Set batch number environment variable
         run: |
-          echo "Setting BATCH_NUM=${{ steps.batch.outputs.batch_number }} in config"
-          sed -i.bak "s/BATCH_NUM=.*/BATCH_NUM=${{ steps.batch.outputs.batch_number }}/" \
-            ./2.0/build_dynamic/CI-SCRIPTS/PLINK2_GLM_TEST_CONFIG.sh
-          echo "Config updated:"
-          grep "BATCH_NUM=" ./2.0/build_dynamic/CI-SCRIPTS/PLINK2_GLM_TEST_CONFIG.sh
+          echo "GLM_BATCH_NUM=${{ steps.batch.outputs.batch_number }}" >> $GITHUB_ENV
+          echo "Running Batch ${{ steps.batch.outputs.batch_number }} of 12"
 
       # Restore cached test data
       - name: Restore cached test data
