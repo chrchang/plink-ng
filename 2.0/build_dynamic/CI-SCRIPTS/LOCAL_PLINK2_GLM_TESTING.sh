@@ -93,7 +93,22 @@ run_plink() {
     echo "   Output:           $outprefix"
     echo -e "${BLUE}---------------------------------------------------${RESET}"
 
-    plink2 --glm $glm_flags \
+    # Check if input files exist before running PLINK2
+    if [[ ! -f "${datapath}${pfile}.pgen" ]]; then
+        echo -e "${RED}ERROR: PLINK2 pgen file not found: ${datapath}${pfile}.pgen${RESET}" >&2
+        exit 1
+    fi
+    if [[ ! -f "${datapath}${phenofile}" ]]; then
+        echo -e "${RED}ERROR: Phenotype file not found: ${datapath}${phenofile}${RESET}" >&2
+        exit 1
+    fi
+    if [[ ! -f "$keep_file" ]]; then
+        echo -e "${RED}ERROR: Keep file not found: $keep_file${RESET}" >&2
+        exit 1
+    fi
+
+    # Run PLINK2 and capture errors
+    if ! plink2 --glm $glm_flags \
         $allow_no_covars \
         --pfile "${datapath}${pfile}" \
         --allow-extra-chr \
@@ -102,7 +117,10 @@ run_plink() {
         --keep "$keep_file" \
         --threads "$threads" \
         $cov_arg \
-        --out "$outprefix"
+        --out "$outprefix"; then
+        echo -e "${RED}ERROR: PLINK2 command failed with exit code $?${RESET}" >&2
+        exit 1
+    fi
 
     compare_to_r "$phenotype" "$fname" "$n" "$cov_suffix" "$model" "$outprefix" "$missing_geno"
 }
@@ -185,38 +203,38 @@ compare_to_r() {
         
         # Exit if correlation threshold not met
         if [[ "$correlation_failed" == "true" ]]; then
-            echo -e "\n${RED}╔════════════════════════════════════════════════════════════╗${RESET}"
-            echo -e "${RED}║                    ❌ TEST FAILED ❌                       ║${RESET}"
-            echo -e "${RED}║  One or more correlations below ${correlation_threshold} threshold          ║${RESET}"
-            echo -e "${RED}╚════════════════════════════════════════════════════════════╝${RESET}"
-            echo -e "${RED}${BOLD}Failed Test Details:${RESET}"
-            echo -e "${RED}  Test:       $test_counter of $total_tests${RESET}"
-            echo -e "${RED}  Dataset:    $fname${RESET}"
-            echo -e "${RED}  Model:      $model${RESET}"
-            echo -e "${RED}  Subset:     $n samples${RESET}"
-            echo -e "${RED}  Covariate:  $cov_suffix${RESET}"
-            echo -e "${RED}  Missing:    $missing_geno${RESET}"
-            echo -e ""
-            echo -e "${YELLOW}${BOLD}Progress Before Failure:${RESET}"
-            echo -e "${YELLOW}  Completed: $((test_counter - 1)) of $total_tests tests${RESET}"
-            echo -e "${YELLOW}  Remaining: $((total_tests - test_counter)) tests (not run)${RESET}"
-            echo -e ""
-            echo -e "${RED}${BOLD}Required Action: Fix correlation issues before proceeding${RESET}\n"
+            echo -e "\n${RED}╔════════════════════════════════════════════════════════════╗${RESET}" >&2
+            echo -e "${RED}║                    ❌ TEST FAILED ❌                       ║${RESET}" >&2
+            echo -e "${RED}║  One or more correlations below ${correlation_threshold} threshold          ║${RESET}" >&2
+            echo -e "${RED}╚════════════════════════════════════════════════════════════╝${RESET}" >&2
+            echo -e "${RED}${BOLD}Failed Test Details:${RESET}" >&2
+            echo -e "${RED}  Test:       $test_counter of $total_tests${RESET}" >&2
+            echo -e "${RED}  Dataset:    $fname${RESET}" >&2
+            echo -e "${RED}  Model:      $model${RESET}" >&2
+            echo -e "${RED}  Subset:     $n samples${RESET}" >&2
+            echo -e "${RED}  Covariate:  $cov_suffix${RESET}" >&2
+            echo -e "${RED}  Missing:    $missing_geno${RESET}" >&2
+            echo -e "" >&2
+            echo -e "${YELLOW}${BOLD}Progress Before Failure:${RESET}" >&2
+            echo -e "${YELLOW}  Completed: $((test_counter - 1)) of $total_tests tests${RESET}" >&2
+            echo -e "${YELLOW}  Remaining: $((total_tests - test_counter)) tests (not run)${RESET}" >&2
+            echo -e "" >&2
+            echo -e "${RED}${BOLD}Required Action: Fix correlation issues before proceeding${RESET}\n" >&2
             exit 1
         else
             echo -e "${GREEN}${BOLD}✅ ALL CORRELATIONS PASSED (≥ $correlation_threshold)${RESET}\n"
         fi
 
     else
-        echo -e "${RED}⚠️  Skipping comparison: one or both files missing.${RESET}"
-        [[ ! -f "$glm_file" ]] && echo -e "   Missing: ${glm_file}"
-        [[ ! -f "$ref_file" ]] && echo -e "   Missing: ${ref_file}"
-        echo -e ""
-        echo -e "${YELLOW}${BOLD}Progress Before Failure:${RESET}"
-        echo -e "${YELLOW}  Completed: $((test_counter - 1)) of $total_tests tests${RESET}"
-        echo -e "${YELLOW}  Remaining: $((total_tests - test_counter)) tests (not run)${RESET}"
-        echo -e ""
-        echo -e "${RED}This is a FAILURE condition - missing reference files${RESET}"
+        echo -e "${RED}⚠️  Skipping comparison: one or both files missing.${RESET}" >&2
+        [[ ! -f "$glm_file" ]] && echo -e "   Missing: ${glm_file}" >&2
+        [[ ! -f "$ref_file" ]] && echo -e "   Missing: ${ref_file}" >&2
+        echo -e "" >&2
+        echo -e "${YELLOW}${BOLD}Progress Before Failure:${RESET}" >&2
+        echo -e "${YELLOW}  Completed: $((test_counter - 1)) of $total_tests tests${RESET}" >&2
+        echo -e "${YELLOW}  Remaining: $((total_tests - test_counter)) tests (not run)${RESET}" >&2
+        echo -e "" >&2
+        echo -e "${RED}This is a FAILURE condition - missing reference files${RESET}" >&2
         exit 1
     fi
 }
@@ -281,8 +299,8 @@ echo -e "${GREEN}  ✓ Threshold:   All correlations ≥ $correlation_threshold$
 echo -e "${GREEN}  ✓ Time:        ${elapsed_min}m ${elapsed_sec}s${RESET}"
 
 echo -e "\n${BOLD}${GREEN}Parameters Tested:${RESET}"
-for i in "${!passed_tests[@]}"; do
-    echo -e "${GREEN}  $((i+1)). ${passed_tests[$i]}${RESET}"
+for test_info in "${passed_tests[@]}"; do
+    echo -e "${GREEN}  • ${test_info}${RESET}"
 done
 
 echo -e "${GREEN}=========================================================${RESET}\n"
