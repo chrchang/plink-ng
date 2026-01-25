@@ -280,7 +280,7 @@ echo ""
 for param in "${params[@]}"; do
    [[ -z "$param" || "$param" =~ ^# ]] && continue
    
-   ((test_counter++))
+   test_counter=$((test_counter + 1))
    
    echo -e "\n${GREEN}═══════════════════════════════════════════════════════════${RESET}"
    echo -e "${BOLD}${GREEN}TEST $test_counter of $total_tests${RESET}"
