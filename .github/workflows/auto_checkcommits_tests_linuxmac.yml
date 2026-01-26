@@ -143,7 +143,7 @@ jobs:
           chmod +x 2.0/build_dynamic/CI-SCRIPTS/CLEANUP.sh
           2.0/build_dynamic/CI-SCRIPTS/CLEANUP.sh
 
-      # Save batch counter for next run
+      ## Save batch counter for next run
       - name: Save batch counter
         uses: actions/cache/save@v4
         if: always()  # Save even if tests fail
