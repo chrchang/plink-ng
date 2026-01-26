@@ -453,3 +453,65 @@ def test_bim(tmp_path):
     ncase = 5
     for case_idx in range(0, ncase):
         bim_case(tmp_path, case_idx, 1, 100)
+
+def test_file_like_objects(tmp_path):
+    """Test PgenReader with file-like objects"""
+    import io
+    import tempfile
+    
+    # Create test data
+    nsample = 5
+    nvariant = 3
+    test_genotypes = np.array([
+        [0, 1, 2, 0, 1],  # First variant
+        [2, 0, 1, 1, 0],  # Second variant  
+        [1, 1, 0, 2, 2],  # Third variant
+    ], dtype=np.int8)
+    
+    # Create test .pgen file
+    test_pgen_path = bytes(tmp_path / "test_file_like.pgen")
+    with pgenlib.PgenWriter(test_pgen_path, nsample, variant_ct=nvariant, nonref_flags=False) as w:
+        for vidx in range(nvariant):
+            w.append_biallelic(test_genotypes[vidx])
+    
+    # Test 1: Traditional filename approach
+    with pgenlib.PgenReader(test_pgen_path) as reader1:
+        sample_ct1 = reader1.get_raw_sample_ct()
+        variant_ct1 = reader1.get_variant_ct()
+        assert sample_ct1 == nsample
+        assert variant_ct1 == nvariant
+    
+    # Test 2: File-like object approach (BytesIO)
+    with open(test_pgen_path, 'rb') as f:
+        file_data = f.read()
+    
+    file_like = io.BytesIO(file_data)
+    with pgenlib.PgenReader(file_like) as reader2:
+        sample_ct2 = reader2.get_raw_sample_ct()
+        variant_ct2 = reader2.get_variant_ct()
+        assert sample_ct2 == nsample
+        assert variant_ct2 == nvariant
+        
+        # Test reading data
+        geno_int = np.zeros(nsample, dtype=np.int32)
+        reader2.read(0, geno_int)
+        expected = test_genotypes[0].astype(np.int32)
+        assert np.array_equal(geno_int, expected)
+    
+    # Test 3: Real file object
+    with open(test_pgen_path, 'rb') as real_file:
+        with pgenlib.PgenReader(real_file) as reader3:
+            sample_ct3 = reader3.get_raw_sample_ct()
+            variant_ct3 = reader3.get_variant_ct()
+            assert sample_ct3 == nsample
+            assert variant_ct3 == nvariant
+    
+    # Test 4: Temporary file object
+    with tempfile.NamedTemporaryFile() as temp_file:
+        temp_file.write(file_data)
+        temp_file.seek(0)
+        with pgenlib.PgenReader(temp_file) as reader4:
+            sample_ct4 = reader4.get_raw_sample_ct()
+            variant_ct4 = reader4.get_variant_ct()
+            assert sample_ct4 == nsample
+            assert variant_ct4 == nvariant
