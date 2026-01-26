@@ -1,0 +1,21 @@
+PLINK v2.0.0-a.6.24 M1 (15 Sep 2025)
+Options in effect:
+  --allow-extra-chr
+  --covar test_data/1kgp3_50k_yesmiss_Av_nonintdose_combined_phenocov.csv
+  --covar-name COV_1
+  --glm hide-covar
+  --keep test_data/1kgp3_50k_yesmiss_Av_nonintdose_recode_varIDs_subset_1000.keep
+  --out ./results/1kgp3_50k_yesmiss_Av_nonintdose_y_COV_1_glm_linear_keep1000
+  --pfile test_data/1kgp3_50k_yesmiss_Av_nonintdose_recode_varIDs
+  --pheno test_data/1kgp3_50k_yesmiss_Av_nonintdose_combined_phenocov.csv
+  --pheno-name y
+  --threads 8
+
+Hostname: Mac
+Working directory: /Users/shashaank/Documents/Git/plink-ng/2.0/build_dynamic/CI-SCRIPTS
+Start time: Sun Jan 25 10:19:10 2026
+
+Error: --covar: test_data/1kgp3_50k_yesmiss_Av_nonintdose_combined_phenocov.csv
+does not exist.
+
+End time: Sun Jan 25 10:19:10 2026
