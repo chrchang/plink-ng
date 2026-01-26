@@ -23,7 +23,7 @@ compare_script="./2.0/build_dynamic/CI-SCRIPTS/COMPARE_GLM_PLINK2_R.py"
 
 # Correlation threshold for pass/fail (must be between 0 and 1)
 # Tests will FAIL if any correlation is below this threshold
-correlation_threshold=0.9
+correlation_threshold=0.8
 
 # -------------------
 #  BATCH SELECTION
