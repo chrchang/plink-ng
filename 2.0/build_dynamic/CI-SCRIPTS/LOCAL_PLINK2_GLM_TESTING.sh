@@ -1,6 +1,6 @@
 #!/bin/bash
-# Don't use set -e - we want to control error handling explicitly
-set -o pipefail
+# Use pipefail to catch errors in pipes, and -e for immediate exit on errors
+set -eo pipefail
 
 # Force unbuffered output for GitHub Actions
 export PYTHONUNBUFFERED=1

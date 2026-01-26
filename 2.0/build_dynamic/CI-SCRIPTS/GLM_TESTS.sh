@@ -1,152 +1,20 @@
-name: PLINK2 AUTO RUN TESTS - LINUX & MAC - CHECK COMMIT HX FIRST
+#!/bin/bash
 
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * 0'  # every Sunday at midnight
+set -eo pipefail
 
-jobs:
-  # Step 1: Single commit check job
-  check_commits:
-    runs-on: ubuntu-latest
-    outputs:
-      new_commits: ${{ steps.commit_check.outputs.new_commits }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+echo "Setting up Python environment..."
+python3 -m venv venv
+source venv/bin/activate
+python3 -m pip install --upgrade pip
+pip install pandas numpy 
 
-      - name: Check commits
-        id: commit_check
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Get latest commit
-          LATEST_MASTER=$(git rev-parse origin/master)
-          echo "LATEST MASTER commit: $LATEST_MASTER"
+# ---------- Run PLINK2 tests ----------
+echo "Running PLINK2 GLM tests..."
+mkdir -p ./results/
 
-          # Get last successful workflow commit
-          LAST_WORKFLOW=$(gh run list \
-            --workflow="PLINK2 AUTO RUN TESTS - LINUX & MAC - CHECK COMMIT HX FIRST" \
-            --branch master \
-            --status success \
-            --limit 1 \
-            --json headSha \
-            --jq '.[0].headSha')
-          
-          echo "LAST WORKFLOW successful workflow commit: $LAST_WORKFLOW"
+#---------- Run PLINK2 GLM tests ----------
+chmod +x ./2.0/build_dynamic/CI-SCRIPTS/LOCAL_PLINK2_GLM_TESTING.sh
+./2.0/build_dynamic/CI-SCRIPTS/LOCAL_PLINK2_GLM_TESTING.sh
 
-          # Decide if there are new commits
-          if [ "$LATEST_MASTER" != "$LAST_WORKFLOW" ]; then
-            echo "New commits detected."
-            echo "new_commits=true" >> $GITHUB_OUTPUT
-          else
-            echo "No new commits."
-            echo "new_commits=false" >> $GITHUB_OUTPUT
-          fi
-
-  # Step 2: Matrix job 
-  run_dynamicbuild_plink2tests:
-    needs: check_commits
-    if: needs.check_commits.outputs.new_commits == 'true'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      # Linux-specific dependencies
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            libopenblas-dev \
-            liblapack-dev \
-            liblapacke-dev \
-            zlib1g-dev \
-            unzip \
-            bc
-
-      # Restore batch counter
-      - name: Restore batch counter
-        id: restore-batch
-        uses: actions/cache/restore@v4
-        with:
-          path: .batch_counter
-          key: glm-batch-counter-${{ github.run_id }}
-          restore-keys: |
-            glm-batch-counter-
-
-      # Determine next batch number
-      - name: Determine batch number
-        id: batch
-        run: |
-          # Read batch counter with fallback
-          CURRENT_BATCH=0
-          if [ -f .batch_counter ]; then
-            CURRENT_BATCH=$(cat .batch_counter 2>/dev/null || echo 0)
-            echo "Previous batch: $CURRENT_BATCH"
-          else
-            echo "No previous batch found, starting at 0"
-          fi
-          
-          # Validate it's a number
-          if ! [[ "$CURRENT_BATCH" =~ ^[0-9]+$ ]]; then
-            echo "⚠️ Invalid batch counter, resetting to 0"
-            CURRENT_BATCH=0
-          fi
-          
-          # Increment and wrap around (1-12)
-          NEXT_BATCH=$(( (CURRENT_BATCH % 12) + 1 ))
-          echo "Running batch: $NEXT_BATCH of 12"
-          echo "$NEXT_BATCH" > .batch_counter
-          
-          # Export for use in later steps
-          echo "batch_number=$NEXT_BATCH" >> $GITHUB_OUTPUT
-
-      # Set batch number as environment variable
-      - name: Set batch number environment variable
-        run: |
-          echo "GLM_BATCH_NUM=${{ steps.batch.outputs.batch_number }}" >> $GITHUB_ENV
-          echo "Running Batch ${{ steps.batch.outputs.batch_number }} of 12"
-
-      # Restore cached test data
-      - name: Restore cached test data
-        uses: actions/cache@v3
-        id: test-data-cache
-        with:
-          path: test_data
-          key: test-data-v1
-
-      - name: Verify test data
-        run: ls -l test_data
-
-      - name: Run DYNAMICBUILD
-        run: |
-          chmod +x 2.0/build_dynamic/CI-SCRIPTS/DYNAMICBUILD_LINUXMAC_ROOT.sh
-          2.0/build_dynamic/CI-SCRIPTS/DYNAMICBUILD_LINUXMAC_ROOT.sh
-
-      - name: Run GLM TESTS (Batch ${{ steps.batch.outputs.batch_number }})
-        run: |
-          chmod +x 2.0/build_dynamic/CI-SCRIPTS/GLM_TESTS.sh
-          2.0/build_dynamic/CI-SCRIPTS/GLM_TESTS.sh
-
-      - name: Cleanup
-        run: |
-          chmod +x 2.0/build_dynamic/CI-SCRIPTS/CLEANUP.sh
-          2.0/build_dynamic/CI-SCRIPTS/CLEANUP.sh
-
-      # Save batch counter for next run
-      - name: Save batch counter
-        uses: actions/cache/save@v4
-        if: always()  # Save even if tests fail
-        with:
-          path: .batch_counter
-          key: glm-batch-counter-${{ github.run_id }}
+## If run locally, cleanup
+rm -rf venv results

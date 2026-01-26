@@ -71,7 +71,51 @@ jobs:
             liblapack-dev \
             liblapacke-dev \
             zlib1g-dev \
-            unzip
+            unzip \
+            bc
+
+      # Restore batch counter
+      - name: Restore batch counter
+        id: restore-batch
+        uses: actions/cache/restore@v4
+        with:
+          path: .batch_counter
+          key: glm-batch-counter-${{ github.run_id }}
+          restore-keys: |
+            glm-batch-counter-
+
+      # Determine next batch number
+      - name: Determine batch number
+        id: batch
+        run: |
+          # Read batch counter with fallback
+          CURRENT_BATCH=0
+          if [ -f .batch_counter ]; then
+            CURRENT_BATCH=$(cat .batch_counter 2>/dev/null || echo 0)
+            echo "Previous batch: $CURRENT_BATCH"
+          else
+            echo "No previous batch found, starting at 0"
+          fi
+          
+          # Validate it's a number
+          if ! [[ "$CURRENT_BATCH" =~ ^[0-9]+$ ]]; then
+            echo "⚠️ Invalid batch counter, resetting to 0"
+            CURRENT_BATCH=0
+          fi
+          
+          # Increment and wrap around (1-12)
+          NEXT_BATCH=$(( (CURRENT_BATCH % 12) + 1 ))
+          echo "Running batch: $NEXT_BATCH of 12"
+          echo "$NEXT_BATCH" > .batch_counter
+          
+          # Export for use in later steps
+          echo "batch_number=$NEXT_BATCH" >> $GITHUB_OUTPUT
+
+      # Set batch number as environment variable
+      - name: Set batch number environment variable
+        run: |
+          echo "GLM_BATCH_NUM=${{ steps.batch.outputs.batch_number }}" >> $GITHUB_ENV
+          echo "Running Batch ${{ steps.batch.outputs.batch_number }} of 12"
 
       # Restore cached test data
       - name: Restore cached test data
@@ -89,7 +133,7 @@ jobs:
           chmod +x 2.0/build_dynamic/CI-SCRIPTS/DYNAMICBUILD_LINUXMAC_ROOT.sh
           2.0/build_dynamic/CI-SCRIPTS/DYNAMICBUILD_LINUXMAC_ROOT.sh
 
-      - name: Run GLM TESTS
+      - name: Run GLM TESTS (Batch ${{ steps.batch.outputs.batch_number }})
         run: |
           chmod +x 2.0/build_dynamic/CI-SCRIPTS/GLM_TESTS.sh
           2.0/build_dynamic/CI-SCRIPTS/GLM_TESTS.sh
@@ -98,3 +142,11 @@ jobs:
         run: |
           chmod +x 2.0/build_dynamic/CI-SCRIPTS/CLEANUP.sh
           2.0/build_dynamic/CI-SCRIPTS/CLEANUP.sh
+
+      # Save batch counter for next run
+      - name: Save batch counter
+        uses: actions/cache/save@v4
+        if: always()  # Save even if tests fail
+        with:
+          path: .batch_counter
+          key: glm-batch-counter-${{ github.run_id }}
