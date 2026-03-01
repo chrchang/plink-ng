@@ -8411,7 +8411,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
               continue;
             }
             char* value_start = &(key_end[1]);
-            char* value_end = S_CAST(char*, rawmemchr(value_start, ';'));
+            char* value_end = AdvToDelim(value_start, ';');
             if (info_type_code == 7) {
               // No need to count commas in this case.
               write_iter = AppendBcfCountedString(value_start, value_end - value_start, write_iter);
@@ -8526,7 +8526,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                       CopyToUnalignedOffsetF(write_uc, &fxx, value_idx);
                       value_iter = floatstr_end;
                     } else {
-                      const char* next_comma = S_CAST(const char*, rawmemchr(value_iter, ','));
+                      const char* next_comma = AdvToDelim(value_iter, ',');
                       const uint32_t slen = next_comma - value_iter;
                       if (IsNanStr(value_iter, slen)) {
                         CopyToUnalignedOffsetU32(write_uc, &nan_bits, value_idx);

@@ -1026,7 +1026,7 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
         char* final_read_head = cur_read_end;
         if (cur_block_start != final_read_head) {
           if (final_read_head[-1] != '\n') {
-            // Append '\n' so consumer can always use rawmemchr(., '\n') to
+            // Append '\n' so consumer can always use Rawmemchr(., '\n') to
             // find the end of the current line.
             *final_read_head++ = '\n';
           }

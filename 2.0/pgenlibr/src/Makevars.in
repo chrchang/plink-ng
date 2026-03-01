@@ -7,7 +7,7 @@ ZSTD_SOURCES = $(INCL)/zstd/lib/compress/zstdmt_compress.c $(INCL)/zstd/lib/comp
 # GitHub plink2/pgenlibr bundles zstd 1.5.7, but unfortunately that includes
 # diagnostic-suppressing pragma(s?) which are unacceptable to CRAN.  So we
 # bundle zstd 1.5.5 for CRAN instead, and comment the following line out.
-ZSTD_SOURCES += $(INCL)/zstd/lib/compress/zstd_preSplit.c
+# ZSTD_SOURCES += $(INCL)/zstd/lib/compress/zstd_preSplit.c
 LIBZSTD = $(ZSTD_SOURCES:.c=.o)
 
 LIBDEFLATE_SOURCES = $(INCL)/libdeflate/lib/zlib_decompress.c $(INCL)/libdeflate/lib/zlib_compress.c $(INCL)/libdeflate/lib/utils.c $(INCL)/libdeflate/lib/gzip_compress.c $(INCL)/libdeflate/lib/crc32.c $(INCL)/libdeflate/lib/adler32.c $(INCL)/libdeflate/lib/deflate_decompress.c $(INCL)/libdeflate/lib/deflate_compress.c $(INCL)/libdeflate/lib/gzip_decompress.c $(INCL)/libdeflate/lib/arm/arm_cpu_features.c $(INCL)/libdeflate/lib/x86/x86_cpu_features.c

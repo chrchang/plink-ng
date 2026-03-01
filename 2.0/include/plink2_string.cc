@@ -24,8 +24,8 @@
 namespace plink2 {
 #endif
 
-#if defined(__LP64__) && !defined(_GNU_SOURCE)
-CXXCONST_VOIDP rawmemchr(const void* ss, int cc) {
+#ifdef __LP64__
+CXXCONST_VOIDP Rawmemchr(const void* ss, int cc) {
   const uintptr_t starting_addr = R_CAST(uintptr_t, ss);
   const VecI8* ss_viter = R_CAST(const VecI8*, RoundDownPow2(starting_addr, kBytesPerVec));
   const VecI8 vvec_all_needle = veci8_set1(cc);
