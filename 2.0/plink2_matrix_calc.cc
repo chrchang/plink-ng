@@ -4448,7 +4448,6 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     // logputs("Correcting for missingness: ");
     fputs("0%", stdout);
     fflush(stdout);
-    PglInitLog(10000);
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
     for (uint32_t cur_variant_idx_start = 0; ; ) {
@@ -4464,6 +4463,9 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
         uintptr_t* missing_vmaj_iter = missing_vmaj;
         for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_idx) {
           const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+          if (g_debug_on && (variant_uidx == 16390)) {
+            PglInitLog(10000);
+          }
           reterr = PgrGetMissingnessD(sample_include, pssi, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
           if (unlikely(reterr)) {
             logerrputs(PglReturnLog());
