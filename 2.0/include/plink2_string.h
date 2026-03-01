@@ -149,15 +149,15 @@ HEADER_INLINE char* DowncastToXC(const void* pp) {
 // rawmemchr() is deprecated in glibc and absent from musl.
 #ifdef __LP64__
 CXXCONST_VOIDP Rawmemchr(const void* ss, int cc);
-
-HEADER_INLINE CXXCONST_CP strnul(const char* str) {
-  return S_CAST(CXXCONST_CP, Rawmemchr(str, 0));
-}
 #else
 HEADER_INLINE CXXCONST_VOIDP Rawmemchr(const void* ss, int cc) {
   return S_CAST(CXXCONST_VOIDP, memchr(ss, cc, 0x80000000U - kBytesPerVec));
 }
 #endif
+
+HEADER_INLINE CXXCONST_CP strnul(const char* str) {
+  return S_CAST(CXXCONST_CP, Rawmemchr(str, 0));
+}
 
 #ifdef __cplusplus
 HEADER_INLINE void* Rawmemchr(void* ss, int cc) {
