@@ -733,6 +733,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
 // present)
 PglErr PgrGetMissingness(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf);
 
+// genovec_buf must have room for raw_sample_ct nyps
 // either missingness_hc (hardcall) or missingness_dosage must be non-null for
 // now
 // missingness_dosage must be vector-aligned
