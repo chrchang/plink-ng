@@ -2985,10 +2985,6 @@ PglErr ReadRawGenovec(uint32_t subsetting_required, uint32_t vidx, PgenReaderMai
   if (unlikely(InitReadPtrs(vidx, pgrp, fread_pp, fread_endp))) {
     return kPglRetReadFail;
   }
-  const uint32_t debug_print = (vidx == 16390);
-  if (debug_print) {
-    PglLogprintf("record size: %" PRIuPTR " bytes\n", (*fread_endp) - (*fread_pp));
-  }
   const unsigned char* fread_end = *fread_endp;
   PglErr reterr;
   if (!(vrtype & 4)) {
@@ -6138,13 +6134,11 @@ void PreinitPgv(PgenVariant* pgvp) {
 
 // similar to ParseAndSaveDifflist()
 PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t raw_sample_ct, const unsigned char** fread_pp, uintptr_t* deltalist_include, uint32_t* deltalist_len_ptr) {
-  PglLogprintf("entering ParseAndSaveDeltalistAsBitarr: %" PRIuPTR " bytes remaining\n", fread_end - (*fread_pp));
   const unsigned char* group_info_iter;
   PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, nullptr, &group_info_iter, deltalist_len_ptr);
+  PglLogprintf("after ParseDifflistHeader, %" PRIuPTR " bytes remaining\n", fread_end - (*fread_pp));
   const uint32_t deltalist_len = *deltalist_len_ptr;
-  PglLogprintf("deltalist_len=%u\n", deltalist_len);
   if (reterr || (!deltalist_len)) {
-    PglLogprintf("ParseDifflistHeader failure\n");
     return reterr;
   }
   const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
@@ -6164,7 +6158,6 @@ PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t ra
     for (uint32_t raw_deltalist_idx_lowbits = 0; ; ++raw_deltalist_idx_lowbits) {
       // always check, otherwise we may scribble over arbitrary memory
       if (unlikely(raw_sample_idx >= raw_sample_ct)) {
-        PglLogprintf("raw_sample_idx=%u  raw_sample_ct=%u  group_idx=%u  raw_deltalist_idx_lowbits=%u\n", raw_sample_idx, raw_sample_ct, group_idx, raw_deltalist_idx_lowbits);
         return kPglRetMalformedInput;
       }
       SetBit(raw_sample_idx, deltalist_include);
@@ -6855,6 +6848,7 @@ PglErr SkipAux2(const unsigned char* fread_end, uint32_t het_ct, const unsigned 
   if (PtrAddCk(fread_end, aux2_first_part_byte_ct, fread_pp)) {
     return kPglRetMalformedInput;
   }
+  PglLogprintf("aux2_first_part_byte_ct: %u\n", aux2_first_part_byte_ct);
   if (!(aux2_start[0] & 1)) {
     if (phasepresent_ctp) {
       *phasepresent_ctp = het_ct;
@@ -6862,6 +6856,7 @@ PglErr SkipAux2(const unsigned char* fread_end, uint32_t het_ct, const unsigned 
     return kPglRetSuccess;
   }
   const uint32_t phasepresent_ct = PopcountBytes(aux2_start, aux2_first_part_byte_ct) - 1;
+  PglLogprintf("SkipAux2 branch: phasepresent_ct=%u\n", phasepresent_ct);
   if (phasepresent_ctp) {
     *phasepresent_ctp = phasepresent_ct;
   }
@@ -9550,6 +9545,7 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleS
   const unsigned char* fread_ptr = nullptr;
   const unsigned char* fread_end = nullptr;
   uintptr_t* missingness_base = missingness_hc? missingness_hc : missingness_dosage;
+  const uint32_t debug_print = (vidx == 16390);
   if (!need_to_skip_aux1or2) {
     PglErr reterr = ReadMissingness(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, dosage_is_relevant? (&fread_ptr) : nullptr, dosage_is_relevant? (&fread_end) : nullptr, missingness_base, hets, genovec_buf);
     if (missingness_dosage && missingness_hc) {
@@ -9562,6 +9558,9 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleS
     PglErr reterr = ReadRawGenovec(subsetting_required, vidx, pgrp, &fread_ptr, &fread_end, genovec_buf);
     if (unlikely(reterr)) {
       return reterr;
+    }
+    if (debug_print) {
+      PglLogprintf("after ReadRawGenovec, %" PRIuPTR " bytes remaining\n", fread_end - fread_ptr);
     }
     ZeroTrailingNyps(raw_sample_ct, genovec_buf);
     uintptr_t* subsetted_genovec = pgrp->workspace_vec;
