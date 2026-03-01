@@ -4334,7 +4334,7 @@ THREAD_FUNC_DECL CalcDblMissingThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t row_start_idx, uintptr_t row_end_idx, uint32_t max_thread_ct, PgenReader* simple_pgrp, uint32_t** missing_cts_ptr, uint32_t** missing_dbl_exclude_cts_ptr) {
+PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* variant_include, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t row_start_idx, uintptr_t row_end_idx, uint32_t max_thread_ct, PgenReader* simple_pgrp, uint32_t** missing_cts_ptr, uint32_t** missing_dbl_exclude_cts_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   ThreadGroup tg;
   PreinitThreads(&tg);
@@ -4346,11 +4346,12 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     uintptr_t* missing_vmaj = nullptr;
     uintptr_t* genovec_buf = nullptr;
     CalcDblMissingCtx ctx;
+    // bugfix (28 Feb 2026): genovec_buf may need to fit raw_sample_ct nyps
     if (unlikely(bigstack_calloc_u32(row_end_idx, missing_cts_ptr) ||
                  bigstack_calloc_u32((S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2, missing_dbl_exclude_cts_ptr) ||
                  bigstack_calloc_w(row_end_idxl, &ctx.missing_nz[0]) ||
                  bigstack_calloc_w(row_end_idxl, &ctx.missing_nz[1]) ||
-                 bigstack_alloc_w(NypCtToWordCt(row_end_idx), &genovec_buf) ||
+                 bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec_buf) ||
                  bigstack_alloc_w(row_end_idxaw * (k1LU * kDblMissingBlockSize), &missing_vmaj) ||
                  bigstack_alloc_w(RoundUpPow2(row_end_idx, 2) * kDblMissingBlockWordCt, &ctx.missing_smaj[0]) ||
                  bigstack_alloc_w(RoundUpPow2(row_end_idx, 2) * kDblMissingBlockWordCt, &ctx.missing_smaj[1]))) {
@@ -4692,7 +4693,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       // if no missing calls at all, act as if meanimpute was on
       if (variant_ct_with_missing) {
         logputs("Correcting for missingness... ");
-        reterr = CalcMissingMatrix(sample_include, sample_include_cumulative_popcounts, variant_include_has_missing, sample_ct, variant_ct_with_missing, parallel_idx, parallel_tot, row_start_idx, row_end_idx, max_thread_ct, simple_pgrp, &missing_cts, &missing_dbl_exclude_cts);
+        reterr = CalcMissingMatrix(sample_include, sample_include_cumulative_popcounts, variant_include_has_missing, raw_sample_ct, sample_ct, variant_ct_with_missing, parallel_idx, parallel_tot, row_start_idx, row_end_idx, max_thread_ct, simple_pgrp, &missing_cts, &missing_dbl_exclude_cts);
         if (unlikely(reterr)) {
           goto CalcGrm_ret_1;
         }
