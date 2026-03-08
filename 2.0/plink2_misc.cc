@@ -23,6 +23,7 @@
 #include <string.h>
 
 #include "include/plink2_bits.h"
+#include "include/plink2_float.h"
 #include "include/plink2_htable.h"
 #include "include/plink2_stats.h"
 #include "include/plink2_string.h"
@@ -5213,9 +5214,11 @@ typedef struct ComputeHweXLnPvalsCtxStruct {
   uint32_t hwe_x_ct;
 
   double* hwe_x_ln_pvals;
+
+  uint32_t oom;
 } ComputeHweXLnPvalsCtx;
 
-void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPvalsCtx* ctx) {
+BoolErr ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPvalsCtx* ctx) {
   const uintptr_t* variant_include = ctx->variant_include;
   const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
   const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts) = ctx->founder_raw_geno_cts;
@@ -5265,7 +5268,10 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
       female_1copy_ct -= cur_nosex_geno_cts[1];
       female_0copy_ct -= cur_nosex_geno_cts[2];
     }
-    *hwe_x_ln_pvals_iter++ = HweXchrLnP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
+    if (unlikely(HweXchrLnP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp, hwe_x_ln_pvals_iter))) {
+      return 1;
+    }
+    ++hwe_x_ln_pvals_iter;
     if (allele_idx_offsets) {
       const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
       if (allele_ct != 2) {
@@ -5282,7 +5288,10 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
             male_0copy_ct = male_obs_ct - male_1copy_ct - male_hethap_ct;
           }
           female_0copy_ct = female_obs_ct - female_2copy_ct - female_1copy_ct;
-          *hwe_x_ln_pvals_iter++ = HweXchrLnP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
+          if (unlikely(HweXchrLnP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp, hwe_x_ln_pvals_iter))) {
+            return 1;
+          }
+          ++hwe_x_ln_pvals_iter;
           ++xgeno_idx;
         }
       }
@@ -5301,12 +5310,15 @@ void ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXLnPv
   if (pct > 10) {
     putc_unlocked('\b', stdout);
   }
+  return 0;
 }
 
 THREAD_FUNC_DECL ComputeHweXLnPvalsThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   ComputeHweXLnPvalsCtx* ctx = S_CAST(ComputeHweXLnPvalsCtx*, arg->sharedp->context);
-  ComputeHweXLnPvalsMain(arg->tidx, GetThreadCt(arg->sharedp) + 1, ctx);
+  if (unlikely(ComputeHweXLnPvalsMain(arg->tidx, GetThreadCt(arg->sharedp) + 1, ctx))) {
+    ctx->oom = 1;
+  }
   THREAD_RETURN;
 }
 
@@ -5353,6 +5365,7 @@ PglErr ComputeHweXLnPvals(const uintptr_t* variant_include, const uintptr_t* all
     ctx.x_start = x_start;
     ctx.hwe_x_ct = hwe_x_ct;
     ctx.hwe_midp = hwe_midp;
+    ctx.oom = 0;
     logprintf("Computing chrX Hardy-Weinberg %sp-values... ", hwe_midp? "mid" : "");
     fputs("0%", stdout);
     fflush(stdout);
@@ -5363,8 +5376,13 @@ PglErr ComputeHweXLnPvals(const uintptr_t* variant_include, const uintptr_t* all
         goto ComputeHweXLnPvals_ret_THREAD_CREATE_FAIL;
       }
     }
-    ComputeHweXLnPvalsMain(calc_thread_ct - 1, calc_thread_ct, &ctx);
+    if (unlikely(ComputeHweXLnPvalsMain(calc_thread_ct - 1, calc_thread_ct, &ctx))) {
+      ctx.oom = 1;
+    }
     JoinThreads0(&tg);
+    if (unlikely(ctx.oom)) {
+      goto ComputeHweXLnPvals_ret_NOMEM;
+    }
     fputs("\b\b", stdout);
     logputs("done.\n");
   }
@@ -5643,7 +5661,10 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           if (p_col) {
             // possible todo: multithread this
             *cswritep++ = '\t';
-            const double hwe_ln_p = HweLnP(het_a1_ct, hom_a1_ct, two_ax_ct, midp);
+            double hwe_ln_p;
+            if (unlikely(HweLnP(het_a1_ct, hom_a1_ct, two_ax_ct, midp, &hwe_ln_p))) {
+              goto HardyReport_ret_NOMEM;
+            }
             if (report_neglog10p) {
               const double reported_val = (-kRecipLn10) * hwe_ln_p;
               cswritep = dtoa_g(reported_val, cswritep);
@@ -5900,7 +5921,10 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           }
           if (femalep_col) {
             *cswritep++ = '\t';
-            const double female_hwe_ln_p = HweLnP(female_het_a1_ct, female_hom_a1_ct, female_two_ax_ct, midp);
+            double female_hwe_ln_p;
+            if (unlikely(HweLnP(female_het_a1_ct, female_hom_a1_ct, female_two_ax_ct, midp, &female_hwe_ln_p))) {
+              goto HardyReport_ret_NOMEM;
+            }
             if (report_neglog10p) {
               const double reported_val = (-kRecipLn10) * female_hwe_ln_p;
               cswritep = dtoa_g(reported_val, cswritep);

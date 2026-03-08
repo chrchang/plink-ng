@@ -50,6 +50,8 @@ namespace plink2 {
 
 #define PROG_NAME_STR "plink2"
 
+// only worth using in tight loops with many iterations, otherwise just cast
+// todo: put some benchmark numbers here
 extern const double kSmallDoubles[4];
 
 // Exclude 0x7fffffff, since the half-open interval containing it ends in

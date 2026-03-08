@@ -8,6 +8,7 @@
 #   Use only -O2 optimization for zstd (may be necessary for gcc 4.x): ZSTD_O2
 #   Statically link zlib: STATIC_ZLIB
 #   Statically link zstd: STATIC_ZSTD
+#   Statically link GMP (instead of bundled mini-gmp): STATIC_GMP
 #   Link to MKL with 64-bit indexes (dynamically): DYNAMIC_MKL
 #     (this also requires MKLROOT and MKL_IOMP5_DIR to be defined, and
 #     LD_LIBRARY_PATH to include the appropriate directories)
@@ -24,6 +25,8 @@ NO_LAPACK =
 ZSTD_O2 = 1
 STATIC_ZLIB =
 STATIC_ZSTD = 1
+STATIC_GMP =
+GMPROOT = /opt/homebrew
 DYNAMIC_MKL =
 MKLROOT = /opt/intel/oneapi/mkl/2025.1
 MKL_IOMP5_DIR = /opt/intel/oneapi/compiler/2025.1/lib
@@ -38,7 +41,7 @@ DEBUG = -flto
 CC ?= gcc
 CXX ?= g++
 
-BASEFLAGS= -DZSTD_MULTITHREAD
+BASEFLAGS= -DZSTD_MULTITHREAD -ffp-contract=off
 # ***** end configuration *****
 
 BASEFLAGS += ${DEBUG}
@@ -54,6 +57,7 @@ ifdef FORCE_32BIT
   # this should work on Debian 10 with the right packages installed.
   STATIC_ZLIB = 1
   ZSTD_O2 = 1
+  BASEFLAGS += -msse -mfpmath=sse
   ARCH32 = -m32 -march=i686
   CXXFLAGS = -std=c++0x
 else
@@ -145,6 +149,10 @@ ifeq ($(UNAME), Darwin)
   LINKFLAGS += -L/usr/local/lib
   LIBTOOL=libtool
   STATIC=-static
+  ifdef STATIC_GMP
+    BASEFLAGS += -DIGNORE_BUNDLED_MINI_GMP -I${GMPROOT}/include
+    LINKFLAGS += -L. ${GMPROOT}/lib/libgmp.a
+  endif
 else
   ifdef DYNAMIC_MKL
     ifdef NO_LAPACK
@@ -190,8 +198,9 @@ SFX ?= ""
 
 all: plink2$(SFX) pgen_compress$(SFX)
 
-plink2$(SFX): $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(CCSRC2) ../plink2_cpu.cc
+plink2$(SFX): $(CSRC2) $(GCSRC2) $(ZCSRC2) $(ZSSRC2) $(CCSRC2) ../plink2_cpu.cc
 	$(CC) $(CFLAGS) $(CSRC2) -c
+	$(CC) $(CFLAGS) -fno-lto $(GCSRC2) -c
 	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC2) $(ZSSRC2) -c
 	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
 	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
@@ -204,8 +213,9 @@ pgenlib.a: $(PGENLIB_CCSRC2)
 	$(CXX) $(CXXFLAGS) $(PGENLIB_CCSRC2) -c
 	$(LIBTOOL) $(STATIC) -o $@ $(PGENLIB_OBJL)
 
-plink2lib.a: $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(PLINK2LIB_CCSRC2)
+plink2lib.a: $(CSRC2) $(GCSRC2) $(ZCSRC2) $(ZSSRC2) $(PLINK2LIB_CCSRC2)
 	$(CC) $(CFLAGS) $(CSRC2) -c
+	$(CC) $(CFLAGS) -fno-lto $(GCSRC2) -c
 	$(CC) $(ZCFLAGS) $(ZCSRC2) $(ZSSRC2) -c
 	$(CXX) $(CXXFLAGS) $(PLINK2LIB_CCSRC2) -c
 	$(LIBTOOL) $(STATIC) -o $@ $(PLINK2LIB_OBJL)

@@ -18,6 +18,8 @@ CSRC = include/SFMT.c \
        libdeflate/lib/arm/arm_cpu_features.c \
        libdeflate/lib/x86/x86_cpu_features.c
 
+GCSRC = mini-gmp/mini-gmp.c
+
 ZCSRC = zstd/lib/common/debug.c \
         zstd/lib/common/entropy_common.c \
         zstd/lib/common/error_private.c \
@@ -56,7 +58,9 @@ PGENLIB_CCSRC = include/plink2_base.cc \
 PLINK2LIB_CCSRC = $(PGENLIB_CCSRC) \
                   include/plink2_bgzf.cc \
                   include/plink2_bitmap.cc \
+                  include/plink2_float.cc \
                   include/plink2_fmath.cc \
+                  include/plink2_highprec.cc \
                   include/plink2_htable.cc \
                   include/plink2_memory.cc \
                   include/plink2_stats.cc \
@@ -108,10 +112,10 @@ CCSRC = $(PLINK2LIB_CCSRC) \
 
 ZLIB_VER = 1.3.1
 
-OBJ_NO_ZSTD = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
-OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(CCSRC:.cc=.o)
+OBJ_NO_ZSTD = $(CSRC:.c=.o) $(GCSRC:.c=.o) $(CCSRC:.cc=.o)
+OBJ = $(CSRC:.c=.o) $(GCSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(CCSRC:.cc=.o)
 PGENLIB_OBJ = $(PGENLIB_CCSRC:.cc=.o)
-PLINK2LIB_OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(PLINK2LIB_CCSRC:.cc=.o)
+PLINK2LIB_OBJ = $(CSRC:.c=.o) $(GCSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(PLINK2LIB_CCSRC:.cc=.o)
 TEXTLIB_OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(TEXTLIB_CCSRC:.cc=.o)
 OBJL = $(notdir $(OBJ))
 PGENLIB_OBJL = $(notdir $(PGENLIB_OBJ))
@@ -119,28 +123,30 @@ PLINK2LIB_OBJL = $(notdir $(PLINK2LIB_OBJ))
 TEXTLIB_OBJL = $(notdir $(TEXTLIB_OBJ))
 
 CSRC2 = $(foreach fname,$(CSRC),../$(fname))
+GCSRC2 = $(foreach fname,$(GCSRC),../$(fname))
 ZCSRC2 = $(foreach fname,$(ZCSRC),../$(fname))
 ZSSRC2 = $(foreach fname,$(ZSSRC),../$(fname))
 CCSRC2 = $(foreach fname,$(CCSRC),../$(fname))
 PGENLIB_CCSRC2 = $(foreach fname,$(PGENLIB_CCSRC),../$(fname))
 PLINK2LIB_CCSRC2 = $(foreach fname,$(PLINK2LIB_CCSRC),../$(fname))
 TEXTLIB_CCSRC2 = $(foreach fname,$(TEXTLIB_CCSRC),../$(fname))
-OBJ2 = $(CSRC2:.c=.o) $(ZCSRC2:.c=.o) $(ZSSRC2:.S=.o) $(CCSRC2:.cc=.o)
+OBJ2 = $(CSRC2:.c=.o) $(GCSRC2:.c=.o) $(ZCSRC2:.c=.o) $(ZSSRC2:.S=.o) $(CCSRC2:.cc=.o)
 
 CSRC3 = $(foreach fname,$(CSRC),../../$(fname))
+GCSRC3 = $(foreach fname,$(GCSRC),../../$(fname))
 ZCSRC3 = $(foreach fname,$(ZCSRC),../../$(fname))
 ZSSRC3 = $(foreach fname,$(ZSSRC),../../$(fname))
 CCSRC3 = $(foreach fname,$(CCSRC),../../$(fname))
 PLINK2LIB_CCSRC3 = $(foreach fname,$(PLINK2LIB_CCSRC),../../$(fname))
 TEXTLIB_CCSRC3 = $(foreach fname,$(TEXTLIB_CCSRC),../../$(fname))
-OBJ3 = $(CSRC3:.c=.o) $(ZCSRC3:.c=.o) $(ZSSRC3:.S=.o) $(CCSRC3:.cc=.o)
+OBJ3 = $(CSRC3:.c=.o) $(GCSRC3:.c=.o) $(ZCSRC3:.c=.o) $(ZSSRC3:.S=.o) $(CCSRC3:.cc=.o)
 
-CINCLUDE = -Ilibdeflate
-CINCLUDE2 = -I../libdeflate
-CINCLUDE3 = -I../../libdeflate
-CXXINCLUDE = -Ilibdeflate "-I../zlib-"$(ZLIB_VER)
-CXXINCLUDE2 = -I../libdeflate "-I../../zlib-"$(ZLIB_VER)
-CXXINCLUDE3 = -I../../libdeflate "-I../../../zlib-"$(ZLIB_VER)
+CINCLUDE = -Ilibdeflate -Imini-gmp
+CINCLUDE2 = -I../libdeflate -I../mini-gmp
+CINCLUDE3 = -I../../libdeflate -I../../mini-gmp
+CXXINCLUDE = -Ilibdeflate -Imini-gmp "-I../zlib-"$(ZLIB_VER)
+CXXINCLUDE2 = -I../libdeflate -I../mini-gmp "-I../../zlib-"$(ZLIB_VER)
+CXXINCLUDE3 = -I../../libdeflate -I../../mini-gmp "-I../../../zlib-"$(ZLIB_VER)
 ZSTD_INCLUDE =
 ZSTD_INCLUDE2 =
 ZSTD_INCLUDE3 =
@@ -154,6 +160,7 @@ CLEAN = *.o \
         libdeflate/lib/*.o \
         libdeflate/lib/arm/*.o \
         libdeflate/lib/x86/*.o \
+        mini-gmp/*.o \
         zstd/lib/common/*.o \
         zstd/lib/compress/*.o \
         zstd/lib/decompress/*.o \

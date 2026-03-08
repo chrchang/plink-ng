@@ -111,7 +111,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 826
+#define PLINK2_BASE_VERNUM 827
 
 // We now try to adhere to include-what-you-use in simple cases.  However,
 // we don't want to repeat either platform-specific ifdefs, or stuff like
@@ -152,8 +152,15 @@
 #  include <windows.h>  // IWYU pragma: export
 #endif
 
-#if __cplusplus >= 201103L
-#  include <array>  // IWYU pragma: export
+#ifdef __cplusplus
+#  include <algorithm>  // IWYU pragma: export
+#  if __cplusplus >= 201103L
+#    include <array>  // IWYU pragma: export
+// Disable for Windows for now, need to figure out what library to link there
+#    if __cplusplus >= 201902L && defined(__GNUC__) && !defined(_WIN32) && !defined(__clang__)
+#      include <execution>  // IWYU pragma: export
+#    endif
+#  endif
 #endif
 
 #ifdef __LP64__
@@ -164,6 +171,7 @@
 #  define USE_SSE2
 #  ifdef __x86_64__
 #    include <emmintrin.h>  // IWYU pragma: export
+#    include <xmmintrin.h>  // IWYU pragma: export
 #  else
 #    define SIMDE_ENABLE_NATIVE_ALIASES
 // Since e.g. an old zstd system header breaks the build, and plink2 is
@@ -205,6 +213,8 @@
 #  define ALIGNV16 __attribute__ ((aligned (16)))
 #else
 #  define ALIGNV16
+// As of Feb 2026, we are dropping support for 32-bit processors without SSE.
+#  include <xmmintrin.h>  // IWYU pragma: export
 #endif
 
 // done with #includes, can start C++ namespace...
@@ -2500,6 +2510,12 @@ HEADER_INLINE uint32_t abs_i32(int32_t ii) {
   return (S_CAST(uint32_t, ii) ^ neg_sign_bit) - neg_sign_bit;
 }
 
+// Returns first number in {2^0, 2^1, ..., 2^{kBitsPerWord - 1}) >= posint.
+// Assumes posint in [1, 2^{kBitsPerWord - 1}].
+HEADER_INLINE uintptr_t CeilPow2(uintptr_t posint) {
+  return k1LU << bsrw(2 * posint - 1);
+}
+
 extern uint64_t g_failed_alloc_attempt_size;
 // with NDEBUG undefined, may want to define a bunch of macros so that line
 // number is printed as well; see e.g.
@@ -4482,7 +4498,23 @@ typedef uint32_t tname
 #  define GET_PRIVATE(par, member) (par).member
 #endif
 
-static const double kLn2 = 0.6931471805599453;
+int32_t u32cmp(const void* aa, const void* bb);
+
+#ifdef __cplusplus
+#  define STD_SORT(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))
+#  if __cplusplus >= 201902L && defined(__GNUC__) && !defined(_WIN32) && !defined(__clang__)
+// this should only be used for arrays of length >= variant_ct or sample_ct
+// (sample_ct is cutting it close).
+// macro should still be used in e.g. non-__cplusplus blocks, so that we have
+// the option of falling back on a hand-coded parallel sort.
+#    define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) std::sort(std::execution::par_unseq, &((arr)[0]), (&((arr)[ct])))
+#  else
+#    define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))
+#  endif
+#else
+#  define STD_SORT(ct, fallback_cmp, arr) qsort((arr), (ct), sizeof(*(arr)), (fallback_cmp))
+#  define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) qsort((arr), (ct), sizeof(*(arr)), (fallback_cmp))
+#endif
 
 #ifdef __cplusplus
 }  // namespace plink2

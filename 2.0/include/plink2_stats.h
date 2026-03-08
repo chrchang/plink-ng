@@ -32,15 +32,10 @@ double ChisqToP(double chisq, uint32_t df);
 double ChisqToLnP(double chisq, uint32_t df);
 
 // only handles df=1 and 2 for now, plan to support 4 later
-double PToChisq(double pval, uint32_t df);
+// double PToChisq(double pval, uint32_t df);
 
 // only handles df=1 for now
 double LnPToChisq(double ln_pval);
-
-// Better than the original TstatToP() when the same df comes up many times.
-// (May want a higher-level interface that allocates and incrementally fills a
-// table.)
-double TstatToP2(double tt, double df, double cached_gamma_mult);
 
 // No -9 error return since that's a legitimate p-value logarithm.  Caller is
 // responsible for validating input.
@@ -64,30 +59,30 @@ double Lfact(double xx);
 // HweP() has been replaced by HweLnP().  HweThresh() and HweThreshMidp() have
 // been replaced by HweThreshLn().
 
-double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp);
+// probable todo: provide HweLnPEx() where caller can provide
+// near-tie-resolution workspace, and a workspace query function
+BoolErr HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp, double* resultp);
 
 // these return 0 if close enough to Hardy-Weinberg equilibrium
-uint32_t HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh);
+BoolErr HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh, uint32_t* out_of_eqp);
 
-uint32_t HweThreshMidp(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh);
+BoolErr HweThreshMidp(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh, uint32_t* out_of_eqp);
 
-uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp, double ln_thresh);
+BoolErr HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp, double ln_thresh, uint32_t* out_of_eqp);
 
-HEADER_INLINE uint32_t HweThreshLn(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp, double thresh, double ln_thresh) {
+HEADER_INLINE BoolErr HweThreshLn(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp, double thresh, double ln_thresh, uint32_t* out_of_eqp) {
   // kLnNormalMin = -708.3964185...
   if (ln_thresh > -708.396) {
     if (!midp) {
-      return HweThresh(obs_hets, obs_hom1, obs_hom2, thresh);
+      return HweThresh(obs_hets, obs_hom1, obs_hom2, thresh, out_of_eqp);
     } else {
-      return HweThreshMidp(obs_hets, obs_hom1, obs_hom2, thresh);
+      return HweThreshMidp(obs_hets, obs_hom1, obs_hom2, thresh, out_of_eqp);
     }
   }
-  return HweThreshLnMain(obs_hets, obs_hom1, obs_hom2, midp, ln_thresh);
+  return HweThreshLnMain(obs_hets, obs_hom1, obs_hom2, midp, ln_thresh, out_of_eqp);
 }
 
-double FisherExact2x2P(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp);
-
-double HweXchrLnP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp);
+BoolErr HweXchrLnP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp, double* resultp);
 
 #ifdef __cplusplus
 }

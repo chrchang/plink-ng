@@ -1753,7 +1753,9 @@ CXXCONST_CP ScanadvLn(const char* str_iter, double* ln_ptr) {
   }
   double ln_val = log(S_CAST(double, digits));
   if (e10) {
-    ln_val += e10 * kLn10;
+    // I don't expect log() to be bit-identical between FMA and non-FMA, so
+    // this doesn't make floating-point variation meaningfully worse...
+    ln_val = prefer_fma(e10, kLn10, ln_val);
   }
   *ln_ptr = ln_val;
   return S_CAST(CXXCONST_CP, str_iter);
@@ -2913,8 +2915,8 @@ char* lntoa_g(double ln_val, char* start) {
       return strcpya_k(start, "inf");
     }
   }
-  int32_t xp10 = S_CAST(int32_t, (5.000001349509205e-7 + ln_val) * kRecipLn10);
-  double mantissa = exp(xp10 * (-kLn10) + ln_val);
+  int32_t xp10 = S_CAST(int32_t, prefer_fma(ln_val, kRecipLn10, 5.000001349509205e-7 * kRecipLn10));
+  double mantissa = exp(prefer_fma(xp10, -kLn10, ln_val));
   // mantissa will usually be in [.9999995, 9.999995], but |ln_val| can be
   // larger than 2^32, and floating point errors in either direction are
   // definitely possible (<20 bits of precision).

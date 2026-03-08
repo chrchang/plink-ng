@@ -217,7 +217,7 @@ HEADER_INLINE uint32_t ClipU32(uint32_t val, uint32_t lbound, uint32_t ubound) {
   return MAXV(val, lbound);
 }
 
-int32_t u32cmp(const void* aa, const void* bb);
+// u32cmp moved to plink2_base
 
 int32_t double_cmp(const void* aa, const void* bb);
 

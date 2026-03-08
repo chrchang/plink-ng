@@ -20,6 +20,7 @@
 #include "include/pgenlib_read.h"
 #include "include/plink2_base.h"
 #include "include/plink2_bits.h"
+#include "include/plink2_float.h"
 #include "include/plink2_string.h"
 #include "include/plink2_thread.h"
 #include "include/plink2_zstfile.h"
@@ -57,10 +58,6 @@
 #include <time.h>  // time()
 #include <unistd.h>  // unlink()
 
-#if defined(__APPLE__) && defined(__x86_64__)
-#  include <fenv.h>  // fesetenv()
-#endif
-
 #ifdef __cplusplus
 namespace plink2 {
 #endif
@@ -93,10 +90,10 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (28 Feb 2026)";
+  " (7 Mar 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -3503,14 +3500,8 @@ int main(int argc, char** argv) {
   using namespace plink2;
 #endif
 
-#ifdef __APPLE__
-  #if __x86_64__
-    fesetenv(FE_DFL_DISABLE_SSE_DENORMS_ENV);
-  #endif
-#else
-#  if defined __LP64__ && defined __x86_64__
-  _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
-#  endif
+#if defined(__APPLE__) || defined(__x86_64__) || defined(__i386__)
+  flush_denormals();
 #endif
   // special case, since it may dump to stdout
   if (argc > 1) {
@@ -7074,7 +7065,10 @@ int main(int argc, char** argv) {
             logerrputs("Error: No --hwe p-value threshold specified.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely((pc.hwe_ln_thresh == 0.0) && (pc.hwe_sample_size_term <= 0.0))) {
+          // May as well prohibit tiny positive hwe_sample_size_term here,
+          // since that has a pathological interaction with float64 arithmetic
+          // ((1 - 2^{-55}) underflows to 1, etc.).
+          if (unlikely((pc.hwe_ln_thresh == 0.0) && (pc.hwe_sample_size_term < k2m53))) {
             logerrputs("Error: --hwe threshold cannot be 1 unless a nonzero sample size term is\nspecified.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }

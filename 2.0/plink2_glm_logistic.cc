@@ -23,6 +23,7 @@
 
 #include "include/pgenlib_misc.h"
 #include "include/plink2_bits.h"
+#include "include/plink2_float.h"
 #include "include/plink2_fmath.h"
 #include "include/plink2_stats.h"
 #include "include/plink2_string.h"
@@ -59,12 +60,12 @@ BoolErr LinearHypothesisChisqF(const float* coef, const float* constraints_con_m
   const float* inner_iter = inner_buf;
   if (constraint_ct > kDotprodFThresh) {
     for (uint32_t constraint_idx = 0; constraint_idx != constraint_ct; ++constraint_idx) {
-      result += S_CAST(double, DotprodF(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx]);
+      result = prefer_fma(S_CAST(double, DotprodF(inner_iter, outer_buf, constraint_ct)), S_CAST(double, outer_buf[constraint_idx]), result);
       inner_iter = &(inner_iter[constraint_ct]);
     }
   } else {
     for (uint32_t constraint_idx = 0; constraint_idx != constraint_ct; ++constraint_idx) {
-      result += S_CAST(double, DotprodFShort(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx]);
+      result = prefer_fma(S_CAST(double, DotprodFShort(inner_iter, outer_buf, constraint_ct)), S_CAST(double, outer_buf[constraint_idx]), result);
       inner_iter = &(inner_iter[constraint_ct]);
     }
   }
@@ -99,15 +100,15 @@ GlmErr CheckMaxCorrAndVifF(const float* predictors_pmaj, uint32_t predictor_ct, 
     dbl_2d_buf[pred_idx] = row_sum;
   }
   const uint32_t predictor_ct_p1 = predictor_ct + 1;
-  const double sample_ct_recip = 1.0 / u31tod(sample_ct);
+  const double neg_sample_ct_recip = -1.0 / u31tod(sample_ct);
   const double sample_ct_m1_d = u31tod(sample_ct - 1);
   const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
   for (uint32_t pred_idx1 = 0; pred_idx1 != predictor_ct; ++pred_idx1) {
     double* sample_cov_row = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
     const float* predictor_dotprod_row = &(predictor_dotprod_buf[pred_idx1 * predictor_ct]);
-    const double pred1_mean_adj = dbl_2d_buf[pred_idx1] * sample_ct_recip;
+    const double neg_pred1_mean_adj = dbl_2d_buf[pred_idx1] * neg_sample_ct_recip;
     for (uint32_t pred_idx2 = 0; pred_idx2 <= pred_idx1; ++pred_idx2) {
-      sample_cov_row[pred_idx2] = (S_CAST(double, predictor_dotprod_row[pred_idx2]) - pred1_mean_adj * dbl_2d_buf[pred_idx2]) * sample_ct_m1_recip;
+      sample_cov_row[pred_idx2] = prefer_fma(neg_pred1_mean_adj, dbl_2d_buf[pred_idx2], S_CAST(double, predictor_dotprod_row[pred_idx2])) * sample_ct_m1_recip;
     }
   }
   // now use dbl_2d_buf to store inverse-sqrts, to get to correlation matrix
@@ -528,7 +529,7 @@ void CholeskyDecompositionF(const float* aa, uint32_t predictor_ct, float* __res
     float fxx = *aa_diag_elem_ptr;
     for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx) {
       const float fyy = cur_ll_row[col_idx];
-      fxx -= fyy * fyy;
+      fxx = prefer_fmaf(-fyy, fyy, fxx);
     }
     float fyy;
     if (fxx >= S_CAST(float, 0.0)) {
@@ -545,7 +546,7 @@ void CholeskyDecompositionF(const float* aa, uint32_t predictor_ct, float* __res
       float fxx2 = *aa_col_iter;
       cur_ll_row2 = &(cur_ll_row2[predictor_ctav]);
       for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx) {
-        fxx2 -= cur_ll_row[col_idx] * cur_ll_row2[col_idx];
+        fxx2 = prefer_fmaf(-cur_ll_row[col_idx], cur_ll_row2[col_idx], fxx2);
       }
       cur_ll_row2[row_idx] = fxx2 * fyy;
     }
@@ -568,7 +569,7 @@ void SolveLinearSystemF(const float* ll, const float* yy, uint32_t predictor_ct,
         // Note that it doesn't matter what xx starts with.  First iteration of
         // outer loop reads no values of xx and sets xx[0], second iteration
         // reads xx[0] and sets xx[1], etc.
-        fxx -= cur_ll_row[col_idx] * xx[col_idx];
+        fxx = prefer_fmaf(-cur_ll_row[col_idx], xx[col_idx], fxx);
       }
       xx[row_idx] = fxx / cur_ll_row[row_idx];
       cur_ll_row = &(cur_ll_row[predictor_ctav]);
@@ -579,7 +580,7 @@ void SolveLinearSystemF(const float* ll, const float* yy, uint32_t predictor_ct,
     float fxx = *xx_stop;
     const float* ll_col_iter = &(ll[(predictor_ct - 1) * predictor_ctav + col_idx]);
     for (float* xx_iter = &(xx[predictor_ct - 1]); xx_iter != xx_stop; --xx_iter) {
-      fxx -= (*ll_col_iter) * (*xx_iter);
+      fxx = prefer_fmaf(-(*ll_col_iter), *xx_iter, fxx);
       ll_col_iter -= predictor_ctav;
     }
     *xx_stop = fxx / (*ll_col_iter);
@@ -1933,7 +1934,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
               main_dosage_ssq = 0.0;
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 const double cur_dosage = S_CAST(double, geno_col[sample_idx]);
-                main_dosage_ssq += cur_dosage * cur_dosage;
+                main_dosage_ssq = prefer_fma(cur_dosage, cur_dosage, main_dosage_ssq);
               }
             } else {
               main_dosage_sum = a1_dosage;
@@ -2275,7 +2276,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                 for (uint32_t row_idx = pred_uidx; row_idx != cur_regressed_predictor_stop; ++row_idx) {
                   const float* ll_row = &(cholesky_decomp_return[row_idx * cur_regressed_predictor_ctav]);
                   for (uint32_t col_idx = pred_uidx; col_idx != row_idx; ++col_idx) {
-                    fxx -= ll_row[col_idx] * hh_inv_row[col_idx];
+                    fxx = prefer_fmaf(-ll_row[col_idx], hh_inv_row[col_idx], fxx);
                   }
                   hh_inv_row[row_idx] = fxx / ll_row[row_idx];
                   fxx = 0.0;
@@ -2284,7 +2285,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
                   fxx = hh_inv_row[--col_idx];
                   float* hh_inv_row_iter = &(hh_inv_row[cur_regressed_predictor_stop - 1]);
                   for (uint32_t row_idx = cur_regressed_predictor_stop - 1; row_idx > col_idx; --row_idx) {
-                    fxx -= cholesky_decomp_return[row_idx * cur_regressed_predictor_ctav + col_idx] * (*hh_inv_row_iter--);
+                    fxx = prefer_fmaf(-cholesky_decomp_return[row_idx * cur_regressed_predictor_ctav + col_idx], *hh_inv_row_iter--, fxx);
                   }
                   *hh_inv_row_iter = fxx / cholesky_decomp_return[col_idx * cur_regressed_predictor_ctavp1];
                 }
@@ -2713,7 +2714,7 @@ void CholeskyDecompositionD(const double* aa, uint32_t predictor_ct, double* __r
     double dxx = *aa_diag_elem_ptr;
     for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx) {
       const double dyy = cur_ll_row[col_idx];
-      dxx -= dyy * dyy;
+      dxx = prefer_fma(-dyy, dyy, dxx);
     }
     double dyy;
     if (dxx >= 0.0) {
@@ -2730,7 +2731,7 @@ void CholeskyDecompositionD(const double* aa, uint32_t predictor_ct, double* __r
       double dxx2 = *aa_col_iter;
       cur_ll_row2 = &(cur_ll_row2[predictor_ctav]);
       for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx) {
-        dxx2 -= cur_ll_row[col_idx] * cur_ll_row2[col_idx];
+        dxx2 = prefer_fma(-cur_ll_row[col_idx], cur_ll_row2[col_idx], dxx2);
       }
       cur_ll_row2[row_idx] = dxx2 * dyy;
     }
@@ -2746,7 +2747,7 @@ void SolveLinearSystemD(const double* ll, const double* yy, uint32_t predictor_c
     for (uint32_t row_idx = 0; row_idx != predictor_ct; ++row_idx) {
       double dxx = yy[row_idx];
       for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx) {
-        dxx -= cur_ll_row[col_idx] * xx[col_idx];
+        dxx = prefer_fma(-cur_ll_row[col_idx], xx[col_idx], dxx);
       }
       xx[row_idx] = dxx / cur_ll_row[row_idx];
       cur_ll_row = &(cur_ll_row[predictor_ctav]);
@@ -2757,7 +2758,7 @@ void SolveLinearSystemD(const double* ll, const double* yy, uint32_t predictor_c
     double dxx = *xx_stop;
     const double* ll_col_iter = &(ll[(predictor_ct - 1) * predictor_ctav + col_idx]);
     for (double* xx_iter = &(xx[predictor_ct - 1]); xx_iter != xx_stop; --xx_iter) {
-      dxx -= (*ll_col_iter) * (*xx_iter);
+      dxx = prefer_fma(-(*ll_col_iter), *xx_iter, dxx);
       ll_col_iter -= predictor_ctav;
     }
     *xx_stop = dxx / (*ll_col_iter);
@@ -2815,7 +2816,7 @@ BoolErr LogisticRegressionD(const double* yy, const double* xx, const double* sa
     double* zz = vv;
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       // 2 * (ln 3 + 4/3)
-      zz[sample_idx] = (yy[sample_idx] - 0.5) * 4.863891244002886;
+      zz[sample_idx] = prefer_fma(yy[sample_idx], 4.863891244002886, -0.5 * 4.863891244002886);
     }
 
     // For the first iteration, we need to initialize coef in the same manner
@@ -4481,7 +4482,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
               main_dosage_ssq = 0.0;
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 const double cur_dosage = geno_col[sample_idx];
-                main_dosage_ssq += cur_dosage * cur_dosage;
+                main_dosage_ssq = prefer_fma(cur_dosage, cur_dosage, main_dosage_ssq);
               }
             } else {
               main_dosage_sum = a1_dosage;
@@ -4831,7 +4832,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                 for (uint32_t row_idx = pred_uidx; row_idx != cur_regressed_predictor_stop; ++row_idx) {
                   const double* ll_row = &(cholesky_decomp_return[row_idx * cur_regressed_predictor_ctav]);
                   for (uint32_t col_idx = pred_uidx; col_idx != row_idx; ++col_idx) {
-                    dxx -= ll_row[col_idx] * hh_inv_row[col_idx];
+                    dxx = prefer_fma(-ll_row[col_idx], hh_inv_row[col_idx], dxx);
                   }
                   hh_inv_row[row_idx] = dxx / ll_row[row_idx];
                   dxx = 0.0;
@@ -4840,7 +4841,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
                   dxx = hh_inv_row[--col_idx];
                   double* hh_inv_row_iter = &(hh_inv_row[cur_regressed_predictor_stop - 1]);
                   for (uint32_t row_idx = cur_regressed_predictor_stop - 1; row_idx > col_idx; --row_idx) {
-                    dxx -= cholesky_decomp_return[row_idx * cur_regressed_predictor_ctav + col_idx] * (*hh_inv_row_iter--);
+                    dxx = prefer_fma(-cholesky_decomp_return[row_idx * cur_regressed_predictor_ctav + col_idx], *hh_inv_row_iter--, dxx);
                   }
                   *hh_inv_row_iter = dxx / cholesky_decomp_return[col_idx * cur_regressed_predictor_ctavp1];
                 }

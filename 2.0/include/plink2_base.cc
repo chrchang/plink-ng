@@ -779,6 +779,16 @@ uintptr_t CountVints(const unsigned char* buf, const unsigned char* buf_end) {
 }
 #endif
 
+
+int32_t u32cmp(const void* aa, const void* bb) {
+  const uint32_t uaa = *S_CAST(const uint32_t*, aa);
+  const uint32_t ubb = *S_CAST(const uint32_t*, bb);
+  if (uaa < ubb) {
+    return -1;
+  }
+  return (uaa > ubb);
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

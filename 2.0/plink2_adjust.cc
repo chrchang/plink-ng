@@ -24,6 +24,7 @@
 #include "plink2_cmdline.h"
 #include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
+#include "include/plink2_float.h"
 #include "include/plink2_stats.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"

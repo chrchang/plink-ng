@@ -19,11 +19,16 @@
 
 #include "include/SFMT.h"
 #include "include/plink2_base.h"
-#include "include/plink2_string.h"
+#include "include/plink2_float.h"
 
 #ifdef __cplusplus
 namespace plink2 {
 #endif
+
+// sfmt_t is annoyingly large.  However, I reviewed "modern" alternatives to
+// SFMT in Feb 2026 -- see e.g. https://go.dev/blog/chacha8rand -- and
+// concluded that SFMT isn't worth replacing here (though I probably won't use
+// it in new code).
 
 HEADER_INLINE double RandUnif(sfmt_t* sfmtp) {
   return (sfmt_genrand_uint32(sfmtp) + 0.5) * k2m32;

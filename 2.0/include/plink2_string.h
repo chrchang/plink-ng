@@ -21,18 +21,12 @@
 // Standalone string-printing and parsing functions which neither make
 // permanent memory allocations nor use g_bigstack for temporary allocations.
 
-#include <math.h>  // fabs(), isfinite()
+#include <math.h>  // fabs()
 #include <stdlib.h>
 #include <string.h>
 
 #include "plink2_base.h"
-
-#ifdef __cplusplus
-#  include <algorithm>  // IWYU pragma: export
-#  if __cplusplus >= 201902L && defined(__GNUC__) && !defined(__clang__)
-#    include <execution>  // IWYU pragma: export
-#  endif
-#endif
+#include "plink2_float.h"
 
 #ifdef _WIN32
 #  define EOLN_STR "\r\n"
@@ -43,59 +37,6 @@
 // generic maximum line byte length, currently also used as a default I/O
 // buffer size.  .ped/.vcf/etc. lines can of course be longer.
 CONSTI32(kMaxMediumLine, 131072);
-
-// apparently these aren't always defined in limits.h
-#ifndef DBL_MAX
-#  define DBL_MAX 1.7976931348623157e308
-#endif
-#ifndef FLT_MAX
-#  define FLT_MAX S_CAST(float, 3.40282347e38)
-#endif
-
-// These are needed by plink2_stats.  May want to define these elsewhere, but
-// they can't live in plink2_cmdline any more.
-static const double kE = 2.7182818284590452;
-static const double kPi = 3.1415926535897932;
-static const double kSqrt2 = 1.4142135623730951;
-static const double kRecipE = 0.36787944117144233;
-
-static const double k2p64 = 18446744073709551616.0;
-// Negative powers of 2, mostly used as tolerances for floating-point
-// approximate-equality checks.
-static const double k2m21 = 1.0 / (1 << 21);
-// must be >= sqrt(kSmallEpsilon)
-static const double kBigEpsilon = k2m21;
-static const double k2m30 = 1.0 / (1 << 30);
-static const double kEpsilon = k2m30;
-static const double k2m32 = 1.0 / (1LLU << 32);
-static const double k2m34 = 1.0 / (1LLU << 34);
-static const double k2m35 = 1.0 / (1LLU << 35);
-static const double k2m40 = 1.0 / (1LLU << 40);
-static const double k2m44 = 1.0 / (1LLU << 44);
-static const double kSmallEpsilon = k2m44;
-static const double k2m47 = 1.0 / (1LLU << 47);
-static const double k2m53 = 1.0 / (1LLU << 53);
-
-// 2^{-83} bias to give exact tests maximum ability to determine tiny p-values.
-// (~2^{-53} is necessary to take advantage of denormalized small numbers, then
-// allow tail sum to be up to 2^30.)
-static const double kExactTestBias = 0.00000000000000000000000010339757656912845935892608650874535669572651386260986328125;
-
-#ifdef __cplusplus
-#  define STD_SORT(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))
-#  if __cplusplus >= 201902L && defined(__GNUC__) && !defined(__clang__)
-// this should only be used for arrays of length >= variant_ct or sample_ct
-// (sample_ct is cutting it close).
-// macro should still be used in e.g. non-__cplusplus blocks, so that we have
-// the option of falling back on a hand-coded parallel sort.
-#    define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) std::sort(std::execution::par_unseq, &((arr)[0]), (&((arr)[ct])))
-#  else
-#    define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))
-#  endif
-#else
-#  define STD_SORT(ct, fallback_cmp, arr) qsort((arr), (ct), sizeof(*(arr)), (fallback_cmp))
-#  define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) qsort((arr), (ct), sizeof(*(arr)), (fallback_cmp))
-#endif
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -372,36 +313,6 @@ HEADER_INLINE int32_t memequal_sk(const void* s1, const char* k_s2) {
 HEADER_INLINE int32_t strequal_unsafe(const char* unknown_len_str, const char* known_len_tok, uint32_t slen) {
   return memequal(unknown_len_str, known_len_tok, slen) && (!unknown_len_str[slen]);
 }
-
-#if defined(__cplusplus)
-#  if __cplusplus >= 201103L
-HEADER_INLINE bool isfinite_f(float fxx) {
-  using namespace std;
-  return isfinite(fxx);
-}
-
-HEADER_INLINE bool isfinite_d(double dxx) {
-  using namespace std;
-  return isfinite(dxx);
-}
-#  else
-#    ifdef isfinite
-#      define isfinite_f isfinite
-#      define isfinite_d isfinite
-#    else
-HEADER_INLINE bool isfinite_f(float fxx) {
-  return (fxx == fxx) && (fxx != INFINITY) && (fxx != -INFINITY);
-}
-
-HEADER_INLINE bool isfinite_d(double dxx) {
-  return (dxx == dxx) && (dxx != S_CAST(double, INFINITY)) && (dxx != S_CAST(double, -INFINITY));
-}
-#    endif
-#  endif
-#else
-#  define isfinite_f isfinite
-#  define isfinite_d isfinite
-#endif
 
 HEADER_INLINE int32_t IsSpaceOrEoln(unsigned char ucc) {
   return (ucc <= 32);
@@ -998,7 +909,7 @@ HEADER_INLINE BoolErr ScanFloat(const char* ss, float* valp) {
   if (unlikely(!ScantokDouble(ss, &dxx))) {
     return 1;
   }
-  if (unlikely(fabs(dxx) > 3.4028235677973362e38)) {
+  if (unlikely(fabs(dxx) > FLT_MAX_D)) {
     return 1;
   }
   *valp = S_CAST(float, dxx);
@@ -1550,10 +1461,6 @@ char* dtoa_g(double dxx, char* start);
 // (may want to replace _p8 with _p10 for perfect int32 handling.)
 char* dtoa_g_p8(double dxx, char* start);
 
-static const double kLn10 = 2.3025850929940457;
-static const double kRecipLn10 = 0.43429448190325176;
-static const double kLnNormalMin = -708.3964185322641;
-
 char* lntoa_g(double ln_val, char* start);
 
 HEADER_INLINE void TrailingZeroesToSpaces(char* start) {
@@ -1690,15 +1597,13 @@ HEADER_INLINE BoolErr ScanFloatAllowInf(const char* ss, float* valp) {
   if (!ScantokDouble(ss, &dxx)) {
     uint32_t is_neg = 0;
     if (likely(IsInfStr(ss, strlen_se(ss), &is_neg))) {
-      // INFINITY is usually a float, but apparently not in w64-mingw32-g++
-      // case?
-      *valp = is_neg? S_CAST(float, -INFINITY) : S_CAST(float, INFINITY);
+      *valp = is_neg? -INFINITY_F : INFINITY_F;
       return 0;
     } else {
       return 1;
     }
   }
-  if (unlikely(fabs(dxx) > 3.4028235677973362e38)) {
+  if (unlikely(fabs(dxx) > FLT_MAX_D)) {
     return 1;
   }
   *valp = S_CAST(float, dxx);

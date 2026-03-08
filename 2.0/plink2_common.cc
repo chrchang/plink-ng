@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "include/plink2_float.h"
 #include "include/plink2_htable.h"
 #include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
@@ -335,7 +336,7 @@ void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_pr
   uintptr_t cur_bits = dosage_present[0];
   for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
     const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
-    expanded_dosages[sample_uidx] = dosage_main[dosage_idx] * slope + intercept;
+    expanded_dosages[sample_uidx] = prefer_fma(dosage_main[dosage_idx], slope, intercept);
   }
 }
 
@@ -355,7 +356,7 @@ void PopulateRescaledDosageF(const uintptr_t* genoarr, const uintptr_t* dosage_p
   uintptr_t cur_bits = dosage_present[0];
   for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
     const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
-    expanded_dosages[sample_uidx] = dosage_main[dosage_idx] * slope + intercept;
+    expanded_dosages[sample_uidx] = prefer_fmaf(dosage_main[dosage_idx], slope, intercept);
   }
 }
 

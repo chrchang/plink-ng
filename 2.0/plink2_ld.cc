@@ -25,6 +25,7 @@
 #include "include/SFMT.h"
 #include "include/plink2_bits.h"
 #include "include/plink2_htable.h"
+#include "include/plink2_float.h"
 #include "include/plink2_stats.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
@@ -4575,22 +4576,22 @@ double EmPhaseUnscaledLnlike(double freq11, double freq12, double freq21, double
   const double adj_freq22 = freq22 + freq11_incr;
   const double adj_freq12 = freq12 + half_hethet_share - freq11_incr;
   const double adj_freq21 = freq21 + half_hethet_share - freq11_incr;
-  const double cross_sum = adj_freq11 * adj_freq22 + adj_freq12 * adj_freq21;
+  const double cross_sum = prefer_fma(adj_freq12, adj_freq21, adj_freq11 * adj_freq22);
   double lnlike = 0.0;
   if (cross_sum != 0.0) {
     lnlike = half_hethet_share * log(cross_sum);
   }
   if (adj_freq11 != 0.0) {
-    lnlike += freq11 * log(adj_freq11);
+    lnlike = prefer_fma(freq11, log(adj_freq11), lnlike);
   }
   if (adj_freq12 != 0.0) {
-    lnlike += freq12 * log(adj_freq12);
+    lnlike = prefer_fma(freq12, log(adj_freq12), lnlike);
   }
   if (adj_freq21 != 0.0) {
-    lnlike += freq21 * log(adj_freq21);
+    lnlike = prefer_fma(freq21, log(adj_freq21), lnlike);
   }
   if (adj_freq22 != 0.0) {
-    lnlike += freq22 * log(adj_freq22);
+    lnlike = prefer_fma(freq22, log(adj_freq22), lnlike);
   }
   return lnlike;
 }
@@ -4628,7 +4629,7 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
 
   // bugfix (15 Sep 2023): otherwise possible for freq_majmaj to be slightly
   // less than zero, and this breaks EmPhaseUnscaledLnlike().
-  const double freq_majmaj = MAXV(1.0 - (nmajsums_d[0] + nmajsums_d[1] - known_dotprod_d) * twice_tot_recip, 0.0);
+  const double freq_majmaj = MAXV(prefer_fma(nmajsums_d[0] + nmajsums_d[1] - known_dotprod_d, -twice_tot_recip, 1.0), 0.0);
   const double freq_majmin = (nmajsums_d[1] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
   const double freq_minmaj = (nmajsums_d[0] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
   const double freq_minmin = known_dotprod_d * twice_tot_recip;
@@ -4656,7 +4657,8 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
       // (x - K)(x + f11)(x + f22) + x(x - K - f12)(x - K - f21) = 0
       //   x^3 + (f11 + f22 - K)x^2 + (f11*f22 - K*f11 - K*f22)x - K*f11*f22
       // + x^3 - (2K + f12 + f21)x^2 + (K + f12)(K + f21)x = 0
-      cubic_sol_ct = CubicRealRoots(0.5 * (freq_majmaj + freq_minmin - freq_majmin - freq_minmaj - 3 * half_unphased_hethet_share), 0.5 * (freq_majmaj * freq_minmin + freq_majmin * freq_minmaj + half_unphased_hethet_share * (freq_majmin + freq_minmaj - freq_majmaj - freq_minmin + half_unphased_hethet_share)), -0.5 * half_unphased_hethet_share * freq_majmaj * freq_minmin, cubic_sols);
+      // cubic_sol_ct = CubicRealRoots(0.5 * (freq_majmaj + freq_minmin - freq_majmin - freq_minmaj - 3 * half_unphased_hethet_share), 0.5 * (freq_majmaj * freq_minmin + freq_majmin * freq_minmaj + half_unphased_hethet_share * (freq_majmin + freq_minmaj - freq_majmaj - freq_minmin + half_unphased_hethet_share)), -0.5 * half_unphased_hethet_share * freq_majmaj * freq_minmin, cubic_sols);
+      cubic_sol_ct = CubicRealRoots(0.5 * prefer_fma(-3, half_unphased_hethet_share, freq_majmaj + freq_minmin - freq_majmin - freq_minmaj), 0.5 * prefer_fma(half_unphased_hethet_share, freq_majmin + freq_minmaj - freq_majmaj - freq_minmin + half_unphased_hethet_share, freq_majmaj * freq_minmin + freq_majmin * freq_minmaj), -0.5 * half_unphased_hethet_share * freq_majmaj * freq_minmin, cubic_sols);
       if (cubic_sol_ct > 1) {
         // have encountered 7.9e-11 difference in testing.
         while (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share + k2m32) {
@@ -4725,7 +4727,7 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
       sol_idx = ctzu32(best_lnlike_mask);
     }
     const double cur_sol_xx = cubic_sols[sol_idx];
-    double dd = freq_majmaj + cur_sol_xx - freq_majx * freq_xmaj;
+    double dd = prefer_fma(-freq_majx, freq_xmaj, freq_majmaj + cur_sol_xx);
     if (fabs(dd) < kSmallEpsilon) {
       dd = 0.0;
     }
@@ -5053,10 +5055,10 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     }
     double valid_obs_d = u31tod(valid_obs_ct);
     if (valid_x_male_ct) {
-      const double male_decr = (is_xs[0] && is_xs[1])? 0.5 : (1.0 - 0.5 * kSqrt2);
-      nmajsums_d[0] -= male_decr * x_male_nmajsums_d[0];
-      nmajsums_d[1] -= male_decr * x_male_nmajsums_d[1];
-      valid_obs_d -= male_decr * u31tod(valid_x_male_ct);
+      const double male_incr = (is_xs[0] && is_xs[1])? -0.5 : (0.5 * kSqrt2 - 1.0);
+      nmajsums_d[0] = prefer_fma(male_incr, x_male_nmajsums_d[0], nmajsums_d[0]);
+      nmajsums_d[1] = prefer_fma(male_incr, x_male_nmajsums_d[1], nmajsums_d[1]);
+      valid_obs_d = prefer_fma(male_incr, u31tod(valid_x_male_ct), valid_obs_d);
     }
 
     const double twice_tot_recip = 0.5 / valid_obs_d;
@@ -5226,7 +5228,9 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         write_iter = strcpya_k(write_iter, ": ");
         double hwe_ln_pval;
         if (!is_xs[var_idx]) {
-          hwe_ln_pval = HweLnP(genocounts[1], genocounts[0], genocounts[2], hwe_midp);
+          if (unlikely(HweLnP(genocounts[1], genocounts[0], genocounts[2], hwe_midp, &hwe_ln_pval))) {
+            goto LdConsole_ret_NOMEM;
+          }
         } else {
           STD_ARRAY_DECL(uint32_t, 4, male_genocounts);
           GenoarrCountSubsetFreqs(cur_genovec, sex_male_collapsed_interleaved, founder_ct, x_male_ct, male_genocounts);
@@ -5238,7 +5242,9 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
             genocounts[1] -= nosex_genocounts[1];
             genocounts[2] -= nosex_genocounts[2];
           }
-          hwe_ln_pval = HweXchrLnP(genocounts[1], genocounts[0] - male_genocounts[0], genocounts[2] - male_genocounts[2], male_genocounts[0], male_genocounts[2], hwe_midp);
+          if (unlikely(HweXchrLnP(genocounts[1], genocounts[0] - male_genocounts[0], genocounts[2] - male_genocounts[2], male_genocounts[0], male_genocounts[2], hwe_midp, &hwe_ln_pval))) {
+            goto LdConsole_ret_NOMEM;
+          }
         }
         write_iter = lntoa_g(hwe_ln_pval, write_iter);
         memcpy_k(write_iter, "\n", 2);
@@ -5273,7 +5279,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         logputsb();
       }
       const double cur_sol_xx = cubic_sols[sol_idx];
-      double dd = freq_majmaj + cur_sol_xx - freq_majx * freq_xmaj;
+      double dd = prefer_fma(-freq_majx, freq_xmaj, freq_majmaj + cur_sol_xx);
       if (fabs(dd) < kSmallEpsilon) {
         dd = 0.0;
       }
@@ -7165,20 +7171,20 @@ double ComputeXR2(const R2Variant* r2vp0, const R2Variant* r2vp1, const uintptr_
       printf("male_obs_ct: %u\n", male_obs_ct);
       */
 
-      const double weighted_obs_ct = u31tod(valid_obs_ct) - male_downwt * u31tod(male_obs_ct);
-      const double weighted_nmaj_ct0 = u31tod(nmaj_ct0) - male_downwt * u31tod(male_nmaj_ct0);
-      const double weighted_nmaj_ct1 = u31tod(nmaj_ct1) - male_downwt * u31tod(male_nmaj_ct1);
-      const double weighted_ssq0 = u63tod(ssq0) - male_downwt * u63tod(male_ssq0);
-      const double weighted_ssq1 = u63tod(ssq1) - male_downwt * u63tod(male_ssq1);
-      const double weighted_dotprod = u63tod(dotprod) - male_downwt * u63tod(male_dotprod);
+      const double weighted_obs_ct = prefer_fma(-male_downwt, u31tod(male_obs_ct), u31tod(valid_obs_ct));
+      const double weighted_nmaj_ct0 = prefer_fma(-male_downwt, u31tod(male_nmaj_ct0), u31tod(nmaj_ct0));
+      const double weighted_nmaj_ct1 = prefer_fma(-male_downwt, u31tod(male_nmaj_ct1), u31tod(nmaj_ct1));
+      const double weighted_ssq0 = prefer_fma(-male_downwt, u63tod(male_ssq0), u63tod(ssq0));
+      const double weighted_ssq1 = prefer_fma(-male_downwt, u63tod(male_ssq1), u63tod(ssq1));
+      const double weighted_dotprod = prefer_fma(-male_downwt, u63tod(male_dotprod), u63tod(dotprod));
 
-      const double variance0 = weighted_ssq0 * weighted_obs_ct - weighted_nmaj_ct0 * weighted_nmaj_ct0;
-      const double variance1 = weighted_ssq1 * weighted_obs_ct - weighted_nmaj_ct1 * weighted_nmaj_ct1;
+      const double variance0 = prefer_fma(weighted_ssq0, weighted_obs_ct, -weighted_nmaj_ct0 * weighted_nmaj_ct0);
+      const double variance1 = prefer_fma(weighted_ssq1, weighted_obs_ct, -weighted_nmaj_ct1 * weighted_nmaj_ct1);
       if ((variance0 <= 0.0) || (variance1 <= 0.0)) {
         return -DBL_MAX;
       }
       const double variance_prod = variance0 * variance1;
-      const double cov01 = weighted_dotprod * weighted_obs_ct - weighted_nmaj_ct0 * weighted_nmaj_ct1;
+      const double cov01 = prefer_fma(weighted_dotprod, weighted_obs_ct, -weighted_nmaj_ct0 * weighted_nmaj_ct1);
       *is_neg_ptr = (cov01 < 0.0);
       return MINV(1.0, cov01 * cov01 / variance_prod);
     }
@@ -7208,15 +7214,15 @@ double ComputeXR2(const R2Variant* r2vp0, const R2Variant* r2vp1, const uintptr_
       uint64_t male_dosageprod;
       male_obs_ct = ComputeR2DosageUnphasedSubsetStats(dp0, dp1, founder_male_collapsed, male_dosage_invmask, sample_ct, male_ct, dp0->x_male_nm_ct, dp1->x_male_nm_ct, sex_nmaj_dosages, &male_ssq0, &male_ssq1, &male_dosageprod, cur_nm_buf, invmask_buf);
 
-      const double weighted_obs_ct = u31tod(valid_obs_ct) - male_downwt * u31tod(male_obs_ct);
-      const double weighted_nmaj0 = u63tod(nmaj_dosages[0]) - male_downwt * u63tod(sex_nmaj_dosages[0]);
-      const double weighted_nmaj1 = u63tod(nmaj_dosages[1]) - male_downwt * u63tod(sex_nmaj_dosages[1]);
-      const double weighted_dosageprod = u63tod(dosageprod) - male_downwt * u63tod(male_dosageprod);
-      const double weighted_ssq0 = u63tod(ssq0) - male_downwt * u63tod(male_ssq0);
-      const double weighted_ssq1 = u63tod(ssq1) - male_downwt * u63tod(male_ssq1);
+      const double weighted_obs_ct = prefer_fma(-male_downwt, u31tod(male_obs_ct), u31tod(valid_obs_ct));
+      const double weighted_nmaj0 = prefer_fma(-male_downwt, u63tod(sex_nmaj_dosages[0]), u63tod(nmaj_dosages[0]));
+      const double weighted_nmaj1 = prefer_fma(-male_downwt, u63tod(sex_nmaj_dosages[1]), u63tod(nmaj_dosages[1]));
+      const double weighted_dosageprod = prefer_fma(-male_downwt, u63tod(male_dosageprod), u63tod(dosageprod));
+      const double weighted_ssq0 = prefer_fma(-male_downwt, u63tod(male_ssq0), u63tod(ssq0));
+      const double weighted_ssq1 = prefer_fma(-male_downwt, u63tod(male_ssq1), u63tod(ssq1));
 
-      const double variance0 = weighted_ssq0 * weighted_obs_ct - weighted_nmaj0 * weighted_nmaj0;
-      const double variance1 = weighted_ssq1 * weighted_obs_ct - weighted_nmaj1 * weighted_nmaj1;
+      const double variance0 = prefer_fma(weighted_ssq0, weighted_obs_ct, -weighted_nmaj0 * weighted_nmaj0);
+      const double variance1 = prefer_fma(weighted_ssq1, weighted_obs_ct, -weighted_nmaj1 * weighted_nmaj1);
       if ((variance0 <= 0.0) || (variance1 <= 0.0)) {
         return -DBL_MAX;
       }
@@ -7224,7 +7230,7 @@ double ComputeXR2(const R2Variant* r2vp0, const R2Variant* r2vp1, const uintptr_
       if (variance_prod == 0.0) {
         return -DBL_MAX;
       }
-      const double cov01 = weighted_dosageprod * weighted_obs_ct - weighted_nmaj0 * weighted_nmaj1;
+      const double cov01 = prefer_fma(weighted_dosageprod, weighted_obs_ct, -weighted_nmaj0 * weighted_nmaj1);
       *is_neg_ptr = (cov01 < 0.0);
       return MINV(1.0, cov01 * cov01 / variance_prod);
     }
@@ -7245,11 +7251,11 @@ double ComputeXR2(const R2Variant* r2vp0, const R2Variant* r2vp1, const uintptr_
   }
   const double male_wt = 1.0 - male_downwt;
   double nmajsums_d[2];
-  nmajsums_d[0] = nonmale_nmajsums_d[0] + male_wt * male_nmajsums_d[0];
-  nmajsums_d[1] = nonmale_nmajsums_d[1] + male_wt * male_nmajsums_d[1];
-  const double known_dotprod_d = nonmale_known_dotprod_d + male_wt * male_known_dotprod_d;
-  const double unknown_hethet_d = nonmale_unknown_hethet_d + male_wt * male_unknown_hethet_d;
-  const double valid_obs_d = u31tod(nonmale_obs_ct) + male_wt * u31tod(male_obs_ct);
+  nmajsums_d[0] = prefer_fma(male_wt, male_nmajsums_d[0], nonmale_nmajsums_d[0]);
+  nmajsums_d[1] = prefer_fma(male_wt, male_nmajsums_d[1], nonmale_nmajsums_d[1]);
+  const double known_dotprod_d = prefer_fma(male_wt, male_known_dotprod_d, nonmale_known_dotprod_d);
+  const double unknown_hethet_d = prefer_fma(male_wt, male_unknown_hethet_d, nonmale_unknown_hethet_d);
+  const double valid_obs_d = prefer_fma(male_wt, u31tod(male_obs_ct), u31tod(nonmale_obs_ct));
   const double twice_tot_recip = 0.5 / valid_obs_d;
   if ((d_ptr == nullptr) && (dprime_ptr == nullptr)) {
     double r2;

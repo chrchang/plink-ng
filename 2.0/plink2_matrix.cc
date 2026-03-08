@@ -1145,7 +1145,7 @@ BoolErr InvertRank1Symm(const double* a_inv, const double* bb, lapack_int orig_d
   for (; orig_row_idx != insert_idx; ++orig_row_idx) {
     const double ainv_b_div_k = k_recip * ainv_b_buf[orig_row_idx];
     for (uintptr_t col_idx = 0; col_idx <= orig_row_idx; ++col_idx) {
-      outmatrix_row[col_idx] = a_inv_row[col_idx] + ainv_b_div_k * ainv_b_buf[col_idx];
+      outmatrix_row[col_idx] = prefer_fma(ainv_b_div_k, ainv_b_buf[col_idx], a_inv_row[col_idx]);
     }
     a_inv_row = &(a_inv_row[orig_dim_l]);
     outmatrix_row = &(outmatrix_row[final_dim]);
@@ -1158,12 +1158,12 @@ BoolErr InvertRank1Symm(const double* a_inv, const double* bb, lapack_int orig_d
     outmatrix_row = &(outmatrix_row[final_dim]);
     const double ainv_b_div_k = k_recip * ainv_b_buf[orig_row_idx];
     for (uintptr_t col_idx = 0; col_idx != insert_idx; ++col_idx) {
-      outmatrix_row[col_idx] = a_inv_row[col_idx] + ainv_b_div_k * ainv_b_buf[col_idx];
+      outmatrix_row[col_idx] = prefer_fma(ainv_b_div_k, ainv_b_buf[col_idx], a_inv_row[col_idx]);
     }
     outmatrix_row[insert_idx] = -ainv_b_div_k;
     double* outmatrix_write_base = &(outmatrix_row[1]);
     for (uintptr_t orig_col_idx = insert_idx; orig_col_idx <= orig_row_idx; ++orig_col_idx) {
-      outmatrix_write_base[orig_col_idx] = a_inv_row[orig_col_idx] + ainv_b_div_k * ainv_b_buf[orig_col_idx];
+      outmatrix_write_base[orig_col_idx] = prefer_fma(ainv_b_div_k, ainv_b_buf[orig_col_idx], a_inv_row[orig_col_idx]);
     }
     a_inv_row = &(a_inv_row[orig_dim_l]);
   }
@@ -1179,7 +1179,7 @@ BoolErr InvertRank1SymmDiag(const double* a_inv, const double* bb, lapack_int or
   const uintptr_t orig_dim_p1 = orig_dim_l + 1;
   for (uintptr_t ulii = 0; ulii != orig_dim_l; ++ulii) {
     const double dxx = ainv_b_buf[ulii];
-    outdiag[ulii] = a_inv[ulii * orig_dim_p1] + k_recip * dxx * dxx;
+    outdiag[ulii] = prefer_fma(k_recip, dxx * dxx, a_inv[ulii * orig_dim_p1]);
   }
   outdiag[orig_dim_l] = k_recip;
   return 0;
@@ -1206,7 +1206,7 @@ BoolErr InvertRank2SymmStart(const double* a_inv, const double* bb, lapack_int o
 
   // [ a b ]^{-1} = [ d  -b ] / (ad - b^2)
   // [ b d ]        [ -b a  ]
-  const double det = d11 * d22 - d12 * d12;
+  const double det = prefer_fma(d11, d22, -d12 * d12);
   if (fabs(det) < kMatrixSingularRcond) {
     return 1;
   }
@@ -1217,8 +1217,8 @@ BoolErr InvertRank2SymmStart(const double* a_inv, const double* bb, lapack_int o
   for (uintptr_t col_idx = 0; col_idx != orig_dim_l; ++col_idx) {
     const double b_ainv_1 = b_ainv[col_idx];
     const double b_ainv_2 = b_ainv[col_idx + orig_dim_l];
-    s_b_ainv[col_idx] = schur11 * b_ainv_1 + schur12 * b_ainv_2;
-    s_b_ainv[col_idx + orig_dim_l] = schur12 * b_ainv_1 + schur22 * b_ainv_2;
+    s_b_ainv[col_idx] = prefer_fma(schur11, b_ainv_1, schur12 * b_ainv_2);
+    s_b_ainv[col_idx + orig_dim_l] = prefer_fma(schur12, b_ainv_1, schur22 * b_ainv_2);
   }
   *schur11_ptr = schur11;
   *schur12_ptr = schur12;
@@ -1246,7 +1246,7 @@ BoolErr InvertRank2Symm(const double* a_inv, const double* bb, lapack_int orig_d
     const double b_ainv_1 = b_ainv_buf[orig_row_idx];
     const double b_ainv_2 = b_ainv_row2[orig_row_idx];
     for (uintptr_t col_idx = 0; col_idx <= orig_row_idx; ++col_idx) {
-      outmatrix_row[col_idx] = a_inv_row[col_idx] + b_ainv_1 * s_b_ainv_buf[col_idx] + b_ainv_2 * s_b_ainv_row2[col_idx];
+      outmatrix_row[col_idx] = prefer_fma(b_ainv_2, s_b_ainv_row2[col_idx], prefer_fma(b_ainv_1, s_b_ainv_buf[col_idx], a_inv_row[col_idx]));
     }
     a_inv_row = &(a_inv_row[orig_dim_l]);
     outmatrix_row = &(outmatrix_row[final_dim]);
@@ -1266,13 +1266,13 @@ BoolErr InvertRank2Symm(const double* a_inv, const double* bb, lapack_int orig_d
     const double b_ainv_1 = b_ainv_buf[orig_row_idx];
     const double b_ainv_2 = b_ainv_row2[orig_row_idx];
     for (uintptr_t col_idx = 0; col_idx != insert_idx; ++col_idx) {
-      outmatrix_row[col_idx] = a_inv_row[col_idx] + b_ainv_1 * s_b_ainv_buf[col_idx] + b_ainv_2 * s_b_ainv_row2[col_idx];
+      outmatrix_row[col_idx] = prefer_fma(b_ainv_2, s_b_ainv_row2[col_idx], prefer_fma(b_ainv_1, s_b_ainv_buf[col_idx], a_inv_row[col_idx]));
     }
     outmatrix_row[insert_idx] = -s_b_ainv_buf[orig_row_idx];
     outmatrix_row[insert_idx + 1] = -s_b_ainv_row2[orig_row_idx];
     double* outmatrix_write_base = &(outmatrix_row[2]);
     for (uintptr_t orig_col_idx = insert_idx; orig_col_idx <= orig_row_idx; ++orig_col_idx) {
-      outmatrix_write_base[orig_col_idx] = a_inv_row[orig_col_idx] + b_ainv_1 * s_b_ainv_buf[orig_col_idx] + b_ainv_2 * s_b_ainv_row2[orig_col_idx];
+      outmatrix_write_base[orig_col_idx] = prefer_fma(b_ainv_2, s_b_ainv_row2[orig_col_idx], prefer_fma(b_ainv_1, s_b_ainv_buf[orig_col_idx], a_inv_row[orig_col_idx]));
     }
     a_inv_row = &(a_inv_row[orig_dim_l]);
   }
@@ -1291,7 +1291,8 @@ BoolErr InvertRank2SymmDiag(const double* a_inv, const double* bb, lapack_int or
   const double* b_ainv_row2 = &(b_ainv_buf[orig_dim_l]);
   const double* s_b_ainv_row2 = &(s_b_ainv_buf[orig_dim_l]);
   for (uintptr_t ulii = 0; ulii != orig_dim_l; ++ulii) {
-    outdiag[ulii] = a_inv[ulii * orig_dim_p1] + b_ainv_buf[ulii] * s_b_ainv_buf[ulii] + b_ainv_row2[ulii] * s_b_ainv_row2[ulii];
+    // outdiag[ulii] = a_inv[ulii * orig_dim_p1] + b_ainv_buf[ulii] * s_b_ainv_buf[ulii] + b_ainv_row2[ulii] * s_b_ainv_row2[ulii];
+    outdiag[ulii] = prefer_fma(b_ainv_row2[ulii], s_b_ainv_row2[ulii], prefer_fma(b_ainv_buf[ulii], s_b_ainv_buf[ulii], a_inv[ulii * orig_dim_p1]));
   }
   outdiag[orig_dim_l] = schur11;
   outdiag[orig_dim_l + 1] = schur22;

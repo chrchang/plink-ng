@@ -23,6 +23,7 @@
 
 #include "include/pgenlib_misc.h"
 #include "include/plink2_bits.h"
+#include "include/plink2_float.h"
 #include "include/plink2_stats.h"
 #include "include/plink2_string.h"
 #include "include/plink2_thread.h"
@@ -1026,7 +1027,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
               main_dosage_ssq = 0.0;
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 const double cur_dosage = geno_col[sample_idx];
-                main_dosage_ssq += cur_dosage * cur_dosage;
+                main_dosage_ssq = prefer_fma(cur_dosage, cur_dosage, main_dosage_ssq);
               }
             }
           } else {
@@ -1283,7 +1284,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                           } else {
                             const uint32_t cur_geno_m1 = cur_geno - 1;
                             const double geno_d = geno_d_lookup[cur_geno_m1];
-                            geno_pheno_prod += geno_d * cur_pheno_val;
+                            geno_pheno_prod = prefer_fma(geno_d, cur_pheno_val, geno_pheno_prod);
                             if (domdev_third && (!cur_geno_m1)) {
                               // domdev = 1
                               domdev_pheno_prod += cur_pheno_val;
@@ -1316,7 +1317,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                         const uint32_t sample_midx = sample_midx_base + (lowest_set_bit / 2);
                         const double geno_d = geno_d_lookup[lowest_set_bit & 1];
                         const double cur_pheno_val = cur_pheno[sample_midx];
-                        geno_pheno_prod += geno_d * cur_pheno_val;
+                        geno_pheno_prod = prefer_fma(geno_d, cur_pheno_val, geno_pheno_prod);
                         if (domdev_third && (!(lowest_set_bit & 1))) {
                           // domdev = 1
                           domdev_pheno_prod += cur_pheno_val;
@@ -1343,9 +1344,9 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                         const uint32_t sample_idx = sample_idx_base + (lowest_set_bit / 2);
                         const double geno_d = geno_d_lookup[lowest_set_bit & 1];
                         const double cur_pheno_val = nm_pheno_buf[sample_idx];
-                        geno_pheno_prod += geno_d * cur_pheno_val;
+                        geno_pheno_prod = prefer_fma(geno_d, cur_pheno_val, geno_pheno_prod);
                         for (uintptr_t pred_idx = domdev_third + 2; pred_idx != cur_predictor_ct; ++pred_idx) {
-                          geno_dotprod_row[pred_idx] += geno_d * nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx];
+                          geno_dotprod_row[pred_idx] = prefer_fma(geno_d, nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx], geno_dotprod_row[pred_idx]);
                         }
                         // can have a separate categorical loop here
 
@@ -1366,8 +1367,11 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                 xt_y[1] = geno_pheno_prod;
                 const double het_ctd = u31tod(genocounts[1]);
                 const double homalt_ctd = u31tod(genocounts[2]);
-                xtx_inv[cur_predictor_ct] = het_ctd * geno_d_lookup[0] + homalt_ctd * geno_d_lookup[1];
-                xtx_inv[cur_predictor_ct + 1] = het_ctd * geno_d_lookup[0] * geno_d_lookup[0] + homalt_ctd * geno_d_lookup[1] * geno_d_lookup[1];
+                const double lookup0 = geno_d_lookup[0];
+                const double lookup1 = geno_d_lookup[1];
+                const double homalt_x_lookup1 = homalt_ctd * lookup1;
+                xtx_inv[cur_predictor_ct] = prefer_fma(het_ctd, lookup0, homalt_x_lookup1);
+                xtx_inv[cur_predictor_ct + 1] = prefer_fma(het_ctd * lookup0, lookup0, homalt_x_lookup1 * lookup1);
                 if (domdev_third) {
                   xt_y[2] = domdev_pheno_prod;
                   xtx_inv[cur_predictor_ct + 2] = domdev_geno_prod;
@@ -3267,7 +3271,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
               main_dosage_ssq = 0.0;
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 const double cur_dosage = geno_col[sample_idx];
-                main_dosage_ssq += cur_dosage * cur_dosage;
+                main_dosage_ssq = prefer_fma(cur_dosage, cur_dosage, main_dosage_ssq);
               }
             }
           } else {
@@ -3532,13 +3536,13 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                               // domdev = 1
                               for (uint32_t pheno_idx = 0; pheno_idx != subbatch_size; ++pheno_idx) {
                                 const double cur_pheno_val = cur_pheno_pmaj[pheno_idx * cur_sample_ct + sample_midx];
-                                geno_pheno_prods[pheno_idx] += geno_d * cur_pheno_val;
+                                geno_pheno_prods[pheno_idx] = prefer_fma(geno_d, cur_pheno_val, geno_pheno_prods[pheno_idx]);
                                 domdev_pheno_prods[pheno_idx] += cur_pheno_val;
                               }
                               domdev_geno_prod += geno_d;
                             } else {
                               for (uint32_t pheno_idx = 0; pheno_idx != subbatch_size; ++pheno_idx) {
-                                geno_pheno_prods[pheno_idx] += geno_d * cur_pheno_pmaj[pheno_idx * cur_sample_ct + sample_midx];
+                                geno_pheno_prods[pheno_idx] = prefer_fma(geno_d, cur_pheno_pmaj[pheno_idx * cur_sample_ct + sample_midx], geno_pheno_prods[pheno_idx]);
                               }
                             }
                           }
@@ -3574,13 +3578,13 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                           // domdev = 1
                           for (uint32_t pheno_idx = 0; pheno_idx != subbatch_size; ++pheno_idx) {
                             const double cur_pheno_val = cur_pheno_pmaj[pheno_idx * cur_sample_ct + sample_midx];
-                            geno_pheno_prods[pheno_idx] += geno_d * cur_pheno_val;
+                            geno_pheno_prods[pheno_idx] = prefer_fma(geno_d, cur_pheno_val, geno_pheno_prods[pheno_idx]);
                             domdev_pheno_prods[pheno_idx] += cur_pheno_val;
                           }
                           domdev_geno_prod += geno_d;
                         } else {
                           for (uint32_t pheno_idx = 0; pheno_idx != subbatch_size; ++pheno_idx) {
-                            geno_pheno_prods[pheno_idx] += geno_d * cur_pheno_pmaj[pheno_idx * cur_sample_ct + sample_midx];
+                            geno_pheno_prods[pheno_idx] = prefer_fma(geno_d, cur_pheno_pmaj[pheno_idx * cur_sample_ct + sample_midx], geno_pheno_prods[pheno_idx]);
                           }
                         }
                         geno_word &= geno_word - 1;
@@ -3603,7 +3607,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                         const uint32_t sample_idx = sample_idx_base + (lowest_set_bit / 2);
                         const double geno_d = geno_d_lookup[lowest_set_bit & 1];
                         for (uintptr_t pred_idx = domdev_third + 2; pred_idx != cur_predictor_ct; ++pred_idx) {
-                          geno_dotprod_row[pred_idx] += geno_d * nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx];
+                          geno_dotprod_row[pred_idx] += prefer_fma(geno_d, nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx], geno_dotprod_row[pred_idx]);
                         }
                         // can have a separate categorical loop here
 
@@ -3611,7 +3615,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                           // domdev = 1
                           for (uint32_t pheno_idx = 0; pheno_idx != subbatch_size; ++pheno_idx) {
                             const double cur_pheno_val = nm_pheno_buf[pheno_idx * nm_sample_ct + sample_idx];
-                            geno_pheno_prods[pheno_idx] += geno_d * cur_pheno_val;
+                            geno_pheno_prods[pheno_idx] = prefer_fma(geno_d, cur_pheno_val, geno_pheno_prods[pheno_idx]);
                             domdev_pheno_prods[pheno_idx] += cur_pheno_val;
                           }
                           domdev_geno_prod += geno_d;
@@ -3621,7 +3625,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                           // categorical optimization possible here
                         } else {
                           for (uint32_t pheno_idx = 0; pheno_idx != subbatch_size; ++pheno_idx) {
-                            geno_pheno_prods[pheno_idx] += geno_d * nm_pheno_buf[pheno_idx * nm_sample_ct + sample_idx];
+                            geno_pheno_prods[pheno_idx] = prefer_fma(geno_d, nm_pheno_buf[pheno_idx * nm_sample_ct + sample_idx], geno_pheno_prods[pheno_idx]);
                           }
                         }
                         geno_word &= geno_word - 1;
@@ -3631,8 +3635,11 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                 }
                 const double het_ctd = u31tod(genocounts[1]);
                 const double homalt_ctd = u31tod(genocounts[2]);
-                xtx_inv[cur_predictor_ct] = het_ctd * geno_d_lookup[0] + homalt_ctd * geno_d_lookup[1];
-                xtx_inv[cur_predictor_ct + 1] = het_ctd * geno_d_lookup[0] * geno_d_lookup[0] + homalt_ctd * geno_d_lookup[1] * geno_d_lookup[1];
+                const double lookup0 = geno_d_lookup[0];
+                const double lookup1 = geno_d_lookup[1];
+                const double homalt_x_lookup1 = homalt_ctd * lookup1;
+                xtx_inv[cur_predictor_ct] = prefer_fma(het_ctd, lookup0, homalt_x_lookup1);
+                xtx_inv[cur_predictor_ct + 1] = prefer_fma(het_ctd * lookup0, lookup0, homalt_x_lookup1 * lookup1);
                 if (domdev_third) {
                   xtx_inv[cur_predictor_ct + 2] = domdev_geno_prod;
                   xtx_inv[2 * cur_predictor_ct] = het_ctd;
@@ -3740,7 +3747,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                       do {
                         const uint32_t difflist_idx = ctzw(missing_word) / 2;
                         const uint32_t sample_midx = cur_difflist_sample_ids[difflist_idx];
-                        tmp_pheno_ssq -= cur_pheno[sample_midx] * cur_pheno[sample_midx];
+                        tmp_pheno_ssq = prefer_fma(-cur_pheno[sample_midx], cur_pheno[sample_midx], tmp_pheno_ssq);
                         missing_word &= missing_word - 1;
                       } while (missing_word);
                     }

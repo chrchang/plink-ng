@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "include/plink2_bits.h"
+#include "include/plink2_float.h"
 #include "include/plink2_string.h"
 #include "plink2_decompress.h"
 
@@ -66,17 +67,17 @@ GlmErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_predi
   // is why the bug wasn't caught for >6 years...) and the regular-branch logic
   // doesn't break.
   const uintptr_t relevant_predictor_ct_p1 = relevant_predictor_ct + 1;
-  const double sample_ct_recip = 1.0 / u31tod(sample_ct);
+  const double neg_sample_ct_recip = -1.0 / u31tod(sample_ct);
   const double sample_ct_m1_d = u31tod(sample_ct - 1);
   const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
   for (uintptr_t pred_idx1 = 0; pred_idx1 != relevant_predictor_ct; ++pred_idx1) {
     double* sample_cov_row = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
     const uintptr_t input_pred_idx1 = pred_idx1 + first_predictor_idx;
     const double* predictor_dotprods_row = &(predictor_dotprods[input_pred_idx1 * predictor_ct]);
-    const double pred1_mean_adj = dbl_2d_buf[input_pred_idx1] * sample_ct_recip;
+    const double neg_pred1_mean_adj = dbl_2d_buf[input_pred_idx1] * neg_sample_ct_recip;
     for (uintptr_t pred_idx2 = 0; pred_idx2 <= pred_idx1; ++pred_idx2) {
       const uintptr_t input_pred_idx2 = pred_idx2 + first_predictor_idx;
-      sample_cov_row[pred_idx2] = (predictor_dotprods_row[input_pred_idx2] - pred1_mean_adj * dbl_2d_buf[input_pred_idx2]) * sample_ct_m1_recip;
+      sample_cov_row[pred_idx2] = prefer_fma(neg_pred1_mean_adj, dbl_2d_buf[input_pred_idx2], predictor_dotprods_row[input_pred_idx2]) * sample_ct_m1_recip;
     }
   }
   // now use dbl_2d_buf to store inverse-sqrts, to get to correlation matrix
@@ -138,29 +139,30 @@ GlmErr CheckMaxCorrAndVifNm(const double* predictor_dotprods, const double* corr
   if (predictor_ct == 2) {
     return 0;
   }
+  const double neg_sample_ct_recip = -sample_ct_recip;
   const uintptr_t relevant_predictor_ct = predictor_ct - 1;
   const uintptr_t relevant_predictor_ct_p1 = predictor_ct;
   // predictor_dotprods[] *rows* 1 (and 2, if geno_pred_ct == 2) are filled,
   // rather than columns
   {
-    const double pred1_mean_adj = predictor_dotprods[predictor_ct] * sample_ct_recip;
-    semicomputed_corr_matrix[0] = (predictor_dotprods[predictor_ct + 1] - pred1_mean_adj * predictor_dotprods[predictor_ct]) * sample_ct_m1_recip;
+    const double neg_pred1_mean_adj = predictor_dotprods[predictor_ct] * neg_sample_ct_recip;
+    semicomputed_corr_matrix[0] = prefer_fma(neg_pred1_mean_adj, predictor_dotprods[predictor_ct], predictor_dotprods[predictor_ct + 1]) * sample_ct_m1_recip;
   }
   for (uintptr_t pred_idx1 = 1; pred_idx1 != relevant_predictor_ct; ++pred_idx1) {
     double* sample_cov_row = &(semicomputed_corr_matrix[pred_idx1 * relevant_predictor_ct]);
     const uintptr_t input_pred_idx1 = pred_idx1 + 1;
     const double* predictor_dotprods_row = &(predictor_dotprods[input_pred_idx1 * predictor_ct]);
-    const double pred1_mean_adj = predictor_dotprods_row[0] * sample_ct_recip;
+    const double neg_pred1_mean_adj = predictor_dotprods_row[0] * neg_sample_ct_recip;
     uintptr_t pred_idx2 = 0;
     for (; pred_idx2 != geno_pred_ct; ++pred_idx2) {
       const uintptr_t input_pred_idx2 = pred_idx2 + 1;
-      sample_cov_row[pred_idx2] = (predictor_dotprods[input_pred_idx2 * predictor_ct + input_pred_idx1] - pred1_mean_adj * predictor_dotprods[input_pred_idx2 * predictor_ct]) * sample_ct_m1_recip;
+      sample_cov_row[pred_idx2] = prefer_fma(neg_pred1_mean_adj, predictor_dotprods[input_pred_idx2 * predictor_ct], predictor_dotprods[input_pred_idx2 * predictor_ct + input_pred_idx1]) * sample_ct_m1_recip;
     }
     // document whether pred_idx2 guaranteed to be <= input_pred_idx1 if this
     // code is revisited
     for (; pred_idx2 < input_pred_idx1; ++pred_idx2) {
       const uintptr_t input_pred_idx2 = pred_idx2 + 1;
-      sample_cov_row[pred_idx2] = (predictor_dotprods_row[input_pred_idx2] - pred1_mean_adj * predictor_dotprods[input_pred_idx2 * predictor_ct]) * sample_ct_m1_recip;
+      sample_cov_row[pred_idx2] = prefer_fma(neg_pred1_mean_adj, predictor_dotprods[input_pred_idx2 * predictor_ct], predictor_dotprods_row[input_pred_idx2]) * sample_ct_m1_recip;
     }
   }
   // assumes semicomputed_inv_corr_sqrts[geno_pred_ct..] is pre-initialized
@@ -277,14 +279,14 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
         const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
         const double cur_covar_val = covar_vals[sample_uidx];
         covar_sum += cur_covar_val;
-        covar_ssq += cur_covar_val * cur_covar_val;
+        covar_ssq = prefer_fma(cur_covar_val, cur_covar_val, covar_ssq);
         *covar_write_iter++ = cur_covar_val;
       }
       *sum_iter++ = covar_sum;
       if (covar_ssq > max_ssq) {
         max_ssq = covar_ssq;
       }
-      covar_ssq -= covar_sum * covar_sum / u31tod(sample_ct);
+      covar_ssq = prefer_fma(-covar_sum, covar_sum / u31tod(sample_ct), covar_ssq);
       if (covar_ssq < min_ssq_minus_sqmean) {
         min_ssq_minus_sqmean = covar_ssq;
       }
@@ -329,7 +331,7 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
         if (covar_ssq > max_ssq) {
           max_ssq = covar_ssq;
         }
-        covar_ssq -= covar_ssq * covar_ssq / u31tod(sample_ct);
+        covar_ssq = prefer_fma(-covar_ssq, covar_ssq / u31tod(sample_ct), covar_ssq);
         if (covar_ssq < min_ssq_minus_sqmean) {
           min_ssq_minus_sqmean = covar_ssq;
         }
@@ -533,7 +535,7 @@ PglErr LoadLocalCovarCoeffs(const LocalCovarCoeffparseCtx* ctx, const char* loca
         for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
           double dxx;
           local_line_iter = ScantokDouble(local_line_iter, &dxx);
-          if (unlikely((!local_line_iter) || (fabs(dxx) > 3.4028235677973362e38))) {
+          if (unlikely((!local_line_iter) || (fabs(dxx) > FLT_MAX_D))) {
             logputs("\n");
             logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
             return kPglRetMalformedInput;
@@ -566,7 +568,7 @@ PglErr LoadLocalCovarCoeffs(const LocalCovarCoeffparseCtx* ctx, const char* loca
           for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
             double dxx;
             local_line_iter = ScantokDouble(local_line_iter, &dxx);
-            if (unlikely((!local_line_iter) || (fabs(dxx) > 3.4028235677973362e38))) {
+            if (unlikely((!local_line_iter) || (fabs(dxx) > FLT_MAX_D))) {
               logputs("\n");
               logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
               return kPglRetMalformedInput;
@@ -1161,12 +1163,12 @@ BoolErr LinearHypothesisChisq(const double* coef, const double* constraints_con_
   const double* inner_iter = inner_buf;
   if (constraint_ct > kDotprodDThresh) {
     for (uintptr_t constraint_idx = 0; constraint_idx != constraint_ct; ++constraint_idx) {
-      result += DotprodD(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
+      result = prefer_fma(DotprodD(inner_iter, outer_buf, constraint_ct), outer_buf[constraint_idx], result);
       inner_iter = &(inner_iter[constraint_ct]);
     }
   } else {
     for (uintptr_t constraint_idx = 0; constraint_idx != constraint_ct; ++constraint_idx) {
-      result += DotprodDShort(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
+      result = prefer_fma(DotprodDShort(inner_iter, outer_buf, constraint_ct), outer_buf[constraint_idx], result);
       inner_iter = &(inner_iter[constraint_ct]);
     }
   }

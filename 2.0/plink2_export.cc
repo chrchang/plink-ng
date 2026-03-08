@@ -24,6 +24,7 @@
 
 #include "include/plink2_bgzf.h"
 #include "include/plink2_bits.h"
+#include "include/plink2_float.h"
 #include "include/plink2_htable.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
@@ -8518,7 +8519,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                     double dxx;
                     const char* floatstr_end = ScanadvDouble(value_iter, &dxx);
                     if (floatstr_end) {
-                      if (unlikely(fabs(dxx) > 3.4028235677973362e38)) {
+                      if (unlikely(fabs(dxx) > FLT_MAX_D)) {
                         snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an out-of-range INFO/%s value.\n", variant_id, fif_keys[fif_idx]);
                         goto ExportBcf_ret_MALFORMED_INPUT_WW;
                       }

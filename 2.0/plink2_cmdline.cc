@@ -27,6 +27,7 @@
 #include <time.h>  // time(), ctime()
 #include <unistd.h>  // getcwd(), gethostname(), sysconf(), fstat()
 
+#include "include/plink2_float.h"
 #include "include/plink2_htable.h"
 #include "include/plink2_thread.h"
 
@@ -172,24 +173,6 @@ BoolErr fclose_flush_null(char* buf_flush, char* write_iter, FILE** outfile_ptr)
 }
 
 
-int32_t u32cmp(const void* aa, const void* bb) {
-  const uint32_t uaa = *S_CAST(const uint32_t*, aa);
-  const uint32_t ubb = *S_CAST(const uint32_t*, bb);
-  if (uaa < ubb) {
-    return -1;
-  }
-  return (uaa > ubb);
-}
-
-int32_t float_cmp(const void* aa, const void* bb) {
-  const float fxx = *S_CAST(const float*, aa);
-  const float fyy = *S_CAST(const float*, bb);
-  if (fxx < fyy) {
-    return -1;
-  }
-  return (fxx > fyy);
-}
-
 int32_t double_cmp(const void* aa, const void* bb) {
   const double dxx = *S_CAST(const double*, aa);
   const double dyy = *S_CAST(const double*, bb);
@@ -218,6 +201,15 @@ int32_t u64cmp(const void* aa, const void* bb) {
 }
 
 #ifndef __cplusplus
+int32_t float_cmp(const void* aa, const void* bb) {
+  const float fxx = *S_CAST(const float*, aa);
+  const float fyy = *S_CAST(const float*, bb);
+  if (fxx < fyy) {
+    return -1;
+  }
+  return (fxx > fyy);
+}
+
 int32_t u64cmp_decr(const void* aa, const void* bb) {
   const uint64_t ullaa = *S_CAST(const uint64_t*, aa);
   const uint64_t ullbb = *S_CAST(const uint64_t*, bb);
@@ -2385,7 +2377,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
  * solutions[] (sorted from smallest to largest), and returning the count.
  * Multiple roots are only returned/counted once.
  * (TODO: Move this to something like plink2_math.  Note that
- * include/plink2_math is not an option because of the GPL vs. LGPL
+ * include/plink2_float is not an option because of the GPL vs. LGPL
  * difference.)
  * gsl_poly_solve_cubic() in the GNU Scientific Library was used as a template
  * when writing this function.  Its license text follows:
@@ -2408,8 +2400,8 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
  */
 uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_REF(double, 3) solutions) {
   const double a2 = coef_a * coef_a;
-  const double small_q = a2 - 3 * coef_b;
-  const double small_r = 2 * a2 * coef_a - 9 * coef_a * coef_b + 27 * coef_c;
+  const double small_q = prefer_fma(-3, coef_b, a2);
+  const double small_r = prefer_fma(2 * a2, coef_a, prefer_fma(-9 * coef_a, coef_b, 27 * coef_c));
   const double small_r2 = small_r * small_r;
   const double small_q3_x4 = 4 * small_q * small_q * small_q;
   const double coef_a_div3 = coef_a * (1.0 / 3.0);
@@ -2437,7 +2429,7 @@ uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_R
   // double)).
   if (small_r2 > small_q3_x4) {
     const double neg_sgn_r = (small_r >= 0)? -1 : 1;
-    const double aa = neg_sgn_r * cbrt(fabs(rr) + sqrt(small_r2 - small_q3_x4) * (1.0 / 54.0));
+    const double aa = neg_sgn_r * cbrt(prefer_fma(sqrt(small_r2 - small_q3_x4), 1.0 / 54.0, fabs(rr)));
     // As long as fabs(rr) is at least the ~2.23e-308 subnormal threshold, aa
     // can't be zero.
     // If fabs(rr) is smaller, small_r2 must be 0, small_r2 > small_q3_x4
@@ -2452,9 +2444,9 @@ uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_R
   const double ratio = rr / (sqrt_q * qq);
   const double theta_div3 = acos(ratio) * (1.0 / 3.0);
   const double norm = -2 * sqrt_q;
-  double sol0 = norm * cos(theta_div3) - coef_a_div3;
-  double sol1 = norm * cos(theta_div3 + (2.0 * kPi / 3.0)) - coef_a_div3;
-  double sol2 = norm * cos(theta_div3 - (2.0 * kPi / 3.0)) - coef_a_div3;
+  double sol0 = prefer_fma(norm, cos(theta_div3), -coef_a_div3);
+  double sol1 = prefer_fma(norm, cos(theta_div3 + (2.0 * kPi / 3.0)), -coef_a_div3);
+  double sol2 = prefer_fma(norm, cos(theta_div3 - (2.0 * kPi / 3.0)), -coef_a_div3);
   // sort and check for within-epsilon equality
   if (sol0 > sol1) {
     const double dxx = sol0;

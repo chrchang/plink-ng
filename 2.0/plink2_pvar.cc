@@ -22,6 +22,7 @@
 
 #include "include/pgenlib_misc.h"
 #include "include/plink2_bits.h"
+#include "include/plink2_float.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
 #include "plink2_decompress.h"
@@ -750,7 +751,7 @@ typedef struct InfoFilterStruct {
   uint32_t* keyeq_slens;  // includes =, does not include ;
 
   const char** cur_str_values;  // nullptr = unparsed, ';' = nonexistent
-  double* cur_values;  // INFINITY = unparsed, -INFINITY = invalid
+  double* cur_values;  // INFINITY_D = unparsed, -INFINITY_D = invalid
 
   uint32_t key_ct;
 } InfoFilter;
@@ -1024,14 +1025,14 @@ uint32_t InfoConditionSatisfiedInternal(const InfoExpr* exprp, const char* info_
       }
       double* cur_value_ptr = &(filterp->cur_values[kidx]);
       double value = *cur_value_ptr;
-      if (value == S_CAST(double, INFINITY)) {
+      if (value == INFINITY_D) {
         const char* scan_end = ScanadvDouble(str_value, &value);
         if ((!scan_end) || ((*scan_end != ';') && (*scan_end))) {
-          value = S_CAST(double, -INFINITY);
+          value = -INFINITY_D;
         }
         *cur_value_ptr = value;
       }
-      if (value == S_CAST(double, -INFINITY)) {
+      if (value == -INFINITY_D) {
         // value cannot be parsed as a number
         return negate;
       }
@@ -1071,7 +1072,7 @@ uint32_t InfoConditionSatisfied(const char* info_token, InfoFilter* filterp) {
   ZeroPtrArr(key_ct, filterp->cur_str_values);
   double* cur_values = filterp->cur_values;
   for (uint32_t kidx = 0; kidx != key_ct; ++kidx) {
-    cur_values[kidx] = S_CAST(double, INFINITY);
+    cur_values[kidx] = INFINITY_D;
   }
   return InfoConditionSatisfiedInternal(&(filterp->expr), info_token, filterp);
 }

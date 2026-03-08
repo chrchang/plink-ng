@@ -27,6 +27,7 @@
 // referred to as LAPACK_<fname>(), and the integer index type is lapack_int.
 
 #include "include/plink2_base.h"
+#include "include/plink2_float.h"
 
 #ifdef NOLAPACK
 typedef double MatrixInvertBuf1;
@@ -276,7 +277,7 @@ HEADER_INLINE void FillFVec(uintptr_t ct, float fxx, float* dst) {
 HEADER_INLINE double DotprodDShort(const double* vec1, const double* vec2, uint32_t ct) {
   double dotprod = 0.0;
   for (uint32_t uii = 0; uii != ct; ++uii) {
-    dotprod += vec1[uii] * vec2[uii];
+    dotprod = prefer_fma(vec1[uii], vec2[uii], dotprod);
   }
   return dotprod;
 }
@@ -284,7 +285,7 @@ HEADER_INLINE double DotprodDShort(const double* vec1, const double* vec2, uint3
 HEADER_INLINE float DotprodFShort(const float* vec1, const float* vec2, uint32_t ct) {
   float dotprod = 0.0;
   for (uint32_t uii = 0; uii != ct; ++uii) {
-    dotprod += vec1[uii] * vec2[uii];
+    dotprod = prefer_fmaf(vec1[uii], vec2[uii], dotprod);
   }
   return dotprod;
 }

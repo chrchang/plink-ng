@@ -26,6 +26,7 @@
 #include <math.h>
 
 #include "plink2_base.h"
+#include "plink2_float.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -201,7 +202,7 @@ HEADER_INLINE double expd(double x) {
   if (x >= 709.78254366799815) {
     // This bound is also changed (from 709.78271289338397), though in this
     // case the change doesn't affect behavior.
-    return S_CAST(double, INFINITY);
+    return INFINITY_D;
   }
   return expd_bounded(x);
 }

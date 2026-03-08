@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include "include/plink2_bits.h"
+#include "include/plink2_float.h"
 #include "include/plink2_htable.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
@@ -3928,12 +3929,12 @@ double ComputeDiploidMultiallelicVariance(const double* cur_allele_freqs, uint32
   double freq_sum = 0.0;
   for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct_m1; ++allele_idx) {
     const double cur_allele_freq = cur_allele_freqs[allele_idx];
-    variance += cur_allele_freq * (1.0 - cur_allele_freq);
+    variance = prefer_fma(cur_allele_freq, 1.0 - cur_allele_freq, variance);
     freq_sum += cur_allele_freq;
   }
   if (freq_sum < 1.0 - kSmallEpsilon) {
     const double last_allele_freq = 1.0 - freq_sum;
-    variance += freq_sum * last_allele_freq;
+    variance = prefer_fma(freq_sum, last_allele_freq, variance);
   }
   return variance;
 }
@@ -6646,7 +6647,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
                       double* final_score_col_iter = &(shard_final_scores_cmaj[shard_sample_idx]);
                       const double cur_dosage_incr = dosage_incr_lookup_table[cur_geno];
                       for (uint32_t uii = 0; uii != score_final_col_ct; ++uii) {
-                        *final_score_col_iter += cur_dosage_incr * score_sparse_coefs_vmaj_iter[uii];
+                        *final_score_col_iter = prefer_fma(cur_dosage_incr, score_sparse_coefs_vmaj_iter[uii], *final_score_col_iter);
                         final_score_col_iter = &(final_score_col_iter[sample_shard_size]);
                       }
                       raregeno_word = raregeno_word >> 2;
@@ -8094,13 +8095,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             }
             double common_dosage = 0.0;
             if (difflist_common_geno != 3) {
-              common_dosage = geno_intercept + kDosageMax * geno_slope * difflist_common_geno;
+              common_dosage = prefer_fma(kDosageMax * geno_slope, difflist_common_geno, geno_intercept);
             } else if (!no_meanimpute) {
               common_dosage = kDosageMax * 2LL * cur_allele_freqs[block_vidx] * geno_slope;
             }
             if (!se_mode) {
               for (uint32_t uii = 0; uii != qsr_ct_nz; ++uii) {
-                common_score_incrs_iter[uii] += common_dosage * score_coefs_iter[uii];
+                common_score_incrs_iter[uii] = prefer_fma(common_dosage, score_coefs_iter[uii], common_score_incrs_iter[uii]);
               }
             } else {
               for (uint32_t uii = 0; uii != qsr_ct_nz; ++uii) {
@@ -8108,7 +8109,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               }
               const double common_dosage_sq = common_dosage * common_dosage;
               for (uint32_t uii = 0; uii != qsr_ct_nz; ++uii) {
-                common_score_incrs_iter[uii] += common_dosage_sq * score_coefs_iter[uii];
+                common_score_incrs_iter[uii] = prefer_fma(common_dosage_sq, score_coefs_iter[uii], common_score_incrs_iter[uii]);
               }
             }
             score_coefs_iter = &(score_coefs_iter[qsr_ct_nz]);
@@ -9105,7 +9106,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
                   const double* incr_src = &(wts_d_smaj[sample_idx * vscore_ct]);
                   const double cur_dosage = slope * kRecipDosageMid * u31tod(dosage_main[dosage_idx]);
                   for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
-                    target_d[ulii] += cur_dosage * incr_src[ulii];
+                    target_d[ulii] = prefer_fma(cur_dosage, incr_src[ulii], target_d[ulii]);
                   }
                 }
               }
@@ -9486,7 +9487,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
         }
         double dxx;
         const char* token_end = ScantokDouble(linebuf_iter, &dxx);
-        if (unlikely((!token_end) || (single_prec && (fabs(dxx) > 3.4028235677973362e38)))) {
+        if (unlikely((!token_end) || (single_prec && (fabs(dxx) > FLT_MAX_D)))) {
           token_end = CurTokenEnd(linebuf_iter);
           *K_CAST(char*, token_end) = '\0';
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid coefficient '%s' on line %" PRIuPTR " of --variant-score file.\n", linebuf_iter, line_idx);
@@ -10226,13 +10227,13 @@ PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const
         double ssq = 0.0;
         for (uintptr_t sv_idx = 0; sv_idx != svd_dim; ++sv_idx) {
           const double cur_sv = singular_values[sv_idx];
-          ssq += cur_sv * cur_sv;
+          ssq = prefer_fma(cur_sv, cur_sv, ssq);
         }
         const double target_ssq = min_variance_explained * ssq;
         ssq = 0.0;
         do {
           const double cur_sv = singular_values[new_pheno_ct];
-          ssq += cur_sv * cur_sv;
+          ssq = prefer_fma(cur_sv, cur_sv, ssq);
           ++new_pheno_ct;
         } while (ssq < target_ssq);
         assert(new_pheno_ct <= svd_dim);

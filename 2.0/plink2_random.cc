@@ -19,7 +19,6 @@
 #include <assert.h>
 #include <math.h>
 
-#include "include/plink2_string.h"
 #include "include/plink2_thread.h"
 #include "plink2_cmdline.h"
 
