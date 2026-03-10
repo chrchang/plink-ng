@@ -182,7 +182,9 @@ void flush_denormals();
 #if defined (__FMA__) || defined(__ARM_FEATURE_FMA)
 #  define USE_FMA
 // Note that this typically isn't worthwhile when multiplying by a power-of-2
-// constant.
+// constant, and that careful attention must be paid to dependency chains.
+// In general, using multiple accumulators is a lot more helpful than
+// performing FP contractions.
 HEADER_INLINE double prefer_fma(double a, double b, double c) {
   return fma(a, b, c);
 }

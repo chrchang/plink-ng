@@ -1024,11 +1024,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
             }
             if (!allele_ct_m2) {
               main_dosage_sum = a1_dosage;
-              main_dosage_ssq = 0.0;
-              for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
-                const double cur_dosage = geno_col[sample_idx];
-                main_dosage_ssq = prefer_fma(cur_dosage, cur_dosage, main_dosage_ssq);
-              }
+              main_dosage_ssq = DotprodD(geno_col, geno_col, nm_sample_ct);
             }
           } else {
             if (is_nonx_haploid) {
@@ -1284,7 +1280,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                           } else {
                             const uint32_t cur_geno_m1 = cur_geno - 1;
                             const double geno_d = geno_d_lookup[cur_geno_m1];
-                            geno_pheno_prod = prefer_fma(geno_d, cur_pheno_val, geno_pheno_prod);
+                            geno_pheno_prod += geno_d * cur_pheno_val;
                             if (domdev_third && (!cur_geno_m1)) {
                               // domdev = 1
                               domdev_pheno_prod += cur_pheno_val;
@@ -1317,7 +1313,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                         const uint32_t sample_midx = sample_midx_base + (lowest_set_bit / 2);
                         const double geno_d = geno_d_lookup[lowest_set_bit & 1];
                         const double cur_pheno_val = cur_pheno[sample_midx];
-                        geno_pheno_prod = prefer_fma(geno_d, cur_pheno_val, geno_pheno_prod);
+                        geno_pheno_prod += geno_d * cur_pheno_val;
                         if (domdev_third && (!(lowest_set_bit & 1))) {
                           // domdev = 1
                           domdev_pheno_prod += cur_pheno_val;
@@ -3268,11 +3264,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
             }
             if (!allele_ct_m2) {
               main_dosage_sum = a1_dosage;
-              main_dosage_ssq = 0.0;
-              for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
-                const double cur_dosage = geno_col[sample_idx];
-                main_dosage_ssq = prefer_fma(cur_dosage, cur_dosage, main_dosage_ssq);
-              }
+              main_dosage_ssq = DotprodD(geno_col, geno_col, nm_sample_ct);
             }
           } else {
             if (is_nonx_haploid) {
@@ -3607,7 +3599,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                         const uint32_t sample_idx = sample_idx_base + (lowest_set_bit / 2);
                         const double geno_d = geno_d_lookup[lowest_set_bit & 1];
                         for (uintptr_t pred_idx = domdev_third + 2; pred_idx != cur_predictor_ct; ++pred_idx) {
-                          geno_dotprod_row[pred_idx] += prefer_fma(geno_d, nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx], geno_dotprod_row[pred_idx]);
+                          geno_dotprod_row[pred_idx] = prefer_fma(geno_d, nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx], geno_dotprod_row[pred_idx]);
                         }
                         // can have a separate categorical loop here
 

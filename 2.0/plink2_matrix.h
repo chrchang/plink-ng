@@ -275,19 +275,29 @@ HEADER_INLINE void FillFVec(uintptr_t ct, float fxx, float* dst) {
 #endif
 
 HEADER_INLINE double DotprodDShort(const double* vec1, const double* vec2, uint32_t ct) {
-  double dotprod = 0.0;
-  for (uint32_t uii = 0; uii != ct; ++uii) {
-    dotprod = prefer_fma(vec1[uii], vec2[uii], dotprod);
+  double acc1 = 0.0;
+  double acc2 = 0.0;
+  for (uint32_t uii = 1; uii < ct; uii += 2) {
+    acc1 += vec1[uii - 1] * vec2[uii - 1];
+    acc2 += vec1[uii] * vec2[uii];
   }
-  return dotprod;
+  if (ct % 2) {
+    acc1 += vec1[ct - 1] * vec2[ct - 1];
+  }
+  return acc1 + acc2;
 }
 
 HEADER_INLINE float DotprodFShort(const float* vec1, const float* vec2, uint32_t ct) {
-  float dotprod = 0.0;
-  for (uint32_t uii = 0; uii != ct; ++uii) {
-    dotprod = prefer_fmaf(vec1[uii], vec2[uii], dotprod);
+  float acc1 = 0.0;
+  float acc2 = 0.0;
+  for (uint32_t uii = 1; uii < ct; uii += 2) {
+    acc1 += vec1[uii - 1] * vec2[uii - 1];
+    acc2 += vec1[uii] * vec2[uii];
   }
-  return dotprod;
+  if (ct % 2) {
+    acc1 += vec1[ct - 1] * vec2[ct - 1];
+  }
+  return acc1 + acc2;
 }
 
 // todo: benchmark again after Spectre/Meltdown mitigation is deployed

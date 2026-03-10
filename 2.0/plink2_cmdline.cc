@@ -2400,10 +2400,10 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
  */
 uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_REF(double, 3) solutions) {
   const double a2 = coef_a * coef_a;
-  const double small_q = prefer_fma(-3, coef_b, a2);
-  const double small_r = prefer_fma(2 * a2, coef_a, prefer_fma(-9 * coef_a, coef_b, 27 * coef_c));
+  const double small_q = a2 - 3 * coef_b;
+  const double small_r = a2 * (2 * coef_a) + 27 * coef_c - 9 * coef_a * coef_b;
   const double small_r2 = small_r * small_r;
-  const double small_q3_x4 = 4 * small_q * small_q * small_q;
+  const double small_q3_x4 = small_q * small_q * (4 * small_q);
   const double coef_a_div3 = coef_a * (1.0 / 3.0);
   if (small_r2 == small_q3_x4) {
     // Not a big deal if we miss this branch due to floating-point error, as
