@@ -3929,12 +3929,12 @@ double ComputeDiploidMultiallelicVariance(const double* cur_allele_freqs, uint32
   double freq_sum = 0.0;
   for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct_m1; ++allele_idx) {
     const double cur_allele_freq = cur_allele_freqs[allele_idx];
-    variance = prefer_fma(cur_allele_freq, 1.0 - cur_allele_freq, variance);
+    variance += cur_allele_freq * (1.0 - cur_allele_freq);
     freq_sum += cur_allele_freq;
   }
   if (freq_sum < 1.0 - kSmallEpsilon) {
     const double last_allele_freq = 1.0 - freq_sum;
-    variance = prefer_fma(freq_sum, last_allele_freq, variance);
+    variance += freq_sum * last_allele_freq;
   }
   return variance;
 }
@@ -10224,13 +10224,8 @@ PglErr PhenoSvd(const PhenoSvdInfo* psip, const uintptr_t* sample_include, const
       if (min_variance_explained == 1.0) {
         new_pheno_ct = svd_dim;
       } else {
+        const double target_ssq = min_variance_explained * DotprodxD(singular_values, singular_values, svd_dim);
         double ssq = 0.0;
-        for (uintptr_t sv_idx = 0; sv_idx != svd_dim; ++sv_idx) {
-          const double cur_sv = singular_values[sv_idx];
-          ssq = prefer_fma(cur_sv, cur_sv, ssq);
-        }
-        const double target_ssq = min_variance_explained * ssq;
-        ssq = 0.0;
         do {
           const double cur_sv = singular_values[new_pheno_ct];
           ssq = prefer_fma(cur_sv, cur_sv, ssq);

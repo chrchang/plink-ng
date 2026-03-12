@@ -156,8 +156,9 @@
 #  include <algorithm>  // IWYU pragma: export
 #  if __cplusplus >= 201103L
 #    include <array>  // IWYU pragma: export
-// Disable for Windows for now, need to figure out what library to link there
-#    if __cplusplus >= 201902L && defined(__GNUC__) && !defined(_WIN32) && !defined(__clang__)
+// Disable for pgenlibr for now, adding -ltbb might be enough but I want to
+// test that outside pgenlibr build first.
+#    if __cplusplus >= 201902L && defined(__GNUC__) && !defined(NO_UNALIGNED) && !defined(__clang__)
 #      include <execution>  // IWYU pragma: export
 #    endif
 #  endif
@@ -4502,8 +4503,10 @@ int32_t u32cmp(const void* aa, const void* bb);
 
 #ifdef __cplusplus
 #  define STD_SORT(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))
-#  if __cplusplus >= 201902L && defined(__GNUC__) && !defined(_WIN32) && !defined(__clang__)
-// this should only be used for arrays of length >= variant_ct or sample_ct
+#  if __cplusplus >= 201902L && defined(__GNUC__) && !defined(NO_UNALIGNED) && !defined(__clang__)
+// Keep in sync with "#include <execution>" condition.
+
+// This should only be used for arrays of length >= variant_ct or sample_ct
 // (sample_ct is cutting it close).
 // macro should still be used in e.g. non-__cplusplus blocks, so that we have
 // the option of falling back on a hand-coded parallel sort.

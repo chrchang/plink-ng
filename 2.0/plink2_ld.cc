@@ -4582,7 +4582,7 @@ double EmPhaseUnscaledLnlike(double freq11, double freq12, double freq21, double
     lnlike = half_hethet_share * log(cross_sum);
   }
   if (adj_freq11 != 0.0) {
-    lnlike = prefer_fma(freq11, log(adj_freq11), lnlike);
+    lnlike += prefer_fma(freq11, log(adj_freq11), lnlike);
   }
   if (adj_freq12 != 0.0) {
     lnlike = prefer_fma(freq12, log(adj_freq12), lnlike);
@@ -4658,7 +4658,7 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
       //   x^3 + (f11 + f22 - K)x^2 + (f11*f22 - K*f11 - K*f22)x - K*f11*f22
       // + x^3 - (2K + f12 + f21)x^2 + (K + f12)(K + f21)x = 0
       // cubic_sol_ct = CubicRealRoots(0.5 * (freq_majmaj + freq_minmin - freq_majmin - freq_minmaj - 3 * half_unphased_hethet_share), 0.5 * (freq_majmaj * freq_minmin + freq_majmin * freq_minmaj + half_unphased_hethet_share * (freq_majmin + freq_minmaj - freq_majmaj - freq_minmin + half_unphased_hethet_share)), -0.5 * half_unphased_hethet_share * freq_majmaj * freq_minmin, cubic_sols);
-      cubic_sol_ct = CubicRealRoots(0.5 * prefer_fma(-3, half_unphased_hethet_share, freq_majmaj + freq_minmin - freq_majmin - freq_minmaj), 0.5 * prefer_fma(half_unphased_hethet_share, freq_majmin + freq_minmaj - freq_majmaj - freq_minmin + half_unphased_hethet_share, freq_majmaj * freq_minmin + freq_majmin * freq_minmaj), -0.5 * half_unphased_hethet_share * freq_majmaj * freq_minmin, cubic_sols);
+      cubic_sol_ct = CubicRealRoots(0.5 * (freq_majmaj + freq_minmin - freq_majmin - prefer_fma(3, half_unphased_hethet_share, freq_minmaj)), 0.5 * prefer_fma(half_unphased_hethet_share, freq_majmin + freq_minmaj - (freq_majmaj + freq_minmin) + half_unphased_hethet_share, freq_majmaj * freq_minmin + freq_majmin * freq_minmaj), -0.5 * half_unphased_hethet_share * freq_majmaj * freq_minmin, cubic_sols);
       if (cubic_sol_ct > 1) {
         // have encountered 7.9e-11 difference in testing.
         while (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share + k2m32) {
@@ -4727,11 +4727,11 @@ LDErr PhasedLD(const double* nmajsums_d, double known_dotprod_d, double unknown_
       sol_idx = ctzu32(best_lnlike_mask);
     }
     const double cur_sol_xx = cubic_sols[sol_idx];
-    double dd = prefer_fma(-freq_majx, freq_xmaj, freq_majmaj + cur_sol_xx);
+    double dd = freq_majmaj + cur_sol_xx - freq_majx * freq_xmaj;
     if (fabs(dd) < kSmallEpsilon) {
       dd = 0.0;
     }
-    results[0] = dd * dd / (freq_majx * freq_xmaj * freq_minx * freq_xmin);
+    results[0] = dd * dd / (freq_majx * freq_xmaj * (freq_minx * freq_xmin));
     *is_neg_ptr = (dd < 0.0);
     if (compute_d_and_dprime) {
       // maybe this should just always be computed since it's such a small
@@ -5279,12 +5279,12 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         logputsb();
       }
       const double cur_sol_xx = cubic_sols[sol_idx];
-      double dd = prefer_fma(-freq_majx, freq_xmaj, freq_majmaj + cur_sol_xx);
+      double dd = freq_majmaj + cur_sol_xx - freq_majx * freq_xmaj;
       if (fabs(dd) < kSmallEpsilon) {
         dd = 0.0;
       }
       write_iter = strcpya_k(g_logbuf, "  r^2 = ");
-      write_iter = dtoa_g(dd * dd / (freq_majx * freq_xmaj * freq_minx * freq_xmin), write_iter);
+      write_iter = dtoa_g(dd * dd / (freq_majx * freq_xmaj * (freq_minx * freq_xmin)), write_iter);
       write_iter = strcpya_k(write_iter, "    |D'| = ");
       double d_prime;
       if (dd >= 0.0) {

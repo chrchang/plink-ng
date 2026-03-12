@@ -193,7 +193,7 @@ double upper_gamma_fraction(double a1, double z1) {
   for (double kk = 2.0; kk <= 100.0; kk += 1.0) {
     const double cur_a = kk * (a1 - kk);
     cur_b += 2.0;
-    dd = prefer_fma(cur_a, dd, cur_b);
+    dd = cur_a * dd + cur_b;
     if (fabs(dd) < kLentzFpmin) {
       dd = kLentzFpmin;
     }
@@ -218,8 +218,24 @@ double upper_gamma_fraction(double a1, double z1) {
 // maximal error of 1.2e-7
 double erfc_fast(double zz) {
   const double tt = 1.0 / (1.0 + 0.5 * zz);
-  const double tau = tt * exp(prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(0.17087277, tt, -0.82215223), tt, 1.48851587), tt, -1.13520398), tt, 0.27886807), tt, -0.18628806), tt, 0.09678418), tt, 0.37409196), tt, 1.00002368), tt, -prefer_fma(zz, zz, 1.26551223)));
-  return tau;
+  const double tt2 = tt * tt;
+  const double tt3 = tt * tt2;
+  const double tt4 = tt2 * tt2;
+  // - zz * zz - 1.26551223
+  // + tt * 1.00002368
+  // + tt^2 * 0.37409196
+  // + tt^3 * 0.09678418
+  // + tt^4 * (-0.18628806)
+  // + tt^5 * 0.27886807
+  // + tt^6 * (-1.13520398)
+  // + tt^7 * 1.48851587
+  // + tt^8 * (-0.82215223)
+  // + tt^9 * 0.17087277
+  const double rem0 = prefer_fma(prefer_fma(-0.82215223, tt4, -0.18628806), tt4, -prefer_fma(zz, zz, 1.26551223));
+  const double rem1 = prefer_fma(prefer_fma(0.17087277, tt4, 0.27886807), tt4, 1.00002368) * tt;
+  const double rem2 = prefer_fma(-1.13520398, tt4, 0.37409196) * tt2;
+  const double rem3 = prefer_fma(1.48851587, tt4, 0.09678418) * tt3;
+  return tt * exp(rem0 + rem1 + (rem2 + rem3));
 }
 
 static const double kSmallHalfRecips[30] = {
@@ -378,7 +394,7 @@ double regularized_gamma_prefix(double aa, double zz) {
   double prefix;
   if ((fabs(dd * dd * aa) <= 100) && (aa > 150)) {
     // abs(dd) < sqrt(2/3) < 0.95
-    prefix = prefer_fma(zz * (0.5 - kLanczosFloatG), agh_recip, aa * log1pmx(dd));
+    prefix = zz * (0.5 - kLanczosFloatG) * agh_recip + aa * log1pmx(dd);
     prefix = exp(prefix);
   } else {
     const double alz = aa * log(zz * agh_recip);
@@ -425,6 +441,8 @@ double igamma_temme_large(double aa, double xx) {
     zz = -zz;
   }
   double workspace[3];
+  // todo: benchmark some other ways of organizing this computation.  there are
+  // three independent calculation chains, which I'd expect to be decent?
   workspace[0] = prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(kTemmeC0[6], zz, kTemmeC0[5]), zz, kTemmeC0[4]), zz, kTemmeC0[3]), zz, kTemmeC0[2]), zz, kTemmeC0[1]), zz, kTemmeC0[0]);
   workspace[1] = prefer_fma(prefer_fma(prefer_fma(prefer_fma(kTemmeC1[4], zz, kTemmeC1[3]), zz, kTemmeC1[2]), zz, kTemmeC1[1]), zz, kTemmeC1[0]);
   workspace[2] = prefer_fma(prefer_fma(kTemmeC2[2], zz, kTemmeC2[1]), zz, kTemmeC2[0]);
@@ -597,8 +615,16 @@ double finite_gamma_q_ln(uint32_t aa, double xx) {
 }
 
 double erfc_fast2(double zz, double* tau_ln_plus_z2_ptr) {
+  // probable todo: deduplicate with erfc_fast()
   const double tt = 1.0 / (1.0 + 0.5 * zz);
-  *tau_ln_plus_z2_ptr = prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(0.17087277, tt, -0.82215223), tt, 1.48851587), tt, -1.13520398), tt, 0.27886807), tt, -0.18628806), tt, 0.09678418), tt, 0.37409196), tt, 1.00002368), tt, -1.26551223);
+  const double tt2 = tt * tt;
+  const double tt3 = tt * tt2;
+  const double tt4 = tt2 * tt2;
+  const double rem0 = prefer_fma(prefer_fma(-0.82215223, tt4, -0.18628806), tt4, -1.26551223);
+  const double rem1 = prefer_fma(prefer_fma(0.17087277, tt4, 0.27886807), tt4, 1.00002368) * tt;
+  const double rem2 = prefer_fma(-1.13520398, tt4, 0.37409196) * tt2;
+  const double rem3 = prefer_fma(1.48851587, tt4, 0.09678418) * tt3;
+  *tau_ln_plus_z2_ptr = rem0 + rem1 + (rem2 + rem3);
   return tt;
 }
 
@@ -610,6 +636,7 @@ double finite_half_gamma_q2_ln(uint32_t a_minus_half, double xx) {
   if (!a_minus_half) {
     return log(tt) + tau_ln_plus_x - xx;
   }
+  double ee = tt * exp(tau_ln_plus_x);
   // pre-multiply by e^x to avoid underflow
   double term = sqrt_x * (2.0 / kSqrtPi);
   double sum = term;
@@ -618,7 +645,7 @@ double finite_half_gamma_q2_ln(uint32_t a_minus_half, double xx) {
     sum += term;
   }
   // tau_ln + xx guaranteed to be small
-  double ee = prefer_fma(tt, exp(tau_ln_plus_x), sum);
+  ee += sum;
   return log(ee) - xx;
 }
 
@@ -636,7 +663,7 @@ double regularized_gamma_prefix_ln(double aa, double zz) {
   double prefix_ln;
   if ((fabs(dd * dd * aa) <= 100) && (aa > 150)) {
     // abs(dd) < sqrt(2/3) < 0.95
-    prefix_ln = prefer_fma(zz * (0.5 - kLanczosFloatG), agh_recip, aa * log1pmx(dd));
+    prefix_ln = zz * (0.5 - kLanczosFloatG) * agh_recip + aa * log1pmx(dd);
   } else {
     prefix_ln = prefer_fma(aa, log(zz * agh_recip), aa - zz);
   }
@@ -780,8 +807,8 @@ double find_inverse_gamma2(uint32_t df, double pp, double qq, uint32_t* has_10_d
 
         const double c2 = -0.5 * (1 + c1);
         const double c3 = 0.25 * c1_2 + prefer_fma(0.75, c1, 0.875);
-        const double c4 = prefer_fma(c1_3, -1.0 / 6.0, prefer_fma(-0.875, c1_2, prefer_fma(-1.875, c1, -26.75 / 12.0)));
-        const double c5 = 0.125 * c1_4 + prefer_fma(5.75 / 6.0, c1_3, prefer_fma(3.625, c1_2, prefer_fma(7.75, c1, 83.0625 / 12.0)));
+        const double c4 = prefer_fma(c1_3, -1.0 / 6.0, -26.75 / 12.0) - prefer_fma(0.875, c1_2, 1.875 * c1);
+        const double c5 = prefer_fma(5.75 / 6.0, c1_3, 0.125 * c1_4) + prefer_fma(3.625, c1_2, prefer_fma(7.75, c1, 83.0625 / 12.0));
 
         const double y_recip = 1.0 / yy;
         const double y_recip_2 = y_recip * y_recip;
@@ -790,8 +817,8 @@ double find_inverse_gamma2(uint32_t df, double pp, double qq, uint32_t* has_10_d
         if (bb < 1e-28) {
           *has_10_digits_ptr = 1;
         }
-        // er, I'd think this should just use Horner's instead?
-        return prefer_fma(c5, y_recip_4, prefer_fma(c4, y_recip_3, prefer_fma(c3, y_recip_2, prefer_fma(c2, y_recip, yy + c1))));
+        // possible todo: benchmark other ways of organizing this calculation
+        return prefer_fma(c2, y_recip, yy) + prefer_fma(c3, y_recip_2, c1) + prefer_fma(c5, y_recip_4, c4 * y_recip_3);
       }
     }
   }
@@ -936,6 +963,7 @@ double LnPToChisq(double ln_pval) {
     return gamma_p_inv_imp2(1, exp(ln_pval)) * 2;
   }
   // (bb < 1e-28) case in find_inverse_gamma2()
+  // possible todo: deduplicate code
   const double yy = kLnSqrtPi - ln_pval;
   const double c1 = -0.5 * log(yy);
   const double c1_2 = c1 * c1;
@@ -946,15 +974,14 @@ double LnPToChisq(double ln_pval) {
 
   const double c2 = -0.5 * (1 + c1);
   const double c3 = 0.25 * c1_2 + prefer_fma(0.75, c1, 0.875);
-  const double c4 = prefer_fma(c1_3, -1.0 / 6.0, prefer_fma(-0.875, c1_2, prefer_fma(-1.875, c1, -26.75 / 12.0)));
-  const double c5 = 0.125 * c1_4 + prefer_fma(5.75 / 6.0, c1_3, prefer_fma(3.625, c1_2, prefer_fma(7.75, c1, 83.0625 / 12.0)));
+  const double c4 = prefer_fma(c1_3, -1.0 / 6.0, -26.75 / 12.0) - prefer_fma(0.875, c1_2, 1.875 * c1);
+  const double c5 = prefer_fma(5.75 / 6.0, c1_3, 0.125 * c1_4) + prefer_fma(3.625, c1_2, prefer_fma(7.75, c1, 83.0625 / 12.0));
 
   const double y_recip = 1.0 / yy;
   const double y_recip_2 = y_recip * y_recip;
   const double y_recip_3 = y_recip_2 * y_recip;
   const double y_recip_4 = y_recip_2 * y_recip_2;
-  // er, I'd think this should just use Horner's instead?
-  return 2 * prefer_fma(c5, y_recip_4, prefer_fma(c4, y_recip_3, prefer_fma(c3, y_recip_2, prefer_fma(c2, y_recip, yy + c1))));
+  return 2 * (prefer_fma(c2, y_recip, yy) + prefer_fma(c3, y_recip_2, c1) + prefer_fma(c5, y_recip_4, c4 * y_recip_3));
 }
 
 
@@ -1022,7 +1049,7 @@ double binomial_ccdf_ln(uint32_t nn, uint32_t kk, double xx, double yy, uint32_t
   }
   // tried taking log(multiplier / shifted_inv_binom_coeff), but that was
   // slower on my Mac?
-  const double result_ln = prefer_fma(n_d - k_plus1_d, log(yy), prefer_fma(k_plus1_d, log(xx), log(multiplier))) - log(shifted_inv_binom_coeff) + 83 * kLn2;
+  const double result_ln = log(multiplier) + k_plus1_d * log(xx) - log(shifted_inv_binom_coeff) + prefer_fma(n_d - k_plus1_d, log(yy), 83 * kLn2);
   if (!inv) {
     return result_ln;
   }
@@ -1128,7 +1155,7 @@ double beta_small_b_large_a_series_ln(double aa, double bb, double xx, double yy
   }
   double uu = -tt * lx;
   double hh_ln = regularized_gamma_prefix_ln(bb, uu);
-  double prefix_ln = prefer_fma(-bb, log(tt), hh_ln - log(tgamma_delta_ratio(aa, bb)));
+  double prefix_ln = prefer_fma(-bb, log(tt), hh_ln) - log(tgamma_delta_ratio(aa, bb));
   // validated up to this point
 
   double pp[15]; // ~8-15 digit accuracy
@@ -1161,16 +1188,18 @@ double beta_small_b_large_a_series_ln(double aa, double bb, double xx, double yy
     double new_pn = 0.0;
     uint32_t tmp1 = 3;
     const double nn_d = u31tod(nn);
+    // when this type of loop is a bottleneck, easiest win should be going up
+    // to 2-8 accumulators
     for (uint32_t mm = 1; mm < nn; ++mm) {
       double mbn = prefer_fma(u31tod(mm), bb, -nn_d);
-      new_pn = prefer_fma(mbn, pp[nn - mm] * kFactorialRecips[tmp1], new_pn);
+      new_pn += mbn * pp[nn - mm] * kFactorialRecips[tmp1];
       tmp1 += 2;
     }
     new_pn /= nn_d;
-    new_pn = prefer_fma(bm1, kFactorialRecips[tnp1], new_pn);
+    new_pn += bm1 * kFactorialRecips[tnp1];
     pp[nn] = new_pn;
 
-    jj = prefer_fma(uu + b2n + 1, lxp, b2n * (b2n + 1) * jj) * t4_recip;
+    jj = (b2n * (b2n + 1) * jj + (uu + b2n + 1) * lxp) * t4_recip;
     lxp *= lx2;
     b2n += 2;
 
@@ -1212,12 +1241,12 @@ double ibeta_power_terms_ln(double aa, double bb, double xx, double yy) {
   double result = (numer_a * numer_b * numer_c) / (denom_a * denom_b * denom_c);
   result *= sqrt(agh * bgh * kRecipE / cgh);
   double result_ln = log(result);
-  double l1 = prefer_fma(xx, bb, -yy * agh) / agh;
-  double l2 = prefer_fma(yy, aa, -xx * bgh) / bgh;
+  double l1 = (xx * bb - yy * agh) / agh;
+  double l2 = (yy * aa - xx * bgh) / bgh;
   // Since we're returning log(result) rather than the original result (thus,
   // no intermediate overflow/underflow problems), and we only need 6 digits of
   // precision, we shouldn't need any of the numerous cases in the Boost code.
-  return prefer_fma(bb, log1p(l2), prefer_fma(aa, log1p(l1), result_ln));
+  return prefer_fma(aa, log1p(l1), result_ln) + bb * log1p(l2);
 }
 
 double ibeta_a_step_ln(double aa, double bb, double xx, double yy, uint32_t kk) {
@@ -1244,7 +1273,7 @@ double ibeta_fraction2_ln(double aa, double bb, double xx, double yy, uint32_t i
   double result_ln = ibeta_power_terms_ln(aa, bb, xx, yy);
 
   // see Boost continued_fraction_b()
-  const double ay_minus_bx_plus1 = prefer_fma(aa, yy, prefer_fma(-bb, xx, 1.0));
+  const double ay_minus_bx_plus1 = aa * yy - prefer_fma(bb, xx, -1.0);
   double cc = (aa * ay_minus_bx_plus1) / (aa + 1.0);
   if (fabs(cc) < kLentzFpmin) {
     cc = kLentzFpmin;
@@ -1260,10 +1289,9 @@ double ibeta_fraction2_ln(double aa, double bb, double xx, double yy, uint32_t i
     cur_a *= mm * (bb - mm) * x2;
     double denom = aa + 2 * mm - 1.0;
     cur_a /= denom * denom;
-    double cur_b = mm;
-    cur_b = prefer_fma(mm * (bb - mm), xx / (aa + 2 * mm - 1.0), cur_b);
-    cur_b = prefer_fma((aa + mm) / (aa + 2 * mm + 1.0), prefer_fma(mm, 2.0 - xx, ay_minus_bx_plus1), cur_b);
-    dd = prefer_fma(cur_a, dd, cur_b);
+    double cur_b = prefer_fma(mm * (bb - mm), xx / (aa + 2 * mm - 1.0), mm);
+    cur_b += ((aa + mm) * prefer_fma(mm, 2.0 - xx, ay_minus_bx_plus1)) / (aa + 2 * mm + 1.0);
+    dd = cur_b + cur_a * dd;
     if (fabs(dd) < kLentzFpmin) {
       dd = kLentzFpmin;
     }
@@ -1510,28 +1538,28 @@ static const double kIvnHigh = 0.97575;
 double QuantileToZscore(double pval) {
   // This was named ltqnorm() in PLINK 1.x.
   // assumes 0 < pval < 1
-  double q, r;
-
-  if (pval < kIvnLow) {
-    // Rational approximation for lower region
-    q = sqrt(-2*log(pval));
+  if ((pval < kIvnLow) || (pval > kIvnHigh)) {
+    // Rational approximation for lower/upper region
+    const double q2 = -2 * log((pval < kIvnLow)? pval : (1 - pval));
+    const double q = sqrt(q2);
     // return (((((kIvnC[0]*q+kIvnC[1])*q+kIvnC[2])*q+kIvnC[3])*q+kIvnC[4])*q+kIvnC[5]) /
     //   ((((kIvnD[0]*q+kIvnD[1])*q+kIvnD[2])*q+kIvnD[3])*q+1);
-    return prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(kIvnC[0], q, kIvnC[1]), q, kIvnC[2]), q, kIvnC[3]), q, kIvnC[4]), q, kIvnC[5]) /
-      prefer_fma(prefer_fma(prefer_fma(prefer_fma(kIvnD[0], q, kIvnD[1]), q, kIvnD[2]), q, kIvnD[3]), q, 1);
-
-  }
-  if (pval > kIvnHigh) {
-    // Rational approximation for upper region
-    q  = sqrt(-2*log(1-pval));
-    return -prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(kIvnC[0], q, kIvnC[1]), q, kIvnC[2]), q, kIvnC[3]), q, kIvnC[4]), q, kIvnC[5]) /
-      prefer_fma(prefer_fma(prefer_fma(prefer_fma(kIvnD[0], q, kIvnD[1]), q, kIvnD[2]), q, kIvnD[3]), q, 1);
+    const double numer_rem0 = prefer_fma(prefer_fma(kIvnC[1], q2, kIvnC[3]), q2, kIvnC[5]);
+    const double numer_rem1 = q * prefer_fma(prefer_fma(kIvnC[0], q2, kIvnC[2]), q2, kIvnC[4]);
+    const double denom_rem0 = prefer_fma(prefer_fma(kIvnD[0], q2, kIvnD[2]), q2, 1);
+    const double denom_rem1 = q * prefer_fma(kIvnD[1], q2, kIvnD[3]);
+    const double frac = (numer_rem0 + numer_rem1) / (denom_rem0 + denom_rem1);
+    return (pval < kIvnLow)? frac : -frac;
   }
   // Rational approximation for central region
-  q = pval - 0.5;
-  r = q*q;
-  return prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(kIvnA[0], r, kIvnA[1]), r, kIvnA[2]), r, kIvnA[3]), r, kIvnA[4]), r, kIvnA[5])*q /
-    prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(kIvnB[0], r, kIvnB[1]), r, kIvnB[2]), r, kIvnB[3]), r, kIvnB[4]), r, 1);
+  const double q = pval - 0.5;
+  const double q2 = q*q;
+  const double q4 = q2*q2;
+  const double numer_rem1 = prefer_fma(prefer_fma(kIvnA[1], q4, kIvnA[3]), q4, kIvnA[5]);
+  const double numer_rem3 = q2 * prefer_fma(prefer_fma(kIvnA[0], q4, kIvnA[2]), q4, kIvnA[4]);
+  const double denom_rem0 = prefer_fma(prefer_fma(kIvnB[1], q4, kIvnB[3]), q4, 1);
+  const double denom_rem2 = q2 * prefer_fma(prefer_fma(kIvnB[0], q4, kIvnB[2]), q4, kIvnB[4]);
+  return q * (numer_rem1 + numer_rem3) / (denom_rem0 + denom_rem2);
 }
 
 double Lfact(double xx) {
@@ -1542,7 +1570,8 @@ double Lfact(double xx) {
   // to reduce rounding error.
   const double invn = 1.0 / xx;
   const double invn2 = invn * invn;
-  return prefer_fma(log(xx), xx + 0.5, prefer_fma(invn, prefer_fma(invn2, 1.0 / -360.0, 1.0 / 12.0), kLnSqrt2Pi - xx));
+  const double small_term_sum = prefer_fma(invn, prefer_fma(invn2, 1.0 / -360.0, 1.0 / 12.0), kLnSqrt2Pi - xx);
+  return log(xx) * (xx + 0.5) + small_term_sum;
 }
 
 // *cmp_resultp is set to positive value if nhets = obs_hets + 2 * hom_decr has

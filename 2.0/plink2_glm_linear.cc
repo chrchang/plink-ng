@@ -1365,9 +1365,10 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                 const double homalt_ctd = u31tod(genocounts[2]);
                 const double lookup0 = geno_d_lookup[0];
                 const double lookup1 = geno_d_lookup[1];
+                const double het_x_lookup0 = het_ctd * lookup0;
                 const double homalt_x_lookup1 = homalt_ctd * lookup1;
-                xtx_inv[cur_predictor_ct] = prefer_fma(het_ctd, lookup0, homalt_x_lookup1);
-                xtx_inv[cur_predictor_ct + 1] = prefer_fma(het_ctd * lookup0, lookup0, homalt_x_lookup1 * lookup1);
+                xtx_inv[cur_predictor_ct] = het_x_lookup0 + homalt_x_lookup1;
+                xtx_inv[cur_predictor_ct + 1] = prefer_fma(het_x_lookup0, lookup0, homalt_x_lookup1 * lookup1);
                 if (domdev_third) {
                   xt_y[2] = domdev_pheno_prod;
                   xtx_inv[cur_predictor_ct + 2] = domdev_geno_prod;
@@ -3629,9 +3630,10 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                 const double homalt_ctd = u31tod(genocounts[2]);
                 const double lookup0 = geno_d_lookup[0];
                 const double lookup1 = geno_d_lookup[1];
+                const double het_x_lookup0 = het_ctd * lookup0;
                 const double homalt_x_lookup1 = homalt_ctd * lookup1;
-                xtx_inv[cur_predictor_ct] = prefer_fma(het_ctd, lookup0, homalt_x_lookup1);
-                xtx_inv[cur_predictor_ct + 1] = prefer_fma(het_ctd * lookup0, lookup0, homalt_x_lookup1 * lookup1);
+                xtx_inv[cur_predictor_ct] = het_x_lookup0 + homalt_x_lookup1;
+                xtx_inv[cur_predictor_ct + 1] = prefer_fma(het_x_lookup0, lookup0, homalt_x_lookup1 * lookup1);
                 if (domdev_third) {
                   xtx_inv[cur_predictor_ct + 2] = domdev_geno_prod;
                   xtx_inv[2 * cur_predictor_ct] = het_ctd;
@@ -3739,7 +3741,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                       do {
                         const uint32_t difflist_idx = ctzw(missing_word) / 2;
                         const uint32_t sample_midx = cur_difflist_sample_ids[difflist_idx];
-                        tmp_pheno_ssq = prefer_fma(-cur_pheno[sample_midx], cur_pheno[sample_midx], tmp_pheno_ssq);
+                        tmp_pheno_ssq -= cur_pheno[sample_midx] * cur_pheno[sample_midx];
                         missing_word &= missing_word - 1;
                       } while (missing_word);
                     }

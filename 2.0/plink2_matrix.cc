@@ -1246,7 +1246,7 @@ BoolErr InvertRank2Symm(const double* a_inv, const double* bb, lapack_int orig_d
     const double b_ainv_1 = b_ainv_buf[orig_row_idx];
     const double b_ainv_2 = b_ainv_row2[orig_row_idx];
     for (uintptr_t col_idx = 0; col_idx <= orig_row_idx; ++col_idx) {
-      outmatrix_row[col_idx] = prefer_fma(b_ainv_2, s_b_ainv_row2[col_idx], prefer_fma(b_ainv_1, s_b_ainv_buf[col_idx], a_inv_row[col_idx]));
+      outmatrix_row[col_idx] = b_ainv_2 * s_b_ainv_row2[col_idx] + prefer_fma(b_ainv_1, s_b_ainv_buf[col_idx], a_inv_row[col_idx]);
     }
     a_inv_row = &(a_inv_row[orig_dim_l]);
     outmatrix_row = &(outmatrix_row[final_dim]);
@@ -1266,13 +1266,13 @@ BoolErr InvertRank2Symm(const double* a_inv, const double* bb, lapack_int orig_d
     const double b_ainv_1 = b_ainv_buf[orig_row_idx];
     const double b_ainv_2 = b_ainv_row2[orig_row_idx];
     for (uintptr_t col_idx = 0; col_idx != insert_idx; ++col_idx) {
-      outmatrix_row[col_idx] = prefer_fma(b_ainv_2, s_b_ainv_row2[col_idx], prefer_fma(b_ainv_1, s_b_ainv_buf[col_idx], a_inv_row[col_idx]));
+      outmatrix_row[col_idx] = b_ainv_2 * s_b_ainv_row2[col_idx] + prefer_fma(b_ainv_1, s_b_ainv_buf[col_idx], a_inv_row[col_idx]);
     }
     outmatrix_row[insert_idx] = -s_b_ainv_buf[orig_row_idx];
     outmatrix_row[insert_idx + 1] = -s_b_ainv_row2[orig_row_idx];
     double* outmatrix_write_base = &(outmatrix_row[2]);
     for (uintptr_t orig_col_idx = insert_idx; orig_col_idx <= orig_row_idx; ++orig_col_idx) {
-      outmatrix_write_base[orig_col_idx] = prefer_fma(b_ainv_2, s_b_ainv_row2[orig_col_idx], prefer_fma(b_ainv_1, s_b_ainv_buf[orig_col_idx], a_inv_row[orig_col_idx]));
+      outmatrix_write_base[orig_col_idx] = b_ainv_2 * s_b_ainv_row2[orig_col_idx] + prefer_fma(b_ainv_1, s_b_ainv_buf[orig_col_idx], a_inv_row[orig_col_idx]);
     }
     a_inv_row = &(a_inv_row[orig_dim_l]);
   }
@@ -1291,8 +1291,7 @@ BoolErr InvertRank2SymmDiag(const double* a_inv, const double* bb, lapack_int or
   const double* b_ainv_row2 = &(b_ainv_buf[orig_dim_l]);
   const double* s_b_ainv_row2 = &(s_b_ainv_buf[orig_dim_l]);
   for (uintptr_t ulii = 0; ulii != orig_dim_l; ++ulii) {
-    // outdiag[ulii] = a_inv[ulii * orig_dim_p1] + b_ainv_buf[ulii] * s_b_ainv_buf[ulii] + b_ainv_row2[ulii] * s_b_ainv_row2[ulii];
-    outdiag[ulii] = prefer_fma(b_ainv_row2[ulii], s_b_ainv_row2[ulii], prefer_fma(b_ainv_buf[ulii], s_b_ainv_buf[ulii], a_inv[ulii * orig_dim_p1]));
+    outdiag[ulii] = b_ainv_row2[ulii] * s_b_ainv_row2[ulii] + prefer_fma(b_ainv_buf[ulii], s_b_ainv_buf[ulii], a_inv[ulii * orig_dim_p1]);
   }
   outdiag[orig_dim_l] = schur11;
   outdiag[orig_dim_l + 1] = schur22;

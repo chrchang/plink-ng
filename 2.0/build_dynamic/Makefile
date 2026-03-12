@@ -1,4 +1,4 @@
-# Linux/macOS Makefile for PLINK 2.00.
+# Linux/macOS Makefile for PLINK 2.0.
 #
 # Compilation options (leave blank after "=" to disable, put "= 1" to enable):
 #   Do not use AVX2 instructions: NO_AVX2
@@ -33,11 +33,11 @@ MKL_IOMP5_DIR = /opt/intel/oneapi/compiler/2025.1/lib
 STATIC_AOCL =
 AOCLROOT = /home/admin/aocl/5.1.0/gcc
 FORCE_32BIT =
-# Warning: I have observed intermittent (i.e. has always disappeared on retry
-# in my testing so far) gcc 10.2 crashes with -flto.  I'm leaving -flto here
-# for now since I have yet to see a miscompilation when gcc doesn't crash, but
-# this requires further investigation.
-DEBUG = -flto
+# Giving up on -flto default for now (Mar 2026) due to the high frequency of
+# gcc 10.2 crashes.  Will try again after next upgrade of my own build
+# machines.
+# DEBUG = -flto
+DEBUG =
 CC ?= gcc
 CXX ?= g++
 
@@ -59,7 +59,7 @@ ifdef FORCE_32BIT
   ZSTD_O2 = 1
   BASEFLAGS += -msse -mfpmath=sse
   ARCH32 = -m32 -march=i686
-  CXXFLAGS = -std=c++0x
+  CXXFLAGS = -std=c++17
 else
   ifdef NO_AVX2
     ifndef NO_SSE42
@@ -76,7 +76,10 @@ else
       CPUCHECK_FLAGS = ${DEBUG} -O2 -DCPU_CHECK_AVX2 ${CXXWARN2}
     endif
   endif
-  CXXFLAGS = -std=c++11
+  # plink2_base tries to use C++ <execution> header when compiled with C++20 or
+  # newer; this typically requires something like -ltbb to be added to
+  # LINKFLAGS.
+  CXXFLAGS = -std=c++17
 endif
 BASEFLAGS += ${ARCH32}
 

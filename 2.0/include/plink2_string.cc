@@ -1755,7 +1755,7 @@ CXXCONST_CP ScanadvLn(const char* str_iter, double* ln_ptr) {
   if (e10) {
     // I don't expect log() to be bit-identical between FMA and non-FMA, so
     // this doesn't make floating-point variation meaningfully worse...
-    ln_val = prefer_fma(e10, kLn10, ln_val);
+    ln_val += e10 * kLn10;
   }
   *ln_ptr = ln_val;
   return S_CAST(CXXCONST_CP, str_iter);

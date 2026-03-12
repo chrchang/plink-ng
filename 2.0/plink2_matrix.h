@@ -300,7 +300,20 @@ HEADER_INLINE float DotprodFShort(const float* vec1, const float* vec2, uint32_t
   return acc1 + acc2;
 }
 
-// todo: benchmark again after Spectre/Meltdown mitigation is deployed
+HEADER_INLINE double DotprodFDShort(const float* vec1, const float* vec2, uint32_t ct) {
+  double acc1 = 0.0;
+  double acc2 = 0.0;
+  for (uint32_t uii = 1; uii < ct; uii += 2) {
+    acc1 += S_CAST(double, vec1[uii - 1]) * S_CAST(double, vec2[uii - 1]);
+    acc2 += S_CAST(double, vec1[uii]) * S_CAST(double, vec2[uii]);
+  }
+  if (ct % 2) {
+    acc1 += S_CAST(double, vec1[ct - 1]) * S_CAST(double, vec2[ct - 1]);
+  }
+  return acc1 + acc2;
+}
+
+// todo: benchmark again, last round was before Spectre/Meltdown mitigations
 CONSTI32(kDotprodDThresh, 17);
 CONSTI32(kDotprodFThresh, 15);
 
@@ -315,6 +328,10 @@ HEADER_INLINE double DotprodxD(const double* vec1, const double* vec2, uint32_t 
 
 HEADER_INLINE float DotprodF(const float* vec1, const float* vec2, uint32_t ct) {
   return DotprodFShort(vec1, vec2, ct);
+}
+
+HEADER_INLINE double DotprodFD(const float* vec1, const float* vec2, uint32_t ct) {
+  return DotprodFDShort(vec1, vec2, ct);
 }
 
 BoolErr InvertMatrix(int32_t dim, double* matrix, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf);
@@ -400,6 +417,10 @@ HEADER_INLINE double DotprodxD(const double* vec1, const double* vec2, uint32_t 
 // not worthwhile for ct < 16.
 HEADER_INLINE float DotprodF(const float* vec1, const float* vec2, uint32_t ct) {
   return cblas_sdot(ct, vec1, 1, vec2, 1);
+}
+
+HEADER_INLINE double DotprodFD(const float* vec1, const float* vec2, uint32_t ct) {
+  return cblas_dsdot(ct, vec1, 1, vec2, 1);
 }
 
 // extra if-statement in DotprodxF() seems disproportionally expensive in

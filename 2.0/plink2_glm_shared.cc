@@ -279,14 +279,14 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
         const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
         const double cur_covar_val = covar_vals[sample_uidx];
         covar_sum += cur_covar_val;
-        covar_ssq = prefer_fma(cur_covar_val, cur_covar_val, covar_ssq);
+        covar_ssq += cur_covar_val * cur_covar_val;
         *covar_write_iter++ = cur_covar_val;
       }
       *sum_iter++ = covar_sum;
       if (covar_ssq > max_ssq) {
         max_ssq = covar_ssq;
       }
-      covar_ssq = prefer_fma(-covar_sum, covar_sum / u31tod(sample_ct), covar_ssq);
+      covar_ssq -= covar_sum * covar_sum / u31tod(sample_ct);
       if (covar_ssq < min_ssq_minus_sqmean) {
         min_ssq_minus_sqmean = covar_ssq;
       }
@@ -331,7 +331,7 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
         if (covar_ssq > max_ssq) {
           max_ssq = covar_ssq;
         }
-        covar_ssq = prefer_fma(-covar_ssq, covar_ssq / u31tod(sample_ct), covar_ssq);
+        covar_ssq -= covar_ssq * covar_ssq / u31tod(sample_ct);
         if (covar_ssq < min_ssq_minus_sqmean) {
           min_ssq_minus_sqmean = covar_ssq;
         }
