@@ -62,10 +62,35 @@ typedef struct AdjAssocResultStruct {
   uint32_t allele_idx;
 #ifdef __cplusplus
   bool operator<(const struct AdjAssocResultStruct& rhs) const {
-    return ln_pval < rhs.ln_pval;
+    if (ln_pval != rhs.ln_pval) {
+      return ln_pval < rhs.ln_pval;
+    }
+    // update (11 Mar 2026): make pval tie-handling deterministic
+    if (variant_uidx != rhs.variant_uidx) {
+      return variant_uidx < rhs.variant_uidx;
+    }
+    return allele_idx < rhs.allele_idx;
   }
 #endif
 } AdjAssocResult;
+
+#ifndef __cplusplus
+int32_t AdjAssocCmp(const void* aa, const void* bb) {
+  const AdjAssocResult* aar1 = S_CAST(const AdjAssocResult*, aa);
+  const AdjAssocResult* aar2 = S_CAST(const AdjAssocResult*, bb);
+  const double ln_pval1 = aar1->ln_pval;
+  const double ln_pval2 = aar2->ln_pval;
+  if (ln_pval1 != ln_pval2) {
+    return (ln_pval1 < ln_pval2)? -1 : 1;
+  }
+  const uint32_t variant_uidx1 = aar1->variant_uidx;
+  const uint32_t variant_uidx2 = aar2->variant_uidx;
+  if (variant_uidx1 != variant_uidx2) {
+    return (variant_uidx1 < variant_uidx2)? -1 : 1;
+  }
+  return S_CAST(int32_t, aar1->allele_idx) - S_CAST(int32_t, aar2->allele_idx);
+}
+#endif
 
 static inline void adjust_print_ln(const char* output_min_p_str, double ln_pval, double output_min_ln, uint32_t output_min_p_slen, uint32_t is_neglog10, char** bufpp) {
   **bufpp = '\t';
@@ -331,7 +356,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       goto Multcomp_ret_NOMEM;
     }
 
-    STD_SORT_PAR_UNSEQ(valid_allele_ct, double_cmp, sortbuf);
+    STD_SORT_PAR_UNSEQ(valid_allele_ct, AdjAssocCmp, sortbuf);
 
     double lambda_recip = 1.0;
     if (!skip_gc) {
