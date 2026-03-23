@@ -1,4 +1,4 @@
-name: PLINK2 AUTO RUN TESTS - LINUX & MAC - CHECK COMMIT HX FIRST
+name: PLINK2 AUTO RUN TESTS - LINUX & MAC 
 
 on:
   workflow_dispatch:
