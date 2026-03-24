@@ -2,7 +2,7 @@
 # https://github.com/ropensci/git2r/blob/master/configure.ac .
 
 AC_PREREQ([2.69])
-AC_INIT([pgenlibr],[0.5.6],[chrchang@alumni.caltech.edu])
+AC_INIT([pgenlibr],[0.6.0],[chrchang@alumni.caltech.edu])
 AC_PATH_PROG([PKGCONF],[pkg-config],[],[$PATH:/usr/local/bin:ext/bin:ext:/sw/bin:/opt/bin:/opt/local/bin])
 
 # Find the compiler and compiler flags to use for fallback version checks
@@ -53,7 +53,7 @@ RELEASE=`echo $VERSION_STRING | cut -d. -f3`
 echo $(($MAJOR*100000+$MINOR*100+$RELEASE))
 }
 
-# Compile zstd/libdeflate/simde checks
+# Compile zstd/libdeflate/simde/(TODO:arm64) checks
 ZSTD_COMPILE_FLAG=""
 ZSTD_INCLUDE_PATH=""
 ZSTD_LIBS=""
@@ -133,7 +133,7 @@ else
     if "${PKGCONF}" --exists libdeflate; then
       VERSION_STRING=`${PKGCONF} --modversion libdeflate`
       VER=`getVersion2 ${VERSION_STRING}`
-      # 1.14 is over two years old, and includes significant performance
+      # 1.14 is over three years old, and includes significant performance
       # improvements over its predecessor.  Subsequent updates have been less
       # significant.
       if test "${VER}" -ge 1014; then

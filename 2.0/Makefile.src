@@ -113,11 +113,13 @@ CCSRC = $(PLINK2LIB_CCSRC) \
 ZLIB_VER = 1.3.1
 
 OBJ_NO_ZSTD = $(CSRC:.c=.o) $(GCSRC:.c=.o) $(CCSRC:.cc=.o)
+OBJ_NO_GMP = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(CCSRC:.cc=.o)
 OBJ = $(CSRC:.c=.o) $(GCSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(CCSRC:.cc=.o)
 PGENLIB_OBJ = $(PGENLIB_CCSRC:.cc=.o)
 PLINK2LIB_OBJ = $(CSRC:.c=.o) $(GCSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(PLINK2LIB_CCSRC:.cc=.o)
 TEXTLIB_OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(TEXTLIB_CCSRC:.cc=.o)
 OBJL = $(notdir $(OBJ))
+OBJL_NO_GMP = $(notdir $(OBJ_NO_GMP))
 PGENLIB_OBJL = $(notdir $(PGENLIB_OBJ))
 PLINK2LIB_OBJL = $(notdir $(PLINK2LIB_OBJ))
 TEXTLIB_OBJL = $(notdir $(TEXTLIB_OBJ))

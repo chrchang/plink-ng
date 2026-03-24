@@ -1,3 +1,13 @@
+# pgenlibr 0.6.0 (2026-03-23)
+>15 MB of library source code files (libdeflate, SIMDe, zstd) are no longer
+kept after installation.  (If you were depending on these files, we apologize
+for the inconvenience; you should be able to switch to something like the
+tools/-based workflow that pgenlibr now uses.)
+
+# pgenlibr 0.5.3 (2025-06-24)
+HasSparse(), HasSparseHardcalls(), ReadSparse(), and ReadSparseHardcalls()
+functions added.
+
 # pgenlibr 0.4.0 (2025-01-15)
 CHROM and POS columns in .pvar are now loaded by default, and they can be
 checked with GetVariantChrom() and GetVariantPos().  NewPvar() should now work

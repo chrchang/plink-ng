@@ -84,15 +84,7 @@ HEADER_INLINE double qd_two_diff(double a, double b, double* errp) {
   return s;
 }
 
-#if defined (__FMA__) || defined(__ARM_FEATURE_FMA)
-#  define QD_FMA(a, b, c) fma((a), (b), (c))
-#  define QD_FMS(a, b, c) fma((a), (b), -(c))
-#else
-#  undef QD_FMA
-#  undef QD_FMS
-#endif
-
-#ifndef QD_FMS
+#ifndef USE_FMA
 // Computes high word and lo word of a
 HEADER_INLINE void qd_split(double a, double* hip, double* lop) {
   if (a > _QD_SPLIT_THRESH || a < -_QD_SPLIT_THRESH) {
@@ -112,9 +104,9 @@ HEADER_INLINE void qd_split(double a, double* hip, double* lop) {
 
 // Computes fl(a*b) and err(a*b).
 HEADER_INLINE double qd_two_prod(double a, double b, double* errp) {
-#ifdef QD_FMS
+#ifdef USE_FMA
   const double p = a * b;
-  *errp = QD_FMS(a, b, p);
+  *errp = fma(a, b, -p);
   return p;
 #else
   double a_hi, a_lo, b_hi, b_lo;
@@ -128,9 +120,9 @@ HEADER_INLINE double qd_two_prod(double a, double b, double* errp) {
 
 // Computes fl(a*a) and err(a*a).  Faster than the above method.
 HEADER_INLINE double qd_two_sqr(double a, double *errp) {
-#ifdef QD_FMS
+#ifdef USE_FMA
   const double p = a * a;
-  *errp = QD_FMS(a, a, p);
+  *errp = fma(a, a, -p);
   return p;
 #else
   double hi, lo;

@@ -1,4 +1,4 @@
-INCL = ../inst/include
+INCL = ../tools/include
 PKG_CPPFLAGS = -DNO_UNALIGNED -DLIBDEFLATE_STATIC -DPGENLIB_NOPRINT -I$(INCL) -I$(INCL)/libdeflate
 PKG_LIBS = -L. -lPLINK2 -lzstd -lPGDEFLATE -lz -lpthread
 
