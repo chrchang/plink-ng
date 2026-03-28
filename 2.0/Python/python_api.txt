@@ -1,4 +1,4 @@
-Pgenlib Python API specification, v0.92
+Pgenlib Python API specification, v0.94
 ("import numpy as np" assumed)
 
 class PvarReader:
@@ -188,8 +188,31 @@ class PgenReader:
     for multiallelic variants; instead it has 1 + v(v+1)/2 elements where v is
     the number of alleles, in 0/0, 0/1, 1/1, 0/2, 1/2, 2/2, 0/3, ...,
     (v-1)/(v-1), ./. order.  (This matches VCF FORMAT:GL order.)
-  (Todo: check whether multi-variant analogues of read/read_alleles/count have
-  any value.)
+  (probable todo: count_range() and count_list().)
+
+* has_sparse(uint32_t variant_idx, uint32_t allele_idx = 1)
+  has_sparse_dosages(uint32_t variant_idx, uint32_t allele_idx = 1)
+  has_sparse() returns True iff the underlying data representation is known to
+  be compatible with read_sparse(), and has_sparse_dosages() does the same for
+  read_sparse_dosages().
+
+* read_sparse8(uint32_t variant_idx, uint32_t allele_idx = 1)
+  read_sparse32(uint32_t variant_idx, uint32_t allele_idx = 1)
+  read_sparse64(uint32_t variant_idx, uint32_t allele_idx = 1)
+  read_sparse_dosages32(uint32_t variant_idx, uint32_t allele_idx = 1)
+  read_sparse_dosages64(uint32_t variant_idx, uint32_t allele_idx = 1)
+  Read functions which return (sample_idxs, geno_arr/dosage_arr) tuples when
+  the underlying data representation is compatibly sparse, and throw an
+  exception otherwise.
+  - The returned sample_idxs is a np.ndarray[np.uint32_t], containing an
+    increasing sequence of (0-based) sample indexes.
+  - For read_sparse8(), the returned geno_arr is a np.ndarray[np.int8_t];
+    similarly, read_sparse32() returns a np.ndarray[np.int32_t] geno_arr, and
+    read_sparse64() returns a np.ndarray[np.int64_t] geno_arr.
+  - For read_sparse_dosages32(), the returned dosage_arr is a
+    np.ndarray[np.float32_t]; similarly, read_sparse_dosages64() returns a
+    np.ndarray[np.float64_t].
+  (possible todo: read_sparse_alleles, read_sparse_alleles_and_phasepresents)
 
 * phased_samples() [not written yet]
   If phase set data is present, or the entire dataset is unphased, returns a
@@ -270,6 +293,8 @@ class PgenWriter:
   Multi-variant forms of append_biallelic(), append_alleles(),
   append_partially_phased(), and append_dosages().  Input matrices must be
   variant-major.  When allele_cts is provided, it must be an np.uint32 array.
+
+* (probable todo: sparse append)
 
 * close()
   Backfills the header and closes the file; no further append operations can be

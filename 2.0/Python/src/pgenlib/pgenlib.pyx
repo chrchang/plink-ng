@@ -9,6 +9,8 @@ import numpy as np
 cimport numpy as np
 import sys
 
+__version__ = "0.94.0"
+
 cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
     ctypedef uint32_t BoolErr
     ctypedef enum PglErr:
@@ -58,6 +60,9 @@ cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
         kWordsPerVec
     cdef enum:
         kPglErrstrBufBlen
+
+    cdef enum:
+        kPglMaxDifflistLenDivisor
 
     cdef enum:
         kPglNypTransposeBatch
@@ -158,6 +163,8 @@ cdef extern from "../plink2/include/pgenlib_ffi_support.h" namespace "plink2":
     void GenoarrPhasedToHapCodes(const uintptr_t* genoarr, const uintptr_t* phaseinfo, uint32_t variant_batch_size, int32_t* hap0_codes_iter, int32_t* hap1_codes_iter) nogil
     void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float) nogil
     void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double) nogil
+    void DenseDosage16ToFloatsMinus9(const uint16_t* dosage_main, uint32_t dosage_ct, float* geno_float)
+    void DenseDosage16ToDoubles(const uint16_t* dosage_main, uint32_t dosage_ct, double missing_val, double* geno_double)
     void BytesToBitsUnsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* bitarr)
     void BytesToGenoarrUnsafe(const int8_t* genobytes, uint32_t sample_ct, uintptr_t* genoarr)
 
@@ -189,6 +196,8 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
 
     unsigned char* PgrGetFreadBuf(PgenReaderStruct* pgr_ptr)
 
+    uint32_t PgrGetVrtype(const PgenReaderStruct* pgr_ptr, uint32_t vidx)
+
     void PgrSetFreadBuf(unsigned char* fread_buf, PgenReaderStruct* pgr_ptr)
 
     cdef struct PgrSampleSubsetIndexStruct:
@@ -210,7 +219,11 @@ cdef extern from "../plink2/include/pgenlib_read.h" namespace "plink2":
 
     PglErr PgrGetMP(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgr_ptr, PgenVariantStruct* pgvp) nogil
 
+    PglErr PgrGetDMaybeSparse(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, uint32_t max_sparse_dosage_ct, PgenReaderStruct* pgr_ptr, uintptr_t* genovec, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uint16_t* difflist_common_dosage_ptr, uint32_t* difflist_sample_ids) nogil
+
     PglErr PgrGet1D(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReaderStruct* pgr_ptr, uintptr_t* allele_countvec, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) nogil
+
+    PglErr PgrGetDifflistOrGenovec(const uintptr_t* sample_include, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t max_difflist_len, uint32_t vidx, PgenReaderStruct* pgr_ptr, uintptr_t* genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* main_raregeno, uint32_t* difflist_sample_ids, uint32_t* difflist_len_ptr) nogil
 
     PglErr PgrGetCounts(const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, PgrSampleSubsetIndexStruct pssi, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgr_ptr, uint32_t* genocounts) nogil
 
@@ -376,6 +389,8 @@ cdef class PgenReader:
     cdef uint32_t _subset_size
     # preallocate buffers we'll use repeatedly
     cdef PgenVariantStruct _pgv
+    cdef uintptr_t* _raregeno_buf
+    cdef uint32_t* _difflist_sample_ids_buf
     cdef VecW* _transpose_batch_buf
     # for multi-variant load-and-transpose, we load up to
     # kPglNypTransposeBatch (= 256) variants at a time, and then transpose
@@ -506,11 +521,16 @@ cdef class PgenReader:
         cdef uintptr_t sample_subset_byte_ct = DivUp(file_sample_ct, kBitsPerVec) * kBytesPerVec
         cdef uintptr_t cumulative_popcounts_byte_ct = DivUp(file_sample_ct, kBitsPerWord * kInt32PerVec) * kBytesPerVec
         cdef uintptr_t genovec_byte_ct = DivUp(file_sample_ct, kNypsPerVec) * kBytesPerVec
+        cdef uint32_t max_stored_single_difflist_len = file_sample_ct // kPglMaxDifflistLenDivisor
+        # could optimize raregeno/difflist out in plink 1 .bed case
+        # difflist is 3x due to dosage case
+        cdef uintptr_t raregeno_byte_ct = DivUp(2 * max_stored_single_difflist_len, kNypsPerVec) * kBytesPerVec
+        cdef uintptr_t difflist_sample_ids_byte_ct = RoundUpPow2(3 * max_stored_single_difflist_len * sizeof(int32_t), kBytesPerVec)
         cdef uintptr_t patch_01_vals_byte_ct = RoundUpPow2(file_sample_ct * sizeof(AlleleCode), kBytesPerVec)
         cdef uintptr_t patch_10_vals_byte_ct = RoundUpPow2(file_sample_ct * 2 * sizeof(AlleleCode), kBytesPerVec)
         cdef uintptr_t dosage_main_byte_ct = DivUp(file_sample_ct, (2 * kInt32PerVec)) * kBytesPerVec
         cdef unsigned char* pgr_alloc
-        if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglNypTransposeBatch + 7) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglNypTransposeBatch) * genovec_byte_ct + patch_01_vals_byte_ct + patch_10_vals_byte_ct + dosage_main_byte_ct + kPglBitTransposeBufbytes + 4 * (kPglNypTransposeBatch * kPglNypTransposeBatch // 8), &pgr_alloc):
+        if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglNypTransposeBatch + 7) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglNypTransposeBatch) * genovec_byte_ct + raregeno_byte_ct + difflist_sample_ids_byte_ct + patch_01_vals_byte_ct + patch_10_vals_byte_ct + dosage_main_byte_ct + kPglBitTransposeBufbytes + 4 * (kPglNypTransposeBatch * kPglNypTransposeBatch // 8), &pgr_alloc):
             raise MemoryError()
         cdef PglErr reterr = PgrInit(fname, max_vrec_width, self._info_ptr, self._state_ptr, pgr_alloc)
         if reterr != kPglRetSuccess:
@@ -550,6 +570,10 @@ cdef class PgenReader:
             self.set_sample_subset_internal(sample_subset)
         else:
             self._subset_size = file_sample_ct
+        self._raregeno_buf = <uintptr_t*>pgr_alloc_iter
+        pgr_alloc_iter = &(pgr_alloc_iter[raregeno_byte_ct])
+        self._difflist_sample_ids_buf = <uint32_t*>pgr_alloc_iter
+        pgr_alloc_iter = &(pgr_alloc_iter[difflist_sample_ids_byte_ct])
         self._transpose_batch_buf = <VecW*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[kPglBitTransposeBufbytes])
         self._multivar_vmaj_geno_buf = <uintptr_t*>pgr_alloc_iter
@@ -1667,6 +1691,197 @@ cdef class PgenReader:
         data_ptr[0] = data_ptr[2]
         data_ptr[2] = tmp
         return
+
+
+    cpdef has_sparse(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        if variant_idx >= self._info_ptr[0].raw_variant_ct:
+            raise RuntimeError("has_sparse() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
+        cdef uint32_t vrtype = PgrGetVrtype(self._state_ptr, variant_idx)
+        # Don't support multiallelic variants outside the trivial REF case for
+        # now.
+        if allele_idx == 0:
+            return (vrtype & 7) == 6
+        elif allele_idx == 1:
+            return (vrtype & 15) == 4
+        return False
+
+
+    cpdef read_sparse8(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        if variant_idx >= self._info_ptr[0].raw_variant_ct:
+            raise RuntimeError("read_sparse8() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
+        if allele_idx > 1:
+            raise RuntimeError("read_sparse8(): variant_idx=" + str(variant_idx) + ", allele_idx=" + str(allele_idx) + " does not have supported sparse representation")
+        cdef uint32_t subset_size = self._subset_size
+        cdef uint32_t raw_sample_ct = self._info_ptr[0].raw_sample_ct
+        cdef uint32_t max_difflist_len = 2 * (raw_sample_ct // kPglMaxDifflistLenDivisor)
+        cdef uintptr_t* raregeno_buf = self._raregeno_buf
+        cdef uint32_t* difflist_sample_ids_buf = self._difflist_sample_ids_buf
+        cdef uint32_t difflist_common_geno
+        cdef uint32_t difflist_len
+        cdef PglErr reterr
+        with nogil:
+            reterr = PgrGetDifflistOrGenovec(self._subset_include_vec, self._subset_index, subset_size, max_difflist_len, variant_idx, self._state_ptr, self._pgv.genovec, &difflist_common_geno, raregeno_buf, difflist_sample_ids_buf, &difflist_len)
+        if reterr != kPglRetSuccess:
+            raise RuntimeError("read_sparse8() error " + str(reterr))
+        if allele_idx == 0:
+            if difflist_common_geno != 2:
+                raise RuntimeError("read_sparse8(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
+            GenovecInvertUnsafe(difflist_len, raregeno_buf)
+        elif difflist_common_geno != 0:
+            raise RuntimeError("read_sparse8(): variant_idx=" + str(variant_idx) + ", allele_idx=1 does not have supported sparse representation")
+        cdef np.ndarray[np.uint32_t,mode="c",ndim=1] sample_idxs = np.zeros([difflist_len], dtype=np.uint32)
+        cdef np.ndarray[np.int8_t,mode="c",ndim=1] geno_arr = np.zeros([difflist_len], dtype=np.int8)
+        if difflist_len > 0:
+            memcpy(&(sample_idxs[0]), difflist_sample_ids_buf, difflist_len * sizeof(int32_t))
+            GenoarrToBytesMinus9(raregeno_buf, difflist_len, &(geno_arr[0]))
+        return (sample_idxs, geno_arr)
+
+
+    cpdef read_sparse32(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        if variant_idx >= self._info_ptr[0].raw_variant_ct:
+            raise RuntimeError("read_sparse32() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
+        if allele_idx > 1:
+            raise RuntimeError("read_sparse32(): variant_idx=" + str(variant_idx) + ", allele_idx=" + str(allele_idx) + " does not have supported sparse representation")
+        cdef uint32_t subset_size = self._subset_size
+        cdef uint32_t raw_sample_ct = self._info_ptr[0].raw_sample_ct
+        cdef uint32_t max_difflist_len = 2 * (raw_sample_ct // kPglMaxDifflistLenDivisor)
+        cdef uintptr_t* raregeno_buf = self._raregeno_buf
+        cdef uint32_t* difflist_sample_ids_buf = self._difflist_sample_ids_buf
+        cdef uint32_t difflist_common_geno
+        cdef uint32_t difflist_len
+        cdef PglErr reterr
+        with nogil:
+            reterr = PgrGetDifflistOrGenovec(self._subset_include_vec, self._subset_index, subset_size, max_difflist_len, variant_idx, self._state_ptr, self._pgv.genovec, &difflist_common_geno, raregeno_buf, difflist_sample_ids_buf, &difflist_len)
+        if reterr != kPglRetSuccess:
+            raise RuntimeError("read_sparse32() error " + str(reterr))
+        if allele_idx == 0:
+            if difflist_common_geno != 2:
+                raise RuntimeError("read_sparse32(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
+            GenovecInvertUnsafe(difflist_len, raregeno_buf)
+        elif difflist_common_geno != 0:
+            raise RuntimeError("read_sparse32(): variant_idx=" + str(variant_idx) + ", allele_idx=1 does not have supported sparse representation")
+        cdef np.ndarray[np.uint32_t,mode="c",ndim=1] sample_idxs = np.zeros([difflist_len], dtype=np.uint32)
+        cdef np.ndarray[np.int32_t,mode="c",ndim=1] geno_arr = np.zeros([difflist_len], dtype=np.int32)
+        if difflist_len > 0:
+            memcpy(&(sample_idxs[0]), difflist_sample_ids_buf, difflist_len * sizeof(int32_t))
+            GenoarrToInt32sMinus9(raregeno_buf, difflist_len, &(geno_arr[0]))
+        return (sample_idxs, geno_arr)
+
+
+    cpdef read_sparse64(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        if variant_idx >= self._info_ptr[0].raw_variant_ct:
+            raise RuntimeError("read_sparse64() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
+        if allele_idx > 1:
+            raise RuntimeError("read_sparse64(): variant_idx=" + str(variant_idx) + ", allele_idx=" + str(allele_idx) + " does not have supported sparse representation")
+        cdef uint32_t subset_size = self._subset_size
+        cdef uint32_t raw_sample_ct = self._info_ptr[0].raw_sample_ct
+        cdef uint32_t max_difflist_len = 2 * (raw_sample_ct // kPglMaxDifflistLenDivisor)
+        cdef uintptr_t* raregeno_buf = self._raregeno_buf
+        cdef uint32_t* difflist_sample_ids_buf = self._difflist_sample_ids_buf
+        cdef uint32_t difflist_common_geno
+        cdef uint32_t difflist_len
+        cdef PglErr reterr
+        with nogil:
+            reterr = PgrGetDifflistOrGenovec(self._subset_include_vec, self._subset_index, subset_size, max_difflist_len, variant_idx, self._state_ptr, self._pgv.genovec, &difflist_common_geno, raregeno_buf, difflist_sample_ids_buf, &difflist_len)
+        if reterr != kPglRetSuccess:
+            raise RuntimeError("read_sparse64() error " + str(reterr))
+        if allele_idx == 0:
+            if difflist_common_geno != 2:
+                raise RuntimeError("read_sparse64(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
+            GenovecInvertUnsafe(difflist_len, raregeno_buf)
+        elif difflist_common_geno != 0:
+            raise RuntimeError("read_sparse64(): variant_idx=" + str(variant_idx) + ", allele_idx=1 does not have supported sparse representation")
+        cdef np.ndarray[np.uint32_t,mode="c",ndim=1] sample_idxs = np.zeros([difflist_len], dtype=np.uint32)
+        cdef np.ndarray[np.int64_t,mode="c",ndim=1] geno_arr = np.zeros([difflist_len], dtype=np.int64)
+        if difflist_len > 0:
+            memcpy(&(sample_idxs[0]), difflist_sample_ids_buf, difflist_len * sizeof(int32_t))
+            GenoarrToInt64sMinus9(raregeno_buf, difflist_len, &(geno_arr[0]))
+        return (sample_idxs, geno_arr)
+
+
+    cpdef has_sparse_dosages(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        if variant_idx >= self._info_ptr[0].raw_variant_ct:
+            raise RuntimeError("has_sparse() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
+        cdef uint32_t vrtype = PgrGetVrtype(self._state_ptr, variant_idx)
+        # Don't support multiallelic variants outside the trivial REF case for
+        # now.
+        if allele_idx == 0:
+            if (vrtype & 7) != 6:
+                return False
+        elif allele_idx == 1:
+            if (vrtype & 15) != 4:
+                return False
+        else:
+            return False
+        cdef uint32_t vrtype_dosage = vrtype & 0x60
+        if vrtype_dosage != 0x20:
+            return (vrtype_dosage == 0)
+        # Dosage-list.  If hardcall-phase information is present and we're
+        # extracting a sample-subset, the current implementation doesn't
+        # support sparse-return.  Otherwise we're ok.
+        return (not (vrtype & 0x10)) or (self._subset_size == self._info_ptr[0].raw_sample_ct)
+
+
+    cpdef read_sparse_dosages32(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        if variant_idx >= self._info_ptr[0].raw_variant_ct:
+            raise RuntimeError("read_sparse_dosages32() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
+        if allele_idx > 1:
+            raise RuntimeError("read_sparse_dosages32(): variant_idx=" + str(variant_idx) + ", allele_idx=" + str(allele_idx) + " does not have supported sparse representation")
+        cdef uint32_t subset_size = self._subset_size
+        cdef uint32_t raw_sample_ct = self._info_ptr[0].raw_sample_ct
+        cdef uint32_t max_difflist_len = 3 * (raw_sample_ct // kPglMaxDifflistLenDivisor)
+        cdef uint16_t* dosage_main = self._pgv.dosage_main
+        cdef uint32_t* difflist_sample_ids_buf = self._difflist_sample_ids_buf
+        cdef uint32_t dosage_ct
+        cdef uint16_t difflist_common_dosage
+        cdef PglErr reterr
+        with nogil:
+            reterr = PgrGetDMaybeSparse(self._subset_include_vec, self._subset_index, subset_size, variant_idx, max_difflist_len, self._state_ptr, self._pgv.genovec, self._pgv.dosage_present, dosage_main, &dosage_ct, &difflist_common_dosage, difflist_sample_ids_buf)
+        if reterr != kPglRetSuccess:
+            raise RuntimeError("read_sparse_dosages32() error " + str(reterr))
+        if allele_idx == 0:
+            if difflist_common_dosage != 32768:
+                raise RuntimeError("read_sparse_dosages32(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
+            BiallelicDosage16Invert(dosage_ct, dosage_main)
+        elif difflist_common_dosage != 0:
+            raise RuntimeError("read_sparse_dosages32(): variant_idx=" + str(variant_idx) + ", allele_idx=1 does not have supported sparse representation")
+        cdef np.ndarray[np.uint32_t,mode="c",ndim=1] sample_idxs = np.zeros([dosage_ct], dtype=np.uint32)
+        cdef np.ndarray[np.float32_t,mode="c",ndim=1] dosage_arr = np.zeros([dosage_ct], dtype=np.float32)
+        if dosage_ct > 0:
+            memcpy(&(sample_idxs[0]), difflist_sample_ids_buf, dosage_ct * sizeof(int32_t))
+            DenseDosage16ToFloatsMinus9(dosage_main, dosage_ct, &(dosage_arr[0]))
+        return (sample_idxs, dosage_arr)
+
+
+    cpdef read_sparse_dosages64(self, uint32_t variant_idx, uint32_t allele_idx = 1):
+        if variant_idx >= self._info_ptr[0].raw_variant_ct:
+            raise RuntimeError("read_sparse_dosages64() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
+        if allele_idx > 1:
+            raise RuntimeError("read_sparse_dosages64(): variant_idx=" + str(variant_idx) + ", allele_idx=" + str(allele_idx) + " does not have supported sparse representation")
+        cdef uint32_t subset_size = self._subset_size
+        cdef uint32_t raw_sample_ct = self._info_ptr[0].raw_sample_ct
+        cdef uint32_t max_difflist_len = 3 * (raw_sample_ct // kPglMaxDifflistLenDivisor)
+        cdef uint16_t* dosage_main = self._pgv.dosage_main
+        cdef uint32_t* difflist_sample_ids_buf = self._difflist_sample_ids_buf
+        cdef uint32_t dosage_ct
+        cdef uint16_t difflist_common_dosage
+        cdef PglErr reterr
+        with nogil:
+            reterr = PgrGetDMaybeSparse(self._subset_include_vec, self._subset_index, subset_size, variant_idx, max_difflist_len, self._state_ptr, self._pgv.genovec, self._pgv.dosage_present, dosage_main, &dosage_ct, &difflist_common_dosage, difflist_sample_ids_buf)
+        if reterr != kPglRetSuccess:
+            raise RuntimeError("read_sparse_dosages64() error " + str(reterr))
+        if allele_idx == 0:
+            if difflist_common_dosage != 32768:
+                raise RuntimeError("read_sparse_dosages64(): variant_idx=" + str(variant_idx) + ", allele_idx=0 does not have supported sparse representation")
+            BiallelicDosage16Invert(dosage_ct, dosage_main)
+        elif difflist_common_dosage != 0:
+            raise RuntimeError("read_sparse_dosages64(): variant_idx=" + str(variant_idx) + ", allele_idx=1 does not have supported sparse representation")
+        cdef np.ndarray[np.uint32_t,mode="c",ndim=1] sample_idxs = np.zeros([dosage_ct], dtype=np.uint32)
+        cdef np.ndarray[np.float64_t,mode="c",ndim=1] dosage_arr = np.zeros([dosage_ct], dtype=np.float64)
+        if dosage_ct > 0:
+            memcpy(&(sample_idxs[0]), difflist_sample_ids_buf, dosage_ct * sizeof(int32_t))
+            DenseDosage16ToDoubles(dosage_main, dosage_ct, -9, &(dosage_arr[0]))
+        return (sample_idxs, dosage_arr)
 
 
     cpdef change_sample_subset(self, object sample_subset = None):

@@ -188,6 +188,7 @@ void RPgenReader::Load(String filename, Nullable<List> pvar,
   if (is_not_plink1_bed) {
     const uint32_t max_stored_single_difflist_len = file_sample_ct / plink2::kPglMaxDifflistLenDivisor;
     raregeno_byte_ct = plink2::DivUp(2 * max_stored_single_difflist_len, plink2::kNypsPerVec) * plink2::kBytesPerVec;
+    // ReadSparse() uses max_difflist_len = 3 * max_stored_single_difflist_len.
     difflist_sample_ids_byte_ct = plink2::RoundUpPow2(3 * max_stored_single_difflist_len * sizeof(int32_t), plink2::kBytesPerVec);
   }
   const uintptr_t ac_byte_ct = plink2::RoundUpPow2(file_sample_ct * sizeof(plink2::AlleleCode), plink2::kBytesPerVec);
@@ -548,22 +549,13 @@ void RPgenReader::ReadMaybeSparse(NumericVector buf, int variant_idx, int allele
   for (uint32_t uii = 0; uii != dosage_ct; ++uii) {
     sample_nums_data[uii] = _difflist_sample_ids_buf[uii] + 1;
   }
-  const uint16_t* dosage_main = _pgv.dosage_main;
+  uint16_t* dosage_main = _pgv.dosage_main;
   *allele_dosages_ptr = NumericVector(dosage_ct);
   double* allele_dosages_data = &((*allele_dosages_ptr)[0]);
   if (allele_idx == 0) {
-    for (uint32_t uii = 0; uii != dosage_ct; ++uii) {
-      const uint16_t cur_dosage_int = dosage_main[uii];
-      const double cur_dosage_dbl = (cur_dosage_int == 65535)? NA_REAL : ((static_cast<int32_t>(32768 - cur_dosage_int)) * (1.0 / 16384.0));
-      allele_dosages_data[uii] = cur_dosage_dbl;
-    }
-  } else {
-    for (uint32_t uii = 0; uii != dosage_ct; ++uii) {
-      const uint16_t cur_dosage_int = dosage_main[uii];
-      const double cur_dosage_dbl = (cur_dosage_int == 65535)? NA_REAL : ((static_cast<int32_t>(cur_dosage_int)) * (1.0 / 16384.0));
-      allele_dosages_data[uii] = cur_dosage_dbl;
-    }
+    plink2::BiallelicDosage16Invert(dosage_ct, dosage_main);
   }
+  plink2::DenseDosage16ToDoubles(dosage_main, dosage_ct, NA_REAL, allele_dosages_data);
 }
 
 static const uint64_t kGenoToRIntcodeDPairs[32] ALIGNV16 = PAIR_TABLE16(0, 0x100000000LLU, 0x100000001LLU, 0x8000000080000000LLU);

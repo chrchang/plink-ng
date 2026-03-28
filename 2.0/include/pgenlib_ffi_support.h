@@ -83,6 +83,20 @@ HEADER_INLINE void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintp
   Dosage16ToDoubles(kGenoDoublePairs, genoarr, dosage_present, dosage_main, sample_ct, dosage_ct, geno_double);
 }
 
+HEADER_INLINE void DenseDosage16ToFloatsMinus9(const uint16_t* dosage_main, uint32_t dosage_ct, float* geno_float) {
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uint16_t cur_dosage_int = dosage_main[dosage_idx];
+    geno_float[dosage_idx] = (cur_dosage_int == 65535)? S_CAST(float, -9) : (S_CAST(float, cur_dosage_int) * S_CAST(float, 1.0 / 16384.0));
+  }
+}
+
+HEADER_INLINE void DenseDosage16ToDoubles(const uint16_t* dosage_main, uint32_t dosage_ct, double missing_val, double* geno_double) {
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uint16_t cur_dosage_int = dosage_main[dosage_idx];
+    geno_double[dosage_idx] = (cur_dosage_int == 65535)? missing_val : (u31tod(cur_dosage_int) * (1.0 / 16384.0));
+  }
+}
+
 // Does not zero out trailing bits of bitarr.
 void BytesToBitsUnsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* bitarr);
 

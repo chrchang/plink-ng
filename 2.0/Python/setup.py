@@ -60,6 +60,7 @@ ext_modules = [
                          'src/plink2/include/plink2_base.cc',
                          'src/plink2/include/plink2_bgzf.cc',
                          'src/plink2/include/plink2_bits.cc',
+                         'src/plink2/include/plink2_float.cc',
                          'src/plink2/include/plink2_htable.cc',
                          'src/plink2/include/plink2_memory.cc',
                          'src/plink2/include/plink2_string.cc',
@@ -83,7 +84,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="Pgenlib",
-    version="0.93.0",
+    version="0.94.0",
     author="Christopher Chang",
     author_email="chrchang@alumni.caltech.edu",
     description="Python wrapper for pgenlib's basic reader and writer.",
