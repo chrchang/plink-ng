@@ -98,7 +98,11 @@ CONSTI32(kMaxThreads, 512);
 CONSTI32(kDefaultThreadStack, MAXV(524288, PTHREAD_STACK_MIN));
 #else
 // asserts didn't seem to work properly with a setting much smaller than this
+#  ifdef _WIN32
+CONSTI32(kDefaultThreadStack, 131072);
+#  else
 CONSTI32(kDefaultThreadStack, MAXV(131072, PTHREAD_STACK_MIN));
+#  endif
 #endif
 
 typedef struct ThreadGroupControlBlockStruct {
