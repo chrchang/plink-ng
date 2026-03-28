@@ -1,3 +1,8 @@
+# pgenlibr 0.6.1 (2026-03-28)
+Filled in missing pgenlibr::NewPvar() error message, and added workaround for
+systems with pthread_create() implementations which don't seem to support a
+custom stack-size attr.
+
 # pgenlibr 0.6.0 (2026-03-23)
 >15 MB of library source code files (libdeflate, SIMDe, zstd) are no longer
 kept after installation.  (If you were depending on these files, we apologize

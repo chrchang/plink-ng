@@ -267,7 +267,7 @@ BoolErr SpawnThreads(ThreadGroup* tg_ptr) {
       arg_slot->sharedp = &(tgp->shared);
       arg_slot->tidx = tidx;
       const int32_t pthread_create_result =
-        pthread_create(&(threads[tidx]),
+        Pthread_create(&(threads[tidx]),
 #  ifdef __cplusplus
                        &g_thread_startup.smallstack_thread_attr,
 #  else

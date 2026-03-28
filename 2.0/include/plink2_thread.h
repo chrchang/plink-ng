@@ -32,6 +32,7 @@
 #ifdef _WIN32
 #  include <process.h>  // IWYU pragma: export
 #else
+#  include <errno.h>  // EINVAL
 #  include <pthread.h>  // IWYU pragma: export
 #endif
 
@@ -94,10 +95,10 @@ CONSTI32(kMaxThreads, 512);
 
 #ifdef __APPLE__
 // cblas_dgemm may fail with 128k
-CONSTI32(kDefaultThreadStack, 524288);
+CONSTI32(kDefaultThreadStack, MAXV(524288, PTHREAD_STACK_MIN));
 #else
 // asserts didn't seem to work properly with a setting much smaller than this
-CONSTI32(kDefaultThreadStack, 131072);
+CONSTI32(kDefaultThreadStack, MAXV(131072, PTHREAD_STACK_MIN));
 #endif
 
 typedef struct ThreadGroupControlBlockStruct {
@@ -217,18 +218,19 @@ HEADER_INLINE uint32_t IsLastBlock(const ThreadGroup* tg_ptr) {
   return GET_PRIVATE(tgp->shared, cb).is_last_block;
 }
 
-#if defined(__cplusplus) && !defined(_WIN32)
+#ifndef _WIN32
+#  ifdef __cplusplus
 class Plink2ThreadStartup {
 public:
   pthread_attr_t smallstack_thread_attr;
   Plink2ThreadStartup() {
-#  ifdef NDEBUG
+#    ifdef NDEBUG
     // we'll error out for another reason soon enough if there's insufficient
     // memory...
     pthread_attr_init(&smallstack_thread_attr);
-#  else
+#    else
     assert(!pthread_attr_init(&smallstack_thread_attr));
-#  endif
+#    endif
     // if this fails due to kDefaultThreadStack being smaller than the system
     // page size, no need to error out
     pthread_attr_setstacksize(&smallstack_thread_attr, kDefaultThreadStack);
@@ -240,6 +242,19 @@ public:
 };
 
 extern Plink2ThreadStartup g_thread_startup;
+#  endif
+
+// https://github.com/chrchang/plink-ng/issues/323
+// looks like pthread_create on some systems doesn't handle non-null attr
+// properly?  confirmed that this was *not* due to out-of-range
+// kDefaultThreadStack... just retry with null attr for now.
+HEADER_INLINE int32_t Pthread_create(pthread_t* thread, const pthread_attr_t* attr, void* (*start_routine)(void*), void* arg) {
+  int32_t pthread_create_result = pthread_create(thread, attr, start_routine, arg);
+  if (pthread_create_result == EINVAL) {
+    pthread_create_result = pthread_create(thread, nullptr, start_routine, arg);
+  }
+  return pthread_create_result;
+}
 #endif
 
 BoolErr SpawnThreads(ThreadGroup* tg_ptr);

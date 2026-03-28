@@ -101,7 +101,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
   PglErr reterr = kPglRetSuccess;
   {
     if (unlikely(TextStreamOpen(fname, &txs))) {
-      goto LoadMinimalPvar_ret_FILE_FAIL;
+      goto LoadMinimalPvarEx_ret_FILE_FAIL;
     }
     const uint32_t chr_needed = ((flags & kfLoadMinimalPvarOmitChrom) == 0);
     const uint32_t pos_needed = ((flags & kfLoadMinimalPvarOmitPos) == 0);
@@ -119,7 +119,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
       line_iter = TextGet(&txs);
       if (unlikely(!line_iter)) {
         snprintf(errstr_buf, kPglErrstrBufBlen, "Error: No variants in %s.\n", fname);
-        goto LoadMinimalPvar_ret_MALFORMED_INPUT;
+        goto LoadMinimalPvarEx_ret_MALFORMED_INPUT;
       }
       if (*line_iter != '#') {
         // .bim:
@@ -128,7 +128,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
         const char* fifth_token = NextTokenMult(line_iter, 4);
         if (unlikely(!fifth_token)) {
           snprintf(errstr_buf, kPglErrstrBufBlen, "Error: No variants in %s.\n", fname);
-          goto LoadMinimalPvar_ret_MALFORMED_INPUT;
+          goto LoadMinimalPvarEx_ret_MALFORMED_INPUT;
         }
         // bugfix (12 Jan 2025): this was off by 1
         col_skips[0] = 1;
@@ -188,7 +188,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
             write_iter = strcpya_k(write_iter, " of ");
             write_iter = strcpya(write_iter, fname);
             memcpy_k(write_iter, ".\n\0", 4);
-            goto LoadMinimalPvar_ret_MALFORMED_INPUT;
+            goto LoadMinimalPvarEx_ret_MALFORMED_INPUT;
           }
           found_header_bitset |= cur_col_type_shifted;
           col_skips[relevant_postchr_col_ct] = col_idx;
@@ -207,7 +207,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
           write_iter = strcpya_k(write_iter, " of ");
           write_iter = strcpya(write_iter, fname);
           strcpy_k(write_iter, ". (ID, REF, ALT, and usually POS are required.)\n");
-          goto LoadMinimalPvar_ret_MALFORMED_INPUT;
+          goto LoadMinimalPvarEx_ret_MALFORMED_INPUT;
         }
         for (uint32_t rpc_col_idx = relevant_postchr_col_ct - 1; rpc_col_idx; --rpc_col_idx) {
           col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
@@ -218,14 +218,14 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
       }
     }
     if (unlikely(TextStreamErrcode(&txs))) {
-      goto LoadMinimalPvar_ret_FILE_FAIL;
+      goto LoadMinimalPvarEx_ret_FILE_FAIL;
     }
 
     if (chr_needed) {
       chr_names_tmp = S_CAST(const char**, malloc(kMaxChromosomes * sizeof(intptr_t)));
       chr_names_htable = S_CAST(uint32_t*, malloc(kChrHtableSize * sizeof(int32_t)));
       if (unlikely((!chr_names_tmp) || (!chr_names_htable))) {
-        goto LoadMinimalPvar_ret_NOMEM;
+        goto LoadMinimalPvarEx_ret_NOMEM;
       }
       SetAllU32Arr(kChrHtableSize, chr_names_htable);
     }
@@ -246,7 +246,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
             write_iter = strcpya_k(write_iter, " of ");
             write_iter = strcpya(write_iter, fname);
             strcpy_k(write_iter, " has an excessively long chromosome/contig name.\n");
-            goto LoadMinimalPvar_ret_MALFORMED_INPUT;
+            goto LoadMinimalPvarEx_ret_MALFORMED_INPUT;
           }
           const uint32_t chr_idx = IdHtableFindNnt(chr_start, chr_names_tmp, chr_names_htable, chr_slen, kChrHtableSize);
           if (chr_idx == UINT32_MAX) {
@@ -254,14 +254,14 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
             // per-variant info since we haven't allocated chr_idxs yet.
             if (unlikely(chr_ct == kMaxChromosomes)) {
               snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Too many distinct chromosome/contig names in %s (limit %u).\n", fname, kMaxChromosomes);
-              goto LoadMinimalPvar_ret_MALFORMED_INPUT;
+              goto LoadMinimalPvarEx_ret_MALFORMED_INPUT;
             }
             // max ~65k, rather than tens or hundreds of millions.  So we don't
             // bother optimizing out most of these allocations.  (But maybe
             // worth compacting the allocations at the end of the first pass?)
             char* chr_name_copy = S_CAST(char*, malloc(chr_slen + 1));
             if (unlikely(!chr_name_copy)) {
-              goto LoadMinimalPvar_ret_NOMEM;
+              goto LoadMinimalPvarEx_ret_NOMEM;
             }
             memcpyx(chr_name_copy, chr_start, chr_slen, '\0');
             chr_names_tmp[chr_ct] = chr_name_copy;
@@ -273,7 +273,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
         uint32_t token_slens[kPvarColNull];
         line_iter = TokenLexK(line_iter, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
         if (unlikely(!line_iter)) {
-          goto LoadMinimalPvar_ret_MISSING_TOKENS;
+          goto LoadMinimalPvarEx_ret_MISSING_TOKENS;
         }
         // POS always ignored during this pass
         ++variant_ct;
@@ -300,7 +300,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
               const uint32_t cur_allele_slen = cur_alt_end - alt_iter;
               if (cur_allele_slen != 1) {
                 if (unlikely(!cur_allele_slen)) {
-                  goto LoadMinimalPvar_ret_EMPTY_ALLELE_CODE;
+                  goto LoadMinimalPvarEx_ret_EMPTY_ALLELE_CODE;
                 }
                 string_byte_ct += cur_allele_slen + 1;
               }
@@ -309,7 +309,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
             const uint32_t cur_allele_slen = alt_end - alt_iter;
             if (cur_allele_slen != 1) {
               if (unlikely(!cur_allele_slen)) {
-                goto LoadMinimalPvar_ret_EMPTY_ALLELE_CODE;
+                goto LoadMinimalPvarEx_ret_EMPTY_ALLELE_CODE;
               }
               string_byte_ct += cur_allele_slen + 1;
             }
@@ -318,7 +318,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
       }
       if (TextNextLineLstripK(&txs, &line_iter)) {
         if (unlikely(TextStreamErrcode(&txs))) {
-          goto LoadMinimalPvar_ret_FILE_FAIL;
+          goto LoadMinimalPvarEx_ret_FILE_FAIL;
         }
         break;
       }
@@ -326,7 +326,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
     }
     if (unlikely(!variant_ct)) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: No variants in %s.\n", fname);
-      goto LoadMinimalPvar_ret_MALFORMED_INPUT;
+      goto LoadMinimalPvarEx_ret_MALFORMED_INPUT;
     }
     if (unlikely(variant_ct > kPglMaxVariantCt)) {
       // snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Too many variants in %s (%" PRIuPTR "; max 2^31 - 3).\n", fname, variant_ct);
@@ -335,20 +335,20 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
       write_iter = strcpya_k(write_iter, " (");
       write_iter = wtoa(variant_ct, write_iter);
       strcpy_k(write_iter, "; max 2^31 - 3).\n");
-      goto LoadMinimalPvar_ret_MALFORMED_INPUT;
+      goto LoadMinimalPvarEx_ret_MALFORMED_INPUT;
     }
     ChrIdx* chr_idxs = nullptr;
     if (chr_needed) {
       assert(!mpp->chr_names);
       mpp->chr_names = S_CAST(const char**, realloc(chr_names_tmp, chr_ct * sizeof(intptr_t)));
       if (unlikely(!mpp->chr_names)) {
-        goto LoadMinimalPvar_ret_NOMEM;
+        goto LoadMinimalPvarEx_ret_NOMEM;
       }
       mpp->chr_ct = chr_ct;
       chr_names_tmp = nullptr;
       chr_idxs = S_CAST(ChrIdx*, malloc(variant_ct * sizeof(ChrIdx)));
       if (unlikely(!chr_idxs)) {
-        goto LoadMinimalPvar_ret_NOMEM;
+        goto LoadMinimalPvarEx_ret_NOMEM;
       }
       assert(!mpp->chr_idxs);
       mpp->chr_idxs = chr_idxs;
@@ -358,7 +358,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
       assert(!mpp->variant_bps);
       variant_bps = S_CAST(int32_t*, malloc(variant_ct * sizeof(int32_t)));
       if (unlikely(!variant_bps)) {
-        goto LoadMinimalPvar_ret_NOMEM;
+        goto LoadMinimalPvarEx_ret_NOMEM;
       }
       mpp->variant_bps = variant_bps;
     }
@@ -366,14 +366,14 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
     string_byte_ct += variant_ct;
     const char** variant_ids = S_CAST(const char**, malloc((variant_ct + allele_ct) * sizeof(intptr_t)));
     if (unlikely(!variant_ids)) {
-      goto LoadMinimalPvar_ret_NOMEM;
+      goto LoadMinimalPvarEx_ret_NOMEM;
     }
     assert(!mpp->variant_ids);
     mpp->variant_ids = variant_ids;
     char* string_space_iter = S_CAST(char*, malloc(string_byte_ct));
     if (unlikely(!string_space_iter)) {
       variant_ids[0] = nullptr;
-      goto LoadMinimalPvar_ret_NOMEM;
+      goto LoadMinimalPvarEx_ret_NOMEM;
     }
     // ensure this is freed if we trigger one of the next few error conditions
     variant_ids[0] = string_space_iter;
@@ -386,16 +386,16 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
       if (unlikely(max_extra_alt_ct >= kPglMaxAltAlleleCt)) {
         snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Variant in %s has too many ALT alleles (%u; max " PGL_MAX_ALT_ALLELE_CT_STR ").\n", fname, max_extra_alt_ct + 1);
         reterr = kPglRetNotYetSupported;
-        goto LoadMinimalPvar_ret_1;
+        goto LoadMinimalPvarEx_ret_1;
       }
       mpp->allele_idx_offsetsp = CreateRefcountedWptr(variant_ct + 1);
       if (unlikely(!mpp->allele_idx_offsetsp)) {
-        goto LoadMinimalPvar_ret_NOMEM;
+        goto LoadMinimalPvarEx_ret_NOMEM;
       }
       allele_idx_offsets = mpp->allele_idx_offsetsp->p;
     }
     if (unlikely(TextRewind(&txs))) {
-      goto LoadMinimalPvar_ret_FILE_FAIL;
+      goto LoadMinimalPvarEx_ret_FILE_FAIL;
     }
     const char** allele_storage = &(variant_ids[variant_ct]);
     mpp->allele_storage = allele_storage;
@@ -414,7 +414,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
         const uint32_t chr_idx = IdHtableFindNnt(chr_start, mpp->chr_names, chr_names_htable, chr_slen, kChrHtableSize);
         if (unlikely(chr_idx == UINT32_MAX)) {
           // should have been loaded during previous pass
-          goto LoadMinimalPvar_ret_READ_FAIL;
+          goto LoadMinimalPvarEx_ret_READ_FAIL;
         }
         chr_idxs[variant_idx] = chr_idx;
       }
@@ -423,7 +423,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
       line_iter = TokenLexK(line_iter, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
       if (unlikely(!line_iter)) {
         // previously validated
-        goto LoadMinimalPvar_ret_READ_FAIL;
+        goto LoadMinimalPvarEx_ret_READ_FAIL;
       }
       if (allele_idx_offsets) {
         allele_idx_offsets[variant_idx] = allele_idx;
@@ -437,7 +437,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
           write_iter = strcpya_k(write_iter, " of ");
           write_iter = strcpya(write_iter, fname);
           memcpy_k(write_iter, ".\n\0", 4);
-          goto LoadMinimalPvar_ret_MALFORMED_INPUT;
+          goto LoadMinimalPvarEx_ret_MALFORMED_INPUT;
         }
       }
 
@@ -497,10 +497,10 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
       ++variant_idx;
     }
     if (unlikely(TextStreamErrcode(&txs))) {
-      goto LoadMinimalPvar_ret_FILE_FAIL;
+      goto LoadMinimalPvarEx_ret_FILE_FAIL;
     }
     if (unlikely(variant_idx != variant_ct)) {
-      goto LoadMinimalPvar_ret_READ_FAIL;
+      goto LoadMinimalPvarEx_ret_READ_FAIL;
     }
 #ifndef NDEBUG
     assert(string_space_iter == string_space_end);
@@ -510,25 +510,27 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
     }
   }
   while (0) {
-  LoadMinimalPvar_ret_NOMEM:
+  LoadMinimalPvarEx_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  LoadMinimalPvar_ret_READ_FAIL:
+  LoadMinimalPvarEx_ret_READ_FAIL:
     errno = 0;
     reterr = kPglRetReadFail;
     break;
-  LoadMinimalPvar_ret_FILE_FAIL:
+  LoadMinimalPvarEx_ret_FILE_FAIL:
     reterr = TextStreamErrcode(&txs);
     assert(reterr != kPglRetSuccess);
     {
       const char* errmsg = TextStreamError(&txs);
+      memcpy_k(errstr_buf, "Error: ", 7);
       if (errmsg) {
-        memcpy_k(errstr_buf, "Error: ", 7);
         strcpy(&(errstr_buf[7]), errmsg);
+      } else {
+        snprintf(&(errstr_buf[7]), kPglErrstrBufBlen - 7, "LoadMinimalPvarEx() error %d.\n", S_CAST(int32_t, reterr));
       }
     }
     break;
-  LoadMinimalPvar_ret_MISSING_TOKENS:
+  LoadMinimalPvarEx_ret_MISSING_TOKENS:
     // snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Fewer tokens than expected on line %" PRIuPTR " of %s.\n", line_idx, fname);
     {
       char* write_iter = strcpya_k(errstr_buf, "Error: Fewer tokens than expected on line ");
@@ -538,10 +540,10 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
       memcpy_k(write_iter, ".\n\0", 4);
     }
     // fallthrough
-  LoadMinimalPvar_ret_MALFORMED_INPUT:
+  LoadMinimalPvarEx_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  LoadMinimalPvar_ret_EMPTY_ALLELE_CODE:
+  LoadMinimalPvarEx_ret_EMPTY_ALLELE_CODE:
     // snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Empty allele code on line %" PRIuPTR " of %s.\n", line_idx, fname);
     {
       char* write_iter = strcpya_k(errstr_buf, "Error: Empty allele code on line ");
@@ -553,7 +555,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
     reterr = kPglRetMalformedInput;
     break;
   }
- LoadMinimalPvar_ret_1:
+ LoadMinimalPvarEx_ret_1:
   free_cond(chr_names_htable);
   if (chr_names_tmp) {
     for (uint32_t chr_idx = 0; chr_idx != chr_ct; ++chr_idx) {

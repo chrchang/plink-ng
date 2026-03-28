@@ -1457,7 +1457,7 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
     }
     syncp->sync_init_state = 3;
 #  ifdef __cplusplus
-    if (unlikely(pthread_create(&syncp->read_thread,
+    if (unlikely(Pthread_create(&syncp->read_thread,
                                 &g_thread_startup.smallstack_thread_attr,
                                 TextStreamThread, txsp))) {
       goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
@@ -1468,7 +1468,7 @@ PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint
       goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
     pthread_attr_setstacksize(&smallstack_thread_attr, kDefaultThreadStack);
-    if (unlikely(pthread_create(&syncp->read_thread, &smallstack_thread_attr,
+    if (unlikely(Pthread_create(&syncp->read_thread, &smallstack_thread_attr,
                                 TextStreamThread, txsp))) {
       pthread_attr_destroy(&smallstack_thread_attr);
       goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;

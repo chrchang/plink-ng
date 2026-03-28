@@ -832,14 +832,14 @@ PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint3
     }
 #else
 #  ifdef __cplusplus
-    if (unlikely(pthread_create(&(bgzfp->threads[tidx]),
+    if (unlikely(Pthread_create(&(bgzfp->threads[tidx]),
                                 &g_thread_startup.smallstack_thread_attr,
                                 BgzfCompressorThread, &(bgzfp->compressor_args[tidx])))) {
       bgzfp->unfinished_init_state = (kMaxBgzfSlotCt << 4) | tidx;
       return kPglRetThreadCreateFail;
     }
 #  else
-    if (unlikely(pthread_create(&(bgzfp->threads[tidx]),
+    if (unlikely(Pthread_create(&(bgzfp->threads[tidx]),
                                 &smallstack_thread_attr,
                                 BgzfCompressorThread, &(bgzfp->compressor_args[tidx])))) {
       pthread_attr_destroy(&smallstack_thread_attr);
@@ -857,14 +857,14 @@ PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint3
   }
 #else
 #  ifdef __cplusplus
-  if (unlikely(pthread_create(&(bgzfp->threads[compressor_thread_ct]),
+  if (unlikely(Pthread_create(&(bgzfp->threads[compressor_thread_ct]),
                               &g_thread_startup.smallstack_thread_attr,
                               BgzfCompressWriterThread, bgzfp))) {
     bgzfp->unfinished_init_state = (kMaxBgzfSlotCt << 4) | compressor_thread_ct;
     return kPglRetThreadCreateFail;
   }
 #  else
-  if (unlikely(pthread_create(&(bgzfp->threads[compressor_thread_ct]),
+  if (unlikely(Pthread_create(&(bgzfp->threads[compressor_thread_ct]),
                               &smallstack_thread_attr,
                               BgzfCompressWriterThread, bgzfp))) {
     pthread_attr_destroy(&smallstack_thread_attr);
