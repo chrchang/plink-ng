@@ -11,7 +11,7 @@ NO_LAPACK =
 # passed into the linker; to use this, invoke 'make LDFLAGS_EXTRA="<opts>"'.
 LDFLAGS_EXTRA =
 
-ZLIB_VER = 1.3.1
+ZLIB_VER = 1.3.2
 
 .PHONY: clean install
 

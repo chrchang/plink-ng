@@ -300,7 +300,7 @@
 #ifdef DYNAMIC_ZLIB
   #include <zlib.h>
 #else
-  #include "../zlib-1.3.1/zlib.h"
+  #include "../zlib-1.3.2/zlib.h"
 #endif
 
 #include "pigz.h"
