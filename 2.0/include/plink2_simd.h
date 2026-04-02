@@ -35,7 +35,8 @@
 #  define USE_SSE2
 #  ifdef __x86_64__
 #    include <emmintrin.h>  // IWYU pragma: export
-#    include <xmmintrin.h>  // IWYU pragma: export
+// xmmintrin.h moved to plink2_base since we want e.g. plink2_float to have
+// access to _MM_SET_FLUSH_ZERO_MODE()
 #  else
 #    define SIMDE_ENABLE_NATIVE_ALIASES
 // Since e.g. an old zstd system header breaks the build, and plink2 is

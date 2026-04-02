@@ -166,6 +166,10 @@
 #  endif
 #endif
 
+#ifdef __x86_64__
+#  include <xmmintrin.h>  // IWYU pragma: export
+#endif
+
 // We define USE_SSE42 and USE_AVX2 here, instead of plink2_simd, since
 // x86-64-v2 includes efficient single-word popcount, and x86-64-v3 has a
 // bit-manipulation side.

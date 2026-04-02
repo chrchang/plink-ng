@@ -17,7 +17,7 @@
 #include "plink2_float.h"
 
 #ifdef __APPLE__
-#include <fenv.h>
+#  include <fenv.h>
 #endif
 
 #ifdef __cplusplus
