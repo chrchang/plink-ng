@@ -16,6 +16,7 @@
 
 #include "plink2_pvar.h"
 
+#include <assert.h>
 #include <limits.h>
 #include <stddef.h>
 #include <string.h>
@@ -23,6 +24,8 @@
 #include "include/pgenlib_misc.h"
 #include "include/plink2_bits.h"
 #include "include/plink2_float.h"
+#include "include/plink2_memory.h"
+#include "include/plink2_simd.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
 #include "plink2_decompress.h"
@@ -715,8 +718,6 @@ uint32_t InfoNonexistCheck(const char* info_token, const InfoExist* nonexistp) {
   }
   return 1;
 }
-
-struct InfoExprStruct;
 
 typedef struct InfoExprNStruct {
   double value;

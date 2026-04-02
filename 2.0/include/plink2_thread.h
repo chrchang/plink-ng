@@ -29,6 +29,9 @@
 // something with a similar effect should be implemented.
 #include "plink2_base.h"
 
+#include <assert.h>
+#include <limits.h>  // PTHREAD_STACK_MIN
+
 #ifdef _WIN32
 #  include <process.h>  // IWYU pragma: export
 #else

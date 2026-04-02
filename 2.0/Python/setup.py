@@ -63,6 +63,7 @@ ext_modules = [
                          'src/plink2/include/plink2_float.cc',
                          'src/plink2/include/plink2_htable.cc',
                          'src/plink2/include/plink2_memory.cc',
+                         'src/plink2/include/plink2_simd.cc',
                          'src/plink2/include/plink2_string.cc',
                          'src/plink2/include/plink2_text.cc',
                          'src/plink2/include/plink2_thread.cc',

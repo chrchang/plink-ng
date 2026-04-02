@@ -42,6 +42,7 @@
 #  include "../libdeflate/libdeflate.h"  // IWYU pragma: export
 #endif
 #include "plink2_base.h"
+#include "plink2_simd.h"
 #include "plink2_string.h"
 #include "plink2_thread.h"
 

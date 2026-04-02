@@ -17,6 +17,7 @@
 #include "plink2_data.h"
 
 #include <assert.h>
+#include <errno.h>
 #include <limits.h>
 #include <stddef.h>
 #include <string.h>
@@ -28,6 +29,7 @@
 #include "include/plink2_bgzf.h"
 #include "include/plink2_bits.h"
 #include "include/plink2_htable.h"
+#include "include/plink2_simd.h"
 #include "include/plink2_string.h"
 #include "include/plink2_thread.h"
 #include "plink2_compress_stream.h"

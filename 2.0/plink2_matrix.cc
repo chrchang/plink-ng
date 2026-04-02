@@ -20,6 +20,8 @@
 #include <math.h>  // fabs(), sqrt()
 #include <string.h>
 
+#include "include/plink2_float.h"
+
 #ifndef NOLAPACK
 #  if defined(__APPLE__) || defined(USE_MKL)
 #    define LAPACK_dgecon dgecon_

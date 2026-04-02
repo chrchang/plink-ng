@@ -16,8 +16,11 @@
 
 #include "plink2_perm.h"
 
+#include <math.h>
+
 #include "include/plink2_bits.h"
 #include "include/plink2_float.h"
+#include "include/plink2_simd.h"
 #include "include/plink2_string.h"
 #include "plink2_cmdline.h"
 #include "plink2_random.h"

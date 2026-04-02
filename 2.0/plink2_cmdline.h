@@ -1804,8 +1804,6 @@ HEADER_INLINE uint32_t CmpExprIsJct(CmpExprType etype) {
   return (etype >= kCmpExprTypeAnd);
 }
 
-struct CmpExprStruct;
-
 // <key> existence check
 typedef struct CmpExprKStruct {
   char* key;
@@ -1827,6 +1825,8 @@ typedef struct CmpExprKSStruct {
 
 // and, or, not
 typedef struct CmpExprJctStruct {
+  // no CmpExprStruct forward declaration needed, since this is just a pointer
+  // and CmpExprStruct is defined within this file
   struct CmpExprStruct* children[2];
 } CmpExprJct;
 

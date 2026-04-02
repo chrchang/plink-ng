@@ -17,6 +17,8 @@
 #include "plink2_highprec.h"
 
 #include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef __cplusplus
 namespace plink2 {

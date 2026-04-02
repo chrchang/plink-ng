@@ -22,6 +22,7 @@
 #include <unistd.h>  // unlink()
 
 #include "plink2_bits.h"
+#include "plink2_simd.h"
 
 #ifdef __cplusplus
 namespace plink2 {

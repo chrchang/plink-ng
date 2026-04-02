@@ -83,6 +83,7 @@
 
 #include "plink2_base.h"
 #include "plink2_bits.h"
+#include "plink2_simd.h"
 
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this

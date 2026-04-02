@@ -18,6 +18,7 @@
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "include/plink2_base.h"
+#include "include/plink2_simd.h"
 #include "plink2_cmdline.h"
 #include "plink2_common.h"
 

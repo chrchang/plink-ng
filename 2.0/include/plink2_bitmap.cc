@@ -21,6 +21,8 @@
 #include <limits.h>
 #include <string.h>
 
+#include "plink2_simd.h"
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif

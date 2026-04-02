@@ -23,6 +23,7 @@
 #include "pgenlib_misc.h"
 #include "plink2_bits.h"
 #include "plink2_htable.h"
+#include "plink2_simd.h"
 #include "plink2_string.h"
 #include "plink2_text.h"
 

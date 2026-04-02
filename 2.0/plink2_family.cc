@@ -22,6 +22,7 @@
 #include "include/plink2_bits.h"
 #include "include/plink2_float.h"
 #include "include/plink2_htable.h"
+#include "include/plink2_simd.h"
 #include "include/plink2_string.h"
 #include "include/plink2_thread.h"
 #include "plink2_cmdline.h"

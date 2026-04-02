@@ -18,13 +18,13 @@
 
 #include <assert.h>
 #include <math.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "include/pgenlib_misc.h"
 #include "include/plink2_bits.h"
 #include "include/plink2_float.h"
 #include "include/plink2_fmath.h"
+#include "include/plink2_simd.h"
 #include "include/plink2_stats.h"
 #include "include/plink2_string.h"
 #include "include/plink2_thread.h"

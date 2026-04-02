@@ -20,12 +20,12 @@
 #include "plink2_base.h"
 
 #ifdef IGNORE_BUNDLED_MINI_GMP
-#  include <gmp.h>
+#  include <gmp.h>  // IWYU pragma: export
 #endif
 #include <math.h>
 
 #ifndef IGNORE_BUNDLED_MINI_GMP
-#  include "../mini-gmp/mini-gmp.h"
+#  include "../mini-gmp/mini-gmp.h"  // IWYU pragma: export
 #endif
 #include "plink2_float.h"
 

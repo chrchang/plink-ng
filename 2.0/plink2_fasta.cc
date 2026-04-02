@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "include/plink2_bits.h"
+#include "include/plink2_simd.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
 #include "plink2_cmdline.h"

@@ -31,6 +31,7 @@
 #include "include/pgenlib_read.h"
 #include "include/plink2_base.h"
 #include "include/plink2_bits.h"
+#include "include/plink2_simd.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
 #include "include/plink2_thread.h"

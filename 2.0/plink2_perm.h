@@ -19,6 +19,7 @@
 
 #include "include/SFMT.h"
 #include "include/plink2_base.h"
+#include "include/pgenlib_misc.h"
 #include "plink2_common.h"
 #include "plink2_compress_stream.h"
 

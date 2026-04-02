@@ -21,6 +21,8 @@
 #include <limits.h>
 #include <string.h>
 
+#include "plink2_simd.h"
+
 // Uncomment this during e.g. pgenlibr development to enable error-throwing.
 // #include <stdexcept>
 
