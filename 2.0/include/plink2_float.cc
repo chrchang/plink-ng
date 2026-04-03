@@ -31,8 +31,11 @@ void flush_denormals() {
 #  ifdef __APPLE__
   fesetenv(FE_DFL_DISABLE_DENORMS_ENV);
 #  else
-  fputs("flush_denormals() not implemented for non-Apple ARM yet", stderr);
-  exit(63);
+  // generic arm64
+  uint64_t fpcr;
+  asm volatile("mrs %0, fpcr" : "=r"(fpcr));
+  fpcr |= (1LLU << 24);
+  asm volatile("msr fpcr, %0" : : "r"(fpcr));
 #  endif
 #endif
 }

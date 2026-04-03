@@ -34,7 +34,7 @@ typedef double MatrixInvertBuf1;
 CONSTI32(kMatrixInvertBuf1ElemAlloc, 2 * sizeof(double));
 CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 #  define lapack_int int
-
+#  define BLAS_SET_NUM_THREADS(num)
 #else  // not NOLAPACK
 
 // 1. Define LAPACK_ILP64 and USE_MKL consistently.

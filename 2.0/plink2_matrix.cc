@@ -256,6 +256,7 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
   for (k=n-1;k>=0;k--) {
     for (its=0;its!=30;++its) {
       flag=1;
+      nm=0;  // maybe-uninitialized warning
       for (l=k;l>=0;l--) {
         nm=l-1;
         temp=fabs(rv1[l])+anorm;

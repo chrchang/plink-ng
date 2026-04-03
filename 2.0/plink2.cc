@@ -90,7 +90,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (1 Apr 2026)";
+  " (3 Apr 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -3499,10 +3499,7 @@ int main(int argc, char** argv) {
 #ifdef __cplusplus
   using namespace plink2;
 #endif
-
-#if defined(__APPLE__) || defined(__x86_64__) || defined(__i386__)
   flush_denormals();
-#endif
   // special case, since it may dump to stdout
   if (argc > 1) {
     const char* argv1 = argv[1];
