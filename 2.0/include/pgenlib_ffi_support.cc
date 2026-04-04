@@ -186,9 +186,7 @@ void GenoarrMPToAlleleCodes(const uint64_t* geno_to_intcode_dpair_table, const P
     for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
       const uintptr_t sample_uidx = BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
       if (IsSet(phaseinfo, sample_uidx)) {
-        const int32_t tmp_code = allele_codes[2 * sample_uidx];
-        allele_codes[2 * sample_uidx] = allele_codes[2 * sample_uidx + 1];
-        allele_codes[2 * sample_uidx + 1] = tmp_code;
+        swap_i32(&(allele_codes[2 * sample_uidx]), &(allele_codes[2 * sample_uidx + 1]));
       }
     }
     return;
@@ -197,9 +195,7 @@ void GenoarrMPToAlleleCodes(const uint64_t* geno_to_intcode_dpair_table, const P
     const uintptr_t sample_uidx = BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
     phasebytes[sample_uidx] = 1;
     if (IsSet(phaseinfo, sample_uidx)) {
-      const int32_t tmp_code = allele_codes[2 * sample_uidx];
-      allele_codes[2 * sample_uidx] = allele_codes[2 * sample_uidx + 1];
-      allele_codes[2 * sample_uidx + 1] = tmp_code;
+      swap_i32(&(allele_codes[2 * sample_uidx]), &(allele_codes[2 * sample_uidx + 1]));
     }
   }
 }

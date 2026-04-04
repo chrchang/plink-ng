@@ -1110,9 +1110,7 @@ double ibeta_series_ln(double aa, double bb, double xx, uint32_t inv) {
 
 double ln_sum(double aa, double bb) {
   if (aa > bb) {
-    const double tmp = aa;
-    aa = bb;
-    bb = tmp;
+    swap_f64(&aa, &bb);
   }
   const double diff = bb - aa;
   if ((aa == -DBL_MAX) || (diff >= kLn2 * 53)) {
@@ -1339,9 +1337,7 @@ double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
     df1 = df2;
     df2 = 2;
 
-    const double tmp = xx;
-    xx = yy;
-    yy = tmp;
+    swap_f64(&xx, &yy);
 
     inv = !inv;
   }
@@ -1368,18 +1364,9 @@ double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
   double bb = u31tod(df2) * 0.5;
   if ((df1 == 1) || (df2 == 1)) {
     if (xx > 0.5) {
-      const uint32_t tmp1 = df1;
-      df1 = df2;
-      df2 = tmp1;
-
-      double tmp2 = aa;
-      aa = bb;
-      bb = tmp2;
-
-      tmp2 = xx;
-      xx = yy;
-      yy = tmp2;
-
+      swap_u32(&df1, &df2);
+      swap_f64(&aa, &bb);
+      swap_f64(&xx, &yy);
       inv = !inv;
     }
     // can ignore max(a, b) <= 1 branch
@@ -1403,18 +1390,9 @@ double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
     lambda = prefer_fma(aa + bb, yy, -bb);
   }
   if (lambda < 0.0) {
-    const uint32_t tmp1 = df1;
-    df1 = df2;
-    df2 = tmp1;
-
-    double tmp2 = aa;
-    aa = bb;
-    bb = tmp2;
-
-    tmp2 = xx;
-    xx = yy;
-    yy = tmp2;
-
+    swap_u32(&df1, &df2);
+    swap_f64(&aa, &bb);
+    swap_f64(&xx, &yy);
     inv = !inv;
   }
 
@@ -1578,7 +1556,7 @@ double Lfact(double xx) {
 // higher likelihood than nhets = obs_hets, 0 if identical likelihood, and
 // negative value if lower likelihood.
 // Error is returned iff malloc fails.
-// If starting_lnprob_other_component_ddr has not been computed yet, set its
+// If neg_numer_ddr has not been computed yet, set its
 // x[0] to DBL_MAX; it will be filled in if necessary.
 //
 // Possible todo: handle multiple adjacent comparisons when appropriate.  Value
@@ -1597,11 +1575,20 @@ double Lfact(double xx) {
 //   next-closer-to-mode nhets has greater likelihood.
 // - etc.  Negative return value is always well-defined since eventually we'd
 //   hit the starting nhets.
-BoolErr HweCompare(uint32_t obs_hets, uint32_t obs_hom1, uint32_t obs_hom2, int32_t hom_decr, dd_real* starting_lnprob_other_component_ddr_ptr, intptr_t* cmp_resultp, double* dbl_ptr) {
-  //     obs_hets!         obs_hom1! * obs_hom2!      2j
-  // ---------------- * -------------------------- * 2
-  // (obs_hets + 2j)!   (obs_hom1-j)!(obs_hom2-j)!
-
+BoolErr HweCompare(uint32_t obs_hets, uint32_t obs_hom1, uint32_t obs_hom2, int32_t hom_decr, dd_real* neg_numer_ddr_ptr, intptr_t* cmp_resultp, double* dbl_ptr) {
+  // From e.g. the Wigginton paper, P(N_{AB}=n_{AB} | N, n_A) is
+  //
+  //      2^{n_{AB}} N! n_A! n_B!
+  //   -----------------------------
+  //   n_{AA}! n_{AB}! n_{BB}! (2N)!
+  //
+  // Thus, P(N_{AB}=obs_hets + 2*hom_decr) / P(N_{AB}=obs_hets) is
+  //
+  //       obs_hets!         obs_hom1! * obs_hom2!      2j
+  //   ---------------- * -------------------------- * 2
+  //   (obs_hets + 2j)!   (obs_hom1-j)!(obs_hom2-j)!
+  //
+  // where j=hom_decr.
   uint32_t numer_factorial_args[3];
   numer_factorial_args[0] = obs_hets;
   numer_factorial_args[1] = obs_hom1;
@@ -1613,7 +1600,7 @@ BoolErr HweCompare(uint32_t obs_hets, uint32_t obs_hom1, uint32_t obs_hom2, int3
 
   mp_limb_t* gmp_wkspace = nullptr;
   uintptr_t gmp_wkspace_limb_ct = 0;
-  BoolErr reterr = CompareFactorialProducts(3, hom_decr * 2LL, obs_hets, numer_factorial_args, denom_factorial_args, starting_lnprob_other_component_ddr_ptr, &gmp_wkspace, &gmp_wkspace_limb_ct, cmp_resultp, dbl_ptr);
+  BoolErr reterr = CompareFactorialProducts(3, hom_decr * 2LL, obs_hets, numer_factorial_args, denom_factorial_args, neg_numer_ddr_ptr, &gmp_wkspace, &gmp_wkspace_limb_ct, cmp_resultp, dbl_ptr);
   free_cond(gmp_wkspace);
   return reterr;
 }
@@ -1794,12 +1781,6 @@ BoolErr HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mi
       *resultp = log(tailp / denom);
       return 0;
     }
-    // From e.g. the Wigginton paper, P(N_{AB}=n_{AB} | N, n_A) is
-    //
-    //      2^{n_{AB}} N! n_A! n_B!
-    //   -----------------------------
-    //   n_{AA}! n_{AB}! n_{BB}! (2N)!
-    //
     // starting_lnprob_other_component_ddr is guaranteed to be negative for
     // curr_hets >= 4, and no larger than ln(2) otherwise.
     const double c_minus_r = curr_homc - curr_homr;

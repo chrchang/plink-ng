@@ -13482,12 +13482,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             }
             *pvar_cswritep++ = '\t';
             if (prov_ref_allele_second) {
-              uint32_t swap_slen = a1_slen;
-              a1_slen = a2_slen;
-              a2_slen = swap_slen;
-              char* swap_ptr = a1_ptr;
-              a1_ptr = a2_ptr;
-              a2_ptr = swap_ptr;
+              swap_u32(&a1_slen, &a2_slen);
+              swap_cp(&a1_ptr, &a2_ptr);
             }
             if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
               goto OxBgenToPgen_ret_WRITE_FAIL;

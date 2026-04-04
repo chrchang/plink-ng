@@ -202,6 +202,12 @@ HEADER_INLINE void AlignACToVec(AlleleCode** pp) {
   *pp = R_CAST(AlleleCode*, RoundUpPow2(addr, kBytesPerVec));
 }
 
+HEADER_INLINE void swap_ac(AlleleCode* ac0p, AlleleCode* ac1p) {
+  const AlleleCode swaptmp = *ac0p;
+  *ac0p = *ac1p;
+  *ac1p = swaptmp;
+}
+
 // returns a word with low bit in each pair set at each 00.
 HEADER_INLINE uintptr_t Word00(uintptr_t ww) {
   return (~(ww | (ww >> 1))) & kMask5555;

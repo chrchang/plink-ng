@@ -206,10 +206,10 @@ PglErr RandomizeBigstack(uint32_t thread_ct, sfmt_t* sfmtp) {
 void PermuteU32(uint32_t entry_ct, sfmt_t* sfmtp, uint32_t* u32arr) {
   uint32_t* u32arr_iter = u32arr;
   for (uintptr_t remaining_entry_ct = entry_ct; remaining_entry_ct > 1; --remaining_entry_ct) {
-    const uint32_t old_val = *u32arr_iter;
     const uint32_t swap_offset = RandU32(remaining_entry_ct, sfmtp);
-    u32arr_iter[0] = u32arr_iter[swap_offset];
-    u32arr_iter[swap_offset] = old_val;
+    // note that swap_offset can be 0, so we can't call swap_u32() if we add
+    // __restrict to its definition
+    swap_u32(&(u32arr_iter[0]), &(u32arr_iter[swap_offset]));
     ++u32arr_iter;
   }
 }

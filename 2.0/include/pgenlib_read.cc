@@ -3656,9 +3656,7 @@ PglErr GetBasicGenotypeCounts(const uintptr_t* __restrict sample_include, const 
     reterr = LdSubsetAdjustGenocounts(fread_end, subsetting_required? sample_include : nullptr, sample_include_cumulative_popcounts, pgrp->ldbase_genovec, raw_sample_ct, &fread_ptr, genocounts, pgrp->workspace_raregeno_tmp_loadbuf);
     if (vrtype & 1) {
       // inverted
-      const uint32_t tmpval = genocounts[0];
-      genocounts[0] = genocounts[2];
-      genocounts[2] = tmpval;
+      swap_u32(&(genocounts[0]), &(genocounts[2]));
     }
   } else {
     if (unlikely(InitReadPtrs(vidx, pgrp, &fread_ptr, &fread_end))) {
@@ -6058,9 +6056,7 @@ PglErr IMPLPgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* _
 
   uint32_t invert = 0;
   if (allele_idx0 > allele_idx1) {
-    const uint32_t swap = allele_idx0;
-    allele_idx0 = allele_idx1;
-    allele_idx1 = swap;
+    swap_u32(&allele_idx0, &allele_idx1);
     invert = 1;
   }
   if (allele_idx0 > 1) {
@@ -7085,9 +7081,7 @@ PglErr PgrGet2P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex
 
   uint32_t invert = 0;
   if (allele_idx0 > allele_idx1) {
-    const uint32_t swap = allele_idx0;
-    allele_idx0 = allele_idx1;
-    allele_idx1 = swap;
+    swap_u32(&allele_idx0, &allele_idx1);
     invert = 1;
   }
   if (allele_idx0 > 1) {

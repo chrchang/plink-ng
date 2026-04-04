@@ -1209,14 +1209,8 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
       GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
       if (genocounts[2] > genocounts[0]) {
-        const char* tmp_allele = allele1;
-        allele1 = allele2;
-        allele2 = tmp_allele;
-
-        const uint32_t tmp_slen = allele1_slen;
-        allele1_slen = allele2_slen;
-        allele2_slen = tmp_slen;
-
+        swap_kcp(&allele1, &allele2);
+        swap_u32(&allele1_slen, &allele2_slen);
         GenovecInvertUnsafe(sample_ct, genovec);
         ZeroTrailingNyps(sample_ct, genovec);
       }

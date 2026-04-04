@@ -2101,9 +2101,7 @@ THREAD_FUNC_DECL GlmLogisticThreadF(void* raw_arg) {
               if (nonconst_extra_regression_idx) {
                 float* swap_target = &(multi_start[(nonconst_extra_regression_idx - 1) * nm_sample_ctav]);
                 for (uint32_t uii = 0; uii != nm_sample_ct; ++uii) {
-                  float fxx = genotype_vals[uii];
-                  genotype_vals[uii] = swap_target[uii];
-                  swap_target[uii] = fxx;
+                  swap_f32(&(genotype_vals[uii]), &(swap_target[uii]));
                 }
               }
             }
@@ -4644,9 +4642,7 @@ THREAD_FUNC_DECL GlmLogisticThreadD(void* raw_arg) {
               if (nonconst_extra_regression_idx) {
                 double* swap_target = &(multi_start[(nonconst_extra_regression_idx - 1) * nm_sample_ctav]);
                 for (uint32_t uii = 0; uii != nm_sample_ct; ++uii) {
-                  double dxx = genotype_vals[uii];
-                  genotype_vals[uii] = swap_target[uii];
-                  swap_target[uii] = dxx;
+                  swap_f64(&(genotype_vals[uii]), &(swap_target[uii]));
                 }
               }
             }

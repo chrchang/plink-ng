@@ -397,9 +397,7 @@ BoolErr InvertMatrix(int32_t dim, double* matrix, MatrixInvertBuf1* dbl_1d_buf, 
   }
   for (i=1; i!=dim; ++i) {
     for(j=0; j!=i; ++j) {
-      const double tmp = matrix[i * dim + j];
-      matrix[i * dim + j] = matrix[j * dim + i];
-      matrix[j * dim + i] = tmp;
+      swap_f64(&(matrix[i * dim + j]), &(matrix[j * dim + i]));
     }
   }
   return 0;
@@ -473,9 +471,7 @@ void InvertStridedMatrixSecondHalf(lapack_int dim, lapack_int stride, double* ma
   // transpose, then fix stride
   for (i=1; i!=dim; ++i) {
     for(j=0; j!=i; ++j) {
-      const double tmp = matrix[i * dim + j];
-      matrix[i * dim + j] = matrix[j * dim + i];
-      matrix[j * dim + i] = tmp;
+      swap_f64(&(matrix[i * dim + j]), &(matrix[j * dim + i]));
     }
   }
   if ((stride != dim) && (dim > 1)) {

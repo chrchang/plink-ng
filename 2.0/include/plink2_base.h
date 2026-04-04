@@ -2516,6 +2516,42 @@ int32_t u32cmp(const void* aa, const void* bb);
 #  define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) qsort((arr), (ct), sizeof(*(arr)), (fallback_cmp))
 #endif
 
+HEADER_INLINE void swap_u32(uint32_t* uiip, uint32_t* ujjp) {
+  const uint32_t swaptmp = *uiip;
+  *uiip = *ujjp;
+  *ujjp = swaptmp;
+}
+
+HEADER_INLINE void swap_i32(int32_t* iip, int32_t* jjp) {
+  const int32_t swaptmp = *iip;
+  *iip = *jjp;
+  *jjp = swaptmp;
+}
+
+HEADER_INLINE void swap_f32(float* fxxp, float* fyyp) {
+  const float swaptmp = *fxxp;
+  *fxxp = *fyyp;
+  *fyyp = swaptmp;
+}
+
+HEADER_INLINE void swap_f64(double* dxxp, double* dyyp) {
+  const double swaptmp = *dxxp;
+  *dxxp = *dyyp;
+  *dyyp = swaptmp;
+}
+
+HEADER_INLINE void swap_kcp(const char** s1p, const char** s2p) {
+  const char* swaptmp = *s1p;
+  *s1p = *s2p;
+  *s2p = swaptmp;
+}
+
+HEADER_INLINE void swap_cp(char** s1p, char** s2p) {
+  char* swaptmp = *s1p;
+  *s1p = *s2p;
+  *s2p = swaptmp;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

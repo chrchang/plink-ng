@@ -2237,9 +2237,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
                   output_prob2 = (cur_dosage * max_output_val + kDosage4th) / kDosageMid;
                 }
                 if (IsSet(pgv.phaseinfo, sample_uidx)) {
-                  const uint32_t tmpval = output_prob1;
-                  output_prob1 = output_prob2;
-                  output_prob2 = tmpval;
+                  swap_u32(&output_prob1, &output_prob2);
                 }
               } else {
                 // unphased
@@ -2625,9 +2623,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
                         output_prob2 = (cur_dosage * max_output_val + kDosage4th) / kDosageMid;
                       }
                       if (phaseinfo_hw & shifted_bit) {
-                        const uint32_t tmpval = output_prob1;
-                        output_prob1 = output_prob2;
-                        output_prob2 = tmpval;
+                        swap_u32(&output_prob1, &output_prob2);
                       }
                     }
                   } else {
@@ -5567,9 +5563,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                         if (phasepresent_hw & cur_shift) {
                           prev_phased_halfword |= cur_shift;
                           if (phaseinfo_hw & cur_shift) {
-                            const AlleleCode ac_swap = ac0;
-                            ac0 = ac1;
-                            ac1 = ac_swap;
+                            swap_ac(&ac0, &ac1);
                           }
                         } else {
                           prev_phased_halfword &= ~cur_shift;
@@ -5630,9 +5624,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                         if (phasepresent_hw & cur_shift) {
                           prev_phased_halfword |= cur_shift;
                           if (phaseinfo_hw & cur_shift) {
-                            const AlleleCode ac_swap = ac0;
-                            ac0 = ac1;
-                            ac1 = ac_swap;
+                            swap_ac(&ac0, &ac1);
                           }
                         } else {
                           prev_phased_halfword &= ~cur_shift;
@@ -5713,9 +5705,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                         if (phasepresent_hw & cur_shift) {
                           prev_phased_halfword |= cur_shift;
                           if (phaseinfo_hw & cur_shift) {
-                            const AlleleCode ac_swap = ac0;
-                            ac0 = ac1;
-                            ac1 = ac_swap;
+                            swap_ac(&ac0, &ac1);
                           }
                         } else {
                           prev_phased_halfword &= ~cur_shift;
