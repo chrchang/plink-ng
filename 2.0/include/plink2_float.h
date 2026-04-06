@@ -44,14 +44,15 @@ static const double INFINITY_D = S_CAST(double, INFINITY);
 // Notes on float64 ('double') precision:
 // * 1 + 2^{-52} is the smallest float64 greater than 1, and 1 - 2^{-53} is the
 //   largest float64 less than 1.  Since plink2 flushes denormals to zero on
-//   the main target platforms (remaining todo: implement for Linux ARM), a
-//   'ULP' ("unit in the last place") can be assumed to be between 2^{-52} and
-//   2^{-53} times the total value.
+//   the main target platforms, a 'ULP' ("unit in the last place") can be
+//   assumed to be between 2^{-52} and 2^{-53} times the total value.
 //   When manually updating an epsilon value that's ever added to 1, multiples
 //   of 2^{-52} should be used.  If epsilon is only ever subtracted from 1, it
 //   is ok to use multiples of 2^{-53}.
 // * With default rounding behavior, the maximum rounding error from a basic
 //   arithmetic operation is 0.5 ULP, i.e. ~2^{-53} times the result.
+//   plink2 functions are written to assume default rounding, and to avoid
+//   assumptions about denormal handling.
 // * Unfortunately, accuracy of functions like exp and log is currently
 //   platform-dependent, and it isn't realistically worthwhile to purge that
 //   source of platform variation when we're continuing to use different linear
