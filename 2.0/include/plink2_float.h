@@ -205,6 +205,15 @@ HEADER_INLINE float prefer_fmaf(float a, float b, float c) {
 }
 #endif
 
+// Efficient alternatives to ceil() for nonnegative numbers.
+HEADER_INLINE double ceil32_smalleps(double xx) {
+  return S_CAST(int32_t, (xx + 1) * (1 - kSmallEpsilon));
+}
+
+HEADER_INLINE double ceil64_smalleps(double xx) {
+  return S_CAST(int64_t, (xx + 1) * (1 - kSmallEpsilon));
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
