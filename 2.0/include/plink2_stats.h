@@ -82,7 +82,7 @@ HEADER_INLINE BoolErr HweThreshLn(int32_t obs_hets, int32_t obs_hom1, int32_t ob
   return HweThreshLnMain(obs_hets, obs_hom1, obs_hom2, midp, ln_thresh, out_of_eqp);
 }
 
-BoolErr HweXchrLnP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t obs_male1, int32_t obs_male2, uint32_t midp, double* resultp);
+BoolErr HweXchrLnP(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, int32_t obs_m1, int32_t obs_m2, uint32_t midp, double* resultp);
 
 #ifdef __cplusplus
 }
