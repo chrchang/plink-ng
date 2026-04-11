@@ -3444,7 +3444,7 @@ BoolErr HweXchrLnPTailsum(uint32_t high_het_side, dd_real starting_lnprobv_ddr, 
           if (unlikely(HweXchrCompare(obs_fhets, obs_fhom1, obs_fhom2, obs_m1, obs_m2, S_CAST(int32_t, hom1), S_CAST(int32_t, hom2), m1_decr, &starting_lnprobv_ddr, &cmp_result, &lastp))) {
             return 1;
           }
-          cur_eps = 2 * k2m52;
+          cur_eps = 3 * k2m52;
           if (cmp_result <= 0) {
             *tie_ctp += (cmp_result == 0);
             break;
@@ -3470,7 +3470,7 @@ BoolErr HweXchrLnPTailsum(uint32_t high_het_side, dd_real starting_lnprobv_ddr, 
           if (unlikely(HweXchrCompare(obs_fhets, obs_fhom1, obs_fhom2, obs_m1, obs_m2, S_CAST(int32_t, hom1), S_CAST(int32_t, hom2), m1_decr, &starting_lnprobv_ddr, &cmp_result, &lastp))) {
             return 1;
           }
-          cur_eps = k2m52;
+          cur_eps = 3 * k2m52;
           if (cmp_result > 0) {
             break;
           }
@@ -3480,9 +3480,21 @@ BoolErr HweXchrLnPTailsum(uint32_t high_het_side, dd_real starting_lnprobv_ddr, 
         hom1 += 1;
         hom2 += 1;
         const double prob_mult = (hets * (hets - 1)) / (4 * hom1 * hom2);
-        if (prob_mult < 1 - 2 * k2m52) {
-          *center_is_emptyp = 1;
-          return 0;
+        if (prob_mult <= 1 + 2 * k2m52) {
+          if (prob_mult < 1 - 2 * k2m52) {
+            *center_is_emptyp = 1;
+            return 0;
+          }
+          // There are a few huge cases where 53-bit accuracy isn't enough;
+          // fortunately the function contract ensures int64 is still good
+          // enough.
+          const int64_t hets_i = S_CAST(int32_t, hets);
+          const int64_t hom1_i = S_CAST(int32_t, hom1);
+          const int64_t hom2_i = S_CAST(int32_t, hom2);
+          if (hets_i * (hets_i - 1) <= 4 * hom1_i * hom2_i) {
+            *center_is_emptyp = 1;
+            return 0;
+          }
         }
         lastp *= prob_mult;
         hets -= 2;
@@ -3549,7 +3561,7 @@ BoolErr HweXchrLnPTailsum(uint32_t high_het_side, dd_real starting_lnprobv_ddr, 
           if (unlikely(HweXchrCompare(obs_fhets, obs_fhom1, obs_fhom2, obs_m1, obs_m2, S_CAST(int32_t, hom1), S_CAST(int32_t, hom2), m1_decr, &starting_lnprobv_ddr, &cmp_result, &lastp))) {
             return 1;
           }
-          cur_eps = 2 * k2m52;
+          cur_eps = 3 * k2m52;
           if (cmp_result <= 0) {
             *tie_ctp += (cmp_result == 0);
             break;
@@ -3576,7 +3588,7 @@ BoolErr HweXchrLnPTailsum(uint32_t high_het_side, dd_real starting_lnprobv_ddr, 
           if (unlikely(HweXchrCompare(obs_fhets, obs_fhom1, obs_fhom2, obs_m1, obs_m2, S_CAST(int32_t, hom1), S_CAST(int32_t, hom2), m1_decr, &starting_lnprobv_ddr, &cmp_result, &lastp))) {
             return 1;
           }
-          cur_eps = 2 * k2m52;
+          cur_eps = 3 * k2m52;
           if (cmp_result > 0) {
             break;
           }
@@ -3585,9 +3597,18 @@ BoolErr HweXchrLnPTailsum(uint32_t high_het_side, dd_real starting_lnprobv_ddr, 
         total += lastp;
         hets += 2;
         const double prob_mult = (4 * hom1 * hom2) / (hets * (hets - 1));
-        if (prob_mult < 1 - 2 * k2m52) {
-          *center_is_emptyp = 1;
-          return 0;
+        if (prob_mult <= 1 + 2 * k2m52) {
+          if (prob_mult < 1 - 2 * k2m52) {
+            *center_is_emptyp = 1;
+            return 0;
+          }
+          const int64_t hom1_i = S_CAST(int32_t, hom1);
+          const int64_t hom2_i = S_CAST(int32_t, hom2);
+          const int64_t hets_i = S_CAST(int32_t, hets);
+          if (4 * hom1_i * hom2_i <= hets_i * (hets_i - 1)) {
+            *center_is_emptyp = 1;
+            return 0;
+          }
         }
         lastp *= prob_mult;
         hom1 -= 1;
@@ -3686,8 +3707,8 @@ BoolErr HweXchrLnP(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, int3
 
   // Other log-factorial expressions we want:
   //
-  // * starting_lnprobf, so we can add it to starting_lnprobv at the end and
-  //   convert tailp (which is a multiple of starting_prob) into the final
+  // * lnprobf, so we can add it to starting_lnprobv at the end and convert
+  //   tailp (which is a multiple of starting_prob) into the final
   //   log-[mid]p-value.
   //
   //     (m1+f1)! (m2+f2)! (m1+m2)! (fhets+fhom1+fhom2)!
@@ -3719,15 +3740,14 @@ BoolErr HweXchrLnP(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, int3
   //     m1! m2! f1! f2! (fhets+fhom1+fhom2)! starting_probv
   const double female_ctd = obs_fhets + obs_fhom1 + obs_fhom2;
   const dd_real female_ct_lfact_ddr = ddr_lfact(female_ctd);
-  const dd_real starting_lnprobf_ddr =
+  const dd_real lnprobf_ddr =
     ddr_sub(ddr_add(ddr_add3_lfacts(a1_ctd, a2_ctd, obs_m1 + obs_m2), female_ct_lfact_ddr),
             ddr_lfact(a1_ctd + a2_ctd));
   const dd_real row_relative_lnprobf_ddr =
     ddr_sub(ddr_lfact(2 * female_ctd),
             ddr_add(female_ct_lfact_ddr, starting_lnprobv_ddr));
 
-  // tailp, orig_base_probl, and orig_base_probr are in units of
-  // exp(starting_lnprob) within the starting row.
+  // tailp, orig_base_probl, and orig_base_probr are in starting_prob units.
   for (uint32_t m1_decreasing = 0; m1_decreasing != 2; ++m1_decreasing) {
     double m1 = obs_m1;
     double m2 = obs_m2;
@@ -3809,7 +3829,7 @@ BoolErr HweXchrLnP(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, int3
         return 1;
       }
       if (center_is_empty) {
-        // all tables in this row, and all subsequent rows, are less probable
+        // All tables in this row, and all subsequent rows, are less probable
         // than the initial table.
         double f1 = a1_ctd - m1;
         double f2 = a2_ctd - m2;
@@ -3827,7 +3847,7 @@ BoolErr HweXchrLnP(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, int3
             }
             m2 += 1;
             f1 += 1;
-            row_prob *= (m1 * f2) / (m2 * f1);
+            row_prob *= m1 * f2 / (m2 * f1);
             m1 -= 1;
             f2 -= 1;
           }
@@ -3840,7 +3860,7 @@ BoolErr HweXchrLnP(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, int3
             }
             m1 += 1;
             f2 += 1;
-            row_prob *= (m2 * f1) / (m1 * f2);
+            row_prob *= m2 * f1 / (m1 * f2);
             m2 -= 1;
             f1 -= 1;
           }
@@ -3852,22 +3872,22 @@ BoolErr HweXchrLnP(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, int3
         const double prev_m1 = m1 + 1;
         if (rhom2 != 0.0) {
           rhets += 1;
-          prob_mult = (2 * prev_m1 * rhom2) / (m2 * rhets);
+          prob_mult = 2 * prev_m1 * rhom2 / (m2 * rhets);
           rhom2 -= 1;
         } else {
           rhom1 += 1;
-          prob_mult = (prev_m1 * rhets) / (2 * m2 * rhom1);
+          prob_mult = prev_m1 * rhets / (2 * m2 * rhom1);
           rhets -= 1;
         }
       } else {
         const double prev_m2 = m2 + 1;
         if (rhom1 != 0.0) {
           rhets += 1;
-          prob_mult = (2 * prev_m2 * rhom1) / (m1 * rhets);
+          prob_mult = 2 * prev_m2 * rhom1 / (m1 * rhets);
           rhom1 -= 1;
         } else {
           rhom2 += 1;
-          prob_mult = (prev_m2 * rhets) / (2 * m1 * rhom2);
+          prob_mult = prev_m2 * rhets / (2 * m1 * rhom2);
           rhets -= 1;
         }
       }
@@ -3883,12 +3903,14 @@ BoolErr HweXchrLnP(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, int3
         base_epsr += 2 * k2m52;
       }
       double tail_incr2 = 0.0;
-      HweXchrLnPTailsum(1, starting_lnprobv_ddr, obs_fhets, obs_fhom1, obs_fhom2, obs_m1, obs_m2, m1_decr, &base_probr, &base_lnprobr, &base_epsr, &rhets, &rhom1, &rhom2, &tie_ct, &tail_incr2, &center_is_empty);
+      if (unlikely(HweXchrLnPTailsum(1, starting_lnprobv_ddr, obs_fhets, obs_fhom1, obs_fhom2, obs_m1, obs_m2, m1_decr, &base_probr, &base_lnprobr, &base_epsr, &rhets, &rhom1, &rhom2, &tie_ct, &tail_incr2, &center_is_empty))) {
+        return 1;
+      }
       tailp += tail_incr2;
     }
   }
   const double starting_lnprob =
-    ddr_add(starting_lnprobf_ddr, starting_lnprobv_ddr).x[0];
+    ddr_add(lnprobf_ddr, starting_lnprobv_ddr).x[0];
   if (midp) {
     tailp -= tie_ct * 0.5;
   }

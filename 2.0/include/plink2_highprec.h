@@ -329,6 +329,10 @@ HEADER_INLINE dd_real ddr_add4(const dd_real a, const dd_real b, const dd_real c
   return ddr_add(ddr_add(ddr_add(a, b), c), d);
 }
 
+HEADER_INLINE dd_real ddr_add5(const dd_real a, const dd_real b, const dd_real c, const dd_real d, const dd_real e) {
+  return ddr_add(ddr_add(ddr_add(ddr_add(a, b), c), d), e);
+}
+
 dd_real ddr_lfact(double xx);
 
 HEADER_INLINE dd_real ddr_add_lfacts(const double a, const double b) {
@@ -341,6 +345,10 @@ HEADER_INLINE dd_real ddr_add3_lfacts(const double a, const double b, const doub
 
 HEADER_INLINE dd_real ddr_add4_lfacts(const double a, const double b, const double c, const double d) {
   return ddr_add4(ddr_lfact(a), ddr_lfact(b), ddr_lfact(c), ddr_lfact(d));
+}
+
+HEADER_INLINE dd_real ddr_add5_lfacts(const double a, const double b, const double c, const double d, const double e) {
+  return ddr_add5(ddr_lfact(a), ddr_lfact(b), ddr_lfact(c), ddr_lfact(d), ddr_lfact(e));
 }
 
 // Preconditions:
