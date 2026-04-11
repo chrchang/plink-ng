@@ -595,6 +595,10 @@ HEADER_INLINE uint32_t bsru32(uint32_t uii) {
   return 31 - __builtin_clz(uii);
 }
 
+HEADER_INLINE uint32_t bsru64(uint64_t ullii) {
+  return 63 - __builtin_clzll(ullii);
+}
+
 #ifdef _WIN64
 HEADER_INLINE uint32_t ctzw(unsigned long long ullii) {
   return __builtin_ctzll(ullii);
