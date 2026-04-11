@@ -417,25 +417,6 @@ dd_real ddr_log(const dd_real a) {
   return x;
 }
 
-/*
-static inline dd_real dd_accurate_div(const dd_real a, const dd_real b) {
-  double q1, q2, q3;
-  dd_real r;
-
-  q1 = a.x[0] / b.x[0];  // approximate quotient
-
-  r = ddr_ieee_sub(a, ddr_muld(b, q1));
-
-  q2 = r.x[0] / b.x[0];
-  r = ddr_ieee_sub(r, ddr_muld(b, q2));
-
-  q3 = r.x[0] / b.x[0];
-
-  q1 = qd_quick_two_sum(q1, q2, &q2);
-  return ddr_addd(ddr_make(q1, q2), q3);
-}
-*/
-
 dd_real ddr_lfact(double xx) {
   // It can be shown from the Euler-Maclaurin approximation that
   //   ln (n!) = n ln n - n + 0.5 ln (2*pi*n) + n^{-1}/12 - n^{-3}/360
@@ -477,8 +458,6 @@ dd_real ddr_lfact(double xx) {
 // Bignum factorial helper functions and constants.
 // See GMP mpz/bin_uiui.c.
 #if defined(__LP64__) && !defined(_WIN32)
-static_assert(sizeof(mp_limb_t) == 8, "Unexpected mp_limb_t size (expected 8).");
-CONSTI32(kInt32PerLimb, 2);
 // assume first term < 2^32 for now and make this comparison compile to no-op
 static const mp_limb_t kFallingFactorialInitMul2Max = 0xffffffffffffffffLLU;
 
@@ -489,8 +468,6 @@ static const mp_limb_t kFallingFactorialInitMul6Max = 0xa16;
 static const mp_limb_t kFallingFactorialInitMul7Max = 0x34b;
 static const mp_limb_t kFallingFactorialInitMul8Max = 0x1b2;
 #else
-static_assert(sizeof(mp_limb_t) == 4, "Unexpected mp_limb_t size (expected 4).");
-CONSTI32(kInt32PerLimb, 1);
 static const mp_limb_t kFallingFactorialInitMul2Max = 0x16a0a;
 static const mp_limb_t kFallingFactorialInitMul3Max = 0x801;
 static const mp_limb_t kFallingFactorialInitMul4Max = 0x16b;
@@ -723,7 +700,12 @@ void lshift_multilimb(uint64_t lshift_ct, mp_limb_t* num, uint32_t* num_limb_ctp
 //   not-necessarily-sorted lists of length ffac_ct, describing a quotient of
 //   factorial-products.  (If one list is longer than the other, just pad the
 //   other with zeroes.)
-// - pow2 is a power of 2 to multiply by at the end.
+// - pow2 is a power of 2 to multiply the quotient by at the end.
+// - starting_lnprobv_ddr is either initialized to
+//     log(2^numer_pow2 / (numer_factorial_args[0]! ... numer_factorial_args[ffac_ct-1]!))
+//   or it has x[0] initialized to DBL_MAX to indicate that the calculation
+//   hasn't happened.  In the latter case, it may be set to the former value
+//   if that is needed.
 //
 // This function errors out iff memory allocation fails.
 //
@@ -737,20 +719,22 @@ void lshift_multilimb(uint64_t lshift_ct, mp_limb_t* num, uint32_t* num_limb_ctp
 //
 // This could take a precomputed ddr_lfact table as an additional pair of
 // parameters, but I don't think that makes much of a difference.
-BoolErr CompareFactorialProducts(uint32_t ffac_ct, int64_t pow2, int64_t numer_pow2, uint32_t* numer_factorial_args, uint32_t* denom_factorial_args, dd_real* neg_numer_ddr_ptr, mp_limb_t** gmp_wkspacep, uintptr_t* gmp_wkspace_limb_ctp, intptr_t* cmp_resultp, double* dbl_ptr) {
+BoolErr CompareFactorialProducts(uint32_t ffac_ct, int64_t pow2, int64_t numer_pow2, uint32_t* numer_factorial_args, uint32_t* denom_factorial_args, dd_real* starting_lnprobv_ddr_ptr, mp_limb_t** gmp_wkspacep, uintptr_t* gmp_wkspace_limb_ctp, intptr_t* cmp_resultp, double* dbl_ptr) {
   // 1. Sort numer_factorial_args and denom_factorial_args.  (This has the
   //    effect of cancelling out matching terms.)
-  // 2. Iterate through numer_factorial_args[] and denom_factorial_args[] just
-  //    to determine (currently somewhat loose) workspace requirement, and
-  //    reallocate workspace if necessary.
-  // 3. Iterate properly through numer_factorial_args[] and
-  //    denom_factorial_args[].  When numer_factorial_args[k] >
-  //    denom_factorial_args[k], multiply the numerator by the corresponding
-  //    falling-factorial; and vice versa.
-  // 4. Perform final left-shift of numerator or denominator (necessary since
+  // 2. Iterate through numer_factorial_args[] and denom_factorial_args[] to
+  //    determine bignum calculation size.
+  // 3. If bignum calculation size is large enough, perform the comparison with
+  //    dd_reals first, returning a result unless the log-likelihoods are
+  //    within ffac_ct * 2^{-60} of each other.
+  // 4. Reallocate workspace if necessary, and iterate properly through
+  //    numer_factorial_args[] and denom_factorial_args[].  When
+  //    numer_factorial_args[k] > denom_factorial_args[k], multiply the
+  //    numerator by the corresponding falling-factorial; and vice versa.
+  // 5. Perform final left-shift of numerator or denominator (necessary since
   //    we allow a 2^pow2 term in the expression, and we pull out some factors
   //    of 2 while accumulating the falling-factorial products).
-  // 5. Compare.
+  // 6. Compare.
   //
   // Possible improvement: find appropriate spots to use mpn_sqr().
   STD_SORT(ffac_ct, u32cmp, numer_factorial_args);
@@ -781,19 +765,19 @@ BoolErr CompareFactorialProducts(uint32_t ffac_ct, int64_t pow2, int64_t numer_p
     return 0;
   }
   if (numer_term_ct + denom_term_ct > 256) {
-    dd_real neg_numer_ddr = *neg_numer_ddr_ptr;
-    if (neg_numer_ddr.x[0] == DBL_MAX) {
-      neg_numer_ddr = ddr_muld(_ddr_log2, S_CAST(double, numer_pow2));
+    dd_real starting_lnprobv_ddr = *starting_lnprobv_ddr_ptr;
+    if (starting_lnprobv_ddr.x[0] == DBL_MAX) {
+      starting_lnprobv_ddr = ddr_muld(_ddr_log2, S_CAST(double, numer_pow2));
       for (uint32_t ffac_idx = 0; ffac_idx != ffac_ct; ++ffac_idx) {
-        neg_numer_ddr = ddr_sub(neg_numer_ddr, ddr_lfact(u31tod(numer_factorial_args[ffac_idx])));
+        starting_lnprobv_ddr = ddr_sub(starting_lnprobv_ddr, ddr_lfact(u31tod(numer_factorial_args[ffac_idx])));
       }
-      *neg_numer_ddr_ptr = neg_numer_ddr;
+      *starting_lnprobv_ddr_ptr = starting_lnprobv_ddr;
     }
-    dd_real neg_denom_ddr = ddr_muld(_ddr_log2, S_CAST(double, numer_pow2 + pow2));
+    dd_real lnprobv_ddr = ddr_muld(_ddr_log2, S_CAST(double, numer_pow2 + pow2));
     for (uint32_t ffac_idx = 0; ffac_idx != ffac_ct; ++ffac_idx) {
-      neg_denom_ddr = ddr_sub(neg_denom_ddr, ddr_lfact(u31tod(denom_factorial_args[ffac_idx])));
+      lnprobv_ddr = ddr_sub(lnprobv_ddr, ddr_lfact(u31tod(denom_factorial_args[ffac_idx])));
     }
-    const double lnprob_diff = ddr_sub(neg_denom_ddr, neg_numer_ddr).x[0];
+    const double lnprob_diff = ddr_sub(lnprobv_ddr, starting_lnprobv_ddr).x[0];
     // ddr_lfact() result has >= 106 bits of precision, should be accurate to
     // 96+ bits (mostly dependent on log).
     // log((2^31)!) is less than 2^36, so we should have at least 60 bits past

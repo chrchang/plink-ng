@@ -140,6 +140,14 @@ HEADER_INLINE dd_real ddr_maked(const double a) {
   return retval;
 }
 
+HEADER_INLINE dd_real ddr_makei(const int64_t a) {
+  const double hi = S_CAST(double, a);
+  dd_real retval;
+  retval.x[0] = hi;
+  retval.x[1] = S_CAST(double, a - S_CAST(int64_t, hi));
+  return retval;
+}
+
 HEADER_INLINE dd_real ddr_make(const double a, const double b) {
   dd_real retval;
   retval.x[0] = a;
@@ -201,7 +209,6 @@ HEADER_INLINE dd_real ddr_sloppy_sub(const dd_real a, const dd_real b) {
   return ddr_make(s, e);
 }
 
-/*
 HEADER_INLINE dd_real ddr_ieee_sub(const dd_real a, const dd_real b) {
   double s1, s2, t1, t2;
   s1 = qd_two_diff(a.x[0], b.x[0], &s2);
@@ -212,7 +219,6 @@ HEADER_INLINE dd_real ddr_ieee_sub(const dd_real a, const dd_real b) {
   s1 = qd_quick_two_sum(s1, s2, &s2);
   return ddr_make(s1, s2);
 }
-*/
 
 HEADER_INLINE dd_real ddr_ldexp(const dd_real a, int32_t expi) {
   return ddr_make(ldexp(a.x[0], expi), ldexp(a.x[1], expi));
@@ -286,6 +292,23 @@ HEADER_INLINE dd_real ddr_sloppy_div(const dd_real a, const dd_real b) {
 }
 */
 
+static inline dd_real ddr_accurate_div(const dd_real a, const dd_real b) {
+  double q1, q2, q3;
+  dd_real r;
+
+  q1 = a.x[0] / b.x[0];  // approximate quotient
+
+  r = ddr_ieee_sub(a, ddr_muld(b, q1));
+
+  q2 = r.x[0] / b.x[0];
+  r = ddr_ieee_sub(r, ddr_muld(b, q2));
+
+  q3 = r.x[0] / b.x[0];
+
+  q1 = qd_quick_two_sum(q1, q2, &q2);
+  return ddr_addd(ddr_make(q1, q2), q3);
+}
+
 HEADER_INLINE dd_real ddr_sqr(const dd_real a) {
   double p1, p2;
   double s1, s2;
@@ -321,6 +344,9 @@ HEADER_INLINE dd_real ddr_sub(const dd_real a, const dd_real b) {
 
 dd_real ddr_exp(const dd_real a);
 
+dd_real ddr_log(const dd_real a);
+
+
 HEADER_INLINE dd_real ddr_add3(const dd_real a, const dd_real b, const dd_real c) {
   return ddr_add(ddr_add(a, b), c);
 }
@@ -351,12 +377,29 @@ HEADER_INLINE dd_real ddr_add5_lfacts(const double a, const double b, const doub
   return ddr_add5(ddr_lfact(a), ddr_lfact(b), ddr_lfact(c), ddr_lfact(d), ddr_lfact(e));
 }
 
+#if defined(__LP64__) && !defined(_WIN32)
+static_assert(sizeof(mp_limb_t) == 8, "Unexpected mp_limb_t size (expected 8).");
+CONSTI32(kInt32PerLimb, 2);
+#else
+static_assert(sizeof(mp_limb_t) == 4, "Unexpected mp_limb_t size (expected 4).");
+CONSTI32(kInt32PerLimb, 1);
+#endif
+
+int32_t falling_factorial(mp_limb_t top, uint32_t ct, mp_limb_t* result, uint32_t* result_limb_ctp, mp_limb_t* wkspace);
+
+void lshift_multilimb(uint64_t lshift_ct, mp_limb_t* num, uint32_t* num_limb_ctp);
+
 // Preconditions:
 // - numer_factorial_args[] and denom_factorial_args[] are
 //   not-necessarily-sorted lists of length ffac_ct, describing a quotient of
 //   factorial-products.  (If one list is longer than the other, just pad the
 //   other with zeroes.)
-// - pow2 is a power of 2 to multiply by at the end.
+// - pow2 is a power of 2 to multiply the quotient by at the end.
+// - starting_lnprobv_ddr is either initialized to
+//     log(2^numer_pow2 / (numer_factorial_args[0]! ... numer_factorial_args[ffac_ct-1]!))
+//   or it has x[0] initialized to DBL_MAX to indicate that the calculation
+//   hasn't happened.  In the latter case, it may be set to the former value
+//   if that is needed.
 //
 // This function errors out iff memory allocation fails.
 //
@@ -367,9 +410,7 @@ HEADER_INLINE dd_real ddr_add5_lfacts(const double a, const double b, const doub
 //   1-2 ulps.
 // - numer_factorial_args[] and denom_factorial_args[] are sorted in
 //   nondecreasing order.
-//
-// possible todo: accept precomputed ddr_lfact table
-BoolErr CompareFactorialProducts(uint32_t ffac_ct, int64_t pow2, int64_t numer_pow2, uint32_t* numer_factorial_args, uint32_t* denom_factorial_args, dd_real* numer_ddr_ptr, mp_limb_t** gmp_wkspacep, uintptr_t* gmp_wkspace_limb_ctp, intptr_t* cmp_resultp, double* dbl_ptr);
+BoolErr CompareFactorialProducts(uint32_t ffac_ct, int64_t pow2, int64_t numer_pow2, uint32_t* numer_factorial_args, uint32_t* denom_factorial_args, dd_real* starting_lnprobv_ddr_ptr, mp_limb_t** gmp_wkspacep, uintptr_t* gmp_wkspace_limb_ctp, intptr_t* cmp_resultp, double* dbl_ptr);
 
 #ifdef __cplusplus
 }

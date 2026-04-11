@@ -1552,30 +1552,18 @@ double Lfact(double xx) {
   return log(xx) * (xx + 0.5) + small_term_sum;
 }
 
-// *cmp_resultp is set to positive value if nhets = obs_hets + 2 * hom_decr has
-// higher likelihood than nhets = obs_hets, 0 if identical likelihood, and
-// negative value if lower likelihood.
-// Error is returned iff malloc fails.
-// If neg_numer_ddr has not been computed yet, set its
-// x[0] to DBL_MAX; it will be filled in if necessary.
+// - starting_lnprobv_ddr is expected to be initialized to
+//     log(2^obs_hets / (obs_hets! obs_hom1! obs_hom2!))
+//   or have x[0] initialized to DBL_MAX to indicate that the calculation
+//   hasn't happened.  In the latter case, it may be set to the former value
+//   if that is needed in the calculation.
 //
-// Possible todo: handle multiple adjacent comparisons when appropriate.  Value
-// of cmp_result can indicate number of half-steps to the crossover point, e.g.
-// - cmp_result=1 means current nhets has greater likelihood and
-//   next-further-from-mode nhets has smaller likelihood.  (Caller may need to
-//   specify which direction to treat as further-from-mode, otherwise there may
-//   be a problem when starting exactly at the mode.)
-// - cmp_result=2 means current nhets has greater likelihood and
-//   next-further-from-mode nhets has equal likelihood.
-// - cmp_result=3 means current and next nhets have greater likelihood, and
-//   the nhets after that has smaller likelihood.
-// - etc.  Positive return value is always well-defined since eventually we hit
-//   likelihood zero.
-// - cmp_result=-1 means current nhets has smaller likelihood and
-//   next-closer-to-mode nhets has greater likelihood.
-// - etc.  Negative return value is always well-defined since eventually we'd
-//   hit the starting nhets.
-BoolErr HweCompare(uint32_t obs_hets, uint32_t obs_hom1, uint32_t obs_hom2, int32_t hom_decr, dd_real* neg_numer_ddr_ptr, intptr_t* cmp_resultp, double* dbl_ptr) {
+// - *cmp_resultp is set to positive value if hets := obs_hets + 2*hom_decr has
+//   higher likelihood than hets := obs_hets, 0 if identical likelihood, and
+//   negative value if lower likelihood.
+//
+// - Error is returned iff malloc fails.
+BoolErr HweCompare(uint32_t obs_hets, uint32_t obs_hom1, uint32_t obs_hom2, int32_t hom_decr, dd_real* starting_lnprobv_ddr_ptr, intptr_t* cmp_resultp, double* dbl_ptr) {
   // From e.g. the Wigginton paper, P(N_{AB}=n_{AB} | N, n_A) is
   //
   //      2^{n_{AB}} N! n_A! n_B!
@@ -1600,7 +1588,7 @@ BoolErr HweCompare(uint32_t obs_hets, uint32_t obs_hom1, uint32_t obs_hom2, int3
 
   mp_limb_t* gmp_wkspace = nullptr;
   uintptr_t gmp_wkspace_limb_ct = 0;
-  BoolErr reterr = CompareFactorialProducts(3, hom_decr * 2LL, obs_hets, numer_factorial_args, denom_factorial_args, neg_numer_ddr_ptr, &gmp_wkspace, &gmp_wkspace_limb_ct, cmp_resultp, dbl_ptr);
+  BoolErr reterr = CompareFactorialProducts(3, hom_decr * 2LL, obs_hets, numer_factorial_args, denom_factorial_args, starting_lnprobv_ddr_ptr, &gmp_wkspace, &gmp_wkspace_limb_ct, cmp_resultp, dbl_ptr);
   free_cond(gmp_wkspace);
   return reterr;
 }
@@ -3332,6 +3320,17 @@ BoolErr HweLnFirstRow(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, d
   return 0;
 }
 
+// - starting_lnprobv_ddr_ptr is expected to be initialized to
+//     log(2^obs_fhets / (obs_fhets! obs_fhom1! obs_fhom2! obs_m1! obs_m2!))
+//   or have x[0] initialized to DBL_MAX to indicate that the calculation
+//   hasn't happened.  In the latter case, it may be set to the former value
+//   if that is needed in the calculation.
+//
+// - *cmp_resultp is set to positive value if the (cur_fhom1, cur_fhom2)
+//   contingency table has higher likelihood than (obs_fhom1, obs_fhom2), 0 if
+//   identical likelihood, and negative value if lower likelihood.
+//
+// - Error is returned iff malloc fails.
 BoolErr HweXchrCompare(uint32_t obs_fhets, uint32_t obs_fhom1, uint32_t obs_fhom2, uint32_t obs_m1, uint32_t obs_m2, uint32_t cur_fhom1, uint32_t cur_fhom2, int32_t m1_decr, dd_real* starting_lnprobv_ddr_ptr, intptr_t* cmp_resultp, double* dbl_ptr) {
   // From the Graffelman-Weir 2016 paper, likelihood is
   //

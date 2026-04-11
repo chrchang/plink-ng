@@ -2528,6 +2528,12 @@ HEADER_INLINE void swap_i32(int32_t* iip, int32_t* jjp) {
   *jjp = swaptmp;
 }
 
+HEADER_INLINE void swap_i64(int64_t* lliip, int64_t* lljjp) {
+  const int64_t swaptmp = *lliip;
+  *lliip = *lljjp;
+  *lljjp = swaptmp;
+}
+
 HEADER_INLINE void swap_f32(float* fxxp, float* fyyp) {
   const float swaptmp = *fxxp;
   *fxxp = *fyyp;
