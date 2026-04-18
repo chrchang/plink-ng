@@ -148,6 +148,14 @@ HEADER_INLINE dd_real ddr_makei(const int64_t a) {
   return retval;
 }
 
+HEADER_INLINE dd_real ddr_makeu64(const uint64_t a) {
+  const double hi = S_CAST(double, a);
+  dd_real retval;
+  retval.x[0] = hi;
+  retval.x[1] = S_CAST(double, S_CAST(int64_t, a - S_CAST(uint64_t, hi)));
+  return retval;
+}
+
 HEADER_INLINE dd_real ddr_make(const double a, const double b) {
   dd_real retval;
   retval.x[0] = a;
@@ -325,6 +333,39 @@ HEADER_INLINE int32_t ddr_is_zero(const dd_real a) {
 
 HEADER_INLINE int32_t ddr_is_one(const dd_real a) {
   return (a.x[0] == 1.0) && (a.x[1] == 0.0);
+}
+
+
+HEADER_INLINE int32_t ddr_ltd(const dd_real a, const double b) {
+  return (a.x[0] < b) || ((a.x[0] == b) && (a.x[1] < 0));
+}
+
+HEADER_INLINE int32_t ddr_lt(const dd_real a, const dd_real b) {
+  return (a.x[0] < b.x[0]) || ((a.x[0] == b.x[0]) && (a.x[1] < b.x[1]));
+}
+
+HEADER_INLINE int32_t ddr_leqd(const dd_real a, const double b) {
+  return (a.x[0] < b) || ((a.x[0] == b) && (a.x[1] <= 0));
+}
+
+HEADER_INLINE int32_t ddr_leq(const dd_real a, const dd_real b) {
+  return (a.x[0] < b.x[0]) || ((a.x[0] == b.x[0]) && (a.x[1] <= b.x[1]));
+}
+
+HEADER_INLINE int32_t ddr_geqd(const dd_real a, const double b) {
+  return (a.x[0] > b) || ((a.x[0] == b) && (a.x[1] >= 0));
+}
+
+HEADER_INLINE int32_t ddr_geq(const dd_real a, const dd_real b) {
+  return (a.x[0] > b.x[0]) || ((a.x[0] == b.x[0]) && (a.x[1] >= b.x[1]));
+}
+
+HEADER_INLINE int32_t ddr_gtd(const dd_real a, const double b) {
+  return (a.x[0] > b) || ((a.x[0] == b) && (a.x[1] > 0));
+}
+
+HEADER_INLINE int32_t ddr_gt(const dd_real a, const dd_real b) {
+  return (a.x[0] > b.x[0]) || ((a.x[0] == b.x[0]) && (a.x[1] > b.x[1]));
 }
 
 

@@ -206,11 +206,16 @@ HEADER_INLINE float prefer_fmaf(float a, float b, float c) {
 #endif
 
 // Efficient alternatives to ceil() for nonnegative numbers.
-HEADER_INLINE double ceil32_smalleps(double xx) {
+
+// limit is assumed to be a positive int32.
+HEADER_INLINE double ceil_smalleps_limit32(double xx, double limit) {
+  if (xx > limit) {
+    return limit;
+  }
   return S_CAST(int32_t, (xx + 1) * (1 - kSmallEpsilon));
 }
 
-HEADER_INLINE double ceil64_smalleps(double xx) {
+HEADER_INLINE double ceil_smalleps(double xx) {
   return S_CAST(int64_t, (xx + 1) * (1 - kSmallEpsilon));
 }
 
