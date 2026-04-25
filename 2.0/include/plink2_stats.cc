@@ -3270,103 +3270,60 @@ void HweLnFirstRow(double hetab, double homa, double homb, double* tailp_ptr, do
   return;
 }
 
-int32_t HweXchrLnPTailsum(uint32_t high_het_side, double* base_lnprobp, double* saved_hetsp, double* saved_hom1p, double* saved_hom2p, uint32_t* tie_ctp, double *totalp) {
+uint32_t HweXchrLnPLowHetTailsum(double* base_lnprobp, double* saved_hetsp, double* saved_hom1p, double* saved_hom2p, uint32_t* tie_ctp, double *totalp) {
   // similar to fisher23_tailsum()
   double total = 0;
   double cur_lnprob = *base_lnprobp;
   double tmp_hets = *saved_hetsp;
   double tmp_hom1 = *saved_hom1p;
   double tmp_hom2 = *saved_hom2p;
+  uint32_t center_is_empty = 0;
   double tmps_hets;
   double tmps_hom1;
   double tmps_hom2;
   // identify beginning of tail
-  if (high_het_side) {
-    if (cur_lnprob > k2m34) {
-      double prev_numer = tmp_hom1 * tmp_hom2;
-      // Tried conditionally moving out of log-space, but wasn't able to make
-      // that faster.
-      while (prev_numer > 0.5) {
-        tmp_hets += 2;
-        cur_lnprob += log((4 * prev_numer) / (tmp_hets * (tmp_hets - 1)));
-        tmp_hom1 -= 1;
-        tmp_hom2 -= 1;
-        if (cur_lnprob <= k2m34) {
-          break;
-        }
-        prev_numer = tmp_hom1 * tmp_hom2;
+  if (cur_lnprob > k2m34) {
+    while (tmp_hets > 1.5) {
+      tmp_hom1 += 1;
+      tmp_hom2 += 1;
+      cur_lnprob += log((tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2));
+      tmp_hets -= 2;
+      if (cur_lnprob <= k2m34) {
+        break;
       }
-      *base_lnprobp = cur_lnprob;
-      tmps_hets = tmp_hets;
-      tmps_hom1 = tmp_hom1;
-      tmps_hom2 = tmp_hom2;
-    } else {
-      tmps_hets = tmp_hets;
-      tmps_hom1 = tmp_hom1;
-      tmps_hom2 = tmp_hom2;
-      while (1) {
-        const double prev_lnprob = cur_lnprob;
-        tmp_hom1 += 1;
-        tmp_hom2 += 1;
-        cur_lnprob += log((tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2));
-        if (cur_lnprob < prev_lnprob) {
-          // this should never happen, but better to play it safe re: rounding
-          // error
-          return 1;
-        }
-        tmp_hets -= 2;
-        if (cur_lnprob >= -k2m34) {
-          if (cur_lnprob > k2m34) {
-            break;
-          }
-          *tie_ctp += 1;
-        }
-        total += exp(cur_lnprob);
-      }
-      const double prev_lnprob = cur_lnprob;
-      cur_lnprob = *base_lnprobp;
-      *base_lnprobp = prev_lnprob;
     }
+    *base_lnprobp = cur_lnprob;
+    tmps_hets = tmp_hets;
+    tmps_hom1 = tmp_hom1;
+    tmps_hom2 = tmp_hom2;
   } else {
-    if (cur_lnprob > k2m34) {
-      while (tmp_hets > 1.5) {
-        tmp_hom1 += 1;
-        tmp_hom2 += 1;
-        cur_lnprob += log((tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2));
+    tmps_hets = tmp_hets;
+    tmps_hom1 = tmp_hom1;
+    tmps_hom2 = tmp_hom2;
+    while (1) {
+      tmp_hets += 2;
+      const double next_lnprob = cur_lnprob + log((4 * tmp_hom1 * tmp_hom2) / (tmp_hets * (tmp_hets - 1)));
+      if (next_lnprob < cur_lnprob) {
+        // center_status==2 check is too complicated to be worth backporting.
+        // Stick to the simple fix.
         tmp_hets -= 2;
-        if (cur_lnprob <= k2m34) {
+        center_is_empty = 1;
+        break;
+      }
+      cur_lnprob = next_lnprob;
+      tmp_hom1 -= 1;
+      tmp_hom2 -= 1;
+      if (cur_lnprob >= -k2m34) {
+        if (cur_lnprob > k2m34) {
           break;
         }
+        *tie_ctp += 1;
       }
-      *base_lnprobp = cur_lnprob;
-      tmps_hets = tmp_hets;
-      tmps_hom1 = tmp_hom1;
-      tmps_hom2 = tmp_hom2;
-    } else {
-      tmps_hets = tmp_hets;
-      tmps_hom1 = tmp_hom1;
-      tmps_hom2 = tmp_hom2;
-      while (1) {
-        const double prev_lnprob = cur_lnprob;
-        tmp_hets += 2;
-        cur_lnprob += log((4 * tmp_hom1 * tmp_hom2) / (tmp_hets * (tmp_hets - 1)));
-        if (cur_lnprob < prev_lnprob) {
-          return 1;
-        }
-        tmp_hom1 -= 1;
-        tmp_hom2 -= 1;
-        if (cur_lnprob >= -k2m34) {
-          if (cur_lnprob > k2m34) {
-            break;
-          }
-          *tie_ctp += 1;
-        }
-        total += exp(cur_lnprob);
-      }
-      const double prev_lnprob = cur_lnprob;
-      cur_lnprob = *base_lnprobp;
-      *base_lnprobp = prev_lnprob;
+      total += exp(cur_lnprob);
     }
+    const double prev_lnprob = cur_lnprob;
+    cur_lnprob = *base_lnprobp;
+    *base_lnprobp = prev_lnprob;
   }
   *saved_hetsp = tmp_hets;
   *saved_hom1p = tmp_hom1;
@@ -3381,33 +3338,102 @@ int32_t HweXchrLnPTailsum(uint32_t high_het_side, double* base_lnprobp, double* 
   }
   double cur_prob = exp(cur_lnprob);
   // sum tail to floating point precision limit
-  if (high_het_side) {
-    while (1) {
-      const double prev_tot = total;
-      total += cur_prob;
-      if (total <= prev_tot) {
-        break;
-      }
-      tmps_hets += 2;
-      cur_prob *= (4 * tmps_hom1 * tmps_hom2) / (tmps_hets * (tmps_hets - 1));
-      tmps_hom1 -= 1;
-      tmps_hom2 -= 1;
+  while (1) {
+    const double prev_tot = total;
+    total += cur_prob;
+    if (total <= prev_tot) {
+      break;
     }
-  } else {
-    while (1) {
-      const double prev_tot = total;
-      total += cur_prob;
-      if (total <= prev_tot) {
-        break;
-      }
-      tmps_hom1 += 1;
-      tmps_hom2 += 1;
-      cur_prob *= (tmps_hets * (tmps_hets - 1)) / (4 * tmps_hom1 * tmps_hom2);
-      tmps_hets -= 2;
-    }
+    tmps_hom1 += 1;
+    tmps_hom2 += 1;
+    cur_prob *= (tmps_hets * (tmps_hets - 1)) / (4 * tmps_hom1 * tmps_hom2);
+    tmps_hets -= 2;
   }
   *totalp = total;
-  return 0;
+  return center_is_empty;
+}
+
+void HweXchrLnPHighHetTailsum(double fhets_stop, double* base_lnprobp, double* saved_hetsp, double* saved_hom1p, double* saved_hom2p, uint32_t* tie_ctp, double *totalp) {
+  // similar to fisher23_tailsum()
+  double total = 0;
+  double cur_lnprob = *base_lnprobp;
+  double tmp_hets = *saved_hetsp;
+  double tmp_hom1 = *saved_hom1p;
+  double tmp_hom2 = *saved_hom2p;
+  double tmps_hets;
+  double tmps_hom1;
+  double tmps_hom2;
+  // identify beginning of tail
+  if (cur_lnprob > k2m34) {
+    double prev_numer = tmp_hom1 * tmp_hom2;
+    // Tried conditionally moving out of log-space, but wasn't able to make
+    // that faster.
+    while (prev_numer > 0.5) {
+      tmp_hets += 2;
+      cur_lnprob += log((4 * prev_numer) / (tmp_hets * (tmp_hets - 1)));
+      tmp_hom1 -= 1;
+      tmp_hom2 -= 1;
+      if (cur_lnprob <= k2m34) {
+        break;
+      }
+      prev_numer = tmp_hom1 * tmp_hom2;
+    }
+    *base_lnprobp = cur_lnprob;
+    tmps_hets = tmp_hets;
+    tmps_hom1 = tmp_hom1;
+    tmps_hom2 = tmp_hom2;
+  } else {
+    tmps_hets = tmp_hets;
+    tmps_hom1 = tmp_hom1;
+    tmps_hom2 = tmp_hom2;
+    if (tmp_hets > fhets_stop) {
+      while (1) {
+        tmp_hom1 += 1;
+        tmp_hom2 += 1;
+        cur_lnprob += log((tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2));
+        tmp_hets -= 2;
+        if (tmp_hets <= fhets_stop) {
+          break;
+        }
+        if (cur_lnprob >= -k2m34) {
+          if (cur_lnprob > k2m34) {
+            break;
+          }
+          *tie_ctp += 1;
+        }
+        total += exp(cur_lnprob);
+      }
+    }
+    const double prev_lnprob = cur_lnprob;
+    cur_lnprob = *base_lnprobp;
+    *base_lnprobp = prev_lnprob;
+  }
+  *saved_hetsp = tmp_hets;
+  *saved_hom1p = tmp_hom1;
+  *saved_hom2p = tmp_hom2;
+  if (cur_lnprob >= -k2m34) {
+    if (cur_lnprob > k2m34) {
+      // even most extreme table on this side is too probable
+      *totalp = 0;
+      return;
+    }
+    *tie_ctp += 1;
+  }
+  double cur_prob = exp(cur_lnprob);
+  // sum tail to floating point precision limit
+  while (1) {
+    const double prev_tot = total;
+    total += cur_prob;
+    if (total <= prev_tot) {
+      break;
+    }
+    tmps_hets += 2;
+    cur_prob *= (4 * tmps_hom1 * tmps_hom2) / (tmps_hets * (tmps_hets - 1));
+    tmps_hom1 -= 1;
+    tmps_hom2 -= 1;
+  }
+  *totalp = total;
+  return;
 }
 
 double HweXchrLnP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp) {
@@ -3506,8 +3532,41 @@ double HweXchrLnP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2,
           cur_lhom1 -= 1;
         }
       }
-      double tail_incr1;
-      if (HweXchrLnPTailsum(0, &base_lnprobl, &cur_lhets, &cur_lhom1, &cur_lhom2, &tie_ct, &tail_incr1)) {
+      double tail_incr;
+      const uint32_t center_is_empty = HweXchrLnPLowHetTailsum(&base_lnprobl, &cur_lhets, &cur_lhom1, &cur_lhom2, &tie_ct, &tail_incr);
+      if (male1_decreasing) {
+        const double old_male1 = cur_male1 + 1;
+        if (cur_rhom2 != 0.0) {
+          cur_rhets += 1;
+          base_lnprobr += log((2 * old_male1 * cur_rhom2) / (cur_male2 * cur_rhets));
+          cur_rhom2 -= 1;
+        } else {
+          cur_rhom1 += 1;
+          base_lnprobr += log((old_male1 * cur_rhets) / (2 * cur_male2 * cur_rhom1));
+          cur_rhets -= 1;
+        }
+      } else {
+        const double old_male2 = cur_male2 + 1;
+        if (cur_rhom1 != 0.0) {
+          cur_rhets += 1;
+          base_lnprobr += log((2 * old_male2 * cur_rhom1) / (cur_male1 * cur_rhets));
+          cur_rhom1 -= 1;
+        } else {
+          cur_rhom2 += 1;
+          base_lnprobr += log((old_male2 * cur_rhets) / (2 * cur_male1 * cur_rhom2));
+          cur_rhets -= 1;
+        }
+      }
+      if (cur_rhets < cur_lhets) {
+        base_lnprobr = base_lnprobl;
+        cur_rhets = cur_lhets;
+        cur_rhom1 = cur_lhom1;
+        cur_rhom2 = cur_lhom2;
+      }
+      double tail_incr2 = 0.0;  // maybe-uninitialized warning
+      HweXchrLnPHighHetTailsum(cur_lhets, &base_lnprobr, &cur_rhets, &cur_rhom1, &cur_rhom2, &tie_ct, &tail_incr2);
+      tail_incr += tail_incr2;
+      if (center_is_empty && (tail_incr < 1.0)) {
         // all tables in this row, and all subsequent rows, are less probable
         // than the initial table.
         double cur_female1 = n1 - cur_male1;
@@ -3542,33 +3601,7 @@ double HweXchrLnP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2,
         }
         break;
       }
-      tailp += tail_incr1;
-      if (male1_decreasing) {
-        const double old_male1 = cur_male1 + 1;
-        if (cur_rhom2 != 0.0) {
-          cur_rhets += 1;
-          base_lnprobr += log((2 * old_male1 * cur_rhom2) / (cur_male2 * cur_rhets));
-          cur_rhom2 -= 1;
-        } else {
-          cur_rhom1 += 1;
-          base_lnprobr += log((old_male1 * cur_rhets) / (2 * cur_male2 * cur_rhom1));
-          cur_rhets -= 1;
-        }
-      } else {
-        const double old_male2 = cur_male2 + 1;
-        if (cur_rhom1 != 0.0) {
-          cur_rhets += 1;
-          base_lnprobr += log((2 * old_male2 * cur_rhom1) / (cur_male1 * cur_rhets));
-          cur_rhom1 -= 1;
-        } else {
-          cur_rhom2 += 1;
-          base_lnprobr += log((old_male2 * cur_rhets) / (2 * cur_male1 * cur_rhom2));
-          cur_rhets -= 1;
-        }
-      }
-      double tail_incr2 = 0.0;  // maybe-uninitialized warning
-      HweXchrLnPTailsum(1, &base_lnprobr, &cur_rhets, &cur_rhom1, &cur_rhom2, &tie_ct, &tail_incr2);
-      tailp += tail_incr2;
+      tailp += tail_incr;
     }
   }
   // row likelihood is ((n1 choose male1) * (n2 choose male2)) /
