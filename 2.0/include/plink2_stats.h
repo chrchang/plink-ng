@@ -61,7 +61,7 @@ double Lfact(double xx);
 
 // probable todo: provide HweLnPEx() where caller can provide
 // near-tie-resolution workspace, and a workspace query function
-BoolErr HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp, double* resultp);
+BoolErr HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp, double* resultp);
 
 // these return 0 if close enough to Hardy-Weinberg equilibrium
 BoolErr HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh, uint32_t* out_of_eqp);

@@ -423,7 +423,11 @@ dd_real ddr_lfact(double xx) {
   //             + n^{-5}/1260 - n^{-7}/1680 + n^{-9}/1188 - 691*n^{-11}/360360
   //             + ...
   // and that if we truncate the calculation, the error is bounded by the
-  // magnitude of the first omitted term for non-tiny n.
+  // magnitude of the first omitted term for non-tiny n.  (This is an
+  // "asymptotic series", which doesn't converge for fixed n if we let the
+  // number of terms go to infinity, but if we fix the number of terms -- as we
+  // do here -- it *does* approximate the target function well for all
+  // sufficiently large n.)
   //
   // The terms decrease more quickly for larger n, so it is reasonable to use a
   // lookup table for small n.  We stop the lookup table at 256 since the

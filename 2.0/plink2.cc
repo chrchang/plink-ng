@@ -62,7 +62,7 @@
 namespace plink2 {
 #endif
 
-static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
+static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7.0"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -90,7 +90,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (18 Apr 2026)";
+  " (25 Apr 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -118,7 +118,7 @@ static PREFER_CONSTEXPR char ver_str2[] =
 #  endif
 #endif
 
-  "       cog-genomics.org/plink/2.0/\n"
+  "     cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2026 Shaun Purcell, Christopher Chang    GNU General Public License v3\n";
 #ifdef HAS_CONSTEXPR
 static_assert(CompileTimeSlen(ver_str) + CompileTimeSlen(ver_str2) == 160, "ver_str/ver_str2 must be updated");
