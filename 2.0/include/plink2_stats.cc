@@ -3365,20 +3365,27 @@ void HweXchrLnPHighHetTailsum(double fhets_stop, double* base_lnprobp, double* s
   double tmps_hom2;
   // identify beginning of tail
   if (cur_lnprob > k2m34) {
-    double prev_numer = tmp_hom1 * tmp_hom2;
-    // Tried conditionally moving out of log-space, but wasn't able to make
-    // that faster.
-    while (prev_numer > 0.5) {
+    do {
+      const double prev_numer = tmp_hom1 * tmp_hom2;
+      if (prev_numer == 0) {
+        // lowest-likelihood table on this side is still too probable
+        *saved_hetsp = tmp_hets;
+        *saved_hom1p = tmp_hom1;
+        *saved_hom2p = tmp_hom2;
+        *base_lnprobp = cur_lnprob;
+        *totalp = 0;
+        return;
+      }
       tmp_hets += 2;
       cur_lnprob += log((4 * prev_numer) / (tmp_hets * (tmp_hets - 1)));
       tmp_hom1 -= 1;
       tmp_hom2 -= 1;
-      if (cur_lnprob <= k2m34) {
-        break;
-      }
-      prev_numer = tmp_hom1 * tmp_hom2;
+    } while (cur_lnprob > k2m34);
+    if (cur_lnprob >= -k2m34) {
+      *tie_ctp += 1;
     }
     *base_lnprobp = cur_lnprob;
+    total = exp(cur_lnprob);
     tmps_hets = tmp_hets;
     tmps_hom1 = tmp_hom1;
     tmps_hom2 = tmp_hom2;
@@ -3386,23 +3393,18 @@ void HweXchrLnPHighHetTailsum(double fhets_stop, double* base_lnprobp, double* s
     tmps_hets = tmp_hets;
     tmps_hom1 = tmp_hom1;
     tmps_hom2 = tmp_hom2;
-    if (tmp_hets > fhets_stop) {
-      while (1) {
-        tmp_hom1 += 1;
-        tmp_hom2 += 1;
-        cur_lnprob += log((tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2));
-        tmp_hets -= 2;
-        if (tmp_hets <= fhets_stop) {
+    while (tmp_hets > fhets_stop) {
+      if (cur_lnprob >= -k2m34) {
+        if (cur_lnprob > k2m34) {
           break;
         }
-        if (cur_lnprob >= -k2m34) {
-          if (cur_lnprob > k2m34) {
-            break;
-          }
-          *tie_ctp += 1;
-        }
-        total += exp(cur_lnprob);
+        *tie_ctp += 1;
       }
+      total += exp(cur_lnprob);
+      tmp_hom1 += 1;
+      tmp_hom2 += 1;
+      cur_lnprob += log((tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2));
+      tmp_hets -= 2;
     }
     const double prev_lnprob = cur_lnprob;
     cur_lnprob = *base_lnprobp;
@@ -3411,26 +3413,18 @@ void HweXchrLnPHighHetTailsum(double fhets_stop, double* base_lnprobp, double* s
   *saved_hetsp = tmp_hets;
   *saved_hom1p = tmp_hom1;
   *saved_hom2p = tmp_hom2;
-  if (cur_lnprob >= -k2m34) {
-    if (cur_lnprob > k2m34) {
-      // even most extreme table on this side is too probable
-      *totalp = 0;
-      return;
-    }
-    *tie_ctp += 1;
-  }
   double cur_prob = exp(cur_lnprob);
   // sum tail to floating point precision limit
   while (1) {
-    const double prev_tot = total;
-    total += cur_prob;
-    if (total <= prev_tot) {
-      break;
-    }
     tmps_hets += 2;
     cur_prob *= (4 * tmps_hom1 * tmps_hom2) / (tmps_hets * (tmps_hets - 1));
     tmps_hom1 -= 1;
     tmps_hom2 -= 1;
+    const double preaddp = total;
+    total += cur_prob;
+    if (total == preaddp) {
+      break;
+    }
   }
   *totalp = total;
   return;
