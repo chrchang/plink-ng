@@ -2833,7 +2833,7 @@ double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, i
       double tail_incr2 = 0.0;  // maybe-uninitialized warning
       HweXchrPHighHetTailsum(cur_lhets, &base_probr, &cur_rhets, &cur_rhom1, &cur_rhom2, &tie_ct, &tail_incr2);
       tail_incr += tail_incr2;
-      if (center_is_empty && (tail_incr < 1.0)) {
+      if (center_is_empty && (tail_incr < (1 - kExactTestEpsilon2) * kExactTestBias)) {
         // all tables in this row, and all subsequent rows, are less probable
         // than the initial table.
         double cur_female1 = n1 - cur_male1;
