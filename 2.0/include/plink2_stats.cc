@@ -2406,104 +2406,60 @@ double FisherExact2x2P(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, u
   return (tprob - ((1 - kExactTestEpsilon2) * kExactTestBias * 0.5) * tie_ct) / (cprob + tprob);
 }
 
-int32_t HweXchrPTailsum(uint32_t high_het_side, double* base_probp, double* saved_hetsp, double* saved_hom1p, double* saved_hom2p, uint32_t* tie_ctp, double *totalp) {
+uint32_t HweXchrPLowHetTailsum(double* base_probp, double* saved_hetsp, double* saved_hom1p, double* saved_hom2p, uint32_t* tie_ctp, double *totalp) {
   // similar to fisher23_tailsum()
   double total = 0;
   double cur_prob = *base_probp;
   double tmp_hets = *saved_hetsp;
   double tmp_hom1 = *saved_hom1p;
   double tmp_hom2 = *saved_hom2p;
+  uint32_t center_is_empty = 0;
   double tmps_hets;
   double tmps_hom1;
   double tmps_hom2;
   // identify beginning of tail
-  if (high_het_side) {
-    if (cur_prob > kExactTestBias) {
-      double prev_prob = tmp_hom1 * tmp_hom2;
-      while (prev_prob > 0.5) {
-        tmp_hets += 2;
-        cur_prob *= (4 * prev_prob) / (tmp_hets * (tmp_hets - 1));
-        tmp_hom1 -= 1;
-        tmp_hom2 -= 1;
-        if (cur_prob <= kExactTestBias) {
-          break;
-        }
-        prev_prob = tmp_hom1 * tmp_hom2;
+  if (cur_prob > kExactTestBias) {
+    while (tmp_hets > 1.5) {
+      tmp_hom1 += 1;
+      tmp_hom2 += 1;
+      cur_prob *= (tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2);
+      tmp_hets -= 2;
+      if (cur_prob <= kExactTestBias) {
+        break;
       }
-      *base_probp = cur_prob;
-      tmps_hets = tmp_hets;
-      tmps_hom1 = tmp_hom1;
-      tmps_hom2 = tmp_hom2;
-    } else {
-      tmps_hets = tmp_hets;
-      tmps_hom1 = tmp_hom1;
-      tmps_hom2 = tmp_hom2;
-      while (1) {
-        const double prev_prob = cur_prob;
-        tmp_hom1 += 1;
-        tmp_hom2 += 1;
-        cur_prob *= (tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2);
-        if (cur_prob < prev_prob) {
-          // this should never happen, but better to play it safe re: rounding
-          // error
-          return 1;
-        }
-        tmp_hets -= 2;
-        if (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias) {
-          // throw in extra (1 - kSmallEpsilon) multiplier to prevent rounding
-          // errors from causing this to keep going when the left-side test
-          // stopped
-          if (cur_prob > (1 - kSmallEpsilon) * kExactTestBias) {
-            break;
-          }
-          *tie_ctp += 1;
-        }
-        total += cur_prob;
-      }
-      const double prev_prob = cur_prob;
-      cur_prob = *base_probp;
-      *base_probp = prev_prob;
     }
+    *base_probp = cur_prob;
+    tmps_hets = tmp_hets;
+    tmps_hom1 = tmp_hom1;
+    tmps_hom2 = tmp_hom2;
   } else {
-    if (cur_prob > kExactTestBias) {
-      while (tmp_hets > 1.5) {
-        tmp_hom1 += 1;
-        tmp_hom2 += 1;
-        cur_prob *= (tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2);
+    tmps_hets = tmp_hets;
+    tmps_hom1 = tmp_hom1;
+    tmps_hom2 = tmp_hom2;
+    while (1) {
+      tmp_hets += 2;
+      const double next_prob = cur_prob * (4 * tmp_hom1 * tmp_hom2) / (tmp_hets * (tmp_hets - 1));
+      if (next_prob < cur_prob) {
+        // center_status==2 check is too complicated to be worth backporting.
+        // Stick to the simple fix.
         tmp_hets -= 2;
-        if (cur_prob <= kExactTestBias) {
+        center_is_empty = 1;
+        break;
+      }
+      cur_prob = next_prob;
+      tmp_hom1 -= 1;
+      tmp_hom2 -= 1;
+      if (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias) {
+        if (cur_prob > kExactTestBias) {
           break;
         }
+        *tie_ctp += 1;
       }
-      *base_probp = cur_prob;
-      tmps_hets = tmp_hets;
-      tmps_hom1 = tmp_hom1;
-      tmps_hom2 = tmp_hom2;
-    } else {
-      tmps_hets = tmp_hets;
-      tmps_hom1 = tmp_hom1;
-      tmps_hom2 = tmp_hom2;
-      while (1) {
-        const double prev_prob = cur_prob;
-        tmp_hets += 2;
-        cur_prob *= (4 * tmp_hom1 * tmp_hom2) / (tmp_hets * (tmp_hets - 1));
-        if (cur_prob < prev_prob) {
-          return 1;
-        }
-        tmp_hom1 -= 1;
-        tmp_hom2 -= 1;
-        if (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias) {
-          if (cur_prob > kExactTestBias) {
-            break;
-          }
-          *tie_ctp += 1;
-        }
-        total += cur_prob;
-      }
-      const double prev_prob = cur_prob;
-      cur_prob = *base_probp;
-      *base_probp = prev_prob;
+      total += cur_prob;
     }
+    const double prev_prob = cur_prob;
+    cur_prob = *base_probp;
+    *base_probp = prev_prob;
   }
   *saved_hetsp = tmp_hets;
   *saved_hom1p = tmp_hom1;
@@ -2517,33 +2473,95 @@ int32_t HweXchrPTailsum(uint32_t high_het_side, double* base_probp, double* save
     *tie_ctp += 1;
   }
   // sum tail to floating point precision limit
-  if (high_het_side) {
-    while (1) {
-      const double prev_tot = total;
-      total += cur_prob;
-      if (total <= prev_tot) {
-        break;
-      }
-      tmps_hets += 2;
-      cur_prob *= (4 * tmps_hom1 * tmps_hom2) / (tmps_hets * (tmps_hets - 1));
-      tmps_hom1 -= 1;
-      tmps_hom2 -= 1;
+  while (1) {
+    const double prev_tot = total;
+    total += cur_prob;
+    if (total <= prev_tot) {
+      break;
     }
-  } else {
-    while (1) {
-      const double prev_tot = total;
-      total += cur_prob;
-      if (total <= prev_tot) {
-        break;
+    tmps_hom1 += 1;
+    tmps_hom2 += 1;
+    cur_prob *= (tmps_hets * (tmps_hets - 1)) / (4 * tmps_hom1 * tmps_hom2);
+    tmps_hets -= 2;
+  }
+  *totalp = total;
+  return center_is_empty;
+}
+
+void HweXchrPHighHetTailsum(double fhets_stop, double* base_probp, double* saved_hetsp, double* saved_hom1p, double* saved_hom2p, uint32_t* tie_ctp, double *totalp) {
+  // similar to fisher23_tailsum()
+  double total = 0;
+  double cur_prob = *base_probp;
+  double tmp_hets = *saved_hetsp;
+  double tmp_hom1 = *saved_hom1p;
+  double tmp_hom2 = *saved_hom2p;
+  double tmps_hets;
+  double tmps_hom1;
+  double tmps_hom2;
+  // identify beginning of tail
+  if (cur_prob > kExactTestBias) {
+    do {
+      double prev_prob = tmp_hom1 * tmp_hom2;
+      if (prev_prob == 0) {
+        // lowest-likelihood table on this side is still too probable
+        *saved_hetsp = tmp_hets;
+        *saved_hom1p = tmp_hom1;
+        *saved_hom2p = tmp_hom2;
+        *base_probp = cur_prob;
+        *totalp = 0;
+        return;
       }
-      tmps_hom1 += 1;
-      tmps_hom2 += 1;
-      cur_prob *= (tmps_hets * (tmps_hets - 1)) / (4 * tmps_hom1 * tmps_hom2);
-      tmps_hets -= 2;
+      tmp_hets += 2;
+      cur_prob *= (4 * prev_prob) / (tmp_hets * (tmp_hets - 1));
+      tmp_hom1 -= 1;
+      tmp_hom2 -= 1;
+    } while (cur_prob > kExactTestBias);
+    if (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias) {
+      *tie_ctp += 1;
+    }
+    *base_probp = cur_prob;
+    total = cur_prob;
+    tmps_hets = tmp_hets;
+    tmps_hom1 = tmp_hom1;
+    tmps_hom2 = tmp_hom2;
+  } else {
+    tmps_hets = tmp_hets;
+    tmps_hom1 = tmp_hom1;
+    tmps_hom2 = tmp_hom2;
+    while (tmp_hets > fhets_stop) {
+      if (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias) {
+        if (cur_prob > kExactTestBias) {
+          break;
+        }
+        *tie_ctp += 1;
+      }
+      total += cur_prob;
+      tmp_hom1 += 1;
+      tmp_hom2 += 1;
+      cur_prob *= (tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2);
+      tmp_hets -= 2;
+    }
+    const double prev_prob = cur_prob;
+    cur_prob = *base_probp;
+    *base_probp = prev_prob;
+  }
+  *saved_hetsp = tmp_hets;
+  *saved_hom1p = tmp_hom1;
+  *saved_hom2p = tmp_hom2;
+  // sum tail to floating point precision limit
+  while (1) {
+    tmps_hets += 2;
+    cur_prob *= (4 * tmps_hom1 * tmps_hom2) / (tmps_hets * (tmps_hets - 1));
+    tmps_hom1 -= 1;
+    tmps_hom2 -= 1;
+    const double prev_tot = total;
+    total += cur_prob;
+    if (total <= prev_tot) {
+      break;
     }
   }
   *totalp = total;
-  return 0;
+  return;
 }
 
 // returns 1 if we should just return p=0
@@ -2781,8 +2799,41 @@ double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, i
           cur_lhom1 -= 1;
         }
       }
-      double tail_incr1;
-      if (HweXchrPTailsum(0, &base_probl, &cur_lhets, &cur_lhom1, &cur_lhom2, &tie_ct, &tail_incr1)) {
+      double tail_incr;
+      const uint32_t center_is_empty = HweXchrPLowHetTailsum(&base_probl, &cur_lhets, &cur_lhom1, &cur_lhom2, &tie_ct, &tail_incr);
+      if (male1_decreasing) {
+        const double old_male1 = cur_male1 + 1;
+        if (cur_rhom2 != 0.0) {
+          cur_rhets += 1;
+          base_probr *= (2 * old_male1 * cur_rhom2) / (cur_male2 * cur_rhets);
+          cur_rhom2 -= 1;
+        } else {
+          cur_rhom1 += 1;
+          base_probr *= (old_male1 * cur_rhets) / (2 * cur_male2 * cur_rhom1);
+          cur_rhets -= 1;
+        }
+      } else {
+        const double old_male2 = cur_male2 + 1;
+        if (cur_rhom1 != 0.0) {
+          cur_rhets += 1;
+          base_probr *= (2 * old_male2 * cur_rhom1) / (cur_male1 * cur_rhets);
+          cur_rhom1 -= 1;
+        } else {
+          cur_rhom2 += 1;
+          base_probr *= (old_male2 * cur_rhets) / (2 * cur_male1 * cur_rhom2);
+          cur_rhets -= 1;
+        }
+      }
+      if (cur_rhets < cur_lhets) {
+        base_probr = base_probl;
+        cur_rhets = cur_lhets;
+        cur_rhom1 = cur_lhom1;
+        cur_rhom2 = cur_lhom2;
+      }
+      double tail_incr2 = 0.0;  // maybe-uninitialized warning
+      HweXchrPHighHetTailsum(cur_lhets, &base_probr, &cur_rhets, &cur_rhom1, &cur_rhom2, &tie_ct, &tail_incr2);
+      tail_incr += tail_incr2;
+      if (center_is_empty && (tail_incr < 1.0)) {
         // all tables in this row, and all subsequent rows, are less probable
         // than the initial table.
         double cur_female1 = n1 - cur_male1;
@@ -2816,34 +2867,8 @@ double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, i
         }
         break;
       }
-      tailp += tail_incr1;
-      if (male1_decreasing) {
-        const double old_male1 = cur_male1 + 1;
-        if (cur_rhom2 != 0.0) {
-          cur_rhets += 1;
-          base_probr *= (2 * old_male1 * cur_rhom2) / (cur_male2 * cur_rhets);
-          cur_rhom2 -= 1;
-        } else {
-          cur_rhom1 += 1;
-          base_probr *= (old_male1 * cur_rhets) / (2 * cur_male2 * cur_rhom1);
-          cur_rhets -= 1;
-        }
-      } else {
-        const double old_male2 = cur_male2 + 1;
-        if (cur_rhom1 != 0.0) {
-          cur_rhets += 1;
-          base_probr *= (2 * old_male2 * cur_rhom1) / (cur_male1 * cur_rhets);
-          cur_rhom1 -= 1;
-        } else {
-          cur_rhom2 += 1;
-          base_probr *= (old_male2 * cur_rhets) / (2 * cur_male1 * cur_rhom2);
-          cur_rhets -= 1;
-        }
-      }
-      double tail_incr2 = 0.0;  // maybe-uninitialized warning
-      HweXchrPTailsum(1, &base_probr, &cur_rhets, &cur_rhom1, &cur_rhom2, &tie_ct, &tail_incr2);
-      tailp += tail_incr2;
-      centerp += row_prob - tail_incr1 - tail_incr2;
+      tailp += tail_incr;
+      centerp += row_prob - tail_incr;
       if (centerp > DBL_MAX) {
         return 0;
       }
