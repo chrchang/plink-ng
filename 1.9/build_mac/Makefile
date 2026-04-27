@@ -9,8 +9,8 @@ include ../Makefile.src
 # don't have to edit the Makefile to build in a different environment.
 CC ?=		gcc
 CXX ?=		g++
-CCFLAGS ?=	-Wall -Wstrict-aliasing -O2
-CXXFLAGS ?=	-Wall -Wstrict-aliasing -O2 -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
+CCFLAGS ?=	-Wall -Wstrict-aliasing -O2 -flto
+CXXFLAGS ?=	-Wall -Wstrict-aliasing -O2 -flto -I../../2.0/simde "-I../../zlib-"$(ZLIB_VER)
 AMDFLAGS ?=     --target=x86_64-apple-macosx10.9
 ARMFLAGS ?=     --target=arm64-apple-macos11
 CXEXTRA ?=	-DSTABLE_BUILD
@@ -28,7 +28,7 @@ ifeq ($(SYS), MAC)
   CFLAGS += $(MACFLAGS)
   CXXFLAGS += $(MACFLAGS)
   BLASFLAGS ?= -framework Accelerate
-  LDFLAGS ?= -ldl
+  LDFLAGS ?= -ldl -flto
   ZLIB_AMD ?= -L. "../../zlib-"$(ZLIB_VER)"/libz-amd64.a"
   ZLIB_ARM ?= -L. "../../zlib-"$(ZLIB_VER)"/libz-arm64.a"
 endif
