@@ -113,7 +113,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 900
+#define PLINK2_BASE_VERNUM 901
 
 // We now try to adhere to include-what-you-use in simple cases.  However,
 // we don't want to repeat either platform-specific ifdefs, or stuff like
@@ -590,6 +590,10 @@ HEADER_INLINE uint32_t ctzu32(uint32_t uii) {
   return __builtin_ctz(uii);
 }
 
+HEADER_INLINE uint32_t ctzu64(uint64_t ullii) {
+  return __builtin_ctzll(ullii);
+}
+
 // this should always compile down to bsr.
 HEADER_INLINE uint32_t bsru32(uint32_t uii) {
   return 31 - __builtin_clz(uii);
@@ -755,6 +759,11 @@ static_assert(sizeof(intptr_t) == kBytesPerWord, "plink2_base requires sizeof(in
 static_assert(sizeof(int64_t) == 8, "plink2_base requires sizeof(int64_t) == 8.");
 
 #if defined(__APPLE__) && defined(__LP64__) && !defined(__x86_64__)
+// possible todo: There are some reports that, even though Apple Silicon
+// systems load data in 128-byte chunks, false sharing only becomes a problem
+// within 64-byte chunks.  (This could be a side-effect of engineering done to
+// speed up x86 emulation?)  Benchmark setting this to 64 in a false-sharing
+// test.
 #  define CACHELINE128
 CONSTI32(kCacheline, 128);
 #else

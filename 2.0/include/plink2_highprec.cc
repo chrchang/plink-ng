@@ -765,7 +765,8 @@ BoolErr CompareFactorialProducts(uint32_t ffac_ct, int64_t pow2, int64_t numer_p
   if (max_ffac_size == 0) {
     // All factorials cancel out.
     *cmp_resultp = pow2;
-    *dbl_ptr = kLn2 * S_CAST(double, pow2);
+    // bugfix (4 May 2026): forgot that this was in non-log units
+    *dbl_ptr = ldexp(1.0, pow2);
     return 0;
   }
   if (numer_term_ct + denom_term_ct > 256) {
