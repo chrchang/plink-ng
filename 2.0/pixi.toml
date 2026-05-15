@@ -1,0 +1,27 @@
+[workspace]
+name = "plink2"
+version = "2.0.0"
+description = "PLINK 2.0 build environment"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64", "linux-64"]
+
+[dependencies]
+c-compiler = "*"
+cxx-compiler = "*"
+make = "*"
+zlib = "*"
+zstd = "*"
+gmp = "*"
+aws-sdk-cpp = "*"
+
+[target.linux-64.dependencies]
+openblas = "*"
+liblapack = "*"
+liblapacke = "*"
+
+[tasks]
+build = { cmd = "make USE_S3=1 \"GMP=-lgmp -laws-cpp-sdk-s3 -laws-cpp-sdk-core -Wl,-rpath,$CONDA_PREFIX/lib\" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) plink2", cwd = "." }
+clean = { cmd = "make clean", cwd = "." }
+
+[activation]
+scripts = ["pixi_activate.sh"]
