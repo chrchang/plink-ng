@@ -44,10 +44,20 @@ typedef struct dd_real_struct {
   double x[2];
 } dd_real;
 
+HEADER_INLINE void swap_ddr(dd_real* ap, dd_real* bp) {
+  const dd_real swaptmp = *ap;
+  *ap = *bp;
+  *bp = swaptmp;
+}
+
 extern const dd_real _ddr_log2;
 
 CONSTI32(_ddr_n_ln_fact, 256);
 extern const dd_real _ddr_ln_fact[_ddr_n_ln_fact];
+
+// Fast float64-accuracy version.
+// Assumes xx is a nonnegative integer.
+double Lfact(double xx);
 
 #define _QD_SPLITTER 134217729.0               // = 2^27 + 1
 #define _QD_SPLIT_THRESH 6.69692879491417e+299 // = 2^996
@@ -133,33 +143,25 @@ HEADER_INLINE double qd_two_sqr(double a, double *errp) {
 #endif
 }
 
-HEADER_INLINE dd_real ddr_maked(const double a) {
-  dd_real retval;
-  retval.x[0] = a;
-  retval.x[1] = 0.0;
+HEADER_CINLINE dd_real ddr_maked(const double a) {
+  const dd_real retval = {{a, 0.0}};
   return retval;
 }
 
-HEADER_INLINE dd_real ddr_makei(const int64_t a) {
+HEADER_CINLINE dd_real ddr_makei(const int64_t a) {
   const double hi = S_CAST(double, a);
-  dd_real retval;
-  retval.x[0] = hi;
-  retval.x[1] = S_CAST(double, a - S_CAST(int64_t, hi));
+  const dd_real retval = {{hi, S_CAST(double, a - S_CAST(int64_t, hi))}};
   return retval;
 }
 
-HEADER_INLINE dd_real ddr_makeu64(const uint64_t a) {
+HEADER_CINLINE dd_real ddr_makeu64(const uint64_t a) {
   const double hi = S_CAST(double, a);
-  dd_real retval;
-  retval.x[0] = hi;
-  retval.x[1] = S_CAST(double, S_CAST(int64_t, a - S_CAST(uint64_t, hi)));
+  const dd_real retval = {{hi, S_CAST(double, S_CAST(int64_t, a - S_CAST(uint64_t, hi)))}};
   return retval;
 }
 
-HEADER_INLINE dd_real ddr_make(const double a, const double b) {
-  dd_real retval;
-  retval.x[0] = a;
-  retval.x[1] = b;
+HEADER_CINLINE dd_real ddr_make(const double a, const double b) {
+  const dd_real retval = {{a, b}};
   return retval;
 }
 
@@ -195,7 +197,7 @@ HEADER_INLINE dd_real ddr_ieee_add(const dd_real a, const dd_real b) {
 }
 */
 
-HEADER_INLINE dd_real ddr_negate(const dd_real a) {
+HEADER_CINLINE dd_real ddr_negate(const dd_real a) {
   return ddr_make(-a.x[0], -a.x[1]);
 }
 
@@ -233,7 +235,7 @@ HEADER_INLINE dd_real ddr_ldexp(const dd_real a, int32_t expi) {
 }
 
 // double-double * double, where double is a power of 2.
-HEADER_INLINE dd_real ddr_mul_pwr2(const dd_real a, double b) {
+HEADER_CINLINE dd_real ddr_mul_pwr2(const dd_real a, double b) {
   return ddr_make(a.x[0] * b, a.x[1] * b);
 }
 
@@ -327,44 +329,44 @@ HEADER_INLINE dd_real ddr_sqr(const dd_real a) {
   return ddr_make(s1, s2);
 }
 
-HEADER_INLINE int32_t ddr_is_zero(const dd_real a) {
+HEADER_CINLINE int32_t ddr_is_zero(const dd_real a) {
   return (a.x[0] == 0.0);
 }
 
-HEADER_INLINE int32_t ddr_is_one(const dd_real a) {
+HEADER_CINLINE int32_t ddr_is_one(const dd_real a) {
   return (a.x[0] == 1.0) && (a.x[1] == 0.0);
 }
 
 
-HEADER_INLINE int32_t ddr_ltd(const dd_real a, const double b) {
+HEADER_CINLINE int32_t ddr_ltd(const dd_real a, const double b) {
   return (a.x[0] < b) || ((a.x[0] == b) && (a.x[1] < 0));
 }
 
-HEADER_INLINE int32_t ddr_lt(const dd_real a, const dd_real b) {
+HEADER_CINLINE int32_t ddr_lt(const dd_real a, const dd_real b) {
   return (a.x[0] < b.x[0]) || ((a.x[0] == b.x[0]) && (a.x[1] < b.x[1]));
 }
 
-HEADER_INLINE int32_t ddr_leqd(const dd_real a, const double b) {
+HEADER_CINLINE int32_t ddr_leqd(const dd_real a, const double b) {
   return (a.x[0] < b) || ((a.x[0] == b) && (a.x[1] <= 0));
 }
 
-HEADER_INLINE int32_t ddr_leq(const dd_real a, const dd_real b) {
+HEADER_CINLINE int32_t ddr_leq(const dd_real a, const dd_real b) {
   return (a.x[0] < b.x[0]) || ((a.x[0] == b.x[0]) && (a.x[1] <= b.x[1]));
 }
 
-HEADER_INLINE int32_t ddr_geqd(const dd_real a, const double b) {
+HEADER_CINLINE int32_t ddr_geqd(const dd_real a, const double b) {
   return (a.x[0] > b) || ((a.x[0] == b) && (a.x[1] >= 0));
 }
 
-HEADER_INLINE int32_t ddr_geq(const dd_real a, const dd_real b) {
+HEADER_CINLINE int32_t ddr_geq(const dd_real a, const dd_real b) {
   return (a.x[0] > b.x[0]) || ((a.x[0] == b.x[0]) && (a.x[1] >= b.x[1]));
 }
 
-HEADER_INLINE int32_t ddr_gtd(const dd_real a, const double b) {
+HEADER_CINLINE int32_t ddr_gtd(const dd_real a, const double b) {
   return (a.x[0] > b) || ((a.x[0] == b) && (a.x[1] > 0));
 }
 
-HEADER_INLINE int32_t ddr_gt(const dd_real a, const dd_real b) {
+HEADER_CINLINE int32_t ddr_gt(const dd_real a, const dd_real b) {
   return (a.x[0] > b.x[0]) || ((a.x[0] == b.x[0]) && (a.x[1] > b.x[1]));
 }
 
@@ -387,7 +389,12 @@ dd_real ddr_exp(const dd_real a);
 
 dd_real ddr_log(const dd_real a);
 
+dd_real ddr_expm1(const dd_real a);
 
+dd_real ddr_log1p(const dd_real a);
+
+
+// Try to put smaller-magnitude values first (or just use ddr_sort_and_add()).
 HEADER_INLINE dd_real ddr_add3(const dd_real a, const dd_real b, const dd_real c) {
   return ddr_add(ddr_add(a, b), c);
 }
@@ -400,6 +407,7 @@ HEADER_INLINE dd_real ddr_add5(const dd_real a, const dd_real b, const dd_real c
   return ddr_add(ddr_add(ddr_add(ddr_add(a, b), c), d), e);
 }
 
+// Assumes xx is a nonnegative integer < 2^52.
 dd_real ddr_lfact(double xx);
 
 HEADER_INLINE dd_real ddr_add_lfacts(const double a, const double b) {
@@ -425,6 +433,12 @@ CONSTI32(kInt32PerLimb, 2);
 static_assert(sizeof(mp_limb_t) == 4, "Unexpected mp_limb_t size (expected 4).");
 CONSTI32(kInt32PerLimb, 1);
 #endif
+
+// Sorts ddrs in place from least to greatest magnitude, and then adds.
+// Assumes ct positive.
+dd_real ddr_sort_and_add(uint32_t ct, dd_real* ddrs);
+
+dd_real ddr_sort_and_add_lfacts(uint32_t ct, double* args);
 
 int32_t falling_factorial(mp_limb_t top, uint32_t ct, mp_limb_t* result, uint32_t* result_limb_ctp, mp_limb_t* wkspace);
 

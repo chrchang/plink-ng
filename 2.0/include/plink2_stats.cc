@@ -1310,7 +1310,7 @@ double ibeta_fraction2_ln(double aa, double bb, double xx, double yy, uint32_t i
 double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
   // In addition to Boost beta.hpp and its dependencies, see DiDonato and
   // Morris's original paper at
-  // https://apps.dtic.mil/dtic/tr/fulltext/u2/a210118.pdf .
+  //   https://dl.acm.org/doi/10.1145/131766.131776 .
 
   // normalized always true
   //
@@ -1538,18 +1538,6 @@ double QuantileToZscore(double pval) {
   const double denom_rem0 = prefer_fma(prefer_fma(kIvnB[1], q4, kIvnB[3]), q4, 1);
   const double denom_rem2 = q2 * prefer_fma(prefer_fma(kIvnB[0], q4, kIvnB[2]), q4, kIvnB[4]);
   return q * (numer_rem1 + numer_rem3) / (denom_rem0 + denom_rem2);
-}
-
-double Lfact(double xx) {
-  if (xx < 256) {
-    return _ddr_ln_fact[S_CAST(int32_t, xx)].x[0];
-  }
-  // Since we're summing a fixed number of terms, start with the smaller terms
-  // to reduce rounding error.
-  const double invn = 1.0 / xx;
-  const double invn2 = invn * invn;
-  const double small_term_sum = prefer_fma(invn, prefer_fma(invn2, 1.0 / -360.0, 1.0 / 12.0), kLnSqrt2Pi - xx);
-  return log(xx) * (xx + 0.5) + small_term_sum;
 }
 
 // - starting_lnprobv_ddr is expected to be initialized to

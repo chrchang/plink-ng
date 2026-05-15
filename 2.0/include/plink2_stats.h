@@ -53,9 +53,6 @@ HEADER_INLINE double ZscoreToLnP(double zz) {
   return ChisqToLnP(zz * zz, 1);
 }
 
-// Assumes xx is a nonnegative integer.
-double Lfact(double xx);
-
 // HweP() has been replaced by HweLnP().  HweThresh() and HweThreshMidp() have
 // been replaced by HweThreshLn().
 

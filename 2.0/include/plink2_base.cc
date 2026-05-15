@@ -453,6 +453,15 @@ int32_t u32cmp(const void* aa, const void* bb) {
   return (uaa > ubb);
 }
 
+int32_t double_cmp(const void* aa, const void* bb) {
+  const double dxx = *S_CAST(const double*, aa);
+  const double dyy = *S_CAST(const double*, bb);
+  if (dxx < dyy) {
+    return -1;
+  }
+  return (dxx > dyy);
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

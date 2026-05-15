@@ -310,8 +310,19 @@ const dd_real _ddr_ln_fact[_ddr_n_ln_fact] = {
   { 1.1617121011184005965e+03,  5.4254719719550151903e-14}
 };
 
-// raise to 15 if we ever want sin_taylor() or cos_taylor()
-CONSTI32(_ddr_n_inv_fact, 6);
+double Lfact(double xx) {
+  if (xx < 256) {
+    return _ddr_ln_fact[S_CAST(int32_t, xx)].x[0];
+  }
+  // Since we're summing a fixed number of terms, start with the smaller terms
+  // to reduce rounding error.
+  const double invn = 1.0 / xx;
+  const double invn2 = invn * invn;
+  const double small_term_sum = prefer_fma(invn, prefer_fma(invn2, 1.0 / -360.0, 1.0 / 12.0), kLnSqrt2Pi - xx);
+  return log(xx) * (xx + 0.5) + small_term_sum;
+}
+
+CONSTI32(_ddr_n_inv_fact, 15);
 
 // "_offset3" since this starts at 1 / (3!), not 1 / (0!)
 static const dd_real  _ddr_inv_fact_offset3[_ddr_n_inv_fact] = {
@@ -320,7 +331,16 @@ static const dd_real  _ddr_inv_fact_offset3[_ddr_n_inv_fact] = {
   { 8.33333333333333322e-03,  1.15648231731787138e-19},
   { 1.38888888888888894e-03, -5.30054395437357706e-20},
   { 1.98412698412698413e-04,  1.72095582934207053e-22},
-  { 2.48015873015873016e-05,  2.15119478667758816e-23}
+  { 2.48015873015873016e-05,  2.15119478667758816e-23},
+  { 2.75573192239858925e-06, -1.85839327404647208e-22},
+  { 2.75573192239858883e-07,  2.37677146222502973e-23},
+  { 2.50521083854417202e-08, -1.44881407093591197e-24},
+  { 2.08767569878681002e-09, -1.20734505911325997e-25},
+  { 1.60590438368216133e-10,  1.25852945887520981e-26},
+  { 1.14707455977297245e-11,  2.06555127528307454e-28},
+  { 7.64716373181981641e-13,  7.03872877733453001e-30},
+  { 4.77947733238738525e-14,  4.39920548583408126e-31},
+  { 2.81145725434552060e-15,  1.65088427308614326e-31}
 };
 
 dd_real ddr_exp(const dd_real a) {
@@ -417,6 +437,54 @@ dd_real ddr_log(const dd_real a) {
   return x;
 }
 
+dd_real ddr_expm1(const dd_real a) {
+  if (fabs(a.x[0]) >= 0.125) {
+    return ddr_addd(ddr_exp(a), -1.0);
+  }
+  // Directly evaluate e^x - 1 = x + (x^2)/2 + (x^3)/6 + ... up to x^17 term of
+  // series.
+  // log2(18!) = 52.507..., so given |x| < 0.125, relative error from omitting
+  // that term < 2^{-52.5 - 3*17} = 2^{-103.5}.
+  const double thresh = fabs(a.x[0]) * _ddr_eps;
+  dd_real p = ddr_sqr(a);
+  dd_real s = ddr_add(a, ddr_mul_pwr2(p, 0.5));
+  p = ddr_mul(p, a);
+  dd_real t = ddr_mul(p, _ddr_inv_fact_offset3[0]);
+  int32_t i = 0;
+  do {
+    s = ddr_add(s, t);
+    p = ddr_mul(p, a);
+    ++i;
+    t = ddr_mul(p, _ddr_inv_fact_offset3[i]);
+  } while ((fabs(t.x[0]) > thresh) && (i < 14));
+  return s;
+}
+
+dd_real ddr_log1p(const dd_real a) {
+  // Currently gives up ~2 more bits than ddr_expm1.
+  if (fabs(a.x[0]) >= 0.03125) {
+    return ddr_log(ddr_addd(a, 1.0));
+  }
+  // log(1+x) = x - (x^2)/2 + (x^3)/3 - ...
+  const double thresh = fabs(a.x[0]) * (4 * _ddr_eps);
+  dd_real p = ddr_sqr(a);
+  dd_real s = ddr_sub(a, ddr_mul_pwr2(p, 0.5));
+  p = ddr_mul(p, a);
+  const dd_real neg_a = ddr_negate(a);
+  double tidx_d = 3.0;
+  while (1) {
+    const dd_real t = ddr_divd(p, tidx_d);
+    if (fabs(t.x[0]) <= thresh) {
+      return s;
+    }
+    s = ddr_add(s, t);
+    tidx_d += 1.0;
+    p = ddr_mul(p, neg_a);
+  }
+}
+
+// Assumes xx is a nonnegative integer < 2^52; if we ever need more range,
+// replace ddr_muld(logn, xx + 0.5) with a ddr_mul() operation.
 dd_real ddr_lfact(double xx) {
   // It can be shown from the Euler-Maclaurin approximation that
   //   ln (n!) = n ln n - n + 0.5 ln (2*pi*n) + n^{-1}/12 - n^{-3}/360
@@ -457,6 +525,53 @@ dd_real ddr_lfact(double xx) {
   sum = ddr_subd(sum, xx);
   const dd_real logn = ddr_log(ddr_maked(xx));
   return ddr_add(sum, ddr_muld(logn, xx + 0.5));
+}
+
+int32_t dd_real_abs_cmp(const void* aa, const void* bb) {
+  dd_real aa_ddr = *S_CAST(const dd_real*, aa);
+  dd_real bb_ddr = *S_CAST(const dd_real*, bb);
+  const double aa0 = fabs(aa_ddr.x[0]);
+  const double bb0 = fabs(bb_ddr.x[0]);
+  if (aa0 != bb0) {
+    return (aa0 < bb0)? -1 : 1;
+  }
+  // Ensure deterministic results by defining a total ordering.
+  // We arbitrarily define |x| as having smaller magnitude than -|x|.
+  const uint32_t aa_was_neg = (aa0 < 0);
+  const uint32_t bb_was_neg = (bb0 < 0);
+  if (aa_was_neg) {
+    aa_ddr = ddr_negate(aa_ddr);
+  }
+  if (bb_was_neg) {
+    bb_ddr = ddr_negate(bb_ddr);
+  }
+  const double aa1 = aa_ddr.x[1];
+  const double bb1 = bb_ddr.x[1];
+  if (aa1 != bb1) {
+    return (aa1 < bb1)? -1 : 1;
+  }
+  if (aa_was_neg != bb_was_neg) {
+    return (aa_was_neg < bb_was_neg)? -1 : 1;
+  }
+  return 0;
+}
+
+dd_real ddr_sort_and_add(uint32_t ct, dd_real* ddrs) {
+  qsort(ddrs, ct, sizeof(dd_real), dd_real_abs_cmp);
+  dd_real sum_ddr = ddrs[0];
+  for (uint32_t uii = 1; uii < ct; ++uii) {
+    sum_ddr = ddr_add(sum_ddr, ddrs[uii]);
+  }
+  return sum_ddr;
+}
+
+dd_real ddr_sort_and_add_lfacts(uint32_t ct, double* args) {
+  STD_SORT(ct, double_cmp, args);
+  dd_real sum_ddr = ddr_lfact(args[0]);
+  for (uint32_t uii = 1; uii < ct; ++uii) {
+    sum_ddr = ddr_add(sum_ddr, ddr_lfact(args[uii]));
+  }
+  return sum_ddr;
 }
 
 // Bignum factorial helper functions and constants.

@@ -113,7 +113,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 901
+#define PLINK2_BASE_VERNUM 902
 
 // We now try to adhere to include-what-you-use in simple cases.  However,
 // we don't want to repeat either platform-specific ifdefs, or stuff like
@@ -2510,6 +2510,8 @@ typedef uint32_t tname
 #endif
 
 int32_t u32cmp(const void* aa, const void* bb);
+
+int32_t double_cmp(const void* aa, const void* bb);
 
 #ifdef __cplusplus
 #  define STD_SORT(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))

@@ -173,15 +173,6 @@ BoolErr fclose_flush_null(char* buf_flush, char* write_iter, FILE** outfile_ptr)
 }
 
 
-int32_t double_cmp(const void* aa, const void* bb) {
-  const double dxx = *S_CAST(const double*, aa);
-  const double dyy = *S_CAST(const double*, bb);
-  if (dxx < dyy) {
-    return -1;
-  }
-  return (dxx > dyy);
-}
-
 int32_t double_cmp_decr(const void* aa, const void* bb) {
   const double dxx = *S_CAST(const double*, aa);
   const double dyy = *S_CAST(const double*, bb);
