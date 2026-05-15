@@ -29,10 +29,20 @@ ZSTD		?=
 BLASFLAGS64	?= -llapack -lf77blas -latlas
 ARCH32		?=
 
+# S3 support: set USE_S3=1 to enable.  Requires aws-sdk-cpp with the s3 and
+# core components installed (e.g. via 'apt install libaws-sdk-cpp-s3-dev' or
+# built from source).
+USE_S3		?=
+
 # Mandatory flags added to defaults or env settings
 CFLAGS		+= -std=gnu99 $(BASEFLAGS) $(CWARN) $(CINCLUDE)
 CXXFLAGS	+= -std=c++17 $(BASEFLAGS) $(CXXWARN) $(CXXINCLUDE)
 LDFLAGS		+= -lm -lpthread -flto $(ZLIB) $(ZSTD)
+
+ifdef USE_S3
+  CXXFLAGS	+= -DUSE_S3
+  LDFLAGS	+= -laws-cpp-sdk-s3 -laws-cpp-sdk-core
+endif
 
 # Installation defaults
 MKDIR		?= mkdir

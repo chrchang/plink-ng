@@ -89,6 +89,7 @@ CCSRC = $(PLINK2LIB_CCSRC) \
         plink2.cc \
         plink2_adjust.cc \
         plink2_cmdline.cc \
+        plink2_s3.cc \
         plink2_common.cc \
         plink2_compress_stream.cc \
         plink2_data.cc \

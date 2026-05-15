@@ -19,6 +19,8 @@
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
 #   Debug symbols: change DEBUG to -g (still incompatible with -flto?)
+#   Enable S3 input support via AWS C++ SDK: USE_S3
+#     (requires aws-sdk-cpp with s3 and core components)
 NO_AVX2 = 1
 NO_SSE42 = 1
 CPU_CHECK = 1
@@ -33,6 +35,7 @@ STATIC_AOCL =
 AOCLROOT = /home/admin/aocl/5.1.0/gcc
 CBLAS_LAPACKE =
 FORCE_32BIT =
+USE_S3 =
 # Giving up on -flto default for now (Mar 2026) due to the high frequency of
 # gcc 10.2 crashes.  Will try again after next upgrade of my own build
 # machines.
@@ -205,6 +208,11 @@ endif
 ifdef NO_LAPACK
   BASEFLAGS += -DNOLAPACK
   BLASFLAGS=
+endif
+
+ifdef USE_S3
+  BASEFLAGS += -DUSE_S3
+  LINKFLAGS += -laws-cpp-sdk-s3 -laws-cpp-sdk-core
 endif
 
 CFLAGS += ${BASEFLAGS} ${CWARN2} ${CINCLUDE2}
