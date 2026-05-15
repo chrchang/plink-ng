@@ -4383,6 +4383,7 @@ int main(int argc, char** argv) {
   char* vcf_dosage_import_field = nullptr;
   uint32_t* rseeds = nullptr;
   LlStr* file_delete_list = nullptr;
+  uint32_t s3_initialized = 0;
   uint32_t arg_idx = 0;
   uint32_t print_end_time = 0;
   uint32_t warning_errcode = 0;
@@ -15875,55 +15876,18 @@ int main(int argc, char** argv) {
       }
     }
 
-    // Resolve S3 URIs: if any primary input filenames begin with "s3://",
-    // download the corresponding objects to temporary local files.
+    // If any input filenames begin with "s3://", initialize the AWS SDK so
+    // that OpenMaybeS3() calls in pgenlib_read.cc and plink2_text.cc can
+    // stream the data on-demand via S3 range requests.
     {
-      const uint32_t pgen_is_s3 = pgenname[0] && IsS3Uri(pgenname);
-      const uint32_t pvar_is_s3 = pvarname[0] && IsS3Uri(pvarname);
-      const uint32_t psam_is_s3 = psamname[0] && IsS3Uri(psamname);
-      if (pgen_is_s3 || pvar_is_s3 || psam_is_s3) {
+      const uint32_t any_s3 =
+          (pgenname[0] && IsS3Uri(pgenname)) ||
+          (pvarname[0] && IsS3Uri(pvarname)) ||
+          (psamname[0] && IsS3Uri(psamname));
+      if (any_s3) {
 #ifdef USE_S3
         S3Init();
-        if (pgen_is_s3) {
-          char s3_tmp[kPglFnamesize];
-          memcpy(s3_tmp, pgenname, strlen(pgenname) + 1);
-          reterr = S3DownloadToTemp(s3_tmp, pgenname);
-          if (unlikely(reterr)) {
-            S3Shutdown();
-            goto main_ret_1;
-          }
-          if (unlikely(PushLlStr(pgenname, &file_delete_list))) {
-            S3Shutdown();
-            goto main_ret_NOMEM;
-          }
-        }
-        if (pvar_is_s3) {
-          char s3_tmp[kPglFnamesize];
-          memcpy(s3_tmp, pvarname, strlen(pvarname) + 1);
-          reterr = S3DownloadToTemp(s3_tmp, pvarname);
-          if (unlikely(reterr)) {
-            S3Shutdown();
-            goto main_ret_1;
-          }
-          if (unlikely(PushLlStr(pvarname, &file_delete_list))) {
-            S3Shutdown();
-            goto main_ret_NOMEM;
-          }
-        }
-        if (psam_is_s3) {
-          char s3_tmp[kPglFnamesize];
-          memcpy(s3_tmp, psamname, strlen(psamname) + 1);
-          reterr = S3DownloadToTemp(s3_tmp, psamname);
-          if (unlikely(reterr)) {
-            S3Shutdown();
-            goto main_ret_1;
-          }
-          if (unlikely(PushLlStr(psamname, &file_delete_list))) {
-            S3Shutdown();
-            goto main_ret_NOMEM;
-          }
-        }
-        S3Shutdown();
+        s3_initialized = 1;
 #else
         logerrputs("Error: S3 URI detected but plink2 was not compiled with S3 support.\n"
                    "Rebuild with USE_S3=1 to enable S3 support.\n");
@@ -16243,6 +16207,11 @@ int main(int argc, char** argv) {
     break;
   }
  main_ret_NOLOG:
+#ifdef USE_S3
+  if (s3_initialized) {
+    S3Shutdown();
+  }
+#endif
   free_cond(vcf_dosage_import_field);
   free_cond(ox_missing_code);
   free_cond(import_single_chr_str);

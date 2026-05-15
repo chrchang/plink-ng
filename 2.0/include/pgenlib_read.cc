@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "plink2_simd.h"
+#include "../plink2_s3.h"
 
 // Uncomment this during e.g. pgenlibr development to enable error-throwing.
 // #include <stdexcept>
@@ -707,7 +708,7 @@ PglErr PgfiInitPhase1(const char* fname, const char* pgi_fname, uint32_t raw_var
   uint64_t fsize;
   const unsigned char* fread_ptr;
   unsigned char small_readbuf[3];
-  FILE* shared_ff = fopen(fname, FOPEN_RB);
+  FILE* shared_ff = OpenMaybeS3(fname);
   pgfip->shared_ff = shared_ff;
   if (unlikely(!shared_ff)) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
@@ -2092,7 +2093,7 @@ PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, 
       pgrp->ff = pgfip->shared_ff;
       pgfip->shared_ff = nullptr;
     } else {
-      pgrp->ff = fopen(fname, FOPEN_RB);
+      pgrp->ff = OpenMaybeS3(fname);
       if (unlikely(!pgrp->ff)) {
         return kPglRetOpenFail;
       }

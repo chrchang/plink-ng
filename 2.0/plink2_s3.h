@@ -20,6 +20,11 @@
 // Optional S3 support for PLINK 2.0.  Enable by building with USE_S3=1,
 // which requires the AWS C++ SDK (aws-sdk-cpp) with the s3 and core
 // components installed.
+//
+// When USE_S3 is enabled, S3 objects are streamed on-demand via HTTP range
+// requests — no temporary files are written to disk.
+
+#include <stdio.h>
 
 #include "include/plink2_base.h"
 
@@ -35,20 +40,30 @@ uint32_t IsS3Uri(const char* path);
 
 #ifdef USE_S3
 
-// Initialize the AWS SDK.  Must be called once before any S3 operations,
+// Initialize the AWS SDK.  Must be called once before any S3 file opens,
 // and before any threads that use the SDK are spawned.
 void S3Init();
 
 // Shut down the AWS SDK.  Must be called once at program exit, after all S3
-// operations have completed.
+// FILE* handles have been closed.
 void S3Shutdown();
 
-// Download the S3 object identified by s3_uri (e.g. "s3://bucket/key") to a
-// newly-created temporary file.  On success, local_path_buf is filled with
-// the path to the temporary file and kPglRetSuccess is returned.
-// local_path_buf must be at least kPglFnamesize bytes.
-// On failure an appropriate kPglRet* error code is returned.
-PglErr S3DownloadToTemp(const char* s3_uri, char* local_path_buf);
+// Open an S3 object for reading and return a FILE* that streams data on
+// demand using S3 range requests.  Behaves like fopen(path, "rb") but the
+// data is fetched from S3 in chunks rather than from a local file.
+//
+// Returns nullptr on failure (e.g. object not found, access denied, network
+// error).  An error message is printed to stderr before returning nullptr.
+FILE* OpenMaybeS3(const char* path);
+
+#else
+
+// Without USE_S3, OpenMaybeS3 is a thin wrapper around fopen, allowing
+// callers in plink2_text.cc / pgenlib_read.cc to compile unchanged
+// regardless of whether USE_S3 is set.
+static inline FILE* OpenMaybeS3(const char* path) {
+  return fopen(path, FOPEN_RB);
+}
 
 #endif  // USE_S3
 

@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "plink2_simd.h"
+#include "../plink2_s3.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -40,7 +41,7 @@ static inline const TextStreamMain* GetTxspK(const TextStream* txs_ptr) {
 }
 
 PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr) {
-  FILE* infile = fopen(fname, FOPEN_RB);
+  FILE* infile = OpenMaybeS3(fname);
   if (unlikely(!infile)) {
     // Note that this does not print an error message (since it may be called
     // by a worker thread).
@@ -173,7 +174,7 @@ PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, 
       // token-reading mode.  dst == nullptr not currently supported.
       assert(dst && (dst_capacity == kTokenStreamBlen));
     }
-    trbp->ff = fopen(fname, FOPEN_RB);
+    trbp->ff = OpenMaybeS3(fname);
     if (unlikely(!trbp->ff)) {
       goto TextFileOpenInternal_ret_OPEN_FAIL;
     }
