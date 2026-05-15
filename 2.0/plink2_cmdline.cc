@@ -16,6 +16,7 @@
 
 
 #include "plink2_cmdline.h"
+#include "plink2_s3.h"
 
 #include <errno.h>
 #include <fcntl.h>  // open()
@@ -110,6 +111,9 @@ uint32_t FileExists(const char* fname) {
 }
 
 PglErr ForceNonFifo(const char* fname) {
+  if (IsS3Uri(fname)) {
+    return kPglRetSuccess;
+  }
   int32_t file_handle = open(fname, O_RDONLY);
   if (unlikely(file_handle < 0)) {
     return kPglRetOpenFail;
