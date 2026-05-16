@@ -23,7 +23,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "vcf_subset v1.0.4"
+static const char ver_str[] = "vcf_subset v1.1.0"
 
 #ifdef __LP64__
 #  ifdef USE_AVX2
@@ -39,7 +39,7 @@ static const char ver_str[] = "vcf_subset v1.0.4"
   " 32-bit"
 #endif
 
-  " (23 Jan 2025)";
+  " (16 May 2026)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -59,7 +59,7 @@ static const char ver_str2[] =
   ""
 #endif
   "              cog-genomics.org/plink/2.0/\n"
-  "(C) 2024-2025 Christopher Chang                                     GNU LGPL v3\n";
+  "(C) 2024-2026 Christopher Chang, Carsten Erickson                   GNU LGPL v3\n";
 
 void PrintVer() {
   fputs(ver_str, stdout);
