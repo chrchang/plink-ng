@@ -81,6 +81,8 @@ void DispUsage(FILE* dst_stream) {
 "                       that compression occurs iff the --out path ends in '.gz'\n"
 "                       or '.bgz'.\n"
 "  --erase-info       : Remove INFO header lines, set all INFO entries to '.'.\n"
+"  --exclude <fname>  : Keep only variants whose ID is NOT in the given file.\n"
+"  --extract <fname>  : Keep only variants whose ID is in the given file.\n"
 "  --help             : Just display this help text.\n"
 "  --indv <ID>        : Keep only the sample with the given ID.\n"
 "  --keep <filename>  : Keep only samples with IDs in the given file.\n"
@@ -134,7 +136,182 @@ BoolErr bgzfclose_flush(char* buf_flush, char* write_iter, BgzfCompressStream* b
   return CleanupBgzfCompressStream(bgzfp, reterrp);
 }
 
-PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, const char* inpath, const char* indv_str, const char* keeppath, const char* outpath, uint32_t outpath_slen, uint32_t allow_no_samples, uint32_t bgz_level, uint32_t erase_info, uint32_t no_samples, uint32_t max_thread_ct) {
+// Read all whitespace-separated IDs from `fname` into a flat null-terminated
+// buffer + pointer array + hash table, for use by the main variant-loop
+// filter.  Two-pass: pass 1 counts tokens and the total byte size, pass 2
+// copies into the now-sized buffer.  A single open TextStream is reused
+// across passes via TokenRewind, which is also what guarantees that pass 2
+// observes the same token sequence as pass 1.  Duplicate IDs are silently
+// allowed; membership lookup doesn't care.
+//
+// Allocations: the TokenStream's internal buffer is placed at the high end
+// of the arena and freed before this function returns.  id_strs, id_buf,
+// and htable end up between *arena_bottom_ptr (advanced) and arena_top
+// (unchanged on return).
+static PglErr LoadFilterIdHtable(unsigned char* arena_top, const char* fname, const char* flag_name, uint32_t max_thread_ct, unsigned char** arena_bottom_ptr, const char*** id_strs_ptr, uint32_t* id_ct_ptr, uint32_t** htable_ptr, uint32_t* htable_size_ptr, char* errbuf) {
+  TokenStream tks;
+  PreinitTokenStream(&tks);
+  PglErr reterr = kPglRetSuccess;
+  errbuf[0] = '\0';
+  const uint32_t decompress_thread_ct = MAXV(1, max_thread_ct - 1);
+  // Mark the high end so we can free the TokenStream buffer once both
+  // passes are done.
+  unsigned char* mark_top = arena_top;
+  {
+    // Allocate the TokenStream buffer at the high end; opens `fname` once
+    // for both passes.
+    if (unlikely(S_CAST(uintptr_t, arena_top - *arena_bottom_ptr) < kTokenStreamBlen)) {
+      goto LoadFilterIdHtable_ret_NOMEM;
+    }
+    char* tks_buf = S_CAST(char*, arena_end_alloc_raw(kTokenStreamBlen, &arena_top));
+    reterr = TextStreamOpenEx(fname, 0, kTokenStreamBlen, decompress_thread_ct, nullptr, tks_buf, &(tks.txs));
+    if (unlikely(reterr)) {
+      goto LoadFilterIdHtable_ret_TKSTREAM_FAIL;
+    }
+
+    // Pass 1: count tokens, find total ID-byte size.
+    uint32_t id_ct = 0;
+    uintptr_t total_id_bytes = 0;
+    while (1) {
+      char* shard_boundaries[2];
+      reterr = TksNext(&tks, 1, shard_boundaries);
+      if (reterr) {
+        break;
+      }
+      const char* shard_iter = shard_boundaries[0];
+      const char* shard_end = shard_boundaries[1];
+      while (1) {
+        shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
+        if (shard_iter == shard_end) {
+          break;
+        }
+        const char* token_end = CurTokenEnd(shard_iter);
+        const uintptr_t slen = token_end - shard_iter;
+        total_id_bytes += slen + 1;  // include null terminator
+        ++id_ct;
+        shard_iter = token_end;
+      }
+    }
+    if (unlikely(reterr != kPglRetEof)) {
+      goto LoadFilterIdHtable_ret_TKSTREAM_FAIL;
+    }
+    reterr = kPglRetSuccess;
+    if (unlikely(!id_ct)) {
+      snprintf(errbuf, 2 * kMaxMediumLine, "Error: --%s file %s contains no IDs.\n", flag_name, fname);
+      reterr = kPglRetMalformedInput;
+      goto LoadFilterIdHtable_ret_1;
+    }
+
+    // Allocate pointer array and flat ID buffer at the low end; the
+    // TokenStream's high-end buffer is left in place.
+    const char** id_strs;
+    char* id_buf;
+    if (unlikely(arena_alloc_kcp(arena_top, id_ct, arena_bottom_ptr, &id_strs) ||
+                 arena_alloc_c(arena_top, total_id_bytes, arena_bottom_ptr, &id_buf))) {
+      goto LoadFilterIdHtable_ret_NOMEM;
+    }
+
+    // Pass 2: rewind the same stream and copy tokens into id_buf + id_strs.
+    // The defensive bound checks below should be unreachable since pass 1
+    // already sized id_buf for exactly this token sequence, but we keep
+    // them so a future TokenStream API change can't silently corrupt
+    // memory.
+    reterr = TokenRewind(&tks);
+    if (unlikely(reterr)) {
+      goto LoadFilterIdHtable_ret_TKSTREAM_FAIL;
+    }
+    char* buf_iter = id_buf;
+    uint32_t id_idx = 0;
+    while (1) {
+      char* shard_boundaries[2];
+      reterr = TksNext(&tks, 1, shard_boundaries);
+      if (reterr) {
+        break;
+      }
+      const char* shard_iter = shard_boundaries[0];
+      const char* shard_end = shard_boundaries[1];
+      while (1) {
+        shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
+        if (shard_iter == shard_end) {
+          break;
+        }
+        const char* token_end = CurTokenEnd(shard_iter);
+        const uintptr_t slen = token_end - shard_iter;
+        if (unlikely((id_idx == id_ct) ||
+                     (S_CAST(uintptr_t, &(id_buf[total_id_bytes]) - buf_iter) < slen + 1))) {
+          snprintf(errbuf, 2 * kMaxMediumLine, "Error: internal pass-2 mismatch reading %s.\n", fname);
+          reterr = kPglRetReadFail;
+          goto LoadFilterIdHtable_ret_1;
+        }
+        memcpyx(buf_iter, shard_iter, slen, '\0');
+        id_strs[id_idx] = buf_iter;
+        buf_iter += slen + 1;
+        ++id_idx;
+        shard_iter = token_end;
+      }
+    }
+    if (unlikely(reterr != kPglRetEof)) {
+      goto LoadFilterIdHtable_ret_TKSTREAM_FAIL;
+    }
+    reterr = kPglRetSuccess;
+    if (unlikely(id_idx != id_ct)) {
+      snprintf(errbuf, 2 * kMaxMediumLine, "Error: internal pass-2 mismatch reading %s.\n", fname);
+      reterr = kPglRetReadFail;
+      goto LoadFilterIdHtable_ret_1;
+    }
+    if (unlikely(CleanupTokenStream(&tks, &reterr))) {
+      snprintf(errbuf, 2 * kMaxMediumLine, "Error: %s read failure: %s.\n", fname, strerror(errno));
+      goto LoadFilterIdHtable_ret_1;
+    }
+    arena_top = mark_top;
+
+    // Build pointer-array hash table.  Use the fast (~22% load factor)
+    // sizing since each scanned VCF variant triggers a lookup.  Duplicate
+    // IDs in the input silently coalesce.
+    const uint32_t htable_size = GetHtableFastSize(id_ct);
+    uint32_t* htable;
+    if (unlikely(arena_alloc_u32(arena_top, htable_size, arena_bottom_ptr, &htable))) {
+      goto LoadFilterIdHtable_ret_NOMEM;
+    }
+    SetAllU32Arr(htable_size, htable);
+    for (uint32_t id_idx2 = 0; id_idx2 != id_ct; ++id_idx2) {
+      const char* cur_id = id_strs[id_idx2];
+      const uint32_t cur_slen = strlen(cur_id);
+      // IdHtableAdd returns existing index on duplicate; we silently ignore.
+      IdHtableAdd(cur_id, id_strs, cur_slen, htable_size, id_idx2, htable);
+    }
+
+    *id_strs_ptr = id_strs;
+    *id_ct_ptr = id_ct;
+    *htable_ptr = htable;
+    *htable_size_ptr = htable_size;
+  }
+  while (0) {
+  LoadFilterIdHtable_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadFilterIdHtable_ret_TKSTREAM_FAIL:
+    {
+      reterr = TokenStreamErrcode(&tks);
+      const char* errmsg = TokenStreamError(&tks);
+      if (reterr == kPglRetOpenFail) {
+        snprintf(errbuf, 2 * kMaxMediumLine, "Error: Failed to open %s : %s.\n", fname, errmsg);
+      } else if (reterr == kPglRetReadFail) {
+        snprintf(errbuf, 2 * kMaxMediumLine, "Error: %s read failure: %s.\n", fname, errmsg);
+      } else if (reterr == kPglRetDecompressFail) {
+        snprintf(errbuf, 2 * kMaxMediumLine, "Error: %s decompression failure: %s.\n", fname, errmsg);
+      } else if (reterr == kPglRetMalformedInput) {
+        snprintf(errbuf, 2 * kMaxMediumLine, "Error: Pathologically long token in %s.\n", fname);
+      }
+    }
+    break;
+  }
+ LoadFilterIdHtable_ret_1:
+  CleanupTokenStream(&tks, &reterr);
+  return reterr;
+}
+
+PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, const char* inpath, const char* indv_str, const char* keeppath, const char* extractpath, const char* excludepath, const char* outpath, uint32_t outpath_slen, uint32_t allow_no_samples, uint32_t bgz_level, uint32_t erase_info, uint32_t no_samples, uint32_t max_thread_ct) {
   uintptr_t line_idx = 1;
   PglErr reterr = kPglRetSuccess;
   TextStream in_txs;
@@ -453,12 +630,80 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
         bigstack_end = bigstack_end_mark;
       }
     }
+
+    // Build --extract / --exclude hash tables now, so the variant loop can
+    // skip non-matching records before they're written to the output.  The
+    // tables stay allocated on the bottom of the arena until VcfSubset
+    // returns.
+    const char** extract_id_strs = nullptr;
+    uint32_t extract_id_ct = 0;
+    uint32_t* extract_id_htable = nullptr;
+    uint32_t extract_id_htable_size = 0;
+    if (extractpath) {
+      reterr = LoadFilterIdHtable(bigstack_end, extractpath, "extract", max_thread_ct, &bigstack_base, &extract_id_strs, &extract_id_ct, &extract_id_htable, &extract_id_htable_size, g_textbuf);
+      if (unlikely(reterr)) {
+        if (g_textbuf[0]) {
+          fputs(g_textbuf, stderr);
+        }
+        goto VcfSubset_ret_1;
+      }
+      printf("--extract: %u ID%s loaded from %s.\n", extract_id_ct, (extract_id_ct == 1)? "" : "s", extractpath);
+    }
+    const char** exclude_id_strs = nullptr;
+    uint32_t exclude_id_ct = 0;
+    uint32_t* exclude_id_htable = nullptr;
+    uint32_t exclude_id_htable_size = 0;
+    if (excludepath) {
+      reterr = LoadFilterIdHtable(bigstack_end, excludepath, "exclude", max_thread_ct, &bigstack_base, &exclude_id_strs, &exclude_id_ct, &exclude_id_htable, &exclude_id_htable_size, g_textbuf);
+      if (unlikely(reterr)) {
+        if (g_textbuf[0]) {
+          fputs(g_textbuf, stderr);
+        }
+        goto VcfSubset_ret_1;
+      }
+      printf("--exclude: %u ID%s loaded from %s.\n", exclude_id_ct, (exclude_id_ct == 1)? "" : "s", excludepath);
+    }
+
     ++line_idx;
     const uintptr_t first_variant_line_idx = line_idx;
+    // Counters are sequential: --extract is gated first, so
+    // exclude_excluded_ct counts only variants that passed --extract and
+    // then matched --exclude.  Sum equals total skipped.
+    uintptr_t extract_excluded_ct = 0;
+    uintptr_t exclude_excluded_ct = 0;
     // There is more room for parallelization here: plink2 still beats this on
     // wall-clock time in some denser cases, despite doing more work.
     for (; TextGetUnsafe2(&in_txs, &line_start); ++line_idx) {
       char* line_end = AdvPastDelim(line_start, '\n');
+      // --extract / --exclude variant-ID filter.  Variant ID is the 3rd
+      // tab-separated column.  Skipping here avoids the more expensive
+      // sample-column rewriting below.
+      if (extract_id_htable || exclude_id_htable) {
+        char* pos_end = AdvToNthDelimChecked(line_start, line_end, 2, '\t');
+        if (unlikely(!pos_end)) {
+          goto VcfSubset_ret_MISSING_TOKENS;
+        }
+        char* id_start = &(pos_end[1]);
+        char* id_end = AdvToNthDelimChecked(id_start, line_end, 1, '\t');
+        if (unlikely(!id_end)) {
+          goto VcfSubset_ret_MISSING_TOKENS;
+        }
+        const uint32_t id_slen = id_end - id_start;
+        if (extract_id_htable) {
+          if (IdHtableFindNnt(id_start, extract_id_strs, extract_id_htable, id_slen, extract_id_htable_size) == UINT32_MAX) {
+            ++extract_excluded_ct;
+            line_start = line_end;
+            continue;
+          }
+        }
+        if (exclude_id_htable) {
+          if (IdHtableFindNnt(id_start, exclude_id_strs, exclude_id_htable, id_slen, exclude_id_htable_size) != UINT32_MAX) {
+            ++exclude_excluded_ct;
+            line_start = line_end;
+            continue;
+          }
+        }
+      }
       char* filter_end = AdvToNthDelimChecked(line_start, line_end, 7, '\t');
       if (unlikely(!filter_end)) {
         goto VcfSubset_ret_MISSING_TOKENS;
@@ -563,11 +808,34 @@ PglErr VcfSubset(unsigned char* bigstack_base, unsigned char* bigstack_end, cons
     if (unlikely(bgzfclose_flush(writebuf_flush, write_iter, &out_bgzf, &reterr))) {
       goto VcfSubset_ret_1;
     }
-    const uintptr_t variant_ct = line_idx - first_variant_line_idx;
+    const uintptr_t variants_excluded = extract_excluded_ct + exclude_excluded_ct;
+    const uintptr_t variant_scanned_ct = line_idx - first_variant_line_idx;
+    const uintptr_t variant_ct = variant_scanned_ct - variants_excluded;
+    // Build the optional "(... excluded by ...)" tail iff filtering occurred,
+    // describing whichever filters were used (--extract, --exclude, or both).
+    char filter_tail[128];
+    filter_tail[0] = '\0';
+    if (variants_excluded) {
+      if (extract_excluded_ct && exclude_excluded_ct) {
+        snprintf(filter_tail, sizeof(filter_tail), " (%" PRIuPTR " excluded by --extract, %" PRIuPTR " by --exclude)", extract_excluded_ct, exclude_excluded_ct);
+      } else if (extract_excluded_ct) {
+        snprintf(filter_tail, sizeof(filter_tail), " (%" PRIuPTR " excluded by --extract)", extract_excluded_ct);
+      } else {
+        snprintf(filter_tail, sizeof(filter_tail), " (%" PRIuPTR " excluded by --exclude)", exclude_excluded_ct);
+      }
+    }
     if (raw_sample_ct == 0) {
-      snprintf(g_textbuf, kTextbufSize, "vcf_subset: %" PRIuPTR " variant%s written to %s .\n", variant_ct, (variant_ct == 1)? "" : "s", outpath);
+      if (variants_excluded) {
+        snprintf(g_textbuf, kTextbufSize, "vcf_subset: %" PRIuPTR "/%" PRIuPTR " variant%s written to %s%s.\n", variant_ct, variant_scanned_ct, (variant_ct == 1)? "" : "s", outpath, filter_tail);
+      } else {
+        snprintf(g_textbuf, kTextbufSize, "vcf_subset: %" PRIuPTR " variant%s written to %s .\n", variant_ct, (variant_ct == 1)? "" : "s", outpath);
+      }
     } else {
-      snprintf(g_textbuf, kTextbufSize, "vcf_subset: %u/%u sample%s and %" PRIuPTR " variant%s written to %s .\n", sample_ct, raw_sample_ct, (raw_sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s", outpath);
+      if (variants_excluded) {
+        snprintf(g_textbuf, kTextbufSize, "vcf_subset: %u/%u sample%s and %" PRIuPTR "/%" PRIuPTR " variant%s written to %s%s.\n", sample_ct, raw_sample_ct, (raw_sample_ct == 1)? "" : "s", variant_ct, variant_scanned_ct, (variant_ct == 1)? "" : "s", outpath, filter_tail);
+      } else {
+        snprintf(g_textbuf, kTextbufSize, "vcf_subset: %u/%u sample%s and %" PRIuPTR " variant%s written to %s .\n", sample_ct, raw_sample_ct, (raw_sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s", outpath);
+      }
     }
     WordWrap(0, g_textbuf);
     fputs(g_textbuf, stdout);
@@ -685,6 +953,8 @@ int main(int argc, char** argv) {
     char* inpath = nullptr;
     char* indv_str = nullptr;
     char* keeppath = nullptr;
+    char* extractpath = nullptr;
+    char* excludepath = nullptr;
     char* outpath = nullptr;
 
     uint32_t allow_any_paths = 0;
@@ -729,6 +999,32 @@ int main(int argc, char** argv) {
       if (strequal_k(flagname_p, "erase-info", flagname_slen)) {
         // doesn't matter if there are multiple instances of this flag
         erase_info = 1;
+        continue;
+      }
+      if (strequal_k(flagname_p, "exclude", flagname_slen)) {
+        if (unlikely(excludepath)) {
+          fputs("Error: Multiple instances of --exclude.\n", stderr);
+          goto main_ret_INVALID_CMDLINE;
+        }
+        ++arg_idx;
+        if (unlikely(arg_idx == argc_u)) {
+          fputs("Error: Missing --exclude parameter.\n", stderr);
+          goto main_ret_INVALID_CMDLINE;
+        }
+        excludepath = argv[arg_idx];
+        continue;
+      }
+      if (strequal_k(flagname_p, "extract", flagname_slen)) {
+        if (unlikely(extractpath)) {
+          fputs("Error: Multiple instances of --extract.\n", stderr);
+          goto main_ret_INVALID_CMDLINE;
+        }
+        ++arg_idx;
+        if (unlikely(arg_idx == argc_u)) {
+          fputs("Error: Missing --extract parameter.\n", stderr);
+          goto main_ret_INVALID_CMDLINE;
+        }
+        extractpath = argv[arg_idx];
         continue;
       }
       if (strequal_k(flagname_p, "help", flagname_slen)) {
@@ -979,7 +1275,7 @@ int main(int argc, char** argv) {
     if (!bgz_level) {
       bgz_level = kBgzfDefaultClvl;
     }
-    reterr = VcfSubset(bigstack_base, bigstack_end, inpath, indv_str, keeppath, outpath, outpath_slen, allow_no_samples, bgz_level, erase_info, no_samples, thread_ct);
+    reterr = VcfSubset(bigstack_base, bigstack_end, inpath, indv_str, keeppath, extractpath, excludepath, outpath, outpath_slen, allow_no_samples, bgz_level, erase_info, no_samples, thread_ct);
     if (unlikely(reterr)) {
       goto main_ret_1;
     }
