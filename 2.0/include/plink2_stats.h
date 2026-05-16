@@ -56,11 +56,25 @@ HEADER_INLINE double ZscoreToLnP(double zz) {
 // HweP() has been replaced by HweLnP().  HweThresh() and HweThreshMidp() have
 // been replaced by HweThreshLn().
 
-// probable todo: provide HweLnPEx() where caller can provide
+// Possible todo: provide HweLnPEx() where caller can provide
 // near-tie-resolution workspace, and a workspace query function
+// (or make quad-double the final fallback, and give up on resolving near-ties
+// within its epsilon; that algorithm seems likely to be perfect for
+// obs_hets+obs_hom1+obs_hom2 < 2^31?)
 BoolErr HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp, double* resultp);
 
-// these return 0 if close enough to Hardy-Weinberg equilibrium
+// These set out_of_eq to 0 if close enough to Hardy-Weinberg equilibrium.
+//
+// We could improve the accuracy promise re: distinguishing pval < pval_thresh
+// from pval >= pval_thresh; this would reduce the risk of --hwe filtering out
+// slightly different variants between plink2 versions.  However, we really
+// only care about float32-level accuracy for p-value mantissas; --hardy (and
+// --glm) only prints out p-values to 6 significant digits, and more digits
+// would be more distracting than valuable.  So slowing down the calculation
+// with dd_reals to drive pval relative error < 2^{-52} makes little sense in
+// the big picture; instead, the best way to manage result instability after
+// the beta 1 release is to just set a high bar for making any more behavior
+// changes.
 BoolErr HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh, uint32_t* out_of_eqp);
 
 BoolErr HweThreshMidp(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh, uint32_t* out_of_eqp);
