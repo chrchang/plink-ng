@@ -291,11 +291,19 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 , stdout);
     }
     HelpPrint("rm-dup\0list-duplicate-vars\0", &help_ctrl, 1,
-"  --rm-dup [mode] ['list']\n"
-"    Remove all but one instance of each duplicate-ID variant (ignoring the\n"
-"    missing ID), and (with the 'list' modifier) write a list of duplicated IDs\n"
-"    to <output prefix>.rmdup.list.\n"
-"    The following modes of operation are supported:\n"
+"  --rm-dup [mode] ['list'] ['match-mode='<key>]\n"
+"    Remove all but one instance of each duplicate variant (ignoring variants\n"
+"    with the missing ID), and (with the 'list' modifier) write a list of\n"
+"    duplicated IDs to <output prefix>.rmdup.list.\n"
+"    'match-mode=' picks the duplicate-detection key:\n"
+"    * 'id' (default) matches on variant ID (existing behavior).\n"
+"    * 'pos' matches on (CHROM, POS), useful when biallelic rows at the same\n"
+"      position have distinct IDs (e.g., after upstream atomization of\n"
+"      multi-allelic records with 'bcftools norm -m-').  Only the 'error',\n"
+"      'exclude-all', and 'force-first' actions apply; the mismatch-based\n"
+"      modes are rejected since pos-mode duplicates have different alleles\n"
+"      by construction.\n"
+"    The following action modes of operation are supported:\n"
 "    * 'error' (default) causes this to error out when there's a genotype data\n"
 "      or other mismatch between the records.  A list of affected IDs is written\n"
 "      to <output prefix>.rmdup.mismatch.\n"
@@ -304,9 +312,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      one instance is kept.  The .rmdup.mismatch file is also written.\n"
 "    * 'exclude-mismatch' removes all instances of duplicate-ID mismatched\n"
 "      variants instead.\n"
-"    * 'exclude-all' causes all instances of duplicate-ID variants to be\n"
-"      removed, even when the actual records are identical.\n"
-"    * 'force-first' causes only the first instance of duplicate-ID variants to\n"
+"    * 'exclude-all' causes all instances of duplicate variants to be removed,\n"
+"      even when the actual records are identical.\n"
+"    * 'force-first' causes only the first instance of duplicate variants to\n"
 "      be kept, under all circumstances.\n\n"
               );
     HelpPrint("make-pgen\0make-bpgen\0make-bed\0make-just-pvar\0make-just-psam\0make-pfile\0make-bpfile\0make-bfile\0", &help_ctrl, 1,

@@ -63,7 +63,21 @@ ENUM_U31_DEF_START()
   kRmDupForceFirst
 ENUM_U31_DEF_END(RmDupMode);
 
+// --rm-dup match key.  'id' (default) preserves existing RmDup behavior;
+// 'pos' dedups by (chrom_idx, bp) via RmDupPos.  Mismatch-based actions
+// don't apply to pos-mode (different ALTs by construction); parser rejects
+// those combinations.
+ENUM_U31_DEF_START()
+  kRmDupMatchModeId,
+  kRmDupMatchModePos
+ENUM_U31_DEF_END(RmDupMatchMode);
+
 PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* missing_varid_match, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t orig_dup_ct, RmDupMode rmdup_mode, uint32_t save_list, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end);
+
+// Position-keyed --rm-dup.  Walks variant_include per chromosome (relying on
+// plink2's non-decreasing variant_bps invariant), finds bp-runs, applies the
+// action.  Only error / exclude-all / force-first / list are supported.
+PglErr RmDupPos(const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, RmDupMode rmdup_mode, uint32_t save_list, uint32_t raw_variant_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end);
 
 void RandomThinProb(const char* flagname_p, const char* unitname, double thin_keep_prob, uint32_t raw_item_ct, sfmt_t* sfmtp, uintptr_t* item_include, uint32_t* item_ct_ptr);
 

@@ -403,6 +403,7 @@ typedef struct Plink2CmdlineStruct {
   VscoreFlags vscore_flags;
   AlleleAlphanumFlags allele_alphanum_flags;
   RmDupMode rmdup_mode;
+  RmDupMatchMode rmdup_match_mode;
   STD_ARRAY_DECL(FreqFilterMode, 4, filter_modes);
   SelectSidMissingnessMode select_sid_missingness_mode;
   SelectSidTiebreakMode select_sid_tiebreak_mode;
@@ -1554,7 +1555,11 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         if (pcp->rmdup_mode != kRmDup0) {
-          reterr = RmDup(sample_include, cip, variant_bps, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, allele_idx_offsets, TO_CONSTCPCONSTP(allele_storage_mutable), pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->missing_varid_match, raw_sample_ct, sample_ct, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, dup_ct, pcp->rmdup_mode, (pcp->command_flags1 / kfCommand1RmDupList) & 1, pcp->max_thread_ct, pgenname[0]? (&simple_pgr) : nullptr, variant_include, &variant_ct, outname, outname_end);
+          if (pcp->rmdup_match_mode == kRmDupMatchModePos) {
+            reterr = RmDupPos(cip, variant_bps, TO_CONSTCPCONSTP(variant_ids_mutable), pcp->rmdup_mode, (pcp->command_flags1 / kfCommand1RmDupList) & 1, raw_variant_ct, variant_include, &variant_ct, outname, outname_end);
+          } else {
+            reterr = RmDup(sample_include, cip, variant_bps, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, allele_idx_offsets, TO_CONSTCPCONSTP(allele_storage_mutable), pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->missing_varid_match, raw_sample_ct, sample_ct, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, dup_ct, pcp->rmdup_mode, (pcp->command_flags1 / kfCommand1RmDupList) & 1, pcp->max_thread_ct, pgenname[0]? (&simple_pgr) : nullptr, variant_include, &variant_ct, outname, outname_end);
+          }
           if (reterr || (!(pcp->command_flags1 & (~(kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList))))) {
             goto Plink2Core_ret_1;
           }
@@ -3977,6 +3982,7 @@ int main(int argc, char** argv) {
     pc.select_sid_missingness_mode = kSelectSidMissingness0;
     pc.select_sid_tiebreak_mode = kSelectSidTiebreak0;
     pc.rmdup_mode = kRmDup0;
+    pc.rmdup_match_mode = kRmDupMatchModeId;
     for (uint32_t uii = 0; uii != 4; ++uii) {
       pc.filter_modes[uii] = kFreqFilterNonmajor;
     }
@@ -10984,15 +10990,33 @@ int main(int argc, char** argv) {
           pc.fa_flags |= kfFaRefFrom;
           pc.dependency_flags |= kfFilterPvarReq | kfFilterNonrefFlagsNeededSet;
         } else if (strequal_k_unsafe(flagname_p2, "m-dup")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           RmDupMode rmdup_mode = kRmDup0;
+          RmDupMatchMode rmdup_match_mode = kRmDupMatchModeId;
+          uint32_t match_mode_seen = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "list", cur_modif_slen)) {
               pc.command_flags1 |= kfCommand1RmDupList;
+            } else if (StrStartsWith(cur_modif, "match-mode=", cur_modif_slen)) {
+              if (unlikely(match_mode_seen)) {
+                logerrputs("Error: Multiple --rm-dup match-mode= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              match_mode_seen = 1;
+              const char* mode_str = &(cur_modif[strlen("match-mode=")]);
+              const uint32_t mode_slen = cur_modif_slen - strlen("match-mode=");
+              if (strequal_k(mode_str, "id", mode_slen)) {
+                rmdup_match_mode = kRmDupMatchModeId;
+              } else if (likely(strequal_k(mode_str, "pos", mode_slen))) {
+                rmdup_match_mode = kRmDupMatchModePos;
+              } else {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --rm-dup match-mode argument '%s' (expected 'id' or 'pos').\n", mode_str);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
             } else if (rmdup_mode != kRmDup0) {
               logerrputs("Error: Invalid --rm-dup argument sequence.\n");
               goto main_ret_INVALID_CMDLINE_A;
@@ -11011,6 +11035,16 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
+          if (rmdup_match_mode == kRmDupMatchModePos) {
+            // Mismatch-based actions compare allele/INFO/genotype data,
+            // meaningless for (CHROM, POS) dups (different ALTs by
+            // construction).  Reject rather than silently behave like
+            // exclude-all.
+            if (unlikely((rmdup_mode == kRmDupRetainMismatch) || (rmdup_mode == kRmDupExcludeMismatch))) {
+              logerrputs("Error: --rm-dup match-mode=pos only supports the 'error', 'exclude-all', and\n'force-first' actions (the mismatch-based actions compare allele/INFO data,\nwhich isn't meaningful when duplicates are keyed by (CHROM, POS) alone).\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
           if (rmdup_mode < kRmDupExcludeAll) {
             if (rmdup_mode == kRmDup0) {
               rmdup_mode = kRmDupError;
@@ -11018,6 +11052,7 @@ int main(int argc, char** argv) {
             pc.dependency_flags |= kfFilterOpportunisticPgen;
           }
           pc.rmdup_mode = rmdup_mode;
+          pc.rmdup_match_mode = rmdup_match_mode;
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "ecover-var-ids")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {

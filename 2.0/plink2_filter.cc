@@ -1164,6 +1164,132 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
   return reterr;
 }
 
+PglErr RmDupPos(const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, RmDupMode rmdup_mode, uint32_t save_list, uint32_t raw_variant_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end) {
+  // Position-keyed analogue of RmDup.  Per chromosome: popcount + a single
+  // linear pass over variant_include.  No hash table, no INFO reload, no
+  // genotype comparison -- (CHROM, POS) dups are typically atomized
+  // multi-allelics with intentionally distinct ALTs.
+  FILE* list_file = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t orig_variant_ct = *variant_ct_ptr;
+    if (orig_variant_ct < 2) {
+      logputs("Note: Skipping --rm-dup match-mode=pos since fewer than 2 variants remain.\n");
+      goto RmDupPos_ret_1;
+    }
+    const uintptr_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    char* list_write_iter = g_textbuf;
+    char* list_flush = &(list_write_iter[kMaxMediumLine]);
+    uint32_t duplicate_ct = 0;        // variants excluded
+    uint32_t duplicate_group_ct = 0;  // distinct positions with > 1 hit
+    const uint32_t chr_ct = cip->chr_ct;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+      const uint32_t vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      // Pre-count so the BitIter1 loop has a safe upper bound (idiomatic
+      // plink2; BitIter1 doesn't self-terminate).
+      const uint32_t cur_chr_variant_ct = PopcountBitRange(variant_include, vidx_start, vidx_end);
+      if (!cur_chr_variant_ct) {
+        continue;
+      }
+      uintptr_t variant_uidx_base;
+      uintptr_t cur_bits;
+      BitIter1Start(variant_include, vidx_start, &variant_uidx_base, &cur_bits);
+      // variant_idx > 0 gates "have-previous-variant" so prev_bp/prev_uidx
+      // initial values are never read (no sentinel value collision).
+      uint32_t prev_bp = 0;
+      uint32_t prev_uidx = 0;
+      uint32_t in_run = 0;  // extending a duplicate run
+      for (uint32_t variant_idx = 0; variant_idx != cur_chr_variant_ct; ++variant_idx) {
+        const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        const uint32_t cur_bp = variant_bps[variant_uidx];
+        if (variant_idx) {
+          if (cur_bp == prev_bp) {
+            if (!in_run) {
+              ++duplicate_group_ct;
+              in_run = 1;
+              if (save_list) {
+                if (!list_file) {
+                  snprintf(outname_end, kMaxOutfnameExtBlen, ".rmdup.list");
+                  if (unlikely(fopen_checked(outname, FOPEN_WB, &list_file))) {
+                    goto RmDupPos_ret_OPEN_FAIL;
+                  }
+                }
+                list_write_iter = strcpya(list_write_iter, variant_ids[prev_uidx]);
+                AppendBinaryEoln(&list_write_iter);
+                if (unlikely(fwrite_ck(list_flush, list_file, &list_write_iter))) {
+                  goto RmDupPos_ret_WRITE_FAIL;
+                }
+              }
+              if (rmdup_mode == kRmDupExcludeAll) {
+                ClearBit(prev_uidx, variant_include);
+                ++duplicate_ct;
+              }
+            }
+            if (save_list) {
+              list_write_iter = strcpya(list_write_iter, variant_ids[variant_uidx]);
+              AppendBinaryEoln(&list_write_iter);
+              if (unlikely(fwrite_ck(list_flush, list_file, &list_write_iter))) {
+                goto RmDupPos_ret_WRITE_FAIL;
+              }
+            }
+            // Clear non-leading dup.  force-first keeps prev_uidx; exclude-all
+            // cleared it above.
+            ClearBit(variant_uidx, variant_include);
+            ++duplicate_ct;
+          } else {
+            // variant_bps must be non-decreasing per chromosome; bail with a
+            // --sort-vars pointer if not.
+            if (unlikely(cur_bp < prev_bp)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --rm-dup match-mode=pos requires variants to be sorted by position within each chromosome.  Variant '%s' is out of order; use --sort-vars first.\n", variant_ids[variant_uidx]);
+              goto RmDupPos_ret_INCONSISTENT_INPUT_WW;
+            }
+            in_run = 0;
+          }
+        }
+        prev_uidx = variant_uidx;
+        prev_bp = cur_bp;
+      }
+    }
+    if (rmdup_mode == kRmDupError) {
+      if (duplicate_group_ct) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --rm-dup match-mode=pos: found %u duplicate-position group(s).  Re-run with 'exclude-all' or 'force-first' to remove them.\n", duplicate_group_ct);
+        goto RmDupPos_ret_INCONSISTENT_INPUT_WW;
+      }
+      logputs("--rm-dup match-mode=pos: no duplicate positions found.\n");
+      goto RmDupPos_ret_1;
+    }
+    if (!duplicate_group_ct) {
+      logputs("Note: --rm-dup match-mode=pos found no duplicate positions; nothing excluded.\n");
+      goto RmDupPos_ret_1;
+    }
+    if (list_file) {
+      if (unlikely(fclose_flush_null(list_flush, list_write_iter, &list_file))) {
+        goto RmDupPos_ret_WRITE_FAIL;
+      }
+    }
+    const uint32_t new_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
+    logprintfww("--rm-dup match-mode=pos%s: %u duplicate position group%s (%u variant%s excluded), %u variant%s remaining.\n", (rmdup_mode == kRmDupForceFirst)? " force-first" : " exclude-all", duplicate_group_ct, (duplicate_group_ct == 1)? "" : "s", duplicate_ct, (duplicate_ct == 1)? "" : "s", new_variant_ct, (new_variant_ct == 1)? "" : "s");
+    *variant_ct_ptr = new_variant_ct;
+  }
+  while (0) {
+  RmDupPos_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  RmDupPos_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  RmDupPos_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ RmDupPos_ret_1:
+  fclose_cond(list_file);
+  return reterr;
+}
+
 void RandomThinProb(const char* flagname_p, const char* unitname, double thin_keep_prob, uint32_t raw_item_ct, sfmt_t* sfmtp, uintptr_t* item_include, uint32_t* item_ct_ptr) {
   // possible todo: try using truncated geometric distribution, like --dummy
   // can also parallelize this
