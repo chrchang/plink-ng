@@ -20,10 +20,12 @@
 
 #ifdef USE_S3
 #  include <aws/core/Aws.h>
+#  include <aws/core/auth/AWSCredentialsProvider.h>
 #  include <aws/core/utils/logging/LogLevel.h>
 #  include <aws/s3/S3Client.h>
+#  include <aws/s3/S3ClientConfiguration.h>
+#  include <aws/s3/S3Errors.h>
 #  include <aws/s3/model/GetObjectRequest.h>
-#  include <aws/s3/model/HeadObjectRequest.h>
 #  include <algorithm>
 #  include <cerrno>
 #  include <cinttypes>
@@ -48,14 +50,25 @@ static Aws::S3::S3Client* g_s3_client = nullptr;
 void S3Init() {
   g_s3_sdk_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Off;
   Aws::InitAPI(g_s3_sdk_options);
-  Aws::Client::ClientConfiguration config;
-  g_s3_client = new Aws::S3::S3Client(config);
+  S3InitClientOnly();
 }
 
 void S3Shutdown() {
+  S3ShutdownClientOnly();
+  Aws::ShutdownAPI(g_s3_sdk_options);
+}
+
+void S3InitClientOnly() {
+  // S3ClientConfiguration defaults to virtual-hosted-style addressing, which
+  // avoids the legacy path-style URL redirects (HTTP 301) on cross-region
+  // requests that caused GetObject/HeadObject to fail.
+  Aws::S3::S3ClientConfiguration config;
+  g_s3_client = new Aws::S3::S3Client(config);
+}
+
+void S3ShutdownClientOnly() {
   delete g_s3_client;
   g_s3_client = nullptr;
-  Aws::ShutdownAPI(g_s3_sdk_options);
 }
 
 // Parse "s3://bucket/key" into bucket and key components.
@@ -88,7 +101,11 @@ struct S3FileState {
   int64_t buf_start;   // file offset of buf[0]
   int64_t buf_end;     // file offset past last valid byte in buf
 
-  S3FileState() : file_size(-1), pos(0), buf_start(0), buf_end(0) {}
+  // Non-null when anonymous credentials are needed for this file.
+  Aws::S3::S3Client* anon_client;
+
+  S3FileState() : file_size(-1), pos(0), buf_start(0), buf_end(0), anon_client(nullptr) {}
+  ~S3FileState() { delete anon_client; }
 };
 
 // Fetch a chunk of data starting at `offset` via an S3 range request.
@@ -116,7 +133,8 @@ static bool S3FetchChunk(S3FileState* state, int64_t offset) {
   req.SetKey(state->key);
   req.SetRange(range_str);
 
-  auto outcome = g_s3_client->GetObject(req);
+  Aws::S3::S3Client* client = state->anon_client ? state->anon_client : g_s3_client;
+  auto outcome = client->GetObject(req);
   if (!outcome.IsSuccess()) {
     const auto& err = outcome.GetError();
     fprintf(stderr, "Error: S3 range read failed for s3://%s/%s: %s\n",
@@ -193,7 +211,7 @@ static int64_t S3FileSeekImpl(S3FileState* state, int64_t offset, int whence) {
 }
 
 static int S3FileCloseImpl(S3FileState* state) {
-  delete state;
+  delete state;  // destructor frees anon_client
   return 0;
 }
 
@@ -251,35 +269,106 @@ static FILE* S3FileOpenPlatform(S3FileState* state) {
 
 #endif  // __linux__
 
-// Open an S3 object as a streaming FILE*.  Uses HeadObject to determine the
-// file size (enabling SEEK_END and EOF detection), then creates a custom
-// FILE* backed by range requests fetched kS3ChunkSize bytes at a time.
+// Probe an S3 object to get its total size by fetching Range: bytes=0-0.
+// Uses GetObject instead of HeadObject: cross-region 301 responses carry
+// their redirect XML in the body (GET), whereas HEAD 301 has no body and
+// the SDK cannot parse the error.
+// Returns the total file size on success, or -1 on failure.
+// On failure, *out_is_not_found is set to true only for 404-class errors
+// (object/bucket does not exist); *out_error_msg receives the SDK message.
+static int64_t S3ProbeFileSize(Aws::S3::S3Client* client,
+                                const Aws::String& bucket,
+                                const Aws::String& key,
+                                bool* out_is_not_found,
+                                Aws::String* out_error_msg) {
+  if (out_is_not_found) *out_is_not_found = false;
+  if (out_error_msg) *out_error_msg = "";
+
+  Aws::S3::Model::GetObjectRequest req;
+  req.SetBucket(bucket);
+  req.SetKey(key);
+  req.SetRange("bytes=0-0");
+
+  auto outcome = client->GetObject(req);
+  if (!outcome.IsSuccess()) {
+    const auto& err = outcome.GetError();
+    if (out_error_msg) {
+      *out_error_msg = err.GetMessage();
+    }
+    if (out_is_not_found) {
+      const auto err_type = err.GetErrorType();
+      *out_is_not_found = (err_type == Aws::S3::S3Errors::NO_SUCH_KEY ||
+                           err_type == Aws::S3::S3Errors::NO_SUCH_BUCKET);
+    }
+    return -1;
+  }
+
+  // Parse total size from Content-Range: "bytes 0-0/<total>"
+  const auto& content_range = outcome.GetResult().GetContentRange();
+  if (!content_range.empty()) {
+    const char* slash = strchr(content_range.c_str(), '/');
+    if (slash && slash[1] != '*') {
+      char* end;
+      int64_t total = static_cast<int64_t>(strtoll(slash + 1, &end, 10));
+      if (end != slash + 1) {
+        return total;
+      }
+    }
+  }
+  return -1;
+}
+
+// Open an S3 object as a streaming FILE*.  Uses GetObject(range=0-0) to
+// determine the file size (enabling SEEK_END and EOF detection), then creates
+// a custom FILE* backed by range requests fetched kS3ChunkSize bytes at a
+// time.  Falls back to anonymous credentials for public buckets when the
+// credentialed probe fails with an auth/other error (but not a 404).
 static FILE* S3FileOpenInternal(const char* s3_uri) {
   S3FileState* state = new S3FileState();
   ParseS3Uri(s3_uri, &state->bucket, &state->key);
 
-  // HeadObject to get content-length (required for SEEK_END and EOF).
-  Aws::S3::Model::HeadObjectRequest head_req;
-  head_req.SetBucket(state->bucket);
-  head_req.SetKey(state->key);
-  auto head_outcome = g_s3_client->HeadObject(head_req);
-  if (!head_outcome.IsSuccess()) {
-    const auto& err = head_outcome.GetError();
-    fprintf(stderr, "Error: Cannot access %s: %s\n", s3_uri,
-            err.GetMessage().c_str());
-    delete state;
-    errno = ENOENT;
-    return nullptr;
+  // Try with configured credentials first (env vars, instance profile, etc.).
+  bool is_not_found = false;
+  Aws::String error_msg;
+  state->file_size = S3ProbeFileSize(g_s3_client, state->bucket, state->key,
+                                      &is_not_found, &error_msg);
+
+  if (state->file_size < 0) {
+    if (is_not_found) {
+      // 404: the object/bucket does not exist; anonymous access won't help.
+      fprintf(stderr, "Error: Cannot access %s: %s\n", s3_uri,
+              error_msg.c_str());
+      delete state;
+      errno = ENOENT;
+      return nullptr;
+    }
+
+    // Auth or other error — fall back to anonymous credentials for public
+    // datasets (e.g. 1000 Genomes, gnomAD, nf-core test data).
+    // This is the equivalent of aws --no-sign-request.
+    auto anon_creds = Aws::MakeShared<Aws::Auth::AnonymousAWSCredentialsProvider>("S3Anon");
+    state->anon_client = new Aws::S3::S3Client(anon_creds, nullptr);
+    state->file_size = S3ProbeFileSize(state->anon_client, state->bucket,
+                                        state->key, nullptr, &error_msg);
+    if (state->file_size < 0) {
+      fprintf(stderr, "Error: Cannot access %s: %s\n", s3_uri,
+              error_msg.empty() ? "cannot determine file size"
+                                : error_msg.c_str());
+      delete state;  // destructor frees anon_client
+      errno = ENOENT;
+      return nullptr;
+    }
   }
-  state->file_size =
-      static_cast<int64_t>(head_outcome.GetResult().GetContentLength());
 
   FILE* fp = S3FileOpenPlatform(state);
   if (!fp) {
-    delete state;
+    delete state;  // destructor frees anon_client
   }
   return fp;
 }
+
+
+
 
 FILE* OpenMaybeS3(const char* path) {
   if (IsS3Uri(path)) {

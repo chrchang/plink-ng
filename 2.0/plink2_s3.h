@@ -48,6 +48,16 @@ void S3Init();
 // FILE* handles have been closed.
 void S3Shutdown();
 
+// Initialize only the S3 client, assuming Aws::InitAPI() has already been
+// called by the hosting application (e.g. regenie's aws_sdk_init()).
+// Use this when you want to share a single Aws::InitAPI call across multiple
+// SDK consumers.
+void S3InitClientOnly();
+
+// Shut down only the S3 client without calling Aws::ShutdownAPI().
+// Counterpart to S3InitClientOnly().
+void S3ShutdownClientOnly();
+
 // Open an S3 object for reading and return a FILE* that streams data on
 // demand using S3 range requests.  Behaves like fopen(path, "rb") but the
 // data is fetched from S3 in chunks rather than from a local file.
