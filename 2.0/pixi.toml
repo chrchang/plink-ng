@@ -20,8 +20,8 @@ liblapack = "*"
 liblapacke = "*"
 
 [tasks]
-build = { cmd = "make USE_S3=1 \"GMP=-lgmp -laws-cpp-sdk-s3 -laws-cpp-sdk-core -Wl,-rpath,$CONDA_PREFIX/lib\" -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) plink2", cwd = "." }
-clean = { cmd = "make clean", cwd = "." }
+build = { cmd = "make USE_S3=1 -j$(nproc 2>/dev/null || sysctl -n hw.ncpu) plink2", cwd = "build_dynamic" }
+clean = { cmd = "make clean", cwd = "build_dynamic" }
 
 [activation]
 scripts = ["pixi_activate.sh"]
