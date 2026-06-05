@@ -280,7 +280,7 @@ PglErr LoadMinimalPvarEx(const char* fname, LoadMinimalPvarFlags flags, MinimalP
         ++variant_ct;
         // could enforce ID length limits
         string_byte_ct += token_slens[kPvarColId]; // +1 added later
-        if (token_slens[1] > 1) {
+        if (token_slens[kPvarColRef] > 1) {
           string_byte_ct += token_slens[kPvarColRef] + 1;
         }
         const uint32_t alt_slen = token_slens[kPvarColAlt];
