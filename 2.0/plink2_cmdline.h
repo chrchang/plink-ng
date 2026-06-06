@@ -217,11 +217,9 @@ HEADER_INLINE uint32_t ClipU32(uint32_t val, uint32_t lbound, uint32_t ubound) {
   return MAXV(val, lbound);
 }
 
-// u32cmp and double_cmp moved to plink2_base
+// u32cmp, u64cmp, and double_cmp moved to plink2_base
 
 int32_t double_cmp_decr(const void* aa, const void* bb);
-
-int32_t u64cmp(const void* aa, const void* bb);
 
 #ifndef __cplusplus
 int32_t u64cmp_decr(const void* aa, const void* bb);

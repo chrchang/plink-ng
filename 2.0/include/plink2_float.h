@@ -81,6 +81,7 @@ static const double k2m32 = 1.0 / (1LL << 32);
 static const double k2m50 = 1.0 / (1LL << 50);
 static const double k2m52 = 1.0 / (1LL << 52);
 static const double k2m53 = 1.0 / (1LL << 53);
+static const double k2m54 = 1.0 / (1LL << 54);
 static const double k2p50 = 1.0 * (1LL << 50);
 static const double k2p64 = 4.0 * (1LL << 62);
 static const double k2p100 = k2p50 * k2p50;
@@ -261,18 +262,11 @@ HEADER_INLINE double lndiff(double xx, double yy) {
   return xx + log(-expm1(ln_ratio));
 }
 
-// Efficient alternatives to ceil() for positive numbers.
-
-// limit is assumed to be a positive int32.
-HEADER_INLINE double ceil_smalleps_limit32(double xx, double limit) {
-  if (xx > limit) {
+HEADER_INLINE double ceil_limit(double xx, double limit) {
+  if (xx >= limit) {
     return limit;
   }
-  return 1 + S_CAST(int32_t, xx * (1 - kSmallEpsilon));
-}
-
-HEADER_INLINE double ceil_smalleps(double xx) {
-  return 1 + S_CAST(int64_t, xx * (1 - kSmallEpsilon));
+  return ceil(xx);
 }
 
 HEADER_INLINE double flush_if_denormal(double xx) {

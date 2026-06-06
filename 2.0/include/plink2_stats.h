@@ -55,15 +55,9 @@ HEADER_INLINE double ZscoreToLnP(double zz) {
 
 // HweP() has been replaced by HweLnP().  HweThresh() and HweThreshMidp() have
 // been replaced by HweThreshLn().
+double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp);
 
-// Possible todo: provide HweLnPEx() where caller can provide
-// near-tie-resolution workspace, and a workspace query function
-// (or make quad-double the final fallback, and give up on resolving near-ties
-// within its epsilon; that algorithm seems likely to be perfect for
-// obs_hets+obs_hom1+obs_hom2 < 2^31?)
-BoolErr HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp, double* resultp);
-
-// These set out_of_eq to 0 if close enough to Hardy-Weinberg equilibrium.
+// These return 0 if close enough to Hardy-Weinberg equilibrium.
 //
 // We could improve the accuracy promise re: distinguishing pval < pval_thresh
 // from pval >= pval_thresh; this would reduce the risk of --hwe filtering out
@@ -75,25 +69,25 @@ BoolErr HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t mid
 // the big picture; instead, the best way to manage result instability after
 // the beta 1 release is to just set a high bar for making any more behavior
 // changes.
-BoolErr HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh, uint32_t* out_of_eqp);
+uint32_t HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh);
 
-BoolErr HweThreshMidp(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh, uint32_t* out_of_eqp);
+uint32_t HweThreshMidp(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh);
 
-BoolErr HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp, double ln_thresh, uint32_t* out_of_eqp);
+uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp, double ln_thresh);
 
-HEADER_INLINE BoolErr HweThreshLn(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp, double thresh, double ln_thresh, uint32_t* out_of_eqp) {
+HEADER_INLINE uint32_t HweThreshLn(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp, double thresh, double ln_thresh) {
   // kLnNormalMin = -708.3964185...
   if (ln_thresh > -708.396) {
     if (!midp) {
-      return HweThresh(obs_hets, obs_hom1, obs_hom2, thresh, out_of_eqp);
+      return HweThresh(obs_hets, obs_hom1, obs_hom2, thresh);
     } else {
-      return HweThreshMidp(obs_hets, obs_hom1, obs_hom2, thresh, out_of_eqp);
+      return HweThreshMidp(obs_hets, obs_hom1, obs_hom2, thresh);
     }
   }
-  return HweThreshLnMain(obs_hets, obs_hom1, obs_hom2, midp, ln_thresh, out_of_eqp);
+  return HweThreshLnMain(obs_hets, obs_hom1, obs_hom2, midp, ln_thresh);
 }
 
-BoolErr HweXchrLnP(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, int32_t obs_m1, int32_t obs_m2, uint32_t midp, double* resultp);
+double HweXchrLnP(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, int32_t obs_m1, int32_t obs_m2, uint32_t midp);
 
 #ifdef __cplusplus
 }

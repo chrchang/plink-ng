@@ -453,6 +453,15 @@ int32_t u32cmp(const void* aa, const void* bb) {
   return (uaa > ubb);
 }
 
+int32_t u64cmp(const void* aa, const void* bb) {
+  const uint64_t ullaa = *S_CAST(const uint64_t*, aa);
+  const uint64_t ullbb = *S_CAST(const uint64_t*, bb);
+  if (ullaa < ullbb) {
+    return -1;
+  }
+  return (ullaa > ullbb);
+}
+
 int32_t double_cmp(const void* aa, const void* bb) {
   const double dxx = *S_CAST(const double*, aa);
   const double dyy = *S_CAST(const double*, bb);

@@ -9,7 +9,7 @@ import numpy as np
 cimport numpy as np
 import sys
 
-__version__ = "0.94.0"
+__version__ = "0.94.1"
 
 cdef extern from "../plink2/include/pgenlib_misc.h" namespace "plink2":
     ctypedef uint32_t BoolErr

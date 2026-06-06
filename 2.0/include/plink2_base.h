@@ -113,7 +113,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 902
+#define PLINK2_BASE_VERNUM 903
 
 // We now try to adhere to include-what-you-use in simple cases.  However,
 // we don't want to repeat either platform-specific ifdefs, or stuff like
@@ -1188,10 +1188,20 @@ HEADER_INLINE uint32_t abs_i32(int32_t ii) {
   return (S_CAST(uint32_t, ii) ^ neg_sign_bit) - neg_sign_bit;
 }
 
+HEADER_INLINE uint32_t abs_i64(int64_t llii) {
+  const uint64_t neg_sign_bit = S_CAST(uint64_t, llii >> 63);
+
+  return (S_CAST(uint64_t, llii) ^ neg_sign_bit) - neg_sign_bit;
+}
+
 // Returns first number in {2^0, 2^1, ..., 2^{kBitsPerWord - 1}) >= posint.
 // Assumes posint in [1, 2^{kBitsPerWord - 1}].
 HEADER_INLINE uintptr_t CeilPow2(uintptr_t posint) {
   return k1LU << bsrw(2 * posint - 1);
+}
+
+HEADER_INLINE uint32_t CeilLog2U64(uint64_t posint) {
+  return bsru64(2 * posint - 1);
 }
 
 extern uint64_t g_failed_alloc_attempt_size;
@@ -2510,6 +2520,8 @@ typedef uint32_t tname
 #endif
 
 int32_t u32cmp(const void* aa, const void* bb);
+
+int32_t u64cmp(const void* aa, const void* bb);
 
 int32_t double_cmp(const void* aa, const void* bb);
 

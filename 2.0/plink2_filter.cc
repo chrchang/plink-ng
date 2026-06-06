@@ -3617,9 +3617,7 @@ PglErr EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets,
           }
         }
         pval_computed = 1;
-        if (unlikely(HweThreshLn(het_a1_ct, hom_a1_ct, two_ax_ct, midp, hwe_thresh, hwe_ln_thresh, &test_failed))) {
-          return kPglRetNomem;
-        }
+        test_failed = HweThreshLn(het_a1_ct, hom_a1_ct, two_ax_ct, midp, hwe_thresh, hwe_ln_thresh);
         if (test_failed) {
           break;
         }
@@ -3661,10 +3659,7 @@ PglErr EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets,
           // *and* the male/female allele-frequency imbalance isn't severe
           // enough to make the G/W test fail on its own.
           joint_ln_pval = joint_ln_pval - hwe_ln_thresh;
-          uint32_t test_passed;
-          if (unlikely(HweThreshLn(het_a1_ct, hom_a1_ct, two_ax_ct, midp, exp(joint_ln_pval), joint_ln_pval, &test_passed))) {
-            return kPglRetNomem;
-          }
+          uint32_t test_passed = HweThreshLn(het_a1_ct, hom_a1_ct, two_ax_ct, midp, exp(joint_ln_pval), joint_ln_pval);
           test_failed = !test_passed;
         }
         // bugfix (27 Jun 2020): don't clobber previous allele-test failure if

@@ -5269,10 +5269,7 @@ BoolErr ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXL
       female_1copy_ct -= cur_nosex_geno_cts[1];
       female_0copy_ct -= cur_nosex_geno_cts[2];
     }
-    if (unlikely(HweXchrLnP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp, hwe_x_ln_pvals_iter))) {
-      return 1;
-    }
-    ++hwe_x_ln_pvals_iter;
+    *hwe_x_ln_pvals_iter++ = HweXchrLnP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
     if (allele_idx_offsets) {
       const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
       if (allele_ct != 2) {
@@ -5289,10 +5286,7 @@ BoolErr ComputeHweXLnPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXL
             male_0copy_ct = male_obs_ct - male_1copy_ct - male_hethap_ct;
           }
           female_0copy_ct = female_obs_ct - female_2copy_ct - female_1copy_ct;
-          if (unlikely(HweXchrLnP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp, hwe_x_ln_pvals_iter))) {
-            return 1;
-          }
-          ++hwe_x_ln_pvals_iter;
+          *hwe_x_ln_pvals_iter++ = HweXchrLnP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
           ++xgeno_idx;
         }
       }
@@ -5662,10 +5656,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           if (p_col) {
             // possible todo: multithread this
             *cswritep++ = '\t';
-            double hwe_ln_p;
-            if (unlikely(HweLnP(het_a1_ct, hom_a1_ct, two_ax_ct, midp, &hwe_ln_p))) {
-              goto HardyReport_ret_NOMEM;
-            }
+            const double hwe_ln_p = HweLnP(het_a1_ct, hom_a1_ct, two_ax_ct, midp);
             if (report_neglog10p) {
               const double reported_val = (-kRecipLn10) * hwe_ln_p;
               cswritep = dtoa_g(reported_val, cswritep);
@@ -5922,10 +5913,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           }
           if (femalep_col) {
             *cswritep++ = '\t';
-            double female_hwe_ln_p;
-            if (unlikely(HweLnP(female_het_a1_ct, female_hom_a1_ct, female_two_ax_ct, midp, &female_hwe_ln_p))) {
-              goto HardyReport_ret_NOMEM;
-            }
+            const double female_hwe_ln_p = HweLnP(female_het_a1_ct, female_hom_a1_ct, female_two_ax_ct, midp);
             if (report_neglog10p) {
               const double reported_val = (-kRecipLn10) * female_hwe_ln_p;
               cswritep = dtoa_g(reported_val, cswritep);

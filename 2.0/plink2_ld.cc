@@ -5229,9 +5229,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         write_iter = strcpya_k(write_iter, ": ");
         double hwe_ln_pval;
         if (!is_xs[var_idx]) {
-          if (unlikely(HweLnP(genocounts[1], genocounts[0], genocounts[2], hwe_midp, &hwe_ln_pval))) {
-            goto LdConsole_ret_NOMEM;
-          }
+          hwe_ln_pval = HweLnP(genocounts[1], genocounts[0], genocounts[2], hwe_midp);
         } else {
           STD_ARRAY_DECL(uint32_t, 4, male_genocounts);
           GenoarrCountSubsetFreqs(cur_genovec, sex_male_collapsed_interleaved, founder_ct, x_male_ct, male_genocounts);
@@ -5243,9 +5241,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
             genocounts[1] -= nosex_genocounts[1];
             genocounts[2] -= nosex_genocounts[2];
           }
-          if (unlikely(HweXchrLnP(genocounts[1], genocounts[0] - male_genocounts[0], genocounts[2] - male_genocounts[2], male_genocounts[0], male_genocounts[2], hwe_midp, &hwe_ln_pval))) {
-            goto LdConsole_ret_NOMEM;
-          }
+          hwe_ln_pval = HweXchrLnP(genocounts[1], genocounts[0] - male_genocounts[0], genocounts[2] - male_genocounts[2], male_genocounts[0], male_genocounts[2], hwe_midp);
         }
         write_iter = lntoa_g(hwe_ln_pval, write_iter);
         memcpy_k(write_iter, "\n", 2);

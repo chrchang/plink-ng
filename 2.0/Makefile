@@ -6,8 +6,8 @@
 
 # Does not currently support -DCPU_CHECK_...
 
-# BASEFLAGS=-flto -ffp-contract=off -DZSTD_MULTITHREAD -DIGNORE_BUNDLED_ZSTD -DIGNORE_BUNDLED_MINI_GMP
-BASEFLAGS=-g -ffp-contract=off -DZSTD_MULTITHREAD -DIGNORE_BUNDLED_ZSTD -DIGNORE_BUNDLED_MINI_GMP
+# BASEFLAGS=-flto -ffp-contract=off -DZSTD_MULTITHREAD -DIGNORE_BUNDLED_ZSTD
+BASEFLAGS=-g -ffp-contract=off -DZSTD_MULTITHREAD -DIGNORE_BUNDLED_ZSTD
 # BASEFLAGS=-flto -mavx2 -mbmi -mbmi2 -mfma -mlzcnt -DZSTD_MULTITHREAD
 # BASEFLAGS=-flto -msse4.2 -DZSTD_MULTITHREAD
 
@@ -25,9 +25,6 @@ ZLIB		?= -lz
 # dynamic zstd: remove -DIGNORE_BUNDLED_ZSTD above, change this to -lzstd,
 # replace OBJ with OBJ_NO_ZSTD below
 ZSTD		?=
-# no dynamic gmp: remove -DIGNORE_BUNDLED_MINI_GMP above, remove -lgmp here
-# may also be advisable to remove -flto from BASEFLAGS and LDFLAGS in that case
-GMP		?= -lgmp
 
 BLASFLAGS64	?= -llapack -lf77blas -latlas
 ARCH32		?=
@@ -51,7 +48,7 @@ ifeq ($(UNAME), Darwin)
   CXXFLAGS += -I/opt/homebrew/include -I/usr/local/include -DACCELERATE_NEW_LAPACK
   BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
-  LDFLAGS=-ldl -lpthread -lz -lzstd -flto -L/opt/homebrew/lib -L/usr/local/lib $(GMP)
+  LDFLAGS=-ldl -lpthread -lz -lzstd -flto -L/opt/homebrew/lib -L/usr/local/lib
 endif
 
 %.o: %.c
