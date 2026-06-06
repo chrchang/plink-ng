@@ -1,3 +1,8 @@
+# pgenlibr 0.6.2 (2026-06-05)
+Fixed .pvar loading bug that could occur when a variant had a single-character
+ID and a multi-character REF allele
+(https://github.com/chrchang/plink-ng/pull/333 ).
+
 # pgenlibr 0.6.1 (2026-03-28)
 Filled in missing pgenlibr::NewPvar() error message, and added workaround for
 systems with pthread_create() implementations which don't seem to support a
