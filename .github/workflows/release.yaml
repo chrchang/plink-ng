@@ -30,7 +30,7 @@ jobs:
           platforms: all
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v3.2.1
+        uses: pypa/cibuildwheel@v4.1.1
         with:
           package-dir: ./2.0/Python
         env:
@@ -40,7 +40,7 @@ jobs:
           CIBW_TEST_REQUIRES: pytest
           CIBW_TEST_COMMAND: "pytest {package}/tests"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ startsWith(matrix.os, 'ubuntu') && 'ubuntu' || 'macos' }}-${{ matrix.arch }}-3${{ matrix.python }}
           path: ./wheelhouse/*.whl
