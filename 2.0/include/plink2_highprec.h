@@ -69,6 +69,8 @@ extern const dd_real _ddr_e;
 extern const dd_real _ddr_log2;
 extern const dd_real _ddr_log05;
 extern const dd_real _ddr_64log2;
+extern const dd_real _ddr_ln10;
+extern const dd_real _ddr_recip_ln10;
 
 CONSTI32(_tdr_n_ln_fact, 256);
 extern const td_real _tdr_ln_fact[_tdr_n_ln_fact];
@@ -367,6 +369,10 @@ HEADER_CINLINE int32_t ddr_is(const dd_real a, double b) {
   return (a.x[0] == b) && (a.x[1] == 0.0);
 }
 
+HEADER_CINLINE int32_t ddr_eq(const dd_real a, const dd_real b) {
+  return (a.x[0] == b.x[0]) && (a.x[1] == b.x[1]);
+}
+
 
 HEADER_CINLINE int32_t ddr_ltd(const dd_real a, const double b) {
   return (a.x[0] < b) || ((a.x[0] == b) && (a.x[1] < 0));
@@ -414,6 +420,8 @@ HEADER_INLINE dd_real ddr_sub(const dd_real a, const dd_real b) {
   return ddr_sloppy_sub(a, b);
 }
 
+
+dd_real ddr_sqrt(const dd_real a);
 
 dd_real ddr_exp(const dd_real a);
 
@@ -780,6 +788,9 @@ HEADER_INLINE td_real tdr_muld(const td_real a, double b) {
 }
 
 // todo: check if sloppy-mul is good enough for all our use cases
+
+// probable todo: check if tdr_muldd() (and the like) is worth implementing;
+// note that the corresponding QD function had a bugfix in May 2026
 
 td_real tdr_accurate_mul(const td_real a, const td_real b);
 

@@ -354,6 +354,8 @@ const dd_real _ddr_e = {{2.718281828459045091e+00, 1.445646891729250158e-16}};
 const dd_real _ddr_log2 = {{6.931471805599452862e-01, 2.319046813846299558e-17}};
 const dd_real _ddr_log05 = {{-6.931471805599452862e-01, -2.319046813846299558e-17}};
 const dd_real _ddr_64log2 = {{64 * 6.931471805599452862e-01, 64 * 2.319046813846299558e-17}};
+const dd_real _ddr_ln10 = {{2.302585092994045901e+00, -2.170756223382249351e-16}};
+const dd_real _ddr_recip_ln10 = {{4.3429448190325181667e-01, 1.0983196502167650727e-17}};
 static const dd_real _ddr_half_log_2pi = {{9.1893853320467278056e-01, -3.8782941580672414498e-17}};
 static const dd_real _ddr_12th = {{8.3333333333333328707e-02,  4.6259292692714853283e-18}};
 static const dd_real _ddr_1188th = {{8.4175084175084171397e-04,  3.6870174889237693563e-20}};
@@ -373,6 +375,27 @@ double Lfact(double xx) {
   const double invn2 = invn * invn;
   const double small_term_sum = prefer_fma(invn, prefer_fma(invn2, 1.0 / -360.0, 1.0 / 12.0), kLnSqrt2Pi - xx);
   return log(xx) * (xx + 0.5) + small_term_sum;
+}
+
+dd_real ddr_sqrt(const dd_real a) {
+  // Assumes 'a' is nonnegative.
+  //
+  // Strategy: Use Karps trick: if x is an approximation
+  // to sqrt(a), then
+  //
+  //   sqrt(a) = a*x + [a - (a*x)^2] * x / 2  (approx)
+  //
+  // The approximation is accurate to twice the accuracy of x.
+  // Also, the multiplication (a*x) and [-]*x can be done with
+  // only half the precision.
+
+  if (ddr_is_zero(a)) {
+    return ddr_maked(0.0);
+  }
+
+  const double x = 1.0 / sqrt(a.x[0]);
+  const double ax = a.x[0] * x;
+  return ddr_add2d(ddr_sub(a, ddr_mul2d(ax, ax)).x[0] * (x * 0.5), ax);
 }
 
 dd_real ddr_exp(const dd_real a) {

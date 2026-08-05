@@ -40,6 +40,90 @@ void flush_denormals() {
 #endif
 }
 
+double poly_eval(const double* coefs, uint32_t degree, double xx) {
+  // possible todo: benchmark this threshold
+  if (degree < 3) {
+    double total = coefs[degree];
+    while (degree) {
+      total = prefer_fma(total, xx, coefs[--degree]);
+    }
+    return total;
+  }
+  // this should be a good balance between function size and asymptotic speed?
+  const double x2 = xx * xx;
+  double even_terms = prefer_fma(coefs[degree], x2, coefs[degree - 2]);
+  double odd_terms = prefer_fma(coefs[degree - 1], x2, coefs[degree - 3]);
+  degree -= 3;
+  while (degree >= 2) {
+    degree -= 2;
+    even_terms = prefer_fma(even_terms, x2, coefs[degree + 1]);
+    odd_terms = prefer_fma(odd_terms, x2, coefs[degree]);
+  }
+  if (degree == 1) {
+    return prefer_fma(even_terms, x2, coefs[0]) + odd_terms * xx;
+  }
+  return prefer_fma(even_terms, xx, odd_terms);
+}
+
+double ratfun_eval_smallx(const double* numer_coefs, const double* denom_coefs, uint32_t degree, double xx) {
+  if (degree < 3) {
+    double numer = numer_coefs[degree];
+    double denom = denom_coefs[degree];
+    while (degree) {
+      --degree;
+      numer = prefer_fma(numer, xx, numer_coefs[degree]);
+      denom = prefer_fma(denom, xx, denom_coefs[degree]);
+    }
+    return numer / denom;
+  }
+  const double x2 = xx * xx;
+  double numer_even_terms = prefer_fma(numer_coefs[degree], x2, numer_coefs[degree - 2]);
+  double denom_even_terms = prefer_fma(denom_coefs[degree], x2, denom_coefs[degree - 2]);
+  double numer_odd_terms = prefer_fma(numer_coefs[degree - 1], x2, numer_coefs[degree - 3]);
+  double denom_odd_terms = prefer_fma(denom_coefs[degree - 1], x2, denom_coefs[degree - 3]);
+  degree -= 3;
+  while (degree >= 2) {
+    --degree;
+    numer_even_terms = prefer_fma(numer_even_terms, x2, numer_coefs[degree]);
+    denom_even_terms = prefer_fma(denom_even_terms, x2, denom_coefs[degree]);
+    --degree;
+    numer_odd_terms = prefer_fma(numer_odd_terms, x2, numer_coefs[degree]);
+    denom_odd_terms = prefer_fma(denom_odd_terms, x2, denom_coefs[degree]);
+  }
+  if (degree == 1) {
+    return (prefer_fma(numer_even_terms, x2, numer_coefs[0]) + numer_odd_terms * xx) / (prefer_fma(denom_even_terms, x2, denom_coefs[0]) + denom_odd_terms * xx);
+  }
+  return prefer_fma(numer_even_terms, xx, numer_odd_terms) / prefer_fma(denom_even_terms, xx, denom_odd_terms);
+}
+
+double ratfun_eval_largex(const double* numer_coefs, const double* denom_coefs, uint32_t degree, double xx) {
+  const double invx = 1.0 / xx;
+  if (degree < 3) {
+    double numer = numer_coefs[0];
+    double denom = denom_coefs[0];
+    for (uint32_t uii = 1; uii <= degree; ++uii) {
+      numer = prefer_fma(numer, invx, numer_coefs[uii]);
+      denom = prefer_fma(denom, invx, denom_coefs[uii]);
+    }
+    return numer / denom;
+  }
+  const double invx2 = invx * invx;
+  double numer_even_terms = prefer_fma(numer_coefs[0], invx2, numer_coefs[2]);
+  double denom_even_terms = prefer_fma(denom_coefs[0], invx2, denom_coefs[2]);
+  double numer_odd_terms = prefer_fma(numer_coefs[1], invx2, numer_coefs[3]);
+  double denom_odd_terms = prefer_fma(denom_coefs[1], invx2, denom_coefs[3]);
+  for (uint32_t uii = 4; uii < degree; uii += 2) {
+    numer_even_terms = prefer_fma(numer_even_terms, invx2, numer_coefs[uii]);
+    denom_even_terms = prefer_fma(denom_even_terms, invx2, denom_coefs[uii]);
+    numer_odd_terms = prefer_fma(numer_odd_terms, invx2, numer_coefs[uii + 1]);
+    denom_odd_terms = prefer_fma(denom_odd_terms, invx2, denom_coefs[uii + 1]);
+  }
+  if (degree % 2 == 0) {
+    return (prefer_fma(numer_even_terms, invx2, numer_coefs[degree]) + numer_odd_terms * invx) / (prefer_fma(denom_even_terms, invx2, denom_coefs[degree]) + denom_odd_terms * invx);
+  }
+  return prefer_fma(numer_even_terms, invx, numer_odd_terms) / prefer_fma(denom_even_terms, invx, denom_odd_terms);
+}
+
 #ifdef __cplusplus
 }
 #endif

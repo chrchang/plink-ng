@@ -1387,7 +1387,6 @@ HEADER_CINLINE uintptr_t Int64CtToCachelineCt(uintptr_t val) {
   return DivUp(val, kInt64PerCacheline);
 }
 
-;;;
 // C++11 standard guarantees std::min and std::max return leftmost minimum in
 // case of equality; best to adhere to that
 // We don't actually use std::min/max since casting one argument when comparing

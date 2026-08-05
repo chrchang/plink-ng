@@ -5,7 +5,7 @@ This provides a basic Python API for pgenlib; see [python_api.txt](python_api.tx
 PyPI:
 ```
 pip install 'pip>=20.3'
-pip install Pgenlib
+pip install pgenlib
 ```
 
 GitHub:

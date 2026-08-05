@@ -68,6 +68,8 @@ static const double kLogMaxValue = 709.0;
 static const double kLentzFpmin = 1.0e-30;
 
 // may move some of these tables to plink2_float
+
+// this partially overlaps _tdr_inv_fact_offset3[] in plink2_highprec
 static const double kFactorialRecips[34] = {
   1.0,
   1.0,
@@ -105,39 +107,6 @@ static const double kFactorialRecips[34] = {
   1.151633562077195e-37
 };
 
-static const double kSmallRecips[30] = {
-  0.0,  // could make this nan, though that's annoying for C++03
-  1.0 / 1,
-  1.0 / 2,
-  1.0 / 3,
-  1.0 / 4,
-  1.0 / 5,
-  1.0 / 6,
-  1.0 / 7,
-  1.0 / 8,
-  1.0 / 9,
-  1.0 / 10,
-  1.0 / 11,
-  1.0 / 12,
-  1.0 / 13,
-  1.0 / 14,
-  1.0 / 15,
-  1.0 / 16,
-  1.0 / 17,
-  1.0 / 18,
-  1.0 / 19,
-  1.0 / 20,
-  1.0 / 21,
-  1.0 / 22,
-  1.0 / 23,
-  1.0 / 24,
-  1.0 / 25,
-  1.0 / 26,
-  1.0 / 27,
-  1.0 / 28,
-  1.0 / 29
-};
-
 double finite_gamma_q(uint32_t aa, double xx, double* p_derivative) {
   // a is a positive integer < 30; max(0.6, a-1) < x < kLogMaxValue
   // (e^{-x})(1 + x + x^2/2 + x^3/3! + x^4/4! + ... + x^{a-1}/(a-1)!)
@@ -145,19 +114,12 @@ double finite_gamma_q(uint32_t aa, double xx, double* p_derivative) {
   if (ee == 0.0) {
     return 0;
   }
-  double sum = ee;
-  double term = sum;
-  for (uint32_t nn = 1; nn != aa; ++nn) {
-    term *= xx * kSmallRecips[nn];
-    sum += term;
-  }
+  const double sum = ee * poly_eval(kFactorialRecips, aa - 1, xx);
   if (p_derivative) {
     *p_derivative = ee * pow(xx, u31tod(aa)) * kFactorialRecips[aa - 1];
   }
   return sum;
 }
-
-static const double kSqrtPi = 1.7724538509055159;
 
 double lower_gamma_series(double aa, double zz, double init_value) {
   // evaluate init_value + 1 + (z/(a+1)) + (z^2 / ((a+1)(a+2))) +
@@ -169,6 +131,7 @@ double lower_gamma_series(double aa, double zz, double init_value) {
     aa += 1.0;
     result *= zz / aa;
     total += result;
+    // could continue until total == preadd instead
   } while (fabs(result) > (kBigEpsilon * kBigEpsilon));
   return total;
 }
@@ -193,7 +156,9 @@ double upper_gamma_fraction(double a1, double z1) {
   for (double kk = 2.0; kk <= 100.0; kk += 1.0) {
     const double cur_a = kk * (a1 - kk);
     cur_b += 2.0;
-    dd = cur_a * dd + cur_b;
+    dd = prefer_fma(cur_a, dd, cur_b);
+    // do we actually need this?  if we do, we should be able to use a
+    // more-extreme threshold like Boost now does?
     if (fabs(dd) < kLentzFpmin) {
       dd = kLentzFpmin;
     }
@@ -216,26 +181,26 @@ double upper_gamma_fraction(double a1, double z1) {
 // from Numerical Recipes in Fortran 77: The Art of Scientific Computing, via
 // Wikipedia
 // maximal error of 1.2e-7
-double erfc_fast(double zz) {
+double erfc_fast2(double zz, double* tau_ln_plus_z2_ptr) {
   const double tt = 1.0 / (1.0 + 0.5 * zz);
-  const double tt2 = tt * tt;
-  const double tt3 = tt * tt2;
-  const double tt4 = tt2 * tt2;
-  // - zz * zz - 1.26551223
-  // + tt * 1.00002368
-  // + tt^2 * 0.37409196
-  // + tt^3 * 0.09678418
-  // + tt^4 * (-0.18628806)
-  // + tt^5 * 0.27886807
-  // + tt^6 * (-1.13520398)
-  // + tt^7 * 1.48851587
-  // + tt^8 * (-0.82215223)
-  // + tt^9 * 0.17087277
-  const double rem0 = prefer_fma(prefer_fma(-0.82215223, tt4, -0.18628806), tt4, -prefer_fma(zz, zz, 1.26551223));
-  const double rem1 = prefer_fma(prefer_fma(0.17087277, tt4, 0.27886807), tt4, 1.00002368) * tt;
-  const double rem2 = prefer_fma(-1.13520398, tt4, 0.37409196) * tt2;
-  const double rem3 = prefer_fma(1.48851587, tt4, 0.09678418) * tt3;
-  return tt * exp(rem0 + rem1 + (rem2 + rem3));
+  *tau_ln_plus_z2_ptr = POLY9_SOLO(tt,
+                                   -1.26551223,
+                                   1.00002368,
+                                   0.37409196,
+                                   0.09678418,
+                                   -0.18628806,
+                                   0.27886807,
+                                   -1.13520398,
+                                   1.48851587,
+                                   -0.82215223,
+                                   0.17087277);
+  return tt;
+}
+
+static inline double erfc_fast(double zz) {
+  double tau_ln_plus_z2;
+  const double tt = erfc_fast2(zz, &tau_ln_plus_z2);
+  return tt * exp(prefer_fma(zz, -zz, tau_ln_plus_z2));
 }
 
 static const double kSmallHalfRecips[30] = {
@@ -279,6 +244,8 @@ double finite_half_gamma_q2(uint32_t a_minus_half, double xx, double* p_derivati
   if ((ee != 0) && a_minus_half) {
     double term = sqrt_x * exp(-xx) * (2.0 / kSqrtPi);
     double sum = term;
+    // probable todo: define half-gamma-recip constant array, call poly_eval()
+    // on it.
     for (uint32_t n_minus_half = 1; n_minus_half != a_minus_half; ++n_minus_half) {
       term *= xx * kSmallHalfRecips[n_minus_half];
       sum += term;
@@ -300,61 +267,16 @@ static const double kLanczosFloatSumExpgNumer[6] = {32.812445410297834, 32.12388
 // this depends on the polynomial coefficients above
 static const double kLanczosFloatG = 5.581;
 
-double lanczos_sum_f(double zz) {
-  double s1;
-  double s2;
-  if (zz <= 1) {
-    s1 = kLanczosFloatSumNumer[5];
-    s2 = kLanczosFloatSumDenom[5];
-    for (int32_t ii = 4; ii >= 0; --ii) {
-      s1 = prefer_fma(s1, zz, kLanczosFloatSumNumer[S_CAST(uint32_t, ii)]);
-      s2 = prefer_fma(s2, zz, kLanczosFloatSumDenom[S_CAST(uint32_t, ii)]);
-    }
-  } else {
-    zz = 1 / zz;
-    s1 = kLanczosFloatSumNumer[0];
-    s2 = kLanczosFloatSumDenom[0];
-    for (uint32_t uii = 1; uii != 6; ++uii) {
-      s1 = prefer_fma(s1, zz, kLanczosFloatSumNumer[uii]);
-      s2 = prefer_fma(s2, zz, kLanczosFloatSumDenom[uii]);
-    }
-  }
-  return s1 / s2;
+static inline double lanczos_sum_f(double zz) {
+  return ratfun_eval(kLanczosFloatSumNumer, kLanczosFloatSumDenom, 5, zz);
 }
 
-double lanczos_sum_f_expg_scaled_imp(double zz, double* s2_ptr) {
-  double s1;
-  double s2;
-  if (zz <= 1) {
-    s1 = kLanczosFloatSumExpgNumer[5];
-    s2 = kLanczosFloatSumDenom[5];
-    for (int32_t ii = 4; ii >= 0; --ii) {
-      s1 = prefer_fma(s1, zz, kLanczosFloatSumExpgNumer[S_CAST(uint32_t, ii)]);
-      s2 = prefer_fma(s2, zz, kLanczosFloatSumDenom[S_CAST(uint32_t, ii)]);
-    }
-  } else {
-    zz = 1 / zz;
-    s1 = kLanczosFloatSumExpgNumer[0];
-    s2 = kLanczosFloatSumDenom[0];
-    for (uint32_t uii = 1; uii != 6; ++uii) {
-      s1 = prefer_fma(s1, zz, kLanczosFloatSumExpgNumer[uii]);
-      s2 = prefer_fma(s2, zz, kLanczosFloatSumDenom[uii]);
-    }
-  }
-  *s2_ptr = s2;
-  return s1;
+static inline double lanczos_sum_f_expg_scaled(double zz) {
+  return ratfun_eval(kLanczosFloatSumExpgNumer, kLanczosFloatSumDenom, 5, zz);
 }
 
-double lanczos_sum_f_expg_scaled(double zz) {
-  double s2;
-  double s1 = lanczos_sum_f_expg_scaled_imp(zz, &s2);
-  return s1 / s2;
-}
-
-double lanczos_sum_f_expg_scaled_recip(double zz) {
-  double s2;
-  double s1 = lanczos_sum_f_expg_scaled_imp(zz, &s2);
-  return s2 / s1;
+static inline double lanczos_sum_f_expg_scaled_recip(double zz) {
+  return ratfun_eval(kLanczosFloatSumDenom, kLanczosFloatSumExpgNumer, 5, zz);
 }
 
 double log1pmx(double xx) {
@@ -424,10 +346,6 @@ double regularized_gamma_prefix(double aa, double zz) {
   return prefix;
 }
 
-static const double kTemmeC0[7] = {-0.333333333, 0.0833333333, -0.0148148148, 0.00115740741, 0.000352733686, -0.000178755144, 0.391926318e-4};
-static const double kTemmeC1[5] = {-0.00185185185, -0.00347222222, 0.00264550265, -0.000990226337, 0.000205761317};
-static const double kTemmeC2[3] = {0.00413359788, -0.00268132716, 0.000771604938};
-
 double igamma_temme_large(double aa, double xx) {
   // 24-bit precision is fine
   const double sigma = (xx - aa) / aa;
@@ -440,14 +358,11 @@ double igamma_temme_large(double aa, double xx) {
   if (xx < aa) {
     zz = -zz;
   }
-  double workspace[3];
-  // todo: benchmark some other ways of organizing this computation.  there are
-  // three independent calculation chains, which I'd expect to be decent?
-  workspace[0] = prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(prefer_fma(kTemmeC0[6], zz, kTemmeC0[5]), zz, kTemmeC0[4]), zz, kTemmeC0[3]), zz, kTemmeC0[2]), zz, kTemmeC0[1]), zz, kTemmeC0[0]);
-  workspace[1] = prefer_fma(prefer_fma(prefer_fma(prefer_fma(kTemmeC1[4], zz, kTemmeC1[3]), zz, kTemmeC1[2]), zz, kTemmeC1[1]), zz, kTemmeC1[0]);
-  workspace[2] = prefer_fma(prefer_fma(kTemmeC2[2], zz, kTemmeC2[1]), zz, kTemmeC2[0]);
+  const double c0 = POLY6(zz, -0.333333333, 0.0833333333, -0.0148148148, 0.00115740741, 0.000352733686, -0.000178755144, 0.391926318e-4);
+  const double c1 = POLY4(zz, -0.00185185185, -0.00347222222, 0.00264550265, -0.000990226337, 0.000205761317);
+  const double c2 = POLY2(zz, 0.00413359788, -0.00268132716, 0.000771604938);
   const double a_recip = 1 / aa;
-  double result = prefer_fma(prefer_fma(workspace[2], a_recip, workspace[1]), a_recip, workspace[0]);
+  double result = POLY2(a_recip, c0, c1, c2);
   result *= exp(-yy) / ((kSqrt2 * kSqrtPi) * sqrt_a);
   if (xx < aa) {
     result = -result;
@@ -603,29 +518,8 @@ double finite_gamma_q_ln(uint32_t aa, double xx) {
   // logarithm:
   // log(1 + x + ... + x^{a-1}/(a-1)!) - x
   // no overflow or underflow danger for main term thanks to bounds
-  double sum = 1.0;
-  double term = 1.0;
-  for (uint32_t nn = 1; nn != aa; ++nn) {
-    // division is slow enough that the lookup table speeds up this function by
-    // >3x
-    term *= xx * kSmallRecips[nn];
-    sum += term;
-  }
+  const double sum = poly_eval(kFactorialRecips, aa - 1, xx);
   return log(sum) - xx;
-}
-
-double erfc_fast2(double zz, double* tau_ln_plus_z2_ptr) {
-  // probable todo: deduplicate with erfc_fast()
-  const double tt = 1.0 / (1.0 + 0.5 * zz);
-  const double tt2 = tt * tt;
-  const double tt3 = tt * tt2;
-  const double tt4 = tt2 * tt2;
-  const double rem0 = prefer_fma(prefer_fma(-0.82215223, tt4, -0.18628806), tt4, -1.26551223);
-  const double rem1 = prefer_fma(prefer_fma(0.17087277, tt4, 0.27886807), tt4, 1.00002368) * tt;
-  const double rem2 = prefer_fma(-1.13520398, tt4, 0.37409196) * tt2;
-  const double rem3 = prefer_fma(1.48851587, tt4, 0.09678418) * tt3;
-  *tau_ln_plus_z2_ptr = rem0 + rem1 + (rem2 + rem3);
-  return tt;
 }
 
 double finite_half_gamma_q2_ln(uint32_t a_minus_half, double xx) {
@@ -810,14 +704,15 @@ double find_inverse_gamma2(uint32_t df, double pp, double qq, uint32_t* has_10_d
         const double c4 = prefer_fma(c1_3, -1.0 / 6.0, -26.75 / 12.0) - prefer_fma(0.875, c1_2, 1.875 * c1);
         const double c5 = prefer_fma(5.75 / 6.0, c1_3, 0.125 * c1_4) + prefer_fma(3.625, c1_2, prefer_fma(7.75, c1, 83.0625 / 12.0));
 
-        const double y_recip = 1.0 / yy;
-        const double y_recip_2 = y_recip * y_recip;
-        const double y_recip_3 = y_recip_2 * y_recip;
-        const double y_recip_4 = y_recip_2 * y_recip_2;
         if (bb < 1e-28) {
           *has_10_digits_ptr = 1;
         }
-        // possible todo: benchmark other ways of organizing this calculation
+        const double y_recip = 1.0 / yy;
+        // todo: test this substitute
+        // return POLY4(y_recip, yy + c1, c2, c3, c4, c5);
+        const double y_recip_2 = y_recip * y_recip;
+        const double y_recip_3 = y_recip_2 * y_recip;
+        const double y_recip_4 = y_recip_2 * y_recip_2;
         return prefer_fma(c2, y_recip, yy) + prefer_fma(c3, y_recip_2, c1) + prefer_fma(c5, y_recip_4, c4 * y_recip_3);
       }
     }
@@ -978,6 +873,8 @@ double LnPToChisq(double ln_pval) {
   const double c5 = prefer_fma(5.75 / 6.0, c1_3, 0.125 * c1_4) + prefer_fma(3.625, c1_2, prefer_fma(7.75, c1, 83.0625 / 12.0));
 
   const double y_recip = 1.0 / yy;
+  // todo: test this substitute
+  // return POLY4(y_recip, yy + c1, c2, c3, c4, c5);
   const double y_recip_2 = y_recip * y_recip;
   const double y_recip_3 = y_recip_2 * y_recip;
   const double y_recip_4 = y_recip_2 * y_recip_2;
@@ -1073,13 +970,7 @@ double ibeta_series_ln(double aa, double bb, double xx, uint32_t inv) {
   const double agh = aa + kLanczosFloatG - 0.5;
   const double bgh = bb + kLanczosFloatG - 0.5;
   const double cgh = cc + kLanczosFloatG - 0.5;
-  double numer_a;
-  double denom_a = lanczos_sum_f_expg_scaled_imp(aa, &numer_a);
-  double numer_b;
-  double denom_b = lanczos_sum_f_expg_scaled_imp(bb, &numer_b);
-  double denom_c;
-  double numer_c = lanczos_sum_f_expg_scaled_imp(cc, &denom_c);
-  double result = (numer_a * numer_b * numer_c) / (denom_a * denom_b * denom_c);
+  double result = lanczos_sum_f_expg_scaled_recip(aa) * lanczos_sum_f_expg_scaled_recip(bb) * lanczos_sum_f_expg_scaled(cc);
   double l1 = log(cgh / bgh) * (bb - 0.5);
   double l2 = log(xx * cgh / agh) * aa;
   double result_ln = log(result * result * agh) * 0.5 + l1 + l2 - 0.5;
@@ -1230,13 +1121,7 @@ double ibeta_power_terms_ln(double aa, double bb, double xx, double yy) {
   const double agh = aa + kLanczosFloatG - 0.5;
   const double bgh = bb + kLanczosFloatG - 0.5;
   const double cgh = cc + kLanczosFloatG - 0.5;
-  double numer_a;
-  double denom_a = lanczos_sum_f_expg_scaled_imp(aa, &numer_a);
-  double numer_b;
-  double denom_b = lanczos_sum_f_expg_scaled_imp(bb, &numer_b);
-  double denom_c;
-  double numer_c = lanczos_sum_f_expg_scaled_imp(cc, &denom_c);
-  double result = (numer_a * numer_b * numer_c) / (denom_a * denom_b * denom_c);
+  double result = lanczos_sum_f_expg_scaled_recip(aa) * lanczos_sum_f_expg_scaled_recip(bb) * lanczos_sum_f_expg_scaled(cc);
   result *= sqrt(agh * bgh * kRecipE / cgh);
   double result_ln = log(result);
   double l1 = (xx * bb - yy * agh) / agh;
@@ -1265,9 +1150,6 @@ double ibeta_a_step_ln(double aa, double bb, double xx, double yy, uint32_t kk) 
 double ibeta_fraction2_ln(double aa, double bb, double xx, double yy, uint32_t inv) {
   // normalized always true
 
-  // todo: original DiDonato and Morris paper notes that "x must also be a
-  // sufficient distance from p when a > 100"; check if we have a problem there
-
   double result_ln = ibeta_power_terms_ln(aa, bb, xx, yy);
 
   // see Boost continued_fraction_b()
@@ -1287,7 +1169,7 @@ double ibeta_fraction2_ln(double aa, double bb, double xx, double yy, uint32_t i
     cur_a *= mm * (bb - mm) * x2;
     double denom = aa + 2 * mm - 1.0;
     cur_a /= denom * denom;
-    double cur_b = prefer_fma(mm * (bb - mm), xx / (aa + 2 * mm - 1.0), mm);
+    double cur_b = prefer_fma(mm * (bb - mm), xx / denom, mm);
     cur_b += ((aa + mm) * prefer_fma(mm, 2.0 - xx, ay_minus_bx_plus1)) / (aa + 2 * mm + 1.0);
     dd = cur_b + cur_a * dd;
     if (fabs(dd) < kLentzFpmin) {
@@ -1520,8 +1402,10 @@ double QuantileToZscore(double pval) {
     // Rational approximation for lower/upper region
     const double q2 = -2 * log((pval < kIvnLow)? pval : (1 - pval));
     const double q = sqrt(q2);
-    // return (((((kIvnC[0]*q+kIvnC[1])*q+kIvnC[2])*q+kIvnC[3])*q+kIvnC[4])*q+kIvnC[5]) /
+    // const double frac = (((((kIvnC[0]*q+kIvnC[1])*q+kIvnC[2])*q+kIvnC[3])*q+kIvnC[4])*q+kIvnC[5]) /
     //   ((((kIvnD[0]*q+kIvnD[1])*q+kIvnD[2])*q+kIvnD[3])*q+1);
+    // todo: test this substitute
+    // const double frac = _poly5(q, q2, 2.938163982698783e+00, 4.374664141464968e+00, -2.549732539343734e+00, -2.400758277161838e+00, -3.223964580411365e-01, -7.784894002430293e-03) / _poly4(q, q2, 1, 3.754408661907416e+00, 2.445134137142996e+00, 3.224671290700398e-01, 7.784695709041462e-03);
     const double numer_rem0 = prefer_fma(prefer_fma(kIvnC[1], q2, kIvnC[3]), q2, kIvnC[5]);
     const double numer_rem1 = q * prefer_fma(prefer_fma(kIvnC[0], q2, kIvnC[2]), q2, kIvnC[4]);
     const double denom_rem0 = prefer_fma(prefer_fma(kIvnD[0], q2, kIvnD[2]), q2, 1);
@@ -1532,6 +1416,8 @@ double QuantileToZscore(double pval) {
   // Rational approximation for central region
   const double q = pval - 0.5;
   const double q2 = q*q;
+  // todo: test this substitute
+  // return q * POLY5(q2, 2.506628277459239e+00, -3.066479806614716e+01, 1.383577518672690e+02, -2.759285104469687e+02, 2.209460984245205e+02, -3.969683028665376e+01) / POLY5(q2, 1, -1.328068155288572e+01, 6.680131188771972e+01, -1.556989798598866e+02, 1.615858368580409e+02, -5.447609879822406e+01);
   const double q4 = q2*q2;
   const double numer_rem1 = prefer_fma(prefer_fma(kIvnA[1], q4, kIvnA[3]), q4, kIvnA[5]);
   const double numer_rem3 = q2 * prefer_fma(prefer_fma(kIvnA[0], q4, kIvnA[2]), q4, kIvnA[4]);

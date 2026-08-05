@@ -84,8 +84,8 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="Pgenlib",
-    version="0.94.1",
+    name="pgenlib",
+    version="0.94.2",
     author="Christopher Chang",
     author_email="chrchang@alumni.caltech.edu",
     description="Python wrapper for pgenlib's basic reader and writer.",
@@ -97,15 +97,15 @@ setuptools.setup(
     },
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+        "License :: OSI Approved :: GNU Lesser General Public License v3.0 only (LGPL-3.0-only)",
         "Operating System :: OS Independent",
     ],
     package_dir={"": "src"},
     packages=setuptools.find_namespace_packages(where="src"),
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     libraries=[clib],
     ext_modules=cythonize(ext_modules),
     install_requires = [
-        "numpy>=1.19.3",
+        "numpy>=1.21.3",
     ],
 )

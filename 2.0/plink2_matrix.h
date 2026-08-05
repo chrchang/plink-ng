@@ -72,7 +72,7 @@ CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 #      error "LAPACK_ILP64 requires ACCELERATE_NEW_LAPACK on macOS"
 #    endif
 #    include <Accelerate/Accelerate.h>  // IWYU pragma: export
-#    if defined(ACCELERATE_NEW_LAPACK)
+#    if defined(ACCELERATE_NEW_LAPACK) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
 #      define USE_MTBLAS
 HEADER_INLINE void BLAS_SET_NUM_THREADS(__attribute__((unused)) int num_threads) {
   if (__builtin_available(macOS 15.0, *)) {
