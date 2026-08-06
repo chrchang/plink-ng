@@ -2551,6 +2551,11 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     if (!(ldip->prune_flags & kfLdPruneWindowBp)) {
       variant_bps = nullptr;
     }
+    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+    uintptr_t* removed_variants_collapsed;
+    if (unlikely(bigstack_calloc_w(variant_ctl, &removed_variants_collapsed))) {
+      goto LdPrune_ret_NOMEM;
+    }
     const uint32_t prune_window_size = ldip->prune_window_size;
     uint32_t* subcontig_info;
     uint32_t window_max;
@@ -2558,150 +2563,145 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     if (LdPruneSubcontigSplitAll(variant_include, cip, variant_bps, prune_window_size, &window_max, &subcontig_info, &subcontig_ct)) {
       goto LdPrune_ret_NOMEM;
     }
-    if (!subcontig_ct) {
-      logerrprintf("Warning: Skipping --indep-pair%s since there are no pairs of variants to\nprocess.\n", is_pairphase? "phase" : "wise");
-      goto LdPrune_ret_1;
-    }
+    // update (5 Aug 2026): if subcontig_ct == 0, still generate .prune.in and
+    // .prune.out files
+    if (subcontig_ct) {
+      const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+      uintptr_t* preferred_variants = nullptr;
+      uint32_t dup_found;
+      if (!indep_preferred_fname) {
+        reterr = CheckIdUniqueness(g_bigstack_base, g_bigstack_end, variant_include, variant_ids, variant_ct, max_thread_ct, &dup_found);
+        if (unlikely(reterr)) {
+          goto LdPrune_ret_1;
+        }
+      } else {
+        if (unlikely(bigstack_alloc_w(raw_variant_ctl, &preferred_variants))) {
+          goto LdPrune_ret_NOMEM;
+        }
+        memcpy(preferred_variants, variant_include, raw_variant_ctl * sizeof(intptr_t));
+        reterr = NondupIdLoad(g_bigstack_base, g_bigstack_end, variant_ids, indep_preferred_fname, raw_variant_ct, variant_ct, max_thread_ct, preferred_variants, &dup_found, g_logbuf);
+        if (unlikely(reterr)) {
+          if (g_logbuf[0]) {
+            logerrputsb();
+          }
+          goto LdPrune_ret_1;
+        }
+      }
+      if (unlikely(dup_found)) {
+        logerrprintfww("Error: --indep-pair%s requires unique variant IDs. (--set-all-var-ids and/or --rm-dup may help.)\n", is_pairphase? "phase" : "wise");
+        goto LdPrune_ret_INCONSISTENT_INPUT;
+      }
+      if (preferred_variants) {
+        const uint32_t preferred_variant_ct = PopcountWords(preferred_variants, raw_variant_ctl);
+        logprintf("--indep-preferred: %u variant%s loaded.\n", preferred_variant_ct, (preferred_variant_ct == 1)? "" : "s");
+      }
 
-    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    uintptr_t* preferred_variants = nullptr;
-    uint32_t dup_found;
-    if (!indep_preferred_fname) {
-      reterr = CheckIdUniqueness(g_bigstack_base, g_bigstack_end, variant_include, variant_ids, variant_ct, max_thread_ct, &dup_found);
+      if (max_thread_ct > 2) {
+        --max_thread_ct;
+      }
+      if (max_thread_ct > subcontig_ct) {
+        max_thread_ct = subcontig_ct;
+      }
+      const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+      uint32_t* founder_info_cumulative_popcounts;
+      // bugfix (25 Mar 2023, 25 Aug 2023): founder_nonmale/founder_male are
+      // NOT supposed to be "collapsed".
+      uintptr_t* founder_nonmale;
+      uintptr_t* founder_male;
+      uint32_t* subcontig_thread_assignments;
+      if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
+                   bigstack_alloc_w(raw_sample_ctl, &founder_nonmale) ||
+                   bigstack_alloc_w(raw_sample_ctl, &founder_male) ||
+                   bigstack_alloc_u32(subcontig_ct, &subcontig_thread_assignments))) {
+        goto LdPrune_ret_NOMEM;
+      }
+      FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
+      BitvecAndCopy(founder_info, sex_male, raw_sample_ctl, founder_male);
+      BitvecInvmaskCopy(founder_info, sex_male, raw_sample_ctl, founder_nonmale);
+      const uint32_t founder_male_ct = PopcountWords(founder_male, raw_sample_ctl);
+      uintptr_t* founder_nonfemale = founder_male;
+      uint32_t founder_nonfemale_ct = founder_male_ct;
+      if (nosex_ct) {
+        if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_nonfemale))) {
+          goto LdPrune_ret_NOMEM;
+        }
+        AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, founder_nonfemale);
+        BitvecAnd(founder_info, raw_sample_ctl, founder_nonfemale);
+        founder_nonfemale_ct = PopcountWords(founder_nonfemale, raw_sample_ctl);
+      }
+      uint32_t* subcontig_weights;
+      if (unlikely(bigstack_end_alloc_u32(subcontig_ct, &subcontig_weights))) {
+        goto LdPrune_ret_NOMEM;
+      }
+
+      // initial window_max-based memory requirement estimate
+      const uint32_t plink1_order = (ldip->prune_flags / kfLdPrunePlink1Order) & 1;
+      if (is_pairphase) {
+        const uint32_t max_hap_ct = founder_ct * 2;
+        const uintptr_t hap_ctaw_x2 = 2 * BitCtToAlignedWordCt(max_hap_ct);
+        // reserve ~1/2 of space for main variant data buffer,
+        //   removed_variant_write
+        // everything else:
+        //   hap_vecs + nm_vecs: thread_ct * window_max * hap_ctaw_x2 * word
+        //   occupied_window_slots: thread_ct * window_maxl * word
+        //   cur_window_removed: thread_ct * (1 + window_max / kBitsPerWord) *
+        //     word
+        //   (ignore removed_variant_write)
+        //   maj_freqs: thread_ct * window_max * 8
+        //   vhaggs: thread_ct * window_max * VariantHapAggs
+        //   winpos_to_slot_idx, tvidxs: window_max * 2 * int32
+        //   first_unchecked_tvidx: window_max * int32 if plink1_order
+        uintptr_t per_thread_alloc = RoundUpPow2(window_max * hap_ctaw_x2 * sizeof(intptr_t), kCacheline) + 2 * RoundUpPow2((1 + window_max / kBitsPerWord) * sizeof(intptr_t), kCacheline) + RoundUpPow2(window_max * sizeof(double), kCacheline) + RoundUpPow2(window_max * sizeof(VariantHapAggs), kCacheline) + (2 + plink1_order) * RoundUpPow2(window_max * sizeof(int32_t), kCacheline);
+        uintptr_t bigstack_left2 = bigstack_left();
+        if (per_thread_alloc * max_thread_ct > bigstack_left2) {
+          if (unlikely(per_thread_alloc > bigstack_left2)) {
+            goto LdPrune_ret_NOMEM;
+          }
+          max_thread_ct = bigstack_left2 / per_thread_alloc;
+        }
+      } else {
+        const uintptr_t entire_variant_buf_word_ct = 2 * (BitCtToAlignedWordCt(founder_ct - founder_male_ct) + BitCtToAlignedWordCt(founder_male_ct));
+        // reserve ~1/2 of space for main variant data buffer,
+        //   removed_variant_write
+        // everything else:
+        //   genobufs: thread_ct * window_max * entire_variant_buf_word_ct * word
+        //   occupied_window_slots: thread_ct * window_maxl * word
+        //   cur_window_removed: thread_ct * (1 + window_max / kBitsPerWord) *
+        //     word
+        //   (ignore removed_variant_write)
+        //   maj_freqs: thread_ct * window_max * 8
+        //   vaggs, nonmale_vaggs: thread_ct * window_max * VariantAggs
+        //   winpos_to_slot_idx, tvidxs: window_max * 2 * int32
+        //   first_unchecked_tvidx: window_max * int32 if plink1_order
+        uintptr_t per_thread_alloc = RoundUpPow2(window_max * entire_variant_buf_word_ct * sizeof(intptr_t), kCacheline) + 2 * RoundUpPow2((1 + window_max / kBitsPerWord) * sizeof(intptr_t), kCacheline) + RoundUpPow2(window_max * sizeof(double), kCacheline) + 2 * RoundUpPow2(window_max * sizeof(VariantAggs), kCacheline) + (2 + plink1_order) * RoundUpPow2(window_max * sizeof(int32_t), kCacheline);
+        uintptr_t bigstack_left2 = bigstack_left();
+        if (per_thread_alloc * max_thread_ct > bigstack_left2) {
+          if (unlikely(per_thread_alloc > bigstack_left2)) {
+            goto LdPrune_ret_NOMEM;
+          }
+          max_thread_ct = bigstack_left2 / per_thread_alloc;
+        }
+      }
+
+      for (uint32_t subcontig_idx = 0; subcontig_idx != subcontig_ct; ++subcontig_idx) {
+        // todo: adjust chrX weights upward, and chrY downward
+        subcontig_weights[subcontig_idx] = subcontig_info[3 * subcontig_idx];
+        // printf("%u %u %u\n", subcontig_info[3 * subcontig_idx], subcontig_info[3 * subcontig_idx + 1], subcontig_info[3 * subcontig_idx + 2]);
+      }
+      uint32_t max_load = 0;
+      if (unlikely(LoadBalance(subcontig_weights, subcontig_ct, &max_thread_ct, subcontig_thread_assignments, &max_load))) {
+        goto LdPrune_ret_NOMEM;
+      }
+      BigstackEndReset(bigstack_end_mark);
+
+      if (is_pairphase) {
+        reterr = IndepPairphase(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, founder_nonfemale, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, founder_nonfemale_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
+      } else {
+        reterr = IndepPairwise(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, founder_nonfemale, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, founder_nonfemale_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
+      }
       if (unlikely(reterr)) {
         goto LdPrune_ret_1;
       }
-    } else {
-      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &preferred_variants))) {
-        goto LdPrune_ret_NOMEM;
-      }
-      memcpy(preferred_variants, variant_include, raw_variant_ctl * sizeof(intptr_t));
-      reterr = NondupIdLoad(g_bigstack_base, g_bigstack_end, variant_ids, indep_preferred_fname, raw_variant_ct, variant_ct, max_thread_ct, preferred_variants, &dup_found, g_logbuf);
-      if (unlikely(reterr)) {
-        if (g_logbuf[0]) {
-          logerrputsb();
-        }
-        goto LdPrune_ret_1;
-      }
-    }
-    if (unlikely(dup_found)) {
-      logerrprintfww("Error: --indep-pair%s requires unique variant IDs. (--set-all-var-ids and/or --rm-dup may help.)\n", is_pairphase? "phase" : "wise");
-      goto LdPrune_ret_INCONSISTENT_INPUT;
-    }
-    if (preferred_variants) {
-      const uint32_t preferred_variant_ct = PopcountWords(preferred_variants, raw_variant_ctl);
-      logprintf("--indep-preferred: %u variant%s loaded.\n", preferred_variant_ct, (preferred_variant_ct == 1)? "" : "s");
-    }
-
-    if (max_thread_ct > 2) {
-      --max_thread_ct;
-    }
-    if (max_thread_ct > subcontig_ct) {
-      max_thread_ct = subcontig_ct;
-    }
-    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
-    uint32_t* founder_info_cumulative_popcounts;
-    // bugfix (25 Mar 2023, 25 Aug 2023): founder_nonmale/founder_male are NOT
-    // supposed to be "collapsed".
-    uintptr_t* founder_nonmale;
-    uintptr_t* founder_male;
-    uintptr_t* removed_variants_collapsed;
-    uint32_t* subcontig_thread_assignments;
-    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
-                 bigstack_alloc_w(raw_sample_ctl, &founder_nonmale) ||
-                 bigstack_alloc_w(raw_sample_ctl, &founder_male) ||
-                 bigstack_calloc_w(variant_ctl, &removed_variants_collapsed) ||
-                 bigstack_alloc_u32(subcontig_ct, &subcontig_thread_assignments))) {
-      goto LdPrune_ret_NOMEM;
-    }
-    FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
-    BitvecAndCopy(founder_info, sex_male, raw_sample_ctl, founder_male);
-    BitvecInvmaskCopy(founder_info, sex_male, raw_sample_ctl, founder_nonmale);
-    const uint32_t founder_male_ct = PopcountWords(founder_male, raw_sample_ctl);
-    uintptr_t* founder_nonfemale = founder_male;
-    uint32_t founder_nonfemale_ct = founder_male_ct;
-    if (nosex_ct) {
-      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_nonfemale))) {
-        goto LdPrune_ret_NOMEM;
-      }
-      AlignedBitarrOrnotCopy(sex_male, sex_nm, raw_sample_ct, founder_nonfemale);
-      BitvecAnd(founder_info, raw_sample_ctl, founder_nonfemale);
-      founder_nonfemale_ct = PopcountWords(founder_nonfemale, raw_sample_ctl);
-    }
-    uint32_t* subcontig_weights;
-    if (unlikely(bigstack_end_alloc_u32(subcontig_ct, &subcontig_weights))) {
-      goto LdPrune_ret_NOMEM;
-    }
-
-    // initial window_max-based memory requirement estimate
-    const uint32_t plink1_order = (ldip->prune_flags / kfLdPrunePlink1Order) & 1;
-    if (is_pairphase) {
-      const uint32_t max_hap_ct = founder_ct * 2;
-      const uintptr_t hap_ctaw_x2 = 2 * BitCtToAlignedWordCt(max_hap_ct);
-      // reserve ~1/2 of space for main variant data buffer,
-      //   removed_variant_write
-      // everything else:
-      //   hap_vecs + nm_vecs: thread_ct * window_max * hap_ctaw_x2 * word
-      //   occupied_window_slots: thread_ct * window_maxl * word
-      //   cur_window_removed: thread_ct * (1 + window_max / kBitsPerWord) *
-      //     word
-      //   (ignore removed_variant_write)
-      //   maj_freqs: thread_ct * window_max * 8
-      //   vhaggs: thread_ct * window_max * VariantHapAggs
-      //   winpos_to_slot_idx, tvidxs: window_max * 2 * int32
-      //   first_unchecked_tvidx: window_max * int32 if plink1_order
-      uintptr_t per_thread_alloc = RoundUpPow2(window_max * hap_ctaw_x2 * sizeof(intptr_t), kCacheline) + 2 * RoundUpPow2((1 + window_max / kBitsPerWord) * sizeof(intptr_t), kCacheline) + RoundUpPow2(window_max * sizeof(double), kCacheline) + RoundUpPow2(window_max * sizeof(VariantHapAggs), kCacheline) + (2 + plink1_order) * RoundUpPow2(window_max * sizeof(int32_t), kCacheline);
-      uintptr_t bigstack_left2 = bigstack_left();
-      if (per_thread_alloc * max_thread_ct > bigstack_left2) {
-        if (unlikely(per_thread_alloc > bigstack_left2)) {
-          goto LdPrune_ret_NOMEM;
-        }
-        max_thread_ct = bigstack_left2 / per_thread_alloc;
-      }
-    } else {
-      const uintptr_t entire_variant_buf_word_ct = 2 * (BitCtToAlignedWordCt(founder_ct - founder_male_ct) + BitCtToAlignedWordCt(founder_male_ct));
-      // reserve ~1/2 of space for main variant data buffer,
-      //   removed_variant_write
-      // everything else:
-      //   genobufs: thread_ct * window_max * entire_variant_buf_word_ct * word
-      //   occupied_window_slots: thread_ct * window_maxl * word
-      //   cur_window_removed: thread_ct * (1 + window_max / kBitsPerWord) *
-      //     word
-      //   (ignore removed_variant_write)
-      //   maj_freqs: thread_ct * window_max * 8
-      //   vaggs, nonmale_vaggs: thread_ct * window_max * VariantAggs
-      //   winpos_to_slot_idx, tvidxs: window_max * 2 * int32
-      //   first_unchecked_tvidx: window_max * int32 if plink1_order
-      uintptr_t per_thread_alloc = RoundUpPow2(window_max * entire_variant_buf_word_ct * sizeof(intptr_t), kCacheline) + 2 * RoundUpPow2((1 + window_max / kBitsPerWord) * sizeof(intptr_t), kCacheline) + RoundUpPow2(window_max * sizeof(double), kCacheline) + 2 * RoundUpPow2(window_max * sizeof(VariantAggs), kCacheline) + (2 + plink1_order) * RoundUpPow2(window_max * sizeof(int32_t), kCacheline);
-      uintptr_t bigstack_left2 = bigstack_left();
-      if (per_thread_alloc * max_thread_ct > bigstack_left2) {
-        if (unlikely(per_thread_alloc > bigstack_left2)) {
-          goto LdPrune_ret_NOMEM;
-        }
-        max_thread_ct = bigstack_left2 / per_thread_alloc;
-      }
-    }
-
-
-    for (uint32_t subcontig_idx = 0; subcontig_idx != subcontig_ct; ++subcontig_idx) {
-      // todo: adjust chrX weights upward, and chrY downward
-      subcontig_weights[subcontig_idx] = subcontig_info[3 * subcontig_idx];
-      // printf("%u %u %u\n", subcontig_info[3 * subcontig_idx], subcontig_info[3 * subcontig_idx + 1], subcontig_info[3 * subcontig_idx + 2]);
-    }
-    uint32_t max_load = 0;
-    if (unlikely(LoadBalance(subcontig_weights, subcontig_ct, &max_thread_ct, subcontig_thread_assignments, &max_load))) {
-      goto LdPrune_ret_NOMEM;
-    }
-    BigstackEndReset(bigstack_end_mark);
-
-    if (is_pairphase) {
-      reterr = IndepPairphase(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, founder_nonfemale, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, founder_nonfemale_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
-    } else {
-      reterr = IndepPairwise(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, founder_nonfemale, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, founder_nonfemale_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
-    }
-    if (unlikely(reterr)) {
-      goto LdPrune_ret_1;
     }
     const uint32_t removed_ct = PopcountWords(removed_variants_collapsed, variant_ctl);
     logprintf("%u/%u variants removed.\n", removed_ct, variant_ct);
