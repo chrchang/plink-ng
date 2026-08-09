@@ -1811,23 +1811,29 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp
       break;
     }
   }
-  if (het_delta < 344.0) {
+  // bugfix (8 Aug 2026): Previous het_delta < 344 entrance condition did not
+  // prevent overflow here when cmodal_nhomr < 1.  In that case, 4*homr*homc
+  // could be much larger than hets^2 right next to the mode, breaking an
+  // assumption behind the ((172^172) / 172!) bound.
+  // Instead, use geometric series.  (1345 ~= 2 * log(10^292).)
+  const double first_inward_mult = S_CAST(double, 4LL * obs_homr * obs_homc) / S_CAST(double, (obs_hets + 2LL) * (obs_hets + 1LL));
+  if (het_delta * log(first_inward_mult) < 1345) {
     // Jump back to starting table, and iterate inward.
     lik = 1;
     hets = obs_hets;
     homr = obs_homr;
     homc = obs_homc;
     double center_sum = midp * 0.5;
+    double one_plus_scaled_eps = 1 + k2m52;
     // No need for hets > 1 check, lik checks do what we need.
     while (1) {
       hets += 2;
       lik *= (4 * homr * homc) / (hets * (hets - 1));
       homr -= 1;
       homc -= 1;
-      // If we're 172 steps from the center, number of center tables is limited
-      // to ~2*172 = 344, when obs_homr ~= obs_homc.
-      if (lik < 1 + (344 * 2 + 1) * k2m52) {
-        if (lik <= 1 - (344 * 2 + 1) * k2m52) {
+      one_plus_scaled_eps += 2 * k2m52;
+      if (lik < one_plus_scaled_eps) {
+        if (lik <= 2 - one_plus_scaled_eps) {
           tail_sum += lik;
           break;
         }
@@ -2452,8 +2458,16 @@ uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, i
   double hets = obs_hets;
   // Change this to "rare_ct < 2" if ln_thresh restriction is being loosened
   // (to e.g. compare results against HweThresh()).
-  if (fabs(hets - cmodal_nhet) < 344.0) {
-    return 0;
+  if ((hets - cmodal_nhet) < 344.0) {
+    if (hets >= cmodal_nhet) {
+      return 0;
+    }
+    // bugfix (8 Aug 2026): cmodal_het - hets < 344 does not guarantee p >
+    // DBL_MIN.
+    const double first_inward_mult = S_CAST(double, 4LL * obs_homr * obs_homc) / S_CAST(double, (obs_hets + 2LL) * (obs_hets + 1LL));
+    if ((cmodal_nhet - hets) * log(first_inward_mult) < 1345) {
+      return 0;
+    }
   }
 
   // 1. Compute log-probability of starting table.  This may be high enough on
