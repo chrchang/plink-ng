@@ -1849,6 +1849,7 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp
           }
           break;
         }
+        one_plus_scaled_eps = 1 + 3 * k2m52;
       }
       center_sum += lik;
     }
@@ -2948,7 +2949,9 @@ void HweLnFirstRow(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, doub
       break;
     }
   }
-  if (het_delta < kJumpThresh) {
+  // bugfix (8 Aug 2026)
+  const double first_inward_mult = 4 * obs_fhomr_d * (obs_fhomr_d + c_minus_r) / S_CAST(double, (obs_fhets + 2LL) * (obs_fhets + 1LL));
+  if (het_delta * log(first_inward_mult) < 1225) {
     lik = 1;
     hets = obs_fhets;
     homr = obs_fhomr_d;
