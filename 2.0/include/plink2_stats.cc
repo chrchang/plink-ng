@@ -1817,6 +1817,7 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp
   // assumption behind the ((172^172) / 172!) bound.
   // Instead, use geometric series.  (1345 ~= 2 * log(10^292).)
   const double first_inward_mult = S_CAST(double, 4LL * obs_homr * obs_homc) / S_CAST(double, (obs_hets + 2LL) * (obs_hets + 1LL));
+  // first_inward_mult != 0 here, since we exited early on rare_ct < 2.
   if (het_delta * log(first_inward_mult) < 1345) {
     // Jump back to starting table, and iterate inward.
     lik = 1;
@@ -2466,6 +2467,8 @@ uint32_t HweThreshLnMain(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, i
     // bugfix (8 Aug 2026): cmodal_het - hets < 344 does not guarantee p >
     // DBL_MIN.
     const double first_inward_mult = S_CAST(double, 4LL * obs_homr * obs_homc) / S_CAST(double, (obs_hets + 2LL) * (obs_hets + 1LL));
+    // first_inward_mult != 0 here, since obs_homr==0 -> cmodal_nhet==0 -> we
+    // exited on hets >= cmodal_nhet.
     if ((cmodal_nhet - hets) * log(first_inward_mult) < 1345) {
       return 0;
     }
@@ -2951,7 +2954,7 @@ void HweLnFirstRow(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, doub
   }
   // bugfix (8 Aug 2026)
   const double first_inward_mult = 4 * obs_fhomr_d * (obs_fhomr_d + c_minus_r) / S_CAST(double, (obs_fhets + 2LL) * (obs_fhets + 1LL));
-  if (het_delta * log(first_inward_mult) < 1225) {
+  if ((first_inward_mult == 0) || (het_delta * log(first_inward_mult) < 1225)) {
     lik = 1;
     hets = obs_fhets;
     homr = obs_fhomr_d;

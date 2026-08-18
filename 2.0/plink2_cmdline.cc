@@ -1251,7 +1251,8 @@ void BitvecXor3Copy(const uintptr_t* __restrict src_bitvec1, const uintptr_t* __
   if (word_ct & 2) {
     const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
     target_bitvec[base_idx] = src_bitvec1[base_idx] ^ src_bitvec2[base_idx] ^ src_bitvec3[base_idx];
-    target_bitvec[base_idx + 1] = src_bitvec1[base_idx] ^ src_bitvec2[base_idx] ^ src_bitvec3[base_idx];
+    // bugfix (18 Aug 2026): had wrong indexes on right side
+    target_bitvec[base_idx + 1] = src_bitvec1[base_idx + 1] ^ src_bitvec2[base_idx + 1] ^ src_bitvec3[base_idx + 1];
   }
 #  endif
   if (word_ct & 1) {
