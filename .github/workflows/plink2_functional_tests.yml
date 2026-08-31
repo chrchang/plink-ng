@@ -1,0 +1,86 @@
+name: PLINK2 functional tests
+
+# Builds PLINK 2.0 and PLINK 1.9 from this repository and runs the
+# self-contained suite in 2.0/Tests, which compares plink2 output against
+# plink 1.9 output and checks a number of round trips.
+#
+# Everything this needs (including the test data) is in the repository, so
+# unlike the weekly GLM workflow this can run on every pull request.
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '1.9/**'
+      - '2.0/**'
+      - '.github/workflows/plink2_functional_tests.yml'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '1.9/**'
+      - '2.0/**'
+      - '.github/workflows/plink2_functional_tests.yml'
+  workflow_dispatch:
+
+jobs:
+  run_tests:
+    name: 2.0/Tests on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libopenblas-dev \
+            liblapack-dev \
+            liblapacke-dev \
+            zlib1g-dev \
+            libzstd-dev
+
+      - name: Determine parallelism
+        run: echo "NPROC=$(getconf _NPROCESSORS_ONLN)" >> "$GITHUB_ENV"
+
+      - name: Build PLINK 2.0 and pgen_compress
+        working-directory: 2.0/build_dynamic
+        run: make -j"$NPROC"
+
+      - name: Build PLINK 1.9
+        working-directory: 1.9
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            make -j"$NPROC" ZLIB=-lz BLASFLAGS="-llapack -lopenblas"
+          else
+            make -j"$NPROC" ZLIB=-lz
+          fi
+
+      - name: Put PLINK 1.9 on PATH
+        run: echo "$GITHUB_WORKSPACE/1.9" >> "$GITHUB_PATH"
+
+      - name: Report versions
+        run: |
+          plink --version
+          2.0/build_dynamic/plink2 --version
+
+      - name: Run 2.0/Tests
+        working-directory: 2.0/Tests
+        run: ./run_tests.sh "$GITHUB_WORKSPACE/2.0/build_dynamic"
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plink2-test-logs-${{ matrix.os }}
+          path: 2.0/Tests/**/*.log
+          if-no-files-found: ignore
