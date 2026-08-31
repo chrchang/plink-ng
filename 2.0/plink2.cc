@@ -546,6 +546,7 @@ typedef struct Plink2CmdlineStruct {
   TwoColParams* ref_allele_flag;
   TwoColParams* alt_allele_flag;
   TwoColParams* update_chr_flag;
+  TwoColParams* update_cm_flag;
   TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
 } Plink2Cmdline;
@@ -1018,6 +1019,11 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
+      if (pcp->misc_flags & kfMiscZeroCms) {
+        // Same end state as loading a .pvar/.bim with no nonzero CM values;
+        // the writers already emit '0' when variant_cms is null.
+        variant_cms = nullptr;
+      }
       LoadFilterLogFlags load_filter_log_flags = pcp->load_filter_log_flags;
       if (load_filter_log_flags & kfLoadFilterLogImportMergeAlreadyApplied) {
         load_filter_log_flags &= ~kfLoadFilterLogImportMergeMask;
@@ -1417,8 +1423,16 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // the ID hash table; it's just positioned in this code block anyway
     // because it would be too weird for it to be in a different position than
     // --update-name in the order of operations.
+    if (pcp->update_cm_flag && (!variant_cms)) {
+      // Input had no CM column (or an all-zero one); --update-cm needs
+      // somewhere to write.  This must be allocated before the variant-ID
+      // hash table's bigstack_mark, since that region can be reset below.
+      if (unlikely(bigstack_calloc_d(raw_variant_ct, &variant_cms))) {
+        goto Plink2Core_ret_NOMEM;
+      }
+    }
     const uint32_t htable_needed_early = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct);
-    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params || (pcp->flip_info.fname && (!pcp->flip_info.subset_fname)));
+    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_cm_flag || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params || (pcp->flip_info.fname && (!pcp->flip_info.subset_fname)));
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, pcp->bed_border_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1490,6 +1504,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (variant_ct) {
+        if (pcp->update_cm_flag) {
+          reterr = UpdateVarCms(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, variant_include, pcp->update_cm_flag, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_cms);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
         if (pcp->update_map_flag) {
           reterr = UpdateVarBps(cip, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->update_map_flag, (pcp->sort_vars_mode > kSortNone), raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, variant_bps, &variant_ct, &vpos_sortstatus);
           if (unlikely(reterr)) {
@@ -3599,6 +3619,7 @@ int main(int argc, char** argv) {
   pc.ref_allele_flag = nullptr;
   pc.alt_allele_flag = nullptr;
   pc.update_chr_flag = nullptr;
+  pc.update_cm_flag = nullptr;
   pc.update_map_flag = nullptr;
   pc.update_name_flag = nullptr;
   pc.update_sample_ids_fname = nullptr;
@@ -12214,6 +12235,19 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "pdate-cm")) {
+          if (unlikely(pc.misc_flags & kfMiscZeroCms)) {
+            logerrputs("Error: --update-cm cannot be used with --zero-cms.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = Alloc2col(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.update_cm_flag);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "pdate-map")) {
           if (unlikely(pc.recover_var_ids_fname)) {
             logerrputs("Error: --update-map cannot be used with --recover-var-ids or --update-name.\n");
@@ -12748,6 +12782,14 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --zst-level argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "ero-cms")) {
+          if (unlikely(pc.update_cm_flag)) {
+            logerrputs("Error: --update-cm cannot be used with --zero-cms.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.misc_flags |= kfMiscZeroCms;
+          pc.dependency_flags |= kfFilterPvarReq;
+          goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "ero-cluster"))) {
           if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
             logerrputs("Error: --zero-cluster must be used with --make-[b]pgen/--make-bed.\n");
@@ -13456,6 +13498,7 @@ int main(int argc, char** argv) {
   free_cond(pc.update_sample_ids_fname);
   free_cond(pc.update_name_flag);
   free_cond(pc.update_map_flag);
+  free_cond(pc.update_cm_flag);
   free_cond(pc.update_chr_flag);
   free_cond(pc.alt_allele_flag);
   free_cond(pc.ref_allele_flag);
