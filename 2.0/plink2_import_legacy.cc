@@ -34,6 +34,7 @@
 #include "plink2_compress_stream.h"
 #include "plink2_data.h"
 #include "plink2_decompress.h"
+#include "plink2_import_legacy.h"
 #include "plink2_psam.h"
 
 // This covers formats that are fully supported by PLINK 1.x (no multiallelic
@@ -2406,6 +2407,381 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
   fclose_cond(tmp_fam_file);
   fclose_cond(indmaj_bed_file);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+
+void InitTwentythree(TwentythreeInfo* tip) {
+  tip->fname = nullptr;
+  tip->fid = nullptr;
+  tip->iid = nullptr;
+  tip->paternal_id = nullptr;
+  tip->maternal_id = nullptr;
+  tip->pheno = -9.0;
+  tip->sex_mode = 0;
+}
+
+void CleanupTwentythree(TwentythreeInfo* tip) {
+  free_cond(tip->fname);
+  free_cond(tip->fid);
+  free_cond(tip->iid);
+  free_cond(tip->paternal_id);
+  free_cond(tip->maternal_id);
+}
+
+// 23andMe files have one line per variant, with the sole sample's 1-2 allele
+// calls in the last column; '-' denotes a missing call.  This mirrors PLINK
+// 1.9's bed_from_23(), including its sex-inference rules and its D/I indel
+// convention, but writes .pgen/.pvar/.psam and uses plink2 chromosome codes.
+PglErr TwentythreeToPgen(const TwentythreeInfo* tip, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  const char* infile_name = tip->fname;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  uintptr_t line_idx = 0;
+  FILE* psamfile = nullptr;
+  char* pvar_cswritep = nullptr;
+  CompressStreamState pvar_css;
+  PreinitCstream(&pvar_css);
+  STPgenWriter spgw;
+  PreinitSpgw(&spgw);
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t decompress_thread_ct = MAXV(1, max_thread_ct - 1);
+    reterr = SizeAndInitTextStream(infile_name, bigstack_left() / 4, decompress_thread_ct, &txs);
+    if (unlikely(reterr)) {
+      goto TwentythreeToPgen_ret_TSTREAM_FAIL;
+    }
+    FinalizeChrset(load_filter_log_import_flags, cip);
+    const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+    const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
+    const uint32_t xy_code = cip->xymt_codes[kChrOffsetXY];
+    const uint32_t force_male = (tip->sex_mode == 1);
+    const uint32_t force_female = (tip->sex_mode == 2);
+    uint32_t is_male = force_male;
+    uint32_t is_female = force_female;
+
+    // First pass: validate, count variants which pass the chromosome filter,
+    // and infer sex.
+    uint32_t variant_ct = 0;
+    uint32_t skipped_ct = 0;
+    uint32_t indel_ct = 0;
+    uint32_t x_present = 0;
+    uint32_t y_present = 0;
+    uint32_t nonmissing_y_present = 0;
+    uint32_t haploid_x_present = 0;
+    uint32_t cur_chr_code = 0;
+    uint32_t chr_code_seen = 0;
+    uintptr_t max_line_blen = 0;
+    while (1) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      if (IsEolnKns(*line_start) || (*line_start == '#')) {
+        continue;
+      }
+      const uintptr_t cur_line_blen = TextLineEnd(&txs) - line_start;
+      if (cur_line_blen > max_line_blen) {
+        max_line_blen = cur_line_blen;
+      }
+      char* id_end = CurTokenEnd(line_start);
+      char* chr_start = FirstNonTspace(id_end);
+      char* chr_end = CurTokenEnd(chr_start);
+      char* pos_start = FirstNonTspace(chr_end);
+      char* pos_end = CurTokenEnd(pos_start);
+      char* allele_start = FirstNonTspace(pos_end);
+      if (unlikely(IsEolnKns(*allele_start))) {
+        goto TwentythreeToPgen_ret_MISSING_TOKENS;
+      }
+      const uint32_t allele_calls = CurTokenEnd(allele_start) - allele_start;
+      if (unlikely(allele_calls > 2)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has more allele calls than expected.\n", line_idx, infile_name);
+        goto TwentythreeToPgen_ret_MALFORMED_INPUT_WW;
+      }
+      int32_t cur_bp;
+      if (unlikely(ScanIntAbsDefcap(pos_start, &cur_bp))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, infile_name);
+        goto TwentythreeToPgen_ret_MALFORMED_INPUT_WW;
+      }
+      const uint32_t chr_code = GetChrCodeCounted(cip, chr_end - chr_start, chr_start);
+      if (unlikely(IsI32Neg(chr_code))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, infile_name);
+        goto TwentythreeToPgen_ret_MALFORMED_INPUT_WW;
+      }
+      const uint32_t null_chrom = (chr_code == 0);
+      if (!null_chrom) {
+        if (unlikely(chr_code_seen && (chr_code < cur_chr_code))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Chromosomes in %s are out of order.\n", infile_name);
+          goto TwentythreeToPgen_ret_MALFORMED_INPUT_WW;
+        }
+        if ((!chr_code_seen) || (chr_code > cur_chr_code)) {
+          cur_chr_code = chr_code;
+          chr_code_seen = 1;
+          if (chr_code == x_code) {
+            x_present = 1;
+          } else if (chr_code == y_code) {
+            y_present = 1;
+          }
+        }
+      }
+      const char first_call = allele_start[0];
+      if ((!null_chrom) && (cur_chr_code == y_code) && (first_call != '-')) {
+        nonmissing_y_present = 1;
+      }
+      if (first_call != '-') {
+        if ((first_call == 'D') || (first_call == 'I')) {
+          ++indel_ct;
+        }
+      }
+      if (!null_chrom) {
+        if (unlikely((cur_chr_code == xy_code) && (allele_calls != 2))) {
+          goto TwentythreeToPgen_ret_MISSING_ALLELE_CALLS;
+        }
+        if ((allele_calls == 1) && (cur_chr_code <= x_code)) {
+          if (likely((cur_chr_code == x_code) && (!is_female))) {
+            is_male = 1;
+            haploid_x_present = 1;
+          } else {
+            goto TwentythreeToPgen_ret_MISSING_ALLELE_CALLS;
+          }
+        } else if ((cur_chr_code == y_code) && (first_call != '-') && (!is_male)) {
+          if (unlikely(is_female)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Nonmissing female allele call on line %" PRIuPTR " of %s.\n", line_idx, infile_name);
+            goto TwentythreeToPgen_ret_MALFORMED_INPUT_WW;
+          }
+          is_male = 1;
+        }
+      } else if (unlikely(allele_calls == 1)) {
+        goto TwentythreeToPgen_ret_MISSING_ALLELE_CALLS;
+      }
+      if (IsSet(cip->chr_mask, chr_code) && (cur_bp >= 0)) {
+        ++variant_ct;
+      } else {
+        ++skipped_ct;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto TwentythreeToPgen_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(!variant_ct)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: No --23file variants%s.\n", skipped_ct? " pass the chromosome filter" : "");
+      goto TwentythreeToPgen_ret_DEGENERATE_DATA;
+    }
+
+    reterr = TextRewind(&txs);
+    if (unlikely(reterr)) {
+      goto TwentythreeToPgen_ret_TSTREAM_REWIND_FAIL;
+    }
+    line_idx = 0;
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
+    const uint32_t output_zst = (import_flags / kfImportKeepAutoconvVzs) & 1;
+    if (output_zst) {
+      snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
+    }
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 64 + max_line_blen;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, 1, overflow_buf_size, &pvar_css, &pvar_cswritep);
+    if (unlikely(reterr)) {
+      goto TwentythreeToPgen_ret_1;
+    }
+    pvar_cswritep = strcpya_k(pvar_cswritep, "#CHROM\tPOS\tID\tREF\tALT");
+    AppendBinaryEoln(&pvar_cswritep);
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+    uintptr_t spgw_alloc_cacheline_ct;
+    uint32_t max_vrec_len;
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, 1, 0, kPgenWriteBackwardSeek, kfPgenGlobal0, 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
+      goto TwentythreeToPgen_ret_1;
+    }
+    unsigned char* spgw_alloc;
+    if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc))) {
+      goto TwentythreeToPgen_ret_NOMEM;
+    }
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
+    uintptr_t genovec[1];
+
+    uint32_t variant_idx = 0;
+    while (variant_idx != variant_ct) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        reterr = kPglRetRewindFail;
+        goto TwentythreeToPgen_ret_TSTREAM_REWIND_FAIL;
+      }
+      if (IsEolnKns(*line_start) || (*line_start == '#')) {
+        continue;
+      }
+      char* id_end = CurTokenEnd(line_start);
+      char* chr_start = FirstNonTspace(id_end);
+      char* chr_end = CurTokenEnd(chr_start);
+      char* pos_start = FirstNonTspace(chr_end);
+      char* pos_end = CurTokenEnd(pos_start);
+      char* allele_start = FirstNonTspace(pos_end);
+      const uint32_t allele_calls = CurTokenEnd(allele_start) - allele_start;
+      int32_t cur_bp;
+      ScanIntAbsDefcap(pos_start, &cur_bp);
+      const uint32_t chr_code = GetChrCodeCounted(cip, chr_end - chr_start, chr_start);
+      if ((!IsSet(cip->chr_mask, chr_code)) || (cur_bp < 0)) {
+        continue;
+      }
+
+      // ref_allele is the observed call; alt_allele is the second distinct
+      // call, or '\0' when there is none.  This matches the A2/A1 assignment
+      // PLINK 1.9 writes to its .bim.
+      char ref_allele = allele_start[0];
+      char alt_allele = '\0';
+      uintptr_t cur_geno;
+      if (ref_allele == '-') {
+        cur_geno = 3;
+        ref_allele = '\0';
+      } else if (allele_calls == 2) {
+        const char second_call = allele_start[1];
+        if (second_call == ref_allele) {
+          cur_geno = 0;
+        } else {
+          alt_allele = second_call;
+          cur_geno = 1;
+        }
+      } else {
+        cur_geno = 0;
+      }
+      if ((ref_allele == 'D') || (ref_allele == 'I')) {
+        // PLINK 1.9 fills in the complementary indel code, so that a
+        // homozygous D/I call still has two distinct allele codes.
+        alt_allele = S_CAST(char, S_CAST(unsigned char, ref_allele) ^ 13);
+      }
+
+      pvar_cswritep = chrtoa(cip, chr_code, pvar_cswritep);
+      *pvar_cswritep++ = '\t';
+      pvar_cswritep = u32toa_x(cur_bp, '\t', pvar_cswritep);
+      pvar_cswritep = memcpyax(pvar_cswritep, line_start, id_end - line_start, '\t');
+      if (ref_allele) {
+        *pvar_cswritep++ = ref_allele;
+      } else {
+        *pvar_cswritep++ = '.';
+      }
+      *pvar_cswritep++ = '\t';
+      if (alt_allele) {
+        *pvar_cswritep++ = alt_allele;
+      } else {
+        *pvar_cswritep++ = '.';
+      }
+      AppendBinaryEoln(&pvar_cswritep);
+      if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
+        goto TwentythreeToPgen_ret_WRITE_FAIL;
+      }
+
+      genovec[0] = cur_geno;
+      if (unlikely(SpgwAppendBiallelicGenovec(genovec, &spgw))) {
+        goto TwentythreeToPgen_ret_WRITE_FAIL;
+      }
+      ++variant_idx;
+    }
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto TwentythreeToPgen_ret_1;
+    }
+    if (unlikely(CswriteCloseNull(&pvar_css, pvar_cswritep))) {
+      goto TwentythreeToPgen_ret_WRITE_FAIL;
+    }
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &psamfile))) {
+      goto TwentythreeToPgen_ret_OPEN_FAIL;
+    }
+    char sex_char;
+    if (tip->sex_mode == 3) {
+      sex_char = '0';
+    } else if (is_male) {
+      sex_char = '1';
+    } else {
+      sex_char = '2';
+    }
+    fputs("#FID\tIID\tPAT\tMAT\tSEX\tPHENO1" EOLN_STR, psamfile);
+    fputs(tip->fid? tip->fid : "FAM001", psamfile);
+    putc_unlocked('\t', psamfile);
+    fputs(tip->iid? tip->iid : "ID001", psamfile);
+    putc_unlocked('\t', psamfile);
+    fputs(tip->paternal_id? tip->paternal_id : "0", psamfile);
+    putc_unlocked('\t', psamfile);
+    fputs(tip->maternal_id? tip->maternal_id : "0", psamfile);
+    putc_unlocked('\t', psamfile);
+    putc_unlocked(sex_char, psamfile);
+    putc_unlocked('\t', psamfile);
+    if (tip->pheno == -9.0) {
+      fputs("NA", psamfile);
+    } else {
+      char pheno_str[kMaxDoubleGSlen + 1];
+      char* pheno_str_end = dtoa_g(tip->pheno, pheno_str);
+      fwrite(pheno_str, pheno_str_end - pheno_str, 1, psamfile);
+    }
+    fputs(EOLN_STR, psamfile);
+    if (unlikely(fclose_null(&psamfile))) {
+      goto TwentythreeToPgen_ret_WRITE_FAIL;
+    }
+    *psam_generated_ptr = 1;
+
+    *outname_end = '\0';
+    logprintfww("--23file: %s.pgen + %s.pvar%s + %s.psam written.\n", outname, outname, output_zst? ".zst" : "", outname);
+    if (indel_ct) {
+      logprintf("%u variant%s with indel calls present. '--snps-only just-acgt' may be useful\nhere.\n", indel_ct, (indel_ct == 1)? "" : "s");
+    }
+    if (!tip->sex_mode) {
+      logprintf("Inferred sex: %smale.\n", is_male? "" : "fe");
+    }
+    if (force_male && y_present && (!nonmissing_y_present)) {
+      if (x_present) {
+        if (!haploid_x_present) {
+          logerrputs("Warning: No explicit haploid calls on chrX, and no nonmissing calls on chrY.\nDouble-check whether this is really a male sample.\n");
+        }
+      } else {
+        logerrputs("Warning: No nonmissing calls on chrY. Double-check whether this is really a\nmale sample.\n");
+      }
+    }
+  }
+  while (0) {
+  TwentythreeToPgen_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  TwentythreeToPgen_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  TwentythreeToPgen_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(infile_name, &txs);
+    break;
+  TwentythreeToPgen_ret_TSTREAM_REWIND_FAIL:
+    TextStreamErrPrintRewind(infile_name, &txs, &reterr);
+    break;
+  TwentythreeToPgen_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  TwentythreeToPgen_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, infile_name);
+    goto TwentythreeToPgen_ret_MALFORMED_INPUT_WW;
+  TwentythreeToPgen_ret_MISSING_ALLELE_CALLS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer allele calls than expected.\n", line_idx, infile_name);
+  TwentythreeToPgen_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  TwentythreeToPgen_ret_DEGENERATE_DATA:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetDegenerateData;
+    break;
+  }
+ TwentythreeToPgen_ret_1:
+  CswriteCloseCond(&pvar_css, pvar_cswritep);
+  CleanupSpgw(&spgw, &reterr);
+  fclose_cond(psamfile);
+  CleanupTextStream2(infile_name, &txs, &reterr);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 
