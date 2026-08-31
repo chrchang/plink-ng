@@ -33,6 +33,7 @@
 #include "include/plink2_thread.h"
 #include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
+#include "plink2_matrix.h"
 #include "plink2_filter.h"
 #include "plink2_set.h"
 
@@ -2527,6 +2528,460 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
   return reterr;
 }
 
+// --indep: PLINK 1.x's variance-inflation-factor pruner.  Within each window,
+// pairs in near-perfect LD are removed first, then the variant with the
+// largest diagonal entry of the inverted correlation matrix (its VIF) is
+// removed as long as that entry exceeds the threshold.
+//
+// Unlike IndepPairwise(), this recomputes each window's correlations from
+// scratch rather than carrying them across window slides.  The values are
+// identical either way, since a pair's correlation does not depend on which
+// window it is seen in; this trades some speed for a much simpler
+// implementation.  It is also single-threaded.
+// Pearson correlation between two window entries, computed the way PLINK 1.9's
+// ld_prune() does: integer accumulators, pairwise-complete.
+static double IndepVifCorr(const int8_t* genos, const uintptr_t* nm_bitvecs, uintptr_t geno_stride, uintptr_t nm_stride, const uint32_t* nm_cts, const int32_t* sums, const double* variance_recips, uint32_t founder_ct, uint32_t ii, uint32_t jj) {
+  const int8_t* geno_i = &(genos[ii * geno_stride]);
+  const int8_t* geno_j = &(genos[jj * geno_stride]);
+  if ((nm_cts[ii] == founder_ct) && (nm_cts[jj] == founder_ct)) {
+    int64_t dotprod = 0;
+    for (uint32_t uii = 0; uii != founder_ct; ++uii) {
+      dotprod += S_CAST(int32_t, geno_i[uii]) * S_CAST(int32_t, geno_j[uii]);
+    }
+    const double cov12 = S_CAST(double, dotprod) * S_CAST(double, S_CAST(int64_t, founder_ct)) - S_CAST(double, sums[ii]) * S_CAST(double, sums[jj]);
+    return cov12 * sqrt(variance_recips[ii] * variance_recips[jj]);
+  }
+  const uintptr_t* nm_i = &(nm_bitvecs[ii * nm_stride]);
+  const uintptr_t* nm_j = &(nm_bitvecs[jj * nm_stride]);
+  int64_t dotprod = 0;
+  int64_t sum_i = 0;
+  int64_t sum_j = 0;
+  int64_t ssq_i = 0;
+  int64_t ssq_j = 0;
+  uint32_t nm_ct = 0;
+  for (uint32_t uii = 0; uii != founder_ct; ++uii) {
+    if (!(IsSet(nm_i, uii) && IsSet(nm_j, uii))) {
+      continue;
+    }
+    const int32_t xi = geno_i[uii];
+    const int32_t xj = geno_j[uii];
+    dotprod += xi * xj;
+    sum_i += xi;
+    sum_j += xj;
+    ssq_i += xi * xi;
+    ssq_j += xj * xj;
+    ++nm_ct;
+  }
+  if (nm_ct < 2) {
+    // PLINK 1.9 forces a prune when the correlation is 0/0.
+    return 1.0;
+  }
+  const double nm_ctd = u31tod(nm_ct);
+  const double sum_id = S_CAST(double, sum_i);
+  const double sum_jd = S_CAST(double, sum_j);
+  const double cov12 = S_CAST(double, dotprod) * nm_ctd - sum_id * sum_jd;
+  const double denom = (S_CAST(double, -ssq_i) * nm_ctd + sum_id * sum_id) * (S_CAST(double, -ssq_j) * nm_ctd + sum_jd * sum_jd);
+  if (denom <= 0.0) {
+    return 1.0;
+  }
+  return cov12 * sqrt(1.0 / denom);
+}
+
+// Fills the correlation submatrix over the window entries listed in
+// idx_remap[0..dim), with 1.0 on the diagonal, then inverts it.  Returns 1 if
+// the matrix is singular.
+static BoolErr IndepVifInvertSub(const double* corr_matrix, const uint32_t* idx_remap, uintptr_t window_max, uint32_t dim, double* sub_matrix, MatrixInvertBuf1* invert_buf1, double* invert_buf2) {
+  sub_matrix[0] = 1.0;
+  for (uint32_t uii = 1; uii != dim; ++uii) {
+    const uint32_t ukk = idx_remap[uii];
+    for (uint32_t ujj = 0; ujj != uii; ++ujj) {
+      const double dxx = corr_matrix[idx_remap[ujj] * window_max + ukk];
+      sub_matrix[ujj * dim + uii] = dxx;
+      sub_matrix[uii * dim + ujj] = dxx;
+    }
+    sub_matrix[uii * (dim + 1)] = 1.0;
+  }
+  return InvertMatrixChecked(dim, sub_matrix, invert_buf1, invert_buf2);
+}
+
+PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t window_is_bp = (ldip->prune_flags / kfLdPruneWindowBp) & 1;
+    const uint32_t prune_window_size = ldip->prune_window_size;
+    const uint32_t prune_window_incr = ldip->prune_window_incr;
+    const double vif_thresh = ldip->prune_last_param;
+    // PLINK 1.9 pre-prunes pairs in near-perfect LD before the VIF loop, to
+    // keep the correlation matrix invertible.
+    const double perfect_ld_thresh = 0.999999;
+
+    // Upper bound on window occupancy.
+    uintptr_t window_max = prune_window_size;
+    if (window_is_bp) {
+      window_max = 1;
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
+      uint32_t chr_fo_idx = UINT32_MAX;
+      uint32_t chr_end = 0;
+      uint32_t window_start_idx = 0;
+      uint32_t* window_bps;
+      if (unlikely(bigstack_alloc_u32(variant_ct, &window_bps))) {
+        goto IndepVif_ret_NOMEM;
+      }
+      uint32_t cur_ct = 0;
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        if (variant_uidx >= chr_end) {
+          do {
+            ++chr_fo_idx;
+            chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          } while (variant_uidx >= chr_end);
+          window_start_idx = cur_ct;
+        }
+        window_bps[cur_ct++] = variant_bps[variant_uidx];
+        while ((window_start_idx < cur_ct) && (window_bps[cur_ct - 1] > window_bps[window_start_idx] + 1000 * prune_window_size)) {
+          ++window_start_idx;
+        }
+        if (cur_ct - window_start_idx > window_max) {
+          window_max = cur_ct - window_start_idx;
+        }
+      }
+      BigstackReset(window_bps);
+    }
+    if (window_max < 2) {
+      window_max = 2;
+    }
+
+    const uintptr_t founder_ctl = BitCtToWordCt(founder_ct);
+    const uintptr_t geno_stride = RoundUpPow2(founder_ct, kBytesPerVec);
+    const uintptr_t nm_stride = founder_ctl;
+    int8_t* genos;
+    uintptr_t* nm_bitvecs;
+    uint32_t* nm_cts;
+    int32_t* sums;
+    double* variance_recips;
+    double* mafs;
+    uint32_t* variant_uidxs;
+    uint32_t* collapsed_idxs;
+    unsigned char* dropped;
+    double* corr_matrix;
+    double* sub_matrix;
+    uint32_t* idx_remap;
+    uintptr_t* genovec;
+    MatrixInvertBuf1* invert_buf1;
+    double* invert_buf2;
+    if (unlikely(BIGSTACK_ALLOC_X(int8_t, window_max * geno_stride, &genos) ||
+                 bigstack_alloc_w(window_max * nm_stride, &nm_bitvecs) ||
+                 bigstack_alloc_u32(window_max, &nm_cts) ||
+                 bigstack_alloc_i32(window_max, &sums) ||
+                 bigstack_alloc_d(window_max, &variance_recips) ||
+                 bigstack_alloc_d(window_max, &mafs) ||
+                 bigstack_alloc_u32(window_max, &variant_uidxs) ||
+                 bigstack_alloc_u32(window_max, &collapsed_idxs) ||
+                 BIGSTACK_ALLOC_X(unsigned char, window_max, &dropped) ||
+                 bigstack_alloc_d(window_max * window_max, &corr_matrix) ||
+                 bigstack_alloc_d(window_max * window_max, &sub_matrix) ||
+                 bigstack_alloc_u32(window_max, &idx_remap) ||
+                 bigstack_alloc_w(NypCtToWordCt(founder_ct), &genovec) ||
+                 BIGSTACK_ALLOC_X(MatrixInvertBuf1, kMatrixInvertBuf1CheckedAlloc * window_max, &invert_buf1) ||
+                 bigstack_alloc_d(window_max * window_max, &invert_buf2))) {
+      goto IndepVif_ret_NOMEM;
+    }
+
+    // Collapsed index of each retained variant, so we can set bits in
+    // removed_variants_collapsed.
+    uint32_t* variant_idx_of_uidx;
+    if (unlikely(bigstack_alloc_u32(raw_variant_ct, &variant_idx_of_uidx))) {
+      goto IndepVif_ret_NOMEM;
+    }
+    {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        variant_idx_of_uidx[variant_uidx] = variant_idx;
+      }
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uint32_t* founder_info_cumulative_popcounts;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts))) {
+      goto IndepVif_ret_NOMEM;
+    }
+    FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
+    uintptr_t* founder_male_collapsed;
+    if (unlikely(bigstack_alloc_w(founder_ctl, &founder_male_collapsed))) {
+      goto IndepVif_ret_NOMEM;
+    }
+    CopyBitarrSubset(sex_male, founder_info, founder_ct, founder_male_collapsed);
+    ZeroTrailingBits(founder_ct, founder_male_collapsed);
+    const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
+
+    const uint32_t chr_ct = cip->chr_ct;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      const uint32_t is_x = (chr_idx == x_code);
+      // chrX is in haploid_mask, but only males are haploid there.
+      const uint32_t is_fully_haploid = IsSet(cip->haploid_mask, chr_idx) && (!is_x);
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      // Collect this chromosome's variant uidxs.
+      uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+      if (chr_variant_ct < 2) {
+        continue;
+      }
+      uint32_t* chr_uidxs;
+      if (unlikely(bigstack_end_alloc_u32(chr_variant_ct, &chr_uidxs))) {
+        goto IndepVif_ret_NOMEM;
+      }
+      {
+        uintptr_t variant_uidx_base;
+        uintptr_t cur_bits;
+        BitIter1Start(variant_include, chr_vidx_start, &variant_uidx_base, &cur_bits);
+        for (uint32_t uii = 0; uii != chr_variant_ct; ++uii) {
+          chr_uidxs[uii] = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        }
+      }
+
+      uint32_t window_start = 0;
+      while (window_start < chr_variant_ct) {
+        // Determine window membership.
+        uint32_t window_end = window_start;
+        if (!window_is_bp) {
+          window_end = window_start + prune_window_size;
+          if (window_end > chr_variant_ct) {
+            window_end = chr_variant_ct;
+          }
+        } else {
+          const uint32_t bp_limit = variant_bps[chr_uidxs[window_start]] + 1000 * prune_window_size;
+          while ((window_end < chr_variant_ct) && (variant_bps[chr_uidxs[window_end]] <= bp_limit)) {
+            ++window_end;
+          }
+        }
+        uint32_t cur_window_size = 0;
+        for (uint32_t uii = window_start; uii != window_end; ++uii) {
+          const uint32_t variant_uidx = chr_uidxs[uii];
+          const uint32_t collapsed_idx = variant_idx_of_uidx[variant_uidx];
+          if (IsSet(removed_variants_collapsed, collapsed_idx)) {
+            continue;
+          }
+          variant_uidxs[cur_window_size] = variant_uidx;
+          collapsed_idxs[cur_window_size] = collapsed_idx;
+          ++cur_window_size;
+        }
+        if (cur_window_size > 1) {
+          // Load and recode.
+          for (uint32_t widx = 0; widx != cur_window_size; ++widx) {
+            const uint32_t variant_uidx = variant_uidxs[widx];
+            reterr = PgrGet(founder_info, pssi, founder_ct, variant_uidx, simple_pgrp, genovec);
+            if (unlikely(reterr)) {
+              PgenErrPrintNV(reterr, variant_uidx);
+              goto IndepVif_ret_1;
+            }
+            ZeroTrailingNyps(founder_ct, genovec);
+            uintptr_t allele_idx_offset_base = 2 * variant_uidx;
+            if (allele_idx_offsets) {
+              allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+            }
+            const double ref_freq = allele_freqs[allele_idx_offset_base - variant_uidx];
+            const double maj_freq = (ref_freq >= 0.5)? ref_freq : (1.0 - ref_freq);
+            mafs[widx] = 1.0 - maj_freq;
+            // +1 for homozygous-major, -1 for homozygous-minor, matching the
+            // -1/0/1 recoding PLINK 1.9 uses.
+            const uint32_t maj_is_ref = (maj_alleles[variant_uidx] == 0);
+            int8_t* cur_genos = &(genos[widx * geno_stride]);
+            uintptr_t* cur_nm = &(nm_bitvecs[widx * nm_stride]);
+            ZeroWArr(nm_stride, cur_nm);
+            int32_t sum = 0;
+            uint32_t ssq = 0;
+            uint32_t nm_ct = 0;
+            for (uint32_t sample_idx = 0; sample_idx != founder_ct; ++sample_idx) {
+              const uintptr_t cur_geno = GetNyparrEntry(genovec, sample_idx);
+              int8_t code;
+              // PLINK 1.x treats heterozygous haploid calls as missing here.
+              const uint32_t is_hethap = (cur_geno == 1) && (is_fully_haploid || (is_x && IsSet(founder_male_collapsed, sample_idx)));
+              if ((cur_geno == 3) || is_hethap) {
+                code = 0;
+              } else {
+                if (cur_geno == 1) {
+                  code = 0;
+                } else if (cur_geno == 0) {
+                  code = maj_is_ref? 1 : -1;
+                } else {
+                  code = maj_is_ref? -1 : 1;
+                }
+                SetBit(sample_idx, cur_nm);
+                ++nm_ct;
+                sum += code;
+                ssq += (code != 0);
+              }
+              cur_genos[sample_idx] = code;
+            }
+            nm_cts[widx] = nm_ct;
+            sums[widx] = sum;
+            if (nm_ct == founder_ct) {
+              const int64_t denom = S_CAST(int64_t, ssq) * founder_ct - S_CAST(int64_t, sum) * sum;
+              variance_recips[widx] = denom? (1.0 / S_CAST(double, denom)) : 0.0;
+            } else {
+              variance_recips[widx] = 0.0;
+            }
+            dropped[widx] = 0;
+            // Monomorphic (or all-missing) variants can't participate.
+            if ((nm_ct < 2) || (S_CAST(int64_t, ssq) * nm_ct == S_CAST(int64_t, sum) * sum)) {
+              dropped[widx] = 1;
+              if (!IsSet(removed_variants_collapsed, collapsed_idxs[widx])) {
+                SetBit(collapsed_idxs[widx], removed_variants_collapsed);
+              }
+            }
+          }
+
+          // Correlation matrix for the surviving entries.
+          for (uint32_t ii = 0; ii != cur_window_size; ++ii) {
+            if (dropped[ii]) {
+              continue;
+            }
+            for (uint32_t jj = ii + 1; jj != cur_window_size; ++jj) {
+              if (dropped[jj]) {
+                continue;
+              }
+              double rr = IndepVifCorr(genos, nm_bitvecs, geno_stride, nm_stride, nm_cts, sums, variance_recips, founder_ct, ii, jj);
+              if (rr != rr) {
+                rr = 1.0;
+              }
+              corr_matrix[ii * window_max + jj] = rr;
+              corr_matrix[jj * window_max + ii] = rr;
+            }
+          }
+
+          // Pass 1: drop near-perfect-LD pairs, keeping the higher-MAF member.
+          uint32_t at_least_one_prune;
+          do {
+            at_least_one_prune = 0;
+            for (uint32_t ii = 0; ii + 1 < cur_window_size; ++ii) {
+              if (dropped[ii]) {
+                continue;
+              }
+              for (uint32_t jj = ii + 1; jj != cur_window_size; ++jj) {
+                if (dropped[jj]) {
+                  continue;
+                }
+                if (corr_matrix[ii * window_max + jj] > perfect_ld_thresh) {
+                  at_least_one_prune = 1;
+                  uint32_t victim;
+                  if (mafs[ii] < (1 - kSmallEpsilon) * mafs[jj]) {
+                    victim = ii;
+                  } else {
+                    victim = jj;
+                  }
+                  dropped[victim] = 1;
+                  if (!IsSet(removed_variants_collapsed, collapsed_idxs[victim])) {
+                SetBit(collapsed_idxs[victim], removed_variants_collapsed);
+                  }
+                  if (victim == ii) {
+                    break;
+                  }
+                }
+              }
+            }
+          } while (at_least_one_prune);
+
+          // Pass 2: VIF loop.
+          uint32_t window_rem = 0;
+          for (uint32_t ii = 0; ii != cur_window_size; ++ii) {
+            if (!dropped[ii]) {
+              idx_remap[window_rem++] = ii;
+            }
+          }
+          while (window_rem > 1) {
+            while (IndepVifInvertSub(corr_matrix, idx_remap, window_max, window_rem, sub_matrix, invert_buf1, invert_buf2)) {
+              // Singular: binary-search for the shortest leading submatrix
+              // that is still invertible, then drop the row/column just past
+              // it, exactly as PLINK 1.9 does.
+              uint32_t bsearch_min = 0;
+              uint32_t bsearch_max = window_rem - 1;
+              while (bsearch_min < bsearch_max) {
+                const uint32_t bsearch_cur = (bsearch_min + bsearch_max) / 2;
+                if (!bsearch_cur) {
+                  bsearch_min = 1;
+                  continue;
+                }
+                if (!IndepVifInvertSub(corr_matrix, idx_remap, window_max, bsearch_cur, sub_matrix, invert_buf1, invert_buf2)) {
+                  bsearch_min = bsearch_cur + 1;
+                } else {
+                  bsearch_max = bsearch_cur;
+                }
+              }
+              const uint32_t victim_widx = idx_remap[bsearch_min];
+              dropped[victim_widx] = 1;
+              if (!IsSet(removed_variants_collapsed, collapsed_idxs[victim_widx])) {
+                SetBit(collapsed_idxs[victim_widx], removed_variants_collapsed);
+              }
+              --window_rem;
+              for (uint32_t uii = bsearch_min; uii != window_rem; ++uii) {
+                idx_remap[uii] = idx_remap[uii + 1];
+              }
+              if (window_rem < 2) {
+                break;
+              }
+            }
+            if (window_rem < 2) {
+              break;
+            }
+            double max_vif = sub_matrix[0];
+            uint32_t max_idx = 0;
+            for (uint32_t uii = 1; uii != window_rem; ++uii) {
+              const double cur_vif = sub_matrix[uii * (window_rem + 1)];
+              if (cur_vif > max_vif) {
+                max_vif = cur_vif;
+                max_idx = uii;
+              }
+            }
+            if (max_vif <= vif_thresh) {
+              break;
+            }
+            const uint32_t victim_widx = idx_remap[max_idx];
+            dropped[victim_widx] = 1;
+            if (!IsSet(removed_variants_collapsed, collapsed_idxs[victim_widx])) {
+                SetBit(collapsed_idxs[victim_widx], removed_variants_collapsed);
+            }
+            --window_rem;
+            for (uint32_t uii = max_idx; uii != window_rem; ++uii) {
+              idx_remap[uii] = idx_remap[uii + 1];
+            }
+          }
+        }
+
+        // Advance.
+        if (window_end == chr_variant_ct) {
+          break;
+        }
+        uint32_t next_start;
+        if (!window_is_bp) {
+          next_start = window_start + prune_window_incr;
+        } else {
+          next_start = window_start + prune_window_incr;
+        }
+        if (next_start <= window_start) {
+          next_start = window_start + 1;
+        }
+        window_start = next_start;
+      }
+      BigstackEndReset(g_bigstack_end);
+    }
+  }
+  while (0) {
+  IndepVif_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  }
+ IndepVif_ret_1:
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const LdInfo* ldip, const char* indep_preferred_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t nosex_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   // common initialization between --indep-pairwise and --indep-pairphase
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -2534,8 +2989,10 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t is_pairphase = (ldip->prune_flags / kfLdPrunePairphase) & 1;
+    const uint32_t is_vif = (ldip->prune_flags / kfLdPruneVif) & 1;
+    const char* prune_flagname = is_vif? "--indep" : (is_pairphase? "--indep-pairphase" : "--indep-pairwise");
     if (founder_ct < 2) {
-      logerrprintfww("Error: --indep-pair%s requires at least two founders. (--make-founders may come in handy here.)\n", is_pairphase? "phase" : "wise");
+      logerrprintfww("Error: %s requires at least two founders. (--make-founders may come in handy here.)\n", prune_flagname);
       goto LdPrune_ret_INCONSISTENT_INPUT;
     }
     uint32_t skipped_variant_ct;
@@ -2544,7 +3001,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       goto LdPrune_ret_NOMEM;
     }
     if (skipped_variant_ct) {
-      logprintf("--indep-pair%s: Ignoring %u chromosome 0 variant%s.\n", is_pairphase? "phase" : "wise", skipped_variant_ct, (skipped_variant_ct == 1)? "" : "s");
+      logprintf("%s: Ignoring %u chromosome 0 variant%s.\n", prune_flagname, skipped_variant_ct, (skipped_variant_ct == 1)? "" : "s");
       variant_ct -= skipped_variant_ct;
     }
 
@@ -2588,7 +3045,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
         }
       }
       if (unlikely(dup_found)) {
-        logerrprintfww("Error: --indep-pair%s requires unique variant IDs. (--set-all-var-ids and/or --rm-dup may help.)\n", is_pairphase? "phase" : "wise");
+        logerrprintfww("Error: %s requires unique variant IDs. (--set-all-var-ids and/or --rm-dup may help.)\n", prune_flagname);
         goto LdPrune_ret_INCONSISTENT_INPUT;
       }
       if (preferred_variants) {
@@ -2694,7 +3151,9 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       }
       BigstackEndReset(bigstack_end_mark);
 
-      if (is_pairphase) {
+      if (is_vif) {
+        reterr = IndepVif(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, sex_male, ldip, raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, simple_pgrp, removed_variants_collapsed);
+      } else if (is_pairphase) {
         reterr = IndepPairphase(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, founder_nonfemale, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, founder_nonfemale_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
       } else {
         reterr = IndepPairwise(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, founder_nonfemale, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, founder_nonfemale_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);

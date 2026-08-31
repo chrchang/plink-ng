@@ -7235,7 +7235,7 @@ int main(int argc, char** argv) {
           if (!id_delim) {
             id_delim = '_';
           }
-        } else if (strequal_k_unsafe(flagname_p2, "ndep-pairwise") || strequal_k_unsafe(flagname_p2, "ndep-pairphase")) {
+        } else if (strequal_k_unsafe(flagname_p2, "ndep-pairwise") || strequal_k_unsafe(flagname_p2, "ndep-pairphase") || strequal_k_unsafe(flagname_p2, "ndep")) {
           if (unlikely(pc.command_flags1 & kfCommand1LdPrune)) {
             logerrputs("Error: Multiple LD pruning commands.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -7300,13 +7300,25 @@ int main(int argc, char** argv) {
             pc.ld_info.prune_window_incr = 1;
           }
           cur_modif = argvk[arg_idx + param_ct];
-          if (unlikely((!ScantokDouble(cur_modif, &pc.ld_info.prune_last_param)) || (pc.ld_info.prune_last_param < 0.0) || (pc.ld_info.prune_last_param >= 1.0))) {
+          const uint32_t is_vif = (flagname_p2[4] == '\0');
+          if (is_vif) {
+            if (unlikely(!ScantokDouble(cur_modif, &pc.ld_info.prune_last_param))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --indep VIF threshold '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            if (unlikely(pc.ld_info.prune_last_param < 1.0)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --indep VIF threshold '%s' too small (must be >= 1).\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          } else if (unlikely((!ScantokDouble(cur_modif, &pc.ld_info.prune_last_param)) || (pc.ld_info.prune_last_param < 0.0) || (pc.ld_info.prune_last_param >= 1.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s r^2 threshold '%s'.\n", flagname_p, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.command_flags1 |= kfCommand1LdPrune;
           pc.dependency_flags |= kfFilterAllReq;
-          if (flagname_p2[9] == 'p') {
+          if (is_vif) {
+            pc.ld_info.prune_flags |= kfLdPruneVif;
+          } else if (flagname_p2[9] == 'p') {
             pc.ld_info.prune_flags |= kfLdPrunePairphase;
           } else {
             pc.ld_info.prune_flags |= kfLdPrunePairwise;

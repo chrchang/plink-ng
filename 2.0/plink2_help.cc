@@ -946,11 +946,17 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      Note that 'base='/'ids='/'file=' must be positioned after all modifiers.\n\n"
               );
     HelpPrint("indep\0indep-pairwise\0indep-pairphase\0", &help_ctrl, 1,
+"  --indep <window size>['kb'] [step size (variant ct)] <VIF threshold>\n"
 "  --indep-pairwise <window size>['kb'] [step size (variant ct)]\n"
 "                   <unphased-hardcall-r^2 threshold>\n"
 "  --indep-pairphase <window size>['kb'] [step size (variant ct)]\n"
 "                    <haplotype r^2 threshold>\n"
 "    Generate a list of variants in approximate linkage equilibrium.\n"
+"    * --indep is PLINK 1.x's multicollinearity-based pruner: within each\n"
+"      window, it repeatedly removes the variant with the largest variance\n"
+"      inflation factor until none exceeds the threshold.  It is currently\n"
+"      single-threaded and recomputes each window from scratch, so it is\n"
+"      considerably slower than --indep-pairwise.\n"
 "    * --indep-pairphase requires all genotypes to be phased, and performs a\n"
 "      haplotype- instead of genotype-based calculation.\n"
 "    * For multiallelic variants, major allele counts are used in the r^2\n"
