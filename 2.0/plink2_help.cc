@@ -815,6 +815,28 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    maybefid/fid/maybesid/sid to the .imendel output file; and\n"
 "    chrom/pos/ref/alt to the .lmendel[.zst] output file.\n\n"
               );
+    HelpPrint("ibc\0", &help_ctrl, 1,
+"  --ibc ['zs'] ['cols='<column set descriptor>]\n"
+"    Report GCTA's three inbreeding-coefficient estimators (Yang J, Lee SH,\n"
+"    Goddard ME, Visscher PM (2011) GCTA: A Tool for Genome-wide Complex Trait\n"
+"    Analysis), as PLINK 1.9's --ibc did.\n"
+"    * Like --het, this requires decent MAF estimates and a variant set in\n"
+"      approximate linkage equilibrium, and only autosomal biallelic variants\n"
+"      are used.\n"
+"    * Monomorphic variants are skipped, since the estimators are undefined\n"
+"      there.  (PLINK 1.9 kept them in the denominator.)\n"
+"    Supported column sets are:\n"
+"      maybefid: FID, if that column was present in the input.\n"
+"      fid: Force FID column to be written even when absent in the input.\n"
+"      (IID is always present, and positioned here.)\n"
+"      maybesid: SID, if that column was present in the input.\n"
+"      sid: Force SID column to be written even when absent in the input.\n"
+"      nobs: Number of (nonmissing) genotype observations.\n"
+"      fhat1: Variance-standardized relationship minus 1.\n"
+"      fhat2: Excess homozygosity.\n"
+"      fhat3: Correlation between uniting gametes.\n"
+"    The default is maybefid,maybesid,nobs,fhat1,fhat2,fhat3.\n\n"
+              );
     HelpPrint("het\0", &help_ctrl, 1,
 "  --het ['zs'] ['small-sample'] ['cols='<column set descriptor>]\n"
 "    Inbreeding coefficient report.  Supports multiallelic variants.\n"

@@ -10763,6 +10763,240 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
   return reterr;
 }
 
+// GCTA's three inbreeding-coefficient estimators, as in PLINK 1.9's --ibc.
+// With p = REF allele frequency and x = the sample's REF allele count at a
+// variant, the per-variant terms are
+//   Fhat1: (x - 2p)^2 / (2p(1-p))
+//   Fhat2: 2, except 2 - 1/(2p(1-p)) for a heterozygous call
+//   Fhat3: 1 + (1-p)/p for x=2, 0 for x=1, 1 + p/(1-p) for x=0
+// and each reported value is the mean of its terms over the sample's
+// nonmissing calls, minus 1.  All three are invariant under swapping the
+// reference allele, so the REF/ALT orientation does not matter.
+PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, IbcFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  PglErr reterr = kPglRetSuccess;
+  {
+    if (unlikely(IsSet(cip->haploid_mask, 0))) {
+      logerrputs("Error: --ibc cannot be used on haploid genomes.\n");
+      goto IbcReport_ret_INCONSISTENT_INPUT;
+    }
+    if (unlikely(!allele_freqs)) {
+      logerrputs("Error: --ibc requires allele frequencies.\n");
+      goto IbcReport_ret_INCONSISTENT_INPUT;
+    }
+    const uintptr_t* autosomal_variant_include = orig_variant_include;
+    uint32_t autosomal_variant_ct = orig_variant_ct;
+    reterr = ConditionalAllocateNonAutosomalVariants(cip, "--ibc", raw_variant_ct, &autosomal_variant_include, &autosomal_variant_ct);
+    if (unlikely(reterr)) {
+      goto IbcReport_ret_1;
+    }
+    if (unlikely(!autosomal_variant_ct)) {
+      logerrputs("Error: --ibc requires at least one autosomal variant.\n");
+      goto IbcReport_ret_INCONSISTENT_INPUT;
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uint32_t* sample_include_cumulative_popcounts;
+    uintptr_t* genovec;
+    double* fhat1_sums;
+    double* fhat2_sums;
+    double* fhat3_sums;
+    uint32_t* nobs;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec) ||
+                 bigstack_calloc_d(sample_ct, &fhat1_sums) ||
+                 bigstack_calloc_d(sample_ct, &fhat2_sums) ||
+                 bigstack_calloc_d(sample_ct, &fhat3_sums) ||
+                 bigstack_calloc_u32(sample_ct, &nobs))) {
+      goto IbcReport_ret_NOMEM;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = autosomal_variant_include[0];
+    uint32_t allele_ct = 2;
+    uint32_t monomorphic_ct = 0;
+    uint32_t multiallelic_ct = 0;
+    uint32_t used_variant_ct = 0;
+    for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(autosomal_variant_include, &variant_uidx_base, &cur_bits);
+      uintptr_t allele_idx_offset_base = 2 * variant_uidx;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+      }
+      if (allele_ct != 2) {
+        // GCTA's estimators are only defined for biallelic variants.
+        ++multiallelic_ct;
+        continue;
+      }
+      const double ref_freq = allele_freqs[allele_idx_offset_base - variant_uidx];
+      if ((ref_freq <= 0.0) || (ref_freq >= 1.0)) {
+        // PLINK 1.9 emits infinities here.  Skipping is consistent with what
+        // --het already does, and keeps the output usable.
+        ++monomorphic_ct;
+        continue;
+      }
+      reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto IbcReport_ret_1;
+      }
+      ZeroTrailingNyps(sample_ct, genovec);
+      ++used_variant_ct;
+
+      const double two_p = 2 * ref_freq;
+      const double inv_denom = 1.0 / (two_p * (1.0 - ref_freq));
+      const double f1_hom_ref = (2.0 - two_p) * (2.0 - two_p) * inv_denom;
+      const double f1_het = (1.0 - two_p) * (1.0 - two_p) * inv_denom;
+      const double f1_hom_alt = two_p * two_p * inv_denom;
+      const double f2_het = 2.0 - inv_denom;
+      const double f3_hom_ref = 1.0 + (1.0 - ref_freq) / ref_freq;
+      const double f3_hom_alt = 1.0 + ref_freq / (1.0 - ref_freq);
+
+      uint32_t sample_idx = 0;
+      for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+        uintptr_t geno_word = genovec[widx];
+        const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
+        for (; sample_idx != idx_stop; ++sample_idx) {
+          const uintptr_t cur_geno = geno_word & 3;
+          geno_word >>= 2;
+          if (cur_geno == 3) {
+            continue;
+          }
+          ++nobs[sample_idx];
+          if (cur_geno == 0) {
+            fhat1_sums[sample_idx] += f1_hom_ref;
+            fhat2_sums[sample_idx] += 2.0;
+            fhat3_sums[sample_idx] += f3_hom_ref;
+          } else if (cur_geno == 1) {
+            fhat1_sums[sample_idx] += f1_het;
+            fhat2_sums[sample_idx] += f2_het;
+          } else {
+            fhat1_sums[sample_idx] += f1_hom_alt;
+            fhat2_sums[sample_idx] += 2.0;
+            fhat3_sums[sample_idx] += f3_hom_alt;
+          }
+        }
+      }
+    }
+    if (unlikely(!used_variant_ct)) {
+      logerrputs("Error: --ibc: No usable variants.\n");
+      goto IbcReport_ret_INCONSISTENT_INPUT;
+    }
+    if (monomorphic_ct) {
+      logprintf("--ibc: %u monomorphic variant%s skipped.\n", monomorphic_ct, (monomorphic_ct == 1)? "" : "s");
+    }
+    if (multiallelic_ct) {
+      logprintf("--ibc: %u multiallelic variant%s skipped.\n", multiallelic_ct, (multiallelic_ct == 1)? "" : "s");
+    }
+
+    const uint32_t output_zst = flags & kfIbcZs;
+    OutnameZstSet(".ibc", output_zst, outname_end);
+    reterr = InitCstreamAlloc(outname, 0, output_zst, 1, 2 * kCompressStreamBlock, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto IbcReport_ret_1;
+    }
+    *cswritep++ = '#';
+    const uint32_t col_fid = FidColIsRequired(siip, flags / kfIbcColMaybefid);
+    if (col_fid) {
+      cswritep = strcpya_k(cswritep, "FID\t");
+    }
+    cswritep = strcpya_k(cswritep, "IID");
+    const uint32_t col_sid = SidColIsRequired(siip->sids, flags / kfIbcColMaybesid);
+    if (col_sid) {
+      cswritep = strcpya_k(cswritep, "\tSID");
+    }
+    const uint32_t col_nobs = (flags / kfIbcColNobs) & 1;
+    if (col_nobs) {
+      cswritep = strcpya_k(cswritep, "\tOBS_CT");
+    }
+    const uint32_t col_fhat1 = (flags / kfIbcColFhat1) & 1;
+    if (col_fhat1) {
+      cswritep = strcpya_k(cswritep, "\tFHAT1");
+    }
+    const uint32_t col_fhat2 = (flags / kfIbcColFhat2) & 1;
+    if (col_fhat2) {
+      cswritep = strcpya_k(cswritep, "\tFHAT2");
+    }
+    const uint32_t col_fhat3 = (flags / kfIbcColFhat3) & 1;
+    if (col_fhat3) {
+      cswritep = strcpya_k(cswritep, "\tFHAT3");
+    }
+    AppendBinaryEoln(&cswritep);
+
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t sample_include_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+      cswritep = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, cswritep);
+      const uint32_t cur_nobs = nobs[sample_idx];
+      if (col_nobs) {
+        *cswritep++ = '\t';
+        cswritep = u32toa(cur_nobs, cswritep);
+      }
+      const double nobs_recip = cur_nobs? (1.0 / u31tod(cur_nobs)) : 0.0;
+      if (col_fhat1) {
+        *cswritep++ = '\t';
+        if (cur_nobs) {
+          cswritep = dtoa_g(fhat1_sums[sample_idx] * nobs_recip - 1.0, cswritep);
+        } else {
+          cswritep = strcpya_k(cswritep, "NA");
+        }
+      }
+      if (col_fhat2) {
+        *cswritep++ = '\t';
+        if (cur_nobs) {
+          cswritep = dtoa_g(fhat2_sums[sample_idx] * nobs_recip - 1.0, cswritep);
+        } else {
+          cswritep = strcpya_k(cswritep, "NA");
+        }
+      }
+      if (col_fhat3) {
+        *cswritep++ = '\t';
+        if (cur_nobs) {
+          cswritep = dtoa_g(fhat3_sums[sample_idx] * nobs_recip - 1.0, cswritep);
+        } else {
+          cswritep = strcpya_k(cswritep, "NA");
+        }
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto IbcReport_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto IbcReport_ret_WRITE_FAIL;
+    }
+    logprintfww("--ibc: Inbreeding coefficients (%u variant%s used) written to %s .\n", used_variant_ct, (used_variant_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  IbcReport_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  IbcReport_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  IbcReport_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ IbcReport_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, HetFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
