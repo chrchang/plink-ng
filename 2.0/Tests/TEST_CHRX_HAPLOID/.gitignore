@@ -1,0 +1,5 @@
+*.log
+chrx*
+subset.id
+plink1_*
+plink2_*
