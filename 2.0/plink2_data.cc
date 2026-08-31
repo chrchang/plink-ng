@@ -2641,6 +2641,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               uintptr_t alt1_ct = 4 * genocounts[2] + 2 * genocounts[1] - 2 * sex_specific_genocounts[2] - hethap_ct;  // nonmales count twice
               uint64_t alt1_ddosage = 0;  // in 32768ths, nonmales count twice
               uint32_t additional_dosage_ct = 0;  // missing hardcalls only; nonmales count twice
+              // Male het hardcalls which have been replaced by a dosage; the
+              // loops below already subtract their remaining half-allele, so
+              // they must be excluded from the hethap correction afterward.
+              uint32_t hethap_dosage_ct = 0;
               // bugfix (12 Jul 2018): dosage_present may be null if dosage_ct
               // == 0
               if (pgv.dosage_ct) {
@@ -2659,6 +2663,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                     const uintptr_t hardcall_code = GetNyparrEntry(pgv.genovec, sample_uidx);
                     if (hardcall_code != 3) {
                       alt1_ct -= hardcall_code * sex_multiplier;
+                      hethap_dosage_ct += (hardcall_code == 1) && (sex_multiplier == 1);
                     } else {
                       additional_dosage_ct += sex_multiplier;
                     }
@@ -2673,6 +2678,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                       const uintptr_t hardcall_code = GetNyparrEntry(pgv.genovec, sample_uidx);
                       if (hardcall_code != 3) {
                         alt1_ct -= hardcall_code * sex_multiplier;
+                        hethap_dosage_ct += (hardcall_code == 1) && (sex_multiplier == 1);
                       } else {
                         additional_dosage_ct += sex_multiplier;
                       }
@@ -2680,11 +2686,18 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                   }
                 }
               }
+              // Heterozygous haploid calls are treated as missing, for
+              // consistency with --geno-counts, --hardy, and PLINK 1.9.  The
+              // alt1_ct initializer above only removed half of each such call
+              // (male het contributes 2 - 1 = 1 half-allele), and
+              // weighted_obs_ct below still counts the male as an observation.
+              const uint32_t hethap_hardcall_ct = hethap_ct - hethap_dosage_ct;
+              alt1_ct -= hethap_hardcall_ct;
               alt1_ddosage += alt1_ct * S_CAST(uint64_t, kDosageMid);
 
               // bugfix (14 May 2018): this didn't correctly distinguish
               // between missing vs. 'replaced' hardcalls
-              const uintptr_t weighted_obs_ct = (2 * (sample_ct - genocounts[3]) - male_ct + sex_specific_genocounts[3] + additional_dosage_ct) * (2 * k1LU);
+              const uintptr_t weighted_obs_ct = (2 * (sample_ct - genocounts[3]) - male_ct + sex_specific_genocounts[3] + additional_dosage_ct - hethap_hardcall_ct) * (2 * k1LU);
 
               allele_ddosages[cur_allele_idx_offset] = weighted_obs_ct * S_CAST(uint64_t, kDosageMid) - alt1_ddosage;
               allele_ddosages[cur_allele_idx_offset + 1] = alt1_ddosage;
