@@ -227,6 +227,7 @@ ENUM_U31_DEF_START()
   kCmd1BitCheckOrImputeSex,
   kCmd1BitMendelReport,
   kCmd1BitLdScore,
+  kCmd1BitHomozyg,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -265,7 +266,8 @@ FLAGSET64_DEF_START()
   kfCommand1PhenoSvd = (1LLU << kCmd1BitPhenoSvd),
   kfCommand1CheckOrImputeSex = (1LLU << kCmd1BitCheckOrImputeSex),
   kfCommand1MendelReport = (1LLU << kCmd1BitMendelReport),
-  kfCommand1LdScore = (1LLU << kCmd1BitLdScore)
+  kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
+  kfCommand1Homozyg = (1LLU << kCmd1BitHomozyg)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -439,6 +441,7 @@ typedef struct Plink2CmdlineStruct {
   GenoCountsFlags geno_counts_flags;
   HardyFlags hardy_flags;
   HetFlags het_flags;
+  HomozygInfo homozyg_info;
   SampleCountsFlags sample_counts_flags;
   RecoverVarIdsFlags recover_var_ids_flags;
   VscoreFlags vscore_flags;
@@ -597,7 +600,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1Homozyg)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -3061,6 +3064,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1Homozyg) {
+        reterr = HomozygReport(sample_include, &pii.sii, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, &(pcp->homozyg_info), &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1Fst) {
         reterr = FstReport(sample_include, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->fst_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
         if (unlikely(reterr)) {
@@ -4161,6 +4171,7 @@ int main(int argc, char** argv) {
     pc.geno_counts_flags = kfGenoCounts0;
     pc.hardy_flags = kfHardy0;
     pc.het_flags = kfHet0;
+    InitHomozyg(&pc.homozyg_info);
     pc.sample_counts_flags = kfSampleCounts0;
     pc.recover_var_ids_flags = kfRecoverVarIds0;
     pc.vscore_flags = kfVscore0;
@@ -7189,7 +7200,111 @@ int main(int argc, char** argv) {
         break;
 
       case 'h':
-        if (strequal_k_unsafe(flagname_p2, "ardy")) {
+        if (strequal_k_unsafe(flagname_p2, "omozyg")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "subtract-1-from-lengths", cur_modif_slen)) {
+              pc.homozyg_info.flags |= kfHomozygOldLengths;
+            } else if (unlikely(strequal_k(cur_modif, "group", cur_modif_slen) ||
+                                strequal_k(cur_modif, "group-verbose", cur_modif_slen) ||
+                                strequal_k(cur_modif, "consensus-match", cur_modif_slen) ||
+                                strequal_k(cur_modif, "extend", cur_modif_slen))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --homozyg \'%s\' modifier is not implemented yet.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg argument \'%s\'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          pc.command_flags1 |= kfCommand1Homozyg;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "omozyg-snp") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-het") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-window-snp") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-window-het") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-window-missing")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          uint32_t uii;
+          if (unlikely(ScanUintCappedx(cur_modif, 0x7ffffffe, &uii))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (flagname_p2[7] == 's') {
+            if (unlikely(!uii)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-snp argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.homozyg_info.min_snp = uii;
+          } else if (flagname_p2[7] == 'h') {
+            pc.homozyg_info.max_hets = uii;
+          } else if (flagname_p2[14] == 's') {
+            if (unlikely(!uii)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-window-snp argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.homozyg_info.window_size = uii;
+          } else if (flagname_p2[14] == 'h') {
+            pc.homozyg_info.window_max_hets = uii;
+          } else {
+            pc.homozyg_info.window_max_missing = uii;
+          }
+          pc.command_flags1 |= kfCommand1Homozyg;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "omozyg-kb") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-density") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-gap") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-window-threshold")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          double dxx;
+          if (unlikely(!ScantokDouble(cur_modif, &dxx))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (flagname_p2[7] == 'k') {
+            if (unlikely((dxx < kSmallEpsilon) || (dxx >= 2147483.646 * (1 + kSmallEpsilon)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-kb argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            // round up, as PLINK 1.9 does
+            pc.homozyg_info.min_bases = 1 + S_CAST(uint32_t, S_CAST(int32_t, dxx * 1000 * (1 - kSmallEpsilon)));
+          } else if (flagname_p2[7] == 'd') {
+            if (unlikely((dxx <= 0.0) || (dxx >= 2147483.646))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-density argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.homozyg_info.max_bases_per_snp = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+          } else if (flagname_p2[7] == 'g') {
+            if (unlikely((dxx < 0.001) || (dxx >= 2147483.646))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-gap argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.homozyg_info.max_gap = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+          } else {
+            if (unlikely((dxx <= 0.0) || (dxx > 1.0))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-window-threshold argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.homozyg_info.hit_threshold = dxx;
+          }
+          pc.command_flags1 |= kfCommand1Homozyg;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (unlikely(strequal_k_unsafe(flagname_p2, "omozyg-match") ||
+                            strequal_k_unsafe(flagname_p2, "omozyg-group") ||
+                            strequal_k_unsafe(flagname_p2, "omozyg-include-missing") ||
+                            strequal_k_unsafe(flagname_p2, "omozyg-window-kb"))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: --%s is not implemented yet.\n", flagname_p);
+          goto main_ret_INVALID_CMDLINE_WWA;
+        } else if (strequal_k_unsafe(flagname_p2, "ardy")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
