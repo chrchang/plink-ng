@@ -1968,6 +1968,104 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp
 // constant to be compatible with them doesn't cost us anything.)
 static const double kExactTestBias = k2m50 / (1LL << 33);
 
+// 2^{-40}; matches PLINK 1.9's FISHER_EPSILON.
+static const double kFisherEpsilon = 0.0000000000009094947017729282379150390625;
+
+double FisherExact2x2(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp) {
+  // Two-sided Fisher's exact test on a 2x2 contingency table, ported from
+  // PLINK 1.9's fisher22().  Sums the likelihoods of all tables at least as
+  // extreme as the observed one, relative to the observed table's likelihood.
+  // With midp, half the probability mass of the tables tied with the observed
+  // one is subtracted.
+  double tprob = (1 - kFisherEpsilon) * kExactTestBias;
+  double cur_prob = tprob;
+  double cprob = 0.0;
+  int32_t tie_ct = 1;
+  // Ensure we are left of the distribution center, m11 <= m22, and m12 <= m21.
+  if (m12 > m21) {
+    const uint32_t uii = m12;
+    m12 = m21;
+    m21 = uii;
+  }
+  if (m11 > m22) {
+    const uint32_t uii = m11;
+    m11 = m22;
+    m22 = uii;
+  }
+  if ((S_CAST(uint64_t, m11) * m22) > (S_CAST(uint64_t, m12) * m21)) {
+    uint32_t uii = m11;
+    m11 = m12;
+    m12 = uii;
+    uii = m21;
+    m21 = m22;
+    m22 = uii;
+  }
+  double cur11 = m11;
+  double cur12 = m12;
+  double cur21 = m21;
+  double cur22 = m22;
+  while (cur12 > 0.5) {
+    cur11 += 1;
+    cur22 += 1;
+    cur_prob *= (cur12 * cur21) / (cur11 * cur22);
+    cur12 -= 1;
+    cur21 -= 1;
+    if (cur_prob > DBL_MAX) {
+      // overflowed to +inf
+      return 0;
+    }
+    if (cur_prob < kExactTestBias) {
+      if (cur_prob > (1 - 2 * kFisherEpsilon) * kExactTestBias) {
+        ++tie_ct;
+      }
+      tprob += cur_prob;
+      break;
+    }
+    cprob += cur_prob;
+  }
+  if ((cprob == 0) && (!midp)) {
+    return 1;
+  }
+  while (cur12 > 0.5) {
+    cur11 += 1;
+    cur22 += 1;
+    cur_prob *= (cur12 * cur21) / (cur11 * cur22);
+    cur12 -= 1;
+    cur21 -= 1;
+    const double preaddp = tprob;
+    tprob += cur_prob;
+    if (tprob <= preaddp) {
+      break;
+    }
+  }
+  if (m11) {
+    cur11 = m11;
+    cur12 = m12;
+    cur21 = m21;
+    cur22 = m22;
+    cur_prob = (1 - kFisherEpsilon) * kExactTestBias;
+    do {
+      cur12 += 1;
+      cur21 += 1;
+      cur_prob *= (cur11 * cur22) / (cur12 * cur21);
+      cur11 -= 1;
+      cur22 -= 1;
+      const double preaddp = tprob;
+      tprob += cur_prob;
+      if (tprob <= preaddp) {
+        if (!midp) {
+          return preaddp / (cprob + preaddp);
+        }
+        return (preaddp - ((1 - kFisherEpsilon) * kExactTestBias * 0.5) * tie_ct) / (cprob + preaddp);
+      }
+    } while (cur11 > 0.5);
+  }
+  if (!midp) {
+    return tprob / (cprob + tprob);
+  }
+  return (tprob - ((1 - kFisherEpsilon) * kExactTestBias * 0.5) * tie_ct) / (cprob + tprob);
+}
+
 uint32_t HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh) {
   // Threshold-test-only version of HweLnP() which is usually able to exit
   // from the calculation earlier.  Assumes DBL_MIN <= pval_thresh <= 1 (note

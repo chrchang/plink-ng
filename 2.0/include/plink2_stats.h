@@ -69,6 +69,10 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp
 // the big picture; instead, the best way to manage result instability after
 // the beta 1 release is to just set a high bar for making any more behavior
 // changes.
+// Two-sided Fisher's exact test on a 2x2 contingency table.  Set midp to use
+// the mid-p adjustment.
+double FisherExact2x2(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp);
+
 uint32_t HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh);
 
 uint32_t HweThreshMidp(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh);

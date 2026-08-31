@@ -815,6 +815,28 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    maybefid/fid/maybesid/sid to the .imendel output file; and\n"
 "    chrom/pos/ref/alt to the .lmendel[.zst] output file.\n\n"
               );
+    HelpPrint("fisher\0", &help_ctrl, 1,
+"  --fisher ['zs'] ['midp'] ['cols='<column set descriptor>]\n"
+"    Allelic case/control association via Fisher's exact test, i.e. what PLINK\n"
+"    1.9's \"--assoc fisher\" reported.  --glm covers the asymptotic and Firth\n"
+"    cases; this is the exact test.\n"
+"    * A1 is the minor allele, as in PLINK 1.9.\n"
+"    * 'midp' applies the mid-p adjustment.\n"
+"    * Only autosomal biallelic variants are analyzed.\n"
+"    Supported column sets are:\n"
+"      chrom: Chromosome ID.\n"
+"      pos: Base-pair coordinate.\n"
+"      (ID is always present, and positioned here.)\n"
+"      ref: Reference allele.\n"
+"      alt: Alternate allele.\n"
+"      a1: Tested (minor) allele.\n"
+"      counts: A1/A2 allele counts in cases and controls.\n"
+"      freq: A1 frequency in cases and in controls.\n"
+"      nobs: Number of allele observations.\n"
+"      or: Odds ratio.\n"
+"      p: Fisher's exact test p-value.\n"
+"    The default is chrom,pos,ref,alt,a1,freq,nobs,or,p.\n\n"
+              );
     HelpPrint("het\0", &help_ctrl, 1,
 "  --het ['zs'] ['small-sample'] ['cols='<column set descriptor>]\n"
 "    Inbreeding coefficient report.  Supports multiallelic variants.\n"

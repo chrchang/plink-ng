@@ -10374,6 +10374,308 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
   return reterr;
 }
 
+// Allelic case/control association via Fisher's exact test, i.e. what PLINK
+// 1.9's "--assoc fisher" reported.  --glm covers the asymptotic and Firth
+// cases, but not the exact test, which is what rare-variant case/control
+// analyses generally want.
+PglErr FisherReport(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, FisherFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  PglErr reterr = kPglRetSuccess;
+  {
+    // Exactly one case/control phenotype must be selected; --fisher writes a
+    // single file, so silently picking one of several would be a trap.
+    uint32_t pheno_idx = UINT32_MAX;
+    uint32_t cc_pheno_ct = 0;
+    for (uint32_t uii = 0; uii != pheno_ct; ++uii) {
+      if (pheno_cols[uii].type_code == kPhenoDtypeCc) {
+        if (!cc_pheno_ct) {
+          pheno_idx = uii;
+        }
+        ++cc_pheno_ct;
+      }
+    }
+    if (unlikely(!cc_pheno_ct)) {
+      logerrputs("Error: --fisher requires a case/control phenotype.\n");
+      goto FisherReport_ret_INCONSISTENT_INPUT;
+    }
+    if (unlikely(cc_pheno_ct > 1)) {
+      logerrputs("Error: --fisher requires exactly one case/control phenotype; use --pheno-name\nto select one.\n");
+      goto FisherReport_ret_INCONSISTENT_INPUT;
+    }
+    const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
+    const char* cur_pheno_name = &(pheno_names[pheno_idx * max_pheno_name_blen]);
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* sample_include;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include))) {
+      goto FisherReport_ret_NOMEM;
+    }
+    BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, sample_include);
+    const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+    if (unlikely(sample_ct < 2)) {
+      logerrputs("Error: --fisher requires at least two samples with a nonmissing phenotype.\n");
+      goto FisherReport_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
+    uint32_t* sample_include_cumulative_popcounts;
+    uintptr_t* genovec;
+    uintptr_t* case_collapsed;
+    uintptr_t* case_interleaved;
+    uintptr_t* ctrl_collapsed;
+    uintptr_t* ctrl_interleaved;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec) ||
+                 bigstack_alloc_w(sample_ctv * kWordsPerVec, &case_collapsed) ||
+                 bigstack_alloc_w(sample_ctv * kWordsPerVec, &case_interleaved) ||
+                 bigstack_alloc_w(sample_ctv * kWordsPerVec, &ctrl_collapsed) ||
+                 bigstack_alloc_w(sample_ctv * kWordsPerVec, &ctrl_interleaved))) {
+      goto FisherReport_ret_NOMEM;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    const uint32_t sample_ctaw = sample_ctv * kWordsPerVec;
+    ZeroWArr(sample_ctaw, case_collapsed);
+    ZeroWArr(sample_ctaw, ctrl_collapsed);
+    CopyBitarrSubset(cur_pheno_col->data.cc, sample_include, sample_ct, case_collapsed);
+    ZeroTrailingBits(sample_ct, case_collapsed);
+    BitvecInvertCopy(case_collapsed, sample_ctl, ctrl_collapsed);
+    ZeroTrailingBits(sample_ct, ctrl_collapsed);
+    const uint32_t case_ct = PopcountWords(case_collapsed, sample_ctl);
+    const uint32_t ctrl_ct = sample_ct - case_ct;
+    if (unlikely((!case_ct) || (!ctrl_ct))) {
+      logerrprintfww("Error: --fisher requires both cases and controls (phenotype '%s' has %u case%s and %u control%s).\n", cur_pheno_name, case_ct, (case_ct == 1)? "" : "s", ctrl_ct, (ctrl_ct == 1)? "" : "s");
+      goto FisherReport_ret_INCONSISTENT_INPUT;
+    }
+    FillInterleavedMaskVec(case_collapsed, sample_ctv, case_interleaved);
+    FillInterleavedMaskVec(ctrl_collapsed, sample_ctv, ctrl_interleaved);
+
+    // chrX and the haploid chromosomes need male-haploid allele counting and a
+    // decision about het haploid calls; rather than guess at PLINK 1.9's
+    // conventions there, restrict to autosomes as --het and --ibc do.
+    const uintptr_t* autosomal_variant_include = variant_include;
+    uint32_t autosomal_variant_ct = variant_ct;
+    reterr = ConditionalAllocateNonAutosomalVariants(cip, "--fisher", raw_variant_ct, &autosomal_variant_include, &autosomal_variant_ct);
+    if (unlikely(reterr)) {
+      goto FisherReport_ret_1;
+    }
+    if (unlikely(!autosomal_variant_ct)) {
+      logerrputs("Error: --fisher requires at least one autosomal variant.\n");
+      goto FisherReport_ret_INCONSISTENT_INPUT;
+    }
+
+    const uint32_t midp = (flags / kfFisherMidp) & 1;
+    const uint32_t output_zst = flags & kfFisherZs;
+    OutnameZstSet(".fisher", output_zst, outname_end);
+    reterr = InitCstreamAlloc(outname, 0, output_zst, 1, kCompressStreamBlock + 2 * kMaxIdSlen + 512 + 2 * max_allele_slen, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto FisherReport_ret_1;
+    }
+    const uint32_t chr_col = flags & kfFisherColChrom;
+    const uint32_t pos_col = flags & kfFisherColPos;
+    const uint32_t ref_col = flags & kfFisherColRef;
+    const uint32_t alt_col = flags & kfFisherColAlt;
+    const uint32_t a1_col = flags & kfFisherColA1;
+    const uint32_t cts_col = flags & kfFisherColCounts;
+    const uint32_t freq_col = flags & kfFisherColFreq;
+    const uint32_t nobs_col = flags & kfFisherColNobs;
+    const uint32_t or_col = flags & kfFisherColOr;
+    const uint32_t p_col = flags & kfFisherColP;
+    *cswritep++ = '#';
+    if (chr_col) {
+      cswritep = strcpya_k(cswritep, "CHROM\t");
+    }
+    if (pos_col) {
+      cswritep = strcpya_k(cswritep, "POS\t");
+    }
+    cswritep = strcpya_k(cswritep, "ID");
+    if (ref_col) {
+      cswritep = strcpya_k(cswritep, "\tREF");
+    }
+    if (alt_col) {
+      cswritep = strcpya_k(cswritep, "\tALT");
+    }
+    if (a1_col) {
+      cswritep = strcpya_k(cswritep, "\tA1");
+    }
+    if (cts_col) {
+      cswritep = strcpya_k(cswritep, "\tA1_CASE_CT\tA2_CASE_CT\tA1_CTRL_CT\tA2_CTRL_CT");
+    }
+    if (freq_col) {
+      cswritep = strcpya_k(cswritep, "\tA1_CASE_FREQ\tA1_CTRL_FREQ");
+    }
+    if (nobs_col) {
+      cswritep = strcpya_k(cswritep, "\tOBS_CT");
+    }
+    if (or_col) {
+      cswritep = strcpya_k(cswritep, "\tOR");
+    }
+    if (p_col) {
+      if (midp) {
+        cswritep = strcpya_k(cswritep, "\tMIDP");
+      } else {
+        cswritep = strcpya_k(cswritep, "\tP");
+      }
+    }
+    AppendBinaryEoln(&cswritep);
+
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = autosomal_variant_include[0];
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t chr_buf_blen = 0;
+    char* chr_buf = nullptr;
+    if (chr_col) {
+      if (unlikely(bigstack_alloc_c(kMaxIdSlen, &chr_buf))) {
+        goto FisherReport_ret_NOMEM;
+      }
+    }
+    uint32_t allele_ct = 2;
+    uint32_t skipped_ct = 0;
+    uint32_t reported_ct = 0;
+    STD_ARRAY_DECL(uint32_t, 4, case_genocounts);
+    STD_ARRAY_DECL(uint32_t, 4, ctrl_genocounts);
+    for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(autosomal_variant_include, &variant_uidx_base, &cur_bits);
+      if (chr_col && (variant_uidx >= chr_end)) {
+        do {
+          ++chr_fo_idx;
+          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        } while (variant_uidx >= chr_end);
+        char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
+        *chr_name_end = '\t';
+        chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
+      }
+      uintptr_t allele_idx_offset_base = 2 * variant_uidx;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+      }
+      if (allele_ct != 2) {
+        // Fisher's exact test here is defined on a 2x2 table.
+        ++skipped_ct;
+        continue;
+      }
+      reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto FisherReport_ret_1;
+      }
+      ZeroTrailingNyps(sample_ct, genovec);
+      GenoarrCountSubsetFreqs(genovec, case_interleaved, sample_ct, case_ct, case_genocounts);
+      GenoarrCountSubsetFreqs(genovec, ctrl_interleaved, sample_ct, ctrl_ct, ctrl_genocounts);
+      // genocounts[0] = hom REF, [1] = het, [2] = hom ALT, [3] = missing
+      const uint32_t case_ref_ct = 2 * case_genocounts[0] + case_genocounts[1];
+      const uint32_t case_alt_ct = 2 * case_genocounts[2] + case_genocounts[1];
+      const uint32_t ctrl_ref_ct = 2 * ctrl_genocounts[0] + ctrl_genocounts[1];
+      const uint32_t ctrl_alt_ct = 2 * ctrl_genocounts[2] + ctrl_genocounts[1];
+
+      // A1 is the minor allele, as in PLINK 1.9's --assoc.
+      const uint32_t a1_is_alt = (maj_alleles[variant_uidx] == 0);
+      const uint32_t a1_case_ct = a1_is_alt? case_alt_ct : case_ref_ct;
+      const uint32_t a2_case_ct = a1_is_alt? case_ref_ct : case_alt_ct;
+      const uint32_t a1_ctrl_ct = a1_is_alt? ctrl_alt_ct : ctrl_ref_ct;
+      const uint32_t a2_ctrl_ct = a1_is_alt? ctrl_ref_ct : ctrl_alt_ct;
+
+      if (chr_col) {
+        cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
+      }
+      if (pos_col) {
+        cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      }
+      cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+      if (ref_col) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base]);
+      }
+      if (alt_col) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base + 1]);
+      }
+      if (a1_col) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, allele_storage[allele_idx_offset_base + a1_is_alt]);
+      }
+      if (cts_col) {
+        *cswritep++ = '\t';
+        cswritep = u32toa_x(a1_case_ct, '\t', cswritep);
+        cswritep = u32toa_x(a2_case_ct, '\t', cswritep);
+        cswritep = u32toa_x(a1_ctrl_ct, '\t', cswritep);
+        cswritep = u32toa(a2_ctrl_ct, cswritep);
+      }
+      const uint32_t case_obs = a1_case_ct + a2_case_ct;
+      const uint32_t ctrl_obs = a1_ctrl_ct + a2_ctrl_ct;
+      if (freq_col) {
+        *cswritep++ = '\t';
+        if (case_obs) {
+          cswritep = dtoa_g(u31tod(a1_case_ct) / u31tod(case_obs), cswritep);
+        } else {
+          cswritep = strcpya_k(cswritep, "NA");
+        }
+        *cswritep++ = '\t';
+        if (ctrl_obs) {
+          cswritep = dtoa_g(u31tod(a1_ctrl_ct) / u31tod(ctrl_obs), cswritep);
+        } else {
+          cswritep = strcpya_k(cswritep, "NA");
+        }
+      }
+      if (nobs_col) {
+        *cswritep++ = '\t';
+        cswritep = u32toa(case_obs + ctrl_obs, cswritep);
+      }
+      if (or_col) {
+        *cswritep++ = '\t';
+        const uint64_t numer = S_CAST(uint64_t, a1_case_ct) * a2_ctrl_ct;
+        const uint64_t denom = S_CAST(uint64_t, a2_case_ct) * a1_ctrl_ct;
+        if (denom && numer) {
+          cswritep = dtoa_g(S_CAST(double, numer) / S_CAST(double, denom), cswritep);
+        } else {
+          cswritep = strcpya_k(cswritep, "NA");
+        }
+      }
+      if (p_col) {
+        *cswritep++ = '\t';
+        if (case_obs && ctrl_obs) {
+          cswritep = dtoa_g(FisherExact2x2(a1_case_ct, a2_case_ct, a1_ctrl_ct, a2_ctrl_ct, midp), cswritep);
+        } else {
+          cswritep = strcpya_k(cswritep, "NA");
+        }
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto FisherReport_ret_WRITE_FAIL;
+      }
+      ++reported_ct;
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto FisherReport_ret_WRITE_FAIL;
+    }
+    if (skipped_ct) {
+      logprintf("--fisher: %u multiallelic variant%s skipped.\n", skipped_ct, (skipped_ct == 1)? "" : "s");
+    }
+    logprintfww("--fisher (%s): %u case%s and %u control%s, %u variant%s written to %s .\n", cur_pheno_name, case_ct, (case_ct == 1)? "" : "s", ctrl_ct, (ctrl_ct == 1)? "" : "s", reported_ct, (reported_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  FisherReport_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  FisherReport_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  FisherReport_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ FisherReport_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, HetFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
