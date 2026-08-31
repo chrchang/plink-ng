@@ -7382,6 +7382,24 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
   STPgenWriter spgw;
   PreinitSpgw(&spgw);
   {
+    // BCF import requires two passes over the file, so reject
+    // process-substitution/named-pipe input up front (as VcfToPgen() does).
+    // This also lets the rewind between the two passes report its real
+    // underlying error, instead of blaming an unrewindable stream.
+    reterr = ForceNonFifo(bcfname);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        const uint32_t slen = strlen(bcfname);
+        if (!StrEndsWith(bcfname, ".bcf", slen)) {
+          logerrprintfww("Error: Failed to open %s : %s. (--bcf expects a complete filename; did you forget '.bcf' at the end?)\n", bcfname, strerror(errno));
+        } else {
+          logerrprintfww(kErrprintfFopen, bcfname, strerror(errno));
+        }
+        goto BcfToPgen_ret_OPEN_FAIL;
+      }
+      logerrprintfww(kErrprintfRewind, "--bcf file");
+      goto BcfToPgen_ret_1;
+    }
     // See TextFileOpenInternal().
     bcffile = fopen(bcfname, FOPEN_RB);
     if (unlikely(!bcffile)) {
@@ -8517,10 +8535,11 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
 
     reterr = BgzfRawMtStreamRewind(&bgzf, &bgzf_errmsg);
     if (unlikely(reterr)) {
-      if (reterr == kPglRetDecompressFail) {
-        DPrintf("DecompressFail during initial rewind");
-        goto BcfToPgen_ret_REWIND_FAIL;
-      }
+      // We verified at the beginning of this function that the input is not a
+      // FIFO, so a decompression failure here reflects a real problem with the
+      // file rather than an unrewindable stream; report the underlying error
+      // instead of the misleading "could not be scanned twice" message.
+      DPrintf("BgzfRawMtStreamRewind failure during initial rewind");
       goto BcfToPgen_ret_BGZF_FAIL;
     }
     {
