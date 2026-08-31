@@ -1322,6 +1322,8 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
     reterr = kPglRetInconsistentInput;
     break;
   TpedToPgen_ret_DEGENERATE_DATA:
+    WordWrapB(0);
+    logerrputsb();
     reterr = kPglRetDegenerateData;
     break;
   }
@@ -2397,6 +2399,8 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
     reterr = kPglRetInconsistentInput;
     break;
   PedmapToPgen_ret_DEGENERATE_DATA:
+    WordWrapB(0);
+    logerrputsb();
     reterr = kPglRetDegenerateData;
     break;
   }

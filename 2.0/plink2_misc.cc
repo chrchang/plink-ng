@@ -349,6 +349,8 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
     reterr = kPglRetInconsistentInput;
     break;
   UpdateVarBps_ret_MALFORMED_INPUT:
+    WordWrapB(0);
+    logerrputsb();
     reterr = kPglRetMalformedInput;
     break;
   }
