@@ -2540,42 +2540,70 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
 // implementation.  It is also single-threaded.
 // Pearson correlation between two window entries, computed the way PLINK 1.9's
 // ld_prune() does: integer accumulators, pairwise-complete.
-static double IndepVifCorr(const int8_t* genos, const uintptr_t* nm_bitvecs, uintptr_t geno_stride, uintptr_t nm_stride, const uint32_t* nm_cts, const int32_t* sums, const double* variance_recips, uint32_t founder_ct, uint32_t ii, uint32_t jj) {
-  const int8_t* geno_i = &(genos[ii * geno_stride]);
-  const int8_t* geno_j = &(genos[jj * geno_stride]);
+// Pearson correlation between two window entries, matching PLINK 1.9's
+// ld_prune() arithmetic (integer accumulators, pairwise-complete).
+//
+// Each variant is held as three bitvectors -- samples with code +1, samples
+// with code -1, and nonmissing samples -- so every quantity the formula needs
+// is a popcount over whole words rather than a scalar pass over samples.  The
+// accumulators stay exact integers, so the result is bit-for-bit what the
+// per-sample loop produced.
+static double IndepVifCorr(const uintptr_t* pos_bvs, const uintptr_t* neg_bvs, const uintptr_t* nm_bvs, uintptr_t bv_stride, const uint32_t* nm_cts, const int32_t* sums, const double* variance_recips, uint32_t founder_ct, uint32_t founder_ctl, uint32_t ii, uint32_t jj) {
+  const uintptr_t* pos_i = &(pos_bvs[ii * bv_stride]);
+  const uintptr_t* neg_i = &(neg_bvs[ii * bv_stride]);
+  const uintptr_t* pos_j = &(pos_bvs[jj * bv_stride]);
+  const uintptr_t* neg_j = &(neg_bvs[jj * bv_stride]);
   if ((nm_cts[ii] == founder_ct) && (nm_cts[jj] == founder_ct)) {
-    int64_t dotprod = 0;
-    for (uint32_t uii = 0; uii != founder_ct; ++uii) {
-      dotprod += S_CAST(int32_t, geno_i[uii]) * S_CAST(int32_t, geno_j[uii]);
+    // x_i * x_j is +1 when the two codes agree in sign, -1 when they differ.
+    uintptr_t agree = 0;
+    uintptr_t disagree = 0;
+    for (uint32_t widx = 0; widx != founder_ctl; ++widx) {
+      const uintptr_t pi = pos_i[widx];
+      const uintptr_t ni = neg_i[widx];
+      const uintptr_t pj = pos_j[widx];
+      const uintptr_t nj = neg_j[widx];
+      agree += PopcountWord((pi & pj) | (ni & nj));
+      disagree += PopcountWord((pi & nj) | (ni & pj));
     }
+    const int64_t dotprod = S_CAST(int64_t, agree) - S_CAST(int64_t, disagree);
     const double cov12 = S_CAST(double, dotprod) * S_CAST(double, S_CAST(int64_t, founder_ct)) - S_CAST(double, sums[ii]) * S_CAST(double, sums[jj]);
     return cov12 * sqrt(variance_recips[ii] * variance_recips[jj]);
   }
-  const uintptr_t* nm_i = &(nm_bitvecs[ii * nm_stride]);
-  const uintptr_t* nm_j = &(nm_bitvecs[jj * nm_stride]);
-  int64_t dotprod = 0;
-  int64_t sum_i = 0;
-  int64_t sum_j = 0;
-  int64_t ssq_i = 0;
-  int64_t ssq_j = 0;
-  uint32_t nm_ct = 0;
-  for (uint32_t uii = 0; uii != founder_ct; ++uii) {
-    if (!(IsSet(nm_i, uii) && IsSet(nm_j, uii))) {
-      continue;
-    }
-    const int32_t xi = geno_i[uii];
-    const int32_t xj = geno_j[uii];
-    dotprod += xi * xj;
-    sum_i += xi;
-    sum_j += xj;
-    ssq_i += xi * xi;
-    ssq_j += xj * xj;
-    ++nm_ct;
+  const uintptr_t* nm_i = &(nm_bvs[ii * bv_stride]);
+  const uintptr_t* nm_j = &(nm_bvs[jj * bv_stride]);
+  uintptr_t agree = 0;
+  uintptr_t disagree = 0;
+  uintptr_t pos_i_ct = 0;
+  uintptr_t neg_i_ct = 0;
+  uintptr_t pos_j_ct = 0;
+  uintptr_t neg_j_ct = 0;
+  uintptr_t nm_ct_acc = 0;
+  for (uint32_t widx = 0; widx != founder_ctl; ++widx) {
+    const uintptr_t both_nm = nm_i[widx] & nm_j[widx];
+    const uintptr_t pi = pos_i[widx] & both_nm;
+    const uintptr_t ni = neg_i[widx] & both_nm;
+    const uintptr_t pj = pos_j[widx] & both_nm;
+    const uintptr_t nj = neg_j[widx] & both_nm;
+    agree += PopcountWord((pi & pj) | (ni & nj));
+    disagree += PopcountWord((pi & nj) | (ni & pj));
+    pos_i_ct += PopcountWord(pi);
+    neg_i_ct += PopcountWord(ni);
+    pos_j_ct += PopcountWord(pj);
+    neg_j_ct += PopcountWord(nj);
+    nm_ct_acc += PopcountWord(both_nm);
   }
+  const uint32_t nm_ct = nm_ct_acc;
   if (nm_ct < 2) {
     // PLINK 1.9 forces a prune when the correlation is 0/0.
     return 1.0;
   }
+  const int64_t dotprod = S_CAST(int64_t, agree) - S_CAST(int64_t, disagree);
+  const int64_t sum_i = S_CAST(int64_t, pos_i_ct) - S_CAST(int64_t, neg_i_ct);
+  const int64_t sum_j = S_CAST(int64_t, pos_j_ct) - S_CAST(int64_t, neg_j_ct);
+  // x^2 is 1 for every nonzero code, so the sum of squares is just the count
+  // of nonzero codes within the intersection.
+  const int64_t ssq_i = S_CAST(int64_t, pos_i_ct + neg_i_ct);
+  const int64_t ssq_j = S_CAST(int64_t, pos_j_ct + neg_j_ct);
   const double nm_ctd = u31tod(nm_ct);
   const double sum_id = S_CAST(double, sum_i);
   const double sum_jd = S_CAST(double, sum_j);
@@ -2654,15 +2682,16 @@ PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint
     }
 
     const uintptr_t founder_ctl = BitCtToWordCt(founder_ct);
-    const uintptr_t geno_stride = RoundUpPow2(founder_ct, kBytesPerVec);
-    const uintptr_t nm_stride = founder_ctl;
-    int8_t* genos;
-    uintptr_t* nm_bitvecs;
+    const uintptr_t bv_stride = founder_ctl;
+    uintptr_t* pos_bvs;
+    uintptr_t* neg_bvs;
+    uintptr_t* nm_bvs;
     uint32_t* nm_cts;
     int32_t* sums;
     double* variance_recips;
     double* mafs;
     uint32_t* variant_uidxs;
+    uint32_t* slots;
     uint32_t* collapsed_idxs;
     unsigned char* dropped;
     double* corr_matrix;
@@ -2671,13 +2700,15 @@ PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint
     uintptr_t* genovec;
     MatrixInvertBuf1* invert_buf1;
     double* invert_buf2;
-    if (unlikely(BIGSTACK_ALLOC_X(int8_t, window_max * geno_stride, &genos) ||
-                 bigstack_alloc_w(window_max * nm_stride, &nm_bitvecs) ||
+    if (unlikely(bigstack_alloc_w(window_max * bv_stride, &pos_bvs) ||
+                 bigstack_alloc_w(window_max * bv_stride, &neg_bvs) ||
+                 bigstack_alloc_w(window_max * bv_stride, &nm_bvs) ||
                  bigstack_alloc_u32(window_max, &nm_cts) ||
                  bigstack_alloc_i32(window_max, &sums) ||
                  bigstack_alloc_d(window_max, &variance_recips) ||
                  bigstack_alloc_d(window_max, &mafs) ||
                  bigstack_alloc_u32(window_max, &variant_uidxs) ||
+                 bigstack_alloc_u32(window_max, &slots) ||
                  bigstack_alloc_u32(window_max, &collapsed_idxs) ||
                  BIGSTACK_ALLOC_X(unsigned char, window_max, &dropped) ||
                  bigstack_alloc_d(window_max * window_max, &corr_matrix) ||
@@ -2747,6 +2778,7 @@ PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint
       }
 
       uint32_t window_start = 0;
+      uint32_t loaded_upto = 0;
       while (window_start < chr_variant_ct) {
         // Determine window membership.
         uint32_t window_end = window_start;
@@ -2761,21 +2793,16 @@ PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint
             ++window_end;
           }
         }
-        uint32_t cur_window_size = 0;
-        for (uint32_t uii = window_start; uii != window_end; ++uii) {
-          const uint32_t variant_uidx = chr_uidxs[uii];
-          const uint32_t collapsed_idx = variant_idx_of_uidx[variant_uidx];
-          if (IsSet(removed_variants_collapsed, collapsed_idx)) {
-            continue;
-          }
-          variant_uidxs[cur_window_size] = variant_uidx;
-          collapsed_idxs[cur_window_size] = collapsed_idx;
-          ++cur_window_size;
-        }
-        if (cur_window_size > 1) {
-          // Load and recode.
-          for (uint32_t widx = 0; widx != cur_window_size; ++widx) {
-            const uint32_t variant_uidx = variant_uidxs[widx];
+        // Load any window positions not seen yet.  Slot assignment is
+        // position % window_max, which is collision-free within a window since
+        // a window never holds more than window_max variants; this lets the
+        // correlations computed for a pair survive across window slides
+        // instead of being recomputed on every step.
+        {
+          const uint32_t load_from = MAXV(loaded_upto, window_start);
+          for (uint32_t pos = load_from; pos != window_end; ++pos) {
+            const uint32_t widx = pos % window_max;
+            const uint32_t variant_uidx = chr_uidxs[pos];
             reterr = PgrGet(founder_info, pssi, founder_ct, variant_uidx, simple_pgrp, genovec);
             if (unlikely(reterr)) {
               PgenErrPrintNV(reterr, variant_uidx);
@@ -2792,33 +2819,35 @@ PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint
             // +1 for homozygous-major, -1 for homozygous-minor, matching the
             // -1/0/1 recoding PLINK 1.9 uses.
             const uint32_t maj_is_ref = (maj_alleles[variant_uidx] == 0);
-            int8_t* cur_genos = &(genos[widx * geno_stride]);
-            uintptr_t* cur_nm = &(nm_bitvecs[widx * nm_stride]);
-            ZeroWArr(nm_stride, cur_nm);
+            uintptr_t* cur_pos = &(pos_bvs[widx * bv_stride]);
+            uintptr_t* cur_neg = &(neg_bvs[widx * bv_stride]);
+            uintptr_t* cur_nm = &(nm_bvs[widx * bv_stride]);
+            ZeroWArr(bv_stride, cur_pos);
+            ZeroWArr(bv_stride, cur_neg);
+            ZeroWArr(bv_stride, cur_nm);
             int32_t sum = 0;
             uint32_t ssq = 0;
             uint32_t nm_ct = 0;
             for (uint32_t sample_idx = 0; sample_idx != founder_ct; ++sample_idx) {
               const uintptr_t cur_geno = GetNyparrEntry(genovec, sample_idx);
-              int8_t code;
               // PLINK 1.x treats heterozygous haploid calls as missing here.
               const uint32_t is_hethap = (cur_geno == 1) && (is_fully_haploid || (is_x && IsSet(founder_male_collapsed, sample_idx)));
               if ((cur_geno == 3) || is_hethap) {
-                code = 0;
-              } else {
-                if (cur_geno == 1) {
-                  code = 0;
-                } else if (cur_geno == 0) {
-                  code = maj_is_ref? 1 : -1;
-                } else {
-                  code = maj_is_ref? -1 : 1;
-                }
-                SetBit(sample_idx, cur_nm);
-                ++nm_ct;
-                sum += code;
-                ssq += (code != 0);
+                continue;
               }
-              cur_genos[sample_idx] = code;
+              SetBit(sample_idx, cur_nm);
+              ++nm_ct;
+              if (cur_geno != 1) {
+                const uint32_t is_pos = (cur_geno == 0)? maj_is_ref : (!maj_is_ref);
+                if (is_pos) {
+                  SetBit(sample_idx, cur_pos);
+                  sum += 1;
+                } else {
+                  SetBit(sample_idx, cur_neg);
+                  sum -= 1;
+                }
+                ++ssq;
+              }
             }
             nm_cts[widx] = nm_ct;
             sums[widx] = sum;
@@ -2829,42 +2858,56 @@ PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint
               variance_recips[widx] = 0.0;
             }
             dropped[widx] = 0;
+            collapsed_idxs[widx] = variant_idx_of_uidx[variant_uidx];
             // Monomorphic (or all-missing) variants can't participate.
             if ((nm_ct < 2) || (S_CAST(int64_t, ssq) * nm_ct == S_CAST(int64_t, sum) * sum)) {
               dropped[widx] = 1;
               if (!IsSet(removed_variants_collapsed, collapsed_idxs[widx])) {
                 SetBit(collapsed_idxs[widx], removed_variants_collapsed);
               }
-            }
-          }
-
-          // Correlation matrix for the surviving entries.
-          for (uint32_t ii = 0; ii != cur_window_size; ++ii) {
-            if (dropped[ii]) {
               continue;
             }
-            for (uint32_t jj = ii + 1; jj != cur_window_size; ++jj) {
-              if (dropped[jj]) {
+            // Correlations against the window positions already loaded.
+            for (uint32_t other_pos = window_start; other_pos != pos; ++other_pos) {
+              const uint32_t other_widx = other_pos % window_max;
+              if (dropped[other_widx] || IsSet(removed_variants_collapsed, collapsed_idxs[other_widx])) {
                 continue;
               }
-              double rr = IndepVifCorr(genos, nm_bitvecs, geno_stride, nm_stride, nm_cts, sums, variance_recips, founder_ct, ii, jj);
+              double rr = IndepVifCorr(pos_bvs, neg_bvs, nm_bvs, bv_stride, nm_cts, sums, variance_recips, founder_ct, founder_ctl, other_widx, widx);
               if (rr != rr) {
                 rr = 1.0;
               }
-              corr_matrix[ii * window_max + jj] = rr;
-              corr_matrix[jj * window_max + ii] = rr;
+              corr_matrix[other_widx * window_max + widx] = rr;
+              corr_matrix[widx * window_max + other_widx] = rr;
             }
           }
+          if (window_end > loaded_upto) {
+            loaded_upto = window_end;
+          }
+        }
 
+        // Window members, in position order, as slot indices.
+        uint32_t cur_window_size = 0;
+        for (uint32_t pos = window_start; pos != window_end; ++pos) {
+          const uint32_t widx = pos % window_max;
+          if (IsSet(removed_variants_collapsed, collapsed_idxs[widx])) {
+            continue;
+          }
+          dropped[widx] = 0;
+          slots[cur_window_size++] = widx;
+        }
+        if (cur_window_size > 1) {
           // Pass 1: drop near-perfect-LD pairs, keeping the higher-MAF member.
           uint32_t at_least_one_prune;
           do {
             at_least_one_prune = 0;
-            for (uint32_t ii = 0; ii + 1 < cur_window_size; ++ii) {
+            for (uint32_t mi = 0; mi + 1 < cur_window_size; ++mi) {
+              const uint32_t ii = slots[mi];
               if (dropped[ii]) {
                 continue;
               }
-              for (uint32_t jj = ii + 1; jj != cur_window_size; ++jj) {
+              for (uint32_t mj = mi + 1; mj != cur_window_size; ++mj) {
+                const uint32_t jj = slots[mj];
                 if (dropped[jj]) {
                   continue;
                 }
@@ -2890,7 +2933,8 @@ PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint
 
           // Pass 2: VIF loop.
           uint32_t window_rem = 0;
-          for (uint32_t ii = 0; ii != cur_window_size; ++ii) {
+          for (uint32_t mi = 0; mi != cur_window_size; ++mi) {
+            const uint32_t ii = slots[mi];
             if (!dropped[ii]) {
               idx_remap[window_rem++] = ii;
             }
