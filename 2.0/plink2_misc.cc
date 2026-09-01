@@ -280,7 +280,7 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
       }
       int32_t bp_coord;
       if (ScanIntAbsDefcap(colbp_ptr, &bp_coord)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of --update-map file.\n", line_idx);
+        logerrprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of --update-map file.\n", line_idx);
         goto UpdateVarBps_ret_MALFORMED_INPUT;
       }
       if (bp_coord < 0) {
@@ -349,8 +349,6 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
     reterr = kPglRetInconsistentInput;
     break;
   UpdateVarBps_ret_MALFORMED_INPUT:
-    WordWrapB(0);
-    logerrputsb();
     reterr = kPglRetMalformedInput;
     break;
   }

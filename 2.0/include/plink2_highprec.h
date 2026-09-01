@@ -71,6 +71,7 @@ extern const dd_real _ddr_log05;
 extern const dd_real _ddr_64log2;
 extern const dd_real _ddr_ln10;
 extern const dd_real _ddr_recip_ln10;
+extern const dd_real _ddr_half_log_2pi;
 
 CONSTI32(_tdr_n_ln_fact, 256);
 extern const td_real _tdr_ln_fact[_tdr_n_ln_fact];
@@ -431,6 +432,29 @@ dd_real ddr_expm1(const dd_real a);
 
 dd_real ddr_log1p(const dd_real a);
 
+dd_real ddr_logspace_add(dd_real a, dd_real b);
+
+dd_real ddr_logspace_sub(dd_real a, dd_real b);
+
+// Supports denormal a.
+HEADER_INLINE dd_real ddr_log_extdomain(const dd_real a) {
+  if (a.x[0] > DBL_MIN) {
+    return ddr_log(a);
+  }
+  const dd_real a_shifted = ddr_mul_pwr2(a, k2p64);
+  return ddr_sub(ddr_log(a_shifted), _ddr_64log2);
+}
+
+HEADER_INLINE dd_real ddr_log_extdomain_maybehalf(const dd_real a) {
+  if (ddr_is(a, 0.5)) {
+    return _ddr_log05;
+  }
+  return ddr_log_extdomain(a);
+}
+
+dd_real ddr_logspace_add(dd_real a, dd_real b);
+
+dd_real ddr_logspace_sub(dd_real a, dd_real b);
 
 // Try to put smaller-magnitude values first (or just use ddr_sort_and_add()).
 HEADER_INLINE dd_real ddr_add3(const dd_real a, const dd_real b, const dd_real c) {
@@ -447,6 +471,22 @@ HEADER_INLINE dd_real ddr_add5(const dd_real a, const dd_real b, const dd_real c
 
 // Assumes xx is a nonnegative integer < 2^52.
 dd_real ddr_lfact(double xx);
+
+// Supports integer 0 <= n <= DBL_MAX.
+// Straightforward to support dd_real input.
+HEADER_INLINE dd_real ddr_lfact_extdomain(double xx) {
+  if (xx < (1LL << 52)) {
+    return ddr_lfact(xx);
+  }
+  // (n + 0.5) ln n - n + 0.5 ln 2*pi
+  // all other terms add up to <2^{-113} times the result
+  dd_real sum_ddr = ddr_subd(_ddr_half_log_2pi, xx);
+  const dd_real logn_ddr = ddr_log(ddr_maked(xx));
+  return ddr_add(sum_ddr, ddr_mul(logn_ddr, ddr_add2d(xx, 0.5)));
+}
+
+// Supports integer 0 <= n <= DBL_MAX.
+dd_real ddr_stirlerr(const dd_real n_ddr);
 
 HEADER_INLINE dd_real ddr_add_lfacts(const double a, const double b) {
   return ddr_add(ddr_lfact(a), ddr_lfact(b));

@@ -792,7 +792,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
       if (TextStreamErrcode2(&tped_txs, &reterr)) {
         goto TpedToPgen_ret_TSTREAM_FAIL;
       }
-      snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", tpedname);
+      logerrprintfww("Error: %s is empty.\n", tpedname);
       goto TpedToPgen_ret_DEGENERATE_DATA;
     }
     uint32_t sample_ct;
@@ -1322,8 +1322,6 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
     reterr = kPglRetInconsistentInput;
     break;
   TpedToPgen_ret_DEGENERATE_DATA:
-    WordWrapB(0);
-    logerrputsb();
     reterr = kPglRetDegenerateData;
     break;
   }
@@ -2046,7 +2044,7 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
         if (TextStreamErrcode2(&ped_txs, &reterr)) {
           goto PedmapToPgen_ret_TSTREAM_FAIL;
         }
-        snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", pedname);
+        logerrprintfww("Error: %s is empty.\n", pedname);
         goto PedmapToPgen_ret_DEGENERATE_DATA;
       }
     } while (ped_line_start[0] == '#');
@@ -2399,8 +2397,6 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
     reterr = kPglRetInconsistentInput;
     break;
   PedmapToPgen_ret_DEGENERATE_DATA:
-    WordWrapB(0);
-    logerrputsb();
     reterr = kPglRetDegenerateData;
     break;
   }
