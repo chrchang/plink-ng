@@ -250,6 +250,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      in the first nonheader line.\n\n"
                );
     // todo: triallelic rate
+    HelpPrint("simulate\0simulate-qt\0simulate-ncases\0simulate-ncontrols\0simulate-prevalence\0simulate-n\0simulate-label\0simulate-missing\0", &help_ctrl, 1,
+"  --simulate <simulation parameter file> [{tags | haps}] [{acgt | 1234 | 12}]\n"
+"  --simulate-qt <sim. parameter file> [{tags | haps}] [{acgt | 1234 | 12}]\n"
+"    --simulate generates a fake dataset with disease-associated SNPs, while\n"
+"    --simulate-qt generates one with quantitative trait loci.  Both take\n"
+"    PLINK 1.x's parameter file format, and given the same --seed they produce\n"
+"    the same dataset PLINK 1.9 does.\n"
+"    * The realized per-variant parameters are written to a .simfreq file.\n\n"
+               );
     HelpPrint("dummy\0", &help_ctrl, 1,
 "  --dummy <sample ct> <SNP ct> [missing dosage freq(s)] [missing pheno freq]\n"
 "          [{acgt | 1234 | 12}] ['pheno-ct='<count>] ['scalar-pheno']\n"
@@ -3043,6 +3052,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("d\0covar-name\0exclude-snps\0pheno-name\0snps", &help_ctrl, 0,
 "  --d <char>         : Change variant/covariate range delimiter (normally '-').\n"
               );
+    HelpPrint("simulate-ncases\0simulate-ncontrols\0simulate-prevalence\0simulate-n\0simulate-label\0simulate-missing\0simulate\0simulate-qt\0", &help_ctrl, 0,
+"  --simulate-ncases <n>     : Set --simulate case count (default 1000).\n"
+"  --simulate-ncontrols <n>  : Set --simulate control count (default 1000).\n"
+"  --simulate-prevalence <p> : Set --simulate disease prevalence (default 0.01).\n"
+"  --simulate-n <n>          : Set --simulate-qt sample count (default 1000).\n"
+"  --simulate-label <prefix> : Set --simulate[-qt] sample ID prefix.\n"
+"  --simulate-missing <freq> : Set --simulate[-qt] missing genotype frequency.\n"
+               );
     HelpPrint("seed\0", &help_ctrl, 0,
 "  --seed <val...>    : Set random number seed(s).  Each value must be an\n"
 "                       integer between 0 and 4294967295 inclusive.\n"

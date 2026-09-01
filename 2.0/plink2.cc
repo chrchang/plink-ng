@@ -4231,6 +4231,14 @@ int main(int argc, char** argv) {
     uintptr_t malloc_size_mib = 0;
     LoadParams load_params = kfLoadParams0;
     Xload xload = kfXload0;
+    char* simulate_fname = nullptr;
+    char* simulate_label = nullptr;
+    SimulateFlags simulate_flags = kfSimulate0;
+    uint32_t simulate_cases = 1000;
+    uint32_t simulate_controls = 1000;
+    uint32_t simulate_qt_samples = 1000;
+    double simulate_prevalence = 0.01;
+    double simulate_missing = 0.0;
     uint32_t rseed_ct = 0;
     MakePlink2Flags make_plink2_flags = kfMake0;
     OxfordImportFlags oxford_import_flags = kfOxfordImport0;
@@ -11912,6 +11920,93 @@ int main(int argc, char** argv) {
           }
           pc.pheno_transform_flags |= kfPhenoTransformSplitCat;
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "imulate") || strequal_k_unsafe(flagname_p2, "imulate-qt")) {
+          if (unlikely(load_params || xload || simulate_fname)) {
+            goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (flagname_p2[7] == '-') {
+            simulate_flags |= kfSimulateQt;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &simulate_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "tags", cur_modif_slen)) {
+              simulate_flags |= kfSimulateTags;
+            } else if (strequal_k(cur_modif, "haps", cur_modif_slen)) {
+              simulate_flags |= kfSimulateHaps;
+            } else if (strequal_k(cur_modif, "acgt", cur_modif_slen)) {
+              simulate_flags |= kfSimulateAcgt;
+            } else if (strequal_k(cur_modif, "1234", cur_modif_slen)) {
+              simulate_flags |= kfSimulate1234;
+            } else if (likely(strequal_k(cur_modif, "12", cur_modif_slen))) {
+              simulate_flags |= kfSimulate12;
+            } else {
+              logerrprintfww("Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+          if (unlikely(PopcountWord(simulate_flags & (kfSimulateTags | kfSimulateHaps)) > 1)) {
+            logerrputs("Error: --simulate 'tags' and 'haps' cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(PopcountWord(simulate_flags & (kfSimulateAcgt | kfSimulate1234 | kfSimulate12)) > 1)) {
+            logerrputs("Error: --simulate 'acgt', '1234' and '12' cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "imulate-ncases")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(ScanUintCappedx(argvk[arg_idx + 1], 0x7ffffffe, &simulate_cases))) {
+            logerrprintfww("Error: Invalid --simulate-ncases argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "imulate-ncontrols")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(ScanUintCappedx(argvk[arg_idx + 1], 0x7ffffffe, &simulate_controls))) {
+            logerrprintfww("Error: Invalid --simulate-ncontrols argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "imulate-n")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(ScanUintCappedx(argvk[arg_idx + 1], 0x7ffffffe, &simulate_qt_samples))) {
+            logerrprintfww("Error: Invalid --simulate-n argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "imulate-prevalence")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &simulate_prevalence)) || (simulate_prevalence < 0) || (simulate_prevalence > 1))) {
+            logerrprintfww("Error: Invalid --simulate-prevalence argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "imulate-missing")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &simulate_missing)) || (simulate_missing < 0) || (simulate_missing > 1))) {
+            logerrprintfww("Error: Invalid --simulate-missing argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "imulate-label")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, 1, kMaxIdSlen / 2, &simulate_label))) {
+            goto main_ret_NOMEM;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "ort-vars")) {
           if (unlikely(!(((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & (kfMakeBed | kfMakeBim | kfMakePgen | kfMakePvar))) || (pc.command_flags1 & kfCommand1Pmerge)))) {
             logerrputs("Error: --sort-vars must be used with --make-[b]pgen/--make-bed,\n--make-just-{bim,pvar}, or dataset\nmerging.\n");
@@ -13119,7 +13214,7 @@ int main(int argc, char** argv) {
 
     pc.dependency_flags |= pc.filter_flags;
     const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped)));
-    const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr);
+    const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr) || (simulate_fname != nullptr);
     if (skip_main && (!batch_job)) {
       // add command_flags2 when needed
       goto main_ret_NULL_CALC;
@@ -13428,6 +13523,16 @@ int main(int argc, char** argv) {
     print_end_time = 1;
 
     if (batch_job) {
+      if (simulate_fname) {
+        reterr = SimulateDataset(simulate_fname, simulate_label, simulate_flags, simulate_cases, simulate_controls, simulate_qt_samples, simulate_prevalence, simulate_missing, &main_sfmt, outname, outname_end);
+        free_cond(simulate_label);
+        simulate_label = nullptr;
+        free_cond(simulate_fname);
+        simulate_fname = nullptr;
+        if (unlikely(reterr)) {
+          goto main_ret_1;
+        }
+      }
       if (adjust_file_info.fname) {
         reterr = AdjustFile(&adjust_file_info, pc.ln_pfilter, pc.output_min_ln, pc.max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
