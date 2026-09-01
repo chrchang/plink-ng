@@ -58,4 +58,9 @@ cd TEST_ONE_WAY_EXPORT
 cd ..
 echo "TEST_ONE_WAY_EXPORT passed."
 
+cd TEST_PMERGE
+./run_tests.sh $d $2 $3 > TEST_PMERGE.log
+cd ..
+echo "TEST_PMERGE passed."
+
 echo "All tests passed."
