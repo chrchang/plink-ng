@@ -10772,6 +10772,14 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
 // and each reported value is the mean of its terms over the sample's
 // nonmissing calls, minus 1.  All three are invariant under swapping the
 // reference allele, so the REF/ALT orientation does not matter.
+typedef struct IbcAccStruct {
+  double fhat1_sum;
+  double fhat2_sum;
+  double fhat3_sum;
+  uint32_t nobs;
+  uint32_t reserved;
+} IbcAcc;
+
 PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, IbcFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
@@ -10801,18 +10809,15 @@ PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uint32_t* sample_include_cumulative_popcounts;
     uintptr_t* genovec;
-    double* fhat1_sums;
-    double* fhat2_sums;
-    double* fhat3_sums;
-    uint32_t* nobs;
+    // One cache-line-friendly record per sample instead of four separate
+    // arrays; the inner loop then walks a single stream.
+    IbcAcc* accs;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
                  bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec) ||
-                 bigstack_calloc_d(sample_ct, &fhat1_sums) ||
-                 bigstack_calloc_d(sample_ct, &fhat2_sums) ||
-                 bigstack_calloc_d(sample_ct, &fhat3_sums) ||
-                 bigstack_calloc_u32(sample_ct, &nobs))) {
+                 BIGSTACK_ALLOC_X(IbcAcc, sample_ct, &accs))) {
       goto IbcReport_ret_NOMEM;
     }
+    memset(accs, 0, sample_ct * sizeof(IbcAcc));
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
@@ -10859,6 +10864,14 @@ PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
       const double f2_het = 2.0 - inv_denom;
       const double f3_hom_ref = 1.0 + (1.0 - ref_freq) / ref_freq;
       const double f3_hom_alt = 1.0 + ref_freq / (1.0 - ref_freq);
+      // Genotype-indexed weights, with the missing slot zeroed so the inner
+      // loop needs no branches.  Adding 0.0 leaves a finite running sum
+      // untouched, so the accumulation order is exactly the same as an
+      // if/else chain that skips missing calls.
+      const double f1_tab[4] = {f1_hom_ref, f1_het, f1_hom_alt, 0.0};
+      const double f2_tab[4] = {2.0, f2_het, 2.0, 0.0};
+      const double f3_tab[4] = {f3_hom_ref, 0.0, f3_hom_alt, 0.0};
+      const uint32_t nobs_tab[4] = {1, 1, 1, 0};
 
       uint32_t sample_idx = 0;
       for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
@@ -10867,22 +10880,11 @@ PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
         for (; sample_idx != idx_stop; ++sample_idx) {
           const uintptr_t cur_geno = geno_word & 3;
           geno_word >>= 2;
-          if (cur_geno == 3) {
-            continue;
-          }
-          ++nobs[sample_idx];
-          if (cur_geno == 0) {
-            fhat1_sums[sample_idx] += f1_hom_ref;
-            fhat2_sums[sample_idx] += 2.0;
-            fhat3_sums[sample_idx] += f3_hom_ref;
-          } else if (cur_geno == 1) {
-            fhat1_sums[sample_idx] += f1_het;
-            fhat2_sums[sample_idx] += f2_het;
-          } else {
-            fhat1_sums[sample_idx] += f1_hom_alt;
-            fhat2_sums[sample_idx] += 2.0;
-            fhat3_sums[sample_idx] += f3_hom_alt;
-          }
+          IbcAcc* cur_acc = &(accs[sample_idx]);
+          cur_acc->fhat1_sum += f1_tab[cur_geno];
+          cur_acc->fhat2_sum += f2_tab[cur_geno];
+          cur_acc->fhat3_sum += f3_tab[cur_geno];
+          cur_acc->nobs += nobs_tab[cur_geno];
         }
       }
     }
@@ -10940,7 +10942,7 @@ PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
       cswritep = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, cswritep);
-      const uint32_t cur_nobs = nobs[sample_idx];
+      const uint32_t cur_nobs = accs[sample_idx].nobs;
       if (col_nobs) {
         *cswritep++ = '\t';
         cswritep = u32toa(cur_nobs, cswritep);
@@ -10949,7 +10951,7 @@ PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
       if (col_fhat1) {
         *cswritep++ = '\t';
         if (cur_nobs) {
-          cswritep = dtoa_g(fhat1_sums[sample_idx] * nobs_recip - 1.0, cswritep);
+          cswritep = dtoa_g(accs[sample_idx].fhat1_sum * nobs_recip - 1.0, cswritep);
         } else {
           cswritep = strcpya_k(cswritep, "NA");
         }
@@ -10957,7 +10959,7 @@ PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
       if (col_fhat2) {
         *cswritep++ = '\t';
         if (cur_nobs) {
-          cswritep = dtoa_g(fhat2_sums[sample_idx] * nobs_recip - 1.0, cswritep);
+          cswritep = dtoa_g(accs[sample_idx].fhat2_sum * nobs_recip - 1.0, cswritep);
         } else {
           cswritep = strcpya_k(cswritep, "NA");
         }
@@ -10965,7 +10967,7 @@ PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
       if (col_fhat3) {
         *cswritep++ = '\t';
         if (cur_nobs) {
-          cswritep = dtoa_g(fhat3_sums[sample_idx] * nobs_recip - 1.0, cswritep);
+          cswritep = dtoa_g(accs[sample_idx].fhat3_sum * nobs_recip - 1.0, cswritep);
         } else {
           cswritep = strcpya_k(cswritep, "NA");
         }
