@@ -1020,9 +1020,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         goto Plink2Core_ret_1;
       }
       if (pcp->misc_flags & kfMiscZeroCms) {
-        // Same end state as loading a .pvar/.bim with no nonzero CM values;
-        // the writers already emit '0' when variant_cms is null.
-        variant_cms = nullptr;
+        if (variant_cms && pcp->update_cm_flag) {
+          // As in PLINK 1.9, --zero-cms clears the loaded values and
+          // --update-cm then fills in the ones named in its file.
+          ZeroDArr(raw_variant_ct, variant_cms);
+        } else {
+          // Same end state as loading a .pvar/.bim with no nonzero CM values;
+          // the writers already emit '0' when variant_cms is null.
+          variant_cms = nullptr;
+        }
       }
       LoadFilterLogFlags load_filter_log_flags = pcp->load_filter_log_flags;
       if (load_filter_log_flags & kfLoadFilterLogImportMergeAlreadyApplied) {
@@ -12236,10 +12242,6 @@ int main(int argc, char** argv) {
           }
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "pdate-cm")) {
-          if (unlikely(pc.misc_flags & kfMiscZeroCms)) {
-            logerrputs("Error: --update-cm cannot be used with --zero-cms.\n");
-            goto main_ret_INVALID_CMDLINE_A;
-          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -12783,10 +12785,6 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k_unsafe(flagname_p2, "ero-cms")) {
-          if (unlikely(pc.update_cm_flag)) {
-            logerrputs("Error: --update-cm cannot be used with --zero-cms.\n");
-            goto main_ret_INVALID_CMDLINE_A;
-          }
           pc.misc_flags |= kfMiscZeroCms;
           pc.dependency_flags |= kfFilterPvarReq;
           goto main_param_zero;
