@@ -10802,33 +10802,252 @@ static const double kRohSmallishEpsilon = 0.000000000000056843418860808014869689
 // 1 = missing, 2 = heterozygous, in place of plink2's 0/1/2/3.  Also adds the
 // row's heterozygous and missing calls to the running window counts, touching
 // only the samples that actually have one.
-static void RecodeHomozygRow(const uintptr_t* genovec, uint32_t sample_ct, uint32_t sample_ctl2, uint32_t* het_cts, uint32_t* missing_cts, uintptr_t* dst) {
+// 0 = homozygous, 1 = missing, 2 = heterozygous, two bits per sample.  The
+// window's het/missing counts are folded in separately, by HomozygFoldRow(),
+// since that part is per-sample work.
+static void RecodeHomozygRow(const uintptr_t* genovec, uint32_t sample_ctl2, uintptr_t* dst) {
   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
     const uintptr_t geno_word = genovec[widx];
     const uintptr_t lo = geno_word & kMask5555;
     const uintptr_t hi = (geno_word >> 1) & kMask5555;
     // low bit set marks the two non-homozygous codes; among those, plink2's
     // high bit distinguishes missing (11) from heterozygous (01).
-    uintptr_t cur_word = (lo & hi) | ((lo & (~hi)) << 1);
-    dst[widx] = cur_word;
-    const uint32_t sample_idx_base = widx * kBitsPerWordD2;
+    dst[widx] = (lo & hi) | ((lo & (~hi)) << 1);
+  }
+}
+
+// Everything the scan needs to advance one variant.  Every array here is
+// indexed by sample, and the window buffers hold one word per 32 samples, so
+// two calls covering disjoint sample-word ranges touch disjoint memory: that
+// range is the unit a worker thread would be handed.
+typedef struct HomozygScanCtxStruct {
+  uint32_t sample_ct;
+  uint32_t sample_ctl2;
+  uint32_t window_size;
+  uint32_t ring_size;
+  uint32_t max_sw_hets;
+  uint32_t max_sw_missings;
+  double hit_threshold;
+  uint32_t min_snp;
+  uint32_t min_bases;
+  double max_bases_per_snp;
+  uint32_t max_hets;
+  uint32_t max_gap;
+  uint32_t is_new_lengths;
+  uint32_t is_x;
+  const uint32_t* variant_bps;
+  const uintptr_t* male_collapsed;
+
+  // Recoded rows and their variant_uidxs, ring_size entries each; written by
+  // the reader, read-only here.
+  const uintptr_t* readbuf;
+  const uint32_t* uidx_buf;
+
+  // Window-hit bits, window_size rows.
+  uintptr_t* swbuf;
+
+  uint32_t* het_cts;
+  uint32_t* missing_cts;
+  uint32_t* swhit_cts;
+  uint32_t* cur_roh_uidx_starts;
+  uint32_t* cur_roh_cidx_starts;
+  uint32_t* cur_roh_het_cts;
+  uint32_t* cur_roh_missing_cts;
+} HomozygScanCtx;
+
+// Folds one recoded row into (or out of, when incr is -1) the window's
+// het/missing counts.  The recoded words are zero for homozygous calls, so
+// this only touches samples that have a heterozygous or missing one.
+static void HomozygFoldRow(const HomozygScanCtx* ctx, uint32_t row, int32_t incr, uint32_t word_start, uint32_t word_end) {
+  const uintptr_t* cur_row = &(ctx->readbuf[S_CAST(uintptr_t, row % ctx->ring_size) * ctx->sample_ctl2]);
+  uint32_t* het_cts = ctx->het_cts;
+  uint32_t* missing_cts = ctx->missing_cts;
+  for (uint32_t geno_widx = word_start; geno_widx != word_end; ++geno_widx) {
+    uintptr_t cur_word = cur_row[geno_widx];
+    const uint32_t sample_idx_base = geno_widx * kBitsPerWordD2;
     while (cur_word) {
       const uint32_t bit_idx = ctzw(cur_word);
       if (bit_idx & 1) {
-        het_cts[sample_idx_base + (bit_idx / 2)] += 1;
+        het_cts[sample_idx_base + (bit_idx / 2)] += incr;
       } else {
-        missing_cts[sample_idx_base + (bit_idx / 2)] += 1;
+        missing_cts[sample_idx_base + (bit_idx / 2)] += incr;
       }
       cur_word &= cur_word - 1;
     }
   }
-  (void)sample_ct;
 }
 
-PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, const HomozygInfo* hip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+// Advances the scan across marker_cidx in [cidx_start, cidx_end) for the
+// sample words in [word_start, word_end).  A chromosome has chr_variant_ct + 1
+// steps: step c has the variant at offset c as the oldest member of its
+// window, and the last step has no variant at all, which closes out every run
+// still open.  Returns 1 if roh_list ran out of room.
+static uint32_t HomozygScanRange(const HomozygScanCtx* ctx, uint32_t chr_variant_ct, uint32_t cidx_start, uint32_t cidx_end, uint32_t word_start, uint32_t word_end, uintptr_t max_roh_ct, RohRecord* roh_list, uintptr_t* roh_ct_ptr) {
+  const uint32_t window_size = ctx->window_size;
+  const uint32_t ring_size = ctx->ring_size;
+  const uint32_t sample_ctl2 = ctx->sample_ctl2;
+  const uint32_t max_sw_hets = ctx->max_sw_hets;
+  const uint32_t max_sw_missings = ctx->max_sw_missings;
+  const uint32_t min_snp = ctx->min_snp;
+  const uint32_t min_bases = ctx->min_bases;
+  const double max_bases_per_snp = ctx->max_bases_per_snp;
+  const uint32_t max_hets = ctx->max_hets;
+  const uint32_t max_gap = ctx->max_gap;
+  const uint32_t is_new_lengths = ctx->is_new_lengths;
+  const uint32_t is_x = ctx->is_x;
+  const uint32_t* variant_bps = ctx->variant_bps;
+  const uintptr_t* male_collapsed = ctx->male_collapsed;
+  const uintptr_t* readbuf = ctx->readbuf;
+  const uint32_t* uidx_buf = ctx->uidx_buf;
+  uintptr_t* swbuf = ctx->swbuf;
+  uint32_t* het_cts = ctx->het_cts;
+  uint32_t* missing_cts = ctx->missing_cts;
+  uint32_t* swhit_cts = ctx->swhit_cts;
+  uint32_t* cur_roh_uidx_starts = ctx->cur_roh_uidx_starts;
+  uint32_t* cur_roh_cidx_starts = ctx->cur_roh_cidx_starts;
+  uint32_t* cur_roh_het_cts = ctx->cur_roh_het_cts;
+  uint32_t* cur_roh_missing_cts = ctx->cur_roh_missing_cts;
+  uintptr_t roh_ct = *roh_ct_ptr;
+  const uint32_t sample_idx_end = MINV(word_end * kBitsPerWordD2, ctx->sample_ct);
+
+  for (uint32_t marker_cidx = cidx_start; marker_cidx != cidx_end; ++marker_cidx) {
+    const uint32_t has_row = (marker_cidx != chr_variant_ct);
+    const uint32_t old_row = has_row? marker_cidx : (chr_variant_ct - 1);
+    const uint32_t older_row = marker_cidx? (marker_cidx - 1) : 0;
+    const uint32_t old_uidx = uidx_buf[old_row % ring_size];
+    const uint32_t older_uidx = uidx_buf[older_row % ring_size];
+    // Number of scanning-window slots currently in play: the window is still
+    // filling at the start of the chromosome, and shrinking at the end.
+    const uint32_t in_main_phase = (marker_cidx + window_size <= chr_variant_ct);
+    const uint32_t active_ct = in_main_phase? MINV(marker_cidx + 1, window_size) : (chr_variant_ct - marker_cidx);
+    const uint32_t swhit_min = S_CAST(uint32_t, S_CAST(int32_t, u31tod(active_ct) * ctx->hit_threshold + 1.0 - kRohEpsilon));
+    const uintptr_t* cur_row = has_row? (&(readbuf[S_CAST(uintptr_t, marker_cidx % ring_size) * sample_ctl2])) : nullptr;
+    uintptr_t* swbuf_cur = &(swbuf[S_CAST(uintptr_t, marker_cidx % window_size) * sample_ctl2]);
+    const uint32_t forced_end = (variant_bps[old_uidx] - variant_bps[older_uidx]) > max_gap;
+
+    uint32_t sample_idx = word_start * kBitsPerWordD2;
+    for (uint32_t geno_widx = word_start; geno_widx != word_end; ++geno_widx) {
+      // Retire the outgoing row's window-hit bits.  Only the samples that
+      // actually had a hit cost anything.  (The slot is zero while the window
+      // is still filling, so this is a no-op then.)
+      {
+        uintptr_t sw_word = swbuf_cur[geno_widx];
+        const uint32_t sample_idx_base = geno_widx * kBitsPerWordD2;
+        while (sw_word) {
+          swhit_cts[sample_idx_base + ctzw(sw_word)] -= 1;
+          sw_word &= sw_word - 1;
+        }
+        swbuf_cur[geno_widx] = 0;
+      }
+      uintptr_t geno_word = cur_row? cur_row[geno_widx] : 0;
+      uintptr_t sw_new = 0;
+      const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_idx_end);
+      for (uint32_t lowbits = 0; sample_idx != idx_stop; ++sample_idx, ++lowbits) {
+        const uintptr_t cur_call = geno_word & 3;
+        geno_word >>= 2;
+        if (is_x && IsSet(male_collapsed, sample_idx)) {
+          continue;
+        }
+        uint32_t is_cur_hit = 0;
+        if (has_row) {
+          if (in_main_phase && (het_cts[sample_idx] <= max_sw_hets) && (missing_cts[sample_idx] <= max_sw_missings)) {
+            sw_new |= k1LU << lowbits;
+            swhit_cts[sample_idx] += 1;
+          }
+          is_cur_hit = (swhit_cts[sample_idx] >= swhit_min);
+        }
+        if (cur_roh_cidx_starts[sample_idx] != UINT32_MAX) {
+          if ((!is_cur_hit) || ((cur_call == 2) && (cur_roh_het_cts[sample_idx] == max_hets)) || forced_end) {
+            const uint32_t cidx_len = marker_cidx - cur_roh_cidx_starts[sample_idx];
+            if (cidx_len >= min_snp) {
+              const uint32_t uidx_first = cur_roh_uidx_starts[sample_idx];
+              const uint32_t base_len = variant_bps[older_uidx] + is_new_lengths - variant_bps[uidx_first];
+              if ((base_len >= min_bases) && (u31tod(cidx_len) * max_bases_per_snp >= u31tod(base_len))) {
+                if (unlikely(roh_ct == max_roh_ct)) {
+                  *roh_ct_ptr = roh_ct;
+                  return 1;
+                }
+                RohRecord* cur_rec = &(roh_list[roh_ct]);
+                cur_rec->sample_idx = sample_idx;
+                cur_rec->start_uidx = uidx_first;
+                cur_rec->end_uidx = older_uidx;
+                cur_rec->nsnp = cidx_len;
+                cur_rec->nhet = cur_roh_het_cts[sample_idx];
+                cur_rec->nhom = cidx_len - cur_rec->nhet - cur_roh_missing_cts[sample_idx];
+                ++roh_ct;
+              }
+            }
+            cur_roh_cidx_starts[sample_idx] = UINT32_MAX;
+          }
+        }
+        if (is_cur_hit) {
+          if (cur_roh_cidx_starts[sample_idx] == UINT32_MAX) {
+            if ((!max_hets) && (cur_call == 2)) {
+              continue;
+            }
+            cur_roh_uidx_starts[sample_idx] = old_uidx;
+            cur_roh_cidx_starts[sample_idx] = marker_cidx;
+            cur_roh_het_cts[sample_idx] = 0;
+            cur_roh_missing_cts[sample_idx] = 0;
+          }
+          if (cur_call) {
+            if (cur_call == 2) {
+              cur_roh_het_cts[sample_idx] += 1;
+            } else {
+              cur_roh_missing_cts[sample_idx] += 1;
+            }
+          }
+        }
+      }
+      swbuf_cur[geno_widx] = sw_new;
+    }
+    if (in_main_phase) {
+      // The window rolls forward: this variant drops out of it, and the one
+      // window_size positions later joins.
+      HomozygFoldRow(ctx, marker_cidx, -1, word_start, word_end);
+      if (marker_cidx + window_size < chr_variant_ct) {
+        HomozygFoldRow(ctx, marker_cidx + window_size, 1, word_start, word_end);
+      }
+    }
+  }
+  *roh_ct_ptr = roh_ct;
+  return 0;
+}
+
+typedef struct HomozygCtxStruct {
+  HomozygScanCtx scan;
+  // Set by the reader before each block is handed out.
+  uint32_t chr_variant_ct;
+  uint32_t block_start;
+  uint32_t block_end;
+  // Sample-word boundaries, calc_thread_ct + 1 entries.
+  const uint32_t* word_starts;
+  RohRecord** roh_lists;
+  uintptr_t* roh_cts;
+  uintptr_t* max_roh_cts;
+  uint32_t* nomem;
+} HomozygCtx;
+
+THREAD_FUNC_DECL HomozygThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  HomozygCtx* ctx = S_CAST(HomozygCtx*, arg->sharedp->context);
+  do {
+    if (!ctx->nomem[tidx]) {
+      if (HomozygScanRange(&(ctx->scan), ctx->chr_variant_ct, ctx->block_start, ctx->block_end, ctx->word_starts[tidx], ctx->word_starts[tidx + 1], ctx->max_roh_cts[tidx], ctx->roh_lists[tidx], &(ctx->roh_cts[tidx]))) {
+        ctx->nomem[tidx] = 1;
+      }
+    }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, const HomozygInfo* hip, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* outfile = nullptr;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t window_size = hip->window_size;
@@ -10858,6 +11077,11 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    // Scan steps per read-ahead batch.  The reader has to stay a full window
+    // ahead of the scan, so the ring holds a block plus a window, plus the one
+    // row before the block, whose bp position the first step still needs.
+    const uint32_t block_size = 256;
+    const uint32_t ring_size = window_size + block_size + 1;
     uint32_t* sample_include_cumulative_popcounts;
     uintptr_t* genovec;
     // Window rows, recoded in place to 2-bit codes: 0 = homozygous,
@@ -10878,9 +11102,9 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     uintptr_t* male_collapsed;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
                  bigstack_alloc_w(sample_ctl2, &genovec) ||
-                 bigstack_alloc_w(S_CAST(uintptr_t, window_size) * sample_ctl2, &readbuf) ||
+                 bigstack_alloc_w(S_CAST(uintptr_t, ring_size) * sample_ctl2, &readbuf) ||
                  bigstack_alloc_w(S_CAST(uintptr_t, window_size) * sample_ctl2, &swbuf) ||
-                 bigstack_alloc_u32(window_size, &uidx_buf) ||
+                 bigstack_alloc_u32(ring_size, &uidx_buf) ||
                  bigstack_alloc_u32(sample_ct, &het_cts) ||
                  bigstack_alloc_u32(sample_ct, &missing_cts) ||
                  bigstack_alloc_u32(sample_ct, &swhit_cts) ||
@@ -10897,13 +11121,97 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
 
-    // ROH records go at the end of the workspace.
+    HomozygCtx ctx;
+    HomozygScanCtx* scanp = &(ctx.scan);
+    scanp->sample_ct = sample_ct;
+    scanp->sample_ctl2 = sample_ctl2;
+    scanp->window_size = window_size;
+    scanp->ring_size = ring_size;
+    scanp->max_sw_hets = max_sw_hets;
+    scanp->max_sw_missings = max_sw_missings;
+    scanp->hit_threshold = hit_threshold;
+    scanp->min_snp = min_snp;
+    scanp->min_bases = min_bases;
+    scanp->max_bases_per_snp = max_bases_per_snp;
+    scanp->max_hets = max_hets;
+    scanp->max_gap = max_gap;
+    scanp->is_new_lengths = is_new_lengths;
+    scanp->is_x = 0;
+    scanp->variant_bps = variant_bps;
+    scanp->male_collapsed = male_collapsed;
+    scanp->readbuf = readbuf;
+    scanp->uidx_buf = uidx_buf;
+    scanp->swbuf = swbuf;
+    scanp->het_cts = het_cts;
+    scanp->missing_cts = missing_cts;
+    scanp->swhit_cts = swhit_cts;
+    scanp->cur_roh_uidx_starts = cur_roh_uidx_starts;
+    scanp->cur_roh_cidx_starts = cur_roh_cidx_starts;
+    scanp->cur_roh_het_cts = cur_roh_het_cts;
+    scanp->cur_roh_missing_cts = cur_roh_missing_cts;
+
+    // One worker per contiguous range of sample words.  Every array the scan
+    // touches is indexed by sample, so the ranges are independent.
+    uint32_t calc_thread_ct = MINV(max_thread_ct, sample_ctl2);
+    if (!calc_thread_ct) {
+      calc_thread_ct = 1;
+    }
+    uint32_t* word_starts;
+    if (unlikely(bigstack_alloc_u32(calc_thread_ct + 1, &word_starts) ||
+                 bigstack_alloc_u32(calc_thread_ct, &(ctx.nomem)) ||
+                 BIGSTACK_ALLOC_X(RohRecord*, calc_thread_ct, &(ctx.roh_lists)) ||
+                 BIGSTACK_ALLOC_X(uintptr_t, calc_thread_ct, &(ctx.roh_cts)) ||
+                 BIGSTACK_ALLOC_X(uintptr_t, calc_thread_ct, &(ctx.max_roh_cts)))) {
+      goto HomozygReport_ret_NOMEM;
+    }
+    for (uint32_t tidx = 0; tidx <= calc_thread_ct; ++tidx) {
+      word_starts[tidx] = (S_CAST(uint64_t, sample_ctl2) * tidx) / calc_thread_ct;
+    }
+    ctx.word_starts = word_starts;
+    ZeroU32Arr(calc_thread_ct, ctx.nomem);
+
+    // ROH records go at the end of the workspace, split evenly between the
+    // workers; they are concatenated in worker order once the scan is done,
+    // which leaves each sample's records in discovery order.
     const uintptr_t max_roh_ct = bigstack_left() / (2 * sizeof(RohRecord));
     RohRecord* roh_list = S_CAST(RohRecord*, bigstack_end_alloc(max_roh_ct * sizeof(RohRecord)));
     if (unlikely(!roh_list)) {
       goto HomozygReport_ret_NOMEM;
     }
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+      const uintptr_t slice_start = (max_roh_ct * S_CAST(uint64_t, tidx)) / calc_thread_ct;
+      const uintptr_t slice_end = (max_roh_ct * (S_CAST(uint64_t, tidx) + 1)) / calc_thread_ct;
+      ctx.roh_lists[tidx] = &(roh_list[slice_start]);
+      ctx.max_roh_cts[tidx] = slice_end - slice_start;
+      ctx.roh_cts[tidx] = 0;
+    }
     uintptr_t roh_ct = 0;
+
+    // Total block count, so that the last one can be flagged for the thread
+    // group.
+    uint32_t total_block_ct = 0;
+    {
+      const uint32_t x_code_tmp = cip->xymt_codes[kChrOffsetX];
+      const uint32_t mt_code_tmp = cip->xymt_codes[kChrOffsetMT];
+      for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        if ((chr_idx != x_code_tmp) && (IsSet(cip->haploid_mask, chr_idx) || (chr_idx == mt_code_tmp))) {
+          continue;
+        }
+        const uint32_t cur_ct = PopcountBitRange(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1]);
+        if (cur_ct < window_size) {
+          continue;
+        }
+        total_block_ct += 1 + (cur_ct / block_size);
+      }
+    }
+    if (total_block_ct) {
+      SetThreadFuncAndData(HomozygThread, &ctx, &tg);
+      if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+        goto HomozygReport_ret_NOMEM;
+      }
+    }
+    uint32_t blocks_left = total_block_ct;
 
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
@@ -10932,9 +11240,12 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       ZeroWArr(S_CAST(uintptr_t, window_size) * sample_ctl2, swbuf);
       ZeroU32Arr(sample_ct, swhit_cts);
       SetAllU32Arr(sample_ct, cur_roh_cidx_starts);
+      scanp->is_x = is_x;
 
-      uint32_t loaded_ct = 0;
-      for (; loaded_ct != window_size; ++loaded_ct) {
+      // The reader stays a window ahead of the scan, so that a whole block of
+      // scan steps can run without touching the file.
+      uint32_t rows_read = 0;
+      for (; rows_read != window_size; ++rows_read) {
         const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
         reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
         if (unlikely(reterr)) {
@@ -10942,216 +11253,57 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
           goto HomozygReport_ret_1;
         }
         ZeroTrailingNyps(sample_ct, genovec);
-        RecodeHomozygRow(genovec, sample_ct, sample_ctl2, het_cts, missing_cts, &(readbuf[S_CAST(uintptr_t, loaded_ct) * sample_ctl2]));
-        uidx_buf[loaded_ct] = variant_uidx;
+        RecodeHomozygRow(genovec, sample_ctl2, &(readbuf[S_CAST(uintptr_t, rows_read % ring_size) * sample_ctl2]));
+        uidx_buf[rows_read % ring_size] = variant_uidx;
+      }
+      for (uint32_t row = 0; row != window_size; ++row) {
+        HomozygFoldRow(scanp, row, 1, 0, sample_ctl2);
       }
 
-      uint32_t remaining_ct = chr_variant_ct - window_size;
-      uint32_t widx = 0;
-      uint32_t widx_next = 0;
-      uint32_t swbuf_full = 0;
-      uint32_t marker_cidx = 0;
-      uint32_t swhit_min = 1;
-      uint32_t old_uidx = uidx_buf[0];
-      uint32_t older_uidx = old_uidx;
-      while (1) {
-        older_uidx = old_uidx;
-        old_uidx = uidx_buf[widx];
-        const uintptr_t* cur_row = &(readbuf[S_CAST(uintptr_t, widx) * sample_ctl2]);
-        uintptr_t* swbuf_cur = &(swbuf[S_CAST(uintptr_t, widx) * sample_ctl2]);
-        if (!swbuf_full) {
-          swhit_min = S_CAST(uint32_t, S_CAST(int32_t, u31tod(widx + 1) * hit_threshold + 1.0 - kRohEpsilon));
-        }
-        if (swbuf_full) {
-          // Retire the outgoing row's window-hit bits.  Only the samples that
-          // actually had a hit cost anything.
-          for (uint32_t geno_widx = 0; geno_widx != sample_ctl2; ++geno_widx) {
-            uintptr_t sw_word = swbuf_cur[geno_widx];
-            const uint32_t sample_idx_base = geno_widx * kBitsPerWordD2;
-            while (sw_word) {
-              swhit_cts[sample_idx_base + ctzw(sw_word)] -= 1;
-              sw_word &= sw_word - 1;
-            }
+      // chr_variant_ct + 1 scan steps: one per variant, plus a final step with
+      // no variant that closes out the runs still open.
+      for (uint32_t block_start = 0; block_start <= chr_variant_ct; block_start += block_size) {
+        const uint32_t block_end = MINV(block_start + block_size, chr_variant_ct + 1);
+        const uint32_t rows_needed = MINV(block_end + window_size, chr_variant_ct);
+        for (; rows_read != rows_needed; ++rows_read) {
+          const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+          reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto HomozygReport_ret_1;
           }
+          ZeroTrailingNyps(sample_ct, genovec);
+          RecodeHomozygRow(genovec, sample_ctl2, &(readbuf[S_CAST(uintptr_t, rows_read % ring_size) * sample_ctl2]));
+          uidx_buf[rows_read % ring_size] = variant_uidx;
         }
-        const uint32_t forced_end = (variant_bps[old_uidx] - variant_bps[older_uidx]) > max_gap;
-        uint32_t sample_idx = 0;
-        for (uint32_t geno_widx = 0; sample_idx != sample_ct; ++geno_widx) {
-          uintptr_t geno_word = cur_row[geno_widx];
-          uintptr_t sw_new = 0;
-          const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
-          for (uint32_t lowbits = 0; sample_idx != idx_stop; ++sample_idx, ++lowbits) {
-          const uintptr_t cur_call = geno_word & 3;
-          geno_word >>= 2;
-          if (is_x && IsSet(male_collapsed, sample_idx)) {
-            continue;
-          }
-          if ((het_cts[sample_idx] <= max_sw_hets) && (missing_cts[sample_idx] <= max_sw_missings)) {
-            sw_new |= k1LU << lowbits;
-            swhit_cts[sample_idx] += 1;
-          }
-          const uint32_t is_cur_hit = (swhit_cts[sample_idx] >= swhit_min);
-          if (cur_roh_cidx_starts[sample_idx] != UINT32_MAX) {
-            if ((!is_cur_hit) || ((cur_call == 2) && (cur_roh_het_cts[sample_idx] == max_hets)) || forced_end) {
-              const uint32_t cidx_len = marker_cidx - cur_roh_cidx_starts[sample_idx];
-              if (cidx_len >= min_snp) {
-                const uint32_t uidx_first = cur_roh_uidx_starts[sample_idx];
-                const uint32_t base_len = variant_bps[older_uidx] + is_new_lengths - variant_bps[uidx_first];
-                if ((base_len >= min_bases) && (u31tod(cidx_len) * max_bases_per_snp >= u31tod(base_len))) {
-                  if (unlikely(roh_ct == max_roh_ct)) {
-                    goto HomozygReport_ret_NOMEM;
-                  }
-                  RohRecord* cur_rec = &(roh_list[roh_ct]);
-                  cur_rec->sample_idx = sample_idx;
-                  cur_rec->start_uidx = uidx_first;
-                  cur_rec->end_uidx = older_uidx;
-                  cur_rec->nsnp = cidx_len;
-                  cur_rec->nhet = cur_roh_het_cts[sample_idx];
-                  cur_rec->nhom = cidx_len - cur_rec->nhet - cur_roh_missing_cts[sample_idx];
-                  ++roh_ct;
-                }
-              }
-              cur_roh_cidx_starts[sample_idx] = UINT32_MAX;
-            }
-          }
-          if (is_cur_hit) {
-            if (cur_roh_cidx_starts[sample_idx] == UINT32_MAX) {
-              if ((!max_hets) && (cur_call == 2)) {
-                continue;
-              }
-              cur_roh_uidx_starts[sample_idx] = old_uidx;
-              cur_roh_cidx_starts[sample_idx] = marker_cidx;
-              cur_roh_het_cts[sample_idx] = 0;
-              cur_roh_missing_cts[sample_idx] = 0;
-            }
-            if (cur_call) {
-              if (cur_call == 2) {
-                cur_roh_het_cts[sample_idx] += 1;
-              } else {
-                cur_roh_missing_cts[sample_idx] += 1;
-              }
-            }
-          }
-          }
-          swbuf_cur[geno_widx] = sw_new;
+        ctx.chr_variant_ct = chr_variant_ct;
+        ctx.block_start = block_start;
+        ctx.block_end = block_end;
+        if (!(--blocks_left)) {
+          DeclareLastThreadBlock(&tg);
         }
-        widx_next = widx + 1;
-        if (widx_next == window_size) {
-          widx_next = 0;
-          swbuf_full = 1;
+        if (unlikely(SpawnThreads(&tg))) {
+          goto HomozygReport_ret_THREAD_CREATE_FAIL;
         }
-        // Retire the outgoing row's heterozygous/missing contribution; the
-        // recoded words are zero for homozygous calls, so this only touches
-        // samples that have one.
-        for (uint32_t geno_widx = 0; geno_widx != sample_ctl2; ++geno_widx) {
-          uintptr_t cur_word = cur_row[geno_widx];
-          const uint32_t sample_idx_base = geno_widx * kBitsPerWordD2;
-          while (cur_word) {
-            const uint32_t bit_idx = ctzw(cur_word);
-            if (bit_idx & 1) {
-              het_cts[sample_idx_base + (bit_idx / 2)] -= 1;
-            } else {
-              missing_cts[sample_idx_base + (bit_idx / 2)] -= 1;
-            }
-            cur_word &= cur_word - 1;
-          }
-        }
-        if (!remaining_ct) {
-          break;
-        }
-        --remaining_ct;
-        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-        uidx_buf[widx] = variant_uidx;
-        reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
-        if (unlikely(reterr)) {
-          PgenErrPrintNV(reterr, variant_uidx);
-          goto HomozygReport_ret_1;
-        }
-        ZeroTrailingNyps(sample_ct, genovec);
-        RecodeHomozygRow(genovec, sample_ct, sample_ctl2, het_cts, missing_cts, &(readbuf[S_CAST(uintptr_t, widx) * sample_ctl2]));
-        widx = widx_next;
-        ++marker_cidx;
+        JoinThreads(&tg);
       }
-      // Trailing (window_size - 1) variants: the window shrinks.
-      const uint32_t marker_cidx_max = marker_cidx + window_size;
-      do {
-        widx = widx_next;
-        ++marker_cidx;
-        older_uidx = old_uidx;
-        const uintptr_t* cur_row = nullptr;
-        if (marker_cidx < marker_cidx_max) {
-          old_uidx = uidx_buf[widx];
-          cur_row = &(readbuf[S_CAST(uintptr_t, widx) * sample_ctl2]);
-          uintptr_t* swbuf_cur = &(swbuf[S_CAST(uintptr_t, widx) * sample_ctl2]);
-          for (uint32_t geno_widx = 0; geno_widx != sample_ctl2; ++geno_widx) {
-            uintptr_t sw_word = swbuf_cur[geno_widx];
-            const uint32_t sample_idx_base = geno_widx * kBitsPerWordD2;
-            while (sw_word) {
-              swhit_cts[sample_idx_base + ctzw(sw_word)] -= 1;
-              sw_word &= sw_word - 1;
-            }
-            swbuf_cur[geno_widx] = 0;
-          }
-          swhit_min = S_CAST(uint32_t, S_CAST(int32_t, u31tod(marker_cidx_max - marker_cidx) * hit_threshold + 1.0 - kRohEpsilon));
+    }
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+      if (unlikely(ctx.nomem[tidx])) {
+        goto HomozygReport_ret_NOMEM;
+      }
+    }
+    // Concatenate the workers' records.  Worker t only ever wrote records for
+    // samples in its own word range, so this leaves each sample's records
+    // contiguous and in discovery order.
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+      const uintptr_t cur_ct = ctx.roh_cts[tidx];
+      if (cur_ct) {
+        if (ctx.roh_lists[tidx] != &(roh_list[roh_ct])) {
+          memmove(&(roh_list[roh_ct]), ctx.roh_lists[tidx], cur_ct * sizeof(RohRecord));
         }
-        const uint32_t forced_end = (variant_bps[old_uidx] - variant_bps[older_uidx]) > max_gap;
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          if (is_x && IsSet(male_collapsed, sample_idx)) {
-            continue;
-          }
-          uint32_t is_cur_hit = 0;
-          uintptr_t cur_call = 0;
-          if (cur_row) {
-            is_cur_hit = (swhit_cts[sample_idx] >= swhit_min);
-            cur_call = GetNyparrEntry(cur_row, sample_idx);
-          }
-          if (cur_roh_cidx_starts[sample_idx] != UINT32_MAX) {
-            if ((!is_cur_hit) || ((cur_call == 2) && (cur_roh_het_cts[sample_idx] == max_hets)) || forced_end) {
-              const uint32_t cidx_len = marker_cidx - cur_roh_cidx_starts[sample_idx];
-              if (cidx_len >= min_snp) {
-                const uint32_t uidx_first = cur_roh_uidx_starts[sample_idx];
-                const uint32_t base_len = variant_bps[older_uidx] + is_new_lengths - variant_bps[uidx_first];
-                if ((base_len >= min_bases) && (u31tod(cidx_len) * max_bases_per_snp >= u31tod(base_len))) {
-                  if (unlikely(roh_ct == max_roh_ct)) {
-                    goto HomozygReport_ret_NOMEM;
-                  }
-                  RohRecord* cur_rec = &(roh_list[roh_ct]);
-                  cur_rec->sample_idx = sample_idx;
-                  cur_rec->start_uidx = uidx_first;
-                  cur_rec->end_uidx = older_uidx;
-                  cur_rec->nsnp = cidx_len;
-                  cur_rec->nhet = cur_roh_het_cts[sample_idx];
-                  cur_rec->nhom = cidx_len - cur_rec->nhet - cur_roh_missing_cts[sample_idx];
-                  ++roh_ct;
-                }
-              }
-              cur_roh_cidx_starts[sample_idx] = UINT32_MAX;
-            }
-          }
-          if (is_cur_hit) {
-            if (cur_roh_cidx_starts[sample_idx] == UINT32_MAX) {
-              if ((!max_hets) && (cur_call == 2)) {
-                continue;
-              }
-              cur_roh_uidx_starts[sample_idx] = old_uidx;
-              cur_roh_cidx_starts[sample_idx] = marker_cidx;
-              cur_roh_het_cts[sample_idx] = 0;
-              cur_roh_missing_cts[sample_idx] = 0;
-            }
-            if (cur_call) {
-              if (cur_call == 2) {
-                cur_roh_het_cts[sample_idx] += 1;
-              } else {
-                cur_roh_missing_cts[sample_idx] += 1;
-              }
-            }
-          }
-        }
-        widx_next = widx + 1;
-        if (widx_next == window_size) {
-          widx_next = 0;
-        }
-      } while (marker_cidx <= marker_cidx_max);
+        roh_ct += cur_ct;
+      }
     }
     putc_unlocked('\r', stdout);
 
@@ -11388,6 +11540,9 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
   HomozygReport_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  HomozygReport_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
   HomozygReport_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
@@ -11396,6 +11551,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     break;
   }
  HomozygReport_ret_1:
+  CleanupThreads(&tg);
   fclose_cond(outfile);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
