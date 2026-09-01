@@ -44,7 +44,7 @@
 namespace plink2 {
 #endif
 
-static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.6.35"
+static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.6.35.a"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -72,10 +72,10 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.6.35"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (18 Aug 2026)";
+  " (1 Sep 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -100,7 +100,7 @@ static PREFER_CONSTEXPR char ver_str2[] =
 #  endif
 #endif
 
-  "    cog-genomics.org/plink/2.0/\n"
+  "  cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2026 Shaun Purcell, Christopher Chang    GNU General Public License v3\n";
 #ifdef HAS_CONSTEXPR
 static_assert(CompileTimeSlen(ver_str) + CompileTimeSlen(ver_str2) == 160, "ver_str/ver_str2 needs to be updated.");
@@ -8393,7 +8393,7 @@ int main(int argc, char** argv) {
           const char* mode_str = ScanadvDouble(cur_modif, &dxx);
           if (unlikely((!mode_str) || (dxx < 0.0) || (dxx > 2147483646.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mac argument '%s'.\n", cur_modif);
-            goto main_ret_INVALID_CMDLINE;
+            goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (dxx > 0.0) {
             // round up, but keep as much precision as possible
