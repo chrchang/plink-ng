@@ -9501,7 +9501,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     break;
   BcfToPgen_ret_REWIND_FAIL_N:
     putc_unlocked('\n', stdout);
-  BcfToPgen_ret_REWIND_FAIL:
     logerrprintfww(kErrprintfRewind, "--bcf file");
     reterr = kPglRetRewindFail;
     break;
