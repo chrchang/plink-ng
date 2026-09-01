@@ -10780,6 +10780,11 @@ typedef struct IbcAccStruct {
   uint32_t reserved;
 } IbcAcc;
 
+// PLINK 1.9's update_rel_ibc() treats a variant as monomorphic when the
+// A2/REF frequency is exactly 0, or within 2^-30 of 1; the same predicate is
+// used here so that --ibc agrees with 1.9 (and GCTA) on boundary cases.
+static const double kIbcMonomorphicEps = 0.000000000931322574615478515625;
+
 PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, IbcFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
@@ -10826,7 +10831,6 @@ PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = autosomal_variant_include[0];
     uint32_t allele_ct = 2;
-    uint32_t monomorphic_ct = 0;
     uint32_t multiallelic_ct = 0;
     uint32_t used_variant_ct = 0;
     for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx) {
@@ -10842,12 +10846,6 @@ PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
         continue;
       }
       const double ref_freq = allele_freqs[allele_idx_offset_base - variant_uidx];
-      if ((ref_freq <= 0.0) || (ref_freq >= 1.0)) {
-        // PLINK 1.9 emits infinities here.  Skipping is consistent with what
-        // --het already does, and keeps the output usable.
-        ++monomorphic_ct;
-        continue;
-      }
       reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
       if (unlikely(reterr)) {
         PgenErrPrintNV(reterr, variant_uidx);
@@ -10856,21 +10854,47 @@ PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
       ZeroTrailingNyps(sample_ct, genovec);
       ++used_variant_ct;
 
-      const double two_p = 2 * ref_freq;
-      const double inv_denom = 1.0 / (two_p * (1.0 - ref_freq));
-      const double f1_hom_ref = (2.0 - two_p) * (2.0 - two_p) * inv_denom;
-      const double f1_het = (1.0 - two_p) * (1.0 - two_p) * inv_denom;
-      const double f1_hom_alt = two_p * two_p * inv_denom;
-      const double f2_het = 2.0 - inv_denom;
-      const double f3_hom_ref = 1.0 + (1.0 - ref_freq) / ref_freq;
-      const double f3_hom_alt = 1.0 + ref_freq / (1.0 - ref_freq);
       // Genotype-indexed weights, with the missing slot zeroed so the inner
       // loop needs no branches.  Adding 0.0 leaves a finite running sum
       // untouched, so the accumulation order is exactly the same as an
       // if/else chain that skips missing calls.
-      const double f1_tab[4] = {f1_hom_ref, f1_het, f1_hom_alt, 0.0};
-      const double f2_tab[4] = {2.0, f2_het, 2.0, 0.0};
-      const double f3_tab[4] = {f3_hom_ref, 0.0, f3_hom_alt, 0.0};
+      double f1_tab[4];
+      double f2_tab[4];
+      double f3_tab[4];
+      if ((ref_freq > 0.0) && (ref_freq < 1.0 - kIbcMonomorphicEps)) {
+        const double two_p = 2 * ref_freq;
+        const double inv_denom = 1.0 / (two_p * (1.0 - ref_freq));
+        f1_tab[0] = (2.0 - two_p) * (2.0 - two_p) * inv_denom;
+        f1_tab[1] = (1.0 - two_p) * (1.0 - two_p) * inv_denom;
+        f1_tab[2] = two_p * two_p * inv_denom;
+        f2_tab[0] = 2.0;
+        f2_tab[1] = 2.0 - inv_denom;
+        f2_tab[2] = 2.0;
+        f3_tab[0] = 1.0 + (1.0 - ref_freq) / ref_freq;
+        f3_tab[1] = 0.0;
+        f3_tab[2] = 1.0 + ref_freq / (1.0 - ref_freq);
+      } else {
+        // Weights for a monomorphic variant, matching PLINK 1.9's
+        // update_rel_ibc() (plink_calc.c:143) and hence GCTA: the variant is
+        // still counted in OBS_CT, and contributes 0 to all three estimates,
+        // since Fhat1/Fhat2/Fhat3 are all reported as (sum / OBS_CT) - 1.
+        // The genotypes that cannot occur at a monomorphic variant get
+        // infinite weights, which is 1.9's way of flagging a --read-freq file
+        // whose zero MAFs disagree with the genotype data.
+        const uint32_t alt_is_absent = (ref_freq > 0.0);
+        f1_tab[0] = alt_is_absent? 0.0 : INFINITY_D;
+        f1_tab[1] = INFINITY_D;
+        f1_tab[2] = alt_is_absent? INFINITY_D : 0.0;
+        f2_tab[0] = 1.0;
+        f2_tab[1] = -INFINITY_D;
+        f2_tab[2] = 1.0;
+        f3_tab[0] = alt_is_absent? 1.0 : INFINITY_D;
+        f3_tab[1] = 0.0;
+        f3_tab[2] = alt_is_absent? INFINITY_D : 1.0;
+      }
+      f1_tab[3] = 0.0;
+      f2_tab[3] = 0.0;
+      f3_tab[3] = 0.0;
       const uint32_t nobs_tab[4] = {1, 1, 1, 0};
 
       uint32_t sample_idx = 0;
@@ -10891,9 +10915,6 @@ PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     if (unlikely(!used_variant_ct)) {
       logerrputs("Error: --ibc: No usable variants.\n");
       goto IbcReport_ret_INCONSISTENT_INPUT;
-    }
-    if (monomorphic_ct) {
-      logprintf("--ibc: %u monomorphic variant%s skipped.\n", monomorphic_ct, (monomorphic_ct == 1)? "" : "s");
     }
     if (multiallelic_ct) {
       logprintf("--ibc: %u multiallelic variant%s skipped.\n", multiallelic_ct, (multiallelic_ct == 1)? "" : "s");
