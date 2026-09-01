@@ -10798,6 +10798,33 @@ typedef struct RohRecordStruct {
 static const double kRohEpsilon = 0.000000000931322574615478515625;  // 2^-30
 static const double kRohSmallishEpsilon = 0.00000000000005684341886080801486968994140625;  // 2^-44
 
+// Recodes a genovec into the representation --homozyg scans: 0 = homozygous,
+// 1 = missing, 2 = heterozygous, in place of plink2's 0/1/2/3.  Also adds the
+// row's heterozygous and missing calls to the running window counts, touching
+// only the samples that actually have one.
+static void RecodeHomozygRow(const uintptr_t* genovec, uint32_t sample_ct, uint32_t sample_ctl2, uint32_t* het_cts, uint32_t* missing_cts, uintptr_t* dst) {
+  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+    const uintptr_t geno_word = genovec[widx];
+    const uintptr_t lo = geno_word & kMask5555;
+    const uintptr_t hi = (geno_word >> 1) & kMask5555;
+    // low bit set marks the two non-homozygous codes; among those, plink2's
+    // high bit distinguishes missing (11) from heterozygous (01).
+    uintptr_t cur_word = (lo & hi) | ((lo & (~hi)) << 1);
+    dst[widx] = cur_word;
+    const uint32_t sample_idx_base = widx * kBitsPerWordD2;
+    while (cur_word) {
+      const uint32_t bit_idx = ctzw(cur_word);
+      if (bit_idx & 1) {
+        het_cts[sample_idx_base + (bit_idx / 2)] += 1;
+      } else {
+        missing_cts[sample_idx_base + (bit_idx / 2)] += 1;
+      }
+      cur_word &= cur_word - 1;
+    }
+  }
+  (void)sample_ct;
+}
+
 PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, const HomozygInfo* hip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -10833,8 +10860,13 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     uint32_t* sample_include_cumulative_popcounts;
     uintptr_t* genovec;
-    unsigned char* readbuf;   // window_size * sample_ct, values 0/1/2
-    uintptr_t* swbuf;         // window_size * sample_ctl
+    // Window rows, recoded in place to 2-bit codes: 0 = homozygous,
+    // 1 = missing, 2 = heterozygous.  Packed rather than one byte per sample,
+    // so that a 50-variant window stays cache-resident.
+    uintptr_t* readbuf;       // window_size * sample_ctl2
+    // Scanning-window hit bits, one word per 32 samples so that it lines up
+    // with the genotype words above.
+    uintptr_t* swbuf;         // window_size * sample_ctl2
     uint32_t* uidx_buf;
     uint32_t* het_cts;
     uint32_t* missing_cts;
@@ -10846,8 +10878,8 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     uintptr_t* male_collapsed;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
                  bigstack_alloc_w(sample_ctl2, &genovec) ||
-                 BIGSTACK_ALLOC_X(unsigned char, S_CAST(uintptr_t, window_size) * sample_ct, &readbuf) ||
-                 bigstack_alloc_w(S_CAST(uintptr_t, window_size) * sample_ctl, &swbuf) ||
+                 bigstack_alloc_w(S_CAST(uintptr_t, window_size) * sample_ctl2, &readbuf) ||
+                 bigstack_alloc_w(S_CAST(uintptr_t, window_size) * sample_ctl2, &swbuf) ||
                  bigstack_alloc_u32(window_size, &uidx_buf) ||
                  bigstack_alloc_u32(sample_ct, &het_cts) ||
                  bigstack_alloc_u32(sample_ct, &missing_cts) ||
@@ -10897,7 +10929,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
 
       ZeroU32Arr(sample_ct, het_cts);
       ZeroU32Arr(sample_ct, missing_cts);
-      ZeroWArr(S_CAST(uintptr_t, window_size) * sample_ctl, swbuf);
+      ZeroWArr(S_CAST(uintptr_t, window_size) * sample_ctl2, swbuf);
       ZeroU32Arr(sample_ct, swhit_cts);
       SetAllU32Arr(sample_ct, cur_roh_cidx_starts);
 
@@ -10910,22 +10942,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
           goto HomozygReport_ret_1;
         }
         ZeroTrailingNyps(sample_ct, genovec);
-        unsigned char* cur_row = &(readbuf[S_CAST(uintptr_t, loaded_ct) * sample_ct]);
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          const uintptr_t cur_geno = GetNyparrEntry(genovec, sample_idx);
-          // 0 = homozygous, 1 = missing, 2 = heterozygous
-          unsigned char code;
-          if (cur_geno == 1) {
-            code = 2;
-            het_cts[sample_idx] += 1;
-          } else if (cur_geno == 3) {
-            code = 1;
-            missing_cts[sample_idx] += 1;
-          } else {
-            code = 0;
-          }
-          cur_row[sample_idx] = code;
-        }
+        RecodeHomozygRow(genovec, sample_ct, sample_ctl2, het_cts, missing_cts, &(readbuf[S_CAST(uintptr_t, loaded_ct) * sample_ctl2]));
         uidx_buf[loaded_ct] = variant_uidx;
       }
 
@@ -10940,29 +10957,40 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       while (1) {
         older_uidx = old_uidx;
         old_uidx = uidx_buf[widx];
-        const unsigned char* cur_row = &(readbuf[S_CAST(uintptr_t, widx) * sample_ct]);
-        uintptr_t* swbuf_cur = &(swbuf[S_CAST(uintptr_t, widx) * sample_ctl]);
-        if (swbuf_full) {
-          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-            if (IsSet(swbuf_cur, sample_idx)) {
-              swhit_cts[sample_idx] -= 1;
-            }
-          }
-          ZeroWArr(sample_ctl, swbuf_cur);
-        } else {
+        const uintptr_t* cur_row = &(readbuf[S_CAST(uintptr_t, widx) * sample_ctl2]);
+        uintptr_t* swbuf_cur = &(swbuf[S_CAST(uintptr_t, widx) * sample_ctl2]);
+        if (!swbuf_full) {
           swhit_min = S_CAST(uint32_t, S_CAST(int32_t, u31tod(widx + 1) * hit_threshold + 1.0 - kRohEpsilon));
         }
+        if (swbuf_full) {
+          // Retire the outgoing row's window-hit bits.  Only the samples that
+          // actually had a hit cost anything.
+          for (uint32_t geno_widx = 0; geno_widx != sample_ctl2; ++geno_widx) {
+            uintptr_t sw_word = swbuf_cur[geno_widx];
+            const uint32_t sample_idx_base = geno_widx * kBitsPerWordD2;
+            while (sw_word) {
+              swhit_cts[sample_idx_base + ctzw(sw_word)] -= 1;
+              sw_word &= sw_word - 1;
+            }
+          }
+        }
         const uint32_t forced_end = (variant_bps[old_uidx] - variant_bps[older_uidx]) > max_gap;
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        uint32_t sample_idx = 0;
+        for (uint32_t geno_widx = 0; sample_idx != sample_ct; ++geno_widx) {
+          uintptr_t geno_word = cur_row[geno_widx];
+          uintptr_t sw_new = 0;
+          const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
+          for (uint32_t lowbits = 0; sample_idx != idx_stop; ++sample_idx, ++lowbits) {
+          const uintptr_t cur_call = geno_word & 3;
+          geno_word >>= 2;
           if (is_x && IsSet(male_collapsed, sample_idx)) {
             continue;
           }
           if ((het_cts[sample_idx] <= max_sw_hets) && (missing_cts[sample_idx] <= max_sw_missings)) {
-            SetBit(sample_idx, swbuf_cur);
+            sw_new |= k1LU << lowbits;
             swhit_cts[sample_idx] += 1;
           }
           const uint32_t is_cur_hit = (swhit_cts[sample_idx] >= swhit_min);
-          const unsigned char cur_call = cur_row[sample_idx];
           if (cur_roh_cidx_starts[sample_idx] != UINT32_MAX) {
             if ((!is_cur_hit) || ((cur_call == 2) && (cur_roh_het_cts[sample_idx] == max_hets)) || forced_end) {
               const uint32_t cidx_len = marker_cidx - cur_roh_cidx_starts[sample_idx];
@@ -11004,19 +11032,28 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
               }
             }
           }
+          }
+          swbuf_cur[geno_widx] = sw_new;
         }
         widx_next = widx + 1;
         if (widx_next == window_size) {
           widx_next = 0;
           swbuf_full = 1;
         }
-        // Drop this row from the running window counts.
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          const unsigned char code = cur_row[sample_idx];
-          if (code == 2) {
-            het_cts[sample_idx] -= 1;
-          } else if (code == 1) {
-            missing_cts[sample_idx] -= 1;
+        // Retire the outgoing row's heterozygous/missing contribution; the
+        // recoded words are zero for homozygous calls, so this only touches
+        // samples that have one.
+        for (uint32_t geno_widx = 0; geno_widx != sample_ctl2; ++geno_widx) {
+          uintptr_t cur_word = cur_row[geno_widx];
+          const uint32_t sample_idx_base = geno_widx * kBitsPerWordD2;
+          while (cur_word) {
+            const uint32_t bit_idx = ctzw(cur_word);
+            if (bit_idx & 1) {
+              het_cts[sample_idx_base + (bit_idx / 2)] -= 1;
+            } else {
+              missing_cts[sample_idx_base + (bit_idx / 2)] -= 1;
+            }
+            cur_word &= cur_word - 1;
           }
         }
         if (!remaining_ct) {
@@ -11031,21 +11068,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
           goto HomozygReport_ret_1;
         }
         ZeroTrailingNyps(sample_ct, genovec);
-        unsigned char* write_row = &(readbuf[S_CAST(uintptr_t, widx) * sample_ct]);
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          const uintptr_t cur_geno = GetNyparrEntry(genovec, sample_idx);
-          unsigned char code;
-          if (cur_geno == 1) {
-            code = 2;
-            het_cts[sample_idx] += 1;
-          } else if (cur_geno == 3) {
-            code = 1;
-            missing_cts[sample_idx] += 1;
-          } else {
-            code = 0;
-          }
-          write_row[sample_idx] = code;
-        }
+        RecodeHomozygRow(genovec, sample_ct, sample_ctl2, het_cts, missing_cts, &(readbuf[S_CAST(uintptr_t, widx) * sample_ctl2]));
         widx = widx_next;
         ++marker_cidx;
       }
@@ -11055,17 +11078,20 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         widx = widx_next;
         ++marker_cidx;
         older_uidx = old_uidx;
-        const unsigned char* cur_row = nullptr;
+        const uintptr_t* cur_row = nullptr;
         if (marker_cidx < marker_cidx_max) {
           old_uidx = uidx_buf[widx];
-          cur_row = &(readbuf[S_CAST(uintptr_t, widx) * sample_ct]);
-          uintptr_t* swbuf_cur = &(swbuf[S_CAST(uintptr_t, widx) * sample_ctl]);
-          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-            if (IsSet(swbuf_cur, sample_idx)) {
-              swhit_cts[sample_idx] -= 1;
+          cur_row = &(readbuf[S_CAST(uintptr_t, widx) * sample_ctl2]);
+          uintptr_t* swbuf_cur = &(swbuf[S_CAST(uintptr_t, widx) * sample_ctl2]);
+          for (uint32_t geno_widx = 0; geno_widx != sample_ctl2; ++geno_widx) {
+            uintptr_t sw_word = swbuf_cur[geno_widx];
+            const uint32_t sample_idx_base = geno_widx * kBitsPerWordD2;
+            while (sw_word) {
+              swhit_cts[sample_idx_base + ctzw(sw_word)] -= 1;
+              sw_word &= sw_word - 1;
             }
+            swbuf_cur[geno_widx] = 0;
           }
-          ZeroWArr(sample_ctl, swbuf_cur);
           swhit_min = S_CAST(uint32_t, S_CAST(int32_t, u31tod(marker_cidx_max - marker_cidx) * hit_threshold + 1.0 - kRohEpsilon));
         }
         const uint32_t forced_end = (variant_bps[old_uidx] - variant_bps[older_uidx]) > max_gap;
@@ -11074,10 +11100,10 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
             continue;
           }
           uint32_t is_cur_hit = 0;
-          unsigned char cur_call = 0;
+          uintptr_t cur_call = 0;
           if (cur_row) {
             is_cur_hit = (swhit_cts[sample_idx] >= swhit_min);
-            cur_call = cur_row[sample_idx];
+            cur_call = GetNyparrEntry(cur_row, sample_idx);
           }
           if (cur_roh_cidx_starts[sample_idx] != UINT32_MAX) {
             if ((!is_cur_hit) || ((cur_call == 2) && (cur_roh_het_cts[sample_idx] == max_hets)) || forced_end) {
