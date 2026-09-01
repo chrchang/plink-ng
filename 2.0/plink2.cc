@@ -8795,7 +8795,7 @@ int main(int argc, char** argv) {
           const char* mode_str = ScantokDouble(cur_modif, &dxx);
           if (unlikely((!mode_str) || (dxx < 0.0) || (dxx > 2147483646.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mac argument '%s'.\n", cur_modif);
-            goto main_ret_INVALID_CMDLINE;
+            goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (dxx > 0.0) {
             // round up, but keep as much precision as possible

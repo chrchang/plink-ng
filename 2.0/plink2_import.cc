@@ -17025,7 +17025,7 @@ PglErr EigSnpToPvar(const char* snpname, const ChrInfo* cip, const char* missing
       double cur_cm;
       if (unlikely(!ScantokDouble(cm_start, &cur_cm))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of .snp file.\n", line_idx);
-        goto EigSnpToPvar_ret_MALFORMED_INPUT;
+        goto EigSnpToPvar_ret_MALFORMED_INPUT_WW;
       }
       if (cur_cm != 0.0) {
         at_least_one_nzero_cm = 1;
@@ -17183,6 +17183,9 @@ PglErr EigSnpToPvar(const char* snpname, const ChrInfo* cip, const char* missing
     break;
   EigSnpToPvar_ret_MISSING_TOKENS:
     logerrprintfww("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, snpname);
+  EigSnpToPvar_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
   EigSnpToPvar_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
