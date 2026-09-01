@@ -458,7 +458,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                 ['bgen-omit-sample-id-block']\n"
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
-"    (actually, only A, AD, Av, bcf, bgen-1.x, eig, haps, hapslegend,\n"
+"    (actually, only 23, A, AD, Av, bcf, bgen-1.x, eig, haps, hapslegend,\n"
 "    ind-major-bed, oxford, ped, phylip, phylip-phased, tped, and vcf are\n"
 "    implemented for now)\n"
 "    * '23': 23andMe 4-column format.  This can only be used on a single\n"
