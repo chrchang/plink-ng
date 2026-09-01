@@ -97,7 +97,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.9.0-b.7.11.d"
+  "PLINK v1.9.0-b.7.12"
 #else
   "PLINK v1.9.0-b.8"
 #endif
@@ -109,10 +109,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (30 Mar 2026)";
+  " (1 Sep 2026)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   " " // adjust based on length of version number
 #else
@@ -121,7 +121,7 @@ static const char ver_str2[] =
 #ifndef NOLAPACK
   "  "
 #endif
-  "      cog-genomics.org/plink/1.9/\n"
+  "        cog-genomics.org/plink/1.9/\n"
   "(C) 2005-2026 Shaun Purcell, Christopher Chang   GNU General Public License v3"
 #if SPECIES_DEFAULT > 0
   "\nRecompiled with default species = "
