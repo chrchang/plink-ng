@@ -6235,6 +6235,109 @@ int32_t SamePosPvarRecordNcmp(const void* r1, const void* r2) {
 }
 #endif
 
+// Fields that don't change between records within one input fileset.
+typedef struct PvarRecordParseCtxStruct {
+  const char* missing_varid_match;
+  uint32_t missing_varid_match_slen;
+  char input_missing_geno_char;
+  uint32_t read_qual;
+  uint32_t read_filter;
+  uint32_t read_info;
+  uint32_t read_cm;
+  VaridTemplate* varid_templatep;
+  VaridTemplate* varid_multi_templatep;
+  VaridTemplate* varid_multi_nonsnp_templatep;
+  uintptr_t* allele_idx_offsets;
+  const uintptr_t* nonref_flags;
+  uint32_t pgen_pr_status_base;
+} PvarRecordParseCtx;
+
+// Serializes one .pvar line, already split into tokens, as a
+// SamePosPvarRecord at readbuf_iter.  Returns the new buffer position, and
+// sets *recordp to the record just written.
+char* BuildPvarRecord(const PvarRecordParseCtx* ctxp, char** token_ptrs, const uint32_t* token_slens, uint32_t read_variant_idx, uint32_t file_idx, int32_t cur_bp, char* readbuf_iter, SamePosPvarRecord** recordp) {
+  SamePosPvarRecord* cur_record = R_CAST(SamePosPvarRecord*, readbuf_iter);
+  uint32_t* other_field_offsets = cur_record->other_field_offsets;
+  cur_record->secondary_key = (S_CAST(uint64_t, file_idx) << 32) | read_variant_idx;
+  uint32_t variant_id_slen = token_slens[1];
+  char* cur_variant_id_start = cur_record->variant_id;
+  char* ref_start = token_ptrs[2];
+  const uint32_t ref_slen = token_slens[2];
+  char* alt_start = token_ptrs[3];
+  const uint32_t alt_slen = token_slens[3];
+  const uint32_t extra_alt_ct = CountByte(alt_start, ',', alt_slen);
+  if (ctxp->varid_templatep && ((!ctxp->missing_varid_match_slen) || ((variant_id_slen == ctxp->missing_varid_match_slen) && memequal(token_ptrs[1], ctxp->missing_varid_match, ctxp->missing_varid_match_slen)))) {
+    const VaridTemplate* cur_varid_templatep = ctxp->varid_templatep;
+    if (extra_alt_ct && (ctxp->varid_multi_templatep || ctxp->varid_multi_nonsnp_templatep)) {
+      if (ctxp->varid_multi_templatep) {
+        cur_varid_templatep = ctxp->varid_multi_templatep;
+      }
+      if (ctxp->varid_multi_nonsnp_templatep) {
+        if ((ref_slen > 1) || (alt_slen != 2 * extra_alt_ct + 1)) {
+          cur_varid_templatep = ctxp->varid_multi_nonsnp_templatep;
+        }
+      }
+    }
+    // already scanned, shouldn't be possible for this to fail
+    uint32_t discard;
+    readbuf_iter = VaridTemplateWrite(cur_varid_templatep, ref_start, alt_start, cur_bp, ref_slen, extra_alt_ct, alt_slen, &discard, cur_variant_id_start);
+    variant_id_slen = readbuf_iter - cur_variant_id_start;
+  } else {
+    readbuf_iter = memcpya(cur_variant_id_start, token_ptrs[1], variant_id_slen);
+  }
+  *readbuf_iter++ = '\0';
+  other_field_offsets[0] = variant_id_slen + 1;
+
+  if ((ref_start[0] != ctxp->input_missing_geno_char) || (ref_slen != 1)) {
+    readbuf_iter = memcpya(readbuf_iter, ref_start, ref_slen);
+  } else {
+    *readbuf_iter++ = '.';
+  }
+  *readbuf_iter++ = '\0';
+  other_field_offsets[1] = readbuf_iter - cur_variant_id_start;
+
+  if ((alt_start[0] != ctxp->input_missing_geno_char) || (alt_slen != 1)) {
+    readbuf_iter = memcpya(readbuf_iter, alt_start, alt_slen);
+  } else {
+    *readbuf_iter++ = '.';
+  }
+  *readbuf_iter++ = '\0';
+  other_field_offsets[2] = readbuf_iter - cur_variant_id_start;
+  cur_record->allele_ct = 2 + extra_alt_ct;
+  if (ctxp->allele_idx_offsets) {
+    ctxp->allele_idx_offsets[read_variant_idx + 1] = ctxp->allele_idx_offsets[read_variant_idx] + 2 + extra_alt_ct;
+  }
+
+  uint32_t pgen_pr_status = ctxp->pgen_pr_status_base;
+  if (ctxp->nonref_flags) {
+    pgen_pr_status |= IsSet(ctxp->nonref_flags, read_variant_idx);
+  }
+  cur_record->pgen_pr_status = pgen_pr_status;
+
+  if (ctxp->read_qual) {
+    readbuf_iter = memcpyax(readbuf_iter, token_ptrs[4], token_slens[4], '\0');
+  }
+  other_field_offsets[3] = readbuf_iter - cur_variant_id_start;
+
+  if (ctxp->read_filter) {
+    readbuf_iter = memcpyax(readbuf_iter, token_ptrs[5], token_slens[5], '\0');
+  }
+  other_field_offsets[4] = readbuf_iter - cur_variant_id_start;
+
+  if (ctxp->read_info) {
+    readbuf_iter = memcpyax(readbuf_iter, token_ptrs[6], token_slens[6], '\0');
+  }
+  other_field_offsets[5] = readbuf_iter - cur_variant_id_start;
+
+  if (ctxp->read_cm) {
+    readbuf_iter = memcpya(readbuf_iter, token_ptrs[7], token_slens[7]);
+  }
+  *readbuf_iter++ = '\0';
+  // could align up to 8-byte boundary?
+  *recordp = cur_record;
+  return readbuf_iter;
+}
+
 PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeContext* ppmcp, SamePosPvarRecord** same_pos_records, MergeReader* mrp, MergeWriter* mwp) {
   if (!variant_ct) {
     return kPglRetSuccess;
@@ -6758,6 +6861,20 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       if (g_debug_on && (fileset_idx == 2)) {
         logprintf("Starting chr3.\n");
       }
+      PvarRecordParseCtx record_parse_ctx;
+      record_parse_ctx.missing_varid_match = missing_varid_match;
+      record_parse_ctx.missing_varid_match_slen = missing_varid_match_slen;
+      record_parse_ctx.input_missing_geno_char = input_missing_geno_char;
+      record_parse_ctx.read_qual = read_qual;
+      record_parse_ctx.read_filter = read_filter;
+      record_parse_ctx.read_info = read_info;
+      record_parse_ctx.read_cm = read_cm;
+      record_parse_ctx.varid_templatep = varid_templatep;
+      record_parse_ctx.varid_multi_templatep = varid_multi_templatep;
+      record_parse_ctx.varid_multi_nonsnp_templatep = varid_multi_nonsnp_templatep;
+      record_parse_ctx.allele_idx_offsets = pgfi.allele_idx_offsets;
+      record_parse_ctx.nonref_flags = pgfi.nonref_flags;
+      record_parse_ctx.pgen_pr_status_base = pgen_pr_status_base;
       for (uint32_t read_variant_idx = 0; read_variant_idx != read_variant_ct; ++read_variant_idx) {
         if (unlikely(!TextGetUnsafe2(&pvar_txs, &line_start))) {
           reterr = TextStreamRawErrcode(&pvar_txs);
@@ -6832,84 +6949,8 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           cur_single_pos_ct = 0;
           prev_bp = cur_bp;
         }
-        SamePosPvarRecord* cur_record = R_CAST(SamePosPvarRecord*, cur_pos_readbuf_iter);
-        uint32_t* other_field_offsets = cur_record->other_field_offsets;
-        cur_record->secondary_key = read_variant_idx;
-        uint32_t variant_id_slen = token_slens[1];
-        char* cur_variant_id_start = cur_record->variant_id;
-        char* ref_start = token_ptrs[2];
-        const uint32_t ref_slen = token_slens[2];
-        char* alt_start = token_ptrs[3];
-        const uint32_t alt_slen = token_slens[3];
-        const uint32_t extra_alt_ct = CountByte(alt_start, ',', alt_slen);
-        if (varid_templatep && ((!missing_varid_match_slen) || ((variant_id_slen == missing_varid_match_slen) && memequal(token_ptrs[1], missing_varid_match, missing_varid_match_slen)))) {
-          const VaridTemplate* cur_varid_templatep = varid_templatep;
-          if (extra_alt_ct && (varid_multi_templatep || varid_multi_nonsnp_templatep)) {
-            if (varid_multi_templatep) {
-              cur_varid_templatep = varid_multi_templatep;
-            }
-            if (varid_multi_nonsnp_templatep) {
-              if ((ref_slen > 1) || (alt_slen != 2 * extra_alt_ct + 1)) {
-                cur_varid_templatep = varid_multi_nonsnp_templatep;
-              }
-            }
-          }
-          // already scanned, shouldn't be possible for this to fail
-          uint32_t discard;
-          cur_pos_readbuf_iter = VaridTemplateWrite(cur_varid_templatep, ref_start, alt_start, cur_bp, ref_slen, extra_alt_ct, alt_slen, &discard, cur_variant_id_start);
-          variant_id_slen = cur_pos_readbuf_iter - cur_variant_id_start;
-        } else {
-          cur_pos_readbuf_iter = memcpya(cur_variant_id_start, token_ptrs[1], variant_id_slen);
-        }
-        *cur_pos_readbuf_iter++ = '\0';
-        other_field_offsets[0] = variant_id_slen + 1;
-
-        if ((ref_start[0] != input_missing_geno_char) || (ref_slen != 1)) {
-          cur_pos_readbuf_iter = memcpya(cur_pos_readbuf_iter, ref_start, ref_slen);
-        } else {
-          *cur_pos_readbuf_iter++ = '.';
-        }
-        *cur_pos_readbuf_iter++ = '\0';
-        other_field_offsets[1] = cur_pos_readbuf_iter - cur_variant_id_start;
-
-        if ((alt_start[0] != input_missing_geno_char) || (alt_slen != 1)) {
-          cur_pos_readbuf_iter = memcpya(cur_pos_readbuf_iter, alt_start, alt_slen);
-        } else {
-          *cur_pos_readbuf_iter++ = '.';
-        }
-        *cur_pos_readbuf_iter++ = '\0';
-        other_field_offsets[2] = cur_pos_readbuf_iter - cur_variant_id_start;
-        cur_record->allele_ct = 2 + extra_alt_ct;
-        if (pgfi.allele_idx_offsets) {
-          pgfi.allele_idx_offsets[read_variant_idx + 1] = pgfi.allele_idx_offsets[read_variant_idx] + 2 + extra_alt_ct;
-        }
-
-        uint32_t pgen_pr_status = pgen_pr_status_base;
-        if (pgfi.nonref_flags) {
-          pgen_pr_status |= IsSet(pgfi.nonref_flags, read_variant_idx);
-        }
-        cur_record->pgen_pr_status = pgen_pr_status;
-
-        if (read_qual) {
-          cur_pos_readbuf_iter = memcpyax(cur_pos_readbuf_iter, token_ptrs[4], token_slens[4], '\0');
-        }
-        other_field_offsets[3] = cur_pos_readbuf_iter - cur_variant_id_start;
-
-        if (read_filter) {
-          cur_pos_readbuf_iter = memcpyax(cur_pos_readbuf_iter, token_ptrs[5], token_slens[5], '\0');
-        }
-        other_field_offsets[4] = cur_pos_readbuf_iter - cur_variant_id_start;
-
-        if (read_info) {
-          cur_pos_readbuf_iter = memcpyax(cur_pos_readbuf_iter, token_ptrs[6], token_slens[6], '\0');
-        }
-        other_field_offsets[5] = cur_pos_readbuf_iter - cur_variant_id_start;
-
-        if (read_cm) {
-          cur_pos_readbuf_iter = memcpya(cur_pos_readbuf_iter, token_ptrs[7], token_slens[7]);
-        }
-        *cur_pos_readbuf_iter++ = '\0';
-        // could align up to 8-byte boundary?
+        SamePosPvarRecord* cur_record;
+        cur_pos_readbuf_iter = BuildPvarRecord(&record_parse_ctx, token_ptrs, token_slens, read_variant_idx, 0, cur_bp, cur_pos_readbuf_iter, &cur_record);
         assert(cur_pos_readbuf_iter <= R_CAST(char*, same_pos_records));
 
         same_pos_records[cur_single_pos_ct] = cur_record;
