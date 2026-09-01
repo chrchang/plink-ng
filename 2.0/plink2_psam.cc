@@ -750,7 +750,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, con
               pheno_cols[pheno_idx].data.qt[sample_uidx] = dxx;
             }
             if (check_neg8_to_10_pheno) {
-              if ((dxx <= -8.0) && (dxx >= 10.0)) {
+              if ((dxx <= -8.0) && (dxx >= -10.0)) {
                 if (dxx == -9.0) {
                   neg9_seen = 1;
                 } else {
