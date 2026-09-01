@@ -2548,6 +2548,9 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
 // is a popcount over whole words rather than a scalar pass over samples.  The
 // accumulators stay exact integers, so the result is bit-for-bit what the
 // per-sample loop produced.
+// Defined further down, next to the other bitvector helpers.
+void GenoarrSplit12Nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict one_bitarr, uintptr_t* __restrict two_bitarr, uintptr_t* __restrict nm_bitarr);
+
 static double IndepVifCorr(const uintptr_t* pos_bvs, const uintptr_t* neg_bvs, const uintptr_t* nm_bvs, uintptr_t bv_stride, const uint32_t* nm_cts, const int32_t* sums, const double* variance_recips, uint32_t founder_ct, uint32_t founder_ctl, uint32_t ii, uint32_t jj) {
   const uintptr_t* pos_i = &(pos_bvs[ii * bv_stride]);
   const uintptr_t* neg_i = &(neg_bvs[ii * bv_stride]);
@@ -2629,20 +2632,405 @@ static BoolErr IndepVifInvertSub(const double* corr_matrix, const uint32_t* idx_
     }
     sub_matrix[uii * (dim + 1)] = 1.0;
   }
+  // Must stay InvertMatrixChecked(): the Cholesky-based inverter is cheaper,
+  // but it disagrees with the LU-based one about which matrices count as
+  // singular, and the singular case is exactly where PLINK 1.9's
+  // binary-search-and-drop path kicks in.  Windows larger than the founder
+  // count are rank-deficient, so that path is common enough for the
+  // difference to change which variants are pruned.
   return InvertMatrixChecked(dim, sub_matrix, invert_buf1, invert_buf2);
 }
 
-PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
+// Per-chromosome pruning tasks are independent, so they are distributed over
+// threads exactly like --indep-pairwise distributes subcontigs.  The window
+// start positions restart at each chromosome boundary in PLINK 1.9 too, so
+// chromosomes (rather than the gap-split subcontigs --indep-pairwise uses) are
+// the right unit here: splitting a chromosome further would shift the window
+// start offsets and change the output.
+typedef struct IndepVifCtxStruct {
+  // Shared, read-only.
+  const uint32_t* variant_bps;
+  const uintptr_t* allele_idx_offsets;
+  const AlleleCode* maj_alleles;
+  const double* allele_freqs;
+  const uint32_t* variant_idx_of_uidx;
+  const uintptr_t* founder_male_collapsed;
+  const uint32_t* task_variant_cts;
+  const uint32_t* task_is_x;
+  const uint32_t* task_is_fully_haploid;
+  const uint32_t* thread_task_offsets;
+  const uint32_t* thread_tasks;
+  uint32_t founder_ct;
+  uint32_t founder_ctl;
+  uint32_t prune_window_size;
+  uint32_t prune_window_incr;
+  uint32_t window_is_bp;
+  uint32_t tvidx_batch_size;
+  uintptr_t window_max;
+  uintptr_t bv_stride;
+  double vif_thresh;
+
+  // Loader -> compute threads.  raw_genovecs and batch_uidxs are ring buffers
+  // of tvidx_batch_size entries; the loader never gets more than that far
+  // ahead of consumed_tvidx, so nothing unread is overwritten.
+  uintptr_t** raw_genovecs;
+  uint32_t** batch_uidxs;
+  uint32_t* loaded_tvidx;
+
+  // Compute threads -> loader.
+  uint32_t* consumed_tvidx;
+  uint32_t* thread_done;
+
+  // Per-thread scratch and position state.
+  uintptr_t** pos_bvs;
+  uintptr_t** neg_bvs;
+  uintptr_t** nm_bvs;
+  uintptr_t** one_bufs;
+  uintptr_t** two_bufs;
+  uint32_t** nm_cts;
+  int32_t** sums;
+  double** variance_recips;
+  double** mafs;
+  uint32_t** win_uidxs;
+  uint32_t** win_bps;
+  uint32_t** collapsed_idxs;
+  unsigned char** dropped;
+  uint32_t** slots;
+  uint32_t** idx_remaps;
+  double** corr_matrices;
+  double** sub_matrices;
+  double** invert_buf2s;
+  MatrixInvertBuf1** invert_buf1s;
+  uintptr_t** removed_local;
+  uint32_t* cur_task_idx;
+  uint32_t* cur_pos;
+  uint32_t* cur_loaded;
+  uint32_t* cur_tvidx_base;
+} IndepVifCtx;
+
+THREAD_FUNC_DECL IndepVifThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  IndepVifCtx* ctx = S_CAST(IndepVifCtx*, arg->sharedp->context);
+
+  const uint32_t founder_ct = ctx->founder_ct;
+  const uint32_t founder_ctl = ctx->founder_ctl;
+  const uintptr_t bv_stride = ctx->bv_stride;
+  const uintptr_t window_max = ctx->window_max;
+  const uint32_t prune_window_size = ctx->prune_window_size;
+  const uint32_t prune_window_incr = ctx->prune_window_incr;
+  const uint32_t window_is_bp = ctx->window_is_bp;
+  const uint32_t tvidx_batch_size = ctx->tvidx_batch_size;
+  const double vif_thresh = ctx->vif_thresh;
+  // PLINK 1.9 pre-prunes pairs in near-perfect LD before the VIF loop, to keep
+  // the correlation matrix invertible.
+  const double perfect_ld_thresh = 0.999999;
+  const uint32_t* variant_bps = ctx->variant_bps;
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const AlleleCode* maj_alleles = ctx->maj_alleles;
+  const double* allele_freqs = ctx->allele_freqs;
+  const uint32_t* variant_idx_of_uidx = ctx->variant_idx_of_uidx;
+  const uintptr_t* founder_male_collapsed = ctx->founder_male_collapsed;
+  const uint32_t task_start = ctx->thread_task_offsets[tidx];
+  const uint32_t task_end = ctx->thread_task_offsets[tidx + 1];
+
+  uintptr_t* raw_genovecs = ctx->raw_genovecs[tidx];
+  const uint32_t* batch_uidxs = ctx->batch_uidxs[tidx];
+  uintptr_t* pos_bvs = ctx->pos_bvs[tidx];
+  uintptr_t* neg_bvs = ctx->neg_bvs[tidx];
+  uintptr_t* nm_bvs = ctx->nm_bvs[tidx];
+  uintptr_t* one_buf = ctx->one_bufs[tidx];
+  uintptr_t* two_buf = ctx->two_bufs[tidx];
+  uint32_t* nm_cts = ctx->nm_cts[tidx];
+  int32_t* sums = ctx->sums[tidx];
+  double* variance_recips = ctx->variance_recips[tidx];
+  double* mafs = ctx->mafs[tidx];
+  uint32_t* win_uidxs = ctx->win_uidxs[tidx];
+  uint32_t* win_bps = ctx->win_bps[tidx];
+  uint32_t* collapsed_idxs = ctx->collapsed_idxs[tidx];
+  unsigned char* dropped = ctx->dropped[tidx];
+  uint32_t* slots = ctx->slots[tidx];
+  uint32_t* idx_remap = ctx->idx_remaps[tidx];
+  double* corr_matrix = ctx->corr_matrices[tidx];
+  double* sub_matrix = ctx->sub_matrices[tidx];
+  double* invert_buf2 = ctx->invert_buf2s[tidx];
+  MatrixInvertBuf1* invert_buf1 = ctx->invert_buf1s[tidx];
+  uintptr_t* removed_local = ctx->removed_local[tidx];
+  // PgrGet() may write whole vectors, so give each ring entry a
+  // vector-aligned stride.
+  const uintptr_t founder_ctl2 = NypCtToAlignedWordCt(founder_ct);
+
+  do {
+    while (1) {
+      const uint32_t task_idx = ctx->cur_task_idx[tidx];
+      if (task_idx == task_end - task_start) {
+        ctx->thread_done[tidx] = 1;
+        break;
+      }
+      const uint32_t task = ctx->thread_tasks[task_start + task_idx];
+      const uint32_t chr_variant_ct = ctx->task_variant_cts[task];
+      const uint32_t is_x = ctx->task_is_x[task];
+      const uint32_t is_fully_haploid = ctx->task_is_fully_haploid[task];
+      const uint32_t window_start = ctx->cur_pos[tidx];
+      const uint32_t tvidx_base = ctx->cur_tvidx_base[tidx];
+      uint32_t cur_loaded = ctx->cur_loaded[tidx];
+
+      // Everything the next window can possibly touch.
+      uint32_t need_end = window_start + window_max;
+      if (need_end > chr_variant_ct) {
+        need_end = chr_variant_ct;
+      }
+      if (tvidx_base + need_end > ctx->loaded_tvidx[tidx]) {
+        // Wait for the loader to catch up.
+        break;
+      }
+
+      // Variant IDs and positions first, since the bp-based window end depends
+      // on them but recoding does not.
+      const uint32_t fill_start = MAXV(cur_loaded, window_start);
+      for (uint32_t pos = fill_start; pos != need_end; ++pos) {
+        const uint32_t slot = pos % window_max;
+        const uint32_t variant_uidx = batch_uidxs[(tvidx_base + pos) % tvidx_batch_size];
+        win_uidxs[slot] = variant_uidx;
+        if (window_is_bp) {
+          win_bps[slot] = variant_bps[variant_uidx];
+        }
+      }
+
+      uint32_t window_end;
+      if (!window_is_bp) {
+        window_end = need_end;
+      } else {
+        // plink2's command-line parser already converts a 'kb' window size
+        // to bp, unlike PLINK 1.9's, which keeps the kb value.
+        const uint32_t bp_limit = win_bps[window_start % window_max] + prune_window_size;
+        window_end = window_start;
+        while ((window_end != need_end) && (win_bps[window_end % window_max] <= bp_limit)) {
+          ++window_end;
+        }
+      }
+
+      // Recode the window positions not seen yet.  Slot assignment is
+      // position % window_max, which is collision-free within a window since a
+      // window never holds more than window_max variants; this lets the
+      // correlations computed for a pair survive across window slides instead
+      // of being recomputed on every step.
+      for (uint32_t pos = MAXV(cur_loaded, window_start); pos != window_end; ++pos) {
+        const uint32_t widx = pos % window_max;
+        const uint32_t variant_uidx = win_uidxs[widx];
+        const uintptr_t* genovec = &(raw_genovecs[((tvidx_base + pos) % tvidx_batch_size) * founder_ctl2]);
+        uintptr_t allele_idx_offset_base = 2 * variant_uidx;
+        if (allele_idx_offsets) {
+          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        }
+        const double ref_freq = allele_freqs[allele_idx_offset_base - variant_uidx];
+        const double maj_freq = (ref_freq >= 0.5)? ref_freq : (1.0 - ref_freq);
+        mafs[widx] = 1.0 - maj_freq;
+        const uint32_t maj_is_ref = (maj_alleles[variant_uidx] == 0);
+        uintptr_t* cur_pos_bv = &(pos_bvs[widx * bv_stride]);
+        uintptr_t* cur_neg_bv = &(neg_bvs[widx * bv_stride]);
+        uintptr_t* cur_nm_bv = &(nm_bvs[widx * bv_stride]);
+        GenoarrSplit12Nm(genovec, founder_ct, one_buf, two_buf, cur_nm_bv);
+        // PLINK 1.x treats heterozygous haploid calls as missing here.
+        if (is_fully_haploid) {
+          BitvecInvmask(one_buf, founder_ctl, cur_nm_bv);
+        } else if (is_x) {
+          for (uint32_t wwidx = 0; wwidx != founder_ctl; ++wwidx) {
+            cur_nm_bv[wwidx] &= ~(one_buf[wwidx] & founder_male_collapsed[wwidx]);
+          }
+        }
+        // Homozygous-major is +1 and homozygous-minor is -1, matching the
+        // -1/0/1 recoding PLINK 1.9 uses; heterozygotes are 0, so they appear
+        // in neither bitvector.
+        if (maj_is_ref) {
+          for (uint32_t wwidx = 0; wwidx != founder_ctl; ++wwidx) {
+            const uintptr_t nm_word = cur_nm_bv[wwidx];
+            cur_pos_bv[wwidx] = nm_word & (~(one_buf[wwidx] | two_buf[wwidx]));
+            cur_neg_bv[wwidx] = nm_word & two_buf[wwidx];
+          }
+        } else {
+          for (uint32_t wwidx = 0; wwidx != founder_ctl; ++wwidx) {
+            const uintptr_t nm_word = cur_nm_bv[wwidx];
+            cur_pos_bv[wwidx] = nm_word & two_buf[wwidx];
+            cur_neg_bv[wwidx] = nm_word & (~(one_buf[wwidx] | two_buf[wwidx]));
+          }
+        }
+        const uint32_t nm_ct = PopcountWords(cur_nm_bv, founder_ctl);
+        const uint32_t pos_ct = PopcountWords(cur_pos_bv, founder_ctl);
+        const uint32_t neg_ct = PopcountWords(cur_neg_bv, founder_ctl);
+        const int32_t sum = S_CAST(int32_t, pos_ct) - S_CAST(int32_t, neg_ct);
+        const uint32_t ssq = pos_ct + neg_ct;
+        nm_cts[widx] = nm_ct;
+        sums[widx] = sum;
+        if (nm_ct == founder_ct) {
+          const int64_t denom = S_CAST(int64_t, ssq) * founder_ct - S_CAST(int64_t, sum) * sum;
+          variance_recips[widx] = denom? (1.0 / S_CAST(double, denom)) : 0.0;
+        } else {
+          variance_recips[widx] = 0.0;
+        }
+        dropped[widx] = 0;
+        collapsed_idxs[widx] = variant_idx_of_uidx[variant_uidx];
+        // Monomorphic (or all-missing) variants can't participate.
+        if ((nm_ct < 2) || (S_CAST(int64_t, ssq) * nm_ct == S_CAST(int64_t, sum) * sum)) {
+          dropped[widx] = 1;
+          SetBit(collapsed_idxs[widx], removed_local);
+          continue;
+        }
+        // Correlations against the window positions already loaded.
+        for (uint32_t other_pos = window_start; other_pos != pos; ++other_pos) {
+          const uint32_t other_widx = other_pos % window_max;
+          if (dropped[other_widx] || IsSet(removed_local, collapsed_idxs[other_widx])) {
+            continue;
+          }
+          double rr = IndepVifCorr(pos_bvs, neg_bvs, nm_bvs, bv_stride, nm_cts, sums, variance_recips, founder_ct, founder_ctl, other_widx, widx);
+          if (rr != rr) {
+            rr = 1.0;
+          }
+          corr_matrix[other_widx * window_max + widx] = rr;
+          corr_matrix[widx * window_max + other_widx] = rr;
+        }
+      }
+      if (window_end > cur_loaded) {
+        cur_loaded = window_end;
+        ctx->cur_loaded[tidx] = cur_loaded;
+        ctx->consumed_tvidx[tidx] = tvidx_base + cur_loaded;
+      }
+
+      // Window members, in position order, as slot indices.
+      uint32_t cur_window_size = 0;
+      for (uint32_t pos = window_start; pos != window_end; ++pos) {
+        const uint32_t widx = pos % window_max;
+        if (IsSet(removed_local, collapsed_idxs[widx])) {
+          continue;
+        }
+        dropped[widx] = 0;
+        slots[cur_window_size++] = widx;
+      }
+      if (cur_window_size > 1) {
+        // Pass 1: drop near-perfect-LD pairs, keeping the higher-MAF member.
+        uint32_t at_least_one_prune;
+        do {
+          at_least_one_prune = 0;
+          for (uint32_t mi = 0; mi + 1 < cur_window_size; ++mi) {
+            const uint32_t ii = slots[mi];
+            if (dropped[ii]) {
+              continue;
+            }
+            for (uint32_t mj = mi + 1; mj != cur_window_size; ++mj) {
+              const uint32_t jj = slots[mj];
+              if (dropped[jj]) {
+                continue;
+              }
+              if (corr_matrix[ii * window_max + jj] > perfect_ld_thresh) {
+                at_least_one_prune = 1;
+                uint32_t victim;
+                if (mafs[ii] < (1 - kSmallEpsilon) * mafs[jj]) {
+                  victim = ii;
+                } else {
+                  victim = jj;
+                }
+                dropped[victim] = 1;
+                SetBit(collapsed_idxs[victim], removed_local);
+                if (victim == ii) {
+                  break;
+                }
+              }
+            }
+          }
+        } while (at_least_one_prune);
+
+        // Pass 2: VIF loop.
+        uint32_t window_rem = 0;
+        for (uint32_t mi = 0; mi != cur_window_size; ++mi) {
+          const uint32_t ii = slots[mi];
+          if (!dropped[ii]) {
+            idx_remap[window_rem++] = ii;
+          }
+        }
+        while (window_rem > 1) {
+          while (IndepVifInvertSub(corr_matrix, idx_remap, window_max, window_rem, sub_matrix, invert_buf1, invert_buf2)) {
+            // Singular: binary-search for the shortest leading submatrix that
+            // is still invertible, then drop the row/column just past it,
+            // exactly as PLINK 1.9 does.
+            uint32_t bsearch_min = 0;
+            uint32_t bsearch_max = window_rem - 1;
+            while (bsearch_min < bsearch_max) {
+              const uint32_t bsearch_cur = (bsearch_min + bsearch_max) / 2;
+              if (!bsearch_cur) {
+                bsearch_min = 1;
+                continue;
+              }
+              if (!IndepVifInvertSub(corr_matrix, idx_remap, window_max, bsearch_cur, sub_matrix, invert_buf1, invert_buf2)) {
+                bsearch_min = bsearch_cur + 1;
+              } else {
+                bsearch_max = bsearch_cur;
+              }
+            }
+            const uint32_t victim_widx = idx_remap[bsearch_min];
+            dropped[victim_widx] = 1;
+            SetBit(collapsed_idxs[victim_widx], removed_local);
+            --window_rem;
+            for (uint32_t uii = bsearch_min; uii != window_rem; ++uii) {
+              idx_remap[uii] = idx_remap[uii + 1];
+            }
+            if (window_rem < 2) {
+              break;
+            }
+          }
+          if (window_rem < 2) {
+            break;
+          }
+          double max_vif = sub_matrix[0];
+          uint32_t max_idx = 0;
+          for (uint32_t uii = 1; uii != window_rem; ++uii) {
+            const double cur_vif = sub_matrix[uii * (window_rem + 1)];
+            if (cur_vif > max_vif) {
+              max_vif = cur_vif;
+              max_idx = uii;
+            }
+          }
+          if (max_vif <= vif_thresh) {
+            break;
+          }
+          const uint32_t victim_widx = idx_remap[max_idx];
+          dropped[victim_widx] = 1;
+          SetBit(collapsed_idxs[victim_widx], removed_local);
+          --window_rem;
+          for (uint32_t uii = max_idx; uii != window_rem; ++uii) {
+            idx_remap[uii] = idx_remap[uii + 1];
+          }
+        }
+      }
+
+      // Advance.  PLINK 1.9 keeps sliding the window start until it reaches
+      // the end of the chromosome, so the last few windows are shrinking
+      // tails of the final full window rather than being skipped.
+      uint32_t next_start = window_start + prune_window_incr;
+      if (next_start <= window_start) {
+        next_start = window_start + 1;
+      }
+      if (next_start >= chr_variant_ct) {
+        ctx->cur_task_idx[tidx] = task_idx + 1;
+        ctx->cur_pos[tidx] = 0;
+        ctx->cur_loaded[tidx] = 0;
+        ctx->cur_tvidx_base[tidx] = tvidx_base + chr_variant_ct;
+        ctx->consumed_tvidx[tidx] = tvidx_base + chr_variant_ct;
+        continue;
+      }
+      ctx->cur_pos[tidx] = next_start;
+    }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
   unsigned char* bigstack_mark = g_bigstack_base;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t window_is_bp = (ldip->prune_flags / kfLdPruneWindowBp) & 1;
     const uint32_t prune_window_size = ldip->prune_window_size;
-    const uint32_t prune_window_incr = ldip->prune_window_incr;
-    const double vif_thresh = ldip->prune_last_param;
-    // PLINK 1.9 pre-prunes pairs in near-perfect LD before the VIF loop, to
-    // keep the correlation matrix invertible.
-    const double perfect_ld_thresh = 0.999999;
 
     // Upper bound on window occupancy.
     uintptr_t window_max = prune_window_size;
@@ -2661,64 +3049,29 @@ PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint
       for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
         const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
         if (variant_uidx >= chr_end) {
-          do {
-            ++chr_fo_idx;
-            chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-          } while (variant_uidx >= chr_end);
-          window_start_idx = cur_ct;
+          chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
+          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          window_start_idx = variant_idx;
+          cur_ct = 0;
         }
-        window_bps[cur_ct++] = variant_bps[variant_uidx];
-        while ((window_start_idx < cur_ct) && (window_bps[cur_ct - 1] > window_bps[window_start_idx] + 1000 * prune_window_size)) {
+        window_bps[variant_idx] = variant_bps[variant_uidx];
+        while (window_bps[variant_idx] > window_bps[window_start_idx] + prune_window_size) {
           ++window_start_idx;
+          --cur_ct;
         }
-        if (cur_ct - window_start_idx > window_max) {
-          window_max = cur_ct - window_start_idx;
+        ++cur_ct;
+        if (cur_ct > window_max) {
+          window_max = cur_ct;
         }
       }
       BigstackReset(window_bps);
     }
-    if (window_max < 2) {
-      window_max = 2;
-    }
 
-    const uintptr_t founder_ctl = BitCtToWordCt(founder_ct);
-    const uintptr_t bv_stride = founder_ctl;
-    uintptr_t* pos_bvs;
-    uintptr_t* neg_bvs;
-    uintptr_t* nm_bvs;
-    uint32_t* nm_cts;
-    int32_t* sums;
-    double* variance_recips;
-    double* mafs;
-    uint32_t* variant_uidxs;
-    uint32_t* slots;
-    uint32_t* collapsed_idxs;
-    unsigned char* dropped;
-    double* corr_matrix;
-    double* sub_matrix;
-    uint32_t* idx_remap;
-    uintptr_t* genovec;
-    MatrixInvertBuf1* invert_buf1;
-    double* invert_buf2;
-    if (unlikely(bigstack_alloc_w(window_max * bv_stride, &pos_bvs) ||
-                 bigstack_alloc_w(window_max * bv_stride, &neg_bvs) ||
-                 bigstack_alloc_w(window_max * bv_stride, &nm_bvs) ||
-                 bigstack_alloc_u32(window_max, &nm_cts) ||
-                 bigstack_alloc_i32(window_max, &sums) ||
-                 bigstack_alloc_d(window_max, &variance_recips) ||
-                 bigstack_alloc_d(window_max, &mafs) ||
-                 bigstack_alloc_u32(window_max, &variant_uidxs) ||
-                 bigstack_alloc_u32(window_max, &slots) ||
-                 bigstack_alloc_u32(window_max, &collapsed_idxs) ||
-                 BIGSTACK_ALLOC_X(unsigned char, window_max, &dropped) ||
-                 bigstack_alloc_d(window_max * window_max, &corr_matrix) ||
-                 bigstack_alloc_d(window_max * window_max, &sub_matrix) ||
-                 bigstack_alloc_u32(window_max, &idx_remap) ||
-                 bigstack_alloc_w(NypCtToWordCt(founder_ct), &genovec) ||
-                 BIGSTACK_ALLOC_X(MatrixInvertBuf1, kMatrixInvertBuf1CheckedAlloc * window_max, &invert_buf1) ||
-                 bigstack_alloc_d(window_max * window_max, &invert_buf2))) {
-      goto IndepVif_ret_NOMEM;
-    }
+    const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
+    const uintptr_t founder_ctl2 = NypCtToAlignedWordCt(founder_ct);
+    // Vector-aligned, since GenoarrSplit12Nm() writes whole vectors.
+    const uintptr_t bv_stride = BitCtToAlignedWordCt(founder_ct);
+    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
 
     // Collapsed index of each retained variant, so we can set bits in
     // removed_variants_collapsed.
@@ -2737,291 +3090,316 @@ PglErr IndepVif(const uintptr_t* variant_include, const ChrInfo* cip, const uint
 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uint32_t* founder_info_cumulative_popcounts;
-    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts))) {
+    uintptr_t* founder_male_collapsed;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
+                 bigstack_alloc_w(founder_ctl, &founder_male_collapsed))) {
       goto IndepVif_ret_NOMEM;
     }
     FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
-    uintptr_t* founder_male_collapsed;
-    if (unlikely(bigstack_alloc_w(founder_ctl, &founder_male_collapsed))) {
-      goto IndepVif_ret_NOMEM;
-    }
     CopyBitarrSubset(sex_male, founder_info, founder_ct, founder_male_collapsed);
     ZeroTrailingBits(founder_ct, founder_male_collapsed);
-    const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
-    PgrSampleSubsetIndex pssi;
-    PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
 
+    // One task per chromosome.  PLINK 1.9 restarts window start offsets at
+    // each chromosome boundary, so this is also the finest split that leaves
+    // the output unchanged.
     const uint32_t chr_ct = cip->chr_ct;
+    const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+    uint32_t* task_variant_cts;
+    uint32_t* task_first_uidxs;
+    uint32_t* task_is_x;
+    uint32_t* task_is_fully_haploid;
+    uint32_t* task_thread_assignments;
+    if (unlikely(bigstack_alloc_u32(chr_ct, &task_variant_cts) ||
+                 bigstack_alloc_u32(chr_ct, &task_first_uidxs) ||
+                 bigstack_alloc_u32(chr_ct, &task_is_x) ||
+                 bigstack_alloc_u32(chr_ct, &task_is_fully_haploid) ||
+                 bigstack_alloc_u32(chr_ct, &task_thread_assignments))) {
+      goto IndepVif_ret_NOMEM;
+    }
+    uint32_t task_ct = 0;
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
-      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-      const uint32_t is_x = (chr_idx == x_code);
-      // chrX is in haploid_mask, but only males are haploid there.
-      const uint32_t is_fully_haploid = IsSet(cip->haploid_mask, chr_idx) && (!is_x);
       const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
       const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-      // Collect this chromosome's variant uidxs.
-      uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+      const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
       if (chr_variant_ct < 2) {
         continue;
       }
-      uint32_t* chr_uidxs;
-      if (unlikely(bigstack_end_alloc_u32(chr_variant_ct, &chr_uidxs))) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      const uint32_t is_x = (chr_idx == x_code);
+      task_variant_cts[task_ct] = chr_variant_ct;
+      task_first_uidxs[task_ct] = AdvTo1Bit(variant_include, chr_vidx_start);
+      task_is_x[task_ct] = is_x;
+      // chrX is in haploid_mask, but only males are haploid there.
+      task_is_fully_haploid[task_ct] = IsSet(cip->haploid_mask, chr_idx) && (!is_x);
+      ++task_ct;
+    }
+    if (!task_ct) {
+      goto IndepVif_ret_1;
+    }
+    {
+      uint32_t x_task_ct = 0;
+      for (uint32_t task_idx = 0; task_idx != task_ct; ++task_idx) {
+        x_task_ct += task_is_x[task_idx];
+      }
+      if (x_task_ct) {
+        // PLINK 1.9's default --ld-xchr 1 puts males on a 0/1 dosage scale and
+        // females on 0/1/2; this treats both the same way, so chrX results can
+        // differ from 1.9's.  Autosomal results are unaffected.
+        logerrputs("Warning: --indep scores chrX males and females on the same 0/1/2 scale.  PLINK\n1.9's default ('--ld-xchr 1') halves the male scale, so chrX results can differ.\n");
+      }
+    }
+    uint32_t calc_thread_ct = MINV(max_thread_ct, task_ct);
+    uint32_t max_load;
+    if (unlikely(LoadBalance(task_variant_cts, task_ct, &calc_thread_ct, task_thread_assignments, &max_load))) {
+      goto IndepVif_ret_NOMEM;
+    }
+
+    // Tasks in their original order, grouped by thread.
+    uint32_t* thread_task_offsets;
+    uint32_t* thread_tasks;
+    uint32_t* thread_totals;
+    if (unlikely(bigstack_calloc_u32(calc_thread_ct + 1, &thread_task_offsets) ||
+                 bigstack_alloc_u32(task_ct, &thread_tasks) ||
+                 bigstack_calloc_u32(calc_thread_ct, &thread_totals))) {
+      goto IndepVif_ret_NOMEM;
+    }
+    for (uint32_t task_idx = 0; task_idx != task_ct; ++task_idx) {
+      ++thread_task_offsets[task_thread_assignments[task_idx] + 1];
+    }
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+      thread_task_offsets[tidx + 1] += thread_task_offsets[tidx];
+    }
+    {
+      uint32_t* fill_idxs;
+      if (unlikely(bigstack_end_alloc_u32(calc_thread_ct, &fill_idxs))) {
         goto IndepVif_ret_NOMEM;
       }
-      {
-        uintptr_t variant_uidx_base;
-        uintptr_t cur_bits;
-        BitIter1Start(variant_include, chr_vidx_start, &variant_uidx_base, &cur_bits);
-        for (uint32_t uii = 0; uii != chr_variant_ct; ++uii) {
-          chr_uidxs[uii] = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-        }
-      }
-
-      uint32_t window_start = 0;
-      uint32_t loaded_upto = 0;
-      while (window_start < chr_variant_ct) {
-        // Determine window membership.
-        uint32_t window_end = window_start;
-        if (!window_is_bp) {
-          window_end = window_start + prune_window_size;
-          if (window_end > chr_variant_ct) {
-            window_end = chr_variant_ct;
-          }
-        } else {
-          const uint32_t bp_limit = variant_bps[chr_uidxs[window_start]] + 1000 * prune_window_size;
-          while ((window_end < chr_variant_ct) && (variant_bps[chr_uidxs[window_end]] <= bp_limit)) {
-            ++window_end;
-          }
-        }
-        // Load any window positions not seen yet.  Slot assignment is
-        // position % window_max, which is collision-free within a window since
-        // a window never holds more than window_max variants; this lets the
-        // correlations computed for a pair survive across window slides
-        // instead of being recomputed on every step.
-        {
-          const uint32_t load_from = MAXV(loaded_upto, window_start);
-          for (uint32_t pos = load_from; pos != window_end; ++pos) {
-            const uint32_t widx = pos % window_max;
-            const uint32_t variant_uidx = chr_uidxs[pos];
-            reterr = PgrGet(founder_info, pssi, founder_ct, variant_uidx, simple_pgrp, genovec);
-            if (unlikely(reterr)) {
-              PgenErrPrintNV(reterr, variant_uidx);
-              goto IndepVif_ret_1;
-            }
-            ZeroTrailingNyps(founder_ct, genovec);
-            uintptr_t allele_idx_offset_base = 2 * variant_uidx;
-            if (allele_idx_offsets) {
-              allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-            }
-            const double ref_freq = allele_freqs[allele_idx_offset_base - variant_uidx];
-            const double maj_freq = (ref_freq >= 0.5)? ref_freq : (1.0 - ref_freq);
-            mafs[widx] = 1.0 - maj_freq;
-            // +1 for homozygous-major, -1 for homozygous-minor, matching the
-            // -1/0/1 recoding PLINK 1.9 uses.
-            const uint32_t maj_is_ref = (maj_alleles[variant_uidx] == 0);
-            uintptr_t* cur_pos = &(pos_bvs[widx * bv_stride]);
-            uintptr_t* cur_neg = &(neg_bvs[widx * bv_stride]);
-            uintptr_t* cur_nm = &(nm_bvs[widx * bv_stride]);
-            ZeroWArr(bv_stride, cur_pos);
-            ZeroWArr(bv_stride, cur_neg);
-            ZeroWArr(bv_stride, cur_nm);
-            int32_t sum = 0;
-            uint32_t ssq = 0;
-            uint32_t nm_ct = 0;
-            for (uint32_t sample_idx = 0; sample_idx != founder_ct; ++sample_idx) {
-              const uintptr_t cur_geno = GetNyparrEntry(genovec, sample_idx);
-              // PLINK 1.x treats heterozygous haploid calls as missing here.
-              const uint32_t is_hethap = (cur_geno == 1) && (is_fully_haploid || (is_x && IsSet(founder_male_collapsed, sample_idx)));
-              if ((cur_geno == 3) || is_hethap) {
-                continue;
-              }
-              SetBit(sample_idx, cur_nm);
-              ++nm_ct;
-              if (cur_geno != 1) {
-                const uint32_t is_pos = (cur_geno == 0)? maj_is_ref : (!maj_is_ref);
-                if (is_pos) {
-                  SetBit(sample_idx, cur_pos);
-                  sum += 1;
-                } else {
-                  SetBit(sample_idx, cur_neg);
-                  sum -= 1;
-                }
-                ++ssq;
-              }
-            }
-            nm_cts[widx] = nm_ct;
-            sums[widx] = sum;
-            if (nm_ct == founder_ct) {
-              const int64_t denom = S_CAST(int64_t, ssq) * founder_ct - S_CAST(int64_t, sum) * sum;
-              variance_recips[widx] = denom? (1.0 / S_CAST(double, denom)) : 0.0;
-            } else {
-              variance_recips[widx] = 0.0;
-            }
-            dropped[widx] = 0;
-            collapsed_idxs[widx] = variant_idx_of_uidx[variant_uidx];
-            // Monomorphic (or all-missing) variants can't participate.
-            if ((nm_ct < 2) || (S_CAST(int64_t, ssq) * nm_ct == S_CAST(int64_t, sum) * sum)) {
-              dropped[widx] = 1;
-              if (!IsSet(removed_variants_collapsed, collapsed_idxs[widx])) {
-                SetBit(collapsed_idxs[widx], removed_variants_collapsed);
-              }
-              continue;
-            }
-            // Correlations against the window positions already loaded.
-            for (uint32_t other_pos = window_start; other_pos != pos; ++other_pos) {
-              const uint32_t other_widx = other_pos % window_max;
-              if (dropped[other_widx] || IsSet(removed_variants_collapsed, collapsed_idxs[other_widx])) {
-                continue;
-              }
-              double rr = IndepVifCorr(pos_bvs, neg_bvs, nm_bvs, bv_stride, nm_cts, sums, variance_recips, founder_ct, founder_ctl, other_widx, widx);
-              if (rr != rr) {
-                rr = 1.0;
-              }
-              corr_matrix[other_widx * window_max + widx] = rr;
-              corr_matrix[widx * window_max + other_widx] = rr;
-            }
-          }
-          if (window_end > loaded_upto) {
-            loaded_upto = window_end;
-          }
-        }
-
-        // Window members, in position order, as slot indices.
-        uint32_t cur_window_size = 0;
-        for (uint32_t pos = window_start; pos != window_end; ++pos) {
-          const uint32_t widx = pos % window_max;
-          if (IsSet(removed_variants_collapsed, collapsed_idxs[widx])) {
-            continue;
-          }
-          dropped[widx] = 0;
-          slots[cur_window_size++] = widx;
-        }
-        if (cur_window_size > 1) {
-          // Pass 1: drop near-perfect-LD pairs, keeping the higher-MAF member.
-          uint32_t at_least_one_prune;
-          do {
-            at_least_one_prune = 0;
-            for (uint32_t mi = 0; mi + 1 < cur_window_size; ++mi) {
-              const uint32_t ii = slots[mi];
-              if (dropped[ii]) {
-                continue;
-              }
-              for (uint32_t mj = mi + 1; mj != cur_window_size; ++mj) {
-                const uint32_t jj = slots[mj];
-                if (dropped[jj]) {
-                  continue;
-                }
-                if (corr_matrix[ii * window_max + jj] > perfect_ld_thresh) {
-                  at_least_one_prune = 1;
-                  uint32_t victim;
-                  if (mafs[ii] < (1 - kSmallEpsilon) * mafs[jj]) {
-                    victim = ii;
-                  } else {
-                    victim = jj;
-                  }
-                  dropped[victim] = 1;
-                  if (!IsSet(removed_variants_collapsed, collapsed_idxs[victim])) {
-                SetBit(collapsed_idxs[victim], removed_variants_collapsed);
-                  }
-                  if (victim == ii) {
-                    break;
-                  }
-                }
-              }
-            }
-          } while (at_least_one_prune);
-
-          // Pass 2: VIF loop.
-          uint32_t window_rem = 0;
-          for (uint32_t mi = 0; mi != cur_window_size; ++mi) {
-            const uint32_t ii = slots[mi];
-            if (!dropped[ii]) {
-              idx_remap[window_rem++] = ii;
-            }
-          }
-          while (window_rem > 1) {
-            while (IndepVifInvertSub(corr_matrix, idx_remap, window_max, window_rem, sub_matrix, invert_buf1, invert_buf2)) {
-              // Singular: binary-search for the shortest leading submatrix
-              // that is still invertible, then drop the row/column just past
-              // it, exactly as PLINK 1.9 does.
-              uint32_t bsearch_min = 0;
-              uint32_t bsearch_max = window_rem - 1;
-              while (bsearch_min < bsearch_max) {
-                const uint32_t bsearch_cur = (bsearch_min + bsearch_max) / 2;
-                if (!bsearch_cur) {
-                  bsearch_min = 1;
-                  continue;
-                }
-                if (!IndepVifInvertSub(corr_matrix, idx_remap, window_max, bsearch_cur, sub_matrix, invert_buf1, invert_buf2)) {
-                  bsearch_min = bsearch_cur + 1;
-                } else {
-                  bsearch_max = bsearch_cur;
-                }
-              }
-              const uint32_t victim_widx = idx_remap[bsearch_min];
-              dropped[victim_widx] = 1;
-              if (!IsSet(removed_variants_collapsed, collapsed_idxs[victim_widx])) {
-                SetBit(collapsed_idxs[victim_widx], removed_variants_collapsed);
-              }
-              --window_rem;
-              for (uint32_t uii = bsearch_min; uii != window_rem; ++uii) {
-                idx_remap[uii] = idx_remap[uii + 1];
-              }
-              if (window_rem < 2) {
-                break;
-              }
-            }
-            if (window_rem < 2) {
-              break;
-            }
-            double max_vif = sub_matrix[0];
-            uint32_t max_idx = 0;
-            for (uint32_t uii = 1; uii != window_rem; ++uii) {
-              const double cur_vif = sub_matrix[uii * (window_rem + 1)];
-              if (cur_vif > max_vif) {
-                max_vif = cur_vif;
-                max_idx = uii;
-              }
-            }
-            if (max_vif <= vif_thresh) {
-              break;
-            }
-            const uint32_t victim_widx = idx_remap[max_idx];
-            dropped[victim_widx] = 1;
-            if (!IsSet(removed_variants_collapsed, collapsed_idxs[victim_widx])) {
-                SetBit(collapsed_idxs[victim_widx], removed_variants_collapsed);
-            }
-            --window_rem;
-            for (uint32_t uii = max_idx; uii != window_rem; ++uii) {
-              idx_remap[uii] = idx_remap[uii + 1];
-            }
-          }
-        }
-
-        // Advance.
-        if (window_end == chr_variant_ct) {
-          break;
-        }
-        uint32_t next_start;
-        if (!window_is_bp) {
-          next_start = window_start + prune_window_incr;
-        } else {
-          next_start = window_start + prune_window_incr;
-        }
-        if (next_start <= window_start) {
-          next_start = window_start + 1;
-        }
-        window_start = next_start;
+      memcpy(fill_idxs, thread_task_offsets, calc_thread_ct * sizeof(int32_t));
+      for (uint32_t task_idx = 0; task_idx != task_ct; ++task_idx) {
+        const uint32_t tidx = task_thread_assignments[task_idx];
+        thread_tasks[fill_idxs[tidx]] = task_idx;
+        fill_idxs[tidx] += 1;
+        thread_totals[tidx] += task_variant_cts[task_idx];
       }
       BigstackEndReset(g_bigstack_end);
+    }
+
+    // Memory: everything except the genotype ring buffer is fixed per thread.
+    const uintptr_t window_maxd = window_max;
+    uintptr_t fixed_per_thread = RoundUpPow2(3 * window_maxd * bv_stride * sizeof(intptr_t), kCacheline) +
+      2 * RoundUpPow2(bv_stride * sizeof(intptr_t), kCacheline) +
+      6 * RoundUpPow2(window_maxd * sizeof(int32_t), kCacheline) +
+      2 * RoundUpPow2(window_maxd * sizeof(double), kCacheline) +
+      RoundUpPow2(window_maxd, kCacheline) +
+      3 * RoundUpPow2(window_maxd * window_maxd * sizeof(double), kCacheline) +
+      RoundUpPow2(kMatrixInvertBuf1CheckedAlloc * window_maxd, kCacheline) +
+      RoundUpPow2(variant_ctl * sizeof(intptr_t), kCacheline);
+    const uintptr_t per_variant_bytes = founder_ctl2 * sizeof(intptr_t) + sizeof(int32_t);
+    while (calc_thread_ct > 1) {
+      const uintptr_t need = (fixed_per_thread + (window_maxd + ldip->prune_window_incr) * per_variant_bytes + 2 * kCacheline) * calc_thread_ct;
+      if (need <= bigstack_left()) {
+        break;
+      }
+      --calc_thread_ct;
+    }
+    if (unlikely((fixed_per_thread + (window_maxd + ldip->prune_window_incr) * per_variant_bytes + 2 * kCacheline) * calc_thread_ct > bigstack_left())) {
+      goto IndepVif_ret_NOMEM;
+    }
+    // The ring must be able to hold a full window plus one window-start
+    // increment, otherwise a thread can end up waiting for data the loader
+    // will not produce until the thread advances.
+    const uintptr_t min_batch_size = window_max + ldip->prune_window_incr;
+    uintptr_t tvidx_batch_size = min_batch_size;
+    {
+      const uintptr_t slack = 1024 * 1024;
+      uintptr_t avail = bigstack_left();
+      const uintptr_t fixed_total = (fixed_per_thread + 2 * kCacheline) * calc_thread_ct;
+      if (avail > fixed_total + slack) {
+        avail -= fixed_total + slack;
+        const uintptr_t batch_cap = avail / (per_variant_bytes * calc_thread_ct);
+        if (batch_cap > tvidx_batch_size) {
+          tvidx_batch_size = batch_cap;
+        }
+      }
+      uint32_t max_thread_total = 0;
+      for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+        if (thread_totals[tidx] > max_thread_total) {
+          max_thread_total = thread_totals[tidx];
+        }
+      }
+      if (tvidx_batch_size > max_thread_total) {
+        tvidx_batch_size = max_thread_total;
+      }
+      if (tvidx_batch_size < min_batch_size) {
+        tvidx_batch_size = min_batch_size;
+      }
+    }
+
+    IndepVifCtx ctx;
+    ctx.variant_bps = variant_bps;
+    ctx.allele_idx_offsets = allele_idx_offsets;
+    ctx.maj_alleles = maj_alleles;
+    ctx.allele_freqs = allele_freqs;
+    ctx.variant_idx_of_uidx = variant_idx_of_uidx;
+    ctx.founder_male_collapsed = founder_male_collapsed;
+    ctx.task_variant_cts = task_variant_cts;
+    ctx.task_is_x = task_is_x;
+    ctx.task_is_fully_haploid = task_is_fully_haploid;
+    ctx.thread_task_offsets = thread_task_offsets;
+    ctx.thread_tasks = thread_tasks;
+    ctx.founder_ct = founder_ct;
+    ctx.founder_ctl = founder_ctl;
+    ctx.prune_window_size = prune_window_size;
+    ctx.prune_window_incr = ldip->prune_window_incr;
+    ctx.window_is_bp = window_is_bp;
+    ctx.tvidx_batch_size = tvidx_batch_size;
+    ctx.window_max = window_max;
+    ctx.bv_stride = bv_stride;
+    ctx.vif_thresh = ldip->prune_last_param;
+    if (unlikely(bigstack_alloc_wp(calc_thread_ct, &ctx.raw_genovecs) ||
+                 bigstack_alloc_u32p(calc_thread_ct, &ctx.batch_uidxs) ||
+                 bigstack_calloc_u32(calc_thread_ct, &ctx.loaded_tvidx) ||
+                 bigstack_calloc_u32(calc_thread_ct, &ctx.consumed_tvidx) ||
+                 bigstack_calloc_u32(calc_thread_ct, &ctx.thread_done) ||
+                 bigstack_alloc_wp(calc_thread_ct, &ctx.pos_bvs) ||
+                 bigstack_alloc_wp(calc_thread_ct, &ctx.neg_bvs) ||
+                 bigstack_alloc_wp(calc_thread_ct, &ctx.nm_bvs) ||
+                 bigstack_alloc_wp(calc_thread_ct, &ctx.one_bufs) ||
+                 bigstack_alloc_wp(calc_thread_ct, &ctx.two_bufs) ||
+                 bigstack_alloc_u32p(calc_thread_ct, &ctx.nm_cts) ||
+                 bigstack_alloc_i32p(calc_thread_ct, &ctx.sums) ||
+                 bigstack_alloc_dp(calc_thread_ct, &ctx.variance_recips) ||
+                 bigstack_alloc_dp(calc_thread_ct, &ctx.mafs) ||
+                 bigstack_alloc_u32p(calc_thread_ct, &ctx.win_uidxs) ||
+                 bigstack_alloc_u32p(calc_thread_ct, &ctx.win_bps) ||
+                 bigstack_alloc_u32p(calc_thread_ct, &ctx.collapsed_idxs) ||
+                 bigstack_alloc_ucp(calc_thread_ct, &ctx.dropped) ||
+                 bigstack_alloc_u32p(calc_thread_ct, &ctx.slots) ||
+                 bigstack_alloc_u32p(calc_thread_ct, &ctx.idx_remaps) ||
+                 bigstack_alloc_dp(calc_thread_ct, &ctx.corr_matrices) ||
+                 bigstack_alloc_dp(calc_thread_ct, &ctx.sub_matrices) ||
+                 bigstack_alloc_dp(calc_thread_ct, &ctx.invert_buf2s) ||
+                 BIGSTACK_ALLOC_X(MatrixInvertBuf1*, calc_thread_ct, &ctx.invert_buf1s) ||
+                 bigstack_alloc_wp(calc_thread_ct, &ctx.removed_local) ||
+                 bigstack_calloc_u32(calc_thread_ct, &ctx.cur_task_idx) ||
+                 bigstack_calloc_u32(calc_thread_ct, &ctx.cur_pos) ||
+                 bigstack_calloc_u32(calc_thread_ct, &ctx.cur_loaded) ||
+                 bigstack_calloc_u32(calc_thread_ct, &ctx.cur_tvidx_base))) {
+      goto IndepVif_ret_NOMEM;
+    }
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+      if (unlikely(bigstack_alloc_w(tvidx_batch_size * founder_ctl2, &(ctx.raw_genovecs[tidx])) ||
+                   bigstack_alloc_u32(tvidx_batch_size, &(ctx.batch_uidxs[tidx])) ||
+                   bigstack_alloc_w(window_max * bv_stride, &(ctx.pos_bvs[tidx])) ||
+                   bigstack_alloc_w(window_max * bv_stride, &(ctx.neg_bvs[tidx])) ||
+                   bigstack_alloc_w(window_max * bv_stride, &(ctx.nm_bvs[tidx])) ||
+                   bigstack_alloc_w(bv_stride, &(ctx.one_bufs[tidx])) ||
+                   bigstack_alloc_w(bv_stride, &(ctx.two_bufs[tidx])) ||
+                   bigstack_alloc_u32(window_max, &(ctx.nm_cts[tidx])) ||
+                   bigstack_alloc_i32(window_max, &(ctx.sums[tidx])) ||
+                   bigstack_alloc_d(window_max, &(ctx.variance_recips[tidx])) ||
+                   bigstack_alloc_d(window_max, &(ctx.mafs[tidx])) ||
+                   bigstack_alloc_u32(window_max, &(ctx.win_uidxs[tidx])) ||
+                   bigstack_alloc_u32(window_max, &(ctx.win_bps[tidx])) ||
+                   bigstack_alloc_u32(window_max, &(ctx.collapsed_idxs[tidx])) ||
+                   BIGSTACK_ALLOC_X(unsigned char, window_max, &(ctx.dropped[tidx])) ||
+                   bigstack_alloc_u32(window_max, &(ctx.slots[tidx])) ||
+                   bigstack_alloc_u32(window_max, &(ctx.idx_remaps[tidx])) ||
+                   bigstack_alloc_d(window_max * window_max, &(ctx.corr_matrices[tidx])) ||
+                   bigstack_alloc_d(window_max * window_max, &(ctx.sub_matrices[tidx])) ||
+                   bigstack_alloc_d(window_max * window_max, &(ctx.invert_buf2s[tidx])) ||
+                   BIGSTACK_ALLOC_X(MatrixInvertBuf1, kMatrixInvertBuf1CheckedAlloc * window_max, &(ctx.invert_buf1s[tidx])) ||
+                   bigstack_calloc_w(variant_ctl, &(ctx.removed_local[tidx])))) {
+        goto IndepVif_ret_NOMEM;
+      }
+    }
+
+    SetThreadFuncAndData(IndepVifThread, &ctx, &tg);
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto IndepVif_ret_NOMEM;
+    }
+    logprintf("--indep (%u compute thread%s).\n", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
+
+    // Loader state: where each thread's next unread variant is.
+    uint32_t* loader_task_idx;
+    uint32_t* loader_pos;
+    uintptr_t* loader_uidx_base;
+    uintptr_t* loader_bits;
+    if (unlikely(bigstack_calloc_u32(calc_thread_ct, &loader_task_idx) ||
+                 bigstack_calloc_u32(calc_thread_ct, &loader_pos) ||
+                 bigstack_calloc_w(calc_thread_ct, &loader_uidx_base) ||
+                 bigstack_calloc_w(calc_thread_ct, &loader_bits))) {
+      goto IndepVif_ret_NOMEM;
+    }
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+      const uint32_t first_task = ctx.thread_tasks[thread_task_offsets[tidx]];
+      BitIter1Start(variant_include, task_first_uidxs[first_task], &(loader_uidx_base[tidx]), &(loader_bits[tidx]));
+    }
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
+    while (1) {
+      uint32_t all_loaded = 1;
+      for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+        const uint32_t thread_total = thread_totals[tidx];
+        uint32_t loaded = ctx.loaded_tvidx[tidx];
+        uintptr_t target = ctx.consumed_tvidx[tidx] + tvidx_batch_size;
+        if (target > thread_total) {
+          target = thread_total;
+        }
+        uintptr_t* cur_genovecs = ctx.raw_genovecs[tidx];
+        uint32_t* cur_uidxs = ctx.batch_uidxs[tidx];
+        while (loaded < target) {
+          uint32_t cur_task_idx = loader_task_idx[tidx];
+          uint32_t cur_task = ctx.thread_tasks[thread_task_offsets[tidx] + cur_task_idx];
+          if (loader_pos[tidx] == task_variant_cts[cur_task]) {
+            ++cur_task_idx;
+            loader_task_idx[tidx] = cur_task_idx;
+            loader_pos[tidx] = 0;
+            cur_task = ctx.thread_tasks[thread_task_offsets[tidx] + cur_task_idx];
+            BitIter1Start(variant_include, task_first_uidxs[cur_task], &(loader_uidx_base[tidx]), &(loader_bits[tidx]));
+          }
+          const uint32_t variant_uidx = BitIter1(variant_include, &(loader_uidx_base[tidx]), &(loader_bits[tidx]));
+          const uintptr_t slot = loaded % tvidx_batch_size;
+          reterr = PgrGet(founder_info, pssi, founder_ct, variant_uidx, simple_pgrp, &(cur_genovecs[slot * founder_ctl2]));
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto IndepVif_ret_1;
+          }
+          ZeroTrailingNyps(founder_ct, &(cur_genovecs[slot * founder_ctl2]));
+          cur_uidxs[slot] = variant_uidx;
+          ++loader_pos[tidx];
+          ++loaded;
+        }
+        ctx.loaded_tvidx[tidx] = loaded;
+        if (loaded != thread_total) {
+          all_loaded = 0;
+        }
+      }
+      if (all_loaded) {
+        DeclareLastThreadBlock(&tg);
+      }
+      if (unlikely(SpawnThreads(&tg))) {
+        goto IndepVif_ret_THREAD_CREATE_FAIL;
+      }
+      JoinThreads(&tg);
+      if (all_loaded) {
+        break;
+      }
+    }
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+      BitvecOr(ctx.removed_local[tidx], variant_ctl, removed_variants_collapsed);
     }
   }
   while (0) {
   IndepVif_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  IndepVif_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
   }
  IndepVif_ret_1:
+  CleanupThreads(&tg);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -3196,7 +3574,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       BigstackEndReset(bigstack_end_mark);
 
       if (is_vif) {
-        reterr = IndepVif(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, sex_male, ldip, raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, simple_pgrp, removed_variants_collapsed);
+        reterr = IndepVif(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, sex_male, ldip, raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, max_thread_ct, simple_pgrp, removed_variants_collapsed);
       } else if (is_pairphase) {
         reterr = IndepPairphase(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale, founder_male, founder_nonfemale, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, founder_nonfemale_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
       } else {
