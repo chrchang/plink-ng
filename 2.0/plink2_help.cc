@@ -815,6 +815,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    maybefid/fid/maybesid/sid to the .imendel output file; and\n"
 "    chrom/pos/ref/alt to the .lmendel[.zst] output file.\n\n"
               );
+    HelpPrint("test-missing\0", &help_ctrl, 1,
+"  --test-missing ['midp'] ['zs']\n"
+"    Check for association between missingness and case/control status, using\n"
+"    Fisher's exact test.  Heterozygous haploid calls are treated as missing,\n"
+"    and variants with no missing calls (or nothing but missing calls) are\n"
+"    omitted, as in PLINK 1.x.\n"
+"    * The 'midp' modifier applies Lancaster's mid-p adjustment.\n\n"
+               );
     HelpPrint("het\0", &help_ctrl, 1,
 "  --het ['zs'] ['small-sample'] ['cols='<column set descriptor>]\n"
 "    Inbreeding coefficient report.  Supports multiallelic variants.\n"
