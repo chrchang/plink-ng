@@ -10798,10 +10798,7 @@ typedef struct RohRecordStruct {
 static const double kRohEpsilon = 0.000000000931322574615478515625;  // 2^-30
 static const double kRohSmallishEpsilon = 0.00000000000005684341886080801486968994140625;  // 2^-44
 
-// Recodes a genovec into the representation --homozyg scans: 0 = homozygous,
-// 1 = missing, 2 = heterozygous, in place of plink2's 0/1/2/3.  Also adds the
-// row's heterozygous and missing calls to the running window counts, touching
-// only the samples that actually have one.
+// Recodes a genovec into the representation --homozyg scans:
 // 0 = homozygous, 1 = missing, 2 = heterozygous, two bits per sample.  The
 // window's het/missing counts are folded in separately, by HomozygFoldRow(),
 // since that part is per-sample work.
@@ -10814,6 +10811,42 @@ static void RecodeHomozygRow(const uintptr_t* genovec, uint32_t sample_ctl2, uin
     // high bit distinguishes missing (11) from heterozygous (01).
     dst[widx] = (lo & hi) | ((lo & (~hi)) << 1);
   }
+}
+
+// PgrGet() reports an ALTx/ALTy heterozygote as hom-ALT, so the multiallelic
+// patch has to be consulted to recover those calls.  (patch_01 can be ignored:
+// those genotypes are already coded as heterozygous.)
+static void ApplyHomozygPatch10(const uintptr_t* patch_10_set, const AlleleCode* patch_10_vals, uint32_t patch_10_ct, uintptr_t* dst) {
+  uintptr_t sample_idx_base = 0;
+  uintptr_t cur_bits = patch_10_set[0];
+  for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+    const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
+    if (patch_10_vals[2 * uii] != patch_10_vals[2 * uii + 1]) {
+      dst[sample_idx / kBitsPerWordD2] |= (2 * k1LU) << (2 * (sample_idx % kBitsPerWordD2));
+    }
+  }
+}
+
+// Reads one variant and writes it to the scan window in recoded form.
+static PglErr HomozygReadRow(const uintptr_t* sample_include, PgrSampleSubsetIndex pssi, const uintptr_t* allele_idx_offsets, uint32_t sample_ct, uint32_t sample_ctl2, uint32_t variant_uidx, PgenReader* pgrp, PgenVariant* pgvp, uintptr_t* dst) {
+  const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx]) : 2;
+  PglErr reterr;
+  if (allele_ct == 2) {
+    reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, pgrp, pgvp->genovec);
+    pgvp->patch_10_ct = 0;
+  } else {
+    reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, pgrp, pgvp);
+  }
+  if (unlikely(reterr)) {
+    PgenErrPrintNV(reterr, variant_uidx);
+    return reterr;
+  }
+  ZeroTrailingNyps(sample_ct, pgvp->genovec);
+  RecodeHomozygRow(pgvp->genovec, sample_ctl2, dst);
+  if (pgvp->patch_10_ct) {
+    ApplyHomozygPatch10(pgvp->patch_10_set, pgvp->patch_10_vals, pgvp->patch_10_ct, dst);
+  }
+  return kPglRetSuccess;
 }
 
 // Everything the scan needs to advance one variant.  Every array here is
@@ -11042,13 +11075,16 @@ THREAD_FUNC_DECL HomozygThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, const HomozygInfo* hip, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, const HomozygInfo* hip, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* outfile = nullptr;
+  char* cswritep = nullptr;
+  CompressStreamState css;
   ThreadGroup tg;
   PreinitThreads(&tg);
   PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
   {
     const uint32_t window_size = hip->window_size;
     const uint32_t max_sw_hets = hip->window_max_hets;
@@ -11083,7 +11119,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     const uint32_t block_size = 256;
     const uint32_t ring_size = window_size + block_size + 1;
     uint32_t* sample_include_cumulative_popcounts;
-    uintptr_t* genovec;
+    PgenVariant pgv;
     // Window rows, recoded in place to 2-bit codes: 0 = homozygous,
     // 1 = missing, 2 = heterozygous.  Packed rather than one byte per sample,
     // so that a 50-variant window stays cache-resident.
@@ -11101,7 +11137,6 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     uint32_t* cur_roh_missing_cts;
     uintptr_t* male_collapsed;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-                 bigstack_alloc_w(sample_ctl2, &genovec) ||
                  bigstack_alloc_w(S_CAST(uintptr_t, ring_size) * sample_ctl2, &readbuf) ||
                  bigstack_alloc_w(S_CAST(uintptr_t, window_size) * sample_ctl2, &swbuf) ||
                  bigstack_alloc_u32(ring_size, &uidx_buf) ||
@@ -11113,6 +11148,9 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
                  bigstack_alloc_u32(sample_ct, &cur_roh_het_cts) ||
                  bigstack_alloc_u32(sample_ct, &cur_roh_missing_cts) ||
                  bigstack_alloc_w(sample_ctl, &male_collapsed))) {
+      goto HomozygReport_ret_NOMEM;
+    }
+    if (unlikely(BigstackAllocPgv(sample_ct, max_allele_ct > 2, kfPgenGlobal0, &pgv))) {
       goto HomozygReport_ret_NOMEM;
     }
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
@@ -11247,13 +11285,10 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       uint32_t rows_read = 0;
       for (; rows_read != window_size; ++rows_read) {
         const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-        reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+        reterr = HomozygReadRow(sample_include, pssi, allele_idx_offsets, sample_ct, sample_ctl2, variant_uidx, simple_pgrp, &pgv, &(readbuf[S_CAST(uintptr_t, rows_read % ring_size) * sample_ctl2]));
         if (unlikely(reterr)) {
-          PgenErrPrintNV(reterr, variant_uidx);
           goto HomozygReport_ret_1;
         }
-        ZeroTrailingNyps(sample_ct, genovec);
-        RecodeHomozygRow(genovec, sample_ctl2, &(readbuf[S_CAST(uintptr_t, rows_read % ring_size) * sample_ctl2]));
         uidx_buf[rows_read % ring_size] = variant_uidx;
       }
       for (uint32_t row = 0; row != window_size; ++row) {
@@ -11267,13 +11302,10 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         const uint32_t rows_needed = MINV(block_end + window_size, chr_variant_ct);
         for (; rows_read != rows_needed; ++rows_read) {
           const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-          reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+          reterr = HomozygReadRow(sample_include, pssi, allele_idx_offsets, sample_ct, sample_ctl2, variant_uidx, simple_pgrp, &pgv, &(readbuf[S_CAST(uintptr_t, rows_read % ring_size) * sample_ctl2]));
           if (unlikely(reterr)) {
-            PgenErrPrintNV(reterr, variant_uidx);
             goto HomozygReport_ret_1;
           }
-          ZeroTrailingNyps(sample_ct, genovec);
-          RecodeHomozygRow(genovec, sample_ctl2, &(readbuf[S_CAST(uintptr_t, rows_read % ring_size) * sample_ctl2]));
           uidx_buf[rows_read % ring_size] = variant_uidx;
         }
         ctx.chr_variant_ct = chr_variant_ct;
@@ -11338,8 +11370,27 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     const char* sids = siip->sids;
     const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
     const uintptr_t max_sid_blen = siip->max_sid_blen;
-    const uint32_t col_fid = FidColIsRequired(siip, 1);
-    const uint32_t col_sid = SidColIsRequired(siip->sids, 1);
+    const HomozygFlags flags = hip->flags;
+    const uint32_t col_fid = FidColIsRequired(siip, flags / kfHomozygColMaybefid);
+    const uint32_t col_sid = SidColIsRequired(siip->sids, flags / kfHomozygColMaybesid);
+    const uint32_t col_pheno = (flags & kfHomozygColPheno) || ((flags & kfHomozygColMaybepheno) && report_pheno_col);
+    if (col_pheno && (!report_pheno_col)) {
+      logerrputs("Error: --homozyg 'pheno' column set requires a phenotype.\n");
+      reterr = kPglRetInconsistentInput;
+      goto HomozygReport_ret_1;
+    }
+    const uint32_t col_chrom = (flags / kfHomozygColChrom) & 1;
+    const uint32_t col_pos = (flags / kfHomozygColPos) & 1;
+    const uint32_t col_kb = (flags / kfHomozygColKb) & 1;
+    const uint32_t col_nsnp = (flags / kfHomozygColNsnp) & 1;
+    const uint32_t col_density = (flags / kfHomozygColDensity) & 1;
+    const uint32_t col_phom = (flags / kfHomozygColPhom) & 1;
+    const uint32_t col_phet = (flags / kfHomozygColPhet) & 1;
+    const uint32_t col_nseg = (flags / kfHomozygColNseg) & 1;
+    const uint32_t col_kbtot = (flags / kfHomozygColKbtot) & 1;
+    const uint32_t col_kbavg = (flags / kfHomozygColKbavg) & 1;
+    const uint32_t col_aff = (flags / kfHomozygColAff) & 1;
+    const uint32_t col_unaff = (flags / kfHomozygColUnaff) & 1;
 
     // .hom
     snprintf(outname_end, kMaxOutfnameExtBlen, ".hom");
@@ -11357,10 +11408,32 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       if (col_sid) {
         write_iter = strcpya_k(write_iter, "\tSID");
       }
-      if (report_pheno_col) {
+      if (col_pheno) {
         write_iter = strcpya_k(write_iter, "\tPHENO");
       }
-      write_iter = strcpya_k(write_iter, "\tCHROM\tSNP1\tSNP2\tPOS1\tPOS2\tKB\tNSNP\tDENSITY\tPHOM\tPHET" EOLN_STR);
+      if (col_chrom) {
+        write_iter = strcpya_k(write_iter, "\tCHROM");
+      }
+      write_iter = strcpya_k(write_iter, "\tID1\tID2");
+      if (col_pos) {
+        write_iter = strcpya_k(write_iter, "\tPOS1\tPOS2");
+      }
+      if (col_kb) {
+        write_iter = strcpya_k(write_iter, "\tKB");
+      }
+      if (col_nsnp) {
+        write_iter = strcpya_k(write_iter, "\tNSNP");
+      }
+      if (col_density) {
+        write_iter = strcpya_k(write_iter, "\tDENSITY");
+      }
+      if (col_phom) {
+        write_iter = strcpya_k(write_iter, "\tPHOM");
+      }
+      if (col_phet) {
+        write_iter = strcpya_k(write_iter, "\tPHET");
+      }
+      AppendBinaryEoln(&write_iter);
       if (unlikely(fwrite_checked(textbuf, write_iter - textbuf, outfile))) {
         goto HomozygReport_ret_WRITE_FAIL;
       }
@@ -11380,28 +11453,45 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         const RohRecord* cur_rec = &(roh_list[roh_order[uii]]);
         char* write_iter = g_textbuf;
         write_iter = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, write_iter);
-        if (report_pheno_col) {
+        if (col_pheno) {
           *write_iter++ = '\t';
           write_iter = AppendPhenoStr(report_pheno_col, "NA", 2, sample_uidx, write_iter);
         }
-        *write_iter++ = '\t';
-        write_iter = chrtoa(cip, GetVariantChr(cip, cur_rec->start_uidx), write_iter);
+        if (col_chrom) {
+          *write_iter++ = '\t';
+          write_iter = chrtoa(cip, GetVariantChr(cip, cur_rec->start_uidx), write_iter);
+        }
         *write_iter++ = '\t';
         write_iter = strcpyax(write_iter, variant_ids[cur_rec->start_uidx], '\t');
-        write_iter = strcpyax(write_iter, variant_ids[cur_rec->end_uidx], '\t');
-        write_iter = u32toa_x(variant_bps[cur_rec->start_uidx], '\t', write_iter);
-        write_iter = u32toa_x(variant_bps[cur_rec->end_uidx], '\t', write_iter);
+        write_iter = strcpya(write_iter, variant_ids[cur_rec->end_uidx]);
+        if (col_pos) {
+          *write_iter++ = '\t';
+          write_iter = u32toa_x(variant_bps[cur_rec->start_uidx], '\t', write_iter);
+          write_iter = u32toa(variant_bps[cur_rec->end_uidx], write_iter);
+        }
         const double kb = u31tod(variant_bps[cur_rec->end_uidx] + is_new_lengths - variant_bps[cur_rec->start_uidx]) / (1000.0 - kRohEpsilon);
         kb_tot += kb;
-        write_iter = dtoa_g(kb, write_iter);
-        *write_iter++ = '\t';
-        write_iter = u32toa_x(cur_rec->nsnp, '\t', write_iter);
+        if (col_kb) {
+          *write_iter++ = '\t';
+          write_iter = dtoa_g(kb, write_iter);
+        }
+        if (col_nsnp) {
+          *write_iter++ = '\t';
+          write_iter = u32toa(cur_rec->nsnp, write_iter);
+        }
         const double nsnp_recip = (1.0 + kRohSmallishEpsilon) / u31tod(cur_rec->nsnp);
-        write_iter = dtoa_g(kb * nsnp_recip, write_iter);
-        *write_iter++ = '\t';
-        write_iter = dtoa_g(u31tod(cur_rec->nhom) * nsnp_recip, write_iter);
-        *write_iter++ = '\t';
-        write_iter = dtoa_g(u31tod(cur_rec->nhet) * nsnp_recip, write_iter);
+        if (col_density) {
+          *write_iter++ = '\t';
+          write_iter = dtoa_g(kb * nsnp_recip, write_iter);
+        }
+        if (col_phom) {
+          *write_iter++ = '\t';
+          write_iter = dtoa_g(u31tod(cur_rec->nhom) * nsnp_recip, write_iter);
+        }
+        if (col_phet) {
+          *write_iter++ = '\t';
+          write_iter = dtoa_g(u31tod(cur_rec->nhet) * nsnp_recip, write_iter);
+        }
         AppendBinaryEoln(&write_iter);
         if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
           goto HomozygReport_ret_WRITE_FAIL;
@@ -11428,10 +11518,19 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       if (col_sid) {
         write_iter = strcpya_k(write_iter, "\tSID");
       }
-      if (report_pheno_col) {
+      if (col_pheno) {
         write_iter = strcpya_k(write_iter, "\tPHENO");
       }
-      write_iter = strcpya_k(write_iter, "\tNSEG\tKB\tKBAVG" EOLN_STR);
+      if (col_nseg) {
+        write_iter = strcpya_k(write_iter, "\tNSEG");
+      }
+      if (col_kbtot) {
+        write_iter = strcpya_k(write_iter, "\tKB");
+      }
+      if (col_kbavg) {
+        write_iter = strcpya_k(write_iter, "\tKBAVG");
+      }
+      AppendBinaryEoln(&write_iter);
       if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
         goto HomozygReport_ret_WRITE_FAIL;
       }
@@ -11443,16 +11542,23 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       const uint32_t cur_roh_ct = sample_roh_cts[sample_idx];
       char* write_iter = g_textbuf;
       write_iter = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, write_iter);
-      if (report_pheno_col) {
+      if (col_pheno) {
         *write_iter++ = '\t';
         write_iter = AppendPhenoStr(report_pheno_col, "NA", 2, sample_uidx, write_iter);
       }
-      *write_iter++ = '\t';
-      write_iter = u32toa_x(cur_roh_ct, '\t', write_iter);
+      if (col_nseg) {
+        *write_iter++ = '\t';
+        write_iter = u32toa(cur_roh_ct, write_iter);
+      }
       const double kb_tot = sample_kb_tots[sample_idx];
-      write_iter = dtoa_g(kb_tot, write_iter);
-      *write_iter++ = '\t';
-      write_iter = dtoa_g(cur_roh_ct? (kb_tot / u31tod(cur_roh_ct)) : kb_tot, write_iter);
+      if (col_kbtot) {
+        *write_iter++ = '\t';
+        write_iter = dtoa_g(kb_tot, write_iter);
+      }
+      if (col_kbavg) {
+        *write_iter++ = '\t';
+        write_iter = dtoa_g(cur_roh_ct? (kb_tot / u31tod(cur_roh_ct)) : kb_tot, write_iter);
+      }
       AppendBinaryEoln(&write_iter);
       if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
         goto HomozygReport_ret_WRITE_FAIL;
@@ -11462,17 +11568,31 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
       goto HomozygReport_ret_WRITE_FAIL;
     }
 
-    // .hom.summary
-    snprintf(outname_end, kMaxOutfnameExtBlen, ".hom.summary");
-    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
-      goto HomozygReport_ret_OPEN_FAIL;
-    }
+    // .hom.summary; one line per variant, so this is the output worth
+    // compressing.
     {
-      char* write_iter = g_textbuf;
-      write_iter = strcpya_k(write_iter, "#CHROM\tID\tPOS\tAFF\tUNAFF" EOLN_STR);
-      if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
-        goto HomozygReport_ret_WRITE_FAIL;
+      const uint32_t output_zst = (flags / kfHomozygZs) & 1;
+      OutnameZstSet(".hom.summary", output_zst, outname_end);
+      const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512;
+      reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+      if (unlikely(reterr)) {
+        goto HomozygReport_ret_1;
       }
+      *cswritep++ = '#';
+      if (col_chrom) {
+        cswritep = strcpya_k(cswritep, "CHROM\t");
+      }
+      if (col_pos) {
+        cswritep = strcpya_k(cswritep, "POS\t");
+      }
+      cswritep = strcpya_k(cswritep, "ID");
+      if (col_aff) {
+        cswritep = strcpya_k(cswritep, "\tAFF");
+      }
+      if (col_unaff) {
+        cswritep = strcpya_k(cswritep, "\tUNAFF");
+      }
+      AppendBinaryEoln(&cswritep);
     }
     {
       int32_t* aff_adj;
@@ -11514,27 +11634,37 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
         if (variant_uidx != next_variant_uidx) {
           continue;
         }
-        char* write_iter = g_textbuf;
-        write_iter = chrtoa(cip, GetVariantChr(cip, variant_uidx), write_iter);
-        *write_iter++ = '\t';
-        write_iter = strcpyax(write_iter, variant_ids[variant_uidx], '\t');
-        write_iter = u32toa_x(variant_bps[variant_uidx], '\t', write_iter);
-        write_iter = u32toa_x(S_CAST(uint32_t, aff_running), '\t', write_iter);
-        write_iter = u32toa(S_CAST(uint32_t, unaff_running), write_iter);
-        AppendBinaryEoln(&write_iter);
-        if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
+        if (col_chrom) {
+          cswritep = chrtoa(cip, GetVariantChr(cip, variant_uidx), cswritep);
+          *cswritep++ = '\t';
+        }
+        if (col_pos) {
+          cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+        }
+        cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+        if (col_aff) {
+          *cswritep++ = '\t';
+          cswritep = u32toa(S_CAST(uint32_t, aff_running), cswritep);
+        }
+        if (col_unaff) {
+          *cswritep++ = '\t';
+          cswritep = u32toa(S_CAST(uint32_t, unaff_running), cswritep);
+        }
+        AppendBinaryEoln(&cswritep);
+        if (unlikely(Cswrite(&css, &cswritep))) {
           goto HomozygReport_ret_WRITE_FAIL;
         }
         ++written_ct;
         next_variant_uidx = (written_ct == variant_ct)? UINT32_MAX : BitIter1(variant_include, &variant_uidx_base2, &cur_bits2);
       }
     }
-    if (unlikely(fclose_null(&outfile))) {
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto HomozygReport_ret_WRITE_FAIL;
     }
 
+    const char* summary_suffix = (flags & kfHomozygZs)? ".hom.summary.zst" : ".hom.summary";
     *outname_end = '\0';
-    logprintfww("--homozyg: %" PRIuPTR " run%s of homozygosity found; results written to %s.hom + %s.hom.indiv + %s.hom.summary .\n", roh_ct, (roh_ct == 1)? "" : "s", outname, outname, outname);
+    logprintfww("--homozyg: %" PRIuPTR " run%s of homozygosity found; results written to %s.hom + %s.hom.indiv + %s%s .\n", roh_ct, (roh_ct == 1)? "" : "s", outname, outname, outname, summary_suffix);
   }
   while (0) {
   HomozygReport_ret_NOMEM:
@@ -11552,6 +11682,7 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
   }
  HomozygReport_ret_1:
   CleanupThreads(&tg);
+  CswriteCloseCond(&css, cswritep);
   fclose_cond(outfile);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;

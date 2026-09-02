@@ -3065,7 +3065,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Homozyg) {
-        reterr = HomozygReport(sample_include, &pii.sii, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, &(pcp->homozyg_info), pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = HomozygReport(sample_include, &pii.sii, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_ct, &(pcp->homozyg_info), pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -7201,7 +7201,7 @@ int main(int argc, char** argv) {
 
       case 'h':
         if (strequal_k_unsafe(flagname_p2, "omozyg")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -7209,6 +7209,17 @@ int main(int argc, char** argv) {
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "subtract-1-from-lengths", cur_modif_slen)) {
               pc.homozyg_info.flags |= kfHomozygOldLengths;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.homozyg_info.flags |= kfHomozygZs;
+            } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
+              if (unlikely(pc.homozyg_info.flags & kfHomozygColAll)) {
+                logerrputs("Error: Multiple --homozyg cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0maybepheno\0pheno\0chrom\0pos\0kb\0nsnp\0density\0phom\0phet\0nseg\0kbtot\0kbavg\0aff\0unaff\0", "homozyg", kfHomozygColMaybefid, kfHomozygColDefault, 1, &pc.homozyg_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
             } else if (unlikely(strequal_k(cur_modif, "group", cur_modif_slen) ||
                                 strequal_k(cur_modif, "group-verbose", cur_modif_slen) ||
                                 strequal_k(cur_modif, "consensus-match", cur_modif_slen) ||
@@ -13212,6 +13223,11 @@ int main(int argc, char** argv) {
         }
       }
     } while ((++cur_flag_idx) < flag_ct);
+    // The --homozyg-* flags also turn the command on, so this can't live
+    // inside the --homozyg modifier loop.
+    if ((pc.command_flags1 & kfCommand1Homozyg) && (!(pc.homozyg_info.flags & kfHomozygColAll))) {
+      pc.homozyg_info.flags |= kfHomozygColDefault;
+    }
     if (!outname_end) {
       outname_end = &(outname[6]);
     } else if (!allow_misleading_out_arg) {
