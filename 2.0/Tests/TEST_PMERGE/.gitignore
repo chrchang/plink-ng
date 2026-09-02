@@ -7,3 +7,11 @@
 !mixed_a.vcf
 !mixed_b.vcf
 !expected_mixed.vcfbody
+!conflict_a.vcf
+!conflict_b.vcf
+!conflictm_a.vcf
+!conflictm_b.vcf
+!qfi_a.vcf
+!qfi_b.vcf
+!expected_qfi_first.pvarbody
+!expected_qfi_nmfirst.pvarbody
