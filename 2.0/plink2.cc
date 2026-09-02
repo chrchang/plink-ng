@@ -5891,6 +5891,25 @@ int main(int argc, char** argv) {
             logerrputs("Error: --export requires at least one output format.  (Did you forget 'ped' or\n'vcf'?)\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          // Reject an unimplemented format here rather than after the whole
+          // dataset has been loaded and filtered.
+          if (unlikely(pc.exportf_info.flags & (kfExportfTypemask - kfExportfImplemented))) {
+            for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+              if (!((format_param_idxs >> param_idx) & 1)) {
+                continue;
+              }
+              ExportfFlags cur_format = kfExportf0;
+              IdpasteFlags dummy_idpaste = kfIdpaste0;
+              uint64_t dummy_idxs = 0;
+              GetExportfTargets(&(argvk[arg_idx + param_idx - 1]), 1, &cur_format, &dummy_idpaste, &dummy_idxs);
+              if (cur_format & (kfExportfTypemask - kfExportfImplemented)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: \"--export %s\" is not implemented yet.\n", argvk[arg_idx + param_idx]);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            }
+            logerrputs("Error: Unimplemented --export format.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           // can't have e.g. bgen-1.1 and bgen-1.2 simultaneously, since they
           // have the same extension and different content.
           const uint64_t bgen_flags = S_CAST(uint64_t, pc.exportf_info.flags & (kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13));
