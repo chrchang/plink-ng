@@ -357,6 +357,131 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
   return reterr;
 }
 
+PglErr UpdateVarCms(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* variant_include, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, double* __restrict variant_cms) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    uintptr_t* already_seen;
+    if (unlikely(bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
+      goto UpdateVarCms_ret_NOMEM;
+    }
+    reterr = SizeAndInitTextStream(params->fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto UpdateVarCms_ret_TSTREAM_FAIL;
+    }
+    reterr = TextSkip(params->skip_ct, &txs);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetEof) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Fewer lines than expected in %s.\n", params->fname);
+        goto UpdateVarCms_ret_INCONSISTENT_INPUT_WW;
+      }
+      goto UpdateVarCms_ret_TSTREAM_FAIL;
+    }
+    line_idx = params->skip_ct;
+    const uint32_t colid_first = (params->colid < params->colx);
+    uint32_t colmin;
+    uint32_t coldiff;
+    if (colid_first) {
+      colmin = params->colid - 1;
+      coldiff = params->colx - params->colid;
+    } else {
+      colmin = params->colx - 1;
+      coldiff = params->colid - params->colx;
+    }
+    const char skipchar = params->skipchar;
+    uintptr_t miss_ct = 0;
+    uint32_t hit_ct = 0;
+    while (1) {
+      ++line_idx;
+      const char* line_start = TextGet(&txs);
+      if (!line_start) {
+        if (likely(!TextStreamErrcode2(&txs, &reterr))) {
+          break;
+        }
+        goto UpdateVarCms_ret_TSTREAM_FAIL;
+      }
+      char cc = *line_start;
+      if (cc == skipchar) {
+        continue;
+      }
+      const char* colid_ptr;
+      const char* colcm_ptr;
+      if (colid_first) {
+        colid_ptr = NextTokenMult0(line_start, colmin);
+        colcm_ptr = NextTokenMult(colid_ptr, coldiff);
+        if (unlikely(!colcm_ptr)) {
+          goto UpdateVarCms_ret_MISSING_TOKENS;
+        }
+      } else {
+        colcm_ptr = NextTokenMult0(line_start, colmin);
+        colid_ptr = NextTokenMult(colcm_ptr, coldiff);
+        if (unlikely(!colid_ptr)) {
+          goto UpdateVarCms_ret_MISSING_TOKENS;
+        }
+      }
+      const uint32_t varid_slen = strlen_se(colid_ptr);
+      uint32_t cur_llidx;
+      uint32_t variant_uidx = VariantIdDupHtableFind(colid_ptr, variant_ids, variant_id_htable, htable_dup_base, varid_slen, htable_size, max_variant_id_slen, &cur_llidx);
+      if (variant_uidx == UINT32_MAX) {
+        ++miss_ct;
+        continue;
+      }
+      const char* cur_var_id = variant_ids[variant_uidx];
+      if (unlikely(cur_llidx != UINT32_MAX)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --update-cm variant ID '%s' appears multiple times in dataset.\n", cur_var_id);
+        goto UpdateVarCms_ret_INCONSISTENT_INPUT_WW;
+      }
+      if (unlikely(IsSet(already_seen, variant_uidx))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --update-cm file.\n", cur_var_id);
+        goto UpdateVarCms_ret_INCONSISTENT_INPUT_WW;
+      }
+      SetBit(variant_uidx, already_seen);
+      if (!IsSet(variant_include, variant_uidx)) {
+        continue;
+      }
+      double cur_cm;
+      if (unlikely(!ScantokDouble(colcm_ptr, &cur_cm))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of --update-cm file.\n", line_idx);
+        goto UpdateVarCms_ret_MALFORMED_INPUT;
+      }
+      variant_cms[variant_uidx] = cur_cm;
+      ++hit_ct;
+    }
+    if (miss_ct) {
+      snprintf(g_logbuf, kLogbufSize, "--update-cm: %u value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    } else {
+      snprintf(g_logbuf, kLogbufSize, "--update-cm: %u value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+    }
+    logputsb();
+  }
+  while (0) {
+  UpdateVarCms_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  UpdateVarCms_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--update-cm file", &txs);
+    break;
+  UpdateVarCms_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-cm file has fewer tokens than expected.\n", line_idx);
+  UpdateVarCms_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  UpdateVarCms_ret_MALFORMED_INPUT:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+  CleanupTextStream2("--update-cm file", &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t htable_size, uint32_t max_thread_ct, char** variant_ids, uint32_t* max_variant_id_slen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;

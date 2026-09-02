@@ -2539,11 +2539,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                               --set-{missing|all}-var-ids, --recover-var-ids,\n"
 "                               and --import-overlong-var-ids (default '.').\n"
                );
-    HelpPrint("update-chr\0update-map\0update-name\0", &help_ctrl, 0,
+    HelpPrint("update-chr\0update-cm\0update-map\0update-name\0zero-cms\0", &help_ctrl, 0,
 "  --update-chr  <f> [chrcol] [IDcol]  [skip] : Update variant chromosome codes.\n"
 "                                               Now requires --sort-vars.\n"
+"  --update-cm   <f> [cmcol]  [IDcol]  [skip] : Update centimorgan positions.\n"
 "  --update-map  <f> [bpcol]  [IDcol]  [skip] : Update variant bp positions.\n"
 "  --update-name <f> [newcol] [oldcol] [skip] : Update variant IDs.\n"
+"  --zero-cms                                 : Zero out centimorgan positions.\n"
                );
     HelpPrint("rename-chrs\0update-chr\0", &help_ctrl, 0,
 "  --rename-chrs <fn> : Renames chromosomes/contigs, given a file with old names\n"
