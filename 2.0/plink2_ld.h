@@ -47,6 +47,8 @@ FLAGSET_DEF_START()
   kfClumpNoA1 = (1 << 6),
   kfClumpNoTest = (1 << 7),
   kfClumpRange0 = (1 << 8),
+  kfClumpIndexFirst = (1 << 25),
+  kfClumpReplicate = (1 << 26),
 
   kfClumpColChrom = (1 << 9),
   kfClumpColPos = (1 << 10),
