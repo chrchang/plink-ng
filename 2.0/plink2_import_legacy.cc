@@ -2416,8 +2416,8 @@ void InitTwentythree(TwentythreeInfo* tip) {
   tip->iid = nullptr;
   tip->paternal_id = nullptr;
   tip->maternal_id = nullptr;
-  tip->pheno = -9.0;
-  tip->sex_mode = 0;
+  tip->pheno = nullptr;
+  tip->sex_mode = kTwentythreeSexInfer;
 }
 
 void CleanupTwentythree(TwentythreeInfo* tip) {
@@ -2426,6 +2426,7 @@ void CleanupTwentythree(TwentythreeInfo* tip) {
   free_cond(tip->iid);
   free_cond(tip->paternal_id);
   free_cond(tip->maternal_id);
+  free_cond(tip->pheno);
 }
 
 // 23andMe files have one line per variant, with the sole sample's 1-2 allele
@@ -2455,8 +2456,8 @@ PglErr TwentythreeToPgen(const TwentythreeInfo* tip, ImportFlags import_flags, L
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     const uint32_t xy_code = cip->xymt_codes[kChrOffsetXY];
-    const uint32_t force_male = (tip->sex_mode == 1);
-    const uint32_t force_female = (tip->sex_mode == 2);
+    const uint32_t force_male = (tip->sex_mode == kTwentythreeSexMale);
+    const uint32_t force_female = (tip->sex_mode == kTwentythreeSexFemale);
     uint32_t is_male = force_male;
     uint32_t is_female = force_female;
 
@@ -2695,7 +2696,7 @@ PglErr TwentythreeToPgen(const TwentythreeInfo* tip, ImportFlags import_flags, L
       goto TwentythreeToPgen_ret_OPEN_FAIL;
     }
     char sex_char;
-    if (tip->sex_mode == 3) {
+    if (tip->sex_mode == kTwentythreeSexMissing) {
       sex_char = '0';
     } else if (is_male) {
       sex_char = '1';
@@ -2713,13 +2714,7 @@ PglErr TwentythreeToPgen(const TwentythreeInfo* tip, ImportFlags import_flags, L
     putc_unlocked('\t', psamfile);
     putc_unlocked(sex_char, psamfile);
     putc_unlocked('\t', psamfile);
-    if (tip->pheno == -9.0) {
-      fputs("NA", psamfile);
-    } else {
-      char pheno_str[kMaxDoubleGSlen + 1];
-      char* pheno_str_end = dtoa_g(tip->pheno, pheno_str);
-      fwrite(pheno_str, pheno_str_end - pheno_str, 1, psamfile);
-    }
+    fputs(tip->pheno? tip->pheno : "NA", psamfile);
     fputs(EOLN_STR, psamfile);
     if (unlikely(fclose_null(&psamfile))) {
       goto TwentythreeToPgen_ret_WRITE_FAIL;
@@ -2731,7 +2726,7 @@ PglErr TwentythreeToPgen(const TwentythreeInfo* tip, ImportFlags import_flags, L
     if (indel_ct) {
       logprintf("%u variant%s with indel calls present. '--snps-only just-acgt' may be useful\nhere.\n", indel_ct, (indel_ct == 1)? "" : "s");
     }
-    if (!tip->sex_mode) {
+    if (tip->sex_mode == kTwentythreeSexInfer) {
       logprintf("Inferred sex: %smale.\n", is_male? "" : "fe");
     }
     if (force_male && y_present && (!nonmissing_y_present)) {

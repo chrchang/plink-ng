@@ -31,6 +31,13 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
 
 // --23file.  Single-sample 23andMe text format: variant ID, chromosome,
 // position, and 1-2 allele calls per line.
+ENUM_U31_DEF_START()
+  kTwentythreeSexInfer,
+  kTwentythreeSexMale,
+  kTwentythreeSexFemale,
+  kTwentythreeSexMissing
+ENUM_U31_DEF_END(TwentythreeSexMode);
+
 typedef struct TwentythreeInfoStruct {
   NONCOPYABLE(TwentythreeInfoStruct);
   char* fname;
@@ -38,9 +45,11 @@ typedef struct TwentythreeInfoStruct {
   char* iid;
   char* paternal_id;
   char* maternal_id;
-  double pheno;
-  // 0 = infer from data, 1 = force male, 2 = force female, 3 = force missing
-  uint32_t sex_mode;
+  // Written to the .psam PHENO1 column as-is; nullptr means "not specified",
+  // which is also written as missing.  May be a categorical value, since the
+  // .psam format supports those.
+  char* pheno;
+  TwentythreeSexMode sex_mode;
 } TwentythreeInfo;
 
 void InitTwentythree(TwentythreeInfo* twenty_three_info_ptr);
