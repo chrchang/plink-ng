@@ -546,6 +546,8 @@ typedef struct Plink2CmdlineStruct {
   TwoColParams* ref_allele_flag;
   TwoColParams* alt_allele_flag;
   TwoColParams* update_chr_flag;
+  char* cm_map_fname;
+  char* cm_map_chrname;
   TwoColParams* update_cm_flag;
   TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
@@ -1429,12 +1431,18 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // the ID hash table; it's just positioned in this code block anyway
     // because it would be too weird for it to be in a different position than
     // --update-name in the order of operations.
-    if (pcp->update_cm_flag && (!variant_cms)) {
-      // Input had no CM column (or an all-zero one); --update-cm needs
-      // somewhere to write.  This must be allocated before the variant-ID
+    if ((pcp->update_cm_flag || pcp->cm_map_fname) && (!variant_cms)) {
+      // Input had no CM column (or an all-zero one); --update-cm and --cm-map
+      // need somewhere to write.  This must be allocated before the variant-ID
       // hash table's bigstack_mark, since that region can be reset below.
       if (unlikely(bigstack_calloc_d(raw_variant_ct, &variant_cms))) {
         goto Plink2Core_ret_NOMEM;
+      }
+    }
+    if (pcp->cm_map_fname) {
+      reterr = ApplyCmMap(pcp->cm_map_fname, pcp->cm_map_chrname, variant_include, cip, variant_bps, raw_variant_ct, pcp->max_thread_ct, variant_cms);
+      if (unlikely(reterr)) {
+        goto Plink2Core_ret_1;
       }
     }
     const uint32_t htable_needed_early = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct);
@@ -3713,6 +3721,8 @@ int main(int argc, char** argv) {
   pc.ref_allele_flag = nullptr;
   pc.alt_allele_flag = nullptr;
   pc.update_chr_flag = nullptr;
+  pc.cm_map_fname = nullptr;
+  pc.cm_map_chrname = nullptr;
   pc.update_cm_flag = nullptr;
   pc.update_map_flag = nullptr;
   pc.update_name_flag = nullptr;
@@ -4814,6 +4824,21 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "m-map")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          // The first parameter may be a '@' pattern rather than a real
+          // filename, so its existence is checked per-chromosome instead.
+          if (unlikely(AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, 1, kPglFnamesize - 1, &pc.cm_map_fname))) {
+            goto main_ret_NOMEM;
+          }
+          if (param_ct == 2) {
+            if (unlikely(AllocAndFlatten(&(argvk[arg_idx + 2]), flagname_p, 1, kMaxIdSlen, &pc.cm_map_chrname))) {
+              goto main_ret_NOMEM;
+            }
+          }
+          pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "onst-fid")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -13584,6 +13609,8 @@ int main(int argc, char** argv) {
   free_cond(pc.update_sample_ids_fname);
   free_cond(pc.update_name_flag);
   free_cond(pc.update_map_flag);
+  free_cond(pc.cm_map_chrname);
+  free_cond(pc.cm_map_fname);
   free_cond(pc.update_cm_flag);
   free_cond(pc.update_chr_flag);
   free_cond(pc.alt_allele_flag);

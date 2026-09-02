@@ -2539,6 +2539,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                               --set-{missing|all}-var-ids, --recover-var-ids,\n"
 "                               and --import-overlong-var-ids (default '.').\n"
                );
+    HelpPrint("cm-map\0update-cm\0zero-cms\0", &help_ctrl, 0,
+"  --cm-map <fname pattern> [chr] : Use SHAPEIT-format recombination maps to set\n"
+"                                   centimorgan positions.  To process more than\n"
+"                                   one chromosome, either include a '@' in the\n"
+"                                   first parameter where the chromosome code\n"
+"                                   belongs, e.g.\n"
+"                                   'genetic_map_chr@_combined_b37.txt', or use\n"
+"                                   an Eagle-style map with a leading chromosome\n"
+"                                   column.\n"
+               );
     HelpPrint("update-chr\0update-cm\0update-map\0update-name\0zero-cms\0", &help_ctrl, 0,
 "  --update-chr  <f> [chrcol] [IDcol]  [skip] : Update variant chromosome codes.\n"
 "                                               Now requires --sort-vars.\n"

@@ -357,6 +357,270 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
   return reterr;
 }
 
+// --cm-map: set centimorgan positions by linear interpolation within a
+// SHAPEIT-format recombination map.  The map's columns are bp position, the
+// cM/Mb rate since the previous position, and the cumulative cM position;
+// only the first and third are used, except on the first data line, where the
+// rate is what pins down the cM position at bp 0.  Eagle-style maps with a
+// leading chromosome column are also accepted, in which case one file covers
+// every chromosome.
+PglErr ApplyCmMap(const char* cm_map_fname, const char* cm_map_chrname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, uint32_t raw_variant_ct, uint32_t max_thread_ct, double* variant_cms) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  const char* cur_fname = cm_map_fname;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    const char* at_sign_ptr = strchr(cm_map_fname, '@');
+    if (unlikely(at_sign_ptr && cm_map_chrname)) {
+      logerrputs("Error: --cm-map cannot be given both a '@' filename pattern and a chromosome\ncode.\n");
+      goto ApplyCmMap_ret_INVALID_CMDLINE;
+    }
+    char* fname_buf = nullptr;
+    uint32_t fname_prefix_slen = 0;
+    const char* fname_suffix = nullptr;
+    if (at_sign_ptr) {
+      const uint32_t fname_slen = strlen(cm_map_fname);
+      if (unlikely(bigstack_alloc_c(fname_slen + kMaxIdSlen, &fname_buf))) {
+        goto ApplyCmMap_ret_NOMEM;
+      }
+      fname_prefix_slen = at_sign_ptr - cm_map_fname;
+      memcpy(fname_buf, cm_map_fname, fname_prefix_slen);
+      fname_suffix = &(at_sign_ptr[1]);
+    }
+    // Chromosomes to try, and the code each one is named by in the map file.
+    const uint32_t chr_ct = cip->chr_ct;
+    uint32_t updated_chrom_ct = 0;
+    uint32_t explicit_chr_fo_idx = UINT32_MAX;
+    if (cm_map_chrname) {
+      const uint32_t chr_name_slen = strlen(cm_map_chrname);
+      const uint32_t chr_idx = GetChrCode(cm_map_chrname, cip, chr_name_slen);
+      if (unlikely(IsI32Neg(chr_idx) || (!IsSet(cip->chr_mask, chr_idx)))) {
+        logerrprintfww("Error: --cm-map chromosome code '%s' not found in dataset.\n", cm_map_chrname);
+        goto ApplyCmMap_ret_INCONSISTENT_INPUT;
+      }
+      explicit_chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
+    }
+    // A single 4-column file covers every chromosome, so it is read once; the
+    // 3-column form is read once per chromosome.
+    uint32_t is_4col = 0;
+    uint32_t file_ct = chr_ct;
+    if (cm_map_chrname) {
+      file_ct = 1;
+    }
+    for (uint32_t file_idx = 0; file_idx != file_ct; ++file_idx) {
+      uint32_t chr_fo_idx = file_idx;
+      if (cm_map_chrname) {
+        chr_fo_idx = explicit_chr_fo_idx;
+      }
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if (!IsSet(cip->chr_mask, chr_idx)) {
+        continue;
+      }
+      if (at_sign_ptr) {
+        char* fname_iter = chrtoa(cip, chr_idx, &(fname_buf[fname_prefix_slen]));
+        strcpy(fname_iter, fname_suffix);
+        cur_fname = fname_buf;
+      } else {
+        cur_fname = cm_map_fname;
+      }
+      reterr = SizeAndInitTextStream(cur_fname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
+      if (reterr) {
+        if (at_sign_ptr && ((reterr == kPglRetOpenFail) || (reterr == kPglRetReadFail))) {
+          logerrprintfww("Warning: --cm-map failed to open %s.\n", cur_fname);
+          reterr = kPglRetSuccess;
+          CleanupTextStream2(cur_fname, &txs, &reterr);
+          reterr = kPglRetSuccess;
+          continue;
+        }
+        goto ApplyCmMap_ret_TSTREAM_FAIL;
+      }
+      ++updated_chrom_ct;
+      // The header line tells us how many columns the file has.
+      line_idx = 1;
+      const char* line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", cur_fname);
+        goto ApplyCmMap_ret_MALFORMED_INPUT_WW;
+      }
+      {
+        const char* token_iter = NextTokenMult(line_start, 3);
+        is_4col = (token_iter != nullptr) && (!IsEolnKns(*token_iter));
+        if (is_4col) {
+          if (unlikely(NextToken(token_iter))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Line 1 of %s has more tokens than expected.\n", cur_fname);
+            goto ApplyCmMap_ret_MALFORMED_INPUT_WW;
+          }
+          if (unlikely(cm_map_chrname || at_sign_ptr)) {
+            logerrputs("Error: --cm-map file has a chromosome column, so neither a '@' filename\npattern nor an explicit chromosome code can be used with it.\n");
+            goto ApplyCmMap_ret_INVALID_CMDLINE;
+          }
+          file_ct = 1;
+        } else if (unlikely((!cm_map_chrname) && (!at_sign_ptr))) {
+          logerrputs("Error: --cm-map file is in the original 3-column format (with no chromosome\ncolumn), and no chromosome code was specified on the command line.\n");
+          goto ApplyCmMap_ret_INVALID_CMDLINE;
+        }
+      }
+
+      uintptr_t irreg_line_ct = 0;
+      uint32_t cur_chr_fo_idx = chr_fo_idx;
+      uint32_t variant_uidx = UINT32_MAX;
+      uint32_t chr_vidx_end = 0;
+      int64_t bp_old = -1;
+      double cm_old = 0.0;
+      uint32_t chr_active = 0;
+      uintptr_t* seen_chrs = nullptr;
+      if (is_4col) {
+        if (unlikely(bigstack_calloc_w(BitCtToWordCt(cip->max_code + 1 + cip->name_ct), &seen_chrs))) {
+          goto ApplyCmMap_ret_NOMEM;
+        }
+      } else {
+        const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+        chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        variant_uidx = AdvBoundedTo1Bit(variant_include, chr_vidx_start, chr_vidx_end);
+        chr_active = (variant_uidx < chr_vidx_end);
+      }
+      while (1) {
+        ++line_idx;
+        line_start = TextGet(&txs);
+        if (!line_start) {
+          break;
+        }
+        const char* bp_token = line_start;
+        if (is_4col) {
+          const char* chr_token_end = CurTokenEnd(line_start);
+          const uint32_t chr_name_slen = chr_token_end - line_start;
+          const uint32_t cur_chr_idx = GetChrCodeCounted(cip, chr_name_slen, K_CAST(char*, line_start));
+          if (IsI32Neg(cur_chr_idx)) {
+            ++irreg_line_ct;
+            chr_active = 0;
+            bp_old = -1;
+            continue;
+          }
+          if ((!chr_active) || (cip->chr_file_order[cur_chr_fo_idx] != cur_chr_idx)) {
+            // Finish the previous chromosome before switching.
+            if (chr_active) {
+              for (; variant_uidx < chr_vidx_end; variant_uidx = AdvBoundedTo1Bit(variant_include, variant_uidx + 1, chr_vidx_end)) {
+                variant_cms[variant_uidx] = cm_old;
+              }
+            }
+            bp_old = -1;
+            chr_active = 0;
+            if (unlikely(IsSet(seen_chrs, cur_chr_idx))) {
+              char* write_iter = strcpya_k(g_logbuf, "Error: Chromosome '");
+              write_iter = chrtoa(cip, cur_chr_idx, write_iter);
+              strcpy_k(write_iter, "' is split in the --cm-map file.\n");
+              goto ApplyCmMap_ret_MALFORMED_INPUT_WW;
+            }
+            SetBit(cur_chr_idx, seen_chrs);
+            if (IsSet(cip->chr_mask, cur_chr_idx)) {
+              cur_chr_fo_idx = cip->chr_idx_to_foidx[cur_chr_idx];
+              const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[cur_chr_fo_idx];
+              chr_vidx_end = cip->chr_fo_vidx_start[cur_chr_fo_idx + 1];
+              if (chr_vidx_start != chr_vidx_end) {
+                variant_uidx = AdvBoundedTo1Bit(variant_include, chr_vidx_start, chr_vidx_end);
+                chr_active = (variant_uidx < chr_vidx_end);
+              }
+            }
+          }
+          bp_token = FirstNonTspace(chr_token_end);
+        }
+        if (IsEolnKns(*bp_token)) {
+          ++irreg_line_ct;
+          continue;
+        }
+        if (!chr_active) {
+          continue;
+        }
+        uint32_t bp_new_u;
+        if (unlikely(ScanUintDefcap(bp_token, &bp_new_u))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, cur_fname);
+          goto ApplyCmMap_ret_MALFORMED_INPUT_WW;
+        }
+        const int64_t bp_new = bp_new_u;
+        if (unlikely(bp_new <= bp_old)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: bp coordinates in the --cm-map file are not in increasing order ('%u' on line %" PRIuPTR " is not larger than the previous value).\n", bp_new_u, line_idx);
+          goto ApplyCmMap_ret_MALFORMED_INPUT_WW;
+        }
+        const char* rate_token = FirstNonTspace(CurTokenEnd(bp_token));
+        const char* cm_token = FirstNonTspace(CurTokenEnd(rate_token));
+        if (unlikely(IsEolnKns(*cm_token))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, cur_fname);
+          goto ApplyCmMap_ret_MALFORMED_INPUT_WW;
+        }
+        double cm_new;
+        if (unlikely(!ScanadvDouble(cm_token, &cm_new))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, cur_fname);
+          goto ApplyCmMap_ret_MALFORMED_INPUT_WW;
+        }
+        if (bp_old == -1) {
+          // The rate column is only needed here, where it pins down the cM
+          // position just before the map's first entry.
+          double rate;
+          if (unlikely(!ScanadvDouble(rate_token, &rate))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid recombination rate on line %" PRIuPTR " of %s.\n", line_idx, cur_fname);
+            goto ApplyCmMap_ret_MALFORMED_INPUT_WW;
+          }
+          cm_old = cm_new - rate * 0.000001 * u31tod(bp_new_u + 1);
+        }
+        const double slope = (cm_new - cm_old) / S_CAST(double, bp_new - bp_old);
+        while ((variant_uidx < chr_vidx_end) && (variant_bps[variant_uidx] <= bp_new_u)) {
+          variant_cms[variant_uidx] = cm_new - S_CAST(double, bp_new_u - variant_bps[variant_uidx]) * slope;
+          variant_uidx = AdvBoundedTo1Bit(variant_include, variant_uidx + 1, chr_vidx_end);
+        }
+        bp_old = bp_new;
+        cm_old = cm_new;
+      }
+      if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+        goto ApplyCmMap_ret_TSTREAM_FAIL;
+      }
+      // Variants past the last map entry inherit its cM position.
+      if (chr_active) {
+        while (variant_uidx < chr_vidx_end) {
+          variant_cms[variant_uidx] = cm_old;
+          variant_uidx = AdvBoundedTo1Bit(variant_include, variant_uidx + 1, chr_vidx_end);
+        }
+      }
+      if (irreg_line_ct) {
+        logerrprintfww("Warning: %" PRIuPTR " irregular line%s skipped in %s.\n", irreg_line_ct, (irreg_line_ct == 1)? "" : "s", cur_fname);
+      }
+      if (unlikely(CleanupTextStream2(cur_fname, &txs, &reterr))) {
+        goto ApplyCmMap_ret_1;
+      }
+      if (is_4col) {
+        updated_chrom_ct = PopcountWords(seen_chrs, BitCtToWordCt(cip->max_code + 1 + cip->name_ct));
+        break;
+      }
+    }
+    logprintf("--cm-map: %u chromosome%s updated.\n", updated_chrom_ct, (updated_chrom_ct == 1)? "" : "s");
+  }
+  while (0) {
+  ApplyCmMap_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ApplyCmMap_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(cur_fname, &txs);
+    break;
+  ApplyCmMap_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  ApplyCmMap_ret_INVALID_CMDLINE:
+    reterr = kPglRetInvalidCmdline;
+    break;
+  ApplyCmMap_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ ApplyCmMap_ret_1:
+  CleanupTextStream2(cur_fname, &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  (void)raw_variant_ct;
+  return reterr;
+}
+
 PglErr UpdateVarCms(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* variant_include, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, double* __restrict variant_cms) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
