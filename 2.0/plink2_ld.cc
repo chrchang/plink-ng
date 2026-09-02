@@ -68,6 +68,7 @@ void InitClump(ClumpInfo* clump_ip) {
   clump_ip->a1_field = nullptr;
   clump_ip->test_field = nullptr;
   clump_ip->p_field = nullptr;
+  clump_ip->annotate_flattened = nullptr;
   clump_ip->ln_bin_boundaries = nullptr;
   clump_ip->ln_p1 = kLn10 * -4.0 * (1.0 - kSmallEpsilon);
   clump_ip->ln_p2 = kLn10 * -2.0 * (1.0 - kSmallEpsilon);
@@ -86,6 +87,7 @@ void CleanupClump(ClumpInfo* clump_ip) {
   free_cond(clump_ip->a1_field);
   free_cond(clump_ip->test_field);
   free_cond(clump_ip->p_field);
+  free_cond(clump_ip->annotate_flattened);
   free_cond(clump_ip->ln_bin_boundaries);
 }
 
@@ -7049,6 +7051,70 @@ void FillR2V(const unsigned char* src_iter, uint32_t sample_ct, R2PhaseType phas
   }
 }
 
+// Unpacks one (variant, allele) into the R2Variant-ready form ClumpHighmemR2()
+// and the --clump-verbose/--clump-best second pass both consume.  Factored out
+// of ClumpHighmemUnpack() so the reporting pass can reuse the exact same
+// representation, and therefore get exactly the r^2 the clumping decision used.
+PglErr ClumpUnpackOne(const uintptr_t* founder_info, PgrSampleSubsetIndex pssi, const uintptr_t* allele_idx_offsets, const uintptr_t* variant_last_alidxs, const uint32_t* variant_last_alidxs_cumulative_popcounts, const uintptr_t* founder_male_collapsed, const Dosage* male_dosage_invmask, const uintptr_t* founder_female_collapsed, const uintptr_t* founder_female_collapsed_interleaved, uintptr_t allele_idx, uint32_t founder_ct, uint32_t founder_male_ct, R2PhaseType phase_type, uint32_t load_dosage, uint32_t is_y, uintptr_t* raregeno, uint32_t* difflist_sample_ids, PgenVariant* pgvp, PgenReader* pgrp, unsigned char* write_iter, uintptr_t* variant_uidx_ptr) {
+  const uint32_t founder_ctv2 = NypCtToVecCt(founder_ct);
+  const uint32_t max_difflist_len = founder_ct / 64;
+  uintptr_t variant_uidx;
+  AlleleCode aidx;
+  if (!allele_idx_offsets) {
+    variant_uidx = allele_idx / 2;
+    aidx = allele_idx % 2;
+  } else {
+    variant_uidx = RawToSubsettedPos(variant_last_alidxs, variant_last_alidxs_cumulative_popcounts, allele_idx);
+    aidx = allele_idx - allele_idx_offsets[variant_uidx];
+  }
+  *variant_uidx_ptr = variant_uidx;
+  PglErr reterr = kPglRetSuccess;
+  if (load_dosage) {
+    if (phase_type == kR2PhaseTypePresent) {
+      reterr = PgrGetInv1Dp(founder_info, pssi, founder_ct, variant_uidx, aidx, pgrp, pgvp);
+    } else {
+      reterr = PgrGetInv1D(founder_info, pssi, founder_ct, variant_uidx, aidx, pgrp, pgvp->genovec, pgvp->dosage_present, pgvp->dosage_main, &pgvp->dosage_ct);
+    }
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    if (is_y) {
+      InterleavedSetMissingCleardosage(founder_female_collapsed, founder_female_collapsed_interleaved, founder_ctv2, pgvp->genovec, &pgvp->dosage_ct, pgvp->dosage_present, pgvp->dosage_main);
+    }
+    LdUnpackDosage(pgvp, founder_male_collapsed, male_dosage_invmask, founder_ct, phase_type, write_iter);
+    return kPglRetSuccess;
+  }
+  if ((phase_type == kR2PhaseTypeUnphased) && (!is_y)) {
+    uint32_t difflist_common_geno;
+    uint32_t difflist_len;
+    reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_difflist_len, variant_uidx, aidx, pgrp, pgvp->genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    if (difflist_common_geno != UINT32_MAX) {
+      if (difflist_len <= max_difflist_len) {
+        LdUnpackNondosageSparse(raregeno, difflist_sample_ids, founder_male_collapsed, founder_ct, founder_male_ct, difflist_common_geno, difflist_len, write_iter);
+        return kPglRetSuccess;
+      }
+      PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, founder_ct, difflist_len, pgvp->genovec);
+    }
+  } else {
+    if (phase_type == kR2PhaseTypePresent) {
+      reterr = PgrGetInv1P(founder_info, pssi, founder_ct, variant_uidx, aidx, pgrp, pgvp->genovec, pgvp->phasepresent, pgvp->phaseinfo, &pgvp->phasepresent_ct);
+    } else {
+      reterr = PgrGetInv1(founder_info, pssi, founder_ct, variant_uidx, aidx, pgrp, pgvp->genovec);
+    }
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    if (is_y) {
+      InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgvp->genovec);
+    }
+  }
+  LdUnpackNondosageDense(pgvp, founder_male_collapsed, founder_ct, phase_type, write_iter);
+  return kPglRetSuccess;
+}
+
 void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
   // Unpack (variant, aidx)s to unpacked_variants.
   const uintptr_t oaidx_end = ctx->a[parity].oaidx_starts[tidx + 1];
@@ -7080,14 +7146,12 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
   const uintptr_t* founder_female_collapsed = ctx->founder_female_collapsed;
   const uintptr_t* founder_female_collapsed_interleaved = ctx->founder_female_collapsed_interleaved;
   const uint32_t founder_ct = ctx->founder_ct;
-  const uint32_t founder_ctv2 = NypCtToVecCt(founder_ct);
   const uint32_t is_y = ctx->is_y;
   PgrSampleSubsetIndex pssi;
   PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, pgrp, &pssi);
   const R2PhaseType phase_type = S_CAST(R2PhaseType, ctx->phase_type);
   const uint32_t load_dosage = ctx->load_dosage;
   const uintptr_t allele_idx_start = IdxToUidxW(observed_alleles, observed_alleles_cumulative_popcounts_w, ctx->allele_widx_start, ctx->allele_widx_end, oaidx);
-  const uint32_t max_difflist_len = founder_ct / 64;
   uintptr_t* raregeno = nullptr;
   uint32_t* difflist_sample_ids = nullptr;
   if (phase_type == kR2PhaseTypeUnphased) {
@@ -7097,60 +7161,13 @@ void ClumpHighmemUnpack(uintptr_t tidx, uint32_t parity, ClumpCtx* ctx) {
   uintptr_t allele_idx_base;
   uintptr_t cur_bits;
   BitIter1Start(observed_alleles, allele_idx_start, &allele_idx_base, &cur_bits);
-  uintptr_t variant_uidx;
-  PglErr reterr;
+  uintptr_t variant_uidx = 0;
+  PglErr reterr = kPglRetSuccess;
   for (; oaidx != oaidx_end; ++oaidx, write_iter = &(write_iter[unpacked_byte_stride])) {
     const uintptr_t allele_idx = BitIter1(observed_alleles, &allele_idx_base, &cur_bits);
-    AlleleCode aidx;
-    if (!allele_idx_offsets) {
-      variant_uidx = allele_idx / 2;
-      aidx = allele_idx % 2;
-    } else {
-      variant_uidx = RawToSubsettedPos(variant_last_alidxs, variant_last_alidxs_cumulative_popcounts, allele_idx);
-      aidx = allele_idx - allele_idx_offsets[variant_uidx];
-    }
-    if (load_dosage) {
-      if (phase_type == kR2PhaseTypePresent) {
-        reterr = PgrGetInv1Dp(founder_info, pssi, founder_ct, variant_uidx, aidx, pgrp, &pgv);
-      } else {
-        reterr = PgrGetInv1D(founder_info, pssi, founder_ct, variant_uidx, aidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
-      }
-      if (unlikely(reterr)) {
-        goto ClumpHighmemUnpack_err;
-      }
-      if (is_y) {
-        InterleavedSetMissingCleardosage(founder_female_collapsed, founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec, &pgv.dosage_ct, pgv.dosage_present, pgv.dosage_main);
-      }
-      LdUnpackDosage(&pgv, founder_male_collapsed, male_dosage_invmask, founder_ct, phase_type, write_iter);
-    } else {
-      if ((phase_type == kR2PhaseTypeUnphased) && (!is_y)) {
-        uint32_t difflist_common_geno;
-        uint32_t difflist_len;
-        reterr = PgrGetInv1DifflistOrGenovec(founder_info, pssi, founder_ct, max_difflist_len, variant_uidx, aidx, pgrp, pgv.genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
-        if (unlikely(reterr)) {
-          goto ClumpHighmemUnpack_err;
-        }
-        if (difflist_common_geno != UINT32_MAX) {
-          if (difflist_len <= max_difflist_len) {
-            LdUnpackNondosageSparse(raregeno, difflist_sample_ids, founder_male_collapsed, founder_ct, founder_male_ct, difflist_common_geno, difflist_len, write_iter);
-            continue;
-          }
-          PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, founder_ct, difflist_len, pgv.genovec);
-        }
-      } else {
-        if (phase_type == kR2PhaseTypePresent) {
-          reterr = PgrGetInv1P(founder_info, pssi, founder_ct, variant_uidx, aidx, pgrp, pgv.genovec, pgv.phasepresent, pgv.phaseinfo, &pgv.phasepresent_ct);
-        } else {
-          reterr = PgrGetInv1(founder_info, pssi, founder_ct, variant_uidx, aidx, pgrp, pgv.genovec);
-        }
-        if (unlikely(reterr)) {
-          goto ClumpHighmemUnpack_err;
-        }
-        if (is_y) {
-          InterleavedSetMissing(founder_female_collapsed_interleaved, founder_ctv2, pgv.genovec);
-        }
-      }
-      LdUnpackNondosageDense(&pgv, founder_male_collapsed, founder_ct, phase_type, write_iter);
+    reterr = ClumpUnpackOne(founder_info, pssi, allele_idx_offsets, variant_last_alidxs, variant_last_alidxs_cumulative_popcounts, founder_male_collapsed, male_dosage_invmask, founder_female_collapsed, founder_female_collapsed_interleaved, allele_idx, founder_ct, founder_male_ct, phase_type, load_dosage, is_y, raregeno, difflist_sample_ids, &pgv, pgrp, write_iter, &variant_uidx);
+    if (unlikely(reterr)) {
+      goto ClumpHighmemUnpack_err;
     }
   }
   return;
@@ -8381,6 +8398,37 @@ static const double kClumpDefaultLnBinBounds[4] = {
 };
 
 static_assert(kClumpMaxBinBounds * (kMaxLnGSlen + 1) + 256 <= kMaxLongLine, "ClumpReports() needs to be updated.");
+// "<index A1><member A1>/<index A2><member A2>", flipped when the two
+// counted alleles are negatively correlated.  Both halves are stated relative
+// to the index variant's reported A1.
+char* ClumpAllelePair(const char* index_a1, const char* index_a2, const char* member_a1, const char* member_a2, uint32_t is_neg, char* cswritep) {
+  cswritep = strcpya(cswritep, index_a1);
+  cswritep = strcpya(cswritep, is_neg? member_a2 : member_a1);
+  *cswritep++ = '/';
+  cswritep = strcpya(cswritep, index_a2);
+  cswritep = strcpya(cswritep, is_neg? member_a1 : member_a2);
+  return cswritep;
+}
+
+// Shared header for the --clump-verbose and --clump-best reports.
+char* ClumpDetailHeader(const char* annotate_flattened, uint32_t annot_ct, uint32_t output_log10, char* cswritep) {
+  cswritep = strcpya_k(cswritep, "#INDEX_ID\tID\tKB\tRSQ\tALLELES\tF\t");
+  if (output_log10) {
+    cswritep = strcpya_k(cswritep, "NEG_LOG10_");
+  }
+  *cswritep++ = 'P';
+  // Walks the flag's own string: the scratch copy made during header search
+  // does not survive the arena rewind that precedes this report.
+  const char* name_iter = annotate_flattened;
+  for (uint32_t annot_idx = 0; annot_idx != annot_ct; ++annot_idx) {
+    *cswritep++ = '\t';
+    cswritep = strcpya(cswritep, name_iter);
+    name_iter = strnul(name_iter) + 1;
+  }
+  AppendBinaryEoln(&cswritep);
+  return cswritep;
+}
+
 PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const ClumpInfo* clump_ip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t nosex_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -8388,13 +8436,19 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
   uintptr_t line_idx = 0;
   FILE* clump_overlap_tmp = nullptr;
   char* cswritep = nullptr;
+  char* verbose_cswritep = nullptr;
+  char* best_cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
   ClumpCtx ctx;
   TextStream txs;
   CompressStreamState css;
+  CompressStreamState verbose_css;
+  CompressStreamState best_css;
   ThreadGroup tg;
   PreinitTextStream(&txs);
   PreinitCstream(&css);
+  PreinitCstream(&verbose_css);
+  PreinitCstream(&best_css);
   PreinitThreads(&tg);
   {
     if (unlikely(founder_ct < 2)) {
@@ -8479,19 +8533,27 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     const uint32_t bounds_col = (flags & kfClumpColBounds) || ((flags & kfClumpColMaybeBounds) && ranges_col);
     const double ln_p1 = clump_ip->ln_p1;
     const uint32_t replicate = (flags / kfClumpReplicate) & 1;
-    const double ln_p2 = (sp2_col || bounds_col || ranges_col || replicate)? clump_ip->ln_p2 : -DBL_MAX;
+    const uint32_t report_verbose = (flags / kfClumpVerbose) & 1;
+    const uint32_t report_best = (flags / kfClumpBest) & 1;
+    // --clump-verbose and --clump-best both report one row per below-p2 clump
+    // member, so they need the same per-entry records the SP2 column needs.
+    const uint32_t report_details = report_verbose || report_best;
+    const double ln_p2 = (sp2_col || bounds_col || ranges_col || replicate || report_details)? clump_ip->ln_p2 : -DBL_MAX;
     double load_ln_pthresh = MAXV(ln_p1, ln_p2);
     if (bin_bound_ct && (load_ln_pthresh < ln_bin_boundaries[bin_bound_ct - 1])) {
       load_ln_pthresh = ln_bin_boundaries[bin_bound_ct - 1];
     }
     ClumpEntry** clump_entries = nullptr;
+    unsigned char** clump_detail_ptrs = nullptr;
+    uintptr_t detail_byte_tot = 0;
     uintptr_t* nonsig_arr = nullptr;
     uint32_t allow_overlap = (flags / kfClumpAllowOverlap) & 1;
-    if ((flags & (kfClumpColTotal | kfClumpColBins | kfClumpColSp2)) || bounds_col || range_fname || replicate) {
+    if ((flags & (kfClumpColTotal | kfClumpColBins | kfClumpColSp2)) || bounds_col || range_fname || replicate || report_details) {
       if (unlikely(BIGSTACK_ALLOC_X(ClumpEntry*, raw_allele_ct + 1, &clump_entries))) {
         goto ClumpReports_ret_NOMEM;
       }
       ZeroPtrArr(raw_allele_ct, clump_entries);
+
       const uint32_t nonsig_needed = ((flags & (kfClumpColTotal | kfClumpColBins)) != 0) && (load_ln_pthresh < 0.0);
       if (nonsig_needed) {
         if (unlikely(bigstack_calloc_w(raw_allele_ct, &nonsig_arr))) {
@@ -8512,14 +8574,65 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
 
     const uint32_t search_a1 = force_a1 || (allele_idx_offsets && (!(flags & kfClumpNoA1)));
     const uint32_t search_test = !(flags & kfClumpNoTest);
-    const char* col_search_order[4];
+    // --clump-annotate appends one search entry per requested field, so the
+    // header search and the per-line lexer both run over 4 + annot_ct columns.
+    uint32_t annot_ct = 0;
+    if (clump_ip->annotate_flattened) {
+      for (const char* iter = clump_ip->annotate_flattened; *iter; iter = strnul(iter) + 1) {
+        ++annot_ct;
+      }
+      if (unlikely(annot_ct > 28)) {
+        logerrputs("Error: --clump-annotate supports at most 28 fields.\n");
+        goto ClumpReports_ret_INCONSISTENT_INPUT;
+      }
+    }
+    const uint32_t search_col_ct = 4 + annot_ct;
+    const char** col_search_order;
+    uint32_t* col_skips;
+    uint32_t* col_types;
+    const char** token_ptrs;
+    uint32_t* token_slens;
+    const char** annot_names;
+    if (unlikely(bigstack_alloc_kcp(search_col_ct, &col_search_order) ||
+                 bigstack_alloc_u32(search_col_ct, &col_skips) ||
+                 bigstack_alloc_u32(search_col_ct, &col_types) ||
+                 bigstack_alloc_kcp(search_col_ct, &token_ptrs) ||
+                 bigstack_alloc_u32(search_col_ct, &token_slens) ||
+                 bigstack_alloc_kcp(annot_ct + 1, &annot_names))) {
+      goto ClumpReports_ret_NOMEM;
+    }
+    {
+      const char* iter = clump_ip->annotate_flattened;
+      for (uint32_t annot_idx = 0; annot_idx != annot_ct; ++annot_idx) {
+        annot_names[annot_idx] = iter;
+        iter = strnul(iter) + 1;
+      }
+    }
+    // SearchHeaderLine wants each entry to be its own null-terminated
+    // multistring, so the flattened names cannot be handed over directly.
+    char* annot_search_buf = nullptr;
+    if (annot_ct) {
+      uintptr_t tot_blen = 0;
+      for (uint32_t annot_idx = 0; annot_idx != annot_ct; ++annot_idx) {
+        tot_blen += strlen(annot_names[annot_idx]) + 2;
+      }
+      if (unlikely(bigstack_alloc_c(tot_blen, &annot_search_buf))) {
+        goto ClumpReports_ret_NOMEM;
+      }
+      char* write_iter = annot_search_buf;
+      for (uint32_t annot_idx = 0; annot_idx != annot_ct; ++annot_idx) {
+        col_search_order[4 + annot_idx] = write_iter;
+        write_iter = strcpyax(write_iter, annot_names[annot_idx], '\0');
+        *write_iter++ = '\0';
+      }
+    }
     col_search_order[0] = clump_ip->id_field? clump_ip->id_field : "ID\0SNP\0";
     col_search_order[1] = search_a1? (clump_ip->a1_field? clump_ip->a1_field : "A1\0") : "";
     col_search_order[2] = search_test? (clump_ip->test_field? clump_ip->test_field : "TEST\0") : "";
     const uint32_t input_log10 = flags & kfClumpInputLog10;
     col_search_order[3] = clump_ip->p_field? clump_ip->p_field : (input_log10? "LOG10_P\0NEG_LOG10_P\0P\0" : "P\0");
     const char* test_name_flattened = clump_ip->test_name? clump_ip->test_name : "ADD\0";
-    const uint32_t save_all_fidxs = (((file_ct > 1) || force_a1) && sp2_col) || replicate;
+    const uint32_t save_all_fidxs = (((file_ct > 1) || force_a1) && sp2_col) || replicate || report_details;
 
     LlStr* missing_variant_ids = nullptr;
     LlStr* missing_variant_allele_pairs = nullptr;
@@ -8576,11 +8689,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       // [1] = A1
       // [2] = TEST
       // [3] = P
-      uint32_t col_skips[4];
-      uint32_t col_types[4];
       uint32_t relevant_col_ct;
       uint32_t found_type_bitset;
-      reterr = SearchHeaderLine(header_start, col_search_order, "--clump", 4, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+      reterr = SearchHeaderLine(header_start, col_search_order, "--clump", search_col_ct, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
       if (unlikely(reterr)) {
         goto ClumpReports_ret_1;
       }
@@ -8602,8 +8713,6 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           }
           goto ClumpReports_ret_TSTREAM_FAIL;
         }
-        const char* token_ptrs[4];
-        uint32_t token_slens[4];
         if (unlikely(!TokenLexK0(line_start, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens))) {
           goto ClumpReports_ret_MISSING_TOKENS;
         }
@@ -8738,7 +8847,22 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         SetBit(allele_idx, observed_alleles);
         SetBit(variant_uidx, observed_variants); // could defer this?
         if (clump_entries) {
-          if (unlikely(PtrWSubCk(tmp_alloc_base, RoundUpPow2(sizeof(ClumpEntry), sizeof(intptr_t)), &tmp_alloc_end))) {
+          // With --clump-verbose/--clump-best the entry also carries its own
+          // p-value and annotation fields, since those reports print one row
+          // per entry rather than one per clump.  Costs nothing otherwise.
+          uintptr_t detail_byte_ct = 0;
+          uintptr_t annot_slen = 0;
+          if (report_details) {
+            if (annot_ct) {
+              annot_slen = annot_ct - 1;
+              for (uint32_t annot_idx = 0; annot_idx != annot_ct; ++annot_idx) {
+                annot_slen += (found_type_bitset & (1U << (4 + annot_idx)))? token_slens[4 + annot_idx] : 2;
+              }
+            }
+            detail_byte_ct = sizeof(double) + annot_slen + 1;
+            detail_byte_tot += detail_byte_ct;
+          }
+          if (unlikely(PtrWSubCk(tmp_alloc_base, RoundUpPow2(sizeof(ClumpEntry) + detail_byte_ct, sizeof(intptr_t)), &tmp_alloc_end))) {
             goto ClumpReports_ret_NOMEM;
           }
           uint32_t pval_bin_x2 = (ln_pval > ln_p2);
@@ -8749,6 +8873,22 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           new_entry->next = clump_entries[allele_idx];
           new_entry->pval_bin_x2 = pval_bin_x2;
           new_entry->file_idx1_x2 = file_idx1_x2;
+          if (report_details) {
+            unsigned char* detail_iter = &(R_CAST(unsigned char*, new_entry)[sizeof(ClumpEntry)]);
+            memcpy(detail_iter, &ln_pval, sizeof(double));
+            char* annot_write_iter = R_CAST(char*, &(detail_iter[sizeof(double)]));
+            for (uint32_t annot_idx = 0; annot_idx != annot_ct; ++annot_idx) {
+              if (annot_idx) {
+                *annot_write_iter++ = '\t';
+              }
+              if (found_type_bitset & (1U << (4 + annot_idx))) {
+                annot_write_iter = memcpya(annot_write_iter, token_ptrs[4 + annot_idx], token_slens[4 + annot_idx]);
+              } else {
+                annot_write_iter = strcpya_k(annot_write_iter, "NA");
+              }
+            }
+            *annot_write_iter = '\0';
+          }
           clump_entries[allele_idx] = new_entry;
         }
       }
@@ -8852,6 +8992,20 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       if (clump_entries) {
         // Now save pval_bin_x2 values, as well as fidxs if necessary, as
         // varints.
+        // The varint stream is written over the head of clump_entries[] as it
+        // is consumed, so the detail records cannot share that space.  Keep the
+        // list heads on the far side of the arena, then copy the details out
+        // once the varint stream has been finalized and the base pointer moved
+        // past it.
+        ClumpEntry** saved_heads = nullptr;
+        if (report_details) {
+          uintptr_t* saved_heads_w;
+          if (unlikely(bigstack_end_alloc_w(observed_allele_ct, &saved_heads_w))) {
+            goto ClumpReports_ret_NOMEM;
+          }
+          memcpy(saved_heads_w, clump_entries, observed_allele_ct * sizeof(intptr_t));
+          saved_heads = R_CAST(ClumpEntry**, saved_heads_w);
+        }
         unsigned char* varint_write_iter = g_bigstack_base;
         for (uintptr_t oaidx = 0; oaidx != observed_allele_ct; ++oaidx) {
           ClumpEntry* ll_iter = clump_entries[oaidx];
@@ -8873,6 +9027,23 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         clump_entry_varints[observed_allele_ct] = varint_write_iter;
         if (unlikely(BigstackBaseSetChecked(varint_write_iter))) {
           goto ClumpReports_ret_NOMEM;
+        }
+        if (report_details) {
+          unsigned char* detail_base;
+          if (unlikely(BIGSTACK_ALLOC_X(unsigned char*, observed_allele_ct + 1, &clump_detail_ptrs) ||
+                       bigstack_alloc_uc(detail_byte_tot, &detail_base))) {
+            goto ClumpReports_ret_NOMEM;
+          }
+          unsigned char* detail_write_iter = detail_base;
+          for (uintptr_t oaidx = 0; oaidx != observed_allele_ct; ++oaidx) {
+            clump_detail_ptrs[oaidx] = detail_write_iter;
+            for (const ClumpEntry* ll_iter = saved_heads[oaidx]; ll_iter; ll_iter = ll_iter->next) {
+              const unsigned char* detail_iter = &(R_CAST(const unsigned char*, ll_iter)[sizeof(ClumpEntry)]);
+              const uintptr_t detail_blen = sizeof(double) + strlen(R_CAST(const char*, &(detail_iter[sizeof(double)]))) + 1;
+              detail_write_iter = memcpyua(detail_write_iter, detail_iter, detail_blen);
+            }
+          }
+          clump_detail_ptrs[observed_allele_ct] = detail_write_iter;
         }
         // defensive
         clump_entries = nullptr;
@@ -9977,6 +10148,58 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       goto ClumpReports_ret_WRITE_FAIL;
     }
 
+    // --clump-verbose/--clump-best second pass.  Membership is already
+    // decided, so this reloads the index variant and each below-p2 member and
+    // recomputes r^2 rather than carrying a per-member r^2 through the
+    // memory-sensitive member list.
+    unsigned char* rp_unpacked_index = nullptr;
+    unsigned char* rp_unpacked_member = nullptr;
+    uintptr_t* rp_raregeno = nullptr;
+    uint32_t* rp_difflist_sample_ids = nullptr;
+    uintptr_t* rp_chrx_nm_buf = nullptr;
+    Dosage* rp_chrx_invmask_buf = nullptr;
+    PgenVariant rp_pgv;
+    R2PhaseType rp_phase_type = kR2PhaseTypeUnphased;
+    uint32_t rp_load_dosage = 0;
+    PgrSampleSubsetIndex rp_pssi;
+    if (report_details) {
+      // The widest representation the dataset can produce, so one buffer size
+      // covers every clump.  A variant with no phase or dosage records yields
+      // the same r^2 either way.
+      rp_phase_type = GetR2PhaseType(phased_r2, check_phase);
+      rp_load_dosage = check_dosage;
+      const uintptr_t rp_stride = UnpackedByteStride(&ctx, rp_phase_type, x_exists, rp_load_dosage);
+      if (unlikely(BigstackAllocPgv(founder_ct, 0, effective_gflags, &rp_pgv) ||
+                   bigstack_alloc_uc(rp_stride, &rp_unpacked_index) ||
+                   bigstack_alloc_uc(rp_stride, &rp_unpacked_member) ||
+                   bigstack_alloc_w(NypCtToWordCt(founder_ct), &rp_raregeno) ||
+                   bigstack_alloc_u32(1 + (founder_ct / 64), &rp_difflist_sample_ids))) {
+        goto ClumpReports_ret_NOMEM;
+      }
+      if (x_exists) {
+        if (unlikely(bigstack_alloc_w(BitCtToWordCt(founder_ct), &rp_chrx_nm_buf) ||
+                     bigstack_alloc_dosage(founder_ct, &rp_chrx_invmask_buf))) {
+          goto ClumpReports_ret_NOMEM;
+        }
+      }
+      PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &rp_pssi);
+      if (report_verbose) {
+        OutnameZstSet(".clumps.verbose", output_zst, outname_end);
+        reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kCompressStreamBlock + kMaxMediumLine, &verbose_css, &verbose_cswritep);
+        if (unlikely(reterr)) {
+          goto ClumpReports_ret_1;
+        }
+        verbose_cswritep = ClumpDetailHeader(clump_ip->annotate_flattened, annot_ct, output_log10, verbose_cswritep);
+      }
+      if (report_best) {
+        OutnameZstSet(".clumps.best", output_zst, outname_end);
+        reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kCompressStreamBlock + kMaxMediumLine, &best_css, &best_cswritep);
+        if (unlikely(reterr)) {
+          goto ClumpReports_ret_1;
+        }
+        best_cswritep = ClumpDetailHeader(clump_ip->annotate_flattened, annot_ct, output_log10, best_cswritep);
+      }
+    }
     uintptr_t* clump_allele_idxs = overlap_allele_idxs;
     uintptr_t prev_clump_end = 0;
     uint32_t chr_idx = 0;
@@ -10342,8 +10565,245 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       if (unlikely(Cswrite(&css, &cswritep))) {
         goto ClumpReports_ret_WRITE_FAIL;
       }
+
+      if (report_details) {
+        const uint32_t index_fidx1_for_report = best_fidx_x2s? (best_fidx_x2s[index_oaidx] >> 1) : 1;
+        const uint32_t rp_is_x = (chr_idx == x_code);
+        const uint32_t rp_is_y = (chr_idx == y_code);
+        // PLINK 1.x omits the whole member table, index row included, when a
+        // clump has no below-p2 member, so count first.
+        uint32_t member_row_ct = 0;
+        const char* index_own_annot = nullptr;
+        {
+          // The index variant's own entry carries its annotation fields too.
+          const uintptr_t index_oaidx_scan = index_oaidx;
+          const unsigned char* scan_iter = clump_entry_varints[index_oaidx_scan];
+          const unsigned char* scan_end = clump_entry_varints[index_oaidx_scan + 1];
+          const unsigned char* detail_scan = clump_detail_ptrs[index_oaidx_scan];
+          while (scan_iter != scan_end) {
+            GetVint32Unsafe(&scan_iter);
+            const uint32_t scan_fidx1 = GetVint32Unsafe(&scan_iter) >> 1;
+            const char* scan_annot = R_CAST(const char*, &(detail_scan[sizeof(double)]));
+            detail_scan = R_CAST(const unsigned char*, strnul(scan_annot) + 1);
+            if (scan_fidx1 == index_fidx1_for_report) {
+              index_own_annot = scan_annot;
+              break;
+            }
+          }
+        }
+        for (uintptr_t member_idx = 0; member_idx != clump_size_including_self; ++member_idx) {
+          const uintptr_t cur_allele_idx = clump_allele_idxs[member_idx];
+          const uintptr_t cur_oaidx = RawToSubsettedPosW(observed_alleles, observed_alleles_cumulative_popcounts_w, cur_allele_idx);
+          const unsigned char* scan_iter = clump_entry_varints[cur_oaidx];
+          const unsigned char* scan_end = clump_entry_varints[cur_oaidx + 1];
+          while (scan_iter != scan_end) {
+            const uint32_t scan_pval_bin_x2 = GetVint32Unsafe(&scan_iter);
+            const uint32_t scan_fidx1 = GetVint32Unsafe(&scan_iter) >> 1;
+            if (scan_pval_bin_x2 & 1) {
+              continue;
+            }
+            if ((cur_allele_idx == index_allele_idx) && (scan_fidx1 == index_fidx1_for_report)) {
+              continue;
+            }
+            ++member_row_ct;
+          }
+        }
+        uintptr_t rp_dummy_uidx;
+        if (member_row_ct) {
+        reterr = ClumpUnpackOne(founder_info, rp_pssi, allele_idx_offsets, variant_last_alidxs, variant_last_alidxs_cumulative_popcounts, rp_is_x? founder_male_collapsed : nullptr, rp_is_x? male_dosage_invmask : nullptr, founder_female_collapsed, founder_female_collapsed_interleaved, index_allele_idx, founder_ct, founder_male_ct, rp_phase_type, rp_load_dosage, rp_is_y, rp_raregeno, rp_difflist_sample_ids, &rp_pgv, simple_pgrp, rp_unpacked_index, &rp_dummy_uidx);
+        if (unlikely(reterr)) {
+          goto ClumpReports_ret_PGR_FAIL;
+        }
+        }
+        R2Variant rp_index_r2v;
+        if (member_row_ct) {
+          FillR2V(rp_unpacked_index, founder_ct, rp_phase_type, rp_is_x, rp_load_dosage, &rp_index_r2v);
+        }
+        const char* index_a1_str = allele_storage[index_allele_idx];
+        const char* index_a2_str = ".";
+        if (index_allele_ct == 2) {
+          index_a2_str = allele_storage[index_allele_idx_offset_base + 1 - (index_allele_idx - index_allele_idx_offset_base)];
+        }
+        const double index_report_ln = index_candidates[clump_idx].ln_pval;
+        double best_r2 = -1.0;
+        uint32_t best_is_neg = 0;
+        uintptr_t best_allele_idx = 0;
+        uint32_t best_variant_uidx = 0;
+        uint32_t best_fidx1 = 0;
+        double best_member_ln = 0.0;
+        const char* best_annot = nullptr;
+        if (report_verbose && member_row_ct) {
+          // The index variant is its own first row, as PLINK 1.x prints it.
+          verbose_cswritep = strcpyax(verbose_cswritep, variant_ids[index_variant_uidx], '\t');
+          verbose_cswritep = strcpyax(verbose_cswritep, variant_ids[index_variant_uidx], '\t');
+          verbose_cswritep = strcpya_k(verbose_cswritep, "0\t1\t");
+          verbose_cswritep = strcpyax(verbose_cswritep, index_a1_str, '\t');
+          verbose_cswritep = u32toa_x(index_fidx1_for_report, '\t', verbose_cswritep);
+          if (!output_log10) {
+            verbose_cswritep = lntoa_g(MAXV(index_report_ln, output_min_ln), verbose_cswritep);
+          } else {
+            verbose_cswritep = dtoa_g((-kRecipLn10) * index_report_ln, verbose_cswritep);
+          }
+          if (annot_ct) {
+            *verbose_cswritep++ = '\t';
+            if (index_own_annot) {
+              verbose_cswritep = strcpya(verbose_cswritep, index_own_annot);
+            } else {
+              for (uint32_t annot_idx = 0; annot_idx != annot_ct; ++annot_idx) {
+                if (annot_idx) {
+                  *verbose_cswritep++ = '\t';
+                }
+                verbose_cswritep = strcpya_k(verbose_cswritep, "NA");
+              }
+            }
+          }
+          AppendBinaryEoln(&verbose_cswritep);
+          if (unlikely(Cswrite(&verbose_css, &verbose_cswritep))) {
+            goto ClumpReports_ret_WRITE_FAIL;
+          }
+        }
+        for (uintptr_t member_idx = 0; member_idx != clump_size_including_self; ++member_idx) {
+          const uintptr_t cur_allele_idx = clump_allele_idxs[member_idx];
+          const uintptr_t cur_oaidx = RawToSubsettedPosW(observed_alleles, observed_alleles_cumulative_popcounts_w, cur_allele_idx);
+          const unsigned char* varint_read_iter = clump_entry_varints[cur_oaidx];
+          const unsigned char* varint_read_end = clump_entry_varints[cur_oaidx + 1];
+          const unsigned char* detail_read_iter = clump_detail_ptrs[cur_oaidx];
+          uint32_t member_unpacked = 0;
+          R2Variant rp_member_r2v;
+          double cur_r2 = 0.0;
+          uint32_t cur_is_neg = 0;
+          uint32_t cur_variant_uidx = 0;
+          uintptr_t cur_allele_idx_offset_base = cur_allele_idx & (~k1LU);
+          uint32_t cur_member_allele_ct = 2;
+          while (varint_read_iter != varint_read_end) {
+            const uint32_t cur_pval_bin_x2 = GetVint32Unsafe(&varint_read_iter);
+            const uint32_t cur_fidx1 = GetVint32Unsafe(&varint_read_iter) >> 1;
+            double cur_ln_pval;
+            memcpy(&cur_ln_pval, detail_read_iter, sizeof(double));
+            const char* cur_annot = R_CAST(const char*, &(detail_read_iter[sizeof(double)]));
+            detail_read_iter = R_CAST(const unsigned char*, strnul(cur_annot) + 1);
+            if (cur_pval_bin_x2 & 1) {
+              continue;
+            }
+            if ((cur_allele_idx == index_allele_idx) && (cur_fidx1 == index_fidx1_for_report)) {
+              continue;
+            }
+            if (!member_unpacked) {
+              reterr = ClumpUnpackOne(founder_info, rp_pssi, allele_idx_offsets, variant_last_alidxs, variant_last_alidxs_cumulative_popcounts, rp_is_x? founder_male_collapsed : nullptr, rp_is_x? male_dosage_invmask : nullptr, founder_female_collapsed, founder_female_collapsed_interleaved, cur_allele_idx, founder_ct, founder_male_ct, rp_phase_type, rp_load_dosage, rp_is_y, rp_raregeno, rp_difflist_sample_ids, &rp_pgv, simple_pgrp, rp_unpacked_member, &rp_dummy_uidx);
+              if (unlikely(reterr)) {
+                goto ClumpReports_ret_PGR_FAIL;
+              }
+              cur_variant_uidx = rp_dummy_uidx;
+              if (allele_idx_offsets) {
+                cur_allele_idx_offset_base = allele_idx_offsets[cur_variant_uidx];
+                cur_member_allele_ct = allele_idx_offsets[cur_variant_uidx + 1] - cur_allele_idx_offset_base;
+              }
+              FillR2V(rp_unpacked_member, founder_ct, rp_phase_type, rp_is_x, rp_load_dosage, &rp_member_r2v);
+              if (!rp_is_x) {
+                cur_r2 = ComputeR2(&rp_index_r2v, &rp_member_r2v, founder_ct, rp_phase_type, rp_load_dosage, nullptr, nullptr, &cur_is_neg);
+              } else {
+                cur_r2 = ComputeXR2(&rp_index_r2v, &rp_member_r2v, founder_male_collapsed, founder_nonmale_collapsed, male_dosage_invmask, nonmale_dosage_invmask, founder_ct, founder_male_ct, rp_phase_type, rp_load_dosage, 1, nullptr, nullptr, &cur_is_neg, rp_chrx_nm_buf, rp_chrx_invmask_buf);
+              }
+              member_unpacked = 1;
+            }
+            const char* member_a1_str = allele_storage[cur_allele_idx];
+            const char* member_a2_str = ".";
+            if (cur_member_allele_ct == 2) {
+              member_a2_str = allele_storage[cur_allele_idx_offset_base + 1 - (cur_allele_idx - cur_allele_idx_offset_base)];
+            }
+            if (report_verbose) {
+              verbose_cswritep = strcpyax(verbose_cswritep, variant_ids[index_variant_uidx], '\t');
+              verbose_cswritep = strcpyax(verbose_cswritep, variant_ids[cur_variant_uidx], '\t');
+              verbose_cswritep = dtoa_g((S_CAST(int32_t, variant_bps[cur_variant_uidx]) - S_CAST(int32_t, variant_bps[index_variant_uidx])) * 0.001, verbose_cswritep);
+              *verbose_cswritep++ = '\t';
+              verbose_cswritep = dtoa_g(cur_r2, verbose_cswritep);
+              *verbose_cswritep++ = '\t';
+              verbose_cswritep = ClumpAllelePair(index_a1_str, index_a2_str, member_a1_str, member_a2_str, cur_is_neg, verbose_cswritep);
+              *verbose_cswritep++ = '\t';
+              verbose_cswritep = u32toa_x(cur_fidx1, '\t', verbose_cswritep);
+              if (!output_log10) {
+                verbose_cswritep = lntoa_g(MAXV(cur_ln_pval, output_min_ln), verbose_cswritep);
+              } else {
+                verbose_cswritep = dtoa_g((-kRecipLn10) * cur_ln_pval, verbose_cswritep);
+              }
+              if (annot_ct) {
+                *verbose_cswritep++ = '\t';
+                verbose_cswritep = strcpya(verbose_cswritep, cur_annot);
+              }
+              AppendBinaryEoln(&verbose_cswritep);
+              if (unlikely(Cswrite(&verbose_css, &verbose_cswritep))) {
+                goto ClumpReports_ret_WRITE_FAIL;
+              }
+            }
+            // First member wins an r^2 tie, but a later file's entry for the
+            // member already chosen replaces it, which is what PLINK 1.x
+            // reports.
+            if (report_best && ((cur_r2 > best_r2) || ((cur_r2 == best_r2) && (cur_allele_idx == best_allele_idx)))) {
+              best_r2 = cur_r2;
+              best_is_neg = cur_is_neg;
+              best_allele_idx = cur_allele_idx;
+              best_variant_uidx = cur_variant_uidx;
+              best_fidx1 = cur_fidx1;
+              best_member_ln = cur_ln_pval;
+              best_annot = cur_annot;
+            }
+          }
+        }
+        if (report_best) {
+          best_cswritep = strcpyax(best_cswritep, variant_ids[index_variant_uidx], '\t');
+          if (best_r2 < 0.0) {
+            best_cswritep = strcpya_k(best_cswritep, "NA\tNA\tNA\tNA\tNA\tNA");
+            for (uint32_t annot_idx = 0; annot_idx != annot_ct; ++annot_idx) {
+              best_cswritep = strcpya_k(best_cswritep, "\tNA");
+            }
+          } else {
+            uintptr_t best_offset_base = best_allele_idx & (~k1LU);
+            uint32_t best_allele_ct = 2;
+            if (allele_idx_offsets) {
+              best_offset_base = allele_idx_offsets[best_variant_uidx];
+              best_allele_ct = allele_idx_offsets[best_variant_uidx + 1] - best_offset_base;
+            }
+            const char* best_a1_str = allele_storage[best_allele_idx];
+            const char* best_a2_str = ".";
+            if (best_allele_ct == 2) {
+              best_a2_str = allele_storage[best_offset_base + 1 - (best_allele_idx - best_offset_base)];
+            }
+            best_cswritep = strcpyax(best_cswritep, variant_ids[best_variant_uidx], '\t');
+            best_cswritep = dtoa_g((S_CAST(int32_t, variant_bps[best_variant_uidx]) - S_CAST(int32_t, variant_bps[index_variant_uidx])) * 0.001, best_cswritep);
+            *best_cswritep++ = '\t';
+            best_cswritep = dtoa_g(best_r2, best_cswritep);
+            *best_cswritep++ = '\t';
+            best_cswritep = ClumpAllelePair(index_a1_str, index_a2_str, best_a1_str, best_a2_str, best_is_neg, best_cswritep);
+            *best_cswritep++ = '\t';
+            best_cswritep = u32toa_x(best_fidx1, '\t', best_cswritep);
+            if (!output_log10) {
+              best_cswritep = lntoa_g(MAXV(best_member_ln, output_min_ln), best_cswritep);
+            } else {
+              best_cswritep = dtoa_g((-kRecipLn10) * best_member_ln, best_cswritep);
+            }
+            if (annot_ct) {
+              *best_cswritep++ = '\t';
+              best_cswritep = strcpya(best_cswritep, best_annot);
+            }
+          }
+          AppendBinaryEoln(&best_cswritep);
+          if (unlikely(Cswrite(&best_css, &best_cswritep))) {
+            goto ClumpReports_ret_WRITE_FAIL;
+          }
+        }
+      }
     }
 
+    if (report_verbose) {
+      if (unlikely(CswriteCloseNull(&verbose_css, verbose_cswritep))) {
+        goto ClumpReports_ret_WRITE_FAIL;
+      }
+    }
+    if (report_best) {
+      if (unlikely(CswriteCloseNull(&best_css, best_cswritep))) {
+        goto ClumpReports_ret_WRITE_FAIL;
+      }
+    }
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto ClumpReports_ret_WRITE_FAIL;
     }
@@ -10408,6 +10868,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
  ClumpReports_ret_1:
   CleanupThreads(&tg);
   CswriteCloseCond(&css, cswritep);
+  CswriteCloseCond(&verbose_css, verbose_cswritep);
+  CswriteCloseCond(&best_css, best_cswritep);
   CleanupTextStream2("--clump file", &txs, &reterr);
   fclose_cond(clump_overlap_tmp);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);

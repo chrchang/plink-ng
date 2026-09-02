@@ -5396,6 +5396,29 @@ int main(int argc, char** argv) {
               ++arg_iter;
             }
           }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-annotate")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-annotate must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          reterr = AllocAndFlattenCommaDelim(&(argvk[arg_idx + 1]), param_ct, &pc.clump_info.annotate_flattened);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-best")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-best must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          pc.clump_info.flags |= kfClumpBest;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "lump-verbose")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-verbose must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          pc.clump_info.flags |= kfClumpVerbose;
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "lump-index-first")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
             logerrputs("Error: --clump-index-first must be used with --clump.\n");
@@ -13111,6 +13134,10 @@ int main(int argc, char** argv) {
         }
       }
     } while ((++cur_flag_idx) < flag_ct);
+    if (unlikely(pc.clump_info.annotate_flattened && (!(pc.clump_info.flags & (kfClumpVerbose | kfClumpBest))))) {
+      logerrputs("Error: --clump-annotate must be used with --clump-verbose or --clump-best.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
     if (!outname_end) {
       outname_end = &(outname[6]);
     } else if (!allow_misleading_out_arg) {
