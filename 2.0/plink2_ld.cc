@@ -12047,6 +12047,502 @@ PglErr VcorTable(const uintptr_t* orig_variant_include, const ChrInfo* cip, cons
   return reterr;
 }
 
+void InitLdScore(LdScoreInfo* lsip) {
+  lsip->flags = kfLdScore0;
+  // LD Score regression's convention is a 1 cM radius, so that's the default.
+  // The variant-count and bp radii are here for the same reason --ld-window
+  // and --ld-window-kb are, and are off unless asked for.
+  lsip->var_ct_radius = 0x7fffffff;
+  lsip->bp_radius = UINT32_MAX;
+  lsip->cm_radius = 1.0;
+}
+
+// --ld-score: per-variant sum of unbiased r^2 with every variant in a window
+// around it, itself included.  This is the statistic LD Score regression
+// consumes.  The unbiased estimator is r^2 - (1 - r^2)/(n - 2), with n the
+// number of samples the pair actually has in common; the correction is what
+// makes a null pair's expected contribution zero rather than 1/n.
+//
+// The window is walked once per index variant rather than once per pair, so
+// each pair is evaluated twice.  That doubles the arithmetic and buys a
+// partition of the output with no shared accumulators, which is what lets
+// threads take disjoint index ranges of the same block.
+//
+// Genotypes are read once, by the main thread, into a ring buffer that the
+// worker threads only read from.  The ring holds one block of index variants
+// plus the widest window, so its size doesn't grow with the chromosome.
+
+typedef struct LdScoreCtxStruct {
+  const uint32_t* variant_bps;
+  const double* variant_cms;
+  const uint32_t* chr_variant_uidxs;
+  uint32_t chr_variant_ct;
+  uint32_t founder_ct;
+  uint32_t var_ct_radius;
+  uint32_t bp_radius;
+  double cm_radius;
+  uint32_t ring_size;
+  uintptr_t variant_buf_word_ct;
+
+  const uintptr_t* genobufs;
+  const VariantAggs* vaggs;
+
+  const uint32_t* thread_cidx_starts;
+  double* l2_results;
+  uint32_t* nobs_results;
+
+  uint32_t block_start;
+  uint32_t block_end;
+} LdScoreCtx;
+
+// First index cidx must be compared against.  Monotonic in cidx, which is what
+// lets the reader slide instead of reloading.
+static uint32_t LdScoreWindowStart(const LdScoreCtx* ctx, uint32_t cidx) {
+  const uint32_t* uidxs = ctx->chr_variant_uidxs;
+  uint32_t start = 0;
+  if (ctx->var_ct_radius < cidx) {
+    start = cidx - ctx->var_ct_radius;
+  }
+  if (ctx->bp_radius != UINT32_MAX) {
+    const uint32_t cur_bp = ctx->variant_bps[uidxs[cidx]];
+    while ((start < cidx) && (cur_bp - ctx->variant_bps[uidxs[start]] > ctx->bp_radius)) {
+      ++start;
+    }
+  }
+  if (ctx->variant_cms) {
+    const double cur_cm = ctx->variant_cms[uidxs[cidx]];
+    while ((start < cidx) && (cur_cm - ctx->variant_cms[uidxs[start]] > ctx->cm_radius)) {
+      ++start;
+    }
+  }
+  return start;
+}
+
+// One past the last index cidx must be compared against.  Also monotonic.
+static uint32_t LdScoreWindowEnd(const LdScoreCtx* ctx, uint32_t cidx) {
+  const uint32_t* uidxs = ctx->chr_variant_uidxs;
+  const uint32_t chr_variant_ct = ctx->chr_variant_ct;
+  uint32_t end = chr_variant_ct;
+  if (ctx->var_ct_radius < chr_variant_ct - cidx - 1) {
+    end = cidx + ctx->var_ct_radius + 1;
+  }
+  if (ctx->bp_radius != UINT32_MAX) {
+    const uint32_t cur_bp = ctx->variant_bps[uidxs[cidx]];
+    while ((end > cidx + 1) && (ctx->variant_bps[uidxs[end - 1]] - cur_bp > ctx->bp_radius)) {
+      --end;
+    }
+  }
+  if (ctx->variant_cms) {
+    const double cur_cm = ctx->variant_cms[uidxs[cidx]];
+    while ((end > cidx + 1) && (ctx->variant_cms[uidxs[end - 1]] - cur_cm > ctx->cm_radius)) {
+      --end;
+    }
+  }
+  return end;
+}
+
+// L2 for the index variants in [cidx_start, cidx_end).  Every variant it needs
+// is already in the ring.
+static void LdScoreRange(const LdScoreCtx* ctx, uint32_t cidx_start, uint32_t cidx_end) {
+  const uint32_t founder_ct = ctx->founder_ct;
+  const uintptr_t variant_buf_word_ct = ctx->variant_buf_word_ct;
+  const uint32_t ring_size = ctx->ring_size;
+  const uintptr_t* genobufs = ctx->genobufs;
+  const VariantAggs* vaggs = ctx->vaggs;
+  double* l2_results = ctx->l2_results;
+  uint32_t* nobs_results = ctx->nobs_results;
+  for (uint32_t cidx = cidx_start; cidx != cidx_end; ++cidx) {
+    const uint32_t index_slot = cidx % ring_size;
+    const VariantAggs* index_vaggs = &(vaggs[index_slot]);
+    // A monomorphic variant has no correlation with anything, so its LD Score
+    // is undefined rather than 1.
+    const double index_variance = S_CAST(double, index_vaggs->ssq * S_CAST(int64_t, index_vaggs->nm_ct) - S_CAST(int64_t, index_vaggs->sum) * index_vaggs->sum);
+    if (index_variance <= 0.0) {
+      l2_results[cidx] = -1.0;
+      nobs_results[cidx] = 0;
+      continue;
+    }
+    const uintptr_t* index_genobuf = &(genobufs[index_slot * variant_buf_word_ct]);
+    const uint32_t window_start = LdScoreWindowStart(ctx, cidx);
+    const uint32_t window_end = LdScoreWindowEnd(ctx, cidx);
+    // The self term is exactly 1: r^2 is 1 and the correction vanishes.
+    double l2 = 1.0;
+    uint32_t nobs = 1;
+    for (uint32_t other_cidx = window_start; other_cidx != window_end; ++other_cidx) {
+      if (other_cidx == cidx) {
+        continue;
+      }
+      const uint32_t other_slot = other_cidx % ring_size;
+      const uintptr_t* other_genobuf = &(genobufs[other_slot * variant_buf_word_ct]);
+      uint32_t cur_nm_ct = index_vaggs->nm_ct;
+      int32_t cur_first_sum = index_vaggs->sum;
+      uint32_t cur_first_ssq = index_vaggs->ssq;
+      int32_t second_sum;
+      uint32_t second_ssq;
+      int32_t cur_dotprod;
+      ComputeIndepPairwiseR2Components(index_genobuf, other_genobuf, &(vaggs[other_slot]), founder_ct, &cur_nm_ct, &cur_first_sum, &cur_first_ssq, &second_sum, &second_ssq, &cur_dotprod);
+      if (cur_nm_ct < 3) {
+        continue;
+      }
+      // These are all cur_nm_ct times their true values, which cancels in the
+      // ratio.
+      const double cov12 = S_CAST(double, cur_dotprod * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, cur_first_sum) * second_sum);
+      const double variance1 = S_CAST(double, cur_first_ssq * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, cur_first_sum) * cur_first_sum);
+      const double variance2 = S_CAST(double, second_ssq * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, second_sum) * second_sum);
+      if ((variance1 <= 0.0) || (variance2 <= 0.0)) {
+        continue;
+      }
+      double r2 = cov12 * cov12 / (variance1 * variance2);
+      if (r2 > 1.0) {
+        // Keeps rounding error in the division from pushing a perfectly
+        // correlated pair above 1, which would make the correction negative.
+        r2 = 1.0;
+      }
+      l2 += r2 - (1.0 - r2) / u31tod(cur_nm_ct - 2);
+      ++nobs;
+    }
+    l2_results[cidx] = l2;
+    nobs_results[cidx] = nobs;
+  }
+}
+
+THREAD_FUNC_DECL LdScoreThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  LdScoreCtx* ctx = S_CAST(LdScoreCtx*, arg->sharedp->context);
+  do {
+    LdScoreRange(ctx, ctx->thread_cidx_starts[tidx], ctx->thread_cidx_starts[tidx + 1]);
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const uintptr_t* founder_info, const LdScoreInfo* lsip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  ThreadGroup tg;
+  PreinitCstream(&css);
+  PreinitThreads(&tg);
+  LdScoreCtx ctx;
+  PglErr reterr = kPglRetSuccess;
+  {
+    if (unlikely(founder_ct < 3)) {
+      logerrputs("Error: --ld-score requires at least three founders.\n");
+      goto LdScore_ret_INCONSISTENT_INPUT;
+    }
+    const LdScoreFlags flags = lsip->flags;
+    const uint32_t use_cm = (lsip->cm_radius >= 0.0);
+    if (unlikely(use_cm && (!variant_cms))) {
+      logerrputs("Error: --ld-score's default 1 cM window requires nonzero CM coordinates.  Load\na .pvar/.bim with them (--cm-map may help), or set an explicit\n--ld-score-window-kb or --ld-score-window.\n");
+      goto LdScore_ret_INCONSISTENT_INPUT;
+    }
+
+    // LD Score regression is defined on biallelic variants, and PgrGet()
+    // collapses a multiallelic variant to REF vs. everything else, which is a
+    // different statistic.  Drop them rather than report a subtly wrong
+    // number.
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* variant_include;
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include))) {
+      goto LdScore_ret_NOMEM;
+    }
+    memcpy(variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+    uint32_t multiallelic_skip_ct = 0;
+    if (allele_idx_offsets) {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = orig_variant_include[0];
+      for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+        const uint32_t variant_uidx = BitIter1(orig_variant_include, &variant_uidx_base, &cur_bits);
+        if (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] != 2) {
+          ClearBit(variant_uidx, variant_include);
+          ++multiallelic_skip_ct;
+        }
+      }
+    }
+    // Haploid chromosomes have no diploid r^2, and chrX needs the male/female
+    // split --r2-unphased performs; neither is in scope here yet.
+    uint32_t haploid_skip_ct = 0;
+    const uint32_t chr_ct = cip->chr_ct;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if (!IsSet(cip->haploid_mask, chr_idx)) {
+        continue;
+      }
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      haploid_skip_ct += PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+      ClearBitsNz(chr_vidx_start, chr_vidx_end, variant_include);
+    }
+    const uint32_t kept_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
+    if (unlikely(!kept_variant_ct)) {
+      logerrputs("Error: --ld-score: No variants remaining.\n");
+      goto LdScore_ret_INCONSISTENT_INPUT;
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uint32_t* founder_info_cumulative_popcounts;
+    uint32_t* chr_variant_uidxs;
+    uintptr_t* genovec;
+    double* l2_results;
+    uint32_t* nobs_results;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
+                 bigstack_alloc_u32(kept_variant_ct, &chr_variant_uidxs) ||
+                 bigstack_alloc_w(NypCtToWordCt(founder_ct), &genovec) ||
+                 bigstack_alloc_d(kept_variant_ct, &l2_results) ||
+                 bigstack_alloc_u32(kept_variant_ct, &nobs_results))) {
+      goto LdScore_ret_NOMEM;
+    }
+    FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
+
+    ctx.variant_bps = variant_bps;
+    ctx.variant_cms = use_cm? variant_cms : nullptr;
+    ctx.chr_variant_uidxs = chr_variant_uidxs;
+    ctx.founder_ct = founder_ct;
+    ctx.var_ct_radius = lsip->var_ct_radius;
+    ctx.bp_radius = lsip->bp_radius;
+    ctx.cm_radius = lsip->cm_radius;
+    ctx.l2_results = l2_results;
+    ctx.nobs_results = nobs_results;
+
+    // One pass to size the ring: both window ends are monotonic, so the widest
+    // window is found in linear time.
+    uint32_t max_window_ct = 1;
+    {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
+      for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+        const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+        const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+        if (!chr_variant_ct) {
+          continue;
+        }
+        for (uint32_t cidx = 0; cidx != chr_variant_ct; ++cidx) {
+          chr_variant_uidxs[cidx] = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        }
+        ctx.chr_variant_ct = chr_variant_ct;
+        for (uint32_t cidx = 0; cidx != chr_variant_ct; ++cidx) {
+          const uint32_t cur_window_ct = LdScoreWindowEnd(&ctx, cidx) - LdScoreWindowStart(&ctx, cidx);
+          if (cur_window_ct > max_window_ct) {
+            max_window_ct = cur_window_ct;
+          }
+        }
+      }
+    }
+
+    const uint32_t founder_ctaw = BitCtToAlignedWordCt(founder_ct);
+    const uintptr_t variant_buf_word_ct = 2 * founder_ctaw;
+    ctx.variant_buf_word_ct = variant_buf_word_ct;
+    const uintptr_t per_slot_byte_ct = variant_buf_word_ct * sizeof(intptr_t) + sizeof(VariantAggs);
+    // The ring has to hold the widest window plus a whole block of index
+    // variants, since a block's leftmost and rightmost windows don't overlap.
+    uintptr_t avail = bigstack_left();
+    avail -= MINV(avail / 8, 1024 * 1024);
+    if (unlikely(avail / per_slot_byte_ct < S_CAST(uintptr_t, max_window_ct) + 1)) {
+      goto LdScore_ret_NOMEM;
+    }
+    uint32_t block_size = 1;
+    {
+      const uintptr_t slot_cap = avail / per_slot_byte_ct;
+      uintptr_t block_cap = slot_cap - max_window_ct;
+      if (block_cap > 65536) {
+        block_cap = 65536;
+      }
+      block_size = block_cap;
+    }
+    const uint32_t ring_size = max_window_ct + block_size;
+    ctx.ring_size = ring_size;
+    uintptr_t* genobufs;
+    VariantAggs* vaggs;
+    if (unlikely(bigstack_alloc_w(S_CAST(uintptr_t, ring_size) * variant_buf_word_ct, &genobufs) ||
+                 BIGSTACK_ALLOC_X(VariantAggs, ring_size, &vaggs))) {
+      goto LdScore_ret_NOMEM;
+    }
+    ctx.genobufs = genobufs;
+    ctx.vaggs = vaggs;
+
+    uint32_t calc_thread_ct = MINV(max_thread_ct, block_size);
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto LdScore_ret_NOMEM;
+    }
+    uint32_t* thread_cidx_starts;
+    if (unlikely(bigstack_alloc_u32(calc_thread_ct + 1, &thread_cidx_starts))) {
+      goto LdScore_ret_NOMEM;
+    }
+    ctx.thread_cidx_starts = thread_cidx_starts;
+    SetThreadFuncAndData(LdScoreThread, &ctx, &tg);
+
+    const uint32_t output_zst = (flags / kfLdScoreZs) & 1;
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    char* chr_buf;
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto LdScore_ret_NOMEM;
+    }
+    OutnameZstSet(".ldscore", output_zst, outname_end);
+    reterr = InitCstreamAlloc(outname, 0, output_zst, 1, kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 256, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto LdScore_ret_1;
+    }
+    const uint32_t col_chrom = (flags / kfLdScoreColChrom) & 1;
+    const uint32_t col_pos = (flags / kfLdScoreColPos) & 1;
+    const uint32_t col_nobs = (flags / kfLdScoreColNobs) & 1;
+    const uint32_t col_l2 = (flags / kfLdScoreColL2) & 1;
+    *cswritep++ = '#';
+    if (col_chrom) {
+      cswritep = strcpya_k(cswritep, "CHROM\t");
+    }
+    if (col_pos) {
+      cswritep = strcpya_k(cswritep, "POS\t");
+    }
+    cswritep = strcpya_k(cswritep, "ID");
+    if (col_nobs) {
+      cswritep = strcpya_k(cswritep, "\tNOBS");
+    }
+    if (col_l2) {
+      cswritep = strcpya_k(cswritep, "\tL2");
+    }
+    AppendBinaryEoln(&cswritep);
+
+    fputs("--ld-score: 0%", stdout);
+    fflush(stdout);
+    uint32_t undefined_ct = 0;
+    uint32_t written_ct = 0;
+    uint32_t next_print_ct = kept_variant_ct / 100;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+      if (!chr_variant_ct) {
+        continue;
+      }
+      for (uint32_t cidx = 0; cidx != chr_variant_ct; ++cidx) {
+        chr_variant_uidxs[cidx] = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      }
+      ctx.chr_variant_ct = chr_variant_ct;
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
+      const uint32_t chr_name_slen = chr_name_end - chr_buf;
+
+      uint32_t loaded_end = 0;
+      for (uint32_t block_start = 0; block_start != chr_variant_ct; ) {
+        const uint32_t block_end = MINV(block_start + block_size, chr_variant_ct);
+        // Everything the block's widest window can reach has to be resident
+        // before the workers start.
+        const uint32_t need_start = LdScoreWindowStart(&ctx, block_start);
+        const uint32_t need_end = LdScoreWindowEnd(&ctx, block_end - 1);
+        if (loaded_end < need_start) {
+          loaded_end = need_start;
+        }
+        for (; loaded_end != need_end; ++loaded_end) {
+          const uint32_t slot_idx = loaded_end % ring_size;
+          uintptr_t* cur_genobuf = &(genobufs[slot_idx * variant_buf_word_ct]);
+          reterr = PgrGet(founder_info, pssi, founder_ct, chr_variant_uidxs[loaded_end], simple_pgrp, genovec);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, chr_variant_uidxs[loaded_end]);
+            goto LdScore_ret_1;
+          }
+          ZeroTrailingNyps(founder_ct, genovec);
+          SplitHomRef2het(genovec, founder_ct, cur_genobuf, &(cur_genobuf[founder_ctaw]));
+          uint32_t nm_ct;
+          uint32_t plusone_ct;
+          uint32_t minusone_ct;
+          FillVaggs(cur_genobuf, &(cur_genobuf[founder_ctaw]), BitCtToWordCt(founder_ct), &(vaggs[slot_idx]), &nm_ct, &plusone_ct, &minusone_ct);
+        }
+        const uint32_t cur_block_size = block_end - block_start;
+        const uint32_t cur_thread_ct = MINV(calc_thread_ct, cur_block_size);
+        for (uint32_t tidx = 0; tidx <= calc_thread_ct; ++tidx) {
+          const uint32_t capped_tidx = MINV(tidx, cur_thread_ct);
+          thread_cidx_starts[tidx] = block_start + ((S_CAST(uint64_t, capped_tidx) * cur_block_size) / cur_thread_ct);
+        }
+        ctx.block_start = block_start;
+        ctx.block_end = block_end;
+        if (cur_thread_ct == 1) {
+          LdScoreRange(&ctx, block_start, block_end);
+        } else {
+          DeclareLastThreadBlock(&tg);
+          if (unlikely(SpawnThreads(&tg))) {
+            goto LdScore_ret_THREAD_CREATE_FAIL;
+          }
+          JoinThreads(&tg);
+          ReinitThreads(&tg);
+        }
+
+        for (uint32_t cidx = block_start; cidx != block_end; ++cidx) {
+          const uint32_t variant_uidx = chr_variant_uidxs[cidx];
+          if (col_chrom) {
+            cswritep = memcpyax(cswritep, chr_buf, chr_name_slen, '\t');
+          }
+          if (col_pos) {
+            cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+          }
+          cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+          if (col_nobs) {
+            *cswritep++ = '\t';
+            cswritep = u32toa(nobs_results[cidx], cswritep);
+          }
+          const uint32_t is_undefined = (l2_results[cidx] < 0.0);
+          if (col_l2) {
+            *cswritep++ = '\t';
+            if (is_undefined) {
+              cswritep = strcpya_k(cswritep, "NA");
+            } else {
+              cswritep = dtoa_g(l2_results[cidx], cswritep);
+            }
+          }
+          undefined_ct += is_undefined;
+          AppendBinaryEoln(&cswritep);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto LdScore_ret_WRITE_FAIL;
+          }
+        }
+        written_ct += cur_block_size;
+        if (written_ct >= next_print_ct) {
+          if (written_ct != kept_variant_ct) {
+            printf("\b\b%u%%", (written_ct * 100LLU) / kept_variant_ct);
+            fflush(stdout);
+          }
+          next_print_ct = (written_ct / (kept_variant_ct / 100 + 1) + 1) * (kept_variant_ct / 100 + 1);
+        }
+        block_start = block_end;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto LdScore_ret_WRITE_FAIL;
+    }
+    fputs("\b\b\b", stdout);
+    logprintfww("--ld-score: LD Scores for %u variant%s written to %s .\n", kept_variant_ct, (kept_variant_ct == 1)? "" : "s", outname);
+    if (multiallelic_skip_ct || haploid_skip_ct) {
+      logprintf("(%u multiallelic and %u haploid-chromosome variants skipped.)\n", multiallelic_skip_ct, haploid_skip_ct);
+    }
+    if (undefined_ct) {
+      logprintf("(%u monomorphic variant%s reported as NA.)\n", undefined_ct, (undefined_ct == 1)? "" : "s");
+    }
+  }
+  while (0) {
+  LdScore_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LdScore_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  LdScore_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  LdScore_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+ LdScore_ret_1:
+  CleanupThreads(&tg);
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   const VcorFlags flags = vcip->flags;
   const uint32_t phased_calc = (flags / kfVcorPhased) & 1;

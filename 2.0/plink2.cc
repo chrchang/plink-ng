@@ -224,7 +224,8 @@ FLAGSET64_DEF_START()
   kfCommand1Vcor = (1 << 29),
   kfCommand1PhenoSvd = (1 << 30),
   kfCommand1CheckOrImputeSex = (1U << 31),
-  kfCommand1MendelReport = (1LLU << 32)
+  kfCommand1MendelReport = (1LLU << 32),
+  kfCommand1LdScore = (1LLU << 33)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -421,6 +422,7 @@ typedef struct Plink2CmdlineStruct {
   GwasSsfInfo gwas_ssf_info;
   ClumpInfo clump_info;
   VcorInfo vcor_info;
+  LdScoreInfo ld_score_info;
   PhenoSvdInfo pheno_svd_info;
   CheckSexInfo check_sex_info;
   MendelInfo mendel_info;
@@ -555,7 +557,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -2989,6 +2991,21 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1LdScore) {
+        if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
+          logerrputs("Error: --ld-score requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          return kPglRetInconsistentInput;
+        }
+        if (unlikely((vpos_sortstatus & kfUnsortedVarCm) && (pcp->ld_score_info.cm_radius >= 0.0))) {
+          logerrputs("Error: --ld-score's cM window requires nondecreasing CM values on each\nchromosome.  Retry this command after regenerating your CM coordinates.\n");
+          return kPglRetInconsistentInput;
+        }
+        reterr = LdScore(variant_include, cip, variant_bps, variant_ids, variant_cms, allele_idx_offsets, founder_info, &(pcp->ld_score_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1Het) {
         reterr = HetReport(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, founder_info, raw_sample_ct, sample_ct, founder_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->het_flags, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
         if (unlikely(reterr)) {
@@ -3760,6 +3777,7 @@ int main(int argc, char** argv) {
   InitGwasSsf(&pc.gwas_ssf_info);
   InitClump(&pc.clump_info);
   InitVcor(&pc.vcor_info);
+  InitLdScore(&pc.ld_score_info);
   InitPhenoSvd(&pc.pheno_svd_info);
   InitCheckSex(&pc.check_sex_info);
   InitMendel(&pc.mendel_info);
@@ -8074,6 +8092,73 @@ int main(int argc, char** argv) {
             pc.vcor_info.bp_radius = S_CAST(int32_t, dxx);
           }
           r2_required = 1;
+        } else if (strequal_k_unsafe(flagname_p2, "d-score")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.ld_score_info.flags |= kfLdScoreZs;
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              if (unlikely(pc.ld_score_info.flags & kfLdScoreColAll)) {
+                logerrputs("Error: Multiple --ld-score cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0nobs\0l2\0", "ld-score", kfLdScoreColChrom, kfLdScoreColDefault, 1, &pc.ld_score_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --ld-score argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (!(pc.ld_score_info.flags & kfLdScoreColAll)) {
+            pc.ld_score_info.flags |= kfLdScoreColDefault;
+          }
+          pc.command_flags1 |= kfCommand1LdScore;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "d-score-window")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t uii;
+          if (unlikely(ScanUintCappedx(argvk[arg_idx + 1], 0x7ffffffe, &uii))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --ld-score-window argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.ld_score_info.var_ct_radius = uii;
+          // An explicit window replaces the cM default rather than adding to
+          // it; otherwise a user asking for a variant-count window would
+          // silently keep getting the 1 cM restriction too.
+          if (pc.ld_score_info.cm_radius == 1.0) {
+            pc.ld_score_info.cm_radius = -1.0;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "d-score-window-kb")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0) || (dxx > 2147483.646))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --ld-score-window-kb argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.ld_score_info.bp_radius = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+          if (pc.ld_score_info.cm_radius == 1.0) {
+            pc.ld_score_info.cm_radius = -1.0;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "d-score-window-cm")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --ld-score-window-cm argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.ld_score_info.cm_radius = dxx * (1 + kSmallEpsilon);
         } else if (strequal_k_unsafe(flagname_p2, "d-window-cm")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
