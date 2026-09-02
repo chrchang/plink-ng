@@ -227,6 +227,7 @@ ENUM_U31_DEF_START()
   kCmd1BitCheckOrImputeSex,
   kCmd1BitMendelReport,
   kCmd1BitLdScore,
+  kCmd1BitTdt,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -265,7 +266,8 @@ FLAGSET64_DEF_START()
   kfCommand1PhenoSvd = (1LLU << kCmd1BitPhenoSvd),
   kfCommand1CheckOrImputeSex = (1LLU << kCmd1BitCheckOrImputeSex),
   kfCommand1MendelReport = (1LLU << kCmd1BitMendelReport),
-  kfCommand1LdScore = (1LLU << kCmd1BitLdScore)
+  kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
+  kfCommand1Tdt = (1LLU << kCmd1BitTdt)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -466,6 +468,7 @@ typedef struct Plink2CmdlineStruct {
   PhenoSvdInfo pheno_svd_info;
   CheckSexInfo check_sex_info;
   MendelInfo mendel_info;
+  TdtInfo tdt_info;
   FlipInfo flip_info;
   double ci_size;
   float var_min_qual;
@@ -597,7 +600,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1Tdt)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -3054,6 +3057,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1Tdt) {
+        reterr = TdtReport(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, &(pcp->tdt_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->output_min_ln, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1Het) {
         reterr = HetReport(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, founder_info, raw_sample_ct, sample_ct, founder_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->het_flags, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
         if (unlikely(reterr)) {
@@ -3829,6 +3839,7 @@ int main(int argc, char** argv) {
   InitPhenoSvd(&pc.pheno_svd_info);
   InitCheckSex(&pc.check_sex_info);
   InitMendel(&pc.mendel_info);
+  InitTdt(&pc.tdt_info);
   InitPermConfig(&pc.perm_config);
   InitFlip(&pc.flip_info);
   GenDummyInfo gendummy_info;
@@ -12238,7 +12249,54 @@ int main(int argc, char** argv) {
         break;
 
       case 't':
-        if (strequal_k_unsafe(flagname_p2, "hreads")) {
+        if (strequal_k_unsafe(flagname_p2, "dt")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.tdt_info.flags |= kfTdtZs;
+            } else if (strequal_k(cur_modif, "exact", cur_modif_slen)) {
+              pc.tdt_info.flags |= kfTdtExact;
+            } else if (strequal_k(cur_modif, "exact-midp", cur_modif_slen)) {
+              pc.tdt_info.flags |= kfTdtExactMidp;
+            } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
+              if (unlikely(pc.tdt_info.flags & kfTdtColAll)) {
+                logerrputs("Error: Multiple --tdt cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt\0maybeprovref\0provref\0a1\0t\0u\0nobs\0or\0chisq\0p\0", "tdt", kfTdtColChrom, kfTdtColDefault, 1, &pc.tdt_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else if (unlikely(strequal_k(cur_modif, "perm", cur_modif_slen) ||
+                                StrStartsWith(cur_modif, "mperm=", cur_modif_slen) ||
+                                strequal_k(cur_modif, "perm-count", cur_modif_slen) ||
+                                strequal_k(cur_modif, "set-test", cur_modif_slen) ||
+                                strequal_k(cur_modif, "poo", cur_modif_slen) ||
+                                strequal_k(cur_modif, "parentdt1", cur_modif_slen) ||
+                                strequal_k(cur_modif, "parentdt2", cur_modif_slen) ||
+                                strequal_k(cur_modif, "pat", cur_modif_slen) ||
+                                strequal_k(cur_modif, "mat", cur_modif_slen))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --tdt '%s' modifier is not implemented yet.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --tdt argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (unlikely((pc.tdt_info.flags & kfTdtExact) && (pc.tdt_info.flags & kfTdtExactMidp))) {
+            logerrputs("Error: --tdt 'exact' and 'exact-midp' cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (!(pc.tdt_info.flags & kfTdtColAll)) {
+            pc.tdt_info.flags |= kfTdtColDefault;
+          }
+          pc.command_flags1 |= kfCommand1Tdt;
+          pc.dependency_flags |= kfFilterAllReq | kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "hreads")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
