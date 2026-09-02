@@ -1,5 +1,5 @@
 // This library is part of PLINK 2.0, copyright (C) 2005-2026 Shaun Purcell,
-// Christopher Chang.
+// Christopher Chang, Benjamin Demaille.
 //
 // This library is free software: you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License as published by the
@@ -1424,6 +1424,318 @@ double QuantileToZscore(double pval) {
   const double denom_rem0 = prefer_fma(prefer_fma(kIvnB[1], q4, kIvnB[3]), q4, 1);
   const double denom_rem2 = q2 * prefer_fma(prefer_fma(kIvnB[0], q4, kIvnB[2]), q4, kIvnB[4]);
   return q * (numer_rem1 + numer_rem3) / (denom_rem0 + denom_rem2);
+}
+
+intptr_t HypergeomCompare(uint64_t obs_m11, uint64_t obs_m12, uint64_t obs_m21, uint64_t obs_m22, int64_t m22_incr, td_real* neg_numer_tdr_ptr, double* dbl_ptr) {
+  // Likelihood ratio of interest is
+  //
+  //           obs_m11! obs_m12! obs_m21! obs_m22!
+  //   ---------------------------------------------------
+  //   (obs_m11+j)! (obs_m12-j)! (obs_m21-j)! (obs_m22+j)!
+  //
+  // where j=m22_incr.
+  //
+  // Note that HWE kind of maps to this, via
+  //   m11 := obs_hets*0.5
+  //   m12 := obs_hom1
+  //   m21 := obs_hom2
+  //   m22 := (obs_hets-1)*0.5
+  uint64_t numer_factorial_args[4];
+  numer_factorial_args[0] = obs_m11;
+  numer_factorial_args[1] = obs_m12;
+  numer_factorial_args[2] = obs_m21;
+  numer_factorial_args[3] = obs_m22;
+  uint64_t denom_factorial_args[4];
+  denom_factorial_args[0] = obs_m11 + m22_incr;
+  denom_factorial_args[1] = obs_m12 - m22_incr;
+  denom_factorial_args[2] = obs_m21 - m22_incr;
+  denom_factorial_args[3] = obs_m22 + m22_incr;
+  td_real ln_odds_ratio_tdr = tdr_make1(0.0);
+  return CompareFactorialProducts(4, tdr_make1(1.0), 0, 0, numer_factorial_args, denom_factorial_args, neg_numer_tdr_ptr, &ln_odds_ratio_tdr, dbl_ptr);
+}
+
+// obs_m11 + obs_m12 + obs_m21 + obs_m22 assumed to be <2^31.  This is mostly
+// copied from github.com/chrchang/stats ; accurate support for the largest
+// arguments has been ripped out.
+// They're defined as int64_ts instead of uint64_ts since signed int <->
+// floating-point conversions are sometimes faster than the same-width unsigned
+// int <-> floating-point conversions.
+double Fisher22TwoSidedP(int64_t obs_m11, int64_t obs_m12, int64_t obs_m21, int64_t obs_m22, int32_t midp, uint32_t logp) {
+  // Normalize: m11 >= m22, m12 >= m21, m11*m22 <= m12*m21.
+  // Note that the first two are reversed from PLINK 1.9, to get rid of
+  // spurious index differences between Fisher22 and Fisher23.
+  if (obs_m11 < obs_m22) {
+    swap_i64(&obs_m11, &obs_m22);
+  }
+  if (obs_m12 < obs_m21) {
+    swap_i64(&obs_m12, &obs_m21);
+  }
+  if (ddr_gt(ddr_mul2d(obs_m11, obs_m22), ddr_mul2d(obs_m12, obs_m21))) {
+    swap_i64(&obs_m11, &obs_m12);
+    swap_i64(&obs_m21, &obs_m22);
+  }
+  // I experimented with making more int -> double casts explicit, but
+  // concluded that it was hurting readability more than it was helping.
+  double m11 = obs_m11;
+  double m12 = obs_m12;
+  double m21 = obs_m21;
+  double m22 = obs_m22;
+  if (!midp) {
+    // Fast path for p=1.
+    if (ddr_geq(ddr_mul2d(m11 + 1, m22 + 1), ddr_mul2d(m12, m21))) {
+      return logp? 0.0 : 1.0;
+    }
+  }
+
+  // Iterate outward to floating-point precision limit.
+  double lik = 1;
+  double tail_sum = 1 - 0.5 * midp;
+  while (1) {
+    m12 += 1;
+    m21 += 1;
+    lik *= (m11 * m22) / (m12 * m21);
+    m11 -= 1;
+    m22 -= 1;
+    const double preadd = tail_sum;
+    tail_sum += lik;
+    if (tail_sum == preadd) {
+      break;
+    }
+  }
+  // In the common case, where we're close enough to the mode that float64
+  // underflow/overflow isn't an issue, use the original algorithm: sum all
+  // center relative-likelihoods, sum far-tail relative-likelihoods to
+  // floating-point precision limit, return
+  //   log(tail_sum / (tail_sum + center_sum))
+  //
+  // bugfix (8 Aug 2026): previous 172-steps-from-mode check doesn't prevent
+  // overflow for obs_m12 huge, obs_m21 <= 172
+  const double first_inward_mult = S_CAST(double, obs_m12) * S_CAST(double, obs_m21) / (S_CAST(double, obs_m11 + 1) * S_CAST(double, obs_m22 + 1));
+  const double m1x = obs_m11 + obs_m12;
+  const double m2x = obs_m21 + obs_m22;
+  const double mx1 = obs_m11 + obs_m21;
+  const double mxx = m1x + m2x;
+  const double modal_m21 = m2x * mx1 / mxx;
+  if ((first_inward_mult <= 1) || ((m21 - modal_m21) * log(first_inward_mult) < 672)) {
+    lik = 1;
+    m11 = obs_m11;
+    m12 = obs_m12;
+    m21 = obs_m21;
+    m22 = obs_m22;
+    double center_sum = 0.5 * midp;
+    double one_plus_scaled_eps = 1 + k2m52;
+    while (1) {
+      m11 += 1;
+      m22 += 1;
+      lik *= (m12 * m21) / (m11 * m22);
+      m12 -= 1;
+      m21 -= 1;
+      one_plus_scaled_eps += 2 * k2m52;
+      if (lik < one_plus_scaled_eps) {
+        if (lik <= 2 - one_plus_scaled_eps) {
+          tail_sum += lik;
+          break;
+        }
+        // Near-tie.  True value of lik can be greater than, equal to, or
+        // less than 1.
+        const int64_t m22_incr = S_CAST(int64_t, m22) - obs_m22;
+        td_real starting_lnprobv_tdr = tdr_make1(DBL_MAX);
+        const intptr_t cmp_result = HypergeomCompare(obs_m11, obs_m12, obs_m21, obs_m22, m22_incr, &starting_lnprobv_tdr, &lik);
+        if (cmp_result <= 0) {
+          tail_sum += lik;
+          if (midp && (cmp_result == 0)) {
+            tail_sum -= 0.5;
+            center_sum += 0.5;
+          }
+          break;
+        }
+        one_plus_scaled_eps = 1 + 3 * k2m52;
+      }
+      center_sum += lik;
+    }
+    // Continue down tail to floating-point precision limit.
+    while (1) {
+      m11 += 1;
+      m22 += 1;
+      lik *= (m12 * m21) / (m11 * m22);
+      m12 -= 1;
+      m21 -= 1;
+      const double preadd = tail_sum;
+      tail_sum += lik;
+      if (tail_sum == preadd) {
+        break;
+      }
+    }
+    const double pval = tail_sum / (tail_sum + center_sum);
+    return logp? log(pval) : pval;
+  }
+
+  // Now we want to jump near the other tail, without evaluating that many
+  // contingency table log-likelihoods along the way.
+  //
+  // Each full log-likelihood evaluation requires 4 ddr_lfact() or tdr_lfact()
+  // calls.  Since they are now performed with extra precision, they require
+  // hundreds or thousands of floating-point operations, so we want to limit
+  // ourselves to 1-2 full evaluations most of the time.  (Possible todo: use
+  // lower-accuracy Lfact() to jump around, followed by {d,t}dr_lfact() when
+  // exiting the loop.  Should be an easy performance win, but there's a
+  // complexity cost so I'll wait until I see a scenario where this branch
+  // executes frequently...)
+  //
+  // The current heuristic starts by reflecting (obs_m21 + m21) * 0.5 across
+  // the mode, performing a full log-likelihood check at an adjacent valid
+  // point.  (It is convenient to focus on m21 here, since m21=0 corresponds to
+  // the outermost table on this tail.)  Hopefully we find that we're in
+  // (starting_lnprob - lnprobv_diff_min, starting_lnprob], so we're at or
+  // near a table that actually contributes to the tail-sum.  (This window is
+  // chosen to be wide enough to guarantee that at least one point falls
+  // inside.)
+  //
+  // If not, we jump again, using Newton's method.
+  // If m21 is too high (i.e. current log-likelihood is too high), decreasing
+  // m12 by 1 would multiply the likelihood by
+  //   (m11 + 1) * (m22 + 1) / (m12 * m21)
+  // If m12 is too low, increasing m12 by 1 would multiply the likelihood by
+  //   (m12 + 1) * (m21 + 1) / (m11 * m22)
+  // We use the negative-log of the first expression as the Newton's method
+  // f'(x) when we're jumping to lower m12, and the log of the second
+  // expression when we're jumping to higher m12.
+  // f''(x) is always negative, so we can aim for starting_lnprob instead of
+  // the middle of the interval.
+
+  const double m12_minus_m21 = obs_m12 - obs_m21;
+  {
+    // x=modal_m21 satisfies
+    //    (m2x - x) * (mx1 - x) = x * (x + m12_minus_m21)
+    // -> (x - m2x) * (x - mx1) = x * (x + m12_minus_m21)
+    // -> x^2 + x*(-m2x - mx1) + m2x*mx1 = x^2 + x*m12_minus_m21
+    // -> m2x*mx1 = x*(m12_minus_m21 + m2x + mx1)
+    // -> x = m2x*mx1 / mxx
+    m21 = 2 * modal_m21 - (m21 + obs_m21) * 0.5;
+    // Round down (to guarantee we've actually moved to the other side of the
+    // mode) and clamp.
+    m21 = S_CAST(int64_t, m21);
+    if (m21 < 0) {
+      m21 = 0;
+    }
+  }
+  // Extremal case: m11=mx1, m12=m12_minus_m21, m21=0, m22=m2x
+  //   log((m12 + 1) * (m21 + 1) / (m11 * m22))
+  // = log((m12_minus_m21 + 1) / (mx1 * m2x))
+  double lnprobv_diff_min = log((m12_minus_m21 + 1) / (mx1 * m2x)) * (1 + kSmallEpsilon);
+  const dd_real starting_lnprobv_ddr = ddr_negate(ddr_sort_and_add_4_lfacts(obs_m11, obs_m12, obs_m21, obs_m22));
+
+  const dd_real lnprobf_ddr =
+    ddr_sub(ddr_sort_and_add_4_lfacts(m1x, m2x, mx1, obs_m12 + obs_m22),
+            ddr_lfact(mxx));
+  dd_real starting_lnprob_ddr = ddr_add(lnprobf_ddr, starting_lnprobv_ddr);
+  while (1) {
+    m11 = mx1 - m21;
+    m12 = m12_minus_m21 + m21;
+    m22 = m2x - m21;
+    const dd_real lnprobv_ddr =
+      ddr_negate(ddr_sort_and_add_4_lfacts(m11, m12, m21, m22));
+    double lnprobv_diff = ddr_sub(lnprobv_ddr, starting_lnprobv_ddr).x[0];
+    // Could tighten this threshold further.  But code is correct as long as
+    // we're guaranteed to enter the "lik < 2 - one_minus_scaled_eps" branch
+    // for positive lnprobv_diff.
+    if (lnprobv_diff >= k2m53) {
+      if (m21 == 0) {
+        // All tables on this tail have higher likelihood than the starting
+        // table.  Exit.
+        return join_log_and_nonlog(starting_lnprob_ddr, tail_sum, logp);
+      }
+      const double ll_deriv = log(m12 * m21 / ((m11 + 1) * (m22 + 1)));
+      // Round up, to guarantee that we make progress.
+      // (lnprobv_diff is positive and ll_deriv is negative.)
+      // This may overshoot.  But the function is guaranteed to terminate
+      // because we never overshoot (and we do always make progress on each
+      // step) once we're on the other side.
+      m21 -= ceil(-lnprobv_diff / ll_deriv);
+      if (m21 < 0) {
+        m21 = 0;
+      }
+    } else {
+      double ll_deriv = DBL_MAX;
+      if ((lnprobv_diff_min < -53 * kLn2) && (m21 > 0)) {
+        // Tighten this threshold if that lets us sum fewer terms later.
+        ll_deriv = log((m12 + 1) * (m21 + 1) / (m11 * m22));
+        lnprobv_diff_min = ll_deriv * (1 + kSmallEpsilon);
+      }
+      if (lnprobv_diff > lnprobv_diff_min) {
+        lik = exp(lnprobv_diff);
+        break;
+      }
+      if (ll_deriv == DBL_MAX) {
+        ll_deriv = log((m12 + 1) * (m21 + 1) / (m11 * m22));
+      }
+      // Round down, to guarantee we don't overshoot.
+      // We're guaranteed to make progress because of how lnprobv_diff_min
+      // was set.
+      // m11 * m22 < exp(-lnprobv_diff_min), and (m12 + 1) * (m21 + 1) >= 1.
+      m21 += S_CAST(int64_t, lnprobv_diff / ll_deriv);
+    }
+  }
+  // Sum toward center, until lik >= 1.
+  // lik should be accurate to 3 ULP as we enter this loop (max 1.5 ULP
+  // observed error from exp, tiny bit over 0.5 from lnprobv_diff), so near-tie
+  // detection can use a tight epsilon here.
+  double one_minus_scaled_eps = 1 - 3 * k2m52;
+  // Save where we're starting on this tail, which isn't necessarily on the
+  // boundary.  We sum inward until relative-likelihood > 1, then we jump back
+  // to tailenter_{m11,m12,m21,m22} and sum outward.
+  const double tailenter_lik = lik;
+  const double tailenter_m11 = m11;
+  const double tailenter_m12 = m12;
+  const double tailenter_m21 = m21;
+  const double tailenter_m22 = m22;
+  td_real starting_lnprobv_tdr = tdr_make_dd(starting_lnprobv_ddr);
+  starting_lnprobv_tdr.x[2] = DBL_MAX;
+  while (1) {
+    while (lik <= one_minus_scaled_eps) {
+    Fisher22TwoSidedP_rtail_instep:
+      tail_sum += lik;
+      m12 += 1;
+      m21 += 1;
+      lik *= m11 * m22 / (m12 * m21);
+      m11 -= 1;
+      m22 -= 1;
+      one_minus_scaled_eps -= 2 * k2m52;
+    }
+    if (lik >= 2 - one_minus_scaled_eps) {
+      break;
+    }
+    const int64_t m22_incr = S_CAST(int64_t, m22) - obs_m22;
+    const intptr_t cmp_result = HypergeomCompare(obs_m11, obs_m12, obs_m21, obs_m22, m22_incr, &starting_lnprobv_tdr, &lik);
+    if (cmp_result >= 0) {
+      if (cmp_result == 0) {
+        tail_sum += 1 - 0.5 * midp;
+      }
+      break;
+    }
+    one_minus_scaled_eps = 1 - 3 * k2m52;
+    // bugfix (8 Aug 2026): must take one step when lik in (1 - 3*2^{-52}, 1).
+    goto Fisher22TwoSidedP_rtail_instep;
+  }
+  // Sum away from center, until sums stop changing.
+  lik = tailenter_lik;
+  m11 = tailenter_m11;
+  m12 = tailenter_m12;
+  m21 = tailenter_m21;
+  m22 = tailenter_m22;
+  while (1) {
+    m11 += 1;
+    m22 += 1;
+    lik *= m12 * m21 / (m11 * m22);
+    const double preadd = tail_sum;
+    tail_sum += lik;
+    if (tail_sum == preadd) {
+      break;
+    }
+    m12 -= 1;
+    m21 -= 1;
+  }
+  return join_log_and_nonlog(starting_lnprob_ddr, tail_sum, logp);
 }
 
 // - If non-null, *starting_lnprobv_ddr_ptr is expected to be initialized to

@@ -2,7 +2,7 @@
 #define __PLINK2_IMPORT_H__
 
 // This file is part of PLINK 2.0, copyright (C) 2005-2026 Shaun Purcell,
-// Christopher Chang.
+// Christopher Chang, Benjamin Demaille.
 //
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by the Free

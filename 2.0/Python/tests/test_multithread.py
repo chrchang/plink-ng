@@ -252,17 +252,14 @@ def main(tmp_path, also_plot: bool = True):
     # by comparing the slopes of the lines
     thread_slope = float(models["Multi-threaded"][1][1])
     print(f"Multi-threaded slope: {thread_slope}", file=sys.stderr)
-    # 1 Sep 2026: disabled since this is throwing false-positives.  With
-    # current test size, it is ok if multithreading setup overhead sometimes
-    # exceeds payoff.
-    #for model in ("Single-threaded", "Multi-process"):
-    #    slope = float(models[model][1][1])
-    #    if not np.isnan(slope):
-    #        print(f"{model} slope: {slope}", file=sys.stderr)
-    #        # skip the test if we don't have at least 2 CPUs or
-    #        # if the err was too high for one of the points
-    #        if num_cpus > 1 and valid_result:
-    #            assert (slope > thread_slope)
+    for model in ("Single-threaded", "Multi-process"):
+        slope = float(models[model][1][1])
+        if not np.isnan(slope):
+            print(f"{model} slope: {slope}", file=sys.stderr)
+            # skip the test if we don't have at least 2 CPUs or
+            # if the err was too high for one of the points
+            if num_cpus > 1 and valid_result:
+                assert (slope > thread_slope)
 
 def test_multithread(tmp_path):
     main(tmp_path, also_plot=False)
