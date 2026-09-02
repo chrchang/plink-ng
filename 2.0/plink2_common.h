@@ -225,7 +225,7 @@ FLAGSET64_DEF_START()
   // the two are updated together, and checked during argument parsing so an
   // unimplemented format is rejected before the dataset is loaded rather than
   // after.
-  kfExportfImplemented = (kfExportfA | kfExportfAD | kfExportfAv | kfExportfBcf | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13 | kfExportfBimbam | kfExportfBimbam1chr | kfExportfCompound | kfExportfEig | kfExportfEigt | kfExportfHaps | kfExportfHapsLegend | kfExportfIndMajorBed | kfExportfOxGen | kfExportfPed | kfExportfPhylip | kfExportfPhylipPhased | kfExportfTped | kfExportfVcf),
+  kfExportfImplemented = (kfExportfA | kfExportfAD | kfExportfAv | kfExportfBcf | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13 | kfExportfBimbam | kfExportfBimbam1chr | kfExportfCompound | kfExportfLgen | kfExportfLgenRef | kfExportfList | kfExportfRlist | kfExportfEig | kfExportfEigt | kfExportfHaps | kfExportfHapsLegend | kfExportfIndMajorBed | kfExportfOxGen | kfExportfPed | kfExportfPhylip | kfExportfPhylipPhased | kfExportfTped | kfExportfVcf),
   kfExportfIncludeAlt = (1LLU << 40),
   kfExportfBgz = (1LLU << 41),
   kfExportfOmitNonmaleY = (1LLU << 42),
