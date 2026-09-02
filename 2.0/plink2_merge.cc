@@ -7598,19 +7598,45 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     }
 
     SamePosPvarRecord** rec_ptrs;
-    uint32_t* group_starts;
-    uint32_t* group_rec_cts;
-    uint32_t* group_allele_cts;
-    AlleleCode* saved_remaps;
-    if (unlikely(BIGSTACK_ALLOC_X(SamePosPvarRecord*, rec_ct, &rec_ptrs) ||
-                 bigstack_alloc_u32(rec_ct, &group_starts) ||
-                 bigstack_alloc_u32(rec_ct, &group_rec_cts) ||
-                 bigstack_alloc_u32(rec_ct, &group_allele_cts) ||
-                 bigstack_alloc_ac(rec_ct * S_CAST(uintptr_t, read_max_allele_ct), &saved_remaps))) {
+    if (unlikely(BIGSTACK_ALLOC_X(SamePosPvarRecord*, rec_ct, &rec_ptrs))) {
       goto PmergePassSingle_ret_NOMEM;
     }
     for (uintptr_t rec_idx = 0; rec_idx != rec_ct; ++rec_idx) {
       rec_ptrs[rec_idx] = sort_entries[rec_idx].pp;
+    }
+
+    // The records are sorted by (chromosome, bp, ID), so each output variant
+    // is a contiguous run and the output variant count can be counted here,
+    // before anything is merged.  That lets the .pvar and .pgen be written in
+    // a single pass, which matters because the alternative is holding an
+    // allele-remap block per record: read_max_allele_ct bytes each, which is
+    // 255 in the worst case and unaffordable at biobank scale.
+    //
+    // --merge-max-alleles is the one thing that can break the identity, since
+    // MergePvariant() only discovers a doomed variant after taking the union
+    // of its alleles.
+    if (unlikely(pmip->max_allele_ct)) {
+      logerrputs("Error: Non-concatenating --pmerge[-list] with --merge-max-alleles is under\ndevelopment.\n");
+      reterr = kPglRetNotYetSupported;
+      goto PmergePassSingle_ret_1;
+    }
+    uint32_t write_variant_ct = 0;
+    {
+      const char* prev_variant_id = nullptr;
+      uint64_t prev_key = 0;
+      for (uintptr_t rec_idx = 0; rec_idx != rec_ct; ++rec_idx) {
+        const uint64_t cur_key = sort_entries[rec_idx].chr_bp_key;
+        const char* cur_variant_id = rec_ptrs[rec_idx]->variant_id;
+        if ((!prev_variant_id) || (cur_key != prev_key) || (!strequal_unsafe(cur_variant_id, prev_variant_id, strlen(prev_variant_id)))) {
+          ++write_variant_ct;
+          prev_variant_id = cur_variant_id;
+          prev_key = cur_key;
+        }
+      }
+    }
+    if (unlikely(!write_variant_ct)) {
+      logerrputs("Error: No variants remaining after merge.\n");
+      goto PmergePassSingle_ret_INCONSISTENT_INPUT;
     }
 
     // 4. Merge the .pvar.  This is what determines the exact output variant
@@ -7625,97 +7651,21 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
       goto PmergePassSingle_ret_1;
     }
     ppmc.pmc.chr_buf = chr_buf;
-    ppmc.write_variant_ct = rec_ct;
+    ppmc.write_variant_ct = write_variant_ct;
     if (write_max_allele_ct > 2) {
-      if (unlikely(bigstack_alloc_w(rec_ct + 1, &ppmc.write_allele_idx_offsets))) {
+      if (unlikely(bigstack_alloc_w(write_variant_ct + 1, &ppmc.write_allele_idx_offsets))) {
         goto PmergePassSingle_ret_NOMEM;
       }
       ppmc.write_allele_idx_offsets[0] = 0;
     }
     if (nonref_flags_storage == 3) {
-      if (unlikely(bigstack_calloc_w(BitCtToWordCt(rec_ct), &ppmc.write_nonref_flags))) {
+      if (unlikely(bigstack_calloc_w(BitCtToWordCt(write_variant_ct), &ppmc.write_nonref_flags))) {
         goto PmergePassSingle_ret_NOMEM;
       }
     }
-    const uintptr_t allele_remap_stride = ppmc.pmc.read_max_allele_ct;
-    uintptr_t group_ct = 0;
-    uint32_t write_variant_idx = 0;
-    uint32_t prev_chr_idx = UINT32_MAX;
-    printf("\rMerging... 0/%" PRIuPTR " variants scanned.", rec_ct);
-    fflush(stdout);
-    for (uintptr_t rec_idx_start = 0; rec_idx_start != rec_ct; ) {
-      const uint64_t cur_key = sort_entries[rec_idx_start].chr_bp_key;
-      const uint32_t cur_chr_idx = sort_entries[rec_idx_start].chr_idx;
-      uintptr_t pos_end = rec_idx_start + 1;
-      for (; pos_end != rec_ct; ++pos_end) {
-        if (sort_entries[pos_end].chr_bp_key != cur_key) {
-          break;
-        }
-      }
-      if (cur_chr_idx != prev_chr_idx) {
-        char* chr_name_end = chrtoa(cip, cur_chr_idx, chr_buf);
-        *chr_name_end = '\0';
-        ppmc.pmc.chr_slen = chr_name_end - chr_buf;
-        prev_chr_idx = cur_chr_idx;
-      }
-      ppmc.pmc.cur_bp = S_CAST(int32_t, S_CAST(uint32_t, cur_key));
-      for (uintptr_t grp_start = rec_idx_start; grp_start != pos_end; ) {
-        char* cur_variant_id = rec_ptrs[grp_start]->variant_id;
-        const uint32_t cur_variant_id_slen = strlen(cur_variant_id);
-        uintptr_t grp_end = grp_start + 1;
-        for (; grp_end != pos_end; ++grp_end) {
-          if (!strequal_unsafe(rec_ptrs[grp_end]->variant_id, cur_variant_id, cur_variant_id_slen)) {
-            break;
-          }
-        }
-        SamePosPvarRecord** same_id_records = &(rec_ptrs[grp_start]);
-        const uintptr_t merge_rec_ct = grp_end - grp_start;
-        uint32_t is_pr = 0;
-        uint32_t allele_ct;
-        uint64_t cur_line_blen;
-        reterr = MergePvariant(merge_rec_ct, &ppmc.pmc, same_id_records, ppmc.write_nonref_flags? (&is_pr) : nullptr, &allele_ct, &cur_line_blen);
-        if (unlikely(reterr)) {
-          goto PmergePassSingle_ret_N;
-        }
-        group_starts[group_ct] = grp_start;
-        group_rec_cts[group_ct] = merge_rec_ct;
-        group_allele_cts[group_ct] = allele_ct;
-        if (allele_ct) {
-          if (unlikely(cur_line_blen > kMaxLongLine)) {
-            logerrprintfww("Error: Merged .pvar entry for variant '%s' at %s:%d is too long for this " PROG_NAME_STR " build.\n", cur_variant_id, chr_buf, ppmc.pmc.cur_bp);
-            reterr = kPglRetNotYetSupported;
-            goto PmergePassSingle_ret_N;
-          }
-          if (ppmc.write_allele_idx_offsets) {
-            ppmc.write_allele_idx_offsets[write_variant_idx + 1] = ppmc.write_allele_idx_offsets[write_variant_idx] + allele_ct;
-          }
-          if (ppmc.write_nonref_flags) {
-            AssignBit(write_variant_idx, is_pr, ppmc.write_nonref_flags);
-          }
-          memcpy(&(saved_remaps[grp_start * allele_remap_stride]), ppmc.pmc.allele_remap, merge_rec_ct * allele_remap_stride * sizeof(AlleleCode));
-          ++write_variant_idx;
-        }
-        ++group_ct;
-        grp_start = grp_end;
-      }
-      rec_idx_start = pos_end;
-      if (rec_idx_start >= ppmc.next_print_variant_idx) {
-        printf("\rMerging... %" PRIuPTR "/%" PRIuPTR " variants scanned.", rec_idx_start, rec_ct);
-        fflush(stdout);
-        ppmc.next_print_variant_idx = rec_idx_start + 10000;
-      }
-    }
-    if (unlikely(CswriteCloseNull(&ppmc.pmc.css, ppmc.pmc.cswritep))) {
-      goto PmergePassSingle_ret_WRITE_FAIL_N;
-    }
-    const uint32_t write_variant_ct = write_variant_idx;
-    if (unlikely(!write_variant_ct)) {
-      logputs("\n");
-      logerrputs("Error: No variants remaining after merge.\n");
-      goto PmergePassSingle_ret_INCONSISTENT_INPUT;
-    }
-
-    // 5. Now that the output variant count is known, merge the .pgen.
+    // 5. Set up the .pgen writer.  Both files are then written by one pass
+    //    over the records, so each variant's allele remap is consumed while
+    //    it is still live in ppmc.pmc rather than being saved for later.
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     const PgenGlobalFlags write_gflags = vrtype_8bit_needed? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0;
     uintptr_t spgw_alloc_cacheline_ct;
@@ -7783,25 +7733,78 @@ PglErr PmergePassSingle(const PmergeInfo* pmip, const SampleIdInfo* siip, const 
     }
     mw.merge_mode = pmip->merge_mode;
 
-    uint32_t next_print_variant_idx = 10000;
-    write_variant_idx = 0;
-    for (uintptr_t group_idx = 0; group_idx != group_ct; ++group_idx) {
-      const uint32_t cur_allele_ct = group_allele_cts[group_idx];
-      if (!cur_allele_ct) {
-        continue;
+    const uintptr_t allele_remap_stride = ppmc.pmc.read_max_allele_ct;
+    uint32_t write_variant_idx = 0;
+    uint32_t prev_chr_idx = UINT32_MAX;
+    printf("\rMerging... 0/%u variants.", write_variant_ct);
+    fflush(stdout);
+    for (uintptr_t rec_idx_start = 0; rec_idx_start != rec_ct; ) {
+      const uint64_t cur_key = sort_entries[rec_idx_start].chr_bp_key;
+      const uint32_t cur_chr_idx = sort_entries[rec_idx_start].chr_idx;
+      uintptr_t pos_end = rec_idx_start + 1;
+      for (; pos_end != rec_ct; ++pos_end) {
+        if (sort_entries[pos_end].chr_bp_key != cur_key) {
+          break;
+        }
       }
-      const uint32_t grp_start = group_starts[group_idx];
-      reterr = MergePgenVariantNoTmpLocked(&(rec_ptrs[grp_start]), &(saved_remaps[grp_start * allele_remap_stride]), group_rec_cts[group_idx], cur_allele_ct, allele_remap_stride, mrp_arr, &mw);
-      if (unlikely(reterr)) {
-        goto PmergePassSingle_ret_N;
+      if (cur_chr_idx != prev_chr_idx) {
+        char* chr_name_end = chrtoa(cip, cur_chr_idx, chr_buf);
+        *chr_name_end = '\0';
+        ppmc.pmc.chr_slen = chr_name_end - chr_buf;
+        prev_chr_idx = cur_chr_idx;
       }
-      ++write_variant_idx;
-      if (write_variant_idx >= next_print_variant_idx) {
-        printf("\rMerging... %u/%u variants written.", write_variant_idx, write_variant_ct);
-        fflush(stdout);
-        next_print_variant_idx += 10000;
+      ppmc.pmc.cur_bp = S_CAST(int32_t, S_CAST(uint32_t, cur_key));
+      for (uintptr_t grp_start = rec_idx_start; grp_start != pos_end; ) {
+        char* cur_variant_id = rec_ptrs[grp_start]->variant_id;
+        const uint32_t cur_variant_id_slen = strlen(cur_variant_id);
+        uintptr_t grp_end = grp_start + 1;
+        for (; grp_end != pos_end; ++grp_end) {
+          if (!strequal_unsafe(rec_ptrs[grp_end]->variant_id, cur_variant_id, cur_variant_id_slen)) {
+            break;
+          }
+        }
+        SamePosPvarRecord** same_id_records = &(rec_ptrs[grp_start]);
+        const uintptr_t merge_rec_ct = grp_end - grp_start;
+        uint32_t is_pr = 0;
+        uint32_t allele_ct;
+        uint64_t cur_line_blen;
+        reterr = MergePvariant(merge_rec_ct, &ppmc.pmc, same_id_records, ppmc.write_nonref_flags? (&is_pr) : nullptr, &allele_ct, &cur_line_blen);
+        if (unlikely(reterr)) {
+          goto PmergePassSingle_ret_N;
+        }
+        if (allele_ct) {
+          if (unlikely(cur_line_blen > kMaxLongLine)) {
+            logerrprintfww("Error: Merged .pvar entry for variant '%s' at %s:%d is too long for this " PROG_NAME_STR " build.\n", cur_variant_id, chr_buf, ppmc.pmc.cur_bp);
+            reterr = kPglRetNotYetSupported;
+            goto PmergePassSingle_ret_N;
+          }
+          if (ppmc.write_allele_idx_offsets) {
+            ppmc.write_allele_idx_offsets[write_variant_idx + 1] = ppmc.write_allele_idx_offsets[write_variant_idx] + allele_ct;
+          }
+          if (ppmc.write_nonref_flags) {
+            AssignBit(write_variant_idx, is_pr, ppmc.write_nonref_flags);
+          }
+          reterr = MergePgenVariantNoTmpLocked(same_id_records, ppmc.pmc.allele_remap, merge_rec_ct, allele_ct, allele_remap_stride, mrp_arr, &mw);
+          if (unlikely(reterr)) {
+            goto PmergePassSingle_ret_N;
+          }
+          ++write_variant_idx;
+          if (write_variant_idx >= ppmc.next_print_variant_idx) {
+            printf("\rMerging... %u/%u variants.", write_variant_idx, write_variant_ct);
+            fflush(stdout);
+            ppmc.next_print_variant_idx = write_variant_idx + 10000;
+          }
+        }
+        grp_start = grp_end;
       }
+      rec_idx_start = pos_end;
     }
+    if (unlikely(CswriteCloseNull(&ppmc.pmc.css, ppmc.pmc.cswritep))) {
+      goto PmergePassSingle_ret_WRITE_FAIL_N;
+    }
+    assert(write_variant_idx == write_variant_ct);
+
+
     reterr = SpgwFinish(&mw.spgw);
     if (unlikely(reterr)) {
       goto PmergePassSingle_ret_1;
