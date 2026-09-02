@@ -2533,13 +2533,10 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
 // largest diagonal entry of the inverted correlation matrix (its VIF) is
 // removed as long as that entry exceeds the threshold.
 //
-// Unlike IndepPairwise(), this recomputes each window's correlations from
-// scratch rather than carrying them across window slides.  The values are
-// identical either way, since a pair's correlation does not depend on which
-// window it is seen in; this trades some speed for a much simpler
-// implementation.  It is also single-threaded.
-// Pearson correlation between two window entries, computed the way PLINK 1.9's
-// ld_prune() does: integer accumulators, pairwise-complete.
+// Chromosomes are pruned independently, so they are handed out to worker
+// threads; within a chromosome the window slides sequentially, since each
+// window's result depends on what the previous one removed.
+
 // Pearson correlation between two window entries, matching PLINK 1.9's
 // ld_prune() arithmetic (integer accumulators, pairwise-complete).
 //
