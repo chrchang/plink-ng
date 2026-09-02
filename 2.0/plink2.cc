@@ -5396,6 +5396,20 @@ int main(int argc, char** argv) {
               ++arg_iter;
             }
           }
+        } else if (strequal_k_unsafe(flagname_p2, "lump-index-first")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-index-first must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          pc.clump_info.flags |= kfClumpIndexFirst;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "lump-replicate")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
+            logerrputs("Error: --clump-replicate must be used with --clump.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          pc.clump_info.flags |= kfClumpReplicate;
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "lump-allow-overlap")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Clump))) {
             logerrputs("Error: --clump-allow-overlap must be used with --clump.\n");

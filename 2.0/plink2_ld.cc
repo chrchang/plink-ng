@@ -8435,6 +8435,16 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
                  bigstack_end_calloc_d(raw_allele_ct, &best_ln_pvals))) {
       goto ClumpReports_ret_NOMEM;
     }
+    // --clump-index-first restricts index variants to those reaching --clump-p1
+    // in the first file, so which file each significant result came from has to
+    // be remembered even when no output column needs it.
+    const uint32_t index_first = (clump_ip->flags / kfClumpIndexFirst) & 1;
+    uintptr_t* file1_index_alleles = nullptr;
+    if (index_first) {
+      if (unlikely(bigstack_end_calloc_w(raw_allele_ctl, &file1_index_alleles))) {
+        goto ClumpReports_ret_NOMEM;
+      }
+    }
     unsigned char* bigstack_mark2 = g_bigstack_base;
     unsigned char* bigstack_end_mark2 = g_bigstack_end;
     uint32_t file_ct = 0;
@@ -8468,7 +8478,8 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     const uint32_t ranges_col = !!range_fname;
     const uint32_t bounds_col = (flags & kfClumpColBounds) || ((flags & kfClumpColMaybeBounds) && ranges_col);
     const double ln_p1 = clump_ip->ln_p1;
-    const double ln_p2 = (sp2_col || bounds_col || ranges_col)? clump_ip->ln_p2 : -DBL_MAX;
+    const uint32_t replicate = (flags / kfClumpReplicate) & 1;
+    const double ln_p2 = (sp2_col || bounds_col || ranges_col || replicate)? clump_ip->ln_p2 : -DBL_MAX;
     double load_ln_pthresh = MAXV(ln_p1, ln_p2);
     if (bin_bound_ct && (load_ln_pthresh < ln_bin_boundaries[bin_bound_ct - 1])) {
       load_ln_pthresh = ln_bin_boundaries[bin_bound_ct - 1];
@@ -8476,7 +8487,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     ClumpEntry** clump_entries = nullptr;
     uintptr_t* nonsig_arr = nullptr;
     uint32_t allow_overlap = (flags / kfClumpAllowOverlap) & 1;
-    if ((flags & (kfClumpColTotal | kfClumpColBins | kfClumpColSp2)) || bounds_col || range_fname) {
+    if ((flags & (kfClumpColTotal | kfClumpColBins | kfClumpColSp2)) || bounds_col || range_fname || replicate) {
       if (unlikely(BIGSTACK_ALLOC_X(ClumpEntry*, raw_allele_ct + 1, &clump_entries))) {
         goto ClumpReports_ret_NOMEM;
       }
@@ -8508,7 +8519,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
     const uint32_t input_log10 = flags & kfClumpInputLog10;
     col_search_order[3] = clump_ip->p_field? clump_ip->p_field : (input_log10? "LOG10_P\0NEG_LOG10_P\0P\0" : "P\0");
     const char* test_name_flattened = clump_ip->test_name? clump_ip->test_name : "ADD\0";
-    const uint32_t save_all_fidxs = ((file_ct > 1) || force_a1) && sp2_col;
+    const uint32_t save_all_fidxs = (((file_ct > 1) || force_a1) && sp2_col) || replicate;
 
     LlStr* missing_variant_ids = nullptr;
     LlStr* missing_variant_allele_pairs = nullptr;
@@ -8709,6 +8720,9 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
           continue;
         }
         const uint32_t file_idx1_x2 = (file_idx1 << 1) + biallelic_forced_a1_alt;
+        if (file1_index_alleles && (file_idx1 == 1) && (ln_pval <= ln_p1)) {
+          SetBit(allele_idx, file1_index_alleles);
+        }
         // >= rather than >, to break ties in favor of file_idx1 == 1
         if (best_ln_pvals[allele_idx] >= ln_pval) {
           best_ln_pvals[allele_idx] = ln_pval;
@@ -8890,7 +8904,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
             continue;
           }
           const double cur_ln_pval = best_ln_pvals[allele_idx];
-          if (cur_ln_pval <= ln_p1) {
+          if ((cur_ln_pval <= ln_p1) && ((!file1_index_alleles) || IsSet(file1_index_alleles, allele_idx))) {
             index_candidates[index_candidate_ct_w].ln_pval = cur_ln_pval;
             index_candidates[index_candidate_ct_w].allele_idx = allele_idx;
             ++index_candidate_ct_w;
@@ -10015,6 +10029,48 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
 
       uintptr_t index_allele_idx_offset_base;
       uint32_t index_variant_uidx;
+      if (replicate) {
+        // A clump replicates when its below-p2 members come from more than one
+        // file; the low bit of pval_bin_x2 marks the ones above the threshold.
+        uint64_t seen_fidxs = 0;
+        uint32_t distinct_fidx_ct = 0;
+        // The SP2 column drops the index variant's entry from its own file, so
+        // that entry does not count towards replication either.
+        const uintptr_t index_oaidx_for_fidx = RawToSubsettedPosW(observed_alleles, observed_alleles_cumulative_popcounts_w, index_allele_idx);
+        const uint32_t index_fidx1 = best_fidx_x2s? (best_fidx_x2s[index_oaidx_for_fidx] >> 1) : 1;
+        for (uintptr_t member_idx = 0; member_idx != clump_size_including_self; ++member_idx) {
+          const uintptr_t cur_allele_idx = clump_allele_idxs[member_idx];
+          const uintptr_t cur_oaidx = RawToSubsettedPosW(observed_alleles, observed_alleles_cumulative_popcounts_w, cur_allele_idx);
+          const unsigned char* varint_read_iter = clump_entry_varints[cur_oaidx];
+          const unsigned char* varint_read_end = clump_entry_varints[cur_oaidx + 1];
+          while (varint_read_iter != varint_read_end) {
+            const uint32_t pval_bin_x2 = GetVint32Unsafe(&varint_read_iter);
+            const uint32_t cur_fidx1 = GetVint32Unsafe(&varint_read_iter) >> 1;
+            if (pval_bin_x2 & 1) {
+              continue;
+            }
+            if ((cur_allele_idx == index_allele_idx) && (cur_fidx1 == index_fidx1)) {
+              continue;
+            }
+            if (cur_fidx1 < 64) {
+              if (seen_fidxs & (1LLU << cur_fidx1)) {
+                continue;
+              }
+              seen_fidxs |= 1LLU << cur_fidx1;
+            }
+            ++distinct_fidx_ct;
+            if (distinct_fidx_ct > 1) {
+              break;
+            }
+          }
+          if (distinct_fidx_ct > 1) {
+            break;
+          }
+        }
+        if (distinct_fidx_ct < 2) {
+          continue;
+        }
+      }
       if (!allele_idx_offsets) {
         index_variant_uidx = index_allele_idx / 2;
         index_allele_idx_offset_base = index_allele_idx & (~k1LU);
