@@ -173,4 +173,51 @@ $1/plink2 $2 $3 --pfile merged_mixed --export vcf vcf-dosage=DS --out merged_mix
 grep -v '^##' merged_mixedv.vcf > merged_mixed_body.vcf
 diff -q expected_mixed.vcfbody merged_mixed_body.vcf
 
+# 7. Merge conflicts.  Only the cases whose answer is well-defined today are
+#    asserted here: 'first' never consults a later record, so it is exact
+#    regardless of how conflicts are resolved.  The nm-match and nm-first
+#    conflict cases are deliberately left out pending #362, #363, #364 and
+#    #365, rather than freezing current behaviour into assertions.
+
+# 7a. Hardcall, dosage and phase conflicts, same samples and variants in both
+#     filesets.  'keep first value, even if missing' means the merge of (a, b)
+#     must reproduce a exactly, and (b, a) must reproduce b.
+$1/plink2 $2 $3 --vcf conflict_a.vcf dosage=DS --make-pgen --out ca
+$1/plink2 $2 $3 --vcf conflict_b.vcf dosage=DS --make-pgen --out cb
+$1/plink2 $2 $3 --pfile ca --export vcf vcf-dosage=DS --out cax
+$1/plink2 $2 $3 --pfile cb --export vcf vcf-dosage=DS --out cbx
+grep -v '^##' cax.vcf > ca_body.vcf
+grep -v '^##' cbx.vcf > cb_body.vcf
+$1/plink2 $2 $3 --pfile ca --pmerge cb --merge-mode first --out cf_ab
+$1/plink2 $2 $3 --pfile cf_ab --export vcf vcf-dosage=DS --out cf_abx
+grep -v '^##' cf_abx.vcf > cf_ab_body.vcf
+diff -q ca_body.vcf cf_ab_body.vcf
+$1/plink2 $2 $3 --pfile cb --pmerge ca --merge-mode first --out cf_ba
+$1/plink2 $2 $3 --pfile cf_ba --export vcf vcf-dosage=DS --out cf_bax
+grep -v '^##' cf_bax.vcf > cf_ba_body.vcf
+diff -q cb_body.vcf cf_ba_body.vcf
+
+# 7b. Same, with multiallelic hardcalls.  ALTx/ALTy genotypes have their own
+#     representation, so they get their own pass through the conflict path.
+$1/plink2 $2 $3 --vcf conflictm_a.vcf --make-pgen --out cma
+$1/plink2 $2 $3 --vcf conflictm_b.vcf --make-pgen --out cmb
+$1/plink2 $2 $3 --pfile cma --export vcf --out cmax
+grep -v '^##' cmax.vcf > cma_body.vcf
+$1/plink2 $2 $3 --pfile cma --pmerge cmb --merge-mode first --out cmf
+$1/plink2 $2 $3 --pfile cmf --export vcf --out cmfx
+grep -v '^##' cmfx.vcf > cmf_body.vcf
+diff -q cma_body.vcf cmf_body.vcf
+
+# 7c. QUAL/FILTER/INFO conflicts.  'first' keeps the first value even when it
+#     is missing; 'nm-first' takes the first nonmissing one, which differs on
+#     u3, where fileset a has no QUAL or FILTER but does have an INFO value.
+$1/plink2 $2 $3 --vcf qfi_a.vcf --make-pgen --out qa
+$1/plink2 $2 $3 --vcf qfi_b.vcf --make-pgen --out qb
+$1/plink2 $2 $3 --pfile qa --pmerge qb --merge-qual-mode first --merge-filter-mode first --merge-info-mode first --out qm_first
+grep -v '^##' qm_first.pvar > qm_first_body.pvar
+diff -q expected_qfi_first.pvarbody qm_first_body.pvar
+$1/plink2 $2 $3 --pfile qa --pmerge qb --merge-qual-mode nm-first --merge-filter-mode nm-first --merge-info-mode nm-first --out qm_nmfirst
+grep -v '^##' qm_nmfirst.pvar > qm_nmfirst_body.pvar
+diff -q expected_qfi_nmfirst.pvarbody qm_nmfirst_body.pvar
+
 echo "TEST_PMERGE passed."
