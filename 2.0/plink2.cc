@@ -62,7 +62,7 @@
 namespace plink2 {
 #endif
 
-static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7.4"
+static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.8"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -90,10 +90,10 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7.4"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (18 Aug 2026)";
+  " (1 Sep 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 
 #ifdef NOLAPACK
 #elif defined(LAPACK_ILP64)
@@ -118,7 +118,7 @@ static PREFER_CONSTEXPR char ver_str2[] =
 #  endif
 #endif
 
-  "     cog-genomics.org/plink/2.0/\n"
+  "       cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2026 Shaun Purcell, Christopher Chang    GNU General Public License v3\n";
 #ifdef HAS_CONSTEXPR
 static_assert(CompileTimeSlen(ver_str) + CompileTimeSlen(ver_str2) == 160, "ver_str/ver_str2 must be updated");
@@ -3521,6 +3521,94 @@ static_assert(!kChrOffsetX, "--autosome-num/--chr-set/--cow/etc. assume kChrOffs
 static_assert(kChrOffsetY == 1, "--chr-set/--cow/... assume kChrOffsetY == 1.");
 static_assert(kChrOffsetXY == 2, "--chr-set/--cow/... assume kChrOffsetXY == 2.");
 static_assert(kChrOffsetMT == 3, "--chr-set/--cow/... assume kChrOffsetMT == 3.");
+
+// Sorted by strcmp() so the lookup below can binary-search.  Matching is
+// case-sensitive, like plink2's own flag parser and like PLINK 1.x's; the few
+// 1.x flags with two accepted spellings (--recodeA/--recodea and friends) have
+// an entry each.
+typedef struct Plink1FlagHintStruct {
+  const char* flagname;
+  const char* hint;
+} Plink1FlagHint;
+
+static const Plink1FlagHint kPlink1FlagHints[] = {
+  {"all-pheno", "--glm processes every loaded phenotype by default"},
+  {"beta", "use \"--glm cols=+beta\" instead"},
+  {"chr-excl", "use --not-chr instead"},
+  {"chr-output", "use --output-chr instead"},
+  {"dominant", "use the --glm 'dominant' modifier instead"},
+  {"extract-snp", "use --snp instead"},
+  {"gc", "use the --adjust/--adjust-file 'gc' modifier instead"},
+  {"genotypic", "use the --glm 'genotypic' modifier instead"},
+  {"hethom", "use the --glm 'hethom' modifier instead"},
+  {"hide-covar", "use the --glm 'hide-covar' modifier instead"},
+  {"interaction", "use the --glm 'interaction' modifier instead"},
+  {"log10", "use the --adjust/--adjust-file 'log10' modifier instead"},
+  {"must-have-sex", "no plink2 equivalent; it blanked the phenotypes of unknown-sex samples on output, whereas --remove-nosex drops those samples entirely"},
+  {"no-snp", "no plink2 equivalent; this was a --linear/--logistic modifier that regressed on the covariates alone"},
+  {"no-x-sex", "use the --glm 'no-x-sex' modifier instead"},
+  {"q-score-file", "use --q-score-range instead"},
+  {"qq-plot", "use \"--adjust cols=+qq\" instead"},
+  {"recessive", "use the --glm 'recessive' modifier instead"},
+  {"recode-beagle", "plink2 has no BEAGLE output yet"},
+  {"recode-bimbam", "plink2 has no BIMBAM output yet"},
+  {"recode-fastphase", "plink2 has no fastPHASE output yet"},
+  {"recode-lgen", "plink2 has no .lgen output yet"},
+  {"recode-rlist", "plink2 has no rlist output yet"},
+  {"recode-structure", "plink2 has no STRUCTURE output yet"},
+  {"recode-vcf", "use \"--export vcf\" instead"},
+  {"recode12", "use \"--export ped 12\" instead"},
+  {"recodeA", "use \"--export A\" instead"},
+  {"recodeAD", "use \"--export AD\" instead"},
+  {"recodeHV", "plink2 has no Haploview output yet"},
+  {"recodea", "use \"--export A\" instead"},
+  {"recodead", "use \"--export AD\" instead"},
+  {"recodehv", "plink2 has no Haploview output yet"},
+  {"reference-allele", "use --alt1-allele instead; PLINK 1.x's --reference-allele set A1, which corresponds to ALT1 here, not REF"},
+  {"score-no-mean-imputation", "use the --score 'no-mean-imputation' modifier instead"},
+  {"set-missing-nonsnp-ids", "use --set-missing-var-ids instead"},
+  {"set-missing-snp-ids", "use --set-missing-var-ids instead"},
+  {"split-x", "use --split-par instead"},
+  {"tab", "plink2's --export output is tab-delimited by default, which corresponds to PLINK 1.x's 'tabx' rather than 'tab'"},
+  {"transpose", "use \"--export tped\" instead"},
+  {"update-freq", "use --read-freq instead"},
+  {"update-ref-allele", "use --alt1-allele instead; PLINK 1.x's --update-ref-allele set A1, which corresponds to ALT1 here, not REF"},
+  {"with-freqs", "use \"--r2-unphased cols=+freq\" (or --r2-phased) instead"}
+};
+
+static const char* Plink1MigrationHint(const char* cur_arg) {
+  const char* flagname = cur_arg;
+  while (*flagname == '-') {
+    ++flagname;
+  }
+  uint32_t lb = 0;
+  uint32_t ub = sizeof(kPlink1FlagHints) / sizeof(Plink1FlagHint);
+  while (lb < ub) {
+    const uint32_t mid = lb + ((ub - lb) / 2);
+    const int32_t cmp_result = strcmp(flagname, kPlink1FlagHints[mid].flagname);
+    if (!cmp_result) {
+      return kPlink1FlagHints[mid].hint;
+    }
+    if (cmp_result < 0) {
+      ub = mid;
+    } else {
+      lb = mid + 1;
+    }
+  }
+  return nullptr;
+}
+
+// Same as InvalidArg(), plus a pointer to the plink2 equivalent when the
+// unrecognized flag is a renamed PLINK 1.x one.
+static void ReportInvalidFlag(const char* cur_arg) {
+  const char* hint = Plink1MigrationHint(cur_arg);
+  if (!hint) {
+    InvalidArg(cur_arg);
+    return;
+  }
+  logpreprintfww("Error: Unrecognized flag ('%s'). (This is a PLINK 1.x flag; %s.)\n", cur_arg, hint);
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
@@ -8847,7 +8935,7 @@ int main(int argc, char** argv) {
           const char* mode_str = ScantokDouble(cur_modif, &dxx);
           if (unlikely((!mode_str) || (dxx < 0.0) || (dxx > 2147483646.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mac argument '%s'.\n", cur_modif);
-            goto main_ret_INVALID_CMDLINE;
+            goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (dxx > 0.0) {
             // round up, but keep as much precision as possible
@@ -13449,7 +13537,7 @@ int main(int argc, char** argv) {
     reterr = kPglRetOpenFail;
     break;
   main_ret_INVALID_CMDLINE_UNRECOGNIZED:
-    InvalidArg(argv[arg_idx]);
+    ReportInvalidFlag(argv[arg_idx]);
     logerrputsb();
     logerrputs(errstr_append);
     reterr = kPglRetInvalidCmdline;

@@ -7645,7 +7645,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
           if (unlikely(*closing_gt != '>')) {
             *idval_end = '\0';
             snprintf(g_logbuf, kLogbufSize, "Error: %s:%s header line in .pvar file doesn't end with '>'.\n", is_info_line? "INFO" : "FILTER", idval);
-            goto ExportBcf_ret_MALFORMED_INPUT;
+            goto ExportBcf_ret_MALFORMED_INPUT_WW;
           }
           uint32_t cur_idx;
           reterr = AddToFifHtable(g_bigstack_base, idval, fif_keys_htable_size, id_slen, prechar, &tmp_alloc_end, fif_keys_mutable, fif_keys_htable, &fif_key_ct, &cur_idx);

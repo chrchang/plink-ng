@@ -7382,6 +7382,24 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
   STPgenWriter spgw;
   PreinitSpgw(&spgw);
   {
+    // BCF import requires two passes over the file, so reject
+    // process-substitution/named-pipe input up front (as VcfToPgen() does).
+    // This also lets the rewind between the two passes report its real
+    // underlying error, instead of blaming an unrewindable stream.
+    reterr = ForceNonFifo(bcfname);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        const uint32_t slen = strlen(bcfname);
+        if (!StrEndsWith(bcfname, ".bcf", slen)) {
+          logerrprintfww("Error: Failed to open %s : %s. (--bcf expects a complete filename; did you forget '.bcf' at the end?)\n", bcfname, strerror(errno));
+        } else {
+          logerrprintfww(kErrprintfFopen, bcfname, strerror(errno));
+        }
+        goto BcfToPgen_ret_OPEN_FAIL;
+      }
+      logerrprintfww(kErrprintfRewind, "--bcf file");
+      goto BcfToPgen_ret_1;
+    }
     // See TextFileOpenInternal().
     bcffile = fopen(bcfname, FOPEN_RB);
     if (unlikely(!bcffile)) {
@@ -8517,10 +8535,11 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
 
     reterr = BgzfRawMtStreamRewind(&bgzf, &bgzf_errmsg);
     if (unlikely(reterr)) {
-      if (reterr == kPglRetDecompressFail) {
-        DPrintf("DecompressFail during initial rewind");
-        goto BcfToPgen_ret_REWIND_FAIL;
-      }
+      // We verified at the beginning of this function that the input is not a
+      // FIFO, so a decompression failure here reflects a real problem with the
+      // file rather than an unrewindable stream; report the underlying error
+      // instead of the misleading "could not be scanned twice" message.
+      DPrintf("BgzfRawMtStreamRewind failure during initial rewind");
       goto BcfToPgen_ret_BGZF_FAIL;
     }
     {
@@ -9482,7 +9501,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     break;
   BcfToPgen_ret_REWIND_FAIL_N:
     putc_unlocked('\n', stdout);
-  BcfToPgen_ret_REWIND_FAIL:
     logerrprintfww(kErrprintfRewind, "--bcf file");
     reterr = kPglRetRewindFail;
     break;
@@ -17025,7 +17043,7 @@ PglErr EigSnpToPvar(const char* snpname, const ChrInfo* cip, const char* missing
       double cur_cm;
       if (unlikely(!ScantokDouble(cm_start, &cur_cm))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of .snp file.\n", line_idx);
-        goto EigSnpToPvar_ret_MALFORMED_INPUT;
+        goto EigSnpToPvar_ret_MALFORMED_INPUT_WW;
       }
       if (cur_cm != 0.0) {
         at_least_one_nzero_cm = 1;
@@ -17183,6 +17201,9 @@ PglErr EigSnpToPvar(const char* snpname, const ChrInfo* cip, const char* missing
     break;
   EigSnpToPvar_ret_MISSING_TOKENS:
     logerrprintfww("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, snpname);
+  EigSnpToPvar_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
   EigSnpToPvar_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
