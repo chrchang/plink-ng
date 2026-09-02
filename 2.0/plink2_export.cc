@@ -11824,8 +11824,8 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
       allele_storage = subst_allele_storage;
     }
-    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped - kfExportfPed - kfExportfPhylip - kfExportfPhylipPhased - kfExportfEig - kfExportfEigt - kfExportfCompound)) {
-      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, ped, tped,\ncompound-genotypes, phylip, phylip-phased, eig, eigt, and ind-major-bed output\nhave been implemented so far.\n");
+    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped - kfExportfPed - kfExportfPhylip - kfExportfPhylipPhased - kfExportfEig - kfExportfEigt - kfExportfCompound - kfExportfBimbam - kfExportfBimbam1chr)) {
+      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, ped, tped,\ncompound-genotypes, phylip, phylip-phased, eig, eigt, bimbam, bimbam-1chr, and\nind-major-bed output have been implemented so far.\n");
       reterr = kPglRetNotYetSupported;
       goto Exportf_ret_1;
     }
@@ -11961,6 +11961,12 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
     }
 
+    if (flags & (kfExportfBimbam | kfExportfBimbam1chr)) {
+      reterr = ExportBimbam(outname, outname_end, sample_include, sample_include_cumulative_popcounts, &(piip->sii), pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, legacy_output_missing_pheno, sample_ct, pheno_ct, variant_ct, (flags / kfExportfBimbam1chr) & 1, simple_pgrp);
+      if (unlikely(reterr)) {
+        goto Exportf_ret_1;
+      }
+    }
     if (flags & kfExportfTped) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".tfam");
       logprintfww5("Writing %s ... ", outname);

@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "plink2_export_legacy.h"
+#include "plink2_data.h"
 
 #include <assert.h>
 #include <string.h>
@@ -631,6 +632,244 @@ PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const ui
     break;
   }
  ExportTped_ret_1:
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// BIMBAM's genotype file is variant-major with a three-line header, which is
+// close enough to .tped that this borrows that function's structure.  The
+// format only has room for single-character alleles, so multiallelic variants
+// and multi-character alleles are rejected rather than silently mangled.
+PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* legacy_output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uint32_t variant_ct, uint32_t is_1chr, PgenReader* simple_pgrp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    if (is_1chr) {
+      uint32_t nonempty_chr_ct = 0;
+      for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+        const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+        const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        if (PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end)) {
+          ++nonempty_chr_ct;
+        }
+      }
+      if (unlikely(nonempty_chr_ct > 1)) {
+        logerrputs("Error: \"--export bimbam-1chr\" does not support multiple chromosomes.\n");
+        goto ExportBimbam_ret_INCONSISTENT_INPUT;
+      }
+    }
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    uintptr_t* genovec;
+    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec))) {
+      goto ExportBimbam_ret_NOMEM;
+    }
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    const uintptr_t writebuf_blen = kMaxMediumLine + 4 * S_CAST(uintptr_t, sample_ct) + kMaxIdSlen + 64;
+    char* writebuf;
+    if (unlikely(bigstack_alloc_c(writebuf_blen, &writebuf))) {
+      goto ExportBimbam_ret_NOMEM;
+    }
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+
+    // .geno.txt
+    char* fname_end = strcpya_k(outname_end, ".geno.txt");
+    *fname_end = '\0';
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportBimbam_ret_OPEN_FAIL;
+    }
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
+    char* write_iter = u32toa_x(sample_ct, '\n', writebuf);
+    write_iter = u32toa_x(variant_ct, '\n', write_iter);
+    write_iter = strcpya_k(write_iter, "IND");
+    {
+      const char* sample_ids = siip->sample_ids;
+      const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
+        // BIMBAM has one ID per sample, so only the within-family part is
+        // written, as PLINK 1.x does.
+        const char* iid_start = AdvPastDelim(cur_sample_id, '\t');
+        *write_iter++ = ',';
+        write_iter = strcpya(write_iter, iid_start);
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportBimbam_ret_WRITE_FAIL;
+        }
+      }
+    }
+    AppendBinaryEoln(&write_iter);
+
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = variant_ct / 100;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    // ",XY" for each of hom-REF, het, hom-ALT, missing.  PLINK 1.x puts the A1
+    // allele first in the heterozygous case, and A1 is ALT here.
+    char geno_text[4][4];
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        if (unlikely(allele_idx_offsets[variant_uidx + 1] != allele_idx_offset_base + 2)) {
+          logputs("\n");
+          logerrputs("Error: \"--export bimbam\" cannot handle multiallelic variants.\n");
+          goto ExportBimbam_ret_INCONSISTENT_INPUT;
+        }
+      }
+      const char* ref_allele = allele_storage[allele_idx_offset_base];
+      const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
+      if (unlikely(ref_allele[1] || alt_allele[1])) {
+        logputs("\n");
+        logerrprintfww("Error: \"--export bimbam\" cannot represent the multi-character allele(s) of variant '%s'.\n", variant_ids[variant_uidx]);
+        goto ExportBimbam_ret_INCONSISTENT_INPUT;
+      }
+      geno_text[0][0] = ','; geno_text[0][1] = ref_allele[0]; geno_text[0][2] = ref_allele[0];
+      geno_text[1][0] = ','; geno_text[1][1] = alt_allele[0]; geno_text[1][2] = ref_allele[0];
+      geno_text[2][0] = ','; geno_text[2][1] = alt_allele[0]; geno_text[2][2] = alt_allele[0];
+      geno_text[3][0] = ','; geno_text[3][1] = '?'; geno_text[3][2] = '?';
+      reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto ExportBimbam_ret_1;
+      }
+      write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
+      uint32_t sample_idx = 0;
+      for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
+        uintptr_t geno_word = genovec[widx];
+        const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
+        for (; sample_idx != idx_stop; ++sample_idx) {
+          write_iter = memcpya(write_iter, geno_text[geno_word & 3], 3);
+          geno_word >>= 2;
+        }
+      }
+      AppendBinaryEoln(&write_iter);
+      if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+        goto ExportBimbam_ret_WRITE_FAIL;
+      }
+      if (variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx * 100LLU) / variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
+      }
+    }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      goto ExportBimbam_ret_WRITE_FAIL;
+    }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\bdone.\n", stdout);
+
+    // .pheno.txt: one row per sample, one column per loaded phenotype, which
+    // is what GEMMA's -n expects and reduces to PLINK 1.x's single column.
+    fname_end = strcpya_k(outname_end, ".pheno.txt");
+    *fname_end = '\0';
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportBimbam_ret_OPEN_FAIL;
+    }
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
+    write_iter = writebuf;
+    {
+      const uint32_t lomp_slen = strlen(legacy_output_missing_pheno);
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t sample_include_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+        if (!pheno_ct) {
+          write_iter = memcpya(write_iter, legacy_output_missing_pheno, lomp_slen);
+        } else {
+          for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+            if (pheno_idx) {
+              *write_iter++ = ' ';
+            }
+            write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), legacy_output_missing_pheno, lomp_slen, sample_uidx, write_iter);
+          }
+        }
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportBimbam_ret_WRITE_FAIL;
+        }
+      }
+    }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      goto ExportBimbam_ret_WRITE_FAIL;
+    }
+    logputs("done.\n");
+
+    // .pos.txt
+    fname_end = strcpya_k(outname_end, ".pos.txt");
+    *fname_end = '\0';
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportBimbam_ret_OPEN_FAIL;
+    }
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
+    write_iter = writebuf;
+    {
+      const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+      char* chr_buf;
+      if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+        goto ExportBimbam_ret_NOMEM;
+      }
+      uint32_t chr_fo_idx = UINT32_MAX;
+      uint32_t chr_end = 0;
+      uint32_t chr_slen = 0;
+      variant_uidx_base = 0;
+      cur_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        if ((!is_1chr) && (variant_uidx >= chr_end)) {
+          do {
+            ++chr_fo_idx;
+            chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          } while (variant_uidx >= chr_end);
+          char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
+          chr_slen = chr_name_end - chr_buf;
+        }
+        write_iter = strcpyax(write_iter, variant_ids[variant_uidx], ' ');
+        write_iter = u32toa(variant_bps[variant_uidx], write_iter);
+        if (!is_1chr) {
+          *write_iter++ = ' ';
+          write_iter = memcpya(write_iter, chr_buf, chr_slen);
+        }
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportBimbam_ret_WRITE_FAIL;
+        }
+      }
+    }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      goto ExportBimbam_ret_WRITE_FAIL;
+    }
+    logputs("done.\n");
+  }
+  while (0) {
+  ExportBimbam_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ExportBimbam_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  ExportBimbam_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  ExportBimbam_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ ExportBimbam_ret_1:
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
   return reterr;
