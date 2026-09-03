@@ -661,13 +661,29 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
       }
     }
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    // BIMBAM's mean genotype file is dosage-based, and that is the form GEMMA
+    // consumes.  When the dataset carries dosages we emit those rather than
+    // rounding to hardcalls, which is the main thing plink2 can offer over
+    // PLINK 1.x here.
+    const uint32_t dosage_present_in_file = (PgrGetGflags(simple_pgrp) / kfPgenGlobalDosagePresent) & 1;
+    uintptr_t* dosage_present = nullptr;
+    Dosage* dosage_main = nullptr;
     uintptr_t* genovec;
     if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec))) {
       goto ExportBimbam_ret_NOMEM;
     }
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
-    const uintptr_t writebuf_blen = kMaxMediumLine + 4 * S_CAST(uintptr_t, sample_ct) + kMaxIdSlen + 64;
+    if (dosage_present_in_file) {
+      if (unlikely(bigstack_alloc_w(sample_ctl, &dosage_present) ||
+                   bigstack_alloc_dosage(sample_ct, &dosage_main))) {
+        goto ExportBimbam_ret_NOMEM;
+      }
+    }
+    // ",0.000" per sample in the dosage case, ",XY" otherwise.
+    const uintptr_t per_sample_blen = dosage_present_in_file? 8 : 4;
+    const uintptr_t writebuf_blen = kMaxMediumLine + per_sample_blen * S_CAST(uintptr_t, sample_ct) + kMaxIdSlen + 64;
     char* writebuf;
     if (unlikely(bigstack_alloc_c(writebuf_blen, &writebuf))) {
       goto ExportBimbam_ret_NOMEM;
@@ -680,9 +696,16 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
     if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto ExportBimbam_ret_OPEN_FAIL;
     }
+    if (dosage_present_in_file) {
+      logputs("--export bimbam: dosages present, writing BIMBAM mean genotype format.\n");
+    }
     logprintfww5("Writing %s ... ", outname);
     fflush(stdout);
-    char* write_iter = u32toa_x(sample_ct, '\n', writebuf);
+    // The BIMBAM genotype file is headed by the sample and variant counts and
+    // an IND line; the mean genotype file GEMMA reads has no header at all.
+    char* write_iter = writebuf;
+    if (!dosage_present_in_file) {
+    write_iter = u32toa_x(sample_ct, '\n', write_iter);
     write_iter = u32toa_x(variant_ct, '\n', write_iter);
     write_iter = strcpya_k(write_iter, "IND");
     {
@@ -704,6 +727,7 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
       }
     }
     AppendBinaryEoln(&write_iter);
+    }
 
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
@@ -734,19 +758,67 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
       geno_text[1][0] = ','; geno_text[1][1] = alt_allele[0]; geno_text[1][2] = ref_allele[0];
       geno_text[2][0] = ','; geno_text[2][1] = alt_allele[0]; geno_text[2][2] = alt_allele[0];
       geno_text[3][0] = ','; geno_text[3][1] = '?'; geno_text[3][2] = '?';
-      reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      uint32_t dosage_ct = 0;
+      if (!dosage_present_in_file) {
+        reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      } else {
+        reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+      }
       if (unlikely(reterr)) {
         PgenErrPrintNV(reterr, variant_uidx);
         goto ExportBimbam_ret_1;
       }
       write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
-      uint32_t sample_idx = 0;
-      for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
-        uintptr_t geno_word = genovec[widx];
-        const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
-        for (; sample_idx != idx_stop; ++sample_idx) {
-          write_iter = memcpya(write_iter, geno_text[geno_word & 3], 3);
-          geno_word >>= 2;
+      if (dosage_present_in_file) {
+        // Mean genotype rows carry the two alleles before the dosages.
+        *write_iter++ = ',';
+        write_iter = strcpya(write_iter, alt_allele);
+        *write_iter++ = ',';
+        write_iter = strcpya(write_iter, ref_allele);
+      }
+      if (!dosage_present_in_file) {
+        uint32_t sample_idx = 0;
+        for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
+          uintptr_t geno_word = genovec[widx];
+          const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
+          for (; sample_idx != idx_stop; ++sample_idx) {
+            write_iter = memcpya(write_iter, geno_text[geno_word & 3], 3);
+            geno_word >>= 2;
+          }
+        }
+      } else {
+        // ALT dosage on a 0..2 scale, three decimals, which is what BIMBAM's
+        // mean genotype file expects.  Missing stays "NA".
+        const Dosage* dosage_read_iter = dosage_main;
+        uintptr_t dosage_bits = dosage_ct? dosage_present[0] : 0;
+        uintptr_t dosage_widx = 0;
+        uint32_t sample_idx = 0;
+        for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
+          uintptr_t geno_word = genovec[widx];
+          const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
+          for (; sample_idx != idx_stop; ++sample_idx) {
+            *write_iter++ = ',';
+            uint32_t is_dosage = 0;
+            if (dosage_ct) {
+              const uintptr_t cur_widx = sample_idx / kBitsPerWord;
+              if (cur_widx != dosage_widx) {
+                dosage_widx = cur_widx;
+                dosage_bits = dosage_present[cur_widx];
+              }
+              is_dosage = (dosage_bits >> (sample_idx % kBitsPerWord)) & 1;
+            }
+            if (is_dosage) {
+              write_iter = PrintSmallDosage(*dosage_read_iter++, write_iter);
+            } else {
+              const uintptr_t cur_geno = geno_word & 3;
+              if (cur_geno == 3) {
+                write_iter = strcpya_k(write_iter, "NA");
+              } else {
+                write_iter = u32toa(cur_geno, write_iter);
+              }
+            }
+            geno_word >>= 2;
+          }
         }
       }
       AppendBinaryEoln(&write_iter);
