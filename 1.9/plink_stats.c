@@ -456,7 +456,10 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
     }
     lastp1 *= tailp1;
     tailp1 += lastp1;
-
+    // bugfix (3 Sep 2026), https://github.com/chrchang/plink-ng/issues/380
+    if (tailp1 + tailp2 >= exit_thresh) {
+      return 0;
+    }
     if (obs_homr > 1) {
       // het_probs[curr_hets + 2] = het_probs[curr_hets] * 4 * curr_homr * curr_homc / ((curr_hets + 2) * (curr_hets + 1))
       exit_threshx = exit_thresh - tailp2;
@@ -527,6 +530,10 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
     tail1_ceil = tailp1 / (1 - lastp1);
     lastp1 *= tailp1;
     tailp1 += lastp1;
+    // bugfix (3 Sep 2026)
+    if (tailp1 + tailp2 >= exit_thresh) {
+      return 0;
+    }
 
     if (tail1_ceil + tail2_ceil < exit_thresh) {
       return 1;
@@ -650,6 +657,10 @@ int32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, doub
     }
     lastp1 *= tailp1 * 2;
     tailp1 += lastp1;
+    // bugfix (3 Sep 2026)
+    if (tailp1 + tailp2 >= exit_thresh) {
+      return 0;
+    }
 
     if (obs_homr > 1) {
       exit_threshx = exit_thresh - tailp2;
@@ -724,6 +735,10 @@ int32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, doub
     tail1_ceil = 2 * tailp1 / (1 - lastp1) - tailp1;
     lastp1 *= 2 * tailp1;
     tailp1 += lastp1;
+    // bugfix (3 Sep 2026)
+    if (tailp1 + tailp2 >= exit_thresh) {
+      return 0;
+    }
 
     if (tail1_ceil + tail2_ceil < exit_thresh) {
       return 1;
