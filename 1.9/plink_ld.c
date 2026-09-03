@@ -5691,7 +5691,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   uintptr_t max_marker_id_len = g_ld_max_marker_id_len;
   uint32_t ld_modifier = ldip->modifier;
   uint32_t output_gz = ld_modifier & LD_REPORT_GZ;
-  uint32_t ignore_x = (ld_modifier & LD_IGNORE_X) & 1;
+  uint32_t ignore_x = (ld_modifier / LD_IGNORE_X) & 1;
   uint32_t is_inter_chr = ld_modifier & LD_INTER_CHR;
   uint32_t snp_list_file = ld_modifier & LD_SNP_LIST_FILE;
   uintptr_t marker_ct = g_ld_marker_ct;
@@ -6368,7 +6368,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
   double tag_thresh = ldip->show_tags_r2 * (1 - SMALL_EPSILON);
   uint32_t tags_list = (ldip->modifier & LD_SHOW_TAGS_LIST_ALL) || (!ldip->show_tags_fname);
   uint32_t twocolumn = ldip->modifier & LD_SHOW_TAGS_MODE2;
-  uint32_t ignore_x = (ldip->modifier & LD_IGNORE_X) & 1;
+  uint32_t ignore_x = (ldip->modifier / LD_IGNORE_X) & 1;
   uint32_t window_bp = ldip->show_tags_bp;
   uint32_t target_ct = 0;
   uint32_t chrom_name_len = 0;
