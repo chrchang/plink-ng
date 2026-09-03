@@ -151,6 +151,9 @@ ZSTD_INCLUDE3 =
 
 PGCSRC = $(PGENLIB_CCSRC) pgen_compress.cc
 PGCOBJ = $(PGCSRC:.cc=.o)
+
+MTAGSRC = $(TEXTLIB_CCSRC) mtag.cc
+MTAGOBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(MTAGSRC:.cc=.o)
 PGCSRC2 = $(foreach fname,$(PGCSRC),../$(fname))
 
 CLEAN = *.o \
