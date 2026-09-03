@@ -879,6 +879,36 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
 // and .map the loader needs.  With 'lgen-ref', a .ref file names each
 // variant's reference pair and lines matching it are omitted, which is the
 // whole point of that variant.
+// .list, .rlist and .lgen all emit one field per (sample, genotype), so the
+// per-sample work, the FID/IID separator swap in particular, is done once here
+// instead of hundreds of millions of times in the inner loop.
+BoolErr ExportBuildSampleIdStrs(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, char exportf_delim, const char** sample_id_strs, uint32_t* sample_id_slens) {
+  const char* sample_ids = siip->sample_ids;
+  const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+  char* id_copies;
+  if (unlikely(bigstack_alloc_c(sample_ct * max_sample_id_blen, &id_copies))) {
+    return 1;
+  }
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = sample_include[0];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+    const char* src = &(sample_ids[sample_uidx * max_sample_id_blen]);
+    char* dst = &(id_copies[sample_idx * max_sample_id_blen]);
+    const uint32_t slen = strlen(src);
+    memcpy(dst, src, slen);
+    if (exportf_delim != '\t') {
+      char* tab_ptr = S_CAST(char*, memchr(dst, '\t', slen));
+      if (tab_ptr) {
+        *tab_ptr = exportf_delim;
+      }
+    }
+    sample_id_strs[sample_idx] = dst;
+    sample_id_slens[sample_idx] = slen;
+  }
+  return 0;
+}
+
 PglErr ExportLgen(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t is_ref, char exportf_delim, char legacy_output_missing_geno_char, PgenReader* simple_pgrp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
@@ -889,21 +919,16 @@ PglErr ExportLgen(const char* outname, char* outname_end, const uintptr_t* sampl
     const uintptr_t writebuf_blen = kMaxMediumLine + 2 * kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
     char* writebuf;
     const char** sample_id_strs;
+    uint32_t* sample_id_slens;
     if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
                  bigstack_alloc_c(writebuf_blen, &writebuf) ||
-                 BIGSTACK_ALLOC_X(const char*, sample_ct, &sample_id_strs))) {
+                 BIGSTACK_ALLOC_X(const char*, sample_ct, &sample_id_strs) ||
+                 bigstack_alloc_u32(sample_ct, &sample_id_slens))) {
       goto ExportLgen_ret_NOMEM;
     }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
-    {
-      const char* sample_ids = siip->sample_ids;
-      const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
-      uintptr_t sample_uidx_base = 0;
-      uintptr_t cur_bits = sample_include[0];
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-        sample_id_strs[sample_idx] = &(sample_ids[sample_uidx * max_sample_id_blen]);
-      }
+    if (unlikely(ExportBuildSampleIdStrs(sample_include, siip, sample_ct, exportf_delim, sample_id_strs, sample_id_slens))) {
+      goto ExportLgen_ret_NOMEM;
     }
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
@@ -958,16 +983,7 @@ PglErr ExportLgen(const char* outname, char* outname_end, const uintptr_t* sampl
           if (cur_geno == skip_geno) {
             continue;
           }
-          // sample_ids are FID\tIID, so the separator has to be swapped for
-          // the requested one.
-          char* id_start = write_iter;
-          write_iter = strcpya(write_iter, sample_id_strs[sample_idx]);
-          if (exportf_delim != '\t') {
-            char* tab_ptr = S_CAST(char*, memchr(id_start, '\t', write_iter - id_start));
-            if (tab_ptr) {
-              *tab_ptr = exportf_delim;
-            }
-          }
+          write_iter = memcpya(write_iter, sample_id_strs[sample_idx], sample_id_slens[sample_idx]);
           *write_iter++ = exportf_delim;
           write_iter = strcpya(write_iter, variant_id);
           *write_iter++ = exportf_delim;
@@ -1066,21 +1082,16 @@ PglErr ExportList(const char* outname, const uintptr_t* sample_include, const ui
     const uintptr_t writebuf_blen = kMaxMediumLine + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
     char* writebuf;
     const char** sample_id_strs;
+    uint32_t* sample_id_slens;
     if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
                  bigstack_alloc_c(writebuf_blen, &writebuf) ||
-                 BIGSTACK_ALLOC_X(const char*, sample_ct, &sample_id_strs))) {
+                 BIGSTACK_ALLOC_X(const char*, sample_ct, &sample_id_strs) ||
+                 bigstack_alloc_u32(sample_ct, &sample_id_slens))) {
       goto ExportList_ret_NOMEM;
     }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
-    {
-      const char* sample_ids = siip->sample_ids;
-      const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
-      uintptr_t sample_uidx_base = 0;
-      uintptr_t cur_bits = sample_include[0];
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-        sample_id_strs[sample_idx] = &(sample_ids[sample_uidx * max_sample_id_blen]);
-      }
+    if (unlikely(ExportBuildSampleIdStrs(sample_include, siip, sample_ct, exportf_delim, sample_id_strs, sample_id_slens))) {
+      goto ExportList_ret_NOMEM;
     }
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
@@ -1154,14 +1165,7 @@ PglErr ExportList(const char* outname, const uintptr_t* sample_include, const ui
           for (; sample_idx != idx_stop; ++sample_idx) {
             if ((geno_word & 3) == cur_geno) {
               *write_iter++ = exportf_delim;
-              char* id_start = write_iter;
-              write_iter = strcpya(write_iter, sample_id_strs[sample_idx]);
-              if (exportf_delim != '\t') {
-                char* tab_ptr = S_CAST(char*, memchr(id_start, '\t', write_iter - id_start));
-                if (tab_ptr) {
-                  *tab_ptr = exportf_delim;
-                }
-              }
+              write_iter = memcpya(write_iter, sample_id_strs[sample_idx], sample_id_slens[sample_idx]);
               if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
                 goto ExportList_ret_WRITE_FAIL;
               }
@@ -1224,21 +1228,16 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
     const uintptr_t writebuf_blen = kMaxMediumLine + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
     char* writebuf;
     const char** sample_id_strs;
+    uint32_t* sample_id_slens;
     if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
                  bigstack_alloc_c(writebuf_blen, &writebuf) ||
-                 BIGSTACK_ALLOC_X(const char*, sample_ct, &sample_id_strs))) {
+                 BIGSTACK_ALLOC_X(const char*, sample_ct, &sample_id_strs) ||
+                 bigstack_alloc_u32(sample_ct, &sample_id_slens))) {
       goto ExportRlist_ret_NOMEM;
     }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
-    {
-      const char* sample_ids = siip->sample_ids;
-      const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
-      uintptr_t sample_uidx_base = 0;
-      uintptr_t cur_bits = sample_include[0];
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-        sample_id_strs[sample_idx] = &(sample_ids[sample_uidx * max_sample_id_blen]);
-      }
+    if (unlikely(ExportBuildSampleIdStrs(sample_include, siip, sample_ct, exportf_delim, sample_id_strs, sample_id_slens))) {
+      goto ExportRlist_ret_NOMEM;
     }
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
@@ -1273,9 +1272,10 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
       GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
       const char* ref_allele = allele_storage[allele_idx_offset_base];
       const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
-      // HOM (A1A1), HET, NIL (missing); A2A2 is the omitted class.
-      const uint32_t geno_order[3] = {2, 1, 3};
-      const char* class_names[3] = {"HOM", "HET", "NIL"};
+      // PLINK 1.x emits HET, then the minor homozygote, then the missing
+      // class; the major homozygote is the omitted one.
+      const uint32_t geno_order[3] = {1, 2, 3};
+      const char* class_names[3] = {"HET", "HOM", "NIL"};
       for (uint32_t class_idx = 0; class_idx != 3; ++class_idx) {
         const uint32_t cur_geno = geno_order[class_idx];
         if (!genocounts[cur_geno]) {
@@ -1301,14 +1301,7 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
           for (; sample_idx != idx_stop; ++sample_idx) {
             if ((geno_word & 3) == cur_geno) {
               *write_iter++ = exportf_delim;
-              char* id_start = write_iter;
-              write_iter = strcpya(write_iter, sample_id_strs[sample_idx]);
-              if (exportf_delim != '\t') {
-                char* tab_ptr = S_CAST(char*, memchr(id_start, '\t', write_iter - id_start));
-                if (tab_ptr) {
-                  *tab_ptr = exportf_delim;
-                }
-              }
+              write_iter = memcpya(write_iter, sample_id_strs[sample_idx], sample_id_slens[sample_idx]);
               if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
                 goto ExportRlist_ret_WRITE_FAIL;
               }
