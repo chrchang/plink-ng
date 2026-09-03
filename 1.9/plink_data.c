@@ -14501,6 +14501,10 @@ typedef struct ll_entry2_struct {
   int64_t pos;
   double cm;
   char* allele[2];
+  // index of the last fileset this variant ID was seen in; lets
+  // merge_bim_scan() tell a duplicate ID within the current fileset apart from
+  // an ID that also appears in an earlier fileset
+  uint32_t last_fileset_idx;
   char idstr[];
 } Ll_bim;
 
@@ -14745,7 +14749,7 @@ int32_t merge_sample_sortf(char* sample_sort_fname, char* sample_fids, uintptr_t
   return retval;
 }
 
-int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_variants, uintptr_t* max_marker_id_len_ptr, Ll_bim** htable_bim, uint32_t* max_bim_linelen_ptr, uint64_t* tot_marker_ct_ptr, uint32_t* cur_marker_ct_ptr, uint64_t* position_warning_ct_ptr, Ll_str** non_biallelics_ptr, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr) {
+int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_variants, uintptr_t* max_marker_id_len_ptr, Ll_bim** htable_bim, uint32_t* max_bim_linelen_ptr, uint64_t* tot_marker_ct_ptr, uint32_t* cur_marker_ct_ptr, uint32_t* cur_dup_ct_ptr, uint64_t* position_warning_ct_ptr, Ll_str** non_biallelics_ptr, uint32_t allow_extra_chroms, uint32_t fileset_idx, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t max_marker_id_len = *max_marker_id_len_ptr;
   uintptr_t loadbuf_size = MAXLINELEN;
@@ -14753,6 +14757,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
   uint64_t tot_marker_ct = *tot_marker_ct_ptr;
   uint64_t position_warning_ct = *position_warning_ct_ptr;
   uint32_t cur_marker_ct = 0;
+  uint32_t cur_dup_ct = 0;
   double cm = 0.0;
   FILE* infile = nullptr;
   int32_t retval = 0;
@@ -14800,6 +14805,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
     if (!line_idx) {
       // no variants
       *cur_marker_ct_ptr = 0;
+      *cur_dup_ct_ptr = 0;
       goto merge_bim_scan_ret_1;
     }
     line_idx--;
@@ -14966,6 +14972,13 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
 		LOGERRPRINTFWW("Warning: Multiple chromosomes seen for variant '%s'.\n", bufptr);
 	      }
 	    }
+	    if (llbim_ptr->last_fileset_idx == fileset_idx) {
+	      // duplicate ID within the current fileset, as opposed to an ID which
+	      // also appears in an earlier fileset
+	      cur_dup_ct++;
+	    } else {
+	      llbim_ptr->last_fileset_idx = fileset_idx;
+	    }
 	    name_match = 1;
 	    break;
 	  }
@@ -14982,6 +14995,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
 	  llbim_ptr->next = nullptr;
 	  llbim_ptr->pos = llxx;
 	  llbim_ptr->cm = cm;
+	  llbim_ptr->last_fileset_idx = fileset_idx;
 	  if (aptr1) {
 	    if (allele_set(aptr1, alen1, &(llbim_ptr->allele[0]))) {
 	      goto merge_bim_scan_ret_NOMEM;
@@ -15014,6 +15028,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
     *max_bim_linelen_ptr = max_bim_linelen;
     *tot_marker_ct_ptr = tot_marker_ct;
     *cur_marker_ct_ptr = cur_marker_ct;
+    *cur_dup_ct_ptr = cur_dup_ct;
     *position_warning_ct_ptr = position_warning_ct;
   }
 
@@ -16038,6 +16053,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uint64_t position_warning_ct = 0;
   uint32_t orig_idx = 0;
   uint32_t cur_marker_ct = 0;
+  uint32_t cur_dup_ct = 0;
   uint32_t tot_marker_ct = 0;
   int32_t retval = 0;
   uint32_t* map_reverse = nullptr;
@@ -16479,11 +16495,11 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 
   ullxx = 0;
   for (mlpos = 0; mlpos < merge_ct; ++mlpos) {
-    retval = merge_bim_scan(mergelist_bim[mlpos], (mergelist_fam[mlpos])? 1 : 0, allow_no_variants, &max_marker_id_len, htable_bim, &max_bim_linelen, &ullxx, &cur_marker_ct, &position_warning_ct, &non_biallelics, allow_extra_chroms, chrom_info_ptr);
+    retval = merge_bim_scan(mergelist_bim[mlpos], (mergelist_fam[mlpos])? 1 : 0, allow_no_variants, &max_marker_id_len, htable_bim, &max_bim_linelen, &ullxx, &cur_marker_ct, &cur_dup_ct, &position_warning_ct, &non_biallelics, allow_extra_chroms, mlpos, chrom_info_ptr);
     if (retval) {
       goto merge_datasets_ret_1;
     }
-    if ((!mlpos) && (ullxx != cur_marker_ct)) {
+    if (cur_dup_ct) {
       // Update (2 May 2020): PLINK 1.07 errored out if the first input fileset
       // had two variants with the same ID.  However, it did *not* do so if
       // this was true of later filesets, so in cases like
@@ -16497,20 +16513,29 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       // variants with ID=. which should be assigned distinct IDs before
       // merge), so printing a warning where there previously was an error is
       // justified.
-      // (Obvious todo for PLINK 2.0: also print this warning if the first
-      // fileset doesn't have a duplicate ID, but a later fileset does.)
-      logerrprint("Warning: First fileset to be merged contains duplicate variant ID(s).  Variants\nwith matching IDs are all merged together; if this is not what you want (e.g.\nyou have a bunch of novel variants, all with ID \".\"), assign distinct IDs to\nthem (with e.g. --set-missing-var-ids) before rerunning this merge.\n");
+      // Update (3 Sep 2026): this warning was previously restricted to the
+      // first fileset, so the asymmetry described above was still visible in
+      // the log; it now names whichever fileset has the duplicate IDs.
+      LOGERRPRINTFWW("Warning: %s contains duplicate variant ID(s).  Variants with matching IDs are all merged together; if this is not what you want (e.g. you have a bunch of novel variants, all with ID \".\"), assign distinct IDs to them (with e.g. --set-missing-var-ids) before rerunning this merge.\n", mergelist_bim[mlpos]);
     }
     if (!merge_list) {
       if (!mlpos) {
 	uii = ullxx;
       } else {
+	// bugfix (3 Sep 2026): report the number of distinct variant IDs in the
+	// second fileset, not its line count.  The merge is keyed on variant ID,
+	// so duplicate IDs describe a single merged variant; counting lines made
+	// the same fileset report two different variant counts depending on
+	// whether it was the base or the second fileset, and could claim that
+	// more variants were present in the base dataset than the base dataset
+	// has (issue #140).
+	const uint32_t cur_distinct_ct = cur_marker_ct - cur_dup_ct;
 	LOGPRINTFWW("%u marker%s loaded from %s.\n", uii, (uii == 1)? "" : "s", mergelist_bim[0]);
-	LOGPRINTFWW("%u marker%s to be merged from %s.\n", cur_marker_ct, (cur_marker_ct == 1)? "" : "s", mergelist_bim[1]);
+	LOGPRINTFWW("%u marker%s to be merged from %s.\n", cur_distinct_ct, (cur_distinct_ct == 1)? "" : "s", mergelist_bim[1]);
 	// bugfix: don't underflow when a single file has duplicate IDs (e.g.
 	// '.').
 	uii = ullxx - uii;
-	LOGPRINTF("Of these, %u %s new, while %u %s present in the base dataset.\n", uii, (uii == 1)? "is" : "are", cur_marker_ct - uii, (cur_marker_ct - uii == 1)? "is" : "are");
+	LOGPRINTF("Of these, %u %s new, while %u %s present in the base dataset.\n", uii, (uii == 1)? "is" : "are", cur_distinct_ct - uii, (cur_distinct_ct - uii == 1)? "is" : "are");
       }
     }
     if (!mergelist_fam[mlpos]) {
