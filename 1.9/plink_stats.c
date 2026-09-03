@@ -478,6 +478,13 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
     if (tailp1 + tail2_ceil < exit_thresh) {
       return 1;
     }
+    // The tail containing the observed count is complete here when the
+    // partial-sum loop above was skipped (obs_hets < 4 / obs_homr <= 1); check
+    // it against the threshold before walking the other tail, since that
+    // loop only compares after adding an element and may not iterate at all.
+    if (tailp1 + tailp2 >= exit_thresh) {
+      return 0;
+    }
     exit_threshx = exit_thresh - tailp1;
     while (curr_hets_t2 > 1) {
       curr_homr_t2 += 1;
@@ -550,6 +557,13 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
     }
     if (tailp1 + tail2_ceil < exit_thresh) {
       return 1;
+    }
+    // The tail containing the observed count is complete here when the
+    // partial-sum loop above was skipped (obs_hets < 4 / obs_homr <= 1); check
+    // it against the threshold before walking the other tail, since that
+    // loop only compares after adding an element and may not iterate at all.
+    if (tailp1 + tailp2 >= exit_thresh) {
+      return 0;
     }
     exit_threshx = exit_thresh - tailp1;
     while (curr_homr_t2 > 0.5) {
@@ -671,6 +685,13 @@ int32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, doub
     if (tailp1 + tail2_ceil < exit_thresh) {
       return 1;
     }
+    // The tail containing the observed count is complete here when the
+    // partial-sum loop above was skipped (obs_hets < 4 / obs_homr <= 1); check
+    // it against the threshold before walking the other tail, since that
+    // loop only compares after adding an element and may not iterate at all.
+    if (tailp1 + tailp2 >= exit_thresh) {
+      return 0;
+    }
     exit_threshx = exit_thresh - tailp1;
     while (curr_hets_t2 > 1) {
       curr_homr_t2 += 1;
@@ -747,6 +768,13 @@ int32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, doub
     }
     if (tailp1 + tail2_ceil < exit_thresh) {
       return 1;
+    }
+    // The tail containing the observed count is complete here when the
+    // partial-sum loop above was skipped (obs_hets < 4 / obs_homr <= 1); check
+    // it against the threshold before walking the other tail, since that
+    // loop only compares after adding an element and may not iterate at all.
+    if (tailp1 + tailp2 >= exit_thresh) {
+      return 0;
     }
     exit_threshx = exit_thresh - tailp1;
     while (curr_homr_t2 > 0.5) {
