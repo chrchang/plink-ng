@@ -577,7 +577,7 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags 
 // variants are retained, but let's keep this simpler for now
 uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags, VcorFlags vcor_flags) {
   // Keep this in sync with --error-on-freq-calc.
-  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld)) ||
+  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore)) ||
     ((command_flags1 & kfCommand1Pca) && (pca_flags & kfPcaBiallelicVarWts)) ||
     ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef))) ||
     ((command_flags1 & kfCommand1Vcor) && ((!(vcor_flags & kfVcorRefBased)) || (vcor_flags & (kfVcorColMaj | kfVcorColNonmaj))));
@@ -3000,7 +3000,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: --ld-score's cM window requires nondecreasing CM values on each\nchromosome.  Retry this command after regenerating your CM coordinates.\n");
           return kPglRetInconsistentInput;
         }
-        reterr = LdScore(variant_include, cip, variant_bps, variant_ids, variant_cms, allele_idx_offsets, founder_info, &(pcp->ld_score_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = LdScore(variant_include, cip, variant_bps, variant_ids, variant_cms, allele_idx_offsets, maj_alleles, founder_info, &(pcp->ld_score_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }

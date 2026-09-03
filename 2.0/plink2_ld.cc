@@ -12216,7 +12216,7 @@ THREAD_FUNC_DECL LdScoreThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const uintptr_t* founder_info, const LdScoreInfo* lsip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const LdScoreInfo* lsip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -12237,28 +12237,17 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       goto LdScore_ret_INCONSISTENT_INPUT;
     }
 
-    // LD Score regression is defined on biallelic variants, and PgrGet()
-    // collapses a multiallelic variant to REF vs. everything else, which is a
-    // different statistic.  Drop them rather than report a subtly wrong
-    // number.
+    // LD Score regression as published is defined on biallelic variants, but
+    // dropping a whole column because a few samples out of hundreds of
+    // thousands carry a third allele costs far more than it protects.  One
+    // allele is taken against the rest, defaulting to the most common, as
+    // elsewhere in plink2.
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* variant_include;
     if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include))) {
       goto LdScore_ret_NOMEM;
     }
     memcpy(variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
-    uint32_t multiallelic_skip_ct = 0;
-    if (allele_idx_offsets) {
-      uintptr_t variant_uidx_base = 0;
-      uintptr_t cur_bits = orig_variant_include[0];
-      for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
-        const uint32_t variant_uidx = BitIter1(orig_variant_include, &variant_uidx_base, &cur_bits);
-        if (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] != 2) {
-          ClearBit(variant_uidx, variant_include);
-          ++multiallelic_skip_ct;
-        }
-      }
-    }
     // Haploid chromosomes have no diploid r^2, and chrX needs the male/female
     // split --r2-unphased performs; neither is in scope here yet.
     uint32_t haploid_skip_ct = 0;
@@ -12440,7 +12429,8 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
         for (; loaded_end != need_end; ++loaded_end) {
           const uint32_t slot_idx = loaded_end % ring_size;
           uintptr_t* cur_genobuf = &(genobufs[slot_idx * variant_buf_word_ct]);
-          reterr = PgrGet(founder_info, pssi, founder_ct, chr_variant_uidxs[loaded_end], simple_pgrp, genovec);
+          const uint32_t load_variant_uidx = chr_variant_uidxs[loaded_end];
+          reterr = PgrGetInv1(founder_info, pssi, founder_ct, load_variant_uidx, maj_alleles[load_variant_uidx], simple_pgrp, genovec);
           if (unlikely(reterr)) {
             PgenErrPrintNV(reterr, chr_variant_uidxs[loaded_end]);
             goto LdScore_ret_1;
@@ -12515,8 +12505,8 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     }
     fputs("\b\b\b", stdout);
     logprintfww("--ld-score: LD Scores for %u variant%s written to %s .\n", kept_variant_ct, (kept_variant_ct == 1)? "" : "s", outname);
-    if (multiallelic_skip_ct || haploid_skip_ct) {
-      logprintf("(%u multiallelic and %u haploid-chromosome variants skipped.)\n", multiallelic_skip_ct, haploid_skip_ct);
+    if (haploid_skip_ct) {
+      logprintf("(%u haploid-chromosome variant%s skipped.)\n", haploid_skip_ct, (haploid_skip_ct == 1)? "" : "s");
     }
     if (undefined_ct) {
       logprintf("(%u monomorphic variant%s reported as NA.)\n", undefined_ct, (undefined_ct == 1)? "" : "s");
