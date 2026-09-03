@@ -941,7 +941,6 @@ BoolErr MtagReadSumstats(const char* fname, std::unordered_map<std::string, Sums
     fprintf(stderr, "Error: %s has no sample size column; supply one with --n.\n", fname);
     return 1;
   }
-  uintptr_t line_idx = 1;
   uintptr_t kept = 0;
   uintptr_t dropped = 0;
   while (1) {
@@ -949,7 +948,6 @@ BoolErr MtagReadSumstats(const char* fname, std::unordered_map<std::string, Sums
     if (!line_start) {
       break;
     }
-    ++line_idx;
     const char* toks[64];
     uint32_t slens[64];
     const uint32_t max_tok = MINV(col_ct, 64);
@@ -1820,8 +1818,13 @@ int main(int argc, char** argv) {
     free(states); free(mean_n); free(sigma_j);
   }
 
-  char* outname = S_CAST(char*, malloc(strlen(out_fname) + 16));
-  sprintf(outname, "%s.mtag", out_fname);
+  const uintptr_t outname_blen = strlen(out_fname) + 16;
+  char* outname = S_CAST(char*, malloc(outname_blen));
+  if (!outname) {
+    fprintf(stderr, "Error: out of memory.\n");
+    return 1;
+  }
+  snprintf(outname, outname_blen, "%s.mtag", out_fname);
   FILE* outfile = fopen(outname, "w");
   if (!outfile) {
     fprintf(stderr, "Error: Failed to open %s for writing.\n", outname);
