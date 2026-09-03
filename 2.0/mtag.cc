@@ -684,6 +684,130 @@ THREAD_FUNC_DECL MtagMaxFdrThread(void* raw_arg) {
 }
 
 // ---------------------------------------------------------------------------
+// Parallel line parsing.  Reading and decompression stay serial, since they
+// are one stream, but they only copy bytes; the numeric conversion, which is
+// where the time actually goes, is split across threads.
+// ---------------------------------------------------------------------------
+
+typedef struct ParseCtxStruct {
+  const char* buf;
+  const uint64_t* line_offsets;
+  uintptr_t line_ct;
+  uint32_t trait_ct;
+  double* zs;
+  double* ns;
+  char** ids;
+  unsigned char* row_ok;
+} ParseCtx;
+
+void MtagParseRange(const ParseCtx* ctx, uintptr_t start, uintptr_t stop) {
+  const char* buf = ctx->buf;
+  const uint64_t* line_offsets = ctx->line_offsets;
+  const uint32_t trait_ct = ctx->trait_ct;
+  for (uintptr_t lidx = start; lidx != stop; ++lidx) {
+    const char* iter = FirstNonTspace(&(buf[line_offsets[lidx]]));
+    const char* id_end = CurTokenEnd(iter);
+    const uint32_t id_slen = id_end - iter;
+    char* id_copy = S_CAST(char*, malloc(id_slen + 1));
+    if (!id_copy) {
+      ctx->row_ok[lidx] = 0;
+      continue;
+    }
+    memcpy(id_copy, iter, id_slen);
+    id_copy[id_slen] = '\0';
+    iter = id_end;
+    uint32_t ok = 1;
+    for (uint32_t trait_idx = 0; trait_idx != trait_ct; ++trait_idx) {
+      double z_val;
+      double n_val;
+      iter = FirstNonTspace(iter);
+      const char* next = ScanadvDouble(iter, &z_val);
+      if (!next) {
+        ok = 0;
+        break;
+      }
+      iter = FirstNonTspace(next);
+      next = ScanadvDouble(iter, &n_val);
+      if ((!next) || (n_val < 3.0)) {
+        ok = 0;
+        break;
+      }
+      iter = next;
+      ctx->zs[lidx * trait_ct + trait_idx] = z_val;
+      ctx->ns[lidx * trait_ct + trait_idx] = n_val;
+    }
+    if (!ok) {
+      free(id_copy);
+      ctx->row_ok[lidx] = 0;
+      continue;
+    }
+    ctx->ids[lidx] = id_copy;
+    ctx->row_ok[lidx] = 1;
+  }
+}
+
+THREAD_FUNC_DECL MtagParseThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  const uint32_t thread_ct_p1 = 1 + GetThreadCt(arg->sharedp);
+  ParseCtx* ctx = S_CAST(ParseCtx*, arg->sharedp->context);
+  do {
+    const uintptr_t line_ct = ctx->line_ct;
+    MtagParseRange(ctx, (line_ct * tidx) / thread_ct_p1, (line_ct * (tidx + 1)) / thread_ct_p1);
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+// Formatting 15 numbers per variant at 12 significant digits dominates the
+// run, so the rows are formatted into per-thread buffers and written out in
+// order.  Output is unchanged, byte for byte.
+typedef struct WriteCtxStruct {
+  char* const* ids;
+  const double* betas;
+  const double* ses;
+  uintptr_t variant_ct;
+  uint32_t trait_ct;
+  char** bufs;
+  uintptr_t* buf_used;
+  uintptr_t buf_capacity;
+} WriteCtx;
+
+void MtagFormatRange(const WriteCtx* ctx, uintptr_t start, uintptr_t stop, char* buf, uintptr_t* used_ptr) {
+  const uint32_t trait_ct = ctx->trait_ct;
+  char* iter = buf;
+  for (uintptr_t vidx = start; vidx != stop; ++vidx) {
+    const char* id = ctx->ids[vidx];
+    const uintptr_t id_slen = strlen(id);
+    memcpy(iter, id, id_slen);
+    iter = &(iter[id_slen]);
+    for (uint32_t trait_idx = 0; trait_idx != trait_ct; ++trait_idx) {
+      const double beta = ctx->betas[vidx * trait_ct + trait_idx];
+      const double se = ctx->ses[vidx * trait_ct + trait_idx];
+      *iter++ = '\t';
+      iter = dtoa_g_p8(beta, iter);
+      *iter++ = '\t';
+      iter = dtoa_g_p8(se, iter);
+      *iter++ = '\t';
+      iter = dtoa_g_p8(beta / se, iter);
+    }
+    *iter++ = '\n';
+  }
+  *used_ptr = iter - buf;
+}
+
+THREAD_FUNC_DECL MtagWriteThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  const uint32_t thread_ct_p1 = 1 + GetThreadCt(arg->sharedp);
+  WriteCtx* ctx = S_CAST(WriteCtx*, arg->sharedp->context);
+  do {
+    const uintptr_t variant_ct = ctx->variant_ct;
+    MtagFormatRange(ctx, (variant_ct * tidx) / thread_ct_p1, (variant_ct * (tidx + 1)) / thread_ct_p1, ctx->bufs[tidx], &(ctx->buf_used[tidx]));
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+// ---------------------------------------------------------------------------
 // Summary-statistics reading, replacing the reference's separate Python
 // munging step.  Each trait's file is read independently, then the traits are
 // inner-joined on variant ID and put on a common allele orientation.
@@ -1357,11 +1481,16 @@ int main(int argc, char** argv) {
   }
   trait_ct = (token_ct - 1) / 2;
 
-  uintptr_t capacity = 65536;
-  zs = S_CAST(double*, malloc(capacity * trait_ct * sizeof(double)));
-  ns = S_CAST(double*, malloc(capacity * trait_ct * sizeof(double)));
-  ids = S_CAST(char**, malloc(capacity * sizeof(char*)));
-  if ((!zs) || (!ns) || (!ids)) {
+  // Slurp the lines into one buffer, recording offsets, then convert in
+  // parallel.  The copy is memory-bandwidth bound and cheap next to the
+  // ScanadvDouble calls it feeds.
+  uintptr_t buf_capacity = 1 << 24;
+  uintptr_t buf_used = 0;
+  char* linebuf = S_CAST(char*, malloc(buf_capacity));
+  uintptr_t off_capacity = 1 << 20;
+  uintptr_t line_ct = 0;
+  uint64_t* line_offsets = S_CAST(uint64_t*, malloc(off_capacity * sizeof(uint64_t)));
+  if ((!linebuf) || (!line_offsets)) {
     fprintf(stderr, "Error: out of memory.\n");
     return 1;
   }
@@ -1370,50 +1499,87 @@ int main(int argc, char** argv) {
     if (!line_start) {
       break;
     }
-    if (variant_ct == capacity) {
-      capacity *= 2;
-      zs = S_CAST(double*, realloc(zs, capacity * trait_ct * sizeof(double)));
-      ns = S_CAST(double*, realloc(ns, capacity * trait_ct * sizeof(double)));
-      ids = S_CAST(char**, realloc(ids, capacity * sizeof(char*)));
-      if ((!zs) || (!ns) || (!ids)) {
+    const char* line_end = line_start;
+    while ((*line_end != '\n') && (*line_end != '\0')) {
+      ++line_end;
+    }
+    const uintptr_t slen = line_end - line_start;
+    if (buf_used + slen + 1 > buf_capacity) {
+      while (buf_used + slen + 1 > buf_capacity) {
+        buf_capacity *= 2;
+      }
+      linebuf = S_CAST(char*, realloc(linebuf, buf_capacity));
+      if (!linebuf) {
         fprintf(stderr, "Error: out of memory.\n");
         return 1;
       }
     }
-    const char* iter = FirstNonTspace(line_start);
-    const char* id_end = CurTokenEnd(iter);
-    const uint32_t id_slen = id_end - iter;
-    char* id_copy = S_CAST(char*, malloc(id_slen + 1));
-    memcpy(id_copy, iter, id_slen);
-    id_copy[id_slen] = '\0';
-    ids[variant_ct] = id_copy;
-    iter = id_end;
-    uint32_t parse_fail = 0;
-    for (uint32_t trait_idx = 0; trait_idx != trait_ct; ++trait_idx) {
-      double z_val;
-      double n_val;
-      iter = FirstNonTspace(iter);
-      const char* next = ScanadvDouble(iter, &z_val);
-      if (!next) {
-        parse_fail = 1;
-        break;
+    if (line_ct == off_capacity) {
+      off_capacity *= 2;
+      line_offsets = S_CAST(uint64_t*, realloc(line_offsets, off_capacity * sizeof(uint64_t)));
+      if (!line_offsets) {
+        fprintf(stderr, "Error: out of memory.\n");
+        return 1;
       }
-      iter = FirstNonTspace(next);
-      next = ScanadvDouble(iter, &n_val);
-      if ((!next) || (n_val < 3.0)) {
-        parse_fail = 1;
-        break;
-      }
-      iter = next;
-      zs[variant_ct * trait_ct + trait_idx] = z_val;
-      ns[variant_ct * trait_ct + trait_idx] = n_val;
     }
-    if (parse_fail) {
-      free(id_copy);
+    line_offsets[line_ct++] = buf_used;
+    memcpy(&(linebuf[buf_used]), line_start, slen);
+    buf_used += slen;
+    linebuf[buf_used++] = '\n';
+  }
+  if (!line_ct) {
+    fprintf(stderr, "Error: no rows in %s.\n", z_fname);
+    return 1;
+  }
+  zs = S_CAST(double*, malloc(line_ct * trait_ct * sizeof(double)));
+  ns = S_CAST(double*, malloc(line_ct * trait_ct * sizeof(double)));
+  ids = S_CAST(char**, malloc(line_ct * sizeof(char*)));
+  unsigned char* row_ok = S_CAST(unsigned char*, malloc(line_ct));
+  if ((!zs) || (!ns) || (!ids) || (!row_ok)) {
+    fprintf(stderr, "Error: out of memory.\n");
+    return 1;
+  }
+  {
+    ParseCtx pctx;
+    pctx.buf = linebuf;
+    pctx.line_offsets = line_offsets;
+    pctx.line_ct = line_ct;
+    pctx.trait_ct = trait_ct;
+    pctx.zs = zs;
+    pctx.ns = ns;
+    pctx.ids = ids;
+    pctx.row_ok = row_ok;
+    ThreadGroup ptg;
+    PreinitThreads(&ptg);
+    if ((thread_ct >= 2) && (line_ct >= 4096) && (!SetThreadCt(thread_ct - 1, &ptg))) {
+      SetThreadFuncAndData(MtagParseThread, &pctx, &ptg);
+      DeclareLastThreadBlock(&ptg);
+      if (SpawnThreads(&ptg)) {
+        fprintf(stderr, "Error: thread creation failed.\n");
+        return 1;
+      }
+      MtagParseRange(&pctx, (line_ct * (thread_ct - 1)) / thread_ct, line_ct);
+      JoinThreads(&ptg);
+    } else {
+      MtagParseRange(&pctx, 0, line_ct);
+    }
+    CleanupThreads(&ptg);
+  }
+  // Compact out the rows that failed to parse, preserving input order.
+  for (uintptr_t lidx = 0; lidx != line_ct; ++lidx) {
+    if (!row_ok[lidx]) {
       continue;
+    }
+    if (variant_ct != lidx) {
+      ids[variant_ct] = ids[lidx];
+      memcpy(&(zs[variant_ct * trait_ct]), &(zs[lidx * trait_ct]), trait_ct * sizeof(double));
+      memcpy(&(ns[variant_ct * trait_ct]), &(ns[lidx * trait_ct]), trait_ct * sizeof(double));
     }
     ++variant_ct;
   }
+  free(linebuf);
+  free(line_offsets);
+  free(row_ok);
   CleanupTextStream(&txs, &reterr);
   if (!variant_ct) {
     fprintf(stderr, "Error: no usable rows in %s.\n", z_fname);
@@ -1666,14 +1832,70 @@ int main(int argc, char** argv) {
     fprintf(outfile, "\tBETA%u\tSE%u\tZ%u", trait_idx + 1, trait_idx + 1, trait_idx + 1);
   }
   fputs("\n", outfile);
-  for (uintptr_t vidx = 0; vidx != variant_ct; ++vidx) {
-    fputs(ids[vidx], outfile);
-    for (uint32_t trait_idx = 0; trait_idx != trait_ct; ++trait_idx) {
-      const double beta = betas[vidx * trait_ct + trait_idx];
-      const double se = ses[vidx * trait_ct + trait_idx];
-      fprintf(outfile, "\t%.12g\t%.12g\t%.12g", beta, se, beta / se);
+  {
+    // Longest possible row: the ID, plus three 12-significant-digit numbers
+    // per trait with their separators.
+    uintptr_t max_id_slen = 1;
+    for (uintptr_t vidx = 0; vidx != variant_ct; ++vidx) {
+      const uintptr_t cur = strlen(ids[vidx]);
+      if (cur > max_id_slen) {
+        max_id_slen = cur;
+      }
     }
-    fputs("\n", outfile);
+    const uintptr_t max_row_blen = max_id_slen + trait_ct * 3 * 24 + 2;
+    WriteCtx wctx;
+    wctx.ids = ids;
+    wctx.betas = betas;
+    wctx.ses = ses;
+    wctx.variant_ct = variant_ct;
+    wctx.trait_ct = trait_ct;
+    wctx.buf_capacity = 0;
+    char** bufs = S_CAST(char**, malloc(thread_ct * sizeof(char*)));
+    uintptr_t* buf_used = S_CAST(uintptr_t*, malloc(thread_ct * sizeof(uintptr_t)));
+    if ((!bufs) || (!buf_used)) {
+      fprintf(stderr, "Error: out of memory.\n");
+      return 1;
+    }
+    uint32_t alloc_fail = 0;
+    for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
+      const uintptr_t rows = ((variant_ct * (tidx + 1)) / thread_ct) - ((variant_ct * tidx) / thread_ct);
+      bufs[tidx] = S_CAST(char*, malloc(rows * max_row_blen + 64));
+      buf_used[tidx] = 0;
+      if (!bufs[tidx]) {
+        alloc_fail = 1;
+      }
+    }
+    if (alloc_fail) {
+      fprintf(stderr, "Error: out of memory.\n");
+      return 1;
+    }
+    wctx.bufs = bufs;
+    wctx.buf_used = buf_used;
+    ThreadGroup wtg;
+    PreinitThreads(&wtg);
+    if ((thread_ct >= 2) && (variant_ct >= 4096) && (!SetThreadCt(thread_ct - 1, &wtg))) {
+      SetThreadFuncAndData(MtagWriteThread, &wctx, &wtg);
+      DeclareLastThreadBlock(&wtg);
+      if (SpawnThreads(&wtg)) {
+        fprintf(stderr, "Error: thread creation failed.\n");
+        return 1;
+      }
+      MtagFormatRange(&wctx, (variant_ct * (thread_ct - 1)) / thread_ct, variant_ct, bufs[thread_ct - 1], &(buf_used[thread_ct - 1]));
+      JoinThreads(&wtg);
+    } else {
+      MtagFormatRange(&wctx, 0, variant_ct, bufs[0], &(buf_used[0]));
+    }
+    CleanupThreads(&wtg);
+    const uint32_t used_thread_ct = ((thread_ct >= 2) && (variant_ct >= 4096))? thread_ct : 1;
+    for (uint32_t tidx = 0; tidx != used_thread_ct; ++tidx) {
+      if (buf_used[tidx] && (fwrite(bufs[tidx], 1, buf_used[tidx], outfile) != buf_used[tidx])) {
+        fprintf(stderr, "Error: write failure on %s.\n", outname);
+        return 1;
+      }
+      free(bufs[tidx]);
+    }
+    free(bufs);
+    free(buf_used);
   }
   if (fclose(outfile)) {
     fprintf(stderr, "Error: write failure on %s.\n", outname);
