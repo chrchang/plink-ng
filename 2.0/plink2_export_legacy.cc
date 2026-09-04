@@ -1432,175 +1432,188 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
 // Beagle 3 input: one .dat (and, unless 'beagle-nomap', one .map) per
 // chromosome.  Every sample contributes two columns, since the format is
 // allele-per-column rather than genotype-per-column.
-PglErr ExportBeagle(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* legacy_output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uint32_t max_allele_slen, uint32_t write_map, char exportf_delim, char legacy_output_missing_geno_char, PgenReader* simple_pgrp) {
+PglErr ExportBeagle(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, uintptr_t max_pheno_name_blen, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* legacy_output_missing_pheno, uint32_t sample_ct, uint32_t variant_ct, uint32_t pheno_ct, uint32_t max_allele_slen, uint32_t is_phased, char exportf_delim, char legacy_output_missing_geno_char, PgenReader* simple_pgrp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
-  FILE* mapfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
+    // BEAGLE 3.3's unphased and phased marker files.  One file for the whole
+    // dataset: the chromosome-split form PLINK 1.x wrote is retired, and
+    // there is no .map, so nothing here needs the chromosome at all.
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-    uintptr_t* genovec;
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     const uintptr_t writebuf_blen = kMaxMediumLine + 4 * S_CAST(uintptr_t, sample_ct) * (max_allele_slen + 1) + kMaxIdSlen + 64;
     char* writebuf;
-    char* mapbuf;
-    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
-                 bigstack_alloc_c(writebuf_blen, &writebuf) ||
-                 bigstack_alloc_c(kMaxMediumLine + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64, &mapbuf))) {
+    PgenVariant pgv;
+    if (unlikely(BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, kfPgenGlobalHardcallPhasePresent, &pgv) ||
+                 bigstack_alloc_c(writebuf_blen, &writebuf))) {
       goto ExportBeagle_ret_NOMEM;
     }
+    uintptr_t* genovec = pgv.genovec;
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
-    char* mapbuf_flush = &(mapbuf[kMaxMediumLine]);
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
-    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
-    char* chr_buf;
-    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
-      goto ExportBeagle_ret_NOMEM;
+
+    char* fname_end = strcpya(outname_end, is_phased? ".dat.phased" : ".dat");
+    *fname_end = '\0';
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportBeagle_ret_OPEN_FAIL;
     }
-    const uint32_t chr_ct = cip->chr_ct;
-    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
-      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
-      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-      const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
-      if (!chr_variant_ct) {
-        continue;
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
+    char* write_iter = writebuf;
+    const char* sample_ids = siip->sample_ids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uint32_t lomp_slen = strlen(legacy_output_missing_pheno);
+
+    // 'P' pedigree and 'I' individual rows, then one row per phenotype:
+    // 'A' for case/control, 'T' for a quantitative trait, 'C' otherwise.
+    // PLINK 1.x emitted exactly one such row; BEAGLE permits any number,
+    // including none.
+    for (uint32_t row_idx = 0; row_idx != 2 + pheno_ct; ++row_idx) {
+      const uint32_t pheno_idx = row_idx - 2;
+      if (row_idx == 0) {
+        write_iter = strcpya_k(write_iter, "P FID");
+      } else if (row_idx == 1) {
+        write_iter = strcpya_k(write_iter, "I IID");
+      } else {
+        const PhenoDtype dtype = pheno_cols[pheno_idx].type_code;
+        *write_iter++ = (dtype == kPhenoDtypeCc)? 'A' : ((dtype == kPhenoDtypeQt)? 'T' : 'C');
+        *write_iter++ = ' ';
+        write_iter = strcpya(write_iter, &(pheno_names[pheno_idx * max_pheno_name_blen]));
       }
-      char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
-      *chr_name_end = '\0';
-      char* fname_end = strcpya_k(outname_end, ".chr-");
-      fname_end = strcpya(fname_end, chr_buf);
-      char* dat_end = strcpya_k(fname_end, ".dat");
-      *dat_end = '\0';
-      if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
-        goto ExportBeagle_ret_OPEN_FAIL;
-      }
-      logprintfww5("Writing %s ... ", outname);
-      fflush(stdout);
-      if (write_map) {
-        char* map_end = strcpya_k(fname_end, ".map");
-        *map_end = '\0';
-        if (unlikely(fopen_checked(outname, FOPEN_WB, &mapfile))) {
-          goto ExportBeagle_ret_OPEN_FAIL;
-        }
-      }
-      char* write_iter = writebuf;
-      // Three header rows, each repeating the per-sample value twice.
-      const char* sample_ids = siip->sample_ids;
-      const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
-      for (uint32_t row_idx = 0; row_idx != 3; ++row_idx) {
-        if (row_idx == 0) {
-          write_iter = strcpya_k(write_iter, "P FID");
-        } else if (row_idx == 1) {
-          write_iter = strcpya_k(write_iter, "I IID");
-        } else {
-          write_iter = strcpya_k(write_iter, "A PHE");
-        }
-        const uint32_t lomp_slen = strlen(legacy_output_missing_pheno);
-        uintptr_t sample_uidx_base = 0;
-        uintptr_t cur_bits = sample_include[0];
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-          const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
-          for (uint32_t rep_idx = 0; rep_idx != 2; ++rep_idx) {
-            *write_iter++ = exportf_delim;
-            if (row_idx == 0) {
-              const char* fid_end = AdvToDelim(cur_sample_id, '\t');
-              write_iter = memcpya(write_iter, cur_sample_id, fid_end - cur_sample_id);
-            } else if (row_idx == 1) {
-              write_iter = strcpya(write_iter, AdvPastDelim(cur_sample_id, '\t'));
-            } else if (!pheno_ct) {
-              write_iter = memcpya(write_iter, legacy_output_missing_pheno, lomp_slen);
-            } else {
-              write_iter = AppendPhenoStr(&(pheno_cols[0]), legacy_output_missing_pheno, lomp_slen, sample_uidx, write_iter);
-            }
-          }
-          if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
-            goto ExportBeagle_ret_WRITE_FAIL;
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
+        for (uint32_t rep_idx = 0; rep_idx != 2; ++rep_idx) {
+          *write_iter++ = exportf_delim;
+          if (row_idx == 0) {
+            const char* fid_end = AdvToDelim(cur_sample_id, '\t');
+            write_iter = memcpya(write_iter, cur_sample_id, fid_end - cur_sample_id);
+          } else if (row_idx == 1) {
+            write_iter = strcpya(write_iter, AdvPastDelim(cur_sample_id, '\t'));
+          } else {
+            write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), legacy_output_missing_pheno, lomp_slen, sample_uidx, write_iter);
           }
         }
-        *write_iter++ = exportf_delim;
-        AppendBinaryEoln(&write_iter);
         if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
           goto ExportBeagle_ret_WRITE_FAIL;
         }
       }
-      char* map_iter = mapbuf;
-      uintptr_t variant_uidx_base;
-      uintptr_t cur_bits;
-      BitIter1Start(variant_include, chr_vidx_start, &variant_uidx_base, &cur_bits);
-      for (uint32_t variant_idx = 0; variant_idx != chr_variant_ct; ++variant_idx) {
-        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-        uintptr_t allele_idx_offset_base = variant_uidx * 2;
-        if (allele_idx_offsets) {
-          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-          if (unlikely(allele_idx_offsets[variant_uidx + 1] != allele_idx_offset_base + 2)) {
-            logputs("\n");
-            logerrputs("Error: \"--export beagle\" cannot handle multiallelic variants.\n");
-            goto ExportBeagle_ret_INCONSISTENT_INPUT;
-          }
-        }
-        reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
-        if (unlikely(reterr)) {
-          PgenErrPrintNV(reterr, variant_uidx);
-          goto ExportBeagle_ret_1;
-        }
-        const char* ref_allele = allele_storage[allele_idx_offset_base];
-        const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
-        write_iter = strcpya_k(write_iter, "M");
-        *write_iter++ = exportf_delim;
-        write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
-        // PLINK 1.x puts the A1 allele first for a heterozygote, and A1 is
-        // ALT.
-        const char* geno_alleles[4][2];
-        geno_alleles[0][0] = ref_allele; geno_alleles[0][1] = ref_allele;
-        geno_alleles[1][0] = alt_allele; geno_alleles[1][1] = ref_allele;
-        geno_alleles[2][0] = alt_allele; geno_alleles[2][1] = alt_allele;
-        geno_alleles[3][0] = nullptr; geno_alleles[3][1] = nullptr;
-        uint32_t sample_idx = 0;
-        for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
-          uintptr_t geno_word = genovec[widx];
-          const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
-          for (; sample_idx != idx_stop; ++sample_idx) {
-            const uintptr_t cur_geno = geno_word & 3;
-            geno_word >>= 2;
-            for (uint32_t rep_idx = 0; rep_idx != 2; ++rep_idx) {
-              *write_iter++ = exportf_delim;
-              if (cur_geno == 3) {
-                *write_iter++ = legacy_output_missing_geno_char;
-              } else {
-                write_iter = strcpya(write_iter, geno_alleles[cur_geno][rep_idx]);
-              }
-            }
-          }
-          if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
-            goto ExportBeagle_ret_WRITE_FAIL;
-          }
-        }
-        AppendBinaryEoln(&write_iter);
-        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
-          goto ExportBeagle_ret_WRITE_FAIL;
-        }
-        if (write_map) {
-          map_iter = strcpyax(map_iter, variant_ids[variant_uidx], exportf_delim);
-          map_iter = u32toa_x(variant_bps[variant_uidx], exportf_delim, map_iter);
-          map_iter = strcpyax(map_iter, alt_allele, exportf_delim);
-          map_iter = strcpya(map_iter, ref_allele);
-          AppendBinaryEoln(&map_iter);
-          if (unlikely(fwrite_ck(mapbuf_flush, mapfile, &map_iter))) {
-            goto ExportBeagle_ret_WRITE_FAIL;
-          }
-        }
-      }
-      if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      AppendBinaryEoln(&write_iter);
+      if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
         goto ExportBeagle_ret_WRITE_FAIL;
       }
-      if (write_map) {
-        if (unlikely(fclose_flush_null(mapbuf_flush, map_iter, &mapfile))) {
+    }
+
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * S_CAST(uintptr_t, variant_uidx));
+      const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+      // BEAGLE 3.3 accepts up to 128 alleles per marker.
+      if (unlikely(allele_ct > 128)) {
+        logputs("\n");
+        logerrprintfww("Error: Variant '%s' has %u alleles; BEAGLE supports at most 128.\n", variant_ids[variant_uidx], allele_ct);
+        goto ExportBeagle_ret_INCONSISTENT_INPUT;
+      }
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      // Multiallelic reads: the patch arrays carry the samples whose calls
+      // involve an allele past REF/ALT1, which is what makes >2 alleles
+      // representable here at all.
+      if (!is_phased) {
+        reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+      } else {
+        reterr = PgrGetMP(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+      }
+      const uint32_t phasepresent_ct = pgv.phasepresent_ct;
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto ExportBeagle_ret_1;
+      }
+      if (is_phased) {
+        // Every heterozygous call has to carry phase, or the output would
+        // silently assert an order the data does not support.
+        STD_ARRAY_DECL(uint32_t, 4, genocounts);
+        GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
+        // An ALT1/ALT2 heterozygote is stored as hom-ALT with a patch entry,
+        // so it has to be counted from the patch rather than from genovec.
+        uint32_t het_ct = genocounts[1];
+        for (uint32_t patch_idx = 0; patch_idx != pgv.patch_10_ct; ++patch_idx) {
+          het_ct += (pgv.patch_10_vals[2 * patch_idx] != pgv.patch_10_vals[2 * patch_idx + 1]);
+        }
+        if (unlikely(het_ct != phasepresent_ct)) {
+          logputs("\n");
+          logerrprintfww("Error: \"--export beagle-phased\" requires every heterozygous call to be phased; variant '%s' has %u unphased.\n", variant_ids[variant_uidx], het_ct - phasepresent_ct);
+          goto ExportBeagle_ret_INCONSISTENT_INPUT;
+        }
+      }
+      write_iter = strcpya_k(write_iter, "M");
+      *write_iter++ = exportf_delim;
+      write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
+      uint32_t sample_idx = 0;
+      for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
+        uintptr_t geno_word = genovec[widx];
+        const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
+        for (; sample_idx != idx_stop; ++sample_idx) {
+          const uintptr_t cur_geno = geno_word & 3;
+          geno_word >>= 2;
+          // Biallelic REF/ALT coding; the multiallelic patch below overrides
+          // the two written codes when the sample carries a rarer allele.
+          uint32_t a0 = 0;
+          uint32_t a1 = 0;
+          uint32_t is_missing = 0;
+          if (cur_geno == 3) {
+            is_missing = 1;
+          } else if (cur_geno == 1) {
+            a1 = 1;
+          } else if (cur_geno == 2) {
+            a0 = 1;
+            a1 = 1;
+          }
+          if (!is_missing) {
+            // A sample in a patch set carries an allele past ALT1; the patch
+            // values give its actual allele indices.
+            if ((cur_geno == 1) && pgv.patch_01_ct && IsSet(pgv.patch_01_set, sample_idx)) {
+              a1 = pgv.patch_01_vals[PopcountBitRange(pgv.patch_01_set, 0, sample_idx)];
+            } else if ((cur_geno == 2) && pgv.patch_10_ct && IsSet(pgv.patch_10_set, sample_idx)) {
+              const uint32_t patch_idx = PopcountBitRange(pgv.patch_10_set, 0, sample_idx);
+              a0 = pgv.patch_10_vals[2 * patch_idx];
+              a1 = pgv.patch_10_vals[2 * patch_idx + 1];
+            }
+            // Any heterozygote can carry phase, including the ALT1/ALT2 kind
+            // that genovec stores as hom-ALT.
+            if (is_phased && (a0 != a1) && IsSet(pgv.phaseinfo, sample_idx)) {
+              const uint32_t tmp = a0;
+              a0 = a1;
+              a1 = tmp;
+            }
+          }
+          for (uint32_t rep_idx = 0; rep_idx != 2; ++rep_idx) {
+            *write_iter++ = exportf_delim;
+            if (is_missing) {
+              *write_iter++ = legacy_output_missing_geno_char;
+            } else {
+              write_iter = strcpya(write_iter, cur_alleles[rep_idx? a1 : a0]);
+            }
+          }
+        }
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
           goto ExportBeagle_ret_WRITE_FAIL;
         }
       }
-      logputs("done.\n");
+      AppendBinaryEoln(&write_iter);
+      if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+        goto ExportBeagle_ret_WRITE_FAIL;
+      }
     }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      goto ExportBeagle_ret_WRITE_FAIL;
+    }
+    logputs("done.\n");
   }
   while (0) {
   ExportBeagle_ret_NOMEM:
@@ -1618,7 +1631,6 @@ PglErr ExportBeagle(const char* outname, char* outname_end, const uintptr_t* sam
   }
  ExportBeagle_ret_1:
   fclose_cond(outfile);
-  fclose_cond(mapfile);
   BigstackReset(bigstack_mark);
   return reterr;
 }

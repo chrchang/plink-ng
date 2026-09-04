@@ -3386,8 +3386,12 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
           cur_format = kfExportfBcf42;
         } else if (strequal_k(cur_modif2, "eagle", cur_modif2_slen)) {
           cur_format = kfExportfBeagle;
-        } else if (strequal_k(cur_modif2, "eagle-nomap", cur_modif2_slen)) {
-          cur_format = kfExportfBeagleNomap;
+        } else if (strequal_k(cur_modif2, "eagle-nomap", cur_modif2_slen) ||
+                   strequal_k(cur_modif2, "eagle-unphased", cur_modif2_slen)) {
+          // 'beagle-nomap' is the old spelling of the unphased single-file form.
+          cur_format = kfExportfBeagleUnphased;
+        } else if (strequal_k(cur_modif2, "eagle-phased", cur_modif2_slen)) {
+          cur_format = kfExportfBeaglePhased;
         } else if (strequal_k(cur_modif2, "gen-1.1", cur_modif2_slen) ||
                    strequal_k(cur_modif2, "gen_1.1", cur_modif2_slen)) {
           cur_format = kfExportfBgen11;
@@ -5905,6 +5909,10 @@ int main(int argc, char** argv) {
               IdpasteFlags dummy_idpaste = kfIdpaste0;
               uint64_t dummy_idxs = 0;
               GetExportfTargets(&(argvk[arg_idx + param_idx - 1]), 1, &cur_format, &dummy_idpaste, &dummy_idxs);
+              if (cur_format & kfExportfBeagle) {
+                logerrputs("Error: \"--export beagle\" wrote one fileset per chromosome, which is retired.\nUse \"--export beagle-unphased\" for the single-file unphased form, or\n\"--export beagle-phased\" when every genotype is phased.  PLINK 1.9 still\nwrites the chromosome-split form if you need it.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
               if (cur_format & kfExportfBimbam) {
                 logerrputs("Error: \"--export bimbam\" and \"--export bimbam-1chr\" have been replaced by\n\"--export mgf\", which writes BIMBAM's mean genotype format: dosages rather\nthan rounded genotypes, in a .mgf file alongside .pos.txt and, when a numeric\nphenotype is loaded, .pheno.txt.  Contact us if you need the original BIMBAM\ngenotype file; PLINK 1.9 still writes it.\n");
                 goto main_ret_INVALID_CMDLINE;
