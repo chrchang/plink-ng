@@ -1801,7 +1801,8 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	      if (case_pheno * ctrl_pheno >= 0.0) {
                 pos_r_ct++;
 		pos_r_tot += dxx;
-	      } else {
+	      } else if (dxx == dxx) {
+                // bugfix (4 Sep 2026): need to ignore nan here
 		neg_uidx_buf[neg_r_ct++] = window_uidxs[window_cidx3];
 		neg_r_tot += dxx;
 	      }
