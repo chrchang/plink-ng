@@ -194,7 +194,8 @@ FLAGSET64_DEF_START()
   kfExportfBgen12 = (1 << 13),
   kfExportfBgen13 = (1 << 14),
   kfExportfBimbam = (1 << 15),
-  kfExportfBimbam1chr = (1 << 16),
+  // bit 16 was bimbam-1chr, retired along with the BIMBAM genotype file
+  kfExportfMgf = (1 << 16),
   kfExportfEig = (1 << 17),
   kfExportfEigt = (1 << 18),
   kfExportfFastphase = (1 << 19),
@@ -225,7 +226,7 @@ FLAGSET64_DEF_START()
   // the two are updated together, and checked during argument parsing so an
   // unimplemented format is rejected before the dataset is loaded rather than
   // after.
-  kfExportfImplemented = (kfExportfA | kfExportfAD | kfExportfAv | kfExportfBcf | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13 | kfExportfBimbam | kfExportfBimbam1chr | kfExportfCompound | kfExportfLgen | kfExportfLgenRef | kfExportfList | kfExportfRlist | kfExportfBeagle | kfExportfBeagleNomap | kfExportfStructure | kfExportfFastphase | kfExportfFastphase1chr | kfExportfHv | kfExportfHv1chr | kfExportfEig | kfExportfEigt | kfExportfHaps | kfExportfHapsLegend | kfExportfIndMajorBed | kfExportfOxGen | kfExportfPed | kfExportfPhylip | kfExportfPhylipPhased | kfExportfTped | kfExportfVcf),
+  kfExportfImplemented = (kfExportfA | kfExportfAD | kfExportfAv | kfExportfBcf | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13 | kfExportfMgf | kfExportfCompound | kfExportfLgen | kfExportfLgenRef | kfExportfList | kfExportfRlist | kfExportfBeagle | kfExportfBeagleNomap | kfExportfStructure | kfExportfFastphase | kfExportfFastphase1chr | kfExportfHv | kfExportfHv1chr | kfExportfEig | kfExportfEigt | kfExportfHaps | kfExportfHapsLegend | kfExportfIndMajorBed | kfExportfOxGen | kfExportfPed | kfExportfPhylip | kfExportfPhylipPhased | kfExportfTped | kfExportfVcf),
   kfExportfIncludeAlt = (1LLU << 40),
   kfExportfBgz = (1LLU << 41),
   kfExportfOmitNonmaleY = (1LLU << 42),

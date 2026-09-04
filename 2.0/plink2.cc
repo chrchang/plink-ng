@@ -3397,13 +3397,16 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         } else if (strequal_k(cur_modif2, "gen-1.3", cur_modif2_slen) ||
                    strequal_k(cur_modif2, "gen_1.3", cur_modif2_slen)) {
           cur_format = kfExportfBgen13;
-        } else if (strequal_k(cur_modif2, "imbam", cur_modif2_slen)) {
+        } else if ((!strcmp(cur_modif2, "imbam")) || (!strcmp(cur_modif2, "imbam-1chr"))) {
           cur_format = kfExportfBimbam;
-        } else if (strequal_k(cur_modif2, "imbam-1chr", cur_modif2_slen)) {
-          cur_format = kfExportfBimbam1chr;
         }
         break;
       }
+    case 'm':
+      if (!strcmp(cur_modif2, "gf")) {
+        cur_format = kfExportfMgf;
+      }
+      break;
     case 'c':
       if (!strcmp(cur_modif2, "ompound-genotypes")) {
         cur_format = kfExportfCompound;
@@ -5902,6 +5905,10 @@ int main(int argc, char** argv) {
               IdpasteFlags dummy_idpaste = kfIdpaste0;
               uint64_t dummy_idxs = 0;
               GetExportfTargets(&(argvk[arg_idx + param_idx - 1]), 1, &cur_format, &dummy_idpaste, &dummy_idxs);
+              if (cur_format & kfExportfBimbam) {
+                logerrputs("Error: \"--export bimbam\" and \"--export bimbam-1chr\" have been replaced by\n\"--export mgf\", which writes BIMBAM's mean genotype format: dosages rather\nthan rounded genotypes, in a .mgf file alongside .pos.txt and, when a numeric\nphenotype is loaded, .pheno.txt.  Contact us if you need the original BIMBAM\ngenotype file; PLINK 1.9 still writes it.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
               if (cur_format & (kfExportfTypemask - kfExportfImplemented)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: \"--export %s\" is not implemented yet.\n", argvk[arg_idx + param_idx]);
                 goto main_ret_INVALID_CMDLINE_WWA;
@@ -6071,8 +6078,8 @@ int main(int argc, char** argv) {
                 pc.exportf_info.flags |= kfExportf12;
               }
             } else if (strequal_k(cur_modif, "bgz", cur_modif_slen)) {
-              if (unlikely(!(pc.exportf_info.flags & (kfExportfHaps | kfExportfHapsLegend | kfExportfOxGen | kfExportfVcf)))) {
-                logerrputs("Error: The 'bgz' modifier only applies to --export's haps[legend], oxford, and\nvcf output formats.\n");
+              if (unlikely(!(pc.exportf_info.flags & (kfExportfHaps | kfExportfHapsLegend | kfExportfOxGen | kfExportfVcf | kfExportfMgf)))) {
+                logerrputs("Error: The 'bgz' modifier only applies to --export's haps[legend], mgf,\noxford, and vcf output formats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.exportf_info.flags |= kfExportfBgz;

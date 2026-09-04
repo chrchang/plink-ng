@@ -11824,7 +11824,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
       allele_storage = subst_allele_storage;
     }
-    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped - kfExportfPed - kfExportfPhylip - kfExportfPhylipPhased - kfExportfEig - kfExportfEigt - kfExportfCompound - kfExportfBimbam - kfExportfBimbam1chr - kfExportfLgen - kfExportfLgenRef - kfExportfList - kfExportfRlist - kfExportfBeagle - kfExportfBeagleNomap - kfExportfStructure - kfExportfFastphase - kfExportfFastphase1chr - kfExportfHv - kfExportfHv1chr)) {
+    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped - kfExportfPed - kfExportfPhylip - kfExportfPhylipPhased - kfExportfEig - kfExportfEigt - kfExportfCompound - kfExportfMgf - kfExportfLgen - kfExportfLgenRef - kfExportfList - kfExportfRlist - kfExportfBeagle - kfExportfBeagleNomap - kfExportfStructure - kfExportfFastphase - kfExportfFastphase1chr - kfExportfHv - kfExportfHv1chr)) {
       logerrputs("Error: 23andMe output has not been implemented yet.\n");
       reterr = kPglRetNotYetSupported;
       goto Exportf_ret_1;
@@ -12129,8 +12129,8 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
       logputs("done.\n");
     }
-    if (flags & (kfExportfBimbam | kfExportfBimbam1chr)) {
-      reterr = ExportBimbam(outname, outname_end, sample_include, sample_include_cumulative_popcounts, &(piip->sii), pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, legacy_output_missing_pheno, sample_ct, pheno_ct, variant_ct, (flags / kfExportfBimbam1chr) & 1, simple_pgrp);
+    if (flags & kfExportfMgf) {
+      reterr = ExportMgf(outname, outname_end, sample_include, sample_include_cumulative_popcounts, &(piip->sii), pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, legacy_output_missing_pheno, sample_ct, pheno_ct, variant_ct, exportf_delim, (flags / kfExportfBgz) & 1, max_thread_ct, simple_pgrp);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }

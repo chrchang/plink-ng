@@ -15,6 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "plink2_export_legacy.h"
+
+#include "include/plink2_bgzf.h"
 #include "plink2_data.h"
 
 #include <assert.h>
@@ -638,47 +640,55 @@ PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const ui
 }
 
 // BIMBAM's genotype file is variant-major with a three-line header, which is
+// Local copies of the bgzf write helpers in plink2_export.cc; that file keeps
+// them static.
+static inline BoolErr MgfBgzfWriteCk(char* buf_flush, BgzfCompressStream* bgzfp, char** write_iter_ptr) {
+  char* buf = &(buf_flush[-S_CAST(int32_t, kMaxMediumLine)]);
+  char* buf_end = *write_iter_ptr;
+  if (buf_end < buf_flush) {
+    return 0;
+  }
+  *write_iter_ptr = buf;
+  return BgzfWrite(buf, buf_end - buf, bgzfp);
+}
+
+static BoolErr MgfBgzfCloseFlush(char* buf_flush, char* write_iter, BgzfCompressStream* bgzfp, PglErr* reterrp) {
+  char* buf = &(buf_flush[-S_CAST(int32_t, kMaxMediumLine)]);
+  if (write_iter != buf) {
+    if (unlikely(BgzfWrite(buf, write_iter - buf, bgzfp))) {
+      return 1;
+    }
+  }
+  return CleanupBgzfCompressStream(bgzfp, reterrp);
+}
+
 // close enough to .tped that this borrows that function's structure.  The
 // format only has room for single-character alleles, so multiallelic variants
 // and multi-character alleles are rejected rather than silently mangled.
-PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* legacy_output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uint32_t variant_ct, uint32_t is_1chr, PgenReader* simple_pgrp) {
+PglErr ExportMgf(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* legacy_output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uint32_t variant_ct, char exportf_delim, uint32_t output_bgz, uint32_t max_thread_ct, PgenReader* simple_pgrp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
+  BgzfCompressStream bgzf;
+  PreinitBgzfCompressStream(&bgzf);
   PglErr reterr = kPglRetSuccess;
   {
-    if (is_1chr) {
-      uint32_t nonempty_chr_ct = 0;
-      for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
-        const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
-        const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-        if (PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end)) {
-          ++nonempty_chr_ct;
-        }
-      }
-      if (unlikely(nonempty_chr_ct > 1)) {
-        logerrputs("Error: \"--export bimbam-1chr\" does not support multiple chromosomes.\n");
-        goto ExportBimbam_ret_INCONSISTENT_INPUT;
-      }
-    }
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-    // BIMBAM's mean genotype file is dosage-based, and that is the form GEMMA
-    // consumes.  When the dataset carries dosages we emit those rather than
-    // rounding to hardcalls, which is the main thing plink2 can offer over
-    // PLINK 1.x here.
+    // Mean genotype format is dosage-based by definition; hardcalls are just
+    // dosages that happen to be integral, so there is no second output shape.
     const uint32_t dosage_present_in_file = (PgrGetGflags(simple_pgrp) / kfPgenGlobalDosagePresent) & 1;
     uintptr_t* dosage_present = nullptr;
     Dosage* dosage_main = nullptr;
     uintptr_t* genovec;
     if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec))) {
-      goto ExportBimbam_ret_NOMEM;
+      goto ExportMgf_ret_NOMEM;
     }
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
     if (dosage_present_in_file) {
       if (unlikely(bigstack_alloc_w(sample_ctl, &dosage_present) ||
                    bigstack_alloc_dosage(sample_ct, &dosage_main))) {
-        goto ExportBimbam_ret_NOMEM;
+        goto ExportMgf_ret_NOMEM;
       }
     }
     // ",0.000" per sample in the dosage case, ",XY" otherwise.
@@ -686,25 +696,25 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
     const uintptr_t writebuf_blen = kMaxMediumLine + per_sample_blen * S_CAST(uintptr_t, sample_ct) + kMaxIdSlen + 64;
     char* writebuf;
     if (unlikely(bigstack_alloc_c(writebuf_blen, &writebuf))) {
-      goto ExportBimbam_ret_NOMEM;
+      goto ExportMgf_ret_NOMEM;
     }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
 
-    // .geno.txt
-    char* fname_end = strcpya_k(outname_end, ".geno.txt");
+    // .mgf, block-gzipped on request since these files get large.
+    char* fname_end = strcpya(outname_end, output_bgz? ".mgf.gz" : ".mgf");
     *fname_end = '\0';
-    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
-      goto ExportBimbam_ret_OPEN_FAIL;
-    }
-    if (dosage_present_in_file) {
-      logputs("--export bimbam: dosages present, writing BIMBAM mean genotype format.\n");
+    reterr = InitBgzfCompressStreamEx(outname, 0, output_bgz? kBgzfDefaultClvl : 0, max_thread_ct, &bgzf);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
+      goto ExportMgf_ret_1;
     }
     logprintfww5("Writing %s ... ", outname);
     fflush(stdout);
-    // The BIMBAM genotype file is headed by the sample and variant counts and
-    // an IND line; the mean genotype file GEMMA reads has no header at all.
+    // The mean genotype file has no header.
     char* write_iter = writebuf;
-    if (!dosage_present_in_file) {
+    if (0) {
     write_iter = u32toa_x(sample_ct, '\n', write_iter);
     write_iter = u32toa_x(variant_ct, '\n', write_iter);
     write_iter = strcpya_k(write_iter, "IND");
@@ -721,8 +731,8 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
         const char* iid_start = AdvPastDelim(cur_sample_id, '\t');
         *write_iter++ = ',';
         write_iter = strcpya(write_iter, iid_start);
-        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
-          goto ExportBimbam_ret_WRITE_FAIL;
+        if (unlikely(MgfBgzfWriteCk(writebuf_flush, &bgzf, &write_iter))) {
+          goto ExportMgf_ret_WRITE_FAIL;
         }
       }
     }
@@ -735,7 +745,6 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
     uintptr_t cur_bits = variant_include[0];
     // ",XY" for each of hom-REF, het, hom-ALT, missing.  PLINK 1.x puts the A1
     // allele first in the heterozygous case, and A1 is ALT here.
-    char geno_text[4][4];
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
@@ -743,21 +752,19 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
         if (unlikely(allele_idx_offsets[variant_uidx + 1] != allele_idx_offset_base + 2)) {
           logputs("\n");
-          logerrputs("Error: \"--export bimbam\" cannot handle multiallelic variants.\n");
-          goto ExportBimbam_ret_INCONSISTENT_INPUT;
+          logerrputs("Error: \"--export mgf\" cannot handle multiallelic variants.\n");
+          goto ExportMgf_ret_INCONSISTENT_INPUT;
         }
       }
       const char* ref_allele = allele_storage[allele_idx_offset_base];
       const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
-      if (unlikely(ref_allele[1] || alt_allele[1])) {
+      // .mgf readers accept commas as well as whitespace, so either character
+      // inside a field would silently split the row.
+      if (unlikely(strpbrk(variant_ids[variant_uidx], ",;") || strpbrk(ref_allele, ",;") || strpbrk(alt_allele, ",;"))) {
         logputs("\n");
-        logerrprintfww("Error: \"--export bimbam\" cannot represent the multi-character allele(s) of variant '%s'.\n", variant_ids[variant_uidx]);
-        goto ExportBimbam_ret_INCONSISTENT_INPUT;
+        logerrprintfww("Error: Variant '%s' has a comma or semicolon in its ID or an allele code; the mean genotype format cannot represent that.\n", variant_ids[variant_uidx]);
+        goto ExportMgf_ret_INCONSISTENT_INPUT;
       }
-      geno_text[0][0] = ','; geno_text[0][1] = ref_allele[0]; geno_text[0][2] = ref_allele[0];
-      geno_text[1][0] = ','; geno_text[1][1] = alt_allele[0]; geno_text[1][2] = ref_allele[0];
-      geno_text[2][0] = ','; geno_text[2][1] = alt_allele[0]; geno_text[2][2] = alt_allele[0];
-      geno_text[3][0] = ','; geno_text[3][1] = '?'; geno_text[3][2] = '?';
       uint32_t dosage_ct = 0;
       if (!dosage_present_in_file) {
         reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
@@ -766,27 +773,15 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
       }
       if (unlikely(reterr)) {
         PgenErrPrintNV(reterr, variant_uidx);
-        goto ExportBimbam_ret_1;
+        goto ExportMgf_ret_1;
       }
       write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
-      if (dosage_present_in_file) {
-        // Mean genotype rows carry the two alleles before the dosages.
-        *write_iter++ = ',';
-        write_iter = strcpya(write_iter, alt_allele);
-        *write_iter++ = ',';
-        write_iter = strcpya(write_iter, ref_allele);
-      }
-      if (!dosage_present_in_file) {
-        uint32_t sample_idx = 0;
-        for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
-          uintptr_t geno_word = genovec[widx];
-          const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
-          for (; sample_idx != idx_stop; ++sample_idx) {
-            write_iter = memcpya(write_iter, geno_text[geno_word & 3], 3);
-            geno_word >>= 2;
-          }
-        }
-      } else {
+      // Mean genotype rows carry the two alleles before the dosages.
+      *write_iter++ = exportf_delim;
+      write_iter = strcpya(write_iter, alt_allele);
+      *write_iter++ = exportf_delim;
+      write_iter = strcpya(write_iter, ref_allele);
+      {
         // ALT dosage on a 0..2 scale, three decimals, which is what BIMBAM's
         // mean genotype file expects.  Missing stays "NA".
         const Dosage* dosage_read_iter = dosage_main;
@@ -797,7 +792,7 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
           uintptr_t geno_word = genovec[widx];
           const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
           for (; sample_idx != idx_stop; ++sample_idx) {
-            *write_iter++ = ',';
+            *write_iter++ = exportf_delim;
             uint32_t is_dosage = 0;
             if (dosage_ct) {
               const uintptr_t cur_widx = sample_idx / kBitsPerWord;
@@ -822,8 +817,8 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
         }
       }
       AppendBinaryEoln(&write_iter);
-      if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
-        goto ExportBimbam_ret_WRITE_FAIL;
+      if (unlikely(MgfBgzfWriteCk(writebuf_flush, &bgzf, &write_iter))) {
+        goto ExportMgf_ret_WRITE_FAIL;
       }
       if (variant_idx >= next_print_variant_idx) {
         if (pct > 10) {
@@ -835,20 +830,27 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
         next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
       }
     }
-    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
-      goto ExportBimbam_ret_WRITE_FAIL;
+    if (unlikely(MgfBgzfCloseFlush(writebuf_flush, write_iter, &bgzf, &reterr))) {
+      goto ExportMgf_ret_1;
     }
     if (pct > 10) {
       putc_unlocked('\b', stdout);
     }
     fputs("\b\bdone.\n", stdout);
 
-    // .pheno.txt: one row per sample, one column per loaded phenotype, which
-    // is what GEMMA's -n expects and reduces to PLINK 1.x's single column.
+    // .pheno.txt: one row per sample, one column per loaded quantitative
+    // phenotype, which is what GEMMA's -n selects between.  Written only when
+    // there is at least one such phenotype; case/control and categorical
+    // phenotypes have no place in this format.
+    uint32_t qt_pheno_ct = 0;
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      qt_pheno_ct += (pheno_cols[pheno_idx].type_code == kPhenoDtypeQt);
+    }
+    if (qt_pheno_ct) {
     fname_end = strcpya_k(outname_end, ".pheno.txt");
     *fname_end = '\0';
     if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
-      goto ExportBimbam_ret_OPEN_FAIL;
+      goto ExportMgf_ret_OPEN_FAIL;
     }
     logprintfww5("Writing %s ... ", outname);
     fflush(stdout);
@@ -862,29 +864,34 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
         if (!pheno_ct) {
           write_iter = memcpya(write_iter, legacy_output_missing_pheno, lomp_slen);
         } else {
+          uint32_t written = 0;
           for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-            if (pheno_idx) {
-              *write_iter++ = ' ';
+            if (pheno_cols[pheno_idx].type_code != kPhenoDtypeQt) {
+              continue;
+            }
+            if (written++) {
+              *write_iter++ = exportf_delim;
             }
             write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), legacy_output_missing_pheno, lomp_slen, sample_uidx, write_iter);
           }
         }
         AppendBinaryEoln(&write_iter);
         if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
-          goto ExportBimbam_ret_WRITE_FAIL;
+          goto ExportMgf_ret_WRITE_FAIL;
         }
       }
     }
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
-      goto ExportBimbam_ret_WRITE_FAIL;
+      goto ExportMgf_ret_WRITE_FAIL;
     }
     logputs("done.\n");
+    }
 
     // .pos.txt
     fname_end = strcpya_k(outname_end, ".pos.txt");
     *fname_end = '\0';
     if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
-      goto ExportBimbam_ret_OPEN_FAIL;
+      goto ExportMgf_ret_OPEN_FAIL;
     }
     logprintfww5("Writing %s ... ", outname);
     fflush(stdout);
@@ -893,7 +900,7 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
       const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
       char* chr_buf;
       if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
-        goto ExportBimbam_ret_NOMEM;
+        goto ExportMgf_ret_NOMEM;
       }
       uint32_t chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
@@ -902,7 +909,7 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
       cur_bits = variant_include[0];
       for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
         const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-        if ((!is_1chr) && (variant_uidx >= chr_end)) {
+        if (variant_uidx >= chr_end) {
           do {
             ++chr_fo_idx;
             chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
@@ -910,38 +917,36 @@ PglErr ExportBimbam(const char* outname, char* outname_end, const uintptr_t* sam
           char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
           chr_slen = chr_name_end - chr_buf;
         }
-        write_iter = strcpyax(write_iter, variant_ids[variant_uidx], ' ');
+        write_iter = strcpyax(write_iter, variant_ids[variant_uidx], exportf_delim);
         write_iter = u32toa(variant_bps[variant_uidx], write_iter);
-        if (!is_1chr) {
-          *write_iter++ = ' ';
-          write_iter = memcpya(write_iter, chr_buf, chr_slen);
-        }
+        *write_iter++ = exportf_delim;
+        write_iter = memcpya(write_iter, chr_buf, chr_slen);
         AppendBinaryEoln(&write_iter);
         if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
-          goto ExportBimbam_ret_WRITE_FAIL;
+          goto ExportMgf_ret_WRITE_FAIL;
         }
       }
     }
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
-      goto ExportBimbam_ret_WRITE_FAIL;
+      goto ExportMgf_ret_WRITE_FAIL;
     }
     logputs("done.\n");
   }
   while (0) {
-  ExportBimbam_ret_NOMEM:
+  ExportMgf_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ExportBimbam_ret_OPEN_FAIL:
+  ExportMgf_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  ExportBimbam_ret_WRITE_FAIL:
+  ExportMgf_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  ExportBimbam_ret_INCONSISTENT_INPUT:
+  ExportMgf_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   }
- ExportBimbam_ret_1:
+ ExportMgf_ret_1:
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
   return reterr;
