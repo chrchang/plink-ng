@@ -32,9 +32,9 @@ FLAGSET_DEF_START()
   kfLdPruneWindowBp = (1 << 0),
   kfLdPrunePairwise = (1 << 1),
   kfLdPrunePairphase = (1 << 2),
-  kfLdPrunePlink1Order = (1 << 3)
+  kfLdPrunePlink1Order = (1 << 3),
+  kfLdPruneVif = (1 << 4)
 FLAGSET_DEF_END(LdPruneFlags);
-// todo: old multicollinearity test
 
 FLAGSET_DEF_START()
   kfClump0,
