@@ -8106,7 +8106,7 @@ int main(int argc, char** argv) {
           }
           pc.ld_score_info.flags |= kfLdScoreFounders;
         } else if (strequal_k_unsafe(flagname_p2, "d-score")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -8114,6 +8114,8 @@ int main(int argc, char** argv) {
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.ld_score_info.flags |= kfLdScoreZs;
+            } else if (strequal_k(cur_modif, "multiallelic", cur_modif_slen)) {
+              pc.ld_score_info.flags |= kfLdScoreMultiallelic;
             } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
               if (unlikely(pc.ld_score_info.flags & kfLdScoreColAll)) {
                 logerrputs("Error: Multiple --ld-score cols= modifiers.\n");

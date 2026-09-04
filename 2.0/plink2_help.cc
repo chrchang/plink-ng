@@ -1029,7 +1029,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    With either output type, the computation can be subdivided with --parallel.\n\n"
               );
     HelpPrint("ld-score\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
-"  --ld-score ['zs'] [{'cols='<column set descriptor>}]\n"
+"  --ld-score ['zs'] ['multiallelic'] [{'cols='<column set descriptor>}]\n"
 "  --ld-score-founders\n"
 "  --ld-score-window <max variant ct radius>\n"
 "  --ld-score-window-kb <max kb radius>\n"
@@ -1048,8 +1048,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      Specifying either of those turns the cM default off; to combine them,\n"
 "      give --ld-score-window-cm explicitly.\n"
 "    * Haploid chromosomes are skipped, and monomorphic variants are reported\n"
-"      as NA.  A multiallelic variant is handled the usual way: one\n"
-"      allele, the most common by default, against all others.\n"
+"      as NA.  Multiallelic variants are also skipped by default, since the\n"
+"      programs that consume ldsc output expect them to have been filtered\n"
+"      out; 'multiallelic' keeps them, handled the usual way, with one allele\n"
+"      taken against all others.\n"
 "    Supported column sets are:\n"
 "      chrom: Chromosome ID.\n"
 "      pos: Base-pair coordinate.\n"

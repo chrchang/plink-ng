@@ -148,7 +148,8 @@ FLAGSET_DEF_START()
   kfLdScoreColDefault = (kfLdScoreColChrom | kfLdScoreColPos | kfLdScoreColL2),
   kfLdScoreColAll = ((kfLdScoreColL2 * 2) - kfLdScoreColChrom),
 
-  kfLdScoreFounders = (1 << 5)
+  kfLdScoreFounders = (1 << 5),
+  kfLdScoreMultiallelic = (1 << 6)
 FLAGSET_DEF_END(LdScoreFlags);
 
 typedef struct LdScoreInfoStruct {

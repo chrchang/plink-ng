@@ -12237,17 +12237,29 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       goto LdScore_ret_INCONSISTENT_INPUT;
     }
 
-    // LD Score regression as published is defined on biallelic variants, but
-    // dropping a whole column because a few samples out of hundreds of
-    // thousands carry a third allele costs far more than it protects.  One
-    // allele is taken against the rest, defaulting to the most common, as
-    // elsewhere in plink2.
+    // Programs that consume ldsc output expect multiallelic variants to have
+    // been filtered out, so that is the default here.  'multiallelic' keeps
+    // them, handled the usual plink2 way: one allele, the most common by
+    // default, against all others.
+    const uint32_t keep_multiallelic = (lsip->flags / kfLdScoreMultiallelic) & 1;
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* variant_include;
     if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include))) {
       goto LdScore_ret_NOMEM;
     }
     memcpy(variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+    uint32_t multiallelic_skip_ct = 0;
+    if (allele_idx_offsets && (!keep_multiallelic)) {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = orig_variant_include[0];
+      for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+        const uint32_t variant_uidx = BitIter1(orig_variant_include, &variant_uidx_base, &cur_bits);
+        if (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] != 2) {
+          ClearBit(variant_uidx, variant_include);
+          ++multiallelic_skip_ct;
+        }
+      }
+    }
     // Haploid chromosomes have no diploid r^2, and chrX needs the male/female
     // split --r2-unphased performs; neither is in scope here yet.
     uint32_t haploid_skip_ct = 0;
@@ -12505,8 +12517,8 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     }
     fputs("\b\b\b", stdout);
     logprintfww("--ld-score: LD Scores for %u variant%s written to %s .\n", kept_variant_ct, (kept_variant_ct == 1)? "" : "s", outname);
-    if (haploid_skip_ct) {
-      logprintf("(%u haploid-chromosome variant%s skipped.)\n", haploid_skip_ct, (haploid_skip_ct == 1)? "" : "s");
+    if (multiallelic_skip_ct || haploid_skip_ct) {
+      logprintf("(%u multiallelic and %u haploid-chromosome variant%s skipped.)\n", multiallelic_skip_ct, haploid_skip_ct, (multiallelic_skip_ct + haploid_skip_ct == 1)? "" : "s");
     }
     if (undefined_ct) {
       logprintf("(%u monomorphic variant%s reported as NA.)\n", undefined_ct, (undefined_ct == 1)? "" : "s");
