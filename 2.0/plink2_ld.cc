@@ -12376,7 +12376,7 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     }
     const uint32_t col_chrom = (flags / kfLdScoreColChrom) & 1;
     const uint32_t col_pos = (flags / kfLdScoreColPos) & 1;
-    const uint32_t col_nobs = (flags / kfLdScoreColNobs) & 1;
+    const uint32_t col_nobsi = (flags / kfLdScoreColNobsi) & 1;
     const uint32_t col_l2 = (flags / kfLdScoreColL2) & 1;
     *cswritep++ = '#';
     if (col_chrom) {
@@ -12386,8 +12386,8 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       cswritep = strcpya_k(cswritep, "POS\t");
     }
     cswritep = strcpya_k(cswritep, "ID");
-    if (col_nobs) {
-      cswritep = strcpya_k(cswritep, "\tNOBS");
+    if (col_nobsi) {
+      cswritep = strcpya_k(cswritep, "\tNOBSI");
     }
     if (col_l2) {
       cswritep = strcpya_k(cswritep, "\tL2");
@@ -12470,7 +12470,7 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
             cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
           }
           cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
-          if (col_nobs) {
+          if (col_nobsi) {
             *cswritep++ = '\t';
             cswritep = u32toa(nobs_results[cidx], cswritep);
           }
