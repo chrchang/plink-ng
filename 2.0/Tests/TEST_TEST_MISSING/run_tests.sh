@@ -132,3 +132,24 @@ check_totals() {
 }
 check_totals plink2_hc.missing MISSING_CT
 check_totals plink2_dos.missing MISSING_DOSAGE_CT
+
+# 7. An ALTx/ALTy call on a haploid chromosome is a heterozygous call, and so
+#    a het haploid, even though the raw genotype vector makes it look
+#    homozygous.  --missing counts it, so this has to as well.
+cat > tmp_hh.vcf << 'EOF'
+##fileformat=VCFv4.2
+##contig=<ID=Y>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	m1	m2	m3	m4
+Y	1	yv_alt12	A	G,T	.	.	.	GT	1/2	0/0	0/0	0/0
+Y	2	yv_refalt	A	G	.	.	.	GT	0/1	0/0	0/0	0/0
+EOF
+$1/plink2 $2 $3 --vcf tmp_hh.vcf --make-pgen --out tmp_hh
+printf '#IID\tSEX\tCC\nm1\t1\t2\nm2\t1\t2\nm3\t1\t1\nm4\t1\t1\n' > tmp_hh.psam
+$1/plink2 $2 $3 --pfile tmp_hh --test-missing cols=chrom,nmissa,nobsa,nmissu,nobsu --out plink2_hh
+# Both variants have exactly one het haploid, in the same sample, so the two
+# rows have to be identical apart from the ID.
+test "$(grep -c '^Y' plink2_hh.missing)" -eq 2
+diff -q <(awk 'NR > 1 {print $1, $3, $4, $5, $6}' plink2_hh.missing | sort -u) <(awk 'NR > 1 {print $1, $3, $4, $5, $6}' plink2_hh.missing | sort -u | head -n 1)
+# ...and --missing agrees that both are het haploids.
+$1/plink2 $2 $3 --pfile tmp_hh --missing variant-only vcols=chrom,hethap --out plink2_hh_m
+awk 'NR > 1 && $3 != 1 {print "hethap count on " $2 " is " $3; exit 1}' plink2_hh_m.vmiss
