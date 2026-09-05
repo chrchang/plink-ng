@@ -2,8 +2,8 @@
 
 # --homozyg, checked against PLINK 1.9's .hom, .hom.indiv and .hom.summary.
 #
-# plink2 defaults differ from PLINK 1.9 in one respect that matters here:
-# --homozyg-min-af is 0.05 rather than 0, so the comparison runs pass 0.
+# plink2 requires --homozyg-min-af, which PLINK 1.9 has no equivalent of, so
+# the comparison runs pass 0 (no frequency floor, which is what 1.9 does).
 
 set -exo pipefail
 
@@ -115,9 +115,17 @@ plink --bfile tmp_data --homozyg --homozyg-het 2 --out plink19_het
 $1/plink2 $2 $3 --bfile tmp_data --homozyg --homozyg-min-af 0 --homozyg-het 2 --out plink2_het
 compare_hom plink19_het.hom plink2_het.hom
 
-# 4. --homozyg-min-af drops rare variants, so it can only shorten runs.
-$1/plink2 $2 $3 --bfile tmp_data --homozyg --out plink2_maf
+# 4. --homozyg-min-af drops rare variants, so it can only shorten runs, and
+#    it is required rather than defaulted.
+$1/plink2 $2 $3 --bfile tmp_data --homozyg --homozyg-min-af 0.05 --out plink2_maf
 test "$(grep -vc '^#' plink2_maf.hom)" -le "$(grep -vc '^#' plink2.hom)"
+# --homozyg-maf is the same flag.
+$1/plink2 $2 $3 --bfile tmp_data --homozyg --homozyg-maf 0.05 --out plink2_maf2
+diff -q plink2_maf.hom plink2_maf2.hom
+if $1/plink2 $2 $3 --bfile tmp_data --homozyg --out plink2_nomaf > /dev/null 2>&1; then
+    echo "--homozyg ran without --homozyg-min-af"
+    exit 1
+fi
 
 # 5. Multithreading must not change the result.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg --homozyg-min-af 0 --threads 1 --out plink2_st

@@ -7272,14 +7272,15 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1Homozyg;
           pc.dependency_flags |= kfFilterAllReq;
-        } else if (strequal_k_unsafe(flagname_p2, "omozyg-min-af")) {
+        } else if (strequal_k_unsafe(flagname_p2, "omozyg-min-af") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-maf")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
           if (unlikely((!ScantokDouble(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 0.5))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-min-af argument '%s' (must be in [0, 0.5]).\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s' (must be in [0, 0.5]).\n", flagname_p, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.homozyg_info.min_af = dxx;
@@ -13417,6 +13418,10 @@ int main(int argc, char** argv) {
     }
     if (unlikely((pc.mendel_info.flags & kfMendelDuos) && (!((pc.filter_flags & kfFilterMendel) || (pc.command_flags1 & kfCommand1MendelReport) || (make_plink2_flags & kfMakePlink2SetMeMissing))))) {
       logerrputs("Error: --mendel-duos must be used with --me, --mendel, or --set-me-missing.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely((pc.command_flags1 & kfCommand1Homozyg) && (pc.homozyg_info.min_af < 0.0))) {
+      logerrputs("Error: --homozyg requires --homozyg-min-af (equivalently, --homozyg-maf).  0.05\nis a reasonable value with the other default parameters; 0 reproduces PLINK\n1.x, which applied no frequency floor.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely(pc.rename_chrs_fname && (pc.sort_vars_mode <= kSortNone))) {

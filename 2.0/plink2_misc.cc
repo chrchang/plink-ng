@@ -10769,7 +10769,10 @@ void InitHomozyg(HomozygInfo* hip) {
   hip->min_bases = 1000000;
   // Very low-frequency variants are nearly always homozygous, so on a modern
   // dense set they pad out runs that are not really runs.
-  hip->min_af = 0.05;
+  // No default: silently filtering to MAF >= 0.05 would be wrong for anyone
+  // who tuned the other parameters for a low-MAF variant set, so --homozyg
+  // asks rather than guesses.
+  hip->min_af = -1.0;
   hip->max_bases_per_snp = 50000.0 + kSmallEpsilon;
   hip->max_hets = UINT32_MAX;
   hip->max_gap = 1000000;
