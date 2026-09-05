@@ -14714,14 +14714,17 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    // PgrGetInv1() can invert the genotype vector in place, which requires
+    // vector alignment, so the three ring slots are spaced by the aligned
+    // word count rather than the packed one.
+    const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
     uint32_t* sample_include_cumulative_popcounts;
     uintptr_t* genobufs;
     uintptr_t* cur_class_mask;
     uintptr_t* cell_mask;
     uint32_t* chr_variant_uidxs;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-                 bigstack_alloc_w(3 * S_CAST(uintptr_t, sample_ctl2), &genobufs) ||
+                 bigstack_alloc_w(3 * S_CAST(uintptr_t, sample_ctaw2), &genobufs) ||
                  bigstack_alloc_w(sample_ctl, &cur_class_mask) ||
                  bigstack_alloc_w(sample_ctl, &cell_mask) ||
                  bigstack_alloc_u32(kept_variant_ct, &chr_variant_uidxs))) {
@@ -14764,8 +14767,8 @@ PglErr TestMishap(const uintptr_t* orig_variant_include, const ChrInfo* cip, con
         }
       }
       uintptr_t* prev_genovec = genobufs;
-      uintptr_t* cur_genovec = &(genobufs[sample_ctl2]);
-      uintptr_t* next_genovec = &(genobufs[2 * S_CAST(uintptr_t, sample_ctl2)]);
+      uintptr_t* cur_genovec = &(genobufs[sample_ctaw2]);
+      uintptr_t* next_genovec = &(genobufs[2 * S_CAST(uintptr_t, sample_ctaw2)]);
       FillAllHomAlt(sample_ct, prev_genovec);
       reterr = PgrGetInv1(sample_include, pssi, sample_ct, chr_variant_uidxs[0], maj_alleles[chr_variant_uidxs[0]], simple_pgrp, cur_genovec);
       if (unlikely(reterr)) {
