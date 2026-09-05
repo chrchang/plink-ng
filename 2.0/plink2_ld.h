@@ -137,6 +137,31 @@ typedef struct ClumpInfoStruct {
   ClumpFlags flags;
 } ClumpInfo;
 
+FLAGSET_DEF_START()
+  kfLdScore0,
+  kfLdScoreZs = (1 << 0),
+
+  kfLdScoreColChrom = (1 << 1),
+  kfLdScoreColPos = (1 << 2),
+  kfLdScoreColNobsi = (1 << 3),
+  kfLdScoreColL2 = (1 << 4),
+  kfLdScoreColDefault = (kfLdScoreColChrom | kfLdScoreColPos | kfLdScoreColL2),
+  kfLdScoreColAll = ((kfLdScoreColL2 * 2) - kfLdScoreColChrom),
+
+  kfLdScoreFounders = (1 << 5),
+  kfLdScoreMultiallelic = (1 << 6)
+FLAGSET_DEF_END(LdScoreFlags);
+
+typedef struct LdScoreInfoStruct {
+  LdScoreFlags flags;
+  // Window radius.  LD Score regression's convention is a 1 cM radius, so
+  // that's the default; the variant-count and bp radii are here for the same
+  // reason --ld-window and --ld-window-kb are.
+  uint32_t var_ct_radius;
+  uint32_t bp_radius;
+  double cm_radius;
+} LdScoreInfo;
+
 typedef struct VcorInfoStruct {
   NONCOPYABLE(VcorInfoStruct);
   char* ld_snp_list_fname;
@@ -156,6 +181,8 @@ void InitClump(ClumpInfo* clump_ip);
 
 void CleanupClump(ClumpInfo* clump_ip);
 
+void InitLdScore(LdScoreInfo* lsip);
+
 void InitVcor(VcorInfo* vcip);
 
 void CleanupVcor(VcorInfo* vcip);
@@ -165,6 +192,8 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
 PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const LdInfo* ldip, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, PgenReader* simple_pgrp);
 
 PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const ClumpInfo* clump_ip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t nosex_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end);
+
+PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const LdScoreInfo* lsip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
