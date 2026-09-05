@@ -63,4 +63,9 @@ cd TEST_PMERGE
 cd ..
 echo "TEST_PMERGE passed."
 
+cd TEST_META_ANALYSIS
+./run_tests.sh $d $2 $3 > TEST_META_ANALYSIS.log
+cd ..
+echo "TEST_META_ANALYSIS passed."
+
 echo "All tests passed."
