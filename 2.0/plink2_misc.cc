@@ -10828,6 +10828,15 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
     const uint32_t male_ctrl_ct = male_ct - male_case_ct;
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    PgenVariant pgv;
+    pgv.genovec = genovec_buf;
+    pgv.patch_01_set = nullptr;
+    pgv.patch_10_set = nullptr;
+    if (allele_idx_offsets) {
+      if (unlikely(BigstackAllocPgv(sample_ct, 1, kfPgenGlobal0, &pgv))) {
+        goto TestMissingReport_ret_NOMEM;
+      }
+    }
 
     const uint32_t midp = (flags / kfTestMissingMidp) & 1;
     const uint32_t dosage_mode = (flags / kfTestMissingDosage) & 1;
@@ -10949,6 +10958,30 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
       if (unlikely(reterr)) {
         PgenErrPrintNV(reterr, variant_uidx);
         goto TestMissingReport_ret_1;
+      }
+      if (need_hets && allele_idx_offsets && (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] > 2)) {
+        // The het bitvector above comes from the raw genotype vector, where
+        // an ALTx/ALTy call looks homozygous.  On a haploid chromosome that
+        // is still a heterozygous call, and --missing counts it as a het
+        // haploid, so the multiallelic track has to be read to find them.
+        reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+        if (unlikely(reterr)) {
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto TestMissingReport_ret_1;
+        }
+        const uint32_t patch_10_ct = pgv.patch_10_ct;
+        if (patch_10_ct) {
+          const uintptr_t* patch_10_set = pgv.patch_10_set;
+          const AlleleCode* patch_10_vals = pgv.patch_10_vals;
+          uintptr_t sample_idx_base = 0;
+          uintptr_t cur_patch_bits = patch_10_set[0];
+          for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+            const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_patch_bits);
+            if (patch_10_vals[2 * uii] != patch_10_vals[2 * uii + 1]) {
+              SetBit(sample_idx, het_bv);
+            }
+          }
+        }
       }
       // Heterozygous haploid calls count as missing, as in PLINK 1.x.
       if (is_fully_haploid) {
