@@ -10767,7 +10767,7 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
 // controls?  The 2x2 table is (missing, nonmissing) x (case, control), and the
 // test is Fisher's exact, as in PLINK 1.x.  Heterozygous haploid calls count
 // as missing.
-PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t variant_ct, TestMissingFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, TestMissingFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -10830,19 +10830,84 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
 
     const uint32_t midp = (flags / kfTestMissingMidp) & 1;
+    const uint32_t dosage_mode = (flags / kfTestMissingDosage) & 1;
     const uint32_t output_zst = (flags / kfTestMissingZs) & 1;
+    const uint32_t chr_col = flags & kfTestMissingColChrom;
+    const uint32_t ref_col = flags & kfTestMissingColRef;
+    const uint32_t alt1_col = flags & kfTestMissingColAlt1;
+    const uint32_t alt_col = flags & kfTestMissingColAlt;
+    const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    uint32_t provref_col = 0;
+    if (ref_col) {
+      if (flags & kfTestMissingColProvref) {
+        provref_col = 1;
+      } else if (flags & kfTestMissingColMaybeprovref) {
+        provref_col = all_nonref || (nonref_flags && (!IntersectionRangeIsEmpty(variant_include, nonref_flags, 0, raw_variant_ct)));
+      }
+    }
+    const uint32_t nmissa_col = flags & kfTestMissingColNmissa;
+    const uint32_t nobsa_col = flags & kfTestMissingColNobsa;
+    const uint32_t fmissa_col = flags & kfTestMissingColFmissa;
+    const uint32_t nmissu_col = flags & kfTestMissingColNmissu;
+    const uint32_t nobsu_col = flags & kfTestMissingColNobsu;
+    const uint32_t fmissu_col = flags & kfTestMissingColFmissu;
+    const uint32_t p_col = flags & kfTestMissingColP;
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
     char* chr_buf;
     if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto TestMissingReport_ret_NOMEM;
     }
     OutnameZstSet(".missing", output_zst, outname_end);
-    reterr = InitCstreamAlloc(outname, 0, output_zst, 1, kCompressStreamBlock + kMaxIdSlen + 256, &css, &cswritep);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_chr_blen;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, 1, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto TestMissingReport_ret_1;
     }
-    cswritep = strcpya_k(cswritep, "#CHROM\tPOS\tID\tF_MISS_A\tF_MISS_U\tP" EOLN_STR);
-    logprintf("--test-missing%s: %u case%s, %u control%s.\n", midp? " midp" : "", case_ct, (case_ct == 1)? "" : "s", ctrl_ct, (ctrl_ct == 1)? "" : "s");
+    *cswritep++ = '#';
+    if (chr_col) {
+      cswritep = strcpya_k(cswritep, "CHROM\t");
+    }
+    if (flags & kfTestMissingColPos) {
+      cswritep = strcpya_k(cswritep, "POS\t");
+    } else {
+      variant_bps = nullptr;
+    }
+    cswritep = strcpya_k(cswritep, "ID");
+    if (ref_col) {
+      cswritep = strcpya_k(cswritep, "\tREF");
+    }
+    if (alt1_col) {
+      cswritep = strcpya_k(cswritep, "\tALT1");
+    }
+    if (alt_col) {
+      cswritep = strcpya_k(cswritep, "\tALT");
+    }
+    if (provref_col) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+    }
+    if (nmissa_col) {
+      cswritep = strcpya_k(cswritep, "\tMISSING_CT_A");
+    }
+    if (nobsa_col) {
+      cswritep = strcpya_k(cswritep, "\tOBS_CT_A");
+    }
+    if (fmissa_col) {
+      cswritep = strcpya_k(cswritep, "\tF_MISS_A");
+    }
+    if (nmissu_col) {
+      cswritep = strcpya_k(cswritep, "\tMISSING_CT_U");
+    }
+    if (nobsu_col) {
+      cswritep = strcpya_k(cswritep, "\tOBS_CT_U");
+    }
+    if (fmissu_col) {
+      cswritep = strcpya_k(cswritep, "\tF_MISS_U");
+    }
+    if (p_col) {
+      cswritep = strcpya_k(cswritep, "\tP");
+    }
+    AppendBinaryEoln(&cswritep);
+    logprintf("--test-missing%s%s: %u case%s, %u control%s.\n", midp? " midp" : "", dosage_mode? " dosage" : "", case_ct, (case_ct == 1)? "" : "s", ctrl_ct, (ctrl_ct == 1)? "" : "s");
 
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
@@ -10876,10 +10941,11 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
       if (is_y && ((!male_case_ct) || (!male_ctrl_ct))) {
         continue;
       }
-      // Only hardcall missingness matters here, so this skips the
-      // multiallelic/phase/dosage tracks instead of decoding them.
+      // In hardcall mode this skips the multiallelic/phase/dosage tracks
+      // instead of decoding them; in dosage mode a call is missing only when
+      // it has neither a hardcall nor a dosage.
       const uint32_t need_hets = is_fully_haploid || is_x;
-      reterr = PgrGetMissingnessD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, missing_bv, nullptr, need_hets? het_bv : nullptr, genovec_buf);
+      reterr = PgrGetMissingnessD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, dosage_mode? nullptr : missing_bv, dosage_mode? missing_bv : nullptr, need_hets? het_bv : nullptr, genovec_buf);
       if (unlikely(reterr)) {
         PgenErrPrintNV(reterr, variant_uidx);
         goto TestMissingReport_ret_1;
@@ -10902,17 +10968,68 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
       }
       const uint32_t case_missing_ct = PopcountWordsIntersect(missing_bv, case_collapsed, sample_ctl);
       const uint32_t ctrl_missing_ct = missing_ct - case_missing_ct;
-      const double case_miss_freq = u31tod(case_missing_ct) / u31tod(cur_case_ct);
-      const double ctrl_miss_freq = u31tod(ctrl_missing_ct) / u31tod(cur_ctrl_ct);
-      const double pval = Fisher22TwoSidedP(case_missing_ct, ctrl_missing_ct, cur_case_ct - case_missing_ct, cur_ctrl_ct - ctrl_missing_ct, midp, 0);
-      cswritep = memcpya(cswritep, chr_buf, chr_blen);
-      cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
-      cswritep = strcpyax(cswritep, variant_ids[variant_uidx], '\t');
-      cswritep = dtoa_g(case_miss_freq, cswritep);
-      *cswritep++ = '\t';
-      cswritep = dtoa_g(ctrl_miss_freq, cswritep);
-      *cswritep++ = '\t';
-      cswritep = dtoa_g(pval, cswritep);
+      if (chr_col) {
+        cswritep = memcpya(cswritep, chr_buf, chr_blen);
+      }
+      if (variant_bps) {
+        cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      }
+      cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+      if (ref_col || alt1_col || alt_col) {
+        const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx);
+        const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+        const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+        if (ref_col) {
+          *cswritep++ = '\t';
+          cswritep = strcpya(cswritep, cur_alleles[0]);
+        }
+        if (alt1_col) {
+          *cswritep++ = '\t';
+          cswritep = strcpya(cswritep, cur_alleles[1]);
+        }
+        if (alt_col) {
+          *cswritep++ = '\t';
+          for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+            if (unlikely(Cswrite(&css, &cswritep))) {
+              goto TestMissingReport_ret_WRITE_FAIL;
+            }
+            cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+          }
+          --cswritep;
+        }
+      }
+      if (provref_col) {
+        *cswritep++ = '\t';
+        *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+      }
+      if (nmissa_col) {
+        *cswritep++ = '\t';
+        cswritep = u32toa(case_missing_ct, cswritep);
+      }
+      if (nobsa_col) {
+        *cswritep++ = '\t';
+        cswritep = u32toa(cur_case_ct, cswritep);
+      }
+      if (fmissa_col) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(u31tod(case_missing_ct) / u31tod(cur_case_ct), cswritep);
+      }
+      if (nmissu_col) {
+        *cswritep++ = '\t';
+        cswritep = u32toa(ctrl_missing_ct, cswritep);
+      }
+      if (nobsu_col) {
+        *cswritep++ = '\t';
+        cswritep = u32toa(cur_ctrl_ct, cswritep);
+      }
+      if (fmissu_col) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(u31tod(ctrl_missing_ct) / u31tod(cur_ctrl_ct), cswritep);
+      }
+      if (p_col) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(Fisher22TwoSidedP(case_missing_ct, ctrl_missing_ct, cur_case_ct - case_missing_ct, cur_ctrl_ct - ctrl_missing_ct, midp, 0), cswritep);
+      }
       AppendBinaryEoln(&cswritep);
       if (unlikely(Cswrite(&css, &cswritep))) {
         goto TestMissingReport_ret_WRITE_FAIL;

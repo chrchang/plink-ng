@@ -3017,7 +3017,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1TestMissing) {
-        reterr = TestMissingReport(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, raw_sample_ct, pheno_ct, variant_ct, pcp->test_missing_flags, &simple_pgr, outname, outname_end);
+        reterr = TestMissingReport(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, pgfi.gflags, pcp->test_missing_flags, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -12426,20 +12426,32 @@ int main(int argc, char** argv) {
           memcpy(pgenname, fname, slen + 1);
           xload = kfXloadTped;
         } else if (strequal_k_unsafe(flagname_p2, "est-missing")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          uint32_t explicit_cols = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "midp", cur_modif_slen)) {
               pc.test_missing_flags |= kfTestMissingMidp;
-            } else if (likely(strequal_k(cur_modif, "zs", cur_modif_slen))) {
+            } else if (strequal_k(cur_modif, "dosage", cur_modif_slen)) {
+              pc.test_missing_flags |= kfTestMissingDosage;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.test_missing_flags |= kfTestMissingZs;
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0maybeprovref\0provref\0nmissa\0nobsa\0fmissa\0nmissu\0nobsu\0fmissu\0p\0", "test-missing", kfTestMissingColChrom, kfTestMissingColDefault, 0, &pc.test_missing_flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              explicit_cols = 1;
             } else {
               logerrprintfww("Error: Invalid --test-missing argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_A;
             }
+          }
+          if (!explicit_cols) {
+            pc.test_missing_flags |= kfTestMissingColDefault;
           }
           pc.command_flags1 |= kfCommand1TestMissing;
           pc.dependency_flags |= kfFilterAllReq;
