@@ -1034,6 +1034,29 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      all-pairs computation on more than 400k variants.\n"
 "    With either output type, the computation can be subdivided with --parallel.\n\n"
               );
+    HelpPrint("blocks\0blocks-max-kb\0blocks-min-maf\0blocks-strong-lowci\0blocks-strong-highci\0blocks-recomb-highci\0blocks-inform-frac\0", &help_ctrl, 1,
+"  --blocks ['no-pheno-req'] ['no-small-max-span']\n"
+"    Estimate haplotype blocks, via Haploview's interpretation of the block\n"
+"    definition suggested by Gabriel S et al. (2002) The Structure of Haplotype\n"
+"    Blocks in the Human Genome.\n"
+"    * Samples with missing phenotypes are not considered unless\n"
+"      'no-pheno-req' is specified; only founders are used either way.\n"
+"    * Size-2 blocks may not span more than 20kb and size-3 blocks more than\n"
+"      30kb; 'no-small-max-span' removes those limits.\n"
+"    * Variants with MAF below --blocks-min-maf are ignored outright, as\n"
+"      Haploview does.  Multiallelic variants and haploid chromosomes are\n"
+"      skipped.\n\n"
+              );
+    HelpPrint("blocks-max-kb\0blocks-min-maf\0blocks-strong-lowci\0blocks-strong-highci\0blocks-recomb-highci\0blocks-inform-frac\0blocks\0", &help_ctrl, 0,
+"  --blocks-max-kb <kbs>      : Set --blocks maximum haploblock span (def. 200).\n"
+"  --blocks-min-maf <cutoff>  : Adjust --blocks MAF minimum (default 0.05).\n"
+"  --blocks-strong-lowci <x>  : Set --blocks \"strong LD\" CI thresholds (defaults\n"
+"  --blocks-strong-highci <x>   0.70 and 0.98).\n"
+"  --blocks-recomb-highci <x> : Set \'recombination\' CI threshold (def. 0.90).\n"
+"  --blocks-inform-frac <x>   : Force haploblock <strong LD pairs>:<total\n"
+"                               informative pairs> ratios to be larger than this\n"
+"                               value (default 0.95).\n"
+              );
     HelpPrint("ld-score\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
 "  --ld-score ['zs'] ['multiallelic'] [{'cols='<column set descriptor>}]\n"
 "  --ld-score-founders\n"
