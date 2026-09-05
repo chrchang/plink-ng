@@ -227,6 +227,7 @@ ENUM_U31_DEF_START()
   kCmd1BitCheckOrImputeSex,
   kCmd1BitMendelReport,
   kCmd1BitLdScore,
+  kCmd1BitFlipScan,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -265,7 +266,8 @@ FLAGSET64_DEF_START()
   kfCommand1PhenoSvd = (1LLU << kCmd1BitPhenoSvd),
   kfCommand1CheckOrImputeSex = (1LLU << kCmd1BitCheckOrImputeSex),
   kfCommand1MendelReport = (1LLU << kCmd1BitMendelReport),
-  kfCommand1LdScore = (1LLU << kCmd1BitLdScore)
+  kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
+  kfCommand1FlipScan = (1LLU << kCmd1BitFlipScan)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -597,7 +599,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -607,7 +609,7 @@ uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Fl
 
 uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags check_sex_flags, HetFlags het_flags, ScoreFlags score_flags) {
   // Keep this in sync with --error-on-freq-calc.
-  return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel)) ||
+  return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel | kfCommand1FlipScan)) ||
     (check_sex_flags & kfCheckSexUseX) ||
     ((command_flags1 & kfCommand1Score) && ((!(score_flags & kfScoreNoMeanimpute)) || (score_flags & (kfScoreCenter | kfScoreVarianceStandardize)))) ||
     ((command_flags1 & kfCommand1Het) && (!(het_flags & kfHetSmallSample)));
@@ -617,7 +619,7 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags 
 // variants are retained, but let's keep this simpler for now
 uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags, VcorFlags vcor_flags) {
   // Keep this in sync with --error-on-freq-calc.
-  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore)) ||
+  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore | kfCommand1FlipScan)) ||
     ((command_flags1 & kfCommand1Pca) && (pca_flags & kfPcaBiallelicVarWts)) ||
     ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef))) ||
     ((command_flags1 & kfCommand1Vcor) && ((!(vcor_flags & kfVcorRefBased)) || (vcor_flags & (kfVcorColMaj | kfVcorColNonmaj))));
@@ -3008,6 +3010,22 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
         reterr = LdPrune(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, sex_nm, sex_male, &(pcp->ld_info), pcp->indep_preferred_fname, raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, nosex_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
+      if (pcp->command_flags1 & kfCommand1FlipScan) {
+        // Only the LD scan walks a positional window.
+        if (unlikely((vpos_sortstatus & kfUnsortedVarBp) && (!pcp->ld_info.flipscan_ref_freq_fname))) {
+          logerrputs("Error: --flip-scan requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
+        if (pcp->ld_info.flipscan_ref_freq_fname) {
+          reterr = FlipScanRefFreq(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, &(pcp->ld_info), raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, pcp->max_thread_ct, outname, outname_end);
+        } else {
+          reterr = FlipScan(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, founder_info, &(pcp->ld_info), raw_sample_ct, pheno_ct, (pcp->misc_flags / kfMiscAllowBadLd) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        }
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -6631,6 +6649,108 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "lip-scan") || strequal_k_unsafe(flagname_p2, "lipscan")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "verbose", cur_modif_slen)) {
+              pc.ld_info.flipscan_flags |= kfFlipScanVerbose;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.ld_info.flipscan_flags |= kfFlipScanZs;
+            } else if (strequal_k(cur_modif, "ref-allele-based", cur_modif_slen)) {
+              pc.ld_info.flipscan_flags |= kfFlipScanRefBased;
+            } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
+              if (unlikely(pc.ld_info.flipscan_flags & kfFlipScanColAll)) {
+                logerrputs("Error: Multiple --flip-scan cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt\0altfreq\0posct\0rpos\0negct\0rneg\0negids\0majfreq\0problem\0", "flip-scan", kfFlipScanColChrom, kfFlipScanColDefault, 1, &pc.ld_info.flipscan_flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              logerrprintfww("Error: Invalid --flip-scan argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+          if (!(pc.ld_info.flipscan_flags & kfFlipScanColAll)) {
+            pc.ld_info.flipscan_flags |= kfFlipScanColDefault;
+          }
+          pc.command_flags1 |= kfCommand1FlipScan;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "lip-scan-window") || strequal_k_unsafe(flagname_p2, "lipscan-window")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(ScanPosintDefcapx(argvk[arg_idx + 1], &pc.ld_info.flipscan_window_size) || (pc.ld_info.flipscan_window_size == 1))) {
+            logerrprintfww("Error: Invalid --%s argument '%s'.\n", flagname_p, argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lip-scan-window-kb") || strequal_k_unsafe(flagname_p2, "lipscan-window-kb")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0))) {
+            logerrprintfww("Error: Invalid --%s argument '%s'.\n", flagname_p, argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (dxx > 2147483.646) {
+            pc.ld_info.flipscan_window_bp = 2147483646;
+          } else {
+            pc.ld_info.flipscan_window_bp = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lip-scan-threshold") || strequal_k_unsafe(flagname_p2, "lipscan-threshold")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0) || (dxx > 1.0))) {
+            logerrprintfww("Error: Invalid --%s argument '%s'.\n", flagname_p, argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.ld_info.flipscan_thresh = dxx;
+        } else if (strequal_k_unsafe(flagname_p2, "lip-scan-freq-diff") || strequal_k_unsafe(flagname_p2, "lipscan-freq-diff")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0) || (dxx > 1.0))) {
+            logerrprintfww("Error: Invalid --%s argument '%s'.\n", flagname_p, argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.ld_info.flipscan_freq_diff = dxx;
+        } else if (strequal_k_unsafe(flagname_p2, "lip-scan-max-maj-freq") || strequal_k_unsafe(flagname_p2, "lipscan-max-maj-freq")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.5) || (dxx > 1.0))) {
+            logerrprintfww("Error: Invalid --%s argument '%s' (must be in [0.5, 1]).\n", flagname_p, argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.ld_info.flipscan_max_maj_freq = dxx;
+        } else if (strequal_k_unsafe(flagname_p2, "lip-scan-ref-freq") || strequal_k_unsafe(flagname_p2, "lipscan-ref-freq")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.ld_info.flipscan_ref_freq_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lip-scan-min-neg") || strequal_k_unsafe(flagname_p2, "lipscan-min-neg")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t uii;
+          if (unlikely(ScanPosintDefcap(argvk[arg_idx + 1], &uii))) {
+            logerrprintfww("Error: Invalid --%s argument '%s'.\n", flagname_p, argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.ld_info.flipscan_min_neg_ct = uii;
         } else if (strequal_k_unsafe(flagname_p2, "lip-subset")) {
           if (unlikely(!pc.flip_info.fname)) {
             logerrputs("Error: --flip-subset must be used with --flip.\n");
@@ -13267,6 +13387,10 @@ int main(int argc, char** argv) {
     }
     if (unlikely((pc.mendel_info.flags & kfMendelDuos) && (!((pc.filter_flags & kfFilterMendel) || (pc.command_flags1 & kfCommand1MendelReport) || (make_plink2_flags & kfMakePlink2SetMeMissing))))) {
       logerrputs("Error: --mendel-duos must be used with --me, --mendel, or --set-me-missing.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely(pc.ld_info.flipscan_ref_freq_fname && (!(pc.command_flags1 & kfCommand1FlipScan)))) {
+      logerrputs("Error: --flip-scan-ref-freq must be used with --flip-scan.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely(pc.rename_chrs_fname && (pc.sort_vars_mode <= kSortNone))) {
