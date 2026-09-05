@@ -12072,7 +12072,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
     }
     if (flags & (kfExportfBeagleUnphased | kfExportfBeaglePhased)) {
-      reterr = ExportBeagle(outname, outname_end, sample_include, sample_include_cumulative_popcounts, &(piip->sii), pheno_cols, pheno_names, max_pheno_name_blen, variant_include, cip, variant_ids, allele_idx_offsets, allele_storage, legacy_output_missing_pheno, sample_ct, variant_ct, pheno_ct, max_allele_slen, (flags / kfExportfBeaglePhased) & 1, exportf_delim, legacy_output_missing_geno_char, simple_pgrp);
+      reterr = ExportBeagle(outname, outname_end, sample_include, sample_include_cumulative_popcounts, &(piip->sii), pheno_cols, pheno_names, max_pheno_name_blen, variant_include, variant_ids, allele_idx_offsets, allele_storage, legacy_output_missing_pheno, sample_ct, variant_ct, pheno_ct, max_allele_slen, (flags / kfExportfBeaglePhased) & 1, exportf_delim, legacy_output_missing_geno_char, simple_pgrp);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }

@@ -1432,7 +1432,7 @@ PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const u
 // Beagle 3 input: one .dat (and, unless 'beagle-nomap', one .map) per
 // chromosome.  Every sample contributes two columns, since the format is
 // allele-per-column rather than genotype-per-column.
-PglErr ExportBeagle(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, uintptr_t max_pheno_name_blen, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* legacy_output_missing_pheno, uint32_t sample_ct, uint32_t variant_ct, uint32_t pheno_ct, uint32_t max_allele_slen, uint32_t is_phased, char exportf_delim, char legacy_output_missing_geno_char, PgenReader* simple_pgrp) {
+PglErr ExportBeagle(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, uintptr_t max_pheno_name_blen, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* legacy_output_missing_pheno, uint32_t sample_ct, uint32_t variant_ct, uint32_t pheno_ct, uint32_t max_allele_slen, uint32_t is_phased, char exportf_delim, char legacy_output_missing_geno_char, PgenReader* simple_pgrp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -1440,8 +1440,6 @@ PglErr ExportBeagle(const char* outname, char* outname_end, const uintptr_t* sam
     // BEAGLE 3.3's unphased and phased marker files.  One file for the whole
     // dataset: the chromosome-split form PLINK 1.x wrote is retired, and
     // there is no .map, so nothing here needs the chromosome at all.
-    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     const uintptr_t writebuf_blen = kMaxMediumLine + 4 * S_CAST(uintptr_t, sample_ct) * (max_allele_slen + 1) + kMaxIdSlen + 64;
     char* writebuf;
     PgenVariant pgv;
