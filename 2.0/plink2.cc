@@ -3028,7 +3028,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: --show-tags requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
           return kPglRetInconsistentInput;
         }
-        reterr = ShowTags(variant_include, cip, variant_bps, variant_ids, maj_alleles, founder_info, pcp->tag_info.tag_fname, pcp->tag_info.list_all, pcp->tag_info.bp_radius, pcp->tag_info.r2_thresh, raw_variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, pcp->tag_info.output_zst, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = ShowTags(variant_include, cip, variant_bps, variant_ids, maj_alleles, founder_info, pcp->tag_info.tag_fname, pcp->tag_info.list_all, pcp->tag_info.mode2, pcp->tag_info.bp_radius, pcp->tag_info.r2_thresh, raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, pcp->tag_info.output_zst, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -12292,6 +12292,11 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.tag_info.bp_radius = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+        } else if (strequal_k_unsafe(flagname_p2, "ag-mode2")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 0))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          pc.tag_info.mode2 = 1;
         } else if (strequal_k_unsafe(flagname_p2, "ag-r2")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -13164,6 +13169,16 @@ int main(int argc, char** argv) {
     if (unlikely(pc.tag_info.list_all && (!(pc.command_flags1 & kfCommand1ShowTags)))) {
       logerrputs("Error: --list-all must be used with --show-tags.\n");
       goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (pc.tag_info.mode2) {
+      if (unlikely(!(pc.command_flags1 & kfCommand1ShowTags))) {
+        logerrputs("Error: --tag-mode2 must be used with --show-tags.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+      if (unlikely(!pc.tag_info.tag_fname)) {
+        logerrputs("Error: --tag-mode2 cannot be used with \"--show-tags all\".\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
     }
     if (!outname_end) {
       outname_end = &(outname[6]);

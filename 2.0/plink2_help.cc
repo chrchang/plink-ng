@@ -1048,9 +1048,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * Only founders are considered, as with --r2-unphased.  Multiallelic\n"
 "      variants and haploid chromosomes are skipped.\n\n"
               );
-    HelpPrint("tag-kb\0tag-r2\0show-tags\0", &help_ctrl, 0,
+    HelpPrint("tag-kb\0tag-r2\0tag-mode2\0show-tags\0", &help_ctrl, 0,
 "  --tag-kb <kbs>  : Set --show-tags max tag kb distance (default 250).\n"
 "  --tag-r2 <val>  : Set --show-tags min tag r^2 (default 0.8).\n"
+"  --tag-mode2     : Make --show-tags read a two-column file, treating only the\n"
+"                    variants whose second column is '1' as targets, and write a\n"
+"                    .tags file in the same two-column form covering every\n"
+"                    variant.  Cannot be used with \"--show-tags all\".\n"
               );
     HelpPrint("ld-score\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
 "  --ld-score ['zs'] ['multiallelic'] [{'cols='<column set descriptor>}]\n"

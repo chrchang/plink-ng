@@ -13426,6 +13426,7 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
 void InitTag(TagInfo* tip) {
   tip->tag_fname = nullptr;
   tip->list_all = 0;
+  tip->mode2 = 0;
   tip->bp_radius = 250000;
   tip->output_zst = 0;
   tip->r2_thresh = 0.8;
@@ -13499,7 +13500,7 @@ static double TagPairR2(const TagCtx* ctx, uint32_t slot0, uint32_t slot1) {
   return cov12 * cov12 / (variance1 * variance2);
 }
 
-PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const char* tag_fname, uint32_t list_all, uint32_t bp_radius, double r2_thresh, uint32_t raw_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t output_zst, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const char* tag_fname, uint32_t list_all, uint32_t mode2, uint32_t bp_radius, double r2_thresh, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t output_zst, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -13567,6 +13568,14 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
         }
         const char* token_end = CurTokenEnd(line_start);
         const uint32_t id_slen = token_end - line_start;
+        if (mode2) {
+          // Two-column input; a variant is a target only when its second
+          // column is exactly "1".  PLINK 1.x ignores every other line.
+          const char* second_token = FirstNonTspace(token_end);
+          if ((*second_token != '1') || (!IsSpaceOrEoln(second_token[1]))) {
+            continue;
+          }
+        }
         uint32_t llidx;
         const uint32_t variant_uidx = VariantIdDupHtableFind(line_start, variant_ids, variant_id_htable, htable_dup_base, id_slen, variant_id_htable_size, max_variant_id_slen, &llidx);
         if (variant_uidx == UINT32_MAX) {
@@ -13797,15 +13806,30 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
       if (unlikely(reterr)) {
         goto ShowTags_ret_1;
       }
-      uintptr_t tag_uidx_base = 0;
-      uintptr_t tag_bits = tagging_variants[0];
       const uint32_t tagging_ct = PopcountWords(tagging_variants, raw_variant_ctl);
-      for (uint32_t uii = 0; uii != tagging_ct; ++uii) {
-        const uint32_t cur_uidx = BitIter1(tagging_variants, &tag_uidx_base, &tag_bits);
-        cswritep = strcpya(cswritep, variant_ids[cur_uidx]);
-        AppendBinaryEoln(&cswritep);
-        if (unlikely(Cswrite(&css, &cswritep))) {
-          goto ShowTags_ret_WRITE_FAIL;
+      if (!mode2) {
+        uintptr_t tag_uidx_base = 0;
+        uintptr_t tag_bits = tagging_variants[0];
+        for (uint32_t uii = 0; uii != tagging_ct; ++uii) {
+          const uint32_t cur_uidx = BitIter1(tagging_variants, &tag_uidx_base, &tag_bits);
+          cswritep = strcpya(cswritep, variant_ids[cur_uidx]);
+          AppendBinaryEoln(&cswritep);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto ShowTags_ret_WRITE_FAIL;
+          }
+        }
+      } else {
+        // Every retained variant is listed, with a 0/1 membership column.
+        uintptr_t out_uidx_base = 0;
+        uintptr_t out_bits = orig_variant_include[0];
+        for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+          const uint32_t variant_uidx = BitIter1(orig_variant_include, &out_uidx_base, &out_bits);
+          cswritep = strcpyax(cswritep, variant_ids[variant_uidx], '\t');
+          *cswritep++ = '0' + IsSet(tagging_variants, variant_uidx);
+          AppendBinaryEoln(&cswritep);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto ShowTags_ret_WRITE_FAIL;
+          }
         }
       }
       if (unlikely(CswriteCloseNull(&css, cswritep))) {
