@@ -603,6 +603,627 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
   return reterr;
 }
 
+void InitMeta(MetaInfo* mip) {
+  mip->fnames = nullptr;
+  mip->chr_field = nullptr;
+  mip->snp_field = nullptr;
+  mip->bp_field = nullptr;
+  mip->a1_field = nullptr;
+  mip->a2_field = nullptr;
+  mip->p_field = nullptr;
+  mip->se_field = nullptr;
+  mip->ess_field = nullptr;
+  mip->flags = kfMeta0;
+}
+
+void CleanupMeta(MetaInfo* mip) {
+  free_cond(mip->fnames);
+  free_cond(mip->chr_field);
+  free_cond(mip->snp_field);
+  free_cond(mip->bp_field);
+  free_cond(mip->a1_field);
+  free_cond(mip->a2_field);
+  free_cond(mip->p_field);
+  free_cond(mip->se_field);
+  free_cond(mip->ess_field);
+}
+
+// --meta-analysis: inverse-variance meta-analysis over several variant-based
+// association reports.  Rows are matched by variant ID; when an A2 column is
+// present an allele flip is corrected rather than discarded, as PLINK 1.x
+// does.
+//
+// Each file is read twice, once to size the record array and string arena
+// exactly and once to fill them.  Growing either at an unknown rate is what
+// the bigstack allocator has no good answer for.
+typedef struct MetaRecordStruct {
+  double beta;
+  double se;
+  double ln_pval;   // only filled for 'weighted-z'
+  double ess;       // effective sample size, ditto
+  const char* id;
+  const char* a1;  // nullptr when alleles are unused
+  const char* a2;  // nullptr when the file has no A2 column
+  const char* chr;  // nullptr when 'no-map'
+  uint32_t bp;
+  uint32_t file_idx;
+#ifdef __cplusplus
+  bool operator<(const struct MetaRecordStruct& rhs) const {
+    const int32_t id_cmp = strcmp(id, rhs.id);
+    if (id_cmp) {
+      return (id_cmp < 0);
+    }
+    return (file_idx < rhs.file_idx);
+  }
+#endif
+} MetaRecord;
+
+// ID-major, so same-variant rows are adjacent; file index breaks ties so a
+// group's order is deterministic.
+// Chromosomes are compared numerically when both sides are numeric, so the
+// usual 1..22 ordering falls out without needing a finalized ChrInfo, which a
+// standalone batch job does not have.
+static int32_t MetaChrCmp(const char* chr1, const char* chr2) {
+  if ((!chr1) || (!chr2)) {
+    return 0;
+  }
+  uint32_t val1;
+  uint32_t val2;
+  const uint32_t numeric1 = !ScanUintDefcapx(chr1, &val1);
+  const uint32_t numeric2 = !ScanUintDefcapx(chr2, &val2);
+  if (numeric1 && numeric2) {
+    if (val1 != val2) {
+      return (val1 < val2)? -1 : 1;
+    }
+    return 0;
+  }
+  if (numeric1 != numeric2) {
+    return numeric1? -1 : 1;
+  }
+  return strcmp(chr1, chr2);
+}
+
+typedef struct MetaGroupStruct {
+  const char* chr;
+  uint32_t bp;
+  uint32_t first_rec;
+  uint32_t rec_ct;
+#ifdef __cplusplus
+  bool operator<(const struct MetaGroupStruct& rhs) const {
+    const int32_t chr_cmp = MetaChrCmp(chr, rhs.chr);
+    if (chr_cmp) {
+      return (chr_cmp < 0);
+    }
+    if (bp != rhs.bp) {
+      return (bp < rhs.bp);
+    }
+    return (first_rec < rhs.first_rec);
+  }
+#endif
+} MetaGroup;
+
+// Fills col_skips/col_types for one input file; shared by both passes so the
+// two cannot disagree about which columns they are reading.
+static PglErr MetaSetupCols(const MetaInfo* mip, const char* header_start, const char* fname, uint32_t no_map, uint32_t no_allele, uint32_t input_is_beta, uint32_t weighted_z, uint32_t* col_skips, uint32_t* col_types, uint32_t* relevant_col_ct_ptr, uint32_t* has_a2_ptr) {
+  // [0] CHR, [1] SNP, [2] BP, [3] A1, [4] A2, [5] effect, [6] SE, [7] P,
+  // [8] effective sample size
+  const char* col_search_order[9];
+  col_search_order[0] = no_map? "" : (mip->chr_field? mip->chr_field : "CHR\0CHROM\0");
+  col_search_order[1] = mip->snp_field? mip->snp_field : "SNP\0ID\0";
+  col_search_order[2] = no_map? "" : (mip->bp_field? mip->bp_field : "BP\0POS\0");
+  col_search_order[3] = no_allele? "" : (mip->a1_field? mip->a1_field : "A1\0");
+  col_search_order[4] = no_allele? "" : (mip->a2_field? mip->a2_field : "A2\0");
+  col_search_order[5] = input_is_beta? "BETA\0" : "OR\0";
+  col_search_order[6] = mip->se_field? mip->se_field : "SE\0";
+  col_search_order[7] = weighted_z? (mip->p_field? mip->p_field : "P\0") : "";
+  col_search_order[8] = weighted_z? (mip->ess_field? mip->ess_field : "NMISS\0OBS_CT\0") : "";
+  uint32_t found_type_bitset;
+  PglErr reterr = SearchHeaderLine(header_start, col_search_order, "--meta-analysis", 9, relevant_col_ct_ptr, &found_type_bitset, col_skips, col_types);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  if (unlikely(!(found_type_bitset & 0x2))) {
+    snprintf(g_logbuf, kLogbufSize, "Error: No variant ID field found in %s.\n", fname);
+    return kPglRetInconsistentInput;
+  }
+  if (unlikely(!(found_type_bitset & 0x20))) {
+    snprintf(g_logbuf, kLogbufSize, "Error: No %s field found in %s.\n", input_is_beta? "BETA" : "OR", fname);
+    return kPglRetInconsistentInput;
+  }
+  if (unlikely(!(found_type_bitset & 0x40))) {
+    snprintf(g_logbuf, kLogbufSize, "Error: No SE field found in %s.\n", fname);
+    return kPglRetInconsistentInput;
+  }
+  if (unlikely((!no_map) && ((found_type_bitset & 0x5) != 0x5))) {
+    snprintf(g_logbuf, kLogbufSize, "Error: No chromosome and/or position field found in %s.  ('no-map' ignores them.)\n", fname);
+    return kPglRetInconsistentInput;
+  }
+  if (unlikely((!no_allele) && (!(found_type_bitset & 0x8)))) {
+    snprintf(g_logbuf, kLogbufSize, "Error: No A1 field found in %s.  ('no-allele' ignores it.)\n", fname);
+    return kPglRetInconsistentInput;
+  }
+  if (unlikely(weighted_z && ((found_type_bitset & 0x180) != 0x180))) {
+    snprintf(g_logbuf, kLogbufSize, "Error: 'weighted-z' requires p-value and effective sample size fields, and %s is\nmissing at least one.\n", fname);
+    return kPglRetInconsistentInput;
+  }
+  *has_a2_ptr = (found_type_bitset >> 4) & 1;
+  return kPglRetSuccess;
+}
+
+PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  TextStream txs;
+  PreinitTextStream(&txs);
+  uintptr_t line_idx = 0;
+  const char* cur_fname = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const MetaFlags flags = mip->flags;
+    const uint32_t qt_mode = (flags / kfMetaQt) & 1;
+    const uint32_t no_map = (flags / kfMetaNoMap) & 1;
+    const uint32_t no_allele = no_map || ((flags / kfMetaNoAllele) & 1);
+    const uint32_t study_col = (flags / kfMetaStudy) & 1;
+    const uint32_t report_all = (flags / kfMetaReportAll) & 1;
+    const uint32_t output_zst = (flags / kfMetaZs) & 1;
+    const uint32_t weighted_z = (flags / kfMetaWeightedZ) & 1;
+    // Effect sizes are betas internally; an OR column is logged on the way in.
+    const uint32_t input_is_beta = ((flags / kfMetaLogscale) & 1) || qt_mode;
+
+    uint32_t file_ct = 0;
+    {
+      const char* fname_iter = mip->fnames;
+      while (*fname_iter) {
+        ++file_ct;
+        fname_iter = strnul(fname_iter);
+        ++fname_iter;
+      }
+    }
+    if (unlikely(file_ct < 2)) {
+      logerrputs("Error: --meta-analysis requires at least two files.\n");
+      goto MetaAnalysis_ret_INCONSISTENT_INPUT;
+    }
+
+    uintptr_t record_ct = 0;
+    uintptr_t str_byte_ct = 0;
+    MetaRecord* records = nullptr;
+    char* str_arena = nullptr;
+    char* str_iter = nullptr;
+    for (uint32_t pass_idx = 0; pass_idx != 2; ++pass_idx) {
+      if (pass_idx == 1) {
+        if (unlikely(!record_ct)) {
+          logerrputs("Error: --meta-analysis: No usable rows.\n");
+          goto MetaAnalysis_ret_INCONSISTENT_INPUT;
+        }
+        if (unlikely(BIGSTACK_ALLOC_X(MetaRecord, record_ct, &records) ||
+                     bigstack_alloc_c(str_byte_ct, &str_arena))) {
+          goto MetaAnalysis_ret_NOMEM;
+        }
+        str_iter = str_arena;
+        record_ct = 0;
+      }
+      const char* fname_iter = mip->fnames;
+      for (uint32_t file_idx = 0; file_idx != file_ct; ++file_idx) {
+        cur_fname = fname_iter;
+        line_idx = 0;
+        reterr = SizeAndInitTextStream(cur_fname, bigstack_left() / 8, max_thread_ct, &txs);
+        if (unlikely(reterr)) {
+          goto MetaAnalysis_ret_TSTREAM_FAIL;
+        }
+        const char* header_start;
+        do {
+          ++line_idx;
+          header_start = TextGet(&txs);
+          if (unlikely(!header_start)) {
+            reterr = TextStreamRawErrcode(&txs);
+            if (reterr == kPglRetEof) {
+              snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", cur_fname);
+              goto MetaAnalysis_ret_MALFORMED_INPUT_WW;
+            }
+            goto MetaAnalysis_ret_TSTREAM_FAIL;
+          }
+        } while (strequal_k_unsafe(header_start, "##"));
+        if (*header_start == '#') {
+          ++header_start;
+        }
+        uint32_t col_skips[9];
+        uint32_t col_types[9];
+        uint32_t relevant_col_ct;
+        uint32_t has_a2;
+        reterr = MetaSetupCols(mip, header_start, cur_fname, no_map, no_allele, input_is_beta, weighted_z, col_skips, col_types, &relevant_col_ct, &has_a2);
+        if (unlikely(reterr)) {
+          if (reterr == kPglRetInconsistentInput) {
+            goto MetaAnalysis_ret_INCONSISTENT_INPUT_WW;
+          }
+          goto MetaAnalysis_ret_1;
+        }
+        while (1) {
+          ++line_idx;
+          const char* line_start = TextGet(&txs);
+          if (!line_start) {
+            break;
+          }
+          const char* token_ptrs[9];
+          uint32_t token_slens[9];
+          if (unlikely(!TokenLexK0(line_start, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens))) {
+            goto MetaAnalysis_ret_MISSING_TOKENS;
+          }
+          double effect;
+          if (!ScantokDouble(token_ptrs[5], &effect)) {
+            continue;  // NA rows are skipped, as in PLINK 1.x
+          }
+          double se;
+          if ((!ScantokDouble(token_ptrs[6], &se)) || (se <= 0.0)) {
+            continue;
+          }
+          double cur_ln_pval = 0.0;
+          double cur_ess = 0.0;
+          if (weighted_z) {
+            double cur_pval;
+            if ((!ScantokDouble(token_ptrs[7], &cur_pval)) || (cur_pval <= 0.0) || (cur_pval > 1.0)) {
+              continue;
+            }
+            cur_ln_pval = log(cur_pval);
+            if ((!ScantokDouble(token_ptrs[8], &cur_ess)) || (cur_ess <= 0.0)) {
+              continue;
+            }
+          }
+          if (!input_is_beta) {
+            if (effect <= 0.0) {
+              continue;
+            }
+            effect = log(effect);
+          }
+          uint32_t bp = 0;
+          if (!no_map) {
+            if (ScanUintDefcapx(token_ptrs[2], &bp)) {
+              continue;
+            }
+          }
+          const uint32_t id_slen = token_slens[1];
+          uintptr_t cur_str_bytes = id_slen + 1;
+          if (!no_map) {
+            cur_str_bytes += token_slens[0] + 1;
+          }
+          if (!no_allele) {
+            cur_str_bytes += token_slens[3] + 1;
+            if (has_a2) {
+              cur_str_bytes += token_slens[4] + 1;
+            }
+          }
+          if (!pass_idx) {
+            str_byte_ct += cur_str_bytes;
+          } else {
+            MetaRecord* cur_rec = &(records[record_ct]);
+            cur_rec->beta = effect;
+            cur_rec->se = se;
+            cur_rec->ln_pval = cur_ln_pval;
+            cur_rec->ess = cur_ess;
+            cur_rec->bp = bp;
+            cur_rec->file_idx = file_idx;
+            cur_rec->id = str_iter;
+            str_iter = memcpyax(str_iter, token_ptrs[1], id_slen, '\0');
+            if (no_map) {
+              cur_rec->chr = nullptr;
+            } else {
+              cur_rec->chr = str_iter;
+              str_iter = memcpyax(str_iter, token_ptrs[0], token_slens[0], '\0');
+            }
+            if (no_allele) {
+              cur_rec->a1 = nullptr;
+              cur_rec->a2 = nullptr;
+            } else {
+              cur_rec->a1 = str_iter;
+              str_iter = memcpyax(str_iter, token_ptrs[3], token_slens[3], '\0');
+              if (has_a2) {
+                cur_rec->a2 = str_iter;
+                str_iter = memcpyax(str_iter, token_ptrs[4], token_slens[4], '\0');
+              } else {
+                cur_rec->a2 = nullptr;
+              }
+            }
+          }
+          ++record_ct;
+        }
+        if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+          goto MetaAnalysis_ret_TSTREAM_FAIL;
+        }
+        if (unlikely(CleanupTextStream2(cur_fname, &txs, &reterr))) {
+          goto MetaAnalysis_ret_1;
+        }
+        fname_iter = strnul(fname_iter);
+        ++fname_iter;
+      }
+    }
+    cur_fname = nullptr;
+
+    STD_SORT(record_ct, MetaRecordCmp, records);
+
+    // Group by ID, then order the groups genomically.
+    uintptr_t group_ct = 0;
+    for (uintptr_t rec_idx = 0; rec_idx != record_ct; ) {
+      uintptr_t rec_idx_end = rec_idx + 1;
+      while ((rec_idx_end != record_ct) && (!strcmp(records[rec_idx_end].id, records[rec_idx].id))) {
+        ++rec_idx_end;
+      }
+      ++group_ct;
+      rec_idx = rec_idx_end;
+    }
+    MetaGroup* groups;
+    if (unlikely(BIGSTACK_ALLOC_X(MetaGroup, group_ct, &groups))) {
+      goto MetaAnalysis_ret_NOMEM;
+    }
+    {
+      uintptr_t group_idx = 0;
+      for (uintptr_t rec_idx = 0; rec_idx != record_ct; ) {
+        uintptr_t rec_idx_end = rec_idx + 1;
+        while ((rec_idx_end != record_ct) && (!strcmp(records[rec_idx_end].id, records[rec_idx].id))) {
+          ++rec_idx_end;
+        }
+        groups[group_idx].chr = records[rec_idx].chr;
+        groups[group_idx].bp = records[rec_idx].bp;
+        groups[group_idx].first_rec = rec_idx;
+        groups[group_idx].rec_ct = rec_idx_end - rec_idx;
+        ++group_idx;
+        rec_idx = rec_idx_end;
+      }
+    }
+    STD_SORT(group_ct, MetaGroupCmp, groups);
+
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 256 + file_ct * 32;
+    OutnameZstSet(".meta", output_zst, outname_end);
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto MetaAnalysis_ret_1;
+    }
+    *cswritep++ = '#';
+    if (!no_map) {
+      cswritep = strcpya_k(cswritep, "CHROM\tPOS\t");
+    }
+    cswritep = strcpya_k(cswritep, "ID");
+    if (!no_allele) {
+      cswritep = strcpya_k(cswritep, "\tA1\tA2");
+    }
+    cswritep = strcpya_k(cswritep, "\tN\tP\tP_R\t");
+    cswritep = strcpya(cswritep, qt_mode? "BETA\tBETA_R" : "OR\tOR_R");
+    cswritep = strcpya_k(cswritep, "\tQ\tI2");
+    if (weighted_z) {
+      cswritep = strcpya_k(cswritep, "\tWEIGHTED_Z\tP_WZ");
+    }
+    if (study_col) {
+      for (uint32_t file_idx = 0; file_idx != file_ct; ++file_idx) {
+        cswritep = strcpya_k(cswritep, "\tF");
+        cswritep = u32toa(file_idx, cswritep);
+      }
+    }
+    AppendBinaryEoln(&cswritep);
+
+    double* study_betas = nullptr;
+    if (study_col) {
+      if (unlikely(bigstack_alloc_d(file_ct, &study_betas))) {
+        goto MetaAnalysis_ret_NOMEM;
+      }
+    }
+    uintptr_t written_ct = 0;
+    uintptr_t flip_discard_ct = 0;
+    for (uintptr_t group_idx = 0; group_idx != group_ct; ++group_idx) {
+      const MetaGroup* cur_group = &(groups[group_idx]);
+      const MetaRecord* group_recs = &(records[cur_group->first_rec]);
+      const uint32_t group_rec_ct = cur_group->rec_ct;
+      // The first record fixes the reference orientation; later ones either
+      // agree, flip, or are dropped.
+      const char* ref_a1 = group_recs[0].a1;
+      const char* ref_a2 = group_recs[0].a2;
+      double sum_w = 0.0;
+      double sum_wbeta = 0.0;
+      double sum_w2 = 0.0;
+      // METAL's weighted Z: each study's signed Z, weighted by the square root
+      // of its effective sample size.
+      double sum_wz = 0.0;
+      double sum_wz_w2 = 0.0;
+      uint32_t used_ct = 0;
+      if (study_col) {
+        for (uint32_t file_idx = 0; file_idx != file_ct; ++file_idx) {
+          study_betas[file_idx] = 0.0 / 0.0;
+        }
+      }
+      for (uint32_t rec_idx = 0; rec_idx != group_rec_ct; ++rec_idx) {
+        const MetaRecord* cur_rec = &(group_recs[rec_idx]);
+        double cur_beta = cur_rec->beta;
+        if (!no_allele) {
+          if (strcmp(cur_rec->a1, ref_a1)) {
+            // An A1/A2 swap is recoverable when both files name A2.
+            if (ref_a2 && cur_rec->a2 && (!strcmp(cur_rec->a1, ref_a2)) && (!strcmp(cur_rec->a2, ref_a1))) {
+              cur_beta = -cur_beta;
+            } else {
+              ++flip_discard_ct;
+              continue;
+            }
+          }
+        }
+        const double cur_w = 1.0 / (cur_rec->se * cur_rec->se);
+        sum_w += cur_w;
+        sum_w2 += cur_w * cur_w;
+        sum_wbeta += cur_w * cur_beta;
+        if (weighted_z) {
+          const double abs_z = sqrt(LnPToChisq(cur_rec->ln_pval));
+          const double cur_z = (cur_beta < 0.0)? (-abs_z) : abs_z;
+          const double cur_wz_w = sqrt(cur_rec->ess);
+          sum_wz += cur_wz_w * cur_z;
+          sum_wz_w2 += cur_rec->ess;
+        }
+        if (study_col) {
+          study_betas[cur_rec->file_idx] = cur_beta;
+        }
+        ++used_ct;
+      }
+      if (!used_ct) {
+        continue;
+      }
+      if ((used_ct == 1) && (!report_all)) {
+        continue;
+      }
+      const double beta_fe = sum_wbeta / sum_w;
+      const double se_fe = sqrt(1.0 / sum_w);
+      const double z_fe = beta_fe / se_fe;
+      const double ln_p_fe = ZscoreToLnP(z_fe);
+      // Cochran's Q, and the DerSimonian-Laird random-effects estimate built
+      // from it.
+      double qq = 0.0;
+      for (uint32_t rec_idx = 0; rec_idx != group_rec_ct; ++rec_idx) {
+        const MetaRecord* cur_rec = &(group_recs[rec_idx]);
+        double cur_beta = cur_rec->beta;
+        if (!no_allele) {
+          if (strcmp(cur_rec->a1, ref_a1)) {
+            if (ref_a2 && cur_rec->a2 && (!strcmp(cur_rec->a1, ref_a2)) && (!strcmp(cur_rec->a2, ref_a1))) {
+              cur_beta = -cur_beta;
+            } else {
+              continue;
+            }
+          }
+        }
+        const double cur_w = 1.0 / (cur_rec->se * cur_rec->se);
+        const double dxx = cur_beta - beta_fe;
+        qq += cur_w * dxx * dxx;
+      }
+      double beta_re = beta_fe;
+      double se_re = se_fe;
+      double i2 = 0.0;
+      if (used_ct > 1) {
+        const double df = u31tod(used_ct - 1);
+        if (qq > df) {
+          i2 = 100.0 * (qq - df) / qq;
+          const double denom = sum_w - (sum_w2 / sum_w);
+          if (denom > 0.0) {
+            const double tau2 = (qq - df) / denom;
+            double sum_wr = 0.0;
+            double sum_wrbeta = 0.0;
+            for (uint32_t rec_idx = 0; rec_idx != group_rec_ct; ++rec_idx) {
+              const MetaRecord* cur_rec = &(group_recs[rec_idx]);
+              double cur_beta = cur_rec->beta;
+              if (!no_allele) {
+                if (strcmp(cur_rec->a1, ref_a1)) {
+                  if (ref_a2 && cur_rec->a2 && (!strcmp(cur_rec->a1, ref_a2)) && (!strcmp(cur_rec->a2, ref_a1))) {
+                    cur_beta = -cur_beta;
+                  } else {
+                    continue;
+                  }
+                }
+              }
+              const double cur_wr = 1.0 / (cur_rec->se * cur_rec->se + tau2);
+              sum_wr += cur_wr;
+              sum_wrbeta += cur_wr * cur_beta;
+            }
+            beta_re = sum_wrbeta / sum_wr;
+            se_re = sqrt(1.0 / sum_wr);
+          }
+        }
+      }
+      const double ln_p_re = ZscoreToLnP(beta_re / se_re);
+
+      if (!no_map) {
+        cswritep = strcpyax(cswritep, cur_group->chr, '\t');
+        cswritep = u32toa_x(cur_group->bp, '\t', cswritep);
+      }
+      cswritep = strcpya(cswritep, group_recs[0].id);
+      if (!no_allele) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, ref_a1);
+        *cswritep++ = '\t';
+        if (ref_a2) {
+          cswritep = strcpya(cswritep, ref_a2);
+        } else {
+          *cswritep++ = '.';
+        }
+      }
+      *cswritep++ = '\t';
+      cswritep = u32toa_x(used_ct, '\t', cswritep);
+      cswritep = lntoa_g(ln_p_fe, cswritep);
+      *cswritep++ = '\t';
+      cswritep = lntoa_g(ln_p_re, cswritep);
+      *cswritep++ = '\t';
+      cswritep = dtoa_g(qt_mode? beta_fe : exp(beta_fe), cswritep);
+      *cswritep++ = '\t';
+      cswritep = dtoa_g(qt_mode? beta_re : exp(beta_re), cswritep);
+      *cswritep++ = '\t';
+      if (used_ct > 1) {
+        // PLINK 1.x's Q column is the heterogeneity test's p-value, not the
+        // statistic itself.
+        cswritep = lntoa_g(ChisqToLnP(qq, used_ct - 1), cswritep);
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(i2, cswritep);
+      } else {
+        cswritep = strcpya_k(cswritep, "NA\tNA");
+      }
+      if (weighted_z) {
+        const double wz = sum_wz / sqrt(sum_wz_w2);
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(wz, cswritep);
+        *cswritep++ = '\t';
+        cswritep = lntoa_g(ZscoreToLnP(wz), cswritep);
+      }
+      if (study_col) {
+        for (uint32_t file_idx = 0; file_idx != file_ct; ++file_idx) {
+          *cswritep++ = '\t';
+          const double cur_beta = study_betas[file_idx];
+          if (cur_beta != cur_beta) {
+            cswritep = strcpya_k(cswritep, "NA");
+          } else {
+            cswritep = dtoa_g(qt_mode? cur_beta : exp(cur_beta), cswritep);
+          }
+        }
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto MetaAnalysis_ret_WRITE_FAIL;
+      }
+      ++written_ct;
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto MetaAnalysis_ret_WRITE_FAIL;
+    }
+    logprintfww("--meta-analysis: %" PRIuPTR " variant%s written to %s .\n", written_ct, (written_ct == 1)? "" : "s", outname);
+    if (flip_discard_ct) {
+      logerrprintf("Warning: %" PRIuPTR " row%s discarded due to an unresolvable allele mismatch.\n", flip_discard_ct, (flip_discard_ct == 1)? "" : "s");
+    }
+  }
+  while (0) {
+  MetaAnalysis_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  MetaAnalysis_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(cur_fname, &txs);
+    break;
+  MetaAnalysis_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  MetaAnalysis_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, cur_fname);
+  MetaAnalysis_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  MetaAnalysis_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  MetaAnalysis_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ MetaAnalysis_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  if (cur_fname) {
+    CleanupTextStream2(cur_fname, &txs, &reterr);
+  }
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;

@@ -227,6 +227,7 @@ ENUM_U31_DEF_START()
   kCmd1BitCheckOrImputeSex,
   kCmd1BitMendelReport,
   kCmd1BitLdScore,
+  kCmd1BitMetaAnalysis,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -265,7 +266,8 @@ FLAGSET64_DEF_START()
   kfCommand1PhenoSvd = (1LLU << kCmd1BitPhenoSvd),
   kfCommand1CheckOrImputeSex = (1LLU << kCmd1BitCheckOrImputeSex),
   kfCommand1MendelReport = (1LLU << kCmd1BitMendelReport),
-  kfCommand1LdScore = (1LLU << kCmd1BitLdScore)
+  kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
+  kfCommand1MetaAnalysis = (1LLU << kCmd1BitMetaAnalysis)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -3834,7 +3836,9 @@ int main(int argc, char** argv) {
   GenDummyInfo gendummy_info;
   InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
+  MetaInfo meta_info;
   InitAdjust(&pc.adjust_info, &adjust_file_info);
+  InitMeta(&meta_info);
   ChrInfo chr_info;
   if (unlikely(InitChrInfo(&chr_info))) {
     goto main_ret_NOMEM_NOLOG;
@@ -8327,7 +8331,88 @@ int main(int argc, char** argv) {
         break;
 
       case 'm':
-        if (strequal_k_unsafe(flagname_p2, "emory")) {
+        if (strequal_k_unsafe(flagname_p2, "eta-analysis")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t fname_ct = param_ct;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            if (!strcmp(argvk[arg_idx + param_idx], "+")) {
+              fname_ct = param_idx - 1;
+              break;
+            }
+          }
+          if (unlikely(fname_ct < 2)) {
+            logerrputs("Error: --meta-analysis requires at least two filenames.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          for (uint32_t param_idx = fname_ct + 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "logscale", cur_modif_slen)) {
+              meta_info.flags |= kfMetaLogscale;
+            } else if (strequal_k(cur_modif, "qt", cur_modif_slen)) {
+              meta_info.flags |= kfMetaQt;
+            } else if (strequal_k(cur_modif, "no-map", cur_modif_slen)) {
+              meta_info.flags |= kfMetaNoMap;
+            } else if (strequal_k(cur_modif, "no-allele", cur_modif_slen)) {
+              meta_info.flags |= kfMetaNoAllele;
+            } else if (strequal_k(cur_modif, "study", cur_modif_slen)) {
+              meta_info.flags |= kfMetaStudy;
+            } else if (strequal_k(cur_modif, "report-all", cur_modif_slen)) {
+              meta_info.flags |= kfMetaReportAll;
+            } else if (strequal_k(cur_modif, "weighted-z", cur_modif_slen)) {
+              meta_info.flags |= kfMetaWeightedZ;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              meta_info.flags |= kfMetaZs;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --meta-analysis argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (unlikely((meta_info.flags & (kfMetaLogscale | kfMetaQt)) == (kfMetaLogscale | kfMetaQt))) {
+            logerrputs("Error: --meta-analysis 'logscale' and 'qt' cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, fname_ct, kPglFnamesize, &meta_info.fnames);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.command_flags1 |= kfCommand1MetaAnalysis;
+        } else if (StrStartsWithUnsafe(flagname_p2, "eta-analysis-")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1MetaAnalysis))) {
+            logerrprintfww("Error: --%s must be used with --meta-analysis.\n", flagname_p);
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* subflag = &(flagname_p2[13]);
+          char** target = nullptr;
+          if (!strcmp(subflag, "chr-field")) {
+            target = &meta_info.chr_field;
+          } else if (!strcmp(subflag, "snp-field")) {
+            target = &meta_info.snp_field;
+          } else if (!strcmp(subflag, "bp-field")) {
+            target = &meta_info.bp_field;
+          } else if (!strcmp(subflag, "a1-field")) {
+            target = &meta_info.a1_field;
+          } else if (!strcmp(subflag, "a2-field")) {
+            target = &meta_info.a2_field;
+          } else if (!strcmp(subflag, "p-field")) {
+            target = &meta_info.p_field;
+          } else if (!strcmp(subflag, "se-field")) {
+            target = &meta_info.se_field;
+          } else if (likely(!strcmp(subflag, "ess-field"))) {
+            target = &meta_info.ess_field;
+          } else {
+            goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, kMaxIdSlen, target);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "emory")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -13119,7 +13204,7 @@ int main(int argc, char** argv) {
 
     pc.dependency_flags |= pc.filter_flags;
     const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped)));
-    const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr);
+    const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr) || (meta_info.fnames != nullptr);
     if (skip_main && (!batch_job)) {
       // add command_flags2 when needed
       goto main_ret_NULL_CALC;
@@ -13428,6 +13513,12 @@ int main(int argc, char** argv) {
     print_end_time = 1;
 
     if (batch_job) {
+      if (meta_info.fnames) {
+        reterr = MetaAnalysis(&meta_info, pc.max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto main_ret_1;
+        }
+      }
       if (adjust_file_info.fname) {
         reterr = AdjustFile(&adjust_file_info, pc.ln_pfilter, pc.output_min_ln, pc.max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
@@ -13747,6 +13838,7 @@ int main(int argc, char** argv) {
   free_cond(rseeds);
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
+  CleanupMeta(&meta_info);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.zero_cluster_phenoname);
   free_cond(pc.zero_cluster_fname);

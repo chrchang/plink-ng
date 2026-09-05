@@ -1760,6 +1760,28 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    'single-prec' causes the computation to use single- instead of\n"
 "    double-precision floating-point values internally.\n\n"
               );
+    HelpPrint("meta-analysis\0", &help_ctrl, 1,
+"  --meta-analysis <report filenames...>\n"
+"  --meta-analysis <report filenames...> + [{'logscale' | 'qt'}]\n"
+"                  [{'no-map' | 'no-allele'}] ['study'] ['report-all']\n"
+"                  ['weighted-z'] ['zs']\n"
+"    Inverse-variance meta-analysis over several variant-based association\n"
+"    reports, matching rows by variant ID.\n"
+"    * Each report needs an SE field and an effect size field: OR by default,\n"
+"      or BETA with 'logscale'.  'qt' also expects BETA, and reports betas\n"
+"      rather than odds ratios.\n"
+"    * CHR, BP and A1 fields are also required.  'no-map' ignores CHR and BP,\n"
+"      'no-allele' ignores A1 as well.\n"
+"    * When A2 is present in both reports, an A1/A2 flip is corrected.\n"
+"      Otherwise a mismatched row is dropped.\n"
+"    * Q is the heterogeneity test p-value and I2 the corresponding\n"
+"      inconsistency percentage, as in PLINK 1.x.  P_R and OR_R (or BETA_R)\n"
+"      are the DerSimonian-Laird random-effects results.\n"
+"    * 'study' adds a per-file effect size column; 'report-all' keeps variants\n"
+"      seen in only one file.\n"
+"    * 'weighted-z' adds METAL's sample-size-weighted Z-score and its\n"
+"      p-value, which needs p-value and effective sample size fields.\n\n"
+              );
     HelpPrint("adjust-file\0adjust\0", &help_ctrl, 1,
 "  --adjust-file <filename> ['zs'] ['gc'] ['cols='<column set descriptor>]\n"
 "                ['log10'] ['input-log10'] ['test='<test name, case-sensitive>]\n"
