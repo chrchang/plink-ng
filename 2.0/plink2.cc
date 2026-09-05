@@ -227,6 +227,7 @@ ENUM_U31_DEF_START()
   kCmd1BitCheckOrImputeSex,
   kCmd1BitMendelReport,
   kCmd1BitLdScore,
+  kCmd1BitShowTags,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -265,7 +266,8 @@ FLAGSET64_DEF_START()
   kfCommand1PhenoSvd = (1LLU << kCmd1BitPhenoSvd),
   kfCommand1CheckOrImputeSex = (1LLU << kCmd1BitCheckOrImputeSex),
   kfCommand1MendelReport = (1LLU << kCmd1BitMendelReport),
-  kfCommand1LdScore = (1LLU << kCmd1BitLdScore)
+  kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
+  kfCommand1ShowTags = (1LLU << kCmd1BitShowTags)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -462,6 +464,7 @@ typedef struct Plink2CmdlineStruct {
   GwasSsfInfo gwas_ssf_info;
   ClumpInfo clump_info;
   VcorInfo vcor_info;
+  TagInfo tag_info;
   LdScoreInfo ld_score_info;
   PhenoSvdInfo pheno_svd_info;
   CheckSexInfo check_sex_info;
@@ -597,7 +600,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1ShowTags)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -617,7 +620,7 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags 
 // variants are retained, but let's keep this simpler for now
 uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags, VcorFlags vcor_flags) {
   // Keep this in sync with --error-on-freq-calc.
-  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore)) ||
+  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore | kfCommand1ShowTags)) ||
     ((command_flags1 & kfCommand1Pca) && (pca_flags & kfPcaBiallelicVarWts)) ||
     ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef))) ||
     ((command_flags1 & kfCommand1Vcor) && ((!(vcor_flags & kfVcorRefBased)) || (vcor_flags & (kfVcorColMaj | kfVcorColNonmaj))));
@@ -3020,6 +3023,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1ShowTags) {
+        if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
+          logerrputs("Error: --show-tags requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          return kPglRetInconsistentInput;
+        }
+        reterr = ShowTags(variant_include, cip, variant_bps, variant_ids, maj_alleles, founder_info, pcp->tag_info.tag_fname, pcp->tag_info.list_all, pcp->tag_info.bp_radius, pcp->tag_info.r2_thresh, raw_variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, pcp->tag_info.output_zst, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1Vcor) {
         if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
           logerrputs("Error: --r[2]-[un]phased runs require a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -3825,6 +3839,7 @@ int main(int argc, char** argv) {
   InitGwasSsf(&pc.gwas_ssf_info);
   InitClump(&pc.clump_info);
   InitVcor(&pc.vcor_info);
+  InitTag(&pc.tag_info);
   InitLdScore(&pc.ld_score_info);
   InitPhenoSvd(&pc.pheno_svd_info);
   InitCheckSex(&pc.check_sex_info);
@@ -8318,6 +8333,11 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "oop-assoc")) {
           logerrputs("Error: --loop-assoc is retired.  Use --within + --split-cat-pheno instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
+        } else if (strequal_k_unsafe(flagname_p2, "ist-all")) {
+          // Checked after the parse loop, since flags are processed in
+          // alphabetical order and --show-tags comes later.
+          pc.tag_info.list_all = 1;
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ist-duplicate-vars")) {
           logerrputs("Error: --list-duplicate-vars is retired.  We recommend --set-all-var-ids +\n--rm-dup for variant deduplication.\n");
           goto main_ret_INVALID_CMDLINE_A;
@@ -11547,7 +11567,31 @@ int main(int argc, char** argv) {
         break;
 
       case 's':
-        if (strequal_k_unsafe(flagname_p2, "eed")) {
+        if (strequal_k_unsafe(flagname_p2, "how-tags")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t fname_param_idx = 1;
+          if (param_ct == 2) {
+            if (strequal_k_unsafe(argvk[arg_idx + 1], "zs")) {
+              pc.tag_info.output_zst = 1;
+              fname_param_idx = 2;
+            } else if (likely(strequal_k_unsafe(argvk[arg_idx + 2], "zs"))) {
+              pc.tag_info.output_zst = 1;
+            } else {
+              logerrputs("Error: Invalid --show-tags argument sequence.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+          if (!strequal_k_unsafe(argvk[arg_idx + fname_param_idx], "all")) {
+            reterr = AllocFname(argvk[arg_idx + fname_param_idx], flagname_p, &pc.tag_info.tag_fname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          pc.command_flags1 |= kfCommand1ShowTags;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "eed")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -12238,7 +12282,27 @@ int main(int argc, char** argv) {
         break;
 
       case 't':
-        if (strequal_k_unsafe(flagname_p2, "hreads")) {
+        if (strequal_k_unsafe(flagname_p2, "ag-kb")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0) || (dxx > 2147483.646))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --tag-kb argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.tag_info.bp_radius = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+        } else if (strequal_k_unsafe(flagname_p2, "ag-r2")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0) || (dxx > 1.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --tag-r2 argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.tag_info.r2_thresh = dxx * (1 - kSmallEpsilon);
+        } else if (strequal_k_unsafe(flagname_p2, "hreads")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -13097,6 +13161,10 @@ int main(int argc, char** argv) {
         }
       }
     } while ((++cur_flag_idx) < flag_ct);
+    if (unlikely(pc.tag_info.list_all && (!(pc.command_flags1 & kfCommand1ShowTags)))) {
+      logerrputs("Error: --list-all must be used with --show-tags.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
     if (!outname_end) {
       outname_end = &(outname[6]);
     } else if (!allow_misleading_out_arg) {
@@ -13835,6 +13903,7 @@ int main(int argc, char** argv) {
   CleanupFlip(&pc.flip_info);
   CleanupPermConfig(&pc.perm_config);
   CleanupVcor(&pc.vcor_info);
+  CleanupTag(&pc.tag_info);
   CleanupClump(&pc.clump_info);
   CleanupGwasSsf(&pc.gwas_ssf_info);
   CleanupExportf(&pc.exportf_info);
