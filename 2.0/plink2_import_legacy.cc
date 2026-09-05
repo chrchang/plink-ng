@@ -2016,17 +2016,19 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
     // 3. Genotype matrix, variant-major, in plink2's encoding.  Initially all
     //    missing; with --reference, unlisted calls mean homozygous-reference
     //    instead, which is applied once the reference alleles are known.
-    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-    const uint64_t genovec_alloc = S_CAST(uint64_t, variant_ct) * sample_ctl2 * sizeof(intptr_t);
+    // GenovecInvertUnsafe() below works a vector at a time, so the per-variant
+    // slices have to be vector-aligned, not just word-aligned.
+    const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+    const uint64_t genovec_alloc = S_CAST(uint64_t, variant_ct) * sample_ctaw2 * sizeof(intptr_t);
     if (unlikely(genovec_alloc > bigstack_left() / 2)) {
       logerrputs("Error: Not enough memory for .lgen import.  (This importer holds the entire\ngenotype matrix in memory, since .lgen entries are unordered.)\n");
       goto LgenToPgen_ret_NOMEM;
     }
     uintptr_t* genovecs;
-    if (unlikely(bigstack_alloc_w(S_CAST(uintptr_t, variant_ct) * sample_ctl2, &genovecs))) {
+    if (unlikely(bigstack_alloc_w(S_CAST(uintptr_t, variant_ct) * sample_ctaw2, &genovecs))) {
       goto LgenToPgen_ret_NOMEM;
     }
-    memset(genovecs, 255, S_CAST(uintptr_t, variant_ct) * sample_ctl2 * sizeof(intptr_t));
+    memset(genovecs, 255, S_CAST(uintptr_t, variant_ct) * sample_ctaw2 * sizeof(intptr_t));
 
     const char** allele_codes;
     uintptr_t* allele_flips;
@@ -2111,8 +2113,8 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
       // Calls absent from the .lgen are homozygous for the reference allele.
       for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
         if (IsSet(ref_seen, variant_idx)) {
-          uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctl2]);
-          ZeroWArr(sample_ctl2, cur_genovec);
+          uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctaw2]);
+          ZeroWArr(sample_ctaw2, cur_genovec);
         }
       }
       logprintf("--reference: %u variant%s.\n", PopcountWords(ref_seen, BitCtToWordCt(variant_ct)), (PopcountWords(ref_seen, BitCtToWordCt(variant_ct)) == 1)? "" : "s");
@@ -2272,7 +2274,7 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
       }
     LgenToPgen_store:
       {
-        uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctl2]);
+        uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctaw2]);
         AssignNyparrEntry(sample_idx, cur_geno, cur_genovec);
         ++entry_ct;
       }
@@ -2288,7 +2290,7 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
     // 6. Pick REF/ALT.  Without --reference this follows PLINK 1.x, which
     //    makes the more common allele A2; with it, the reference file decides.
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-      uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctl2]);
+      uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctaw2]);
       // The matrix was initialized to all-missing, so the trailing entries in
       // the last word have to be cleared before they can be counted.
       ZeroTrailingNyps(sample_ct, cur_genovec);
@@ -2339,7 +2341,7 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
     }
     SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-      uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctl2]);
+      uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctaw2]);
       if (IsSet(allele_flips, variant_idx)) {
         GenovecInvertUnsafe(sample_ct, cur_genovec);
         ZeroTrailingNyps(sample_ct, cur_genovec);
