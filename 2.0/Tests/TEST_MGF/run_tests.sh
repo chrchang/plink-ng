@@ -94,7 +94,24 @@ diff -q <(cut -f 2 tmp_ids2.psam | tail -n +2) <(seq 0 119 | sed 's/^/s/')
 head -n 6 tmp_real.psam > tmp_short.psam
 fails_with "tmp_short.psam has 5 samples, while tmp_dose_e.mgf implies 120" \
     $BUILD/plink2 $EXTRA1 $EXTRA2 --mgf tmp_dose_e.mgf tmp_dose_e.pos.txt --psam tmp_short.psam --out tmp_bad7
-fails_with "cannot be used with --psam/--fam" \
+# --psam/--fam and 'pheno=' can be combined, as long as the sample file does
+# not carry phenotype data of its own.  A .psam need not have a phenotype
+# column at all, and a .fam's may be entirely missing.
+awk 'BEGIN {print "#IID\tSEX"; for (i = 0; i < 120; ++i) {print "s" i "\t" (i % 2 + 1)}}' > tmp_nopheno.psam
+$BUILD/plink2 $EXTRA1 $EXTRA2 --mgf tmp_ph_e.mgf tmp_ph_e.pos.txt pheno=tmp_ph_e.pheno.txt --psam tmp_nopheno.psam --out tmp_both
+head -n 1 tmp_both.psam | grep -qx '#IID	SEX	PHENO1	PHENO2'
+# IDs and sex from the .psam, phenotypes from the pheno= file.
+diff -q <(cut -f 1,2 tmp_both.psam | tail -n +2) <(tail -n +2 tmp_nopheno.psam)
+diff -q <(cut -f 3,4 tmp_both.psam | tail -n +2) tmp_ph_e.pheno.txt
+
+# An all-missing .fam phenotype column is not phenotype data either.
+awk 'BEGIN {for (i = 0; i < 120; ++i) {print "f" i, "s" i, 0, 0, (i % 2 + 1), -9}}' > tmp_nopheno.fam
+$BUILD/plink2 $EXTRA1 $EXTRA2 --mgf tmp_ph_e.mgf tmp_ph_e.pos.txt pheno=tmp_ph_e.pheno.txt --fam tmp_nopheno.fam --out tmp_bothfam
+head -n 1 tmp_bothfam.psam | grep -qx '#FID	IID	SEX	PHENO1	PHENO2'
+diff -q <(cut -f 4,5 tmp_bothfam.psam | tail -n +2) tmp_ph_e.pheno.txt
+
+# A .psam that does carry phenotypes is a genuine conflict.
+fails_with "tmp_real.psam contains phenotype data" \
     $BUILD/plink2 $EXTRA1 $EXTRA2 --mgf tmp_ph_e.mgf tmp_ph_e.pos.txt pheno=tmp_ph_e.pheno.txt --psam tmp_real.psam --out tmp_bad8
 
 # 6. A block-gzipped .mgf reads back the same as the plain one.

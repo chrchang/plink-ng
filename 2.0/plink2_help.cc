@@ -232,7 +232,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * --psam/--fam supplies real sample IDs (and sex, and phenotypes)\n"
 "      instead.  Since the .mgf has no IDs of its own to match against, the\n"
 "      file just has to have one row per sample, in the .mgf\'s column order.\n"
-"      It cannot be combined with \'pheno=\'.\n"
+"      It can be combined with \'pheno=\' as long as it does not carry\n"
+"      phenotype data itself; a .psam need not have a phenotype column, and a\n"
+"      .fam\'s may be entirely missing.\n"
 "    * This is the inverse of \"--export mgf\".\n\n"
                );
     HelpPrint("import-dosage\0dosage\0map\0", &help_ctrl, 1,

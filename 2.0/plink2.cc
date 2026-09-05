@@ -13308,10 +13308,6 @@ int main(int argc, char** argv) {
       logerrputs("Error: --chr-override requires an explicit chromosome set.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-    if (unlikely(mgf_pheno_fname && (load_params & kfLoadParamsPsam))) {
-      logerrputs("Error: --mgf 'pheno=' cannot be used with --psam/--fam, since both supply\nphenotypes.\n");
-      goto main_ret_INVALID_CMDLINE_A;
-    }
     if (unlikely((xload & kfXloadPlink1Dosage) && (!(load_params & kfLoadParamsPsam)))) {
       logerrputs("Error: --import-dosage requires a .fam file.\n");
       goto main_ret_INVALID_CMDLINE_A;

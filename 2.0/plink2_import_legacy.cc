@@ -671,7 +671,11 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, LoadFilterLogFlags loa
 }
 
 // Ok for in_psamname to alias outname.
-PglErr RewritePsam(const char* in_psamname, const char* missing_catname, MiscFlags misc_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, uint32_t max_thread_ct, char* outname, char* outname_end, uint32_t* raw_sample_ctp) {
+// pheno_info_presentp, when provided, reports whether the input actually
+// carried a phenotype value for anybody.  A .psam need not have a phenotype
+// column at all, and a .fam's may be entirely -9, so "has a column" is not
+// the same question.
+PglErr RewritePsam(const char* in_psamname, const char* missing_catname, MiscFlags misc_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, uint32_t max_thread_ct, char* outname, char* outname_end, uint32_t* raw_sample_ctp, uint32_t* pheno_info_presentp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PhenoCol* pheno_cols = nullptr;
   char* pheno_names = nullptr;
@@ -692,6 +696,17 @@ PglErr RewritePsam(const char* in_psamname, const char* missing_catname, MiscFla
     }
     if (raw_sample_ctp) {
       *raw_sample_ctp = raw_sample_ct;
+    }
+    if (pheno_info_presentp) {
+      uint32_t pheno_info_present = 0;
+      const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        if (!AllWordsAreZero(pheno_cols[pheno_idx].nonmiss, raw_sample_ctl)) {
+          pheno_info_present = 1;
+          break;
+        }
+      }
+      *pheno_info_presentp = pheno_info_present;
     }
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
@@ -768,7 +783,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
       // Only need to generate a .psam if this is a conversion-only run, or
       // --keep-autoconv was specified.  Otherwise Plink2Core() can simply
       // interpret the .tfam as a psam file.
-      reterr = RewritePsam(tfamname, missing_catname, misc_flags, fam_cols, missing_pheno, 0, max_thread_ct, outname, outname_end, &tfam_sample_ct);
+      reterr = RewritePsam(tfamname, missing_catname, misc_flags, fam_cols, missing_pheno, 0, max_thread_ct, outname, outname_end, &tfam_sample_ct, nullptr);
       if (unlikely(reterr)) {
         goto TpedToPgen_ret_1;
       }
@@ -2298,7 +2313,7 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
     *outname_end = '.';
     BigstackEndSet(tmp_alloc_end);
 
-    reterr = RewritePsam(outname, missing_catname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, nullptr);
+    reterr = RewritePsam(outname, missing_catname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, nullptr, nullptr);
     if (unlikely(reterr)) {
       goto PedmapToPgen_ret_1;
     }
@@ -2459,6 +2474,103 @@ HEADER_INLINE void MgfCommasToSpaces(char* line_start) {
   }
 }
 
+// Appends 'pheno=' columns to an already-written .psam.  RewritePsam() has
+// just produced a well-formed file with one line per sample in the .mgf's
+// order, so this is a column append rather than a merge.
+PglErr AppendPhenoColsToPsam(const char* pheno_lines, uint32_t sample_ct, uint32_t pheno_col_ct, uintptr_t max_pheno_line_blen, const char* psamname) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  PglErr reterr = kPglRetSuccess;
+  {
+    // The file has one line per sample plus a header, so it fits in memory
+    // comfortably.
+    char** psam_lines;
+    if (unlikely(BIGSTACK_ALLOC_X(char*, sample_ct + 1, &psam_lines))) {
+      goto AppendPhenoColsToPsam_ret_NOMEM;
+    }
+    reterr = SizeAndInitTextStream(psamname, bigstack_left() / 4, 1, &txs);
+    if (unlikely(reterr)) {
+      goto AppendPhenoColsToPsam_ret_TSTREAM_FAIL;
+    }
+    for (uint32_t line_idx = 0; line_idx != sample_ct + 1; ++line_idx) {
+      char* line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        logerrprintfww("Error: %s ended early.\n", psamname);
+        goto AppendPhenoColsToPsam_ret_REWIND_FAIL;
+      }
+      char* line_end = AdvToDelim(line_start, '\n');
+      const uintptr_t line_slen = line_end - line_start;
+      char* stored;
+      if (unlikely(bigstack_alloc_c(line_slen + 1, &stored))) {
+        goto AppendPhenoColsToPsam_ret_NOMEM;
+      }
+      memcpyx(stored, line_start, line_slen, '\0');
+      psam_lines[line_idx] = stored;
+    }
+    if (unlikely(CleanupTextStream2(psamname, &txs, &reterr))) {
+      goto AppendPhenoColsToPsam_ret_1;
+    }
+
+    if (unlikely(fopen_checked(psamname, FOPEN_WB, &outfile))) {
+      goto AppendPhenoColsToPsam_ret_OPEN_FAIL;
+    }
+    const uintptr_t writebuf_blen = kMaxMediumLine + kMaxIdSlen + max_pheno_line_blen + 64;
+    char* writebuf;
+    if (unlikely(bigstack_alloc_c(writebuf_blen, &writebuf))) {
+      goto AppendPhenoColsToPsam_ret_NOMEM;
+    }
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+    char* write_iter = strcpya(writebuf, psam_lines[0]);
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_col_ct; ++pheno_idx) {
+      write_iter = strcpya_k(write_iter, "\tPHENO");
+      write_iter = u32toa(pheno_idx + 1, write_iter);
+    }
+    AppendBinaryEoln(&write_iter);
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      write_iter = strcpya(write_iter, psam_lines[sample_idx + 1]);
+      const char* pheno_iter = &(pheno_lines[sample_idx * max_pheno_line_blen]);
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_col_ct; ++pheno_idx) {
+        pheno_iter = FirstNonTspace(pheno_iter);
+        const char* token_end = CurTokenEnd(pheno_iter);
+        *write_iter++ = '\t';
+        write_iter = memcpya(write_iter, pheno_iter, token_end - pheno_iter);
+        pheno_iter = token_end;
+      }
+      AppendBinaryEoln(&write_iter);
+      if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+        goto AppendPhenoColsToPsam_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      goto AppendPhenoColsToPsam_ret_WRITE_FAIL;
+    }
+  }
+  while (0) {
+  AppendPhenoColsToPsam_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  AppendPhenoColsToPsam_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  AppendPhenoColsToPsam_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  AppendPhenoColsToPsam_ret_REWIND_FAIL:
+    reterr = kPglRetRewindFail;
+    break;
+  AppendPhenoColsToPsam_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(psamname, &txs);
+    break;
+  }
+ AppendPhenoColsToPsam_ret_1:
+  CleanupTextStream2(psamname, &txs, &reterr);
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr MgfToPgen(const char* mgfname, const char* posname, const char* phenoname, const char* preexisting_psamname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -2613,23 +2725,11 @@ PglErr MgfToPgen(const char* mgfname, const char* posname, const char* phenoname
       goto MgfToPgen_ret_1;
     }
 
-    // 3. Write the .psam.  With --psam/--fam the sample IDs (and phenotypes,
-    //    and sex) come from that file, which only has to have the right
-    //    number of rows since the .mgf carries no IDs of its own to match
-    //    against.  Otherwise they are synthesized, and 'pheno=' supplies the
-    //    phenotypes.
-    if (preexisting_psamname) {
-      uint32_t psam_sample_ct = 0;
-      reterr = RewritePsam(preexisting_psamname, missing_catname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, &psam_sample_ct);
-      if (unlikely(reterr)) {
-        goto MgfToPgen_ret_1;
-      }
-      if (unlikely(psam_sample_ct != sample_ct)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: %s has %u sample%s, while %s implies %u.\n", preexisting_psamname, psam_sample_ct, (psam_sample_ct == 1)? "" : "s", mgfname, sample_ct);
-        goto MgfToPgen_ret_INCONSISTENT_INPUT_WW;
-      }
-      logprintfww("--mgf: %u sample%s and %u variant%s present (sample IDs from %s).\n", sample_ct, (sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s", preexisting_psamname);
-    } else {
+    // 3. Write the .psam.  --psam/--fam supplies the sample IDs (and sex, and
+    //    any phenotypes it carries); otherwise they are synthesized.  Either
+    //    way 'pheno=' can supply phenotypes, as long as the .psam/.fam does
+    //    not also carry some.
+    do {
       uint32_t pheno_col_ct = 0;
       char* pheno_lines = nullptr;
       uintptr_t max_pheno_line_blen = 0;
@@ -2686,6 +2786,33 @@ PglErr MgfToPgen(const char* mgfname, const char* posname, const char* phenoname
           goto MgfToPgen_ret_1;
         }
       }
+      if (preexisting_psamname) {
+        uint32_t psam_sample_ct = 0;
+        uint32_t psam_pheno_info_present = 0;
+        reterr = RewritePsam(preexisting_psamname, missing_catname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, &psam_sample_ct, &psam_pheno_info_present);
+        if (unlikely(reterr)) {
+          goto MgfToPgen_ret_1;
+        }
+        if (unlikely(psam_sample_ct != sample_ct)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s has %u sample%s, while %s implies %u.\n", preexisting_psamname, psam_sample_ct, (psam_sample_ct == 1)? "" : "s", mgfname, sample_ct);
+          goto MgfToPgen_ret_INCONSISTENT_INPUT_WW;
+        }
+        if (pheno_col_ct) {
+          // A .psam need not have a phenotype column, and a .fam's may be
+          // entirely missing, so 'pheno=' is only a conflict when the file
+          // actually carries a value for somebody.
+          if (unlikely(psam_pheno_info_present)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: %s contains phenotype data, so it cannot be combined with --mgf 'pheno='.\n", preexisting_psamname);
+            goto MgfToPgen_ret_INCONSISTENT_INPUT_WW;
+          }
+          reterr = AppendPhenoColsToPsam(pheno_lines, sample_ct, pheno_col_ct, max_pheno_line_blen, outname);
+          if (unlikely(reterr)) {
+            goto MgfToPgen_ret_1;
+          }
+        }
+        logprintfww("--mgf: %u sample%s and %u variant%s present (sample IDs from %s%s).\n", sample_ct, (sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s", preexisting_psamname, pheno_col_ct? ", phenotypes from pheno=" : "");
+        break;
+      }
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       if (unlikely(fopen_checked(outname, FOPEN_WB, &psamfile))) {
         goto MgfToPgen_ret_OPEN_FAIL;
@@ -2724,7 +2851,7 @@ PglErr MgfToPgen(const char* mgfname, const char* posname, const char* phenoname
         goto MgfToPgen_ret_WRITE_FAIL;
       }
       logprintfww("--mgf: %u sample%s and %u variant%s present%s.\n", sample_ct, (sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s", pheno_col_ct? " (with phenotype data)" : "");
-    }
+    } while (0);
 
     // 4. Second pass: write the .pvar and .pgen.
     cur_fname = mgfname;
