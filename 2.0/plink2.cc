@@ -159,7 +159,8 @@ FLAGSET_DEF_START()
   kfXloadTped = (1 << 11),
   kfXloadEigGeno = (1 << 12),
   kfXloadEigInd = (1 << 13),
-  kfXloadEigSnp = (1 << 14)
+  kfXloadEigSnp = (1 << 14),
+  kfXloadMgf = (1 << 15)
 FLAGSET_DEF_END(Xload);
 
 
@@ -3386,8 +3387,12 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
           cur_format = kfExportfBcf42;
         } else if (strequal_k(cur_modif2, "eagle", cur_modif2_slen)) {
           cur_format = kfExportfBeagle;
-        } else if (strequal_k(cur_modif2, "eagle-nomap", cur_modif2_slen)) {
-          cur_format = kfExportfBeagleNomap;
+        } else if (strequal_k(cur_modif2, "eagle-nomap", cur_modif2_slen) ||
+                   strequal_k(cur_modif2, "eagle-unphased", cur_modif2_slen)) {
+          // 'beagle-nomap' is the old spelling of the unphased single-file form.
+          cur_format = kfExportfBeagleUnphased;
+        } else if (strequal_k(cur_modif2, "eagle-phased", cur_modif2_slen)) {
+          cur_format = kfExportfBeaglePhased;
         } else if (strequal_k(cur_modif2, "gen-1.1", cur_modif2_slen) ||
                    strequal_k(cur_modif2, "gen_1.1", cur_modif2_slen)) {
           cur_format = kfExportfBgen11;
@@ -3397,13 +3402,16 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         } else if (strequal_k(cur_modif2, "gen-1.3", cur_modif2_slen) ||
                    strequal_k(cur_modif2, "gen_1.3", cur_modif2_slen)) {
           cur_format = kfExportfBgen13;
-        } else if (strequal_k(cur_modif2, "imbam", cur_modif2_slen)) {
+        } else if ((!strcmp(cur_modif2, "imbam")) || (!strcmp(cur_modif2, "imbam-1chr"))) {
           cur_format = kfExportfBimbam;
-        } else if (strequal_k(cur_modif2, "imbam-1chr", cur_modif2_slen)) {
-          cur_format = kfExportfBimbam1chr;
         }
         break;
       }
+    case 'm':
+      if (!strcmp(cur_modif2, "gf")) {
+        cur_format = kfExportfMgf;
+      }
+      break;
     case 'c':
       if (!strcmp(cur_modif2, "ompound-genotypes")) {
         cur_format = kfExportfCompound;
@@ -3721,6 +3729,7 @@ int main(int argc, char** argv) {
   char* king_cutoff_fprefix = nullptr;
   char* const_fid = nullptr;
   char* import_single_chr_str = nullptr;
+  char* mgf_pheno_fname = nullptr;
   char* ox_missing_code = nullptr;
   char* vcf_dosage_import_field = nullptr;
   uint32_t* rseeds = nullptr;
@@ -5891,6 +5900,33 @@ int main(int argc, char** argv) {
             logerrputs("Error: --export requires at least one output format.  (Did you forget 'ped' or\n'vcf'?)\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          // Reject an unimplemented format here rather than after the whole
+          // dataset has been loaded and filtered.
+          if (unlikely(pc.exportf_info.flags & (kfExportfTypemask - kfExportfImplemented))) {
+            for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+              if (!((format_param_idxs >> param_idx) & 1)) {
+                continue;
+              }
+              ExportfFlags cur_format = kfExportf0;
+              IdpasteFlags dummy_idpaste = kfIdpaste0;
+              uint64_t dummy_idxs = 0;
+              GetExportfTargets(&(argvk[arg_idx + param_idx - 1]), 1, &cur_format, &dummy_idpaste, &dummy_idxs);
+              if (cur_format & kfExportfBeagle) {
+                logerrputs("Error: \"--export beagle\" wrote one fileset per chromosome, which is retired.\nUse \"--export beagle-unphased\" for the single-file unphased form, or\n\"--export beagle-phased\" when every genotype is phased.  PLINK 1.9 still\nwrites the chromosome-split form if you need it.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              if (cur_format & kfExportfBimbam) {
+                logerrputs("Error: \"--export bimbam\" and \"--export bimbam-1chr\" have been replaced by\n\"--export mgf\", which writes BIMBAM's mean genotype format: dosages rather\nthan rounded genotypes, in a .mgf file alongside .pos.txt and, when a numeric\nphenotype is loaded, .pheno.txt.  Contact us if you need the original BIMBAM\ngenotype file; PLINK 1.9 still writes it.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              if (cur_format & (kfExportfTypemask - kfExportfImplemented)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: \"--export %s\" is not implemented yet.\n", argvk[arg_idx + param_idx]);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            }
+            logerrputs("Error: Unimplemented --export format.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           // can't have e.g. bgen-1.1 and bgen-1.2 simultaneously, since they
           // have the same extension and different content.
           const uint64_t bgen_flags = S_CAST(uint64_t, pc.exportf_info.flags & (kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13));
@@ -6052,8 +6088,8 @@ int main(int argc, char** argv) {
                 pc.exportf_info.flags |= kfExportf12;
               }
             } else if (strequal_k(cur_modif, "bgz", cur_modif_slen)) {
-              if (unlikely(!(pc.exportf_info.flags & (kfExportfHaps | kfExportfHapsLegend | kfExportfOxGen | kfExportfVcf)))) {
-                logerrputs("Error: The 'bgz' modifier only applies to --export's haps[legend], oxford, and\nvcf output formats.\n");
+              if (unlikely(!(pc.exportf_info.flags & (kfExportfHaps | kfExportfHapsLegend | kfExportfOxGen | kfExportfVcf | kfExportfMgf)))) {
+                logerrputs("Error: The 'bgz' modifier only applies to --export's haps[legend], mgf,\noxford, and vcf output formats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.exportf_info.flags |= kfExportfBgz;
@@ -9334,6 +9370,36 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
+        } else if (strequal_k_unsafe(flagname_p2, "gf")) {
+          // --psam/--fam may accompany this, to supply real sample IDs in
+          // place of the synthesized ones.
+          if (unlikely((load_params & (~kfLoadParamsPsam)) || xload)) {
+            goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= 2; ++param_idx) {
+            const char* cur_fname = argvk[arg_idx + param_idx];
+            const uint32_t slen = strlen(cur_fname);
+            if (unlikely(slen > kPglFnamesize - 1)) {
+              logerrputs("Error: --mgf filename too long.\n");
+              goto main_ret_OPEN_FAIL;
+            }
+            memcpy((param_idx == 1)? pgenname : pvarname, cur_fname, slen + 1);
+          }
+          if (param_ct == 3) {
+            const char* cur_modif = argvk[arg_idx + 3];
+            if (unlikely(!StrStartsWith(cur_modif, "pheno=", strlen(cur_modif)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mgf argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            reterr = AllocFname(&(cur_modif[strlen("pheno=")]), "mgf pheno=", &mgf_pheno_fname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          xload = kfXloadMgf;
         } else if (strequal_k_unsafe(flagname_p2, "issing-code")) {
           if (unlikely(!(xload & (kfXloadOxGen | kfXloadOxBgen | kfXloadOxHaps)))) {
             // could technically support pure .sample -> .fam/.psam, but let's
@@ -10313,7 +10379,7 @@ int main(int argc, char** argv) {
           }
           memcpy(pgenname, fname, slen + 1);
         } else if (strequal_k_unsafe(flagname_p2, "sam")) {
-          if (unlikely(xload & (~(kfXloadVcf | kfXloadBcf | kfXloadPlink1Dosage | kfXloadMap)))) {
+          if (unlikely(xload & (~(kfXloadVcf | kfXloadBcf | kfXloadPlink1Dosage | kfXloadMap | kfXloadMgf)))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -13118,7 +13184,7 @@ int main(int argc, char** argv) {
     }
 
     pc.dependency_flags |= pc.filter_flags;
-    const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped)));
+    const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped | kfXloadMgf)));
     const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr);
     if (skip_main && (!batch_job)) {
       // add command_flags2 when needed
@@ -13541,6 +13607,8 @@ int main(int argc, char** argv) {
             reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, id_delim, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
           } else if (xload & kfXloadEigGeno) {
             reterr = EigfileToPgen(pgenname, psamname, pvarname, const_fid, pc.missing_catname, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, id_delim, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info);
+          } else if (xload & kfXloadMgf) {
+            reterr = MgfToPgen(pgenname, pvarname, mgf_pheno_fname, (load_params & kfLoadParamsPsam)? psamname : nullptr, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, pc.fam_cols, pc.missing_pheno, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadPlink1Dosage) {
             reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (likely(xload & kfXloadGenDummy)) {
