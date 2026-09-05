@@ -83,4 +83,9 @@ cd TEST_HET_IBC
 cd ..
 echo "TEST_HET_IBC passed."
 
+cd TEST_TEST_MISSING
+./run_tests.sh $d $2 $3 > TEST_TEST_MISSING.log
+cd ..
+echo "TEST_TEST_MISSING passed."
+
 echo "All tests passed."
