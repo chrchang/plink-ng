@@ -47,6 +47,10 @@ FLAGSET_DEF_START()
   kfClumpNoA1 = (1 << 6),
   kfClumpNoTest = (1 << 7),
   kfClumpRange0 = (1 << 8),
+  kfClumpIndexFirst = (1 << 25),
+  kfClumpReplicate = (1 << 26),
+  kfClumpVerbose = (1 << 27),
+  kfClumpBest = (1 << 28),
 
   kfClumpColChrom = (1 << 9),
   kfClumpColPos = (1 << 10),
@@ -127,6 +131,7 @@ typedef struct ClumpInfoStruct {
   char* a1_field;
   char* test_field;
   char* p_field;
+  char* annotate_flattened;
   double* ln_bin_boundaries;
   double ln_p1;
   double ln_p2;
