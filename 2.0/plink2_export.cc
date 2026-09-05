@@ -11824,8 +11824,8 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
       allele_storage = subst_allele_storage;
     }
-    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped - kfExportfPed - kfExportfPhylip - kfExportfPhylipPhased - kfExportfEig - kfExportfEigt - kfExportfCompound)) {
-      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, ped, tped,\ncompound-genotypes, phylip, phylip-phased, eig, eigt, and ind-major-bed output\nhave been implemented so far.\n");
+    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped - kfExportfPed - kfExportfPhylip - kfExportfPhylipPhased - kfExportfEig - kfExportfEigt - kfExportfCompound - kfExportfLgen - kfExportfLgenRef)) {
+      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, lgen,\nlgen-ref, ped, tped, compound-genotypes, phylip, phylip-phased, eig, eigt, and\nind-major-bed output have been implemented so far.\n");
       reterr = kPglRetNotYetSupported;
       goto Exportf_ret_1;
     }
@@ -11973,6 +11973,41 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
 
       snprintf(outname_end, kMaxOutfnameExtBlen, ".tped");
       reterr = ExportTped(outname, sample_include, sample_include_cumulative_popcounts, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, variant_cms, sample_ct, variant_ct, max_allele_slen, exportf_delim, legacy_output_missing_geno_char, simple_pgrp);
+      if (unlikely(reterr)) {
+        goto Exportf_ret_1;
+      }
+    }
+
+    if (flags & (kfExportfLgen | kfExportfLgenRef)) {
+      const uint32_t is_ref = (flags / kfExportfLgenRef) & 1;
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".map");
+      logprintfww5("Writing %s ... ", outname);
+      fflush(stdout);
+      reterr = WriteMapOrBim(outname, variant_include, cip, variant_bps, variant_ids, nullptr, nullptr, nullptr, variant_cms, variant_ct, 0, exportf_delim, '\0', 0, max_thread_ct);
+      if (unlikely(reterr)) {
+        goto Exportf_ret_1;
+      }
+      logputs("done.\n");
+
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".fam");
+      logprintfww5("Writing %s ... ", outname);
+      fflush(stdout);
+      reterr = WriteFam(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, nullptr, legacy_output_missing_pheno, sample_ct, pheno_ct, exportf_delim);
+      if (unlikely(reterr)) {
+        goto Exportf_ret_1;
+      }
+      logputs("done.\n");
+
+      if (is_ref) {
+        snprintf(outname_end, kMaxOutfnameExtBlen, ".ref");
+        reterr = ExportLgenRef(outname, variant_include, variant_ids, allele_idx_offsets, allele_storage, variant_ct, max_allele_slen, exportf_delim);
+        if (unlikely(reterr)) {
+          goto Exportf_ret_1;
+        }
+      }
+
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".lgen");
+      reterr = ExportLgen(outname, sample_include, &(piip->sii), sample_include_cumulative_popcounts, variant_include, variant_ids, allele_idx_offsets, allele_storage, sample_ct, variant_ct, max_allele_slen, is_ref, exportf_delim, legacy_output_missing_geno_char, simple_pgrp);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }

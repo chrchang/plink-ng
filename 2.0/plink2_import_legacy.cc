@@ -26,6 +26,7 @@
 #include "include/plink2_base.h"
 #include "include/plink2_bits.h"
 #include "include/plink2_simd.h"
+#include "include/plink2_htable.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
 #include "include/plink2_thread.h"
@@ -1920,6 +1921,477 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_fli
   CleanupThreads(&tg);
   CleanupMpgw(mpgwp, &reterr);
   BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// PLINK 1.x long-format (.lgen) import.  Unlike .ped and .tped, the genotypes
+// arrive one (sample, variant) call per line and in no particular order, so
+// the whole matrix is held in memory before it can be written; PLINK 1.9 has
+// the same constraint.
+PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname, const char* refname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t lgen_allele_count, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  uintptr_t line_idx = 0;
+  const char* cur_fname = lgenname;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  STPgenWriter spgw;
+  PreinitSpgw(&spgw);
+  PglErr reterr = kPglRetSuccess;
+  {
+    FinalizeChrset(load_filter_log_import_flags, cip);
+
+    // 1. .map: variant order, and the ID -> index table the .lgen is resolved
+    //    against.
+    uint32_t max_variant_id_slen = 1;
+    ChrIdx* variant_chr_codes;
+    uint32_t* variant_bps;
+    char** variant_ids;
+    double* variant_cms;
+    uint32_t variant_ct;
+    reterr = LoadMap(mapname, misc_flags, load_filter_log_import_flags, cip, &max_variant_id_slen, &variant_chr_codes, &variant_bps, &variant_ids, &variant_cms, &variant_ct);
+    if (unlikely(reterr)) {
+      goto LgenToPgen_ret_1;
+    }
+    // LoadMap() only allocates this when the .map has a nonzero CM value.
+    const uint32_t at_least_one_nzero_cm = (variant_cms != nullptr);
+    uint32_t* variant_id_htable;
+    const uint32_t variant_id_htable_size = GetHtableFastSize(variant_ct);
+    {
+      const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+      uintptr_t* variant_all;
+      if (unlikely(bigstack_alloc_w(variant_ctl, &variant_all) ||
+                   bigstack_alloc_u32(variant_id_htable_size, &variant_id_htable))) {
+        goto LgenToPgen_ret_NOMEM;
+      }
+      SetAllBits(variant_ct, variant_all);
+      unsigned char* arena_bottom = g_bigstack_base;
+      reterr = PopulateIdHtableMt(g_bigstack_end, variant_all, TO_CONSTCPCONSTP(variant_ids), variant_ct, 0, variant_id_htable_size, max_thread_ct, &arena_bottom, variant_id_htable, nullptr);
+      if (unlikely(reterr)) {
+        goto LgenToPgen_ret_1;
+      }
+    }
+
+    // 2. .fam: sample order, and the FID/IID -> index table.
+    uintptr_t* sample_include = nullptr;
+    uintptr_t* founder_info = nullptr;
+    uintptr_t* sex_nm = nullptr;
+    uintptr_t* sex_male = nullptr;
+    PhenoCol* pheno_cols = nullptr;
+    char* pheno_names = nullptr;
+    uint32_t pheno_ct = 0;
+    uintptr_t max_pheno_name_blen = 0;
+    uint32_t sample_ct = 0;
+    PedigreeIdInfo pii;
+    InitPedigreeIdInfo(misc_flags, &pii);
+    reterr = LoadPsam(famname, nullptr, missing_catname, fam_cols, 0x7fffffff, missing_pheno, (misc_flags / kfMiscAffection01) & 1, (misc_flags / kfMiscNoCategorical) & 1, (misc_flags / kfMiscNeg9PhenoReallyMissing) & 1, max_thread_ct, &pii, &sample_include, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &sample_ct, &pheno_ct, &max_pheno_name_blen);
+    if (unlikely(reterr)) {
+      goto LgenToPgen_ret_1;
+    }
+    if (unlikely(!sample_ct)) {
+      logerrputs("Error: No samples in .fam file.\n");
+      goto LgenToPgen_ret_DEGENERATE_DATA;
+    }
+    CleanupPhenoCols(pheno_ct, pheno_cols);
+    pheno_cols = nullptr;
+    const uint32_t sample_id_htable_size = GetHtableFastSize(sample_ct);
+    uint32_t* sample_id_htable;
+    char* idbuf;
+    if (unlikely(bigstack_end_alloc_u32(sample_id_htable_size, &sample_id_htable) ||
+                 bigstack_end_alloc_c(pii.sii.max_sample_id_blen, &idbuf))) {
+      goto LgenToPgen_ret_NOMEM;
+    }
+    {
+      const uint32_t duplicate_idx = PopulateStrboxHtable(pii.sii.sample_ids, sample_ct, pii.sii.max_sample_id_blen, sample_id_htable_size, sample_id_htable);
+      if (unlikely(duplicate_idx)) {
+        char* duplicate_sample_id = &(pii.sii.sample_ids[duplicate_idx * pii.sii.max_sample_id_blen]);
+        char* duplicate_fid_end = AdvToDelim(duplicate_sample_id, '\t');
+        *duplicate_fid_end = ' ';
+        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in %s.\n", duplicate_sample_id, famname);
+        goto LgenToPgen_ret_MALFORMED_INPUT_WW;
+      }
+    }
+    logprintf("--l%s: %u sample%s and %u variant%s present.\n", lgenname? "gen" : "file", sample_ct, (sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s");
+
+    // 3. Genotype matrix, variant-major, in plink2's encoding.  Initially all
+    //    missing; with --reference, unlisted calls mean homozygous-reference
+    //    instead, which is applied once the reference alleles are known.
+    // GenovecInvertUnsafe() below works a vector at a time, so the per-variant
+    // slices have to be vector-aligned, not just word-aligned.
+    const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+    const uint64_t genovec_alloc = S_CAST(uint64_t, variant_ct) * sample_ctaw2 * sizeof(intptr_t);
+    if (unlikely(genovec_alloc > bigstack_left() / 2)) {
+      logerrputs("Error: Not enough memory for .lgen import.  (This importer holds the entire\ngenotype matrix in memory, since .lgen entries are unordered.)\n");
+      goto LgenToPgen_ret_NOMEM;
+    }
+    uintptr_t* genovecs;
+    if (unlikely(bigstack_alloc_w(S_CAST(uintptr_t, variant_ct) * sample_ctaw2, &genovecs))) {
+      goto LgenToPgen_ret_NOMEM;
+    }
+    memset(genovecs, 255, S_CAST(uintptr_t, variant_ct) * sample_ctaw2 * sizeof(intptr_t));
+
+    const char** allele_codes;
+    uintptr_t* allele_flips;
+    if (unlikely(bigstack_end_alloc_kcp(2 * S_CAST(uintptr_t, variant_ct), &allele_codes) ||
+                 bigstack_end_calloc_w(BitCtToWordCt(variant_ct), &allele_flips))) {
+      goto LgenToPgen_ret_NOMEM;
+    }
+    const char* null_str = &(g_one_char_strs[0]);
+    for (uintptr_t ulii = 0; ulii != 2 * S_CAST(uintptr_t, variant_ct); ++ulii) {
+      allele_codes[ulii] = null_str;
+    }
+    unsigned char* tmp_alloc_base = g_bigstack_base;
+    unsigned char* tmp_alloc_end = g_bigstack_end;
+    uint32_t max_allele_slen = 1;
+
+    // 4. Optional --reference file: <variant ID> <ref allele> [alt allele].
+    //    Every call not present in the .lgen is then homozygous-reference.
+    uintptr_t* ref_seen = nullptr;
+    if (refname) {
+      if (unlikely(bigstack_end_calloc_w(BitCtToWordCt(variant_ct), &ref_seen))) {
+        goto LgenToPgen_ret_NOMEM;
+      }
+      cur_fname = refname;
+      reterr = SizeAndInitTextStream(refname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
+      if (unlikely(reterr)) {
+        goto LgenToPgen_ret_TSTREAM_FAIL;
+      }
+      line_idx = 0;
+      while (1) {
+        ++line_idx;
+        const char* line_start = TextGet(&txs);
+        if (!line_start) {
+          break;
+        }
+        const char* id_end = CurTokenEnd(line_start);
+        const uint32_t variant_idx = VariantIdDupflagHtableFind(line_start, TO_CONSTCPCONSTP(variant_ids), variant_id_htable, id_end - line_start, variant_id_htable_size, max_variant_id_slen);
+        if (variant_idx == UINT32_MAX) {
+          continue;
+        }
+        const char* ref_start = FirstNonTspace(id_end);
+        if (unlikely(IsEolnKns(*ref_start))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, refname);
+          goto LgenToPgen_ret_MALFORMED_INPUT_WW;
+        }
+        const char* ref_end = CurTokenEnd(ref_start);
+        const uint32_t ref_slen = ref_end - ref_start;
+        if (ref_slen == 1) {
+          allele_codes[2 * variant_idx] = &(g_one_char_strs[ctou32(ref_start[0]) * 2]);
+        } else {
+          if (unlikely(StoreStringAtEndK(tmp_alloc_base, ref_start, ref_slen, &tmp_alloc_end, &(allele_codes[2 * variant_idx])))) {
+            goto LgenToPgen_ret_NOMEM;
+          }
+          if (ref_slen > max_allele_slen) {
+            max_allele_slen = ref_slen;
+          }
+        }
+        // Optional third column: the alternate allele.  With --allele-count
+        // it is the only place the alternate allele is named.
+        const char* alt_start = FirstNonTspace(ref_end);
+        if (!IsEolnKns(*alt_start)) {
+          const char* alt_end = CurTokenEnd(alt_start);
+          const uint32_t alt_slen = alt_end - alt_start;
+          if (alt_slen == 1) {
+            allele_codes[2 * variant_idx + 1] = &(g_one_char_strs[ctou32(alt_start[0]) * 2]);
+          } else {
+            if (unlikely(StoreStringAtEndK(tmp_alloc_base, alt_start, alt_slen, &tmp_alloc_end, &(allele_codes[2 * variant_idx + 1])))) {
+              goto LgenToPgen_ret_NOMEM;
+            }
+            if (alt_slen > max_allele_slen) {
+              max_allele_slen = alt_slen;
+            }
+          }
+        }
+        SetBit(variant_idx, ref_seen);
+      }
+      if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+        goto LgenToPgen_ret_TSTREAM_FAIL;
+      }
+      if (unlikely(CleanupTextStream2(refname, &txs, &reterr))) {
+        goto LgenToPgen_ret_1;
+      }
+      // Calls absent from the .lgen are homozygous for the reference allele.
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        if (IsSet(ref_seen, variant_idx)) {
+          uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctaw2]);
+          ZeroWArr(sample_ctaw2, cur_genovec);
+        }
+      }
+      logprintf("--reference: %u variant%s.\n", PopcountWords(ref_seen, BitCtToWordCt(variant_ct)), (PopcountWords(ref_seen, BitCtToWordCt(variant_ct)) == 1)? "" : "s");
+    }
+
+    // 5. The .lgen itself.
+    cur_fname = lgenname;
+    reterr = SizeAndInitTextStream(lgenname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto LgenToPgen_ret_TSTREAM_FAIL;
+    }
+    line_idx = 0;
+    uintptr_t entry_ct = 0;
+    while (1) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      // FID IID <variant ID> <allele 1> [allele 2]
+      char* fid_end = CurTokenEnd(line_start);
+      char* iid_start = FirstNonTspace(fid_end);
+      if (unlikely(IsEolnKns(*iid_start))) {
+        goto LgenToPgen_ret_MISSING_TOKENS;
+      }
+      char* iid_end = CurTokenEnd(iid_start);
+      const uint32_t fid_slen = fid_end - line_start;
+      const uint32_t iid_slen = iid_end - iid_start;
+      const uint32_t id_blen = fid_slen + iid_slen + 2;
+      if (unlikely(id_blen > pii.sii.max_sample_id_blen)) {
+        goto LgenToPgen_ret_SAMPLE_NOT_FOUND;
+      }
+      char* id_iter = memcpyax(idbuf, line_start, fid_slen, '\t');
+      id_iter = memcpya(id_iter, iid_start, iid_slen);
+      *id_iter = '\0';
+      const uint32_t sample_idx = StrboxHtableFind(idbuf, pii.sii.sample_ids, sample_id_htable, pii.sii.max_sample_id_blen, id_blen - 1, sample_id_htable_size);
+      if (unlikely(sample_idx == UINT32_MAX)) {
+        goto LgenToPgen_ret_SAMPLE_NOT_FOUND;
+      }
+      char* varid_start = FirstNonTspace(iid_end);
+      if (unlikely(IsEolnKns(*varid_start))) {
+        goto LgenToPgen_ret_MISSING_TOKENS;
+      }
+      char* varid_end = CurTokenEnd(varid_start);
+      const uint32_t variant_idx = VariantIdDupflagHtableFind(varid_start, TO_CONSTCPCONSTP(variant_ids), variant_id_htable, varid_end - varid_start, variant_id_htable_size, max_variant_id_slen);
+      if (variant_idx == UINT32_MAX) {
+        // PLINK 1.9 ignores .lgen entries for variants outside the .map.
+        continue;
+      }
+      char* first_allele_start = FirstNonTspace(varid_end);
+      if (unlikely(IsEolnKns(*first_allele_start))) {
+        goto LgenToPgen_ret_MISSING_TOKENS;
+      }
+      char* first_allele_end = CurTokenEnd(first_allele_start);
+      uint32_t first_allele_slen = first_allele_end - first_allele_start;
+      char* second_allele_start;
+      uint32_t second_allele_slen;
+      const uint32_t variant_idx_x2 = variant_idx * 2;
+      const uint32_t variant_idx_x2_p1 = variant_idx_x2 + 1;
+      uintptr_t cur_geno;
+      if (lgen_allele_count) {
+        // The genotype column is a count of reference alleles.
+        if (unlikely((first_allele_slen != 1) || (first_allele_start[0] < '0') || (first_allele_start[0] > '2'))) {
+          if ((first_allele_slen == 1) && ((first_allele_start[0] == '.') || (first_allele_start[0] == input_missing_geno_char))) {
+            cur_geno = 3;
+            goto LgenToPgen_store;
+          }
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid reference allele count on line %" PRIuPTR " of %s.\n", line_idx, lgenname);
+          goto LgenToPgen_ret_MALFORMED_INPUT_WW;
+        }
+        // 2 reference alleles -> homozygous reference.
+        cur_geno = '2' - first_allele_start[0];
+        goto LgenToPgen_store;
+      }
+      second_allele_start = FirstNonTspace(first_allele_end);
+      if (IsEolnKns(*second_allele_start)) {
+        // Compound genotype: both alleles in one token.
+        if (unlikely(first_allele_slen != 2)) {
+          goto LgenToPgen_ret_MISSING_TOKENS;
+        }
+        second_allele_start = &(first_allele_start[1]);
+        second_allele_slen = 1;
+        first_allele_slen = 1;
+      } else {
+        second_allele_slen = CurTokenEnd(second_allele_start) - second_allele_start;
+      }
+      {
+        const uint32_t is_het = (first_allele_slen != second_allele_slen) || (!memequal(first_allele_start, second_allele_start, first_allele_slen));
+        const char* prov_ref_allele = allele_codes[variant_idx_x2];
+        const char* prov_alt_allele = allele_codes[variant_idx_x2_p1];
+        if (strequal_unsafe(prov_ref_allele, first_allele_start, first_allele_slen)) {
+        LgenToPgen_ref_x:
+          cur_geno = is_het;
+          if (is_het) {
+            if (!strequal_unsafe(prov_alt_allele, second_allele_start, second_allele_slen)) {
+              if (unlikely(prov_alt_allele != null_str)) {
+                if ((second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char))) {
+                  goto LgenToPgen_ret_HALF_MISSING;
+                }
+                goto LgenToPgen_ret_MULTIALLELIC;
+              }
+              if (second_allele_slen == 1) {
+                allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(second_allele_start[0]) * 2]);
+              } else {
+                if (unlikely(StoreStringAtEndK(tmp_alloc_base, second_allele_start, second_allele_slen, &tmp_alloc_end, &(allele_codes[variant_idx_x2_p1])))) {
+                  goto LgenToPgen_ret_NOMEM;
+                }
+                if (second_allele_slen > max_allele_slen) {
+                  max_allele_slen = second_allele_slen;
+                }
+              }
+            }
+          }
+        } else if (strequal_unsafe(prov_alt_allele, first_allele_start, first_allele_slen)) {
+        LgenToPgen_alt_x:
+          cur_geno = 2 - is_het;
+          if (is_het) {
+            if (unlikely(!strequal_unsafe(prov_ref_allele, second_allele_start, second_allele_slen))) {
+              if ((second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char))) {
+                goto LgenToPgen_ret_HALF_MISSING;
+              }
+              goto LgenToPgen_ret_MULTIALLELIC;
+            }
+          }
+        } else if ((first_allele_slen == 1) && ((first_allele_start[0] == '.') || (first_allele_start[0] == input_missing_geno_char))) {
+          if (unlikely(is_het)) {
+            goto LgenToPgen_ret_HALF_MISSING;
+          }
+          cur_geno = 3;
+        } else if (prov_ref_allele == null_str) {
+          if (first_allele_slen == 1) {
+            allele_codes[variant_idx_x2] = &(g_one_char_strs[ctou32(first_allele_start[0]) * 2]);
+          } else {
+            if (unlikely(StoreStringAtEndK(tmp_alloc_base, first_allele_start, first_allele_slen, &tmp_alloc_end, &(allele_codes[variant_idx_x2])))) {
+              goto LgenToPgen_ret_NOMEM;
+            }
+            if (first_allele_slen > max_allele_slen) {
+              max_allele_slen = first_allele_slen;
+            }
+          }
+          goto LgenToPgen_ref_x;
+        } else if (likely(prov_alt_allele == null_str)) {
+          if (first_allele_slen == 1) {
+            allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(first_allele_start[0]) * 2]);
+          } else {
+            if (unlikely(StoreStringAtEndK(tmp_alloc_base, first_allele_start, first_allele_slen, &tmp_alloc_end, &(allele_codes[variant_idx_x2_p1])))) {
+              goto LgenToPgen_ret_NOMEM;
+            }
+            if (first_allele_slen > max_allele_slen) {
+              max_allele_slen = first_allele_slen;
+            }
+          }
+          goto LgenToPgen_alt_x;
+        } else {
+          goto LgenToPgen_ret_MULTIALLELIC;
+        }
+      }
+    LgenToPgen_store:
+      {
+        uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctaw2]);
+        AssignNyparrEntry(sample_idx, cur_geno, cur_genovec);
+        ++entry_ct;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LgenToPgen_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(CleanupTextStream2(lgenname, &txs, &reterr))) {
+      goto LgenToPgen_ret_1;
+    }
+    logprintf("--l%s: %" PRIuPTR " genotype call%s read.\n", refname? "gen (with --reference)" : "gen", entry_ct, (entry_ct == 1)? "" : "s");
+
+    // 6. Pick REF/ALT.  Without --reference this follows PLINK 1.x, which
+    //    makes the more common allele A2; with it, the reference file decides.
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctaw2]);
+      // The matrix was initialized to all-missing, so the trailing entries in
+      // the last word have to be cleared before they can be counted.
+      ZeroTrailingNyps(sample_ct, cur_genovec);
+      STD_ARRAY_DECL(uint32_t, 4, genocounts);
+      GenoarrCountFreqsUnsafe(cur_genovec, sample_ct, genocounts);
+      if ((!ref_seen) || (!IsSet(ref_seen, variant_idx))) {
+        // PLINK 1.x makes the more common allele A2, counting only nonmissing
+        // calls, and keeps the first-seen assignment on an exact tie.
+        if (genocounts[2] > genocounts[0]) {
+          SetBit(variant_idx, allele_flips);
+          const char* tmp_allele_code = allele_codes[variant_idx * 2];
+          allele_codes[variant_idx * 2] = allele_codes[variant_idx * 2 + 1];
+          allele_codes[variant_idx * 2 + 1] = tmp_allele_code;
+          continue;
+        }
+      }
+      if (allele_codes[variant_idx * 2 + 1] == null_str) {
+        allele_codes[variant_idx * 2 + 1] = nullptr;
+        if (allele_codes[variant_idx * 2] == null_str) {
+          allele_codes[variant_idx * 2] = nullptr;
+        }
+      }
+    }
+
+    reterr = RewritePsam(famname, missing_catname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, nullptr);
+    if (unlikely(reterr)) {
+      goto LgenToPgen_ret_1;
+    }
+    reterr = MapToPvar(mapname, cip, allele_codes, variant_ct, max_allele_slen, import_flags, at_least_one_nzero_cm, outname, outname_end);
+    if (unlikely(reterr)) {
+      goto LgenToPgen_ret_1;
+    }
+
+    // 7. .pgen.
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+    uintptr_t spgw_alloc_cacheline_ct;
+    uint32_t max_vrec_len;
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, kPgenWriteBackwardSeek, kfPgenGlobal0, 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
+      goto LgenToPgen_ret_1;
+    }
+    unsigned char* spgw_alloc;
+    if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc))) {
+      goto LgenToPgen_ret_NOMEM;
+    }
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      uintptr_t* cur_genovec = &(genovecs[S_CAST(uintptr_t, variant_idx) * sample_ctaw2]);
+      if (IsSet(allele_flips, variant_idx)) {
+        GenovecInvertUnsafe(sample_ct, cur_genovec);
+        ZeroTrailingNyps(sample_ct, cur_genovec);
+      }
+      if (unlikely(SpgwAppendBiallelicGenovec(cur_genovec, &spgw))) {
+        goto LgenToPgen_ret_WRITE_FAIL;
+      }
+    }
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto LgenToPgen_ret_1;
+    }
+    *outname_end = '\0';
+    logprintfww("--l%s: %s.pgen + %s.pvar + %s.psam written.\n", lgenname? "gen" : "file", outname, outname, outname);
+  }
+  while (0) {
+  LgenToPgen_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LgenToPgen_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(cur_fname, &txs);
+    break;
+  LgenToPgen_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  LgenToPgen_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, lgenname);
+    goto LgenToPgen_ret_MALFORMED_INPUT_WW;
+  LgenToPgen_ret_SAMPLE_NOT_FOUND:
+    snprintf(g_logbuf, kLogbufSize, "Error: Sample on line %" PRIuPTR " of %s is not present in the .fam file.\n", line_idx, lgenname);
+    goto LgenToPgen_ret_MALFORMED_INPUT_WW;
+  LgenToPgen_ret_HALF_MISSING:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has a half-missing genotype call.\n", line_idx, lgenname);
+    goto LgenToPgen_ret_MALFORMED_INPUT_WW;
+  LgenToPgen_ret_MULTIALLELIC:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s introduces a third allele.  (.lgen import is limited to biallelic variants.)\n", line_idx, lgenname);
+    goto LgenToPgen_ret_MALFORMED_INPUT_WW;
+  LgenToPgen_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  LgenToPgen_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
+    break;
+  }
+ LgenToPgen_ret_1:
+  CleanupSpgw(&spgw, &reterr);
+  CleanupTextStream2(cur_fname, &txs, &reterr);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 

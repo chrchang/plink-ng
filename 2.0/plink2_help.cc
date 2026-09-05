@@ -213,6 +213,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("pedmap\0map\0import-dosage\0dosage\0file\0", &help_ctrl, 1,
 "  --map <filename>   : Specify full name of .map file.\n\n"
                );
+    HelpPrint("lfile\0lgen\0reference\0allele-count\0", &help_ctrl, 1,
+"  --lfile [prefix]  : Specify .lgen + .map + .fam (long-format) prefix.\n"
+"  --lgen <filename> : Specify full name of .lgen file.\n"
+"  --reference <fn>  : Specify default allele file accompanying .lgen input.\n"
+"                      Genotype calls absent from the .lgen are then homozygous\n"
+"                      for the named allele instead of missing.  An optional\n"
+"                      third column names the other allele.\n"
+"  --allele-count    : With --lfile/--lgen + --reference, specifies that the\n"
+"                      .lgen file contains reference allele counts.\n\n"
+               );
     HelpPrint("tfile\0tped\0tfam\0", &help_ctrl, 1,
 "  --tfile <prefix>   : Specify .tped + .tfam filename prefix.\n"
 "  --tped <filename>  : Specify full name of .tped file.\n"
@@ -448,8 +458,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
 "    (actually, only A, AD, Av, bcf, bgen-1.x, eig, haps, hapslegend,\n"
-"    ind-major-bed, oxford, ped, phylip, phylip-phased, tped, and vcf are\n"
-"    implemented for now)\n"
+"    ind-major-bed, lgen, lgen-ref, oxford, ped, phylip, phylip-phased, tped,\n"
+"    and vcf are implemented for now)\n"
 "    * '23': 23andMe 4-column format.  This can only be used on a single\n"
 "            sample's data (--keep may be handy), and does not support\n"
 "            multicharacter allele codes.\n"
