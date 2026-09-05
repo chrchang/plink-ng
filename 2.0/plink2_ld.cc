@@ -13382,7 +13382,7 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
         written_ct += cur_block_size;
         if (written_ct >= next_print_ct) {
           if (written_ct != kept_variant_ct) {
-            printf("\b\b%u%%", (written_ct * 100LLU) / kept_variant_ct);
+            printf("\b\b%" PRIu64 "%%", (written_ct * 100LLU) / kept_variant_ct);
             fflush(stdout);
           }
           next_print_ct = (written_ct / (kept_variant_ct / 100 + 1) + 1) * (kept_variant_ct / 100 + 1);
