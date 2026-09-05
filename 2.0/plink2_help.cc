@@ -2962,12 +2962,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        (PERM_CT, EMP2, or EMP2_CT is always present, and positioned here.)\n"
 "      Default is chrom,ref,alt,maybeprovref,omitted.\n"
               );
-    HelpPrint("clump-p1\0clump-p2\0clump-r2\0clump-kb\0clump-unphased\0clump-log10\0clump-range\0clump-range0\0clump-range-border\0clump-bins\0clump-id-field\0clump-p-field\0clump-a1-field\0clump-test-field\0clump-force-a1\0clump-test\0clump-snp-field\0clump-field\0clump\0", &help_ctrl, 0,
+    HelpPrint("clump-p1\0clump-p2\0clump-r2\0clump-kb\0clump-unphased\0clump-index-first\0clump-replicate\0clump-log10\0clump-range\0clump-range0\0clump-range-border\0clump-bins\0clump-id-field\0clump-p-field\0clump-a1-field\0clump-test-field\0clump-force-a1\0clump-test\0clump-snp-field\0clump-field\0clump\0", &help_ctrl, 0,
 "  --clump-p1 <pval> : Set --clump index var. p-value ceiling (default 1e-4).\n"
 "  --clump-p2 <pval> : Set --clump secondary p-value threshold (default 0.01).\n"
 "  --clump-r2 <r^2>  : Set --clump r^2 threshold (default 0.5).\n"
 "  --clump-kb <# kb> : Set --clump kb radius (default 250).\n"
 "  --clump-unphased  : Make --clump use unphased rather than phased r^2.\n"
+"  --clump-index-first  : Take --clump index variants from only the first file.\n"
+"  --clump-replicate    : Exclude --clump clumps whose below-p2 results all come\n"
+"                         from one file.\n"
 "  --clump-log10 ['input-only' | 'output-only'] : Read and/or write p-values in\n"
 "                                                 -log10 form.\n"
 "  --clump-log10-p1 <-l10(p)> : Alternatives to --clump-p1/--clump-p2 that take\n"
