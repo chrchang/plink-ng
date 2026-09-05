@@ -2665,7 +2665,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       if (pcp->command_flags1 & kfCommand1Genome) {
-        reterr = CalcGenome(sample_include, &pii, founder_info, pheno_cols, variant_include, cip, allele_idx_offsets, allele_freqs, &(pcp->genome_info), raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, (pcp->misc_flags / kfMiscNonfounders) & 1, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely((pcp->genome_info.flags & (kfGenomeColPpc | kfGenomeColRatio)) && (vpos_sortstatus & kfUnsortedVarBp))) {
+          logerrputs("Error: --genome's PPC test requires a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data, or drop the\nppc and ratio columns.\n");
+          reterr = kPglRetInconsistentInput;
+          goto Plink2Core_ret_1;
+        }
+        reterr = CalcGenome(sample_include, &pii, founder_info, pheno_cols, variant_include, cip, variant_bps, allele_idx_offsets, allele_freqs, &(pcp->genome_info), raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, (pcp->misc_flags / kfMiscNonfounders) & 1, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -6783,7 +6788,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --genome cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0id\0maybesid\0sid\0rt\0z\0pihat\0phe\0dst\0nsnp\0ibs\0homhom\0hethet\0", "genome", kfGenomeColMaybefid, kfGenomeColDefault, 1, &pc.genome_info.flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0id\0maybesid\0sid\0rt\0z\0pihat\0phe\0dst\0nsnp\0ibs\0homhom\0hethet\0ppc\0ratio\0", "genome", kfGenomeColMaybefid, kfGenomeColDefault, 1, &pc.genome_info.flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -10460,6 +10465,16 @@ int main(int argc, char** argv) {
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "pc-gap")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0) || (dxx > 2147483.647))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --ppc-gap argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.genome_info.ppc_gap = S_CAST(uint32_t, dxx * 1000 * (1 + kSmallEpsilon));
         } else if (strequal_k_unsafe(flagname_p2, "arallel")) {
           if (unlikely(pc.king_flags & kfKingMatrixSq)) {
             logerrputs("Error: --parallel cannot be used with \"--make-king square\".  Use \"--make-king\nsquare0\" or plain --make-king instead.\n");

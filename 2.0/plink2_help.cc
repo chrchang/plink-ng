@@ -1203,10 +1203,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    hethet/ibs0/ibs1 values are proportions unless the 'counts' modifier is\n"
 "    present.  If id is omitted, a .kin0.id file is also written.\n\n"
                );
-    HelpPrint("genome\0genome-min-pi-hat\0genome-max-pi-hat\0", &help_ctrl, 1,
+    HelpPrint("genome\0genome-min-pi-hat\0genome-max-pi-hat\0ppc-gap\0", &help_ctrl, 1,
 "  --genome ['zs'] [{unbounded | nudge}] ['cols='<column set descriptor>]\n"
 "  --genome-min-pi-hat <val>\n"
 "  --genome-max-pi-hat <val>\n"
+"  --ppc-gap <kbs>\n"
 "    PLINK 1.x's method-of-moments IBD report: for each pair of samples, the\n"
 "    estimated probabilities of sharing 0, 1 and 2 alleles IBD, and PI_HAT =\n"
 "    Z2 + Z1/2.  Non-autosomal variants are excluded.\n"
@@ -1222,8 +1223,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      the ((1-p)^2, 2p(1-p), p^2) curve, as PLINK 1.9 does.\n"
 "    * --genome-min-pi-hat and --genome-max-pi-hat restrict the report to pairs\n"
 "      inside the given PI_HAT range; they replace PLINK 1.x\'s --min/--max.\n"
-"    * PLINK 1.x\'s EZ column (pedigree-based expected relatedness), the PPC\n"
-"      IBS2* test and its RATIO column are not implemented yet.\n"
+"    * The PPC column is PLINK 1.x\'s IBS2* test: walking left to right, a\n"
+"      variant is eligible when it is at least --ppc-gap kilobases (default\n"
+"      500) past the last variant counted for that pair, and an eligible\n"
+"      variant is counted when the pair is either het-het or opposite-hom\n"
+"      there.  Two thirds of those are het-het under no IBD sharing; PPC is\n"
+"      the normal-approximation p-value for that null, and RATIO is the\n"
+"      het-het to opposite-hom ratio.  Both require a position-sorted file.\n"
+"    * PLINK 1.x\'s EZ column (pedigree-based expected relatedness) is not\n"
+"      implemented; RT covers the .fam-derived relationship.\n"
 "    Supported column sets are:\n"
 "      maybefid: FID1/FID2, if that column was in the input.  Requires \'id\'.\n"
 "      fid: Force FID1/FID2 even when FID was absent in the input.\n"
@@ -1240,8 +1248,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      ibs: IBS0, IBS1 and IBS2 counts.\n"
 "      homhom: Count of considered call pairs where both calls are homozygous.\n"
 "      hethet: Count of considered call pairs where both calls are heterozygous.\n"
-"    The default is maybefid,id,maybesid,rt,z,pihat,phe,dst.  Note that\n"
-"    homhom/hethet are raw counts here, unlike PLINK 1.x --genome full\'s\n"
+"      ppc: IBS2* test p-value.\n"
+"      ratio: IBS2* test het-het to opposite-hom ratio.\n"
+"    The default is maybefid,id,maybesid,rt,z,pihat,phe,dst,ppc,ratio.  Note\n"
+"    that homhom/hethet are raw counts here, unlike PLINK 1.x --genome full\'s\n"
 "    columns of the same name, which report the PPC test\'s tallies.\n\n"
                );
     // possible todo: --king-table-subset analogue for fast-approximate

@@ -4,6 +4,12 @@
 # are compared with a tolerance.
 function abs(x) { return (x < 0)? -x : x }
 function close_enough(a, b) { return abs(a - b) <= 1e-4 }
+# PPC and RATIO are "NA" when the pair has no informative variant pairs, and
+# RATIO can be large enough that an absolute tolerance is too strict.
+function same_value(a, b) {
+    if (a == "NA" || b == "NA") { return a == b }
+    return abs(a - b) <= 1e-4 + 1e-4 * abs(a)
+}
 function pairkey(f1, i1, f2, i2,   a, b) {
     a = f1 "\t" i1;
     b = f2 "\t" i2;
@@ -11,17 +17,17 @@ function pairkey(f1, i1, f2, i2,   a, b) {
 }
 FNR == NR {
     if (FNR > 1) {
-        # FID1 IID1 FID2 IID2 RT EZ Z0 Z1 Z2 PI_HAT PHE DST ...
+        # FID1 IID1 FID2 IID2 RT EZ Z0 Z1 Z2 PI_HAT PHE DST PPC RATIO
         k = pairkey($1, $2, $3, $4);
         rt[k] = $5; z0[k] = $7; z1[k] = $8; z2[k] = $9; pihat[k] = $10;
-        phe[k] = $11; dst[k] = $12;
+        phe[k] = $11; dst[k] = $12; ppc[k] = $13; ratio[k] = $14;
         ++n1;
     }
     next
 }
 /^#/ { next }
 {
-    # FID1 IID1 FID2 IID2 RT Z0 Z1 Z2 PI_HAT PHE DST
+    # FID1 IID1 FID2 IID2 RT Z0 Z1 Z2 PI_HAT PHE DST PPC RATIO
     ++n2;
     k = pairkey($1, $2, $3, $4);
     if (!(k in rt)) { print "pair missing from the PLINK 1.9 report: " k; failed = 1; exit 1 }
@@ -32,6 +38,12 @@ FNR == NR {
         print "statistic mismatch on " k ": " z0[k] "/" z1[k] "/" z2[k] "/" pihat[k] "/" dst[k] \
               " vs " $6 "/" $7 "/" $8 "/" $9 "/" $11;
         failed = 1; exit 1
+    }
+    if (NF >= 13) {
+        if (!same_value(ppc[k], $12) || !same_value(ratio[k], $13)) {
+            print "IBS2* mismatch on " k ": " ppc[k] "/" ratio[k] " vs " $12 "/" $13;
+            failed = 1; exit 1
+        }
     }
 }
 END {
