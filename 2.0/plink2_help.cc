@@ -818,9 +818,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("test-missing\0", &help_ctrl, 1,
 "  --test-missing ['midp'] ['zs']\n"
 "    Check for association between missingness and case/control status, using\n"
-"    Fisher's exact test.  Heterozygous haploid calls are treated as missing,\n"
-"    and variants with no missing calls (or nothing but missing calls) are\n"
-"    omitted, as in PLINK 1.x.\n"
+"    Fisher's exact test.  As in PLINK 1.x, heterozygous haploid calls are\n"
+"    treated as missing, chrY is restricted to males, and variants with no\n"
+"    missing calls (or nothing but missing calls) are omitted.\n"
 "    * The 'midp' modifier applies Lancaster's mid-p adjustment.\n\n"
                );
     HelpPrint("het\0", &help_ctrl, 1,

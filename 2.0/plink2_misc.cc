@@ -10763,23 +10763,11 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
   return reterr;
 }
 
-// PLINK 1.x treats a male heterozygous call on chrX as missing.
-static void TestMissingSetMaleHetMissing(const uintptr_t* male_collapsed, uint32_t sample_ct, uintptr_t* genovec) {
-  const uint32_t word_ct = NypCtToWordCt(sample_ct);
-  const Halfword* male_alias = R_CAST(const Halfword*, male_collapsed);
-  for (uint32_t widx = 0; widx != word_ct; ++widx) {
-    const uintptr_t geno_word = genovec[widx];
-    const uintptr_t het_word = geno_word & (~(geno_word >> 1)) & kMask5555;
-    const uintptr_t male_word = UnpackHalfwordToWord(male_alias[widx]);
-    genovec[widx] = geno_word | ((het_word & male_word) << 1);
-  }
-}
-
 // --test-missing: is a variant's missingness rate different between cases and
 // controls?  The 2x2 table is (missing, nonmissing) x (case, control), and the
 // test is Fisher's exact, as in PLINK 1.x.  Heterozygous haploid calls count
 // as missing.
-PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, TestMissingFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t variant_ct, TestMissingFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -10809,17 +10797,18 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
       goto TestMissingReport_ret_INCONSISTENT_INPUT;
     }
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     uint32_t* sample_include_cumulative_popcounts;
     uintptr_t* case_collapsed;
     uintptr_t* male_collapsed;
-    uintptr_t* genovec;
+    uintptr_t* genovec_buf;
     uintptr_t* missing_bv;
+    uintptr_t* het_bv;
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
                  bigstack_alloc_w(sample_ctl, &case_collapsed) ||
                  bigstack_alloc_w(sample_ctl, &male_collapsed) ||
-                 bigstack_alloc_w(sample_ctl2, &genovec) ||
-                 bigstack_alloc_w(sample_ctl, &missing_bv))) {
+                 bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec_buf) ||
+                 bigstack_alloc_w(sample_ctl, &missing_bv) ||
+                 bigstack_alloc_w(sample_ctl, &het_bv))) {
       goto TestMissingReport_ret_NOMEM;
     }
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
@@ -10833,6 +10822,10 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
       logerrputs("Error: --test-missing requires at least one case and one control.\n");
       goto TestMissingReport_ret_INCONSISTENT_INPUT;
     }
+    // On chrY, PLINK 1.x only looks at males.
+    const uint32_t male_ct = PopcountWords(male_collapsed, sample_ctl);
+    const uint32_t male_case_ct = PopcountWordsIntersect(male_collapsed, case_collapsed, sample_ctl);
+    const uint32_t male_ctrl_ct = male_ct - male_case_ct;
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
 
@@ -10852,11 +10845,15 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
     logprintf("--test-missing%s: %u case%s, %u control%s.\n", midp? " midp" : "", case_ct, (case_ct == 1)? "" : "s", ctrl_ct, (ctrl_ct == 1)? "" : "s");
 
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+    const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_blen = 0;
     uint32_t is_x = 0;
+    uint32_t is_y = 0;
     uint32_t is_fully_haploid = 0;
+    uint32_t cur_case_ct = case_ct;
+    uint32_t cur_ctrl_ct = ctrl_ct;
     uintptr_t variant_uidx_base = 0;
     uintptr_t variant_include_bits = variant_include[0];
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
@@ -10871,32 +10868,43 @@ PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* 
         *chr_name_end++ = '\t';
         chr_blen = chr_name_end - chr_buf;
         is_x = (chr_idx == x_code);
+        is_y = (chr_idx == y_code);
         is_fully_haploid = IsSet(cip->haploid_mask, chr_idx) && (!is_x);
+        cur_case_ct = is_y? male_case_ct : case_ct;
+        cur_ctrl_ct = is_y? male_ctrl_ct : ctrl_ct;
       }
-      reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      if (is_y && ((!male_case_ct) || (!male_ctrl_ct))) {
+        continue;
+      }
+      // Only hardcall missingness matters here, so this skips the
+      // multiallelic/phase/dosage tracks instead of decoding them.
+      const uint32_t need_hets = is_fully_haploid || is_x;
+      reterr = PgrGetMissingnessD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, missing_bv, nullptr, need_hets? het_bv : nullptr, genovec_buf);
       if (unlikely(reterr)) {
         PgenErrPrintNV(reterr, variant_uidx);
         goto TestMissingReport_ret_1;
       }
-      ZeroTrailingNyps(sample_ct, genovec);
       // Heterozygous haploid calls count as missing, as in PLINK 1.x.
       if (is_fully_haploid) {
-        SetHetMissing(sample_ctl2, genovec);
+        BitvecOr(het_bv, sample_ctl, missing_bv);
       } else if (is_x) {
-        TestMissingSetMaleHetMissing(male_collapsed, sample_ct, genovec);
+        BitvecAnd(male_collapsed, sample_ctl, het_bv);
+        BitvecOr(het_bv, sample_ctl, missing_bv);
       }
-      GenoarrToMissingnessUnsafe(genovec, sample_ct, missing_bv);
+      if (is_y) {
+        BitvecAnd(male_collapsed, sample_ctl, missing_bv);
+      }
       ZeroTrailingBits(sample_ct, missing_bv);
       const uint32_t missing_ct = PopcountWords(missing_bv, sample_ctl);
-      if ((!missing_ct) || (missing_ct == sample_ct)) {
+      if ((!missing_ct) || (missing_ct == cur_case_ct + cur_ctrl_ct)) {
         // No information either way; PLINK 1.x omits these rows.
         continue;
       }
       const uint32_t case_missing_ct = PopcountWordsIntersect(missing_bv, case_collapsed, sample_ctl);
       const uint32_t ctrl_missing_ct = missing_ct - case_missing_ct;
-      const double case_miss_freq = u31tod(case_missing_ct) / u31tod(case_ct);
-      const double ctrl_miss_freq = u31tod(ctrl_missing_ct) / u31tod(ctrl_ct);
-      const double pval = Fisher22TwoSidedP(case_missing_ct, ctrl_missing_ct, case_ct - case_missing_ct, ctrl_ct - ctrl_missing_ct, midp, 0);
+      const double case_miss_freq = u31tod(case_missing_ct) / u31tod(cur_case_ct);
+      const double ctrl_miss_freq = u31tod(ctrl_missing_ct) / u31tod(cur_ctrl_ct);
+      const double pval = Fisher22TwoSidedP(case_missing_ct, ctrl_missing_ct, cur_case_ct - case_missing_ct, cur_ctrl_ct - ctrl_missing_ct, midp, 0);
       cswritep = memcpya(cswritep, chr_buf, chr_blen);
       cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
       cswritep = strcpyax(cswritep, variant_ids[variant_uidx], '\t');

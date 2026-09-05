@@ -481,7 +481,7 @@ FLAGSET_DEF_START()
   kfTestMissingZs = (1 << 1)
 FLAGSET_DEF_END(TestMissingFlags);
 
-PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, TestMissingFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr TestMissingReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t variant_ct, TestMissingFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, HetFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
 
