@@ -28,6 +28,7 @@
 #include "include/plink2_float.h"
 #include "include/plink2_htable.h"
 #include "include/plink2_simd.h"
+#include "include/plink2_stats.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
 #include "include/plink2_thread.h"
@@ -2506,7 +2507,7 @@ CONSTI32(kGenomeOffsetHethet, 3);
 //   nonmissing:  (hom1 | ref2het1) & (hom2 | ref2het2)
 //   IBS0:        both hom, ref2het differing
 //   IBS1:        exactly one hom, both nonmissing
-void IncrGenome(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* genome_counts_iter) {
+void IncrGenome(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uintptr_t stride, uint32_t* genome_counts_iter) {
   for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
     const uintptr_t* second_hom = &(smaj_hom[second_offset]);
@@ -2530,7 +2531,7 @@ void IncrGenome(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32
       genome_counts_iter[kGenomeOffsetNonmiss] += acc_nonmiss;
       genome_counts_iter[kGenomeOffsetIbs0] += acc_ibs0;
       genome_counts_iter[kGenomeOffsetIbs1] += acc_ibs1;
-      genome_counts_iter = &(genome_counts_iter[3]);
+      genome_counts_iter = &(genome_counts_iter[stride]);
 
       first_hom_iter = &(first_hom_iter[kKingMultiplexWords]);
       first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexWords]);
@@ -2540,7 +2541,7 @@ void IncrGenome(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32
 
 // Same, plus the het-het count, which is only needed for the optional HOMHOM
 // and HETHET columns.
-void IncrGenomeHethet(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* genome_counts_iter) {
+void IncrGenomeHethet(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uintptr_t stride, uint32_t* genome_counts_iter) {
   for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
     const uintptr_t* second_hom = &(smaj_hom[second_offset]);
@@ -2567,7 +2568,104 @@ void IncrGenomeHethet(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, 
       genome_counts_iter[kGenomeOffsetIbs0] += acc_ibs0;
       genome_counts_iter[kGenomeOffsetIbs1] += acc_ibs1;
       genome_counts_iter[kGenomeOffsetHethet] += acc_hethet;
-      genome_counts_iter = &(genome_counts_iter[4]);
+      genome_counts_iter = &(genome_counts_iter[stride]);
+
+      first_hom_iter = &(first_hom_iter[kKingMultiplexWords]);
+      first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexWords]);
+    }
+  }
+}
+
+// PLINK 1.x's IBS2* test, fused with the count loop above.
+//
+// Walking left to right, a variant is eligible when it is at least
+// --ppc-gap past the last variant counted for this pair (a new chromosome
+// always resets), and an eligible variant is counted when the pair is either
+// het-het or opposite-hom there.  Under no IBD sharing, two thirds of those
+// are het-het.
+//
+// The IBS0 and het-het bitmasks are already computed by the count loop, so
+// they are kept for the walk rather than recomputed; next_ppc_vidxs[] holds,
+// for each variant, the first variant far enough away, so the walk is a jump
+// table rather than a scan.  The per-pair cursor is an absolute variant index,
+// carried across blocks in the pair record, which is why this cannot use the
+// sparse-variant shortcut.
+//
+// The het-het count is a byproduct here, so this variant always keeps it.
+void IncrGenomePpc(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, const uint32_t* next_ppc_offsets, uint32_t vidx_base, uint32_t cur_block_size, uint32_t ppc_offset, uint32_t start_idx, uint32_t end_idx, uintptr_t stride, uint32_t* genome_counts_iter) {
+  const uint32_t vidx_end = vidx_base + cur_block_size;
+  const uint32_t hethet_needed = (ppc_offset == 4);
+  uintptr_t ibs0_buf[kKingMultiplexWords];
+  uintptr_t hethet_buf[kKingMultiplexWords];
+  for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
+    const uint32_t second_offset = second_idx * kKingMultiplexWords;
+    const uintptr_t* second_hom = &(smaj_hom[second_offset]);
+    const uintptr_t* second_ref2het = &(smaj_ref2het[second_offset]);
+    const uintptr_t* first_hom_iter = smaj_hom;
+    const uintptr_t* first_ref2het_iter = smaj_ref2het;
+    while (first_hom_iter < second_hom) {
+      uint32_t acc_nonmiss = 0;
+      uint32_t acc_ibs0 = 0;
+      uint32_t acc_ibs1 = 0;
+      uint32_t acc_hethet = 0;
+      for (uint32_t widx = 0; widx != kKingMultiplexWords; ++widx) {
+        const uintptr_t hom1 = first_hom_iter[widx];
+        const uintptr_t hom2 = second_hom[widx];
+        const uintptr_t ref2het1 = first_ref2het_iter[widx];
+        const uintptr_t ref2het2 = second_ref2het[widx];
+        const uintptr_t nonmiss = (hom1 | ref2het1) & (hom2 | ref2het2);
+        const uintptr_t ibs0_bits = (ref2het1 ^ ref2het2) & hom1 & hom2;
+        const uintptr_t hethet_bits = (~(hom1 | hom2)) & ref2het1 & ref2het2;
+        acc_nonmiss += PopcountWord(nonmiss);
+        acc_ibs0 += PopcountWord(ibs0_bits);
+        acc_ibs1 += PopcountWord((hom1 ^ hom2) & nonmiss);
+        acc_hethet += PopcountWord(hethet_bits);
+        ibs0_buf[widx] = ibs0_bits;
+        hethet_buf[widx] = hethet_bits;
+      }
+      genome_counts_iter[kGenomeOffsetNonmiss] += acc_nonmiss;
+      genome_counts_iter[kGenomeOffsetIbs0] += acc_ibs0;
+      genome_counts_iter[kGenomeOffsetIbs1] += acc_ibs1;
+      if (hethet_needed) {
+        genome_counts_iter[kGenomeOffsetHethet] += acc_hethet;
+      }
+
+      uint32_t cur_vidx = genome_counts_iter[ppc_offset + 2];
+      if (cur_vidx < vidx_end) {
+        uint32_t cur_offset = (cur_vidx > vidx_base)? (cur_vidx - vidx_base) : 0;
+        uint32_t ppc_ibs0_incr = 0;
+        uint32_t ppc_hethet_incr = 0;
+        uint32_t widx = cur_offset / kBitsPerWord;
+        uintptr_t remaining_mask = (~k0LU) << (cur_offset % kBitsPerWord);
+        while (1) {
+          const uintptr_t hit_bits = (ibs0_buf[widx] | hethet_buf[widx]) & remaining_mask;
+          if (!hit_bits) {
+            ++widx;
+            if (widx == kKingMultiplexWords) {
+              cur_offset = cur_block_size;
+              break;
+            }
+            remaining_mask = ~k0LU;
+            continue;
+          }
+          const uint32_t lowbit_idx = ctzw(hit_bits);
+          if (hethet_buf[widx] & (k1LU << lowbit_idx)) {
+            ++ppc_hethet_incr;
+          } else {
+            ++ppc_ibs0_incr;
+          }
+          cur_offset = next_ppc_offsets[widx * kBitsPerWord + lowbit_idx];
+          if (cur_offset >= cur_block_size) {
+            break;
+          }
+          widx = cur_offset / kBitsPerWord;
+          remaining_mask = (~k0LU) << (cur_offset % kBitsPerWord);
+        }
+        genome_counts_iter[ppc_offset] += ppc_ibs0_incr;
+        genome_counts_iter[ppc_offset + 1] += ppc_hethet_incr;
+        genome_counts_iter[ppc_offset + 2] = vidx_base + cur_offset;
+      }
+      genome_counts_iter = &(genome_counts_iter[stride]);
 
       first_hom_iter = &(first_hom_iter[kKingMultiplexWords]);
       first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexWords]);
@@ -2579,6 +2677,12 @@ typedef struct CalcGenomeCtxStruct {
   uintptr_t* smaj_hom[2];
   uintptr_t* smaj_ref2het[2];
   uint32_t hethet_needed;
+  uint32_t ppc_offset;  // 0 when the PPC columns weren't requested
+  uintptr_t counts_per_cell;
+  const uint32_t* next_ppc_vidxs;
+  uint32_t* next_ppc_offsets[2];
+  uint32_t vidx_bases[2];
+  uint32_t cur_block_sizes[2];
 
   uint32_t* thread_start;
 
@@ -2594,13 +2698,18 @@ THREAD_FUNC_DECL CalcGenomeThread(void* raw_arg) {
   const uint64_t start_idx = ctx->thread_start[tidx];
   const uint32_t end_idx = ctx->thread_start[tidx + 1];
   const uint32_t hethet_needed = ctx->hethet_needed;
+  const uint32_t ppc_offset = ctx->ppc_offset;
+  const uintptr_t counts_per_cell = ctx->counts_per_cell;
   const uint64_t cell_offset = (start_idx * (start_idx - 1) - mem_start_idx * (mem_start_idx - 1)) / 2;
+  uint32_t* cur_counts = &(ctx->genome_counts[cell_offset * counts_per_cell]);
   uint32_t parity = 0;
   do {
-    if (hethet_needed) {
-      IncrGenomeHethet(ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], start_idx, end_idx, &(ctx->genome_counts[cell_offset * 4]));
+    if (ppc_offset) {
+      IncrGenomePpc(ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], ctx->next_ppc_offsets[parity], ctx->vidx_bases[parity], ctx->cur_block_sizes[parity], ppc_offset, start_idx, end_idx, counts_per_cell, cur_counts);
+    } else if (hethet_needed) {
+      IncrGenomeHethet(ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], start_idx, end_idx, counts_per_cell, cur_counts);
     } else {
-      IncrGenome(ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], start_idx, end_idx, &(ctx->genome_counts[cell_offset * 3]));
+      IncrGenome(ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], start_idx, end_idx, counts_per_cell, cur_counts);
     }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
@@ -2611,6 +2720,7 @@ void InitGenome(GenomeInfo* genome_ip) {
   genome_ip->flags = kfGenome0;
   genome_ip->min_pi_hat = -DBL_MAX;
   genome_ip->max_pi_hat = DBL_MAX;
+  genome_ip->ppc_gap = 500000;
 }
 
 char* AppendGenomeHeader(GenomeFlags flags, uint32_t col_fid, uint32_t col_sid, char* cswritep) {
@@ -2646,6 +2756,12 @@ char* AppendGenomeHeader(GenomeFlags flags, uint32_t col_fid, uint32_t col_sid, 
   if (flags & kfGenomeColDst) {
     cswritep = strcpya_k(cswritep, "DST\t");
   }
+  if (flags & kfGenomeColPpc) {
+    cswritep = strcpya_k(cswritep, "PPC\t");
+  }
+  if (flags & kfGenomeColRatio) {
+    cswritep = strcpya_k(cswritep, "RATIO\t");
+  }
   if (flags & kfGenomeColNsnp) {
     cswritep = strcpya_k(cswritep, "NSNP\t");
   }
@@ -2675,7 +2791,7 @@ char* AppendGenomeHeader(GenomeFlags flags, uint32_t col_fid, uint32_t col_sid, 
 // contribution over the pair table in a way that is exact for the KING
 // numerator but would have to be redone for five separate IBS counts, and the
 // variant-major pass it replaces is not the bottleneck here.
-PglErr CalcGenome(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const PhenoCol* pheno_cols, const uintptr_t* variant_include_orig, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const GenomeInfo* genome_ip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t nonfounders, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcGenome(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const PhenoCol* pheno_cols, const uintptr_t* variant_include_orig, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const GenomeInfo* genome_ip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t nonfounders, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -2754,10 +2870,71 @@ PglErr CalcGenome(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
     }
     CalcGenomeCtx ctx;
     ctx.hethet_needed = ((flags & (kfGenomeColHomhom | kfGenomeColHethet)) != 0);
-    const uintptr_t counts_per_cell = ctx.hethet_needed + 3;
+    const uint32_t ppc_needed = ((flags & (kfGenomeColPpc | kfGenomeColRatio)) != 0);
+    // [nonmissing, IBS0, IBS1] (+ [het-het]) (+ [PPC IBS0, PPC het-het, PPC
+    // cursor]).
+    ctx.ppc_offset = ppc_needed? (3 + ctx.hethet_needed) : 0;
+    const uintptr_t counts_per_cell = 3 + ctx.hethet_needed + 3 * ppc_needed;
+    ctx.counts_per_cell = counts_per_cell;
+    ctx.next_ppc_vidxs = nullptr;
     if (unlikely(SetThreadCt(calc_thread_ct, &tg) ||
                  bigstack_alloc_u32(calc_thread_ct + 1, &ctx.thread_start))) {
       goto CalcGenome_ret_NOMEM;
+    }
+    if (ppc_needed) {
+      // For each variant, the first variant that is far enough away for the
+      // IBS2* test: past --ppc-gap on the same chromosome, or the start of the
+      // next chromosome.
+      uint32_t* next_ppc_vidxs;
+      uint32_t* vbps;
+      if (unlikely(bigstack_alloc_u32(variant_ct, &next_ppc_vidxs) ||
+                   bigstack_alloc_u32(variant_ct, &vbps))) {
+        goto CalcGenome_ret_NOMEM;
+      }
+      {
+        uintptr_t variant_uidx_base = 0;
+        uintptr_t cur_bits = variant_include[0];
+        for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+          const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+          vbps[vidx] = variant_bps[variant_uidx];
+        }
+      }
+      const uint32_t ppc_gap = genome_ip->ppc_gap;
+      uint32_t chr_fo_idx = UINT32_MAX;
+      uint32_t chr_vidx_end = 0;
+      uint32_t chr_uidx_end = 0;
+      uint32_t vidx_start = 0;
+      while (vidx_start != variant_ct) {
+        // Advance to the chromosome containing the next variant.
+        const uint32_t vidx_chr_start = vidx_start;
+        do {
+          ++chr_fo_idx;
+          chr_uidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          chr_vidx_end = PopcountBitRange(variant_include, 0, chr_uidx_end);
+        } while (chr_vidx_end == vidx_chr_start);
+        uint32_t lead_vidx = vidx_chr_start;
+        for (uint32_t vidx = vidx_chr_start; vidx != chr_vidx_end; ++vidx) {
+          const uint32_t max_bp = vbps[vidx] + ppc_gap;
+          if (lead_vidx <= vidx) {
+            lead_vidx = vidx + 1;
+          }
+          while ((lead_vidx != chr_vidx_end) && (vbps[lead_vidx] <= max_bp)) {
+            ++lead_vidx;
+          }
+          next_ppc_vidxs[vidx] = lead_vidx;
+        }
+        vidx_start = chr_vidx_end;
+      }
+      BigstackReset(vbps);
+      ctx.next_ppc_vidxs = next_ppc_vidxs;
+      // The walk reads this once per counted variant, so it gets a
+      // block-local copy that stays in L1 instead of indexing the whole-set
+      // array.  Entries at or past the block size end the walk, and the
+      // difference from the block base is what the cursor needs anyway.
+      if (unlikely(bigstack_alloc_u32(kKingMultiplex, &(ctx.next_ppc_offsets[0])) ||
+                   bigstack_alloc_u32(kKingMultiplex, &(ctx.next_ppc_offsets[1])))) {
+        goto CalcGenome_ret_NOMEM;
+      }
     }
     const uint32_t grei_ctaw = BitCtToAlignedWordCt(grand_row_end_idx);
     const uint32_t grei_ctaw2 = NypCtToAlignedWordCt(grand_row_end_idx);
@@ -3036,6 +3213,15 @@ PglErr CalcGenome(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
         if (variants_completed + cur_block_size == variant_ct) {
           DeclareLastThreadBlock(&tg);
         }
+        ctx.vidx_bases[parity] = variants_completed;
+        ctx.cur_block_sizes[parity] = cur_block_size;
+        if (ppc_needed) {
+          uint32_t* cur_next_ppc_offsets = ctx.next_ppc_offsets[parity];
+          const uint32_t* cur_next_ppc_vidxs = &(ctx.next_ppc_vidxs[variants_completed]);
+          for (uint32_t uii = 0; uii != cur_block_size; ++uii) {
+            cur_next_ppc_offsets[uii] = cur_next_ppc_vidxs[uii] - variants_completed;
+          }
+        }
         if (unlikely(SpawnThreads(&tg))) {
           goto CalcGenome_ret_THREAD_CREATE_FAIL;
         }
@@ -3073,6 +3259,9 @@ PglErr CalcGenome(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
       const uint32_t col_ibs = flags & kfGenomeColIbs;
       const uint32_t col_homhom = flags & kfGenomeColHomhom;
       const uint32_t col_hethet = flags & kfGenomeColHethet;
+      const uint32_t col_ppc = flags & kfGenomeColPpc;
+      const uint32_t col_ratio = flags & kfGenomeColRatio;
+      const uint32_t ppc_offset = ctx.ppc_offset;
       const double min_pi_hat = genome_ip->min_pi_hat;
       const double max_pi_hat = genome_ip->max_pi_hat;
       const uint32_t filter_pi_hat = (min_pi_hat != -DBL_MAX) || (max_pi_hat != DBL_MAX);
@@ -3207,6 +3396,31 @@ PglErr CalcGenome(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
               cswritep = strcpya_k(cswritep, "NA");
             }
             *cswritep++ = '\t';
+          }
+          if (col_ppc || col_ratio) {
+            const uint32_t ppc_ibs0_ct = results_iter[ppc_offset];
+            const uint32_t ppc_hethet_ct = results_iter[ppc_offset + 1];
+            const uint32_t ppc_ct = ppc_ibs0_ct + ppc_hethet_ct;
+            if (col_ppc) {
+              if (ppc_ct) {
+                const double ppc_ct_recip = 1.0 / u31tod(ppc_ct);
+                const double zz = (u31tod(ppc_hethet_ct) * ppc_ct_recip - (2.0 / 3.0)) / sqrt((2.0 / 9.0) * ppc_ct_recip);
+                // one-sided; ZscoreToP() is two-sided
+                const double half_p = 0.5 * ZscoreToP(zz);
+                cswritep = dtoa_g((zz >= 0.0)? (1.0 - half_p) : half_p, cswritep);
+              } else {
+                cswritep = strcpya_k(cswritep, "NA");
+              }
+              *cswritep++ = '\t';
+            }
+            if (col_ratio) {
+              if (ppc_ibs0_ct) {
+                cswritep = dtoa_g(u31tod(ppc_hethet_ct) / u31tod(ppc_ibs0_ct), cswritep);
+              } else {
+                cswritep = strcpya_k(cswritep, "NA");
+              }
+              *cswritep++ = '\t';
+            }
           }
           if (col_nsnp) {
             cswritep = u32toa_x(nonmiss_ct, '\t', cswritep);
