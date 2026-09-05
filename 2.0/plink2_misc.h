@@ -226,6 +226,51 @@ FLAGSET_DEF_START()
   kfHetColAll = ((kfHetColF * 2) - kfHetColMaybefid)
 FLAGSET_DEF_END(HetFlags);
 
+FLAGSET_DEF_START()
+  kfHomozyg0,
+  kfHomozygOldLengths = (1 << 0),
+  kfHomozygZs = (1 << 1),
+
+  kfHomozygColMaybefid = (1 << 2),
+  kfHomozygColFid = (1 << 3),
+  kfHomozygColMaybesid = (1 << 4),
+  kfHomozygColSid = (1 << 5),
+  kfHomozygColMaybepheno = (1 << 6),
+  kfHomozygColPheno = (1 << 7),
+  kfHomozygColChrom = (1 << 8),
+  kfHomozygColPos = (1 << 9),
+  kfHomozygColKb = (1 << 10),
+  kfHomozygColNsnp = (1 << 11),
+  kfHomozygColDensity = (1 << 12),
+  kfHomozygColPhom = (1 << 13),
+  kfHomozygColPhet = (1 << 14),
+  kfHomozygColNseg = (1 << 15),
+  kfHomozygColKbtot = (1 << 16),
+  kfHomozygColKbavg = (1 << 17),
+  kfHomozygColAff = (1 << 18),
+  kfHomozygColUnaff = (1 << 19),
+  kfHomozygColDefault = (kfHomozygColMaybefid | kfHomozygColMaybesid | kfHomozygColMaybepheno | kfHomozygColChrom | kfHomozygColPos | kfHomozygColKb | kfHomozygColNsnp | kfHomozygColDensity | kfHomozygColPhom | kfHomozygColPhet | kfHomozygColNseg | kfHomozygColKbtot | kfHomozygColKbavg | kfHomozygColAff | kfHomozygColUnaff),
+  kfHomozygColAll = ((kfHomozygColUnaff * 2) - kfHomozygColMaybefid)
+FLAGSET_DEF_END(HomozygFlags);
+
+typedef struct HomozygInfoStruct {
+  HomozygFlags flags;
+  uint32_t min_snp;
+  uint32_t min_bases;
+  double min_af;
+  double max_bases_per_snp;
+  uint32_t max_hets;
+  uint32_t max_gap;
+  uint32_t window_size;
+  uint32_t window_max_hets;
+  uint32_t window_max_missing;
+  double hit_threshold;
+} HomozygInfo;
+
+void InitHomozyg(HomozygInfo* homozyg_info_ptr);
+
+PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, const HomozygInfo* hip, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+
 typedef struct UpdateAllelesStruct {
   NONCOPYABLE(UpdateAllelesStruct);
   UpdateAllelesFlags flags;
