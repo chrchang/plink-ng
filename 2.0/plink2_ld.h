@@ -148,9 +148,13 @@ typedef struct LdInfoStruct {
   // own, the major-allele frequency above which a variant carries too little
   // information to be worth comparing against, and how many sign-flipped
   // neighbors it takes to call a variant problematic.
+  // -1 until set, since the default depends on whether the LD scan follows.
   double flipscan_freq_diff;
   double flipscan_max_maj_freq;
   uint32_t flipscan_min_neg_ct;
+  // When set, --flip-scan compares the dataset against these frequencies
+  // instead of splitting it into cases and controls.
+  char* flipscan_ref_freq_fname;
 } LdInfo;
 
 typedef struct ClumpInfoStruct {
@@ -221,6 +225,8 @@ void InitLdScore(LdScoreInfo* lsip);
 void InitVcor(VcorInfo* vcip);
 
 void CleanupVcor(VcorInfo* vcip);
+
+PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 

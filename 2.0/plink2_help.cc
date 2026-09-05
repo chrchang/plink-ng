@@ -967,6 +967,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      anyway.\n"
 "    * \'ref-allele-based\' reports REF frequencies rather than major-allele\n"
 "      frequencies, and names the columns accordingly.\n"
+"    * --flip-scan-ref-freq replaces the case/control split with a comparison\n"
+"      against a reference allele frequency file, in the formats --read-freq\n"
+"      accepts.  There is no LD scan in that mode, so only step 1 applies,\n"
+"      and --flip-scan-freq-diff defaults to 0.2 rather than 0.5.  A variant\n"
+"      absent from the file gets PROBLEM=NA.  This does not need a\n"
+"      case/control phenotype, sorted coordinates, or founders.\n"
 "    * Neighbor pairs where either group is monomorphic are skipped, since the\n"
 "      correlation is undefined there.  (PLINK 1.9 lets the resulting nan\n"
 "      through, which counts the pair as a sign flip.)\n"
@@ -2850,7 +2856,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                              parents have missing genotypes, don't exclude the\n"
 "                              observation from error rate denominators.\n"
               );
-    HelpPrint("flip-scan-window\0flip-scan-window-kb\0flip-scan-threshold\0flip-scan-freq-diff\0flip-scan-max-maj-freq\0flip-scan-min-neg\0flip-scan\0", &help_ctrl, 0,
+    HelpPrint("flip-scan-window\0flip-scan-window-kb\0flip-scan-threshold\0flip-scan-freq-diff\0flip-scan-max-maj-freq\0flip-scan-min-neg\0flip-scan-ref-freq\0flip-scan\0", &help_ctrl, 0,
 "  --flip-scan-window <ct+1> : Set --flip-scan max variant ct dist. (def. 10).\n"
 "  --flip-scan-window-kb <x> : Set --flip-scan max kb distance (default 1000).\n"
 "  --flip-scan-threshold <x> : Set --flip-scan min correlation (default 0.5).\n"
@@ -2861,6 +2867,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                 (default 0.9).\n"
 "  --flip-scan-min-neg <ct>  : Set how many sign-flipped neighbors it takes to\n"
 "                              flag a variant (default 2).\n"
+"  --flip-scan-ref-freq <f>  : Compare against a reference allele frequency\n"
+"                              file instead of splitting into cases and\n"
+"                              controls.\n"
                );
     HelpPrint("indep-preferred\0indep-pairwise\0", &help_ctrl, 0,
 "  --indep-preferred <filename>   : Make LD-pruning commands try to keep the\n"

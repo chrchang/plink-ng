@@ -3016,11 +3016,16 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1FlipScan) {
-        if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
+        // Only the LD scan walks a positional window.
+        if (unlikely((vpos_sortstatus & kfUnsortedVarBp) && (!pcp->ld_info.flipscan_ref_freq_fname))) {
           logerrputs("Error: --flip-scan requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
-        reterr = FlipScan(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, founder_info, &(pcp->ld_info), raw_sample_ct, pheno_ct, (pcp->misc_flags / kfMiscAllowBadLd) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (pcp->ld_info.flipscan_ref_freq_fname) {
+          reterr = FlipScanRefFreq(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, &(pcp->ld_info), raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, pcp->max_thread_ct, outname, outname_end);
+        } else {
+          reterr = FlipScan(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, founder_info, &(pcp->ld_info), raw_sample_ct, pheno_ct, (pcp->misc_flags / kfMiscAllowBadLd) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        }
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -6728,6 +6733,14 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           pc.ld_info.flipscan_max_maj_freq = dxx;
+        } else if (strequal_k_unsafe(flagname_p2, "lip-scan-ref-freq") || strequal_k_unsafe(flagname_p2, "lipscan-ref-freq")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.ld_info.flipscan_ref_freq_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "lip-scan-min-neg") || strequal_k_unsafe(flagname_p2, "lipscan-min-neg")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -13374,6 +13387,10 @@ int main(int argc, char** argv) {
     }
     if (unlikely((pc.mendel_info.flags & kfMendelDuos) && (!((pc.filter_flags & kfFilterMendel) || (pc.command_flags1 & kfCommand1MendelReport) || (make_plink2_flags & kfMakePlink2SetMeMissing))))) {
       logerrputs("Error: --mendel-duos must be used with --me, --mendel, or --set-me-missing.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely(pc.ld_info.flipscan_ref_freq_fname && (!(pc.command_flags1 & kfCommand1FlipScan)))) {
+      logerrputs("Error: --flip-scan-ref-freq must be used with --flip-scan.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely(pc.rename_chrs_fname && (pc.sort_vars_mode <= kSortNone))) {

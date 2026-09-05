@@ -108,3 +108,54 @@ if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --keep tmp_few.txt --bad-freqs
     exit 1
 fi
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --keep tmp_few.txt --bad-freqs --bad-ld --maf 0.05 --flip-scan --out plink2_few
+
+# 7. --flip-scan-ref-freq: comparison against a reference allele frequency
+#    file, with no case/control split and no LD scan.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --freq --out tmp_panel
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-freq tmp_panel.afreq --out plink2_rf
+head -n 1 plink2_rf.flipscan | grep -qx '#CHROM	POS	ID	REF	ALT	MAJ_FREQ	PANEL_MAJ_FREQ	PROBLEM'
+# Against its own frequencies nothing can differ.
+awk -F '\t' 'NR > 1 && $8 != "N" {print "unexpected call on " $3; exit 1}' plink2_rf.flipscan
+# One row per scanned variant, same set the LD-mode report covers.
+diff -q <(cut -f 3 plink2_rf.flipscan | tail -n +2) <(cut -f 3 plink2_new.flipscan | tail -n +2)
+
+# Moving every fifth panel frequency by exactly 0.3 has to be caught, and
+# nothing else with it.  Both sides report the same allele, so a 0.3 shift in
+# the panel is a 0.3 difference in the report whichever allele is major.  The
+# ALT_FREQS column position depends on whether PROVISIONAL_REF? is present,
+# so it is found by name.
+awk 'BEGIN{OFS="\t"} NR == 1 {for (i = 1; i <= NF; ++i) {if ($i == "ALT_FREQS") {c = i}}; print; next}
+     {if (NR % 5 == 0) {$c = ($c <= 0.5)? ($c + 0.3) : ($c - 0.3); ids[$2] = 1}; print}
+     END {for (id in ids) {print id > "tmp_shifted_ids.txt"}}' tmp_panel.afreq > tmp_flipped.afreq
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-freq tmp_flipped.afreq --out plink2_rff
+test "$(awk -F '\t' 'NR > 1 && $8 == "Y"' plink2_rff.flipscan | wc -l)" -gt 0
+# Every call is a shifted variant, and every shifted variant that survived
+# --maf is called.
+awk -F '\t' '
+    FNR == NR {shifted[$1] = 1; next}
+    FNR > 1 {
+        d = $6 - $7; if (d < 0) {d = -d}
+        if (($8 == "Y") != (d > 0.2)) {print "call disagrees with the difference at " $3; exit 1}
+        if (($8 == "Y") && !($3 in shifted)) {print "called an unshifted variant: " $3; exit 1}
+        if (($8 == "N") && ($3 in shifted)) {print "missed a shifted variant: " $3; exit 1}
+    }' tmp_shifted_ids.txt plink2_rff.flipscan
+
+# A variant absent from the file is NA rather than a call.
+head -n 40 tmp_panel.afreq > tmp_partial.afreq
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-freq tmp_partial.afreq --out plink2_rfp
+test "$(awk -F '\t' 'NR > 1 && $8 == "NA"' plink2_rfp.flipscan | wc -l)" -gt 0
+awk -F '\t' 'NR > 1 && $8 == "NA" && $7 != "NA" {print "panel frequency present for an NA row: " $3; exit 1}' plink2_rfp.flipscan
+
+# This mode needs neither a phenotype nor sorted coordinates, so it works on
+# the same fileset with the phenotype column blanked out.
+awk 'BEGIN{OFS=" "} {$6 = -9; print}' tmp_data.fam > tmp_nopheno.fam
+cp tmp_data.bed tmp_nopheno.bed
+cp tmp_data.bim tmp_nopheno.bim
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_nopheno --maf 0.05 --flip-scan --flip-scan-ref-freq tmp_panel.afreq --out plink2_rfnp
+diff -q <(cut -f 1-5 plink2_rf.flipscan) <(cut -f 1-5 plink2_rfnp.flipscan)
+
+# --flip-scan-ref-freq without --flip-scan is an error.
+if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --flip-scan-ref-freq tmp_panel.afreq --freq --out plink2_bad > /dev/null 2>&1; then
+    echo "--flip-scan-ref-freq ran without --flip-scan"
+    exit 1
+fi
