@@ -25,6 +25,7 @@
 #include "include/pgenlib_write.h"
 #include "include/plink2_base.h"
 #include "include/plink2_bits.h"
+#include "include/plink2_htable.h"
 #include "include/plink2_simd.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
@@ -2405,6 +2406,529 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
   CleanupTextStream2(pedname, &ped_txs, &reterr);
   fclose_cond(tmp_fam_file);
   fclose_cond(indmaj_bed_file);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+
+// BIMBAM mean genotype format import.
+//
+// The .mgf file has one row per variant,
+//   <variant ID> <ALT allele> <REF allele> <ALT dosage>...
+// with commas accepted in place of whitespace and "NA" for a missing call, and
+// the companion .pos.txt names each variant's position,
+//   <variant ID> <bp> <chromosome>
+// Neither file carries sample IDs, so per0..perN-1 are synthesized, matching
+// --dummy and the Oxford importer.
+// The missing-call spellings the .mgf format is read with: BIMBAM's own "NA",
+// PLINK's "-9", and the "?"/"??" some converters emit.
+HEADER_INLINE uint32_t IsMgfMissingToken(const char* token, uint32_t token_slen) {
+  if (token_slen == 1) {
+    return (token[0] == '?') || (token[0] == '.');
+  }
+  if (token_slen != 2) {
+    return 0;
+  }
+  return ((token[0] == '?') && (token[1] == '?')) ||
+         ((token[0] == '-') && (token[1] == '9')) ||
+         (((token[0] & 0xdf) == 'N') && ((token[1] & 0xdf) == 'A'));
+}
+
+// BIMBAM's .mgf and .pos.txt accept commas in place of whitespace, so both are
+// token separators.
+HEADER_INLINE char* MgfTokenEnd(char* str_iter) {
+  while (!IsSpaceOrEoln(*str_iter)) {
+    if (*str_iter == ',') {
+      break;
+    }
+    ++str_iter;
+  }
+  return str_iter;
+}
+
+// Rewrites the line's commas as spaces, so the ordinary token scanners can be
+// used on it afterward.
+HEADER_INLINE void MgfCommasToSpaces(char* line_start) {
+  for (char* line_iter = line_start; ; ++line_iter) {
+    const char cc = *line_iter;
+    if (cc == '\n') {
+      return;
+    }
+    if (cc == ',') {
+      *line_iter = ' ';
+    }
+  }
+}
+
+PglErr MgfToPgen(const char* mgfname, const char* posname, const char* phenoname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  FILE* psamfile = nullptr;
+  uintptr_t line_idx = 0;
+  const char* cur_fname = posname;
+  PglErr reterr = kPglRetSuccess;
+  char* pvar_cswritep = nullptr;
+  CompressStreamState pvar_css;
+  PreinitCstream(&pvar_css);
+  TextStream txs;
+  STPgenWriter spgw;
+  PreinitTextStream(&txs);
+  PreinitSpgw(&spgw);
+  {
+    const uint32_t decompress_thread_ct = (max_thread_ct > 1)? (max_thread_ct - 1) : 1;
+    FinalizeChrset(load_filter_log_import_flags, cip);
+
+    // 1. Read .pos.txt into an ID -> (chromosome, bp) table.
+    uint32_t pos_variant_ct = 0;
+    uintptr_t max_pos_id_blen = 2;
+    reterr = SizeAndInitTextStream(posname, bigstack_left() / 4, decompress_thread_ct, &txs);
+    if (unlikely(reterr)) {
+      goto MgfToPgen_ret_TSTREAM_FAIL;
+    }
+    for (line_idx = 1; ; ++line_idx) {
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      // Commas are separators in this format too, so the ID ends at the first
+      // one just as it would at whitespace.
+      const char* id_end = MgfTokenEnd(line_start);
+      const uintptr_t id_blen = 1 + S_CAST(uintptr_t, id_end - line_start);
+      if (id_blen > max_pos_id_blen) {
+        max_pos_id_blen = id_blen;
+      }
+      ++pos_variant_ct;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto MgfToPgen_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(!pos_variant_ct)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", posname);
+      goto MgfToPgen_ret_MALFORMED_INPUT_WW;
+    }
+    char* pos_ids;
+    uint32_t* pos_bps;
+    uint32_t* pos_chr_codes;
+    if (unlikely(bigstack_alloc_c(pos_variant_ct * max_pos_id_blen, &pos_ids) ||
+                 bigstack_alloc_u32(pos_variant_ct, &pos_bps) ||
+                 bigstack_alloc_u32(pos_variant_ct, &pos_chr_codes))) {
+      goto MgfToPgen_ret_NOMEM;
+    }
+    reterr = TextRetarget(posname, &txs);
+    if (unlikely(reterr)) {
+      goto MgfToPgen_ret_TSTREAM_FAIL;
+    }
+    const uint32_t prohibit_extra_chr = (misc_flags / kfMiscProhibitExtraChr) & 1;
+    line_idx = 0;
+    for (uint32_t pos_idx = 0; pos_idx != pos_variant_ct; ++pos_idx) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        goto MgfToPgen_ret_REWIND_FAIL;
+      }
+      MgfCommasToSpaces(line_start);
+      char* id_end = CurTokenEnd(line_start);
+      memcpyx(&(pos_ids[pos_idx * max_pos_id_blen]), line_start, id_end - line_start, '\0');
+      char* bp_start = FirstNonTspace(id_end);
+      char* chr_start = NextToken(bp_start);
+      if (unlikely(!chr_start)) {
+        goto MgfToPgen_ret_MISSING_TOKENS;
+      }
+      int32_t cur_bp;
+      if (unlikely(ScanIntAbsDefcap(bp_start, &cur_bp) || (cur_bp < 0))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, posname);
+        goto MgfToPgen_ret_MALFORMED_INPUT_WW;
+      }
+      pos_bps[pos_idx] = cur_bp;
+      char* chr_end = CurTokenEnd(chr_start);
+      *chr_end = '\0';
+      uint32_t cur_chr_code;
+      reterr = GetOrAddChrCodeDestructive(posname, line_idx, prohibit_extra_chr, chr_start, chr_end, cip, &cur_chr_code);
+      if (unlikely(reterr)) {
+        goto MgfToPgen_ret_1;
+      }
+      pos_chr_codes[pos_idx] = cur_chr_code;
+    }
+    if (unlikely(CleanupTextStream2(posname, &txs, &reterr))) {
+      goto MgfToPgen_ret_1;
+    }
+    const uint32_t pos_htable_size = GetHtableFastSize(pos_variant_ct);
+    uint32_t* pos_htable;
+    if (unlikely(bigstack_end_alloc_u32(pos_htable_size, &pos_htable))) {
+      goto MgfToPgen_ret_NOMEM;
+    }
+    const uint32_t duplicate_idx = PopulateStrboxHtable(pos_ids, pos_variant_ct, max_pos_id_blen, pos_htable_size, pos_htable);
+    if (unlikely(duplicate_idx)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: Duplicate variant ID '%s' in %s.\n", &(pos_ids[duplicate_idx * max_pos_id_blen]), posname);
+      goto MgfToPgen_ret_MALFORMED_INPUT_WW;
+    }
+    logprintf("--mgf: %u variant position%s loaded from %s.\n", pos_variant_ct, (pos_variant_ct == 1)? "" : "s", posname);
+
+    // 2. First pass over the .mgf: sample and variant counts.
+    cur_fname = mgfname;
+    reterr = SizeAndInitTextStream(mgfname, bigstack_left() / 4, decompress_thread_ct, &txs);
+    if (unlikely(reterr)) {
+      goto MgfToPgen_ret_TSTREAM_FAIL;
+    }
+    uint32_t sample_ct = 0;
+    uint32_t variant_ct = 0;
+    uintptr_t max_line_blen = 0;
+    for (line_idx = 1; ; ++line_idx) {
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      char* line_end = AdvToDelim(line_start, '\n');
+      const uintptr_t line_blen = 1 + S_CAST(uintptr_t, line_end - line_start);
+      if (line_blen > max_line_blen) {
+        max_line_blen = line_blen;
+      }
+      // Commas are separators here, so they must not survive into the token
+      // scan below.
+      for (char* cc_iter = line_start; cc_iter != line_end; ++cc_iter) {
+        if (*cc_iter == ',') {
+          *cc_iter = ' ';
+        }
+      }
+      const uint32_t token_ct = CountTokens(line_start);
+      if (!sample_ct) {
+        if (unlikely(token_ct < 4)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, mgfname);
+          goto MgfToPgen_ret_MALFORMED_INPUT_WW;
+        }
+        sample_ct = token_ct - 3;
+      } else if (unlikely(token_ct != sample_ct + 3)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has %u token%s; %u expected.\n", line_idx, mgfname, token_ct, (token_ct == 1)? "" : "s", sample_ct + 3);
+        goto MgfToPgen_ret_MALFORMED_INPUT_WW;
+      }
+      ++variant_ct;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto MgfToPgen_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(!variant_ct)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", mgfname);
+      goto MgfToPgen_ret_MALFORMED_INPUT_WW;
+    }
+    if (unlikely(CleanupTextStream2(mgfname, &txs, &reterr))) {
+      goto MgfToPgen_ret_1;
+    }
+
+    // 3. Write the .psam, with synthesized IDs and any phenotypes from the
+    //    .pheno.txt file.
+    {
+      uint32_t pheno_col_ct = 0;
+      char* pheno_lines = nullptr;
+      uintptr_t max_pheno_line_blen = 0;
+      if (phenoname) {
+        cur_fname = phenoname;
+        reterr = SizeAndInitTextStream(phenoname, bigstack_left() / 8, 1, &txs);
+        if (unlikely(reterr)) {
+          goto MgfToPgen_ret_TSTREAM_FAIL;
+        }
+        uint32_t pheno_row_ct = 0;
+        for (line_idx = 1; ; ++line_idx) {
+          char* line_start = TextGet(&txs);
+          if (!line_start) {
+            break;
+          }
+          const uintptr_t line_blen = 1 + S_CAST(uintptr_t, AdvToDelim(line_start, '\n') - line_start);
+          if (line_blen > max_pheno_line_blen) {
+            max_pheno_line_blen = line_blen;
+          }
+          const uint32_t token_ct = CountTokens(line_start);
+          if (!pheno_col_ct) {
+            pheno_col_ct = token_ct;
+          } else if (unlikely(token_ct != pheno_col_ct)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has %u token%s; %u expected.\n", line_idx, phenoname, token_ct, (token_ct == 1)? "" : "s", pheno_col_ct);
+            goto MgfToPgen_ret_MALFORMED_INPUT_WW;
+          }
+          ++pheno_row_ct;
+        }
+        if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+          goto MgfToPgen_ret_TSTREAM_FAIL;
+        }
+        if (unlikely(pheno_row_ct != sample_ct)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s has %u row%s, while %s implies %u sample%s.\n", phenoname, pheno_row_ct, (pheno_row_ct == 1)? "" : "s", mgfname, sample_ct, (sample_ct == 1)? "" : "s");
+          goto MgfToPgen_ret_INCONSISTENT_INPUT_WW;
+        }
+        if (unlikely(bigstack_alloc_c(S_CAST(uintptr_t, sample_ct) * max_pheno_line_blen, &pheno_lines))) {
+          goto MgfToPgen_ret_NOMEM;
+        }
+        reterr = TextRetarget(phenoname, &txs);
+        if (unlikely(reterr)) {
+          goto MgfToPgen_ret_TSTREAM_FAIL;
+        }
+        line_idx = 0;
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          ++line_idx;
+          char* line_start = TextGet(&txs);
+          if (unlikely(!line_start)) {
+            goto MgfToPgen_ret_REWIND_FAIL;
+          }
+          char* line_end = AdvToDelim(line_start, '\n');
+          memcpyx(&(pheno_lines[sample_idx * max_pheno_line_blen]), line_start, line_end - line_start, '\0');
+        }
+        if (unlikely(CleanupTextStream2(phenoname, &txs, &reterr))) {
+          goto MgfToPgen_ret_1;
+        }
+      }
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
+      if (unlikely(fopen_checked(outname, FOPEN_WB, &psamfile))) {
+        goto MgfToPgen_ret_OPEN_FAIL;
+      }
+      const uintptr_t writebuf_blen = kMaxMediumLine + MAXV(max_pheno_line_blen, 64);
+      char* writebuf;
+      if (unlikely(bigstack_alloc_c(writebuf_blen, &writebuf))) {
+        goto MgfToPgen_ret_NOMEM;
+      }
+      char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+      char* write_iter = strcpya_k(writebuf, "#IID");
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_col_ct; ++pheno_idx) {
+        write_iter = strcpya_k(write_iter, "\tPHENO");
+        write_iter = u32toa(pheno_idx + 1, write_iter);
+      }
+      AppendBinaryEoln(&write_iter);
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        write_iter = strcpya_k(write_iter, "per");
+        write_iter = u32toa(sample_idx, write_iter);
+        if (pheno_col_ct) {
+          const char* pheno_iter = &(pheno_lines[sample_idx * max_pheno_line_blen]);
+          for (uint32_t pheno_idx = 0; pheno_idx != pheno_col_ct; ++pheno_idx) {
+            pheno_iter = FirstNonTspace(pheno_iter);
+            const char* token_end = CurTokenEnd(pheno_iter);
+            *write_iter++ = '\t';
+            write_iter = memcpya(write_iter, pheno_iter, token_end - pheno_iter);
+            pheno_iter = token_end;
+          }
+        }
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fwrite_ck(writebuf_flush, psamfile, &write_iter))) {
+          goto MgfToPgen_ret_WRITE_FAIL;
+        }
+      }
+      if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &psamfile))) {
+        goto MgfToPgen_ret_WRITE_FAIL;
+      }
+      logprintfww("--mgf: %u sample%s and %u variant%s present%s.\n", sample_ct, (sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s", pheno_col_ct? " (with phenotype data)" : "");
+    }
+
+    // 4. Second pass: write the .pvar and .pgen.
+    cur_fname = mgfname;
+    reterr = InitTextStream(mgfname, MAXV(max_line_blen, kTextStreamBlenFast), decompress_thread_ct, &txs);
+    if (unlikely(reterr)) {
+      goto MgfToPgen_ret_TSTREAM_FAIL;
+    }
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
+    const uint32_t output_zst = (import_flags / kfImportKeepAutoconvVzs) & 1;
+    if (output_zst) {
+      snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
+    }
+    reterr = InitCstreamAlloc(outname, 0, output_zst, 1, kCompressStreamBlock + 64 + max_line_blen, &pvar_css, &pvar_cswritep);
+    if (unlikely(reterr)) {
+      goto MgfToPgen_ret_1;
+    }
+    pvar_cswritep = strcpya_k(pvar_cswritep, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+    uintptr_t spgw_alloc_cacheline_ct;
+    uint32_t max_vrec_len;
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, kPgenWriteBackwardSeek, kfPgenGlobalDosagePresent, 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
+      goto MgfToPgen_ret_1;
+    }
+    unsigned char* spgw_alloc;
+    if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc))) {
+      goto MgfToPgen_ret_NOMEM;
+    }
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
+
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    uintptr_t* genovec;
+    uintptr_t* dosage_present;
+    Dosage* dosage_main;
+    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
+                 bigstack_alloc_w(sample_ctl, &dosage_present) ||
+                 bigstack_alloc_dosage(sample_ct, &dosage_main))) {
+      goto MgfToPgen_ret_NOMEM;
+    }
+    const uint32_t hard_call_halfdist = kDosage4th - hard_call_thresh;
+    const uint32_t dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
+
+    fputs("--mgf: 0%", stdout);
+    fflush(stdout);
+    uint32_t pct = 0;
+    uint32_t next_print_idx = (variant_ct + 99) / 100;
+    line_idx = 0;
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        goto MgfToPgen_ret_REWIND_FAIL;
+      }
+      char* line_end = AdvToDelim(line_start, '\n');
+      for (char* cc_iter = line_start; cc_iter != line_end; ++cc_iter) {
+        if (*cc_iter == ',') {
+          *cc_iter = ' ';
+        }
+      }
+      char* id_end = CurTokenEnd(line_start);
+      const uint32_t id_slen = id_end - line_start;
+      // The ID token is not null-terminated here, hence the Nnt variant.
+      const uint32_t pos_idx = StrboxHtableFindNnt(line_start, pos_ids, pos_htable, max_pos_id_blen, id_slen, pos_htable_size);
+      if (unlikely(pos_idx == UINT32_MAX)) {
+        *id_end = '\0';
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant '%s' on line %" PRIuPTR " of %s is absent from %s.\n", line_start, line_idx, mgfname, posname);
+        goto MgfToPgen_ret_INCONSISTENT_INPUT_WW;
+      }
+      char* alt_start = FirstNonTspace(id_end);
+      char* alt_end = CurTokenEnd(alt_start);
+      char* ref_start = FirstNonTspace(alt_end);
+      char* ref_end = CurTokenEnd(ref_start);
+      char* dosage_iter = FirstNonTspace(ref_end);
+
+      pvar_cswritep = chrtoa(cip, pos_chr_codes[pos_idx], pvar_cswritep);
+      *pvar_cswritep++ = '\t';
+      pvar_cswritep = u32toa_x(pos_bps[pos_idx], '\t', pvar_cswritep);
+      pvar_cswritep = memcpyax(pvar_cswritep, line_start, id_slen, '\t');
+      pvar_cswritep = memcpyax(pvar_cswritep, ref_start, ref_end - ref_start, '\t');
+      pvar_cswritep = memcpya(pvar_cswritep, alt_start, alt_end - alt_start);
+      AppendBinaryEoln(&pvar_cswritep);
+      if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
+        goto MgfToPgen_ret_WRITE_FAIL;
+      }
+
+      Dosage* dosage_main_iter = dosage_main;
+      uint32_t inner_loop_last = kBitsPerWordD2 - 1;
+      const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= sample_ctl2_m1) {
+          if (widx > sample_ctl2_m1) {
+            break;
+          }
+          inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+        }
+        uintptr_t genovec_word = 0;
+        uint32_t dosage_present_hw = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+          if (unlikely(IsEolnKns(*dosage_iter))) {
+            goto MgfToPgen_ret_MISSING_TOKENS;
+          }
+          double cur_dosage;
+          char* token_end = ScanadvDouble(dosage_iter, &cur_dosage);
+          // BIMBAM writes "NA" for a missing call, and "-9" and "?"/"??" also
+          // show up in the wild.  Anything else has to parse as a dosage in
+          // [0, 2]; silently reading a typo as a missing call would be worse
+          // than refusing the file.
+          if ((!token_end) || (!IsSpaceOrEoln(*token_end)) || (cur_dosage < 0.0) || (cur_dosage > 2.0)) {
+            char* cur_token_end = CurTokenEnd(dosage_iter);
+            const uint32_t token_slen = cur_token_end - dosage_iter;
+            if (unlikely(!IsMgfMissingToken(dosage_iter, token_slen))) {
+              *cur_token_end = '\0';
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid dosage '%s' on line %" PRIuPTR " of %s.\n", dosage_iter, line_idx, mgfname);
+              goto MgfToPgen_ret_MALFORMED_INPUT_WW;
+            }
+            genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+            dosage_iter = FirstNonTspace(cur_token_end);
+            continue;
+          }
+          dosage_iter = FirstNonTspace(token_end);
+          uint32_t dosage_int = S_CAST(int32_t, cur_dosage * kDosageMid + 0.5);
+          if (dosage_int > kDosageMax) {
+            dosage_int = kDosageMax;
+          }
+          const uint32_t cur_halfdist = BiallelicDosageHalfdist(dosage_int);
+          if (cur_halfdist < hard_call_halfdist) {
+            genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+          } else {
+            genovec_word |= ((dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
+            if (cur_halfdist >= dosage_erase_halfdist) {
+              continue;
+            }
+          }
+          dosage_present_hw |= 1U << sample_idx_lowbits;
+          *dosage_main_iter++ = dosage_int;
+        }
+        genovec[widx] = genovec_word;
+        R_CAST(Halfword*, dosage_present)[widx] = dosage_present_hw;
+      }
+      if (sample_ctl2 % 2) {
+        R_CAST(Halfword*, dosage_present)[sample_ctl2] = 0;
+      }
+      const uint32_t dosage_ct = dosage_main_iter - dosage_main;
+      if (!dosage_ct) {
+        if (unlikely(SpgwAppendBiallelicGenovec(genovec, &spgw))) {
+          goto MgfToPgen_ret_WRITE_FAIL;
+        }
+      } else {
+        reterr = SpgwAppendBiallelicGenovecDosage16(genovec, dosage_present, dosage_main, dosage_ct, &spgw);
+        if (unlikely(reterr)) {
+          goto MgfToPgen_ret_1;
+        }
+      }
+      if (variant_idx >= next_print_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx * 100LLU) / variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
+      }
+    }
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto MgfToPgen_ret_1;
+    }
+    if (unlikely(CswriteCloseNull(&pvar_css, pvar_cswritep))) {
+      goto MgfToPgen_ret_WRITE_FAIL;
+    }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\b", stdout);
+    logputs("done.\n");
+    *outname_end = '\0';
+    logprintfww("--mgf: %s.pgen + %s.pvar%s + %s.psam written.\n", outname, outname, output_zst? ".zst" : "", outname);
+  }
+  while (0) {
+  MgfToPgen_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  MgfToPgen_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  MgfToPgen_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  MgfToPgen_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(cur_fname, &txs);
+    break;
+  MgfToPgen_ret_REWIND_FAIL:
+    logerrprintfww(kErrprintfRewind, cur_fname);
+    reterr = kPglRetRewindFail;
+    break;
+  MgfToPgen_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, cur_fname);
+  MgfToPgen_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  MgfToPgen_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ MgfToPgen_ret_1:
+  CswriteCloseCond(&pvar_css, pvar_cswritep);
+  CleanupSpgw(&spgw, &reterr);
+  CleanupTextStream2(cur_fname, &txs, &reterr);
+  fclose_cond(psamfile);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

@@ -159,7 +159,8 @@ FLAGSET_DEF_START()
   kfXloadTped = (1 << 11),
   kfXloadEigGeno = (1 << 12),
   kfXloadEigInd = (1 << 13),
-  kfXloadEigSnp = (1 << 14)
+  kfXloadEigSnp = (1 << 14),
+  kfXloadMgf = (1 << 15)
 FLAGSET_DEF_END(Xload);
 
 
@@ -3728,6 +3729,7 @@ int main(int argc, char** argv) {
   char* king_cutoff_fprefix = nullptr;
   char* const_fid = nullptr;
   char* import_single_chr_str = nullptr;
+  char* mgf_pheno_fname = nullptr;
   char* ox_missing_code = nullptr;
   char* vcf_dosage_import_field = nullptr;
   uint32_t* rseeds = nullptr;
@@ -9368,6 +9370,34 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
+        } else if (strequal_k_unsafe(flagname_p2, "gf")) {
+          if (unlikely(load_params || xload)) {
+            goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= 2; ++param_idx) {
+            const char* cur_fname = argvk[arg_idx + param_idx];
+            const uint32_t slen = strlen(cur_fname);
+            if (unlikely(slen > kPglFnamesize - 1)) {
+              logerrputs("Error: --mgf filename too long.\n");
+              goto main_ret_OPEN_FAIL;
+            }
+            memcpy((param_idx == 1)? pgenname : pvarname, cur_fname, slen + 1);
+          }
+          if (param_ct == 3) {
+            const char* cur_modif = argvk[arg_idx + 3];
+            if (unlikely(!StrStartsWith(cur_modif, "pheno=", strlen(cur_modif)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mgf argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            reterr = AllocFname(&(cur_modif[strlen("pheno=")]), "mgf pheno=", &mgf_pheno_fname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          xload = kfXloadMgf;
         } else if (strequal_k_unsafe(flagname_p2, "issing-code")) {
           if (unlikely(!(xload & (kfXloadOxGen | kfXloadOxBgen | kfXloadOxHaps)))) {
             // could technically support pure .sample -> .fam/.psam, but let's
@@ -13152,7 +13182,7 @@ int main(int argc, char** argv) {
     }
 
     pc.dependency_flags |= pc.filter_flags;
-    const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped)));
+    const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped | kfXloadMgf)));
     const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr);
     if (skip_main && (!batch_job)) {
       // add command_flags2 when needed
@@ -13575,6 +13605,8 @@ int main(int argc, char** argv) {
             reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, id_delim, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
           } else if (xload & kfXloadEigGeno) {
             reterr = EigfileToPgen(pgenname, psamname, pvarname, const_fid, pc.missing_catname, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, id_delim, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info);
+          } else if (xload & kfXloadMgf) {
+            reterr = MgfToPgen(pgenname, pvarname, mgf_pheno_fname, pc.misc_flags, import_flags, load_filter_log_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadPlink1Dosage) {
             reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (likely(xload & kfXloadGenDummy)) {

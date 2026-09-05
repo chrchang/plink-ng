@@ -68,4 +68,9 @@ cd TEST_EXPORT_LEGACY
 cd ..
 echo "TEST_EXPORT_LEGACY passed."
 
+cd TEST_MGF
+./run_tests.sh $d $2 $3 > TEST_MGF.log
+cd ..
+echo "TEST_MGF passed."
+
 echo "All tests passed."
