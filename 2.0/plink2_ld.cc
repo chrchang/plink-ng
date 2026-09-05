@@ -8723,8 +8723,13 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
         if (file1_index_alleles && (file_idx1 == 1) && (ln_pval <= ln_p1)) {
           SetBit(allele_idx, file1_index_alleles);
         }
+        // best_ln_pvals[] and best_fidx_x2s[] are only ever read back for the
+        // index variant's own reported p-value, file index and A1, so with
+        // --clump-index-first they have to stay on the first file: PLINK 1.9
+        // reports the first file's result for the index variant even when a
+        // later file has a smaller p-value there.
         // >= rather than >, to break ties in favor of file_idx1 == 1
-        if (best_ln_pvals[allele_idx] >= ln_pval) {
+        if ((!(index_first && (file_idx1 != 1))) && (best_ln_pvals[allele_idx] >= ln_pval)) {
           best_ln_pvals[allele_idx] = ln_pval;
           if (best_fidx_x2s) {
             best_fidx_x2s[allele_idx] = file_idx1_x2;
