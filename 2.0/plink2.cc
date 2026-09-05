@@ -227,7 +227,6 @@ ENUM_U31_DEF_START()
   kCmd1BitCheckOrImputeSex,
   kCmd1BitMendelReport,
   kCmd1BitLdScore,
-  kCmd1BitIbc,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -267,7 +266,6 @@ FLAGSET64_DEF_START()
   kfCommand1CheckOrImputeSex = (1LLU << kCmd1BitCheckOrImputeSex),
   kfCommand1MendelReport = (1LLU << kCmd1BitMendelReport),
   kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
-  kfCommand1Ibc = (1LLU << kCmd1BitIbc)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -441,7 +439,6 @@ typedef struct Plink2CmdlineStruct {
   GenoCountsFlags geno_counts_flags;
   HardyFlags hardy_flags;
   HetFlags het_flags;
-  IbcFlags ibc_flags;
   SampleCountsFlags sample_counts_flags;
   RecoverVarIdsFlags recover_var_ids_flags;
   VscoreFlags vscore_flags;
@@ -600,7 +597,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1Ibc)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -610,7 +607,7 @@ uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Fl
 
 uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags check_sex_flags, HetFlags het_flags, ScoreFlags score_flags) {
   // Keep this in sync with --error-on-freq-calc.
-  return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel | kfCommand1Ibc)) ||
+  return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel)) ||
     (check_sex_flags & kfCheckSexUseX) ||
     ((command_flags1 & kfCommand1Score) && ((!(score_flags & kfScoreNoMeanimpute)) || (score_flags & (kfScoreCenter | kfScoreVarianceStandardize)))) ||
     ((command_flags1 & kfCommand1Het) && (!(het_flags & kfHetSmallSample)));
@@ -3064,13 +3061,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
-      if (pcp->command_flags1 & kfCommand1Ibc) {
-        reterr = IbcReport(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->ibc_flags, &simple_pgr, outname, outname_end);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
-        }
-      }
-
       if (pcp->command_flags1 & kfCommand1Fst) {
         reterr = FstReport(sample_include, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->fst_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
         if (unlikely(reterr)) {
@@ -4171,7 +4161,6 @@ int main(int argc, char** argv) {
     pc.geno_counts_flags = kfGenoCounts0;
     pc.hardy_flags = kfHardy0;
     pc.het_flags = kfHet0;
-    pc.ibc_flags = kfIbc0;
     pc.sample_counts_flags = kfSampleCounts0;
     pc.recover_var_ids_flags = kfRecoverVarIds0;
     pc.vscore_flags = kfVscore0;
@@ -7346,7 +7335,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --het cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0hom\0het\0nobs\0f\0", "het", kfHetColMaybefid, kfHetColDefault, 1, &pc.het_flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0hom\0het\0nobs\0f\0fhat1\0fhat2\0fhat3\0", "het", kfHetColMaybefid, kfHetColDefault, 1, &pc.het_flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -7429,34 +7418,9 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: '--indiv-sort %s' does not accept additional arguments.\n", mode_str);
             goto main_ret_INVALID_CMDLINE_2A;
           }
-        } else if (strequal_k_unsafe(flagname_p2, "bc")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
-            goto main_ret_INVALID_CMDLINE_2A;
-          }
-          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argvk[arg_idx + param_idx];
-            const uint32_t cur_modif_slen = strlen(cur_modif);
-            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
-              pc.ibc_flags |= kfIbcZs;
-            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
-              if (unlikely(pc.ibc_flags & kfIbcColAll)) {
-                logerrputs("Error: Multiple --ibc cols= modifiers.\n");
-                goto main_ret_INVALID_CMDLINE;
-              }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0nobs\0fhat1\0fhat2\0fhat3\0", "ibc", kfIbcColMaybefid, kfIbcColDefault, 1, &pc.ibc_flags);
-              if (unlikely(reterr)) {
-                goto main_ret_1;
-              }
-            } else {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --ibc argument '%s'.\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
-            }
-          }
-          if (!(pc.ibc_flags & kfIbcColAll)) {
-            pc.ibc_flags |= kfIbcColDefault;
-          }
-          pc.command_flags1 |= kfCommand1Ibc;
-          pc.dependency_flags |= kfFilterAllReq;
+        } else if (unlikely(strequal_k_unsafe(flagname_p2, "bc"))) {
+          logerrputs("Error: --ibc has been retired.  Its three estimators are now optional --het\ncolumns, which also support multiallelic variants; use\n\"--het cols=+fhat1,+fhat2,+fhat3\".\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "d-delim")) {
           if (unlikely(const_fid || (import_flags & kfImportDoubleId))) {
             logerrputs("Error: --id-delim can no longer be used with --const-fid or --double-id.\n");

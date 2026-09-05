@@ -63,9 +63,9 @@ cd TEST_PMERGE
 cd ..
 echo "TEST_PMERGE passed."
 
-cd TEST_IBC
-./run_tests.sh $d $2 $3 > TEST_IBC.log
+cd TEST_HET_IBC
+./run_tests.sh $d $2 $3 > TEST_HET_IBC.log
 cd ..
-echo "TEST_IBC passed."
+echo "TEST_HET_IBC passed."
 
 echo "All tests passed."

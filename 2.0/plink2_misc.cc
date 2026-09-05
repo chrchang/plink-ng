@@ -10191,7 +10191,43 @@ typedef struct HetCtxStruct {
   uint32_t** thread_ohets;
   double** thread_ehet_incrs;
   int32_t** thread_nobs_incrs;
+
+  // GCTA's Fhat1/Fhat2/Fhat3, when those columns were requested.  Each is a
+  // per-variant term that depends only on the sample's genotype, so they use
+  // the same base-plus-increment trick as ehet: the common genotype's value
+  // goes into a scalar, and only the differences are stored per sample.
+  uint32_t ibc_needed;
+  double* thread_fhat_bases[3];
+  double** thread_fhat_incrs[3];
+  AlleleCode** thread_wide_code_bufs;
+  double** thread_ibc_freq_bufs;
 } HetCtx;
+
+// With a_i the frequency of allele i and the sample carrying the unordered
+// pair (lo, hi), the per-variant terms are
+//   Fhat1: [sum_i (x_i - 2 a_i)^2] / [sum_i 2 a_i (1 - a_i)]
+//   Fhat2: 2 for a homozygote, 2 - 1/E_het for a heterozygote
+//   Fhat3: 0 for a heterozygote, 1 + (1 - a_i)/a_i for a homozygote
+// where x_i is the sample's copy count of allele i and E_het is the expected
+// heterozygosity 1 - sum_i a_i^2.  Each reported value is the mean of its
+// terms over the sample's nonmissing calls, minus 1.  All three reduce to
+// GCTA's biallelic formulas at two alleles, and all three have expectation 1
+// under multiallelic Hardy-Weinberg equilibrium.
+HEADER_INLINE void IbcTermsBiallelic(double ref_freq, double* fvals) {
+  const double alt_freq = 1.0 - ref_freq;
+  const double ehet = 2 * ref_freq * alt_freq;
+  // genotype 0 = hom-REF, 1 = het, 2 = hom-ALT
+  fvals[0] = (2 - 2 * ref_freq) * (2 - 2 * ref_freq) / ehet;
+  fvals[1] = (1 - 2 * ref_freq) * (1 - 2 * ref_freq) / ehet;
+  fvals[2] = (2 * ref_freq) * (2 * ref_freq) / ehet;
+  fvals[3] = 2.0;
+  fvals[4] = 2.0 - 1.0 / ehet;
+  fvals[5] = 2.0;
+  fvals[6] = 1.0 + alt_freq / ref_freq;
+  fvals[7] = 0.0;
+  fvals[8] = 1.0 + ref_freq / alt_freq;
+}
+
 
 THREAD_FUNC_DECL HetThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
@@ -10232,6 +10268,23 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
   ZeroU32Arr(RoundUpPow2(sample_ct, kInt32PerVec), ohets);
   ZeroDArr(sample_ct, ehet_incrs);
   ZeroI32Arr(RoundUpPow2(sample_ct, kInt32PerVec), nobs_incrs);
+  const uint32_t ibc_needed = ctx->ibc_needed;
+  double fhat_base[3];
+  double* fhat_incrs[3];
+  double fvals[9];
+  AlleleCode* wide_codes = nullptr;
+  double* ibc_freq_buf = nullptr;
+  if (ibc_needed) {
+    ibc_freq_buf = ctx->thread_ibc_freq_bufs? ctx->thread_ibc_freq_bufs[tidx] : nullptr;
+    for (uint32_t stat_idx = 0; stat_idx != 3; ++stat_idx) {
+      fhat_base[stat_idx] = 0.0;
+      fhat_incrs[stat_idx] = ctx->thread_fhat_incrs[stat_idx][tidx];
+      ZeroDArr(sample_ct, fhat_incrs[stat_idx]);
+    }
+    if (ctx->thread_wide_code_bufs) {
+      wide_codes = ctx->thread_wide_code_bufs[tidx];
+    }
+  }
   const uint32_t acc2_vec_ct = NypCtToVecCt(sample_ct);
   const uintptr_t dense_counts_vstride = acc2_vec_ct * 23;
   VecW* scrambled_ohets = ctx->scrambled_ohet_bufs[tidx];
@@ -10260,6 +10313,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
         cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
+      double biallelic_ref_freq = -1.0;
       if (cur_allele_ct == 2) {
         if (allele_freqs) {
           const double ref_freq = allele_freqs[allele_idx_offset_base - variant_uidx];
@@ -10268,6 +10322,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
             ++monomorphic_ct;
             continue;
           }
+          biallelic_ref_freq = ref_freq;
         }
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
@@ -10314,10 +10369,33 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
             }
             const uint32_t denom = numer1 + numer2;
             ehet = 2 * S_CAST(double, numer1) * S_CAST(double, numer2) / ((S_CAST(double, denom)) * S_CAST(double, denom - 1));
+            biallelic_ref_freq = S_CAST(double, numer1) / S_CAST(double, denom);
+          }
+          if (ibc_needed) {
+            IbcTermsBiallelic(biallelic_ref_freq, fvals);
           }
           if (difflist_common_geno != 3) {
             ehet_base += ehet;
             ++nobs_base;
+            if (ibc_needed) {
+              for (uint32_t stat_idx = 0; stat_idx != 3; ++stat_idx) {
+                fhat_base[stat_idx] += fvals[stat_idx * 3 + difflist_common_geno];
+              }
+              for (uint32_t widx = 0; widx != word_ct; ++widx) {
+                uintptr_t raregeno_word = raregeno[widx];
+                const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids[widx * kBitsPerWordD2]);
+                const uint32_t loop_len = MINV(kBitsPerWordD2, difflist_len - widx * kBitsPerWordD2);
+                for (uint32_t uii = 0; uii != loop_len; ++uii) {
+                  const uintptr_t cur_geno = raregeno_word & 3;
+                  raregeno_word >>= 2;
+                  const uint32_t sample_idx = cur_difflist_sample_ids[uii];
+                  for (uint32_t stat_idx = 0; stat_idx != 3; ++stat_idx) {
+                    const double* cur_fvals = &(fvals[stat_idx * 3]);
+                    fhat_incrs[stat_idx][sample_idx] += ((cur_geno == 3)? 0.0 : cur_fvals[cur_geno]) - cur_fvals[difflist_common_geno];
+                  }
+                }
+              }
+            }
             for (uint32_t widx = 0; widx != word_ct; ++widx) {
               const uintptr_t raregeno_word = raregeno[widx];
               const uint32_t difflist_idx_base = widx * kBitsPerWordD2;
@@ -10356,9 +10434,15 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
               const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids[widx * kBitsPerWordD2]);
               for (uint32_t uii = 0; uii != loop_len; ++uii) {
                 const uint32_t sample_idx = cur_difflist_sample_ids[uii];
-                ohets[sample_idx] += raregeno_word & 1;
+                const uintptr_t cur_geno = raregeno_word & 3;
+                ohets[sample_idx] += cur_geno & 1;
                 ehet_incrs[sample_idx] += ehet;
                 nobs_incrs[sample_idx] += 1;
+                if (ibc_needed) {
+                  for (uint32_t stat_idx = 0; stat_idx != 3; ++stat_idx) {
+                    fhat_incrs[stat_idx][sample_idx] += fvals[stat_idx * 3 + cur_geno];
+                  }
+                }
                 raregeno_word >>= 2;
               }
             }
@@ -10377,6 +10461,33 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
           }
           const uint32_t denom = numer1 + numer2;
           ehet = 2 * S_CAST(double, numer1) * S_CAST(double, numer2) / ((S_CAST(double, denom)) * S_CAST(double, denom - 1));
+          biallelic_ref_freq = S_CAST(double, numer1) / S_CAST(double, denom);
+        }
+        if (ibc_needed) {
+          IbcTermsBiallelic(biallelic_ref_freq, fvals);
+          // hom-REF is the value every sample gets, so it goes into the
+          // scalar; only the samples that are not hom-REF need touching, and
+          // a missing call has to take the scalar back off again.
+          for (uint32_t stat_idx = 0; stat_idx != 3; ++stat_idx) {
+            fhat_base[stat_idx] += fvals[stat_idx * 3];
+          }
+          for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+            uintptr_t geno_word = genovec[widx];
+            if (!geno_word) {
+              continue;
+            }
+            const uint32_t sample_idx_base = widx * kBitsPerWordD2;
+            do {
+              const uint32_t sample_idx_lowbits = ctzw(geno_word) / 2;
+              const uintptr_t cur_geno = (geno_word >> (2 * sample_idx_lowbits)) & 3;
+              const uint32_t sample_idx = sample_idx_base + sample_idx_lowbits;
+              for (uint32_t stat_idx = 0; stat_idx != 3; ++stat_idx) {
+                const double* cur_fvals = &(fvals[stat_idx * 3]);
+                fhat_incrs[stat_idx][sample_idx] += ((cur_geno == 3)? 0.0 : cur_fvals[cur_geno]) - cur_fvals[0];
+              }
+              geno_word &= ~((3 * k1LU) << (2 * sample_idx_lowbits));
+            } while (geno_word);
+          }
         }
       } else {
         // multiallelic
@@ -10448,6 +10559,78 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
           }
           const double denom_d = S_CAST(double, denom);
           ehet = (1.0 - (S_CAST(double, allele_nobs_ssq) / (denom_d * denom_d))) * (denom_d / S_CAST(double, denom - 1));
+        }
+        if (ibc_needed) {
+          // Allele frequencies, from --read-freq or from the founder counts
+          // just computed.
+          double freq_ssq = 0.0;
+          double* cur_freqs = ibc_freq_buf;
+          if (allele_freqs) {
+            const double* src_freqs = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
+            double freq_sum = 0.0;
+            for (uint32_t aidx = 0; aidx != cur_allele_ct - 1; ++aidx) {
+              cur_freqs[aidx] = src_freqs[aidx];
+              freq_sum += src_freqs[aidx];
+            }
+            cur_freqs[cur_allele_ct - 1] = 1.0 - freq_sum;
+          } else {
+            uint32_t nobs_sum = 0;
+            for (uint32_t aidx = 0; aidx != cur_allele_ct; ++aidx) {
+              nobs_sum += allele_nobs[aidx];
+            }
+            const double nobs_sum_recip = 1.0 / u31tod(nobs_sum);
+            for (uint32_t aidx = 0; aidx != cur_allele_ct; ++aidx) {
+              cur_freqs[aidx] = u31tod(allele_nobs[aidx]) * nobs_sum_recip;
+            }
+          }
+          for (uint32_t aidx = 0; aidx != cur_allele_ct; ++aidx) {
+            freq_ssq += cur_freqs[aidx] * cur_freqs[aidx];
+          }
+          const double ehet_expected = 1.0 - freq_ssq;
+          // Both denominators reduce to the biallelic ones at two alleles.
+          const double f1_denom = 2 * ehet_expected;
+          const double f1_base_num = 4 * freq_ssq;
+          PglMultiallelicSparseToDenseMiss(&pgv, sample_ct, wide_codes);
+          // Hom-REF is the value every sample gets; the rest are corrections.
+          const double ref_freq0 = cur_freqs[0];
+          const double homref_f1 = (f1_base_num + 4 - 8 * ref_freq0) / f1_denom;
+          const double homref_f2 = 2.0;
+          const double homref_f3 = 1.0 + (1.0 - ref_freq0) / ref_freq0;
+          fhat_base[0] += homref_f1;
+          fhat_base[1] += homref_f2;
+          fhat_base[2] += homref_f3;
+          for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+            uintptr_t geno_word = genovec[widx];
+            if (!geno_word) {
+              continue;
+            }
+            const uint32_t sample_idx_base = widx * kBitsPerWordD2;
+            do {
+              const uint32_t sample_idx_lowbits = ctzw(geno_word) / 2;
+              const uint32_t sample_idx = sample_idx_base + sample_idx_lowbits;
+              geno_word &= ~((3 * k1LU) << (2 * sample_idx_lowbits));
+              const AlleleCode ac0 = wide_codes[2 * sample_idx];
+              const AlleleCode ac1 = wide_codes[2 * sample_idx + 1];
+              double cur_f1 = 0.0;
+              double cur_f2 = 0.0;
+              double cur_f3 = 0.0;
+              if (ac0 != kMissingAlleleCode) {
+                const double a0 = cur_freqs[ac0];
+                if (ac0 == ac1) {
+                  cur_f1 = (f1_base_num + 4 - 8 * a0) / f1_denom;
+                  cur_f2 = 2.0;
+                  cur_f3 = 1.0 + (1.0 - a0) / a0;
+                } else {
+                  cur_f1 = (f1_base_num + 2 - 4 * (a0 + cur_freqs[ac1])) / f1_denom;
+                  cur_f2 = 2.0 - 1.0 / ehet_expected;
+                  cur_f3 = 0.0;
+                }
+              }
+              fhat_incrs[0][sample_idx] += cur_f1 - homref_f1;
+              fhat_incrs[1][sample_idx] += cur_f2 - homref_f2;
+              fhat_incrs[2][sample_idx] += cur_f3 - homref_f3;
+            } while (geno_word);
+          }
         }
         if (patch_10_ct) {
           // For every altx/alty genotype where x and y are different, change
@@ -10522,6 +10705,11 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
     ctx->thread_ehet_base[tidx] = ehet_base;
     ctx->thread_nobs_base[tidx] = nobs_base;
     ctx->thread_monomorphic_ct[tidx] = monomorphic_ct;
+    if (ibc_needed) {
+      for (uint32_t stat_idx = 0; stat_idx != 3; ++stat_idx) {
+        ctx->thread_fhat_bases[stat_idx][tidx] = fhat_base[stat_idx];
+      }
+    }
 
     VecW* acc4 = &(scrambled_ohets[acc2_vec_ct]);
     VcountIncr2To4(scrambled_ohets, acc2_vec_ct, acc4);
@@ -10546,7 +10734,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_subset, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, const char* calcstr, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t small_sample, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t** ohets_ptr, double** ehet_incrs_ptr, int32_t** nobs_incrs_ptr, double* ehet_base_ptr, int32_t* nobs_base_ptr) {
+PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_subset, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, const char* calcstr, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t small_sample, uint32_t ibc_needed, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t** ohets_ptr, double** ehet_incrs_ptr, int32_t** nobs_incrs_ptr, double* ehet_base_ptr, int32_t* nobs_base_ptr, double** fhat_sums_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   ThreadGroup tg;
@@ -10558,6 +10746,12 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
                  bigstack_alloc_d(sample_ct, ehet_incrs_ptr) ||
                  bigstack_alloc_i32(sample_ct, nobs_incrs_ptr))) {
       goto HetCalcMain_ret_NOMEM;
+    }
+    // [stat_idx * sample_ct + sample_idx], filled in at the end.
+    if (ibc_needed) {
+      if (unlikely(bigstack_calloc_d(3 * S_CAST(uintptr_t, sample_ct), fhat_sums_ptr))) {
+        goto HetCalcMain_ret_NOMEM;
+      }
     }
     bigstack_mark = g_bigstack_base;
 
@@ -10605,6 +10799,17 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
                  bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_nobs_incrs))) {
       goto HetCalcMain_ret_NOMEM;
     }
+    ctx.ibc_needed = ibc_needed;
+    ctx.thread_wide_code_bufs = nullptr;
+    ctx.thread_ibc_freq_bufs = nullptr;
+    if (ibc_needed) {
+      for (uint32_t stat_idx = 0; stat_idx != 3; ++stat_idx) {
+        if (unlikely(bigstack_alloc_d(calc_thread_ct, &(ctx.thread_fhat_bases[stat_idx])) ||
+                     bigstack_alloc_dp(calc_thread_ct, &(ctx.thread_fhat_incrs[stat_idx])))) {
+          goto HetCalcMain_ret_NOMEM;
+        }
+      }
+    }
     // todo: tune this threshold
     const uint32_t max_difflist_len = sample_ct / 32;
     ctx.max_difflist_len = max_difflist_len;
@@ -10625,11 +10830,19 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
     const uintptr_t sample_ct_i32v = DivUp(sample_ct, kInt32PerVec);
     const uintptr_t sample_ct_dv = DivUp(sample_ct * sizeof(double), kBytesPerVec);
 
-    const uintptr_t thread_xalloc_vec_ct = raregeno_vec_ct + difflist_sample_id_vec_ct + allele_nobs_vec_ct + scrambled_ohet_vec_ct + 2 * sample_ct_i32v + sample_ct_dv;
+    const uintptr_t wide_code_vec_ct = (ibc_needed && mhc_needed)? DivUp(2 * S_CAST(uintptr_t, sample_ct) * sizeof(AlleleCode), kBytesPerVec) : 0;
+    const uintptr_t ibc_freq_vec_ct = (ibc_needed && mhc_needed)? DivUp(max_allele_ct * sizeof(double), kBytesPerVec) : 0;
+    const uintptr_t thread_xalloc_vec_ct = raregeno_vec_ct + difflist_sample_id_vec_ct + allele_nobs_vec_ct + scrambled_ohet_vec_ct + 2 * sample_ct_i32v + sample_ct_dv + (ibc_needed? (3 * sample_ct_dv) : 0) + wide_code_vec_ct + ibc_freq_vec_ct;
     const uintptr_t thread_xalloc_cacheline_ct = DivUp(thread_xalloc_vec_ct, kVecsPerCacheline);
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     ctx.thread_read_mhc = nullptr;
     uint32_t read_block_size;
+    if (ibc_needed && mhc_needed) {
+      if (unlikely(bigstack_alloc_acp(calc_thread_ct, &ctx.thread_wide_code_bufs) ||
+                   bigstack_alloc_dp(calc_thread_ct, &ctx.thread_ibc_freq_bufs))) {
+        goto HetCalcMain_ret_NOMEM;
+      }
+    }
     if (unlikely(PgenMtLoadInit(ctx.variant_subset, raw_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, mhc_needed? (&ctx.thread_read_mhc) : nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto HetCalcMain_ret_NOMEM;
     }
@@ -10661,8 +10874,20 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
         cur_alloc = &(cur_alloc[sample_ct_dv * kBytesPerVec]);
         ctx.thread_nobs_incrs[tidx] = R_CAST(int32_t*, cur_alloc);
         cur_alloc = &(cur_alloc[sample_ct_i32v * kBytesPerVec]);
-        assert(cur_alloc <= g_bigstack_base);
       }
+      if (ibc_needed) {
+        for (uint32_t stat_idx = 0; stat_idx != 3; ++stat_idx) {
+          ctx.thread_fhat_incrs[stat_idx][tidx] = R_CAST(double*, cur_alloc);
+          cur_alloc = &(cur_alloc[sample_ct_dv * kBytesPerVec]);
+        }
+        if (mhc_needed) {
+          ctx.thread_wide_code_bufs[tidx] = R_CAST(AlleleCode*, cur_alloc);
+          cur_alloc = &(cur_alloc[wide_code_vec_ct * kBytesPerVec]);
+          ctx.thread_ibc_freq_bufs[tidx] = R_CAST(double*, cur_alloc);
+          cur_alloc = &(cur_alloc[ibc_freq_vec_ct * kBytesPerVec]);
+        }
+      }
+      assert(cur_alloc <= g_bigstack_base);
     }
     SetThreadFuncAndData(HetThread, &ctx, &tg);
 
@@ -10734,6 +10959,25 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
       }
       I32CastVecAdd(ctx.thread_nobs_incrs[tidx], sample_ct_i32v, nobs_incrs);
     }
+    if (ibc_needed) {
+      // Each sample's total is the per-thread scalar plus its own increment,
+      // summed over threads.
+      double* fhat_sums = *fhat_sums_ptr;
+      for (uint32_t stat_idx = 0; stat_idx != 3; ++stat_idx) {
+        double* cur_sums = &(fhat_sums[stat_idx * S_CAST(uintptr_t, sample_ct)]);
+        double base_sum = 0.0;
+        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+          base_sum += ctx.thread_fhat_bases[stat_idx][tidx];
+          const double* src = ctx.thread_fhat_incrs[stat_idx][tidx];
+          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+            cur_sums[sample_idx] += src[sample_idx];
+          }
+        }
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          cur_sums[sample_idx] += base_sum;
+        }
+      }
+    }
     if (pct > 10) {
       putc_unlocked('\b', stdout);
     }
@@ -10763,262 +11007,6 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
   return reterr;
 }
 
-// GCTA's three inbreeding-coefficient estimators, as in PLINK 1.9's --ibc.
-// With p = REF allele frequency and x = the sample's REF allele count at a
-// variant, the per-variant terms are
-//   Fhat1: (x - 2p)^2 / (2p(1-p))
-//   Fhat2: 2, except 2 - 1/(2p(1-p)) for a heterozygous call
-//   Fhat3: 1 + (1-p)/p for x=2, 0 for x=1, 1 + p/(1-p) for x=0
-// and each reported value is the mean of its terms over the sample's
-// nonmissing calls, minus 1.  All three are invariant under swapping the
-// reference allele, so the REF/ALT orientation does not matter.
-typedef struct IbcAccStruct {
-  double fhat1_sum;
-  double fhat2_sum;
-  double fhat3_sum;
-  uint32_t nobs;
-  uint32_t reserved;
-} IbcAcc;
-
-// PLINK 1.9's update_rel_ibc() treats a variant as monomorphic when the
-// A2/REF frequency is exactly 0, or within 2^-30 of 1; the same predicate is
-// used here so that --ibc agrees with 1.9 (and GCTA) on boundary cases.
-static const double kIbcMonomorphicEps = 0.000000000931322574615478515625;
-
-PglErr IbcReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, IbcFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
-  unsigned char* bigstack_mark = g_bigstack_base;
-  char* cswritep = nullptr;
-  CompressStreamState css;
-  PreinitCstream(&css);
-  PglErr reterr = kPglRetSuccess;
-  {
-    if (unlikely(IsSet(cip->haploid_mask, 0))) {
-      logerrputs("Error: --ibc cannot be used on haploid genomes.\n");
-      goto IbcReport_ret_INCONSISTENT_INPUT;
-    }
-    if (unlikely(!allele_freqs)) {
-      logerrputs("Error: --ibc requires allele frequencies.\n");
-      goto IbcReport_ret_INCONSISTENT_INPUT;
-    }
-    const uintptr_t* autosomal_variant_include = orig_variant_include;
-    uint32_t autosomal_variant_ct = orig_variant_ct;
-    reterr = ConditionalAllocateNonAutosomalVariants(cip, "--ibc", raw_variant_ct, &autosomal_variant_include, &autosomal_variant_ct);
-    if (unlikely(reterr)) {
-      goto IbcReport_ret_1;
-    }
-    if (unlikely(!autosomal_variant_ct)) {
-      logerrputs("Error: --ibc requires at least one autosomal variant.\n");
-      goto IbcReport_ret_INCONSISTENT_INPUT;
-    }
-
-    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    uint32_t* sample_include_cumulative_popcounts;
-    uintptr_t* genovec;
-    // One cache-line-friendly record per sample instead of four separate
-    // arrays; the inner loop then walks a single stream.
-    IbcAcc* accs;
-    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-                 bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec) ||
-                 BIGSTACK_ALLOC_X(IbcAcc, sample_ct, &accs))) {
-      goto IbcReport_ret_NOMEM;
-    }
-    memset(accs, 0, sample_ct * sizeof(IbcAcc));
-    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
-    PgrSampleSubsetIndex pssi;
-    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
-
-    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-    uintptr_t variant_uidx_base = 0;
-    uintptr_t cur_bits = autosomal_variant_include[0];
-    uint32_t allele_ct = 2;
-    uint32_t multiallelic_ct = 0;
-    uint32_t used_variant_ct = 0;
-    for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx) {
-      const uint32_t variant_uidx = BitIter1(autosomal_variant_include, &variant_uidx_base, &cur_bits);
-      uintptr_t allele_idx_offset_base = 2 * variant_uidx;
-      if (allele_idx_offsets) {
-        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
-      }
-      if (allele_ct != 2) {
-        // GCTA's estimators are only defined for biallelic variants.
-        ++multiallelic_ct;
-        continue;
-      }
-      const double ref_freq = allele_freqs[allele_idx_offset_base - variant_uidx];
-      reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
-      if (unlikely(reterr)) {
-        PgenErrPrintNV(reterr, variant_uidx);
-        goto IbcReport_ret_1;
-      }
-      ZeroTrailingNyps(sample_ct, genovec);
-      ++used_variant_ct;
-
-      // Genotype-indexed weights, with the missing slot zeroed so the inner
-      // loop needs no branches.  Adding 0.0 leaves a finite running sum
-      // untouched, so the accumulation order is exactly the same as an
-      // if/else chain that skips missing calls.
-      double f1_tab[4];
-      double f2_tab[4];
-      double f3_tab[4];
-      if ((ref_freq > 0.0) && (ref_freq < 1.0 - kIbcMonomorphicEps)) {
-        const double two_p = 2 * ref_freq;
-        const double inv_denom = 1.0 / (two_p * (1.0 - ref_freq));
-        f1_tab[0] = (2.0 - two_p) * (2.0 - two_p) * inv_denom;
-        f1_tab[1] = (1.0 - two_p) * (1.0 - two_p) * inv_denom;
-        f1_tab[2] = two_p * two_p * inv_denom;
-        f2_tab[0] = 2.0;
-        f2_tab[1] = 2.0 - inv_denom;
-        f2_tab[2] = 2.0;
-        f3_tab[0] = 1.0 + (1.0 - ref_freq) / ref_freq;
-        f3_tab[1] = 0.0;
-        f3_tab[2] = 1.0 + ref_freq / (1.0 - ref_freq);
-      } else {
-        // Weights for a monomorphic variant, matching PLINK 1.9's
-        // update_rel_ibc() (plink_calc.c:143) and hence GCTA: the variant is
-        // still counted in OBS_CT, and contributes 0 to all three estimates,
-        // since Fhat1/Fhat2/Fhat3 are all reported as (sum / OBS_CT) - 1.
-        // The genotypes that cannot occur at a monomorphic variant get
-        // infinite weights, which is 1.9's way of flagging a --read-freq file
-        // whose zero MAFs disagree with the genotype data.
-        const uint32_t alt_is_absent = (ref_freq > 0.0);
-        f1_tab[0] = alt_is_absent? 0.0 : INFINITY_D;
-        f1_tab[1] = INFINITY_D;
-        f1_tab[2] = alt_is_absent? INFINITY_D : 0.0;
-        f2_tab[0] = 1.0;
-        f2_tab[1] = -INFINITY_D;
-        f2_tab[2] = 1.0;
-        f3_tab[0] = alt_is_absent? 1.0 : INFINITY_D;
-        f3_tab[1] = 0.0;
-        f3_tab[2] = alt_is_absent? INFINITY_D : 1.0;
-      }
-      f1_tab[3] = 0.0;
-      f2_tab[3] = 0.0;
-      f3_tab[3] = 0.0;
-      const uint32_t nobs_tab[4] = {1, 1, 1, 0};
-
-      uint32_t sample_idx = 0;
-      for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-        uintptr_t geno_word = genovec[widx];
-        const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
-        for (; sample_idx != idx_stop; ++sample_idx) {
-          const uintptr_t cur_geno = geno_word & 3;
-          geno_word >>= 2;
-          IbcAcc* cur_acc = &(accs[sample_idx]);
-          cur_acc->fhat1_sum += f1_tab[cur_geno];
-          cur_acc->fhat2_sum += f2_tab[cur_geno];
-          cur_acc->fhat3_sum += f3_tab[cur_geno];
-          cur_acc->nobs += nobs_tab[cur_geno];
-        }
-      }
-    }
-    if (unlikely(!used_variant_ct)) {
-      logerrputs("Error: --ibc: No usable variants.\n");
-      goto IbcReport_ret_INCONSISTENT_INPUT;
-    }
-    if (multiallelic_ct) {
-      logprintf("--ibc: %u multiallelic variant%s skipped.\n", multiallelic_ct, (multiallelic_ct == 1)? "" : "s");
-    }
-
-    const uint32_t output_zst = flags & kfIbcZs;
-    OutnameZstSet(".ibc", output_zst, outname_end);
-    reterr = InitCstreamAlloc(outname, 0, output_zst, 1, 2 * kCompressStreamBlock, &css, &cswritep);
-    if (unlikely(reterr)) {
-      goto IbcReport_ret_1;
-    }
-    *cswritep++ = '#';
-    const uint32_t col_fid = FidColIsRequired(siip, flags / kfIbcColMaybefid);
-    if (col_fid) {
-      cswritep = strcpya_k(cswritep, "FID\t");
-    }
-    cswritep = strcpya_k(cswritep, "IID");
-    const uint32_t col_sid = SidColIsRequired(siip->sids, flags / kfIbcColMaybesid);
-    if (col_sid) {
-      cswritep = strcpya_k(cswritep, "\tSID");
-    }
-    const uint32_t col_nobs = (flags / kfIbcColNobs) & 1;
-    if (col_nobs) {
-      cswritep = strcpya_k(cswritep, "\tOBS_CT");
-    }
-    const uint32_t col_fhat1 = (flags / kfIbcColFhat1) & 1;
-    if (col_fhat1) {
-      cswritep = strcpya_k(cswritep, "\tFHAT1");
-    }
-    const uint32_t col_fhat2 = (flags / kfIbcColFhat2) & 1;
-    if (col_fhat2) {
-      cswritep = strcpya_k(cswritep, "\tFHAT2");
-    }
-    const uint32_t col_fhat3 = (flags / kfIbcColFhat3) & 1;
-    if (col_fhat3) {
-      cswritep = strcpya_k(cswritep, "\tFHAT3");
-    }
-    AppendBinaryEoln(&cswritep);
-
-    const char* sample_ids = siip->sample_ids;
-    const char* sids = siip->sids;
-    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
-    const uintptr_t max_sid_blen = siip->max_sid_blen;
-    uintptr_t sample_uidx_base = 0;
-    uintptr_t sample_include_bits = sample_include[0];
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
-      cswritep = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, cswritep);
-      const uint32_t cur_nobs = accs[sample_idx].nobs;
-      if (col_nobs) {
-        *cswritep++ = '\t';
-        cswritep = u32toa(cur_nobs, cswritep);
-      }
-      const double nobs_recip = cur_nobs? (1.0 / u31tod(cur_nobs)) : 0.0;
-      if (col_fhat1) {
-        *cswritep++ = '\t';
-        if (cur_nobs) {
-          cswritep = dtoa_g(accs[sample_idx].fhat1_sum * nobs_recip - 1.0, cswritep);
-        } else {
-          cswritep = strcpya_k(cswritep, "NA");
-        }
-      }
-      if (col_fhat2) {
-        *cswritep++ = '\t';
-        if (cur_nobs) {
-          cswritep = dtoa_g(accs[sample_idx].fhat2_sum * nobs_recip - 1.0, cswritep);
-        } else {
-          cswritep = strcpya_k(cswritep, "NA");
-        }
-      }
-      if (col_fhat3) {
-        *cswritep++ = '\t';
-        if (cur_nobs) {
-          cswritep = dtoa_g(accs[sample_idx].fhat3_sum * nobs_recip - 1.0, cswritep);
-        } else {
-          cswritep = strcpya_k(cswritep, "NA");
-        }
-      }
-      AppendBinaryEoln(&cswritep);
-      if (unlikely(Cswrite(&css, &cswritep))) {
-        goto IbcReport_ret_WRITE_FAIL;
-      }
-    }
-    if (unlikely(CswriteCloseNull(&css, cswritep))) {
-      goto IbcReport_ret_WRITE_FAIL;
-    }
-    logprintfww("--ibc: Inbreeding coefficients (%u variant%s used) written to %s .\n", used_variant_ct, (used_variant_ct == 1)? "" : "s", outname);
-  }
-  while (0) {
-  IbcReport_ret_NOMEM:
-    reterr = kPglRetNomem;
-    break;
-  IbcReport_ret_WRITE_FAIL:
-    reterr = kPglRetWriteFail;
-    break;
-  IbcReport_ret_INCONSISTENT_INPUT:
-    reterr = kPglRetInconsistentInput;
-    break;
-  }
- IbcReport_ret_1:
-  CswriteCloseCond(&css, cswritep);
-  BigstackReset(bigstack_mark);
-  return reterr;
-}
 
 PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, HetFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -11073,8 +11061,18 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
       cswritep = strcpya_k(cswritep, "\tOBS_CT");
     }
     const uint32_t col_f = (flags / kfHetColF) & 1;
+    const uint32_t ibc_needed = ((flags & kfHetColIbcMask) != 0);
     if (col_f) {
       cswritep = strcpya_k(cswritep, "\tF");
+    }
+    if (flags & kfHetColFhat1) {
+      cswritep = strcpya_k(cswritep, "\tFHAT1");
+    }
+    if (flags & kfHetColFhat2) {
+      cswritep = strcpya_k(cswritep, "\tFHAT2");
+    }
+    if (flags & kfHetColFhat3) {
+      cswritep = strcpya_k(cswritep, "\tFHAT3");
     }
     AppendBinaryEoln(&cswritep);
     if (unlikely(Cswrite(&css, &cswritep))) {
@@ -11086,7 +11084,8 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     int32_t* nobs_incrs;
     double ehet_base;
     int32_t nobs_base;
-    reterr = HetCalcMain(sample_include, autosomal_variant_include, allele_idx_offsets, allele_freqs, founder_info, "--het", raw_sample_ct, sample_ct, founder_ct, raw_variant_ct, autosomal_variant_ct, max_allele_ct, small_sample, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, &ohets, &ehet_incrs, &nobs_incrs, &ehet_base, &nobs_base);
+    double* fhat_sums = nullptr;
+    reterr = HetCalcMain(sample_include, autosomal_variant_include, allele_idx_offsets, allele_freqs, founder_info, "--het", raw_sample_ct, sample_ct, founder_ct, raw_variant_ct, autosomal_variant_ct, max_allele_ct, small_sample, ibc_needed, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, &ohets, &ehet_incrs, &nobs_incrs, &ehet_base, &nobs_base, &fhat_sums);
     if (unlikely(reterr)) {
       goto HetReport_ret_1;
     }
@@ -11119,6 +11118,21 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
       if (col_f) {
         *cswritep++ = '\t';
         cswritep = dtoa_g(1.0 - u31tod(ohet) / ehet, cswritep);
+      }
+      if (ibc_needed) {
+        // Each estimator is the mean of its per-variant terms, minus 1.
+        const double nobs_recip = nobs? (1.0 / u31tod(nobs)) : 0.0;
+        for (uint32_t stat_idx = 0; stat_idx != 3; ++stat_idx) {
+          if (!(flags & (kfHetColFhat1 << stat_idx))) {
+            continue;
+          }
+          *cswritep++ = '\t';
+          if (nobs) {
+            cswritep = dtoa_g(fhat_sums[stat_idx * S_CAST(uintptr_t, sample_ct) + sample_idx] * nobs_recip - 1.0, cswritep);
+          } else {
+            cswritep = strcpya_k(cswritep, "NA");
+          }
+        }
       }
       AppendBinaryEoln(&cswritep);
       if (unlikely(Cswrite(&css, &cswritep))) {
@@ -11198,7 +11212,7 @@ PglErr CheckOrImputeSex(const uintptr_t* sample_include, const SampleIdInfo* sii
         int32_t* nobs_incrs;
         double ehet_base;
         int32_t nobs_base;
-        reterr = HetCalcMain(sample_include, variant_include_x, allele_idx_offsets, allele_freqs, nullptr, (flags & kfCheckSexImpute)? "--impute-sex chrX" : "--check-sex chrX", raw_sample_ct, sample_ct, sample_ct, raw_variant_ct, used_variant_ct_x, max_allele_ct, 0, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, &ohets, &ehet_incrs, &nobs_incrs, &ehet_base, &nobs_base);
+        reterr = HetCalcMain(sample_include, variant_include_x, allele_idx_offsets, allele_freqs, nullptr, (flags & kfCheckSexImpute)? "--impute-sex chrX" : "--check-sex chrX", raw_sample_ct, sample_ct, sample_ct, raw_variant_ct, used_variant_ct_x, max_allele_ct, 0, 0, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, &ohets, &ehet_incrs, &nobs_incrs, &ehet_base, &nobs_base, nullptr);
         if (unlikely(reterr)) {
           goto CheckOrImputeSex_ret_1;
         }
