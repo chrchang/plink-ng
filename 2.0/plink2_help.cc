@@ -1034,6 +1034,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      all-pairs computation on more than 400k variants.\n"
 "    With either output type, the computation can be subdivided with --parallel.\n\n"
               );
+    HelpPrint("twolocus\0", &help_ctrl, 1,
+"  --twolocus ['zs'] <variant ID> <variant ID>\n"
+"    Joint genotype count report for a pair of variants, with one row per\n"
+"    (group, genotype, genotype) cell.\n"
+"    * When a case/control phenotype is loaded, the CASE and CTRL groups are\n"
+"      reported alongside ALL.\n"
+"    * PLINK 1.x writes a fixed-width report with marginal totals; this is a\n"
+"      table instead, and the marginals are left to the reader since every\n"
+"      count producing them is present.\n\n"
+              );
     HelpPrint("ld-score\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
 "  --ld-score ['zs'] ['multiallelic'] [{'cols='<column set descriptor>}]\n"
 "  --ld-score-founders\n"
