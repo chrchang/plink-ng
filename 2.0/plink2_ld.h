@@ -104,6 +104,30 @@ FLAGSET_DEF_END(VcorFlags);
 CONSTI32(kClumpMaxBinBounds, 0x4000000);
 
 FLAGSET_DEF_START()
+  kfFlipScan0,
+  kfFlipScanVerbose = (1 << 0),
+  kfFlipScanZs = (1 << 1),
+  // Report REF frequencies rather than major-allele frequencies, and name the
+  // columns accordingly.
+  kfFlipScanRefBased = (1 << 14),
+
+  kfFlipScanColChrom = (1 << 2),
+  kfFlipScanColPos = (1 << 3),
+  kfFlipScanColRef = (1 << 4),
+  kfFlipScanColAlt = (1 << 5),
+  kfFlipScanColAltfreq = (1 << 6),
+  kfFlipScanColPosct = (1 << 7),
+  kfFlipScanColRpos = (1 << 8),
+  kfFlipScanColNegct = (1 << 9),
+  kfFlipScanColRneg = (1 << 10),
+  kfFlipScanColNegids = (1 << 11),
+  kfFlipScanColMajfreq = (1 << 12),
+  kfFlipScanColProblem = (1 << 13),
+  kfFlipScanColDefault = (kfFlipScanColChrom | kfFlipScanColPos | kfFlipScanColRef | kfFlipScanColAlt | kfFlipScanColMajfreq | kfFlipScanColPosct | kfFlipScanColRpos | kfFlipScanColNegct | kfFlipScanColRneg | kfFlipScanColProblem | kfFlipScanColNegids),
+  kfFlipScanColAll = ((kfFlipScanColProblem * 2) - kfFlipScanColChrom)
+FLAGSET_DEF_END(FlipScanFlags);
+
+FLAGSET_DEF_START()
   kfLdConsole0,
   kfLdConsoleHweMidp = (1 << 0)
 FLAGSET_DEF_END(LdConsoleFlags);
@@ -116,6 +140,26 @@ typedef struct LdInfoStruct {
   uint32_t prune_window_incr;
   LdConsoleFlags ld_console_flags;
   STD_ARRAY_DECL(char*, 2, ld_console_varids);
+  FlipScanFlags flipscan_flags;
+  uint32_t flipscan_window_size;
+  uint32_t flipscan_window_bp;
+  double flipscan_thresh;
+  // Redesign parameters: the frequency difference that flags a variant on its
+  // own, the major-allele frequency above which a variant carries too little
+  // information to be worth comparing against, and how many sign-flipped
+  // neighbors it takes to call a variant problematic.
+  // -1 until set, since the default depends on whether the LD scan follows.
+  double flipscan_freq_diff;
+  double flipscan_max_maj_freq;
+  uint32_t flipscan_min_neg_ct;
+  // When set, --flip-scan compares the dataset against these frequencies
+  // instead of splitting it into cases and controls.
+  char* flipscan_ref_freq_fname;
+  // Likewise, but against a second fileset, which allows the LD half of the
+  // scan to run as well.
+  char* flipscan_ref_pgen_fname;
+  char* flipscan_ref_pvar_fname;
+  char* flipscan_ref_psam_fname;
 } LdInfo;
 
 typedef struct ClumpInfoStruct {
@@ -186,6 +230,12 @@ void InitLdScore(LdScoreInfo* lsip);
 void InitVcor(VcorInfo* vcip);
 
 void CleanupVcor(VcorInfo* vcip);
+
+PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_thread_ct, char* outname, char* outname_end);
+
+PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const LdInfo* ldip, LoadFilterLogFlags load_filter_log_flags, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end);
+
+PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const LdInfo* ldip, const char* indep_preferred_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t nosex_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
