@@ -10763,6 +10763,572 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
   return reterr;
 }
 
+// The five tests --model reports, in PLINK 1.x's output order.
+CONSTI32(kModelTestGeno, 0);
+CONSTI32(kModelTestTrend, 1);
+CONSTI32(kModelTestAllelic, 2);
+CONSTI32(kModelTestDom, 3);
+CONSTI32(kModelTestRec, 4);
+
+static const char kModelTestNames[5][8] = {"GENO", "TREND", "ALLELIC", "DOM", "REC"};
+
+// --model: PLINK 1.x's contingency-table association tests.
+//
+// Five tests off one 2x3 table per variant (case/control by genotype):
+//   GENO     2df chi-square (or Fisher-Freeman-Halton) on the full table
+//   TREND    Cochran-Armitage trend test
+//   ALLELIC  1df test on the collapsed allele counts
+//   DOM      A1A1 + A1A2 vs. A2A2
+//   REC      A1A1 vs. A1A2 + A2A2
+// --glm's genotypic/dominant/recessive modes give regression analogues of
+// three of these, but not the contingency tests themselves, and there is no
+// exact test in --glm at all.
+
+// One variant's counts and test results.  The tests are the expensive part
+// under 'fisher' -- a single 2x3 exact test can cost more than reading the
+// variant -- so they are computed off the writer thread.
+typedef struct ModelVariantResultStruct {
+  // A1A1, A1A2, A2A2
+  uint32_t case_cts[3];
+  uint32_t ctrl_cts[3];
+  double chisq[5];
+  double pval[5];
+  uint32_t df[5];
+} ModelVariantResult;
+
+typedef struct ModelCtxStruct {
+  const uintptr_t* case_interleaved;
+  uint32_t sample_ct;
+  uint32_t case_ct;
+  uint32_t model_cell_ct;
+  uint32_t use_exact;
+  uint32_t fisher_midp;
+  uint32_t trend_only;
+  uintptr_t sample_ctaw2;
+
+  uintptr_t* genovecs;
+  ModelVariantResult* results;
+  uint32_t cur_block_size;
+} ModelCtx;
+
+void ModelComputeVariant(const uintptr_t* genovec, const uintptr_t* case_interleaved, uint32_t sample_ct, uint32_t case_ct, uint32_t model_cell_ct, uint32_t use_exact, uint32_t fisher_midp, uint32_t trend_only, ModelVariantResult* resultp) {
+  STD_ARRAY_DECL(uint32_t, 4, case_cts);
+  STD_ARRAY_DECL(uint32_t, 4, tot_cts);
+  GenoarrCountSubsetFreqs(genovec, case_interleaved, sample_ct, case_ct, case_cts);
+  GenoarrCountFreqsUnsafe(genovec, sample_ct, tot_cts);
+  // A1 is ALT, so hom-A1 is genotype 2 and hom-A2 is genotype 0.
+  const uint32_t case_a1a1 = case_cts[2];
+  const uint32_t case_a1a2 = case_cts[1];
+  const uint32_t case_a2a2 = case_cts[0];
+  const uint32_t ctrl_a1a1 = tot_cts[2] - case_a1a1;
+  const uint32_t ctrl_a1a2 = tot_cts[1] - case_a1a2;
+  const uint32_t ctrl_a2a2 = tot_cts[0] - case_a2a2;
+  resultp->case_cts[0] = case_a1a1;
+  resultp->case_cts[1] = case_a1a2;
+  resultp->case_cts[2] = case_a2a2;
+  resultp->ctrl_cts[0] = ctrl_a1a1;
+  resultp->ctrl_cts[1] = ctrl_a1a2;
+  resultp->ctrl_cts[2] = ctrl_a2a2;
+  for (uint32_t test_idx = 0; test_idx != 5; ++test_idx) {
+    resultp->chisq[test_idx] = -1;
+    resultp->pval[test_idx] = -1;
+    resultp->df[test_idx] = 0;
+  }
+  const uint32_t case_obs_ct = case_a1a1 + case_a1a2 + case_a2a2;
+  const uint32_t ctrl_obs_ct = ctrl_a1a1 + ctrl_a1a2 + ctrl_a2a2;
+  const uint32_t obs_ct = case_obs_ct + ctrl_obs_ct;
+  // As in PLINK 1.x, a cell below the --cell threshold suppresses the tests
+  // whose small-sample behavior it governs; the trend and allelic tests are
+  // always reported.
+  const uint32_t small_cell = (case_a1a1 < model_cell_ct) || (case_a1a2 < model_cell_ct) || (case_a2a2 < model_cell_ct) ||
+    (ctrl_a1a1 < model_cell_ct) || (ctrl_a1a2 < model_cell_ct) || (ctrl_a2a2 < model_cell_ct);
+
+  // TREND: no exact analogue, so PLINK 1.x reports the asymptotic p-value
+  // even under 'fisher'.
+  {
+    const double ca_chisq = CaTrendStat(2 * S_CAST(int64_t, case_a2a2) + case_a1a2, case_obs_ct, case_a1a2 + ctrl_a1a2, case_a2a2 + ctrl_a2a2, obs_ct);
+    if (ca_chisq != -1) {
+      resultp->chisq[kModelTestTrend] = ca_chisq;
+      resultp->df[kModelTestTrend] = 1;
+      resultp->pval[kModelTestTrend] = ChisqToP(ca_chisq, 1);
+    }
+  }
+  if (trend_only) {
+    return;
+  }
+  if (!small_cell) {
+    if (use_exact) {
+      resultp->pval[kModelTestGeno] = Fisher23TwoSidedP(ctrl_a2a2, ctrl_a1a2, ctrl_a1a1, case_a2a2, case_a1a2, case_a1a1, fisher_midp);
+    } else {
+      double chisq;
+      uint32_t df;
+      Chi23Stat(ctrl_a2a2, ctrl_a1a2, ctrl_a1a1, case_a2a2, case_a1a2, case_a1a1, &chisq, &df);
+      if (df) {
+        resultp->chisq[kModelTestGeno] = chisq;
+        resultp->df[kModelTestGeno] = df;
+        resultp->pval[kModelTestGeno] = ChisqToP(chisq, df);
+      }
+    }
+  }
+  // ALLELIC, DOM and REC are all 2x2 tables; only the cells differ.
+  const uint32_t cells[3][4] = {
+    {2 * case_a1a1 + case_a1a2, 2 * case_a2a2 + case_a1a2, 2 * ctrl_a1a1 + ctrl_a1a2, 2 * ctrl_a2a2 + ctrl_a1a2},
+    {case_a1a1 + case_a1a2, case_a2a2, ctrl_a1a1 + ctrl_a1a2, ctrl_a2a2},
+    {case_a1a1, case_a1a2 + case_a2a2, ctrl_a1a1, ctrl_a1a2 + ctrl_a2a2}
+  };
+  for (uint32_t uii = 0; uii != 3; ++uii) {
+    const uint32_t test_idx = kModelTestAllelic + uii;
+    // The allelic test is on allele counts, so its table total is 2N.
+    const uint32_t is_allelic = (uii == 0);
+    if (small_cell && (!is_allelic)) {
+      continue;
+    }
+    const uint32_t case_n1 = cells[uii][0];
+    const uint32_t case_n2 = cells[uii][1];
+    const uint32_t ctrl_n1 = cells[uii][2];
+    const uint32_t ctrl_n2 = cells[uii][3];
+    if (use_exact) {
+      resultp->pval[test_idx] = Fisher22TwoSidedP(case_n1, case_n2, ctrl_n1, ctrl_n2, fisher_midp, 0);
+      continue;
+    }
+    const int64_t table_total = is_allelic? (2 * S_CAST(int64_t, obs_ct)) : S_CAST(int64_t, obs_ct);
+    const int64_t row1_sum = is_allelic? (2 * S_CAST(int64_t, case_obs_ct)) : S_CAST(int64_t, case_obs_ct);
+    const double chisq = Chi22Stat(case_n1, row1_sum, S_CAST(int64_t, case_n1) + ctrl_n1, table_total);
+    if (chisq != -1) {
+      resultp->chisq[test_idx] = chisq;
+      resultp->df[test_idx] = 1;
+      resultp->pval[test_idx] = ChisqToP(chisq, 1);
+    }
+  }
+}
+
+THREAD_FUNC_DECL ModelThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  ModelCtx* ctx = S_CAST(ModelCtx*, arg->sharedp->context);
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
+  const uintptr_t sample_ctaw2 = ctx->sample_ctaw2;
+  const uint32_t sample_ct = ctx->sample_ct;
+  const uint32_t case_ct = ctx->case_ct;
+  const uint32_t model_cell_ct = ctx->model_cell_ct;
+  const uint32_t use_exact = ctx->use_exact;
+  const uint32_t fisher_midp = ctx->fisher_midp;
+  const uint32_t trend_only = ctx->trend_only;
+  const uintptr_t* case_interleaved = ctx->case_interleaved;
+  do {
+    const uint32_t cur_block_size = ctx->cur_block_size;
+    // Variants are handed out round-robin rather than in contiguous chunks,
+    // since an exact test's cost varies by orders of magnitude between
+    // variants and a contiguous split would leave threads idle.
+    for (uint32_t vidx = tidx; vidx < cur_block_size; vidx += calc_thread_ct) {
+      ModelComputeVariant(&(ctx->genovecs[vidx * sample_ctaw2]), case_interleaved, sample_ct, case_ct, model_cell_ct, use_exact, fisher_midp, trend_only, &(ctx->results[vidx]));
+    }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+CONSTI32(kModelBlockSize, 8192);
+
+PglErr ModelReport(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t model_cell_ct, uint32_t max_thread_ct, PgenGlobalFlags gflags, ModelFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  ThreadGroup tg;
+  PreinitCstream(&css);
+  PreinitThreads(&tg);
+  PglErr reterr = kPglRetSuccess;
+  {
+    if (unlikely(IsSet(cip->haploid_mask, 0))) {
+      logerrputs("Error: --model cannot be used on haploid genomes.\n");
+      goto ModelReport_ret_INCONSISTENT_INPUT;
+    }
+    const PhenoCol* cc_pheno_col = nullptr;
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
+        cc_pheno_col = &(pheno_cols[pheno_idx]);
+        break;
+      }
+    }
+    if (unlikely(!cc_pheno_col)) {
+      logerrputs("Error: --model requires a case/control phenotype.\n");
+      goto ModelReport_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    const uintptr_t* cur_variant_include = variant_include;
+    const uint32_t non_autosomal_variant_ct = CountNonAutosomalVariants(variant_include, cip, 1, 1);
+    if (non_autosomal_variant_ct) {
+      uintptr_t* autosomal_variant_include;
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &autosomal_variant_include))) {
+        goto ModelReport_ret_NOMEM;
+      }
+      memcpy(autosomal_variant_include, variant_include, raw_variant_ctl * sizeof(intptr_t));
+      ExcludeNonAutosomalVariants(cip, autosomal_variant_include);
+      cur_variant_include = autosomal_variant_include;
+      variant_ct -= non_autosomal_variant_ct;
+      logprintf("Excluding %u variant%s on non-autosomes from --model analysis.\n", non_autosomal_variant_ct, (non_autosomal_variant_ct == 1)? "" : "s");
+      if (unlikely(!variant_ct)) {
+        logerrputs("Error: No variants remaining for --model analysis.\n");
+        goto ModelReport_ret_INCONSISTENT_INPUT;
+      }
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* sample_include;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include))) {
+      goto ModelReport_ret_NOMEM;
+    }
+    BitvecAndCopy(orig_sample_include, cc_pheno_col->nonmiss, raw_sample_ctl, sample_include);
+    const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+    if (unlikely(!sample_ct)) {
+      logerrputs("Error: --model requires at least one sample with a nonmissing case/control\nphenotype.\n");
+      goto ModelReport_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
+    const uintptr_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+    uint32_t* sample_include_cumulative_popcounts;
+    uintptr_t* case_collapsed;
+    uintptr_t* case_interleaved;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 bigstack_alloc_w(sample_ctl, &case_collapsed) ||
+                 bigstack_alloc_w(sample_ctv * kWordsPerVec, &case_interleaved))) {
+      goto ModelReport_ret_NOMEM;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    CopyBitarrSubset(cc_pheno_col->data.cc, sample_include, sample_ct, case_collapsed);
+    ZeroTrailingBits(sample_ct, case_collapsed);
+    const uint32_t case_ct = PopcountWords(case_collapsed, sample_ctl);
+    const uint32_t ctrl_ct = sample_ct - case_ct;
+    if (unlikely((!case_ct) || (!ctrl_ct))) {
+      logerrputs("Error: --model requires at least one case and one control.\n");
+      goto ModelReport_ret_INCONSISTENT_INPUT;
+    }
+    FillInterleavedMaskVec(case_collapsed, sample_ctv, case_interleaved);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+    const uint32_t is_fisher = (flags / kfModelFisher) & 1;
+    const uint32_t fisher_midp = (flags / kfModelFisherMidp) & 1;
+    const uint32_t use_exact = is_fisher || fisher_midp;
+    const uint32_t trend_only = (flags / kfModelTrendOnly) & 1;
+    const uint32_t output_zst = (flags / kfModelZs) & 1;
+    // PLINK 1.9's default is 5 for the chi-square tests and 0 for the exact
+    // ones, since the small-cell correction the threshold stands in for is
+    // exactly what an exact test does not need.
+    if (model_cell_ct == UINT32_MAX) {
+      model_cell_ct = use_exact? 0 : 5;
+    }
+
+    ModelCtx ctx;
+    uint32_t calc_thread_ct = max_thread_ct;
+    if (calc_thread_ct > variant_ct) {
+      calc_thread_ct = variant_ct;
+    }
+    if (!calc_thread_ct) {
+      calc_thread_ct = 1;
+    }
+    uint32_t block_size = MINV(variant_ct, kModelBlockSize);
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg) ||
+                 bigstack_alloc_w(block_size * sample_ctaw2, &ctx.genovecs))) {
+      goto ModelReport_ret_NOMEM;
+    }
+    {
+      ModelVariantResult* results;
+      if (unlikely(BIGSTACK_ALLOC_X(ModelVariantResult, block_size, &results))) {
+        goto ModelReport_ret_NOMEM;
+      }
+      ctx.results = results;
+    }
+    ctx.case_interleaved = case_interleaved;
+    ctx.sample_ct = sample_ct;
+    ctx.case_ct = case_ct;
+    ctx.model_cell_ct = model_cell_ct;
+    ctx.use_exact = use_exact;
+    ctx.fisher_midp = fisher_midp;
+    ctx.trend_only = trend_only;
+    ctx.sample_ctaw2 = sample_ctaw2;
+    ctx.cur_block_size = 0;
+    SetThreadFuncAndData(ModelThread, &ctx, &tg);
+
+    const uint32_t chr_col = flags & kfModelColChrom;
+    const uint32_t ref_col = flags & kfModelColRef;
+    const uint32_t alt1_col = flags & kfModelColAlt1;
+    const uint32_t alt_col = flags & kfModelColAlt;
+    const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    uint32_t provref_col = 0;
+    if (ref_col) {
+      if (flags & kfModelColProvref) {
+        provref_col = 1;
+      } else if (flags & kfModelColMaybeprovref) {
+        provref_col = all_nonref || (nonref_flags && (!IntersectionRangeIsEmpty(cur_variant_include, nonref_flags, 0, raw_variant_ct)));
+      }
+    }
+    const uint32_t a1_col = flags & kfModelColA1;
+    const uint32_t test_col = flags & kfModelColTest;
+    const uint32_t casects_col = flags & kfModelColCasects;
+    const uint32_t ctrlcts_col = flags & kfModelColCtrlcts;
+    // The exact tests have no test statistic to report, as in PLINK 1.x.
+    const uint32_t chisq_col = (flags & kfModelColChisq) && (!use_exact);
+    const uint32_t df_col = (flags & kfModelColDf) && (!use_exact);
+    const uint32_t p_col = flags & kfModelColP;
+
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    char* chr_buf;
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto ModelReport_ret_NOMEM;
+    }
+    OutnameZstSet(".model", output_zst, outname_end);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * S_CAST(uintptr_t, max_allele_slen) + max_chr_blen;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(1, max_thread_ct - 1), overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto ModelReport_ret_1;
+    }
+    *cswritep++ = '#';
+    if (chr_col) {
+      cswritep = strcpya_k(cswritep, "CHROM\t");
+    }
+    if (flags & kfModelColPos) {
+      cswritep = strcpya_k(cswritep, "POS\t");
+    } else {
+      variant_bps = nullptr;
+    }
+    cswritep = strcpya_k(cswritep, "ID");
+    if (ref_col) {
+      cswritep = strcpya_k(cswritep, "\tREF");
+    }
+    if (alt1_col) {
+      cswritep = strcpya_k(cswritep, "\tALT1");
+    }
+    if (alt_col) {
+      cswritep = strcpya_k(cswritep, "\tALT");
+    }
+    if (provref_col) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+    }
+    if (a1_col) {
+      cswritep = strcpya_k(cswritep, "\tA1");
+    }
+    if (test_col) {
+      cswritep = strcpya_k(cswritep, "\tTEST");
+    }
+    if (casects_col) {
+      cswritep = strcpya_k(cswritep, "\tCASE_CTS");
+    }
+    if (ctrlcts_col) {
+      cswritep = strcpya_k(cswritep, "\tCTRL_CTS");
+    }
+    if (chisq_col) {
+      cswritep = strcpya_k(cswritep, "\tCHISQ");
+    }
+    if (df_col) {
+      cswritep = strcpya_k(cswritep, "\tDF");
+    }
+    if (p_col) {
+      cswritep = strcpya_k(cswritep, "\tP");
+    }
+    AppendBinaryEoln(&cswritep);
+    logprintf("--model%s: %u case%s, %u control%s.\n", use_exact? (fisher_midp? " fisher-midp" : " fisher") : "", case_ct, (case_ct == 1)? "" : "s", ctrl_ct, (ctrl_ct == 1)? "" : "s");
+
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t chr_blen = 0;
+    uintptr_t write_variant_uidx_base = 0;
+    uintptr_t write_variant_include_bits = cur_variant_include[0];
+    uintptr_t read_variant_uidx_base = 0;
+    uintptr_t read_variant_include_bits = cur_variant_include[0];
+    uint32_t variants_completed = 0;
+    fputs("--model: 0%", stdout);
+    fflush(stdout);
+    uint32_t pct = 0;
+    uint32_t next_print_idx = variant_ct / 100;
+    while (variants_completed != variant_ct) {
+      const uint32_t cur_block_size = MINV(variant_ct - variants_completed, block_size);
+      for (uint32_t vidx = 0; vidx != cur_block_size; ++vidx) {
+        const uint32_t variant_uidx = BitIter1(cur_variant_include, &read_variant_uidx_base, &read_variant_include_bits);
+        // Multiallelic variants are collapsed to REF vs. non-REF, so A1
+        // covers every ALT allele at once.
+        uintptr_t* cur_genovec = &(ctx.genovecs[vidx * sample_ctaw2]);
+        reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, cur_genovec);
+        if (unlikely(reterr)) {
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto ModelReport_ret_1;
+        }
+        ZeroTrailingNyps(sample_ct, cur_genovec);
+      }
+      ctx.cur_block_size = cur_block_size;
+      if (variants_completed + cur_block_size == variant_ct) {
+        DeclareLastThreadBlock(&tg);
+      }
+      if (unlikely(SpawnThreads(&tg))) {
+        goto ModelReport_ret_THREAD_CREATE_FAIL;
+      }
+      JoinThreads(&tg);
+
+      for (uint32_t vidx = 0; vidx != cur_block_size; ++vidx) {
+        const uint32_t variant_uidx = BitIter1(cur_variant_include, &write_variant_uidx_base, &write_variant_include_bits);
+        if (variant_uidx >= chr_end) {
+          do {
+            ++chr_fo_idx;
+            chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          } while (variant_uidx >= chr_end);
+          const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+          char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
+          *chr_name_end++ = '\t';
+          chr_blen = chr_name_end - chr_buf;
+        }
+        const ModelVariantResult* resultp = &(ctx.results[vidx]);
+        const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx);
+        const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+        const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+        for (uint32_t test_idx = 0; test_idx != 5; ++test_idx) {
+          if (trend_only && (test_idx != kModelTestTrend)) {
+            continue;
+          }
+          // Case counts, then control counts, in the units this test uses.
+          uint32_t counts[2][3];
+          uint32_t count_ct = 2;
+          for (uint32_t row = 0; row != 2; ++row) {
+            const uint32_t* cts = row? resultp->ctrl_cts : resultp->case_cts;
+            switch (test_idx) {
+            case kModelTestGeno:
+              counts[row][0] = cts[0];
+              counts[row][1] = cts[1];
+              counts[row][2] = cts[2];
+              count_ct = 3;
+              break;
+            case kModelTestTrend:
+            case kModelTestAllelic:
+              counts[row][0] = 2 * cts[0] + cts[1];
+              counts[row][1] = 2 * cts[2] + cts[1];
+              break;
+            case kModelTestDom:
+              counts[row][0] = cts[0] + cts[1];
+              counts[row][1] = cts[2];
+              break;
+            default:
+              assert(test_idx == kModelTestRec);
+              counts[row][0] = cts[0];
+              counts[row][1] = cts[1] + cts[2];
+              break;
+            }
+          }
+
+          if (chr_col) {
+            cswritep = memcpya(cswritep, chr_buf, chr_blen);
+          }
+          if (variant_bps) {
+            cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+          }
+          cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+          if (ref_col) {
+            *cswritep++ = '\t';
+            cswritep = strcpya(cswritep, cur_alleles[0]);
+          }
+          if (alt1_col) {
+            *cswritep++ = '\t';
+            cswritep = strcpya(cswritep, cur_alleles[1]);
+          }
+          if (alt_col || a1_col) {
+            for (uint32_t rep = 0; rep != 1u + (alt_col && a1_col); ++rep) {
+              *cswritep++ = '\t';
+              for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+                if (unlikely(Cswrite(&css, &cswritep))) {
+                  goto ModelReport_ret_WRITE_FAIL;
+                }
+                cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+              }
+              --cswritep;
+            }
+          }
+          if (provref_col) {
+            *cswritep++ = '\t';
+            *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+          }
+          if (test_col) {
+            *cswritep++ = '\t';
+            cswritep = strcpya(cswritep, kModelTestNames[test_idx]);
+          }
+          for (uint32_t row = 0; row != 2; ++row) {
+            if (!(row? ctrlcts_col : casects_col)) {
+              continue;
+            }
+            *cswritep++ = '\t';
+            for (uint32_t uii = 0; uii != count_ct; ++uii) {
+              if (uii) {
+                *cswritep++ = '/';
+              }
+              cswritep = u32toa(counts[row][uii], cswritep);
+            }
+          }
+          const uint32_t df = resultp->df[test_idx];
+          if (chisq_col) {
+            *cswritep++ = '\t';
+            if (df) {
+              cswritep = dtoa_g(resultp->chisq[test_idx], cswritep);
+            } else {
+              cswritep = strcpya_k(cswritep, "NA");
+            }
+          }
+          if (df_col) {
+            *cswritep++ = '\t';
+            if (df) {
+              cswritep = u32toa(df, cswritep);
+            } else {
+              cswritep = strcpya_k(cswritep, "NA");
+            }
+          }
+          if (p_col) {
+            *cswritep++ = '\t';
+            if (resultp->pval[test_idx] >= 0.0) {
+              cswritep = dtoa_g(resultp->pval[test_idx], cswritep);
+            } else {
+              cswritep = strcpya_k(cswritep, "NA");
+            }
+          }
+          AppendBinaryEoln(&cswritep);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto ModelReport_ret_WRITE_FAIL;
+          }
+        }
+        if (variants_completed + vidx >= next_print_idx) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          pct = ((variants_completed + vidx) * 100LLU) / variant_ct;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          next_print_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        }
+      }
+      variants_completed += cur_block_size;
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto ModelReport_ret_WRITE_FAIL;
+    }
+    putc_unlocked('\r', stdout);
+    logprintfww("--model report written to %s .\n", outname);
+  }
+  while (0) {
+  ModelReport_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ModelReport_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  ModelReport_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  ModelReport_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ ModelReport_ret_1:
+  CleanupThreads(&tg);
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, HetFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;

@@ -2280,6 +2280,596 @@ double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp
 // constant to be compatible with them doesn't cost us anything.)
 static const double kExactTestBias = k2m50 / (1LL << 33);
 
+static const double kFisherEpsilon = 1.0 / (1LL << 40);
+
+// Walks one tail of the 2x3 table lattice at fixed m11/m21, from the table
+// base_probp refers to out to the floating-point precision limit, and returns
+// the tail mass in totalp.  right_side selects which of the two directions
+// (m12 vs. m13 within the row) is walked.
+//
+// Returns 1 when the walk found that the whole row is more probable than the
+// observed table, which tells the caller to stop expanding in this direction.
+uint32_t Fisher23Tailsum(double* base_probp, double* saved12p, double* saved13p, double* saved22p, double* saved23p, double* totalp, uint32_t* tie_ctp, uint32_t right_side) {
+  double total = 0;
+  double cur_prob = *base_probp;
+  double tmp12 = *saved12p;
+  double tmp13 = *saved13p;
+  double tmp22 = *saved22p;
+  double tmp23 = *saved23p;
+  double tmps12;
+  double tmps13;
+  double tmps22;
+  double tmps23;
+  double prev_prob;
+  // identify beginning of tail
+  if (right_side) {
+    if (cur_prob > kExactTestBias) {
+      prev_prob = tmp13 * tmp22;
+      while (prev_prob > 0.5) {
+        tmp12 += 1;
+        tmp23 += 1;
+        cur_prob *= prev_prob / (tmp12 * tmp23);
+        tmp13 -= 1;
+        tmp22 -= 1;
+        if (cur_prob <= kExactTestBias) {
+          break;
+        }
+        prev_prob = tmp13 * tmp22;
+      }
+      *base_probp = cur_prob;
+      tmps12 = tmp12;
+      tmps13 = tmp13;
+      tmps22 = tmp22;
+      tmps23 = tmp23;
+    } else {
+      tmps12 = tmp12;
+      tmps13 = tmp13;
+      tmps22 = tmp22;
+      tmps23 = tmp23;
+      while (1) {
+        prev_prob = cur_prob;
+        tmp13 += 1;
+        tmp22 += 1;
+        cur_prob *= (tmp12 * tmp23) / (tmp13 * tmp22);
+        if (cur_prob < prev_prob) {
+          return 1;
+        }
+        tmp12 -= 1;
+        tmp23 -= 1;
+        if (cur_prob > (1 - 2 * kFisherEpsilon) * kExactTestBias) {
+          // The extra (1 - kSmallEpsilon) multiplier keeps rounding error from
+          // letting this run on after the left-side walk has already stopped.
+          if (cur_prob > (1 - kSmallEpsilon) * kExactTestBias) {
+            break;
+          }
+          *tie_ctp += 1;
+        }
+        total += cur_prob;
+      }
+      prev_prob = cur_prob;
+      cur_prob = *base_probp;
+      *base_probp = prev_prob;
+    }
+  } else {
+    if (cur_prob > kExactTestBias) {
+      prev_prob = tmp12 * tmp23;
+      while (prev_prob > 0.5) {
+        tmp13 += 1;
+        tmp22 += 1;
+        cur_prob *= prev_prob / (tmp13 * tmp22);
+        tmp12 -= 1;
+        tmp23 -= 1;
+        if (cur_prob <= kExactTestBias) {
+          break;
+        }
+        prev_prob = tmp12 * tmp23;
+      }
+      *base_probp = cur_prob;
+      tmps12 = tmp12;
+      tmps13 = tmp13;
+      tmps22 = tmp22;
+      tmps23 = tmp23;
+    } else {
+      tmps12 = tmp12;
+      tmps13 = tmp13;
+      tmps22 = tmp22;
+      tmps23 = tmp23;
+      while (1) {
+        prev_prob = cur_prob;
+        tmp12 += 1;
+        tmp23 += 1;
+        cur_prob *= (tmp13 * tmp22) / (tmp12 * tmp23);
+        if (cur_prob < prev_prob) {
+          return 1;
+        }
+        tmp13 -= 1;
+        tmp22 -= 1;
+        if (cur_prob > (1 - 2 * kFisherEpsilon) * kExactTestBias) {
+          if (cur_prob > kExactTestBias) {
+            break;
+          }
+          *tie_ctp += 1;
+        }
+        total += cur_prob;
+      }
+      prev_prob = cur_prob;
+      cur_prob = *base_probp;
+      *base_probp = prev_prob;
+    }
+  }
+  *saved12p = tmp12;
+  *saved13p = tmp13;
+  *saved22p = tmp22;
+  *saved23p = tmp23;
+  if (cur_prob > (1 - 2 * kFisherEpsilon) * kExactTestBias) {
+    if (cur_prob > kExactTestBias) {
+      // even most extreme table on this side is too probable
+      *totalp = 0;
+      return 0;
+    }
+    *tie_ctp += 1;
+  }
+  // sum tail to floating point precision limit
+  if (right_side) {
+    prev_prob = total;
+    total += cur_prob;
+    while (total > prev_prob) {
+      tmps12 += 1;
+      tmps23 += 1;
+      cur_prob *= (tmps13 * tmps22) / (tmps12 * tmps23);
+      tmps13 -= 1;
+      tmps22 -= 1;
+      prev_prob = total;
+      total += cur_prob;
+    }
+  } else {
+    prev_prob = total;
+    total += cur_prob;
+    while (total > prev_prob) {
+      tmps13 += 1;
+      tmps22 += 1;
+      cur_prob *= (tmps12 * tmps23) / (tmps13 * tmps22);
+      tmps12 -= 1;
+      tmps23 -= 1;
+      prev_prob = total;
+      total += cur_prob;
+    }
+  }
+  *totalp = total;
+  return 0;
+}
+
+// 2x2 chi-square statistic from one cell and the margins.  Returns -1 when a
+// row or column sum is zero, i.e. when the statistic is undefined; PLINK 1.9
+// returns -9 for the same case.
+double Chi22Stat(int64_t m11, int64_t row1_sum, int64_t col1_sum, int64_t total) {
+  const double expm11_numer = S_CAST(double, row1_sum) * S_CAST(double, col1_sum);
+  const double denom = expm11_numer * (S_CAST(double, total - row1_sum) * S_CAST(double, total - col1_sum));
+  if (denom == 0.0) {
+    return -1;
+  }
+  const double totald = total;
+  // total * (m11 - expected m11)
+  const double delta = m11 * totald - expm11_numer;
+  return (delta * delta * totald) / denom;
+}
+
+// 2x3 chi-square.  An all-zero column reduces this to the 2x2 statistic on the
+// remaining two, which is why the degrees of freedom are an output; *dfp is 0
+// when the statistic is undefined.
+void Chi23Stat(int64_t m11, int64_t m12, int64_t m13, int64_t m21, int64_t m22, int64_t m23, double* chisq_ptr, uint32_t* dfp) {
+  const int64_t row1_sum = m11 + m12 + m13;
+  const int64_t row2_sum = m21 + m22 + m23;
+  if ((!row1_sum) || (!row2_sum)) {
+    *chisq_ptr = -1;
+    *dfp = 0;
+    return;
+  }
+  const int64_t col1_sum = m11 + m21;
+  const int64_t col2_sum = m12 + m22;
+  const int64_t col3_sum = m13 + m23;
+  const int64_t total = row1_sum + row2_sum;
+  if (!col1_sum) {
+    *chisq_ptr = Chi22Stat(m12, row1_sum, col2_sum, total);
+    *dfp = (*chisq_ptr != -1);
+    return;
+  }
+  if ((!col2_sum) || (!col3_sum)) {
+    *chisq_ptr = Chi22Stat(m11, row1_sum, col1_sum, total);
+    *dfp = (*chisq_ptr != -1);
+    return;
+  }
+  const double col1_sumd = col1_sum;
+  const double col2_sumd = col2_sum;
+  const double col3_sumd = col3_sum;
+  const double tot_recip = 1.0 / u63tod(total);
+  double dxx = row1_sum * tot_recip;
+  double expect = dxx * col1_sumd;
+  double delta = m11 - expect;
+  double chisq = delta * delta / expect;
+  expect = dxx * col2_sumd;
+  delta = m12 - expect;
+  chisq += delta * delta / expect;
+  expect = dxx * col3_sumd;
+  delta = m13 - expect;
+  chisq += delta * delta / expect;
+  dxx = row2_sum * tot_recip;
+  expect = dxx * col1_sumd;
+  delta = m21 - expect;
+  chisq += delta * delta / expect;
+  expect = dxx * col2_sumd;
+  delta = m22 - expect;
+  chisq += delta * delta / expect;
+  expect = dxx * col3_sumd;
+  delta = m23 - expect;
+  chisq += delta * delta / expect;
+  if (chisq < (kSmallEpsilon * kSmallEpsilon)) {
+    chisq = 0;
+  }
+  *chisq_ptr = chisq;
+  *dfp = 2;
+}
+
+// Cochran-Armitage trend statistic.  case_a2_ct is an allele count
+// (2 * case hom-A2 + case het); the rest are observation counts.  Returns -1
+// when two of the genotype columns are empty, which leaves no trend to test.
+double CaTrendStat(int64_t case_a2_ct, int64_t case_ct, int64_t het_ct, int64_t homa2_ct, int64_t total) {
+  const double a2_ct = het_ct + 2 * S_CAST(double, homa2_ct);
+  const double totald = total;
+  const double case_ctd = case_ct;
+  const double cat = case_a2_ct * totald - a2_ct * case_ctd;
+  double denom = totald * (het_ct + 4 * S_CAST(double, homa2_ct)) - a2_ct * a2_ct;
+  if (denom == 0.0) {
+    return -1;
+  }
+  denom *= case_ctd * (totald - case_ctd);
+  return cat * cat * totald / denom;
+}
+
+double Fisher23TwoSidedP(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t m22, uint32_t m23, uint32_t midp) {
+  // 2x3 Fisher-Freeman-Halton exact test p-value.
+  //
+  // The table count is small enough here that the network algorithm (and the
+  // improved variants of it I have seen) is beaten by a 2-dimensional version
+  // of the SNPHWE2 strategy: walk outward from the mode along both free
+  // dimensions, summing until the terms stop changing the running total.
+  // Complexity is O(n^{df/2}) in the observation count.
+  //
+  // Ported from PLINK 1.9's fisher23(), constants included, so the two agree
+  // bit-for-bit.
+  double cur_prob = (1 - kFisherEpsilon) * kExactTestBias;
+  double tprob = cur_prob;
+  double cprob = 0;
+  double dyy = 0;
+  uint32_t tie_ct = 1;
+  double base_probl;
+  double base_probr;
+  double savedl12;
+  double savedl13;
+  double savedl22;
+  double savedl23;
+  double savedr12;
+  double savedr13;
+  double savedr22;
+  double savedr23;
+  double tmp12;
+  double tmp13;
+  double tmp22;
+  double tmp23;
+  double dxx;
+  double preaddp;
+  // Ensure m11 + m21 <= m12 + m22 <= m13 + m23.
+  uint32_t uii = m11 + m21;
+  uint32_t ujj = m12 + m22;
+  uint32_t ukk;
+  if (uii > ujj) {
+    ukk = m11;
+    m11 = m12;
+    m12 = ukk;
+    ukk = m21;
+    m21 = m22;
+    m22 = ukk;
+    ukk = uii;
+    uii = ujj;
+    ujj = ukk;
+  }
+  ukk = m13 + m23;
+  if (ujj > ukk) {
+    ujj = ukk;
+    ukk = m12;
+    m12 = m13;
+    m13 = ukk;
+    ukk = m22;
+    m22 = m23;
+    m23 = ukk;
+  }
+  if (uii > ujj) {
+    ukk = m11;
+    m11 = m12;
+    m12 = ukk;
+    ukk = m21;
+    m21 = m22;
+    m22 = ukk;
+  }
+  // Ensure majority of probability mass is in front of m11.
+  if ((S_CAST(uint64_t, m11) * (m22 + m23)) > (S_CAST(uint64_t, m21) * (m12 + m13))) {
+    ukk = m11;
+    m11 = m21;
+    m21 = ukk;
+    ukk = m12;
+    m12 = m22;
+    m22 = ukk;
+    ukk = m13;
+    m13 = m23;
+    m23 = ukk;
+  }
+  if ((S_CAST(uint64_t, m12) * m23) > (S_CAST(uint64_t, m13) * m22)) {
+    base_probr = cur_prob;
+    savedr12 = m12;
+    savedr13 = m13;
+    savedr22 = m22;
+    savedr23 = m23;
+    tmp12 = savedr12;
+    tmp13 = savedr13;
+    tmp22 = savedr22;
+    tmp23 = savedr23;
+    // m12 and m23 must be nonzero
+    dxx = tmp12 * tmp23;
+    do {
+      tmp13 += 1;
+      tmp22 += 1;
+      cur_prob *= dxx / (tmp13 * tmp22);
+      tmp12 -= 1;
+      tmp23 -= 1;
+      if (cur_prob <= kExactTestBias) {
+        if (cur_prob > (1 - 2 * kFisherEpsilon) * kExactTestBias) {
+          tie_ct++;
+        }
+        tprob += cur_prob;
+        break;
+      }
+      cprob += cur_prob;
+      if (cprob > DBL_MAX) {
+        return 0;
+      }
+      dxx = tmp12 * tmp23;
+      // must enforce tmp12 >= 0 and tmp23 >= 0 since we're saving these
+    } while (dxx > 0.5);
+    savedl12 = tmp12;
+    savedl13 = tmp13;
+    savedl22 = tmp22;
+    savedl23 = tmp23;
+    base_probl = cur_prob;
+    do {
+      tmp13 += 1;
+      tmp22 += 1;
+      cur_prob *= (tmp12 * tmp23) / (tmp13 * tmp22);
+      tmp12 -= 1;
+      tmp23 -= 1;
+      preaddp = tprob;
+      tprob += cur_prob;
+    } while (tprob > preaddp);
+    tmp12 = savedr12;
+    tmp13 = savedr13;
+    tmp22 = savedr22;
+    tmp23 = savedr23;
+    cur_prob = base_probr;
+    do {
+      tmp12 += 1;
+      tmp23 += 1;
+      cur_prob *= (tmp13 * tmp22) / (tmp12 * tmp23);
+      tmp13 -= 1;
+      tmp22 -= 1;
+      preaddp = tprob;
+      tprob += cur_prob;
+    } while (tprob > preaddp);
+  } else {
+    base_probl = cur_prob;
+    savedl12 = m12;
+    savedl13 = m13;
+    savedl22 = m22;
+    savedl23 = m23;
+    if (!((S_CAST(uint64_t, m12) * m23) + (S_CAST(uint64_t, m13) * m22))) {
+      base_probr = cur_prob;
+      savedr12 = savedl12;
+      savedr13 = savedl13;
+      savedr22 = savedl22;
+      savedr23 = savedl23;
+    } else {
+      tmp12 = savedl12;
+      tmp13 = savedl13;
+      tmp22 = savedl22;
+      tmp23 = savedl23;
+      dxx = tmp13 * tmp22;
+      do {
+        tmp12 += 1;
+        tmp23 += 1;
+        cur_prob *= dxx / (tmp12 * tmp23);
+        tmp13 -= 1;
+        tmp22 -= 1;
+        if (cur_prob <= kExactTestBias) {
+          if (cur_prob > (1 - 2 * kFisherEpsilon) * kExactTestBias) {
+            tie_ct++;
+          }
+          tprob += cur_prob;
+          break;
+        }
+        cprob += cur_prob;
+        if (cprob > DBL_MAX) {
+          return 0;
+        }
+        dxx = tmp13 * tmp22;
+      } while (dxx > 0.5);
+      savedr12 = tmp12;
+      savedr13 = tmp13;
+      savedr22 = tmp22;
+      savedr23 = tmp23;
+      base_probr = cur_prob;
+      do {
+        tmp12 += 1;
+        tmp23 += 1;
+        cur_prob *= (tmp13 * tmp22) / (tmp12 * tmp23);
+        tmp13 -= 1;
+        tmp22 -= 1;
+        preaddp = tprob;
+        tprob += cur_prob;
+      } while (tprob > preaddp);
+      tmp12 = savedl12;
+      tmp13 = savedl13;
+      tmp22 = savedl22;
+      tmp23 = savedl23;
+      cur_prob = base_probl;
+      do {
+        tmp13 += 1;
+        tmp22 += 1;
+        cur_prob *= (tmp12 * tmp23) / (tmp13 * tmp22);
+        tmp12 -= 1;
+        tmp23 -= 1;
+        preaddp = tprob;
+        tprob += cur_prob;
+      } while (tprob > preaddp);
+    }
+  }
+  double row_prob = tprob + cprob;
+  const double orig_base_probl = base_probl;
+  const double orig_base_probr = base_probr;
+  const double orig_row_prob = row_prob;
+  const double orig_savedl12 = savedl12;
+  const double orig_savedl13 = savedl13;
+  const double orig_savedl22 = savedl22;
+  const double orig_savedl23 = savedl23;
+  const double orig_savedr12 = savedr12;
+  const double orig_savedr13 = savedr13;
+  const double orig_savedr22 = savedr22;
+  const double orig_savedr23 = savedr23;
+  for (uint32_t dir = 0; dir != 2; ++dir) {
+    double cur11 = m11;
+    double cur21 = m21;
+    if (dir) {
+      base_probl = orig_base_probl;
+      base_probr = orig_base_probr;
+      row_prob = orig_row_prob;
+      savedl12 = orig_savedl12;
+      savedl13 = orig_savedl13;
+      savedl22 = orig_savedl22;
+      savedl23 = orig_savedl23;
+      savedr12 = orig_savedr12;
+      savedr13 = orig_savedr13;
+      savedr22 = orig_savedr22;
+      savedr23 = orig_savedr23;
+      ukk = m11;
+      if (ukk > m22 + m23) {
+        ukk = m22 + m23;
+      }
+    } else {
+      ukk = m21;
+      if (ukk > m12 + m13) {
+        ukk = m12 + m13;
+      }
+    }
+    ukk++;
+    while (--ukk) {
+      if (dir) {
+        cur21 += 1;
+        if (savedl23) {
+          savedl13 += 1;
+          row_prob *= (cur11 * (savedl22 + savedl23)) / (cur21 * (savedl12 + savedl13));
+          base_probl *= (cur11 * savedl23) / (cur21 * savedl13);
+          savedl23 -= 1;
+        } else {
+          savedl12 += 1;
+          row_prob *= (cur11 * (savedl22 + savedl23)) / (cur21 * (savedl12 + savedl13));
+          base_probl *= (cur11 * savedl22) / (cur21 * savedl12);
+          savedl22 -= 1;
+        }
+        cur11 -= 1;
+      } else {
+        cur11 += 1;
+        if (savedl12) {
+          savedl22 += 1;
+          row_prob *= (cur21 * (savedl12 + savedl13)) / (cur11 * (savedl22 + savedl23));
+          base_probl *= (cur21 * savedl12) / (cur11 * savedl22);
+          savedl12 -= 1;
+        } else {
+          savedl23 += 1;
+          row_prob *= (cur21 * (savedl12 + savedl13)) / (cur11 * (savedl22 + savedl23));
+          base_probl *= (cur21 * savedl13) / (cur11 * savedl23);
+          savedl13 -= 1;
+        }
+        cur21 -= 1;
+      }
+      if (Fisher23Tailsum(&base_probl, &savedl12, &savedl13, &savedl22, &savedl23, &dxx, &tie_ct, 0)) {
+        break;
+      }
+      tprob += dxx;
+      if (dir) {
+        if (savedr22) {
+          savedr12 += 1;
+          base_probr *= ((cur11 + 1) * savedr22) / (cur21 * savedr12);
+          savedr22 -= 1;
+        } else {
+          savedr13 += 1;
+          base_probr *= ((cur11 + 1) * savedr23) / (cur21 * savedr13);
+          savedr23 -= 1;
+        }
+      } else {
+        if (savedr13) {
+          savedr23 += 1;
+          base_probr *= ((cur21 + 1) * savedr13) / (cur11 * savedr23);
+          savedr13 -= 1;
+        } else {
+          savedr22 += 1;
+          base_probr *= ((cur21 + 1) * savedr12) / (cur11 * savedr22);
+          savedr12 -= 1;
+        }
+      }
+      Fisher23Tailsum(&base_probr, &savedr12, &savedr13, &savedr22, &savedr23, &dyy, &tie_ct, 1);
+      tprob += dyy;
+      cprob += row_prob - dxx - dyy;
+      if (cprob > DBL_MAX) {
+        return 0;
+      }
+    }
+    if (!ukk) {
+      continue;
+    }
+    savedl12 += savedl13;
+    savedl22 += savedl23;
+    if (dir) {
+      while (1) {
+        preaddp = tprob;
+        tprob += row_prob;
+        if (tprob <= preaddp) {
+          break;
+        }
+        cur21 += 1;
+        savedl12 += 1;
+        row_prob *= (cur11 * savedl22) / (cur21 * savedl12);
+        cur11 -= 1;
+        savedl22 -= 1;
+      }
+    } else {
+      while (1) {
+        preaddp = tprob;
+        tprob += row_prob;
+        if (tprob <= preaddp) {
+          break;
+        }
+        cur11 += 1;
+        savedl22 += 1;
+        row_prob *= (cur21 * savedl12) / (cur11 * savedl22);
+        cur21 -= 1;
+        savedl12 -= 1;
+      }
+    }
+  }
+  if (!midp) {
+    return tprob / (tprob + cprob);
+  }
+  return (tprob - ((1 - kFisherEpsilon) * kExactTestBias * 0.5) * u31tod(tie_ct)) / (tprob + cprob);
+}
+
+
 uint32_t HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double pval_thresh) {
   // Threshold-test-only version of HweLnP() which is usually able to exit
   // from the calculation earlier.  Assumes DBL_MIN <= pval_thresh <= 1 (note

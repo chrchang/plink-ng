@@ -55,6 +55,19 @@ HEADER_INLINE double ZscoreToLnP(double zz) {
 
 double Fisher22TwoSidedP(int64_t obs_m11, int64_t obs_m12, int64_t obs_m21, int64_t obs_m22, int32_t midp, uint32_t logp);
 
+// Contingency-table statistics for the classic association tests.  Each
+// returns -1 (and Chi23Stat sets *dfp to 0) when the statistic is undefined
+// because a row or column sum is zero.
+double Chi22Stat(int64_t m11, int64_t row1_sum, int64_t col1_sum, int64_t total);
+
+void Chi23Stat(int64_t m11, int64_t m12, int64_t m13, int64_t m21, int64_t m22, int64_t m23, double* chisq_ptr, uint32_t* dfp);
+
+double CaTrendStat(int64_t case_a2_ct, int64_t case_ct, int64_t het_ct, int64_t homa2_ct, int64_t total);
+
+// 2x3 Fisher-Freeman-Halton exact test.  Rows are the two groups being
+// compared, columns the three categories.
+double Fisher23TwoSidedP(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t m22, uint32_t m23, uint32_t midp);
+
 // HweP() has been replaced by HweLnP().  HweThresh() and HweThreshMidp() have
 // been replaced by HweThreshLn().
 double HweLnP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, int32_t midp);
