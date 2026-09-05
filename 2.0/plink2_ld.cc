@@ -2558,12 +2558,12 @@ static double IndepVifCorr(const uintptr_t* pos_bvs, const uintptr_t* neg_bvs, c
     uintptr_t agree = 0;
     uintptr_t disagree = 0;
     for (uint32_t widx = 0; widx != founder_ctl; ++widx) {
-      const uintptr_t pi = pos_i[widx];
-      const uintptr_t ni = neg_i[widx];
-      const uintptr_t pj = pos_j[widx];
-      const uintptr_t nj = neg_j[widx];
-      agree += PopcountWord((pi & pj) | (ni & nj));
-      disagree += PopcountWord((pi & nj) | (ni & pj));
+      const uintptr_t p_i = pos_i[widx];
+      const uintptr_t n_i = neg_i[widx];
+      const uintptr_t p_j = pos_j[widx];
+      const uintptr_t n_j = neg_j[widx];
+      agree += PopcountWord((p_i & p_j) | (n_i & n_j));
+      disagree += PopcountWord((p_i & n_j) | (n_i & p_j));
     }
     const int64_t dotprod = S_CAST(int64_t, agree) - S_CAST(int64_t, disagree);
     const double cov12 = S_CAST(double, dotprod) * S_CAST(double, S_CAST(int64_t, founder_ct)) - S_CAST(double, sums[ii]) * S_CAST(double, sums[jj]);
@@ -2580,16 +2580,16 @@ static double IndepVifCorr(const uintptr_t* pos_bvs, const uintptr_t* neg_bvs, c
   uintptr_t nm_ct_acc = 0;
   for (uint32_t widx = 0; widx != founder_ctl; ++widx) {
     const uintptr_t both_nm = nm_i[widx] & nm_j[widx];
-    const uintptr_t pi = pos_i[widx] & both_nm;
-    const uintptr_t ni = neg_i[widx] & both_nm;
-    const uintptr_t pj = pos_j[widx] & both_nm;
-    const uintptr_t nj = neg_j[widx] & both_nm;
-    agree += PopcountWord((pi & pj) | (ni & nj));
-    disagree += PopcountWord((pi & nj) | (ni & pj));
-    pos_i_ct += PopcountWord(pi);
-    neg_i_ct += PopcountWord(ni);
-    pos_j_ct += PopcountWord(pj);
-    neg_j_ct += PopcountWord(nj);
+    const uintptr_t p_i = pos_i[widx] & both_nm;
+    const uintptr_t n_i = neg_i[widx] & both_nm;
+    const uintptr_t p_j = pos_j[widx] & both_nm;
+    const uintptr_t n_j = neg_j[widx] & both_nm;
+    agree += PopcountWord((p_i & p_j) | (n_i & n_j));
+    disagree += PopcountWord((p_i & n_j) | (n_i & p_j));
+    pos_i_ct += PopcountWord(p_i);
+    neg_i_ct += PopcountWord(n_i);
+    pos_j_ct += PopcountWord(p_j);
+    neg_j_ct += PopcountWord(n_j);
     nm_ct_acc += PopcountWord(both_nm);
   }
   const uint32_t nm_ct = nm_ct_acc;

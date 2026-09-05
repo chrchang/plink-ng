@@ -90,7 +90,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-b.1"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (4 Sep 2026)";
+  " (5 Sep 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -192,7 +192,7 @@ FLAGSET64_DEF_END(FilterFlags);
 
 // Bit indices are self-numbering, so two branches that each append a
 // command get distinct bits from a merge that simply keeps both lines.
-enum Command1BitIdx {
+ENUM_U31_DEF_START()
   kCmd1BitMakePlink2,
   kCmd1BitExportf,
   kCmd1BitMakeKing,
@@ -228,7 +228,7 @@ enum Command1BitIdx {
   kCmd1BitMendelReport,
   kCmd1BitLdScore,
   kCmd1BitCt
-};
+ENUM_U31_DEF_END(Command1BitIdx);
 
 FLAGSET64_DEF_START()
   kfCommand10,
