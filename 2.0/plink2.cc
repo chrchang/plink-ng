@@ -227,6 +227,7 @@ ENUM_U31_DEF_START()
   kCmd1BitCheckOrImputeSex,
   kCmd1BitMendelReport,
   kCmd1BitLdScore,
+  kCmd1BitGenome,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -265,7 +266,8 @@ FLAGSET64_DEF_START()
   kfCommand1PhenoSvd = (1LLU << kCmd1BitPhenoSvd),
   kfCommand1CheckOrImputeSex = (1LLU << kCmd1BitCheckOrImputeSex),
   kfCommand1MendelReport = (1LLU << kCmd1BitMendelReport),
-  kfCommand1LdScore = (1LLU << kCmd1BitLdScore)
+  kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
+  kfCommand1Genome = (1LLU << kCmd1BitGenome)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -462,6 +464,7 @@ typedef struct Plink2CmdlineStruct {
   GwasSsfInfo gwas_ssf_info;
   ClumpInfo clump_info;
   VcorInfo vcor_info;
+  GenomeInfo genome_info;
   LdScoreInfo ld_score_info;
   PhenoSvdInfo pheno_svd_info;
   CheckSexInfo check_sex_info;
@@ -597,7 +600,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1Genome)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -607,7 +610,7 @@ uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Fl
 
 uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags check_sex_flags, HetFlags het_flags, ScoreFlags score_flags) {
   // Keep this in sync with --error-on-freq-calc.
-  return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel)) ||
+  return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel | kfCommand1Genome)) ||
     (check_sex_flags & kfCheckSexUseX) ||
     ((command_flags1 & kfCommand1Score) && ((!(score_flags & kfScoreNoMeanimpute)) || (score_flags & (kfScoreCenter | kfScoreVarianceStandardize)))) ||
     ((command_flags1 & kfCommand1Het) && (!(het_flags & kfHetSmallSample)));
@@ -2661,6 +2664,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
       }
+      if (pcp->command_flags1 & kfCommand1Genome) {
+        if (unlikely((pcp->genome_info.flags & (kfGenomeColPpc | kfGenomeColRatio)) && (vpos_sortstatus & kfUnsortedVarBp))) {
+          logerrputs("Error: --genome's PPC test requires a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data, or drop the\nppc and ratio columns.\n");
+          reterr = kPglRetInconsistentInput;
+          goto Plink2Core_ret_1;
+        }
+        reterr = CalcGenome(sample_include, &pii, founder_info, pheno_cols, variant_include, cip, variant_bps, allele_idx_offsets, allele_freqs, &(pcp->genome_info), raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, (pcp->misc_flags / kfMiscNonfounders) & 1, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
       if ((pcp->command_flags1 & kfCommand1MakeRel) || keep_grm) {
         reterr = CalcGrm(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->grm_flags, pcp->grm_sparse_cutoff, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
         if (unlikely(reterr)) {
@@ -3825,6 +3839,7 @@ int main(int argc, char** argv) {
   InitGwasSsf(&pc.gwas_ssf_info);
   InitClump(&pc.clump_info);
   InitVcor(&pc.vcor_info);
+  InitGenome(&pc.genome_info);
   InitLdScore(&pc.ld_score_info);
   InitPhenoSvd(&pc.pheno_svd_info);
   InitCheckSex(&pc.check_sex_info);
@@ -6755,6 +6770,65 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1GenoCounts;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "enome")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.genome_info.flags |= kfGenomeZs;
+            } else if (strequal_k(cur_modif, "unbounded", cur_modif_slen)) {
+              pc.genome_info.flags |= kfGenomeUnbounded;
+            } else if (strequal_k(cur_modif, "nudge", cur_modif_slen)) {
+              pc.genome_info.flags |= kfGenomeNudge;
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              if (unlikely(pc.genome_info.flags & kfGenomeColAll)) {
+                logerrputs("Error: Multiple --genome cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0id\0maybesid\0sid\0rt\0z\0pihat\0phe\0dst\0nsnp\0ibs\0homhom\0hethet\0ppc\0ratio\0", "genome", kfGenomeColMaybefid, kfGenomeColDefault, 1, &pc.genome_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --genome argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (!(pc.genome_info.flags & kfGenomeColAll)) {
+            pc.genome_info.flags |= kfGenomeColDefault;
+          }
+          if (unlikely((pc.genome_info.flags & kfGenomeNudge) && (pc.genome_info.flags & kfGenomeUnbounded))) {
+            logerrputs("Error: --genome 'nudge' cannot be used with 'unbounded'.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.command_flags1 |= kfCommand1Genome;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "enome-min-pi-hat")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx > 1.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --genome-min-pi-hat argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.genome_info.min_pi_hat = dxx;
+        } else if (strequal_k_unsafe(flagname_p2, "enome-max-pi-hat")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx > 1.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --genome-max-pi-hat argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.genome_info.max_pi_hat = dxx;
+        } else if (strequal_k_unsafe(flagname_p2, "enome-full")) {
+          logerrputs("Error: --genome-full is retired.  Use \"--genome cols=\" instead; note that its\nhomhom/hethet columns are raw counts, since the PPC test is not implemented\nyet.\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "lm")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 24))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -9633,6 +9707,9 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.keep_col_match_num = mfilter_arg + 2;
+        } else if (strequal_k_unsafe(flagname_p2, "ax")) {
+          logerrputs("Error: --max is retired.  Use --genome-max-pi-hat instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "ax-alleles")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -9644,6 +9721,9 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.load_filter_log_flags |= kfLoadFilterLogMaxAlleles;
+        } else if (strequal_k_unsafe(flagname_p2, "in")) {
+          logerrputs("Error: --min is retired.  Use --genome-min-pi-hat instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "in-alleles")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -10039,6 +10119,9 @@ int main(int argc, char** argv) {
           }
           pc.misc_flags |= kfMiscNonfounders;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "udge")) {
+          logerrputs("Error: --nudge is retired.  Use --genome's 'nudge' modifier instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "ot-chr")) {
           if (unlikely(pc.varid_from)) {
             logerrputs("Error: --from/--to cannot be used with --autosome[-par] or --[not-]chr.\n");
@@ -10382,6 +10465,16 @@ int main(int argc, char** argv) {
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "pc-gap")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0) || (dxx > 2147483.647))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --ppc-gap argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.genome_info.ppc_gap = S_CAST(uint32_t, dxx * 1000 * (1 + kSmallEpsilon));
         } else if (strequal_k_unsafe(flagname_p2, "arallel")) {
           if (unlikely(pc.king_flags & kfKingMatrixSq)) {
             logerrputs("Error: --parallel cannot be used with \"--make-king square\".  Use \"--make-king\nsquare0\" or plain --make-king instead.\n");
@@ -12441,7 +12534,10 @@ int main(int argc, char** argv) {
         break;
 
       case 'u':
-        if (strequal_k_unsafe(flagname_p2, "pdate-sex")) {
+        if (strequal_k_unsafe(flagname_p2, "nbounded")) {
+          logerrputs("Error: --unbounded is retired.  Use --genome's 'unbounded' modifier instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        } else if (strequal_k_unsafe(flagname_p2, "pdate-sex")) {
           if (unlikely(pc.update_sample_ids_fname)) {
             logerrputs("Error: --update-sex cannot be used with --update-ids.\n");
             goto main_ret_INVALID_CMDLINE_A;

@@ -225,6 +225,43 @@ PglErr KingCutoffBatchBinary(const SampleIdInfo* siip, uint32_t raw_sample_ct, d
 
 PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 
+FLAGSET_DEF_START()
+  kfGenome0,
+  kfGenomeZs = (1 << 0),
+  kfGenomeUnbounded = (1 << 1),
+  kfGenomeNudge = (1 << 2),
+
+  kfGenomeColMaybefid = (1 << 3),
+  kfGenomeColFid = (1 << 4),
+  kfGenomeColId = (1 << 5),
+  kfGenomeColMaybesid = (1 << 6),
+  kfGenomeColSid = (1 << 7),
+  kfGenomeColRt = (1 << 8),
+  kfGenomeColZ = (1 << 9),
+  kfGenomeColPihat = (1 << 10),
+  kfGenomeColPhe = (1 << 11),
+  kfGenomeColDst = (1 << 12),
+  kfGenomeColNsnp = (1 << 13),
+  kfGenomeColIbs = (1 << 14),
+  kfGenomeColHomhom = (1 << 15),
+  kfGenomeColHethet = (1 << 16),
+  kfGenomeColPpc = (1 << 17),
+  kfGenomeColRatio = (1 << 18),
+  kfGenomeColDefault = (kfGenomeColMaybefid | kfGenomeColId | kfGenomeColMaybesid | kfGenomeColRt | kfGenomeColZ | kfGenomeColPihat | kfGenomeColPhe | kfGenomeColDst | kfGenomeColPpc | kfGenomeColRatio),
+  kfGenomeColAll = ((kfGenomeColRatio * 2) - kfGenomeColMaybefid)
+FLAGSET_DEF_END(GenomeFlags);
+
+typedef struct GenomeInfoStruct {
+  GenomeFlags flags;
+  double min_pi_hat;
+  double max_pi_hat;
+  uint32_t ppc_gap;
+} GenomeInfo;
+
+void InitGenome(GenomeInfo* genome_ip);
+
+PglErr CalcGenome(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const PhenoCol* pheno_cols, const uintptr_t* variant_include_orig, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const GenomeInfo* genome_ip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t nonfounders, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+
 PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
 
 ENUM_U31_DEF_START()
