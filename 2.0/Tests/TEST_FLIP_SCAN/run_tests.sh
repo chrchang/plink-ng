@@ -159,3 +159,73 @@ if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --flip-scan-ref-freq tmp_panel
     echo "--flip-scan-ref-freq ran without --flip-scan"
     exit 1
 fi
+
+# 8. --flip-scan-ref-pfile/--flip-scan-ref-bfile: same comparison against a
+#    second fileset, whose allele frequencies are computed here.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --make-bed --out tmp_ref
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_ref --make-pgen --out tmp_refp
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-bfile tmp_ref --out plink2_rd
+head -n 1 plink2_rd.flipscan | grep -qx '#CHROM	POS	ID	REF	ALT	MAJ_FREQ	PANEL_MAJ_FREQ	PROBLEM'
+# The reference is this dataset, so it has to agree with the --flip-scan-ref-freq
+# run against this dataset's own frequency file, to the digit.
+diff -q plink2_rf.flipscan plink2_rd.flipscan
+
+# The .pgen/.pvar/.psam spelling, the three-filename spelling, and the .bed
+# spelling all name the same fileset.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-pfile tmp_refp --out plink2_rdp
+diff -q plink2_rd.flipscan plink2_rdp.flipscan
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-pfile tmp_refp.pgen tmp_refp.pvar tmp_refp.psam --out plink2_rd3
+diff -q plink2_rd.flipscan plink2_rd3.flipscan
+
+# A reference variant whose REF and ALT are the other way round is the case
+# this mode exists to find: the allele pair still matches, so the frequency is
+# turned around before the comparison and the report comes out unchanged, with
+# the log saying how many were like that.  --ref-allele rewrites the same
+# genotypes with the other allele as REF, which is exactly that situation.
+awk 'BEGIN{OFS="\t"} !/^#/ {if (++i % 3 == 0) {print $3, $5; ++n}} END {print n > "tmp_swap_ct.txt"}' tmp_refp.pvar > tmp_swap_ref.txt
+$BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_refp --ref-allele force tmp_swap_ref.txt 2 1 --make-pgen --out tmp_swapped
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-pfile tmp_swapped --out plink2_rds > tmp_rds.log
+diff -q plink2_rd.flipscan plink2_rds.flipscan
+grep -q "$(cat tmp_swap_ct.txt) with REF and ALT the other way round" tmp_rds.log
+
+# A variant absent from the reference, and a variant whose alleles do not match
+# in either order, are both PROBLEM=NA rather than calls.
+awk 'NR <= 40 {print $2}' tmp_ref.bim > tmp_keep40.txt
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_ref --extract tmp_keep40.txt --make-bed --out tmp_part
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-bfile tmp_part --out plink2_rdn
+test "$(awk -F '\t' 'NR > 1 && $8 == "NA"' plink2_rdn.flipscan | wc -l)" -gt 0
+awk -F '\t' 'NR > 1 && $8 == "NA" && $7 != "NA" {print "panel frequency present for an NA row: " $3; exit 1}' plink2_rdn.flipscan
+# The 40 that are present keep the same answer they had against the full
+# reference.
+awk -F '\t' 'FNR == NR {ans[$3] = $8; next} FNR > 1 && $8 != "NA" && $8 != ans[$3] {print "answer changed for " $3; exit 1}' plink2_rd.flipscan plink2_rdn.flipscan
+
+# Alleles that match by ID but not as a pair are skipped with a warning.
+awk 'BEGIN{OFS="\t"} {if (NR % 7 == 0) {$5 = "C"; $6 = "T"}; print}' tmp_ref.bim > tmp_wrongallele.bim
+cp tmp_ref.bed tmp_wrongallele.bed
+cp tmp_ref.fam tmp_wrongallele.fam
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-bfile tmp_wrongallele --out plink2_rdw > tmp_rdw.log 2>&1
+grep -q "matched the --flip-scan reference fileset by ID but not by" tmp_rdw.log
+test "$(awk -F '\t' 'NR > 1 && $8 == "NA"' plink2_rdw.flipscan | wc -l)" -gt 0
+
+# A frequency difference in the second fileset is caught the same way it is in
+# a frequency file.  Recoding a slice of the reference's genotypes towards the
+# reference allele moves its frequency without touching this dataset's.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --keep-if PHENO1 == 1 --make-bed --out tmp_ctrlref
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan --flip-scan-ref-bfile tmp_ctrlref --flip-scan-freq-diff 0.001 --out plink2_rdd
+test "$(awk -F '\t' 'NR > 1 && $8 == "Y"' plink2_rdd.flipscan | wc -l)" -gt 0
+# Every call agrees with the frequency difference actually reported.
+awk -F '\t' 'NR > 1 && $8 != "NA" {d = $6 - $7; if (d < 0) {d = -d}; if (($8 == "Y") != (d > 0.001)) {print "call disagrees with the difference at " $3; exit 1}}' plink2_rdd.flipscan
+
+# 'ref-allele-based' renames the columns here too.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --maf 0.05 --flip-scan ref-allele-based --flip-scan-ref-bfile tmp_ref --out plink2_rdr
+head -n 1 plink2_rdr.flipscan | grep -qx '#CHROM	POS	ID	REF	ALT	REF_FREQ	PANEL_REF_FREQ	PROBLEM'
+
+# The two reference modes are mutually exclusive, and neither runs on its own.
+if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --flip-scan --flip-scan-ref-bfile tmp_ref --flip-scan-ref-freq tmp_panel.afreq --out plink2_bad > /dev/null 2>&1; then
+    echo "--flip-scan-ref-bfile ran alongside --flip-scan-ref-freq"
+    exit 1
+fi
+if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --flip-scan-ref-bfile tmp_ref --freq --out plink2_bad > /dev/null 2>&1; then
+    echo "--flip-scan-ref-bfile ran without --flip-scan"
+    exit 1
+fi

@@ -155,6 +155,11 @@ typedef struct LdInfoStruct {
   // When set, --flip-scan compares the dataset against these frequencies
   // instead of splitting it into cases and controls.
   char* flipscan_ref_freq_fname;
+  // Likewise, but against a second fileset, which allows the LD half of the
+  // scan to run as well.
+  char* flipscan_ref_pgen_fname;
+  char* flipscan_ref_pvar_fname;
+  char* flipscan_ref_psam_fname;
 } LdInfo;
 
 typedef struct ClumpInfoStruct {
@@ -227,6 +232,8 @@ void InitVcor(VcorInfo* vcip);
 void CleanupVcor(VcorInfo* vcip);
 
 PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_thread_ct, char* outname, char* outname_end);
+
+PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const LdInfo* ldip, LoadFilterLogFlags load_filter_log_flags, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 

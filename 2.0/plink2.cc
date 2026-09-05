@@ -3017,11 +3017,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       if (pcp->command_flags1 & kfCommand1FlipScan) {
         // Only the LD scan walks a positional window.
-        if (unlikely((vpos_sortstatus & kfUnsortedVarBp) && (!pcp->ld_info.flipscan_ref_freq_fname))) {
+        if (unlikely((vpos_sortstatus & kfUnsortedVarBp) && (!pcp->ld_info.flipscan_ref_freq_fname) && (!pcp->ld_info.flipscan_ref_pgen_fname))) {
           logerrputs("Error: --flip-scan requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
-        if (pcp->ld_info.flipscan_ref_freq_fname) {
+        if (pcp->ld_info.flipscan_ref_pgen_fname) {
+          reterr = FlipScanRefDataset(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, &(pcp->ld_info), pcp->load_filter_log_flags, raw_variant_ct, variant_ct, max_allele_slen, pcp->input_missing_geno_char, pcp->max_thread_ct, outname, outname_end);
+        } else if (pcp->ld_info.flipscan_ref_freq_fname) {
           reterr = FlipScanRefFreq(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, &(pcp->ld_info), raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, pcp->max_thread_ct, outname, outname_end);
         } else {
           reterr = FlipScan(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, founder_info, &(pcp->ld_info), raw_sample_ct, pheno_ct, (pcp->misc_flags / kfMiscAllowBadLd) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
@@ -6740,6 +6742,49 @@ int main(int argc, char** argv) {
           reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.ld_info.flipscan_ref_freq_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "lip-scan-ref-pfile") || strequal_k_unsafe(flagname_p2, "lip-scan-ref-bfile")) {
+          // Same shape as --pgen-diff: one prefix, or the three filenames.
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const uint32_t is_bfile = (flagname_p2[13] == 'b');
+          if (param_ct == 1) {
+            const char* prefix = argvk[arg_idx + 1];
+            const uint32_t slen = strlen(prefix);
+            if (unlikely(slen > kPglFnamesize - 10)) {
+              logerrprintfww("Error: --%s argument too long.\n", flagname_p);
+              goto main_ret_OPEN_FAIL;
+            }
+            const char* exts[3];
+            exts[0] = is_bfile? ".bed" : ".pgen";
+            exts[1] = is_bfile? ".bim" : ".pvar";
+            exts[2] = is_bfile? ".fam" : ".psam";
+            char** targets[3] = {&pc.ld_info.flipscan_ref_pgen_fname, &pc.ld_info.flipscan_ref_pvar_fname, &pc.ld_info.flipscan_ref_psam_fname};
+            for (uint32_t uii = 0; uii != 3; ++uii) {
+              char* cur_fname;
+              if (unlikely(pgl_malloc(slen + 6, &cur_fname))) {
+                goto main_ret_NOMEM;
+              }
+              char* fname_iter = memcpya(cur_fname, prefix, slen);
+              strcpy(fname_iter, exts[uii]);
+              *(targets[uii]) = cur_fname;
+            }
+          } else {
+            if (unlikely(param_ct != 3)) {
+              logerrprintfww("Error: --%s requires either one prefix or all three filenames.\n", flagname_p);
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.ld_info.flipscan_ref_pgen_fname);
+            if (likely(!reterr)) {
+              reterr = AllocFname(argvk[arg_idx + 2], flagname_p, &pc.ld_info.flipscan_ref_pvar_fname);
+            }
+            if (likely(!reterr)) {
+              reterr = AllocFname(argvk[arg_idx + 3], flagname_p, &pc.ld_info.flipscan_ref_psam_fname);
+            }
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
           }
         } else if (strequal_k_unsafe(flagname_p2, "lip-scan-min-neg") || strequal_k_unsafe(flagname_p2, "lipscan-min-neg")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -13387,6 +13432,14 @@ int main(int argc, char** argv) {
     }
     if (unlikely((pc.mendel_info.flags & kfMendelDuos) && (!((pc.filter_flags & kfFilterMendel) || (pc.command_flags1 & kfCommand1MendelReport) || (make_plink2_flags & kfMakePlink2SetMeMissing))))) {
       logerrputs("Error: --mendel-duos must be used with --me, --mendel, or --set-me-missing.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely(pc.ld_info.flipscan_ref_pgen_fname && (!(pc.command_flags1 & kfCommand1FlipScan)))) {
+      logerrputs("Error: --flip-scan-ref-pfile/--flip-scan-ref-bfile must be used with\n--flip-scan.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely(pc.ld_info.flipscan_ref_pgen_fname && pc.ld_info.flipscan_ref_freq_fname)) {
+      logerrputs("Error: --flip-scan-ref-freq cannot be used with\n--flip-scan-ref-pfile/--flip-scan-ref-bfile.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely(pc.ld_info.flipscan_ref_freq_fname && (!(pc.command_flags1 & kfCommand1FlipScan)))) {
