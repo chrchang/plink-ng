@@ -48,8 +48,31 @@ if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --twolocus b0v0 nosuchvariant 
     exit 1
 fi
 
-# 5. 'zs' is the same report, compressed.
-$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --twolocus zs b5v2 b5v9 --out plink2_zs
-$BUILD/plink2 $EXTRA1 $EXTRA2 --zst-decompress plink2_zs.twolocus.zst > plink2_zs.twolocus
-$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --twolocus b5v2 b5v9 --out plink2_plain
-diff -q plink2_plain.twolocus plink2_zs.twolocus
+# 5. Multiallelic variants get one row per unordered allele pair, rather than
+#    being rejected or collapsed to REF vs. non-REF.
+cat > tmp_multi.vcf << 'EOF'
+##fileformat=VCFv4.2
+##contig=<ID=1>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	s1	s2	s3	s4	s5	s6
+1	1	mv1	A	G,T	.	.	.	GT	0/0	0/1	0/2	1/1	1/2	2/2
+1	2	mv2	C	T	.	.	.	GT	0/0	0/1	1/1	0/0	0/1	./.
+EOF
+$BUILD/plink2 $EXTRA1 $EXTRA2 --vcf tmp_multi.vcf --make-pgen --out tmp_multi
+$BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_multi --twolocus mv1 mv2 --out plink2_multi
+# 3 alleles give 6 genotypes plus a missing cell; 2 alleles give 3 plus one.
+test "$(grep -c '^ALL' plink2_multi.twolocus)" -eq 28
+# Every genotype the file contains has to appear, and each sample lands in
+# exactly one cell.
+for gt in 'A/A' 'A/G' 'G/G' 'A/T' 'G/T' 'T/T'; do
+    grep -q "	$gt	" plink2_multi.twolocus
+done
+test "$(awk '$1 == "ALL" {n += $6} END {print n}' plink2_multi.twolocus)" -eq 6
+# The six samples are one per cell, on the diagonal of the pairing above.
+test "$(awk '$1 == "ALL" && $6 == 1' plink2_multi.twolocus | wc -l)" -eq 6
+
+# 6. 'zs' is gone: the report is one row per joint genotype cell, so it was
+#    never large enough to be worth compressing.
+if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --twolocus zs b5v2 b5v9 --out plink2_zs > /dev/null 2>&1; then
+    echo "--twolocus still accepts 'zs'"
+    exit 1
+fi

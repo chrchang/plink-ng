@@ -3024,7 +3024,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Twolocus) {
-        reterr = TwolocusReport(sample_include, variant_include, variant_ids, allele_idx_offsets, allele_storage, pheno_cols, pheno_names, pcp->twolocus_info.mkr1, pcp->twolocus_info.mkr2, raw_sample_ct, sample_ct, variant_ct, pheno_ct, max_pheno_name_blen, pcp->twolocus_info.output_zst, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = TwolocusReport(sample_include, variant_include, variant_ids, allele_idx_offsets, allele_storage, pheno_cols, pheno_names, pcp->twolocus_info.mkr1, pcp->twolocus_info.mkr2, raw_sample_ct, sample_ct, variant_ct, pheno_ct, max_pheno_name_blen, max_allele_slen, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -12250,26 +12250,16 @@ int main(int argc, char** argv) {
 
       case 't':
         if (strequal_k_unsafe(flagname_p2, "wolocus")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
+          // The report has one row per joint genotype cell, so it is small
+          // enough that compressing it is not worth a modifier.
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          uint32_t id_param_idx = 1;
-          if (param_ct == 3) {
-            if (strequal_k_unsafe(argvk[arg_idx + 1], "zs")) {
-              id_param_idx = 2;
-            } else if (likely(strequal_k_unsafe(argvk[arg_idx + 3], "zs"))) {
-              id_param_idx = 1;
-            } else {
-              logerrputs("Error: Invalid --twolocus argument sequence.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            pc.twolocus_info.output_zst = 1;
-          }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + id_param_idx]), flagname_p, 1, kMaxIdSlen, &pc.twolocus_info.mkr1);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, 1, kMaxIdSlen, &pc.twolocus_info.mkr1);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + id_param_idx + 1]), flagname_p, 1, kMaxIdSlen, &pc.twolocus_info.mkr2);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 2]), flagname_p, 1, kMaxIdSlen, &pc.twolocus_info.mkr2);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
