@@ -945,6 +945,37 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      * file= specifies a file containing one population pair per line.\n"
 "      Note that 'base='/'ids='/'file=' must be positioned after all modifiers.\n\n"
               );
+    HelpPrint("flip-scan\0flipscan\0", &help_ctrl, 1,
+"  --flip-scan ['verbose'] ['zs'] [{'cols='<column set descriptor>}]\n"
+"    (alias: --flipscan)\n"
+"    LD-based scan for case/control strand inconsistency.  For each variant,\n"
+"    the correlation with each nearby variant is computed separately in cases\n"
+"    and in controls, and the neighbors whose correlation changes sign are\n"
+"    reported: that is the signature of a strand-ambiguous variant which was\n"
+"    resolved differently in two separately-genotyped batches.\n"
+"    * A case/control phenotype is required, and only founders are considered.\n"
+"    * Neighbor pairs where either group is monomorphic are skipped, since the\n"
+"      correlation is undefined there.  (PLINK 1.9 lets the resulting nan\n"
+"      through, which counts the pair as a sign flip.)\n"
+"    * The 'verbose' modifier adds a second file with one line per\n"
+"      above-threshold neighbor pair of a flagged variant.\n"
+"    Supported column sets are:\n"
+"      chrom: Chromosome ID.\n"
+"      pos: Base-pair coordinate(s).\n"
+"      (ID, or ID_INDEX and ID_PAIR in the .flipscan.verbose file, is always\n"
+"      present, and positioned here.)\n"
+"      ref: Reference allele.\n"
+"      alt: Alternate allele.\n"
+"      Specific to .flipscan[.zst]:\n"
+"        altfreq: ALT allele frequency.\n"
+"        posct: Number of neighbors with a positive correlation in cases.\n"
+"        rpos: Mean correlation over those neighbors.\n"
+"        negct: Number of neighbors whose correlation changes sign.\n"
+"        rneg: Mean correlation over those neighbors.\n"
+"        negids: IDs of those neighbors, '|'-separated.\n"
+"      (R_CASE and R_CTRL are always present in .flipscan.verbose[.zst].)\n"
+"    The default is all of them.\n\n"
+               );
     HelpPrint("indep\0indep-pairwise\0indep-pairphase\0", &help_ctrl, 1,
 "  --indep <window size>['kb'] [step size (variant ct)] <VIF threshold>\n"
 "  --indep-pairwise <window size>['kb'] [step size (variant ct)]\n"
@@ -2803,6 +2834,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                              parents have missing genotypes, don't exclude the\n"
 "                              observation from error rate denominators.\n"
               );
+    HelpPrint("flip-scan-window\0flip-scan-window-kb\0flip-scan-threshold\0flip-scan\0", &help_ctrl, 0,
+"  --flip-scan-window <ct+1> : Set --flip-scan max variant ct dist. (def. 10).\n"
+"  --flip-scan-window-kb <x> : Set --flip-scan max kb distance (default 1000).\n"
+"  --flip-scan-threshold <x> : Set --flip-scan min correlation (default 0.5).\n"
+               );
     HelpPrint("indep-preferred\0indep-pairwise\0", &help_ctrl, 0,
 "  --indep-preferred <filename>   : Make LD-pruning commands try to keep the\n"
 "                                   variants listed in a file.\n"

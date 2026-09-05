@@ -104,6 +104,25 @@ FLAGSET_DEF_END(VcorFlags);
 CONSTI32(kClumpMaxBinBounds, 0x4000000);
 
 FLAGSET_DEF_START()
+  kfFlipScan0,
+  kfFlipScanVerbose = (1 << 0),
+  kfFlipScanZs = (1 << 1),
+
+  kfFlipScanColChrom = (1 << 2),
+  kfFlipScanColPos = (1 << 3),
+  kfFlipScanColRef = (1 << 4),
+  kfFlipScanColAlt = (1 << 5),
+  kfFlipScanColAltfreq = (1 << 6),
+  kfFlipScanColPosct = (1 << 7),
+  kfFlipScanColRpos = (1 << 8),
+  kfFlipScanColNegct = (1 << 9),
+  kfFlipScanColRneg = (1 << 10),
+  kfFlipScanColNegids = (1 << 11),
+  kfFlipScanColDefault = (kfFlipScanColChrom | kfFlipScanColPos | kfFlipScanColRef | kfFlipScanColAlt | kfFlipScanColAltfreq | kfFlipScanColPosct | kfFlipScanColRpos | kfFlipScanColNegct | kfFlipScanColRneg | kfFlipScanColNegids),
+  kfFlipScanColAll = ((kfFlipScanColNegids * 2) - kfFlipScanColChrom)
+FLAGSET_DEF_END(FlipScanFlags);
+
+FLAGSET_DEF_START()
   kfLdConsole0,
   kfLdConsoleHweMidp = (1 << 0)
 FLAGSET_DEF_END(LdConsoleFlags);
@@ -116,6 +135,10 @@ typedef struct LdInfoStruct {
   uint32_t prune_window_incr;
   LdConsoleFlags ld_console_flags;
   STD_ARRAY_DECL(char*, 2, ld_console_varids);
+  FlipScanFlags flipscan_flags;
+  uint32_t flipscan_window_size;
+  uint32_t flipscan_window_bp;
+  double flipscan_thresh;
 } LdInfo;
 
 typedef struct ClumpInfoStruct {
@@ -186,6 +209,8 @@ void InitLdScore(LdScoreInfo* lsip);
 void InitVcor(VcorInfo* vcip);
 
 void CleanupVcor(VcorInfo* vcip);
+
+PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const LdInfo* ldip, const char* indep_preferred_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t nosex_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
