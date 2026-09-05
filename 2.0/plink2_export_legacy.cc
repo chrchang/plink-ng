@@ -443,10 +443,22 @@ PglErr Export23(const char* outname, const uintptr_t* sample_include, const uint
     const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     const uint32_t max_chr_blen = 1 + GetMaxChrSlen(cip);
     char* chr_buf;
-    uintptr_t* genovec;
+    PgenVariant pgv;
     if (unlikely(bigstack_alloc_c(max_chr_blen + 1, &chr_buf) ||
-                 bigstack_alloc_w(NypCtToWordCt(1), &genovec))) {
+                 bigstack_alloc_w(2, &(pgv.genovec)))) {
       goto Export23_ret_NOMEM;
+    }
+    pgv.patch_01_set = nullptr;
+    pgv.patch_01_vals = nullptr;
+    pgv.patch_10_set = nullptr;
+    pgv.patch_10_vals = nullptr;
+    if (allele_idx_offsets) {
+      if (unlikely(bigstack_alloc_w(1, &(pgv.patch_01_set)) ||
+                   bigstack_alloc_ac(1, &(pgv.patch_01_vals)) ||
+                   bigstack_alloc_w(1, &(pgv.patch_10_set)) ||
+                   bigstack_alloc_ac(2, &(pgv.patch_10_vals)))) {
+        goto Export23_ret_NOMEM;
+      }
     }
     // Each line is "<variant ID>\t<chromosome>\t<bp>\t<genotype>"; the
     // variant ID is written separately, so this buffer carries both tabs
@@ -470,12 +482,15 @@ PglErr Export23(const char* outname, const uintptr_t* sample_include, const uint
       const uint32_t cur_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
       for (uint32_t uii = 0; uii != cur_variant_ct; ++uii) {
         const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-        reterr = PgrGet(sample_include, pssi, 1, variant_uidx, simple_pgrp, genovec);
+        reterr = PgrGetM(sample_include, pssi, 1, variant_uidx, simple_pgrp, &pgv);
         if (unlikely(reterr)) {
           PgenErrPrintNV(reterr, variant_uidx);
           goto Export23_ret_1;
         }
-        if ((genovec[0] & 3) == 1) {
+        // A patch_10 entry can be either ALTx/ALTy or ALTx/ALTx; only the
+        // former is heterozygous.
+        if (((pgv.genovec[0] & 3) == 1) ||
+            (pgv.patch_10_ct && (pgv.patch_10_vals[0] != pgv.patch_10_vals[1]))) {
           x_hethap = 1;
           break;
         }
@@ -525,39 +540,39 @@ PglErr Export23(const char* outname, const uintptr_t* sample_include, const uint
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
       if (allele_idx_offsets) {
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-        if (unlikely(allele_idx_offsets[variant_uidx + 1] != allele_idx_offset_base + 2)) {
-          logputs("\n");
-          logerrputs("Error: \"--export 23\" cannot be used with multiallelic variants.\n");
-          goto Export23_ret_INCONSISTENT_INPUT;
-        }
       }
-      reterr = PgrGet(sample_include, pssi, 1, variant_uidx, simple_pgrp, genovec);
+      reterr = PgrGetM(sample_include, pssi, 1, variant_uidx, simple_pgrp, &pgv);
       if (unlikely(reterr)) {
         PgenErrPrintNV(reterr, variant_uidx);
         goto Export23_ret_1;
       }
-      const uintptr_t cur_geno = genovec[0] & 3;
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      const uintptr_t cur_geno = pgv.genovec[0] & 3;
       char genotext[2];
       uint32_t geno_slen = 2;
       if (cur_geno == 3) {
         genotext[0] = '-';
         genotext[1] = '-';
       } else {
-        const char ref_allele = allele_storage[allele_idx_offset_base][0];
-        const char alt_allele = allele_storage[allele_idx_offset_base + 1][0];
+        uint32_t is_het = (cur_geno == 1);
         if (cur_geno == 0) {
-          genotext[0] = ref_allele;
-          genotext[1] = ref_allele;
-        } else if (cur_geno == 2) {
-          genotext[0] = alt_allele;
-          genotext[1] = alt_allele;
-        } else {
+          genotext[0] = cur_alleles[0][0];
+          genotext[1] = genotext[0];
+        } else if (cur_geno == 1) {
           // PLINK 1.x wrote A2 before A1 here.
-          genotext[0] = ref_allele;
-          genotext[1] = alt_allele;
-          geno_slen = 2;
+          genotext[0] = cur_alleles[0][0];
+          genotext[1] = cur_alleles[pgv.patch_01_ct? pgv.patch_01_vals[0] : 1][0];
+        } else if (!pgv.patch_10_ct) {
+          genotext[0] = cur_alleles[1][0];
+          genotext[1] = genotext[0];
+        } else {
+          const AlleleCode ac0 = pgv.patch_10_vals[0];
+          const AlleleCode ac1 = pgv.patch_10_vals[1];
+          genotext[0] = cur_alleles[ac0][0];
+          genotext[1] = cur_alleles[ac1][0];
+          is_het = (ac0 != ac1);
         }
-        if (haploid_out && (cur_geno != 1)) {
+        if (haploid_out && (!is_het)) {
           geno_slen = 1;
         }
       }
