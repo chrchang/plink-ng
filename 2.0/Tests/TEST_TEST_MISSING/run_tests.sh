@@ -67,3 +67,68 @@ diff -q plink2.missing plink2_pgen.missing
 $1/plink2 $2 $3 --bfile tmp_data --test-missing zs --out plink2_zs
 $1/plink2 $2 $3 --zst-decompress plink2_zs.missing.zst > plink2_zs.missing
 diff -q plink2.missing plink2_zs.missing
+
+# 5. Column sets.  The counts and denominators have to be consistent with the
+#    rates the default report gives, and the column set has to control both
+#    the header and the row contents.
+$1/plink2 $2 $3 --bfile tmp_data --test-missing cols=chrom,pos,ref,alt,nmissa,nobsa,fmissa,nmissu,nobsu,fmissu,p --out plink2_cols
+head -n 1 plink2_cols.missing | grep -q '^#CHROM	POS	ID	REF	ALT	MISSING_CT_A	OBS_CT_A	F_MISS_A	MISSING_CT_U	OBS_CT_U	F_MISS_U	P$'
+awk -F '\t' '
+    function abs(x) { return (x < 0)? -x : x }
+    NR > 1 {
+        if (abs($6 / $7 - $8) > 1e-9 || abs($9 / $10 - $11) > 1e-9) {
+            print "count/rate mismatch on " $3; exit 1
+        }
+        ++n
+    }
+    END { if (n == 0) { print "no rows checked"; exit 1 } }
+' plink2_cols.missing
+# The rates themselves have to match the default report.
+diff -q <(cut -f 1,2,3,8,11,12 plink2_cols.missing) plink2.missing
+
+$1/plink2 $2 $3 --bfile tmp_data --test-missing cols=p --out plink2_p
+head -n 1 plink2_p.missing | grep -q '^#ID	P$'
+# The leading '#' moves onto the ID column here, so compare the bodies.
+diff -q <(tail -n +2 plink2.missing | cut -f 3,6) <(tail -n +2 plink2_p.missing)
+
+# 6. Dosage missingness.  The fixture above is hardcall-only, so build one
+#    where the two notions differ: 'dosage-freq=1' gives every call a dosage,
+#    and a strict --hard-call-threshold then erases most of the hardcalls
+#    without touching the dosages.
+$1/plink2 $2 $3 --dummy 400 200 0.05 dosage-freq=1 --seed 7 --hard-call-threshold 0.1 --make-pgen --out tmp_dose
+awk 'NR == 1 {print "#IID\tCC"; next} {print $1 "\t" (NR % 2? 2 : 1)}' tmp_dose.psam > tmp_dose_pheno.txt
+$1/plink2 $2 $3 --pfile tmp_dose --pheno tmp_dose_pheno.txt --test-missing cols=chrom,pos,nmissa,nobsa,nmissu,nobsu --out plink2_hc
+$1/plink2 $2 $3 --pfile tmp_dose --pheno tmp_dose_pheno.txt --test-missing dosage cols=chrom,pos,nmissa,nobsa,nmissu,nobsu --out plink2_dos
+# Dosage missingness is a subset of hardcall missingness, and here a strict
+# proper subset.
+awk -F '\t' 'FNR == NR {if (FNR > 1) {a[$3] = $4; u[$3] = $6}; next}
+    FNR > 1 {
+        if ($4 > a[$3] || $6 > u[$3]) { print "dosage missingness exceeds hardcall on " $3; exit 1 }
+        if ($4 < a[$3] || $6 < u[$3]) { ++strictly_fewer }
+        ++n
+    }
+    END {
+        if (n == 0) { print "no rows checked"; exit 1 }
+        if (strictly_fewer == 0) { print "fixture has no dosage-only calls"; exit 1 }
+    }' plink2_hc.missing plink2_dos.missing
+
+# Both must agree with the totals --missing reports for the same file.
+$1/plink2 $2 $3 --pfile tmp_dose --missing variant-only vcols=chrom,pos,nmiss,nmissdosage --out plink2_vmiss
+check_totals() {
+    # $1: --test-missing report, $2: the --missing column to match.
+    awk -F '\t' -v col="$2" '
+        FNR == NR {
+            if (FNR == 1) {for (i = 1; i <= NF; ++i) {if ($i == col) {idx = i}}; next}
+            total[$3] = $idx; next
+        }
+        FNR > 1 {
+            if ($4 + $6 != total[$3]) {
+                print "total mismatch on " $3 ": " $4 " + " $6 " != " total[$3]; exit 1
+            }
+            ++n
+        }
+        END { if (n == 0) { print "no rows checked"; exit 1 } }
+    ' plink2_vmiss.vmiss "$1"
+}
+check_totals plink2_hc.missing MISSING_CT
+check_totals plink2_dos.missing MISSING_DOSAGE_CT
