@@ -58,6 +58,38 @@ typedef struct AdjustInfoStruct {
   double lambda;
 } AdjustInfo;
 
+FLAGSET_DEF_START()
+  kfMeta0,
+  kfMetaLogscale = (1 << 0),
+  kfMetaQt = (1 << 1),
+  kfMetaNoMap = (1 << 2),
+  kfMetaNoAllele = (1 << 3),
+  kfMetaStudy = (1 << 4),
+  kfMetaReportAll = (1 << 5),
+  kfMetaWeightedZ = (1 << 6),
+  kfMetaZs = (1 << 7)
+FLAGSET_DEF_END(MetaFlags);
+
+typedef struct MetaInfoStruct {
+  NONCOPYABLE(MetaInfoStruct);
+  char* fnames;  // multistr
+  char* chr_field;
+  char* snp_field;
+  char* bp_field;
+  char* a1_field;
+  char* a2_field;
+  char* p_field;
+  char* se_field;
+  char* ess_field;
+  MetaFlags flags;
+} MetaInfo;
+
+void InitMeta(MetaInfo* mip);
+
+void CleanupMeta(MetaInfo* mip);
+
+PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, char* outname_end);
+
 typedef struct AdjustFileInfoStruct {
   NONCOPYABLE(AdjustFileInfoStruct);
   AdjustInfo base;
