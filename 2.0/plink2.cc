@@ -228,6 +228,7 @@ ENUM_U31_DEF_START()
   kCmd1BitMendelReport,
   kCmd1BitLdScore,
   kCmd1BitBlocks,
+  kCmd1BitTestMishap,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -267,7 +268,8 @@ FLAGSET64_DEF_START()
   kfCommand1CheckOrImputeSex = (1LLU << kCmd1BitCheckOrImputeSex),
   kfCommand1MendelReport = (1LLU << kCmd1BitMendelReport),
   kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
-  kfCommand1Blocks = (1LLU << kCmd1BitBlocks)
+  kfCommand1Blocks = (1LLU << kCmd1BitBlocks),
+  kfCommand1TestMishap = (1LLU << kCmd1BitTestMishap)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -465,6 +467,7 @@ typedef struct Plink2CmdlineStruct {
   ClumpInfo clump_info;
   VcorInfo vcor_info;
   BlocksInfo blocks_info;
+  TestMishapFlags test_mishap_flags;
   LdScoreInfo ld_score_info;
   PhenoSvdInfo pheno_svd_info;
   CheckSexInfo check_sex_info;
@@ -600,7 +603,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1Blocks)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1Blocks | kfCommand1TestMishap)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -620,7 +623,7 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags 
 // variants are retained, but let's keep this simpler for now
 uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags, VcorFlags vcor_flags) {
   // Keep this in sync with --error-on-freq-calc.
-  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore | kfCommand1Blocks)) ||
+  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore | kfCommand1Blocks | kfCommand1TestMishap)) ||
     ((command_flags1 & kfCommand1Pca) && (pca_flags & kfPcaBiallelicVarWts)) ||
     ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef))) ||
     ((command_flags1 & kfCommand1Vcor) && ((!(vcor_flags & kfVcorRefBased)) || (vcor_flags & (kfVcorColMaj | kfVcorColNonmaj))));
@@ -3038,6 +3041,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1TestMishap) {
+        if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
+          logerrputs("Error: --test-mishap requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          return kPglRetInconsistentInput;
+        }
+        reterr = TestMishap(variant_include, cip, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, sample_include, pcp->test_mishap_flags, pcp->min_maf, pcp->output_min_ln, raw_sample_ct, sample_ct, raw_variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1Vcor) {
         if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
           logerrputs("Error: --r[2]-[un]phased runs require a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -3844,6 +3858,7 @@ int main(int argc, char** argv) {
   InitClump(&pc.clump_info);
   InitVcor(&pc.vcor_info);
   InitBlocks(&pc.blocks_info);
+    pc.test_mishap_flags = kfTestMishap0;
   InitLdScore(&pc.ld_score_info);
   InitPhenoSvd(&pc.pheno_svd_info);
   InitCheckSex(&pc.check_sex_info);
@@ -12529,6 +12544,20 @@ int main(int argc, char** argv) {
           }
           memcpy(pgenname, fname, slen + 1);
           xload = kfXloadTped;
+        } else if (strequal_k_unsafe(flagname_p2, "est-mishap")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (param_ct) {
+            const char* cur_modif = argvk[arg_idx + 1];
+            if (unlikely(!strequal_k(cur_modif, "zs", strlen(cur_modif)))) {
+              logerrputs("Error: Invalid --test-mishap argument sequence.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            pc.test_mishap_flags |= kfTestMishapZs;
+          }
+          pc.command_flags1 |= kfCommand1TestMishap;
+          pc.filter_flags |= kfFilterAllReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "ests"))) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Glm))) {
             logerrputs("Error: --tests must be used with --glm.\n");

@@ -1057,6 +1057,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                               informative pairs> ratios to be larger than this\n"
 "                               value (default 0.95).\n"
               );
+    HelpPrint("test-mishap\0", &help_ctrl, 1,
+"  --test-mishap ['zs']\n"
+"    Check each variant's missing calls for association with the flanking\n"
+"    haplotypes, as PLINK 1.x does.  A significant result usually indicates a\n"
+"    genotyping artifact rather than random dropout.\n"
+"    * Variants with fewer than 5 missing calls are skipped, as are\n"
+"      multiallelic variants and haploid chromosomes.\n"
+"    * Haplotypes with frequency below the --maf threshold are omitted; the\n"
+"      HETERO row reports flanking heterozygosity instead of a haplotype.\n\n"
+              );
     HelpPrint("ld-score\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
 "  --ld-score ['zs'] ['multiallelic'] [{'cols='<column set descriptor>}]\n"
 "  --ld-score-founders\n"
