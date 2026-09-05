@@ -1049,7 +1049,11 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
         sum_wbeta += cur_w * cur_beta;
         if (weighted_z) {
           const double abs_z = sqrt(LnPToChisq(cur_rec->ln_pval));
-          const double cur_z = (cur_beta < 0.0)? (-abs_z) : abs_z;
+          // PLINK 1.9 tests `cur_beta > 0.0`, so a zero effect size -- which
+          // is what an odds ratio of exactly 1 in a four-significant-digit
+          // report gives -- contributes negatively.  Matching that matters:
+          // the sign flips the study's whole contribution.
+          const double cur_z = (cur_beta > 0.0)? abs_z : (-abs_z);
           const double cur_wz_w = sqrt(cur_rec->ess);
           sum_wz += cur_wz_w * cur_z;
           sum_wz_w2 += cur_rec->ess;

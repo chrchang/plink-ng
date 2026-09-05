@@ -56,6 +56,25 @@ compare plink19_log.meta plink2_log.meta
 plink --meta-analysis tmp_r1.assoc.logistic tmp_r2.assoc.logistic + weighted-z --out plink19_wz
 $BUILD/plink2 $EXTRA1 $EXTRA2 --meta-analysis tmp_r1.assoc.logistic tmp_r2.assoc.logistic + weighted-z --out plink2_wz
 compare plink19_wz.meta plink2_wz.meta
+# P_WZ is not compared against PLINK 1.9 (see compare.awk); check instead that
+# it is the p-value of the WEIGHTED_Z plink2 reports, by confirming the two
+# order the rows the same way.
+awk '
+    /^#/ {
+        for (i = 1; i <= NF; ++i) { if ($i == "WEIGHTED_Z") { zc = i } else if ($i == "P_WZ") { pc = i } }
+        next
+    }
+    { print (($zc < 0)? -$zc : $zc), $pc }
+' plink2_wz.meta | sort -g | awk '
+    {
+        ++n;
+        if (n > 1 && $2 > prev_p + 1e-12) {
+            print "P_WZ increases with |WEIGHTED_Z|: " $1 " " $2 " after " prev_p; exit 1
+        }
+        prev_p = $2;
+    }
+    END { if (n < 2) { print "not enough weighted-Z rows"; exit 1 } print n " weighted-Z p-values are monotone in |Z|" }
+'
 
 # 5. The field-name flags, on reports whose columns have been renamed so the
 #    defaults cannot match.
