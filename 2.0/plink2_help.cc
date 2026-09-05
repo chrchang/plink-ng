@@ -229,6 +229,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * Neither file carries sample IDs, so \'per0\', \'per1\', ... are generated,\n"
 "      as with --dummy.  \'pheno=\' names a phenotype file with one row per\n"
 "      sample, whose columns become PHENO1, PHENO2, ...\n"
+"    * --psam/--fam supplies real sample IDs (and sex, and phenotypes)\n"
+"      instead.  Since the .mgf has no IDs of its own to match against, the\n"
+"      file just has to have one row per sample, in the .mgf\'s column order.\n"
+"      It cannot be combined with \'pheno=\'.\n"
 "    * This is the inverse of \"--export mgf\".\n\n"
                );
     HelpPrint("import-dosage\0dosage\0map\0", &help_ctrl, 1,

@@ -2459,7 +2459,7 @@ HEADER_INLINE void MgfCommasToSpaces(char* line_start) {
   }
 }
 
-PglErr MgfToPgen(const char* mgfname, const char* posname, const char* phenoname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr MgfToPgen(const char* mgfname, const char* posname, const char* phenoname, const char* preexisting_psamname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* psamfile = nullptr;
@@ -2613,9 +2613,23 @@ PglErr MgfToPgen(const char* mgfname, const char* posname, const char* phenoname
       goto MgfToPgen_ret_1;
     }
 
-    // 3. Write the .psam, with synthesized IDs and any phenotypes from the
-    //    .pheno.txt file.
-    {
+    // 3. Write the .psam.  With --psam/--fam the sample IDs (and phenotypes,
+    //    and sex) come from that file, which only has to have the right
+    //    number of rows since the .mgf carries no IDs of its own to match
+    //    against.  Otherwise they are synthesized, and 'pheno=' supplies the
+    //    phenotypes.
+    if (preexisting_psamname) {
+      uint32_t psam_sample_ct = 0;
+      reterr = RewritePsam(preexisting_psamname, missing_catname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, &psam_sample_ct);
+      if (unlikely(reterr)) {
+        goto MgfToPgen_ret_1;
+      }
+      if (unlikely(psam_sample_ct != sample_ct)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: %s has %u sample%s, while %s implies %u.\n", preexisting_psamname, psam_sample_ct, (psam_sample_ct == 1)? "" : "s", mgfname, sample_ct);
+        goto MgfToPgen_ret_INCONSISTENT_INPUT_WW;
+      }
+      logprintfww("--mgf: %u sample%s and %u variant%s present (sample IDs from %s).\n", sample_ct, (sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s", preexisting_psamname);
+    } else {
       uint32_t pheno_col_ct = 0;
       char* pheno_lines = nullptr;
       uintptr_t max_pheno_line_blen = 0;

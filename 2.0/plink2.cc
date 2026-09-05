@@ -9371,7 +9371,9 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
         } else if (strequal_k_unsafe(flagname_p2, "gf")) {
-          if (unlikely(load_params || xload)) {
+          // --psam/--fam may accompany this, to supply real sample IDs in
+          // place of the synthesized ones.
+          if (unlikely((load_params & (~kfLoadParamsPsam)) || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
@@ -10377,7 +10379,7 @@ int main(int argc, char** argv) {
           }
           memcpy(pgenname, fname, slen + 1);
         } else if (strequal_k_unsafe(flagname_p2, "sam")) {
-          if (unlikely(xload & (~(kfXloadVcf | kfXloadBcf | kfXloadPlink1Dosage | kfXloadMap)))) {
+          if (unlikely(xload & (~(kfXloadVcf | kfXloadBcf | kfXloadPlink1Dosage | kfXloadMap | kfXloadMgf)))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -13306,6 +13308,10 @@ int main(int argc, char** argv) {
       logerrputs("Error: --chr-override requires an explicit chromosome set.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
+    if (unlikely(mgf_pheno_fname && (load_params & kfLoadParamsPsam))) {
+      logerrputs("Error: --mgf 'pheno=' cannot be used with --psam/--fam, since both supply\nphenotypes.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
     if (unlikely((xload & kfXloadPlink1Dosage) && (!(load_params & kfLoadParamsPsam)))) {
       logerrputs("Error: --import-dosage requires a .fam file.\n");
       goto main_ret_INVALID_CMDLINE_A;
@@ -13606,7 +13612,7 @@ int main(int argc, char** argv) {
           } else if (xload & kfXloadEigGeno) {
             reterr = EigfileToPgen(pgenname, psamname, pvarname, const_fid, pc.missing_catname, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, id_delim, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadMgf) {
-            reterr = MgfToPgen(pgenname, pvarname, mgf_pheno_fname, pc.misc_flags, import_flags, load_filter_log_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = MgfToPgen(pgenname, pvarname, mgf_pheno_fname, (load_params & kfLoadParamsPsam)? psamname : nullptr, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, pc.fam_cols, pc.missing_pheno, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadPlink1Dosage) {
             reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (likely(xload & kfXloadGenDummy)) {
