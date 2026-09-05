@@ -577,12 +577,14 @@ PglErr Export23(const char* outname, const uintptr_t* sample_include, const uint
         }
       }
       fputs(variant_ids[variant_uidx], outfile);
-      char writebuf[64];
-      char* write_iter = memcpya(writebuf, chr_buf, chr_blen);
+      // g_textbuf rather than a small stack buffer: a chromosome code can be
+      // as long as any other ID component, which is far more than a fixed 64
+      // bytes allows for.
+      char* write_iter = memcpya(g_textbuf, chr_buf, chr_blen);
       write_iter = u32toa_x(variant_bps[variant_uidx], '\t', write_iter);
       write_iter = memcpya(write_iter, genotext, geno_slen);
       *write_iter++ = '\n';
-      if (unlikely(fwrite_checked(writebuf, write_iter - writebuf, outfile))) {
+      if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
         goto Export23_ret_WRITE_FAIL;
       }
     }

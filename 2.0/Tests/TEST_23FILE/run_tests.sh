@@ -88,3 +88,25 @@ rmy1	Y	3000000	T
 rmy2	Y	3000001	GT
 EOF
 diff -q expected_multi.txt plink2_multi_body.txt
+
+# 6. A long chromosome name has to survive the row writer.  plink2 allows an
+#    ID component to be as long as any other, and --export 23 emits whatever
+#    chromosome code the dataset carries, so the output line is not bounded
+#    by anything small.
+long_chr=$(printf 'contig_%0.sX' $(seq 1 200))
+{
+    printf '##fileformat=VCFv4.2\n##contig=<ID=%s>\n' "$long_chr"
+    printf '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n'
+    printf '%s\t1\tlv1\tA\tG\t.\t.\t.\tGT\t0/1\n' "$long_chr"
+} > tmp_long.vcf
+$1/plink2 $2 $3 --vcf tmp_long.vcf --allow-extra-chr --make-pgen --out plink2_long
+$1/plink2 $2 $3 --pfile plink2_long --allow-extra-chr --export 23 --out plink2_long_out
+# rsid, the full chromosome name, position and genotype, tab-separated.
+grep -v '^#' plink2_long_out.txt > plink2_long_body.txt
+test "$(wc -l < plink2_long_body.txt)" -eq 1
+awk -v chr="$long_chr" -F '\t' '{
+    if ($1 != "lv1") {print "wrong rsid: " $1; exit 1}
+    if ($2 != chr) {print "chromosome truncated or corrupted"; exit 1}
+    if ($3 != 1) {print "wrong position: " $3; exit 1}
+    if ($4 != "AG") {print "wrong genotype: " $4; exit 1}
+}' plink2_long_body.txt
