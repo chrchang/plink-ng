@@ -235,6 +235,31 @@ ENUM_U31_DEF_END(RelConcordanceCheckMode);
 
 PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, RelConcordanceCheckMode rel_or_concordance_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
+// --distance, --distance-matrix, --ibs-matrix
+FLAGSET_DEF_START()
+  kfDistance0,
+  kfDistanceMatrixZs = (1 << 0),
+  kfDistanceMatrixBin = (1 << 1),
+  kfDistanceMatrixBin4 = (1 << 2),
+  kfDistanceMatrixEncodemask = (kfDistanceMatrixZs | kfDistanceMatrixBin | kfDistanceMatrixBin4),
+  kfDistanceMatrixSq = (1 << 3),
+  kfDistanceMatrixSq0 = (1 << 4),
+  kfDistanceMatrixTri = (1 << 5),
+  kfDistanceMatrixShapemask = (kfDistanceMatrixSq | kfDistanceMatrixSq0 | kfDistanceMatrixTri),
+
+  // Which of the three reports to write; more than one is allowed.
+  kfDistanceAlleleCt = (1 << 6),
+  kfDistanceIbs = (1 << 7),
+  kfDistance1MinusIbs = (1 << 8),
+  kfDistanceOutputMask = (kfDistanceAlleleCt | kfDistanceIbs | kfDistance1MinusIbs),
+
+  kfDistanceFlatMissing = (1 << 9),
+  // --distance-matrix/--ibs-matrix wrote space-delimited matrices.
+  kfDistanceSpaceDelim = (1 << 10)
+FLAGSET_DEF_END(DistanceFlags);
+
+PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+
 PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, double grm_sparse_cutoff, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
 
 #ifndef NOLAPACK

@@ -4552,6 +4552,642 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
   return reterr;
 }
 
+CONSTI32(kDistOffsetRaw, 0);
+CONSTI32(kDistOffsetNonmiss, 1);
+
+// Allele-count distance: 2 for every variant where the two samples are
+// opposite homozygotes, 1 for every variant where exactly one of them is a
+// heterozygote.  The hom/ref2het encoding is the KING-robust scan's, so
+//   nonmissing:  (hom1 | ref2het1) & (hom2 | ref2het2)
+//   IBS0:        both hom, ref2het differing
+//   IBS1:        exactly one hom, both nonmissing
+// and the nonmissing count is the denominator "flat-missing" rescaling wants.
+void IncrDistance(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* counts_iter) {
+  for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
+    const uint32_t second_offset = second_idx * kKingMultiplexWords;
+    const uintptr_t* second_hom = &(smaj_hom[second_offset]);
+    const uintptr_t* second_ref2het = &(smaj_ref2het[second_offset]);
+    const uintptr_t* first_hom_iter = smaj_hom;
+    const uintptr_t* first_ref2het_iter = smaj_ref2het;
+    while (first_hom_iter < second_hom) {
+      uint32_t acc_raw = 0;
+      uint32_t acc_nonmiss = 0;
+      for (uint32_t widx = 0; widx != kKingMultiplexWords; ++widx) {
+        const uintptr_t hom1 = first_hom_iter[widx];
+        const uintptr_t hom2 = second_hom[widx];
+        const uintptr_t ref2het1 = first_ref2het_iter[widx];
+        const uintptr_t ref2het2 = second_ref2het[widx];
+        const uintptr_t nonmiss = (hom1 | ref2het1) & (hom2 | ref2het2);
+        acc_nonmiss += PopcountWord(nonmiss);
+        acc_raw += 2 * PopcountWord((ref2het1 ^ ref2het2) & hom1 & hom2) + PopcountWord((hom1 ^ hom2) & nonmiss);
+      }
+      counts_iter[kDistOffsetRaw] += acc_raw;
+      counts_iter[kDistOffsetNonmiss] += acc_nonmiss;
+      counts_iter = &(counts_iter[2]);
+
+      first_hom_iter = &(first_hom_iter[kKingMultiplexWords]);
+      first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexWords]);
+    }
+  }
+}
+
+// Same, plus the term the default missingness correction needs that is not
+// per-sample: the total weight of the variants missing in *both* samples.
+// block_mask marks the positions this block actually covers, since the tail
+// of the last block is zero-padded and would otherwise read as missing
+// everywhere.
+//
+// Skipping the walk when the intersection is empty is what keeps this cheap:
+// on data with a low missing rate almost every word pair drops out on the
+// first test, so the correction costs a load and an AND per word rather than
+// a table lookup per pair, which is what PLINK 1.9 pays.
+void IncrDistanceWeighted(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, const uintptr_t* block_mask, const double* block_weights, uint32_t start_idx, uint32_t end_idx, uint32_t* counts_iter, double* wboth_iter) {
+  for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
+    const uint32_t second_offset = second_idx * kKingMultiplexWords;
+    const uintptr_t* second_hom = &(smaj_hom[second_offset]);
+    const uintptr_t* second_ref2het = &(smaj_ref2het[second_offset]);
+    const uintptr_t* first_hom_iter = smaj_hom;
+    const uintptr_t* first_ref2het_iter = smaj_ref2het;
+    while (first_hom_iter < second_hom) {
+      uint32_t acc_raw = 0;
+      double acc_wboth = 0.0;
+      for (uint32_t widx = 0; widx != kKingMultiplexWords; ++widx) {
+        const uintptr_t hom1 = first_hom_iter[widx];
+        const uintptr_t hom2 = second_hom[widx];
+        const uintptr_t ref2het1 = first_ref2het_iter[widx];
+        const uintptr_t ref2het2 = second_ref2het[widx];
+        const uintptr_t called1 = hom1 | ref2het1;
+        const uintptr_t called2 = hom2 | ref2het2;
+        const uintptr_t nonmiss = called1 & called2;
+        acc_raw += 2 * PopcountWord((ref2het1 ^ ref2het2) & hom1 & hom2) + PopcountWord((hom1 ^ hom2) & nonmiss);
+        uintptr_t both_missing = (~(called1 | called2)) & block_mask[widx];
+        if (both_missing) {
+          const double* word_weights = &(block_weights[widx * kBitsPerWord]);
+          do {
+            acc_wboth += word_weights[ctzw(both_missing)];
+            both_missing &= both_missing - 1;
+          } while (both_missing);
+        }
+      }
+      // The nonmissing count is not stored in this mode: the denominator
+      // comes from the weights instead, and the pair table is large enough
+      // that not writing a second array per pair is worth a branch.
+      *counts_iter += acc_raw;
+      ++counts_iter;
+      // Most pairs share no missing call in a given block, and the pair table
+      // is far too large to stay in cache, so skipping the read-modify-write
+      // is most of what this correction costs.
+      if (acc_wboth != 0.0) {
+        *wboth_iter += acc_wboth;
+      }
+      ++wboth_iter;
+
+      first_hom_iter = &(first_hom_iter[kKingMultiplexWords]);
+      first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexWords]);
+    }
+  }
+}
+
+typedef struct CalcDistanceCtxStruct {
+  uintptr_t* smaj_hom[2];
+  uintptr_t* smaj_ref2het[2];
+  uintptr_t* block_masks[2];
+  double* block_weights[2];  // nullptr iff 'flat-missing'
+
+  uint32_t* thread_start;
+
+  uint32_t* counts;
+  double* wboth;
+} CalcDistanceCtx;
+
+THREAD_FUNC_DECL CalcDistanceThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcDistanceCtx* ctx = S_CAST(CalcDistanceCtx*, arg->sharedp->context);
+
+  const uint64_t mem_start_idx = ctx->thread_start[0];
+  const uint64_t start_idx = ctx->thread_start[tidx];
+  const uint32_t end_idx = ctx->thread_start[tidx + 1];
+  const uint64_t cell_offset = (start_idx * (start_idx - 1) - mem_start_idx * (mem_start_idx - 1)) / 2;
+  double* cur_wboth = ctx->wboth? &(ctx->wboth[cell_offset]) : nullptr;
+  uint32_t* cur_counts = &(ctx->counts[cur_wboth? cell_offset : (cell_offset * 2)]);
+  uint32_t parity = 0;
+  do {
+    if (cur_wboth) {
+      IncrDistanceWeighted(ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], ctx->block_masks[parity], ctx->block_weights[parity], start_idx, end_idx, cur_counts, cur_wboth);
+    } else {
+      IncrDistance(ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], start_idx, end_idx, cur_counts);
+    }
+    parity = 1 - parity;
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+// The three reports --distance can write are the same number in different
+// units: the allele-count distance, IBS = 1 - dist/(2m), and 1 - IBS.
+CONSTI32(kDistReportAlleleCt, 0);
+CONSTI32(kDistReportIbs, 1);
+CONSTI32(kDistReport1MinusIbs, 2);
+
+HEADER_INLINE double DistanceCellVal(const uint32_t* counts, const double* wboth, const double* wmiss, double wsum, double variant_ctd, uint64_t cell_idx, uint32_t first_idx, uint32_t second_idx) {
+  // Grouped the way PLINK 1.9 groups it, so that the two programs round
+  // identically when the weights agree.
+  if (!wboth) {
+    const double rawd = u31tod(counts[cell_idx * 2 + kDistOffsetRaw]);
+    return (variant_ctd / u31tod(counts[cell_idx * 2 + kDistOffsetNonmiss])) * rawd;
+  }
+  const double rawd = u31tod(counts[cell_idx]);
+  return (wsum / (wsum - wmiss[first_idx] - wmiss[second_idx] + wboth[cell_idx])) * rawd;
+}
+
+HEADER_INLINE double DistanceReportVal(double dist, uint32_t report_kind, double half_variant_ct_recip) {
+  if (report_kind == kDistReportAlleleCt) {
+    return dist;
+  }
+  const double one_minus_ibs = dist * half_variant_ct_recip;
+  return (report_kind == kDistReportIbs)? (1.0 - one_minus_ibs) : one_minus_ibs;
+}
+
+void SetDistanceMatrixFname(uint32_t report_kind, uint32_t is_binary, uint32_t output_zst, uint32_t parallel_idx, uint32_t parallel_tot, char* outname_end) {
+  char* outname_end2;
+  if (report_kind == kDistReportAlleleCt) {
+    outname_end2 = strcpya_k(outname_end, ".dist");
+  } else if (report_kind == kDistReportIbs) {
+    outname_end2 = strcpya_k(outname_end, ".mibs");
+  } else {
+    outname_end2 = strcpya_k(outname_end, ".mdist");
+  }
+  if (is_binary) {
+    outname_end2 = strcpya_k(outname_end2, ".bin");
+  }
+  if (parallel_tot != 1) {
+    *outname_end2++ = '.';
+    outname_end2 = u32toa(parallel_idx + 1, outname_end2);
+  }
+  if (output_zst && (!is_binary)) {
+    outname_end2 = strcpya_k(outname_end2, ".zst");
+  }
+  *outname_end2 = '\0';
+}
+
+// The .id file names the samples the rows and columns refer to, and only the
+// first --parallel piece writes it.
+PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* siip, const uint32_t* counts, const double* wboth, const double* wmiss, double wsum, uint32_t sample_ct, uint32_t row_start_idx, uint32_t row_end_idx, uint32_t variant_ct, DistanceFlags flags, uint32_t report_kind, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
+  {
+    const DistanceFlags matrix_shape = flags & kfDistanceMatrixShapemask;
+    const uint32_t is_square = (matrix_shape != kfDistanceMatrixTri);
+    const uint32_t zero_upper = (matrix_shape == kfDistanceMatrixSq0);
+    // IBS of a sample with itself is 1, and every other report has 0 there.
+    const uint32_t diag_included = is_square || (report_kind == kDistReportIbs);
+    const double diag_val = (report_kind == kDistReportIbs)? 1.0 : 0.0;
+    const double variant_ctd = u31tod(variant_ct);
+    const double half_variant_ct_recip = 0.5 / variant_ctd;
+    const uint64_t row_start_cells = S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1) / 2;
+    // The scan's row range starts at 1, since sample 0 is nobody's larger
+    // index.  Sample 0 still has a row of its own in the report.
+    const uint32_t write_row_start_idx = parallel_idx? row_start_idx : 0;
+    const uint32_t is_binary = ((flags & (kfDistanceMatrixBin | kfDistanceMatrixBin4)) != 0);
+    const uint32_t output_zst = (flags / kfDistanceMatrixZs) & 1;
+    SetDistanceMatrixFname(report_kind, is_binary, output_zst, parallel_idx, parallel_tot, outname_end);
+
+#define DISTANCE_CELL(row_idx, col_idx) \
+  DistanceReportVal(DistanceCellVal(counts, wboth, wmiss, wsum, variant_ctd, (S_CAST(uint64_t, MAXV(row_idx, col_idx)) * (MAXV(row_idx, col_idx) - 1)) / 2 + MINV(row_idx, col_idx) - row_start_cells, MINV(row_idx, col_idx), MAXV(row_idx, col_idx)), report_kind, half_variant_ct_recip)
+
+    if (is_binary) {
+      const uint32_t is_bin4 = (flags / kfDistanceMatrixBin4) & 1;
+      if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+        goto WriteDistanceMatrix_ret_OPEN_FAIL;
+      }
+      unsigned char* writebuf;
+      if (unlikely(bigstack_alloc_uc(sample_ct * sizeof(double), &writebuf))) {
+        goto WriteDistanceMatrix_ret_NOMEM;
+      }
+      double* dbuf = R_CAST(double*, writebuf);
+      float* fbuf = R_CAST(float*, writebuf);
+      for (uint32_t row_idx = write_row_start_idx; row_idx != row_end_idx; ++row_idx) {
+        const uint32_t col_ct = is_square? sample_ct : (row_idx + diag_included);
+        for (uint32_t col_idx = 0; col_idx != col_ct; ++col_idx) {
+          double cur_val;
+          if (col_idx == row_idx) {
+            cur_val = diag_val;
+          } else if (zero_upper && (col_idx > row_idx)) {
+            cur_val = 0.0;
+          } else {
+            cur_val = DISTANCE_CELL(row_idx, col_idx);
+          }
+          if (is_bin4) {
+            fbuf[col_idx] = S_CAST(float, cur_val);
+          } else {
+            dbuf[col_idx] = cur_val;
+          }
+        }
+        if (unlikely(fwrite_checked(writebuf, col_ct * (is_bin4? sizeof(float) : sizeof(double)), outfile))) {
+          goto WriteDistanceMatrix_ret_WRITE_FAIL;
+        }
+      }
+      if (unlikely(fclose_null(&outfile))) {
+        goto WriteDistanceMatrix_ret_WRITE_FAIL;
+      }
+    } else {
+      // 24 bytes is enough for a %g double plus its delimiter.
+      const uintptr_t overflow_buf_size = kCompressStreamBlock + 24 * S_CAST(uintptr_t, sample_ct) + 64;
+      reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+      if (unlikely(reterr)) {
+        goto WriteDistanceMatrix_ret_1;
+      }
+      // PLINK 1.9's --distance-matrix/--ibs-matrix wrote space-delimited
+      // matrices with a trailing delimiter; --distance itself is
+      // tab-delimited with none.
+      const uint32_t space_delim = (flags / kfDistanceSpaceDelim) & 1;
+      const char delim_char = space_delim? ' ' : '\t';
+      for (uint32_t row_idx = write_row_start_idx; row_idx != row_end_idx; ++row_idx) {
+        const uint32_t col_ct = is_square? sample_ct : (row_idx + diag_included);
+        if (!col_ct) {
+          continue;
+        }
+        for (uint32_t col_idx = 0; col_idx != col_ct; ++col_idx) {
+          double cur_val;
+          if (col_idx == row_idx) {
+            cur_val = diag_val;
+          } else if (zero_upper && (col_idx > row_idx)) {
+            cur_val = 0.0;
+          } else {
+            cur_val = DISTANCE_CELL(row_idx, col_idx);
+          }
+          cswritep = dtoa_g(cur_val, cswritep);
+          if (space_delim || (col_idx + 1 != col_ct)) {
+            *cswritep++ = delim_char;
+          }
+        }
+        AppendBinaryEoln(&cswritep);
+        if (unlikely(Cswrite(&css, &cswritep))) {
+          goto WriteDistanceMatrix_ret_WRITE_FAIL;
+        }
+      }
+      if (unlikely(CswriteCloseNull(&css, cswritep))) {
+        goto WriteDistanceMatrix_ret_WRITE_FAIL;
+      }
+    }
+#undef DISTANCE_CELL
+    char* log_write_iter = strcpya_k(g_logbuf, "--distance: ");
+    if (report_kind == kDistReportAlleleCt) {
+      log_write_iter = strcpya_k(log_write_iter, "Distances");
+    } else if (report_kind == kDistReportIbs) {
+      log_write_iter = strcpya_k(log_write_iter, "IBS matrix");
+    } else {
+      log_write_iter = strcpya_k(log_write_iter, "Distances (proportions)");
+    }
+    if (parallel_tot != 1) {
+      log_write_iter = strcpya_k(log_write_iter, " component");
+    }
+    log_write_iter = strcpya_k(log_write_iter, " written to ");
+    log_write_iter = strcpya(log_write_iter, outname);
+    if (!parallel_idx) {
+      SetDistanceMatrixFname(report_kind, 0, 0, 0, 1, outname_end);
+      snprintf(&(outname_end[strlen(outname_end)]), 5, ".id");
+      reterr = WriteSampleIds(sample_include, siip, outname, sample_ct);
+      if (unlikely(reterr)) {
+        goto WriteDistanceMatrix_ret_1;
+      }
+      log_write_iter = strcpya_k(log_write_iter, " , and IDs to ");
+      log_write_iter = strcpya(log_write_iter, outname);
+    }
+    strcpy_k(log_write_iter, " .\n");
+    WordWrapB(0);
+    logputsb();
+  }
+  while (0) {
+  WriteDistanceMatrix_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  WriteDistanceMatrix_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  WriteDistanceMatrix_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ WriteDistanceMatrix_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// --distance: PLINK 1.x's genomic distance matrices.
+//
+// The per-pair scan is the KING-robust dense path with a cheaper kernel: the
+// allele-count distance is 2 * IBS0 + IBS1, so two popcounts and the
+// nonmissing count are all this needs.
+//
+// The default missingness correction rescales each pair by the total variant
+// weight over the variants where both samples are called, weighting each
+// variant by its expected contribution to the distance statistic under
+// Hardy-Weinberg (which is what makes a missing call at a common variant cost
+// more than one at a rare variant).  'flat-missing' replaces that with a
+// plain nonmissing count.
+PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  ThreadGroup tg;
+  PglErr reterr = kPglRetSuccess;
+  PreinitThreads(&tg);
+  {
+    if (unlikely(sample_ct < 2)) {
+      logerrputs("Error: --distance requires at least 2 samples.\n");
+      goto CalcDistance_ret_DEGENERATE_DATA;
+    }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t flat_missing = (flags / kfDistanceFlatMissing) & 1;
+    uint32_t* sample_include_cumulative_popcounts;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts))) {
+      goto CalcDistance_ret_NOMEM;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+    uint32_t grand_row_start_idx;
+    uint32_t grand_row_end_idx;
+    ParallelBounds(sample_ct, 1, parallel_idx, parallel_tot, R_CAST(int32_t*, &grand_row_start_idx), R_CAST(int32_t*, &grand_row_end_idx));
+
+    uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+    if (calc_thread_ct > sample_ct / 32) {
+      calc_thread_ct = sample_ct / 32;
+    }
+    if (!calc_thread_ct) {
+      calc_thread_ct = 1;
+    }
+    CalcDistanceCtx ctx;
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg) ||
+                 bigstack_alloc_u32(calc_thread_ct + 1, &ctx.thread_start))) {
+      goto CalcDistance_ret_NOMEM;
+    }
+
+    // Per-variant weights, and the per-sample weight of the variants that
+    // sample is missing.  Both are only needed when the missingness
+    // correction is frequency-weighted.
+    double* variant_weights = nullptr;
+    double* wmiss = nullptr;
+    double wsum = 0.0;
+    if (!flat_missing) {
+      if (unlikely(bigstack_alloc_d(variant_ct, &variant_weights) ||
+                   bigstack_calloc_d(sample_ct, &wmiss))) {
+        goto CalcDistance_ret_NOMEM;
+      }
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
+      for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+        const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        uintptr_t allele_idx_base;
+        uint32_t cur_allele_ct = 2;
+        if (!allele_idx_offsets) {
+          allele_idx_base = variant_uidx;
+        } else {
+          allele_idx_base = allele_idx_offsets[variant_uidx];
+          cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_base;
+          allele_idx_base -= variant_uidx;
+        }
+        // Expected contribution to the distance statistic under
+        // Hardy-Weinberg equilibrium, up to a constant factor:
+        //   4 * q * (1 - q) * (q * q - q + 1)
+        // This is symmetric in q vs. 1 - q, so which allele's frequency is
+        // used does not matter.  A monomorphic variant contributes nothing.
+        const double qq = GetAlleleFreq(&(allele_freqs[allele_idx_base]), 0, cur_allele_ct);
+        const double cur_weight = qq * (1.0 - qq) * (qq * qq - qq + 1.0);
+        variant_weights[vidx] = cur_weight;
+        wsum += cur_weight;
+      }
+      if (unlikely(wsum == 0.0)) {
+        logerrputs("Error: --distance requires at least one polymorphic variant.  (Add\n'flat-missing' to weight all variants equally.)\n");
+        goto CalcDistance_ret_DEGENERATE_DATA;
+      }
+    }
+
+    const uint32_t grei_ctaw = BitCtToAlignedWordCt(grand_row_end_idx);
+    const uint32_t grei_ctaw2 = NypCtToAlignedWordCt(grand_row_end_idx);
+    const uint32_t king_bufsizew = kKingMultiplexWords * grand_row_end_idx;
+    const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+    uintptr_t* loadbuf;
+    uintptr_t* rowbuf;
+    uintptr_t* splitbuf_hom;
+    uintptr_t* splitbuf_ref2het;
+    VecW* vecaligned_buf;
+    if (unlikely(bigstack_alloc_w(sample_ctaw2, &loadbuf) ||
+                 bigstack_alloc_w(grei_ctaw2, &rowbuf) ||
+                 bigstack_alloc_w(kPglBitTransposeBatch * grei_ctaw, &splitbuf_hom) ||
+                 bigstack_alloc_w(kPglBitTransposeBatch * grei_ctaw, &splitbuf_ref2het) ||
+                 bigstack_alloc_w(king_bufsizew, &(ctx.smaj_hom[0])) ||
+                 bigstack_alloc_w(king_bufsizew, &(ctx.smaj_ref2het[0])) ||
+                 bigstack_alloc_w(king_bufsizew, &(ctx.smaj_hom[1])) ||
+                 bigstack_alloc_w(king_bufsizew, &(ctx.smaj_ref2het[1])) ||
+                 bigstack_alloc_v(kPglBitTransposeBufvecs, &vecaligned_buf))) {
+      goto CalcDistance_ret_NOMEM;
+    }
+    ctx.block_masks[0] = nullptr;
+    ctx.block_masks[1] = nullptr;
+    ctx.block_weights[0] = nullptr;
+    ctx.block_weights[1] = nullptr;
+    uintptr_t* missing_bv = nullptr;
+    if (!flat_missing) {
+      if (unlikely(bigstack_alloc_w(kKingMultiplexWords, &(ctx.block_masks[0])) ||
+                   bigstack_alloc_w(kKingMultiplexWords, &(ctx.block_masks[1])) ||
+                   bigstack_alloc_d(kKingMultiplex, &(ctx.block_weights[0])) ||
+                   bigstack_alloc_d(kKingMultiplex, &(ctx.block_weights[1])) ||
+                   bigstack_alloc_w(sample_ctl, &missing_bv))) {
+        goto CalcDistance_ret_NOMEM;
+      }
+    }
+
+    // The whole triangle has to be resident, since a square report reads each
+    // row's cells from both sides of the diagonal.
+    const uint64_t tot_cells = (S_CAST(uint64_t, grand_row_end_idx) * (grand_row_end_idx - 1) - S_CAST(uint64_t, grand_row_start_idx) * (grand_row_start_idx - 1)) / 2;
+    const uintptr_t counts_per_cell = flat_missing? 2 : 1;
+    const uintptr_t bytes_per_cell = counts_per_cell * sizeof(int32_t) + (flat_missing? 0 : sizeof(double));
+    if (unlikely(tot_cells > bigstack_left() / bytes_per_cell)) {
+      goto CalcDistance_ret_NOMEM;
+    }
+    if (unlikely(bigstack_calloc_u32(tot_cells * counts_per_cell, &ctx.counts))) {
+      goto CalcDistance_ret_NOMEM;
+    }
+    ctx.wboth = nullptr;
+    if (!flat_missing) {
+      if (unlikely(bigstack_calloc_d(tot_cells, &ctx.wboth))) {
+        goto CalcDistance_ret_NOMEM;
+      }
+    }
+    TriangleLoadBalance(calc_thread_ct, grand_row_start_idx, grand_row_end_idx, 1, ctx.thread_start);
+
+    const uint32_t row_end_idxaw = BitCtToAlignedWordCt(grand_row_end_idx);
+    const uint32_t row_end_idxaw2 = NypCtToAlignedWordCt(grand_row_end_idx);
+    if (row_end_idxaw % 2) {
+      const uint32_t cur_king_bufsizew = kKingMultiplexWords * grand_row_end_idx;
+      uintptr_t* smaj_hom0_last = &(ctx.smaj_hom[0][kKingMultiplexWords - 1]);
+      uintptr_t* smaj_ref2het0_last = &(ctx.smaj_ref2het[0][kKingMultiplexWords - 1]);
+      uintptr_t* smaj_hom1_last = &(ctx.smaj_hom[1][kKingMultiplexWords - 1]);
+      uintptr_t* smaj_ref2het1_last = &(ctx.smaj_ref2het[1][kKingMultiplexWords - 1]);
+      for (uint32_t offset = 0; offset < cur_king_bufsizew; offset += kKingMultiplexWords) {
+        smaj_hom0_last[offset] = 0;
+        smaj_ref2het0_last[offset] = 0;
+        smaj_hom1_last[offset] = 0;
+        smaj_ref2het1_last[offset] = 0;
+      }
+    }
+    SetThreadFuncAndData(CalcDistanceThread, &ctx, &tg);
+    const uint32_t sample_batch_ct_m1 = (grand_row_end_idx - 1) / kPglBitTransposeBatch;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t variants_completed = 0;
+    uint32_t parity = 0;
+    do {
+      const uint32_t cur_block_size = MINV(variant_ct - variants_completed, kKingMultiplex);
+      uintptr_t* cur_smaj_hom = ctx.smaj_hom[parity];
+      uintptr_t* cur_smaj_ref2het = ctx.smaj_ref2het[parity];
+      if (!flat_missing) {
+        double* cur_block_weights = ctx.block_weights[parity];
+        memcpy(cur_block_weights, &(variant_weights[variants_completed]), cur_block_size * sizeof(double));
+        ZeroDArr(kKingMultiplex - cur_block_size, &(cur_block_weights[cur_block_size]));
+        uintptr_t* cur_block_mask = ctx.block_masks[parity];
+        ZeroWArr(kKingMultiplexWords, cur_block_mask);
+        SetAllBits(cur_block_size, cur_block_mask);
+      }
+      uint32_t variant_batch_size = kPglBitTransposeBatch;
+      uint32_t variant_batch_size_rounded_up = kPglBitTransposeBatch;
+      const uint32_t write_batch_ct_m1 = (cur_block_size - 1) / kPglBitTransposeBatch;
+      for (uint32_t write_batch_idx = 0; ; ++write_batch_idx) {
+        if (write_batch_idx >= write_batch_ct_m1) {
+          if (write_batch_idx > write_batch_ct_m1) {
+            break;
+          }
+          variant_batch_size = ModNz(cur_block_size, kPglBitTransposeBatch);
+          variant_batch_size_rounded_up = variant_batch_size;
+          const uint32_t variant_batch_size_rem = variant_batch_size % kBitsPerWord;
+          if (variant_batch_size_rem) {
+            const uint32_t trailing_variant_ct = kBitsPerWord - variant_batch_size_rem;
+            variant_batch_size_rounded_up += trailing_variant_ct;
+            ZeroWArr(trailing_variant_ct * row_end_idxaw, &(splitbuf_hom[variant_batch_size * row_end_idxaw]));
+            ZeroWArr(trailing_variant_ct * row_end_idxaw, &(splitbuf_ref2het[variant_batch_size * row_end_idxaw]));
+          }
+        }
+        uintptr_t* hom_iter = splitbuf_hom;
+        uintptr_t* ref2het_iter = splitbuf_ref2het;
+        for (uint32_t uii = 0; uii != variant_batch_size; ++uii) {
+          const uint32_t vidx = variants_completed + write_batch_idx * kPglBitTransposeBatch + uii;
+          const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+          // Multiallelic variants are collapsed to REF vs. non-REF, as in the
+          // KING-robust scan.
+          reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, loadbuf);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto CalcDistance_ret_1;
+          }
+          ZeroTrailingNyps(sample_ct, loadbuf);
+          if (!flat_missing) {
+            const double cur_weight = variant_weights[vidx];
+            if (cur_weight != 0.0) {
+              GenoarrToMissingnessUnsafe(loadbuf, sample_ct, missing_bv);
+              ZeroTrailingBits(sample_ct, missing_bv);
+              uintptr_t sample_idx_base = 0;
+              uintptr_t missing_bits = missing_bv[0];
+              const uint32_t cur_missing_ct = PopcountWords(missing_bv, sample_ctl);
+              for (uint32_t ujj = 0; ujj != cur_missing_ct; ++ujj) {
+                const uintptr_t sample_idx = BitIter1(missing_bv, &sample_idx_base, &missing_bits);
+                wmiss[sample_idx] += cur_weight;
+              }
+            }
+          }
+          memcpy(rowbuf, loadbuf, row_end_idxaw2 * sizeof(intptr_t));
+          SetTrailingNyps(grand_row_end_idx, rowbuf);
+          SplitHomRef2hetUnsafeW(rowbuf, row_end_idxaw2, hom_iter, ref2het_iter);
+          hom_iter = &(hom_iter[row_end_idxaw]);
+          ref2het_iter = &(ref2het_iter[row_end_idxaw]);
+        }
+        uintptr_t* write_hom_iter = &(cur_smaj_hom[write_batch_idx * kPglBitTransposeWords]);
+        uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[write_batch_idx * kPglBitTransposeWords]);
+        uint32_t write_batch_size = kPglBitTransposeBatch;
+        for (uint32_t sample_batch_idx = 0; ; ++sample_batch_idx) {
+          if (sample_batch_idx >= sample_batch_ct_m1) {
+            if (sample_batch_idx > sample_batch_ct_m1) {
+              break;
+            }
+            write_batch_size = ModNz(grand_row_end_idx, kPglBitTransposeBatch);
+          }
+          TransposeBitblock(&(splitbuf_hom[sample_batch_idx * kPglBitTransposeWords]), row_end_idxaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_hom_iter, vecaligned_buf);
+          TransposeBitblock(&(splitbuf_ref2het[sample_batch_idx * kPglBitTransposeWords]), row_end_idxaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_ref2het_iter, vecaligned_buf);
+          write_hom_iter = &(write_hom_iter[kKingMultiplex * kPglBitTransposeWords]);
+          write_ref2het_iter = &(write_ref2het_iter[kKingMultiplex * kPglBitTransposeWords]);
+        }
+      }
+      const uint32_t cur_block_sizew = BitCtToWordCt(cur_block_size);
+      if (cur_block_sizew < kKingMultiplexWords) {
+        uintptr_t* write_hom_iter = &(cur_smaj_hom[cur_block_sizew]);
+        uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[cur_block_sizew]);
+        const uint32_t write_word_ct = kKingMultiplexWords - cur_block_sizew;
+        for (uint32_t sample_idx = 0; sample_idx != grand_row_end_idx; ++sample_idx) {
+          ZeroWArr(write_word_ct, write_hom_iter);
+          ZeroWArr(write_word_ct, write_ref2het_iter);
+          write_hom_iter = &(write_hom_iter[kKingMultiplexWords]);
+          write_ref2het_iter = &(write_ref2het_iter[kKingMultiplexWords]);
+        }
+      }
+      if (variants_completed) {
+        JoinThreads(&tg);
+      }
+      if (variants_completed + cur_block_size == variant_ct) {
+        DeclareLastThreadBlock(&tg);
+      }
+      if (unlikely(SpawnThreads(&tg))) {
+        goto CalcDistance_ret_THREAD_CREATE_FAIL;
+      }
+      variants_completed += cur_block_size;
+      printf("\r--distance: %u variants complete.", variants_completed);
+      fflush(stdout);
+      parity = 1 - parity;
+    } while (!IsLastBlock(&tg));
+    JoinThreads(&tg);
+    fputs("\r--distance: Writing...                   \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", stdout);
+    fflush(stdout);
+
+    for (uint32_t report_kind = kDistReportAlleleCt; report_kind <= kDistReport1MinusIbs; ++report_kind) {
+      DistanceFlags cur_bit = kfDistance1MinusIbs;
+      if (report_kind == kDistReportAlleleCt) {
+        cur_bit = kfDistanceAlleleCt;
+      } else if (report_kind == kDistReportIbs) {
+        cur_bit = kfDistanceIbs;
+      }
+      if (!(flags & cur_bit)) {
+        continue;
+      }
+      putc_unlocked('\r', stdout);
+      reterr = WriteDistanceMatrix(sample_include, siip, ctx.counts, ctx.wboth, wmiss, wsum, sample_ct, grand_row_start_idx, grand_row_end_idx, variant_ct, flags, report_kind, parallel_idx, parallel_tot, max_thread_ct, outname, outname_end);
+      if (unlikely(reterr)) {
+        goto CalcDistance_ret_1;
+      }
+    }
+  }
+  while (0) {
+  CalcDistance_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  CalcDistance_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  CalcDistance_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
+    break;
+  }
+ CalcDistance_ret_1:
+  CleanupThreads(&tg);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, double grm_sparse_cutoff, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;

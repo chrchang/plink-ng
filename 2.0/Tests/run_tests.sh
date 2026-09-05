@@ -83,4 +83,9 @@ cd TEST_HET_IBC
 cd ..
 echo "TEST_HET_IBC passed."
 
+cd TEST_DISTANCE
+./run_tests.sh $d $2 $3 > TEST_DISTANCE.log
+cd ..
+echo "TEST_DISTANCE passed."
+
 echo "All tests passed."
