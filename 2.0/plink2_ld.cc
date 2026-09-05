@@ -13423,6 +13423,445 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
   return reterr;
 }
 
+void InitTag(TagInfo* tip) {
+  tip->tag_fname = nullptr;
+  tip->list_all = 0;
+  tip->mode2 = 0;
+  tip->bp_radius = 250000;
+  tip->output_zst = 0;
+  tip->r2_thresh = 0.8;
+}
+
+void CleanupTag(TagInfo* tip) {
+  free_cond(tip->tag_fname);
+}
+
+// --show-tags: for each variant, the nearby variants it is in strong LD with.
+// Same window-and-r^2 shape as --ld-score: genotypes are held as the
+// hom/ref2het bitvector pair the pairwise kernels consume, in a ring sized to
+// the widest window.
+typedef struct TagCtxStruct {
+  const uint32_t* variant_bps;
+  const uint32_t* chr_variant_uidxs;
+  uint32_t chr_variant_ct;
+  uint32_t founder_ct;
+  uint32_t bp_radius;
+  uintptr_t variant_buf_word_ct;
+  uint32_t ring_size;
+  const uintptr_t* genobufs;
+  const VariantAggs* vaggs;
+} TagCtx;
+
+static uint32_t TagWindowStart(const TagCtx* ctx, uint32_t cidx) {
+  const uint32_t* uidxs = ctx->chr_variant_uidxs;
+  const uint32_t cur_bp = ctx->variant_bps[uidxs[cidx]];
+  uint32_t start = 0;
+  while ((start < cidx) && (cur_bp - ctx->variant_bps[uidxs[start]] > ctx->bp_radius)) {
+    ++start;
+  }
+  return start;
+}
+
+static uint32_t TagWindowEnd(const TagCtx* ctx, uint32_t cidx) {
+  const uint32_t* uidxs = ctx->chr_variant_uidxs;
+  const uint32_t cur_bp = ctx->variant_bps[uidxs[cidx]];
+  uint32_t end = ctx->chr_variant_ct;
+  while ((end > cidx + 1) && (ctx->variant_bps[uidxs[end - 1]] - cur_bp > ctx->bp_radius)) {
+    --end;
+  }
+  return end;
+}
+
+// Unphased r^2 between two ring slots, with the integer accumulators
+// --indep-pairwise uses.  Negative when the pair has too little in common for
+// the ratio to be defined.
+static double TagPairR2(const TagCtx* ctx, uint32_t slot0, uint32_t slot1) {
+  const uint32_t founder_ct = ctx->founder_ct;
+  const uintptr_t stride = ctx->variant_buf_word_ct;
+  const uintptr_t* geno0 = &(ctx->genobufs[slot0 * stride]);
+  const uintptr_t* geno1 = &(ctx->genobufs[slot1 * stride]);
+  const VariantAggs* vaggs0 = &(ctx->vaggs[slot0]);
+  uint32_t cur_nm_ct = vaggs0->nm_ct;
+  int32_t cur_first_sum = vaggs0->sum;
+  uint32_t cur_first_ssq = vaggs0->ssq;
+  int32_t second_sum;
+  uint32_t second_ssq;
+  int32_t cur_dotprod;
+  ComputeIndepPairwiseR2Components(geno0, geno1, &(ctx->vaggs[slot1]), founder_ct, &cur_nm_ct, &cur_first_sum, &cur_first_ssq, &second_sum, &second_ssq, &cur_dotprod);
+  if (cur_nm_ct < 2) {
+    return -1.0;
+  }
+  const double cov12 = S_CAST(double, cur_dotprod * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, cur_first_sum) * second_sum);
+  const double variance1 = S_CAST(double, cur_first_ssq * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, cur_first_sum) * cur_first_sum);
+  const double variance2 = S_CAST(double, second_ssq * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, second_sum) * second_sum);
+  if ((variance1 <= 0.0) || (variance2 <= 0.0)) {
+    return -1.0;
+  }
+  return cov12 * cov12 / (variance1 * variance2);
+}
+
+PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const AlleleCode* maj_alleles, const uintptr_t* founder_info, const char* tag_fname, uint32_t list_all, uint32_t mode2, uint32_t bp_radius, double r2_thresh, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t output_zst, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  TextStream txs;
+  PreinitTextStream(&txs);
+  PglErr reterr = kPglRetSuccess;
+  {
+    if (unlikely(founder_ct < 2)) {
+      logerrputs("Error: --show-tags requires at least two founders.\n");
+      goto ShowTags_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t all_mode = (tag_fname == nullptr);
+    const uint32_t write_tag_list = all_mode || list_all;
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* variant_include;
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include))) {
+      goto ShowTags_ret_NOMEM;
+    }
+    memcpy(variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+    // Unphased r^2, as in PLINK 1.x.  Multiallelic variants are not discarded:
+    // following the rest of plink2, one allele is taken against all others,
+    // defaulting to the most common.  Dropping a column outright because a
+    // handful of samples carry a third allele would throw away far more than
+    // it protects.
+    uint32_t skip_ct = 0;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if (!IsSet(cip->haploid_mask, chr_idx)) {
+        continue;
+      }
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      skip_ct += PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+      ClearBitsNz(chr_vidx_start, chr_vidx_end, variant_include);
+    }
+    const uint32_t kept_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
+    if (unlikely(!kept_variant_ct)) {
+      logerrputs("Error: --show-tags: No variants remaining.\n");
+      goto ShowTags_ret_INCONSISTENT_INPUT;
+    }
+
+    uintptr_t* target_variants = nullptr;
+    if (!all_mode) {
+      if (unlikely(bigstack_calloc_w(raw_variant_ctl, &target_variants))) {
+        goto ShowTags_ret_NOMEM;
+      }
+      uint32_t* variant_id_htable;
+      uint32_t* htable_dup_base;
+      uint32_t variant_id_htable_size;
+      uint32_t dup_ct;
+      reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, kept_variant_ct, bigstack_left() / 8, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
+      if (unlikely(reterr)) {
+        goto ShowTags_ret_1;
+      }
+      reterr = SizeAndInitTextStream(tag_fname, bigstack_left() / 4, 1, &txs);
+      if (unlikely(reterr)) {
+        goto ShowTags_ret_TSTREAM_FAIL;
+      }
+      uint32_t miss_ct = 0;
+      while (1) {
+        const char* line_start = TextGet(&txs);
+        if (!line_start) {
+          break;
+        }
+        const char* token_end = CurTokenEnd(line_start);
+        const uint32_t id_slen = token_end - line_start;
+        if (mode2) {
+          // Two-column input; a variant is a target only when its second
+          // column is exactly "1".  PLINK 1.x ignores every other line.
+          const char* second_token = FirstNonTspace(token_end);
+          if ((*second_token != '1') || (!IsSpaceOrEoln(second_token[1]))) {
+            continue;
+          }
+        }
+        uint32_t llidx;
+        const uint32_t variant_uidx = VariantIdDupHtableFind(line_start, variant_ids, variant_id_htable, htable_dup_base, id_slen, variant_id_htable_size, max_variant_id_slen, &llidx);
+        if (variant_uidx == UINT32_MAX) {
+          ++miss_ct;
+          continue;
+        }
+        SetBit(variant_uidx, target_variants);
+      }
+      if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+        goto ShowTags_ret_TSTREAM_FAIL;
+      }
+      if (unlikely(CleanupTextStream2(tag_fname, &txs, &reterr))) {
+        goto ShowTags_ret_1;
+      }
+      if (miss_ct) {
+        logerrprintf("Warning: %u --show-tags variant ID%s not found in the dataset.\n", miss_ct, (miss_ct == 1)? "" : "s");
+      }
+    }
+
+    // A variant tags itself, so the file-mode output starts as the target set.
+    uintptr_t* tagging_variants = nullptr;
+    if (!all_mode) {
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &tagging_variants))) {
+        goto ShowTags_ret_NOMEM;
+      }
+      memcpy(tagging_variants, target_variants, raw_variant_ctl * sizeof(intptr_t));
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uint32_t* founder_info_cumulative_popcounts;
+    uint32_t* chr_variant_uidxs;
+    uintptr_t* genovec;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
+                 bigstack_alloc_u32(kept_variant_ct, &chr_variant_uidxs) ||
+                 bigstack_alloc_w(NypCtToWordCt(founder_ct), &genovec))) {
+      goto ShowTags_ret_NOMEM;
+    }
+    FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
+
+    TagCtx ctx;
+    ctx.variant_bps = variant_bps;
+    ctx.chr_variant_uidxs = chr_variant_uidxs;
+    ctx.founder_ct = founder_ct;
+    ctx.bp_radius = bp_radius;
+
+    uint32_t max_window_ct = 1;
+    {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
+      for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+        const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+        const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+        if (!chr_variant_ct) {
+          continue;
+        }
+        for (uint32_t cidx = 0; cidx != chr_variant_ct; ++cidx) {
+          chr_variant_uidxs[cidx] = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        }
+        ctx.chr_variant_ct = chr_variant_ct;
+        for (uint32_t cidx = 0; cidx != chr_variant_ct; ++cidx) {
+          const uint32_t cur_window_ct = TagWindowEnd(&ctx, cidx) - TagWindowStart(&ctx, cidx);
+          if (cur_window_ct > max_window_ct) {
+            max_window_ct = cur_window_ct;
+          }
+        }
+      }
+    }
+    const uint32_t founder_ctaw = BitCtToAlignedWordCt(founder_ct);
+    const uintptr_t variant_buf_word_ct = 2 * founder_ctaw;
+    ctx.variant_buf_word_ct = variant_buf_word_ct;
+    const uint32_t ring_size = max_window_ct;
+    ctx.ring_size = ring_size;
+    uintptr_t* genobufs;
+    VariantAggs* vaggs;
+    if (unlikely(bigstack_alloc_w(S_CAST(uintptr_t, ring_size) * variant_buf_word_ct, &genobufs) ||
+                 BIGSTACK_ALLOC_X(VariantAggs, ring_size, &vaggs))) {
+      goto ShowTags_ret_NOMEM;
+    }
+    ctx.genobufs = genobufs;
+    ctx.vaggs = vaggs;
+
+    if (write_tag_list) {
+      const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+      const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + 256;
+      OutnameZstSet(".tags.list", output_zst, outname_end);
+      reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+      if (unlikely(reterr)) {
+        goto ShowTags_ret_1;
+      }
+      cswritep = strcpya_k(cswritep, "#ID\tCHROM\tPOS\tNTAG\tLEFT\tRIGHT\tKBSPAN\tTAGS");
+      AppendBinaryEoln(&cswritep);
+    }
+    char* chr_buf;
+    const uint32_t max_chr_blen2 = GetMaxChrSlen(cip) + 1;
+    if (unlikely(bigstack_alloc_c(max_chr_blen2, &chr_buf))) {
+      goto ShowTags_ret_NOMEM;
+    }
+
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+      if (!chr_variant_ct) {
+        continue;
+      }
+      for (uint32_t cidx = 0; cidx != chr_variant_ct; ++cidx) {
+        chr_variant_uidxs[cidx] = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      }
+      ctx.chr_variant_ct = chr_variant_ct;
+      char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
+      const uint32_t chr_slen = chr_name_end - chr_buf;
+      uint32_t loaded_end = 0;
+      for (uint32_t cidx = 0; cidx != chr_variant_ct; ++cidx) {
+        const uint32_t window_start = TagWindowStart(&ctx, cidx);
+        const uint32_t window_end = TagWindowEnd(&ctx, cidx);
+        if (loaded_end < window_start) {
+          loaded_end = window_start;
+        }
+        for (; loaded_end != window_end; ++loaded_end) {
+          const uint32_t slot_idx = loaded_end % ring_size;
+          uintptr_t* cur_genobuf = &(genobufs[slot_idx * variant_buf_word_ct]);
+          const uint32_t load_variant_uidx = chr_variant_uidxs[loaded_end];
+          reterr = PgrGetInv1(founder_info, pssi, founder_ct, load_variant_uidx, maj_alleles[load_variant_uidx], simple_pgrp, genovec);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, chr_variant_uidxs[loaded_end]);
+            goto ShowTags_ret_1;
+          }
+          ZeroTrailingNyps(founder_ct, genovec);
+          SplitHomRef2het(genovec, founder_ct, cur_genobuf, &(cur_genobuf[founder_ctaw]));
+          uint32_t nm_ct;
+          uint32_t plusone_ct;
+          uint32_t minusone_ct;
+          FillVaggs(cur_genobuf, &(cur_genobuf[founder_ctaw]), BitCtToWordCt(founder_ct), &(vaggs[slot_idx]), &nm_ct, &plusone_ct, &minusone_ct);
+        }
+        const uint32_t index_uidx = chr_variant_uidxs[cidx];
+        const uint32_t index_slot = cidx % ring_size;
+        // In file mode, --list-all reports the named variants only; 'all' mode
+        // reports every variant.
+        const uint32_t emit_row = write_tag_list && (all_mode || IsSet(target_variants, index_uidx));
+        uint32_t ntag = 0;
+        uint32_t left_bp = variant_bps[index_uidx];
+        uint32_t right_bp = left_bp;
+        char* tag_write_start = nullptr;
+        if (emit_row) {
+          cswritep = strcpyax(cswritep, variant_ids[index_uidx], '\t');
+          cswritep = memcpyax(cswritep, chr_buf, chr_slen, '\t');
+          cswritep = u32toa(variant_bps[index_uidx], cswritep);
+          tag_write_start = cswritep;
+        }
+        // Tag IDs go to a scratch buffer, since NTAG and the span have to be
+        // written before them.
+        unsigned char* tagbuf_mark = g_bigstack_base;
+        char* tagbuf = nullptr;
+        char* tag_iter = nullptr;
+        if (emit_row) {
+          const uintptr_t tagbuf_size = S_CAST(uintptr_t, window_end - window_start) * (kMaxIdSlen + 1) + 16;
+          if (unlikely(bigstack_alloc_c(tagbuf_size, &tagbuf))) {
+            goto ShowTags_ret_NOMEM;
+          }
+          tag_iter = tagbuf;
+        }
+        for (uint32_t other_cidx = window_start; other_cidx != window_end; ++other_cidx) {
+          if (other_cidx == cidx) {
+            continue;
+          }
+          const double cur_r2 = TagPairR2(&ctx, index_slot, other_cidx % ring_size);
+          if (cur_r2 < r2_thresh) {
+            continue;
+          }
+          const uint32_t other_uidx = chr_variant_uidxs[other_cidx];
+          ++ntag;
+          const uint32_t other_bp = variant_bps[other_uidx];
+          if (other_bp < left_bp) {
+            left_bp = other_bp;
+          }
+          if (other_bp > right_bp) {
+            right_bp = other_bp;
+          }
+          if (!all_mode) {
+            // The index variant tags other_cidx; in file mode we want the
+            // variants tagging a target.
+            if (IsSet(target_variants, other_uidx)) {
+              SetBit(index_uidx, tagging_variants);
+            }
+          }
+          if (emit_row) {
+            if (tag_iter != tagbuf) {
+              *tag_iter++ = '|';
+            }
+            tag_iter = strcpya(tag_iter, variant_ids[other_uidx]);
+          }
+        }
+        if (emit_row) {
+          cswritep = tag_write_start;
+          *cswritep++ = '\t';
+          cswritep = u32toa_x(ntag, '\t', cswritep);
+          cswritep = u32toa_x(left_bp, '\t', cswritep);
+          cswritep = u32toa_x(right_bp, '\t', cswritep);
+          cswritep = dtoa_g(u31tod(right_bp - left_bp + 1) / 1000.0, cswritep);
+          *cswritep++ = '\t';
+          if (!ntag) {
+            cswritep = strcpya_k(cswritep, "NONE");
+          } else {
+            cswritep = memcpya(cswritep, tagbuf, tag_iter - tagbuf);
+          }
+          AppendBinaryEoln(&cswritep);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto ShowTags_ret_WRITE_FAIL;
+          }
+        }
+        BigstackReset(tagbuf_mark);
+      }
+    }
+    if (write_tag_list) {
+      if (unlikely(CswriteCloseNull(&css, cswritep))) {
+        goto ShowTags_ret_WRITE_FAIL;
+      }
+      logprintfww("--show-tags: Per-variant tag lists written to %s .\n", outname);
+    }
+    if (!all_mode) {
+      OutnameZstSet(".tags", output_zst, outname_end);
+      reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kCompressStreamBlock + kMaxIdSlen + 64, &css, &cswritep);
+      if (unlikely(reterr)) {
+        goto ShowTags_ret_1;
+      }
+      const uint32_t tagging_ct = PopcountWords(tagging_variants, raw_variant_ctl);
+      if (!mode2) {
+        uintptr_t tag_uidx_base = 0;
+        uintptr_t tag_bits = tagging_variants[0];
+        for (uint32_t uii = 0; uii != tagging_ct; ++uii) {
+          const uint32_t cur_uidx = BitIter1(tagging_variants, &tag_uidx_base, &tag_bits);
+          cswritep = strcpya(cswritep, variant_ids[cur_uidx]);
+          AppendBinaryEoln(&cswritep);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto ShowTags_ret_WRITE_FAIL;
+          }
+        }
+      } else {
+        // Every retained variant is listed, with a 0/1 membership column.
+        uintptr_t out_uidx_base = 0;
+        uintptr_t out_bits = orig_variant_include[0];
+        for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+          const uint32_t variant_uidx = BitIter1(orig_variant_include, &out_uidx_base, &out_bits);
+          cswritep = strcpyax(cswritep, variant_ids[variant_uidx], '\t');
+          *cswritep++ = '0' + IsSet(tagging_variants, variant_uidx);
+          AppendBinaryEoln(&cswritep);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto ShowTags_ret_WRITE_FAIL;
+          }
+        }
+      }
+      if (unlikely(CswriteCloseNull(&css, cswritep))) {
+        goto ShowTags_ret_WRITE_FAIL;
+      }
+      logprintfww("--show-tags: %u tagging variant%s written to %s .\n", tagging_ct, (tagging_ct == 1)? "" : "s", outname);
+    }
+    if (skip_ct) {
+      logprintf("(%u haploid-chromosome variant%s skipped.)\n", skip_ct, (skip_ct == 1)? "" : "s");
+    }
+  }
+  while (0) {
+  ShowTags_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ShowTags_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--show-tags file", &txs);
+    break;
+  ShowTags_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  ShowTags_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ ShowTags_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  CleanupTextStream2("--show-tags file", &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   const VcorFlags flags = vcip->flags;
   const uint32_t phased_calc = (flags / kfVcorPhased) & 1;

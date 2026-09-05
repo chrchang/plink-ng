@@ -1034,6 +1034,28 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      all-pairs computation on more than 400k variants.\n"
 "    With either output type, the computation can be subdivided with --parallel.\n\n"
               );
+    HelpPrint("show-tags\0list-all\0tag-kb\0tag-r2\0", &help_ctrl, 1,
+"  --show-tags ['zs'] {<filename> | 'all'}\n"
+"    Report which variants tag which, where variant A tags variant B when the\n"
+"    two are within --tag-kb of each other and their unphased r^2 is at least\n"
+"    --tag-r2.\n"
+"    * With a filename, <output prefix>.tags lists every variant tagging at\n"
+"      least one variant named in the file.  A variant tags itself, so this is\n"
+"      normally a superset of the input list.\n"
+"    * With 'all', <output prefix>.tags.list reports each variant's tags, one\n"
+"      row per variant.  --list-all adds that file to the filename mode,\n"
+"      restricted to the named variants.\n"
+"    * Only founders are considered, as with --r2-unphased.  Multiallelic\n"
+"      variants and haploid chromosomes are skipped.\n\n"
+              );
+    HelpPrint("tag-kb\0tag-r2\0tag-mode2\0show-tags\0", &help_ctrl, 0,
+"  --tag-kb <kbs>  : Set --show-tags max tag kb distance (default 250).\n"
+"  --tag-r2 <val>  : Set --show-tags min tag r^2 (default 0.8).\n"
+"  --tag-mode2     : Make --show-tags read a two-column file, treating only the\n"
+"                    variants whose second column is '1' as targets, and write a\n"
+"                    .tags file in the same two-column form covering every\n"
+"                    variant.  Cannot be used with \"--show-tags all\".\n"
+              );
     HelpPrint("ld-score\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
 "  --ld-score ['zs'] ['multiallelic'] [{'cols='<column set descriptor>}]\n"
 "  --ld-score-founders\n"
