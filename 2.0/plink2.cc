@@ -227,6 +227,7 @@ ENUM_U31_DEF_START()
   kCmd1BitCheckOrImputeSex,
   kCmd1BitMendelReport,
   kCmd1BitLdScore,
+  kCmd1BitCmh,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -265,7 +266,8 @@ FLAGSET64_DEF_START()
   kfCommand1PhenoSvd = (1LLU << kCmd1BitPhenoSvd),
   kfCommand1CheckOrImputeSex = (1LLU << kCmd1BitCheckOrImputeSex),
   kfCommand1MendelReport = (1LLU << kCmd1BitMendelReport),
-  kfCommand1LdScore = (1LLU << kCmd1BitLdScore)
+  kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
+  kfCommand1Cmh = (1LLU << kCmd1BitCmh)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -415,6 +417,8 @@ typedef struct Plink2CmdlineStruct {
   SortMode sample_sort_mode;
   SortMode sort_vars_mode;
   GrmFlags grm_flags;
+  CmhFlags cmh_flags;
+  char* cmh_phenoname;
   double grm_sparse_cutoff;
   PcaFlags pca_flags;
   WriteCovarFlags write_covar_flags;
@@ -597,7 +601,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1Cmh)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -2661,6 +2665,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
       }
+      if (pcp->command_flags1 & kfCommand1Cmh) {
+        reterr = CmhReport(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, pcp->cmh_phenoname, raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->ci_size, pcp->max_thread_ct, pgfi.gflags, pcp->cmh_flags, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
       if ((pcp->command_flags1 & kfCommand1MakeRel) || keep_grm) {
         reterr = CalcGrm(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->grm_flags, pcp->grm_sparse_cutoff, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
         if (unlikely(reterr)) {
@@ -3795,6 +3805,7 @@ int main(int argc, char** argv) {
   pc.update_parental_ids_fname = nullptr;
   pc.recover_var_ids_fname = nullptr;
   pc.vscore_fname = nullptr;
+  pc.cmh_phenoname = nullptr;
   pc.indep_preferred_fname = nullptr;
   pc.not_pheno_flattened = nullptr;
   pc.not_covar_flattened = nullptr;
@@ -4147,6 +4158,7 @@ int main(int argc, char** argv) {
     pc.sample_sort_mode = kSort0;
     pc.sort_vars_mode = kSort0;
     pc.grm_flags = kfGrm0;
+    pc.cmh_flags = kfCmh0;
     pc.grm_sparse_cutoff = -DBL_MAX;
     pc.pca_flags = kfPca0;
     pc.write_covar_flags = kfWriteCovar0;
@@ -5452,6 +5464,45 @@ int main(int argc, char** argv) {
           }
           pc.pheno_transform_flags |= kfPhenoTransformQuantnormCovar;
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "mh")) {
+        main_parse_cmh:
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t explicit_cols = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.cmh_flags |= kfCmhZs;
+            } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0maybeprovref\0provref\0a1\0a1freq\0nobs\0chisq\0p\0or\0se\0ci\0bdchisq\0bdp\0", "cmh", kfCmhColChrom, kfCmhColDefault, 0, &pc.cmh_flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              explicit_cols = 1;
+            } else if (strequal_k(cur_modif, "perm", cur_modif_slen) ||
+                       strequal_k(cur_modif, "perm-count", cur_modif_slen) ||
+                       strequal_k(cur_modif, "perm-bd", cur_modif_slen) ||
+                       strequal_k(cur_modif, "set-test", cur_modif_slen) ||
+                       StrStartsWith(cur_modif, "mperm=", cur_modif_slen)) {
+              logerrputs("Error: --cmh's permutation modifiers are not implemented yet.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            } else if (likely(!pc.cmh_phenoname)) {
+              reterr = CmdlineAllocString(cur_modif, argvk[arg_idx], kMaxIdSlen, &pc.cmh_phenoname);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --cmh argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (!explicit_cols) {
+            pc.cmh_flags |= kfCmhColDefault;
+          }
+          pc.command_flags1 |= kfCommand1Cmh;
+          pc.dependency_flags |= kfFilterAllReq | kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "heck-sex")) {
           // parsing is almost identical for --impute-sex
         main_parse_check_sex:
@@ -9370,6 +9421,9 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           memcpy(pc.missing_catname, cur_modif, cur_modif_slen + 1);
+        } else if (strequal_k_unsafe(flagname_p2, "h")) {
+          // --mh is PLINK 1.x's name for --cmh.
+          goto main_parse_cmh;
         } else if (strequal_k_unsafe(flagname_p2, "ouse")) {
           if (unlikely(chr_info.chrset_source)) {
             logerrputs("Error: Conflicting chromosome-set flags.\n");
@@ -13755,6 +13809,7 @@ int main(int argc, char** argv) {
   free_cond(pc.not_covar_flattened);
   free_cond(pc.not_pheno_flattened);
   free_cond(pc.indep_preferred_fname);
+  free_cond(pc.cmh_phenoname);
   free_cond(pc.vscore_fname);
   free_cond(pc.recover_var_ids_fname);
   free_cond(pc.update_parental_ids_fname);

@@ -10763,6 +10763,726 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
   return reterr;
 }
 
+// PLINK 1.x reports a statistic when it is finite and prints NA otherwise;
+// several of these can legitimately come out as 0, infinite or NaN on
+// degenerate strata, and the distinction matters for matching its output.
+HEADER_INLINE uint32_t CmhIsReportable(double dd) {
+  return (dd == dd) && (dd > -DBL_MAX) && (dd < DBL_MAX);
+}
+
+// One variant's Cochran-Mantel-Haenszel results.
+typedef struct CmhVariantResultStruct {
+  uint32_t obs_ct;
+  uint32_t a1_ct;
+  uint32_t allele_ct;
+  double chisq;
+  double pval;
+  double odds_ratio;
+  double se;
+  double ci_lower;
+  double ci_upper;
+  double bd_chisq;
+  double bd_pval;
+} CmhVariantResult;
+
+typedef struct CmhCtxStruct {
+  // Interleaved masks for the 2K (cluster, case/control) groups, and the
+  // sample count each one covers.
+  const uintptr_t* group_interleaved;
+  const uint32_t* group_sample_cts;
+  uintptr_t group_interleaved_stride;
+  uint32_t cluster_ct;
+  uint32_t sample_ct;
+  uint32_t breslow_day;
+  double ci_zt;
+  uintptr_t sample_ctaw2;
+
+  uintptr_t* genovecs;
+  CmhVariantResult* results;
+  uint32_t cur_block_size;
+} CmhCtx;
+
+void CmhComputeVariant(const uintptr_t* genovec, const CmhCtx* ctx, CmhVariantResult* resultp) {
+  const uint32_t cluster_ct = ctx->cluster_ct;
+  const uint32_t sample_ct = ctx->sample_ct;
+  const uintptr_t stride = ctx->group_interleaved_stride;
+  const uintptr_t* group_interleaved = ctx->group_interleaved;
+  const uint32_t* group_sample_cts = ctx->group_sample_cts;
+  resultp->obs_ct = 0;
+  resultp->a1_ct = 0;
+  resultp->allele_ct = 0;
+  const double not_reported = HUGE_VAL;
+  resultp->chisq = not_reported;
+  resultp->pval = not_reported;
+  resultp->odds_ratio = not_reported;
+  resultp->se = not_reported;
+  resultp->ci_lower = not_reported;
+  resultp->ci_upper = not_reported;
+  resultp->bd_chisq = not_reported;
+  resultp->bd_pval = not_reported;
+
+  double cmh_numer = 0.0;
+  double cmh_denom = 0.0;
+  double rtot = 0.0;
+  double stot = 0.0;
+  double v1 = 0.0;
+  double v2 = 0.0;
+  double v3 = 0.0;
+  uint32_t usable_cluster_ct = 0;
+  uint32_t tot_obs_ct = 0;
+  uint32_t tot_a1_ct = 0;
+  uint32_t tot_allele_ct = 0;
+  for (uint32_t cluster_idx = 0; cluster_idx != cluster_ct; ++cluster_idx) {
+    uint32_t a1_cts[2];
+    uint32_t allele_cts[2];
+    for (uint32_t is_case = 0; is_case != 2; ++is_case) {
+      const uint32_t group_idx = cluster_idx * 2 + is_case;
+      STD_ARRAY_DECL(uint32_t, 4, genocounts);
+      GenoarrCountSubsetFreqs(genovec, &(group_interleaved[group_idx * stride]), sample_ct, group_sample_cts[group_idx], genocounts);
+      const uint32_t nonmiss_ct = genocounts[0] + genocounts[1] + genocounts[2];
+      // A1 is ALT, so hom-A1 is genotype 2.
+      a1_cts[is_case] = 2 * genocounts[2] + genocounts[1];
+      allele_cts[is_case] = 2 * nonmiss_ct;
+      tot_obs_ct += nonmiss_ct;
+    }
+    const uint32_t ctrl_allele_ct = allele_cts[0];
+    const uint32_t case_allele_ct = allele_cts[1];
+    tot_a1_ct += a1_cts[0] + a1_cts[1];
+    tot_allele_ct += ctrl_allele_ct + case_allele_ct;
+    // A stratum with no cases or no controls carries no information.
+    if ((!ctrl_allele_ct) || (!case_allele_ct)) {
+      continue;
+    }
+    ++usable_cluster_ct;
+    const double allele_ctd = u31tod(ctrl_allele_ct + case_allele_ct);
+    const double allele_ct_recip = 1.0 / allele_ctd;
+    const double allele_ctm1_recip = 1.0 / (allele_ctd - 1);
+    const double ctrl_ctd = u31tod(ctrl_allele_ct);
+    const double case_ctd = u31tod(case_allele_ct);
+    const double ctrl_a1_ctd = u31tod(a1_cts[0]);
+    const double ctrl_a2_ctd = ctrl_ctd - ctrl_a1_ctd;
+    const double case_a1_ctd = u31tod(a1_cts[1]);
+    const double case_a2_ctd = case_ctd - case_a1_ctd;
+    const double a1_ctd = ctrl_a1_ctd + case_a1_ctd;
+    const double a2_ctd = ctrl_a2_ctd + case_a2_ctd;
+    const double mean_case_a1d = case_ctd * a1_ctd * allele_ct_recip;
+    const double var_case_a1d = ctrl_ctd * case_ctd * a1_ctd * a2_ctd * allele_ct_recip * allele_ct_recip * allele_ctm1_recip;
+    cmh_numer += case_a1_ctd - mean_case_a1d;
+    cmh_denom += var_case_a1d;
+    // Mantel-Haenszel odds ratio, and the Robins-Breslow-Greenland variance
+    // of its logarithm.
+    const double r2 = case_a1_ctd * ctrl_a2_ctd * allele_ct_recip;
+    const double s2 = case_a2_ctd * ctrl_a1_ctd * allele_ct_recip;
+    rtot += r2;
+    stot += s2;
+    v1 += allele_ct_recip * r2 * (case_a1_ctd + ctrl_a2_ctd);
+    v2 += allele_ct_recip * s2 * (case_a2_ctd + ctrl_a1_ctd);
+    v3 += allele_ct_recip * ((case_a1_ctd + ctrl_a2_ctd) * s2 + (case_a2_ctd + ctrl_a1_ctd) * r2);
+  }
+  resultp->obs_ct = tot_obs_ct;
+  resultp->a1_ct = tot_a1_ct;
+  resultp->allele_ct = tot_allele_ct;
+  if (!usable_cluster_ct) {
+    return;
+  }
+  double cmh_stat = cmh_numer * cmh_numer / cmh_denom;
+  // Floating-point error can leave this a tiny positive value instead of
+  // zero, which makes the Breslow-Day test unreliable.
+  if (cmh_stat < 1e-28) {
+    cmh_stat = 0.0;
+  }
+  double odds_ratio = rtot / stot;
+  if (fabs(1 - odds_ratio) < 1e-14) {
+    odds_ratio = 1.0;
+  }
+  const double se = sqrt(v1 / (2 * rtot * rtot) + v2 / (2 * stot * stot) + v3 / (2 * rtot * stot));
+  if (CmhIsReportable(cmh_stat)) {
+    resultp->chisq = cmh_stat;
+    resultp->pval = ChisqToP(cmh_stat, 1);
+  }
+  if (CmhIsReportable(odds_ratio)) {
+    resultp->odds_ratio = odds_ratio;
+  }
+  if (CmhIsReportable(se)) {
+    resultp->se = se;
+    const double log_or = log(odds_ratio);
+    const double half_width = ctx->ci_zt * se;
+    const double lower = exp(log_or - half_width);
+    const double upper = exp(log_or + half_width);
+    if (CmhIsReportable(lower)) {
+      resultp->ci_lower = lower;
+    }
+    if (CmhIsReportable(upper)) {
+      resultp->ci_upper = upper;
+    }
+  }
+  if ((!ctx->breslow_day) || (!CmhIsReportable(odds_ratio)) || (odds_ratio == 1.0) || (odds_ratio == 0.0)) {
+    return;
+  }
+  // Breslow-Day test for homogeneity of the per-stratum odds ratios: solve
+  // each stratum's expected case-A1 count under the common odds ratio, then
+  // sum the squared deviations weighted by the inverse variance.
+  const double one_minus_odds_ratio = 1.0 - odds_ratio;
+  const double double_1mor_recip = 0.5 / one_minus_odds_ratio;
+  double bd_chisq = 0.0;
+  uint32_t bd_df = 0;
+  for (uint32_t cluster_idx = 0; cluster_idx != cluster_ct; ++cluster_idx) {
+    uint32_t a1_cts[2];
+    uint32_t allele_cts[2];
+    for (uint32_t is_case = 0; is_case != 2; ++is_case) {
+      const uint32_t group_idx = cluster_idx * 2 + is_case;
+      STD_ARRAY_DECL(uint32_t, 4, genocounts);
+      GenoarrCountSubsetFreqs(genovec, &(group_interleaved[group_idx * stride]), sample_ct, group_sample_cts[group_idx], genocounts);
+      const uint32_t nonmiss_ct = genocounts[0] + genocounts[1] + genocounts[2];
+      a1_cts[is_case] = 2 * genocounts[2] + genocounts[1];
+      allele_cts[is_case] = 2 * nonmiss_ct;
+    }
+    if ((!allele_cts[0]) || (!allele_cts[1])) {
+      continue;
+    }
+    ++bd_df;
+    const double ctrl_ctd = u31tod(allele_cts[0]);
+    const double case_ctd = u31tod(allele_cts[1]);
+    const double ctrl_a1_ctd = u31tod(a1_cts[0]);
+    const double case_a1_ctd = u31tod(a1_cts[1]);
+    const double a1_ctd = ctrl_a1_ctd + case_a1_ctd;
+    const double amax = MINV(case_ctd, a1_ctd);
+    const double bb = ctrl_ctd + case_ctd * odds_ratio - a1_ctd * one_minus_odds_ratio;
+    const double discrim = sqrt(bb * bb + 4 * one_minus_odds_ratio * odds_ratio * case_ctd * a1_ctd);
+    const double as_plus = (-bb + discrim) * double_1mor_recip;
+    const double as_minus = (-bb - discrim) * double_1mor_recip;
+    const double a_star = ((as_minus <= amax) && (as_minus >= 0))? as_minus : as_plus;
+    const double b_star = case_ctd - a_star;
+    const double c_star = a1_ctd - a_star;
+    const double d_star = ctrl_ctd - a1_ctd + a_star;
+    if ((a_star == 0.0) || (b_star == 0.0) || (c_star == 0.0) || (d_star == 0.0)) {
+      return;
+    }
+    const double inv_var = 1.0 / a_star + 1.0 / b_star + 1.0 / c_star + 1.0 / d_star;
+    const double delta = case_a1_ctd - a_star;
+    bd_chisq += delta * delta * inv_var;
+  }
+  if (!bd_df) {
+    return;
+  }
+  --bd_df;
+  if (!bd_df) {
+    return;
+  }
+  resultp->bd_chisq = bd_chisq;
+  resultp->bd_pval = ChisqToP(bd_chisq, bd_df);
+}
+
+THREAD_FUNC_DECL CmhThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CmhCtx* ctx = S_CAST(CmhCtx*, arg->sharedp->context);
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
+  const uintptr_t sample_ctaw2 = ctx->sample_ctaw2;
+  do {
+    const uint32_t cur_block_size = ctx->cur_block_size;
+    for (uint32_t vidx = tidx; vidx < cur_block_size; vidx += calc_thread_ct) {
+      CmhComputeVariant(&(ctx->genovecs[vidx * sample_ctaw2]), ctx, &(ctx->results[vidx]));
+    }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+CONSTI32(kCmhBlockSize, 4096);
+
+// --cmh: PLINK 1.x's stratified case/control association test.
+//
+// Given a case/control phenotype and a categorical phenotype or covariate
+// giving the strata, this computes the 2x2xK Cochran-Mantel-Haenszel
+// statistic per variant, the Mantel-Haenszel odds ratio and its
+// Robins-Breslow-Greenland standard error, and optionally the Breslow-Day
+// test for homogeneity of the per-stratum odds ratios.
+PglErr CmhReport(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const char* cluster_phenoname, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, double ci_size, uint32_t max_thread_ct, PgenGlobalFlags gflags, CmhFlags flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  ThreadGroup tg;
+  PreinitCstream(&css);
+  PreinitThreads(&tg);
+  PglErr reterr = kPglRetSuccess;
+  {
+    if (unlikely(IsSet(cip->haploid_mask, 0))) {
+      logerrputs("Error: --cmh cannot be used on haploid genomes.\n");
+      goto CmhReport_ret_INCONSISTENT_INPUT;
+    }
+    const PhenoCol* cc_pheno_col = nullptr;
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
+        cc_pheno_col = &(pheno_cols[pheno_idx]);
+        break;
+      }
+    }
+    if (unlikely(!cc_pheno_col)) {
+      logerrputs("Error: --cmh requires a case/control phenotype.\n");
+      goto CmhReport_ret_INCONSISTENT_INPUT;
+    }
+    // Same resolution rule as --permute-within: a name is only required when
+    // more than one categorical phenotype/covariate is loaded.
+    const PhenoCol* cluster_col = nullptr;
+    {
+      const uint32_t phenoname_blen = cluster_phenoname? (1 + strlen(cluster_phenoname)) : 0;
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        const PhenoCol* cur_col = &(pheno_cols[pheno_idx]);
+        if (cur_col->type_code != kPhenoDtypeCat) {
+          continue;
+        }
+        if ((!cluster_phenoname) || memequal(cluster_phenoname, &(pheno_names[pheno_idx * max_pheno_name_blen]), phenoname_blen)) {
+          if (unlikely(cluster_col)) {
+            goto CmhReport_ret_AMBIGUOUS_CLUSTER;
+          }
+          cluster_col = cur_col;
+        }
+      }
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+        const PhenoCol* cur_col = &(covar_cols[covar_idx]);
+        if (cur_col->type_code != kPhenoDtypeCat) {
+          continue;
+        }
+        if ((!cluster_phenoname) || memequal(cluster_phenoname, &(covar_names[covar_idx * max_covar_name_blen]), phenoname_blen)) {
+          if (unlikely(cluster_col)) {
+            goto CmhReport_ret_AMBIGUOUS_CLUSTER;
+          }
+          cluster_col = cur_col;
+        }
+      }
+      if (unlikely(!cluster_col)) {
+        if (!cluster_phenoname) {
+          logerrputs("Error: --cmh requires a categorical phenotype/covariate to define the strata.\n(--within loads one from a PLINK 1.x cluster file.)\n");
+        } else {
+          logerrprintfww("Error: --cmh: No categorical phenotype/covariate is named '%s'.\n", cluster_phenoname);
+        }
+        goto CmhReport_ret_INCONSISTENT_INPUT;
+      }
+    }
+
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    const uintptr_t* cur_variant_include = variant_include;
+    const uint32_t non_autosomal_variant_ct = CountNonAutosomalVariants(variant_include, cip, 1, 1);
+    if (non_autosomal_variant_ct) {
+      uintptr_t* autosomal_variant_include;
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &autosomal_variant_include))) {
+        goto CmhReport_ret_NOMEM;
+      }
+      memcpy(autosomal_variant_include, variant_include, raw_variant_ctl * sizeof(intptr_t));
+      ExcludeNonAutosomalVariants(cip, autosomal_variant_include);
+      cur_variant_include = autosomal_variant_include;
+      variant_ct -= non_autosomal_variant_ct;
+      logprintf("Excluding %u variant%s on non-autosomes from --cmh analysis.\n", non_autosomal_variant_ct, (non_autosomal_variant_ct == 1)? "" : "s");
+      if (unlikely(!variant_ct)) {
+        logerrputs("Error: No variants remaining for --cmh analysis.\n");
+        goto CmhReport_ret_INCONSISTENT_INPUT;
+      }
+    }
+
+    // Samples need a nonmissing case/control phenotype and a stratum.
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* sample_include;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include))) {
+      goto CmhReport_ret_NOMEM;
+    }
+    BitvecAndCopy(orig_sample_include, cc_pheno_col->nonmiss, raw_sample_ctl, sample_include);
+    BitvecAnd(cluster_col->nonmiss, raw_sample_ctl, sample_include);
+    const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+    if (unlikely(!sample_ct)) {
+      logerrputs("Error: --cmh requires at least one sample with both a nonmissing case/control\nphenotype and a stratum assignment.\n");
+      goto CmhReport_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
+    const uintptr_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+    uint32_t* sample_include_cumulative_popcounts;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts))) {
+      goto CmhReport_ret_NOMEM;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+    // Build the (stratum, case/control) masks.  Empty strata are dropped, so
+    // the report is unaffected by categories that survived filtering with no
+    // samples left.
+    const uint32_t orig_cluster_ct = cluster_col->nonnull_category_ct;
+    // Vector-aligned stride: PopcountWords() and FillInterleavedMaskVec()
+    // both require it of each slice.
+    const uintptr_t group_bitvec_stride = BitCtToAlignedWordCt(sample_ct);
+    uintptr_t* group_bitvecs;
+    uint32_t* group_sample_cts_tmp;
+    if (unlikely(bigstack_alloc_w(2 * S_CAST(uintptr_t, orig_cluster_ct) * group_bitvec_stride, &group_bitvecs) ||
+                 bigstack_alloc_u32(2 * orig_cluster_ct, &group_sample_cts_tmp))) {
+      goto CmhReport_ret_NOMEM;
+    }
+    ZeroWArr(2 * S_CAST(uintptr_t, orig_cluster_ct) * group_bitvec_stride, group_bitvecs);
+    {
+      const uint32_t* cats = cluster_col->data.cat;
+      const uintptr_t* cc = cc_pheno_col->data.cc;
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const uint32_t cat_idx = cats[sample_uidx];
+        // Category 0 is the missing-value name, and those samples were
+        // already excluded by the nonmiss intersection above.
+        const uint32_t group_idx = (cat_idx - 1) * 2 + IsSet(cc, sample_uidx);
+        SetBit(sample_idx, &(group_bitvecs[group_idx * group_bitvec_stride]));
+      }
+    }
+    uint32_t cluster_ct = 0;
+    for (uint32_t cluster_idx = 0; cluster_idx != orig_cluster_ct; ++cluster_idx) {
+      const uint32_t ctrl_ct = PopcountWords(&(group_bitvecs[(cluster_idx * 2) * group_bitvec_stride]), sample_ctl);
+      const uint32_t case_ct = PopcountWords(&(group_bitvecs[(cluster_idx * 2 + 1) * group_bitvec_stride]), sample_ctl);
+      if ((!ctrl_ct) || (!case_ct)) {
+        continue;
+      }
+      if (cluster_ct != cluster_idx) {
+        memcpy(&(group_bitvecs[(cluster_ct * 2) * group_bitvec_stride]), &(group_bitvecs[(cluster_idx * 2) * group_bitvec_stride]), 2 * group_bitvec_stride * sizeof(intptr_t));
+      }
+      group_sample_cts_tmp[cluster_ct * 2] = ctrl_ct;
+      group_sample_cts_tmp[cluster_ct * 2 + 1] = case_ct;
+      ++cluster_ct;
+    }
+    if (unlikely(!cluster_ct)) {
+      logerrputs("Error: --cmh requires at least one stratum containing both cases and controls.\n");
+      goto CmhReport_ret_INCONSISTENT_INPUT;
+    }
+    if (orig_cluster_ct != cluster_ct) {
+      const uint32_t dropped_ct = orig_cluster_ct - cluster_ct;
+      logprintf("--cmh: Ignoring %u stratum%s without both cases and controls.\n", dropped_ct, (dropped_ct == 1)? "" : "es");
+    }
+
+    CmhCtx ctx;
+    const uintptr_t group_interleaved_stride = sample_ctv * kWordsPerVec;
+    uintptr_t* group_interleaved;
+    uint32_t* group_sample_cts;
+    if (unlikely(bigstack_alloc_w(2 * S_CAST(uintptr_t, cluster_ct) * group_interleaved_stride, &group_interleaved) ||
+                 bigstack_alloc_u32(2 * cluster_ct, &group_sample_cts))) {
+      goto CmhReport_ret_NOMEM;
+    }
+    for (uint32_t group_idx = 0; group_idx != 2 * cluster_ct; ++group_idx) {
+      uintptr_t* cur_bitvec = &(group_bitvecs[group_idx * group_bitvec_stride]);
+      ZeroTrailingBits(sample_ct, cur_bitvec);
+      FillInterleavedMaskVec(cur_bitvec, sample_ctv, &(group_interleaved[group_idx * group_interleaved_stride]));
+      group_sample_cts[group_idx] = group_sample_cts_tmp[group_idx];
+    }
+
+    const uint32_t breslow_day = (flags & (kfCmhColBdchisq | kfCmhColBdp)) != 0;
+    ctx.group_interleaved = group_interleaved;
+    ctx.group_sample_cts = group_sample_cts;
+    ctx.group_interleaved_stride = group_interleaved_stride;
+    ctx.cluster_ct = cluster_ct;
+    ctx.sample_ct = sample_ct;
+    ctx.breslow_day = breslow_day;
+    // As in PLINK 1.x, the confidence interval defaults to 95% rather than
+    // being omitted when --ci is absent.
+    if (ci_size == 0.0) {
+      ci_size = 0.95;
+    }
+    ctx.ci_zt = QuantileToZscore(1 - (1 - ci_size) / 2);
+    ctx.sample_ctaw2 = sample_ctaw2;
+    ctx.cur_block_size = 0;
+
+    uint32_t calc_thread_ct = max_thread_ct;
+    if (calc_thread_ct > variant_ct) {
+      calc_thread_ct = variant_ct;
+    }
+    if (!calc_thread_ct) {
+      calc_thread_ct = 1;
+    }
+    const uint32_t block_size = MINV(variant_ct, kCmhBlockSize);
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg) ||
+                 bigstack_alloc_w(block_size * sample_ctaw2, &ctx.genovecs))) {
+      goto CmhReport_ret_NOMEM;
+    }
+    {
+      CmhVariantResult* results;
+      if (unlikely(BIGSTACK_ALLOC_X(CmhVariantResult, block_size, &results))) {
+        goto CmhReport_ret_NOMEM;
+      }
+      ctx.results = results;
+    }
+    SetThreadFuncAndData(CmhThread, &ctx, &tg);
+
+    const uint32_t output_zst = (flags / kfCmhZs) & 1;
+    const uint32_t chr_col = flags & kfCmhColChrom;
+    const uint32_t ref_col = flags & kfCmhColRef;
+    const uint32_t alt1_col = flags & kfCmhColAlt1;
+    const uint32_t alt_col = flags & kfCmhColAlt;
+    const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    uint32_t provref_col = 0;
+    if (ref_col) {
+      if (flags & kfCmhColProvref) {
+        provref_col = 1;
+      } else if (flags & kfCmhColMaybeprovref) {
+        provref_col = all_nonref || (nonref_flags && (!IntersectionRangeIsEmpty(cur_variant_include, nonref_flags, 0, raw_variant_ct)));
+      }
+    }
+    const uint32_t a1_col = flags & kfCmhColA1;
+    const uint32_t a1freq_col = flags & kfCmhColA1freq;
+    const uint32_t nobs_col = flags & kfCmhColNobs;
+    const uint32_t chisq_col = flags & kfCmhColChisq;
+    const uint32_t p_col = flags & kfCmhColP;
+    const uint32_t or_col = flags & kfCmhColOr;
+    const uint32_t se_col = flags & kfCmhColSe;
+    const uint32_t ci_col = flags & kfCmhColCi;
+    const uint32_t bdchisq_col = flags & kfCmhColBdchisq;
+    const uint32_t bdp_col = flags & kfCmhColBdp;
+
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    char* chr_buf;
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto CmhReport_ret_NOMEM;
+    }
+    OutnameZstSet(".cmh", output_zst, outname_end);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * S_CAST(uintptr_t, max_allele_slen) + max_chr_blen;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(1, max_thread_ct - 1), overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto CmhReport_ret_1;
+    }
+    *cswritep++ = '#';
+    if (chr_col) {
+      cswritep = strcpya_k(cswritep, "CHROM\t");
+    }
+    if (flags & kfCmhColPos) {
+      cswritep = strcpya_k(cswritep, "POS\t");
+    } else {
+      variant_bps = nullptr;
+    }
+    cswritep = strcpya_k(cswritep, "ID");
+    if (ref_col) {
+      cswritep = strcpya_k(cswritep, "\tREF");
+    }
+    if (alt1_col) {
+      cswritep = strcpya_k(cswritep, "\tALT1");
+    }
+    if (alt_col) {
+      cswritep = strcpya_k(cswritep, "\tALT");
+    }
+    if (provref_col) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+    }
+    if (a1_col) {
+      cswritep = strcpya_k(cswritep, "\tA1");
+    }
+    if (a1freq_col) {
+      cswritep = strcpya_k(cswritep, "\tA1_FREQ");
+    }
+    if (nobs_col) {
+      cswritep = strcpya_k(cswritep, "\tOBS_CT");
+    }
+    if (chisq_col) {
+      cswritep = strcpya_k(cswritep, "\tCHISQ");
+    }
+    if (p_col) {
+      cswritep = strcpya_k(cswritep, "\tP");
+    }
+    if (or_col) {
+      cswritep = strcpya_k(cswritep, "\tOR");
+    }
+    if (se_col) {
+      cswritep = strcpya_k(cswritep, "\tLOG(OR)_SE");
+    }
+    if (ci_col) {
+      const uint32_t ci_pct = S_CAST(uint32_t, ci_size * 100 + 0.5);
+      cswritep = strcpya_k(cswritep, "\tL");
+      cswritep = u32toa(ci_pct, cswritep);
+      cswritep = strcpya_k(cswritep, "\tU");
+      cswritep = u32toa(ci_pct, cswritep);
+    }
+    if (bdchisq_col) {
+      cswritep = strcpya_k(cswritep, "\tCHISQ_BD");
+    }
+    if (bdp_col) {
+      cswritep = strcpya_k(cswritep, "\tP_BD");
+    }
+    AppendBinaryEoln(&cswritep);
+    logprintf("--cmh: %u stratum%s.\n", cluster_ct, (cluster_ct == 1)? "" : "es");
+
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t chr_blen = 0;
+    uintptr_t write_variant_uidx_base = 0;
+    uintptr_t write_variant_include_bits = cur_variant_include[0];
+    uintptr_t read_variant_uidx_base = 0;
+    uintptr_t read_variant_include_bits = cur_variant_include[0];
+    uint32_t variants_completed = 0;
+    fputs("--cmh: 0%", stdout);
+    fflush(stdout);
+    uint32_t pct = 0;
+    uint32_t next_print_idx = variant_ct / 100;
+    while (variants_completed != variant_ct) {
+      const uint32_t cur_block_size = MINV(variant_ct - variants_completed, block_size);
+      for (uint32_t vidx = 0; vidx != cur_block_size; ++vidx) {
+        const uint32_t variant_uidx = BitIter1(cur_variant_include, &read_variant_uidx_base, &read_variant_include_bits);
+        uintptr_t* cur_genovec = &(ctx.genovecs[vidx * sample_ctaw2]);
+        // Multiallelic variants are collapsed to REF vs. non-REF.
+        reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, cur_genovec);
+        if (unlikely(reterr)) {
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto CmhReport_ret_1;
+        }
+        ZeroTrailingNyps(sample_ct, cur_genovec);
+      }
+      ctx.cur_block_size = cur_block_size;
+      if (variants_completed + cur_block_size == variant_ct) {
+        DeclareLastThreadBlock(&tg);
+      }
+      if (unlikely(SpawnThreads(&tg))) {
+        goto CmhReport_ret_THREAD_CREATE_FAIL;
+      }
+      JoinThreads(&tg);
+
+      for (uint32_t vidx = 0; vidx != cur_block_size; ++vidx) {
+        const uint32_t variant_uidx = BitIter1(cur_variant_include, &write_variant_uidx_base, &write_variant_include_bits);
+        if (variant_uidx >= chr_end) {
+          do {
+            ++chr_fo_idx;
+            chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          } while (variant_uidx >= chr_end);
+          const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+          char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
+          *chr_name_end++ = '\t';
+          chr_blen = chr_name_end - chr_buf;
+        }
+        const CmhVariantResult* resultp = &(ctx.results[vidx]);
+        const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx);
+        const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+        const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+        if (chr_col) {
+          cswritep = memcpya(cswritep, chr_buf, chr_blen);
+        }
+        if (variant_bps) {
+          cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+        }
+        cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+        if (ref_col) {
+          *cswritep++ = '\t';
+          cswritep = strcpya(cswritep, cur_alleles[0]);
+        }
+        if (alt1_col) {
+          *cswritep++ = '\t';
+          cswritep = strcpya(cswritep, cur_alleles[1]);
+        }
+        if (alt_col || a1_col) {
+          for (uint32_t rep = 0; rep != 1u + (alt_col && a1_col); ++rep) {
+            *cswritep++ = '\t';
+            for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto CmhReport_ret_WRITE_FAIL;
+              }
+              cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+            }
+            --cswritep;
+          }
+        }
+        if (provref_col) {
+          *cswritep++ = '\t';
+          *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+        }
+        if (a1freq_col) {
+          *cswritep++ = '\t';
+          if (resultp->allele_ct) {
+            cswritep = dtoa_g(u31tod(resultp->a1_ct) / u31tod(resultp->allele_ct), cswritep);
+          } else {
+            cswritep = strcpya_k(cswritep, "NA");
+          }
+        }
+        if (nobs_col) {
+          *cswritep++ = '\t';
+          cswritep = u32toa(resultp->obs_ct, cswritep);
+        }
+        const double* opt_vals[6] = {&(resultp->chisq), &(resultp->pval), &(resultp->odds_ratio), &(resultp->se), &(resultp->bd_chisq), &(resultp->bd_pval)};
+        const uint32_t opt_cols[6] = {chisq_col, p_col, or_col, se_col, bdchisq_col, bdp_col};
+        for (uint32_t uii = 0; uii != 4; ++uii) {
+          if (!opt_cols[uii]) {
+            continue;
+          }
+          *cswritep++ = '\t';
+          if (CmhIsReportable(*(opt_vals[uii]))) {
+            cswritep = dtoa_g(*(opt_vals[uii]), cswritep);
+          } else {
+            cswritep = strcpya_k(cswritep, "NA");
+          }
+        }
+        if (ci_col) {
+          *cswritep++ = '\t';
+          if (CmhIsReportable(resultp->ci_lower)) {
+            cswritep = dtoa_g(resultp->ci_lower, cswritep);
+          } else {
+            cswritep = strcpya_k(cswritep, "NA");
+          }
+          *cswritep++ = '\t';
+          if (CmhIsReportable(resultp->ci_upper)) {
+            cswritep = dtoa_g(resultp->ci_upper, cswritep);
+          } else {
+            cswritep = strcpya_k(cswritep, "NA");
+          }
+        }
+        for (uint32_t uii = 4; uii != 6; ++uii) {
+          if (!opt_cols[uii]) {
+            continue;
+          }
+          *cswritep++ = '\t';
+          if (CmhIsReportable(*(opt_vals[uii]))) {
+            cswritep = dtoa_g(*(opt_vals[uii]), cswritep);
+          } else {
+            cswritep = strcpya_k(cswritep, "NA");
+          }
+        }
+        AppendBinaryEoln(&cswritep);
+        if (unlikely(Cswrite(&css, &cswritep))) {
+          goto CmhReport_ret_WRITE_FAIL;
+        }
+        if (variants_completed + vidx >= next_print_idx) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          pct = ((variants_completed + vidx) * 100LLU) / variant_ct;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          next_print_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        }
+      }
+      variants_completed += cur_block_size;
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto CmhReport_ret_WRITE_FAIL;
+    }
+    putc_unlocked('\r', stdout);
+    logprintfww("--cmh report written to %s .\n", outname);
+  }
+  while (0) {
+  CmhReport_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  CmhReport_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  CmhReport_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  CmhReport_ret_AMBIGUOUS_CLUSTER:
+    if (!cluster_phenoname) {
+      logerrputs("Error: Multiple categorical phenotypes/covariates are loaded; --cmh needs the\nname of the one that defines the strata.\n");
+    } else {
+      logerrprintfww("Error: --cmh: Multiple categorical phenotypes/covariates are named '%s'.\n", cluster_phenoname);
+    }
+    reterr = kPglRetInconsistentInput;
+    break;
+  CmhReport_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ CmhReport_ret_1:
+  CleanupThreads(&tg);
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, HetFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
