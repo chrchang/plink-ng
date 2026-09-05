@@ -13423,6 +13423,1153 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
   return reterr;
 }
 
+// Ported from PLINK 1.9's plink_ld.c: calc_lnlike(), em_phase_hethet(),
+// calc_lnlike_quantile() and haploview_blocks_classify(), which implement
+// Haploview's reading of the Gabriel et al. (2002) block definition.  The
+// classification of a pair's D' confidence interval is what --blocks is built
+// on, and its early exits are what make it affordable, so this is a faithful
+// port rather than a reimplementation.
+static const double kSmallishEpsilonB = 0.00000000002910383045673370361328125;
+static const double kRecip2m53B = 0.00000000000000011102230246251565404236316680908203125;
+
+
+
+uint32_t BlocksEmPhaseHethet(double known11, double known12, double known21, double known22, uint32_t center_ct, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr, uint32_t* onside_sol_ct_ptr) {
+  // Returns 1 if at least one SNP is monomorphic over all valid observations;
+  // returns 0 otherwise, and fills all frequencies using the maximum
+  // likelihood solution to the cubic equation.
+  // (We're discontinuing most use of EM phasing since better algorithms have
+  // been developed, but the two marker case is mathematically clean and fast
+  // enough that it'll probably remain useful as an input for some of those
+  // better algorithms...)
+  double center_ct_d = u31tod(center_ct);
+  double twice_tot = known11 + known12 + known21 + known22 + 2 * center_ct_d;
+  uint32_t sol_start_idx = 0;
+  uint32_t sol_end_idx = 1;
+  STD_ARRAY_DECL(double, 3, solutions);
+  double twice_tot_recip;
+  double half_hethet_share;
+  double freq11;
+  double freq12;
+  double freq21;
+  double freq22;
+  double prod_1122;
+  double prod_1221;
+  double incr_1122;
+  double best_sol;
+  double best_lnlike;
+  double cur_lnlike;
+  double freq1x;
+  double freq2x;
+  double freqx1;
+  double freqx2;
+  double lbound;
+  double dxx;
+  uint32_t cur_sol_idx;
+  // shouldn't have to worry about subtractive cancellation problems here
+  if (twice_tot == 0.0) {
+    return 1;
+  }
+  twice_tot_recip = 1.0 / twice_tot;
+  freq11 = known11 * twice_tot_recip;
+  freq12 = known12 * twice_tot_recip;
+  freq21 = known21 * twice_tot_recip;
+  freq22 = known22 * twice_tot_recip;
+  prod_1122 = freq11 * freq22;
+  prod_1221 = freq12 * freq21;
+  half_hethet_share = center_ct_d * twice_tot_recip;
+  // the following four values should all be guaranteed nonzero except in the
+  // NAN case
+  freq1x = freq11 + freq12 + half_hethet_share;
+  freq2x = 1.0 - freq1x;
+  freqx1 = freq11 + freq21 + half_hethet_share;
+  freqx2 = 1.0 - freqx1;
+  if (center_ct) {
+    if ((prod_1122 != 0.0) || (prod_1221 != 0.0)) {
+      sol_end_idx = CubicRealRoots(0.5 * (freq11 + freq22 - freq12 - freq21 - 3 * half_hethet_share), 0.5 * (prod_1122 + prod_1221 + half_hethet_share * (freq12 + freq21 - freq11 - freq22 + half_hethet_share)), -0.5 * half_hethet_share * prod_1122, solutions);
+      while (sol_end_idx && (solutions[sol_end_idx - 1] > half_hethet_share + kSmallishEpsilonB)) {
+        sol_end_idx--;
+      }
+      while ((sol_start_idx < sol_end_idx) && (solutions[sol_start_idx] < -kSmallishEpsilonB)) {
+        sol_start_idx++;
+      }
+      if (sol_start_idx == sol_end_idx) {
+        // Lost a planet Master Obi-Wan has.  How embarrassing...
+        // lost root must be a double root at one of the boundary points, just
+        // check their likelihoods
+        sol_start_idx = 0;
+        sol_end_idx = 2;
+        solutions[0] = 0;
+        solutions[1] = half_hethet_share;
+      } else {
+        if (solutions[sol_start_idx] < 0) {
+          solutions[sol_start_idx] = 0;
+        }
+        if (solutions[sol_end_idx - 1] > half_hethet_share) {
+          solutions[sol_end_idx - 1] = half_hethet_share;
+        }
+      }
+    } else {
+      solutions[0] = 0;
+      // bugfix (6 Oct 2017): need to use all nonzero values here
+      const double nonzero_freq_xx = freq11 + freq22;
+      const double nonzero_freq_xy = freq12 + freq21;
+      if ((nonzero_freq_xx + kSmallishEpsilonB < half_hethet_share + nonzero_freq_xy) && (nonzero_freq_xy + kSmallishEpsilonB < half_hethet_share + nonzero_freq_xx)) {
+        sol_end_idx = 3;
+        solutions[1] = (half_hethet_share + nonzero_freq_xy - nonzero_freq_xx) * 0.5;
+        solutions[2] = half_hethet_share;
+      } else {
+        sol_end_idx = 2;
+        solutions[1] = half_hethet_share;
+      }
+    }
+    best_sol = solutions[sol_start_idx];
+    if (sol_end_idx > sol_start_idx + 1) {
+      // select largest log likelihood
+      // freq11..freq22 and half_hethet_share are already scaled by
+      // twice_tot_recip here, which is what EmPhaseUnscaledLnlike() expects.
+      best_lnlike = EmPhaseUnscaledLnlike(freq11, freq12, freq21, freq22, half_hethet_share, best_sol);
+      cur_sol_idx = sol_start_idx + 1;
+      do {
+        incr_1122 = solutions[cur_sol_idx];
+        cur_lnlike = EmPhaseUnscaledLnlike(freq11, freq12, freq21, freq22, half_hethet_share, incr_1122);
+        if (cur_lnlike > best_lnlike) {
+          best_lnlike = cur_lnlike;
+          best_sol = incr_1122;
+        }
+      } while (++cur_sol_idx < sol_end_idx);
+    }
+    if (onside_sol_ct_ptr && (sol_end_idx > sol_start_idx + 1)) {
+      if (freqx1 * freq1x >= freq11) {
+        dxx = freq1x * freqx1 - freq11;
+        if (dxx > half_hethet_share) {
+          dxx = half_hethet_share;
+        }
+      } else {
+        dxx = 0.0;
+      }
+      // okay to NOT count suboptimal boundary points because they don't permit
+      // direction changes within the main interval
+      // this should exactly match HaploviewBlocksClassify()'s D sign check
+      if ((freq11 + best_sol) - freqx1 * freq1x >= 0.0) {
+        if (best_sol > dxx + kSmallishEpsilonB) {
+          lbound = dxx + kSmallishEpsilonB;
+        } else {
+          lbound = dxx;
+        }
+        if (best_sol < half_hethet_share - kSmallishEpsilonB) {
+          half_hethet_share -= kSmallishEpsilonB;
+        }
+      } else {
+        if (best_sol > kSmallishEpsilonB) {
+          lbound = kSmallishEpsilonB;
+        } else {
+          lbound = 0.0;
+        }
+        if (best_sol < dxx - kSmallishEpsilonB) {
+          half_hethet_share = dxx - kSmallishEpsilonB;
+        } else {
+          half_hethet_share = dxx;
+        }
+      }
+      for (cur_sol_idx = sol_start_idx; cur_sol_idx < sol_end_idx; cur_sol_idx++) {
+        if (solutions[cur_sol_idx] < lbound) {
+          sol_start_idx++;
+        }
+        if (solutions[cur_sol_idx] > half_hethet_share) {
+          break;
+        }
+      }
+      if (cur_sol_idx >= sol_start_idx + 2) {
+        *onside_sol_ct_ptr = cur_sol_idx - sol_start_idx;
+      }
+    }
+    freq11 += best_sol;
+  } else if ((prod_1122 == 0.0) && (prod_1221 == 0.0)) {
+    return 1;
+  }
+  *freq1x_ptr = freq1x;
+  *freq2x_ptr = freq2x;
+  *freqx1_ptr = freqx1;
+  *freqx2_ptr = freqx2;
+  *freq11_ptr = freq11;
+  return 0;
+}
+
+
+double BlocksCalcLnlikeQuantile(double known11, double known12, double known21, double known22, double unknown_dh, double freqx1, double freq1x, double freq2x, double freq11_expected, double denom, int32_t quantile) {
+  // almost identical to BlocksCalcLnlike, but we can skip the equal-to-zero checks
+  // when quantile isn't 100
+  double tmp11 = quantile * denom + freq11_expected;
+  double tmp12 = freq1x - tmp11;
+  double tmp21 = freqx1 - tmp11;
+  double tmp22 = freq2x - tmp21;
+  if (quantile == 100) {
+    // One of these values will be ~zero, and we want to ensure its logarithm
+    // is treated as a very negative number instead of nan.  May as well do it
+    // the same way as Haploview.
+    if (tmp11 < 1e-10) {
+      tmp11 = 1e-10;
+    }
+    if (tmp12 < 1e-10) {
+      tmp12 = 1e-10;
+    }
+    if (tmp21 < 1e-10) {
+      tmp21 = 1e-10;
+    }
+    if (tmp22 < 1e-10) {
+      tmp22 = 1e-10;
+    }
+  }
+  return known11 * log(tmp11) + known12 * log(tmp12) + known21 * log(tmp21) + known22 * log(tmp22) + unknown_dh * log(tmp11 * tmp22 + tmp12 * tmp21);
+}
+
+uint32_t HaploviewBlocksClassify(uint32_t* counts, uint32_t lowci_max, uint32_t lowci_min, uint32_t recomb_highci, uint32_t strong_highci, uint32_t strong_lowci, uint32_t strong_lowci_outer, uint32_t is_x, double recomb_fast_ln_thresh) {
+  // See comments in the middle of haploview_blocks().  The key insight is that
+  // we only need to classify the D' confidence intervals into a few types, and
+  // this almost never requires evaluation of all 101 log likelihoods.
+
+  // Note that lowCI and highCI are *one-sided* 95% confidence bounds, i.e.
+  // together, they form a 90% confidence interval.
+  double known11 = u31tod(2 * counts[0] + counts[1] + counts[3]);
+  double known12 = u31tod(2 * counts[2] + counts[1] + counts[5]);
+  double known21 = u31tod(2 * counts[6] + counts[3] + counts[7]);
+  double known22 = u31tod(2 * counts[8] + counts[5] + counts[7]);
+  double total_prob = 0.0;
+  double lnsurf_highstrong_thresh = 0.0;
+  uint32_t onside_sol_ct = 1;
+  double right_sum[83];
+  double freq1x;
+  double freq2x;
+  double freqx1;
+  double freqx2;
+  double freq11_expected;
+  double unknown_dh;
+  double denom;
+  double lnlike1;
+  double lnsurf_highindiff_thresh;
+  double dxx;
+  double dyy;
+  double dzz;
+  uint32_t quantile;
+  uint32_t center;
+  if (is_x) {
+    known11 -= u31tod(counts[9]);
+    known12 -= u31tod(counts[11]);
+    known21 -= u31tod(counts[12]);
+    known22 -= u31tod(counts[14]);
+  }
+  if (BlocksEmPhaseHethet(known11, known12, known21, known22, counts[4], &freq1x, &freq2x, &freqx1, &freqx2, &dzz, &onside_sol_ct)) {
+    return 1;
+  }
+  freq11_expected = freqx1 * freq1x;
+  dxx = dzz - freq11_expected;
+  if (dxx < 0.0) {
+    // D < 0, flip (1,1)<->(1,2) and (2,1)<->(2,2) to make D positive
+    dyy = known11;
+    known11 = known12;
+    known12 = dyy;
+    dyy = known21;
+    known21 = known22;
+    known22 = dyy;
+    freq11_expected = freqx2 * freq1x;
+    dyy = freqx1;
+    freqx1 = freqx2;
+    freqx2 = dyy;
+    dxx = -dxx;
+  }
+  dyy = MINV(freqx1 * freq2x, freqx2 * freq1x);
+  // this will always be in a term with a 0.01 multiplier from now on, so may
+  // as well premultiply.
+  denom = 0.01 * dyy;
+  unknown_dh = u31tod(counts[4]);
+
+  // force this to an actual likelihood array entry, so we know for sure
+  // total_prob >= 1.0 and can use that inequality for both early exit and
+  // determining the "futility threshold" (terms smaller than 2^{-53} / 19 are
+  // too small to matter).
+  center = S_CAST(uint32_t, ((dxx / dyy) * 100) + 0.5);
+
+  lnlike1 = BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, center);
+
+  // Previously assumed log likelihood was always concave, and used geometric
+  // series bounds... then I realized this was NOT a safe assumption to make.
+  // See e.g. rs9435793 and rs7531410 in 1000 Genomes phase 1.
+  // So, instead, we only use an aggressive approach when onside_sol_ct == 1
+  // (fortunately, that is almost always the case).
+  if (onside_sol_ct == 1) {
+    // It's not actually necessary to keep the entire likelihood array in
+    // memory.  This is similar to the HWE and Fisher's exact test
+    // calculations: we can get away with tracking a few partial sums, and
+    // exploit unimodality, fixed direction on both sides of the center,
+    // knowledge of the center's location, and the fact that we only need to
+    // classify the CI rather than fully evaluate it.
+    //
+    // Specifically, we need to determine the following:
+    // 1. Is highCI >= 0.98?  Or < 0.90?
+    // 2. If highCI >= 0.98, is lowCI >= 0.81?  In [0.71, 0.81)?  Equal to
+    //    0.70?  In [0.51, 0.70)?  In [0.01, 0.51)?  Or < 0.01?
+    //    (Crucially, if highCI < 0.98, we don't actually need to determine
+    //    lowCI at all.)
+    // To make this classification with as few relative likelihood evaluations
+    // as possible (5 logs, an exp call, 8 multiplies, 9 adds... that's kinda
+    // heavy for an inner loop operation), we distinguish the following cases:
+    // a. D' >= 0.41.  We first try to quickly rule out highCI >= 0.98 by
+    //    inspection of f(0.97).  Then,
+    //    * If it's below the futility threshold, jump to case (b).
+    //    * Otherwise, sum f(0.98)..f(1.00), and then sum other likelihoods
+    //      from f(0.96) on down.
+    // b. D' < 0.41.  highCI >= 0.98 is impossible since f(0.41) >= f(0.42) >=
+    //    ...; goal is to quickly establish highCI < 0.90.  A large fraction of
+    //    the time, this can be accomplished simply by inspecting f(0.89); if
+    //    it's less than 1/220, we're done because we know there's a 1
+    //    somewhere in the array, and the sum of the likelihoods between
+    //    f(0.89) and whatever that 1 entry is is bounded above by 12 * (1/220)
+    //    due to fixed direction.  Otherwise, we sum from the top down.
+    // This should be good for a ~10x speedup on the larger datasets where it's
+    // most wanted.
+    if (100 - center < 20 * (100 - strong_highci)) {
+      dxx = BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, strong_highci) - lnlike1;
+      // ln(2^{-53} / 19) is just under -39.6812
+      if ((center > strong_highci) || (dxx > -39.6812)) {
+        total_prob = exp(dxx);
+        for (quantile = 100; quantile > strong_highci; quantile--) {
+          total_prob += exp(BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+        }
+        if (total_prob > (1.0 / 19.0)) {
+          // branch 1: highCI might be >= 0.98
+          lnsurf_highstrong_thresh = total_prob * 20;
+          for (quantile = strong_highci - 1; quantile >= recomb_highci; quantile--) {
+            total_prob += exp(BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+          }
+          lnsurf_highindiff_thresh = total_prob * 20;
+          while (1) {
+            dxx = exp(BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+            total_prob += dxx;
+            // see comments on branch 2.  this is more complicated because we
+            // still have work to do after resolving whether highCI >= 0.98,
+            // but the reasoning is similar.
+            if (total_prob >= lnsurf_highstrong_thresh) {
+              if (quantile >= center) {
+                goto haploview_blocks_classify_no_highstrong_1;
+              }
+              goto haploview_blocks_classify_no_highstrong_2;
+            }
+            if ((quantile <= lowci_max) && (quantile >= lowci_min)) {
+              // We actually only need the [52..100], [71..100], [72..100], and
+              // [82..100] right sums, but saving a few extra values is
+              // probably more efficient than making this if-statement more
+              // complicated.  [99 - quantile] rather than e.g. [quantile]
+              // is used so memory writes go to sequentially increasing rather
+              // than decreasing addresses.  (okay, this shouldn't matter since
+              // everything should be in L1 cache, but there's negligible
+              // opportunity cost)
+              right_sum[quantile] = total_prob;
+            }
+            dxx *= u31tod(quantile);
+            if (total_prob + dxx < lnsurf_highstrong_thresh) {
+              while (1) {
+                // Now we want to bound lowCI, optimizing for being able to
+                // quickly establish lowCI >= 0.71.
+                if (dxx * 19 < total_prob) {
+                  // less than 5% remaining on left tail
+                  if (quantile >= lowci_max) {
+                    return 6;
+                  }
+                  while (quantile > lowci_min) {
+                    quantile--;
+                    total_prob += exp(BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+                    if (quantile <= lowci_max) {
+                      right_sum[quantile] = total_prob;
+                    }
+                  }
+                  dyy = right_sum[lowci_min] * (20.0 / 19.0);
+                  while (total_prob < dyy) {
+                    if ((!quantile) || (dxx <= kRecip2m53B)) {
+                      total_prob *= 0.95;
+                      if (total_prob >= right_sum[strong_lowci_outer]) {
+                        // lowCI < 0.70
+                        // -> f(0.00) + f(0.01) + ... + f(0.70) > 0.05 * total
+                        return 3;
+                      } else if (total_prob < right_sum[lowci_max]) {
+                        return 6;
+                      } else if ((lowci_max > strong_lowci) && (total_prob < right_sum[strong_lowci])) {
+                        return 5;
+                      }
+                      return 4;
+                    }
+                    quantile--;
+                    dxx = exp(BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+                    total_prob += dxx;
+                  }
+                  return 2;
+                }
+                quantile--;
+                dxx = exp(BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+                total_prob += dxx;
+                if ((quantile <= lowci_max) && (quantile >= lowci_min)) {
+                  right_sum[quantile] = total_prob;
+                }
+                dxx *= u31tod(quantile);
+              }
+            }
+            quantile--;
+          }
+        }
+      }
+      quantile = strong_highci - 1;
+    } else {
+      quantile = 100;
+    }
+    // branch 2: highCI guaranteed less than 0.98.  If D' <= 0.875, try to
+    // quickly establish highCI < 0.90.
+    dxx = BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, recomb_highci) - lnlike1;
+    if ((center < recomb_highci) && (dxx < recomb_fast_ln_thresh)) {
+      return 0;
+    }
+    // okay, we'll sum the whole right tail.  May as well sum from the outside
+    // in here for a bit more numerical stability, instead of adding exp(dxx)
+    // first.
+    do {
+      total_prob += exp(BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+    } while (--quantile > recomb_highci);
+    total_prob += exp(dxx);
+    lnsurf_highindiff_thresh = total_prob * 20;
+  haploview_blocks_classify_no_highstrong_1:
+    quantile--;
+    if (center < recomb_highci) {
+      // if we know there's a 1.0 ahead in the likelihood array, may as well
+      // take advantage of that
+      lnsurf_highstrong_thresh = lnsurf_highindiff_thresh - 1.0;
+      while (quantile > center) {
+        total_prob += exp(BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+        if (total_prob >= lnsurf_highstrong_thresh) {
+          return 0;
+        }
+        quantile--;
+      }
+      if (!center) {
+        return 1;
+      }
+      total_prob += 1;
+      quantile--;
+    }
+    // likelihoods are now declining, try to exploit that to exit early
+    // (it's okay if the first likelihood does not represent a decline)
+    while (1) {
+      dxx = exp(BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+      total_prob += dxx;
+    haploview_blocks_classify_no_highstrong_2:
+      if (total_prob >= lnsurf_highindiff_thresh) {
+        return 0;
+      }
+      if (total_prob + u31tod(quantile) * dxx < lnsurf_highindiff_thresh) {
+        // guaranteed to catch quantile == 0
+        return 1;
+      }
+      quantile--;
+    }
+  }
+  for (quantile = 100; quantile >= recomb_highci; quantile--) {
+    total_prob += exp(BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+    if (quantile == strong_highci) {
+      lnsurf_highstrong_thresh = total_prob * 20;
+    }
+  }
+  if (total_prob < (1.0 / 19.0)) {
+    return 0;
+  }
+  lnsurf_highindiff_thresh = total_prob * 20;
+  while (1) {
+    total_prob += exp(BlocksCalcLnlikeQuantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+    if (total_prob >= lnsurf_highindiff_thresh) {
+      return 0;
+    }
+    if (quantile <= lowci_max) {
+      if (quantile >= lowci_min) {
+        right_sum[quantile] = total_prob;
+      } else if (!quantile) {
+        break;
+      }
+    }
+    quantile--;
+  }
+  if (total_prob >= lnsurf_highstrong_thresh) {
+    return 1;
+  }
+  total_prob *= 0.95;
+  if (total_prob < right_sum[strong_lowci]) {
+    if ((lowci_max > strong_lowci) && (total_prob >= right_sum[lowci_max])) {
+      return 5;
+    }
+    return 6;
+  }
+  if (total_prob >= right_sum[strong_lowci_outer]) {
+    if ((lowci_min < strong_lowci_outer) && (total_prob >= right_sum[lowci_min])) {
+      return 2;
+    }
+    return 3;
+  }
+  return 4;
+}
+
+
+
+
+void InitBlocks(BlocksInfo* bip) {
+  bip->flags = kfBlocks0;
+  bip->max_bp = 200000;
+  bip->strong_lowci_outer = 71;
+  bip->strong_lowci = 72;
+  bip->strong_highci = 97;
+  bip->recomb_highci = 89;
+  bip->min_maf = 0.05;
+  bip->inform_frac = 0.95;
+}
+
+// --blocks: Haploview's reading of the Gabriel et al. (2002) haplotype block
+// definition.  A candidate block's endpoints must be in strong LD, and enough
+// of its internal pairs must be informative; candidates are then taken
+// greedily, longest first, without overlap.
+typedef struct BlockCandidateStruct {
+  uint32_t span;
+  uint32_t first_uidx;
+  uint32_t last_uidx;
+#ifdef __cplusplus
+  bool operator<(const struct BlockCandidateStruct& rhs) const {
+    // Longest first, then by start position, which is the order the greedy
+    // pass needs.
+    if (span != rhs.span) {
+      return (span > rhs.span);
+    }
+    return (first_uidx < rhs.first_uidx);
+  }
+#endif
+} BlockCandidate;
+
+// 3x3 genotype counts for a pair, in the (hom-A1, het, hom-A2) order
+// haploview_blocks_classify() expects.  A1 is ALT, so plink2's nyp codes map
+// to rows 2, 1, 0.
+static void BlocksPairCounts(const uintptr_t* geno_masks0, const uintptr_t* geno_masks1, uint32_t sample_ctl, uint32_t* counts) {
+  static const uint32_t nyp_order[3] = {2, 1, 0};
+  for (uint32_t ii = 0; ii != 3; ++ii) {
+    const uintptr_t* cur0 = &(geno_masks0[nyp_order[ii] * S_CAST(uintptr_t, sample_ctl)]);
+    for (uint32_t jj = 0; jj != 3; ++jj) {
+      const uintptr_t* cur1 = &(geno_masks1[nyp_order[jj] * S_CAST(uintptr_t, sample_ctl)]);
+      counts[ii * 3 + jj] = PopcountWordsIntersect(cur0, cur1, sample_ctl);
+    }
+  }
+}
+
+// Splits a genovec into one bitvector per genotype code, which is what the
+// pairwise counts above intersect.
+static void BlocksFillGenoMasks(const uintptr_t* genovec, uint32_t sample_ct, uint32_t sample_ctl, uintptr_t* geno_masks) {
+  for (uint32_t geno = 0; geno != 3; ++geno) {
+    uintptr_t* cur_mask = &(geno_masks[geno * S_CAST(uintptr_t, sample_ctl)]);
+    ZeroWArr(sample_ctl, cur_mask);
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      if (GetNyparrEntry(genovec, sample_idx) == geno) {
+        SetBit(sample_idx, cur_mask);
+      }
+    }
+  }
+}
+
+// --blocks spends nearly all of its time in HaploviewBlocksClassify(), which
+// is a pure function of one marker pair once the confidence-interval bounds
+// are fixed.  Those bounds depend only on the pair's separation, so a whole
+// batch of index markers can be classified in parallel and folded afterwards.
+// Batching matters: one sync per index marker costs far more than it saves.
+typedef struct BlocksCtxStruct {
+  const uintptr_t* window_masks;
+  const uint32_t* batch_max_deltas;
+  const uint64_t* batch_pair_offsets;
+  uintptr_t geno_mask_stride;
+  uintptr_t ci_stride;
+  unsigned char* ci_types;
+  uint32_t founder_ctl;
+  uint32_t ring_size;
+  uint32_t batch_start;
+  uint32_t batch_len;
+  uint32_t strong_lowci;
+  uint32_t strong_lowci_outer;
+  uint32_t strong_highci;
+  uint32_t recomb_highci;
+  double recomb_fast_ln_thresh;
+} BlocksCtx;
+
+void BlocksClassifyPairs(const BlocksCtx* ctx, uint64_t pair_start, uint64_t pair_end) {
+  if (pair_start >= pair_end) {
+    return;
+  }
+  const uintptr_t* window_masks = ctx->window_masks;
+  const uint32_t* batch_max_deltas = ctx->batch_max_deltas;
+  const uint64_t* batch_pair_offsets = ctx->batch_pair_offsets;
+  const uintptr_t geno_mask_stride = ctx->geno_mask_stride;
+  const uintptr_t ci_stride = ctx->ci_stride;
+  unsigned char* ci_types = ctx->ci_types;
+  const uint32_t founder_ctl = ctx->founder_ctl;
+  const uint32_t ring_size = ctx->ring_size;
+  const uint32_t batch_start = ctx->batch_start;
+  const uint32_t batch_len = ctx->batch_len;
+  const uint32_t strong_lowci = ctx->strong_lowci;
+  const uint32_t strong_lowci_outer = ctx->strong_lowci_outer;
+  const uint32_t strong_highci = ctx->strong_highci;
+  const uint32_t recomb_highci = ctx->recomb_highci;
+  const double recomb_fast_ln_thresh = ctx->recomb_fast_ln_thresh;
+  // Locate the batch entry holding pair_start.
+  uint32_t bidx = LowerBoundNonemptyU64(&(batch_pair_offsets[1]), batch_len, pair_start + 1);
+  uint64_t pair_idx = pair_start;
+  while (pair_idx != pair_end) {
+    const uint64_t entry_end = batch_pair_offsets[bidx + 1];
+    const uint32_t cidx = batch_start + bidx;
+    const uint32_t max_delta = batch_max_deltas[bidx];
+    const uintptr_t* cur_masks = &(window_masks[(cidx % ring_size) * geno_mask_stride]);
+    unsigned char* cur_ci_types = &(ci_types[bidx * ci_stride]);
+    uint32_t delta = 1 + S_CAST(uint32_t, pair_idx - batch_pair_offsets[bidx]);
+    const uint64_t stop_pair = MINV(entry_end, pair_end);
+    const uint32_t delta_stop = 1 + S_CAST(uint32_t, stop_pair - batch_pair_offsets[bidx]);
+    for (; delta != delta_stop; ++delta) {
+      // The serial version widens these bounds as it walks outward from the
+      // index marker; the widening depends only on delta, so it is replayed
+      // here rather than carried.
+      uint32_t lowci_max = 82;
+      uint32_t lowci_min = 52;
+      if (delta >= 2) {
+        lowci_max = strong_lowci;
+        if (delta >= 3) {
+          lowci_min = strong_lowci_outer;
+        }
+      }
+      const uint32_t other_slot = (cidx - delta) % ring_size;
+      uint32_t counts[9];
+      BlocksPairCounts(cur_masks, &(window_masks[other_slot * geno_mask_stride]), founder_ctl, counts);
+      cur_ci_types[delta] = HaploviewBlocksClassify(counts, lowci_max, lowci_min, recomb_highci, strong_highci, strong_lowci, strong_lowci_outer, 0, recomb_fast_ln_thresh);
+    }
+    (void)max_delta;
+    pair_idx = stop_pair;
+    ++bidx;
+  }
+}
+
+THREAD_FUNC_DECL BlocksThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  const uint32_t thread_ct_p1 = 1 + GetThreadCt(arg->sharedp);
+  BlocksCtx* ctx = S_CAST(BlocksCtx*, arg->sharedp->context);
+  do {
+    const uint32_t batch_len = ctx->batch_len;
+    if (batch_len) {
+      const uint64_t pair_ct = ctx->batch_pair_offsets[batch_len];
+      BlocksClassifyPairs(ctx, (pair_ct * tidx) / thread_ct_p1, (pair_ct * (tidx + 1)) / thread_ct_p1);
+    }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const PhenoCol* pheno_cols, const BlocksInfo* bip, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t pheno_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  FILE* outfile_det = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  {
+    const uint32_t no_pheno_req = (bip->flags / kfBlocksNoPhenoReq) & 1;
+    const uint32_t no_small_max_span = (bip->flags / kfBlocksNoSmallMaxSpan) & 1;
+    const uint32_t max_window_bp = bip->max_bp;
+    const uint32_t max_window_bp1 = no_small_max_span? 0x7fffffff : 20000;
+    const uint32_t max_window_bp2 = no_small_max_span? 0x7fffffff : 30000;
+    const uint32_t recomb_highci = bip->recomb_highci;
+    const uint32_t strong_highci = bip->strong_highci;
+    const uint32_t strong_lowci = bip->strong_lowci;
+    const uint32_t strong_lowci_outer = bip->strong_lowci_outer;
+    const double recomb_fast_ln_thresh = -log(u31tod((100 - recomb_highci) * 20));
+    const double inform_frac = bip->inform_frac + kSmallishEpsilonB;
+    const uint32_t inform_thresh_two = 1 + S_CAST(uint32_t, 3 * inform_frac);
+    const uint32_t inform_thresh_three = S_CAST(uint32_t, 6 * inform_frac);
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* founder_pnm;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_pnm))) {
+      goto HaploviewBlocks_ret_NOMEM;
+    }
+    memcpy(founder_pnm, founder_info, raw_sample_ctl * sizeof(intptr_t));
+    if (!no_pheno_req) {
+      // PLINK 1.x restricts to samples with a nonmissing phenotype unless told
+      // otherwise; any phenotype counts, as there it is a single column.
+      if (unlikely(!pheno_ct)) {
+        logerrputs("Warning: Skipping --blocks, since no phenotype is loaded.  ('no-pheno-req'\nremoves the phenotype restriction.)\n");
+        goto HaploviewBlocks_ret_1;
+      }
+      BitvecAnd(pheno_cols[0].nonmiss, raw_sample_ctl, founder_pnm);
+    }
+    const uint32_t founder_ct = PopcountWords(founder_pnm, raw_sample_ctl);
+    if (founder_ct < 2) {
+      logerrputs("Warning: Skipping --blocks, since there are less than two founders with\nnonmissing phenotypes.\n");
+      goto HaploviewBlocks_ret_1;
+    }
+
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* variant_include;
+    uintptr_t* in_haploblock;
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include) ||
+                 bigstack_calloc_w(raw_variant_ctl, &in_haploblock))) {
+      goto HaploviewBlocks_ret_NOMEM;
+    }
+    memcpy(variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+    // Haploview ignores low-MAF variants outright, which is what PLINK 1.9
+    // replicates.
+    const double min_maf = bip->min_maf * (1 - kSmallEpsilon);
+    const double max_maf = 1 - min_maf;
+    {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = orig_variant_include[0];
+      for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+        const uint32_t variant_uidx = BitIter1(orig_variant_include, &variant_uidx_base, &cur_bits);
+        // Multiallelic variants are kept: one allele is taken against the
+        // rest, as elsewhere in plink2.  The MAF test is then on the counted
+        // allele.
+        uint32_t drop = 0;
+        if (bip->min_maf > 0.0) {
+          const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (variant_uidx * 2);
+          const uint32_t cur_allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+          const double maj_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), maj_alleles[variant_uidx], cur_allele_ct);
+          if ((maj_freq < min_maf) || (maj_freq > max_maf)) {
+            drop = 1;
+          }
+        }
+        if (drop) {
+          ClearBit(variant_uidx, variant_include);
+        }
+      }
+    }
+    // chrX needs the male-hemizygous handling classify() takes as counts[9..],
+    // which is out of scope here, so only diploid chromosomes are considered.
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if (!IsSet(cip->haploid_mask, chr_idx)) {
+        continue;
+      }
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      ClearBitsNz(chr_vidx_start, chr_vidx_end, variant_include);
+    }
+    const uint32_t kept_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
+    if (kept_variant_ct < 2) {
+      logerrprintf("Warning: Skipping --blocks since there are too few variants with MAF >= %g.\n", bip->min_maf);
+      goto HaploviewBlocks_ret_1;
+    }
+
+    uint32_t* founder_cumulative_popcounts;
+    uintptr_t* genovec;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &founder_cumulative_popcounts) ||
+                 bigstack_alloc_w(NypCtToWordCt(founder_ct), &genovec))) {
+      goto HaploviewBlocks_ret_NOMEM;
+    }
+    FillCumulativePopcounts(founder_pnm, raw_sample_ctl, founder_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(founder_cumulative_popcounts, simple_pgrp, &pssi);
+    const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
+
+    // Ring buffer over the widest window, as in --ld-score.
+    uint32_t max_block_size = 2;
+    uint32_t* chr_variant_uidxs;
+    if (unlikely(bigstack_alloc_u32(kept_variant_ct, &chr_variant_uidxs))) {
+      goto HaploviewBlocks_ret_NOMEM;
+    }
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+      if (chr_variant_ct < 2) {
+        continue;
+      }
+      uintptr_t variant_uidx_base;
+      uintptr_t cur_bits;
+      BitIter1Start(variant_include, chr_vidx_start, &variant_uidx_base, &cur_bits);
+      for (uint32_t cidx = 0; cidx != chr_variant_ct; ++cidx) {
+        chr_variant_uidxs[cidx] = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      }
+      uint32_t start_cidx = 0;
+      for (uint32_t cidx = 0; cidx != chr_variant_ct; ++cidx) {
+        const uint32_t cur_bp = variant_bps[chr_variant_uidxs[cidx]];
+        while (cur_bp - variant_bps[chr_variant_uidxs[start_cidx]] > max_window_bp) {
+          ++start_cidx;
+        }
+        const uint32_t cur_window_ct = cidx - start_cidx + 1;
+        if (cur_window_ct > max_block_size) {
+          max_block_size = cur_window_ct;
+        }
+      }
+    }
+
+    const uintptr_t geno_mask_stride = 3 * S_CAST(uintptr_t, founder_ctl);
+    // Index markers are processed in batches so the thread sync cost is paid
+    // once per batch instead of once per marker.
+    uint32_t batch_size = 512;
+    if (batch_size > kept_variant_ct) {
+      batch_size = kept_variant_ct;
+    }
+    const uintptr_t ci_stride = max_block_size + 1;
+    const uint32_t ring_size = max_block_size + batch_size;
+    unsigned char* ci_types_all;
+    uintptr_t* window_masks;
+    uint32_t* window_uidxs;
+    uint32_t* strong_cts;
+    uint32_t* rec_cts;
+    uint32_t* batch_max_deltas;
+    uint32_t* batch_window_starts;
+    uint64_t* batch_pair_offsets;
+    if (unlikely(bigstack_alloc_uc(batch_size * ci_stride, &ci_types_all) ||
+                 bigstack_alloc_w(ring_size * geno_mask_stride, &window_masks) ||
+                 bigstack_alloc_u32(ring_size, &window_uidxs) ||
+                 bigstack_alloc_u32(ring_size, &strong_cts) ||
+                 bigstack_alloc_u32(ring_size, &rec_cts) ||
+                 bigstack_alloc_u32(batch_size, &batch_max_deltas) ||
+                 bigstack_alloc_u32(batch_size, &batch_window_starts) ||
+                 bigstack_alloc_u64(batch_size + 1, &batch_pair_offsets))) {
+      goto HaploviewBlocks_ret_NOMEM;
+    }
+    BlocksCtx ctx;
+    ctx.window_masks = window_masks;
+    ctx.batch_max_deltas = batch_max_deltas;
+    ctx.batch_pair_offsets = batch_pair_offsets;
+    ctx.geno_mask_stride = geno_mask_stride;
+    ctx.ci_stride = ci_stride;
+    ctx.ci_types = ci_types_all;
+    ctx.founder_ctl = founder_ctl;
+    ctx.ring_size = ring_size;
+    ctx.strong_lowci = strong_lowci;
+    ctx.strong_lowci_outer = strong_lowci_outer;
+    ctx.strong_highci = strong_highci;
+    ctx.recomb_highci = recomb_highci;
+    ctx.recomb_fast_ln_thresh = recomb_fast_ln_thresh;
+    ctx.batch_start = 0;
+    ctx.batch_len = 0;
+    uint32_t calc_thread_ct = max_thread_ct;
+    uint32_t threads_active = 0;
+    if (calc_thread_ct >= 2) {
+      if (unlikely(SetThreadCt(calc_thread_ct - 1, &tg))) {
+        goto HaploviewBlocks_ret_NOMEM;
+      }
+      SetThreadFuncAndData(BlocksThread, &ctx, &tg);
+      threads_active = 1;
+    }
+    // Candidates take whatever is left; PLINK 1.9 does the same.
+    const uintptr_t max_candidates = bigstack_left() / (2 * sizeof(BlockCandidate));
+    BlockCandidate* candidates;
+    if (unlikely(BIGSTACK_ALLOC_X(BlockCandidate, max_candidates, &candidates))) {
+      goto HaploviewBlocks_ret_NOMEM;
+    }
+    uintptr_t candidate_ct = 0;
+
+    fputs("--blocks: 0%", stdout);
+    fflush(stdout);
+    uint32_t pct = 0;
+    uint32_t variants_done = 0;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+      if (chr_variant_ct < 2) {
+        variants_done += chr_variant_ct;
+        continue;
+      }
+      {
+        uintptr_t variant_uidx_base;
+        uintptr_t cur_bits;
+        BitIter1Start(variant_include, chr_vidx_start, &variant_uidx_base, &cur_bits);
+        for (uint32_t cidx = 0; cidx != chr_variant_ct; ++cidx) {
+          chr_variant_uidxs[cidx] = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        }
+      }
+      uint32_t window_start_cidx = 0;
+      // Rolling history of the five pairwise classifications among the last
+      // four markers, which the small-block rules consult.  [0] and [1] are
+      // the current marker's delta-1 and delta-2 pairs, [2] and [3] the
+      // previous marker's, [4] the one before that.
+      uint32_t recent_ci_types[5];
+      recent_ci_types[0] = 0;
+      recent_ci_types[1] = 0;
+      recent_ci_types[2] = 0;
+      recent_ci_types[3] = 0;
+      recent_ci_types[4] = 0;
+      for (uint32_t batch_start = 0; batch_start < chr_variant_ct; ) {
+        const uint32_t batch_len = MINV(batch_size, chr_variant_ct - batch_start);
+        // (a) Serial: read the batch's genotypes into the ring and record how
+        // far back each index marker's window reaches.
+        batch_pair_offsets[0] = 0;
+        for (uint32_t bidx = 0; bidx != batch_len; ++bidx) {
+          const uint32_t cidx = batch_start + bidx;
+          const uint32_t cur_uidx = chr_variant_uidxs[cidx];
+          const uint32_t cur_bp = variant_bps[cur_uidx];
+          while (cur_bp - variant_bps[chr_variant_uidxs[window_start_cidx]] > max_window_bp) {
+            ++window_start_cidx;
+          }
+          const uint32_t cur_slot = cidx % ring_size;
+          reterr = PgrGetInv1(founder_pnm, pssi, founder_ct, cur_uidx, maj_alleles[cur_uidx], simple_pgrp, genovec);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, cur_uidx);
+            goto HaploviewBlocks_ret_1;
+          }
+          ZeroTrailingNyps(founder_ct, genovec);
+          BlocksFillGenoMasks(genovec, founder_ct, founder_ctl, &(window_masks[cur_slot * geno_mask_stride]));
+          window_uidxs[cur_slot] = cur_uidx;
+          batch_window_starts[bidx] = window_start_cidx;
+          const uint32_t cur_max_delta = cidx - window_start_cidx;
+          batch_max_deltas[bidx] = cur_max_delta;
+          batch_pair_offsets[bidx + 1] = batch_pair_offsets[bidx] + cur_max_delta;
+        }
+        // (b) Parallel: classify every pair in the batch.
+        ctx.batch_start = batch_start;
+        ctx.batch_len = batch_len;
+        const uint64_t batch_pair_ct = batch_pair_offsets[batch_len];
+        if (threads_active && (batch_pair_ct >= 4096)) {
+          if (unlikely(SpawnThreads(&tg))) {
+            goto HaploviewBlocks_ret_THREAD_CREATE_FAIL;
+          }
+          // Main thread takes the last stripe, matching BlocksThread()'s split.
+          BlocksClassifyPairs(&ctx, (batch_pair_ct * (calc_thread_ct - 1)) / calc_thread_ct, batch_pair_ct);
+          JoinThreads(&tg);
+        } else {
+          BlocksClassifyPairs(&ctx, 0, batch_pair_ct);
+        }
+        // (c) Serial fold, in marker order.
+        for (uint32_t bidx = 0; bidx != batch_len; ++bidx) {
+        const uint32_t cidx = batch_start + bidx;
+        const uint32_t cur_uidx = chr_variant_uidxs[cidx];
+        const uint32_t cur_bp = variant_bps[cur_uidx];
+        const uint32_t cur_slot = cidx % ring_size;
+        const unsigned char* ci_types = &(ci_types_all[bidx * ci_stride]);
+        strong_cts[cur_slot] = 0;
+        rec_cts[cur_slot] = 0;
+        if (cidx == batch_window_starts[bidx]) {
+          ++variants_done;
+          continue;
+        }
+        recent_ci_types[4] = recent_ci_types[2];
+        recent_ci_types[2] = recent_ci_types[0];
+        recent_ci_types[3] = recent_ci_types[1];
+        uint32_t cur_strong = 0;
+        uint32_t cur_rec = 0;
+        const uint32_t max_delta = batch_max_deltas[bidx];
+        for (uint32_t delta = 1; delta <= max_delta; ++delta) {
+          const uint32_t other_cidx = cidx - delta;
+          const uint32_t other_slot = other_cidx % ring_size;
+          const uint32_t cur_ci_type = ci_types[delta];
+          if (cur_ci_type > 4) {
+            ++cur_strong;
+          } else if (!cur_ci_type) {
+            ++cur_rec;
+          }
+          uint32_t save_candidate = 0;
+          if (delta < 4) {
+            if (delta == 1) {
+              recent_ci_types[0] = cur_ci_type;
+              if ((cur_ci_type == 6) && (cur_bp - variant_bps[window_uidxs[other_slot]] <= max_window_bp1)) {
+                save_candidate = 1;
+              }
+            } else if (delta == 2) {
+              recent_ci_types[1] = cur_ci_type;
+              if ((cur_ci_type >= 4) && (cur_bp - variant_bps[window_uidxs[other_slot]] <= max_window_bp2)) {
+                uint32_t uii = 1;
+                if (recent_ci_types[0] >= 3) {
+                  ++uii;
+                }
+                if (recent_ci_types[2] >= 3) {
+                  ++uii;
+                }
+                if (uii >= inform_thresh_two) {
+                  save_candidate = 1;
+                }
+              }
+            } else {
+              uint32_t prev_strong = 0;
+              uint32_t prev_rec = 0;
+              uint32_t uii = 0;
+              if (cur_ci_type > 4) {
+                ++prev_strong;
+              } else if (!cur_ci_type) {
+                ++prev_rec;
+              }
+              for (uint32_t ujj = 0; ujj != 5; ++ujj) {
+                if (recent_ci_types[ujj] >= 3) {
+                  ++uii;
+                  if (recent_ci_types[ujj] > 4) {
+                    ++prev_strong;
+                  }
+                } else if (!recent_ci_types[ujj]) {
+                  ++prev_rec;
+                }
+              }
+              strong_cts[other_slot] = prev_strong;
+              rec_cts[other_slot] = prev_rec;
+              if ((cur_ci_type >= 4) && (uii >= inform_thresh_three)) {
+                save_candidate = 1;
+              }
+            }
+          } else {
+            const uint32_t prev_strong = strong_cts[other_slot] + cur_strong;
+            const uint32_t prev_rec = rec_cts[other_slot] + cur_rec;
+            strong_cts[other_slot] = prev_strong;
+            rec_cts[other_slot] = prev_rec;
+            const uint32_t informative_ct = prev_strong + prev_rec;
+            if ((cur_ci_type >= 4) && (informative_ct >= 6) && (S_CAST(double, informative_ct) * inform_frac < u31tod(prev_strong))) {
+              save_candidate = 1;
+            }
+          }
+          if (save_candidate) {
+            if (unlikely(candidate_ct == max_candidates)) {
+              goto HaploviewBlocks_ret_NOMEM;
+            }
+            const uint32_t other_uidx = window_uidxs[other_slot];
+            candidates[candidate_ct].span = cur_bp - variant_bps[other_uidx];
+            candidates[candidate_ct].first_uidx = other_uidx;
+            candidates[candidate_ct].last_uidx = cur_uidx;
+            ++candidate_ct;
+          }
+        }
+        ++variants_done;
+        }
+        if (variants_done * 100LLU >= (pct + 1) * S_CAST(uint64_t, kept_variant_ct)) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          pct = (variants_done * 100LLU) / kept_variant_ct;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+        }
+        batch_start += batch_len;
+      }
+    }
+    if (threads_active) {
+      // The worker loop needs a final empty block to exit.
+      ctx.batch_len = 0;
+      DeclareLastThreadBlock(&tg);
+      if (unlikely(SpawnThreads(&tg))) {
+        goto HaploviewBlocks_ret_THREAD_CREATE_FAIL;
+      }
+      JoinThreads(&tg);
+    }
+    fputs("\b\b\b", stdout);
+
+    // Longest first, skipping anything that touches an accepted block.
+    STD_SORT(candidate_ct, BlockCandidateCmp, candidates);
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".blocks");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto HaploviewBlocks_ret_OPEN_FAIL;
+    }
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".blocks.det");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile_det))) {
+      goto HaploviewBlocks_ret_OPEN_FAIL;
+    }
+    fputs("#CHROM\tBP1\tBP2\tKB\tNSNPS\tSNPS" EOLN_STR, outfile_det);
+    uint32_t block_ct = 0;
+    {
+      const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+      char* chr_buf;
+      char* writebuf;
+      if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf) ||
+                   bigstack_alloc_c(kMaxMediumLine + max_chr_blen + 256, &writebuf))) {
+        goto HaploviewBlocks_ret_NOMEM;
+      }
+      // Accepted blocks are emitted in genomic order, so they are collected
+      // first and sorted by position.
+      BlockCandidate* accepted;
+      if (unlikely(BIGSTACK_ALLOC_X(BlockCandidate, candidate_ct + 1, &accepted))) {
+        goto HaploviewBlocks_ret_NOMEM;
+      }
+      for (uintptr_t cand_idx = 0; cand_idx != candidate_ct; ++cand_idx) {
+        const uint32_t first_uidx = candidates[cand_idx].first_uidx;
+        const uint32_t last_uidx = candidates[cand_idx].last_uidx;
+        if (!AllBitsAreZero(in_haploblock, first_uidx, last_uidx + 1)) {
+          continue;
+        }
+        FillBitsNz(first_uidx, last_uidx + 1, in_haploblock);
+        accepted[block_ct] = candidates[cand_idx];
+        ++block_ct;
+      }
+      for (uint32_t ii = 1; ii < block_ct; ++ii) {
+        const BlockCandidate cur = accepted[ii];
+        uint32_t jj = ii;
+        while (jj && (accepted[jj - 1].first_uidx > cur.first_uidx)) {
+          accepted[jj] = accepted[jj - 1];
+          --jj;
+        }
+        accepted[jj] = cur;
+      }
+      for (uint32_t block_idx = 0; block_idx != block_ct; ++block_idx) {
+        const uint32_t first_uidx = accepted[block_idx].first_uidx;
+        const uint32_t last_uidx = accepted[block_idx].last_uidx;
+        char* write_iter = writebuf;
+        char* chr_name_end = chrtoa(cip, GetVariantChr(cip, first_uidx), chr_buf);
+        const uint32_t chr_slen = chr_name_end - chr_buf;
+        write_iter = memcpyax(write_iter, chr_buf, chr_slen, '\t');
+        write_iter = u32toa_x(variant_bps[first_uidx], '\t', write_iter);
+        write_iter = u32toa_x(variant_bps[last_uidx], '\t', write_iter);
+        write_iter = dtoa_g(u31tod(variant_bps[last_uidx] - variant_bps[first_uidx] + 1) * 0.001, write_iter);
+        *write_iter++ = '\t';
+        uint32_t nsnps = 0;
+        for (uint32_t uidx = first_uidx; uidx <= last_uidx; ++uidx) {
+          if (IsSet(variant_include, uidx)) {
+            ++nsnps;
+          }
+        }
+        write_iter = u32toa_x(nsnps, '\t', write_iter);
+        if (unlikely(fwrite_checked(writebuf, write_iter - writebuf, outfile_det))) {
+          goto HaploviewBlocks_ret_WRITE_FAIL;
+        }
+        // .blocks lists the same variants, one line per block, '*'-prefixed.
+        fputs("*", outfile);
+        uint32_t written = 0;
+        for (uint32_t uidx = first_uidx; uidx <= last_uidx; ++uidx) {
+          if (!IsSet(variant_include, uidx)) {
+            continue;
+          }
+          putc_unlocked(' ', outfile);
+          fputs(variant_ids[uidx], outfile);
+          if (written) {
+            putc_unlocked('|', outfile_det);
+          }
+          fputs(variant_ids[uidx], outfile_det);
+          ++written;
+        }
+        putc_unlocked('\n', outfile);
+        fputs(EOLN_STR, outfile_det);
+      }
+    }
+    if (unlikely(fclose_null(&outfile))) {
+      goto HaploviewBlocks_ret_WRITE_FAIL;
+    }
+    if (unlikely(fclose_null(&outfile_det))) {
+      goto HaploviewBlocks_ret_WRITE_FAIL;
+    }
+    *outname_end = '\0';
+    logprintfww("--blocks: %u haploblock%s written to %s.blocks , with details in %s.blocks.det .\n", block_ct, (block_ct == 1)? "" : "s", outname, outname);
+  }
+  while (0) {
+  HaploviewBlocks_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  HaploviewBlocks_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  HaploviewBlocks_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  HaploviewBlocks_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ HaploviewBlocks_ret_1:
+  CleanupThreads(&tg);
+  fclose_cond(outfile);
+  fclose_cond(outfile_det);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   const VcorFlags flags = vcip->flags;
   const uint32_t phased_calc = (flags / kfVcorPhased) & 1;

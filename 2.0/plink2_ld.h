@@ -138,6 +138,28 @@ typedef struct ClumpInfoStruct {
 } ClumpInfo;
 
 FLAGSET_DEF_START()
+  kfBlocks0,
+  kfBlocksNoPhenoReq = (1 << 0),
+  kfBlocksNoSmallMaxSpan = (1 << 1)
+FLAGSET_DEF_END(BlocksFlags);
+
+typedef struct BlocksInfoStruct {
+  BlocksFlags flags;
+  uint32_t max_bp;
+  // 0..100 quantile scale, as PLINK 1.x stores them
+  uint32_t strong_lowci_outer;
+  uint32_t strong_lowci;
+  uint32_t strong_highci;
+  uint32_t recomb_highci;
+  double min_maf;
+  double inform_frac;
+} BlocksInfo;
+
+void InitBlocks(BlocksInfo* bip);
+
+PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const PhenoCol* pheno_cols, const BlocksInfo* bip, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t pheno_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+
+FLAGSET_DEF_START()
   kfLdScore0,
   kfLdScoreZs = (1 << 0),
 
