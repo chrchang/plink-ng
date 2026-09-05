@@ -57,7 +57,7 @@ endif
 %.o: %.cc
 	$(CXX) -c $(CXXFLAGS) $(ARCH32) -o $@ $<
 
-all: plink2 pgen_compress
+all: plink2 pgen_compress mtag
 
 # for clean build, "make clean" first
 # Run mkdir for both plink2 and pgen_compress as we don't know which
@@ -71,6 +71,11 @@ pgen_compress: $(PGCOBJ)
 	$(MKDIR) -p bin
 	$(CXX) $(PGCOBJ) \
 		-o bin/pgen_compress
+
+# multi-trait analysis of GWAS summary statistics
+mtag: $(MTAGOBJ)
+	$(MKDIR) -p bin
+	$(CXX) $(ARCH32) $(MTAGOBJ) -o bin/mtag $(LDFLAGS)
 
 .PHONY: install-strip install clean
 
