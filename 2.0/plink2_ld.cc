@@ -51,6 +51,16 @@ void InitLd(LdInfo* ldip) {
   ldip->flipscan_window_size = 10;
   ldip->flipscan_window_bp = 1000000;
   ldip->flipscan_thresh = 0.5;
+  // A variant whose major-allele frequency differs between the two groups by
+  // more than this is called on that alone; the LD scan is for the cases the
+  // frequency comparison misses.
+  ldip->flipscan_freq_diff = 0.5;
+  // Above this major-allele frequency a variant carries too little
+  // information to be worth spending a window slot on.
+  ldip->flipscan_max_maj_freq = 0.9;
+  // Two sign-flipped neighbors rather than one, to keep the false-positive
+  // rate down.
+  ldip->flipscan_min_neg_ct = 2;
   ldip->prune_window_size = 0;
   ldip->prune_window_incr = 0;
   ldip->prune_last_param = 0.0;
@@ -13488,6 +13498,15 @@ typedef struct FlipScanCtxStruct {
   uint32_t subset_ct[2];
   uint32_t subset_ctaw[2];
   const uint32_t* local_bps;
+  // Redesign state, per local variant: each group's frequency of the
+  // dataset-wide major allele, whether that difference alone flags the
+  // variant, and whether it takes part in the LD scan at all.
+  double* local_group_freqs[2];
+  unsigned char* local_maj_is_ref;
+  unsigned char* local_freq_problem;
+  unsigned char* local_eligible;
+  double freq_diff_thresh;
+  double max_maj_freq;
   double min_corr;
   uint32_t window_size;
   uint32_t window_bp;
@@ -13585,8 +13604,29 @@ static void FlipScanRecodeRange(FlipScanCtx* ctx, uintptr_t tidx, uint32_t start
       uint32_t nm_ct;
       uint32_t plusone_ct;
       uint32_t minusone_ct;
-      FillVaggs(cur_hom, cur_ref2het, ctx->subset_ctl[is_case], &(ctx->vaggs_write[is_case][li]), &nm_ct, &plusone_ct, &minusone_ct);
+      VariantAggs* cur_vaggs = &(ctx->vaggs_write[is_case][li]);
+      FillVaggs(cur_hom, cur_ref2het, ctx->subset_ctl[is_case], cur_vaggs, &nm_ct, &plusone_ct, &minusone_ct);
+      // The REF allele count is nm_ct + sum, so the group's REF frequency
+      // comes out of the aggregates that were being computed anyway.
+      ctx->local_group_freqs[is_case][li] = nm_ct? ((u31tod(nm_ct) + S_CAST(double, cur_vaggs->sum)) / u31tod(2 * nm_ct)) : (0.0 / 0.0);
     }
+    // Both groups' frequencies are reported for the same allele: the major
+    // one across the whole dataset, so a difference between them is a
+    // difference in the data rather than in which allele was picked.
+    const uint32_t maj_is_ref = ctx->local_maj_is_ref[li];
+    double group_maj_freqs[2];
+    for (uint32_t is_case = 0; is_case != 2; ++is_case) {
+      const double ref_freq = ctx->local_group_freqs[is_case][li];
+      group_maj_freqs[is_case] = maj_is_ref? ref_freq : (1.0 - ref_freq);
+    }
+    const double freq_diff = fabs(group_maj_freqs[0] - group_maj_freqs[1]);
+    const uint32_t freq_problem = (freq_diff > ctx->freq_diff_thresh);
+    ctx->local_freq_problem[li] = freq_problem;
+    // A variant that is already called, or that is too close to monomorphic
+    // to say much about its neighbors, does not take part in the LD scan --
+    // in either role, so the window slots go to variants that inform.
+    const double pooled_maj_freq = MAXV(group_maj_freqs[0], group_maj_freqs[1]);
+    ctx->local_eligible[li] = (!freq_problem) && (pooled_maj_freq <= ctx->max_maj_freq) && (pooled_maj_freq == pooled_maj_freq);
   }
 }
 
@@ -13600,13 +13640,22 @@ static void FlipScanCorrelateRange(FlipScanCtx* ctx, uint32_t start, uint32_t en
   for (uint32_t li = start; li != end; ++li) {
     const uint32_t cur_bp = local_bps[li];
     const uint32_t nbr_end = MINV(li + window_size, local_ct);
+    if (!ctx->local_eligible[li]) {
+      for (uint32_t is_case = 0; is_case != 2; ++is_case) {
+        double* cur_cache = &(ctx->r_cache[is_case][S_CAST(uintptr_t, li) * (window_size - 1)]);
+        for (uint32_t lj = li + 1; lj != nbr_end; ++lj) {
+          cur_cache[lj - li - 1] = 0.0 / 0.0;
+        }
+      }
+      continue;
+    }
     for (uint32_t is_case = 0; is_case != 2; ++is_case) {
       const uint32_t cur_ctaw = ctx->subset_ctaw[is_case];
       const uintptr_t* genobufs = ctx->genobufs[is_case];
       const VariantAggs* vaggs = ctx->vaggs[is_case];
       double* cur_cache = &(ctx->r_cache[is_case][S_CAST(uintptr_t, li) * (window_size - 1)]);
       for (uint32_t lj = li + 1; lj != nbr_end; ++lj) {
-        if (local_bps[lj] - cur_bp > window_bp) {
+        if ((local_bps[lj] - cur_bp > window_bp) || (!ctx->local_eligible[lj])) {
           cur_cache[lj - li - 1] = 0.0 / 0.0;
           continue;
         }
@@ -13644,8 +13693,9 @@ static void FlipScanRange(const FlipScanCtx* ctx, uint32_t index_start, uint32_t
     uint32_t pos_ct = 0;
     uint32_t neg_ct = 0;
     uint32_t* cur_neg_locals = &(ctx->neg_locals[S_CAST(uintptr_t, index_idx) * max_neg_ct]);
+    const uint32_t index_eligible = ctx->local_eligible[li];
     for (uint32_t lj = nbr_start; lj != nbr_end; ++lj) {
-      if (lj == li) {
+      if ((lj == li) || (!index_eligible)) {
         continue;
       }
       const double ctrl_r = FlipScanCachedR(ctx, 0, li, lj);
@@ -13692,7 +13742,7 @@ THREAD_FUNC_DECL FlipScanThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* cswritep_verbose = nullptr;
@@ -13737,10 +13787,24 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       logerrputs("Error: --flip-scan requires at least one case and one control, and only\nconsiders founders.  (--make-founders may come in handy here.)\n");
       goto FlipScan_ret_INCONSISTENT_INPUT;
     }
+    // The LD half of this needs enough founders in each group for the
+    // correlations to mean anything; PLINK 1.x would happily report sign
+    // flips computed from a handful of samples.
+    if (!allow_bad_ld) {
+      const uint32_t smaller_subset_ct = MINV(subset_ct[0], subset_ct[1]);
+      if (unlikely(smaller_subset_ct < 50)) {
+        logerrprintfww("Error: --flip-scan's LD scan requires at least 50 founders in each group, and the smaller group has %u.  (Add --bad-ld to run it anyway.)\n", smaller_subset_ct);
+        goto FlipScan_ret_INCONSISTENT_INPUT;
+      }
+    }
     const uint32_t window_size = ldip->flipscan_window_size;
     const uint32_t window_bp = ldip->flipscan_window_bp;
     const double min_corr = ldip->flipscan_thresh * (1 - kSmallEpsilon);
     const uint32_t verbose = (ldip->flipscan_flags / kfFlipScanVerbose) & 1;
+    // 'ref-allele-based' reports REF frequencies instead of major-allele
+    // frequencies; the statistic is the same, only the reference point (and
+    // the column names) change.
+    const uint32_t ref_allele_based = (ldip->flipscan_flags / kfFlipScanRefBased) & 1;
     const uint32_t output_zst = (ldip->flipscan_flags / kfFlipScanZs) & 1;
 
     const uint32_t base_ctl = BitCtToWordCt(base_ct);
@@ -13817,7 +13881,12 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       ctx.subset_ctaw[is_case] = subset_ctaw[is_case];
     }
     uintptr_t* raw_genovecs;
-    if (unlikely(bigstack_alloc_u32(max_local_ct, &local_bps) ||
+    if (unlikely(bigstack_alloc_d(max_local_ct, &(ctx.local_group_freqs[0])) ||
+                 bigstack_alloc_d(max_local_ct, &(ctx.local_group_freqs[1])) ||
+                 bigstack_alloc_uc(max_local_ct, &ctx.local_maj_is_ref) ||
+                 bigstack_alloc_uc(max_local_ct, &ctx.local_freq_problem) ||
+                 bigstack_alloc_uc(max_local_ct, &ctx.local_eligible) ||
+                 bigstack_alloc_u32(max_local_ct, &local_bps) ||
                  bigstack_alloc_u32(max_local_ct, &local_uidxs) ||
                  BIGSTACK_ALLOC_X(FlipScanResult, block_size, &results) ||
                  bigstack_alloc_u32(S_CAST(uintptr_t, block_size) * max_neg_ct, &neg_locals) ||
@@ -13837,6 +13906,8 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       ctx.subset_ctl[is_case] = subset_ctl[is_case];
     }
     ctx.local_bps = local_bps;
+    ctx.freq_diff_thresh = ldip->flipscan_freq_diff * (1 - kSmallEpsilon);
+    ctx.max_maj_freq = ldip->flipscan_max_maj_freq * (1 + kSmallEpsilon);
     ctx.min_corr = min_corr;
     ctx.window_size = window_size;
     ctx.window_bp = window_bp;
@@ -13882,6 +13953,9 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     const uint32_t col_negct = (flipscan_flags / kfFlipScanColNegct) & 1;
     const uint32_t col_rneg = (flipscan_flags / kfFlipScanColRneg) & 1;
     const uint32_t col_negids = (flipscan_flags / kfFlipScanColNegids) & 1;
+    const uint32_t col_majfreq = (flipscan_flags / kfFlipScanColMajfreq) & 1;
+    const uint32_t col_problem = (flipscan_flags / kfFlipScanColProblem) & 1;
+    const uint32_t min_neg_ct = ldip->flipscan_min_neg_ct;
     *cswritep++ = '#';
     if (col_chrom) {
       cswritep = strcpya_k(cswritep, "CHROM\t");
@@ -13899,6 +13973,13 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     if (col_altfreq) {
       cswritep = strcpya_k(cswritep, "\tALT_FREQ");
     }
+    if (col_majfreq) {
+      if (ref_allele_based) {
+        cswritep = strcpya_k(cswritep, "\tCASE_REF_FREQ\tCTRL_REF_FREQ");
+      } else {
+        cswritep = strcpya_k(cswritep, "\tCASE_MAJ_FREQ\tCTRL_MAJ_FREQ");
+      }
+    }
     if (col_posct) {
       cswritep = strcpya_k(cswritep, "\tPOS_CT");
     }
@@ -13910,6 +13991,9 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     }
     if (col_rneg) {
       cswritep = strcpya_k(cswritep, "\tR_NEG");
+    }
+    if (col_problem) {
+      cswritep = strcpya_k(cswritep, "\tPROBLEM");
     }
     if (col_negids) {
       cswritep = strcpya_k(cswritep, "\tNEG_IDS");
@@ -13999,6 +14083,16 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
           const uint32_t variant_uidx = chr_uidxs[local_start + li];
           local_uidxs[li] = variant_uidx;
           local_bps[li] = variant_bps[variant_uidx];
+          // Which allele is "major" is settled once, from the whole dataset,
+          // so both groups report the same allele's frequency.
+          {
+            uintptr_t allele_idx_offset_base = variant_uidx * 2;
+            if (allele_idx_offsets) {
+              allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+            }
+            const double dataset_ref_freq = allele_freqs[allele_idx_offset_base - variant_uidx];
+            ctx.local_maj_is_ref[li] = ref_allele_based || (dataset_ref_freq >= 0.5);
+          }
           uintptr_t* cur_raw = &(raw_genovecs[S_CAST(uintptr_t, li) * base_ctl2]);
           reterr = PgrGet(base_include, pssi, base_ct, variant_uidx, simple_pgrp, cur_raw);
           if (unlikely(reterr)) {
@@ -14059,6 +14153,20 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
             *cswritep++ = '\t';
             cswritep = dtoa_g(1.0 - allele_freqs[allele_idx_offset_base - variant_uidx], cswritep);
           }
+          if (col_majfreq) {
+            // Cases first, matching the CASE/CTRL column order.
+            const uint32_t maj_is_ref = ctx.local_maj_is_ref[li];
+            for (uint32_t uii = 0; uii != 2; ++uii) {
+              const uint32_t is_case = 1 - uii;
+              *cswritep++ = '\t';
+              const double ref_freq = ctx.local_group_freqs[is_case][li];
+              if (ref_freq != ref_freq) {
+                cswritep = strcpya_k(cswritep, "NA");
+              } else {
+                cswritep = dtoa_g(maj_is_ref? ref_freq : (1.0 - ref_freq), cswritep);
+              }
+            }
+          }
           if (col_posct) {
             *cswritep++ = '\t';
             cswritep = u32toa(cur_result->pos_ct, cswritep);
@@ -14083,8 +14191,15 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
               cswritep = strcpya_k(cswritep, "NA");
             }
           }
-          if (cur_result->neg_ct) {
+          // PROBLEM is either half of the test: a frequency difference large
+          // enough to stand on its own, or enough sign-flipped neighbors.
+          const uint32_t is_problem = ctx.local_freq_problem[li] || (cur_result->neg_ct >= min_neg_ct);
+          if (is_problem) {
             ++problem_ct;
+          }
+          if (col_problem) {
+            *cswritep++ = '\t';
+            *cswritep++ = is_problem? 'Y' : 'N';
           }
           if (col_negids) {
             *cswritep++ = '\t';
@@ -14183,7 +14298,7 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
         goto FlipScan_ret_WRITE_FAIL;
       }
     }
-    logprintf("--flip-scan: %u variant%s with at least one sign-flipped neighbor.\n", problem_ct, (problem_ct == 1)? "" : "s");
+    logprintf("--flip-scan: %u problem variant%s.\n", problem_ct, (problem_ct == 1)? "" : "s");
   }
   while (0) {
   FlipScan_ret_NOMEM:

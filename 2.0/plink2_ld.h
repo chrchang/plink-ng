@@ -107,6 +107,9 @@ FLAGSET_DEF_START()
   kfFlipScan0,
   kfFlipScanVerbose = (1 << 0),
   kfFlipScanZs = (1 << 1),
+  // Report REF frequencies rather than major-allele frequencies, and name the
+  // columns accordingly.
+  kfFlipScanRefBased = (1 << 14),
 
   kfFlipScanColChrom = (1 << 2),
   kfFlipScanColPos = (1 << 3),
@@ -118,8 +121,10 @@ FLAGSET_DEF_START()
   kfFlipScanColNegct = (1 << 9),
   kfFlipScanColRneg = (1 << 10),
   kfFlipScanColNegids = (1 << 11),
-  kfFlipScanColDefault = (kfFlipScanColChrom | kfFlipScanColPos | kfFlipScanColRef | kfFlipScanColAlt | kfFlipScanColAltfreq | kfFlipScanColPosct | kfFlipScanColRpos | kfFlipScanColNegct | kfFlipScanColRneg | kfFlipScanColNegids),
-  kfFlipScanColAll = ((kfFlipScanColNegids * 2) - kfFlipScanColChrom)
+  kfFlipScanColMajfreq = (1 << 12),
+  kfFlipScanColProblem = (1 << 13),
+  kfFlipScanColDefault = (kfFlipScanColChrom | kfFlipScanColPos | kfFlipScanColRef | kfFlipScanColAlt | kfFlipScanColMajfreq | kfFlipScanColPosct | kfFlipScanColRpos | kfFlipScanColNegct | kfFlipScanColRneg | kfFlipScanColProblem | kfFlipScanColNegids),
+  kfFlipScanColAll = ((kfFlipScanColProblem * 2) - kfFlipScanColChrom)
 FLAGSET_DEF_END(FlipScanFlags);
 
 FLAGSET_DEF_START()
@@ -139,6 +144,13 @@ typedef struct LdInfoStruct {
   uint32_t flipscan_window_size;
   uint32_t flipscan_window_bp;
   double flipscan_thresh;
+  // Redesign parameters: the frequency difference that flags a variant on its
+  // own, the major-allele frequency above which a variant carries too little
+  // information to be worth comparing against, and how many sign-flipped
+  // neighbors it takes to call a variant problematic.
+  double flipscan_freq_diff;
+  double flipscan_max_maj_freq;
+  uint32_t flipscan_min_neg_ct;
 } LdInfo;
 
 typedef struct ClumpInfoStruct {
@@ -210,7 +222,7 @@ void InitVcor(VcorInfo* vcip);
 
 void CleanupVcor(VcorInfo* vcip);
 
-PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const LdInfo* ldip, const char* indep_preferred_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t nosex_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
