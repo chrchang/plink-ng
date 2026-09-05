@@ -63,4 +63,9 @@ cd TEST_PMERGE
 cd ..
 echo "TEST_PMERGE passed."
 
+cd TEST_DISTANCE
+./run_tests.sh $d $2 $3 > TEST_DISTANCE.log
+cd ..
+echo "TEST_DISTANCE passed."
+
 echo "All tests passed."
