@@ -63,4 +63,9 @@ cd TEST_PMERGE
 cd ..
 echo "TEST_PMERGE passed."
 
+cd TEST_EXPORT_LEGACY
+./run_tests.sh $d $2 $3 > TEST_EXPORT_LEGACY.log
+cd ..
+echo "TEST_EXPORT_LEGACY passed."
+
 echo "All tests passed."

@@ -16,6 +16,9 @@
 
 #include "plink2_export_legacy.h"
 
+#include "include/plink2_bgzf.h"
+#include "plink2_data.h"
+
 #include <assert.h>
 #include <string.h>
 
@@ -631,6 +634,1399 @@ PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const ui
     break;
   }
  ExportTped_ret_1:
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// BIMBAM's genotype file is variant-major with a three-line header, which is
+// Local copies of the bgzf write helpers in plink2_export.cc; that file keeps
+// them static.
+static inline BoolErr MgfBgzfWriteCk(char* buf_flush, BgzfCompressStream* bgzfp, char** write_iter_ptr) {
+  char* buf = &(buf_flush[-S_CAST(int32_t, kMaxMediumLine)]);
+  char* buf_end = *write_iter_ptr;
+  if (buf_end < buf_flush) {
+    return 0;
+  }
+  *write_iter_ptr = buf;
+  return BgzfWrite(buf, buf_end - buf, bgzfp);
+}
+
+static BoolErr MgfBgzfCloseFlush(char* buf_flush, char* write_iter, BgzfCompressStream* bgzfp, PglErr* reterrp) {
+  char* buf = &(buf_flush[-S_CAST(int32_t, kMaxMediumLine)]);
+  if (write_iter != buf) {
+    if (unlikely(BgzfWrite(buf, write_iter - buf, bgzfp))) {
+      return 1;
+    }
+  }
+  return CleanupBgzfCompressStream(bgzfp, reterrp);
+}
+
+// close enough to .tped that this borrows that function's structure.  The
+// format only has room for single-character alleles, so multiallelic variants
+// and multi-character alleles are rejected rather than silently mangled.
+PglErr ExportMgf(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* legacy_output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uint32_t variant_ct, char exportf_delim, uint32_t output_bgz, uint32_t max_thread_ct, PgenReader* simple_pgrp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  BgzfCompressStream bgzf;
+  PreinitBgzfCompressStream(&bgzf);
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    // Mean genotype format is dosage-based by definition; hardcalls are just
+    // dosages that happen to be integral, so there is no second output shape.
+    const uint32_t dosage_present_in_file = (PgrGetGflags(simple_pgrp) / kfPgenGlobalDosagePresent) & 1;
+    uintptr_t* dosage_present = nullptr;
+    Dosage* dosage_main = nullptr;
+    uintptr_t* genovec;
+    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec))) {
+      goto ExportMgf_ret_NOMEM;
+    }
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    if (dosage_present_in_file) {
+      if (unlikely(bigstack_alloc_w(sample_ctl, &dosage_present) ||
+                   bigstack_alloc_dosage(sample_ct, &dosage_main))) {
+        goto ExportMgf_ret_NOMEM;
+      }
+    }
+    // ",0.000" per sample in the dosage case, ",XY" otherwise.
+    const uintptr_t per_sample_blen = dosage_present_in_file? 8 : 4;
+    const uintptr_t writebuf_blen = kMaxMediumLine + per_sample_blen * S_CAST(uintptr_t, sample_ct) + kMaxIdSlen + 64;
+    char* writebuf;
+    if (unlikely(bigstack_alloc_c(writebuf_blen, &writebuf))) {
+      goto ExportMgf_ret_NOMEM;
+    }
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+
+    // .mgf, block-gzipped on request since these files get large.
+    char* fname_end = strcpya(outname_end, output_bgz? ".mgf.gz" : ".mgf");
+    *fname_end = '\0';
+    reterr = InitBgzfCompressStreamEx(outname, 0, output_bgz? kBgzfDefaultClvl : 0, max_thread_ct, &bgzf);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
+      goto ExportMgf_ret_1;
+    }
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
+    // The mean genotype file has no header.
+    char* write_iter = writebuf;
+    if (0) {
+    write_iter = u32toa_x(sample_ct, '\n', write_iter);
+    write_iter = u32toa_x(variant_ct, '\n', write_iter);
+    write_iter = strcpya_k(write_iter, "IND");
+    {
+      const char* sample_ids = siip->sample_ids;
+      const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
+        // BIMBAM has one ID per sample, so only the within-family part is
+        // written, as PLINK 1.x does.
+        const char* iid_start = AdvPastDelim(cur_sample_id, '\t');
+        *write_iter++ = ',';
+        write_iter = strcpya(write_iter, iid_start);
+        if (unlikely(MgfBgzfWriteCk(writebuf_flush, &bgzf, &write_iter))) {
+          goto ExportMgf_ret_WRITE_FAIL;
+        }
+      }
+    }
+    AppendBinaryEoln(&write_iter);
+    }
+
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = variant_ct / 100;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    // ",XY" for each of hom-REF, het, hom-ALT, missing.  PLINK 1.x puts the A1
+    // allele first in the heterozygous case, and A1 is ALT here.
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        if (unlikely(allele_idx_offsets[variant_uidx + 1] != allele_idx_offset_base + 2)) {
+          logputs("\n");
+          logerrputs("Error: \"--export mgf\" cannot handle multiallelic variants.\n");
+          goto ExportMgf_ret_INCONSISTENT_INPUT;
+        }
+      }
+      const char* ref_allele = allele_storage[allele_idx_offset_base];
+      const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
+      // .mgf readers accept commas as well as whitespace, so either character
+      // inside a field would silently split the row.
+      if (unlikely(strpbrk(variant_ids[variant_uidx], ",;") || strpbrk(ref_allele, ",;") || strpbrk(alt_allele, ",;"))) {
+        logputs("\n");
+        logerrprintfww("Error: Variant '%s' has a comma or semicolon in its ID or an allele code; the mean genotype format cannot represent that.\n", variant_ids[variant_uidx]);
+        goto ExportMgf_ret_INCONSISTENT_INPUT;
+      }
+      uint32_t dosage_ct = 0;
+      if (!dosage_present_in_file) {
+        reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      } else {
+        reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+      }
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto ExportMgf_ret_1;
+      }
+      write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
+      // Mean genotype rows carry the two alleles before the dosages.
+      *write_iter++ = exportf_delim;
+      write_iter = strcpya(write_iter, alt_allele);
+      *write_iter++ = exportf_delim;
+      write_iter = strcpya(write_iter, ref_allele);
+      {
+        // ALT dosage on a 0..2 scale, three decimals, which is what BIMBAM's
+        // mean genotype file expects.  Missing stays "NA".
+        const Dosage* dosage_read_iter = dosage_main;
+        uintptr_t dosage_bits = dosage_ct? dosage_present[0] : 0;
+        uintptr_t dosage_widx = 0;
+        uint32_t sample_idx = 0;
+        for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
+          uintptr_t geno_word = genovec[widx];
+          const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
+          for (; sample_idx != idx_stop; ++sample_idx) {
+            *write_iter++ = exportf_delim;
+            uint32_t is_dosage = 0;
+            if (dosage_ct) {
+              const uintptr_t cur_widx = sample_idx / kBitsPerWord;
+              if (cur_widx != dosage_widx) {
+                dosage_widx = cur_widx;
+                dosage_bits = dosage_present[cur_widx];
+              }
+              is_dosage = (dosage_bits >> (sample_idx % kBitsPerWord)) & 1;
+            }
+            if (is_dosage) {
+              write_iter = PrintSmallDosage(*dosage_read_iter++, write_iter);
+            } else {
+              const uintptr_t cur_geno = geno_word & 3;
+              if (cur_geno == 3) {
+                write_iter = strcpya_k(write_iter, "NA");
+              } else {
+                write_iter = u32toa(cur_geno, write_iter);
+              }
+            }
+            geno_word >>= 2;
+          }
+        }
+      }
+      AppendBinaryEoln(&write_iter);
+      if (unlikely(MgfBgzfWriteCk(writebuf_flush, &bgzf, &write_iter))) {
+        goto ExportMgf_ret_WRITE_FAIL;
+      }
+      if (variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx * 100LLU) / variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
+      }
+    }
+    if (unlikely(MgfBgzfCloseFlush(writebuf_flush, write_iter, &bgzf, &reterr))) {
+      goto ExportMgf_ret_1;
+    }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\bdone.\n", stdout);
+
+    // .pheno.txt: one row per sample, one column per loaded quantitative
+    // phenotype, which is what GEMMA's -n selects between.  Written only when
+    // there is at least one such phenotype; case/control and categorical
+    // phenotypes have no place in this format.
+    uint32_t qt_pheno_ct = 0;
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      qt_pheno_ct += (pheno_cols[pheno_idx].type_code == kPhenoDtypeQt);
+    }
+    if (qt_pheno_ct) {
+    fname_end = strcpya_k(outname_end, ".pheno.txt");
+    *fname_end = '\0';
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportMgf_ret_OPEN_FAIL;
+    }
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
+    write_iter = writebuf;
+    {
+      const uint32_t lomp_slen = strlen(legacy_output_missing_pheno);
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t sample_include_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+        if (!pheno_ct) {
+          write_iter = memcpya(write_iter, legacy_output_missing_pheno, lomp_slen);
+        } else {
+          uint32_t written = 0;
+          for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+            if (pheno_cols[pheno_idx].type_code != kPhenoDtypeQt) {
+              continue;
+            }
+            if (written++) {
+              *write_iter++ = exportf_delim;
+            }
+            write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), legacy_output_missing_pheno, lomp_slen, sample_uidx, write_iter);
+          }
+        }
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportMgf_ret_WRITE_FAIL;
+        }
+      }
+    }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      goto ExportMgf_ret_WRITE_FAIL;
+    }
+    logputs("done.\n");
+    }
+
+    // .pos.txt
+    fname_end = strcpya_k(outname_end, ".pos.txt");
+    *fname_end = '\0';
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportMgf_ret_OPEN_FAIL;
+    }
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
+    write_iter = writebuf;
+    {
+      const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+      char* chr_buf;
+      if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+        goto ExportMgf_ret_NOMEM;
+      }
+      uint32_t chr_fo_idx = UINT32_MAX;
+      uint32_t chr_end = 0;
+      uint32_t chr_slen = 0;
+      variant_uidx_base = 0;
+      cur_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        if (variant_uidx >= chr_end) {
+          do {
+            ++chr_fo_idx;
+            chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          } while (variant_uidx >= chr_end);
+          char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
+          chr_slen = chr_name_end - chr_buf;
+        }
+        write_iter = strcpyax(write_iter, variant_ids[variant_uidx], exportf_delim);
+        write_iter = u32toa(variant_bps[variant_uidx], write_iter);
+        *write_iter++ = exportf_delim;
+        write_iter = memcpya(write_iter, chr_buf, chr_slen);
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportMgf_ret_WRITE_FAIL;
+        }
+      }
+    }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      goto ExportMgf_ret_WRITE_FAIL;
+    }
+    logputs("done.\n");
+  }
+  while (0) {
+  ExportMgf_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ExportMgf_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  ExportMgf_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  ExportMgf_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ ExportMgf_ret_1:
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// PLINK 1 long format: one line per (sample, variant) genotype, plus the .fam
+// and .map the loader needs.  With 'lgen-ref', a .ref file names each
+// variant's reference pair and lines matching it are omitted, which is the
+// whole point of that variant.
+// .list, .rlist and .lgen all emit one field per (sample, genotype), so the
+// per-sample work, the FID/IID separator swap in particular, is done once here
+// instead of hundreds of millions of times in the inner loop.
+BoolErr ExportBuildSampleIdStrs(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, char exportf_delim, const char** sample_id_strs, uint32_t* sample_id_slens) {
+  const char* sample_ids = siip->sample_ids;
+  const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+  char* id_copies;
+  if (unlikely(bigstack_alloc_c(sample_ct * max_sample_id_blen, &id_copies))) {
+    return 1;
+  }
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = sample_include[0];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+    const char* src = &(sample_ids[sample_uidx * max_sample_id_blen]);
+    char* dst = &(id_copies[sample_idx * max_sample_id_blen]);
+    const uint32_t slen = strlen(src);
+    memcpy(dst, src, slen);
+    if (exportf_delim != '\t') {
+      char* tab_ptr = S_CAST(char*, memchr(dst, '\t', slen));
+      if (tab_ptr) {
+        *tab_ptr = exportf_delim;
+      }
+    }
+    sample_id_strs[sample_idx] = dst;
+    sample_id_slens[sample_idx] = slen;
+  }
+  return 0;
+}
+
+PglErr ExportLgen(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t is_ref, char exportf_delim, char legacy_output_missing_geno_char, PgenReader* simple_pgrp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    uintptr_t* genovec;
+    const uintptr_t writebuf_blen = kMaxMediumLine + 2 * kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
+    char* writebuf;
+    const char** sample_id_strs;
+    uint32_t* sample_id_slens;
+    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
+                 bigstack_alloc_c(writebuf_blen, &writebuf) ||
+                 BIGSTACK_ALLOC_X(const char*, sample_ct, &sample_id_strs) ||
+                 bigstack_alloc_u32(sample_ct, &sample_id_slens))) {
+      goto ExportLgen_ret_NOMEM;
+    }
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+    if (unlikely(ExportBuildSampleIdStrs(sample_include, siip, sample_ct, exportf_delim, sample_id_strs, sample_id_slens))) {
+      goto ExportLgen_ret_NOMEM;
+    }
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+    char* fname_end = strcpya_k(outname_end, ".lgen");
+    *fname_end = '\0';
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportLgen_ret_OPEN_FAIL;
+    }
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
+    char* write_iter = writebuf;
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = variant_ct / 100;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        if (unlikely(allele_idx_offsets[variant_uidx + 1] != allele_idx_offset_base + 2)) {
+          logputs("\n");
+          logerrputs("Error: \"--export lgen\" cannot handle multiallelic variants.\n");
+          goto ExportLgen_ret_INCONSISTENT_INPUT;
+        }
+      }
+      reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto ExportLgen_ret_1;
+      }
+      const char* ref_allele = allele_storage[allele_idx_offset_base];
+      const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
+      const char* variant_id = variant_ids[variant_uidx];
+      // PLINK 1.x puts the A1 allele first for a heterozygote, and A1 is ALT.
+      const char* geno_alleles[4][2];
+      geno_alleles[0][0] = ref_allele; geno_alleles[0][1] = ref_allele;
+      geno_alleles[1][0] = alt_allele; geno_alleles[1][1] = ref_allele;
+      geno_alleles[2][0] = alt_allele; geno_alleles[2][1] = alt_allele;
+      geno_alleles[3][0] = nullptr; geno_alleles[3][1] = nullptr;
+      // 'lgen-ref' omits the homozygous-A2 genotype, which is what the .ref
+      // file records.
+      const uint32_t skip_geno = is_ref? 0 : UINT32_MAX;
+      uint32_t sample_idx = 0;
+      for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
+        uintptr_t geno_word = genovec[widx];
+        const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
+        for (; sample_idx != idx_stop; ++sample_idx) {
+          const uintptr_t cur_geno = geno_word & 3;
+          geno_word >>= 2;
+          if (cur_geno == skip_geno) {
+            continue;
+          }
+          write_iter = memcpya(write_iter, sample_id_strs[sample_idx], sample_id_slens[sample_idx]);
+          *write_iter++ = exportf_delim;
+          write_iter = strcpya(write_iter, variant_id);
+          *write_iter++ = exportf_delim;
+          if (cur_geno == 3) {
+            *write_iter++ = legacy_output_missing_geno_char;
+            *write_iter++ = exportf_delim;
+            *write_iter++ = legacy_output_missing_geno_char;
+          } else {
+            write_iter = strcpya(write_iter, geno_alleles[cur_geno][0]);
+            *write_iter++ = exportf_delim;
+            write_iter = strcpya(write_iter, geno_alleles[cur_geno][1]);
+          }
+          AppendBinaryEoln(&write_iter);
+          if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+            goto ExportLgen_ret_WRITE_FAIL;
+          }
+        }
+      }
+      if (variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx * 100LLU) / variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
+      }
+    }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      goto ExportLgen_ret_WRITE_FAIL;
+    }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\bdone.\n", stdout);
+
+    if (is_ref) {
+      fname_end = strcpya_k(outname_end, ".ref");
+      *fname_end = '\0';
+      if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+        goto ExportLgen_ret_OPEN_FAIL;
+      }
+      logprintfww5("Writing %s ... ", outname);
+      fflush(stdout);
+      write_iter = writebuf;
+      variant_uidx_base = 0;
+      cur_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (variant_uidx * 2);
+        write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
+        *write_iter++ = exportf_delim;
+        write_iter = strcpya(write_iter, allele_storage[allele_idx_offset_base]);
+        *write_iter++ = exportf_delim;
+        write_iter = strcpya(write_iter, allele_storage[allele_idx_offset_base + 1]);
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportLgen_ret_WRITE_FAIL;
+        }
+      }
+      if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+        goto ExportLgen_ret_WRITE_FAIL;
+      }
+      logputs("done.\n");
+    }
+  }
+  while (0) {
+  ExportLgen_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ExportLgen_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  ExportLgen_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  ExportLgen_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ ExportLgen_ret_1:
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// One line per (variant, genotype) class, naming the samples that carry it.
+// PLINK 1.x emits all four classes, including empty ones.
+PglErr ExportList(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, char exportf_delim, char legacy_output_missing_geno_char, PgenReader* simple_pgrp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    uintptr_t* genovec;
+    const uintptr_t writebuf_blen = kMaxMediumLine + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
+    char* writebuf;
+    const char** sample_id_strs;
+    uint32_t* sample_id_slens;
+    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
+                 bigstack_alloc_c(writebuf_blen, &writebuf) ||
+                 BIGSTACK_ALLOC_X(const char*, sample_ct, &sample_id_strs) ||
+                 bigstack_alloc_u32(sample_ct, &sample_id_slens))) {
+      goto ExportList_ret_NOMEM;
+    }
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+    if (unlikely(ExportBuildSampleIdStrs(sample_include, siip, sample_ct, exportf_delim, sample_id_strs, sample_id_slens))) {
+      goto ExportList_ret_NOMEM;
+    }
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportList_ret_OPEN_FAIL;
+    }
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
+    char* write_iter = writebuf;
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    char* chr_buf;
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto ExportList_ret_NOMEM;
+    }
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t chr_slen = 0;
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = variant_ct / 100;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      if (variant_uidx >= chr_end) {
+        do {
+          ++chr_fo_idx;
+          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        } while (variant_uidx >= chr_end);
+        char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
+        chr_slen = chr_name_end - chr_buf;
+      }
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        if (unlikely(allele_idx_offsets[variant_uidx + 1] != allele_idx_offset_base + 2)) {
+          logputs("\n");
+          logerrputs("Error: \"--export list\" cannot handle multiallelic variants.\n");
+          goto ExportList_ret_INCONSISTENT_INPUT;
+        }
+      }
+      reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto ExportList_ret_1;
+      }
+      const char* ref_allele = allele_storage[allele_idx_offset_base];
+      const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
+      // A1A1, A1A2, A2A2, missing, in PLINK 1.x's order.  A1 is ALT.
+      const uint32_t geno_order[4] = {2, 1, 0, 3};
+      for (uint32_t class_idx = 0; class_idx != 4; ++class_idx) {
+        const uint32_t cur_geno = geno_order[class_idx];
+        write_iter = memcpyax(write_iter, chr_buf, chr_slen, exportf_delim);
+        write_iter = strcpyax(write_iter, variant_ids[variant_uidx], exportf_delim);
+        if (cur_geno == 3) {
+          *write_iter++ = legacy_output_missing_geno_char;
+          *write_iter++ = legacy_output_missing_geno_char;
+        } else if (cur_geno == 2) {
+          write_iter = strcpya(write_iter, alt_allele);
+          write_iter = strcpya(write_iter, alt_allele);
+        } else if (cur_geno == 1) {
+          write_iter = strcpya(write_iter, alt_allele);
+          write_iter = strcpya(write_iter, ref_allele);
+        } else {
+          write_iter = strcpya(write_iter, ref_allele);
+          write_iter = strcpya(write_iter, ref_allele);
+        }
+        uint32_t sample_idx = 0;
+        for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
+          uintptr_t geno_word = genovec[widx];
+          const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
+          for (; sample_idx != idx_stop; ++sample_idx) {
+            if ((geno_word & 3) == cur_geno) {
+              *write_iter++ = exportf_delim;
+              write_iter = memcpya(write_iter, sample_id_strs[sample_idx], sample_id_slens[sample_idx]);
+              if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+                goto ExportList_ret_WRITE_FAIL;
+              }
+            }
+            geno_word >>= 2;
+          }
+        }
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportList_ret_WRITE_FAIL;
+        }
+      }
+      if (variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx * 100LLU) / variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
+      }
+    }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      goto ExportList_ret_WRITE_FAIL;
+    }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\bdone.\n", stdout);
+  }
+  while (0) {
+  ExportList_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ExportList_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  ExportList_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  ExportList_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ ExportList_ret_1:
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// Same idea as --export list, but the homozygous-A2 class is dropped, which is
+// what makes it a "rare genotype" list, and empty classes are omitted.
+PglErr ExportRlist(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, char exportf_delim, char legacy_output_missing_geno_char, PgenReader* simple_pgrp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    uintptr_t* genovec;
+    const uintptr_t writebuf_blen = kMaxMediumLine + kMaxIdSlen + 2 * S_CAST(uintptr_t, max_allele_slen) + 64;
+    char* writebuf;
+    const char** sample_id_strs;
+    uint32_t* sample_id_slens;
+    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
+                 bigstack_alloc_c(writebuf_blen, &writebuf) ||
+                 BIGSTACK_ALLOC_X(const char*, sample_ct, &sample_id_strs) ||
+                 bigstack_alloc_u32(sample_ct, &sample_id_slens))) {
+      goto ExportRlist_ret_NOMEM;
+    }
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+    if (unlikely(ExportBuildSampleIdStrs(sample_include, siip, sample_ct, exportf_delim, sample_id_strs, sample_id_slens))) {
+      goto ExportRlist_ret_NOMEM;
+    }
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportRlist_ret_OPEN_FAIL;
+    }
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
+    char* write_iter = writebuf;
+    STD_ARRAY_DECL(uint32_t, 4, genocounts);
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = variant_ct / 100;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        if (unlikely(allele_idx_offsets[variant_uidx + 1] != allele_idx_offset_base + 2)) {
+          logputs("\n");
+          logerrputs("Error: \"--export rlist\" cannot handle multiallelic variants.\n");
+          goto ExportRlist_ret_INCONSISTENT_INPUT;
+        }
+      }
+      reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto ExportRlist_ret_1;
+      }
+      ZeroTrailingNyps(sample_ct, genovec);
+      GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
+      const char* ref_allele = allele_storage[allele_idx_offset_base];
+      const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
+      // PLINK 1.x emits HET, then the minor homozygote, then the missing
+      // class; the major homozygote is the omitted one.
+      const uint32_t geno_order[3] = {1, 2, 3};
+      const char* class_names[3] = {"HET", "HOM", "NIL"};
+      for (uint32_t class_idx = 0; class_idx != 3; ++class_idx) {
+        const uint32_t cur_geno = geno_order[class_idx];
+        if (!genocounts[cur_geno]) {
+          continue;
+        }
+        write_iter = strcpyax(write_iter, variant_ids[variant_uidx], exportf_delim);
+        write_iter = strcpyax(write_iter, class_names[class_idx], exportf_delim);
+        if (cur_geno == 3) {
+          *write_iter++ = legacy_output_missing_geno_char;
+          *write_iter++ = exportf_delim;
+          *write_iter++ = legacy_output_missing_geno_char;
+        } else if (cur_geno == 2) {
+          write_iter = strcpyax(write_iter, alt_allele, exportf_delim);
+          write_iter = strcpya(write_iter, alt_allele);
+        } else {
+          write_iter = strcpyax(write_iter, alt_allele, exportf_delim);
+          write_iter = strcpya(write_iter, ref_allele);
+        }
+        uint32_t sample_idx = 0;
+        for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
+          uintptr_t geno_word = genovec[widx];
+          const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
+          for (; sample_idx != idx_stop; ++sample_idx) {
+            if ((geno_word & 3) == cur_geno) {
+              *write_iter++ = exportf_delim;
+              write_iter = memcpya(write_iter, sample_id_strs[sample_idx], sample_id_slens[sample_idx]);
+              if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+                goto ExportRlist_ret_WRITE_FAIL;
+              }
+            }
+            geno_word >>= 2;
+          }
+        }
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportRlist_ret_WRITE_FAIL;
+        }
+      }
+      if (variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx * 100LLU) / variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct) + 99) / 100;
+      }
+    }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      goto ExportRlist_ret_WRITE_FAIL;
+    }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\bdone.\n", stdout);
+  }
+  while (0) {
+  ExportRlist_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ExportRlist_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  ExportRlist_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  ExportRlist_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ ExportRlist_ret_1:
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// Beagle 3 input: one .dat (and, unless 'beagle-nomap', one .map) per
+// chromosome.  Every sample contributes two columns, since the format is
+// allele-per-column rather than genotype-per-column.
+PglErr ExportBeagle(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, uintptr_t max_pheno_name_blen, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* legacy_output_missing_pheno, uint32_t sample_ct, uint32_t variant_ct, uint32_t pheno_ct, uint32_t max_allele_slen, uint32_t is_phased, char exportf_delim, char legacy_output_missing_geno_char, PgenReader* simple_pgrp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    // BEAGLE 3.3's unphased and phased marker files.  One file for the whole
+    // dataset: the chromosome-split form PLINK 1.x wrote is retired, and
+    // there is no .map, so nothing here needs the chromosome at all.
+    const uintptr_t writebuf_blen = kMaxMediumLine + 4 * S_CAST(uintptr_t, sample_ct) * (max_allele_slen + 1) + kMaxIdSlen + 64;
+    char* writebuf;
+    PgenVariant pgv;
+    if (unlikely(BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, kfPgenGlobalHardcallPhasePresent, &pgv) ||
+                 bigstack_alloc_c(writebuf_blen, &writebuf))) {
+      goto ExportBeagle_ret_NOMEM;
+    }
+    uintptr_t* genovec = pgv.genovec;
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+    char* fname_end = strcpya(outname_end, is_phased? ".dat.phased" : ".dat");
+    *fname_end = '\0';
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportBeagle_ret_OPEN_FAIL;
+    }
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
+    char* write_iter = writebuf;
+    const char* sample_ids = siip->sample_ids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uint32_t lomp_slen = strlen(legacy_output_missing_pheno);
+
+    // 'P' pedigree and 'I' individual rows, then one row per phenotype:
+    // 'A' for case/control, 'T' for a quantitative trait, 'C' otherwise.
+    // PLINK 1.x emitted exactly one such row; BEAGLE permits any number,
+    // including none.
+    for (uint32_t row_idx = 0; row_idx != 2 + pheno_ct; ++row_idx) {
+      const uint32_t pheno_idx = row_idx - 2;
+      if (row_idx == 0) {
+        write_iter = strcpya_k(write_iter, "P FID");
+      } else if (row_idx == 1) {
+        write_iter = strcpya_k(write_iter, "I IID");
+      } else {
+        const PhenoDtype dtype = pheno_cols[pheno_idx].type_code;
+        *write_iter++ = (dtype == kPhenoDtypeCc)? 'A' : ((dtype == kPhenoDtypeQt)? 'T' : 'C');
+        *write_iter++ = ' ';
+        write_iter = strcpya(write_iter, &(pheno_names[pheno_idx * max_pheno_name_blen]));
+      }
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
+        for (uint32_t rep_idx = 0; rep_idx != 2; ++rep_idx) {
+          *write_iter++ = exportf_delim;
+          if (row_idx == 0) {
+            const char* fid_end = AdvToDelim(cur_sample_id, '\t');
+            write_iter = memcpya(write_iter, cur_sample_id, fid_end - cur_sample_id);
+          } else if (row_idx == 1) {
+            write_iter = strcpya(write_iter, AdvPastDelim(cur_sample_id, '\t'));
+          } else {
+            write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), legacy_output_missing_pheno, lomp_slen, sample_uidx, write_iter);
+          }
+        }
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportBeagle_ret_WRITE_FAIL;
+        }
+      }
+      AppendBinaryEoln(&write_iter);
+      if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+        goto ExportBeagle_ret_WRITE_FAIL;
+      }
+    }
+
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * S_CAST(uintptr_t, variant_uidx));
+      const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+      // BEAGLE 3.3 accepts up to 128 alleles per marker.
+      if (unlikely(allele_ct > 128)) {
+        logputs("\n");
+        logerrprintfww("Error: Variant '%s' has %u alleles; BEAGLE supports at most 128.\n", variant_ids[variant_uidx], allele_ct);
+        goto ExportBeagle_ret_INCONSISTENT_INPUT;
+      }
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      // Multiallelic reads: the patch arrays carry the samples whose calls
+      // involve an allele past REF/ALT1, which is what makes >2 alleles
+      // representable here at all.
+      if (!is_phased) {
+        reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+      } else {
+        reterr = PgrGetMP(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
+      }
+      const uint32_t phasepresent_ct = pgv.phasepresent_ct;
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto ExportBeagle_ret_1;
+      }
+      if (is_phased) {
+        // Every heterozygous call has to carry phase, or the output would
+        // silently assert an order the data does not support.
+        STD_ARRAY_DECL(uint32_t, 4, genocounts);
+        GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
+        // An ALT1/ALT2 heterozygote is stored as hom-ALT with a patch entry,
+        // so it has to be counted from the patch rather than from genovec.
+        uint32_t het_ct = genocounts[1];
+        for (uint32_t patch_idx = 0; patch_idx != pgv.patch_10_ct; ++patch_idx) {
+          het_ct += (pgv.patch_10_vals[2 * patch_idx] != pgv.patch_10_vals[2 * patch_idx + 1]);
+        }
+        if (unlikely(het_ct != phasepresent_ct)) {
+          logputs("\n");
+          logerrprintfww("Error: \"--export beagle-phased\" requires every heterozygous call to be phased; variant '%s' has %u unphased.\n", variant_ids[variant_uidx], het_ct - phasepresent_ct);
+          goto ExportBeagle_ret_INCONSISTENT_INPUT;
+        }
+      }
+      write_iter = strcpya_k(write_iter, "M");
+      *write_iter++ = exportf_delim;
+      write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
+      uint32_t sample_idx = 0;
+      for (uint32_t widx = 0; sample_idx != sample_ct; ++widx) {
+        uintptr_t geno_word = genovec[widx];
+        const uint32_t idx_stop = MINV(sample_idx + kBitsPerWordD2, sample_ct);
+        for (; sample_idx != idx_stop; ++sample_idx) {
+          const uintptr_t cur_geno = geno_word & 3;
+          geno_word >>= 2;
+          // Biallelic REF/ALT coding; the multiallelic patch below overrides
+          // the two written codes when the sample carries a rarer allele.
+          uint32_t a0 = 0;
+          uint32_t a1 = 0;
+          uint32_t is_missing = 0;
+          if (cur_geno == 3) {
+            is_missing = 1;
+          } else if (cur_geno == 1) {
+            a1 = 1;
+          } else if (cur_geno == 2) {
+            a0 = 1;
+            a1 = 1;
+          }
+          if (!is_missing) {
+            // A sample in a patch set carries an allele past ALT1; the patch
+            // values give its actual allele indices.
+            if ((cur_geno == 1) && pgv.patch_01_ct && IsSet(pgv.patch_01_set, sample_idx)) {
+              a1 = pgv.patch_01_vals[PopcountBitRange(pgv.patch_01_set, 0, sample_idx)];
+            } else if ((cur_geno == 2) && pgv.patch_10_ct && IsSet(pgv.patch_10_set, sample_idx)) {
+              const uint32_t patch_idx = PopcountBitRange(pgv.patch_10_set, 0, sample_idx);
+              a0 = pgv.patch_10_vals[2 * patch_idx];
+              a1 = pgv.patch_10_vals[2 * patch_idx + 1];
+            }
+            // Any heterozygote can carry phase, including the ALT1/ALT2 kind
+            // that genovec stores as hom-ALT.
+            if (is_phased && (a0 != a1) && IsSet(pgv.phaseinfo, sample_idx)) {
+              const uint32_t tmp = a0;
+              a0 = a1;
+              a1 = tmp;
+            }
+          }
+          for (uint32_t rep_idx = 0; rep_idx != 2; ++rep_idx) {
+            *write_iter++ = exportf_delim;
+            if (is_missing) {
+              *write_iter++ = legacy_output_missing_geno_char;
+            } else {
+              write_iter = strcpya(write_iter, cur_alleles[rep_idx? a1 : a0]);
+            }
+          }
+        }
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportBeagle_ret_WRITE_FAIL;
+        }
+      }
+      AppendBinaryEoln(&write_iter);
+      if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+        goto ExportBeagle_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      goto ExportBeagle_ret_WRITE_FAIL;
+    }
+    logputs("done.\n");
+  }
+  while (0) {
+  ExportBeagle_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ExportBeagle_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  ExportBeagle_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  ExportBeagle_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ ExportBeagle_ret_1:
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// STRUCTURE and fastPHASE both want one record per sample rather than per
+// variant, so the genotypes have to be transposed.  Rather than hold the whole
+// matrix, a block of samples is filled by one pass over the variants and
+// written out, then the next block; with enough memory that is a single pass.
+static uint32_t ExportSmajBlockSize(uint32_t sample_ct, uint32_t variant_ct) {
+  uintptr_t avail = bigstack_left();
+  avail -= MINV(avail / 8, 1024 * 1024);
+  uintptr_t block_cap = avail / (S_CAST(uintptr_t, variant_ct) + 1);
+  if (!block_cap) {
+    return 0;
+  }
+  return MINV(block_cap, sample_ct);
+}
+
+// Fills codes[(sample_idx - block_start) * variant_ct + variant_idx] with the
+// genotype nyp, for the samples in [block_start, block_end).
+static PglErr ExportSmajFillBlock(const uintptr_t* sample_include, PgrSampleSubsetIndex pssi, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t sample_ct, uint32_t variant_ct, uint32_t block_start, uint32_t block_end, const char* flagstr, PgenReader* simple_pgrp, uintptr_t* genovec, unsigned char* codes) {
+  const uint32_t cur_block_size = block_end - block_start;
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+    const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    if (allele_idx_offsets) {
+      if (unlikely(allele_idx_offsets[variant_uidx + 1] != allele_idx_offsets[variant_uidx] + 2)) {
+        logputs("\n");
+        logerrprintfww("Error: \"--export %s\" cannot handle multiallelic variants.\n", flagstr);
+        return kPglRetInconsistentInput;
+      }
+    }
+    const PglErr reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+    if (unlikely(reterr)) {
+      PgenErrPrintNV(reterr, variant_uidx);
+      return reterr;
+    }
+    for (uint32_t offset = 0; offset != cur_block_size; ++offset) {
+      codes[S_CAST(uintptr_t, offset) * variant_ct + variant_idx] = GetNyparrEntry(genovec, block_start + offset);
+    }
+  }
+  return kPglRetSuccess;
+}
+
+// STRUCTURE input: a variant-ID row, an inter-marker distance row, then one
+// row per sample holding a population index and two numeric allele codes per
+// variant.  A1 is 1 and A2 is 2, matching PLINK 1.x.
+PglErr ExportStructure(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, uint32_t sample_ct, uint32_t variant_ct, PgenReader* simple_pgrp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    uintptr_t* genovec;
+    const uintptr_t writebuf_blen = kMaxMediumLine + 4 * S_CAST(uintptr_t, variant_ct) + kMaxIdSlen + 64;
+    char* writebuf;
+    uint32_t* pop_idxs;
+    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
+                 bigstack_alloc_c(writebuf_blen, &writebuf) ||
+                 bigstack_alloc_u32(sample_ct, &pop_idxs))) {
+      goto ExportStructure_ret_NOMEM;
+    }
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+    // Population index, assigned in order of each FID's first appearance, as
+    // PLINK 1.x does.
+    const char** distinct_fids;
+    uint32_t* distinct_fid_slens;
+    if (unlikely(BIGSTACK_ALLOC_X(const char*, sample_ct, &distinct_fids) ||
+                 bigstack_alloc_u32(sample_ct, &distinct_fid_slens))) {
+      goto ExportStructure_ret_NOMEM;
+    }
+    uint32_t distinct_fid_ct = 0;
+    const char* sample_ids = siip->sample_ids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    {
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
+        const uint32_t fid_slen = AdvToDelim(cur_sample_id, '\t') - cur_sample_id;
+        uint32_t pop_idx = UINT32_MAX;
+        // Datasets this format is used on are small, and the family count is
+        // smaller still, so a linear scan is not worth replacing.
+        for (uint32_t uii = 0; uii != distinct_fid_ct; ++uii) {
+          if ((distinct_fid_slens[uii] == fid_slen) && memequal(distinct_fids[uii], cur_sample_id, fid_slen)) {
+            pop_idx = uii;
+            break;
+          }
+        }
+        if (pop_idx == UINT32_MAX) {
+          distinct_fids[distinct_fid_ct] = cur_sample_id;
+          distinct_fid_slens[distinct_fid_ct] = fid_slen;
+          pop_idx = distinct_fid_ct++;
+        }
+        pop_idxs[sample_idx] = pop_idx + 1;
+      }
+    }
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto ExportStructure_ret_OPEN_FAIL;
+    }
+    logprintfww5("Writing %s ... ", outname);
+    fflush(stdout);
+    char* write_iter = writebuf;
+    {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        write_iter = strcpyax(write_iter, variant_ids[variant_uidx], ' ');
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportStructure_ret_WRITE_FAIL;
+        }
+      }
+      AppendBinaryEoln(&write_iter);
+      // Distance to the previous variant, or -1 at the start of a chromosome.
+      uint32_t chr_fo_idx = UINT32_MAX;
+      uint32_t chr_end = 0;
+      uint32_t prev_bp = 0;
+      variant_uidx_base = 0;
+      cur_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        uint32_t is_new_chr = 0;
+        if (variant_uidx >= chr_end) {
+          do {
+            ++chr_fo_idx;
+            chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          } while (variant_uidx >= chr_end);
+          is_new_chr = 1;
+        }
+        if (is_new_chr) {
+          write_iter = strcpya_k(write_iter, "-1");
+        } else {
+          write_iter = u32toa(variant_bps[variant_uidx] - prev_bp, write_iter);
+        }
+        *write_iter++ = ' ';
+        prev_bp = variant_bps[variant_uidx];
+        if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+          goto ExportStructure_ret_WRITE_FAIL;
+        }
+      }
+      AppendBinaryEoln(&write_iter);
+      if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+        goto ExportStructure_ret_WRITE_FAIL;
+      }
+    }
+    {
+      const uint32_t block_size = ExportSmajBlockSize(sample_ct, variant_ct);
+      if (unlikely(!block_size)) {
+        goto ExportStructure_ret_NOMEM;
+      }
+      unsigned char* codes;
+      if (unlikely(bigstack_alloc_uc(S_CAST(uintptr_t, block_size) * variant_ct, &codes))) {
+        goto ExportStructure_ret_NOMEM;
+      }
+      // A1 (ALT) is 1, A2 (REF) is 2, missing is 0.  PLINK 1.x puts A1 first
+      // for a heterozygote.
+      const char* geno_codes[4] = {" 2 2", " 1 2", " 1 1", " 0 0"};
+      for (uint32_t block_start = 0; block_start != sample_ct; ) {
+        const uint32_t block_end = MINV(block_start + block_size, sample_ct);
+        reterr = ExportSmajFillBlock(sample_include, pssi, variant_include, allele_idx_offsets, sample_ct, variant_ct, block_start, block_end, "structure", simple_pgrp, genovec, codes);
+        if (unlikely(reterr)) {
+          goto ExportStructure_ret_1;
+        }
+        uintptr_t sample_uidx_base;
+        uintptr_t cur_bits;
+        BitIter1Start(sample_include, 0, &sample_uidx_base, &cur_bits);
+        for (uint32_t skip_idx = 0; skip_idx != block_start; ++skip_idx) {
+          BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        }
+        for (uint32_t sample_idx = block_start; sample_idx != block_end; ++sample_idx) {
+          const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+          const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
+          write_iter = strcpya(write_iter, AdvPastDelim(cur_sample_id, '\t'));
+          *write_iter++ = ' ';
+          write_iter = u32toa(pop_idxs[sample_idx], write_iter);
+          const unsigned char* cur_codes = &(codes[S_CAST(uintptr_t, sample_idx - block_start) * variant_ct]);
+          for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+            write_iter = memcpya(write_iter, geno_codes[cur_codes[variant_idx]], 4);
+            if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+              goto ExportStructure_ret_WRITE_FAIL;
+            }
+          }
+          AppendBinaryEoln(&write_iter);
+          if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+            goto ExportStructure_ret_WRITE_FAIL;
+          }
+        }
+        block_start = block_end;
+      }
+    }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+      goto ExportStructure_ret_WRITE_FAIL;
+    }
+    logputs("done.\n");
+  }
+  while (0) {
+  ExportStructure_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ExportStructure_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  ExportStructure_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ ExportStructure_ret_1:
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// fastPHASE input: per chromosome, a two-line count header, a position row,
+// then three lines per sample (an ID comment and one line per haplotype).
+// Only single-character alleles fit, since each variant is one column.
+PglErr ExportFastphase(const char* outname, char* outname_end, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t raw_variant_ct, uint32_t sample_ct, uint32_t is_1chr, PgenReader* simple_pgrp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    uintptr_t* genovec;
+    uintptr_t* cur_variant_include;
+    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
+                 bigstack_alloc_w(raw_variant_ctl, &cur_variant_include))) {
+      goto ExportFastphase_ret_NOMEM;
+    }
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    char* chr_buf;
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto ExportFastphase_ret_NOMEM;
+    }
+    const char* sample_ids = siip->sample_ids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uint32_t chr_ct = cip->chr_ct;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      const uint32_t chr_variant_ct = PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+      if (!chr_variant_ct) {
+        continue;
+      }
+      ZeroWArr(raw_variant_ctl, cur_variant_include);
+      CopyBitarrRange(variant_include, chr_vidx_start, chr_vidx_start, chr_vidx_end - chr_vidx_start, cur_variant_include);
+      char* fname_end;
+      if (is_1chr) {
+        fname_end = strcpya_k(outname_end, ".phase.inp");
+      } else {
+        char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
+        *chr_name_end = '\0';
+        fname_end = strcpya_k(outname_end, ".chr-");
+        fname_end = strcpya(fname_end, chr_buf);
+        fname_end = strcpya_k(fname_end, ".phase.inp");
+      }
+      *fname_end = '\0';
+      if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+        goto ExportFastphase_ret_OPEN_FAIL;
+      }
+      logprintfww5("Writing %s ... ", outname);
+      fflush(stdout);
+      const uintptr_t writebuf_blen = kMaxMediumLine + 2 * S_CAST(uintptr_t, chr_variant_ct) + kMaxIdSlen + 64;
+      unsigned char* bigstack_inner_mark = g_bigstack_base;
+      char* writebuf;
+      if (unlikely(bigstack_alloc_c(writebuf_blen, &writebuf))) {
+        goto ExportFastphase_ret_NOMEM;
+      }
+      char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+      char* write_iter = u32toa(sample_ct, writebuf);
+      AppendBinaryEoln(&write_iter);
+      write_iter = u32toa(chr_variant_ct, write_iter);
+      AppendBinaryEoln(&write_iter);
+      *write_iter++ = 'P';
+      {
+        uintptr_t variant_uidx_base;
+        uintptr_t cur_bits;
+        BitIter1Start(cur_variant_include, chr_vidx_start, &variant_uidx_base, &cur_bits);
+        for (uint32_t variant_idx = 0; variant_idx != chr_variant_ct; ++variant_idx) {
+          const uint32_t variant_uidx = BitIter1(cur_variant_include, &variant_uidx_base, &cur_bits);
+          *write_iter++ = ' ';
+          write_iter = u32toa(variant_bps[variant_uidx], write_iter);
+          if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+            goto ExportFastphase_ret_WRITE_FAIL;
+          }
+        }
+      }
+      *write_iter++ = ' ';
+      AppendBinaryEoln(&write_iter);
+      if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+        goto ExportFastphase_ret_WRITE_FAIL;
+      }
+      // Two characters per variant per sample: haplotype 1 then haplotype 2.
+      char* hap_chars;
+      if (unlikely(bigstack_alloc_c(2 * S_CAST(uintptr_t, chr_variant_ct), &hap_chars))) {
+        goto ExportFastphase_ret_NOMEM;
+      }
+      const uint32_t block_size = ExportSmajBlockSize(sample_ct, 2 * chr_variant_ct);
+      if (unlikely(!block_size)) {
+        goto ExportFastphase_ret_NOMEM;
+      }
+      char* codes;
+      if (unlikely(bigstack_alloc_c(2 * S_CAST(uintptr_t, block_size) * chr_variant_ct, &codes))) {
+        goto ExportFastphase_ret_NOMEM;
+      }
+      for (uint32_t block_start = 0; block_start != sample_ct; ) {
+        const uint32_t block_end = MINV(block_start + block_size, sample_ct);
+        const uint32_t cur_block_size = block_end - block_start;
+        uintptr_t variant_uidx_base;
+        uintptr_t cur_bits;
+        BitIter1Start(cur_variant_include, chr_vidx_start, &variant_uidx_base, &cur_bits);
+        for (uint32_t variant_idx = 0; variant_idx != chr_variant_ct; ++variant_idx) {
+          const uint32_t variant_uidx = BitIter1(cur_variant_include, &variant_uidx_base, &cur_bits);
+          uintptr_t allele_idx_offset_base = variant_uidx * 2;
+          if (allele_idx_offsets) {
+            allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+            if (unlikely(allele_idx_offsets[variant_uidx + 1] != allele_idx_offset_base + 2)) {
+              logputs("\n");
+              logerrputs("Error: \"--export fastphase\" cannot handle multiallelic variants.\n");
+              goto ExportFastphase_ret_INCONSISTENT_INPUT;
+            }
+          }
+          const char* ref_allele = allele_storage[allele_idx_offset_base];
+          const char* alt_allele = allele_storage[allele_idx_offset_base + 1];
+          if (unlikely(ref_allele[1] || alt_allele[1])) {
+            logputs("\n");
+            logerrprintfww("Error: \"--export fastphase\" cannot represent the multi-character allele(s) of variant '%s'.\n", variant_ids[variant_uidx]);
+            goto ExportFastphase_ret_INCONSISTENT_INPUT;
+          }
+          reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto ExportFastphase_ret_1;
+          }
+          // PLINK 1.x puts A1 (ALT) first for a heterozygote.
+          const char hap1_chars[4] = {ref_allele[0], alt_allele[0], alt_allele[0], '?'};
+          const char hap2_chars[4] = {ref_allele[0], ref_allele[0], alt_allele[0], '?'};
+          for (uint32_t offset = 0; offset != cur_block_size; ++offset) {
+            const uint32_t cur_geno = GetNyparrEntry(genovec, block_start + offset);
+            char* cur_row = &(codes[2 * S_CAST(uintptr_t, offset) * chr_variant_ct]);
+            cur_row[variant_idx] = hap1_chars[cur_geno];
+            cur_row[chr_variant_ct + variant_idx] = hap2_chars[cur_geno];
+          }
+        }
+        uintptr_t sample_uidx_base;
+        uintptr_t sample_bits;
+        BitIter1Start(sample_include, 0, &sample_uidx_base, &sample_bits);
+        for (uint32_t skip_idx = 0; skip_idx != block_start; ++skip_idx) {
+          BitIter1(sample_include, &sample_uidx_base, &sample_bits);
+        }
+        for (uint32_t sample_idx = block_start; sample_idx != block_end; ++sample_idx) {
+          const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_bits);
+          const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
+          write_iter = strcpya_k(write_iter, "# ID ");
+          write_iter = strcpya(write_iter, AdvPastDelim(cur_sample_id, '\t'));
+          AppendBinaryEoln(&write_iter);
+          const char* cur_row = &(codes[2 * S_CAST(uintptr_t, sample_idx - block_start) * chr_variant_ct]);
+          write_iter = memcpya(write_iter, cur_row, chr_variant_ct);
+          AppendBinaryEoln(&write_iter);
+          write_iter = memcpya(write_iter, &(cur_row[chr_variant_ct]), chr_variant_ct);
+          AppendBinaryEoln(&write_iter);
+          if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+            goto ExportFastphase_ret_WRITE_FAIL;
+          }
+        }
+        block_start = block_end;
+      }
+      if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+        goto ExportFastphase_ret_WRITE_FAIL;
+      }
+      BigstackReset(bigstack_inner_mark);
+      logputs("done.\n");
+      if (is_1chr) {
+        break;
+      }
+    }
+  }
+  while (0) {
+  ExportFastphase_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ExportFastphase_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  ExportFastphase_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  ExportFastphase_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ ExportFastphase_ret_1:
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
   return reterr;
