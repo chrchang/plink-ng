@@ -23,6 +23,11 @@ awk 'BEGIN{OFS=" "} {
 }' tmp_data.fam > tmp_ped.fam
 mv tmp_ped.fam tmp_data.fam
 
+# Spread the variants over three chromosomes at 50 kb spacing, so that the PPC
+# test's --ppc-gap window (500 kb by default) has something to walk over.
+awk 'BEGIN{OFS="\t"} {print int((NR - 1) / 200) + 1, $2, 0, ((NR - 1) % 200) * 50000 + 1, $5, $6}' tmp_data.bim > tmp_relabeled.bim
+mv tmp_relabeled.bim tmp_data.bim
+
 compare() {
     awk -f compare.awk "$1" "$2"
 }
@@ -55,9 +60,17 @@ plink --bfile tmp_data --genome --max 0.15 --out plink19_max
 $1/plink2 $2 $3 --bfile tmp_data --genome --genome-max-pi-hat 0.15 --out plink2_max
 compare plink19_max.genome plink2_max.genome
 
-# 6. IBS counts, from PLINK 1.9's "--genome full".
+# 6. --ppc-gap, which changes which variants the IBS2* test walks over.
+for gap in 0 20 2000
+do
+    plink --bfile tmp_data --genome --ppc-gap $gap --out plink19_gap
+    $1/plink2 $2 $3 --bfile tmp_data --genome --ppc-gap $gap --out plink2_gap
+    compare plink19_gap.genome plink2_gap.genome
+done
+
+# 7. IBS counts, from PLINK 1.9's "--genome full".
 plink --bfile tmp_data --genome full --out plink19_full
-$1/plink2 $2 $3 --bfile tmp_data --genome cols=+nsnp,+ibs,+homhom,+hethet --out plink2_full
+$1/plink2 $2 $3 --bfile tmp_data --genome cols=maybefid,id,maybesid,rt,z,pihat,phe,dst,nsnp,ibs,homhom,hethet --out plink2_full
 awk '
     function pairkey(f1, i1, f2, i2,   a, b) {
         a = f1 "\t" i1; b = f2 "\t" i2;
@@ -85,11 +98,11 @@ awk '
     }
 ' plink19_full.genome plink2_full.genome
 
-# 7. --threads 1 must reproduce the multithreaded result.
+# 8. --threads 1 must reproduce the multithreaded result.
 $1/plink2 $2 $3 --bfile tmp_data --genome --threads 1 --out plink2_st
 diff -q plink2.genome plink2_st.genome
 
-# 8. --parallel: the chunks concatenate to the whole report.
+# 9. --parallel: the chunks concatenate to the whole report.
 for i in 1 2 3
 do
     $1/plink2 $2 $3 --bfile tmp_data --genome --parallel $i 3 --out plink2_par$i
@@ -97,7 +110,7 @@ done
 cat plink2_par1.genome.1 plink2_par2.genome.2 plink2_par3.genome.3 > plink2_par.genome
 diff -q plink2.genome plink2_par.genome
 
-# 9. 'zs' is the same report, compressed.
+# 10. 'zs' is the same report, compressed.
 $1/plink2 $2 $3 --bfile tmp_data --genome zs --out plink2_zs
 $1/plink2 $2 $3 --zst-decompress plink2_zs.genome.zst > plink2_zs.genome
 diff -q plink2.genome plink2_zs.genome
