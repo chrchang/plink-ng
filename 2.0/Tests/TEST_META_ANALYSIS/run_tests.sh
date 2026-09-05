@@ -17,11 +17,15 @@ EXTRA2=$3
 # runs would disagree on A1/A2 for some variants and the comparison would then
 # be about allele-mismatch handling rather than the meta-analysis itself.
 plink --simulate simulate.txt --simulate-ncases 800 --simulate-ncontrols 800 --simulate-missing 0.02 --out tmp_all > /dev/null
-head -n 800 tmp_all.fam | cut -f1,2 -d' ' > tmp_studyA.txt
-tail -n 800 tmp_all.fam | cut -f1,2 -d' ' > tmp_studyB.txt
+# Alternate samples rather than splitting the file in half: --simulate writes
+# all the cases first, so a positional split leaves one study with a constant
+# phenotype, and PLINK 1.9 then skips the regression with only a warning.
+awk '{if (NR % 2) {print $1, $2 > "tmp_studyA.txt"} else {print $1, $2 > "tmp_studyB.txt"}}' tmp_all.fam
 plink --bfile tmp_all --keep tmp_studyA.txt --make-bed --out tmp_s1 > /dev/null
 plink --bfile tmp_all --keep tmp_studyB.txt --make-bed --out tmp_s2 > /dev/null
 plink --bfile tmp_s1 --logistic --ci 0.95 --out tmp_r1 > /dev/null
+# The regression has to have actually run; PLINK 1.9 only warns when it skips.
+test -s tmp_r1.assoc.logistic
 plink --bfile tmp_s2 --logistic --ci 0.95 --out tmp_r2 > /dev/null
 plink --bfile tmp_s1 --logistic beta --ci 0.95 --out tmp_b1 > /dev/null
 plink --bfile tmp_s2 --logistic beta --ci 0.95 --out tmp_b2 > /dev/null
