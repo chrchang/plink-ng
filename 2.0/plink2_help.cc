@@ -1203,6 +1203,40 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    hethet/ibs0/ibs1 values are proportions unless the 'counts' modifier is\n"
 "    present.  If id is omitted, a .kin0.id file is also written.\n\n"
                );
+    HelpPrint("distance\0distance-matrix\0ibs-matrix\0", &help_ctrl, 1,
+"  --distance [{square | square0 | triangle}] [{zs | bin | bin4}] ['ibs']\n"
+"             ['1-ibs'] ['allele-ct'] ['flat-missing']\n"
+"    Write a lower-triangular tab-delimited table of genomic distances in\n"
+"    allele-count units to <output prefix>.dist, and the corresponding sample\n"
+"    IDs to <output prefix>.dist.id.  The first row contains a single\n"
+"    <sample 1-sample 2> distance, the second row has the <sample 1-sample 3>\n"
+"    and <sample 2-sample 3> distances in that order, etc.\n"
+"    * These results are only meaningful on a variant set in approximate\n"
+"      linkage equilibrium; use --indep-pairwise first.\n"
+"    * 'square' or 'square0' writes a square matrix instead; 'square0' fills\n"
+"      the upper right triangle with zeroes.\n"
+"    * 'zs' compresses the output.  'bin' instead writes a binary matrix of\n"
+"      double-precision floats, suitable for loading from R, to <output\n"
+"      prefix>.dist.bin; \'bin4\' writes single-precision floats.  The binary\n"
+"      formats default to a square matrix, and can be combined with \'square0\'\n"
+"      or \'triangle\'.\n"
+"    * \'ibs\' writes an identity-by-state matrix to <output prefix>.mibs, and\n"
+"      \'1-ibs\' writes distances as genomic proportions to <output\n"
+"      prefix>.mdist.  Combine with \'allele-ct\' to get the .dist file too.\n"
+"    * By default, rescaling in the presence of missing calls is sensitive to\n"
+"      allele frequency: a missing call at a variant which contributes more to\n"
+"      the average pairwise distance gets a proportionally larger correction.\n"
+"      \'flat-missing\' weights all variants equally instead, which is what you\n"
+"      want when missingness is highly nonrandom.\n"
+"    * The computation can be subdivided with --parallel.\n\n"
+               );
+    HelpPrint("distance-matrix\0ibs-matrix\0distance\0", &help_ctrl, 1,
+"  --distance-matrix\n"
+"  --ibs-matrix\n"
+"    Deprecated commands, equivalent to \"--distance 1-ibs flat-missing\n"
+"    square\" and \"--distance ibs flat-missing square\" respectively, except\n"
+"    that they write space- instead of tab-delimited matrices.\n\n"
+               );
     // possible todo: --king-table-subset analogue for fast-approximate
     // --make-grm-sparse
     HelpPrint("make-rel\0make-grm\0make-grm-bin\0make-grm-list\0make-grm-gz\0make-grm-sparse\0", &help_ctrl, 1,
