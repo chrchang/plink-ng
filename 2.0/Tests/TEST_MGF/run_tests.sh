@@ -11,6 +11,18 @@ EXTRA2=$3
 
 # 1. Hardcalls.  A round trip through the text format has to reproduce the
 #    .mgf and .pos.txt byte for byte, and the .pvar apart from its header.
+fails_with() {
+    local expected=$1
+    shift
+    if "$@" > /dev/null 2> tmp_err.txt; then
+        echo "expected failure: $*"
+        exit 1
+    fi
+    # Error messages are word-wrapped, so the newlines have to come out before
+    # a phrase can be matched across them.
+    tr '\n' ' ' < tmp_err.txt | tr -s ' ' | grep -q "$expected"
+}
+
 plink --simulate simulate.txt --simulate-missing 0.03 --simulate-ncases 60 --simulate-ncontrols 60 --out tmp_hard > /dev/null
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_hard --export mgf --out tmp_hard_e
 $BUILD/plink2 $EXTRA1 $EXTRA2 --mgf tmp_hard_e.mgf tmp_hard_e.pos.txt --out tmp_hard_r
@@ -63,24 +75,35 @@ diff -q <(cut -f 2- tmp_ph_r.psam | tail -n +2) tmp_ph_e.pheno.txt
 # Without 'pheno=' there are no phenotype columns at all.
 head -n 1 tmp_dose_r.psam | grep -q '^#IID$'
 
-# 5. A block-gzipped .mgf reads back the same as the plain one.
+# 5. --psam/--fam supplies real sample IDs in place of the synthesized ones,
+#    without touching the genotypes.
+awk 'BEGIN {print "#IID\tSEX\tPHENO1"; for (i = 0; i < 120; ++i) {print "s" i "\t" (i % 2 + 1) "\t" (i % 2 + 1)}}' > tmp_real.psam
+$BUILD/plink2 $EXTRA1 $EXTRA2 --mgf tmp_dose_e.mgf tmp_dose_e.pos.txt --psam tmp_real.psam --out tmp_ids
+diff -q <(cut -f 1 tmp_ids.psam | tail -n +2) <(seq 0 119 | sed 's/^/s/')
+$BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_ids --export mgf --out tmp_ids_e
+diff -q tmp_dose_e.mgf tmp_ids_e.mgf
+
+# The PLINK 1.x .fam spelling works too, and brings FID along.
+awk 'BEGIN {for (i = 0; i < 120; ++i) {print "f" i, "s" i, 0, 0, (i % 2 + 1), (i % 2 + 1)}}' > tmp_real.fam
+$BUILD/plink2 $EXTRA1 $EXTRA2 --mgf tmp_dose_e.mgf tmp_dose_e.pos.txt --fam tmp_real.fam --out tmp_ids2
+head -n 1 tmp_ids2.psam | grep -q '^#FID	IID'
+diff -q <(cut -f 2 tmp_ids2.psam | tail -n +2) <(seq 0 119 | sed 's/^/s/')
+
+# A row count that disagrees with the .mgf is an error, and so is combining
+# the two phenotype sources.
+head -n 6 tmp_real.psam > tmp_short.psam
+fails_with "tmp_short.psam has 5 samples, while tmp_dose_e.mgf implies 120" \
+    $BUILD/plink2 $EXTRA1 $EXTRA2 --mgf tmp_dose_e.mgf tmp_dose_e.pos.txt --psam tmp_short.psam --out tmp_bad7
+fails_with "cannot be used with --psam/--fam" \
+    $BUILD/plink2 $EXTRA1 $EXTRA2 --mgf tmp_ph_e.mgf tmp_ph_e.pos.txt pheno=tmp_ph_e.pheno.txt --psam tmp_real.psam --out tmp_bad8
+
+# 6. A block-gzipped .mgf reads back the same as the plain one.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_dose --export mgf bgz --out tmp_bgz
 $BUILD/plink2 $EXTRA1 $EXTRA2 --mgf tmp_bgz.mgf.gz tmp_bgz.pos.txt --out tmp_bgz_r
 $BUILD/plink2 $EXTRA1 $EXTRA2 --pfile tmp_bgz_r --export mgf --out tmp_bgz_e
 diff -q tmp_dose_e.mgf tmp_bgz_e.mgf
 
-# 6. Malformed input has to be rejected, naming the offending line.
-fails_with() {
-    local expected=$1
-    shift
-    if "$@" > /dev/null 2> tmp_err.txt; then
-        echo "expected failure: $*"
-        exit 1
-    fi
-    # Error messages are word-wrapped, so the newlines have to come out before
-    # a phrase can be matched across them.
-    tr '\n' ' ' < tmp_err.txt | tr -s ' ' | grep -q "$expected"
-}
+# 7. Malformed input has to be rejected, naming the offending line.
 
 # A variant with no position.
 head -n 3 tmp_hard_e.pos.txt > tmp_short.pos.txt
