@@ -10767,6 +10767,9 @@ void InitHomozyg(HomozygInfo* hip) {
   hip->flags = kfHomozyg0;
   hip->min_snp = 100;
   hip->min_bases = 1000000;
+  // Very low-frequency variants are nearly always homozygous, so on a modern
+  // dense set they pad out runs that are not really runs.
+  hip->min_af = 0.05;
   hip->max_bases_per_snp = 50000.0 + kSmallEpsilon;
   hip->max_hets = UINT32_MAX;
   hip->max_gap = 1000000;
@@ -11075,7 +11078,7 @@ THREAD_FUNC_DECL HomozygThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, const HomozygInfo* hip, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, const HomozygInfo* hip, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* outfile = nullptr;
@@ -11096,6 +11099,40 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     const uint32_t max_hets = hip->max_hets;
     const uint32_t max_gap = hip->max_gap;
     const uint32_t is_new_lengths = !(hip->flags & kfHomozygOldLengths);
+    // Rare variants are homozygous in nearly everyone, so on a dense modern
+    // set they lengthen runs that carry no evidence of autozygosity.
+    const uintptr_t* variant_include = orig_variant_include;
+    if (hip->min_af > 0.0) {
+      const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+      uintptr_t* new_variant_include;
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &new_variant_include))) {
+        goto HomozygReport_ret_NOMEM;
+      }
+      memcpy(new_variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+      const double min_af = hip->min_af * (1 - kSmallEpsilon);
+      const double max_af = 1 - min_af;
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = orig_variant_include[0];
+      uint32_t removed_ct = 0;
+      for (uint32_t vidx = 0; vidx != variant_ct; ++vidx) {
+        const uint32_t variant_uidx = BitIter1(orig_variant_include, &variant_uidx_base, &cur_bits);
+        const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * S_CAST(uintptr_t, variant_uidx));
+        const double ref_freq = allele_freqs[allele_idx_offset_base - variant_uidx];
+        if ((ref_freq < min_af) || (ref_freq > max_af)) {
+          ClearBit(variant_uidx, new_variant_include);
+          ++removed_ct;
+        }
+      }
+      if (removed_ct) {
+        variant_ct -= removed_ct;
+        if (unlikely(!variant_ct)) {
+          logerrputs("Error: --homozyg: No variants remaining after --homozyg-min-af.\n");
+          goto HomozygReport_ret_INCONSISTENT_INPUT;
+        }
+        logprintf("--homozyg-min-af: %u variant%s excluded, %u remaining.\n", removed_ct, (removed_ct == 1)? "" : "s", variant_ct);
+      }
+      variant_include = new_variant_include;
+    }
 
     // Pick the first case/control phenotype for the AFF/UNAFF columns, and the
     // first phenotype of any type for the PHENO column.
@@ -11669,6 +11706,9 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
   while (0) {
   HomozygReport_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  HomozygReport_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   HomozygReport_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;

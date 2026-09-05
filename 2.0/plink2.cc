@@ -630,6 +630,10 @@ uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, G
 // MajAllelesAreNeeded()
 uint32_t IndecentAlleleFreqsAreNeeded(Command1Flags command_flags1, VcorFlags vcor_flags, double min_maf, double max_maf) {
   // Keep this in sync with --error-on-freq-calc.
+  if (command_flags1 & kfCommand1Homozyg) {
+    // --homozyg-min-af applies a frequency floor of its own.
+    return 1;
+  }
   // Vscore could go either here or in the decent bucket
   return (command_flags1 & kfCommand1Vscore) ||
     ((command_flags1 & kfCommand1Vcor) && (vcor_flags & kfVcorColFreq)) ||
@@ -3065,7 +3069,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Homozyg) {
-        reterr = HomozygReport(sample_include, &pii.sii, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_ct, &(pcp->homozyg_info), pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = HomozygReport(sample_include, &pii.sii, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_ct, &(pcp->homozyg_info), pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -7268,6 +7272,21 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1Homozyg;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "omozyg-min-af")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          double dxx;
+          if (unlikely((!ScantokDouble(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 0.5))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-min-af argument '%s' (must be in [0, 0.5]).\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.homozyg_info.min_af = dxx;
+          if (!(pc.command_flags1 & kfCommand1Homozyg)) {
+            pc.command_flags1 |= kfCommand1Homozyg;
+            pc.filter_flags |= kfFilterAllReq;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "omozyg-kb") ||
                    strequal_k_unsafe(flagname_p2, "omozyg-density") ||
                    strequal_k_unsafe(flagname_p2, "omozyg-gap") ||
