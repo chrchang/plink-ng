@@ -163,4 +163,9 @@ cd TEST_LD_SCORE_ANNOT
 cd ..
 echo "TEST_LD_SCORE_ANNOT passed."
 
+cd TEST_MISSING_FUSION
+./run_tests.sh $d $2 $3 > TEST_MISSING_FUSION.log
+cd ..
+echo "TEST_MISSING_FUSION passed."
+
 echo "All tests passed."
