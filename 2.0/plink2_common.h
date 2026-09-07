@@ -188,13 +188,17 @@ FLAGSET64_DEF_START()
   kfExportfBcf42 = (1 << 8),
   kfExportfBcf43 = (1 << 9),
   kfExportfBcf = kfExportfBcf42 | kfExportfBcf43,
+  // 'beagle' (chromosome-split) is retired; the two survivors are the
+  // unphased and phased single-file forms.
   kfExportfBeagle = (1 << 10),
-  kfExportfBeagleNomap = (1 << 11),
+  kfExportfBeagleUnphased = (1 << 11),
+  kfExportfBeaglePhased = (1LLU << 40),
   kfExportfBgen11 = (1 << 12),
   kfExportfBgen12 = (1 << 13),
   kfExportfBgen13 = (1 << 14),
   kfExportfBimbam = (1 << 15),
-  kfExportfBimbam1chr = (1 << 16),
+  // bit 16 was bimbam-1chr, retired along with the BIMBAM genotype file
+  kfExportfMgf = (1 << 16),
   kfExportfEig = (1 << 17),
   kfExportfEigt = (1 << 18),
   kfExportfFastphase = (1 << 19),
@@ -220,7 +224,13 @@ FLAGSET64_DEF_START()
   kfExportfVcf42 = (1LLU << 38),
   kfExportfVcf43 = (1LLU << 39),
   kfExportfVcf = kfExportfVcf42 | kfExportfVcf43,
-  kfExportfTypemask = (2LLU * kfExportfVcf43) - kfExportf23,
+  // beagle-phased sits just above vcf-4.3, so the mask runs to it.
+  kfExportfTypemask = (2LLU * kfExportfBeaglePhased) - kfExportf23,
+  // The formats Exportf() can actually write.  Kept next to the type mask so
+  // the two are updated together, and checked during argument parsing so an
+  // unimplemented format is rejected before the dataset is loaded rather than
+  // after.
+  kfExportfImplemented = (kfExportfA | kfExportfAD | kfExportfAv | kfExportfBcf | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13 | kfExportfMgf | kfExportfCompound | kfExportfLgen | kfExportfLgenRef | kfExportfList | kfExportfRlist | kfExportfBeagleUnphased | kfExportfBeaglePhased | kfExportfStructure | kfExportfFastphase | kfExportfFastphase1chr | kfExportfHv | kfExportfHv1chr | kfExportfEig | kfExportfEigt | kfExportfHaps | kfExportfHapsLegend | kfExportfIndMajorBed | kfExportfOxGen | kfExportfPed | kfExportfPhylip | kfExportfPhylipPhased | kfExportfTped | kfExportfVcf),
   kfExportfIncludeAlt = (1LLU << 40),
   kfExportfBgz = (1LLU << 41),
   kfExportfOmitNonmaleY = (1LLU << 42),
