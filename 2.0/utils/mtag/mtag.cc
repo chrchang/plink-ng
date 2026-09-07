@@ -35,10 +35,10 @@
 #include <string>
 #include <unordered_map>
 
-#include "include/plink2_base.h"
-#include "include/plink2_string.h"
-#include "include/plink2_text.h"
-#include "include/plink2_thread.h"
+#include "../../include/plink2_base.h"
+#include "../../include/plink2_string.h"
+#include "../../include/plink2_text.h"
+#include "../../include/plink2_thread.h"
 
 #ifdef __cplusplus
 namespace plink2 {
