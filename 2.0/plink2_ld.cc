@@ -63,6 +63,7 @@ void InitLd(LdInfo* ldip) {
   // rate down.
   ldip->flipscan_min_neg_ct = 2;
   ldip->flipscan_ref_freq_fname = nullptr;
+  ldip->flipscan_phenoname = nullptr;
   ldip->prune_window_size = 0;
   ldip->prune_window_incr = 0;
   ldip->prune_last_param = 0.0;
@@ -75,6 +76,7 @@ void CleanupLd(LdInfo* ldip) {
   free_cond(ldip->ld_console_varids[0]);
   free_cond(ldip->ld_console_varids[1]);
   free_cond(ldip->flipscan_ref_freq_fname);
+  free_cond(ldip->flipscan_phenoname);
 }
 
 void InitClump(ClumpInfo* clump_ip) {
@@ -14357,7 +14359,7 @@ PglErr FlipScanRefFreq(const uintptr_t* variant_include, const ChrInfo* cip, con
   return reterr;
 }
 
-PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const uintptr_t* founder_info, const LdInfo* ldip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t allow_bad_ld, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* cswritep_verbose = nullptr;
@@ -14369,19 +14371,40 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
   PreinitThreads(&tg);
   PglErr reterr = kPglRetSuccess;
   {
+    const char* flipscan_phenoname = ldip->flipscan_phenoname;
     const PhenoCol* cc_pheno_col = nullptr;
-    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-      if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
-        if (unlikely(cc_pheno_col)) {
-          logerrputs("Error: --flip-scan requires a phenotype name to be specified when multiple\ncase/control phenotypes are defined.\n");
-          goto FlipScan_ret_INCONSISTENT_INPUT;
+    if (flipscan_phenoname) {
+      const uint32_t pheno_blen = strlen(flipscan_phenoname) + 1;
+      if (pheno_blen <= max_pheno_name_blen) {
+        for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+          if (memequal(flipscan_phenoname, &(pheno_names[pheno_idx * max_pheno_name_blen]), pheno_blen)) {
+            cc_pheno_col = &(pheno_cols[pheno_idx]);
+            break;
+          }
         }
-        cc_pheno_col = &(pheno_cols[pheno_idx]);
       }
-    }
-    if (unlikely(!cc_pheno_col)) {
-      logerrputs("Error: --flip-scan requires a case/control phenotype.\n");
-      goto FlipScan_ret_INCONSISTENT_INPUT;
+      if (unlikely(!cc_pheno_col)) {
+        logerrprintfww("Error: --flip-scan phenotype '%s' not found.\n", flipscan_phenoname);
+        goto FlipScan_ret_INCONSISTENT_INPUT;
+      }
+      if (unlikely(cc_pheno_col->type_code != kPhenoDtypeCc)) {
+        logerrprintfww("Error: --flip-scan phenotype '%s' is not case/control.\n", flipscan_phenoname);
+        goto FlipScan_ret_INCONSISTENT_INPUT;
+      }
+    } else {
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
+          if (unlikely(cc_pheno_col)) {
+            logerrputs("Error: --flip-scan requires a phenotype name to be specified when multiple\ncase/control phenotypes are defined.\n");
+            goto FlipScan_ret_INCONSISTENT_INPUT;
+          }
+          cc_pheno_col = &(pheno_cols[pheno_idx]);
+        }
+      }
+      if (unlikely(!cc_pheno_col)) {
+        logerrputs("Error: --flip-scan requires a case/control phenotype.\n");
+        goto FlipScan_ret_INCONSISTENT_INPUT;
+      }
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uintptr_t* base_include;
