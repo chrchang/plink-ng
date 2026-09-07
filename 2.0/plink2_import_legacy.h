@@ -29,6 +29,35 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, LoadFilterLogFlags loa
 
 PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr);
 
+// --23file.  Single-sample 23andMe text format: variant ID, chromosome,
+// position, and 1-2 allele calls per line.
+ENUM_U31_DEF_START()
+  kTwentythreeSexInfer,
+  kTwentythreeSexMale,
+  kTwentythreeSexFemale,
+  kTwentythreeSexMissing
+ENUM_U31_DEF_END(TwentythreeSexMode);
+
+typedef struct TwentythreeInfoStruct {
+  NONCOPYABLE(TwentythreeInfoStruct);
+  char* fname;
+  char* fid;
+  char* iid;
+  char* paternal_id;
+  char* maternal_id;
+  // Written to the .psam PHENO1 column as-is; nullptr means "not specified",
+  // which is also written as missing.  May be a categorical value, since the
+  // .psam format supports those.
+  char* pheno;
+  TwentythreeSexMode sex_mode;
+} TwentythreeInfo;
+
+void InitTwentythree(TwentythreeInfo* twenty_three_info_ptr);
+
+void CleanupTwentythree(TwentythreeInfo* twenty_three_info_ptr);
+
+PglErr TwentythreeToPgen(const TwentythreeInfo* tip, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr);
+
 PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_flips, uintptr_t variant_ct, uintptr_t sample_ct, uint32_t real_ref_alleles, uint32_t max_thread_ct, FILE* infile);
 
 PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip);
