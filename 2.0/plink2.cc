@@ -3422,11 +3422,6 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         }
         break;
       }
-    case 'm':
-      if (!strcmp(cur_modif2, "gf")) {
-        cur_format = kfExportfMgf;
-      }
-      break;
     case 'c':
       if (!strcmp(cur_modif2, "ompound-genotypes")) {
         cur_format = kfExportfCompound;
@@ -3481,6 +3476,11 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         }
         break;
       }
+    case 'm':
+      if (!strcmp(cur_modif2, "gf")) {
+        cur_format = kfExportfMgf;
+      }
+      break;
     case 'o':
       if (!strcmp(cur_modif2, "xford")) {
         cur_format = kfExportfOxGenV1;
