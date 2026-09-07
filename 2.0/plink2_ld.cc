@@ -14528,7 +14528,13 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
       ctx.subset_ctl[is_case] = subset_ctl[is_case];
     }
     ctx.local_bps = local_bps;
-    ctx.freq_diff_thresh = ldip->flipscan_freq_diff * (1 - kSmallEpsilon);
+    {
+      double freq_diff_thresh = ldip->flipscan_freq_diff;
+      if (freq_diff_thresh < 0.0) {
+        freq_diff_thresh = 0.5;
+      }
+      ctx.freq_diff_thresh = freq_diff_thresh * (1 - kSmallEpsilon);
+    }
     ctx.max_maj_freq = ldip->flipscan_max_maj_freq * (1 + kSmallEpsilon);
     ctx.min_corr = min_corr;
     ctx.window_size = window_size;
