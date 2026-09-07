@@ -88,4 +88,24 @@ cd TEST_DISTANCE
 cd ..
 echo "TEST_DISTANCE passed."
 
+cd TEST_TEST_MISSING
+./run_tests.sh $d $2 $3 > TEST_TEST_MISSING.log
+cd ..
+echo "TEST_TEST_MISSING passed."
+
+cd TEST_FLIP_SCAN
+./run_tests.sh $d $2 $3 > TEST_FLIP_SCAN.log
+cd ..
+echo "TEST_FLIP_SCAN passed."
+
+cd TEST_MGF
+./run_tests.sh $d $2 $3 > TEST_MGF.log
+cd ..
+echo "TEST_MGF passed."
+
+cd TEST_SHOW_TAGS
+./run_tests.sh $d $2 $3 > TEST_SHOW_TAGS.log
+cd ..
+echo "TEST_SHOW_TAGS passed."
+
 echo "All tests passed."

@@ -106,6 +106,8 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
 
 PglErr EigfileToPgen(const char* genoname, const char* indname, const char* snpname, const char* const_fid, const char* missing_catname, const char* missing_varid, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t psam_01, char id_delim, ImportOverlongVarIdsMode overlong_varids_mode, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip);
 
+PglErr MgfToPgen(const char* mgfname, const char* posname, const char* phenoname, const char* preexisting_psamname, const char* missing_catname, MiscFlags misc_flags, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip);
+
 PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, ImportFlags import_flags, LoadFilterLogFlags load_filter_log_import_flags, uint32_t psam_01, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, sfmt_t* sfmtp, char* outname, char* outname_end, ChrInfo* cip);
 
 #ifdef __cplusplus
