@@ -275,7 +275,7 @@ FLAGSET64_DEF_START()
   kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
   kfCommand1FlipScan = (1LLU << kCmd1BitFlipScan),
   kfCommand1Homozyg = (1LLU << kCmd1BitHomozyg),
-  kfCommand1Distance = (1LLU << kCmd1BitDistance).
+  kfCommand1Distance = (1LLU << kCmd1BitDistance),
   kfCommand1TestMissing = (1LLU << kCmd1BitTestMissing),
   kfCommand1ShowTags = (1LLU << kCmd1BitShowTags)
 FLAGSET64_DEF_END(Command1Flags);
