@@ -93,8 +93,8 @@ diff -q <(untrail plink19_im.mibs) plink2_im.mibs
 
 # ...and the output really is tab-delimited with no trailing delimiter.
 head -n 1 plink2_dm.mdist | grep -qv ' '
-head -n 1 plink2_dm.mdist | grep -q '\t'
-head -n 1 plink2_dm.mdist | grep -qv '\t$'
+head -n 1 plink2_dm.mdist | grep -q $'\t'
+head -n 1 plink2_dm.mdist | grep -qv $'\t''$'
 
 # 3. The default, frequency-weighted missingness correction.  1.9's weights
 #    are quantized, so this is a tolerance comparison.
