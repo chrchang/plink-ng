@@ -72,12 +72,29 @@ cmp plink19_i.mdist plink2_i.mdist
 test "$(wc -l < plink2_i.mibs)" -eq "$(wc -l < tmp_data.fam)"
 test "$(wc -l < plink2_i.mdist)" -eq "$(($(wc -l < tmp_data.fam) - 1))"
 
+# These two are exactly their long forms, so that is the invariant to pin;
+# PLINK 1.9's own output is space-delimited with a trailing delimiter, which
+# plink2 deliberately no longer reproduces, so it is normalized before the
+# value comparison.
+untrail() {
+    sed 's/[ \t]*$//' "$1" | tr ' ' '\t'
+}
 plink --bfile tmp_data --distance-matrix --out plink19_dm
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --distance-matrix --out plink2_dm
-cmp plink19_dm.mdist plink2_dm.mdist
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --distance 1-ibs flat-missing square --out plink2_dm_long
+cmp plink2_dm.mdist plink2_dm_long.mdist
+diff -q <(untrail plink19_dm.mdist) plink2_dm.mdist
+
 plink --bfile tmp_data --ibs-matrix --out plink19_im
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --ibs-matrix --out plink2_im
-cmp plink19_im.mibs plink2_im.mibs
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --distance ibs flat-missing square --out plink2_im_long
+cmp plink2_im.mibs plink2_im_long.mibs
+diff -q <(untrail plink19_im.mibs) plink2_im.mibs
+
+# ...and the output really is tab-delimited with no trailing delimiter.
+head -n 1 plink2_dm.mdist | grep -qv ' '
+head -n 1 plink2_dm.mdist | grep -q '\t'
+head -n 1 plink2_dm.mdist | grep -qv '\t$'
 
 # 3. The default, frequency-weighted missingness correction.  1.9's weights
 #    are quantized, so this is a tolerance comparison.

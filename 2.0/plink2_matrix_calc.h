@@ -253,9 +253,7 @@ FLAGSET_DEF_START()
   kfDistance1MinusIbs = (1 << 8),
   kfDistanceOutputMask = (kfDistanceAlleleCt | kfDistanceIbs | kfDistance1MinusIbs),
 
-  kfDistanceFlatMissing = (1 << 9),
-  // --distance-matrix/--ibs-matrix wrote space-delimited matrices.
-  kfDistanceSpaceDelim = (1 << 10)
+  kfDistanceFlatMissing = (1 << 9)
 FLAGSET_DEF_END(DistanceFlags);
 
 PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);

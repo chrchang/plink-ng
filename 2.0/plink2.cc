@@ -5954,7 +5954,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --distance-matrix cannot be used with --distance.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          pc.distance_flags |= kfDistance1MinusIbs | kfDistanceFlatMissing | kfDistanceMatrixSq | kfDistanceSpaceDelim;
+          pc.distance_flags |= kfDistance1MinusIbs | kfDistanceFlatMissing | kfDistanceMatrixSq;
           pc.command_flags1 |= kfCommand1Distance;
           pc.dependency_flags |= kfFilterAllReq;
           goto main_param_zero;
@@ -7756,7 +7756,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --ibs-matrix cannot be used with --distance.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          pc.distance_flags |= kfDistanceIbs | kfDistanceFlatMissing | kfDistanceMatrixSq | kfDistanceSpaceDelim;
+          pc.distance_flags |= kfDistanceIbs | kfDistanceFlatMissing | kfDistanceMatrixSq;
           pc.command_flags1 |= kfCommand1Distance;
           pc.dependency_flags |= kfFilterAllReq;
           goto main_param_zero;

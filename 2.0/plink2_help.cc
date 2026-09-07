@@ -1339,9 +1339,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("distance-matrix\0ibs-matrix\0distance\0", &help_ctrl, 1,
 "  --distance-matrix\n"
 "  --ibs-matrix\n"
-"    Deprecated commands, equivalent to \"--distance 1-ibs flat-missing\n"
-"    square\" and \"--distance ibs flat-missing square\" respectively, except\n"
-"    that they write space- instead of tab-delimited matrices.\n\n"
+"    Deprecated commands, exactly equivalent to \"--distance 1-ibs\n"
+"    flat-missing square\" and \"--distance ibs flat-missing square\".\n"
+"    * PLINK 1.x wrote these space-delimited with a trailing delimiter;\n"
+"      plink2 writes them tab-delimited with none, like every other table it\n"
+"      produces.\n\n"
                );
     // possible todo: --king-table-subset analogue for fast-approximate
     // --make-grm-sparse

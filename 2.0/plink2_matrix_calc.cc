@@ -4801,11 +4801,7 @@ PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* 
       if (unlikely(reterr)) {
         goto WriteDistanceMatrix_ret_1;
       }
-      // PLINK 1.9's --distance-matrix/--ibs-matrix wrote space-delimited
-      // matrices with a trailing delimiter; --distance itself is
-      // tab-delimited with none.
-      const uint32_t space_delim = (flags / kfDistanceSpaceDelim) & 1;
-      const char delim_char = space_delim? ' ' : '\t';
+
       for (uint32_t row_idx = write_row_start_idx; row_idx != row_end_idx; ++row_idx) {
         const uint32_t col_ct = is_square? sample_ct : (row_idx + diag_included);
         if (!col_ct) {
@@ -4821,8 +4817,8 @@ PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* 
             cur_val = DISTANCE_CELL(row_idx, col_idx);
           }
           cswritep = dtoa_g(cur_val, cswritep);
-          if (space_delim || (col_idx + 1 != col_ct)) {
-            *cswritep++ = delim_char;
+          if (col_idx + 1 != col_ct) {
+            *cswritep++ = '\t';
           }
         }
         AppendBinaryEoln(&cswritep);
