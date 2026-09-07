@@ -13438,7 +13438,7 @@ void CleanupTwolocus(TwolocusInfo* tlip) {
 // fixed-width output anywhere else, so this is a table instead, and the
 // marginals are left to the reader since every count that produces them is
 // present.
-PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const PhenoCol* pheno_cols, const char* pheno_names, const char* mkr1, const char* mkr2, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* mkr1, const char* mkr2, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -13534,36 +13534,19 @@ PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_
       }
     }
 
-    // Case/control split, when a case/control phenotype is available; PLINK
-    // 1.x always reports all three groups.
-    const PhenoCol* cc_pheno_col = nullptr;
-    const char* cc_pheno_name = nullptr;
-    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-      if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
-        cc_pheno_col = &(pheno_cols[pheno_idx]);
-        cc_pheno_name = &(pheno_names[pheno_idx * max_pheno_name_blen]);
-        break;
-      }
-    }
-    const uint32_t group_ct = cc_pheno_col? 3 : 1;
+    // PLINK 1.x always splits on the case/control phenotype, but several
+    // phenotypes may be loaded here, so guessing which one to split on would
+    // be wrong as often as not.  Until the command takes a phenotype name,
+    // report a single table over all samples.
+    const uint32_t group_ct = 1;
     // [group][geno1 * geno_cts[1] + geno2]
     const uintptr_t cells_per_group = S_CAST(uintptr_t, geno_cts[0]) * geno_cts[1];
     uint64_t* counts;
-    if (unlikely(bigstack_calloc_u64(3 * cells_per_group, &counts))) {
+    if (unlikely(bigstack_calloc_u64(group_ct * cells_per_group, &counts))) {
       goto TwolocusReport_ret_NOMEM;
     }
-    {
-      uintptr_t sample_uidx_base = 0;
-      uintptr_t cur_bits = sample_include[0];
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
-        const uintptr_t cell = geno_idxs[0][sample_idx] * S_CAST(uintptr_t, geno_cts[1]) + geno_idxs[1][sample_idx];
-        counts[cell] += 1;
-        if (cc_pheno_col && IsSet(cc_pheno_col->nonmiss, sample_uidx)) {
-          const uint32_t group_idx = 1 + (1 - IsSet(cc_pheno_col->data.cc, sample_uidx));
-          counts[group_idx * cells_per_group + cell] += 1;
-        }
-      }
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      counts[geno_idxs[0][sample_idx] * S_CAST(uintptr_t, geno_cts[1]) + geno_idxs[1][sample_idx]] += 1;
     }
 
     const uintptr_t allele_idx_offset_bases[2] = {
@@ -13624,11 +13607,7 @@ PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto TwolocusReport_ret_WRITE_FAIL;
     }
-    if (cc_pheno_col) {
-      logprintfww("--twolocus: Joint genotype counts for '%s' and '%s' written to %s (case/control split on phenotype '%s').\n", mkr1, mkr2, outname, cc_pheno_name);
-    } else {
       logprintfww("--twolocus: Joint genotype counts for '%s' and '%s' written to %s .\n", mkr1, mkr2, outname);
-    }
   }
   while (0) {
   TwolocusReport_ret_NOMEM:

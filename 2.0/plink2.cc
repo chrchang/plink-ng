@@ -3033,7 +3033,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Twolocus) {
-        reterr = TwolocusReport(sample_include, variant_include, variant_ids, allele_idx_offsets, allele_storage, pheno_cols, pheno_names, pcp->twolocus_info.mkr1, pcp->twolocus_info.mkr2, raw_sample_ct, sample_ct, variant_ct, pheno_ct, max_pheno_name_blen, max_allele_slen, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = TwolocusReport(sample_include, variant_include, variant_ids, allele_idx_offsets, allele_storage, pcp->twolocus_info.mkr1, pcp->twolocus_info.mkr2, raw_sample_ct, sample_ct, variant_ct, max_allele_slen, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }

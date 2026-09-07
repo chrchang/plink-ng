@@ -31,12 +31,15 @@ compare_pair b0v0 b0v3
 compare_pair b0v1 b1v7
 compare_pair b5v2 b5v9
 
-# 2. Without a case/control phenotype there is only the ALL group.
+# 2. Only the ALL group is ever reported: the command is not told which
+#    phenotype to split on, so it does not guess.
 awk 'BEGIN{OFS=" "} {print $1, $2, 0, 0, (NR % 2) + 1, -9}' tmp_data.fam > tmp_nopheno.fam
 cp tmp_data.bed tmp_nopheno.bed
 cp tmp_data.bim tmp_nopheno.bim
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_nopheno --twolocus b0v0 b0v3 --out plink2_nopheno
 test "$(awk '!/^#/ {print $1}' plink2_nopheno.twolocus | sort -u | tr -d '\n')" = "ALL"
+# ...including when a case/control phenotype happens to be loaded.
+test "$(awk '!/^#/ {print $1}' plink2.twolocus | sort -u | tr -d '\n')" = "ALL"
 
 # 3. Every cell count is present, so the marginals PLINK 1.9 prints can be
 #    recovered: the ALL group has to sum to the sample count.

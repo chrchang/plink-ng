@@ -12,8 +12,9 @@ function norm(gt,   a) {
 }
 FNR == NR {
     if ($0 ~ /^All individuals$/) { group = "ALL"; matrix_idx = 0; in_matrix = 0; next }
-    if ($0 ~ /^Cases$/) { group = "CASE"; matrix_idx = 0; in_matrix = 0; next }
-    if ($0 ~ /^Controls$/) { group = "CTRL"; matrix_idx = 0; in_matrix = 0; next }
+    # plink2 does not split on a phenotype it was not told to use, so only
+    # 1.9's all-samples section has a counterpart.
+    if ($0 ~ /^Cases$/ || $0 ~ /^Controls$/) { group = ""; matrix_idx = 0; in_matrix = 0; next }
     if (group == "") { next }
     if (NF == 1 && $1 == id2) { ++matrix_idx; expect_header = 1; in_matrix = 0; next }
     if (expect_header) {
