@@ -14372,8 +14372,11 @@ PglErr FlipScan(const uintptr_t* orig_sample_include, const uintptr_t* sex_male,
     const PhenoCol* cc_pheno_col = nullptr;
     for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
       if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
+        if (unlikely(cc_pheno_col)) {
+          logerrputs("Error: --flip-scan requires a phenotype name to be specified when multiple\ncase/control phenotypes are defined.\n");
+          goto FlipScan_ret_INCONSISTENT_INPUT;
+        }
         cc_pheno_col = &(pheno_cols[pheno_idx]);
-        break;
       }
     }
     if (unlikely(!cc_pheno_col)) {
