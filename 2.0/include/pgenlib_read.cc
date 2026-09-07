@@ -655,13 +655,13 @@ uintptr_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlag
   const PgenGlobalFlags gflags_hphase_dosage = gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent);
   if ((max_allele_ct > 2) || gflags_hphase_dosage) {
     cachelines_required += genovec_cacheline_req;  // workspace_vec
-    if (max_allele_ct > 2) {
-      // workspace_aux1x_present
-      cachelines_required += bitvec_cacheline_req;
-      // workspace_imp_r2
-      cachelines_required += Int64CtToCachelineCt(2 * max_allele_ct);
-    }
-    if (gflags & kfPgenGlobalHardcallPhasePresent) {
+    if ((max_allele_ct > 2) || (gflags & kfPgenGlobalHardcallPhasePresent)) {
+      if (max_allele_ct > 2) {
+        // workspace_aux1x_present
+        cachelines_required += bitvec_cacheline_req;
+        // workspace_imp_r2
+        cachelines_required += Int64CtToCachelineCt(2 * max_allele_ct);
+      }
       // workspace_all_hets, workspace_subset
       cachelines_required += bitvec_cacheline_req * 2;
     }
@@ -2134,11 +2134,11 @@ PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, 
   const PgenGlobalFlags gflags_hphase_dosage = gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent);
   if ((max_allele_ct > 2) || gflags_hphase_dosage) {
     pgrp->workspace_vec = S_CAST(uintptr_t*, arena_alloc_raw(genovec_bytes_req, &pgr_alloc_iter));
-    if (max_allele_ct > 2) {
-      pgrp->workspace_aux1x_present = S_CAST(uintptr_t*, arena_alloc_raw(bitvec_bytes_req, &pgr_alloc_iter));
-      pgrp->workspace_imp_r2 = S_CAST(uint64_t*, arena_alloc_raw_rd(2 * max_allele_ct * sizeof(int64_t), &pgr_alloc_iter));
-    }
-    if (gflags & kfPgenGlobalHardcallPhasePresent) {
+    if ((max_allele_ct > 2) || (gflags & kfPgenGlobalHardcallPhasePresent)) {
+      if (max_allele_ct > 2) {
+        pgrp->workspace_aux1x_present = S_CAST(uintptr_t*, arena_alloc_raw(bitvec_bytes_req, &pgr_alloc_iter));
+        pgrp->workspace_imp_r2 = S_CAST(uint64_t*, arena_alloc_raw_rd(2 * max_allele_ct * sizeof(int64_t), &pgr_alloc_iter));
+      }
       pgrp->workspace_all_hets = S_CAST(uintptr_t*, arena_alloc_raw(bitvec_bytes_req, &pgr_alloc_iter));
       pgrp->workspace_subset = S_CAST(uintptr_t*, arena_alloc_raw(bitvec_bytes_req, &pgr_alloc_iter));
     }
@@ -9593,7 +9593,11 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleS
         }
       }
       if (hets) {
-        CopyBitarrSubset(all_hets, sample_include, sample_ct, hets);
+        if (subsetting_required) {
+          CopyBitarrSubset(all_hets, sample_include, sample_ct, hets);
+        } else {
+          memcpy(hets, all_hets, raw_sample_ctl * sizeof(intptr_t));
+        }
         if (!dosage_is_relevant) {
           return kPglRetSuccess;
         }
