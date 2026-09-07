@@ -103,6 +103,11 @@ cd TEST_MGF
 cd ..
 echo "TEST_MGF passed."
 
+cd TEST_KING_RT
+./run_tests.sh $d $2 $3 > TEST_KING_RT.log
+cd ..
+echo "TEST_KING_RT passed."
+
 cd TEST_SHOW_TAGS
 ./run_tests.sh $d $2 $3 > TEST_SHOW_TAGS.log
 cd ..

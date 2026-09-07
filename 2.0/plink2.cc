@@ -2669,7 +2669,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           // --king-table-subset/--king-table-require[-xor] and
           // "--make-king-table rel-check" aren't used with
           // --king-cutoff[-table] or --make-king
-          reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, pcp->king_table_subset_fname, pcp->king_table_require_fnames, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, rel_or_concordance_check, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = CalcKingTableSubset(sample_include, &pii, founder_info, variant_include, cip, pcp->king_table_subset_fname, pcp->king_table_require_fnames, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, rel_or_concordance_check, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -2681,7 +2681,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               reterr = KingCutoffBatchBinary(&pii.sii, raw_sample_ct, pcp->king_cutoff, sample_include, king_cutoff_fprefix, &sample_ct);
             }
           } else {
-            reterr = CalcKing(&pii.sii, variant_include, cip, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
+            reterr = CalcKing(&pii, founder_info, variant_include, cip, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
           }
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
@@ -3702,6 +3702,7 @@ static const Plink1FlagHint kPlink1FlagHints[] = {
   {"dominant", "use the --glm 'dominant' modifier instead"},
   {"extract-snp", "use --snp instead"},
   {"gc", "use the --adjust/--adjust-file 'gc' modifier instead"},
+  {"genome", "use --make-king-table instead; the KING-robust kinship estimator has replaced the method-of-moments IBD proportions (Z0/Z1/Z2, PI_HAT), and its 'rt'/'ekin' columns report what the pedigree expects"},
   {"genotypic", "use the --glm 'genotypic' modifier instead"},
   {"hethom", "use the --glm 'hethom' modifier instead"},
   {"hide-covar", "use the --glm 'hide-covar' modifier instead"},
@@ -9338,7 +9339,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --make-king-table cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0id\0maybesid\0sid\0nsnp\0hethet\0ibs0\0ibs1\0ibs\0kinship\0", "make-king-table", kfKingColMaybefid, kfKingColDefault, 1, &pc.king_flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0id\0maybesid\0sid\0nsnp\0hethet\0ibs0\0ibs1\0ibs\0kinship\0rt\0ekin\0", "make-king-table", kfKingColMaybefid, kfKingColDefault, 1, &pc.king_flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }

@@ -1647,6 +1647,12 @@ char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_fid, uint32_
   if (king_flags & kfKingColKinship) {
     cswritep = strcpya_k(cswritep, "KINSHIP\t");
   }
+  if (king_flags & kfKingColRt) {
+    cswritep = strcpya_k(cswritep, "RT\t");
+  }
+  if (king_flags & kfKingColEkin) {
+    cswritep = strcpya_k(cswritep, "EXPECTED_KINSHIP\t");
+  }
   DecrAppendBinaryEoln(&cswritep);
   return cswritep;
 }
@@ -1659,7 +1665,270 @@ uint32_t KingMaxSparseCt(uint32_t row_end_idx) {
 #endif
 }
 
-PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
+// --make-king-table 'rt' and 'ekin' support.
+//
+// Both columns report what the pedigree in the .psam/.fam says, not what the
+// genotypes say, and they are meant to be read next to the observed KINSHIP
+// and IBS0 columns rather than in place of them.  The pedigree on its own
+// cannot separate parent/offspring from full siblings, since both have an
+// expected kinship coefficient of 0.25; that is what IBS0 is for, being much
+// closer to zero for a parent/offspring pair.
+typedef struct KingPedigreeStruct {
+  // Collapsed sample_idxs, or UINT32_MAX when the parent is not in the
+  // fileset.
+  uint32_t* dads;
+  uint32_t* moms;
+  uint32_t* depths;  // 0 for a founder, else 1 + max(parents')
+} KingPedigree;
+
+// phi(i, i) = 0.5 * (1 + phi(dad(i), mom(i)))
+// phi(i, j) = 0.5 * (phi(dad(i), j) + phi(mom(i), j)), i not an ancestor of j
+//
+// Expanding whichever of the pair sits deeper in the pedigree establishes that
+// precondition, since an ancestor is always strictly shallower, and makes the
+// depth sum decrease at every step, so this terminates without a visited set.
+// A parent that is not itself in the fileset is treated as a distinct founder,
+// which is what drops it from the sum.
+//
+// Cost is exponential in pedigree depth.  That depth is bounded by the
+// generations actually present in the file, since a sample only has a parent
+// here when that parent is also a sample, and cohorts deep enough for it to
+// matter are family studies, which are small.
+static double PedigreeKinship(const KingPedigree* kpp, uint32_t idx1, uint32_t idx2) {
+  const uint32_t* dads = kpp->dads;
+  const uint32_t* moms = kpp->moms;
+  if (idx1 == idx2) {
+    const uint32_t dad_idx = dads[idx1];
+    const uint32_t mom_idx = moms[idx1];
+    if ((dad_idx == UINT32_MAX) || (mom_idx == UINT32_MAX)) {
+      return 0.5;
+    }
+    return 0.5 * (1.0 + PedigreeKinship(kpp, dad_idx, mom_idx));
+  }
+  if (kpp->depths[idx1] < kpp->depths[idx2]) {
+    const uint32_t tmp_idx = idx1;
+    idx1 = idx2;
+    idx2 = tmp_idx;
+  }
+  const uint32_t dad_idx = dads[idx1];
+  const uint32_t mom_idx = moms[idx1];
+  double result = 0.0;
+  if (dad_idx != UINT32_MAX) {
+    result = PedigreeKinship(kpp, dad_idx, idx2);
+  }
+  if (mom_idx != UINT32_MAX) {
+    result += PedigreeKinship(kpp, mom_idx, idx2);
+  }
+  return 0.5 * result;
+}
+
+static uint32_t PedigreeIsGrandparent(const KingPedigree* kpp, uint32_t child_idx, uint32_t gp_idx) {
+  const uint32_t dad_idx = kpp->dads[child_idx];
+  const uint32_t mom_idx = kpp->moms[child_idx];
+  if ((dad_idx != UINT32_MAX) && ((kpp->dads[dad_idx] == gp_idx) || (kpp->moms[dad_idx] == gp_idx))) {
+    return 1;
+  }
+  return (mom_idx != UINT32_MAX) && ((kpp->dads[mom_idx] == gp_idx) || (kpp->moms[mom_idx] == gp_idx));
+}
+
+static uint32_t PedigreeAreFullSibs(const KingPedigree* kpp, uint32_t idx1, uint32_t idx2) {
+  const uint32_t dad1 = kpp->dads[idx1];
+  const uint32_t mom1 = kpp->moms[idx1];
+  if ((dad1 == UINT32_MAX) || (mom1 == UINT32_MAX)) {
+    return 0;
+  }
+  return (dad1 == kpp->dads[idx2]) && (mom1 == kpp->moms[idx2]);
+}
+
+// idx2 is avuncular to idx1 when it is a full sibling of one of idx1's
+// parents.  Half-siblings of a parent land in the same expected-kinship bin as
+// several other configurations, so they are left to the generic label.
+static uint32_t PedigreeIsAvuncular(const KingPedigree* kpp, uint32_t idx1, uint32_t idx2) {
+  const uint32_t dad_idx = kpp->dads[idx1];
+  const uint32_t mom_idx = kpp->moms[idx1];
+  if ((dad_idx != UINT32_MAX) && (dad_idx != idx2) && PedigreeAreFullSibs(kpp, dad_idx, idx2)) {
+    return 1;
+  }
+  return (mom_idx != UINT32_MAX) && (mom_idx != idx2) && PedigreeAreFullSibs(kpp, mom_idx, idx2);
+}
+
+// Only the relationships a .psam can actually name are labelled.  Anything
+// else with a nonzero expected kinship is 'REL', since guessing between the
+// several configurations that share an expected kinship coefficient would be
+// reporting more than the pedigree knows.
+static const char* PedigreeRelationshipType(const KingPedigree* kpp, uint32_t idx1, uint32_t idx2, double ekin) {
+  if (ekin == 0.0) {
+    return "UN";
+  }
+  if ((kpp->dads[idx1] == idx2) || (kpp->moms[idx1] == idx2) ||
+      (kpp->dads[idx2] == idx1) || (kpp->moms[idx2] == idx1)) {
+    return "PO";
+  }
+  if (PedigreeAreFullSibs(kpp, idx1, idx2)) {
+    return "FS";
+  }
+  const uint32_t dad1 = kpp->dads[idx1];
+  const uint32_t mom1 = kpp->moms[idx1];
+  if (((dad1 != UINT32_MAX) && (dad1 == kpp->dads[idx2])) ||
+      ((mom1 != UINT32_MAX) && (mom1 == kpp->moms[idx2]))) {
+    return "HS";
+  }
+  if (PedigreeIsGrandparent(kpp, idx1, idx2) || PedigreeIsGrandparent(kpp, idx2, idx1)) {
+    return "GG";
+  }
+  if (PedigreeIsAvuncular(kpp, idx1, idx2) || PedigreeIsAvuncular(kpp, idx2, idx1)) {
+    return "AV";
+  }
+  return "REL";
+}
+
+// Pedigree depth, defined as 0 for a founder and 1 + max(parents') otherwise.
+// PedigreeKinship() expands the deeper of its two arguments, which is what
+// makes that recursion terminate.
+//
+// A .psam can name a sample as its own ancestor.  Rather than reject the whole
+// run over a malformed pedigree, such a sample is demoted to a founder here,
+// which keeps the cycle out of the kinship recursion; the caller warns.
+static uint32_t KingPedigreeDepth(KingPedigree* kpp, uint32_t idx, unsigned char* states, uint32_t* cycle_ct_ptr) {
+  if (states[idx] == 2) {
+    return kpp->depths[idx];
+  }
+  if (states[idx] == 1) {
+    kpp->dads[idx] = UINT32_MAX;
+    kpp->moms[idx] = UINT32_MAX;
+    kpp->depths[idx] = 0;
+    states[idx] = 2;
+    *cycle_ct_ptr += 1;
+    return 0;
+  }
+  states[idx] = 1;
+  uint32_t cur_depth = 0;
+  const uint32_t dad_idx = kpp->dads[idx];
+  if (dad_idx != UINT32_MAX) {
+    cur_depth = 1 + KingPedigreeDepth(kpp, dad_idx, states, cycle_ct_ptr);
+  }
+  const uint32_t mom_idx = kpp->moms[idx];
+  if (mom_idx != UINT32_MAX) {
+    const uint32_t mom_depth = 1 + KingPedigreeDepth(kpp, mom_idx, states, cycle_ct_ptr);
+    if (mom_depth > cur_depth) {
+      cur_depth = mom_depth;
+    }
+  }
+  // The in-progress branch above may have cleared this sample's own parents.
+  if (states[idx] == 2) {
+    return kpp->depths[idx];
+  }
+  kpp->depths[idx] = cur_depth;
+  states[idx] = 2;
+  return cur_depth;
+}
+
+// Resolves each included sample's paternal and maternal IDs to collapsed
+// sample_idxs.  Deliberately does not go through GetTriosAndFamilies(): that
+// one applies trio/duo semantics and can narrow the sample set, neither of
+// which belongs in a report that has a row for every pair.
+BoolErr KingPedigreeAlloc(uint32_t sample_ct, KingPedigree* kpp) {
+  return (bigstack_alloc_u32(sample_ct, &(kpp->dads)) ||
+          bigstack_alloc_u32(sample_ct, &(kpp->moms)) ||
+          bigstack_alloc_u32(sample_ct, &(kpp->depths)));
+}
+
+// Fills an already-allocated KingPedigree for the given sample subset.  The
+// subsetted --make-king-table path calls this once per pass, since its
+// collapsed sample_idxs are relative to that pass's sample set.
+static PglErr KingPedigreeFill(const uintptr_t* sample_include, const uintptr_t* founder_info, const PedigreeIdInfo* piip, uint32_t raw_sample_ct, uint32_t sample_ct, KingPedigree* kpp) {
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  PglErr reterr = kPglRetSuccess;
+  {
+    SetAllU32Arr(sample_ct, kpp->dads);
+    SetAllU32Arr(sample_ct, kpp->moms);
+    ZeroU32Arr(sample_ct, kpp->depths);
+
+    const char* sample_ids = piip->sii.sample_ids;
+    const char* paternal_ids = piip->parental_id_info.paternal_ids;
+    const char* maternal_ids = piip->parental_id_info.maternal_ids;
+    const uintptr_t max_sample_id_blen = piip->sii.max_sample_id_blen;
+    const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
+    const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    const uint32_t sample_id_htable_size = GetHtableFastSize(sample_ct);
+    uint32_t* sample_id_htable;
+    uint32_t* sample_include_cumulative_popcounts;
+    unsigned char* states;
+    char* idbuf;
+    if (unlikely(bigstack_end_alloc_u32(sample_id_htable_size, &sample_id_htable) ||
+                 bigstack_end_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 bigstack_end_alloc_uc(sample_ct, &states) ||
+                 bigstack_end_alloc_c(max_sample_id_blen, &idbuf))) {
+      goto KingPedigreeFill_ret_NOMEM;
+    }
+    const uint32_t dup_sample_uidx = PopulateStrboxSubsetHtable(sample_ids, sample_include, sample_ct, max_sample_id_blen, 0, sample_id_htable_size, sample_id_htable);
+    if (unlikely(dup_sample_uidx)) {
+      char* write_iter = strcpya_k(g_logbuf, "Error: Duplicate FID+IID \"");
+      const char* dup_sample_id = &(sample_ids[dup_sample_uidx * max_sample_id_blen]);
+      const char* fid_end = AdvToDelim(dup_sample_id, '\t');
+      write_iter = memcpyax(write_iter, dup_sample_id, fid_end - dup_sample_id, ' ');
+      write_iter = strcpya(write_iter, &(fid_end[1]));
+      strcpy_k(write_iter, "\"; --make-king-table's 'rt' and 'ekin' columns need parental IDs to resolve to single samples. (--select-sid-representatives may be useful.)\n");
+      goto KingPedigreeFill_ret_INCONSISTENT_INPUT_WW;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+      if (IsSet(founder_info, sample_uidx)) {
+        continue;
+      }
+      const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
+      const char* iid_start = AdvPastDelim(cur_sample_id, '\t');
+      const uintptr_t fid_blen = iid_start - cur_sample_id;
+      memcpy(idbuf, cur_sample_id, fid_blen);
+      const char* dad_iid = &(paternal_ids[sample_uidx * max_paternal_id_blen]);
+      uintptr_t iid_slen = strlen(dad_iid);
+      if (fid_blen + iid_slen < max_sample_id_blen) {
+        memcpy(&(idbuf[fid_blen]), dad_iid, iid_slen + 1);
+        const uint32_t dad_uidx = StrboxHtableFind(idbuf, sample_ids, sample_id_htable, max_sample_id_blen, fid_blen + iid_slen, sample_id_htable_size);
+        if (dad_uidx != UINT32_MAX) {
+          kpp->dads[sample_idx] = RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, dad_uidx);
+        }
+      }
+      const char* mom_iid = &(maternal_ids[sample_uidx * max_maternal_id_blen]);
+      iid_slen = strlen(mom_iid);
+      if (fid_blen + iid_slen < max_sample_id_blen) {
+        memcpy(&(idbuf[fid_blen]), mom_iid, iid_slen + 1);
+        const uint32_t mom_uidx = StrboxHtableFind(idbuf, sample_ids, sample_id_htable, max_sample_id_blen, fid_blen + iid_slen, sample_id_htable_size);
+        if (mom_uidx != UINT32_MAX) {
+          kpp->moms[sample_idx] = RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, mom_uidx);
+        }
+      }
+    }
+
+    memset(states, 0, sample_ct);
+    uint32_t cycle_ct = 0;
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      KingPedigreeDepth(kpp, sample_idx, states, &cycle_ct);
+    }
+    if (cycle_ct) {
+      logerrprintfww("Warning: %u sample%s named as their own ancestor in the pedigree; treating them as founders for --make-king-table's 'rt' and 'ekin' columns.\n", cycle_ct, (cycle_ct == 1)? " is" : "s are");
+    }
+  }
+  while (0) {
+  KingPedigreeFill_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  KingPedigreeFill_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+  BigstackEndReset(bigstack_end_mark);
+  return reterr;
+}
+
+PglErr CalcKing(const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* variant_include_orig, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -1845,13 +2114,23 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         goto CalcKing_ret_1;
       }
 
-      king_col_fid = FidColIsRequired(siip, king_flags / kfKingColMaybefid);
-      king_col_sid = SidColIsRequired(siip->sids, king_flags / kfKingColMaybesid);
+      king_col_fid = FidColIsRequired((&(piip->sii)), king_flags / kfKingColMaybefid);
+      king_col_sid = SidColIsRequired(piip->sii.sids, king_flags / kfKingColMaybesid);
       if (!parallel_idx) {
         cswritetp = AppendKingTableHeader(king_flags, king_col_fid, king_col_sid, cswritetp);
       }
-      if (unlikely(CollapsedSampleFmtidInitAlloc(sample_include, siip, grand_row_end_idx, king_col_fid, king_col_sid, &collapsed_sample_fmtids, &max_sample_fmtid_blen))) {
+      if (unlikely(CollapsedSampleFmtidInitAlloc(sample_include, (&(piip->sii)), grand_row_end_idx, king_col_fid, king_col_sid, &collapsed_sample_fmtids, &max_sample_fmtid_blen))) {
         goto CalcKing_ret_NOMEM;
+      }
+    }
+    KingPedigree king_pedigree;
+    if (king_flags & (kfKingColRt | kfKingColEkin)) {
+      if (unlikely(KingPedigreeAlloc(sample_ct, &king_pedigree))) {
+        goto CalcKing_ret_NOMEM;
+      }
+      reterr = KingPedigreeFill(sample_include, founder_info, piip, raw_sample_ct, sample_ct, &king_pedigree);
+      if (unlikely(reterr)) {
+        goto CalcKing_ret_1;
       }
     }
     uint64_t king_table_filter_ct = 0;
@@ -2278,6 +2557,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
           const uint32_t king_col_ibs1 = king_flags & kfKingColIbs1;
           const uint32_t king_col_hamming = king_flags & kfKingColHamming;
           const uint32_t king_col_kinship = king_flags & kfKingColKinship;
+          const uint32_t king_col_rt = king_flags & kfKingColRt;
+          const uint32_t king_col_ekin = king_flags & kfKingColEkin;
           const uint32_t report_counts = king_flags & kfKingCounts;
           uint32_t* results_iter = dense_ctx.king_counts;
           double nonmiss_recip = 0.0;
@@ -2359,7 +2640,18 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
               }
               if (king_col_kinship) {
                 cswritetp = dtoa_g(kinship_coeff, cswritetp);
-                ++cswritetp;
+                *cswritetp++ = '\t';
+              }
+              if (king_col_rt || king_col_ekin) {
+                const double expected_kinship = PedigreeKinship(&king_pedigree, sample_idx1, sample_idx2);
+                if (king_col_rt) {
+                  cswritetp = strcpya(cswritetp, PedigreeRelationshipType(&king_pedigree, sample_idx1, sample_idx2, expected_kinship));
+                  *cswritetp++ = '\t';
+                }
+                if (king_col_ekin) {
+                  cswritetp = dtoa_g(expected_kinship, cswritetp);
+                  *cswritetp++ = '\t';
+                }
               }
               DecrAppendBinaryEoln(&cswritetp);
               if (unlikely(Cswrite(&csst, &cswritetp))) {
@@ -2416,7 +2708,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       strcpy_k(write_iter, " .\n");
       WordWrapB(0);
       logputsb();
-      reterr = WriteSampleIds(sample_include, siip, outname, sample_ct);
+      reterr = WriteSampleIds(sample_include, (&(piip->sii)), outname, sample_ct);
       if (unlikely(reterr)) {
         goto CalcKing_ret_1;
       }
@@ -2436,7 +2728,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         strcpy_k(write_iter, " .\n");
         WordWrapB(0);
         logputsb();
-        reterr = WriteSampleIds(sample_include, siip, outname, sample_ct);
+        reterr = WriteSampleIds(sample_include, (&(piip->sii)), outname, sample_ct);
         if (unlikely(reterr)) {
           goto CalcKing_ret_1;
         }
@@ -3221,7 +3513,7 @@ void GetRelCheckOrKTRequirePairs(const char* nsorted_xidbox, const uint32_t* xid
   fpip->idx2 = idx2;
 }
 
-PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, RelConcordanceCheckMode rel_or_concordance_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, RelConcordanceCheckMode rel_or_concordance_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   // subset_fname permitted to be nullptr when rel_or_concordance_check is
   // nonzero.
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -3249,7 +3541,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     const uint32_t require_xor = (king_flags / kfKingTableRequireXor) & 1;
     if (require_fnames) {
       uintptr_t* sample_require_tmp;
-      reterr = LoadSampleIds(require_fnames, orig_sample_include, siip, "make-king-table", raw_sample_ct, orig_sample_ct, kfLoadSampleIdsMultifile, &sample_require_tmp, nullptr);
+      reterr = LoadSampleIds(require_fnames, orig_sample_include, (&(piip->sii)), "make-king-table", raw_sample_ct, orig_sample_ct, kfLoadSampleIdsMultifile, &sample_require_tmp, nullptr);
       if (unlikely(reterr)) {
         goto CalcKingTableSubset_ret_1;
       }
@@ -3339,12 +3631,19 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
     }
-    const uint32_t king_col_fid = FidColIsRequired(siip, king_flags / kfKingColMaybefid);
-    const uint32_t king_col_sid = SidColIsRequired(siip->sids, king_flags / kfKingColMaybesid);
+    const uint32_t king_col_fid = FidColIsRequired((&(piip->sii)), king_flags / kfKingColMaybefid);
+    const uint32_t king_col_sid = SidColIsRequired(piip->sii.sids, king_flags / kfKingColMaybesid);
     if (!parallel_idx) {
       cswritep = AppendKingTableHeader(king_flags, king_col_fid, king_col_sid, cswritep);
     }
-    const uintptr_t max_sample_fmtid_blen = GetMaxSampleFmtidBlen(siip, king_col_fid, king_col_sid);
+    const uintptr_t max_sample_fmtid_blen = GetMaxSampleFmtidBlen((&(piip->sii)), king_col_fid, king_col_sid);
+    KingPedigree king_pedigree;
+    const uint32_t king_pedigree_needed = ((king_flags & (kfKingColRt | kfKingColEkin)) != kfKing0);
+    if (king_pedigree_needed) {
+      if (unlikely(KingPedigreeAlloc(orig_sample_ct, &king_pedigree))) {
+        goto CalcKingTableSubset_ret_NOMEM;
+      }
+    }
     char* collapsed_sample_fmtids;
     if (unlikely(bigstack_alloc_c(max_sample_fmtid_blen * orig_sample_ct, &collapsed_sample_fmtids))) {
       goto CalcKingTableSubset_ret_NOMEM;
@@ -3367,7 +3666,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     uint32_t kinship_skip = 0;
     // we overwrite this in subset_fname case, so no need to check for
     // --strict-sid0
-    XidMode xid_mode = siip->sids? kfXidModeFidIidSid : kfXidModeIidSid;
+    XidMode xid_mode = piip->sii.sids? kfXidModeFidIidSid : kfXidModeIidSid;
     if (subset_fname) {
       reterr = InitTextStream(subset_fname, kTextStreamBlenFast, 1, &txs);
       if (unlikely(reterr)) {
@@ -3410,7 +3709,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       token_end = CurTokenEnd(linebuf_iter);
       token_slen = token_end - linebuf_iter;
       if (strequal_k(linebuf_iter, "SID1", token_slen)) {
-        if (siip->sids) {
+        if (piip->sii.sids) {
           xid_mode = fid_present? kfXidModeFidIidSid : kfXidModeIidSid;
         } else {
           xid_mode |= kfXidModeFlagSkipSid;
@@ -3460,7 +3759,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     char* sorted_xidbox;
     uintptr_t max_xid_blen;
     // may as well use natural-sort order in rel-check-only case
-    reterr = SortedXidboxInitAlloc(orig_sample_include, siip, orig_sample_ct, xid_mode, (!subset_fname), &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = SortedXidboxInitAlloc(orig_sample_include, (&(piip->sii)), orig_sample_ct, xid_mode, (!subset_fname), &sorted_xidbox, &xid_map, &max_xid_blen);
     if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
     }
@@ -3574,7 +3873,13 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         }
       }
       ZeroU32Arr(cur_pair_ct * homhom_needed_p4, ctx.king_counts);
-      CollapsedSampleFmtidInit(cur_sample_include, siip, cur_sample_ct, king_col_fid, king_col_sid, max_sample_fmtid_blen, collapsed_sample_fmtids);
+      CollapsedSampleFmtidInit(cur_sample_include, (&(piip->sii)), cur_sample_ct, king_col_fid, king_col_sid, max_sample_fmtid_blen, collapsed_sample_fmtids);
+      if (king_pedigree_needed) {
+        reterr = KingPedigreeFill(cur_sample_include, founder_info, piip, raw_sample_ct, cur_sample_ct, &king_pedigree);
+        if (unlikely(reterr)) {
+          goto CalcKingTableSubset_ret_1;
+        }
+      }
       for (uint32_t tidx = 0; tidx <= calc_thread_ct; ++tidx) {
         ctx.thread_start[tidx] = (tidx * S_CAST(uint64_t, cur_pair_ct)) / calc_thread_ct;
       }
@@ -3694,6 +3999,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       const uint32_t king_col_ibs1 = king_flags & kfKingColIbs1;
       const uint32_t king_col_hamming = king_flags & kfKingColHamming;
       const uint32_t king_col_kinship = king_flags & kfKingColKinship;
+      const uint32_t king_col_rt = king_flags & kfKingColRt;
+      const uint32_t king_col_ekin = king_flags & kfKingColEkin;
       const uint32_t report_counts = king_flags & kfKingCounts;
       uint32_t* results_iter = ctx.king_counts;
       double nonmiss_recip = 0.0;
@@ -3762,7 +4069,18 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         }
         if (king_col_kinship) {
           cswritep = dtoa_g(kinship_coeff, cswritep);
-          ++cswritep;
+          *cswritep++ = '\t';
+        }
+        if (king_col_rt || king_col_ekin) {
+          const double expected_kinship = PedigreeKinship(&king_pedigree, sample_idx1, sample_idx2);
+          if (king_col_rt) {
+            cswritep = strcpya(cswritep, PedigreeRelationshipType(&king_pedigree, sample_idx1, sample_idx2, expected_kinship));
+            *cswritep++ = '\t';
+          }
+          if (king_col_ekin) {
+            cswritep = dtoa_g(expected_kinship, cswritep);
+            *cswritep++ = '\t';
+          }
         }
         DecrAppendBinaryEoln(&cswritep);
         if (unlikely(Cswrite(&css, &cswritep))) {
