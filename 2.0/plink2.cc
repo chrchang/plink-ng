@@ -3099,7 +3099,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Twolocus) {
-        reterr = TwolocusReport(sample_include, variant_include, variant_ids, allele_idx_offsets, allele_storage, pcp->twolocus_info.mkr1, pcp->twolocus_info.mkr2, raw_sample_ct, sample_ct, variant_ct, max_allele_slen, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = TwolocusReport(sample_include, variant_include, variant_ids, allele_idx_offsets, allele_storage, pheno_cols, pheno_names, &(pcp->twolocus_info), raw_sample_ct, sample_ct, variant_ct, pheno_ct, max_pheno_name_blen, max_allele_slen, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -12862,7 +12862,7 @@ int main(int argc, char** argv) {
         if (strequal_k_unsafe(flagname_p2, "wolocus")) {
           // The report has one row per joint genotype cell, so it is small
           // enough that compressing it is not worth a modifier.
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, 1, kMaxIdSlen, &pc.twolocus_info.mkr1);
@@ -12872,6 +12872,12 @@ int main(int argc, char** argv) {
           reterr = AllocAndFlatten(&(argvk[arg_idx + 2]), flagname_p, 1, kMaxIdSlen, &pc.twolocus_info.mkr2);
           if (unlikely(reterr)) {
             goto main_ret_1;
+          }
+          if (param_ct == 3) {
+            reterr = CmdlineAllocString(argvk[arg_idx + 3], argvk[arg_idx], kMaxIdSlen, &pc.twolocus_info.pheno_name);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
           }
           pc.command_flags1 |= kfCommand1Twolocus;
           pc.dependency_flags |= kfFilterAllReq;
