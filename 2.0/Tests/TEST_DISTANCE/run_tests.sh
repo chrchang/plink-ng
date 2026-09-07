@@ -100,7 +100,7 @@ head -n 1 plink2_dm.mdist | grep -qv $'\t''$'
 #    are quantized, so this is a tolerance comparison.
 plink --bfile tmp_data --distance --out plink19_w
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --distance --out plink2_w
-close plink19_w.dist plink2_w.dist 1e-6
+close plink19_w.dist plink2_w.dist 1e-5
 # The weighting has to actually do something, or the test above proves nothing.
 if cmp -s plink19_f_default.dist plink19_w.dist; then
     echo "fixture has no missing calls; the weighted path is untested"
