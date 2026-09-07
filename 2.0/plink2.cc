@@ -159,7 +159,9 @@ FLAGSET_DEF_START()
   kfXloadTped = (1 << 11),
   kfXloadEigGeno = (1 << 12),
   kfXloadEigInd = (1 << 13),
-  kfXloadEigSnp = (1 << 14)
+  kfXloadEigSnp = (1 << 14),
+  kfXload23file = (1 << 15),
+  kfXloadMgf = (1 << 16)
 FLAGSET_DEF_END(Xload);
 
 
@@ -228,6 +230,8 @@ ENUM_U31_DEF_START()
   kCmd1BitMendelReport,
   kCmd1BitLdScore,
   kCmd1BitFlipScan,
+  kCmd1BitHomozyg,
+  kCmd1BitShowTags,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -267,7 +271,9 @@ FLAGSET64_DEF_START()
   kfCommand1CheckOrImputeSex = (1LLU << kCmd1BitCheckOrImputeSex),
   kfCommand1MendelReport = (1LLU << kCmd1BitMendelReport),
   kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
-  kfCommand1FlipScan = (1LLU << kCmd1BitFlipScan)
+  kfCommand1FlipScan = (1LLU << kCmd1BitFlipScan),
+  kfCommand1Homozyg = (1LLU << kCmd1BitHomozyg),
+  kfCommand1ShowTags = (1LLU << kCmd1BitShowTags)
 FLAGSET64_DEF_END(Command1Flags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenExtensionLl* header_exts, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
@@ -441,6 +447,7 @@ typedef struct Plink2CmdlineStruct {
   GenoCountsFlags geno_counts_flags;
   HardyFlags hardy_flags;
   HetFlags het_flags;
+  HomozygInfo homozyg_info;
   SampleCountsFlags sample_counts_flags;
   RecoverVarIdsFlags recover_var_ids_flags;
   VscoreFlags vscore_flags;
@@ -464,6 +471,7 @@ typedef struct Plink2CmdlineStruct {
   GwasSsfInfo gwas_ssf_info;
   ClumpInfo clump_info;
   VcorInfo vcor_info;
+  TagInfo tag_info;
   LdScoreInfo ld_score_info;
   PhenoSvdInfo pheno_svd_info;
   CheckSexInfo check_sex_info;
@@ -593,13 +601,14 @@ typedef struct Plink2CmdlineStruct {
   char* cm_map_fname;
   char* cm_map_chrname;
   TwoColParams* update_cm_flag;
+  TwentythreeInfo twenty_three_info;
   TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
 } Plink2Cmdline;
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1ShowTags)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -619,7 +628,7 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags 
 // variants are retained, but let's keep this simpler for now
 uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags, VcorFlags vcor_flags) {
   // Keep this in sync with --error-on-freq-calc.
-  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore | kfCommand1FlipScan)) ||
+  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1ShowTags)) ||
     ((command_flags1 & kfCommand1Pca) && (pca_flags & kfPcaBiallelicVarWts)) ||
     ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef))) ||
     ((command_flags1 & kfCommand1Vcor) && ((!(vcor_flags & kfVcorRefBased)) || (vcor_flags & (kfVcorColMaj | kfVcorColNonmaj))));
@@ -629,6 +638,10 @@ uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, G
 // MajAllelesAreNeeded()
 uint32_t IndecentAlleleFreqsAreNeeded(Command1Flags command_flags1, VcorFlags vcor_flags, double min_maf, double max_maf) {
   // Keep this in sync with --error-on-freq-calc.
+  if (command_flags1 & kfCommand1Homozyg) {
+    // --homozyg-min-af applies a frequency floor of its own.
+    return 1;
+  }
   // Vscore could go either here or in the decent bucket
   return (command_flags1 & kfCommand1Vscore) ||
     ((command_flags1 & kfCommand1Vcor) && (vcor_flags & kfVcorColFreq)) ||
@@ -3038,6 +3051,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1ShowTags) {
+        if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
+          logerrputs("Error: --show-tags requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          return kPglRetInconsistentInput;
+        }
+        reterr = ShowTags(variant_include, cip, variant_bps, variant_ids, maj_alleles, founder_info, pcp->tag_info.tag_fname, pcp->tag_info.list_all, pcp->tag_info.bp_radius, pcp->tag_info.r2_thresh, raw_variant_ct, raw_sample_ct, founder_ct, max_variant_id_slen, pcp->tag_info.output_zst, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1Vcor) {
         if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
           logerrputs("Error: --r[2]-[un]phased runs require a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -3074,6 +3098,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       if (pcp->command_flags1 & kfCommand1Het) {
         reterr = HetReport(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, founder_info, raw_sample_ct, sample_ct, founder_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->het_flags, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
+      if (pcp->command_flags1 & kfCommand1Homozyg) {
+        reterr = HomozygReport(sample_include, &pii.sii, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_ct, &(pcp->homozyg_info), pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3403,9 +3434,13 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         } else if (strequal_k(cur_modif2, "cf-4.2", cur_modif2_slen)) {
           cur_format = kfExportfBcf42;
         } else if (strequal_k(cur_modif2, "eagle", cur_modif2_slen)) {
-          cur_format = kfExportfBeagle;
-        } else if (strequal_k(cur_modif2, "eagle-nomap", cur_modif2_slen)) {
-          cur_format = kfExportfBeagleNomap;
+          cur_format = kfExportfBeagleRetired;
+        } else if (strequal_k(cur_modif2, "eagle-nomap", cur_modif2_slen) ||
+                   strequal_k(cur_modif2, "eagle-unphased", cur_modif2_slen)) {
+          // 'beagle-nomap' is the old spelling of the unphased single-file form.
+          cur_format = kfExportfBeagleUnphased;
+        } else if (strequal_k(cur_modif2, "eagle-phased", cur_modif2_slen)) {
+          cur_format = kfExportfBeaglePhased;
         } else if (strequal_k(cur_modif2, "gen-1.1", cur_modif2_slen) ||
                    strequal_k(cur_modif2, "gen_1.1", cur_modif2_slen)) {
           cur_format = kfExportfBgen11;
@@ -3415,10 +3450,8 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         } else if (strequal_k(cur_modif2, "gen-1.3", cur_modif2_slen) ||
                    strequal_k(cur_modif2, "gen_1.3", cur_modif2_slen)) {
           cur_format = kfExportfBgen13;
-        } else if (strequal_k(cur_modif2, "imbam", cur_modif2_slen)) {
-          cur_format = kfExportfBimbam;
-        } else if (strequal_k(cur_modif2, "imbam-1chr", cur_modif2_slen)) {
-          cur_format = kfExportfBimbam1chr;
+        } else if ((!strcmp(cur_modif2, "imbam")) || (!strcmp(cur_modif2, "imbam-1chr"))) {
+          cur_format = kfExportfBimbamRetired;
         }
         break;
       }
@@ -3476,6 +3509,11 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         }
         break;
       }
+    case 'm':
+      if (!strcmp(cur_modif2, "gf")) {
+        cur_format = kfExportfMgf;
+      }
+      break;
     case 'o':
       if (!strcmp(cur_modif2, "xford")) {
         cur_format = kfExportfOxGenV1;
@@ -3633,20 +3671,20 @@ static const Plink1FlagHint kPlink1FlagHints[] = {
   {"q-score-file", "use --q-score-range instead"},
   {"qq-plot", "use \"--adjust cols=+qq\" instead"},
   {"recessive", "use the --glm 'recessive' modifier instead"},
-  {"recode-beagle", "plink2 has no BEAGLE output yet"},
-  {"recode-bimbam", "plink2 has no BIMBAM output yet"},
-  {"recode-fastphase", "plink2 has no fastPHASE output yet"},
-  {"recode-lgen", "plink2 has no .lgen output yet"},
-  {"recode-rlist", "plink2 has no rlist output yet"},
-  {"recode-structure", "plink2 has no STRUCTURE output yet"},
+  {"recode-beagle", "no precise plink2 equivalent, but \"--export beagle-unphased\" and/or \"--export beagle-phased\" may do what you want"},
+  {"recode-bimbam", "no precise plink2 equivalent, but \"--export mgf\" may do what you want"},
+  {"recode-fastphase", "use \"--export fastphase\" or \"--export fastphase-1chr\" instead"},
+  {"recode-lgen", "use \"--export lgen\" or \"--export lgen-ref\" instead"},
+  {"recode-rlist", "use \"--export rlist\" instead"},
+  {"recode-structure", "use \"--export structure\" instead"},
   {"recode-vcf", "use \"--export vcf\" instead"},
   {"recode12", "use \"--export ped 12\" instead"},
   {"recodeA", "use \"--export A\" instead"},
   {"recodeAD", "use \"--export AD\" instead"},
-  {"recodeHV", "plink2 has no Haploview output yet"},
+  {"recodeHV", "use \"--export HV\" or \"--export HV-1chr\" instead"},
   {"recodea", "use \"--export A\" instead"},
   {"recodead", "use \"--export AD\" instead"},
-  {"recodehv", "plink2 has no Haploview output yet"},
+  {"recodehv", "use \"--export HV\" or \"--export HV-1chr\" instead"},
   {"reference-allele", "use --alt1-allele instead; PLINK 1.x's --reference-allele set A1, which corresponds to ALT1 here, not REF"},
   {"score-no-mean-imputation", "use the --score 'no-mean-imputation' modifier instead"},
   {"set-missing-nonsnp-ids", "use --set-missing-var-ids instead"},
@@ -3739,6 +3777,7 @@ int main(int argc, char** argv) {
   char* king_cutoff_fprefix = nullptr;
   char* const_fid = nullptr;
   char* import_single_chr_str = nullptr;
+  char* mgf_pheno_fname = nullptr;
   char* ox_missing_code = nullptr;
   char* vcf_dosage_import_field = nullptr;
   uint32_t* rseeds = nullptr;
@@ -3807,6 +3846,7 @@ int main(int argc, char** argv) {
   pc.cm_map_fname = nullptr;
   pc.cm_map_chrname = nullptr;
   pc.update_cm_flag = nullptr;
+  InitTwentythree(&pc.twenty_three_info);
   pc.update_map_flag = nullptr;
   pc.update_name_flag = nullptr;
   pc.update_sample_ids_fname = nullptr;
@@ -3843,6 +3883,7 @@ int main(int argc, char** argv) {
   InitGwasSsf(&pc.gwas_ssf_info);
   InitClump(&pc.clump_info);
   InitVcor(&pc.vcor_info);
+  InitTag(&pc.tag_info);
   InitLdScore(&pc.ld_score_info);
   InitPhenoSvd(&pc.pheno_svd_info);
   InitCheckSex(&pc.check_sex_info);
@@ -4179,6 +4220,7 @@ int main(int argc, char** argv) {
     pc.geno_counts_flags = kfGenoCounts0;
     pc.hardy_flags = kfHardy0;
     pc.het_flags = kfHet0;
+    InitHomozyg(&pc.homozyg_info);
     pc.sample_counts_flags = kfSampleCounts0;
     pc.recover_var_ids_flags = kfRecoverVarIds0;
     pc.vscore_flags = kfVscore0;
@@ -4296,6 +4338,83 @@ int main(int argc, char** argv) {
         if (likely(*flagname_p2 == '\0')) {
           pc.misc_flags |= kfMiscAffection01;
           goto main_param_zero;
+        } else {
+          goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
+        }
+        break;
+
+      case '2':
+        if (likely(strequal_k_unsafe(flagname_p2, "3file"))) {
+          if (unlikely(load_params || xload)) {
+            goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 7))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.twenty_three_info.fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          // Remaining parameters are positional: FID, IID, sex, phenotype,
+          // paternal ID, maternal ID.
+          if (param_ct > 1) {
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 2]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.fid);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          if (param_ct > 2) {
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 3]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.iid);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          if (param_ct > 3) {
+            const char* cur_modif = argvk[arg_idx + 4];
+            if (unlikely(strlen(cur_modif) != 1)) {
+              goto main_ret_23FILE_INVALID_SEX;
+            }
+            const char cc = cur_modif[0];
+            if ((cc == 'M') || (cc == 'm') || (cc == '1')) {
+              pc.twenty_three_info.sex_mode = kTwentythreeSexMale;
+            } else if ((cc == 'F') || (cc == 'f') || (cc == '2')) {
+              pc.twenty_three_info.sex_mode = kTwentythreeSexFemale;
+            } else if (cc == '0') {
+              pc.twenty_three_info.sex_mode = kTwentythreeSexMissing;
+            } else if (unlikely((cc != 'I') && (cc != 'i'))) {
+              goto main_ret_23FILE_INVALID_SEX;
+            }
+          }
+          if (param_ct > 4) {
+            // The .psam PHENO1 column accepts categorical values as well as
+            // numbers, so anything IsCategoricalPhenostrNocsv() accepts is
+            // passed through unchanged.
+            const char* pheno_str = argvk[arg_idx + 5];
+            if (!IsCategoricalPhenostrNocsv(pheno_str)) {
+              double dxx;
+              if (unlikely(!ScantokDouble(pheno_str, &dxx))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --23file phenotype '%s'.\n", pheno_str);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            }
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 5]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.pheno);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          if (param_ct > 5) {
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 6]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.paternal_id);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          if (param_ct > 6) {
+            reterr = AllocAndFlatten(&(argvk[arg_idx + 7]), flagname_p, 1, kMaxIdSlen, &pc.twenty_three_info.maternal_id);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          xload |= kfXload23file;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -5909,6 +6028,16 @@ int main(int argc, char** argv) {
             logerrputs("Error: --export requires at least one output format.  (Did you forget 'ped' or\n'vcf'?)\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          // Reject an unimplemented format here rather than after the whole
+          // dataset has been loaded and filtered.
+          if (unlikely(pc.exportf_info.flags & kfExportfBeagleRetired)) {
+            logerrputs("Error: \"--export beagle\" wrote one fileset per chromosome, which is retired.\nUse \"--export beagle-unphased\" for the single-file unphased form, or\n\"--export beagle-phased\" when every genotype is phased.  PLINK 1.9 still\nwrites the chromosome-split form if you need it.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(pc.exportf_info.flags & kfExportfBimbamRetired)) {
+            logerrputs("Error: \"--export bimbam\" and \"--export bimbam-1chr\" have been replaced by\n\"--export mgf\", which writes BIMBAM's mean genotype format: dosages rather\nthan rounded genotypes, in a .mgf file alongside .pos.txt and, when a numeric\nphenotype is loaded, .pheno.txt.  Contact us if you need the original BIMBAM\ngenotype file; PLINK 1.9 still writes it.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           // can't have e.g. bgen-1.1 and bgen-1.2 simultaneously, since they
           // have the same extension and different content.
           const uint64_t bgen_flags = S_CAST(uint64_t, pc.exportf_info.flags & (kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13));
@@ -6070,8 +6199,8 @@ int main(int argc, char** argv) {
                 pc.exportf_info.flags |= kfExportf12;
               }
             } else if (strequal_k(cur_modif, "bgz", cur_modif_slen)) {
-              if (unlikely(!(pc.exportf_info.flags & (kfExportfHaps | kfExportfHapsLegend | kfExportfOxGen | kfExportfVcf)))) {
-                logerrputs("Error: The 'bgz' modifier only applies to --export's haps[legend], oxford, and\nvcf output formats.\n");
+              if (unlikely(!(pc.exportf_info.flags & (kfExportfHaps | kfExportfHapsLegend | kfExportfOxGen | kfExportfVcf | kfExportfMgf)))) {
+                logerrputs("Error: The 'bgz' modifier only applies to --export's haps[legend], mgf,\noxford, and vcf output formats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.exportf_info.flags |= kfExportfBgz;
@@ -7309,7 +7438,138 @@ int main(int argc, char** argv) {
         break;
 
       case 'h':
-        if (strequal_k_unsafe(flagname_p2, "ardy")) {
+        if (strequal_k_unsafe(flagname_p2, "omozyg")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "subtract-1-from-lengths", cur_modif_slen)) {
+              pc.homozyg_info.flags |= kfHomozygOldLengths;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.homozyg_info.flags |= kfHomozygZs;
+            } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
+              if (unlikely(pc.homozyg_info.flags & kfHomozygColAll)) {
+                logerrputs("Error: Multiple --homozyg cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0maybepheno\0pheno\0chrom\0pos\0kb\0nsnp\0density\0phom\0phet\0nseg\0kbtot\0kbavg\0aff\0unaff\0", "homozyg", kfHomozygColMaybefid, kfHomozygColDefault, 1, &pc.homozyg_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else if (unlikely(strequal_k(cur_modif, "group", cur_modif_slen) ||
+                                strequal_k(cur_modif, "group-verbose", cur_modif_slen) ||
+                                strequal_k(cur_modif, "consensus-match", cur_modif_slen) ||
+                                strequal_k(cur_modif, "extend", cur_modif_slen))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --homozyg \'%s\' modifier is not implemented yet.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg argument \'%s\'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          pc.command_flags1 |= kfCommand1Homozyg;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "omozyg-snp") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-het") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-window-snp") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-window-het") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-window-missing")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          uint32_t uii;
+          if (unlikely(ScanUintCappedx(cur_modif, 0x7ffffffe, &uii))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (flagname_p2[7] == 's') {
+            if (unlikely(!uii)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-snp argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.homozyg_info.min_snp = uii;
+          } else if (flagname_p2[7] == 'h') {
+            pc.homozyg_info.max_hets = uii;
+          } else if (flagname_p2[14] == 's') {
+            if (unlikely(!uii)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-window-snp argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.homozyg_info.window_size = uii;
+          } else if (flagname_p2[14] == 'h') {
+            pc.homozyg_info.window_max_hets = uii;
+          } else {
+            pc.homozyg_info.window_max_missing = uii;
+          }
+          pc.command_flags1 |= kfCommand1Homozyg;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "omozyg-min-af") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-maf")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          double dxx;
+          if (unlikely((!ScantokDouble(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 0.5))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s' (must be in [0, 0.5]).\n", flagname_p, cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.homozyg_info.min_af = dxx;
+          if (!(pc.command_flags1 & kfCommand1Homozyg)) {
+            pc.command_flags1 |= kfCommand1Homozyg;
+            pc.filter_flags |= kfFilterAllReq;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "omozyg-kb") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-density") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-gap") ||
+                   strequal_k_unsafe(flagname_p2, "omozyg-window-threshold")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          double dxx;
+          if (unlikely(!ScantokDouble(cur_modif, &dxx))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (flagname_p2[7] == 'k') {
+            if (unlikely((dxx < kSmallEpsilon) || (dxx >= 2147483.646 * (1 + kSmallEpsilon)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-kb argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            // round up, as PLINK 1.9 does
+            pc.homozyg_info.min_bases = 1 + S_CAST(uint32_t, S_CAST(int32_t, dxx * 1000 * (1 - kSmallEpsilon)));
+          } else if (flagname_p2[7] == 'd') {
+            if (unlikely((dxx <= 0.0) || (dxx >= 2147483.646))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-density argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.homozyg_info.max_bases_per_snp = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+          } else if (flagname_p2[7] == 'g') {
+            if (unlikely((dxx < 0.001) || (dxx >= 2147483.646))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-gap argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.homozyg_info.max_gap = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+          } else {
+            if (unlikely((dxx <= 0.0) || (dxx > 1.0))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-window-threshold argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.homozyg_info.hit_threshold = dxx;
+          }
+          pc.command_flags1 |= kfCommand1Homozyg;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (unlikely(strequal_k_unsafe(flagname_p2, "omozyg-match") ||
+                            strequal_k_unsafe(flagname_p2, "omozyg-group") ||
+                            strequal_k_unsafe(flagname_p2, "omozyg-include-missing") ||
+                            strequal_k_unsafe(flagname_p2, "omozyg-window-kb"))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: --%s is not implemented yet.\n", flagname_p);
+          goto main_ret_INVALID_CMDLINE_WWA;
+        } else if (strequal_k_unsafe(flagname_p2, "ardy")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8441,6 +8701,11 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "oop-assoc")) {
           logerrputs("Error: --loop-assoc is retired.  Use --within + --split-cat-pheno instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
+        } else if (strequal_k_unsafe(flagname_p2, "ist-all")) {
+          // Checked after the parse loop, since flags are processed in
+          // alphabetical order and --show-tags comes later.
+          pc.tag_info.list_all = 1;
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ist-duplicate-vars")) {
           logerrputs("Error: --list-duplicate-vars is retired.  We recommend --set-all-var-ids +\n--rm-dup for variant deduplication.\n");
           goto main_ret_INVALID_CMDLINE_A;
@@ -9457,6 +9722,36 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
+        } else if (strequal_k_unsafe(flagname_p2, "gf")) {
+          // --psam/--fam may accompany this, to supply real sample IDs in
+          // place of the synthesized ones.
+          if (unlikely((load_params & (~kfLoadParamsPsam)) || xload)) {
+            goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= 2; ++param_idx) {
+            const char* cur_fname = argvk[arg_idx + param_idx];
+            const uint32_t slen = strlen(cur_fname);
+            if (unlikely(slen > kPglFnamesize - 1)) {
+              logerrputs("Error: --mgf filename too long.\n");
+              goto main_ret_OPEN_FAIL;
+            }
+            memcpy((param_idx == 1)? pgenname : pvarname, cur_fname, slen + 1);
+          }
+          if (param_ct == 3) {
+            const char* cur_modif = argvk[arg_idx + 3];
+            if (unlikely(!StrStartsWith(cur_modif, "pheno=", strlen(cur_modif)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mgf argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            reterr = AllocFname(&(cur_modif[strlen("pheno=")]), "mgf pheno=", &mgf_pheno_fname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          xload = kfXloadMgf;
         } else if (strequal_k_unsafe(flagname_p2, "issing-code")) {
           if (unlikely(!(xload & (kfXloadOxGen | kfXloadOxBgen | kfXloadOxHaps)))) {
             // could technically support pure .sample -> .fam/.psam, but let's
@@ -10436,7 +10731,7 @@ int main(int argc, char** argv) {
           }
           memcpy(pgenname, fname, slen + 1);
         } else if (strequal_k_unsafe(flagname_p2, "sam")) {
-          if (unlikely(xload & (~(kfXloadVcf | kfXloadBcf | kfXloadPlink1Dosage | kfXloadMap)))) {
+          if (unlikely(xload & (~(kfXloadVcf | kfXloadBcf | kfXloadPlink1Dosage | kfXloadMap | kfXloadMgf)))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -11670,7 +11965,31 @@ int main(int argc, char** argv) {
         break;
 
       case 's':
-        if (strequal_k_unsafe(flagname_p2, "eed")) {
+        if (strequal_k_unsafe(flagname_p2, "how-tags")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t fname_param_idx = 1;
+          if (param_ct == 2) {
+            if (strequal_k_unsafe(argvk[arg_idx + 1], "zs")) {
+              pc.tag_info.output_zst = 1;
+              fname_param_idx = 2;
+            } else if (likely(strequal_k_unsafe(argvk[arg_idx + 2], "zs"))) {
+              pc.tag_info.output_zst = 1;
+            } else {
+              logerrputs("Error: Invalid --show-tags argument sequence.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+          if (!strequal_k_unsafe(argvk[arg_idx + fname_param_idx], "all")) {
+            reterr = AllocFname(argvk[arg_idx + fname_param_idx], flagname_p, &pc.tag_info.tag_fname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          pc.command_flags1 |= kfCommand1ShowTags;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "eed")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -12361,7 +12680,27 @@ int main(int argc, char** argv) {
         break;
 
       case 't':
-        if (strequal_k_unsafe(flagname_p2, "hreads")) {
+        if (strequal_k_unsafe(flagname_p2, "ag-kb")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0) || (dxx > 2147483.646))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --tag-kb argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.tag_info.bp_radius = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+        } else if (strequal_k_unsafe(flagname_p2, "ag-r2")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0) || (dxx > 1.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --tag-r2 argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.tag_info.r2_thresh = dxx * (1 - kSmallEpsilon);
+        } else if (strequal_k_unsafe(flagname_p2, "hreads")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -13220,6 +13559,15 @@ int main(int argc, char** argv) {
         }
       }
     } while ((++cur_flag_idx) < flag_ct);
+    // The --homozyg-* flags also turn the command on, so this can't live
+    // inside the --homozyg modifier loop.
+    if ((pc.command_flags1 & kfCommand1Homozyg) && (!(pc.homozyg_info.flags & kfHomozygColAll))) {
+      pc.homozyg_info.flags |= kfHomozygColDefault;
+    }
+    if (unlikely(pc.tag_info.list_all && (!(pc.command_flags1 & kfCommand1ShowTags)))) {
+      logerrputs("Error: --list-all must be used with --show-tags.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
     if (!outname_end) {
       outname_end = &(outname[6]);
     } else if (!allow_misleading_out_arg) {
@@ -13241,7 +13589,7 @@ int main(int argc, char** argv) {
     }
 
     pc.dependency_flags |= pc.filter_flags;
-    const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped)));
+    const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped | kfXloadMgf)));
     const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr);
     if (skip_main && (!batch_job)) {
       // add command_flags2 when needed
@@ -13394,6 +13742,10 @@ int main(int argc, char** argv) {
     }
     if (unlikely(pc.ld_info.flipscan_ref_freq_fname && (!(pc.command_flags1 & kfCommand1FlipScan)))) {
       logerrputs("Error: --flip-scan-ref-freq must be used with --flip-scan.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely((pc.command_flags1 & kfCommand1Homozyg) && (pc.homozyg_info.min_af < 0.0))) {
+      logerrputs("Error: --homozyg requires --homozyg-min-af (equivalently, --homozyg-maf).  0.05\nis a reasonable value with the other default parameters; 0 reproduces PLINK\n1.x, which applied no frequency floor.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely(pc.rename_chrs_fname && (pc.sort_vars_mode <= kSortNone))) {
@@ -13668,8 +14020,12 @@ int main(int argc, char** argv) {
             reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.missing_catname, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, oxford_import_flags, psam_01, is_update_or_impute_sex, !!pc.splitpar_bound2, pc.sort_vars_mode > kSortNone, id_delim, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info, &pgi_generated);
           } else if (xload & kfXloadEigGeno) {
             reterr = EigfileToPgen(pgenname, psamname, pvarname, const_fid, pc.missing_catname, missing_varid, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, id_delim, import_overlong_varids_mode, pc.max_thread_ct, outname, convname_end, &chr_info);
+          } else if (xload & kfXloadMgf) {
+            reterr = MgfToPgen(pgenname, pvarname, mgf_pheno_fname, (load_params & kfLoadParamsPsam)? psamname : nullptr, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, pc.fam_cols, pc.missing_pheno, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadPlink1Dosage) {
             reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.missing_catname, pc.misc_flags, import_flags, load_filter_log_import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
+          } else if (xload & kfXload23file) {
+            reterr = TwentythreeToPgen(&pc.twenty_three_info, import_flags, load_filter_log_import_flags, pc.max_thread_ct, outname, convname_end, &chr_info, &psam_generated);
           } else if (likely(xload & kfXloadGenDummy)) {
             reterr = GenerateDummy(&gendummy_info, import_flags, load_filter_log_import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, &main_sfmt, outname, convname_end, &chr_info);
           } else {
@@ -13821,6 +14177,10 @@ int main(int argc, char** argv) {
     logerrputs(errstr_append);
     reterr = kPglRetInvalidCmdline;
     break;
+  main_ret_23FILE_INVALID_SEX:
+    logerrputs("Error: Invalid --23file sex parameter (M or 1 = male, F or 2 = female,\nI = infer from data, 0 = force missing).\n");
+    reterr = kPglRetInvalidCmdline;
+    break;
   main_ret_INVALID_CMDLINE_INPUT_CONFLICT:
     logerrprintf("Error: --%s conflicts with another input flag.\n%s", flagname_p, errstr_append);
     reterr = kPglRetInvalidCmdline;
@@ -13886,6 +14246,7 @@ int main(int argc, char** argv) {
   free_cond(pc.recover_var_ids_fname);
   free_cond(pc.update_parental_ids_fname);
   free_cond(pc.update_sample_ids_fname);
+  CleanupTwentythree(&pc.twenty_three_info);
   free_cond(pc.update_name_flag);
   free_cond(pc.update_map_flag);
   free_cond(pc.cm_map_chrname);
@@ -13962,6 +14323,7 @@ int main(int argc, char** argv) {
   CleanupFlip(&pc.flip_info);
   CleanupPermConfig(&pc.perm_config);
   CleanupVcor(&pc.vcor_info);
+  CleanupTag(&pc.tag_info);
   CleanupClump(&pc.clump_info);
   CleanupGwasSsf(&pc.gwas_ssf_info);
   CleanupExportf(&pc.exportf_info);
