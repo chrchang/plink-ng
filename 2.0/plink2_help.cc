@@ -218,6 +218,17 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --tped <filename>  : Specify full name of .tped file.\n"
 "  --tfam <filename>  : Specify full name of .tfam file.\n\n"
               );
+    HelpPrint("23file\0", &help_ctrl, 1,
+"  --23file <fname> [FID] [IID] [sex] [pheno] [pat. ID] [mat. ID] :\n"
+"    Specify 23andMe input file.\n"
+"    * 'sex' is 'M'/'1' for male, 'F'/'2' for female, 'I' to infer from the\n"
+"      genotype data (default), and '0' to force it missing.\n"
+"    * Heterozygous haploid calls are not accepted; a single allele call is\n"
+"      only permitted on chrX (which forces male sex) and on the fully-haploid\n"
+"      chromosomes.\n"
+"    * As in PLINK 1.9, 'D'/'I' indel calls are given the complementary allele\n"
+"      code, so that a homozygous call still has two distinct codes.\n\n"
+              );
     HelpPrint("import-dosage\0dosage\0map\0", &help_ctrl, 1,
 "  --import-dosage <allele dosage file> ['noheader'] ['id-delim='<char>]\n"
 "                  ['skip0='<i>] ['skip1='<j>] ['skip2='<k>] ['dose1']\n"
@@ -447,7 +458,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                 ['bgen-omit-sample-id-block']\n"
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
-"    (actually, only A, AD, Av, bcf, bgen-1.x, eig, haps, hapslegend,\n"
+"    (actually, only 23, A, AD, Av, bcf, bgen-1.x, eig, haps, hapslegend,\n"
 "    ind-major-bed, oxford, ped, phylip, phylip-phased, tped, and vcf are\n"
 "    implemented for now)\n"
 "    * '23': 23andMe 4-column format.  This can only be used on a single\n"
