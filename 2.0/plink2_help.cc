@@ -1102,7 +1102,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("flip-scan\0flipscan\0", &help_ctrl, 1,
 "  --flip-scan ['verbose'] ['zs'] ['ref-allele-based']\n"
-"              [{'cols='<column set descriptor>}]\n"
+"              ['cols='<column set descriptor>]\n"
 "    (alias: --flipscan)\n"
 "    Scan for case/control strand inconsistency, in two steps.\n"
 "    1. A variant whose major-allele frequency differs between the two groups\n"
@@ -1243,7 +1243,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    With either output type, the computation can be subdivided with --parallel.\n\n"
               );
     HelpPrint("show-tags\0list-all\0tag-kb\0tag-r2\0", &help_ctrl, 1,
-"  --show-tags ['zs'] {<filename> | 'all'}\n"
+"  --show-tags ['zs'] [<filename> | 'all']\n"
 "    Report which variants tag which, where variant A tags variant B when the\n"
 "    two are within --tag-kb of each other and their unphased r^2 is at least\n"
 "    --tag-r2.\n"
