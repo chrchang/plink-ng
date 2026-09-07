@@ -63,6 +63,10 @@ cd TEST_PMERGE
 cd ..
 echo "TEST_PMERGE passed."
 
+cd TEST_HOMOZYG
+./run_tests.sh $d $2 $3 > TEST_HOMOZYG.log
+cd ..
+echo "TEST_HOMOZYG passed."
 cd TEST_23FILE
 ./run_tests.sh $d $2 $3 > TEST_23FILE.log
 cd ..
