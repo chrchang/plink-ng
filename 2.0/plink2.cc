@@ -654,12 +654,13 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags 
 
 // not actually needed for e.g. --hardy, --hwe, etc. if no multiallelic
 // variants are retained, but let's keep this simpler for now
-uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags, VcorFlags vcor_flags) {
+uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags, VcorFlags vcor_flags, FlipScanFlags flipscan_flags) {
   // Keep this in sync with --error-on-freq-calc.
-  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1ShowTags)) ||
+  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld | kfCommand1LdScore | kfCommand1ShowTags)) ||
     ((command_flags1 & kfCommand1Pca) && (pca_flags & kfPcaBiallelicVarWts)) ||
     ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef))) ||
-    ((command_flags1 & kfCommand1Vcor) && ((!(vcor_flags & kfVcorRefBased)) || (vcor_flags & (kfVcorColMaj | kfVcorColNonmaj))));
+    ((command_flags1 & kfCommand1Vcor) && ((!(vcor_flags & kfVcorRefBased)) || (vcor_flags & (kfVcorColMaj | kfVcorColNonmaj)))) ||
+    ((command_flags1 & kfCommand1FlipScan) && (!(flipscan_flags & kfFlipScanRefBased)));
 }
 
 // only needs to cover cases not captured by DecentAlleleFreqsAreNeeded() or
@@ -2191,7 +2192,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_DEGENERATE_DATA;
         }
         const uint32_t decent_afreqs_needed = DecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->check_sex_info.flags, pcp->het_flags, pcp->score_info.flags);
-        const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->pca_flags, pcp->glm_info.flags, pcp->vcor_info.flags);
+        const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->pca_flags, pcp->glm_info.flags, pcp->vcor_info.flags, pcp->ld_info.flipscan_flags);
         if (decent_afreqs_needed || maj_alleles_needed || IndecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->vcor_info.flags, pcp->distance_flags, pcp->min_maf, pcp->max_maf)) {
           if (unlikely((!pcp->read_freq_fname) && ((sample_ct < 50) || ((!nonfounders) && (founder_ct < 50))) && decent_afreqs_needed && (!(pcp->misc_flags & kfMiscAllowBadFreqs)))) {
             if ((!nonfounders) && (sample_ct >= 50)) {
@@ -3076,9 +3077,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
         if (pcp->ld_info.flipscan_ref_freq_fname) {
-          reterr = FlipScanRefFreq(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, &(pcp->ld_info), raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, pcp->max_thread_ct, outname, outname_end);
+          reterr = FlipScanRefFreq(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, &(pcp->ld_info), raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, pcp->max_thread_ct, outname, outname_end);
         } else {
-          reterr = FlipScan(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, founder_info, &(pcp->ld_info), raw_sample_ct, pheno_ct, (pcp->misc_flags / kfMiscAllowBadLd) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = FlipScan(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, founder_info, &(pcp->ld_info), raw_sample_ct, pheno_ct, (pcp->misc_flags / kfMiscAllowBadLd) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         }
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
