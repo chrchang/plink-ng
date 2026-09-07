@@ -3401,7 +3401,7 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         } else if (strequal_k(cur_modif2, "cf-4.2", cur_modif2_slen)) {
           cur_format = kfExportfBcf42;
         } else if (strequal_k(cur_modif2, "eagle", cur_modif2_slen)) {
-          cur_format = kfExportfBeagle;
+          cur_format = kfExportfBeagleRetired;
         } else if (strequal_k(cur_modif2, "eagle-nomap", cur_modif2_slen) ||
                    strequal_k(cur_modif2, "eagle-unphased", cur_modif2_slen)) {
           // 'beagle-nomap' is the old spelling of the unphased single-file form.
@@ -3418,7 +3418,7 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
                    strequal_k(cur_modif2, "gen_1.3", cur_modif2_slen)) {
           cur_format = kfExportfBgen13;
         } else if ((!strcmp(cur_modif2, "imbam")) || (!strcmp(cur_modif2, "imbam-1chr"))) {
-          cur_format = kfExportfBimbam;
+          cur_format = kfExportfBimbamRetired;
         }
         break;
       }
@@ -5995,29 +5995,12 @@ int main(int argc, char** argv) {
           }
           // Reject an unimplemented format here rather than after the whole
           // dataset has been loaded and filtered.
-          if (unlikely(pc.exportf_info.flags & (kfExportfTypemask - kfExportfImplemented))) {
-            for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-              if (!((format_param_idxs >> param_idx) & 1)) {
-                continue;
-              }
-              ExportfFlags cur_format = kfExportf0;
-              IdpasteFlags dummy_idpaste = kfIdpaste0;
-              uint64_t dummy_idxs = 0;
-              GetExportfTargets(&(argvk[arg_idx + param_idx - 1]), 1, &cur_format, &dummy_idpaste, &dummy_idxs);
-              if (cur_format & kfExportfBeagle) {
-                logerrputs("Error: \"--export beagle\" wrote one fileset per chromosome, which is retired.\nUse \"--export beagle-unphased\" for the single-file unphased form, or\n\"--export beagle-phased\" when every genotype is phased.  PLINK 1.9 still\nwrites the chromosome-split form if you need it.\n");
-                goto main_ret_INVALID_CMDLINE;
-              }
-              if (cur_format & kfExportfBimbam) {
-                logerrputs("Error: \"--export bimbam\" and \"--export bimbam-1chr\" have been replaced by\n\"--export mgf\", which writes BIMBAM's mean genotype format: dosages rather\nthan rounded genotypes, in a .mgf file alongside .pos.txt and, when a numeric\nphenotype is loaded, .pheno.txt.  Contact us if you need the original BIMBAM\ngenotype file; PLINK 1.9 still writes it.\n");
-                goto main_ret_INVALID_CMDLINE;
-              }
-              if (cur_format & (kfExportfTypemask - kfExportfImplemented)) {
-                snprintf(g_logbuf, kLogbufSize, "Error: \"--export %s\" is not implemented yet.\n", argvk[arg_idx + param_idx]);
-                goto main_ret_INVALID_CMDLINE_WWA;
-              }
-            }
-            logerrputs("Error: Unimplemented --export format.\n");
+          if (unlikely(pc.exportf_info.flags & kfExportfBeagleRetired)) {
+            logerrputs("Error: \"--export beagle\" wrote one fileset per chromosome, which is retired.\nUse \"--export beagle-unphased\" for the single-file unphased form, or\n\"--export beagle-phased\" when every genotype is phased.  PLINK 1.9 still\nwrites the chromosome-split form if you need it.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(pc.exportf_info.flags & kfExportfBimbamRetired)) {
+            logerrputs("Error: \"--export bimbam\" and \"--export bimbam-1chr\" have been replaced by\n\"--export mgf\", which writes BIMBAM's mean genotype format: dosages rather\nthan rounded genotypes, in a .mgf file alongside .pos.txt and, when a numeric\nphenotype is loaded, .pheno.txt.  Contact us if you need the original BIMBAM\ngenotype file; PLINK 1.9 still writes it.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           // can't have e.g. bgen-1.1 and bgen-1.2 simultaneously, since they

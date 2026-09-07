@@ -190,15 +190,13 @@ FLAGSET64_DEF_START()
   kfExportfBcf = kfExportfBcf42 | kfExportfBcf43,
   // 'beagle' (chromosome-split) is retired; the two survivors are the
   // unphased and phased single-file forms.
-  kfExportfBeagle = (1 << 10),
+  kfExportfBeagleRetired = (1 << 10),
   kfExportfBeagleUnphased = (1 << 11),
-  kfExportfBeaglePhased = (1LLU << 40),
-  kfExportfBgen11 = (1 << 12),
-  kfExportfBgen12 = (1 << 13),
-  kfExportfBgen13 = (1 << 14),
-  kfExportfBimbam = (1 << 15),
-  // bit 16 was bimbam-1chr, retired along with the BIMBAM genotype file
-  kfExportfMgf = (1 << 16),
+  kfExportfBeaglePhased = (1 << 12),
+  kfExportfBgen11 = (1 << 13),
+  kfExportfBgen12 = (1 << 14),
+  kfExportfBgen13 = (1 << 15),
+  kfExportfBimbamRetired = (1 << 16),
   kfExportfEig = (1 << 17),
   kfExportfEigt = (1 << 18),
   kfExportfFastphase = (1 << 19),
@@ -211,32 +209,27 @@ FLAGSET64_DEF_START()
   kfExportfLgen = (1 << 26),
   kfExportfLgenRef = (1 << 27),
   kfExportfList = (1 << 28),
-  kfExportfRlist = (1 << 29),
-  kfExportfOxGenV1 = (1 << 30),
-  kfExportfOxGenV2 = (1U << 31),
+  kfExportfMgf = (1 << 29),
+  kfExportfRlist = (1 << 30),
+  kfExportfOxGenV1 = (1U << 31),
+  kfExportfOxGenV2 = (1LLU << 32),
   kfExportfOxGen = kfExportfOxGenV1 | kfExportfOxGenV2,
-  kfExportfPed = (1LLU << 32),
-  kfExportfCompound = (1LLU << 33),
-  kfExportfPhylip = (1LLU << 34),
-  kfExportfPhylipPhased = (1LLU << 35),
-  kfExportfStructure = (1LLU << 36),
-  kfExportfTped = (1LLU << 37),
-  kfExportfVcf42 = (1LLU << 38),
-  kfExportfVcf43 = (1LLU << 39),
+  kfExportfPed = (1LLU << 33),
+  kfExportfCompound = (1LLU << 34),
+  kfExportfPhylip = (1LLU << 35),
+  kfExportfPhylipPhased = (1LLU << 36),
+  kfExportfStructure = (1LLU << 37),
+  kfExportfTped = (1LLU << 38),
+  kfExportfVcf42 = (1LLU << 39),
+  kfExportfVcf43 = (1LLU << 40),
   kfExportfVcf = kfExportfVcf42 | kfExportfVcf43,
-  // beagle-phased sits just above vcf-4.3, so the mask runs to it.
-  kfExportfTypemask = (2LLU * kfExportfBeaglePhased) - kfExportf23,
-  // The formats Exportf() can actually write.  Kept next to the type mask so
-  // the two are updated together, and checked during argument parsing so an
-  // unimplemented format is rejected before the dataset is loaded rather than
-  // after.
-  kfExportfImplemented = (kfExportfA | kfExportfAD | kfExportfAv | kfExportfBcf | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13 | kfExportfMgf | kfExportfCompound | kfExportfLgen | kfExportfLgenRef | kfExportfList | kfExportfRlist | kfExportfBeagleUnphased | kfExportfBeaglePhased | kfExportfStructure | kfExportfFastphase | kfExportfFastphase1chr | kfExportfHv | kfExportfHv1chr | kfExportfEig | kfExportfEigt | kfExportfHaps | kfExportfHapsLegend | kfExportfIndMajorBed | kfExportfOxGen | kfExportfPed | kfExportfPhylip | kfExportfPhylipPhased | kfExportfTped | kfExportfVcf),
-  kfExportfIncludeAlt = (1LLU << 40),
-  kfExportfBgz = (1LLU << 41),
-  kfExportfOmitNonmaleY = (1LLU << 42),
-  kfExportfSampleV2 = (1LLU << 43),
-  kfExportfBgenOmitSampleIdBlock = (1LLU << 44),
-  kfExportfPhylipUsedSites = (1LLU << 45)
+  kfExportfTypemask = (2LLU * kfExportfVcf43) - kfExportf23,
+  kfExportfIncludeAlt = (1LLU << 41),
+  kfExportfBgz = (1LLU << 42),
+  kfExportfOmitNonmaleY = (1LLU << 43),
+  kfExportfSampleV2 = (1LLU << 44),
+  kfExportfBgenOmitSampleIdBlock = (1LLU << 45),
+  kfExportfPhylipUsedSites = (1LLU << 46)
 FLAGSET64_DEF_END(ExportfFlags);
 
 FLAGSET_DEF_START()
