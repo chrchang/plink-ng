@@ -13668,8 +13668,8 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
     ctx.genobufs = genobufs;
     ctx.vaggs = vaggs;
 
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
     if (write_tag_list) {
-      const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
       const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + 256;
       OutnameZstSet(".tags.list", output_zst, outname_end);
       reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
@@ -13680,8 +13680,7 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
       AppendBinaryEoln(&cswritep);
     }
     char* chr_buf;
-    const uint32_t max_chr_blen2 = GetMaxChrSlen(cip) + 1;
-    if (unlikely(bigstack_alloc_c(max_chr_blen2, &chr_buf))) {
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto ShowTags_ret_NOMEM;
     }
 
