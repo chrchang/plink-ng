@@ -67,6 +67,7 @@ cd TEST_23FILE
 ./run_tests.sh $d $2 $3 > TEST_23FILE.log
 cd ..
 echo "TEST_23FILE passed."
+
 cd TEST_HET_IBC
 ./run_tests.sh $d $2 $3 > TEST_HET_IBC.log
 cd ..
