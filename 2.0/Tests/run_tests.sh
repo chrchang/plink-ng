@@ -68,4 +68,9 @@ cd TEST_HET_IBC
 cd ..
 echo "TEST_HET_IBC passed."
 
+cd TEST_FLIP_SCAN
+./run_tests.sh $d $2 $3 > TEST_FLIP_SCAN.log
+cd ..
+echo "TEST_FLIP_SCAN passed."
+
 echo "All tests passed."
