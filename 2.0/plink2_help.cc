@@ -1152,7 +1152,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      row per variant.  --list-all adds that file to the filename mode,\n"
 "      restricted to the named variants.\n"
 "    * Only founders are considered, as with --r2-unphased.  Multiallelic\n"
-"      variants and haploid chromosomes are skipped.\n\n"
+"      variants are kept, with the major allele taken against the rest.\n"
+"    * Unique variant IDs are required, since the report and the input list\n"
+"      are both keyed on them.\n"
+"    * Haploid chromosomes are not supported yet, and are an error rather\n"
+"      than a silent omission.\n\n"
               );
     HelpPrint("tag-kb\0tag-r2\0show-tags\0", &help_ctrl, 0,
 "  --tag-kb <kbs>  : Set --show-tags max tag kb distance (default 250).\n"

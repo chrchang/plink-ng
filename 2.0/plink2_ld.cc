@@ -13525,7 +13525,9 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
     // defaulting to the most common.  Dropping a column outright because a
     // handful of samples carry a third allele would throw away far more than
     // it protects.
-    uint32_t skip_ct = 0;
+    //
+    // PLINK 1.9 does tag haploid chromosomes; this doesn't yet, and refuses
+    // rather than silently reporting a subset of what was asked for.
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
       const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
       if (!IsSet(cip->haploid_mask, chr_idx)) {
@@ -13533,13 +13535,28 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
       }
       const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
       const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-      skip_ct += PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
-      ClearBitsNz(chr_vidx_start, chr_vidx_end, variant_include);
+      if (unlikely(PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end))) {
+        logerrputs("Error: --show-tags does not support haploid chromosomes yet.  (Exclude them with\ne.g. --autosome.)\n");
+        goto ShowTags_ret_INCONSISTENT_INPUT;
+      }
     }
     const uint32_t kept_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
     if (unlikely(!kept_variant_ct)) {
       logerrputs("Error: --show-tags: No variants remaining.\n");
       goto ShowTags_ret_INCONSISTENT_INPUT;
+    }
+    // The whole report is variant IDs, and the target list is matched by ID,
+    // so duplicates would make both the input and the output ambiguous.
+    {
+      uint32_t dup_found;
+      reterr = CheckIdUniqueness(g_bigstack_base, g_bigstack_end, variant_include, variant_ids, kept_variant_ct, max_thread_ct, &dup_found);
+      if (unlikely(reterr)) {
+        goto ShowTags_ret_1;
+      }
+      if (unlikely(dup_found)) {
+        logerrputs("Error: --show-tags requires unique variant IDs. (--set-all-var-ids and/or\n--rm-dup may help.)\n");
+        goto ShowTags_ret_INCONSISTENT_INPUT;
+      }
     }
 
     uintptr_t* target_variants = nullptr;
@@ -13659,7 +13676,7 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
       if (unlikely(reterr)) {
         goto ShowTags_ret_1;
       }
-      cswritep = strcpya_k(cswritep, "#ID\tCHROM\tPOS\tNTAG\tLEFT\tRIGHT\tKBSPAN\tTAGS");
+      cswritep = strcpya_k(cswritep, "#CHROM\tPOS\tID\tNTAG\tLEFT\tRIGHT\tKBSPAN\tTAGS");
       AppendBinaryEoln(&cswritep);
     }
     char* chr_buf;
@@ -13716,9 +13733,9 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
         uint32_t right_bp = left_bp;
         char* tag_write_start = nullptr;
         if (emit_row) {
-          cswritep = strcpyax(cswritep, variant_ids[index_uidx], '\t');
           cswritep = memcpyax(cswritep, chr_buf, chr_slen, '\t');
-          cswritep = u32toa(variant_bps[index_uidx], cswritep);
+          cswritep = u32toa_x(variant_bps[index_uidx], '\t', cswritep);
+          cswritep = strcpya(cswritep, variant_ids[index_uidx]);
           tag_write_start = cswritep;
         }
         // Tag IDs go to a scratch buffer, since NTAG and the span have to be
@@ -13812,9 +13829,6 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
         goto ShowTags_ret_WRITE_FAIL;
       }
       logprintfww("--show-tags: %u tagging variant%s written to %s .\n", tagging_ct, (tagging_ct == 1)? "" : "s", outname);
-    }
-    if (skip_ct) {
-      logprintf("(%u haploid-chromosome variant%s skipped.)\n", skip_ct, (skip_ct == 1)? "" : "s");
     }
   }
   while (0) {

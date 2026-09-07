@@ -49,3 +49,29 @@ done
 $1/plink2 $2 $3 --bfile tmp_data --show-tags all zs --out plink2_zs
 $1/plink2 $2 $3 --zst-decompress plink2_zs.tags.list.zst > plink2_zs.tags.list
 diff -q plink2_all.tags.list plink2_zs.tags.list
+
+# 6. The report is keyed on variant IDs, so duplicates are refused rather than
+#    silently reported against whichever copy was found first.
+awk 'BEGIN{OFS="\t"} {if (NR == 2) {$2 = "dup"} else if (NR == 3) {$2 = "dup"}; print}' tmp_data.bim > tmp_dup.bim
+cp tmp_data.bed tmp_dup.bed
+cp tmp_data.fam tmp_dup.fam
+if $1/plink2 $2 $3 --bfile tmp_dup --show-tags all --out plink2_dup > /dev/null 2>&1; then
+    echo "duplicate variant IDs accepted"
+    exit 1
+fi
+
+# 7. Haploid chromosomes are refused for now rather than dropped without
+#    saying so.
+awk 'BEGIN{OFS="\t"} {if (NR <= 5) {$1 = "X"}; print}' tmp_data.bim > tmp_hap.bim
+cp tmp_data.bed tmp_hap.bed
+cp tmp_data.fam tmp_hap.fam
+if $1/plink2 $2 $3 --bfile tmp_hap --show-tags all --out plink2_hap > /dev/null 2>&1; then
+    echo "haploid chromosome accepted"
+    exit 1
+fi
+# ...and excluding them makes the same command work.
+$1/plink2 $2 $3 --bfile tmp_hap --autosome --show-tags all --out plink2_auto
+test "$(grep -vc '^#' plink2_auto.tags.list)" -gt 0
+
+# 8. The header is in plink2's usual CHROM/POS/ID order.
+head -n 1 plink2_all.tags.list | grep -qx '#CHROM	POS	ID	NTAG	LEFT	RIGHT	KBSPAN	TAGS'
