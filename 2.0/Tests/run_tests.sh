@@ -88,4 +88,9 @@ cd TEST_MGF
 cd ..
 echo "TEST_MGF passed."
 
+cd TEST_SHOW_TAGS
+./run_tests.sh $d $2 $3 > TEST_SHOW_TAGS.log
+cd ..
+echo "TEST_SHOW_TAGS passed."
+
 echo "All tests passed."
