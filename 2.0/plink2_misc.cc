@@ -11974,18 +11974,6 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
-// PLINK 1.x treats a male heterozygous call on chrX as missing.
-static void TestMissingSetMaleHetMissing(const uintptr_t* male_collapsed, uint32_t sample_ct, uintptr_t* genovec) {
-  const uint32_t word_ct = NypCtToWordCt(sample_ct);
-  const Halfword* male_alias = R_CAST(const Halfword*, male_collapsed);
-  for (uint32_t widx = 0; widx != word_ct; ++widx) {
-    const uintptr_t geno_word = genovec[widx];
-    const uintptr_t het_word = geno_word & (~(geno_word >> 1)) & kMask5555;
-    const uintptr_t male_word = UnpackHalfwordToWord(male_alias[widx]);
-    genovec[widx] = geno_word | ((het_word & male_word) << 1);
-  }
-}
-
 // --test-missing: is a variant's missingness rate different between cases and
 // controls?  The 2x2 table is (missing, nonmissing) x (case, control), and the
 // test is Fisher's exact, as in PLINK 1.x.  Heterozygous haploid calls count
