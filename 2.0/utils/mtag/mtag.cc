@@ -1,5 +1,4 @@
-// This file is part of PLINK 2.0, copyright (C) 2005-2026 Shaun Purcell,
-// Christopher Chang.
+// Copyright (C) 2026 Christopher Chang, Benjamin Demaille.
 //
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by the Free
@@ -1907,4 +1906,3 @@ int main(int argc, char** argv) {
   printf("MTAG results written to %s .\n", outname);
   return 0;
 }
-
