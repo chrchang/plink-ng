@@ -229,6 +229,25 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * As in PLINK 1.9, 'D'/'I' indel calls are given the complementary allele\n"
 "      code, so that a homozygous call still has two distinct codes.\n\n"
               );
+    HelpPrint("mgf\0", &help_ctrl, 1,
+"  --mgf <.mgf file> <.pos.txt file> ['pheno='<.pheno.txt file>]\n"
+"    Specify BIMBAM mean genotype format input.  The .mgf file has one row per\n"
+"    variant, naming the variant, its ALT and REF alleles, and then one ALT\n"
+"    dosage per sample; the .pos.txt file gives each variant's ID, base-pair\n"
+"    coordinate and chromosome.  Commas are accepted in place of whitespace in\n"
+"    both, and \'NA\', \'-9\', \'?\', \'??\' and \'.\' all mark a missing call; any\n"
+"    other dosage outside [0, 2] is an error.\n"
+"    * Neither file carries sample IDs, so \'per0\', \'per1\', ... are generated,\n"
+"      as with --dummy.  \'pheno=\' names a phenotype file with one row per\n"
+"      sample, whose columns become PHENO1, PHENO2, ...\n"
+"    * --psam/--fam supplies real sample IDs (and sex, and phenotypes)\n"
+"      instead.  Since the .mgf has no IDs of its own to match against, the\n"
+"      file just has to have one row per sample, in the .mgf\'s column order.\n"
+"      It can be combined with \'pheno=\' as long as it does not carry\n"
+"      phenotype data itself; a .psam need not have a phenotype column, and a\n"
+"      .fam\'s may be entirely missing.\n"
+"    * This is the inverse of \"--export mgf\".\n\n"
+               );
     HelpPrint("import-dosage\0dosage\0map\0", &help_ctrl, 1,
 "  --import-dosage <allele dosage file> ['noheader'] ['id-delim='<char>]\n"
 "                  ['skip0='<i>] ['skip1='<j>] ['skip2='<k>] ['dose1']\n"

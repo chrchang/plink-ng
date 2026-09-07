@@ -83,6 +83,11 @@ cd TEST_HET_IBC
 cd ..
 echo "TEST_HET_IBC passed."
 
+cd TEST_MGF
+./run_tests.sh $d $2 $3 > TEST_MGF.log
+cd ..
+echo "TEST_MGF passed."
+
 cd TEST_SHOW_TAGS
 ./run_tests.sh $d $2 $3 > TEST_SHOW_TAGS.log
 cd ..
