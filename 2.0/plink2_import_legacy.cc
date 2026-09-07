@@ -35,6 +35,8 @@
 #include "plink2_data.h"
 #include "plink2_decompress.h"
 #include "plink2_import_legacy.h"
+
+#include "include/plink2_htable.h"
 #include "plink2_psam.h"
 
 // This covers formats that are fully supported by PLINK 1.x (no multiallelic
@@ -671,7 +673,11 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, LoadFilterLogFlags loa
 }
 
 // Ok for in_psamname to alias outname.
-PglErr RewritePsam(const char* in_psamname, const char* missing_catname, MiscFlags misc_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, uint32_t max_thread_ct, char* outname, char* outname_end, uint32_t* raw_sample_ctp) {
+// pheno_info_presentp, when provided, reports whether the input actually
+// carried a phenotype value for anybody.  A .psam need not have a phenotype
+// column at all, and a .fam's may be entirely -9, so "has a column" is not
+// the same question.
+PglErr RewritePsam(const char* in_psamname, const char* missing_catname, MiscFlags misc_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, uint32_t max_thread_ct, char* outname, char* outname_end, uint32_t* raw_sample_ctp, uint32_t* pheno_info_presentp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PhenoCol* pheno_cols = nullptr;
   char* pheno_names = nullptr;
@@ -692,6 +698,17 @@ PglErr RewritePsam(const char* in_psamname, const char* missing_catname, MiscFla
     }
     if (raw_sample_ctp) {
       *raw_sample_ctp = raw_sample_ct;
+    }
+    if (pheno_info_presentp) {
+      uint32_t pheno_info_present = 0;
+      const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        if (!AllWordsAreZero(pheno_cols[pheno_idx].nonmiss, raw_sample_ctl)) {
+          pheno_info_present = 1;
+          break;
+        }
+      }
+      *pheno_info_presentp = pheno_info_present;
     }
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
@@ -768,7 +785,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, const char* missin
       // Only need to generate a .psam if this is a conversion-only run, or
       // --keep-autoconv was specified.  Otherwise Plink2Core() can simply
       // interpret the .tfam as a psam file.
-      reterr = RewritePsam(tfamname, missing_catname, misc_flags, fam_cols, missing_pheno, 0, max_thread_ct, outname, outname_end, &tfam_sample_ct);
+      reterr = RewritePsam(tfamname, missing_catname, misc_flags, fam_cols, missing_pheno, 0, max_thread_ct, outname, outname_end, &tfam_sample_ct, nullptr);
       if (unlikely(reterr)) {
         goto TpedToPgen_ret_1;
       }
@@ -2298,7 +2315,7 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, const char* missin
     *outname_end = '.';
     BigstackEndSet(tmp_alloc_end);
 
-    reterr = RewritePsam(outname, missing_catname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, nullptr);
+    reterr = RewritePsam(outname, missing_catname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, nullptr, nullptr);
     if (unlikely(reterr)) {
       goto PedmapToPgen_ret_1;
     }
