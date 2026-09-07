@@ -3755,7 +3755,6 @@ uint32_t distance_d_write_1mibs_sq_emitn(uint32_t overflow_ct, unsigned char* re
 
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t sample_ct, int32_t first_sample_idx, int32_t end_sample_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf) {
   // membuf assumed to be of at least size sample_ct * 8.
-  printf("distance_d_write\n");
   uint32_t bin4 = dist_calc_type & DISTANCE_BIN4;
   int32_t shape = dist_calc_type & DISTANCE_SHAPEMASK;
   int32_t write_alcts = dist_calc_type & DISTANCE_ALCT;

@@ -5166,6 +5166,7 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         goto CalcDistance_ret_1;
       }
     }
+    printf("parallel_idx: %u  parallel_tot: %u\n", parallel_idx, parallel_tot);
   }
   while (0) {
   CalcDistance_ret_NOMEM:
