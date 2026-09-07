@@ -831,7 +831,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    chrom/pos/ref/alt to the .lmendel[.zst] output file.\n\n"
               );
     HelpPrint("homozyg\0homozyg-snp\0homozyg-kb\0homozyg-density\0homozyg-gap\0homozyg-het\0homozyg-min-af\0homozyg-window-snp\0homozyg-window-het\0homozyg-window-missing\0homozyg-window-threshold\0", &help_ctrl, 1,
-"  --homozyg ['zs'] ['subtract-1-from-lengths'] [{'cols='<column set descriptor>}]\n"
+"  --homozyg ['zs'] ['subtract-1-from-lengths'] ['cols='<column set descriptor>]\n"
 "  --homozyg-snp <min var count>\n"
 "  --homozyg-kb <min length>\n"
 "  --homozyg-density <max inverse density (kb/var)>\n"
@@ -1141,7 +1141,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    With either output type, the computation can be subdivided with --parallel.\n\n"
               );
     HelpPrint("ld-score\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
-"  --ld-score ['zs'] ['multiallelic'] [{'cols='<column set descriptor>}]\n"
+"  --ld-score ['zs'] ['multiallelic'] ['cols='<column set descriptor>]\n"
 "  --ld-score-founders\n"
 "  --ld-score-window <max variant ct radius>\n"
 "  --ld-score-window-kb <max kb radius>\n"
