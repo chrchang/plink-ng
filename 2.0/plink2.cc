@@ -236,6 +236,7 @@ ENUM_U31_DEF_START()
   kCmd1BitTestMissing,
   kCmd1BitShowTags,
   kCmd1BitGeneMask,
+  kCmd1BitVcTest,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -281,7 +282,8 @@ FLAGSET64_DEF_START()
   kfCommand1Distance = (1LLU << kCmd1BitDistance),
   kfCommand1TestMissing = (1LLU << kCmd1BitTestMissing),
   kfCommand1ShowTags = (1LLU << kCmd1BitShowTags),
-  kfCommand1GeneMask = (1LLU << kCmd1BitGeneMask)
+  kfCommand1GeneMask = (1LLU << kCmd1BitGeneMask),
+  kfCommand1VcTest = (1LLU << kCmd1BitVcTest)
 FLAGSET64_DEF_END(Command1Flags);
 
 // The shape and encoding modifiers are mutually exclusive within each group,
@@ -491,6 +493,7 @@ typedef struct Plink2CmdlineStruct {
   GlmInfo glm_info;
   AdjustInfo adjust_info;
   GeneMaskInfo gene_mask_info;
+  VcTestInfo vc_test_info;
   char* set_list_fname;
   ScoreInfo score_info;
   FstInfo fst_info;
@@ -643,7 +646,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags | kfCommand1GeneMask)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags | kfCommand1GeneMask | kfCommand1VcTest)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -653,7 +656,7 @@ uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Fl
 
 uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, CheckSexFlags check_sex_flags, HetFlags het_flags, ScoreFlags score_flags) {
   // Keep this in sync with --error-on-freq-calc.
-  return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel | kfCommand1FlipScan | kfCommand1GeneMask)) ||
+  return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel | kfCommand1FlipScan | kfCommand1GeneMask | kfCommand1VcTest)) ||
     (check_sex_flags & kfCheckSexUseX) ||
     ((command_flags1 & kfCommand1Score) && ((!(score_flags & kfScoreNoMeanimpute)) || (score_flags & (kfScoreCenter | kfScoreVarianceStandardize)))) ||
     ((command_flags1 & kfCommand1Het) && (!(het_flags & kfHetSmallSample)));
@@ -3167,6 +3170,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1VcTest) {
+        reterr = VcTests(sample_include, &pii.sii, pheno_cols, pheno_names, covar_cols, variant_include, variant_ids, allele_idx_offsets, allele_freqs, pcp->set_list_fname, &(pcp->vc_test_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, raw_variant_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1GeneMask) {
         reterr = MakeGeneMasks(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, allele_idx_offsets, allele_freqs, pcp->set_list_fname, &(pcp->gene_mask_info), pcp->output_missing_pheno, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
@@ -3967,6 +3977,7 @@ int main(int argc, char** argv) {
   AcatInfo acat_info;
   InitAcat(&acat_info);
   InitGeneMask(&pc.gene_mask_info);
+  InitVcTest(&pc.vc_test_info);
   pc.set_list_fname = nullptr;
   ChrInfo chr_info;
   if (unlikely(InitChrInfo(&chr_info))) {
@@ -12313,10 +12324,6 @@ int main(int argc, char** argv) {
           }
           pc.dependency_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
         } else if (strequal_k_unsafe(flagname_p2, "et-list")) {
-          if (unlikely((!acat_info.fname) && (!(pc.command_flags1 & kfCommand1GeneMask)))) {
-            logerrputs("Error: --set-list must be used with --acat-file or --make-gene-masks.\n");
-            goto main_ret_INVALID_CMDLINE_A;
-          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -13671,6 +13678,47 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1Validate;
           pc.dependency_flags |= kfFilterAllReq;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "c-test")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 0))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          pc.command_flags1 |= kfCommand1VcTest;
+          pc.dependency_flags |= kfFilterAllReq | kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "c-max-af")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx <= 0.0) || (dxx > 1.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --vc-max-af argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.vc_test_info.max_af = dxx;
+        } else if (strequal_k_unsafe(flagname_p2, "c-mac-thresh")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t uii;
+          if (unlikely(ScanUintDefcapx(argvk[arg_idx + 1], &uii))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --vc-mac-thresh argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.vc_test_info.mac_thresh = uii;
+        } else if (strequal_k_unsafe(flagname_p2, "c-params")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx <= 0.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --vc-params argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.vc_test_info.beta_a1 = dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 2], &dxx)) || (dxx <= 0.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --vc-params argument '%s'.\n", argvk[arg_idx + 2]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.vc_test_info.beta_a2 = dxx;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -13918,11 +13966,14 @@ int main(int argc, char** argv) {
     // Checked here rather than at parse time: flags are processed in
     // alphabetical order, so --build-mask and --set-list are both seen before
     // --make-gene-masks.
-    if (pc.command_flags1 & kfCommand1GeneMask) {
+    if (pc.command_flags1 & (kfCommand1GeneMask | kfCommand1VcTest)) {
       if (unlikely(!pc.set_list_fname)) {
-        logerrputs("Error: --make-gene-masks requires --set-list.\n");
+        logerrputs("Error: --make-gene-masks and --vc-test require --set-list.\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
+    } else if (unlikely(pc.set_list_fname && (!adjust_file_info.fname) && (!acat_info.fname))) {
+      logerrputs("Error: --set-list must be used with --acat-file, --make-gene-masks, or\n--vc-test.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     } else if (unlikely(pc.gene_mask_info.flags || (pc.gene_mask_info.max_af != 0.01))) {
       logerrputs("Error: --build-mask and --mask-max-af must be used with --make-gene-masks.\n");
       goto main_ret_INVALID_CMDLINE_A;

@@ -4506,6 +4506,17 @@ double QfMixLnP(double qval, const double* lambdas, uint32_t lambda_ct) {
   return ChisqToLnP(qval / scale, df);
 }
 
+// Beta(maf; a1, a2) density, the standard rare-variant weight.  Squared and
+// multiplied by maf * (1 - maf) it becomes the ACAT-V variant weight, which is
+// what makes a rarer variant count for more.
+double BetaDensity(double xx, double a1, double a2) {
+  if ((xx <= 0.0) || (xx >= 1.0)) {
+    return 0.0;
+  }
+  const double ln_beta = lgamma(a1) + lgamma(a2) - lgamma(a1 + a2);
+  return exp((a1 - 1.0) * log(xx) + (a2 - 1.0) * log1p(-xx) - ln_beta);
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -580,6 +580,21 @@ void InitGeneMask(GeneMaskInfo* gene_mask_info_ptr);
 
 PglErr MakeGeneMasks(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const GeneMaskInfo* gmip, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
+
+// --vc-test: variance-component and omnibus gene-based tests.  All of them
+// share one covariates-only null fit and one genotype pass per set, which is
+// what makes running the whole battery cost barely more than running one.
+typedef struct VcTestInfoStruct {
+  double max_af;
+  double beta_a1;
+  double beta_a2;
+  uint32_t mac_thresh;
+} VcTestInfo;
+
+void InitVcTest(VcTestInfo* vc_test_info_ptr);
+
+PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const VcTestInfo* vtip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
