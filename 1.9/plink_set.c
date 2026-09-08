@@ -21,6 +21,20 @@
 
 #include "plink_common.h"
 
+// linebuf_top advances by an arbitrary line length, so the two uint32s
+// prefixed to each saved line in gene_report() are never guaranteed to be
+// 4-byte aligned.  Go through memcpy() instead of casting to uint32_t*; on the
+// platforms we support this compiles to the same instruction.
+static inline uint32_t read_u32_unaligned(const char* ptr) {
+  uint32_t result;
+  memcpy(&result, ptr, sizeof(int32_t));
+  return result;
+}
+
+static inline void write_u32_unaligned(char* ptr, uint32_t uii) {
+  memcpy(ptr, &uii, sizeof(int32_t));
+}
+
 void set_init(Set_info* sip, Annot_info* aip) {
   sip->fname = nullptr;
   sip->setnames_flattened = nullptr;
@@ -3596,8 +3610,8 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       bufptr[slen++] = '\n';
     }
     slen += (uintptr_t)(bufptr - loadbuf);
-    *((uint32_t*)linebuf_top) = slen;
-    ((uint32_t*)linebuf_top)[1] = cur_bp;
+    write_u32_unaligned(linebuf_top, slen);
+    write_u32_unaligned(&(linebuf_top[sizeof(int32_t)]), cur_bp);
     linebuf_left -= slen + 8;
     linebuf_top = &(linebuf_top[slen + 8]);
 #ifdef __LP64__
@@ -3620,7 +3634,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   bufptr = first_line_ptr;
   for (uii = 0; uii < saved_line_ct; uii++) {
     line_lookup[uii] = bufptr;
-    bufptr = &(bufptr[(*((uint32_t*)bufptr)) + 8]);
+    bufptr = &(bufptr[read_u32_unaligned(bufptr) + 8]);
   }
 #ifdef __cplusplus
   std::sort((int64_t*)gene_match_list, (int64_t*)gene_match_list_end);
@@ -3683,8 +3697,8 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       cur_bp = genedefs[gene_idx][1];
     }
     bufptr = line_lookup[(uint32_t)ullii];
-    uii = *((uint32_t*)bufptr); // line length
-    ujj = ((uint32_t*)bufptr)[1]; // bp
+    uii = read_u32_unaligned(bufptr); // line length
+    ujj = read_u32_unaligned(&(bufptr[sizeof(int32_t)])); // bp
     bufptr2 = dtoa_g_wxp4(((double)((int32_t)(ujj - cur_bp))) * 0.001, 10, g_textbuf);
     bufptr2 = memcpyl3a(bufptr2, "kb ");
     fwrite(g_textbuf, 1, bufptr2 - g_textbuf, outfile);
