@@ -8411,6 +8411,11 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       goto calc_cluster_neighbor_ret_NOMEM;
     }
     fill_double_zero(ulii, neighbor_quantiles);
+    // The index array has to be cleared too.  update_neighbor() only writes an
+    // entry when a distance beats the current quantile, so a sample that never
+    // accumulates neighbor_n2 neighbors leaves entries at whatever malloc
+    // returned, and the report loop then uses them as sample indices.
+    fill_uint_zero(ulii, neighbor_qindices);
   }
   fill_ulong_zero(BITCT_TO_WORDCT(initial_triangle_size), cluster_merge_prevented);
   if ((min_ppc != 0.0) || genome_main || read_genome_fname) {
