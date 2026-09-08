@@ -1692,6 +1692,10 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     window_cidx = max_window_size - 1;
     window_cidx2 = 0;
     do {
+      // window_cidx: current variant
+      // window_cidx2: trailing variant in window
+      // window_cidx3: temporary index for LD calcs between trailing variants
+      //               and current variant
       if (++window_cidx == max_window_size) {
 	window_cidx = 0;
       }
@@ -1760,6 +1764,10 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	}
       }
 
+      // bugfix (7 Sep 2026): if max_window_locus_ct == max_window_size,
+      // ulii == window_cidx check below is not sufficient to know we need to
+      // advance trailing-window marker
+      const uint32_t prev_marker_uidx = marker_uidx;
       if (++chrom_marker_idx < chrom_marker_ct) {
         marker_uidx++;
 	if (IS_SET(marker_exclude, marker_uidx)) {
@@ -1785,7 +1793,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	ulii -= max_window_size;
       }
       marker_uidx2 = window_uidxs[window_cidx2];
-      if ((ulii == window_cidx) || (marker_pos[marker_uidx2] < marker_pos_thresh)) {
+      if (((ulii == window_cidx) && (prev_marker_uidx != marker_uidx2)) || (marker_pos[marker_uidx2] < marker_pos_thresh)) {
 	do {
 	  pos_r_tot = 0.0;
 	  neg_r_tot = 0.0;
