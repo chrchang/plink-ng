@@ -14654,6 +14654,10 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     // note that nomem is also possible here
   }
  OxBgenToPgen_ret_1:
+  // Join the workers before freeing anything they hold.  The decompressors
+  // below belong to the scan/compress threads, and an error path reaches here
+  // with those threads still inside libdeflate_zlib_decompress_ex().
+  CleanupThreads(&tg);
   if (common.libdeflate_decompressors) {
     for (uint32_t tidx = 0; tidx != max_thread_ct; ++tidx) {
       if (!common.libdeflate_decompressors[tidx]) {
@@ -14664,7 +14668,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     // common.libdeflate_decompressors = nullptr;
   }
   CleanupSpgw(&spgw, &reterr);
-  CleanupThreads(&tg);
   fclose_cond(bgenfile);
   fclose_cond(psamfile);
   CswriteCloseCond(&pvar_css, pvar_cswritep);
