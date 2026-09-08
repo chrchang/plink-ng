@@ -4434,7 +4434,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
         if (unlikely(bigstack_alloc_w(raw_sample_ctl, &nonfemale_tmp))) {
           goto WriteGenoCounts_ret_NOMEM;
         }
-        BitvecXor3Copy(sample_include, sex_male, sex_nm, raw_sample_ct, nonfemale_tmp);
+        BitvecXor3Copy(sample_include, sex_male, sex_nm, raw_sample_ctl, nonfemale_tmp);
         sex_nonfemale = nonfemale_tmp;
       }
       FillCumulativePopcounts(sex_nonfemale, raw_sample_ctl, sex_nonfemale_cumulative_popcounts);
