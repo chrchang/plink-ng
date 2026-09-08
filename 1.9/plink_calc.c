@@ -7761,6 +7761,14 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     // performance becomes less important than accuracy on 50+ million marker
     // sets.)
     // subtract marker_ct to guard against rounding-driven overflow
+    if (!(dyy > 0.0)) {
+      // Every remaining variant is monomorphic, so every weight is zero.  The
+      // division below then gives infinity, and 0 * infinity is NaN, which the
+      // cast to uint32_t makes undefined.
+      logerrprint("Error: No variant has positive weight; --distance cannot be computed.\n");
+      retval = RET_DEGENERATE_DATA;
+      goto calc_distance_ret_1;
+    }
     dyy = (4294967296.0 - ((double)((intptr_t)marker_ct))) / dyy;
     for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
       uii = (uint32_t)(dist_missing_wts[marker_idx] * dyy + 0.5);
