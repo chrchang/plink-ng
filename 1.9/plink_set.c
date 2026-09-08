@@ -2847,6 +2847,18 @@ int32_t annotate(const Annot_info* aip, uint32_t allow_extra_chroms, char* outna
       unique_annot_ct = write_idx + 1;
     } else {
       unique_annot_ct = attr_id_ct;
+      // Without ranges=, the attribute IDs are already in the order the header
+      // line is written in, so the remap is the identity.  It still has to
+      // exist: the annotation loop below indexes attr_id_remap[] without
+      // checking for null.
+      if (attr_id_ct) {
+	if (bigstack_alloc_ui(attr_id_ct, &attr_id_remap)) {
+	  goto annotate_ret_NOMEM;
+	}
+	for (ulii = 0; ulii < attr_id_ct; ulii++) {
+	  attr_id_remap[ulii] = 2 * ((uint32_t)ulii) + 1;
+	}
+      }
     }
 #ifdef __LP64__
     unique_annot_ctlw = (unique_annot_ct + 3) / 4;
