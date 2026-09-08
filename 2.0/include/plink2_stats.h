@@ -109,6 +109,11 @@ double KuonenQfLnP(double qval, const double* lambdas, uint32_t lambda_ct);
 
 double QfMixLnP(double qval, const double* lambdas, uint32_t lambda_ct);
 
+// Beta(xx; a1, a2) density.  Squared and multiplied by xx * (1 - xx) this is
+// the standard rare-variant weight, which is what makes a rarer variant count
+// for more.
+double BetaDensity(double xx, double a1, double a2);
+
 #ifdef __cplusplus
 }
 #endif
