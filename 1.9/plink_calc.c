@@ -3977,8 +3977,9 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	dist_ptr = dists;
 	for (ii = first_sample_idx; ii < end_sample_idx; ii++) {
 	  for (uii = 0; uii < (uint32_t)ii; uii++) {
-	    fxx = (float)dist_ptr[uii];
-	    fwrite(&fxx, 4, 1, *outfile_ptr);
+            // bugfix (7 Sep 2026): this previously clobbered fxx
+	    fyy = (float)dist_ptr[uii];
+	    fwrite(&fyy, 4, 1, *outfile_ptr);
 	  }
 	  dist_ptr = &(dist_ptr[(uint32_t)ii]);
 	  if (shape == DISTANCE_SQ0) {
@@ -7743,7 +7744,10 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       //     = 4 * maf * (1 - maf) * (maf * maf - maf + 1)
       //     constant factor doesn't matter here
       dxx = set_allele_freqs[marker_uidx];
-      if ((dxx != 0.0) && (dxx != 1.0)) {
+      if (dxx == 1.0) {
+        // bugfix (7 Sep 2026)
+        dxx = 0.0;
+      } else if (dxx != 0.0) {
 	dxx = dxx * (1.0 - dxx) * (dxx * dxx - dxx + 1);
 	if (main_weights) {
 	  dxx *= main_weights[marker_idx];
