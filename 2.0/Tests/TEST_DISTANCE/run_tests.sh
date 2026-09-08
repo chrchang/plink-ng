@@ -173,31 +173,10 @@ plink --bfile tmp_mono --exclude tmp_mono_drop.txt --distance --out plink19_mono
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_mono --exclude tmp_mono_drop.txt --distance --out plink2_mono2
 cmp plink19_mono2.dist plink2_mono2.dist
 
-# 6b. PLINK 1.9's single-precision square writer reuses the variable holding
-#     the last lower-triangle value for the diagonal, so its diagonal is that
-#     value instead of 0.  plink2 writes 0.  Everything off the diagonal
-#     matches.
+# 6b. Before 7 Sep 2026, PLINK 1.9's single-precision square writer reused the
+#     variable holding the last lower-triangle value for the diagonal, so its
+#     diagonal is that value instead of 0.  plink2 writes 0.
+#     This should now be concordant.
 plink --bfile tmp_data --distance flat-missing bin4 --out plink19_b4
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --distance flat-missing bin4 --out plink2_b4
-python3 - << 'EOF'
-import struct
-def rd(path):
-    with open(path, 'rb') as f:
-        data = f.read()
-    return struct.unpack('<%df' % (len(data) // 4), data)
-a = rd('plink19_b4.dist.bin')
-b = rd('plink2_b4.dist.bin')
-assert len(a) == len(b), (len(a), len(b))
-n = int(round(len(a) ** 0.5))
-assert n * n == len(a)
-off_diag_diffs = 0
-diag_zero = 0
-for i, (x, y) in enumerate(zip(a, b)):
-    if i // n == i % n:
-        assert y == 0.0, 'plink2 diagonal at %d is %r' % (i, y)
-        diag_zero += 1
-    elif x != y:
-        off_diag_diffs += 1
-assert off_diag_diffs == 0, '%d off-diagonal differences' % off_diag_diffs
-assert diag_zero == n
-EOF
+cmp plink19_b4.dist.bin plink2_b4.dist.bin
