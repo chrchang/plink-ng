@@ -14730,6 +14730,11 @@ void InitVcTest(VcTestInfo* vc_test_info_ptr) {
   vc_test_info_ptr->beta_a1 = 1.0;
   vc_test_info_ptr->beta_a2 = 25.0;
   vc_test_info_ptr->mac_thresh = 10;
+  vc_test_info_ptr->offset_covar_name = nullptr;
+}
+
+void CleanupVcTest(VcTestInfo* vc_test_info_ptr) {
+  free_cond(vc_test_info_ptr->offset_covar_name);
 }
 
 // Modified Gram-Schmidt.  The covariate count is small, and an orthonormal
@@ -14772,7 +14777,7 @@ static uint32_t OrthonormalizeCols(uint32_t row_ct, uint32_t col_ct, double* mat
 // covariates alone.  This is the only null SKAT-as-published needs for
 // unrelated samples: the variance component is a prior on the alternative,
 // not something estimated here.
-static BoolErr LogisticNullFit(const double* xx, const double* yy, uint32_t row_ct, uint32_t col_ct, double* betas, double* mu, double* wkspace) {
+static BoolErr LogisticNullFit(const double* xx, const double* yy, const double* offsets, uint32_t row_ct, uint32_t col_ct, double* betas, double* mu, double* wkspace) {
   double* eta = wkspace;
   double* xtwx = &(wkspace[row_ct]);
   double* xtwz = &(xtwx[S_CAST(uintptr_t, col_ct) * col_ct]);
@@ -14782,7 +14787,7 @@ static BoolErr LogisticNullFit(const double* xx, const double* yy, uint32_t row_
   }
   for (uint32_t iter = 0; iter != 50; ++iter) {
     for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
-      double cur_eta = 0.0;
+      double cur_eta = offsets? offsets[row_idx] : 0.0;
       for (uint32_t col_idx = 0; col_idx != col_ct; ++col_idx) {
         cur_eta += xx[S_CAST(uintptr_t, col_idx) * row_ct + row_idx] * betas[col_idx];
       }
@@ -14804,7 +14809,8 @@ static BoolErr LogisticNullFit(const double* xx, const double* yy, uint32_t row_
       double acc2 = 0.0;
       for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
         const double ww = mu[row_idx] * (1.0 - mu[row_idx]);
-        const double zz = eta[row_idx] + ((ww > 1e-12)? ((yy[row_idx] - mu[row_idx]) / ww) : 0.0);
+        // The offset is fixed, so it comes out of the working response.
+        const double zz = eta[row_idx] - (offsets? offsets[row_idx] : 0.0) + ((ww > 1e-12)? ((yy[row_idx] - mu[row_idx]) / ww) : 0.0);
         acc2 += ww * xx[S_CAST(uintptr_t, ii) * row_ct + row_idx] * zz;
       }
       xtwz[ii] = acc2;
@@ -14867,7 +14873,7 @@ static BoolErr LogisticNullFit(const double* xx, const double* yy, uint32_t row_
     }
   }
   for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
-    double cur_eta = 0.0;
+    double cur_eta = offsets? offsets[row_idx] : 0.0;
     for (uint32_t col_idx = 0; col_idx != col_ct; ++col_idx) {
       cur_eta += xx[S_CAST(uintptr_t, col_idx) * row_ct + row_idx] * betas[col_idx];
     }
@@ -14876,8 +14882,39 @@ static BoolErr LogisticNullFit(const double* xx, const double* yy, uint32_t row_
   return 0;
 }
 
+// Keeps the eigenvalues that carry the distribution and drops the ones that
+// are numerically zero.  The threshold has to be relative: the kernel is
+// rank-deficient after the covariates are projected out, so it produces
+// eigenvalues around 1e-8 next to others around 1e2, and an absolute cutoff
+// keeps that noise.  Keeping it is not just untidy, it is expensive: a
+// near-zero eigenvalue means the inversion's integrand decays only past
+// u ~ 1 / lambda_min, so the quadrature runs to millions of points.  This is
+// the SKAT package's convention, mean of the non-negative eigenvalues over
+// 1e5.
+static uint32_t FilterQfEigvals(uint32_t eigval_ct, double scale, double* eigvals) {
+  double total = 0.0;
+  uint32_t nonneg_ct = 0;
+  for (uint32_t ii = 0; ii != eigval_ct; ++ii) {
+    if (eigvals[ii] > 0.0) {
+      total += eigvals[ii];
+      ++nonneg_ct;
+    }
+  }
+  if (!nonneg_ct) {
+    return 0;
+  }
+  const double thresh = (total / u31tod(nonneg_ct)) * 1e-5;
+  uint32_t kept_ct = 0;
+  for (uint32_t ii = 0; ii != eigval_ct; ++ii) {
+    if (eigvals[ii] > thresh) {
+      eigvals[kept_ct++] = eigvals[ii] * scale;
+    }
+  }
+  return kept_ct;
+}
+
 #ifdef NOLAPACK
-PglErr VcTests(__maybe_unused const uintptr_t* sample_include, __maybe_unused const SampleIdInfo* siip, __maybe_unused const PhenoCol* pheno_cols, __maybe_unused const char* pheno_names, __maybe_unused const PhenoCol* covar_cols, __maybe_unused const uintptr_t* variant_include, __maybe_unused const char* const* variant_ids, __maybe_unused const uintptr_t* allele_idx_offsets, __maybe_unused const double* allele_freqs, __maybe_unused const char* set_fname, __maybe_unused const VcTestInfo* vtip, __maybe_unused uint32_t raw_sample_ct, __maybe_unused uint32_t sample_ct, __maybe_unused uint32_t pheno_ct, __maybe_unused uintptr_t max_pheno_name_blen, __maybe_unused uint32_t covar_ct, __maybe_unused uint32_t raw_variant_ct, __maybe_unused uint32_t variant_ct, __maybe_unused uint32_t max_thread_ct, __maybe_unused PgenReader* simple_pgrp, __maybe_unused char* outname, __maybe_unused char* outname_end) {
+PglErr VcTests(__maybe_unused const uintptr_t* sample_include, __maybe_unused const SampleIdInfo* siip, __maybe_unused const PhenoCol* pheno_cols, __maybe_unused const char* pheno_names, __maybe_unused const PhenoCol* covar_cols, __maybe_unused const char* covar_names, __maybe_unused const uintptr_t* variant_include, __maybe_unused const char* const* variant_ids, __maybe_unused const uintptr_t* allele_idx_offsets, __maybe_unused const double* allele_freqs, __maybe_unused const char* set_fname, __maybe_unused const VcTestInfo* vtip, __maybe_unused uint32_t raw_sample_ct, __maybe_unused uint32_t sample_ct, __maybe_unused uint32_t pheno_ct, __maybe_unused uintptr_t max_pheno_name_blen, __maybe_unused uint32_t covar_ct, __maybe_unused uintptr_t max_covar_name_blen, __maybe_unused uint32_t raw_variant_ct, __maybe_unused uint32_t variant_ct, __maybe_unused uint32_t max_thread_ct, __maybe_unused PgenReader* simple_pgrp, __maybe_unused char* outname, __maybe_unused char* outname_end) {
   logerrputs("Error: --vc-test requires a build with LAPACK.\n");
   return kPglRetNotSupported;
 }
@@ -14889,7 +14926,7 @@ PglErr VcTests(__maybe_unused const uintptr_t* sample_include, __maybe_unused co
 static const double kSkatoRhos[] = {0.0, 0.01, 0.04, 0.09, 0.16, 0.25, 0.5, 1.0};
 static const uint32_t kSkatoRhoCt = 8;
 
-PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const VcTestInfo* vtip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const VcTestInfo* vtip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   char* cswritep = nullptr;
@@ -14907,6 +14944,19 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
       if (unlikely(covar_cols[covar_idx].type_code != kPhenoDtypeQt)) {
         logerrputs("Error: --vc-test currently supports quantitative covariates only.\n");
+        goto VcTests_ret_INCONSISTENT_INPUT;
+      }
+    }
+    uint32_t offset_covar_idx = UINT32_MAX;
+    if (vtip->offset_covar_name) {
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+        if (!strcmp(&(covar_names[covar_idx * max_covar_name_blen]), vtip->offset_covar_name)) {
+          offset_covar_idx = covar_idx;
+          break;
+        }
+      }
+      if (unlikely(offset_covar_idx == UINT32_MAX)) {
+        logerrprintfww("Error: --vc-offset covariate '%s' not found.\n", vtip->offset_covar_name);
         goto VcTests_ret_INCONSISTENT_INPUT;
       }
     }
@@ -15048,6 +15098,7 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       double* resid;
       double* vsqrt;
       double* mu;
+      double* offsets;
       double* betas;
       double* logistic_wkspace;
       double* geno_buf;
@@ -15058,6 +15109,7 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
                    bigstack_alloc_d(cur_sample_ct, &resid) ||
                    bigstack_alloc_d(cur_sample_ct, &vsqrt) ||
                    bigstack_alloc_d(cur_sample_ct, &mu) ||
+                   bigstack_alloc_d(cur_sample_ct, &offsets) ||
                    bigstack_alloc_d(max_col_ct, &betas) ||
                    bigstack_alloc_d(cur_sample_ct + S_CAST(uintptr_t, max_col_ct) * (2 * max_col_ct + 3), &logistic_wkspace) ||
                    bigstack_alloc_d(geno_buf_size, &geno_buf) ||
@@ -15068,31 +15120,41 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
         xx[row_idx] = 1.0;
       }
+      uint32_t x_input_col_ct = 1;
       {
         uintptr_t sample_uidx_base = 0;
         uintptr_t cur_bits = cur_sample_include[0];
         for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
           const uintptr_t sample_uidx = BitIter1(cur_sample_include, &sample_uidx_base, &cur_bits);
           yy[row_idx] = (dtype == kPhenoDtypeQt)? cur_pheno_col->data.qt[sample_uidx] : (IsSet(cur_pheno_col->data.cc, sample_uidx)? 1.0 : 0.0);
+          offsets[row_idx] = (offset_covar_idx == UINT32_MAX)? 0.0 : covar_cols[offset_covar_idx].data.qt[sample_uidx];
+          uint32_t write_col = 1;
           for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
-            xx[S_CAST(uintptr_t, covar_idx + 1) * cur_sample_ct + row_idx] = covar_cols[covar_idx].data.qt[sample_uidx];
+            if (covar_idx == offset_covar_idx) {
+              continue;
+            }
+            xx[S_CAST(uintptr_t, write_col) * cur_sample_ct + row_idx] = covar_cols[covar_idx].data.qt[sample_uidx];
+            ++write_col;
           }
+          x_input_col_ct = write_col;
         }
       }
 
       double varscale;
       uint32_t xcol_ct;
       if (dtype == kPhenoDtypeQt) {
-        xcol_ct = OrthonormalizeCols(cur_sample_ct, max_col_ct, xx);
+        xcol_ct = OrthonormalizeCols(cur_sample_ct, x_input_col_ct, xx);
         for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
-          resid[row_idx] = yy[row_idx];
+          // A term with its coefficient fixed at 1 simply comes off the
+          // response.
+          resid[row_idx] = yy[row_idx] - offsets[row_idx];
           vsqrt[row_idx] = 1.0;
         }
         for (uint32_t col_idx = 0; col_idx != xcol_ct; ++col_idx) {
           const double* cur_col = &(xx[S_CAST(uintptr_t, col_idx) * cur_sample_ct]);
           double dotprod = 0.0;
           for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
-            dotprod += cur_col[row_idx] * yy[row_idx];
+            dotprod += cur_col[row_idx] * (yy[row_idx] - offsets[row_idx]);
           }
           for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
             resid[row_idx] -= dotprod * cur_col[row_idx];
@@ -15109,7 +15171,7 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           continue;
         }
       } else {
-        if (unlikely(LogisticNullFit(xx, yy, cur_sample_ct, max_col_ct, betas, mu, logistic_wkspace))) {
+        if (unlikely(LogisticNullFit(xx, yy, (offset_covar_idx == UINT32_MAX)? nullptr : offsets, cur_sample_ct, x_input_col_ct, betas, mu, logistic_wkspace))) {
           logerrprintfww("Warning: Skipping phenotype '%s' for --vc-test: the covariate-only logistic fit did not converge.\n", &(pheno_names[pheno_idx * max_pheno_name_blen]));
           BigstackReset(pheno_bigstack_mark);
           continue;
@@ -15119,11 +15181,11 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           const double vv = mu[row_idx] * (1.0 - mu[row_idx]);
           vsqrt[row_idx] = sqrt((vv > 1e-12)? vv : 1e-12);
           // The projection below is against V^{1/2}X, not X.
-          for (uint32_t col_idx = 0; col_idx != max_col_ct; ++col_idx) {
+          for (uint32_t col_idx = 0; col_idx != x_input_col_ct; ++col_idx) {
             xx[S_CAST(uintptr_t, col_idx) * cur_sample_ct + row_idx] *= vsqrt[row_idx];
           }
         }
-        xcol_ct = OrthonormalizeCols(cur_sample_ct, max_col_ct, xx);
+        xcol_ct = OrthonormalizeCols(cur_sample_ct, x_input_col_ct, xx);
         varscale = 1.0;
       }
 
@@ -15327,12 +15389,7 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           goto VcTests_ret_NOMEM;
         }
         {
-          uint32_t pos_ct = 0;
-          for (uint32_t ii = 0; ii != mm; ++ii) {
-            if (eigvals[ii] > 1e-9) {
-              eigvals[pos_ct++] = eigvals[ii] * varscale;
-            }
-          }
+          const uint32_t pos_ct = FilterQfEigvals(mm, varscale, eigvals);
           if (pos_ct) {
             skat_ln_p = QfMixLnP(q_skat, eigvals, pos_ct);
           }
@@ -15362,12 +15419,7 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           if (unlikely(ExtractEigvecs(mm, mm, eig_lwork, eig_liwork, kmat_work, eigvals, eigvecs, eig_wkspace))) {
             goto VcTests_ret_NOMEM;
           }
-          uint32_t pos_ct = 0;
-          for (uint32_t ii = 0; ii != mm; ++ii) {
-            if (eigvals[ii] > 1e-9) {
-              eigvals[pos_ct++] = eigvals[ii] * varscale;
-            }
-          }
+          const uint32_t pos_ct = FilterQfEigvals(mm, varscale, eigvals);
           rho_pvals[rho_idx] = pos_ct? QfMixLnP(q_rho, eigvals, pos_ct) : 0.0;
         }
         skato_ln_p = AcatCombineLnP(rho_pvals, nullptr, kSkatoRhoCt);

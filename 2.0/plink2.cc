@@ -3171,7 +3171,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1VcTest) {
-        reterr = VcTests(sample_include, &pii.sii, pheno_cols, pheno_names, covar_cols, variant_include, variant_ids, allele_idx_offsets, allele_freqs, pcp->set_list_fname, &(pcp->vc_test_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, raw_variant_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = VcTests(sample_include, &pii.sii, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, variant_ids, allele_idx_offsets, allele_freqs, pcp->set_list_fname, &(pcp->vc_test_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -13704,6 +13704,14 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.vc_test_info.mac_thresh = uii;
+        } else if (strequal_k_unsafe(flagname_p2, "c-offset")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = CmdlineAllocString(argvk[arg_idx + 1], "--vc-offset", kMaxIdSlen, &pc.vc_test_info.offset_covar_name);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "c-params")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -14637,6 +14645,7 @@ int main(int argc, char** argv) {
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
   CleanupAcat(&acat_info);
+  CleanupVcTest(&pc.vc_test_info);
   free_cond(pc.set_list_fname);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.zero_cluster_phenoname);

@@ -2054,11 +2054,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    'single-prec' causes the computation to use single- instead of\n"
 "    double-precision floating-point values internally.\n\n"
               );
-    HelpPrint("vc-test\0vc-max-af\0vc-mac-thresh\0vc-params\0set-list\0", &help_ctrl, 1,
+    HelpPrint("vc-test\0vc-max-af\0vc-mac-thresh\0vc-params\0vc-offset\0set-list\0", &help_ctrl, 1,
 "  --vc-test\n"
 "  --vc-max-af <max alt allele frequency>\n"
 "  --vc-mac-thresh <ultra-rare minor allele count>\n"
 "  --vc-params <a1> <a2>\n"
+"  --vc-offset <covariate name>\n"
 "    Gene-based rare-variant tests, one row per set, written to\n"
 "    <output prefix>[.<phenotype>].vc.  --set-list is required.  Reported per\n"
 "    set:\n"
@@ -2086,7 +2087,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      be quantitative.  Missing genotypes are mean-imputed, as SKAT\n"
 "      specifies.\n"
 "    * A set with one variant collapses to a single score test, and all four\n"
-"      p-values agree there by construction.\n\n"
+"      p-values agree there by construction.\n"
+"    * --vc-offset names a loaded covariate to enter the null model as a\n"
+"      per-sample offset, with its coefficient fixed at 1, instead of being\n"
+"      fitted.  That is how a null model fitted elsewhere becomes usable\n"
+"      here: load a package's leave-one-chromosome-out predictions with\n"
+"      --covar and name the column, and these tests inherit its control for\n"
+"      relatedness and structure without plink2 fitting a mixed model.\n"
+"      Passing such predictions as an ordinary covariate instead estimates a\n"
+"      coefficient for them, which is not the same thing and is not what you\n"
+"      want.\n\n"
                );
     HelpPrint("make-gene-masks\0build-mask\0mask-max-af\0set-list\0", &help_ctrl, 1,
 "  --make-gene-masks\n"

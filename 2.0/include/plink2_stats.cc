@@ -4193,6 +4193,10 @@ static const double kQfLn2 = 0.69314718055994530942;
 // Below this, tan((0.5 - p) * pi) is replaced by its 1/(p * pi) limit.
 static const double kAcatSmallLnP = -34.538776394910684;  // ln(1e-15)
 
+// ln(1e-5): where the inversion stops being reliable and the saddlepoint
+// takes over.  The SKAT R package and regenie both switch here.
+static const double kQfLnTailThresh = -11.512925464970229;
+
 // Cauchy combination test.  Liu, Chen, Li, Morrison, Boerwinkle & Lin (2019),
 // AJHG 104:410-421.
 //
@@ -4292,11 +4296,11 @@ double AcatCombineLnP(const double* ln_pvals, const double* weights, uint32_t pv
 //
 // Davies (1980) AS 155 is this inversion with a particular error-bounded
 // truncation and step size.
-static double ImhofIntegrand(double uu, double qval, const double* lambdas, uint32_t lambda_ct) {
+static double ImhofIntegrand(double uu, double qval, const double* lambdas, uint32_t lambda_ct, double scale) {
   double theta = -0.5 * qval * uu;
   double ln_rho = 0.0;
   for (uint32_t uii = 0; uii != lambda_ct; ++uii) {
-    const double lu = lambdas[uii] * uu;
+    const double lu = lambdas[uii] * scale * uu;
     theta += 0.5 * atan(lu);
     ln_rho += 0.25 * log1p(lu * lu);
   }
@@ -4319,9 +4323,25 @@ double DaviesQfP(double qval, const double* lambdas, uint32_t lambda_ct, double 
     // the error bound demands is far past where the quadrature stays sane.
     return (lambdas[0] > 0.0)? ChisqToP(qval / lambdas[0], 1) : 0.0;
   }
+  // Scale so the largest eigenvalue is 1.  The p-value does not depend on it,
+  // but the amount of work does, and badly: the eigenvalues here are on the
+  // scale of a genotype variance times the sample count, so without this the
+  // integrand oscillates thousands of times per unit u and the grid needed to
+  // resolve it runs to millions of points per test.
+  double lambda_max = 0.0;
+  for (uint32_t uii = 0; uii != lambda_ct; ++uii) {
+    if (lambdas[uii] > lambda_max) {
+      lambda_max = lambdas[uii];
+    }
+  }
+  if (!(lambda_max > 0.0)) {
+    return (qval > 0.0)? 0.0 : 1.0;
+  }
+  const double scale = 1.0 / lambda_max;
+  qval *= scale;
   double lambda_sum = 0.0;
   for (uint32_t uii = 0; uii != lambda_ct; ++uii) {
-    lambda_sum += lambdas[uii];
+    lambda_sum += lambdas[uii] * scale;
   }
   // Truncation.  Bounding the integrand by 1/(u*rho(u)) and integrating that
   // demands an absurd upper limit, because it throws away the oscillation:
@@ -4337,9 +4357,9 @@ double DaviesQfP(double qval, const double* lambdas, uint32_t lambda_ct, double 
     double ln_rho = 0.0;
     double theta_deriv = -0.5 * qval;
     for (uint32_t uii = 0; uii != lambda_ct; ++uii) {
-      const double lu = lambdas[uii] * uu_max;
+      const double lu = lambdas[uii] * scale * uu_max;
       ln_rho += 0.25 * log1p(lu * lu);
-      theta_deriv += 0.5 * lambdas[uii] / (1.0 + lu * lu);
+      theta_deriv += 0.5 * lambdas[uii] * scale / (1.0 + lu * lu);
     }
     if (theta_deriv < 0.0) {
       const double bound = 2.0 * exp(-ln_rho) / (-theta_deriv * uu_max);
@@ -4353,23 +4373,24 @@ double DaviesQfP(double qval, const double* lambdas, uint32_t lambda_ct, double 
   // The integrand turns over roughly every 4*pi/q in u once theta' has
   // settled, so the coarsest grid that can be believed has to resolve that.
   double nn_dbl = 8.0 * uu_max * (fabs(qval) + lambda_sum) * 0.5 * kQfRecipPi;
-  if (nn_dbl > 8388608.0) {
-    // Would cost more than the answer is worth; the caller falls back.
+  if (nn_dbl > 131072.0) {
+    // Would cost more than the answer is worth; the caller falls back to the
+    // saddlepoint, which is where this regime belongs anyway.
     return -1.0;
   }
   uint32_t nn = 1024;
-  while ((u31tod(nn) < nn_dbl) && (nn < 8388608)) {
+  while ((u31tod(nn) < nn_dbl) && (nn < 131072)) {
     nn *= 2;
   }
   const double f_zero = 0.5 * (lambda_sum - qval);  // u -> 0 limit
   double hh = uu_max / u31tod(nn);
-  double total = 0.5 * (f_zero + ImhofIntegrand(uu_max, qval, lambdas, lambda_ct));
+  double total = 0.5 * (f_zero + ImhofIntegrand(uu_max, qval, lambdas, lambda_ct, scale));
   for (uint32_t uii = 1; uii != nn; ++uii) {
-    total += ImhofIntegrand(u31tod(uii) * hh, qval, lambdas, lambda_ct);
+    total += ImhofIntegrand(u31tod(uii) * hh, qval, lambdas, lambda_ct, scale);
   }
   double integral = total * hh;
   for (uint32_t pass = 0; pass != 12; ++pass) {
-    if (nn > 16777216) {
+    if (nn > 524288) {
       break;
     }
     const double prev = integral;
@@ -4377,7 +4398,7 @@ double DaviesQfP(double qval, const double* lambdas, uint32_t lambda_ct, double 
     hh *= 0.5;
     double sum_new = 0.0;
     for (uint32_t uii = 1; uii < nn; uii += 2) {
-      sum_new += ImhofIntegrand(u31tod(uii) * hh, qval, lambdas, lambda_ct);
+      sum_new += ImhofIntegrand(u31tod(uii) * hh, qval, lambdas, lambda_ct, scale);
     }
     integral = 0.5 * prev + hh * sum_new;
     if (fabs(integral - prev) < acc) {
@@ -4474,11 +4495,22 @@ double QfMixLnP(double qval, const double* lambdas, uint32_t lambda_ct) {
   if (qval <= 0.0) {
     return 0.0;
   }
-  const double davies_p = DaviesQfP(qval, lambdas, lambda_ct, 1e-10);
+  // Saddlepoint first, even though the inversion is the more accurate of the
+  // two in the body.  It costs microseconds and tells us which regime we are
+  // in; the inversion, asked for a far-tail probability it cannot deliver,
+  // spends its entire refinement ladder before giving up, which is an order of
+  // magnitude more work than the answer.
+  const double kuonen_ln_p = KuonenQfLnP(qval, lambdas, lambda_ct);
+  if ((kuonen_ln_p <= 0.0) && (kuonen_ln_p < kQfLnTailThresh)) {
+    return kuonen_ln_p;
+  }
+  // 1e-6 absolute, which is what regenie asks of its own inversion.  The
+  // inversion is only trusted above 1e-5 here, so a tighter target would buy
+  // digits nobody reads and cost an order of magnitude more work.
+  const double davies_p = DaviesQfP(qval, lambdas, lambda_ct, 1e-6);
   if ((davies_p > 1e-5) && (davies_p <= 1.0)) {
     return log(davies_p);
   }
-  const double kuonen_ln_p = KuonenQfLnP(qval, lambdas, lambda_ct);
   if (kuonen_ln_p <= 0.0) {
     return kuonen_ln_p;
   }

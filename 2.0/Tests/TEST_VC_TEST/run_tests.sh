@@ -88,7 +88,39 @@ awk '!/^#/ { for (i = 6; i <= 10; ++i) if (!($i > 0) || $i > 1) { print "out of 
 awk '/^ONE/ { d = $7 - $6; if (d < 0) d = -d
               if (d > 1e-5 * $6 + 1e-12) { print "case/control singleton mismatch: " $0; exit 1 } }' tmp_ccv.vc
 
-# 7. Error cases.
+# 7. --vc-offset: a covariate whose coefficient is fixed at 1 rather than
+#    fitted.  Two exact identities pin the semantics down.
+awk 'NR == 1 { print "#FID IID LOCO ZERO"; next }
+     { printf "%s %s %.6f 0\n", $1, $2, 0.4 * $3 + ((FNR % 11) - 5) * 0.01 }' tmp_qt.pheno > tmp_cov.txt
+awk 'NR == FNR { if (FNR > 1) off[$2] = $3; next }
+     FNR == 1 { print "#FID IID QTADJ"; next }
+     { printf "%s %s %.10f\n", $1, $2, $3 - off[$2] }' tmp_cov.txt tmp_qt.pheno > tmp_qtadj.pheno
+
+# An all-zero offset changes nothing.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --pheno tmp_qt.pheno --pheno-name QT --covar tmp_cov.txt --covar-name ZERO --vc-offset ZERO --vc-test --set-list tmp_sets.txt --vc-max-af 0.5 --out tmp_ozero
+grep -v '^#' tmp_qtv.vc > tmp_base_rows.txt
+grep -v '^#' tmp_ozero.vc > tmp_zero_rows.txt
+if ! cmp -s tmp_base_rows.txt tmp_zero_rows.txt; then
+    echo "A zero offset changed the results."
+    exit 1
+fi
+
+# For a quantitative trait, an offset is exactly a shift of the response.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --pheno tmp_qt.pheno --pheno-name QT --covar tmp_cov.txt --covar-name LOCO --vc-offset LOCO --vc-test --set-list tmp_sets.txt --vc-max-af 0.5 --out tmp_oloco
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --pheno tmp_qtadj.pheno --pheno-name QTADJ --vc-test --set-list tmp_sets.txt --vc-max-af 0.5 --out tmp_oadj
+if ! cmp -s <(grep -v '^#' tmp_oloco.vc) <(grep -v '^#' tmp_oadj.vc); then
+    echo "Offset o did not match analysing (y - o)."
+    exit 1
+fi
+
+# And an offset is not a fitted covariate.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --pheno tmp_qt.pheno --pheno-name QT --covar tmp_cov.txt --covar-name LOCO --vc-test --set-list tmp_sets.txt --vc-max-af 0.5 --out tmp_ocov
+if cmp -s <(grep -v '^#' tmp_oloco.vc) <(grep -v '^#' tmp_ocov.vc); then
+    echo "Offset and fitted covariate gave identical results; one of them is wrong."
+    exit 1
+fi
+
+# 8. Error cases.
 fails() {
     if "$@" > /dev/null 2>&1; then
         echo "expected failure: $*"
@@ -98,5 +130,6 @@ fails() {
 fails $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --vc-test --out tmp_bad
 fails $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --vc-test --set-list tmp_sets.txt --vc-max-af 0 --out tmp_bad
 fails $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --vc-test --set-list tmp_sets.txt --vc-params 0 25 --out tmp_bad
+fails $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --pheno tmp_qt.pheno --covar tmp_cov.txt --vc-offset NOSUCHCOVAR --vc-test --set-list tmp_sets.txt --out tmp_bad
 
 echo "--vc-test tests passed."
