@@ -1667,6 +1667,13 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
   CompressStreamState css;
   CompressStreamState csst;
   ThreadGroup tg;
+  // Function scope on purpose: the worker threads hold pointers to these, and
+  // CleanupThreads() below is what joins them.  Declared inside the block
+  // instead, an error path that jumps out while the workers are still running
+  // leaves them reading a scope that has ended, which is what ASan reports as
+  // stack-use-after-scope on a truncated .pgen.
+  CalcKingSparseCtx sparse_ctx;
+  CalcKingDenseCtx dense_ctx;
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   PreinitCstream(&csst);
@@ -1736,7 +1743,6 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       calc_thread_ct = 1;
     }
     const uint32_t homhom_needed = (king_flags & kfKingColNsnp) || ((!(king_flags & kfKingCounts)) && (king_flags & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1 | kfKingColHamming)));
-    CalcKingSparseCtx sparse_ctx;
     uint32_t sparse_read_block_size = 0;
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     // These values are now permitted to underflow from sparse-optimization.
@@ -1781,7 +1787,6 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       singleton_missing_cts = sparse_ctx.thread_singleton_missing_cts[0];
     }
 
-    CalcKingDenseCtx dense_ctx;
     if (unlikely(SetThreadCt(calc_thread_ct, &tg) ||
                  bigstack_alloc_u32(calc_thread_ct + 1, &dense_ctx.thread_start))) {
       goto CalcKing_ret_NOMEM;
