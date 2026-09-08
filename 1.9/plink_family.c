@@ -4176,6 +4176,15 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   bigstack_reset((unsigned char*)idx_to_uidx);
   bigstack_shrink_top(dfam_iteration_order, (cur_dfam_ptr - dfam_iteration_order) * sizeof(int32_t));
   dfam_sample_ct = unfiltered_sample_ct - popcount_longs(dfam_sample_exclude, unfiltered_sample_ctl);
+  if (!dfam_sample_ct) {
+    // Everything downstream assumes at least one sample: the buffer-clearing
+    // loop below indexes [dfam_sample_ctl2 * i - 1], and
+    // copy_quaterarr_nonempty_subset_excl() asserts a nonempty subset.  A
+    // release build has no assertions, so this used to write before the
+    // buffer and shift a 64-bit value by 64.
+    logerrprint("Error: No samples remain for --dfam after family-structure filtering.\n");
+    goto dfam_ret_INVALID_CMDLINE;
+  }
   dfam_sample_ctl = BITCT_TO_WORDCT(dfam_sample_ct);
   dfam_sample_ctl2 = QUATERCT_TO_WORDCT(dfam_sample_ct);
   dfam_sample_ctaw = BITCT_TO_ALIGNED_WORDCT(dfam_sample_ct);
