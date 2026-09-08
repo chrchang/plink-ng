@@ -1753,7 +1753,6 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
 void InitAcat(AcatInfo* acat_info_ptr) {
   acat_info_ptr->flags = kfAcat0;
   acat_info_ptr->fname = nullptr;
-  acat_info_ptr->set_fname = nullptr;
   acat_info_ptr->test_name = nullptr;
   acat_info_ptr->id_field = nullptr;
   acat_info_ptr->test_field = nullptr;
@@ -1765,7 +1764,6 @@ void InitAcat(AcatInfo* acat_info_ptr) {
 
 void CleanupAcat(AcatInfo* acat_info_ptr) {
   free_cond(acat_info_ptr->fname);
-  free_cond(acat_info_ptr->set_fname);
   free_cond(acat_info_ptr->test_name);
   free_cond(acat_info_ptr->id_field);
   free_cond(acat_info_ptr->test_field);
@@ -1784,7 +1782,7 @@ static double BetaDensity(double xx, double a1, double a2) {
   return exp((a1 - 1.0) * log(xx) + (a2 - 1.0) * log1p(-xx) - ln_beta);
 }
 
-PglErr AcatSets(const AcatInfo* acip, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr AcatSets(const AcatInfo* acip, const char* set_fname, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   const char* in_fname = acip->fname;
@@ -1796,7 +1794,7 @@ PglErr AcatSets(const AcatInfo* acip, double output_min_ln, uint32_t max_thread_
   PreinitCstream(&css);
   PreinitTextStream(&txs);
   {
-    if (unlikely(!acip->set_fname)) {
+    if (unlikely(!set_fname)) {
       logerrputs("Error: --acat-file requires --set-list.\n");
       goto AcatSets_ret_INCONSISTENT_INPUT;
     }
@@ -2008,7 +2006,7 @@ PglErr AcatSets(const AcatInfo* acip, double output_min_ln, uint32_t max_thread_
     }
 
     // Second stream: the set definitions.
-    reterr = SizeAndInitTextStream(acip->set_fname, bigstack_left() / 4, MAXV(max_thread_ct, 1), &txs);
+    reterr = SizeAndInitTextStream(set_fname, bigstack_left() / 4, MAXV(max_thread_ct, 1), &txs);
     if (unlikely(reterr)) {
       goto AcatSets_ret_TSTREAM_SET_FAIL;
     }
@@ -2128,7 +2126,7 @@ PglErr AcatSets(const AcatInfo* acip, double output_min_ln, uint32_t max_thread_
     TextStreamErrPrintRewind(in_fname, &txs, &reterr);
     break;
   AcatSets_ret_TSTREAM_SET_FAIL:
-    TextStreamErrPrint(acip->set_fname, &txs);
+    TextStreamErrPrint(set_fname, &txs);
     break;
   AcatSets_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, in_fname);
@@ -2139,7 +2137,7 @@ PglErr AcatSets(const AcatInfo* acip, double output_min_ln, uint32_t max_thread_
     reterr = kPglRetMalformedInput;
     break;
   AcatSets_ret_SET_MISSING_TOKENS:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, acip->set_fname);
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, set_fname);
     WordWrapB(0);
     logerrputsb();
     reterr = kPglRetMalformedInput;

@@ -118,6 +118,11 @@ cd TEST_ACAT
 cd ..
 echo "TEST_ACAT passed."
 
+cd TEST_GENE_MASK
+./run_tests.sh $d $2 $3 > TEST_GENE_MASK.log
+cd ..
+echo "TEST_GENE_MASK passed."
+
 cd TEST_SHOW_TAGS
 ./run_tests.sh $d $2 $3 > TEST_SHOW_TAGS.log
 cd ..
