@@ -11488,6 +11488,12 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     if (load_and_collapse(unfiltered_sample_ct, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx_cur), bedfile, loadbuf_raw, cursnp_ptr)) {
       goto test_mishap_ret_READ_FAIL;
     }
+    // bugfix (7 Sep 2026)
+    if (marker_uidx_next > marker_uidx_cur + 1) {
+      if (fseeko(bedfile, bed_offset + marker_uidx_next * ((uint64_t)unfiltered_sample_ct4), SEEK_SET)) {
+        goto test_mishap_ret_READ_FAIL;
+      }
+    }
     missing_ct_cur = count_01(cursnp_ptr, sample_ctl2);
     marker_uidx_prev = ~ZEROLU;
     for (; marker_uidx_cur < chrom_end; marker_uidx_prev = marker_uidx_cur, marker_uidx_cur = marker_uidx_next, prevsnp_ptr = cursnp_ptr, cursnp_ptr = nextsnp_ptr, missing_ct_cur = missing_ct_next, marker_uidx_next++) {
@@ -11516,14 +11522,14 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
       if (missing_ct_cur < 5) {
 	continue;
       }
-      quatervec_copy_only_01(cursnp_ptr, unfiltered_sample_ct, maskbuf_mid);
+      quatervec_copy_only_01(cursnp_ptr, sample_ct, maskbuf_mid);
       uiptr = counts;
       for (uii = 0; uii < 2; uii++) {
 	if (uii) {
-	  quatervec_01_invert(unfiltered_sample_ct, maskbuf_mid);
+	  quatervec_01_invert(sample_ct, maskbuf_mid);
 	}
         for (ujj = 0; ujj < 3; ujj++) {
-          vec_datamask(unfiltered_sample_ct, ujj + (ujj + 1) / 2, prevsnp_ptr, maskbuf_mid, maskbuf);
+          vec_datamask(sample_ct, ujj + (ujj + 1) / 2, prevsnp_ptr, maskbuf_mid, maskbuf);
 	  ukk = popcount01_longs(maskbuf, sample_ctl2);
 	  genovec_3freq(nextsnp_ptr, maskbuf, sample_ctl2, &umm, &(uiptr[1]), &(uiptr[2]));
 	  uiptr[0] = ukk - umm - uiptr[1] - uiptr[2];
