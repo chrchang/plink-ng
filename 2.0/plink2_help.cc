@@ -2054,12 +2054,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    'single-prec' causes the computation to use single- instead of\n"
 "    double-precision floating-point values internally.\n\n"
               );
-    HelpPrint("vc-test\0vc-max-af\0vc-mac-thresh\0vc-params\0vc-offset\0set-list\0", &help_ctrl, 1,
+    HelpPrint("vc-test\0vc-max-af\0vc-mac-thresh\0vc-params\0vc-offset\0vc-weights\0set-list\0", &help_ctrl, 1,
 "  --vc-test\n"
 "  --vc-max-af <max alt allele frequency>\n"
 "  --vc-mac-thresh <ultra-rare minor allele count>\n"
 "  --vc-params <a1> <a2>\n"
 "  --vc-offset <covariate name>\n"
+"  --vc-weights <filename>\n"
 "    Gene-based rare-variant tests, one row per set, written to\n"
 "    <output prefix>[.<phenotype>].vc.  --set-list is required.  Reported per\n"
 "    set:\n"
@@ -2096,7 +2097,18 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      relatedness and structure without plink2 fitting a mixed model.\n"
 "      Passing such predictions as an ordinary covariate instead estimates a\n"
 "      coefficient for them, which is not the same thing and is not what you\n"
-"      want.\n\n"
+"      want.\n"
+"    * --vc-weights supplies per-variant weights instead of the Beta(MAF)\n"
+"      ones: variant ID in the first column, then one column per weight\n"
+"      scheme, named by the header.  Every set is reported once per scheme,\n"
+"      identified in the WEIGHTS column.  A variant absent from the file, or\n"
+"      with a missing entry, gets weight zero and drops out of that scheme.\n"
+"      From plink2's side a functional annotation score is just a numeric\n"
+"      column, indistinguishable from a frequency-based weight, so this is\n"
+"      how annotation-driven testing is expressed here without plink2 taking\n"
+"      any position on where the annotation came from.  Running the battery\n"
+"      under several such schemes and combining the results is what the\n"
+"      STAAR family of tests does.\n\n"
                );
     HelpPrint("make-gene-masks\0build-mask\0mask-max-af\0set-list\0", &help_ctrl, 1,
 "  --make-gene-masks\n"

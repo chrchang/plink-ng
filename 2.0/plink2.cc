@@ -3171,14 +3171,14 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1VcTest) {
-        reterr = VcTests(sample_include, &pii.sii, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, variant_ids, allele_idx_offsets, allele_freqs, pcp->set_list_fname, &(pcp->vc_test_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = VcTests(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, variant_ids, allele_idx_offsets, allele_freqs, pcp->set_list_fname, &(pcp->vc_test_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
       }
 
       if (pcp->command_flags1 & kfCommand1GeneMask) {
-        reterr = MakeGeneMasks(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, allele_idx_offsets, allele_freqs, pcp->set_list_fname, &(pcp->gene_mask_info), pcp->output_missing_pheno, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = MakeGeneMasks(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, variant_ids, allele_idx_offsets, allele_freqs, pcp->set_list_fname, &(pcp->gene_mask_info), pcp->output_missing_pheno, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -13704,6 +13704,14 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.vc_test_info.mac_thresh = uii;
+        } else if (strequal_k_unsafe(flagname_p2, "c-weights")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.vc_test_info.weights_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "c-offset")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;

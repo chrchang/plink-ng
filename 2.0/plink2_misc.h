@@ -578,7 +578,7 @@ typedef struct GeneMaskInfoStruct {
 
 void InitGeneMask(GeneMaskInfo* gene_mask_info_ptr);
 
-PglErr MakeGeneMasks(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const GeneMaskInfo* gmip, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr MakeGeneMasks(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const GeneMaskInfo* gmip, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 
 // --vc-test: variance-component and omnibus gene-based tests.  All of them
@@ -595,13 +595,17 @@ typedef struct VcTestInfoStruct {
   // point: a leave-one-chromosome-out prediction is an offset, and passing one
   // as an ordinary covariate estimates a coefficient for it, which is wrong.
   char* offset_covar_name;
+  // Per-variant weights, one column per scheme.  Running the battery under
+  // several weight schemes and combining is what STAAR does with its
+  // annotation channels.
+  char* weights_fname;
 } VcTestInfo;
 
 void InitVcTest(VcTestInfo* vc_test_info_ptr);
 
 void CleanupVcTest(VcTestInfo* vc_test_info_ptr);
 
-PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const VcTestInfo* vtip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr VcTests(const uintptr_t* sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const VcTestInfo* vtip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 }  // namespace plink2

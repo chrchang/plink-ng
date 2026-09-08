@@ -14413,7 +14413,7 @@ static BoolErr ParseSetLine(const char* line_start, SetLine* slp) {
   return 0;
 }
 
-PglErr MakeGeneMasks(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const GeneMaskInfo* gmip, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakeGeneMasks(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const GeneMaskInfo* gmip, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* pvar_file = nullptr;
@@ -14731,10 +14731,12 @@ void InitVcTest(VcTestInfo* vc_test_info_ptr) {
   vc_test_info_ptr->beta_a2 = 25.0;
   vc_test_info_ptr->mac_thresh = 10;
   vc_test_info_ptr->offset_covar_name = nullptr;
+  vc_test_info_ptr->weights_fname = nullptr;
 }
 
 void CleanupVcTest(VcTestInfo* vc_test_info_ptr) {
   free_cond(vc_test_info_ptr->offset_covar_name);
+  free_cond(vc_test_info_ptr->weights_fname);
 }
 
 // Modified Gram-Schmidt.  The covariate count is small, and an orthonormal
@@ -14882,6 +14884,142 @@ static BoolErr LogisticNullFit(const double* xx, const double* yy, const double*
   return 0;
 }
 
+// Per-variant weights supplied by the user, one column per scheme.  This is
+// what makes annotation-driven testing expressible here without plink2 taking
+// any position on where an annotation came from: from its side a functional
+// score is just another numeric column, indistinguishable from a Beta(MAF)
+// weight.  A variant absent from the file, or with a missing entry, gets
+// weight zero and drops out of that scheme.
+static PglErr LoadVcWeights(const char* fname, const char* const* variant_ids, const uint32_t* variant_id_htable, uint32_t variant_id_htable_size, uint32_t max_variant_id_slen, uint32_t raw_variant_ct, uint32_t max_thread_ct, double** weights_ptr, char** scheme_names_ptr, uintptr_t* max_scheme_name_blen_ptr, uint32_t* scheme_ct_ptr) {
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    reterr = SizeAndInitTextStream(fname, bigstack_left() / 8, MAXV(max_thread_ct, 1), &txs);
+    if (unlikely(reterr)) {
+      goto LoadVcWeights_ret_TSTREAM_FAIL;
+    }
+    ++line_idx;
+    const char* header = TextGet(&txs);
+    if (unlikely(!header)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", fname);
+      goto LoadVcWeights_ret_MALFORMED_INPUT_WW;
+    }
+    if (*header == '#') {
+      ++header;
+    }
+    // First column is the variant ID; the rest name the schemes.
+    const char* iter = FirstNonTspace(header);
+    const char* first_end = CurTokenEnd(iter);
+    uint32_t scheme_ct = 0;
+    uintptr_t max_name_blen = 2;
+    {
+      const char* scan = FirstNonTspace(first_end);
+      while (!IsEolnKns(*scan)) {
+        const char* scan_end = CurTokenEnd(scan);
+        const uintptr_t cur_blen = S_CAST(uintptr_t, scan_end - scan) + 1;
+        if (cur_blen > max_name_blen) {
+          max_name_blen = cur_blen;
+        }
+        ++scheme_ct;
+        scan = FirstNonTspace(scan_end);
+      }
+    }
+    if (unlikely(!scheme_ct)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s has no weight column.\n", fname);
+      goto LoadVcWeights_ret_MALFORMED_INPUT_WW;
+    }
+    if (unlikely(scheme_ct > 32)) {
+      logerrputs("Error: --vc-weights supports at most 32 weight columns.\n");
+      goto LoadVcWeights_ret_MALFORMED_INPUT;
+    }
+    char* scheme_names;
+    double* weights;
+    if (unlikely(bigstack_alloc_c(scheme_ct * max_name_blen, &scheme_names) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, raw_variant_ct) * scheme_ct, &weights))) {
+      goto LoadVcWeights_ret_NOMEM;
+    }
+    {
+      const char* scan = FirstNonTspace(first_end);
+      for (uint32_t scheme_idx = 0; scheme_idx != scheme_ct; ++scheme_idx) {
+        const char* scan_end = CurTokenEnd(scan);
+        memcpyx(&(scheme_names[scheme_idx * max_name_blen]), scan, scan_end - scan, '\0');
+        scan = FirstNonTspace(scan_end);
+      }
+    }
+    ZeroDArr(S_CAST(uintptr_t, raw_variant_ct) * scheme_ct, weights);
+
+    uintptr_t matched_ct = 0;
+    while (1) {
+      ++line_idx;
+      const char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      if (*line_start == '#') {
+        continue;
+      }
+      const char* id_start = FirstNonTspace(line_start);
+      if (IsEolnKns(*id_start)) {
+        continue;
+      }
+      const char* id_end = CurTokenEnd(id_start);
+      const uint32_t id_slen = id_end - id_start;
+      const uint32_t htable_val = VariantIdDupflagHtableFind(id_start, variant_ids, variant_id_htable, id_slen, variant_id_htable_size, max_variant_id_slen);
+      const char* scan = FirstNonTspace(id_end);
+      if (htable_val == UINT32_MAX) {
+        continue;
+      }
+      const uint32_t variant_uidx = htable_val & 0x7fffffff;
+      double* cur_weights = &(weights[S_CAST(uintptr_t, variant_uidx) * scheme_ct]);
+      for (uint32_t scheme_idx = 0; scheme_idx != scheme_ct; ++scheme_idx) {
+        if (unlikely(IsEolnKns(*scan))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
+          goto LoadVcWeights_ret_MALFORMED_INPUT_WW;
+        }
+        const char* scan_end = CurTokenEnd(scan);
+        double dxx;
+        if (ScanadvDouble(scan, &dxx) && (dxx >= 0.0)) {
+          cur_weights[scheme_idx] = dxx;
+        }
+        scan = FirstNonTspace(scan_end);
+      }
+      ++matched_ct;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LoadVcWeights_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(!matched_ct)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: No variant in %s matched the loaded dataset.\n", fname);
+      goto LoadVcWeights_ret_MALFORMED_INPUT_WW;
+    }
+    logprintfww("--vc-weights: %u weight column%s for %" PRIuPTR " variant%s loaded from %s.\n", scheme_ct, (scheme_ct == 1)? "" : "s", matched_ct, (matched_ct == 1)? "" : "s", fname);
+    *weights_ptr = weights;
+    *scheme_names_ptr = scheme_names;
+    *max_scheme_name_blen_ptr = max_name_blen;
+    *scheme_ct_ptr = scheme_ct;
+  }
+  while (0) {
+  LoadVcWeights_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadVcWeights_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(fname, &txs);
+    break;
+  LoadVcWeights_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  LoadVcWeights_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+  CleanupTextStream2(fname, &txs, &reterr);
+  BigstackEndReset(bigstack_end_mark);
+  return reterr;
+}
+
 // Keeps the eigenvalues that carry the distribution and drops the ones that
 // are numerically zero.  The threshold has to be relative: the kernel is
 // rank-deficient after the covariates are projected out, so it produces
@@ -14914,7 +15052,7 @@ static uint32_t FilterQfEigvals(uint32_t eigval_ct, double scale, double* eigval
 }
 
 #ifdef NOLAPACK
-PglErr VcTests(__maybe_unused const uintptr_t* sample_include, __maybe_unused const SampleIdInfo* siip, __maybe_unused const PhenoCol* pheno_cols, __maybe_unused const char* pheno_names, __maybe_unused const PhenoCol* covar_cols, __maybe_unused const char* covar_names, __maybe_unused const uintptr_t* variant_include, __maybe_unused const char* const* variant_ids, __maybe_unused const uintptr_t* allele_idx_offsets, __maybe_unused const double* allele_freqs, __maybe_unused const char* set_fname, __maybe_unused const VcTestInfo* vtip, __maybe_unused uint32_t raw_sample_ct, __maybe_unused uint32_t sample_ct, __maybe_unused uint32_t pheno_ct, __maybe_unused uintptr_t max_pheno_name_blen, __maybe_unused uint32_t covar_ct, __maybe_unused uintptr_t max_covar_name_blen, __maybe_unused uint32_t raw_variant_ct, __maybe_unused uint32_t variant_ct, __maybe_unused uint32_t max_thread_ct, __maybe_unused PgenReader* simple_pgrp, __maybe_unused char* outname, __maybe_unused char* outname_end) {
+PglErr VcTests(__maybe_unused const uintptr_t* sample_include, __maybe_unused const PhenoCol* pheno_cols, __maybe_unused const char* pheno_names, __maybe_unused const PhenoCol* covar_cols, __maybe_unused const char* covar_names, __maybe_unused const uintptr_t* variant_include, __maybe_unused const char* const* variant_ids, __maybe_unused const uintptr_t* allele_idx_offsets, __maybe_unused const double* allele_freqs, __maybe_unused const char* set_fname, __maybe_unused const VcTestInfo* vtip, __maybe_unused uint32_t raw_sample_ct, __maybe_unused uint32_t pheno_ct, __maybe_unused uintptr_t max_pheno_name_blen, __maybe_unused uint32_t covar_ct, __maybe_unused uintptr_t max_covar_name_blen, __maybe_unused uint32_t raw_variant_ct, __maybe_unused uint32_t variant_ct, __maybe_unused uint32_t max_thread_ct, __maybe_unused PgenReader* simple_pgrp, __maybe_unused char* outname, __maybe_unused char* outname_end) {
   logerrputs("Error: --vc-test requires a build with LAPACK.\n");
   return kPglRetNotSupported;
 }
@@ -14926,7 +15064,7 @@ PglErr VcTests(__maybe_unused const uintptr_t* sample_include, __maybe_unused co
 static const double kSkatoRhos[] = {0.0, 0.01, 0.04, 0.09, 0.16, 0.25, 0.5, 1.0};
 static const uint32_t kSkatoRhoCt = 8;
 
-PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const VcTestInfo* vtip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr VcTests(const uintptr_t* sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const VcTestInfo* vtip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   char* cswritep = nullptr;
@@ -15041,10 +15179,13 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     unsigned char* eig_wkspace;
     double* kmat;
     double* kmat_work;
+    double* kmat_raw;
+    double* svals_raw;
     double* eigvals;
     double* eigvecs;
     double* svals;
     double* weights;
+    double* beta_weights;
     double* mafs;
     uint32_t* member_uidxs;
     uint32_t* is_ultrarare;
@@ -15052,10 +15193,13 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     if (unlikely(bigstack_alloc_uc(eig_wkspace_byte_ct, &eig_wkspace) ||
                  bigstack_alloc_d(S_CAST(uintptr_t, max_member_ct) * max_member_ct, &kmat) ||
                  bigstack_alloc_d(S_CAST(uintptr_t, max_member_ct) * max_member_ct, &kmat_work) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, max_member_ct) * max_member_ct, &kmat_raw) ||
+                 bigstack_alloc_d(max_member_ct, &svals_raw) ||
                  bigstack_alloc_d(max_member_ct, &eigvals) ||
                  bigstack_alloc_d(S_CAST(uintptr_t, max_member_ct) * max_member_ct, &eigvecs) ||
                  bigstack_alloc_d(max_member_ct, &svals) ||
                  bigstack_alloc_d(max_member_ct, &weights) ||
+                 bigstack_alloc_d(max_member_ct, &beta_weights) ||
                  bigstack_alloc_d(max_member_ct, &mafs) ||
                  bigstack_alloc_u32(max_member_ct, &member_uidxs) ||
                  bigstack_alloc_u32(max_member_ct, &is_ultrarare) ||
@@ -15063,6 +15207,16 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       goto VcTests_ret_NOMEM;
     }
 
+    double* variant_weights = nullptr;
+    char* scheme_names = nullptr;
+    uintptr_t max_scheme_name_blen = 0;
+    uint32_t scheme_ct = 1;
+    if (vtip->weights_fname) {
+      reterr = LoadVcWeights(vtip->weights_fname, variant_ids, variant_id_htable, variant_id_htable_size, max_variant_id_slen, raw_variant_ct, max_thread_ct, &variant_weights, &scheme_names, &max_scheme_name_blen, &scheme_ct);
+      if (unlikely(reterr)) {
+        goto VcTests_ret_1;
+      }
+    }
     const double max_af = vtip->max_af;
     const double beta_a1 = vtip->beta_a1;
     const double beta_a2 = vtip->beta_a2;
@@ -15200,7 +15354,7 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       if (unlikely(reterr)) {
         goto VcTests_ret_1;
       }
-      cswritep = strcpya_k(cswritep, "#SET\tCHROM\tPOS\tNVAR\tNVAR_ULTRARARE\tBURDEN_P\tSKAT_P\tSKATO_P\tACATV_P\tACATO_P" EOLN_STR);
+      cswritep = strcpya_k(cswritep, "#SET\tCHROM\tPOS\tWEIGHTS\tNVAR\tNVAR_ULTRARARE\tBURDEN_P\tSKAT_P\tSKATO_P\tACATV_P\tACATO_P" EOLN_STR);
 
       reterr = SizeAndInitTextStream(set_fname, bigstack_left() / 8, MAXV(max_thread_ct, 1), &set_txs);
       if (unlikely(reterr)) {
@@ -15310,19 +15464,18 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             }
             mafs[midx] = maf;
             const double beta_wt = BetaDensity(maf, beta_a1, beta_a2);
-            weights[midx] = beta_wt;
+            beta_weights[midx] = beta_wt;
             is_ultrarare[midx] = (dosage_sum < u31tod(mac_thresh))? 1 : 0;
             ultrarare_ct += is_ultrarare[midx];
-            // Weight, then apply the same V^{1/2} scaling the covariates got.
-            for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
-              cur_row[row_idx] *= beta_wt;
-            }
-            // Score, on the unscaled-by-V genotypes.
+            // Genotypes are kept unweighted here.  A weight enters the score
+            // linearly and the kernel bilinearly, so scoring once and scaling
+            // afterwards gives the same answer while letting several weight
+            // schemes share one genotype pass.
             double score = 0.0;
             for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
               score += cur_row[row_idx] * resid[row_idx];
             }
-            svals[midx] = score;
+            svals_raw[midx] = score;
             if (dtype != kPhenoDtypeQt) {
               for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
                 cur_row[row_idx] *= vsqrt[row_idx];
@@ -15355,8 +15508,21 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             for (uint32_t col_idx = 0; col_idx != xcol_ct; ++col_idx) {
               acc -= xproj[S_CAST(uintptr_t, ii) * max_col_ct + col_idx] * xproj[S_CAST(uintptr_t, jj) * max_col_ct + col_idx];
             }
-            kmat[S_CAST(uintptr_t, ii) * mm + jj] = acc;
-            kmat[S_CAST(uintptr_t, jj) * mm + ii] = acc;
+            kmat_raw[S_CAST(uintptr_t, ii) * mm + jj] = acc;
+            kmat_raw[S_CAST(uintptr_t, jj) * mm + ii] = acc;
+          }
+        }
+
+        for (uint32_t scheme_idx = 0; scheme_idx != scheme_ct; ++scheme_idx) {
+        // Apply the weight scheme.  A weight enters the score linearly and the
+        // kernel bilinearly, so this is all a new scheme costs.
+        for (uint32_t ii = 0; ii != mm; ++ii) {
+          weights[ii] = variant_weights? variant_weights[S_CAST(uintptr_t, member_uidxs[ii]) * scheme_ct + scheme_idx] : beta_weights[ii];
+        }
+        for (uint32_t ii = 0; ii != mm; ++ii) {
+          svals[ii] = svals_raw[ii] * weights[ii];
+          for (uint32_t jj = 0; jj != mm; ++jj) {
+            kmat[S_CAST(uintptr_t, ii) * mm + jj] = kmat_raw[S_CAST(uintptr_t, ii) * mm + jj] * weights[ii] * weights[jj];
           }
         }
 
@@ -15472,6 +15638,11 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         cswritep = memcpyax(cswritep, sl.name, sl.name_end - sl.name, '\t');
         cswritep = memcpyax(cswritep, sl.chr_str, sl.chr_end - sl.chr_str, '\t');
         cswritep = memcpyax(cswritep, sl.pos_str, sl.pos_end - sl.pos_str, '\t');
+        if (scheme_names) {
+          cswritep = strcpyax(cswritep, &(scheme_names[scheme_idx * max_scheme_name_blen]), '\t');
+        } else {
+          cswritep = strcpya_k(cswritep, "BETA\t");
+        }
         cswritep = u32toa_x(mm, '\t', cswritep);
         cswritep = u32toa_x(ultrarare_ct, '\t', cswritep);
         cswritep = lntoa_g(burden_ln_p, cswritep);
@@ -15486,6 +15657,7 @@ PglErr VcTests(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         AppendBinaryEoln(&cswritep);
         if (unlikely(Cswrite(&css, &cswritep))) {
           goto VcTests_ret_WRITE_FAIL;
+        }
         }
         ++set_ct;
       }
