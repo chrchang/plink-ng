@@ -2284,7 +2284,10 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	bufptr2 = &(bufptr[ulii * max_occur_id_len]);
 	slen = strlen(bufptr2);
 	pzwritep = memcpyax(pzwritep, bufptr2, slen, ' ');
-	pzwritep = uint32toa(*((uint32_t*)(&(bufptr2[slen + 1]))), pzwritep);
+	// The count sits right after the variable-length ID, so it is not
+	// 4-byte aligned; read it the same way it was written above.
+	memcpy(&uii, &(bufptr2[slen + 1]), sizeof(int32_t));
+	pzwritep = uint32toa(uii, pzwritep);
 	append_binary_eoln(&pzwritep);
 	if (flex_pzwrite(&ps, &pzwritep)) {
 	  goto plink1_dosage_ret_WRITE_FAIL;
