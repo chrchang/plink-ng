@@ -33,6 +33,7 @@
 #include "plink2_cmdline.h"
 #include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
+#include "include/pgenlib_write.h"
 #include "plink2_data.h"
 
 #ifdef __cplusplus
@@ -14368,6 +14369,358 @@ PglErr CheckAlleleUniqueness(const uintptr_t* variant_include, const ChrInfo* ci
   }
   CleanupThreads(&tg);
   BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+void InitGeneMask(GeneMaskInfo* gene_mask_info_ptr) {
+  gene_mask_info_ptr->flags = kfGeneMask0;
+  gene_mask_info_ptr->max_af = 0.01;
+}
+
+// Reads one set-definition line: set name, chromosome, position, then a
+// comma-separated list of variant IDs.  This is the layout REGENIE's
+// --set-list uses, so existing gene definitions work unchanged.
+typedef struct SetLineStruct {
+  const char* name;
+  const char* name_end;
+  const char* chr_str;
+  const char* chr_end;
+  const char* pos_str;
+  const char* pos_end;
+  const char* id_list;
+  const char* id_list_end;
+} SetLine;
+
+static BoolErr ParseSetLine(const char* line_start, SetLine* slp) {
+  slp->name = line_start;
+  slp->name_end = CurTokenEnd(slp->name);
+  slp->chr_str = FirstNonTspace(slp->name_end);
+  if (IsEolnKns(*(slp->chr_str))) {
+    return 1;
+  }
+  slp->chr_end = CurTokenEnd(slp->chr_str);
+  slp->pos_str = FirstNonTspace(slp->chr_end);
+  if (IsEolnKns(*(slp->pos_str))) {
+    return 1;
+  }
+  slp->pos_end = CurTokenEnd(slp->pos_str);
+  slp->id_list = FirstNonTspace(slp->pos_end);
+  if (IsEolnKns(*(slp->id_list))) {
+    return 1;
+  }
+  slp->id_list_end = CurTokenEnd(slp->id_list);
+  return 0;
+}
+
+PglErr MakeGeneMasks(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const GeneMaskInfo* gmip, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  FILE* pvar_file = nullptr;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream set_txs;
+  STPgenWriter spgw;
+  PreinitTextStream(&set_txs);
+  PreinitSpgw(&spgw);
+  {
+    if (unlikely(!sample_ct)) {
+      logerrputs("Error: --make-gene-masks requires at least one sample.\n");
+      goto MakeGeneMasks_ret_INCONSISTENT_INPUT;
+    }
+    // Sets name their members by variant ID, so those IDs have to identify a
+    // single variant.  This is the same requirement --indep-pairwise imposes.
+    uint32_t* variant_id_htable;
+    uint32_t* htable_dup_base;
+    uint32_t variant_id_htable_size;
+    uint32_t dup_ct = 0;
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, 0, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
+    if (unlikely(reterr)) {
+      goto MakeGeneMasks_ret_1;
+    }
+    if (unlikely(dup_ct)) {
+      logerrputs("Error: --make-gene-masks requires unique variant IDs.  (--set-missing-var-ids\nand --rm-dup may be useful.)\n");
+      goto MakeGeneMasks_ret_INCONSISTENT_INPUT;
+    }
+    uint32_t max_variant_id_slen = 1;
+    for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ++variant_uidx) {
+      if (IsSet(variant_include, variant_uidx)) {
+        const uint32_t cur_slen = strlen(variant_ids[variant_uidx]);
+        if (cur_slen > max_variant_id_slen) {
+          max_variant_id_slen = cur_slen;
+        }
+      }
+    }
+
+    const double max_af = gmip->max_af;
+    const uint32_t mode_sum = (gmip->flags / kfGeneMaskModeSum) & 1;
+  
+    // Pass 1 counts the sets that will produce a mask.  The .pgen writer needs
+    // the true variant count up front, and the allele frequencies are already
+    // loaded, so this costs no genotype reads.
+    reterr = SizeAndInitTextStream(set_fname, bigstack_left() / 8, MAXV(max_thread_ct, 1), &set_txs);
+    if (unlikely(reterr)) {
+      goto MakeGeneMasks_ret_TSTREAM_FAIL;
+    }
+    uint32_t mask_ct = 0;
+    uint64_t empty_set_ct = 0;
+    while (1) {
+      ++line_idx;
+      const char* line_start = TextGet(&set_txs);
+      if (!line_start) {
+        break;
+      }
+      if ((*line_start == '#') || (*line_start == '\0')) {
+        continue;
+      }
+      SetLine sl;
+      if (unlikely(ParseSetLine(line_start, &sl))) {
+        goto MakeGeneMasks_ret_MISSING_TOKENS;
+      }
+      uint32_t kept_ct = 0;
+      const char* id_iter = sl.id_list;
+      while (1) {
+        const char* id_end = id_iter;
+        while ((id_end != sl.id_list_end) && (*id_end != ',')) {
+          ++id_end;
+        }
+        const uint32_t id_slen = id_end - id_iter;
+        if (id_slen) {
+          const uint32_t htable_val = VariantIdDupflagHtableFind(id_iter, variant_ids, variant_id_htable, id_slen, variant_id_htable_size, max_variant_id_slen);
+          if (htable_val != UINT32_MAX) {
+            // Bit 31 is the duplicate flag; duplicates are rejected above.
+            const uint32_t variant_uidx = htable_val & 0x7fffffff;
+            const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx);
+            const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+            // Multiallelic variants have no single alternate dosage to add to
+            // a burden score, so they are left out rather than guessed at.
+            if (allele_ct == 2) {
+              const double alt_freq = 1.0 - allele_freqs[allele_idx_offset_base - variant_uidx];
+              if (alt_freq <= max_af) {
+                ++kept_ct;
+              }
+            }
+          }
+        }
+        if (id_end == sl.id_list_end) {
+          break;
+        }
+        id_iter = &(id_end[1]);
+      }
+      if (kept_ct) {
+        ++mask_ct;
+      } else {
+        ++empty_set_ct;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&set_txs, &reterr))) {
+      goto MakeGeneMasks_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(!mask_ct)) {
+      logerrputs("Error: --make-gene-masks: no set has a qualifying variant.\n");
+      goto MakeGeneMasks_ret_INCONSISTENT_INPUT;
+    }
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+    uintptr_t spgw_alloc_cacheline_ct;
+    uint32_t max_vrec_len;
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, mask_ct, sample_ct, 0, kPgenWriteBackwardSeek, kfPgenGlobalDosagePresent, 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
+      goto MakeGeneMasks_ret_1;
+    }
+    unsigned char* spgw_alloc;
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* genovec;
+    uintptr_t* dosage_present;
+    uint16_t* dosage_main;
+    uintptr_t* write_genovec;
+    uintptr_t* write_dosage_present;
+    uint16_t* write_dosage_main;
+    double* mask_vals;
+    uint32_t* sample_include_cumulative_popcounts;
+    if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc) ||
+                 bigstack_alloc_w(sample_ctl2, &genovec) ||
+                 bigstack_alloc_w(sample_ctl, &dosage_present) ||
+                 bigstack_alloc_u16(sample_ct, &dosage_main) ||
+                 bigstack_alloc_w(sample_ctl2, &write_genovec) ||
+                 bigstack_alloc_w(sample_ctl, &write_dosage_present) ||
+                 bigstack_alloc_u16(sample_ct, &write_dosage_main) ||
+                 bigstack_alloc_d(sample_ct, &mask_vals) ||
+                 bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts))) {
+      goto MakeGeneMasks_ret_NOMEM;
+    }
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &pvar_file))) {
+      goto MakeGeneMasks_ret_OPEN_FAIL;
+    }
+    fputs("##INFO=<ID=NVAR,Number=1,Type=Integer,Description=\"Variants in mask\">" EOLN_STR, pvar_file);
+    fputs("#CHROM\tPOS\tID\tREF\tALT\tINFO" EOLN_STR, pvar_file);
+
+    reterr = TextRewind(&set_txs);
+    if (unlikely(reterr)) {
+      goto MakeGeneMasks_ret_TSTREAM_FAIL;
+    }
+    line_idx = 0;
+    uint32_t written_ct = 0;
+    while (written_ct < mask_ct) {
+      ++line_idx;
+      const char* line_start = TextGet(&set_txs);
+      if (!line_start) {
+        break;
+      }
+      if ((*line_start == '#') || (*line_start == '\0')) {
+        continue;
+      }
+      SetLine sl;
+      if (unlikely(ParseSetLine(line_start, &sl))) {
+        goto MakeGeneMasks_ret_MISSING_TOKENS;
+      }
+      ZeroDArr(sample_ct, mask_vals);
+      uint32_t kept_ct = 0;
+      const char* id_iter = sl.id_list;
+      while (1) {
+        const char* id_end = id_iter;
+        while ((id_end != sl.id_list_end) && (*id_end != ',')) {
+          ++id_end;
+        }
+        const uint32_t id_slen = id_end - id_iter;
+        if (id_slen) {
+          const uint32_t htable_val = VariantIdDupflagHtableFind(id_iter, variant_ids, variant_id_htable, id_slen, variant_id_htable_size, max_variant_id_slen);
+          if (htable_val != UINT32_MAX) {
+            // Bit 31 is the duplicate flag; duplicates are rejected above.
+            const uint32_t variant_uidx = htable_val & 0x7fffffff;
+            const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx);
+            const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+            if (allele_ct == 2) {
+              const double alt_freq = 1.0 - allele_freqs[allele_idx_offset_base - variant_uidx];
+              if (alt_freq <= max_af) {
+                uint32_t dosage_ct;
+                reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+                if (unlikely(reterr)) {
+                  PgenErrPrintNV(reterr, variant_uidx);
+                  goto MakeGeneMasks_ret_1;
+                }
+                // Alternate-allele dosage in [0, 2].  A missing call counts as
+                // reference: the burden convention is that an uncalled site is
+                // not evidence of carrying anything, and mean-imputing at these
+                // frequencies would smear a fractional carrier across everyone.
+                for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+                  const uintptr_t cur_geno = GetNyparrEntry(genovec, sample_idx);
+                  double cur_val = (cur_geno == 3)? 0.0 : u31tod(cur_geno);
+                  if (dosage_ct && IsSet(dosage_present, sample_idx)) {
+                    const uint32_t dosage_idx = PopcountBitRange(dosage_present, 0, sample_idx);
+                    cur_val = S_CAST(double, dosage_main[dosage_idx]) * (1.0 / 16384.0);
+                  }
+                  if (mode_sum) {
+                    mask_vals[sample_idx] += cur_val;
+                  } else if (cur_val > mask_vals[sample_idx]) {
+                    mask_vals[sample_idx] = cur_val;
+                  }
+                }
+                ++kept_ct;
+              }
+            }
+          }
+        }
+        if (id_end == sl.id_list_end) {
+          break;
+        }
+        id_iter = &(id_end[1]);
+      }
+      if (!kept_ct) {
+        continue;
+      }
+
+      uint32_t write_dosage_ct = 0;
+      ZeroWArr(sample_ctl, write_dosage_present);
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        double cur_val = mask_vals[sample_idx];
+        if (cur_val > 2.0) {
+          // Only reachable under 'sum'; a dosage above 2 is not representable
+          // and would not mean anything if it were.
+          cur_val = 2.0;
+        }
+        uint32_t cur_dosage = S_CAST(uint32_t, cur_val * 16384.0 + 0.5);
+        if (cur_dosage > 32768) {
+          cur_dosage = 32768;
+        }
+        SetBit(sample_idx, write_dosage_present);
+        write_dosage_main[write_dosage_ct++] = cur_dosage;
+        // The hardcall track has to stay consistent with the dosages.
+        const uint32_t nearest = (cur_dosage + 8192) / 16384;
+        AssignNyparrEntry(sample_idx, (nearest == 0)? 0 : ((nearest == 1)? 1 : 2), write_genovec);
+      }
+      if (unlikely(SpgwAppendBiallelicGenovecDosage16(write_genovec, write_dosage_present, write_dosage_main, write_dosage_ct, &spgw))) {
+        goto MakeGeneMasks_ret_WRITE_FAIL;
+      }
+      fwrite(sl.chr_str, 1, sl.chr_end - sl.chr_str, pvar_file);
+      putc_unlocked('\t', pvar_file);
+      fwrite(sl.pos_str, 1, sl.pos_end - sl.pos_str, pvar_file);
+      putc_unlocked('\t', pvar_file);
+      fwrite(sl.name, 1, sl.name_end - sl.name, pvar_file);
+      fputs("\tR\tA\tNVAR=", pvar_file);
+      fprintf(pvar_file, "%u" EOLN_STR, kept_ct);
+      ++written_ct;
+    }
+    if (unlikely(ferror_unlocked(pvar_file))) {
+      goto MakeGeneMasks_ret_WRITE_FAIL;
+    }
+    if (unlikely(fclose_null(&pvar_file))) {
+      goto MakeGeneMasks_ret_WRITE_FAIL;
+    }
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto MakeGeneMasks_ret_1;
+    }
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
+    reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, nullptr, output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, kfPsamColDefault, 0);
+    if (unlikely(reterr)) {
+      goto MakeGeneMasks_ret_1;
+    }
+    *outname_end = '\0';
+    logprintfww("--make-gene-masks: %u mask%s written to %s.pgen + %s.pvar + %s.psam .\n", written_ct, (written_ct == 1)? "" : "s", outname, outname, outname);
+    if (empty_set_ct) {
+      logerrprintfww("Warning: %" PRIu64 " set%s skipped, with no variant passing --mask-max-af.\n", empty_set_ct, (empty_set_ct == 1)? "" : "s");
+    }
+  }
+  while (0) {
+  MakeGeneMasks_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  MakeGeneMasks_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  MakeGeneMasks_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(set_fname, &set_txs);
+    break;
+  MakeGeneMasks_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, set_fname);
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  MakeGeneMasks_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  MakeGeneMasks_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ MakeGeneMasks_ret_1:
+  CleanupSpgw(&spgw, &reterr);
+  fclose_cond(pvar_file);
+  CleanupTextStream2(set_fname, &set_txs, &reterr);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 

@@ -92,8 +92,7 @@ FLAGSET_DEF_END(AcatFlags);
 typedef struct AcatInfoStruct {
   NONCOPYABLE(AcatInfoStruct);
   AcatFlags flags;
-  char* fname;      // association results
-  char* set_fname;  // set definitions
+  char* fname;  // association results
   char* test_name;
   char* id_field;
   char* test_field;
@@ -108,7 +107,7 @@ void InitAcat(AcatInfo* acat_info_ptr);
 void CleanupAcat(AcatInfo* acat_info_ptr);
 
 // Set-level Cauchy combination of per-variant p-values.
-PglErr AcatSets(const AcatInfo* acip, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end);
+PglErr AcatSets(const AcatInfo* acip, const char* set_fname, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 }  // namespace plink2
