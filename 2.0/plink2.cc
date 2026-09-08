@@ -3953,6 +3953,8 @@ int main(int argc, char** argv) {
   InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
   InitAdjust(&pc.adjust_info, &adjust_file_info);
+  AcatInfo acat_info;
+  InitAcat(&acat_info);
   ChrInfo chr_info;
   if (unlikely(InitChrInfo(&chr_info))) {
     goto main_ret_NOMEM_NOLOG;
@@ -4546,6 +4548,50 @@ int main(int argc, char** argv) {
           if (!(pc.adjust_info.flags & kfAdjustColAll)) {
             pc.adjust_info.flags |= kfAdjustColDefault;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "cat-file")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 6))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &acat_info.fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              acat_info.flags |= kfAcatZs;
+            } else if (strequal_k(cur_modif, "input-log10", cur_modif_slen)) {
+              acat_info.flags |= kfAcatInputLog10;
+            } else if (StrStartsWith(cur_modif, "test=", cur_modif_slen)) {
+              reterr = CmdlineAllocString(&(cur_modif[5]), "--acat-file test=", kMaxIdSlen, &acat_info.test_name);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --acat-file argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "cat-params")) {
+          if (unlikely(!acat_info.fname)) {
+            logerrputs("Error: --acat-params must be used with --acat-file.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx <= 0.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --acat-params argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          acat_info.beta_a1 = dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 2], &dxx)) || (dxx <= 0.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --acat-params argument '%s'.\n", argvk[arg_idx + 2]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          acat_info.beta_a2 = dxx;
         } else if (strequal_k_unsafe(flagname_p2, "djust-file")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 7))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -12224,6 +12270,18 @@ int main(int argc, char** argv) {
             }
           }
           pc.dependency_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
+        } else if (strequal_k_unsafe(flagname_p2, "et-list")) {
+          if (unlikely(!acat_info.fname)) {
+            logerrputs("Error: --set-list must be used with --acat-file.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &acat_info.set_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "et-all-var-ids") || strequal_k_unsafe(flagname_p2, "et-missing-var-ids")) {
           if (flagname_p2[3] == 'm') {
             if (unlikely(pc.varid_template_str)) {
@@ -13815,7 +13873,7 @@ int main(int argc, char** argv) {
 
     pc.dependency_flags |= pc.filter_flags;
     const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped | kfXloadMgf)));
-    const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr);
+    const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (acat_info.fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr);
     if (skip_main && (!batch_job)) {
       // add command_flags2 when needed
       goto main_ret_NULL_CALC;
@@ -14146,6 +14204,12 @@ int main(int argc, char** argv) {
           goto main_ret_1;
         }
       }
+      if (acat_info.fname) {
+        reterr = AcatSets(&acat_info, pc.output_min_ln, pc.max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto main_ret_1;
+        }
+      }
       if (pc.gwas_ssf_info.fname || pc.gwas_ssf_info.list_fname) {
         reterr = GwasSsfStandalone(&pc.gwas_ssf_info, pc.max_thread_ct);
         if (unlikely(reterr)) {
@@ -14467,6 +14531,7 @@ int main(int argc, char** argv) {
   free_cond(rseeds);
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
+  CleanupAcat(&acat_info);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.zero_cluster_phenoname);
   free_cond(pc.zero_cluster_fname);
