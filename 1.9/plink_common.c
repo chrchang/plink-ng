@@ -3809,7 +3809,12 @@ static inline uint32_t rotl32(uint32_t x, int8_t r) {
 }
 
 static inline uint32_t getblock32(const uint32_t* p, int i) {
-  return p[i];
+  // MurmurHash3 is handed an arbitrary byte pointer, so this read is routinely
+  // misaligned; memcpy of a constant size is the defined spelling and compiles
+  // to the same load.
+  uint32_t result;
+  memcpy(&result, &(((const unsigned char*)p)[i * 4]), sizeof(uint32_t));
+  return result;
 }
 
 //-----------------------------------------------------------------------------

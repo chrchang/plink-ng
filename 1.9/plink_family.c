@@ -6246,7 +6246,9 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
 	  const uint32_t table_index = EXTRACT_2BIT_GENO(loadbuf, ((uint32_t)trio_code)) + 4 * EXTRACT_2BIT_GENO(loadbuf, ((uint32_t)family_code)) + 16 * EXTRACT_2BIT_GENO(loadbuf, (family_code >> 32));
 	  cur_write_word |= tucc_table[table_index] << (trio_idx_lowbits * 4);
 	}
-        uwrite_alias[widx++] = cur_write_word;
+        // uwrite_alias walks a byte buffer in trio_ct2-byte steps, so it is
+        // not generally word-aligned.
+        memcpy(&(uwrite_alias[widx++]), &cur_write_word, sizeof(uintptr_t));
       }
       uwrite_iter = &(uwrite_iter[trio_ct2]);
       if (uwrite_iter >= ((unsigned char*)writebuf_flush)) {
