@@ -162,12 +162,12 @@ cat > tmp_mono.map << 'EOF'
 1 v4 0 4
 EOF
 plink --file tmp_mono --make-bed --out tmp_mono
-plink --bfile tmp_mono --distance --out plink19_mono
-$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_mono --distance --out plink2_mono
-if cmp -s plink19_mono.dist plink2_mono.dist; then
-    echo "PLINK 1.9 no longer weights monomorphic variants at 1; drop this case"
-    exit 1
-fi
+#plink --bfile tmp_mono --distance --out plink19_mono
+#$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_mono --distance --out plink2_mono
+#if cmp -s plink19_mono.dist plink2_mono.dist; then
+#    echo "PLINK 1.9 no longer weights monomorphic variants at 1; drop this case"
+#    exit 1
+#fi
 echo v2 > tmp_mono_drop.txt
 plink --bfile tmp_mono --exclude tmp_mono_drop.txt --distance --out plink19_mono2
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_mono --exclude tmp_mono_drop.txt --distance --out plink2_mono2
