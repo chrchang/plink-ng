@@ -30,14 +30,14 @@ awk 'NR <= 20 { print "ONE" NR, $1, $4, $2 }' tmp_base.bim >> tmp_sets.txt
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --pheno tmp_qt.pheno --pheno-name QT --vc-test --set-list tmp_sets.txt --vc-max-af 0.5 --out tmp_qtv
 
 # 1. Every reported p-value is a probability.
-awk '!/^#/ { for (i = 6; i <= 10; ++i) if (!($i > 0) || $i > 1) { print "out of range: " $0; exit 1 } }' tmp_qtv.vc
+awk '!/^#/ { for (i = 7; i <= 11; ++i) if (!($i > 0) || $i > 1) { print "out of range: " $0; exit 1 } }' tmp_qtv.vc
 
 # 2. A one-variant set collapses to a single score test, so the four tests
 #    agree.  ACAT-O combines four identical p-values, which returns that same
 #    p-value, so it agrees too.
 awk '/^ONE/ {
-        b = $6; s = $7; o = $8; a = $9; ao = $10;
-        for (i = 7; i <= 10; ++i) {
+        b = $7;
+        for (i = 8; i <= 11; ++i) {
             d = $i - b; if (d < 0) d = -d;
             if (d > 1e-5 * b + 1e-12) {
                 print "singleton set " $1 ": column " i " is " $i ", burden is " b;
@@ -52,17 +52,17 @@ awk '/^ONE/ {
 # 3. ACAT-O is a Cauchy combination of four p-values, so it cannot fall below
 #    a quarter of the smallest of them, nor rise above the largest.
 awk '!/^#/ {
-        mn = $6; mx = $6;
-        for (i = 7; i <= 9; ++i) { if ($i < mn) mn = $i; if ($i > mx) mx = $i }
-        if ($10 < mn / 4.0 * 0.999) { print "ACAT-O below its inputs: " $0; exit 1 }
-        if ($10 > mx * 1.001 + 1e-12) { print "ACAT-O above its inputs: " $0; exit 1 }
+        mn = $7; mx = $7;
+        for (i = 8; i <= 10; ++i) { if ($i < mn) mn = $i; if ($i > mx) mx = $i }
+        if ($11 < mn / 4.0 * 0.999) { print "ACAT-O below its inputs: " $0; exit 1 }
+        if ($11 > mx * 1.001 + 1e-12) { print "ACAT-O above its inputs: " $0; exit 1 }
      }' tmp_qtv.vc
 
 # 4. Under a phenotype unrelated to the genotypes, the p-values should look
 #    uniform.  A loose band, since this is 120 sets, but it catches a test
 #    that is wrong by a constant factor.
 # (sorted with sort -n rather than awk's asort, which is a gawk extension)
-awk '!/^#/ && !/^ONE/ { print $7 }' tmp_qtv.vc | sort -n > tmp_skatp.txt
+awk '!/^#/ && !/^ONE/ { print $8 }' tmp_qtv.vc | sort -n > tmp_skatp.txt
 nskat=$(wc -l < tmp_skatp.txt | tr -d '[:space:]')
 med=$(awk -v n="$nskat" 'NR == int(n / 2) + 1 { print; exit }' tmp_skatp.txt)
 awk -v med="$med" -v n="$nskat" 'BEGIN {
@@ -79,14 +79,14 @@ awk 'NR == 1 { for (i = 7; i <= 12; ++i) col[i] = 1; next }
        printf "%s %s %.4f\n", $1, $2, s + (NR % 7) * 0.25 }' tmp_a.raw > tmp_sig.body
 { echo "#FID IID SIG"; cat tmp_sig.body; } > tmp_sig.pheno
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --pheno tmp_sig.pheno --pheno-name SIG --vc-test --set-list tmp_sets.txt --vc-max-af 0.5 --out tmp_sigv
-s0=$(awk '$1 == "S0" { print $7 }' tmp_sigv.vc)
+s0=$(awk '$1 == "S0" { print $8 }' tmp_sigv.vc)
 awk -v p="$s0" 'BEGIN { if (!(p < 1e-6)) { print "S0 SKAT p is " p ", expected strong signal"; exit 1 } }'
 
 # 6. Case/control runs, and the same identities hold there.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --vc-test --set-list tmp_sets.txt --vc-max-af 0.5 --out tmp_ccv
-awk '!/^#/ { for (i = 6; i <= 10; ++i) if (!($i > 0) || $i > 1) { print "out of range: " $0; exit 1 } }' tmp_ccv.vc
-awk '/^ONE/ { d = $7 - $6; if (d < 0) d = -d
-              if (d > 1e-5 * $6 + 1e-12) { print "case/control singleton mismatch: " $0; exit 1 } }' tmp_ccv.vc
+awk '!/^#/ { for (i = 7; i <= 11; ++i) if (!($i > 0) || $i > 1) { print "out of range: " $0; exit 1 } }' tmp_ccv.vc
+awk '/^ONE/ { d = $8 - $7; if (d < 0) d = -d
+              if (d > 1e-5 * $7 + 1e-12) { print "case/control singleton mismatch: " $0; exit 1 } }' tmp_ccv.vc
 
 # 7. --vc-offset: a covariate whose coefficient is fixed at 1 rather than
 #    fitted.  Two exact identities pin the semantics down.
@@ -120,7 +120,53 @@ if cmp -s <(grep -v '^#' tmp_oloco.vc) <(grep -v '^#' tmp_ocov.vc); then
     exit 1
 fi
 
-# 8. Error cases.
+# 8. --vc-weights: per-variant weights instead of the built-in Beta(MAF) ones.
+#    Handing it the Beta weights themselves has to reproduce the default run
+#    exactly, which pins down both the file reader and the scaling.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --freq --out tmp_fr
+awk 'BEGIN { print "#ID BETA_COPY FLAT" }
+     /^#/ { for (i = 1; i <= NF; ++i) { if ($i == "ID") idc = i; if ($i == "ALT_FREQS") fqc = i }
+            sub(/^#/, "", $1); next }
+     { af = $fqc + 0; maf = (af < 1 - af) ? af : 1 - af;
+       # Beta(maf; 1, 25) = 25 * (1 - maf)^24
+       w = (maf > 0 && maf < 1) ? 25 * exp(24 * log(1 - maf)) : 0;
+       printf "%s %.12g 1\n", $idc, w }' tmp_fr.afreq > tmp_w.txt
+
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_base --pheno tmp_qt.pheno --pheno-name QT --vc-test --vc-weights tmp_w.txt --set-list tmp_sets.txt --vc-max-af 0.5 --out tmp_wt
+
+# Both schemes are reported for every set.
+if [[ $(grep -c 'BETA_COPY' tmp_wt.vc) != $(grep -cv '^#' tmp_qtv.vc) ]]; then
+    echo "Expected one BETA_COPY row per set."
+    exit 1
+fi
+if [[ $(grep -c 'FLAT' tmp_wt.vc) != $(grep -cv '^#' tmp_qtv.vc) ]]; then
+    echo "Expected one FLAT row per set."
+    exit 1
+fi
+
+# The supplied Beta weights must reproduce the built-in scheme.
+awk 'NR == FNR { if (!/^#/) { for (i = 7; i <= 11; ++i) ref[$1, i] = $i } next }
+     !/^#/ && $4 == "BETA_COPY" {
+         for (i = 7; i <= 11; ++i) {
+             got = $i; want = ref[$1, i];
+             d = got - want; if (d < 0) d = -d;
+             if (d > 1e-6 * want + 1e-12) {
+                 print "set " $1 " column " i ": supplied Beta weights gave " got ", built-in gave " want;
+                 exit 1
+             }
+         }
+         ++n
+     }
+     END { if (n < 100) { print "compared only " n " rows"; exit 1 }
+           printf "supplied Beta weights reproduce the built-in scheme on %d rows\n", n }' tmp_qtv.vc tmp_wt.vc
+
+# A flat scheme is a different analysis, so it must not agree.
+if awk '!/^#/ && $4 == "FLAT" { print $1, $8 }' tmp_wt.vc | cmp -s - <(awk '!/^#/ { print $1, $8 }' tmp_qtv.vc); then
+    echo "Flat weights gave the same answer as Beta weights."
+    exit 1
+fi
+
+# 9. Error cases.
 fails() {
     if "$@" > /dev/null 2>&1; then
         echo "expected failure: $*"
