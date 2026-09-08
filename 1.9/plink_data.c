@@ -3758,6 +3758,13 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
       }
       if (fam_cols & FAM_COL_5) {
 	bufptr = next_token(bufptr);
+	// This check used to be missing, and the phenotype column below is the
+	// only other thing that validates the line length.  --pheno turns that
+	// column off, so a .fam line without a sex column got past the first
+	// pass and the second pass dereferenced the null.
+	if (no_more_tokens_kns(bufptr)) {
+	  goto load_fam_ret_MISSING_TOKENS;
+	}
       }
       if (tmp_fam_col_6) {
 	bufptr = next_token(bufptr);
