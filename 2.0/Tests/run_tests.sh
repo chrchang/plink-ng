@@ -83,6 +83,16 @@ cd TEST_HET_IBC
 cd ..
 echo "TEST_HET_IBC passed."
 
+cd TEST_TWOLOCUS
+./run_tests.sh $d $2 $3 > TEST_TWOLOCUS.log
+cd ..
+echo "TEST_TWOLOCUS passed."
+
+cd TEST_DISTANCE
+./run_tests.sh $d $2 $3 > TEST_DISTANCE.log
+cd ..
+echo "TEST_DISTANCE passed."
+
 cd TEST_TEST_MISSING
 ./run_tests.sh $d $2 $3 > TEST_TEST_MISSING.log
 cd ..
@@ -97,6 +107,11 @@ cd TEST_MGF
 ./run_tests.sh $d $2 $3 > TEST_MGF.log
 cd ..
 echo "TEST_MGF passed."
+
+cd TEST_KING_RT
+./run_tests.sh $d $2 $3 > TEST_KING_RT.log
+cd ..
+echo "TEST_KING_RT passed."
 
 cd TEST_SHOW_TAGS
 ./run_tests.sh $d $2 $3 > TEST_SHOW_TAGS.log

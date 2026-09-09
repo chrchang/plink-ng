@@ -1400,7 +1400,11 @@ HEADER_INLINE void memcpyx(char* __restrict target, const void* __restrict sourc
 
 HEADER_INLINE void memcpyl3(char* __restrict target, const void* __restrict source) {
   // when it's safe to clobber the fourth character, this is faster
-  *((uint32_t*)target) = *((const uint32_t*)source);
+  // (memcpy() of a constant size, not a direct store: target points into an
+  // output buffer at an arbitrary offset, so the store is routinely
+  // misaligned, which is undefined behavior.  Every compiler turns this into
+  // the same single unaligned store on x86-64 and ARM64.)
+  memcpy(target, source, 4);
 }
 
 HEADER_INLINE char* memcpyl3a(char* __restrict target, const void* __restrict source) {

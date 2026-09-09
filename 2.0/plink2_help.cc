@@ -1130,6 +1130,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      and --flip-scan-freq-diff defaults to 0.2 rather than 0.5.  A variant\n"
 "      absent from the file gets PROBLEM=NA.  This does not need a\n"
 "      case/control phenotype, sorted coordinates, or founders.\n"
+"    * --flip-scan-ref-pfile/--flip-scan-ref-bfile does the same comparison\n"
+"      against a second fileset, computing its allele frequencies here.\n"
+"      Variants are matched by ID, and both sides must be biallelic with the\n"
+"      same allele pair; a pair in the opposite order is reported and the\n"
+"      reference frequency turned around, since that swap is one of the\n"
+"      things this command exists to find.  A variant which is unmatched, or\n"
+"      which matches by ID but not by allele pair, gets PROBLEM=NA.\n"
 "    * Neighbor pairs where either group is monomorphic are skipped, since the\n"
 "      correlation is undefined there.  (PLINK 1.9 lets the resulting nan\n"
 "      through, which counts the pair as a sign flip.)\n"
@@ -1244,8 +1251,22 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      all-pairs computation on more than 400k variants.\n"
 "    With either output type, the computation can be subdivided with --parallel.\n\n"
               );
+    HelpPrint("twolocus\0", &help_ctrl, 1,
+"  --twolocus <variant ID> <variant ID>\n"
+"    Joint genotype count report for a pair of variants, with one row per\n"
+"    (group, genotype, genotype) cell.\n"
+"    * The report covers all samples in one ALL group.  PLINK 1.x also splits\n"
+"      on the case/control phenotype, but several phenotypes may be loaded\n"
+"      here, so that split will be requested by phenotype name instead.\n"
+"    * Multiallelic variants get one row per unordered allele pair, so\n"
+"      ALT1/ALT1 and ALT1/ALT2 are separate cells rather than being collapsed\n"
+"      together.\n"
+"    * PLINK 1.x writes a fixed-width report with marginal totals; this is a\n"
+"      table instead, and the marginals are left to the reader since every\n"
+"      count producing them is present.\n\n"
+              );
     HelpPrint("show-tags\0list-all\0tag-kb\0tag-r2\0", &help_ctrl, 1,
-"  --show-tags ['zs'] {<filename> | 'all'}\n"
+"  --show-tags ['zs'] [<filename> | 'all']\n"
 "    Report which variants tag which, where variant A tags variant B when the\n"
 "    two are within --tag-kb of each other and their unphased r^2 is at least\n"
 "    --tag-r2.\n"
@@ -1261,10 +1282,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      are both keyed on them.\n"
 "    * Haploid chromosomes are not supported yet, and are an error rather\n"
 "      than a silent omission.\n\n"
-              );
-    HelpPrint("tag-kb\0tag-r2\0show-tags\0", &help_ctrl, 0,
-"  --tag-kb <kbs>  : Set --show-tags max tag kb distance (default 250).\n"
-"  --tag-r2 <val>  : Set --show-tags min tag r^2 (default 0.8).\n"
               );
     HelpPrint("ld-score\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
 "  --ld-score ['zs'] ['multiallelic'] ['cols='<column set descriptor>]\n"
@@ -1431,9 +1448,54 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      ibs1: HET1_HOM2 and HET2_HOM1 proportions/counts.\n"
 "      ibs: Hamming distance (2 * ibs0 + ibs1), / (2 * nsnp) if proportion.\n"
 "      kinship: KING-robust between-family kinship estimator.\n"
+"      rt: Relationship type as described by the pedigree: PO\n"
+"          (parent/offspring), FS (full sibling), HS (half sibling), GG\n"
+"          (grandparent/grandchild), AV (avuncular), REL (related in some\n"
+"          other way the pedigree spells out), or UN.\n"
+"      pkin: Kinship coefficient expected from the pedigree, on the same scale\n"
+"            as the observed 'kinship' column.\n"
 "    The default is maybefid,id,maybesid,nsnp,hethet,ibs0,kinship.\n"
 "    hethet/ibs0/ibs1 values are proportions unless the 'counts' modifier is\n"
-"    present.  If id is omitted, a .kin0.id file is also written.\n\n"
+"    present.  If id is omitted, a .kin0.id file is also written.\n"
+"    * Parent/offspring pairs cannot be told apart from full siblings by\n"
+"      kinship coefficient alone; both are 0.25.  The ibs0 column is what\n"
+"      separates them: it should be much closer to zero for a parent/offspring\n"
+"      pair, since a parent and child normally share an allele.\n\n"
+               );
+    HelpPrint("distance\0distance-matrix\0ibs-matrix\0", &help_ctrl, 1,
+"  --distance [{square | square0 | triangle}] [{zs | bin | bin4}] ['ibs']\n"
+"             ['1-ibs'] ['allele-ct'] ['flat-missing']\n"
+"    Write a lower-triangular tab-delimited table of genomic distances in\n"
+"    allele-count units to <output prefix>.dist, and the corresponding sample\n"
+"    IDs to <output prefix>.dist.id.  The first row contains a single\n"
+"    <sample 1-sample 2> distance, the second row has the <sample 1-sample 3>\n"
+"    and <sample 2-sample 3> distances in that order, etc.\n"
+"    * These results are only meaningful on a variant set in approximate\n"
+"      linkage equilibrium; use --indep-pairwise first.\n"
+"    * 'square' or 'square0' writes a square matrix instead; 'square0' fills\n"
+"      the upper right triangle with zeroes.\n"
+"    * 'zs' compresses the output.  'bin' instead writes a binary matrix of\n"
+"      double-precision floats, suitable for loading from R, to <output\n"
+"      prefix>.dist.bin; \'bin4\' writes single-precision floats.  The binary\n"
+"      formats default to a square matrix, and can be combined with \'square0\'\n"
+"      or \'triangle\'.\n"
+"    * \'ibs\' writes an identity-by-state matrix to <output prefix>.mibs, and\n"
+"      \'1-ibs\' writes distances as genomic proportions to <output\n"
+"      prefix>.mdist.  Combine with \'allele-ct\' to get the .dist file too.\n"
+"    * By default, rescaling in the presence of missing calls is sensitive to\n"
+"      allele frequency: a missing call at a variant which contributes more to\n"
+"      the average pairwise distance gets a proportionally larger correction.\n"
+"      \'flat-missing\' weights all variants equally instead, which is what you\n"
+"      want when missingness is highly nonrandom.\n"
+"    * The computation can be subdivided with --parallel.\n\n"
+               );
+    HelpPrint("distance-matrix\0ibs-matrix\0distance\0", &help_ctrl, 1,
+"  --distance-matrix\n"
+"  --ibs-matrix\n"
+"    Shorthand for \"--distance 1-ibs flat-missing square\" and \"--distance ibs\n"
+"    flat-missing square\".\n"
+"    * PLINK 1.x wrote these space-delimited with a trailing delimiter; PLINK 2\n"
+"      writes them tab-delimited with none, like every other table it produces.\n\n"
                );
     // possible todo: --king-table-subset analogue for fast-approximate
     // --make-grm-sparse
@@ -3035,7 +3097,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                              parents have missing genotypes, don't exclude the\n"
 "                              observation from error rate denominators.\n"
               );
-    HelpPrint("flip-scan-window\0flip-scan-window-kb\0flip-scan-threshold\0flip-scan-freq-diff\0flip-scan-max-maj-freq\0flip-scan-min-neg\0flip-scan-ref-freq\0flip-scan\0", &help_ctrl, 0,
+    HelpPrint("flip-scan-window\0flip-scan-window-kb\0flip-scan-threshold\0flip-scan-freq-diff\0flip-scan-max-maj-freq\0flip-scan-min-neg\0flip-scan-ref-freq\0flip-scan-ref-pfile\0flip-scan-ref-bfile\0flip-scan\0", &help_ctrl, 0,
 "  --flip-scan-window <ct+1> : Set --flip-scan max variant ct dist. (def. 10).\n"
 "  --flip-scan-window-kb <x> : Set --flip-scan max kb distance (default 1000).\n"
 "  --flip-scan-threshold <x> : Set --flip-scan min correlation (default 0.5).\n"
@@ -3049,6 +3111,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --flip-scan-ref-freq <f>  : Compare against a reference allele frequency\n"
 "                              file instead of splitting into cases and\n"
 "                              controls.\n"
+"  --flip-scan-ref-pfile <prefix> or <pgen> <pvar> <psam>\n"
+"  --flip-scan-ref-bfile <prefix> or <bed> <bim> <fam>\n"
+"    Compare against the allele frequencies of a second fileset instead of\n"
+"    splitting into cases and controls.\n"
                );
     HelpPrint("indep-preferred\0indep-pairwise\0", &help_ctrl, 0,
 "  --indep-preferred <filename>   : Make LD-pruning commands try to keep the\n"
@@ -3075,6 +3141,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --ld-snp-list <file>   a single ID, --ld-snps accepts one or more ranges\n"
 "                         (same syntax as --snps), and --ld-snp-list specifies a\n"
 "                         file to load variant IDs from.\n"
+              );
+    HelpPrint("tag-kb\0tag-r2\0show-tags\0", &help_ctrl, 0,
+"  --tag-kb <kbs>       : Set --show-tags max tag kb distance (default 250).\n"
+"  --tag-r2 <val>       : Set --show-tags min tag r^2 (default 0.8).\n"
               );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,

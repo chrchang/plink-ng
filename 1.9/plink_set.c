@@ -21,6 +21,20 @@
 
 #include "plink_common.h"
 
+// linebuf_top advances by an arbitrary line length, so the two uint32s
+// prefixed to each saved line in gene_report() are never guaranteed to be
+// 4-byte aligned.  Go through memcpy() instead of casting to uint32_t*; on the
+// platforms we support this compiles to the same instruction.
+static inline uint32_t read_u32_unaligned(const char* ptr) {
+  uint32_t result;
+  memcpy(&result, ptr, sizeof(int32_t));
+  return result;
+}
+
+static inline void write_u32_unaligned(char* ptr, uint32_t uii) {
+  memcpy(ptr, &uii, sizeof(int32_t));
+}
+
 void set_init(Set_info* sip, Annot_info* aip) {
   sip->fname = nullptr;
   sip->setnames_flattened = nullptr;
@@ -2221,6 +2235,7 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   uintptr_t chrom_max_gene_ct = 0;
   uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   uint32_t chrom_idx = 0;
+  uint32_t chrom_bounds_end;
   Make_set_range** gene_arr;
   Make_set_range* msr_tmp;
   uint64_t* range_sort_buf;
@@ -2248,7 +2263,22 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
     goto load_range_list_sortpos_ret_1;
   }
   gene_names = *gene_names_ptr;
-  if (bigstack_alloc_ul(chrom_code_end + 1, chrom_bounds_ptr)) {
+  // load_range_list() gives ranges on a chromosome that isn't in the dataset
+  // the sentinel code 9999 (which is why it rejects 10000+ contigs), and the
+  // loop below walks chrom_bounds[] up to whatever code it decodes from the
+  // name prefix.  So the array has to cover the largest code actually
+  // present, not just the dataset's chromosomes; otherwise a --clump-range /
+  // --annotate ranges= / --gene-report file naming an absent contig writes
+  // several thousand entries past the end of the allocation.
+  chrom_bounds_end = chrom_code_end;
+  for (gene_idx = 0; gene_idx < gene_ct; gene_idx++) {
+    bufptr = &(gene_names[gene_idx * max_gene_id_len]);
+    uii = (((unsigned char)bufptr[0]) * 1000) + (((unsigned char)bufptr[1]) * 100) + (((unsigned char)bufptr[2]) * 10) + ((unsigned char)bufptr[3]) - 53313;
+    if (uii > chrom_bounds_end) {
+      chrom_bounds_end = uii;
+    }
+  }
+  if (bigstack_alloc_ul(chrom_bounds_end + 1, chrom_bounds_ptr)) {
     goto load_range_list_sortpos_ret_NOMEM;
   }
   chrom_bounds = *chrom_bounds_ptr;
@@ -2847,6 +2877,18 @@ int32_t annotate(const Annot_info* aip, uint32_t allow_extra_chroms, char* outna
       unique_annot_ct = write_idx + 1;
     } else {
       unique_annot_ct = attr_id_ct;
+      // Without ranges=, the attribute IDs are already in the order the header
+      // line is written in, so the remap is the identity.  It still has to
+      // exist: the annotation loop below indexes attr_id_remap[] without
+      // checking for null.
+      if (attr_id_ct) {
+	if (bigstack_alloc_ui(attr_id_ct, &attr_id_remap)) {
+	  goto annotate_ret_NOMEM;
+	}
+	for (ulii = 0; ulii < attr_id_ct; ulii++) {
+	  attr_id_remap[ulii] = 2 * ((uint32_t)ulii) + 1;
+	}
+      }
     }
 #ifdef __LP64__
     unique_annot_ctlw = (unique_annot_ct + 3) / 4;
@@ -2873,7 +2915,14 @@ int32_t annotate(const Annot_info* aip, uint32_t allow_extra_chroms, char* outna
   } else {
     // worst case: max_onevar_attr_ct attributes and chrom_max_range_ct range
     // annotations
-    if (bigstack_alloc_c((max_onevar_attr_ct * max_attr_id_len) + (chrom_max_range_ct * (max_range_name_len + (3 + 16 * (border != 0)) * range_dist)), &writebuf)) {
+    ulii = (max_onevar_attr_ct * max_attr_id_len) + (chrom_max_range_ct * (max_range_name_len + (3 + 16 * (border != 0)) * range_dist));
+    // A variant with no annotation writes no_annot_str instead, and the
+    // worst-case annotation width above is zero when no ranges or attributes
+    // were loaded at all (an empty or fully-filtered ranges= file).
+    if (ulii < strlen(no_annot_str)) {
+      ulii = strlen(no_annot_str);
+    }
+    if (bigstack_alloc_c(ulii, &writebuf)) {
       goto annotate_ret_NOMEM;
     }
   }
@@ -3596,8 +3645,8 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       bufptr[slen++] = '\n';
     }
     slen += (uintptr_t)(bufptr - loadbuf);
-    *((uint32_t*)linebuf_top) = slen;
-    ((uint32_t*)linebuf_top)[1] = cur_bp;
+    write_u32_unaligned(linebuf_top, slen);
+    write_u32_unaligned(&(linebuf_top[sizeof(int32_t)]), cur_bp);
     linebuf_left -= slen + 8;
     linebuf_top = &(linebuf_top[slen + 8]);
 #ifdef __LP64__
@@ -3620,7 +3669,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   bufptr = first_line_ptr;
   for (uii = 0; uii < saved_line_ct; uii++) {
     line_lookup[uii] = bufptr;
-    bufptr = &(bufptr[(*((uint32_t*)bufptr)) + 8]);
+    bufptr = &(bufptr[read_u32_unaligned(bufptr) + 8]);
   }
 #ifdef __cplusplus
   std::sort((int64_t*)gene_match_list, (int64_t*)gene_match_list_end);
@@ -3683,8 +3732,8 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       cur_bp = genedefs[gene_idx][1];
     }
     bufptr = line_lookup[(uint32_t)ullii];
-    uii = *((uint32_t*)bufptr); // line length
-    ujj = ((uint32_t*)bufptr)[1]; // bp
+    uii = read_u32_unaligned(bufptr); // line length
+    ujj = read_u32_unaligned(&(bufptr[sizeof(int32_t)])); // bp
     bufptr2 = dtoa_g_wxp4(((double)((int32_t)(ujj - cur_bp))) * 0.001, 10, g_textbuf);
     bufptr2 = memcpyl3a(bufptr2, "kb ");
     fwrite(g_textbuf, 1, bufptr2 - g_textbuf, outfile);
