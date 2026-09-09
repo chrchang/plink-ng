@@ -33,6 +33,7 @@
 #include "plink2_cmdline.h"
 #include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
+#include "plink2_random.h"
 #include "plink2_data.h"
 
 #ifdef __cplusplus
@@ -14367,6 +14368,169 @@ PglErr CheckAlleleUniqueness(const uintptr_t* variant_include, const ChrInfo* ci
     break;
   }
   CleanupThreads(&tg);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr MakePermPheno(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const char* pheno_name, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t perm_ct, uint32_t output_zst, uint32_t max_thread_ct, sfmt_t* sfmtp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  PglErr reterr = kPglRetSuccess;
+  {
+    const PhenoCol* pheno_col = nullptr;
+    if (pheno_name) {
+      const uintptr_t name_blen = 1 + strlen(pheno_name);
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        if (memequal(pheno_name, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
+          pheno_col = &(pheno_cols[pheno_idx]);
+          break;
+        }
+      }
+      if (unlikely(!pheno_col)) {
+        logerrprintfww("Error: --make-perm-pheno phenotype '%s' not found.\n", pheno_name);
+        goto MakePermPheno_ret_INCONSISTENT_INPUT;
+      }
+    } else {
+      if (unlikely(!pheno_ct)) {
+        logerrputs("Error: --make-perm-pheno requires phenotype data.\n");
+        goto MakePermPheno_ret_INCONSISTENT_INPUT;
+      }
+      if (unlikely(pheno_ct > 1)) {
+        logerrputs("Error: More than one phenotype is loaded; name the one --make-perm-pheno\nshould permute.\n");
+        goto MakePermPheno_ret_INCONSISTENT_INPUT;
+      }
+      pheno_col = &(pheno_cols[0]);
+    }
+    const uint32_t is_cc = (pheno_col->type_code == kPhenoDtypeCc);
+    if (unlikely((!is_cc) && (pheno_col->type_code != kPhenoDtypeQt))) {
+      logerrputs("Error: --make-perm-pheno's phenotype must be case/control or quantitative.\n");
+      goto MakePermPheno_ret_INCONSISTENT_INPUT;
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* nm_sample_include;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &nm_sample_include))) {
+      goto MakePermPheno_ret_NOMEM;
+    }
+    BitvecAndCopy(sample_include, pheno_col->nonmiss, raw_sample_ctl, nm_sample_include);
+    const uint32_t nm_ct = PopcountWords(nm_sample_include, raw_sample_ctl);
+    if (unlikely(nm_ct < 2)) {
+      logerrputs("Error: --make-perm-pheno requires at least two samples with a nonmissing\nphenotype.\n");
+      goto MakePermPheno_ret_INCONSISTENT_INPUT;
+    }
+
+    // The values to be shuffled, in nonmissing-sample order, and the column of
+    // permuted values for one sample.  Permutations are generated one at a
+    // time and transposed into perm_vals, so that only one shuffle buffer is
+    // needed regardless of perm_ct.
+    double* base_vals;
+    double* shuffled;
+    double* perm_vals;
+    uint32_t* nm_idx_to_sample_uidx;
+    if (unlikely(bigstack_alloc_d(nm_ct, &base_vals) ||
+                 bigstack_alloc_d(nm_ct, &shuffled) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, nm_ct) * perm_ct, &perm_vals) ||
+                 bigstack_alloc_u32(nm_ct, &nm_idx_to_sample_uidx))) {
+      goto MakePermPheno_ret_NOMEM;
+    }
+    {
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = nm_sample_include[0];
+      for (uint32_t nm_idx = 0; nm_idx != nm_ct; ++nm_idx) {
+        const uintptr_t sample_uidx = BitIter1(nm_sample_include, &sample_uidx_base, &cur_bits);
+        nm_idx_to_sample_uidx[nm_idx] = sample_uidx;
+        base_vals[nm_idx] = is_cc? (IsSet(pheno_col->data.cc, sample_uidx)? 2.0 : 1.0) : pheno_col->data.qt[sample_uidx];
+      }
+    }
+    for (uint32_t perm_idx = 0; perm_idx != perm_ct; ++perm_idx) {
+      memcpy(shuffled, base_vals, nm_ct * sizeof(double));
+      // Fisher-Yates.  RandU32() is unbiased, unlike the modulo shortcut.
+      for (uint32_t uii = nm_ct - 1; uii; --uii) {
+        const uint32_t ujj = RandU32(uii + 1, sfmtp);
+        const double tmp = shuffled[uii];
+        shuffled[uii] = shuffled[ujj];
+        shuffled[ujj] = tmp;
+      }
+      for (uint32_t nm_idx = 0; nm_idx != nm_ct; ++nm_idx) {
+        perm_vals[S_CAST(uintptr_t, nm_idx) * perm_ct + perm_idx] = shuffled[nm_idx];
+      }
+    }
+
+    OutnameZstSet(".pphe", output_zst, outname_end);
+    const uint32_t omp_slen = strlen(output_missing_pheno);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + S_CAST(uintptr_t, perm_ct) * MAXV(kMaxDoubleGSlen + 1, omp_slen + 1) + 256;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto MakePermPheno_ret_1;
+    }
+    const uint32_t write_fid = DataFidColIsRequired(sample_include, siip, sample_ct, 1);
+    const uint32_t write_sid = DataSidColIsRequired(sample_include, siip->sids, sample_ct, siip->max_sid_blen, 1);
+    *cswritep++ = '#';
+    if (write_fid) {
+      cswritep = strcpya_k(cswritep, "FID\t");
+    }
+    cswritep = strcpya_k(cswritep, "IID");
+    if (write_sid) {
+      cswritep = strcpya_k(cswritep, "\tSID");
+    }
+    for (uint32_t perm_idx = 0; perm_idx != perm_ct; ++perm_idx) {
+      cswritep = strcpya_k(cswritep, "\tPERM");
+      cswritep = u32toa(perm_idx + 1, cswritep);
+    }
+    AppendBinaryEoln(&cswritep);
+
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = sample_include[0];
+    uint32_t nm_idx = 0;
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+      cswritep = AppendXid(sample_ids, sids, write_fid, write_sid, max_sample_id_blen, max_sid_blen, sample_uidx, cswritep);
+      if (!IsSet(nm_sample_include, sample_uidx)) {
+        for (uint32_t perm_idx = 0; perm_idx != perm_ct; ++perm_idx) {
+          *cswritep++ = '\t';
+          cswritep = memcpya(cswritep, output_missing_pheno, omp_slen);
+        }
+      } else {
+        const double* cur_vals = &(perm_vals[S_CAST(uintptr_t, nm_idx) * perm_ct]);
+        for (uint32_t perm_idx = 0; perm_idx != perm_ct; ++perm_idx) {
+          *cswritep++ = '\t';
+          if (is_cc) {
+            *cswritep++ = (cur_vals[perm_idx] == 2.0)? '2' : '1';
+          } else {
+            cswritep = dtoa_g(cur_vals[perm_idx], cswritep);
+          }
+        }
+        ++nm_idx;
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto MakePermPheno_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto MakePermPheno_ret_WRITE_FAIL;
+    }
+    logprintfww("--make-perm-pheno: %u permutation%s of %u nonmissing phenotype%s written to %s .\n", perm_ct, (perm_ct == 1)? "" : "s", nm_ct, (nm_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  MakePermPheno_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  MakePermPheno_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  MakePermPheno_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ MakePermPheno_ret_1:
+  CswriteCloseCond(&css, cswritep);
   BigstackReset(bigstack_mark);
   return reterr;
 }

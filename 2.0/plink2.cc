@@ -201,6 +201,7 @@ ENUM_U31_DEF_START()
   kCmd1BitKingCutoff,
   kCmd1BitMissingReport,
   kCmd1BitWriteSnplist,
+  kCmd1BitMakePermPheno,
   kCmd1BitAlleleFreq,
   kCmd1BitGenoCounts,
   kCmd1BitHardy,
@@ -246,6 +247,7 @@ FLAGSET64_DEF_START()
   kfCommand1KingCutoff = (1LLU << kCmd1BitKingCutoff),
   kfCommand1MissingReport = (1LLU << kCmd1BitMissingReport),
   kfCommand1WriteSnplist = (1LLU << kCmd1BitWriteSnplist),
+  kfCommand1MakePermPheno = (1LLU << kCmd1BitMakePermPheno),
   kfCommand1AlleleFreq = (1LLU << kCmd1BitAlleleFreq),
   kfCommand1GenoCounts = (1LLU << kCmd1BitGenoCounts),
   kfCommand1Hardy = (1LLU << kCmd1BitHardy),
@@ -635,6 +637,8 @@ typedef struct Plink2CmdlineStruct {
   TwentythreeInfo twenty_three_info;
   TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
+  char* perm_pheno_name;
+  uint32_t perm_pheno_ct;
 } Plink2Cmdline;
 
 // er, probably time to just always initialize this...
@@ -2815,6 +2819,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1MakePermPheno) {
+        reterr = MakePermPheno(sample_include, &pii.sii, pheno_cols, pheno_names, pcp->perm_pheno_name, pcp->output_missing_pheno, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, pcp->perm_pheno_ct, (pcp->misc_flags / kfMiscMakePermPhenoZs) & 1, pcp->max_thread_ct, sfmtp, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1WriteSnplist) {
         reterr = WriteSnplist(variant_include, variant_ids, variant_ct, (pcp->misc_flags / kfMiscWriteSnplistZs) & 1, (pcp->misc_flags / kfMiscWriteSnplistAllowDups) & 1, pcp->max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
@@ -3907,6 +3918,8 @@ int main(int argc, char** argv) {
   InitTwentythree(&pc.twenty_three_info);
   pc.update_map_flag = nullptr;
   pc.update_name_flag = nullptr;
+  pc.perm_pheno_name = nullptr;
+  pc.perm_pheno_ct = 0;
   pc.update_sample_ids_fname = nullptr;
   pc.update_parental_ids_fname = nullptr;
   pc.recover_var_ids_fname = nullptr;
@@ -8920,6 +8933,31 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
 #endif
+        } else if (strequal_k_unsafe(flagname_p2, "ake-perm-pheno")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(ScanPosintDefcap(argvk[arg_idx + 1], &pc.perm_pheno_ct))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-perm-pheno permutation count '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.misc_flags |= kfMiscMakePermPhenoZs;
+            } else if (likely(!pc.perm_pheno_name)) {
+              reterr = CmdlineAllocString(cur_modif, "--make-perm-pheno", kMaxIdSlen, &pc.perm_pheno_name);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-perm-pheno argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          pc.command_flags1 |= kfCommand1MakePermPheno;
+          pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "ake-bed")) {
           if (unlikely(pc.exportf_info.flags & kfExportfIndMajorBed)) {
             logerrputs("Error: --make-bed cannot be used with --export ind-major-bed.\n");
@@ -14467,6 +14505,7 @@ int main(int argc, char** argv) {
   free_cond(rseeds);
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
+  free_cond(pc.perm_pheno_name);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.zero_cluster_phenoname);
   free_cond(pc.zero_cluster_fname);
