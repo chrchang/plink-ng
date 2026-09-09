@@ -2058,7 +2058,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --meta-analysis <report filenames...>\n"
 "  --meta-analysis <report filenames...> + [{'logscale' | 'qt'}]\n"
 "                  [{'no-map' | 'no-allele'}] ['study'] ['report-all']\n"
-"                  ['weighted-z'] ['zs']\n"
+"                  ['weighted-z'] ['re2'] ['zs']\n"
 "    Inverse-variance meta-analysis over several variant-based association\n"
 "    reports, matching rows by variant ID.\n"
 "    * Each report needs an SE field and an effect size field: OR by default,\n"
@@ -2074,7 +2074,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * 'study' adds a per-file effect size column; 'report-all' keeps variants\n"
 "      seen in only one file.\n"
 "    * 'weighted-z' adds METAL's sample-size-weighted Z-score and its\n"
-"      p-value, which needs p-value and effective sample size fields.\n\n"
+"      p-value, which needs p-value and effective sample size fields.\n"
+"    * 're2' adds TAU2 and P_RE2, the Han & Eskin (2011) random-effects test.\n"
+"      DerSimonian-Laird assumes heterogeneity under the null, which costs it\n"
+"      most of its power in this setting; RE2 tests the mean effect and the\n"
+"      heterogeneity jointly, so a variant with an effect in only some studies\n"
+"      still registers.  TAU2 is the maximum-likelihood between-study\n"
+"      variance, and is zero whenever the studies are consistent.\n\n"
               );
     HelpPrint("adjust-file\0adjust\0", &help_ctrl, 1,
 "  --adjust-file <filename> ['zs'] ['gc'] ['cols='<column set descriptor>]\n"

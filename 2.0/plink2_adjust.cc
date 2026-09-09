@@ -750,6 +750,75 @@ static PglErr MetaSetupCols(const MetaInfo* mip, const char* header_start, const
   return kPglRetSuccess;
 }
 
+// Han & Eskin (2011) RE2, the random-effects test their paper proposes for
+// genome-wide meta-analysis.  DerSimonian-Laird, which is what PLINK 1.x
+// reports, assumes heterogeneity under the null and is badly underpowered
+// here; RE2 instead tests (mu = 0, tau^2 = 0) jointly against both free, so a
+// variant with a real effect in only some studies still registers.
+//
+// Fits the random-effects model by maximum likelihood, iterating between mu
+// and tau^2, and returns the maximized log-likelihood.  tau^2 is truncated at
+// zero, which is what puts it on the boundary of its parameter space.
+double MetaRandomEffectsMl(const double* betas, const double* vars, uint32_t study_ct, double* mu_ptr, double* tau2_ptr) {
+  double tau2 = 0.0;
+  double mu = 0.0;
+  for (uint32_t iter = 0; iter != 200; ++iter) {
+    double sum_w = 0.0;
+    double sum_wbeta = 0.0;
+    for (uint32_t sidx = 0; sidx != study_ct; ++sidx) {
+      const double ww = 1.0 / (vars[sidx] + tau2);
+      sum_w += ww;
+      sum_wbeta += ww * betas[sidx];
+    }
+    mu = sum_wbeta / sum_w;
+    double num = 0.0;
+    double den = 0.0;
+    for (uint32_t sidx = 0; sidx != study_ct; ++sidx) {
+      const double ww = 1.0 / (vars[sidx] + tau2);
+      const double w2 = ww * ww;
+      const double dxx = betas[sidx] - mu;
+      num += w2 * (dxx * dxx - vars[sidx]);
+      den += w2;
+    }
+    double new_tau2 = num / den;
+    if (new_tau2 < 0.0) {
+      new_tau2 = 0.0;
+    }
+    const double delta = fabs(new_tau2 - tau2);
+    tau2 = new_tau2;
+    if (delta < 1e-12) {
+      break;
+    }
+  }
+  double sum_w = 0.0;
+  double sum_wbeta = 0.0;
+  for (uint32_t sidx = 0; sidx != study_ct; ++sidx) {
+    const double ww = 1.0 / (vars[sidx] + tau2);
+    sum_w += ww;
+    sum_wbeta += ww * betas[sidx];
+  }
+  mu = sum_wbeta / sum_w;
+  double loglik = 0.0;
+  for (uint32_t sidx = 0; sidx != study_ct; ++sidx) {
+    const double ss = vars[sidx] + tau2;
+    const double dxx = betas[sidx] - mu;
+    loglik -= 0.5 * log(2 * kPi * ss) + dxx * dxx / (2 * ss);
+  }
+  *mu_ptr = mu;
+  *tau2_ptr = tau2;
+  return loglik;
+}
+
+// Returns ln(p) for the RE2 statistic.  Its asymptotic null is a 50:50 mixture
+// of chi-square with 1 and 2 degrees of freedom, so the two tails are combined
+// in log space to stay accurate far out.
+double MetaRe2LnP(double stat) {
+  const double ln_p1 = ChisqToLnP(stat, 1);
+  const double ln_p2 = ChisqToLnP(stat, 2);
+  const double ln_max = MAXV(ln_p1, ln_p2);
+  return ln_max + log(0.5) + log(exp(ln_p1 - ln_max) + exp(ln_p2 - ln_max));
+}
+
 PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
@@ -769,6 +838,7 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
     const uint32_t report_all = (flags / kfMetaReportAll) & 1;
     const uint32_t output_zst = (flags / kfMetaZs) & 1;
     const uint32_t weighted_z = (flags / kfMetaWeightedZ) & 1;
+    const uint32_t re2 = (flags / kfMetaRe2) & 1;
     // Effect sizes are betas internally; an OR column is logged on the way in.
     const uint32_t input_is_beta = ((flags / kfMetaLogscale) & 1) || qt_mode;
 
@@ -989,6 +1059,9 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
     cswritep = strcpya_k(cswritep, "\tN\tP\tP_R\t");
     cswritep = strcpya(cswritep, qt_mode? "BETA\tBETA_R" : "OR\tOR_R");
     cswritep = strcpya_k(cswritep, "\tQ\tI2");
+    if (re2) {
+      cswritep = strcpya_k(cswritep, "\tTAU2\tP_RE2");
+    }
     if (weighted_z) {
       cswritep = strcpya_k(cswritep, "\tWEIGHTED_Z\tP_WZ");
     }
@@ -1003,6 +1076,17 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
     double* study_betas = nullptr;
     if (study_col) {
       if (unlikely(bigstack_alloc_d(file_ct, &study_betas))) {
+        goto MetaAnalysis_ret_NOMEM;
+      }
+    }
+    // RE2 needs the per-study effects and variances together; they are
+    // gathered during the Cochran's Q pass, which already applies the
+    // allele-flip rules.
+    double* re2_betas = nullptr;
+    double* re2_vars = nullptr;
+    if (re2) {
+      if (unlikely(bigstack_alloc_d(file_ct, &re2_betas) ||
+                   bigstack_alloc_d(file_ct, &re2_vars))) {
         goto MetaAnalysis_ret_NOMEM;
       }
     }
@@ -1049,11 +1133,7 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
         sum_wbeta += cur_w * cur_beta;
         if (weighted_z) {
           const double abs_z = sqrt(LnPToChisq(cur_rec->ln_pval));
-          // PLINK 1.9 tests `cur_beta > 0.0`, so a zero effect size -- which
-          // is what an odds ratio of exactly 1 in a four-significant-digit
-          // report gives -- contributes negatively.  Matching that matters:
-          // the sign flips the study's whole contribution.
-          const double cur_z = (cur_beta > 0.0)? abs_z : (-abs_z);
+          const double cur_z = (cur_beta < 0.0)? (-abs_z) : abs_z;
           const double cur_wz_w = sqrt(cur_rec->ess);
           sum_wz += cur_wz_w * cur_z;
           sum_wz_w2 += cur_rec->ess;
@@ -1076,6 +1156,7 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
       // Cochran's Q, and the DerSimonian-Laird random-effects estimate built
       // from it.
       double qq = 0.0;
+      uint32_t re2_ct = 0;
       for (uint32_t rec_idx = 0; rec_idx != group_rec_ct; ++rec_idx) {
         const MetaRecord* cur_rec = &(group_recs[rec_idx]);
         double cur_beta = cur_rec->beta;
@@ -1088,7 +1169,13 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
             }
           }
         }
-        const double cur_w = 1.0 / (cur_rec->se * cur_rec->se);
+        const double cur_var = cur_rec->se * cur_rec->se;
+        if (re2) {
+          re2_betas[re2_ct] = cur_beta;
+          re2_vars[re2_ct] = cur_var;
+          ++re2_ct;
+        }
+        const double cur_w = 1.0 / cur_var;
         const double dxx = cur_beta - beta_fe;
         qq += cur_w * dxx * dxx;
       }
@@ -1160,6 +1247,30 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
         cswritep = dtoa_g(i2, cswritep);
       } else {
         cswritep = strcpya_k(cswritep, "NA\tNA");
+      }
+      if (re2) {
+        *cswritep++ = '\t';
+        if (re2_ct > 1) {
+          double mu;
+          double tau2;
+          const double loglik_alt = MetaRandomEffectsMl(re2_betas, re2_vars, re2_ct, &mu, &tau2);
+          double loglik_null = 0.0;
+          for (uint32_t sidx = 0; sidx != re2_ct; ++sidx) {
+            const double vv = re2_vars[sidx];
+            loglik_null -= 0.5 * log(2 * kPi * vv) + re2_betas[sidx] * re2_betas[sidx] / (2 * vv);
+          }
+          double stat = 2 * (loglik_alt - loglik_null);
+          if (stat < 0.0) {
+            // Only reachable through roundoff; the alternative contains the
+            // null, so the true statistic cannot be negative.
+            stat = 0.0;
+          }
+          cswritep = dtoa_g(tau2, cswritep);
+          *cswritep++ = '\t';
+          cswritep = lntoa_g(MetaRe2LnP(stat), cswritep);
+        } else {
+          cswritep = strcpya_k(cswritep, "NA\tNA");
+        }
       }
       if (weighted_z) {
         const double wz = sum_wz / sqrt(sum_wz_w2);

@@ -8926,6 +8926,8 @@ int main(int argc, char** argv) {
               meta_info.flags |= kfMetaReportAll;
             } else if (strequal_k(cur_modif, "weighted-z", cur_modif_slen)) {
               meta_info.flags |= kfMetaWeightedZ;
+            } else if (strequal_k(cur_modif, "re2", cur_modif_slen)) {
+              meta_info.flags |= kfMetaRe2;
             } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               meta_info.flags |= kfMetaZs;
             } else {

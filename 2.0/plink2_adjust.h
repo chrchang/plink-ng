@@ -67,7 +67,8 @@ FLAGSET_DEF_START()
   kfMetaStudy = (1 << 4),
   kfMetaReportAll = (1 << 5),
   kfMetaWeightedZ = (1 << 6),
-  kfMetaZs = (1 << 7)
+  kfMetaZs = (1 << 7),
+  kfMetaRe2 = (1 << 8)
 FLAGSET_DEF_END(MetaFlags);
 
 typedef struct MetaInfoStruct {
