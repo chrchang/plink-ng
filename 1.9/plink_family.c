@@ -1642,11 +1642,18 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 		ukk = pri_ptr->family_rel_nf_idxs[(uint32_t)kk];
                 dxx = 0.5 * rs_ptr[((uint64_t)ukk * (ukk - 1) - ullii) / 2 + ujj];
 	      }
-	      if (is_set(founder_info, mm)) {
+	      // -1 means no maternal ID, and is_set() must not see it: the
+	      // paternal chains above and below check for it first, these two
+	      // did not, and is_set(founder_info, -1) indexes far out of
+	      // bounds.  Reachable with --genome --filter-cases on any dataset
+	      // with parental IDs, once the workspace is small enough to take
+	      // this branch.
+	      if (mm == -1) {
+	      } else if (is_set(founder_info, mm)) {
 		if (mm == (int32_t)complete_sample_idxs[ujj]) {
 		  dxx += 0.5;
 		}
-	      } else if ((mm != -1) && (mm < (int32_t)unfiltered_sample_ct)) {
+	      } else if (mm < (int32_t)unfiltered_sample_ct) {
 		ukk = pri_ptr->family_rel_nf_idxs[(uint32_t)mm];
 		dxx += 0.5 * rs_ptr[((uint64_t)ukk * (ukk - 1) - ullii) / 2 + ujj];
 	      }
@@ -1669,11 +1676,12 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 		  dxx = 0.5 * rs_ptr[((uint64_t)ukk * (ukk - 1) - ullii) / 2 + ujj];
 		}
 	      }
-	      if (mm >= (int32_t)unfiltered_sample_ct) {
+	      if (mm == -1) {
+	      } else if (mm >= (int32_t)unfiltered_sample_ct) {
 		dxx += 0.5 * tmp_rel_space[(ujj - founder_ct) * stray_parent_ct + mm - unfiltered_sample_ctlm];
 	      } else if (is_set(founder_info, mm)) {
 		dxx += 0.5 * rs_ptr[((uint64_t)ujj * (ujj - 1) - ullii) / 2 + pri_ptr->family_rel_nf_idxs[mm]];
-	      } else if (mm != -1) {
+	      } else {
 		ukk = pri_ptr->family_rel_nf_idxs[mm];
 		if (ukk == ujj) {
 		  dxx += 0.5;
@@ -4176,6 +4184,15 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   bigstack_reset((unsigned char*)idx_to_uidx);
   bigstack_shrink_top(dfam_iteration_order, (cur_dfam_ptr - dfam_iteration_order) * sizeof(int32_t));
   dfam_sample_ct = unfiltered_sample_ct - popcount_longs(dfam_sample_exclude, unfiltered_sample_ctl);
+  if (!dfam_sample_ct) {
+    // Everything downstream assumes at least one sample: the buffer-clearing
+    // loop below indexes [dfam_sample_ctl2 * i - 1], and
+    // copy_quaterarr_nonempty_subset_excl() asserts a nonempty subset.  A
+    // release build has no assertions, so this used to write before the
+    // buffer and shift a 64-bit value by 64.
+    logerrprint("Error: No samples remain for --dfam after family-structure filtering.\n");
+    goto dfam_ret_INVALID_CMDLINE;
+  }
   dfam_sample_ctl = BITCT_TO_WORDCT(dfam_sample_ct);
   dfam_sample_ctl2 = QUATERCT_TO_WORDCT(dfam_sample_ct);
   dfam_sample_ctaw = BITCT_TO_ALIGNED_WORDCT(dfam_sample_ct);
