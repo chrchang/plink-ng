@@ -2728,7 +2728,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                         founders to estimate from.  Use --bad-ld to force\n"
 "                         PLINK 2 to proceed.\n"
               );
-    HelpPrint("export-allele\0recode-allele\0export\0recode", &help_ctrl, 0,
+    HelpPrint("export-allele\0recode-allele\0export\0recode\0", &help_ctrl, 0,
 "  --export-allele <file> : With --export A/AD/Av, count alleles named in the\n"
 "                           file, instead of REF alleles.\n"
               );
@@ -3320,7 +3320,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("threads\0num_threads\0thread-num\0seed\0", &help_ctrl, 0,
 "  --threads <val>    : Set maximum number of compute threads.\n"
                );
-    HelpPrint("d\0covar-name\0exclude-snps\0pheno-name\0snps", &help_ctrl, 0,
+    HelpPrint("d\0covar-name\0exclude-snps\0pheno-name\0snps\0", &help_ctrl, 0,
 "  --d <char>         : Change variant/covariate range delimiter (normally '-').\n"
               );
     HelpPrint("seed\0", &help_ctrl, 0,
