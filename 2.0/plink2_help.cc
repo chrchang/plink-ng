@@ -1696,6 +1696,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    'allow-dups' modifier is provided, this now errors out when duplicate\n"
 "    variant ID(s) remain.\n\n"
                );
+    HelpPrint("tucc\0mendel\0me\0", &help_ctrl, 1,
+"  --tucc ['vzs']\n"
+"    Generate a pseudo-case/pseudo-control dataset from the trios in the input.\n"
+"    For each child with both parents present, one case sample is written with\n"
+"    the child's genotypes, and one control sample is written with the alleles\n"
+"    the parents did not transmit; both are set to missing where the trio has a\n"
+"    Mendel error or a missing genotype.  Sample IDs get a '_T'/'_U' suffix.\n"
+"    Haploid, chrMT and multiallelic variants are excluded.  The output is\n"
+"    <output prefix>.tucc.pgen + .pvar + .psam; add 'vzs' to compress the .pvar.\n\n"
+               );
     HelpPrint("glm\0linear\0logistic\0assoc\0", &help_ctrl, 1,
 "  --glm ['zs'] ['omit-ref'] [{sex | no-x-sex}] ['log10'] ['pheno-ids']\n"
 "        [{genotypic | hethom | dominant | recessive | hetonly}] ['interaction']\n"
