@@ -3955,6 +3955,8 @@ int main(int argc, char** argv) {
   InitAdjust(&pc.adjust_info, &adjust_file_info);
   GeneReportInfo gene_report_info;
   InitGeneReport(&gene_report_info);
+  AnnotInfo annot_info;
+  InitAnnot(&annot_info);
   ChrInfo chr_info;
   if (unlikely(InitChrInfo(&chr_info))) {
     goto main_ret_NOMEM_NOLOG;
@@ -4547,6 +4549,132 @@ int main(int argc, char** argv) {
           }
           if (!(pc.adjust_info.flags & kfAdjustColAll)) {
             pc.adjust_info.flags |= kfAdjustColDefault;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "nnotate")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 12))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &annot_info.report_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            reterr = kPglRetSuccess;
+            if (StrStartsWith(cur_modif, "attrib=", cur_modif_slen)) {
+              reterr = AllocFname(&(cur_modif[7]), "annotate attrib=", &annot_info.attrib_fname);
+            } else if (StrStartsWith(cur_modif, "ranges=", cur_modif_slen)) {
+              reterr = AllocFname(&(cur_modif[7]), "annotate ranges=", &annot_info.ranges_fname);
+            } else if (StrStartsWith(cur_modif, "filter=", cur_modif_slen)) {
+              reterr = AllocFname(&(cur_modif[7]), "annotate filter=", &annot_info.filter_fname);
+            } else if (StrStartsWith(cur_modif, "snps=", cur_modif_slen)) {
+              reterr = AllocFname(&(cur_modif[5]), "annotate snps=", &annot_info.snps_fname);
+            } else if (StrStartsWith(cur_modif, "subset=", cur_modif_slen)) {
+              reterr = AllocFname(&(cur_modif[7]), "annotate subset=", &annot_info.subset_fname);
+            } else if (strequal_k(cur_modif, "NA", cur_modif_slen)) {
+              annot_info.flags |= kfAnnotNa;
+            } else if (strequal_k(cur_modif, "prune", cur_modif_slen)) {
+              annot_info.flags |= kfAnnotPrune;
+            } else if (strequal_k(cur_modif, "block", cur_modif_slen)) {
+              annot_info.flags |= kfAnnotBlock;
+            } else if (strequal_k(cur_modif, "minimal", cur_modif_slen)) {
+              annot_info.flags |= kfAnnotMinimal;
+            } else if (strequal_k(cur_modif, "distance", cur_modif_slen)) {
+              annot_info.flags |= kfAnnotDistance;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              annot_info.flags |= kfAnnotZs;
+            } else if (likely(strequal_k(cur_modif, "0based", cur_modif_slen))) {
+              annot_info.flags |= kfAnnot0based;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --annotate argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          if (unlikely((!annot_info.attrib_fname) && (!annot_info.ranges_fname))) {
+            logerrputs("Error: --annotate requires an annotation source ('attrib=' and/or 'ranges=').\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely((annot_info.flags & (kfAnnotNa | kfAnnotPrune)) == (kfAnnotNa | kfAnnotPrune))) {
+            logerrputs("Error: --annotate 'NA' and 'prune' cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely((annot_info.flags & kfAnnotBlock) && (annot_info.flags & (kfAnnotNa | kfAnnotMinimal)))) {
+            logerrputs("Error: --annotate 'block' cannot be used with 'NA' or 'minimal'.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely((!annot_info.ranges_fname) && (annot_info.subset_fname || (annot_info.flags & (kfAnnotMinimal | kfAnnotDistance))))) {
+            logerrputs("Error: --annotate 'subset=', 'minimal' and 'distance' require 'ranges='.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "nnotate-border")) {
+          if (unlikely(!annot_info.report_fname)) {
+            logerrputs("Error: --annotate-border must be used with --annotate.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --annotate-border argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (dxx > 2147483.646) {
+            annot_info.border = 0x7ffffffe;
+          } else {
+            annot_info.border = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "nnotate-chr-field")) {
+          if (unlikely(!annot_info.report_fname)) {
+            logerrputs("Error: --annotate-chr-field must be used with --annotate.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &annot_info.chr_field);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "nnotate-pos-field")) {
+          if (unlikely(!annot_info.report_fname)) {
+            logerrputs("Error: --annotate-pos-field must be used with --annotate.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &annot_info.pos_field);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "nnotate-id-field")) {
+          if (unlikely(!annot_info.report_fname)) {
+            logerrputs("Error: --annotate-id-field must be used with --annotate.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &annot_info.id_field);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "nnotate-p-field")) {
+          if (unlikely(!annot_info.report_fname)) {
+            logerrputs("Error: --annotate-p-field must be used with --annotate.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0x7fffffff, &annot_info.p_field);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
           }
         } else if (strequal_k_unsafe(flagname_p2, "djust-file")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 7))) {
@@ -13929,7 +14057,7 @@ int main(int argc, char** argv) {
 
     pc.dependency_flags |= pc.filter_flags;
     const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadEigGeno | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped | kfXloadMgf)));
-    const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (gene_report_info.report_fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr);
+    const uint32_t batch_job = (adjust_file_info.fname != nullptr) || (gene_report_info.report_fname != nullptr) || (annot_info.report_fname != nullptr) || (pc.gwas_ssf_info.fname != nullptr) || (pc.gwas_ssf_info.list_fname != nullptr);
     if (gene_report_info.report_fname) {
       if (unlikely(load_params || xload)) {
         logerrputs("Error: --gene-report cannot be used with a main dataset.\n");
@@ -13937,6 +14065,10 @@ int main(int argc, char** argv) {
       }
     } else if (unlikely(gene_report_info.border != UINT32_MAX)) {
       logerrputs("Error: --gene-list-border must be used with --gene-report.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (annot_info.report_fname && unlikely(load_params || xload)) {
+      logerrputs("Error: --annotate cannot be used with a main dataset.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (skip_main && (!batch_job)) {
@@ -14278,6 +14410,15 @@ int main(int argc, char** argv) {
           goto main_ret_1;
         }
       }
+      if (annot_info.report_fname) {
+        // No main dataset is loaded on this code path, so the chromosome set
+        // still needs to be finalized.
+        FinalizeChrset(kfLoadFilterLog0, &chr_info);
+        reterr = Annotate(&annot_info, &chr_info, pc.ln_pfilter, pc.max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto main_ret_1;
+        }
+      }
       if (pc.gwas_ssf_info.fname || pc.gwas_ssf_info.list_fname) {
         reterr = GwasSsfStandalone(&pc.gwas_ssf_info, pc.max_thread_ct);
         if (unlikely(reterr)) {
@@ -14600,6 +14741,7 @@ int main(int argc, char** argv) {
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
   CleanupGeneReport(&gene_report_info);
+  CleanupAnnot(&annot_info);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.zero_cluster_phenoname);
   free_cond(pc.zero_cluster_fname);

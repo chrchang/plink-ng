@@ -71,6 +71,39 @@ typedef struct GeneReportInfoStruct {
   GeneReportFlags flags;
 } GeneReportInfo;
 
+FLAGSET_DEF_START()
+  kfAnnot0,
+  kfAnnotZs = (1 << 0),
+  kfAnnot0based = (1 << 1),
+  kfAnnotNa = (1 << 2),
+  kfAnnotPrune = (1 << 3),
+  kfAnnotBlock = (1 << 4),
+  kfAnnotMinimal = (1 << 5),
+  kfAnnotDistance = (1 << 6)
+FLAGSET_DEF_END(AnnotFlags);
+
+typedef struct AnnotInfoStruct {
+  NONCOPYABLE(AnnotInfoStruct);
+  char* report_fname;
+  char* attrib_fname;
+  char* ranges_fname;
+  char* filter_fname;
+  char* snps_fname;
+  char* subset_fname;
+  char* chr_field;
+  char* pos_field;
+  char* id_field;
+  char* p_field;
+  uint32_t border;
+  AnnotFlags flags;
+} AnnotInfo;
+
+void InitAnnot(AnnotInfo* aip);
+
+void CleanupAnnot(AnnotInfo* aip);
+
+PglErr Annotate(const AnnotInfo* aip, const ChrInfo* cip, double ln_pfilter, uint32_t max_thread_ct, char* outname, char* outname_end);
+
 void InitGeneReport(GeneReportInfo* grip);
 
 void CleanupGeneReport(GeneReportInfo* grip);

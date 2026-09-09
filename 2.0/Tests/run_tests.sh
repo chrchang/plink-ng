@@ -128,4 +128,9 @@ cd TEST_GENE_REPORT
 cd ..
 echo "TEST_GENE_REPORT passed."
 
+cd TEST_ANNOTATE
+./run_tests.sh $d $2 $3 > TEST_ANNOTATE.log
+cd ..
+echo "TEST_ANNOTATE passed."
+
 echo "All tests passed."

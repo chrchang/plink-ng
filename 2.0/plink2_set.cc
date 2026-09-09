@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "include/plink2_bits.h"
+#include "include/plink2_htable.h"
 #include "include/plink2_simd.h"
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
@@ -1157,6 +1158,889 @@ PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, double ln_pfil
     break;
   }
  GeneReport_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  CleanupTextStream2(report_fname, &txs, &reterr);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+
+void InitAnnot(AnnotInfo* aip) {
+  aip->report_fname = nullptr;
+  aip->attrib_fname = nullptr;
+  aip->ranges_fname = nullptr;
+  aip->filter_fname = nullptr;
+  aip->snps_fname = nullptr;
+  aip->subset_fname = nullptr;
+  aip->chr_field = nullptr;
+  aip->pos_field = nullptr;
+  aip->id_field = nullptr;
+  aip->p_field = nullptr;
+  // UINT32_MAX = unset; --annotate-border cannot exceed 0x7ffffffe.
+  aip->border = UINT32_MAX;
+  aip->flags = kfAnnot0;
+}
+
+void CleanupAnnot(AnnotInfo* aip) {
+  free_cond(aip->report_fname);
+  free_cond(aip->attrib_fname);
+  free_cond(aip->ranges_fname);
+  free_cond(aip->filter_fname);
+  free_cond(aip->snps_fname);
+  free_cond(aip->subset_fname);
+  free_cond(aip->chr_field);
+  free_cond(aip->pos_field);
+  free_cond(aip->id_field);
+  free_cond(aip->p_field);
+}
+
+uint32_t InSetdef(const uint32_t* setdef, uint32_t pos) {
+  // Interval-list form only; that is what LoadAndSortIntervalBed() produces
+  // when variant_bps is nullptr.
+  const uint32_t range_ct = setdef[0];
+  if (!range_ct) {
+    return 0;
+  }
+  return LowerBoundNonemptyU32(&(setdef[1]), range_ct * 2, pos + 1) & 1;
+}
+
+uint32_t InSetdefDist(const uint32_t* setdef, uint32_t pos, uint32_t border, int32_t* dist_ptr) {
+  // Returns 1 and sets *dist_ptr to the signed distance from pos to the
+  // nearest interval boundary (0 when pos is inside an interval) if pos is
+  // within border bp of the set; returns 0 otherwise.
+  // Ties are broken in favor of negative distances, matching plink 1.07's
+  // annot.cpp.
+  const uint32_t range_ct = setdef[0];
+  if (!range_ct) {
+    return 0;
+  }
+  const uint32_t idx = LowerBoundNonemptyU32(&(setdef[1]), range_ct * 2, pos + 1);
+  if (idx & 1) {
+    *dist_ptr = 0;
+    return 1;
+  }
+  if (!idx) {
+    // Before the first interval.
+    if (pos + border >= setdef[1]) {
+      *dist_ptr = S_CAST(int32_t, pos) - S_CAST(int32_t, setdef[1]);
+      return 1;
+    }
+    return 0;
+  }
+  // setdef[idx] is the end of the previous interval (exclusive).
+  if (idx == range_ct * 2) {
+    // After the last interval.
+    if (setdef[idx] + border > pos) {
+      *dist_ptr = S_CAST(int32_t, pos + 1 - setdef[idx]);
+      return 1;
+    }
+    return 0;
+  }
+  // Between two intervals; setdef[idx + 1] is the start of the next one.
+  if (setdef[idx] + border > pos) {
+    int32_t dist = S_CAST(int32_t, pos + 1 - setdef[idx]);
+    if (pos + S_CAST(uint32_t, dist) > setdef[idx + 1]) {
+      dist = S_CAST(int32_t, pos) - S_CAST(int32_t, setdef[idx + 1]);
+    }
+    *dist_ptr = dist;
+    return 1;
+  }
+  if (pos + border >= setdef[idx + 1]) {
+    *dist_ptr = S_CAST(int32_t, pos) - S_CAST(int32_t, setdef[idx + 1]);
+    return 1;
+  }
+  return 0;
+}
+
+// Open-addressed table of offsets into a variable-width, null-terminated blob.
+// UINT32_MAX marks an empty slot.  Returns the offset of an existing match, or
+// UINT32_MAX after inserting new_offset.
+uint32_t AttrHtableAdd(const char* cur_id, uint32_t cur_id_slen, const char* blob, uint32_t htable_size, uint32_t new_offset, uint32_t* htable) {
+  for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, htable_size); ; ) {
+    const uint32_t cur_entry = htable[hashval];
+    if (cur_entry == UINT32_MAX) {
+      htable[hashval] = new_offset;
+      return UINT32_MAX;
+    }
+    const char* cur_str = &(blob[cur_entry]);
+    if (memequal(cur_id, cur_str, cur_id_slen) && (!cur_str[cur_id_slen])) {
+      return cur_entry;
+    }
+    if (++hashval == htable_size) {
+      hashval = 0;
+    }
+  }
+}
+
+// Loads an attribute file: one line per variant, "<variant ID> <attribute>...".
+// Lines with no attribute are ignored, as are variants missing from
+// sorted_snplist when that is present.
+//
+// On success:
+// * sorted_attr_ids is a natural-sorted, fixed-width box of the distinct
+//   attribute names.
+// * attr_var_ids is a strcmp-sorted, fixed-width box of the variant IDs, and
+//   attr_var_id_map maps a position in it back to the corresponding row of
+//   attr_bitfields.
+// * attr_bitfields has one attr_ct-bit row per variant, in file order.
+PglErr LoadAttribFile(const char* fname, const char* sorted_snplist, uintptr_t snplist_ct, uintptr_t max_snplist_id_blen, uint32_t max_thread_ct, char** sorted_attr_ids_ptr, uintptr_t* attr_ct_ptr, uintptr_t* max_attr_id_blen_ptr, char** attr_var_ids_ptr, uintptr_t* attr_var_ct_ptr, uintptr_t* max_attr_var_id_blen_ptr, uint32_t** attr_var_id_map_ptr, uintptr_t** attr_bitfields_ptr, uint32_t* max_onevar_attr_ct_ptr) {
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    reterr = SizeAndInitTextStream(fname, bigstack_left() / 8, MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto LoadAttribFile_ret_TSTREAM_FAIL;
+    }
+    // Pass 1: size everything.
+    uintptr_t var_ct = 0;
+    uintptr_t max_var_id_blen = 2;
+    uintptr_t max_attr_id_blen = 2;
+    uintptr_t attr_token_ct = 0;
+    uintptr_t attr_name_byte_ct = 0;
+    uint32_t max_onevar_attr_ct = 0;
+    while (1) {
+      ++line_idx;
+      const char* line_iter = TextGet(&txs);
+      if (!line_iter) {
+        break;
+      }
+      const char* var_id = FirstNonTspace(line_iter);
+      if (IsEolnKns(*var_id)) {
+        continue;
+      }
+      const char* var_id_end = CurTokenEnd(var_id);
+      const uintptr_t var_id_slen = var_id_end - var_id;
+      const char* attr_iter = FirstNonTspace(var_id_end);
+      if (IsEolnKns(*attr_iter)) {
+        continue;
+      }
+      if (snplist_ct && (bsearch_strbox(var_id, sorted_snplist, var_id_slen, max_snplist_id_blen, snplist_ct) == -1)) {
+        continue;
+      }
+      if (unlikely(var_id_slen > kMaxIdSlen)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant ID on line %" PRIuPTR " of %s is longer than " MAX_ID_SLEN_STR " characters.\n", line_idx, fname);
+        goto LoadAttribFile_ret_MALFORMED_INPUT_WW;
+      }
+      if (var_id_slen >= max_var_id_blen) {
+        max_var_id_blen = var_id_slen + 1;
+      }
+      uint32_t cur_attr_ct = 0;
+      do {
+        const char* attr_end = CurTokenEnd(attr_iter);
+        const uintptr_t attr_slen = attr_end - attr_iter;
+        if (unlikely(attr_slen > kMaxIdSlen)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Attribute name on line %" PRIuPTR " of %s is longer than " MAX_ID_SLEN_STR " characters.\n", line_idx, fname);
+          goto LoadAttribFile_ret_MALFORMED_INPUT_WW;
+        }
+        if (attr_slen >= max_attr_id_blen) {
+          max_attr_id_blen = attr_slen + 1;
+        }
+        attr_name_byte_ct += attr_slen + 1;
+        ++attr_token_ct;
+        ++cur_attr_ct;
+        attr_iter = FirstNonTspace(attr_end);
+      } while (!IsEolnKns(*attr_iter));
+      if (cur_attr_ct > max_onevar_attr_ct) {
+        max_onevar_attr_ct = cur_attr_ct;
+      }
+      ++var_ct;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LoadAttribFile_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(!var_ct)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: No usable lines in %s.\n", fname);
+      goto LoadAttribFile_ret_MALFORMED_INPUT_WW;
+    }
+    if (unlikely(attr_token_ct > 0x7fffffff)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: Too many attribute entries in %s.\n", fname);
+      goto LoadAttribFile_ret_MALFORMED_INPUT_WW;
+    }
+
+    // Pass 2: collect the distinct attribute names in an append-only blob.
+    char* name_blob;
+    if (unlikely(bigstack_end_alloc_c(attr_name_byte_ct, &name_blob))) {
+      goto LoadAttribFile_ret_NOMEM;
+    }
+    uint32_t* htable;
+    uint32_t htable_size;
+    if (unlikely(HtableGoodSizeAlloc(attr_token_ct, bigstack_left() / 4, &htable, &htable_size))) {
+      goto LoadAttribFile_ret_NOMEM;
+    }
+    SetAllU32Arr(htable_size, htable);
+    uintptr_t blob_byte_ct = 0;
+    uintptr_t attr_ct = 0;
+    reterr = TextRewind(&txs);
+    if (unlikely(reterr)) {
+      goto LoadAttribFile_ret_TSTREAM_FAIL;
+    }
+    line_idx = 0;
+    while (1) {
+      ++line_idx;
+      const char* line_iter = TextGet(&txs);
+      if (!line_iter) {
+        break;
+      }
+      const char* var_id = FirstNonTspace(line_iter);
+      if (IsEolnKns(*var_id)) {
+        continue;
+      }
+      const char* var_id_end = CurTokenEnd(var_id);
+      const char* attr_iter = FirstNonTspace(var_id_end);
+      if (IsEolnKns(*attr_iter)) {
+        continue;
+      }
+      if (snplist_ct && (bsearch_strbox(var_id, sorted_snplist, var_id_end - var_id, max_snplist_id_blen, snplist_ct) == -1)) {
+        continue;
+      }
+      do {
+        const char* attr_end = CurTokenEnd(attr_iter);
+        const uint32_t attr_slen = attr_end - attr_iter;
+        if (AttrHtableAdd(attr_iter, attr_slen, name_blob, htable_size, blob_byte_ct, htable) == UINT32_MAX) {
+          memcpyx(&(name_blob[blob_byte_ct]), attr_iter, attr_slen, '\0');
+          blob_byte_ct += attr_slen + 1;
+          ++attr_ct;
+        }
+        attr_iter = FirstNonTspace(attr_end);
+      } while (!IsEolnKns(*attr_iter));
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LoadAttribFile_ret_TSTREAM_FAIL;
+    }
+    BigstackReset(htable);
+
+    char* sorted_attr_ids;
+    if (unlikely(bigstack_alloc_c(attr_ct * max_attr_id_blen, &sorted_attr_ids))) {
+      goto LoadAttribFile_ret_NOMEM;
+    }
+    {
+      const char* blob_iter = name_blob;
+      for (uintptr_t attr_idx = 0; attr_idx != attr_ct; ++attr_idx) {
+        const uint32_t slen = strlen(blob_iter);
+        memcpyx(&(sorted_attr_ids[attr_idx * max_attr_id_blen]), blob_iter, slen, '\0');
+        blob_iter = &(blob_iter[slen + 1]);
+      }
+    }
+    BigstackEndReset(bigstack_end_mark);
+    {
+      uint32_t* ignored_id_map;
+      if (unlikely(bigstack_alloc_u32(attr_ct, &ignored_id_map))) {
+        goto LoadAttribFile_ret_NOMEM;
+      }
+      if (unlikely(SortStrboxIndexed(attr_ct, max_attr_id_blen, 1, sorted_attr_ids, ignored_id_map))) {
+        goto LoadAttribFile_ret_NOMEM;
+      }
+      BigstackReset(ignored_id_map);
+    }
+
+    // Pass 3: fill the per-variant bitfields.
+    const uintptr_t attr_ctl = BitCtToWordCt(attr_ct);
+    char* attr_var_ids;
+    uint32_t* attr_var_id_map;
+    uintptr_t* attr_bitfields;
+    if (unlikely(bigstack_alloc_c(var_ct * max_var_id_blen, &attr_var_ids) ||
+                 bigstack_alloc_u32(var_ct, &attr_var_id_map) ||
+                 bigstack_calloc_w(var_ct * attr_ctl, &attr_bitfields))) {
+      goto LoadAttribFile_ret_NOMEM;
+    }
+    if (unlikely(HtableGoodSizeAlloc(attr_ct, bigstack_left() / 4, &htable, &htable_size))) {
+      goto LoadAttribFile_ret_NOMEM;
+    }
+    PopulateStrboxHtable(sorted_attr_ids, attr_ct, max_attr_id_blen, htable_size, htable);
+    reterr = TextRewind(&txs);
+    if (unlikely(reterr)) {
+      goto LoadAttribFile_ret_TSTREAM_FAIL;
+    }
+    line_idx = 0;
+    uintptr_t var_idx = 0;
+    while (var_idx != var_ct) {
+      ++line_idx;
+      const char* line_iter = TextGet(&txs);
+      if (unlikely(!line_iter)) {
+        goto LoadAttribFile_ret_REWIND_FAIL;
+      }
+      const char* var_id = FirstNonTspace(line_iter);
+      if (IsEolnKns(*var_id)) {
+        continue;
+      }
+      const char* var_id_end = CurTokenEnd(var_id);
+      const uintptr_t var_id_slen = var_id_end - var_id;
+      const char* attr_iter = FirstNonTspace(var_id_end);
+      if (IsEolnKns(*attr_iter)) {
+        continue;
+      }
+      if (snplist_ct && (bsearch_strbox(var_id, sorted_snplist, var_id_slen, max_snplist_id_blen, snplist_ct) == -1)) {
+        continue;
+      }
+      memcpyx(&(attr_var_ids[var_idx * max_var_id_blen]), var_id, var_id_slen, '\0');
+      attr_var_id_map[var_idx] = var_idx;
+      uintptr_t* cur_bitfield = &(attr_bitfields[var_idx * attr_ctl]);
+      do {
+        const char* attr_end = CurTokenEnd(attr_iter);
+        const uint32_t attr_slen = attr_end - attr_iter;
+        const uint32_t attr_idx = StrboxHtableFindNnt(attr_iter, sorted_attr_ids, htable, max_attr_id_blen, attr_slen, htable_size);
+        if (unlikely(attr_idx == UINT32_MAX)) {
+          goto LoadAttribFile_ret_REWIND_FAIL;
+        }
+        SetBit(attr_idx, cur_bitfield);
+        attr_iter = FirstNonTspace(attr_end);
+      } while (!IsEolnKns(*attr_iter));
+      ++var_idx;
+    }
+    // No TextStreamErrcode2() check here: this loop stops as soon as every
+    // counted variant has been read, which is usually before end-of-file, and
+    // that helper treats "no error yet" the same as a failure.
+    BigstackReset(htable);
+    if (unlikely(SortStrboxIndexed(var_ct, max_var_id_blen, 0, attr_var_ids, attr_var_id_map))) {
+      goto LoadAttribFile_ret_NOMEM;
+    }
+    *sorted_attr_ids_ptr = sorted_attr_ids;
+    *attr_ct_ptr = attr_ct;
+    *max_attr_id_blen_ptr = max_attr_id_blen;
+    *attr_var_ids_ptr = attr_var_ids;
+    *attr_var_ct_ptr = var_ct;
+    *max_attr_var_id_blen_ptr = max_var_id_blen;
+    *attr_var_id_map_ptr = attr_var_id_map;
+    *attr_bitfields_ptr = attr_bitfields;
+    *max_onevar_attr_ct_ptr = max_onevar_attr_ct;
+  }
+  while (0) {
+  LoadAttribFile_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadAttribFile_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(fname, &txs);
+    break;
+  LoadAttribFile_ret_REWIND_FAIL:
+    logerrprintfww(kErrprintfRewind, fname);
+    reterr = kPglRetRewindFail;
+    break;
+  LoadAttribFile_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+  CleanupTextStream2(fname, &txs, &reterr);
+  BigstackEndReset(bigstack_end_mark);
+  return reterr;
+}
+
+PglErr Annotate(const AnnotInfo* aip, const ChrInfo* cip, double ln_pfilter, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  const char* report_fname = aip->report_fname;
+  uintptr_t line_idx = 0;
+  char* cswritep = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  CompressStreamState css;
+  PreinitTextStream(&txs);
+  PreinitCstream(&css);
+  {
+    const AnnotFlags flags = aip->flags;
+    const uint32_t zero_based = (flags / kfAnnot0based) & 1;
+    const uint32_t block01 = (flags / kfAnnotBlock) & 1;
+    const uint32_t prune = (flags / kfAnnotPrune) & 1;
+    const uint32_t range_dist = !(flags & kfAnnotMinimal);
+    const uint32_t track_distance = (flags / kfAnnotDistance) & 1;
+    const uint32_t border = (aip->border == UINT32_MAX)? 0 : aip->border;
+    const char* no_annot_str = (flags & kfAnnotNa)? "NA" : ".";
+
+    char* sorted_snplist = nullptr;
+    uintptr_t snplist_ct = 0;
+    uintptr_t max_snplist_id_blen = 0;
+    if (aip->snps_fname) {
+      reterr = LoadSortedIdBox(aip->snps_fname, "--annotate snps= file", max_thread_ct, &sorted_snplist, &snplist_ct, &max_snplist_id_blen);
+      if (unlikely(reterr)) {
+        goto Annotate_ret_1;
+      }
+    }
+    // sorted_snplist has to outlive the interval loads and the attribute load,
+    // so the end-of-arena mark used to release the subset IDs is taken after
+    // it, not at function entry.
+    unsigned char* snplist_end_mark = g_bigstack_end;
+    char* sorted_subset_ids = nullptr;
+    uintptr_t subset_ct = 0;
+    uintptr_t max_subset_id_blen = 0;
+    if (aip->subset_fname) {
+      reterr = LoadSortedIdBox(aip->subset_fname, "--annotate subset= file", max_thread_ct, &sorted_subset_ids, &subset_ct, &max_subset_id_blen);
+      if (unlikely(reterr)) {
+        goto Annotate_ret_1;
+      }
+    }
+
+    uintptr_t range_ct = 0;
+    char* range_names = nullptr;
+    uintptr_t max_range_name_blen = 0;
+    uintptr_t* chr_bounds = nullptr;
+    uint32_t** rangedefs = nullptr;
+    uintptr_t chr_max_range_ct = 0;
+    if (aip->ranges_fname) {
+      reterr = LoadAndSortIntervalBed(aip->ranges_fname, cip, sorted_subset_ids, zero_based, 0, subset_ct, max_subset_id_blen, max_thread_ct, &range_ct, &range_names, &max_range_name_blen, &chr_bounds, &rangedefs, &chr_max_range_ct);
+      if (unlikely(reterr)) {
+        goto Annotate_ret_1;
+      }
+      if (unlikely(range_ct > 0x7fffffff)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Too many intervals in %s (--annotate can only handle 2147483647).\n", aip->ranges_fname);
+        goto Annotate_ret_MALFORMED_INPUT_WW;
+      }
+    }
+    uintptr_t* filter_chr_bounds = nullptr;
+    uint32_t** filter_rangedefs = nullptr;
+    if (aip->filter_fname) {
+      uintptr_t ignored_range_ct;
+      char* ignored_names;
+      uintptr_t ignored_max_blen;
+      uintptr_t ignored_chr_max;
+      reterr = LoadAndSortIntervalBed(aip->filter_fname, cip, nullptr, zero_based, 0, 0, 0, max_thread_ct, &ignored_range_ct, &ignored_names, &ignored_max_blen, &filter_chr_bounds, &filter_rangedefs, &ignored_chr_max);
+      if (unlikely(reterr)) {
+        goto Annotate_ret_1;
+      }
+    }
+    BigstackEndReset(snplist_end_mark);
+
+    char* sorted_attr_ids = nullptr;
+    uintptr_t attr_ct = 0;
+    uintptr_t max_attr_id_blen = 0;
+    char* attr_var_ids = nullptr;
+    uintptr_t attr_var_ct = 0;
+    uintptr_t max_attr_var_id_blen = 0;
+    uint32_t* attr_var_id_map = nullptr;
+    uintptr_t* attr_bitfields = nullptr;
+    uint32_t max_onevar_attr_ct = 0;
+    if (aip->attrib_fname) {
+      reterr = LoadAttribFile(aip->attrib_fname, sorted_snplist, snplist_ct, max_snplist_id_blen, max_thread_ct, &sorted_attr_ids, &attr_ct, &max_attr_id_blen, &attr_var_ids, &attr_var_ct, &max_attr_var_id_blen, &attr_var_id_map, &attr_bitfields, &max_onevar_attr_ct);
+      if (unlikely(reterr)) {
+        goto Annotate_ret_1;
+      }
+    }
+    const uintptr_t attr_ctl = BitCtToWordCt(attr_ct);
+
+    // In 'block' mode, the single ANNOT column is replaced by one 0/1 column
+    // per distinct annotation.  The columns are the natural-sorted union of
+    // the interval names and the attribute names.
+    uint32_t* range_to_col = nullptr;
+    uint32_t* attr_to_col = nullptr;
+    char* block_col_names = nullptr;
+    uintptr_t block_col_ct = 0;
+    uintptr_t max_block_col_name_blen = 0;
+    if (block01) {
+      // merged_ct can be zero, when every annotation source turned out to be
+      // empty; plink 1.9 emits the report unchanged in that case.
+      const uintptr_t merged_ct = range_ct + attr_ct;
+      max_block_col_name_blen = MAXV(max_attr_id_blen, (max_range_name_blen > kMaxChrCodeDigits)? (max_range_name_blen - kMaxChrCodeDigits) : 1);
+      // block_col_names, range_to_col and attr_to_col outlive the sort
+      // scratch, so they have to be allocated underneath it.
+      char* merged_names;
+      uint32_t* merged_id_map;
+      if (unlikely(bigstack_alloc_c(merged_ct * max_block_col_name_blen, &block_col_names) ||
+                   bigstack_alloc_u32(range_ct, &range_to_col) ||
+                   bigstack_alloc_u32(attr_ct, &attr_to_col) ||
+                   bigstack_alloc_c(merged_ct * max_block_col_name_blen, &merged_names) ||
+                   bigstack_alloc_u32(merged_ct, &merged_id_map))) {
+        goto Annotate_ret_NOMEM;
+      }
+      for (uintptr_t range_idx = 0; range_idx != range_ct; ++range_idx) {
+        strcpy(&(merged_names[range_idx * max_block_col_name_blen]), &(range_names[range_idx * max_range_name_blen + kMaxChrCodeDigits]));
+        merged_id_map[range_idx] = range_idx;
+      }
+      for (uintptr_t attr_idx = 0; attr_idx != attr_ct; ++attr_idx) {
+        strcpy(&(merged_names[(range_ct + attr_idx) * max_block_col_name_blen]), &(sorted_attr_ids[attr_idx * max_attr_id_blen]));
+        merged_id_map[range_ct + attr_idx] = range_ct + attr_idx;
+      }
+      if (unlikely(SortStrboxIndexed(merged_ct, max_block_col_name_blen, 1, merged_names, merged_id_map))) {
+        goto Annotate_ret_NOMEM;
+      }
+      // Deduplicate; an interval and an attribute can share a name, in which
+      // case they share a column.
+      for (uintptr_t merged_idx = 0; merged_idx != merged_ct; ++merged_idx) {
+        const char* cur_name = &(merged_names[merged_idx * max_block_col_name_blen]);
+        if ((!block_col_ct) || (!strequal_overread(&(block_col_names[(block_col_ct - 1) * max_block_col_name_blen]), cur_name))) {
+          strcpy(&(block_col_names[block_col_ct * max_block_col_name_blen]), cur_name);
+          ++block_col_ct;
+        }
+        const uint32_t orig_idx = merged_id_map[merged_idx];
+        if (orig_idx < range_ct) {
+          range_to_col[orig_idx] = block_col_ct - 1;
+        } else {
+          attr_to_col[orig_idx - range_ct] = block_col_ct - 1;
+        }
+      }
+      BigstackReset(merged_names);
+    }
+
+    reterr = SizeAndInitTextStream(report_fname, bigstack_left() / 8, MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto Annotate_ret_TSTREAM_FAIL;
+    }
+    char* line_start;
+    do {
+      ++line_idx;
+      line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        reterr = TextStreamRawErrcode(&txs);
+        if (reterr == kPglRetEof) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", report_fname);
+          goto Annotate_ret_MALFORMED_INPUT_WW;
+        }
+        goto Annotate_ret_TSTREAM_FAIL;
+      }
+    } while (strequal_k_unsafe(line_start, "##"));
+    const char* header_start = line_start;
+    if (*header_start == '#') {
+      ++header_start;
+    }
+    const uint32_t need_pos = (range_ct != 0) || (filter_chr_bounds != nullptr);
+    const uint32_t need_var_id = (attr_ct != 0) || (snplist_ct != 0);
+    const char* col_search_order[4];
+    col_search_order[0] = need_pos? (aip->chr_field? aip->chr_field : "CHROM\0CHR\0") : "";
+    col_search_order[1] = need_pos? (aip->pos_field? aip->pos_field : "POS\0BP\0") : "";
+    col_search_order[2] = need_var_id? (aip->id_field? aip->id_field : "ID\0SNP\0") : "";
+    col_search_order[3] = aip->p_field? aip->p_field : "P\0UNADJ\0";
+    uint32_t col_skips[4];
+    uint32_t col_types[4];
+    uint32_t relevant_col_ct;
+    uint32_t found_type_bitset;
+    reterr = SearchHeaderLine(header_start, col_search_order, "annotate", 4, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+    if (unlikely(reterr)) {
+      goto Annotate_ret_1;
+    }
+    if (unlikely(need_pos && ((found_type_bitset & 3) != 3))) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s must have chromosome and bp coordinate columns.\n", report_fname);
+      goto Annotate_ret_INCONSISTENT_INPUT_WW;
+    }
+    if (unlikely(need_var_id && (!(found_type_bitset & 4)))) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s must have a variant ID column.\n", report_fname);
+      goto Annotate_ret_INCONSISTENT_INPUT_WW;
+    }
+    const uint32_t p_col_present = (found_type_bitset >> 3) & 1;
+    if (unlikely((!p_col_present) && (ln_pfilter != kLnPvalError))) {
+      snprintf(g_logbuf, kLogbufSize, "Error: --pfilter requires a p-value column in %s.\n", report_fname);
+      goto Annotate_ret_INCONSISTENT_INPUT_WW;
+    }
+
+    const uint32_t output_zst = (flags / kfAnnotZs) & 1;
+    OutnameZstSet(".annot", output_zst, outname_end);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + MAXV(max_block_col_name_blen, MAXV(max_range_name_blen, max_attr_id_blen)) + 256;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto Annotate_ret_1;
+    }
+    // Header: the original columns, whitespace runs collapsed to single tabs,
+    // then the new columns.
+    *cswritep++ = '#';
+    {
+      const char* token_iter = header_start;
+      uint32_t is_first = 1;
+      while (!IsEolnKns(*token_iter)) {
+        const char* token_end = CurTokenEnd(token_iter);
+        if (!is_first) {
+          *cswritep++ = '\t';
+        }
+        is_first = 0;
+        if (unlikely(CsputsStd(token_iter, token_end - token_iter, &css, &cswritep))) {
+          goto Annotate_ret_WRITE_FAIL;
+        }
+        token_iter = FirstNonTspace(token_end);
+      }
+    }
+    if (track_distance) {
+      cswritep = strcpya_k(cswritep, "\tDIST\tSGN");
+    }
+    if (!block01) {
+      cswritep = strcpya_k(cswritep, "\tANNOT");
+    } else {
+      for (uintptr_t col_idx = 0; col_idx != block_col_ct; ++col_idx) {
+        *cswritep++ = '\t';
+        const char* cur_name = &(block_col_names[col_idx * max_block_col_name_blen]);
+        if (unlikely(CsputsStd(cur_name, strlen(cur_name), &css, &cswritep))) {
+          goto Annotate_ret_WRITE_FAIL;
+        }
+      }
+    }
+    AppendBinaryEoln(&cswritep);
+    if (unlikely(Cswrite(&css, &cswritep))) {
+      goto Annotate_ret_WRITE_FAIL;
+    }
+
+    uintptr_t* block_hits = nullptr;
+    if (block01) {
+      if (unlikely(bigstack_alloc_w(BitCtToWordCt(block_col_ct), &block_hits))) {
+        goto Annotate_ret_NOMEM;
+      }
+    }
+    uintptr_t annot_row_ct = 0;
+    uintptr_t total_row_ct = 0;
+    while (1) {
+      ++line_idx;
+      line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      const char* token_ptrs[4];
+      uint32_t token_slens[4];
+      if (unlikely(!TokenLexK0(line_start, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, report_fname);
+        goto Annotate_ret_MALFORMED_INPUT_WW;
+      }
+      uint32_t chr_idx = 0;
+      uint32_t cur_bp = 0;
+      if (need_pos) {
+        chr_idx = GetChrCode(token_ptrs[0], cip, token_slens[0]);
+        if (IsI32Neg(chr_idx) || (!IsSet(cip->chr_mask, chr_idx))) {
+          continue;
+        }
+        if (unlikely(ScanUintDefcap(token_ptrs[1], &cur_bp))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, report_fname);
+          goto Annotate_ret_MALFORMED_INPUT_WW;
+        }
+        if (filter_chr_bounds) {
+          const uintptr_t filter_idx_end = filter_chr_bounds[chr_idx + 1];
+          uintptr_t filter_idx = filter_chr_bounds[chr_idx];
+          for (; filter_idx != filter_idx_end; ++filter_idx) {
+            if (InSetdef(filter_rangedefs[filter_idx], cur_bp)) {
+              break;
+            }
+          }
+          if (filter_idx == filter_idx_end) {
+            continue;
+          }
+        }
+      }
+      if (snplist_ct && (bsearch_strbox(token_ptrs[2], sorted_snplist, token_slens[2], max_snplist_id_blen, snplist_ct) == -1)) {
+        continue;
+      }
+      if (p_col_present) {
+        const char* pval_str = token_ptrs[3];
+        double ln_pval;
+        if (!ScantokLn(pval_str, &ln_pval)) {
+          const uint32_t pval_slen = token_slens[3];
+          if (IsNanStr(pval_str, pval_slen)) {
+            ln_pval = kLnPvalError;
+          } else if (likely(strequal_k(pval_str, "INF", pval_slen))) {
+            ln_pval = kLnNormalMin;
+          } else {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid p-value on line %" PRIuPTR " of %s.\n", line_idx, report_fname);
+            goto Annotate_ret_MALFORMED_INPUT_WW;
+          }
+        }
+        if (ln_pval > ln_pfilter) {
+          continue;
+        }
+      }
+
+      // Attribute bitfield for this variant, if any.
+      const uintptr_t* cur_attr_bits = nullptr;
+      if (attr_ct) {
+        const int32_t sorted_idx = bsearch_strbox(token_ptrs[2], attr_var_ids, token_slens[2], max_attr_var_id_blen, attr_var_ct);
+        if (sorted_idx != -1) {
+          cur_attr_bits = &(attr_bitfields[S_CAST(uintptr_t, attr_var_id_map[S_CAST(uint32_t, sorted_idx)]) * attr_ctl]);
+        }
+      }
+
+      uint32_t abs_min_dist = UINT32_MAX;
+      int32_t min_dist = 0;
+      uint32_t at_least_one_annot = 0;
+      if (block01) {
+        ZeroWArr(BitCtToWordCt(block_col_ct), block_hits);
+      }
+      // Pass over the intervals on this chromosome.
+      uintptr_t range_idx_end = 0;
+      uintptr_t range_idx = 0;
+      if (range_ct) {
+        range_idx = chr_bounds[chr_idx];
+        range_idx_end = chr_bounds[chr_idx + 1];
+      }
+      if (!border) {
+        for (; range_idx != range_idx_end; ++range_idx) {
+          if (InSetdef(rangedefs[range_idx], cur_bp)) {
+            at_least_one_annot = 1;
+            abs_min_dist = 0;
+            if (block01) {
+              SetBit(range_to_col[range_idx], block_hits);
+            }
+          }
+        }
+      } else {
+        for (; range_idx != range_idx_end; ++range_idx) {
+          int32_t cur_dist;
+          if (InSetdefDist(rangedefs[range_idx], cur_bp, border, &cur_dist)) {
+            at_least_one_annot = 1;
+            const uint32_t cur_abs_dist = abs_i32(cur_dist);
+            if (cur_abs_dist < abs_min_dist) {
+              abs_min_dist = cur_abs_dist;
+              min_dist = cur_dist;
+            }
+            if (block01) {
+              SetBit(range_to_col[range_idx], block_hits);
+            }
+          }
+        }
+      }
+      if (cur_attr_bits) {
+        for (uintptr_t widx = 0; widx != attr_ctl; ++widx) {
+          uintptr_t cur_word = cur_attr_bits[widx];
+          if (!cur_word) {
+            continue;
+          }
+          at_least_one_annot = 1;
+          if (block01) {
+            do {
+              const uint32_t attr_idx = widx * kBitsPerWord + ctzw(cur_word);
+              SetBit(attr_to_col[attr_idx], block_hits);
+              cur_word &= cur_word - 1;
+            } while (cur_word);
+          }
+        }
+      }
+      if (at_least_one_annot) {
+        ++annot_row_ct;
+      } else if (prune) {
+        continue;
+      }
+      ++total_row_ct;
+
+      // Pass through the original columns, with whitespace runs collapsed to
+      // single tabs.
+      {
+        const char* token_iter = FirstNonTspace(line_start);
+        uint32_t is_first = 1;
+        while (!IsEolnKns(*token_iter)) {
+          const char* token_end = CurTokenEnd(token_iter);
+          if (!is_first) {
+            *cswritep++ = '\t';
+          }
+          is_first = 0;
+          if (unlikely(CsputsStd(token_iter, token_end - token_iter, &css, &cswritep))) {
+            goto Annotate_ret_WRITE_FAIL;
+          }
+          token_iter = FirstNonTspace(token_end);
+        }
+      }
+      if (track_distance) {
+        *cswritep++ = '\t';
+        if (abs_min_dist != UINT32_MAX) {
+          cswritep = dtoa_g(u31tod(abs_min_dist) * 0.001, cswritep);
+          *cswritep++ = '\t';
+          if (!abs_min_dist) {
+            cswritep = strcpya(cswritep, no_annot_str);
+          } else {
+            *cswritep++ = (min_dist > 0)? '+' : '-';
+          }
+        } else {
+          cswritep = strcpya(cswritep, no_annot_str);
+          *cswritep++ = '\t';
+          cswritep = strcpya(cswritep, no_annot_str);
+        }
+      }
+      if (!block01) {
+        *cswritep++ = '\t';
+        if (!at_least_one_annot) {
+          cswritep = strcpya(cswritep, no_annot_str);
+        } else {
+          uint32_t is_first_annot = 1;
+          if (range_ct) {
+            for (uintptr_t rid = chr_bounds[chr_idx]; rid != chr_bounds[chr_idx + 1]; ++rid) {
+              int32_t cur_dist = 0;
+              if (border) {
+                if (!InSetdefDist(rangedefs[rid], cur_bp, border, &cur_dist)) {
+                  continue;
+                }
+              } else if (!InSetdef(rangedefs[rid], cur_bp)) {
+                continue;
+              }
+              if (!is_first_annot) {
+                *cswritep++ = '|';
+              }
+              is_first_annot = 0;
+              const char* cur_name = &(range_names[rid * max_range_name_blen + kMaxChrCodeDigits]);
+              if (unlikely(CsputsStd(cur_name, strlen(cur_name), &css, &cswritep))) {
+                goto Annotate_ret_WRITE_FAIL;
+              }
+              if (range_dist) {
+                if (!cur_dist) {
+                  cswritep = strcpya_k(cswritep, "(0)");
+                } else {
+                  *cswritep++ = '(';
+                  if (cur_dist > 0) {
+                    *cswritep++ = '+';
+                  }
+                  cswritep = dtoa_g(S_CAST(double, cur_dist) * 0.001, cswritep);
+                  cswritep = strcpya_k(cswritep, "kb)");
+                }
+              }
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto Annotate_ret_WRITE_FAIL;
+              }
+            }
+          }
+          if (cur_attr_bits) {
+            uintptr_t attr_idx_base = 0;
+            uintptr_t cur_bits = cur_attr_bits[0];
+            const uint32_t cur_attr_ct = PopcountWords(cur_attr_bits, attr_ctl);
+            for (uint32_t attr_ii = 0; attr_ii != cur_attr_ct; ++attr_ii) {
+              const uintptr_t attr_idx = BitIter1(cur_attr_bits, &attr_idx_base, &cur_bits);
+              if (!is_first_annot) {
+                *cswritep++ = '|';
+              }
+              is_first_annot = 0;
+              const char* cur_name = &(sorted_attr_ids[attr_idx * max_attr_id_blen]);
+              if (unlikely(CsputsStd(cur_name, strlen(cur_name), &css, &cswritep))) {
+                goto Annotate_ret_WRITE_FAIL;
+              }
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto Annotate_ret_WRITE_FAIL;
+              }
+            }
+          }
+        }
+      } else {
+        for (uintptr_t col_idx = 0; col_idx != block_col_ct; ++col_idx) {
+          *cswritep++ = '\t';
+          *cswritep++ = IsSet(block_hits, col_idx)? '1' : '0';
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto Annotate_ret_WRITE_FAIL;
+          }
+        }
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto Annotate_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto Annotate_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto Annotate_ret_WRITE_FAIL;
+    }
+    logprintfww("--annotate: %" PRIuPTR " row%s written to %s , %" PRIuPTR " with at least one annotation.\n", total_row_ct, (total_row_ct == 1)? "" : "s", outname, annot_row_ct);
+  }
+  while (0) {
+  Annotate_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  Annotate_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(report_fname, &txs);
+    break;
+  Annotate_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  Annotate_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  Annotate_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ Annotate_ret_1:
   CswriteCloseCond(&css, cswritep);
   CleanupTextStream2(report_fname, &txs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
