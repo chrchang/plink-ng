@@ -2235,6 +2235,7 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   uintptr_t chrom_max_gene_ct = 0;
   uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   uint32_t chrom_idx = 0;
+  uint32_t chrom_bounds_end;
   Make_set_range** gene_arr;
   Make_set_range* msr_tmp;
   uint64_t* range_sort_buf;
@@ -2262,7 +2263,22 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
     goto load_range_list_sortpos_ret_1;
   }
   gene_names = *gene_names_ptr;
-  if (bigstack_alloc_ul(chrom_code_end + 1, chrom_bounds_ptr)) {
+  // load_range_list() gives ranges on a chromosome that isn't in the dataset
+  // the sentinel code 9999 (which is why it rejects 10000+ contigs), and the
+  // loop below walks chrom_bounds[] up to whatever code it decodes from the
+  // name prefix.  So the array has to cover the largest code actually
+  // present, not just the dataset's chromosomes; otherwise a --clump-range /
+  // --annotate ranges= / --gene-report file naming an absent contig writes
+  // several thousand entries past the end of the allocation.
+  chrom_bounds_end = chrom_code_end;
+  for (gene_idx = 0; gene_idx < gene_ct; gene_idx++) {
+    bufptr = &(gene_names[gene_idx * max_gene_id_len]);
+    uii = (((unsigned char)bufptr[0]) * 1000) + (((unsigned char)bufptr[1]) * 100) + (((unsigned char)bufptr[2]) * 10) + ((unsigned char)bufptr[3]) - 53313;
+    if (uii > chrom_bounds_end) {
+      chrom_bounds_end = uii;
+    }
+  }
+  if (bigstack_alloc_ul(chrom_bounds_end + 1, chrom_bounds_ptr)) {
     goto load_range_list_sortpos_ret_NOMEM;
   }
   chrom_bounds = *chrom_bounds_ptr;
