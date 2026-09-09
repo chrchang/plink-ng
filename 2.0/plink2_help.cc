@@ -1696,6 +1696,28 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    'allow-dups' modifier is provided, this now errors out when duplicate\n"
 "    variant ID(s) remain.\n\n"
                );
+    HelpPrint("dfam\0tdt\0", &help_ctrl, 1,
+"  --dfam ['no-unrelateds'] ['zs'] ['cols='<col set desc>]\n"
+"    Sib-TDT-based association test for case/control phenotypes.  Each nuclear\n"
+"    family, each sibship, and the remaining unrelated samples contribute an\n"
+"    independent (observed - expected) term, and the sum is compared to its\n"
+"    variance.  The 'no-unrelateds' modifier drops the unrelated component,\n"
+"    leaving the original sib-TDT.\n"
+"    Supported column sets are:\n"
+"      chrom: Chromosome ID.\n"
+"      pos: Base-pair coordinate.\n"
+"      ref: Reference allele.\n"
+"      alt1: Alternate allele 1.\n"
+"      alt: All alternate alleles, comma-separated.\n"
+"      maybeprovref: PROVISIONAL_REF? column iff there's at least one\n"
+"                    provisional REF allele.\n"
+"      provref: Force PROVISIONAL_REF? column.\n"
+"      obs: Observed ALT allele count in the case-equivalent groups.\n"
+"      exp: Expected count under the null.\n"
+"      chisq: 1df chi-square statistic.\n"
+"      p: Asymptotic p-value.\n"
+"    The default is chrom,pos,maybeprovref,obs,exp,chisq,p.\n\n"
+               );
     HelpPrint("glm\0linear\0logistic\0assoc\0", &help_ctrl, 1,
 "  --glm ['zs'] ['omit-ref'] [{sex | no-x-sex}] ['log10'] ['pheno-ids']\n"
 "        [{genotypic | hethom | dominant | recessive | hetonly}] ['interaction']\n"

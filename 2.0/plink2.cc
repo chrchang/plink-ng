@@ -234,6 +234,7 @@ ENUM_U31_DEF_START()
   kCmd1BitTwolocus,
   kCmd1BitDistance,
   kCmd1BitTestMissing,
+  kCmd1BitDfam,
   kCmd1BitShowTags,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
@@ -279,6 +280,7 @@ FLAGSET64_DEF_START()
   kfCommand1Twolocus = (1LLU << kCmd1BitTwolocus),
   kfCommand1Distance = (1LLU << kCmd1BitDistance),
   kfCommand1TestMissing = (1LLU << kCmd1BitTestMissing),
+  kfCommand1Dfam = (1LLU << kCmd1BitDfam),
   kfCommand1ShowTags = (1LLU << kCmd1BitShowTags)
 FLAGSET64_DEF_END(Command1Flags);
 
@@ -478,6 +480,7 @@ typedef struct Plink2CmdlineStruct {
   HetFlags het_flags;
   HomozygInfo homozyg_info;
   TestMissingFlags test_missing_flags;
+  DfamFlags dfam_flags;
   SampleCountsFlags sample_counts_flags;
   RecoverVarIdsFlags recover_var_ids_flags;
   VscoreFlags vscore_flags;
@@ -639,7 +642,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags | kfCommand1Dfam)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -3073,6 +3076,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
       }
+
+      if (pcp->command_flags1 & kfCommand1Dfam) {
+        reterr = DfamReport(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, pgfi.gflags, pcp->dfam_flags, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
       if (pcp->command_flags1 & kfCommand1FlipScan) {
         // Only the LD scan walks a positional window.
         if (unlikely((vpos_sortstatus & kfUnsortedVarBp) && (!pcp->ld_info.flipscan_ref_freq_fname) && (!pcp->ld_info.flipscan_ref_pgen_fname))) {
@@ -4282,6 +4292,7 @@ int main(int argc, char** argv) {
     pc.het_flags = kfHet0;
     InitHomozyg(&pc.homozyg_info);
     pc.test_missing_flags = kfTestMissing0;
+    pc.dfam_flags = kfDfam0;
     pc.sample_counts_flags = kfSampleCounts0;
     pc.recover_var_ids_flags = kfRecoverVarIds0;
     pc.vscore_flags = kfVscore0;
@@ -5797,7 +5808,35 @@ int main(int argc, char** argv) {
         break;
 
       case 'd':
-        if (strequal_k_unsafe(flagname_p2, "ouble-id")) {
+        if (strequal_k_unsafe(flagname_p2, "fam")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t explicit_cols = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "no-unrelateds", cur_modif_slen)) {
+              pc.dfam_flags |= kfDfamNoUnrelateds;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.dfam_flags |= kfDfamZs;
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0maybeprovref\0provref\0obs\0exp\0chisq\0p\0", "dfam", kfDfamColChrom, kfDfamColDefault, 0, &pc.dfam_flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              explicit_cols = 1;
+            } else {
+              logerrprintfww("Error: Invalid --dfam argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+          if (!explicit_cols) {
+            pc.dfam_flags |= kfDfamColDefault;
+          }
+          pc.command_flags1 |= kfCommand1Dfam;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ouble-id")) {
           if (unlikely(const_fid)) {
             logerrputs("Error: --double-id cannot be used with --const-fid.\n");
             goto main_ret_INVALID_CMDLINE_A;
