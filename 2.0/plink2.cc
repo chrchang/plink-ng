@@ -201,6 +201,7 @@ ENUM_U31_DEF_START()
   kCmd1BitKingCutoff,
   kCmd1BitMissingReport,
   kCmd1BitWriteSnplist,
+  kCmd1BitWriteVarRanges,
   kCmd1BitAlleleFreq,
   kCmd1BitGenoCounts,
   kCmd1BitHardy,
@@ -246,6 +247,7 @@ FLAGSET64_DEF_START()
   kfCommand1KingCutoff = (1LLU << kCmd1BitKingCutoff),
   kfCommand1MissingReport = (1LLU << kCmd1BitMissingReport),
   kfCommand1WriteSnplist = (1LLU << kCmd1BitWriteSnplist),
+  kfCommand1WriteVarRanges = (1LLU << kCmd1BitWriteVarRanges),
   kfCommand1AlleleFreq = (1LLU << kCmd1BitAlleleFreq),
   kfCommand1GenoCounts = (1LLU << kCmd1BitGenoCounts),
   kfCommand1Hardy = (1LLU << kCmd1BitHardy),
@@ -635,6 +637,7 @@ typedef struct Plink2CmdlineStruct {
   TwentythreeInfo twenty_three_info;
   TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
+  uint32_t write_var_range_ct;
 } Plink2Cmdline;
 
 // er, probably time to just always initialize this...
@@ -2812,6 +2815,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (pcp->check_sex_info.flags & kfCheckSexImpute) {
           nosex_ct = sample_ct - PopcountWords(sex_nm, raw_sample_ctl);
           male_ct = PopcountWords(sex_male, raw_sample_ctl);
+        }
+      }
+
+      if (pcp->command_flags1 & kfCommand1WriteVarRanges) {
+        reterr = WriteVarRanges(variant_include, variant_ids, pcp->write_var_range_ct, variant_ct, (pcp->misc_flags / kfMiscWriteVarRangesZs) & 1, max_variant_id_slen, pcp->max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
         }
       }
 
@@ -13577,7 +13587,25 @@ int main(int argc, char** argv) {
         break;
 
       case 'w':
-        if (strequal_k_unsafe(flagname_p2, "rite-snplist")) {
+        if (strequal_k_unsafe(flagname_p2, "rite-var-ranges")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(ScanPosintDefcap(argvk[arg_idx + 1], &pc.write_var_range_ct))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-var-ranges block count '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (param_ct == 2) {
+            const char* cur_modif = argvk[arg_idx + 2];
+            if (unlikely(!strequal_k(cur_modif, "zs", strlen(cur_modif)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-var-ranges argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.misc_flags |= kfMiscWriteVarRangesZs;
+          }
+          pc.command_flags1 |= kfCommand1WriteVarRanges;
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "rite-snplist")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }

@@ -123,4 +123,9 @@ cd TEST_PGEN_MALFORMED
 cd ..
 echo "TEST_PGEN_MALFORMED passed."
 
+cd TEST_WRITE_VAR_RANGES
+./run_tests.sh $d $2 $3 > TEST_WRITE_VAR_RANGES.log
+cd ..
+echo "TEST_WRITE_VAR_RANGES passed."
+
 echo "All tests passed."
