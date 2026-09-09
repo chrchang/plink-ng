@@ -2915,7 +2915,14 @@ int32_t annotate(const Annot_info* aip, uint32_t allow_extra_chroms, char* outna
   } else {
     // worst case: max_onevar_attr_ct attributes and chrom_max_range_ct range
     // annotations
-    if (bigstack_alloc_c((max_onevar_attr_ct * max_attr_id_len) + (chrom_max_range_ct * (max_range_name_len + (3 + 16 * (border != 0)) * range_dist)), &writebuf)) {
+    ulii = (max_onevar_attr_ct * max_attr_id_len) + (chrom_max_range_ct * (max_range_name_len + (3 + 16 * (border != 0)) * range_dist));
+    // A variant with no annotation writes no_annot_str instead, and the
+    // worst-case annotation width above is zero when no ranges or attributes
+    // were loaded at all (an empty or fully-filtered ranges= file).
+    if (ulii < strlen(no_annot_str)) {
+      ulii = strlen(no_annot_str);
+    }
+    if (bigstack_alloc_c(ulii, &writebuf)) {
       goto annotate_ret_NOMEM;
     }
   }
