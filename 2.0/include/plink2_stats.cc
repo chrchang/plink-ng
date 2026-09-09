@@ -4254,7 +4254,11 @@ double AcatCombineLnP(const double* ln_pvals, const double* weights, uint32_t pv
       if (cur_p >= 1.0) {
         cur_p = p_ceil;
       }
-      t_normal += cur_w * tan((0.5 - cur_p) * kQfPi);
+      // tan((0.5 - p) * pi) is cot(pi * p), and the latter avoids the
+      // cancellation in (0.5 - p) followed by tan()'s blowup near pi/2.  The
+      // direct form loses about four digits at p = 1e-12 and three more by
+      // 1e-14, i.e. right up to the small-p branch's cutoff.
+      t_normal += cur_w / tan(kQfPi * cur_p);
     }
   }
 
