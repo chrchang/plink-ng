@@ -2208,9 +2208,14 @@ PglErr CalcKing(const PedigreeIdInfo* piip, const uintptr_t* founder_info, const
           }
           parity = 1 - parity;
           if (variant_idx) {
-            uintptr_t* variant_include_update = &(variant_include[prev_read_block_idx * read_block_sizel]);
+            const uintptr_t update_word_offset = S_CAST(uintptr_t, prev_read_block_idx) * read_block_sizel;
+            uintptr_t* variant_include_update = &(variant_include[update_word_offset]);
+            // The last read block is normally partial, and variant_include[]
+            // is only raw_variant_ctl words long, so masking a full block's
+            // worth of words would run off the end of it.
+            const uintptr_t update_word_ct = MINV(read_block_sizel, raw_variant_ctl - update_word_offset);
             for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-              BitvecInvmask(sparse_ctx.thread_sparse_excludes[parity][tidx], read_block_sizel, variant_include_update);
+              BitvecInvmask(sparse_ctx.thread_sparse_excludes[parity][tidx], update_word_ct, variant_include_update);
             }
             if (variant_idx == variant_ct) {
               break;
