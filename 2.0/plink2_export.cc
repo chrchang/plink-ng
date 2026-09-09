@@ -2900,7 +2900,13 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
         goto ExportBgen13_ret_INCONSISTENT_INPUT;
       }
       if (!use_zstd_compression) {
-        bgen_compressed_buf_max = libdeflate_deflate_compress_bound(nullptr, bgen_geno_buf_size);
+        // zlib, not raw deflate: the compression call below is
+        // libdeflate_zlib_compress(), which adds a 2-byte header and a 4-byte
+        // Adler-32 trailer.  The deflate bound leaves no room for those, and
+        // libdeflate then returns 0 because the output does not fit.  Large
+        // variants have enough slack to hide it; small ones do not.  The
+        // BGEN 1.1 path a thousand lines up already uses the zlib bound.
+        bgen_compressed_buf_max = libdeflate_zlib_compress_bound(nullptr, bgen_geno_buf_size);
       } else {
         bgen_compressed_buf_max = ZSTD_compressBound(bgen_geno_buf_size);
       }
