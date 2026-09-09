@@ -1274,10 +1274,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * Haploid chromosomes are not supported yet, and are an error rather\n"
 "      than a silent omission.\n\n"
               );
-    HelpPrint("tag-kb\0tag-r2\0show-tags\0", &help_ctrl, 0,
-"  --tag-kb <kbs>  : Set --show-tags max tag kb distance (default 250).\n"
-"  --tag-r2 <val>  : Set --show-tags min tag r^2 (default 0.8).\n"
-              );
     HelpPrint("ld-score\0ld-score-founders\0ld-score-window\0ld-score-window-kb\0ld-score-window-cm\0", &help_ctrl, 1,
 "  --ld-score ['zs'] ['multiallelic'] ['cols='<column set descriptor>]\n"
 "  --ld-score-founders\n"
@@ -3132,6 +3128,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --ld-snp-list <file>   a single ID, --ld-snps accepts one or more ranges\n"
 "                         (same syntax as --snps), and --ld-snp-list specifies a\n"
 "                         file to load variant IDs from.\n"
+              );
+    HelpPrint("tag-kb\0tag-r2\0show-tags\0", &help_ctrl, 0,
+"  --tag-kb <kbs>       : Set --show-tags max tag kb distance (default 250).\n"
+"  --tag-r2 <val>       : Set --show-tags min tag r^2 (default 0.8).\n"
               );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,
