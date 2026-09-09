@@ -159,3 +159,44 @@ if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --flip-scan-ref-freq tmp_panel
     echo "--flip-scan-ref-freq ran without --flip-scan"
     exit 1
 fi
+
+# 9. Which case/control phenotype to split on is named explicitly once more
+#    than one is loaded.
+printf '#FID\tIID\tCC1\tCC2\tQT\n' > tmp_multi_ph.txt
+awk '{print $1, $2, ((NR > 200)? 2 : 1), ((NR % 2)? 2 : 1), (NR % 5)}' OFS='\t' tmp_data.fam >> tmp_multi_ph.txt
+
+# One loaded phenotype: the name stays optional.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_multi_ph.txt --pheno-name CC1 --maf 0.05 --flip-scan --out plink2_p1
+# ...and naming it gives the same answer.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_multi_ph.txt --maf 0.05 --flip-scan CC1 --out plink2_p1n
+diff -q plink2_p1.flipscan plink2_p1n.flipscan
+
+# Two loaded, no name: refused rather than picking one.
+if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_multi_ph.txt --maf 0.05 --flip-scan --out plink2_bad > /dev/null 2>&1; then
+    echo "ambiguous phenotype accepted"
+    exit 1
+fi
+
+# The name actually selects: CC2 splits the samples differently from CC1, so
+# the two reports have to differ.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_multi_ph.txt --maf 0.05 --flip-scan CC2 --out plink2_p2
+if cmp -s plink2_p1n.flipscan plink2_p2.flipscan; then
+    echo "CC1 and CC2 gave identical reports; the name is being ignored"
+    exit 1
+fi
+
+# A name is still just one more argument, so it coexists with the modifiers.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_multi_ph.txt --maf 0.05 --flip-scan verbose CC2 --out plink2_p2v
+diff -q plink2_p2.flipscan plink2_p2v.flipscan
+test -f plink2_p2v.flipscan.verbose
+
+# A quantitative phenotype cannot define cases, and an unknown name is not
+# silently ignored.
+if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_multi_ph.txt --maf 0.05 --flip-scan QT --out plink2_bad > /dev/null 2>&1; then
+    echo "quantitative phenotype accepted"
+    exit 1
+fi
+if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_multi_ph.txt --maf 0.05 --flip-scan NOSUCH --out plink2_bad > /dev/null 2>&1; then
+    echo "unknown phenotype name accepted"
+    exit 1
+fi

@@ -1102,7 +1102,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("flip-scan\0flipscan\0", &help_ctrl, 1,
 "  --flip-scan ['verbose'] ['zs'] ['ref-allele-based']\n"
-"              ['cols='<column set descriptor>]\n"
+"              [{'cols='<column set descriptor>}] [phenotype name]\n"
 "    (alias: --flipscan)\n"
 "    Scan for case/control strand inconsistency, in two steps.\n"
 "    1. A variant whose major-allele frequency differs between the two groups\n"
@@ -1118,6 +1118,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      exceeds --flip-scan-max-maj-freq (default 0.9), take no part in the LD\n"
 "      scan in either role, so the window is spent on variants that inform.\n"
 "    * A case/control phenotype is required, and only founders are considered.\n"
+"      Name it when more than one is loaded; with exactly one, the name may\n"
+"      be omitted.\n"
 "      The LD scan needs at least 50 founders in each group; --bad-ld runs it\n"
 "      anyway.\n"
 "    * \'ref-allele-based\' reports REF frequencies rather than major-allele\n"

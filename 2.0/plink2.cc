@@ -3084,7 +3084,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         } else if (pcp->ld_info.flipscan_ref_freq_fname) {
           reterr = FlipScanRefFreq(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, &(pcp->ld_info), raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, pcp->max_thread_ct, outname, outname_end);
         } else {
-          reterr = FlipScan(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, founder_info, &(pcp->ld_info), raw_sample_ct, pheno_ct, (pcp->misc_flags / kfMiscAllowBadLd) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = FlipScan(sample_include, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, founder_info, &(pcp->ld_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, (pcp->misc_flags / kfMiscAllowBadLd) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         }
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
@@ -6908,6 +6908,13 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt\0altfreq\0posct\0rpos\0negct\0rneg\0negids\0majfreq\0problem\0", "flip-scan", kfFlipScanColChrom, kfFlipScanColDefault, 1, &pc.ld_info.flipscan_flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else if (likely(!pc.ld_info.flipscan_phenoname)) {
+              // Anything else is taken as the case/control phenotype to split
+              // on, the way --cmh takes its phenotype name.
+              reterr = CmdlineAllocString(cur_modif, argvk[arg_idx], kMaxIdSlen, &pc.ld_info.flipscan_phenoname);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
