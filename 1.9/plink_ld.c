@@ -1625,9 +1625,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   }
   ulii = (max_window_size + 1) * 2;
   for (uljj = 0; uljj < max_window_size; uljj++) {
-    neg_uidx_buf[uljj * ulii] = 0.0;
-    neg_uidx_buf[uljj * ulii + 1] = 0.0;
-    // bugfix: initialize r_matrix diagonal
+    // initialize r_matrix diagonal
     r_matrix[uljj * ulii] = 0.0;
     r_matrix[uljj * ulii + 1] = 0.0;
   }
