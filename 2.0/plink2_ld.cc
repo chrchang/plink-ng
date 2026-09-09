@@ -14163,6 +14163,7 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
     // replicates.
     const double min_maf = bip->min_maf * (1 - kSmallEpsilon);
     const double max_maf = 1 - min_maf;
+    uint32_t maf_drop_ct = 0;
     {
       uintptr_t variant_uidx_base = 0;
       uintptr_t cur_bits = orig_variant_include[0];
@@ -14182,6 +14183,7 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
         }
         if (drop) {
           ClearBit(variant_uidx, variant_include);
+          ++maf_drop_ct;
         }
       }
     }
@@ -14200,6 +14202,23 @@ PglErr HaploviewBlocks(const uintptr_t* orig_variant_include, const ChrInfo* cip
     if (kept_variant_ct < 2) {
       logerrprintf("Warning: Skipping --blocks since there are too few variants with MAF >= %g.\n", bip->min_maf);
       goto HaploviewBlocks_ret_1;
+    }
+    // The thresholds decide the result, and several of them have defaults that
+    // are easy to leave in place without meaning to, so state them and what
+    // they cost.
+    // The stored CI values are the shifted quantile indices the classifier
+    // indexes with; convert back to what the user typed.
+    logprintfww("--blocks: max span %gkb, MAF >= %g, strong-LD CI (%g, %g), recombination CI %g, informative fraction %g.\n", u31tod(max_window_bp) * 0.001, bip->min_maf, u31tod(bip->strong_lowci - 2) * 0.01, u31tod(bip->strong_highci + 1) * 0.01, u31tod(bip->recomb_highci + 1) * 0.01, bip->inform_frac);
+    if (maf_drop_ct) {
+      const uint32_t maf_pct = (S_CAST(uint64_t, maf_drop_ct) * 100) / variant_ct;
+      if (maf_pct >= 50) {
+        logerrprintfww("Warning: --blocks-min-maf %g excluded %u of %u variants (%u%%).\n", bip->min_maf, maf_drop_ct, variant_ct, maf_pct);
+      } else {
+        logprintfww("--blocks: --blocks-min-maf %g excluded %u of %u variants.\n", bip->min_maf, maf_drop_ct, variant_ct);
+      }
+    }
+    if (founder_ct < 50) {
+      logerrprintfww("Warning: --blocks is running on %u founder%s.  The D' confidence intervals it\nthresholds on are wide at this sample size, so both the number of blocks and\ntheir boundaries are unstable; treat the output as provisional.\n", founder_ct, (founder_ct == 1)? "" : "s");
     }
 
     uint32_t* founder_cumulative_popcounts;
