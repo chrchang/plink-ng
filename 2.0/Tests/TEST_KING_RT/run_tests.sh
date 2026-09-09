@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# "--make-king-table cols=+rt,+ekin": the two pedigree-derived columns.
+# "--make-king-table cols=+rt,+pkin": the two pedigree-derived columns.
 #
 # These describe the pedigree rather than the genotypes, so they are checked
 # against a hand-built pedigree whose expected kinship coefficients are known
@@ -43,7 +43,7 @@ paste -d' ' <(cut -d' ' -f1-4 tmp_ped.fam) <(awk '{print $5, $6}' tmp_sub.fam) >
 mv tmp_sub_fam.new tmp_sub.fam
 
 # 2. Every pair is reported, including the unrelated ones.
-$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_sub --make-king-table cols=+rt,+ekin --king-table-filter -9 --out tmp_kt
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_sub --make-king-table cols=+rt,+pkin --king-table-filter -9 --out tmp_kt
 
 if [[ $(grep -cv '^#' tmp_kt.kin0) != 28 ]]; then
     echo "--make-king-table did not report all 28 pairs."
@@ -51,16 +51,16 @@ if [[ $(grep -cv '^#' tmp_kt.kin0) != 28 ]]; then
 fi
 
 # 3. Each labelled relationship, with the kinship coefficient the pedigree
-#    implies.  Column order is FID1 IID1 FID2 IID2 ... RT EXPECTED_KINSHIP.
+#    implies.  Column order is FID1 IID1 FID2 IID2 ... RT PEDIGREE_KINSHIP.
 check_pair() {
     local iid1=$1
     local iid2=$2
     local expected_rt=$3
-    local expected_ekin=$4
+    local expected_pkin=$4
     local observed
     observed=$(awk -v a="$iid1" -v b="$iid2" '($2 == a && $4 == b) || ($2 == b && $4 == a) {print $(NF-1), $NF}' tmp_kt.kin0)
-    if [[ "$observed" != "$expected_rt $expected_ekin" ]]; then
-        echo "$iid1/$iid2: expected '$expected_rt $expected_ekin', got '$observed'."
+    if [[ "$observed" != "$expected_rt $expected_pkin" ]]; then
+        echo "$iid1/$iid2: expected '$expected_rt $expected_pkin', got '$observed'."
         exit 1
     fi
 }
@@ -79,7 +79,7 @@ check_pair s1 s2 UN 0        # spouses, unrelated to each other
 check_pair s2 s5 UN 0        # s5 is the father's child by another mother
 check_pair s6 s3 UN 0
 
-# 4. Neither column is emitted unless asked for, and 'rt' and 'ekin' are
+# 4. Neither column is emitted unless asked for, and 'rt' and 'pkin' are
 #    independent of one another.
 $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_sub --make-king-table --out tmp_kt_default
 if grep -q 'RT' tmp_kt_default.kin0; then
@@ -87,13 +87,13 @@ if grep -q 'RT' tmp_kt_default.kin0; then
     exit 1
 fi
 
-$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_sub --make-king-table cols=+ekin --out tmp_kt_ekin
-if grep -q 'RT' tmp_kt_ekin.kin0; then
-    echo "RT column present with cols=+ekin alone."
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_sub --make-king-table cols=+pkin --out tmp_kt_pkin
+if grep -q 'RT' tmp_kt_pkin.kin0; then
+    echo "RT column present with cols=+pkin alone."
     exit 1
 fi
-if ! grep -q 'EXPECTED_KINSHIP' tmp_kt_ekin.kin0; then
-    echo "EXPECTED_KINSHIP column missing with cols=+ekin."
+if ! grep -q 'PEDIGREE_KINSHIP' tmp_kt_pkin.kin0; then
+    echo "PEDIGREE_KINSHIP column missing with cols=+pkin."
     exit 1
 fi
 
@@ -102,10 +102,10 @@ fi
 awk '{print $1, $2, 0, 0, $5, $6}' tmp_sub.fam > tmp_nofam.fam
 cp tmp_sub.bed tmp_nofam.bed
 cp tmp_sub.bim tmp_nofam.bim
-$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_nofam --make-king-table cols=+rt,+ekin --king-table-filter -9 --out tmp_kt_nofam
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_nofam --make-king-table cols=+rt,+pkin --king-table-filter -9 --out tmp_kt_nofam
 if [[ $(awk '!/^#/ && ($(NF-1) != "UN" || $NF != 0)' tmp_kt_nofam.kin0 | wc -l | tr -d '[:space:]') != 0 ]]; then
     echo "Pedigree-free fileset reported a relationship."
     exit 1
 fi
 
-echo "--make-king-table rt/ekin tests passed."
+echo "--make-king-table rt/pkin tests passed."

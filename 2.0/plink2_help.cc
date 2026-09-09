@@ -1433,7 +1433,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "          (parent/offspring), FS (full sibling), HS (half sibling), GG\n"
 "          (grandparent/grandchild), AV (avuncular), REL (related in some\n"
 "          other way the pedigree spells out), or UN.\n"
-"      ekin: Kinship coefficient expected from the pedigree, on the same scale\n"
+"      pkin: Kinship coefficient expected from the pedigree, on the same scale\n"
 "            as the observed 'kinship' column.\n"
 "    The default is maybefid,id,maybesid,nsnp,hethet,ibs0,kinship.\n"
 "    hethet/ibs0/ibs1 values are proportions unless the 'counts' modifier is\n"

@@ -1650,8 +1650,8 @@ char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_fid, uint32_
   if (king_flags & kfKingColRt) {
     cswritep = strcpya_k(cswritep, "RT\t");
   }
-  if (king_flags & kfKingColEkin) {
-    cswritep = strcpya_k(cswritep, "EXPECTED_KINSHIP\t");
+  if (king_flags & kfKingColPkin) {
+    cswritep = strcpya_k(cswritep, "PEDIGREE_KINSHIP\t");
   }
   DecrAppendBinaryEoln(&cswritep);
   return cswritep;
@@ -1665,7 +1665,7 @@ uint32_t KingMaxSparseCt(uint32_t row_end_idx) {
 #endif
 }
 
-// --make-king-table 'rt' and 'ekin' support.
+// --make-king-table 'rt' and 'pkin' support.
 //
 // Both columns report what the pedigree in the .psam/.fam says, not what the
 // genotypes say, and they are meant to be read next to the observed KINSHIP
@@ -1756,8 +1756,8 @@ static uint32_t PedigreeIsAvuncular(const KingPedigree* kpp, uint32_t idx1, uint
 // else with a nonzero expected kinship is 'REL', since guessing between the
 // several configurations that share an expected kinship coefficient would be
 // reporting more than the pedigree knows.
-static const char* PedigreeRelationshipType(const KingPedigree* kpp, uint32_t idx1, uint32_t idx2, double ekin) {
-  if (ekin == 0.0) {
+static const char* PedigreeRelationshipType(const KingPedigree* kpp, uint32_t idx1, uint32_t idx2, double pkin) {
+  if (pkin == 0.0) {
     return "UN";
   }
   if ((kpp->dads[idx1] == idx2) || (kpp->moms[idx1] == idx2) ||
@@ -1869,7 +1869,7 @@ static PglErr KingPedigreeFill(const uintptr_t* sample_include, const uintptr_t*
       const char* fid_end = AdvToDelim(dup_sample_id, '\t');
       write_iter = memcpyax(write_iter, dup_sample_id, fid_end - dup_sample_id, ' ');
       write_iter = strcpya(write_iter, &(fid_end[1]));
-      strcpy_k(write_iter, "\"; --make-king-table's 'rt' and 'ekin' columns need parental IDs to resolve to single samples. (--select-sid-representatives may be useful.)\n");
+      strcpy_k(write_iter, "\"; --make-king-table's 'rt' and 'pkin' columns need parental IDs to resolve to single samples. (--select-sid-representatives may be useful.)\n");
       goto KingPedigreeFill_ret_INCONSISTENT_INPUT_WW;
     }
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
@@ -1911,7 +1911,7 @@ static PglErr KingPedigreeFill(const uintptr_t* sample_include, const uintptr_t*
       KingPedigreeDepth(kpp, sample_idx, states, &cycle_ct);
     }
     if (cycle_ct) {
-      logerrprintfww("Warning: %u sample%s named as their own ancestor in the pedigree; treating them as founders for --make-king-table's 'rt' and 'ekin' columns.\n", cycle_ct, (cycle_ct == 1)? " is" : "s are");
+      logerrprintfww("Warning: %u sample%s named as their own ancestor in the pedigree; treating them as founders for --make-king-table's 'rt' and 'pkin' columns.\n", cycle_ct, (cycle_ct == 1)? " is" : "s are");
     }
   }
   while (0) {
@@ -2124,7 +2124,7 @@ PglErr CalcKing(const PedigreeIdInfo* piip, const uintptr_t* founder_info, const
       }
     }
     KingPedigree king_pedigree;
-    if (king_flags & (kfKingColRt | kfKingColEkin)) {
+    if (king_flags & (kfKingColRt | kfKingColPkin)) {
       if (unlikely(KingPedigreeAlloc(sample_ct, &king_pedigree))) {
         goto CalcKing_ret_NOMEM;
       }
@@ -2558,7 +2558,7 @@ PglErr CalcKing(const PedigreeIdInfo* piip, const uintptr_t* founder_info, const
           const uint32_t king_col_hamming = king_flags & kfKingColHamming;
           const uint32_t king_col_kinship = king_flags & kfKingColKinship;
           const uint32_t king_col_rt = king_flags & kfKingColRt;
-          const uint32_t king_col_ekin = king_flags & kfKingColEkin;
+          const uint32_t king_col_pkin = king_flags & kfKingColPkin;
           const uint32_t report_counts = king_flags & kfKingCounts;
           uint32_t* results_iter = dense_ctx.king_counts;
           double nonmiss_recip = 0.0;
@@ -2642,13 +2642,13 @@ PglErr CalcKing(const PedigreeIdInfo* piip, const uintptr_t* founder_info, const
                 cswritetp = dtoa_g(kinship_coeff, cswritetp);
                 *cswritetp++ = '\t';
               }
-              if (king_col_rt || king_col_ekin) {
+              if (king_col_rt || king_col_pkin) {
                 const double expected_kinship = PedigreeKinship(&king_pedigree, sample_idx1, sample_idx2);
                 if (king_col_rt) {
                   cswritetp = strcpya(cswritetp, PedigreeRelationshipType(&king_pedigree, sample_idx1, sample_idx2, expected_kinship));
                   *cswritetp++ = '\t';
                 }
-                if (king_col_ekin) {
+                if (king_col_pkin) {
                   cswritetp = dtoa_g(expected_kinship, cswritetp);
                   *cswritetp++ = '\t';
                 }
@@ -3638,7 +3638,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeI
     }
     const uintptr_t max_sample_fmtid_blen = GetMaxSampleFmtidBlen((&(piip->sii)), king_col_fid, king_col_sid);
     KingPedigree king_pedigree;
-    const uint32_t king_pedigree_needed = ((king_flags & (kfKingColRt | kfKingColEkin)) != kfKing0);
+    const uint32_t king_pedigree_needed = ((king_flags & (kfKingColRt | kfKingColPkin)) != kfKing0);
     if (king_pedigree_needed) {
       if (unlikely(KingPedigreeAlloc(orig_sample_ct, &king_pedigree))) {
         goto CalcKingTableSubset_ret_NOMEM;
@@ -4000,7 +4000,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeI
       const uint32_t king_col_hamming = king_flags & kfKingColHamming;
       const uint32_t king_col_kinship = king_flags & kfKingColKinship;
       const uint32_t king_col_rt = king_flags & kfKingColRt;
-      const uint32_t king_col_ekin = king_flags & kfKingColEkin;
+      const uint32_t king_col_pkin = king_flags & kfKingColPkin;
       const uint32_t report_counts = king_flags & kfKingCounts;
       uint32_t* results_iter = ctx.king_counts;
       double nonmiss_recip = 0.0;
@@ -4071,13 +4071,13 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeI
           cswritep = dtoa_g(kinship_coeff, cswritep);
           *cswritep++ = '\t';
         }
-        if (king_col_rt || king_col_ekin) {
+        if (king_col_rt || king_col_pkin) {
           const double expected_kinship = PedigreeKinship(&king_pedigree, sample_idx1, sample_idx2);
           if (king_col_rt) {
             cswritep = strcpya(cswritep, PedigreeRelationshipType(&king_pedigree, sample_idx1, sample_idx2, expected_kinship));
             *cswritep++ = '\t';
           }
-          if (king_col_ekin) {
+          if (king_col_pkin) {
             cswritep = dtoa_g(expected_kinship, cswritep);
             *cswritep++ = '\t';
           }

@@ -58,9 +58,9 @@ FLAGSET_DEF_START()
   kfKingColHamming = (1 << 21),
   kfKingColKinship = (1 << 22),
   kfKingColRt = (1 << 23),
-  kfKingColEkin = (1 << 24),
+  kfKingColPkin = (1 << 24),
   kfKingColDefault = (kfKingColMaybefid | kfKingColId | kfKingColMaybesid | kfKingColNsnp | kfKingColHethet | kfKingColIbs0 | kfKingColKinship),
-  kfKingColAll = ((kfKingColEkin * 2) - kfKingColMaybefid)
+  kfKingColAll = ((kfKingColPkin * 2) - kfKingColMaybefid)
 FLAGSET_DEF_END(KingFlags);
 
 // --make-rel, --make-grm-list, --make-grm-bin, --make-grm-sparse
