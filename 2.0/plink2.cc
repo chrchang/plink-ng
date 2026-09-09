@@ -234,6 +234,7 @@ ENUM_U31_DEF_START()
   kCmd1BitTwolocus,
   kCmd1BitDistance,
   kCmd1BitTestMissing,
+  kCmd1BitGxe,
   kCmd1BitShowTags,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
@@ -279,6 +280,7 @@ FLAGSET64_DEF_START()
   kfCommand1Twolocus = (1LLU << kCmd1BitTwolocus),
   kfCommand1Distance = (1LLU << kCmd1BitDistance),
   kfCommand1TestMissing = (1LLU << kCmd1BitTestMissing),
+  kfCommand1Gxe = (1LLU << kCmd1BitGxe),
   kfCommand1ShowTags = (1LLU << kCmd1BitShowTags)
 FLAGSET64_DEF_END(Command1Flags);
 
@@ -635,11 +637,12 @@ typedef struct Plink2CmdlineStruct {
   TwentythreeInfo twenty_three_info;
   TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
+  GxeInfo gxe_info;
 } Plink2Cmdline;
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags | kfCommand1Gxe)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -3067,6 +3070,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1Gxe) {
+        reterr = GxeReport(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->gxe_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, variant_ct, max_allele_slen, pcp->output_min_ln, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1TestMissing) {
         reterr = TestMissingReport(sample_include, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, pgfi.gflags, pcp->test_missing_flags, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
@@ -3953,6 +3963,7 @@ int main(int argc, char** argv) {
   InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
   InitAdjust(&pc.adjust_info, &adjust_file_info);
+  InitGxe(&pc.gxe_info);
   ChrInfo chr_info;
   if (unlikely(InitChrInfo(&chr_info))) {
     goto main_ret_NOMEM_NOLOG;
@@ -7137,6 +7148,36 @@ int main(int argc, char** argv) {
             pc.filter_flags |= kfFilterPvarReq;
             pc.dependency_flags = kfFilterAllReq | kfFilterNoSplitChr;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "xe")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.gxe_info.flags |= kfGxeZs;
+            } else if (StrStartsWith(cur_modif, "covar-name=", cur_modif_slen)) {
+              if (unlikely(pc.gxe_info.covar_name)) {
+                logerrputs("Error: Multiple --gxe covar-name= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = CmdlineAllocString(&(cur_modif[strlen("covar-name=")]), "--gxe covar-name=", kMaxIdSlen, &pc.gxe_info.covar_name);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else if (likely(!pc.gxe_info.pheno_name)) {
+              reterr = CmdlineAllocString(cur_modif, "--gxe", kMaxIdSlen, &pc.gxe_info.pheno_name);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gxe argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          pc.command_flags1 |= kfCommand1Gxe;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "eno-counts")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -14467,6 +14508,7 @@ int main(int argc, char** argv) {
   free_cond(rseeds);
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
+  CleanupGxe(&pc.gxe_info);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.zero_cluster_phenoname);
   free_cond(pc.zero_cluster_fname);

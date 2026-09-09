@@ -14371,6 +14371,364 @@ PglErr CheckAlleleUniqueness(const uintptr_t* variant_include, const ChrInfo* ci
   return reterr;
 }
 
+void InitGxe(GxeInfo* gxe_ip) {
+  gxe_ip->pheno_name = nullptr;
+  gxe_ip->covar_name = nullptr;
+  gxe_ip->flags = kfGxe0;
+}
+
+void CleanupGxe(GxeInfo* gxe_ip) {
+  free_cond(gxe_ip->pheno_name);
+  free_cond(gxe_ip->covar_name);
+}
+
+// Simple linear regression of the phenotype on the genotype, within one group.
+// Returns 0 and fills *beta_ptr / *se_ptr on success; returns 1 when the group
+// has fewer than three usable samples or no genotype variance, which is what
+// makes the slope undefined rather than merely imprecise.
+uint32_t GxeGroupRegression(const double* phenos, const uintptr_t* genovec, const uintptr_t* group_bv, uint32_t sample_ct, uint32_t* obs_ct_ptr, double* beta_ptr, double* se_ptr) {
+  double sx = 0.0;
+  double sxx = 0.0;
+  double sy = 0.0;
+  double syy = 0.0;
+  double sxy = 0.0;
+  uint32_t obs_ct = 0;
+  uintptr_t sample_idx_base = 0;
+  uintptr_t cur_bits = group_bv[0];
+  const uint32_t group_ct = PopcountWords(group_bv, BitCtToWordCt(sample_ct));
+  for (uint32_t uii = 0; uii != group_ct; ++uii) {
+    const uintptr_t sample_idx = BitIter1(group_bv, &sample_idx_base, &cur_bits);
+    const uintptr_t geno = GetNyparrEntry(genovec, sample_idx);
+    if (geno == 3) {
+      continue;
+    }
+    const double xx = u31tod(geno);
+    const double yy = phenos[sample_idx];
+    sx += xx;
+    sxx += xx * xx;
+    sy += yy;
+    syy += yy * yy;
+    sxy += xx * yy;
+    ++obs_ct;
+  }
+  *obs_ct_ptr = obs_ct;
+  if (obs_ct < 3) {
+    return 1;
+  }
+  const double nn = u31tod(obs_ct);
+  const double sxx_c = sxx - sx * sx / nn;
+  if (sxx_c <= 0.0) {
+    return 1;
+  }
+  const double sxy_c = sxy - sx * sy / nn;
+  const double syy_c = syy - sy * sy / nn;
+  const double beta = sxy_c / sxx_c;
+  double sse = syy_c - beta * sxy_c;
+  if (sse < 0.0) {
+    sse = 0.0;
+  }
+  *beta_ptr = beta;
+  *se_ptr = sqrt((sse / (nn - 2)) / sxx_c);
+  return 0;
+}
+
+PglErr GxeReport(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const GxeInfo* gxe_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t variant_ct, uint32_t max_allele_slen, double output_min_ln, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  PglErr reterr = kPglRetSuccess;
+  {
+    // Quantitative phenotype.
+    const PhenoCol* qt_pheno_col = nullptr;
+    if (gxe_ip->pheno_name) {
+      const uintptr_t name_blen = 1 + strlen(gxe_ip->pheno_name);
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        if (memequal(gxe_ip->pheno_name, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
+          qt_pheno_col = &(pheno_cols[pheno_idx]);
+          break;
+        }
+      }
+      if (unlikely(!qt_pheno_col)) {
+        logerrprintfww("Error: --gxe phenotype '%s' not found.\n", gxe_ip->pheno_name);
+        goto GxeReport_ret_INCONSISTENT_INPUT;
+      }
+      if (unlikely(qt_pheno_col->type_code != kPhenoDtypeQt)) {
+        logerrprintfww("Error: --gxe phenotype '%s' is not quantitative.\n", gxe_ip->pheno_name);
+        goto GxeReport_ret_INCONSISTENT_INPUT;
+      }
+    } else {
+      uint32_t qt_ct = 0;
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        if (pheno_cols[pheno_idx].type_code == kPhenoDtypeQt) {
+          ++qt_ct;
+          if (!qt_pheno_col) {
+            qt_pheno_col = &(pheno_cols[pheno_idx]);
+          }
+        }
+      }
+      if (unlikely(!qt_pheno_col)) {
+        logerrputs("Error: --gxe requires a quantitative phenotype.\n");
+        goto GxeReport_ret_INCONSISTENT_INPUT;
+      }
+      if (unlikely(qt_ct > 1)) {
+        logerrputs("Error: More than one quantitative phenotype is loaded; name the one --gxe\nshould use.\n");
+        goto GxeReport_ret_INCONSISTENT_INPUT;
+      }
+    }
+    // Grouping covariate.  PLINK 1.x took a 1-based index into the --covar
+    // file; a name is less fragile when the file changes.
+    const PhenoCol* group_covar_col = nullptr;
+    const char* group_covar_name = nullptr;
+    if (unlikely(!covar_ct)) {
+      logerrputs("Error: --gxe requires a covariate to define the two groups.\n");
+      goto GxeReport_ret_INCONSISTENT_INPUT;
+    }
+    if (gxe_ip->covar_name) {
+      const uintptr_t name_blen = 1 + strlen(gxe_ip->covar_name);
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+        if (memequal(gxe_ip->covar_name, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
+          group_covar_col = &(covar_cols[covar_idx]);
+          group_covar_name = &(covar_names[covar_idx * max_covar_name_blen]);
+          break;
+        }
+      }
+      if (unlikely(!group_covar_col)) {
+        logerrprintfww("Error: --gxe covariate '%s' not found.\n", gxe_ip->covar_name);
+        goto GxeReport_ret_INCONSISTENT_INPUT;
+      }
+    } else {
+      group_covar_col = &(covar_cols[0]);
+      group_covar_name = covar_names;
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* sample_include;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include))) {
+      goto GxeReport_ret_NOMEM;
+    }
+    BitvecAndCopy(orig_sample_include, qt_pheno_col->nonmiss, raw_sample_ctl, sample_include);
+    BitvecAnd(group_covar_col->nonmiss, raw_sample_ctl, sample_include);
+    const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+    if (unlikely(sample_ct < 6)) {
+      logerrputs("Error: --gxe needs at least three samples in each group.\n");
+      goto GxeReport_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+
+    uint32_t* sample_include_cumulative_popcounts;
+    uintptr_t* group2_bv;
+    uintptr_t* group1_bv;
+    double* phenos;
+    uintptr_t* genovec;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 bigstack_calloc_w(sample_ctl, &group2_bv) ||
+                 bigstack_calloc_w(sample_ctl, &group1_bv) ||
+                 bigstack_alloc_d(sample_ct, &phenos) ||
+                 bigstack_alloc_w(NypCtToWordCt(sample_ct), &genovec))) {
+      goto GxeReport_ret_NOMEM;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+
+    // Split on the covariate.  It has to take exactly two distinct values;
+    // anything else is a mistake rather than something to guess at.
+    double group1_val = 0.0;
+    double group2_val = 0.0;
+    uint32_t distinct_ct = 0;
+    {
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        double cur_val;
+        if (group_covar_col->type_code == kPhenoDtypeQt) {
+          cur_val = group_covar_col->data.qt[sample_uidx];
+        } else if (group_covar_col->type_code == kPhenoDtypeCc) {
+          cur_val = IsSet(group_covar_col->data.cc, sample_uidx)? 1.0 : 0.0;
+        } else {
+          logerrputs("Error: --gxe's grouping covariate must be quantitative or case/control.\n");
+          goto GxeReport_ret_INCONSISTENT_INPUT;
+        }
+        phenos[sample_idx] = qt_pheno_col->data.qt[sample_uidx];
+        if (!distinct_ct) {
+          group1_val = cur_val;
+          distinct_ct = 1;
+        } else if (cur_val != group1_val) {
+          if (distinct_ct == 1) {
+            group2_val = cur_val;
+            distinct_ct = 2;
+          } else if (unlikely(cur_val != group2_val)) {
+            logerrprintfww("Error: --gxe covariate '%s' takes more than two distinct values.\n", group_covar_name);
+            goto GxeReport_ret_INCONSISTENT_INPUT;
+          }
+        }
+      }
+      if (unlikely(distinct_ct != 2)) {
+        logerrprintfww("Error: --gxe covariate '%s' takes only one distinct value.\n", group_covar_name);
+        goto GxeReport_ret_INCONSISTENT_INPUT;
+      }
+      // The lower value is group 1, so the split does not depend on sample
+      // order.
+      if (group1_val > group2_val) {
+        const double tmp = group1_val;
+        group1_val = group2_val;
+        group2_val = tmp;
+      }
+      sample_uidx_base = 0;
+      cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+        double cur_val;
+        if (group_covar_col->type_code == kPhenoDtypeQt) {
+          cur_val = group_covar_col->data.qt[sample_uidx];
+        } else {
+          cur_val = IsSet(group_covar_col->data.cc, sample_uidx)? 1.0 : 0.0;
+        }
+        if (cur_val == group1_val) {
+          SetBit(sample_idx, group1_bv);
+        } else {
+          SetBit(sample_idx, group2_bv);
+        }
+      }
+    }
+    const uint32_t group1_ct = PopcountWords(group1_bv, sample_ctl);
+    const uint32_t group2_ct = sample_ct - group1_ct;
+    if (unlikely((group1_ct < 3) || (group2_ct < 3))) {
+      logerrputs("Error: --gxe needs at least three samples in each group.\n");
+      goto GxeReport_ret_INCONSISTENT_INPUT;
+    }
+
+    const uint32_t output_zst = (gxe_ip->flags / kfGxeZs) & 1;
+    OutnameZstSet(".gxe", output_zst, outname_end);
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 2 * max_allele_slen + 512;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto GxeReport_ret_1;
+    }
+    char* chr_buf;
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto GxeReport_ret_NOMEM;
+    }
+    cswritep = strcpya_k(cswritep, "#CHROM\tPOS\tID\tREF\tALT\tA1\tOBS_CT1\tBETA1\tSE1\tOBS_CT2\tBETA2\tSE2\tZ_GXE\tP" EOLN_STR);
+
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t chr_buf_blen = 0;
+    uintptr_t written_ct = 0;
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      if (variant_uidx >= chr_end) {
+        do {
+          ++chr_fo_idx;
+          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        } while (variant_uidx >= chr_end);
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
+        *chr_name_end = '\t';
+        chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
+      }
+      reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto GxeReport_ret_1;
+      }
+      ZeroTrailingNyps(sample_ct, genovec);
+      uint32_t obs_ct1;
+      uint32_t obs_ct2;
+      double beta1;
+      double se1;
+      double beta2;
+      double se2;
+      const uint32_t fail1 = GxeGroupRegression(phenos, genovec, group1_bv, sample_ct, &obs_ct1, &beta1, &se1);
+      const uint32_t fail2 = GxeGroupRegression(phenos, genovec, group2_bv, sample_ct, &obs_ct2, &beta2, &se2);
+
+      cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
+      cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      cswritep = strcpyax(cswritep, variant_ids[variant_uidx], '\t');
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      uintptr_t allele_ct = 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+      }
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      if (unlikely(CsputsStd(cur_alleles[0], strlen(cur_alleles[0]), &css, &cswritep))) {
+        goto GxeReport_ret_WRITE_FAIL;
+      }
+      *cswritep++ = '\t';
+      for (uintptr_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+        if (allele_idx != 1) {
+          *cswritep++ = ',';
+        }
+        if (unlikely(CsputsStd(cur_alleles[allele_idx], strlen(cur_alleles[allele_idx]), &css, &cswritep))) {
+          goto GxeReport_ret_WRITE_FAIL;
+        }
+      }
+      // The genotype is the ALT allele count, so BETA is the effect of ALT.
+      *cswritep++ = '\t';
+      if (unlikely(CsputsStd(cur_alleles[1], strlen(cur_alleles[1]), &css, &cswritep))) {
+        goto GxeReport_ret_WRITE_FAIL;
+      }
+      *cswritep++ = '\t';
+      cswritep = u32toa_x(obs_ct1, '\t', cswritep);
+      if (fail1) {
+        cswritep = strcpya_k(cswritep, "NA\tNA\t");
+      } else {
+        cswritep = dtoa_g(beta1, cswritep);
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(se1, cswritep);
+        *cswritep++ = '\t';
+      }
+      cswritep = u32toa_x(obs_ct2, '\t', cswritep);
+      if (fail2) {
+        cswritep = strcpya_k(cswritep, "NA\tNA\t");
+      } else {
+        cswritep = dtoa_g(beta2, cswritep);
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(se2, cswritep);
+        *cswritep++ = '\t';
+      }
+      if (fail1 || fail2) {
+        cswritep = strcpya_k(cswritep, "NA\tNA");
+      } else {
+        const double zz = (beta1 - beta2) / sqrt(se1 * se1 + se2 * se2);
+        cswritep = dtoa_g(zz, cswritep);
+        *cswritep++ = '\t';
+        cswritep = lntoa_g(MAXV(ZscoreToLnP(zz), output_min_ln), cswritep);
+        ++written_ct;
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto GxeReport_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto GxeReport_ret_WRITE_FAIL;
+    }
+    logprintfww("--gxe: %u variant%s written to %s , %" PRIuPTR " with a defined test; groups are '%s' = %g (n=%u) and %g (n=%u).\n", variant_ct, (variant_ct == 1)? "" : "s", outname, written_ct, group_covar_name, group1_val, group1_ct, group2_val, group2_ct);
+  }
+  while (0) {
+  GxeReport_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  GxeReport_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  GxeReport_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ GxeReport_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
