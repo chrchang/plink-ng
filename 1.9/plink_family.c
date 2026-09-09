@@ -2784,7 +2784,8 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
       bufptr2 = &(merged_ids[sample_idx * max_merged_id_len]);
       if (!memcmp(bufptr, bufptr2, slen)) {
         fs_starts[family_idx] = fssc_idx;
-	uii = *((uint32_t*)(&(bufptr[slen])));
+	// Packed straight after a variable-length string, so not aligned.
+	memcpy(&uii, &(bufptr[slen]), sizeof(uint32_t));
 	clear_bit(uii, not_in_family);
 	ujj = sample_uidx_to_idx[uii];
         fss_contents[fssc_idx++] = ujj;
@@ -6238,7 +6239,10 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
       erase_mendel_errors(unfiltered_sample_ct, loadbuf, workbuf, sex_male, trio_error_lookup, trio_ct, 0, multigen);
       uint32_t loop_len = BITCT / 4;
       const uint64_t* trio_list_iter = trio_list;
-      uintptr_t* uwrite_alias = (uintptr_t*)uwrite_iter;
+      // Kept as a byte pointer: uwrite_iter advances in trio_ct2-byte steps,
+      // so casting it to uintptr_t* forms a misaligned pointer even before
+      // anything is stored through it.
+      unsigned char* uwrite_alias = uwrite_iter;
       uint32_t widx = 0;
       while (1) {
 	if (widx >= write_word_ct_m1) {
@@ -6254,7 +6258,7 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
 	  const uint32_t table_index = EXTRACT_2BIT_GENO(loadbuf, ((uint32_t)trio_code)) + 4 * EXTRACT_2BIT_GENO(loadbuf, ((uint32_t)family_code)) + 16 * EXTRACT_2BIT_GENO(loadbuf, (family_code >> 32));
 	  cur_write_word |= tucc_table[table_index] << (trio_idx_lowbits * 4);
 	}
-        uwrite_alias[widx++] = cur_write_word;
+        memcpy(&(uwrite_alias[widx++ * sizeof(uintptr_t)]), &cur_write_word, sizeof(uintptr_t));
       }
       uwrite_iter = &(uwrite_iter[trio_ct2]);
       if (uwrite_iter >= ((unsigned char*)writebuf_flush)) {

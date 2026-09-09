@@ -257,8 +257,13 @@ unsigned char* bigstack_alloc(uintptr_t size) {
 }
 
 void bigstack_shrink_top(const void* rebase, uintptr_t new_size) {
-  uintptr_t freed_bytes = ((uintptr_t)(g_bigstack_base - ((unsigned char*)rebase))) - round_up_pow2(new_size, CACHELINE);
-  g_bigstack_base -= freed_bytes;
+  // Equivalent to the previous "subtract the freed byte count" form, which
+  // resolved to the same address but computed it by way of an unsigned
+  // wraparound whenever new_size exceeded what was reserved.  That happens on
+  // purpose: --lasso and friends write into the unclaimed top of the stack and
+  // then call this to claim exactly what they used, so rebase can equal the
+  // current top.  Setting the top directly is defined in both cases.
+  g_bigstack_base = ((unsigned char*)rebase) + round_up_pow2(new_size, CACHELINE);
 }
 
 unsigned char* bigstack_end_alloc_presized(uintptr_t size) {
@@ -1055,8 +1060,10 @@ char* uint32toa_w4(uint32_t uii, char* start) {
   uint32_t quotient;
   if (uii < 1000) {
     if (uii < 10) {
-      // assumes little-endian
-      *((uint32_t*)start) = 0x30202020 + (uii << 24);
+      // assumes little-endian; memcpy() rather than a direct store because
+      // start is at an arbitrary offset in the output buffer
+      const uint32_t uii4 = 0x30202020 + (uii << 24);
+      memcpy(start, &uii4, sizeof(uint32_t));
       return &(start[4]);
     }
     if (uii < 100) {
@@ -1204,7 +1211,8 @@ char* uint32toa_w8(uint32_t uii, char* start) {
   if (uii < 1000) {
     if (uii < 10) {
 #ifdef __LP64__
-      *((uintptr_t*)start) = 0x3020202020202020LLU + (((uintptr_t)uii) << 56);
+      const uintptr_t uii8 = 0x3020202020202020LLU + (((uintptr_t)uii) << 56);
+      memcpy(start, &uii8, sizeof(uintptr_t));
       return &(start[8]);
 #else
       start = memseta(start, 32, 7);
@@ -3801,7 +3809,12 @@ static inline uint32_t rotl32(uint32_t x, int8_t r) {
 }
 
 static inline uint32_t getblock32(const uint32_t* p, int i) {
-  return p[i];
+  // MurmurHash3 is handed an arbitrary byte pointer, so this read is routinely
+  // misaligned; memcpy of a constant size is the defined spelling and compiles
+  // to the same load.
+  uint32_t result;
+  memcpy(&result, &(((const unsigned char*)p)[i * 4]), sizeof(uint32_t));
+  return result;
 }
 
 //-----------------------------------------------------------------------------
@@ -5190,12 +5203,25 @@ int32_t strcmp_natural(const void* s1, const void* s2) {
   return strcmp_natural_uncasted((unsigned char*)s1, (unsigned char*)s2);
 }
 
+// The "deref" comparators are handed elements of a qsort_ext2() proxy array,
+// whose stride is chosen by the caller and is routinely not a multiple of the
+// pointer alignment: sizeof(double) + sizeof(int32_t) is 12, so every other
+// element starts on a 4-byte boundary.  Reading the pointer directly is
+// therefore undefined behavior, which UBSan flags on every plink run.  memcpy
+// compiles to the same load on every target where the direct read happened to
+// work, and is correct on the ones where it did not.
+HEADER_INLINE const char* deref_ptr(const void* pp) {
+  const char* result;
+  memcpy(&result, pp, sizeof(const char*));
+  return result;
+}
+
 int32_t strcmp_deref(const void* s1, const void* s2) {
-  return strcmp(*(char**)s1, *(char**)s2);
+  return strcmp(deref_ptr(s1), deref_ptr(s2));
 }
 
 int32_t strcmp_natural_deref(const void* s1, const void* s2) {
-  return strcmp_natural_uncasted(*(unsigned char**)s1, *(unsigned char**)s2);
+  return strcmp_natural_uncasted((const unsigned char*)deref_ptr(s1), (const unsigned char*)deref_ptr(s2));
 }
 
 int32_t get_uidx_from_unsorted(const char* idstr, const uintptr_t* exclude_arr, uint32_t id_ct, const char* unsorted_ids, uintptr_t max_id_len) {
@@ -5358,7 +5384,13 @@ int32_t double_cmp(const void* aa, const void* bb) {
 }
 
 int32_t double_cmp_decr(const void* aa, const void* bb) {
-  double cc = *((const double*)aa) - *((const double*)bb);
+  // --cluster sorts 12-byte {double, int32_t} records, so every other element
+  // starts 4 bytes past an 8-byte boundary and a direct load is undefined.
+  double aval;
+  double bval;
+  memcpy(&aval, aa, sizeof(double));
+  memcpy(&bval, bb, sizeof(double));
+  double cc = aval - bval;
   if (cc < 0.0) {
     return 1;
   } else if (cc > 0.0) {
@@ -5369,7 +5401,7 @@ int32_t double_cmp_decr(const void* aa, const void* bb) {
 }
 
 int32_t double_cmp_deref(const void* aa, const void* bb) {
-  double cc = **((const double**)aa) - **((const double**)bb);
+  double cc = *((const double*)deref_ptr(aa)) - *((const double*)deref_ptr(bb));
   if (cc > 0.0) {
     return 1;
   } else if (cc < 0.0) {
@@ -5380,17 +5412,21 @@ int32_t double_cmp_deref(const void* aa, const void* bb) {
 }
 
 int32_t char_cmp_deref(const void* aa, const void* bb) {
-  return (int32_t)(**((const char**)aa) - **((const char**)bb));
+  return (int32_t)(*deref_ptr(aa) - *deref_ptr(bb));
 }
 
 int32_t double_cmp_deref_tiebreak(const void* aa, const void* bb) {
-  double cc = **((const double**)aa) - **((const double**)bb);
+  double cc = *((const double*)deref_ptr(aa)) - *((const double*)deref_ptr(bb));
   if (cc > 0.0) {
     return 1;
   } else if (cc < 0.0) {
     return -1;
   }
-  return ((const int32_t*)aa)[BYTECT4] - ((const int32_t*)bb)[BYTECT4];
+  int32_t ii;
+  int32_t jj;
+  memcpy(&ii, &(((const char*)aa)[sizeof(void*)]), sizeof(int32_t));
+  memcpy(&jj, &(((const char*)bb)[sizeof(void*)]), sizeof(int32_t));
+  return ii - jj;
 }
 
 int32_t intcmp(const void* aa, const void* bb) {
@@ -5445,13 +5481,18 @@ int32_t llcmp(const void* aa, const void* bb) {
 void qsort_ext2(char* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, uintptr_t secondary_item_len, char* proxy_arr, uintptr_t proxy_len) {
   uintptr_t ulii;
   for (ulii = 0; ulii < arr_length; ulii++) {
-    *(char**)(&(proxy_arr[ulii * proxy_len])) = &(main_arr[ulii * item_length]);
+    // proxy_len is the caller's, and need not be a multiple of the pointer
+    // alignment, so this cannot be a direct store.  See deref_ptr().
+    char* cur_item = &(main_arr[ulii * item_length]);
+    memcpy(&(proxy_arr[ulii * proxy_len]), &cur_item, sizeof(char*));
     memcpy(&(proxy_arr[ulii * proxy_len + sizeof(void*)]), &(secondary_arr[ulii * secondary_item_len]), secondary_item_len);
   }
   qsort(proxy_arr, arr_length, proxy_len, comparator_deref);
   for (ulii = 0; ulii < arr_length; ulii++) {
+    char* cur_item;
     memcpy(&(secondary_arr[ulii * secondary_item_len]), &(proxy_arr[ulii * proxy_len + sizeof(void*)]), secondary_item_len);
-    memcpy(&(proxy_arr[ulii * proxy_len]), *(char**)(&(proxy_arr[ulii * proxy_len])), item_length);
+    memcpy(&cur_item, &(proxy_arr[ulii * proxy_len]), sizeof(char*));
+    memcpy(&(proxy_arr[ulii * proxy_len]), cur_item, item_length);
   }
   for (ulii = 0; ulii < arr_length; ulii++) {
     memcpy(&(main_arr[ulii * item_length]), &(proxy_arr[ulii * proxy_len]), item_length);
@@ -8555,7 +8596,13 @@ void copy_quaterarr_nonempty_subset_excl(const uintptr_t* __restrict raw_quatera
 	  // no need to mask, extra bits vanish off the high end
 	  *output_quaterarr++ = cur_output_word;
 	  word_write_halfshift = rqa_block_len - block_len_limit;
-	  cur_output_word = (raw_quaterarr_curblock_unmasked >> (2 * block_len_limit)) & ((ONELU << (2 * word_write_halfshift)) - ONELU);
+	  if (word_write_halfshift) {
+	    cur_output_word = (raw_quaterarr_curblock_unmasked >> (2 * block_len_limit)) & ((ONELU << (2 * word_write_halfshift)) - ONELU);
+	  } else {
+	    // 2 * block_len_limit is 64 here, and a 64-bit shift by 64 is
+	    // undefined; the mask was zero anyway.
+	    cur_output_word = 0;
+	  }
 	}
 	cur_include_halfword &= (~(ONELU << (rqa_block_len + rqa_idx_lowbits))) + ONELU;
       }
