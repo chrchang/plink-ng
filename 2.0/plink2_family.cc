@@ -19,6 +19,7 @@
 #include <assert.h>
 
 #include "include/pgenlib_misc.h"
+#include "include/pgenlib_write.h"
 #include "include/plink2_bits.h"
 #include "include/plink2_float.h"
 #include "include/plink2_htable.h"
@@ -28,6 +29,9 @@
 #include "plink2_cmdline.h"
 #include "plink2_common.h"
 #include "plink2_compress_stream.h"
+#include "include/plink2_stats.h"
+#include "plink2_perm.h"
+#include "plink2_random.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -2181,6 +2185,1017 @@ uint32_t EraseMendelErrors(const FamilyInfo* fip, const uintptr_t* sex_male_coll
     ClearGenoarrMissing1bit16Unsafe(genoarr, patch_10_ctp, patch_10_set, patch_10_vals);
   }
   return variant_error_ct;
+}
+
+// QFAM family-based association tests for quantitative traits, PLINK 1.9's
+// --qfam / --qfam-parents / --qfam-between / --qfam-total.
+//
+// Each family, sibship or unrelated singleton gets a between-family genotype
+// score B (its mean ALT dosage, centered at 1), and each sample gets a
+// within-family deviate W = (own ALT dosage - 1) - B.  The four tests regress
+// the phenotype on W (--qfam and --qfam-parents), on B (--qfam-between), or on
+// B + W (--qfam-total).  Only the empirical p-value from the permutation is
+// interpretable: the asymptotic one ignores the family structure, which is why
+// PLINK 1.9 names that column RAW_P, and this port keeps the name.
+//
+// The permutation permutes B across families and flips the sign of W within
+// them, so the null it tests is "this variant's transmission is unrelated to
+// the phenotype" rather than "the genotypes are exchangeable".
+
+static const double kQfamEpsilon = 0.000000000931322574615478515625;
+static const double kQfamSmallEpsilon = 0.00000000000005684341886080801486968994140625;
+
+typedef struct QfamGroupsStruct {
+  // fss = families, then sibships, then singletons.
+  // fss_starts[k] is where group k's members begin in fss_contents; a family's
+  // first two members are its parents.
+  uint32_t* fss_starts;
+  uint32_t* fss_contents;
+  // For each of the lm_ct samples in the regression, in increasing sample_idx
+  // order, the group it belongs to.
+  uint32_t* sample_lm_to_fss_idx;
+  uintptr_t* lm_eligible;
+  // --qfam-parents only: founder parents whose partner's genotype has to be
+  // present too.  nullptr otherwise.
+  uintptr_t* lm_within2_founder;
+  uint32_t family_ct;
+  uint32_t fs_ct;
+  uint32_t fss_ct;
+  uint32_t lm_ct;
+} QfamGroups;
+
+// B and W for one variant, plus the phenotype sums with the samples whose
+// genotype is missing taken back out.
+void QfamComputeBw(const uintptr_t* genovec, const QfamGroups* qgp, const double* pheno_d2, double qt_sum_all, double qt_ssq_all, uintptr_t* nm_fss, uintptr_t* nm_lm, double* qfam_b, double* qfam_w, double* qt_sum_ptr, double* qt_ssq_ptr) {
+  const uint32_t* fss_starts = qgp->fss_starts;
+  const uint32_t* fss_contents = qgp->fss_contents;
+  const uint32_t family_ct = qgp->family_ct;
+  const uint32_t fs_ct = qgp->fs_ct;
+  const uint32_t fss_ct = qgp->fss_ct;
+  const uint32_t lm_ct = qgp->lm_ct;
+  double qt_sum = qt_sum_all;
+  double qt_ssq = qt_ssq_all;
+  SetAllBits(fss_ct, nm_fss);
+  for (uint32_t fss_idx = 0; fss_idx != family_ct; ++fss_idx) {
+    const uint32_t cur_start = fss_starts[fss_idx];
+    const uint32_t cur_end = fss_starts[fss_idx + 1];
+    const uint32_t dad_geno = GetNyparrEntry(genovec, fss_contents[cur_start]);
+    const uint32_t mom_geno = GetNyparrEntry(genovec, fss_contents[cur_start + 1]);
+    if ((dad_geno != 3) && (mom_geno != 3)) {
+      qfam_b[fss_idx] = 0.5 * S_CAST(double, S_CAST(int32_t, dad_geno + mom_geno)) - 1.0;
+      continue;
+    }
+    // Fall back on the children's mean when a parent's genotype is missing.
+    uint32_t sib_ct = 0;
+    uint32_t alt_ct = 0;
+    for (uint32_t uii = cur_start + 2; uii != cur_end; ++uii) {
+      const uint32_t cur_geno = GetNyparrEntry(genovec, fss_contents[uii]);
+      if (cur_geno != 3) {
+        ++sib_ct;
+        alt_ct += cur_geno;
+      }
+    }
+    if (sib_ct) {
+      qfam_b[fss_idx] = S_CAST(double, S_CAST(int32_t, alt_ct)) / u31tod(sib_ct) - 1.0;
+    } else {
+      ClearBit(fss_idx, nm_fss);
+    }
+  }
+  for (uint32_t fss_idx = family_ct; fss_idx != fs_ct; ++fss_idx) {
+    const uint32_t cur_start = fss_starts[fss_idx];
+    const uint32_t cur_end = fss_starts[fss_idx + 1];
+    uint32_t sib_ct = 0;
+    uint32_t alt_ct = 0;
+    for (uint32_t uii = cur_start; uii != cur_end; ++uii) {
+      const uint32_t cur_geno = GetNyparrEntry(genovec, fss_contents[uii]);
+      if (cur_geno != 3) {
+        ++sib_ct;
+        alt_ct += cur_geno;
+      }
+    }
+    if (sib_ct) {
+      qfam_b[fss_idx] = S_CAST(double, S_CAST(int32_t, alt_ct)) / u31tod(sib_ct) - 1.0;
+    } else {
+      ClearBit(fss_idx, nm_fss);
+    }
+  }
+  for (uint32_t fss_idx = fs_ct; fss_idx != fss_ct; ++fss_idx) {
+    const uint32_t cur_geno = GetNyparrEntry(genovec, fss_contents[fss_starts[fss_idx]]);
+    if (cur_geno != 3) {
+      qfam_b[fss_idx] = S_CAST(double, S_CAST(int32_t, cur_geno)) - 1.0;
+    } else {
+      ClearBit(fss_idx, nm_fss);
+    }
+  }
+  const uintptr_t* lm_eligible = qgp->lm_eligible;
+  const uintptr_t* lm_within2_founder = qgp->lm_within2_founder;
+  const uint32_t* sample_lm_to_fss_idx = qgp->sample_lm_to_fss_idx;
+  SetAllBits(lm_ct, nm_lm);
+  uintptr_t sample_idx_base = 0;
+  uintptr_t cur_bits = lm_eligible[0];
+  for (uint32_t lm_idx = 0; lm_idx != lm_ct; ++lm_idx) {
+    const uint32_t sample_idx = BitIter1(lm_eligible, &sample_idx_base, &cur_bits);
+    const uint32_t cur_geno = GetNyparrEntry(genovec, sample_idx);
+    if (cur_geno != 3) {
+      const uint32_t fss_idx = sample_lm_to_fss_idx[lm_idx];
+      if (IsSet(nm_fss, fss_idx)) {
+        if ((!lm_within2_founder) || (!IsSet(lm_within2_founder, sample_idx))) {
+          qfam_w[lm_idx] = S_CAST(double, S_CAST(int32_t, cur_geno)) - 1.0 - qfam_b[fss_idx];
+          continue;
+        }
+        // --qfam-parents: a founder parent's deviate is only meaningful when
+        // the other parent is genotyped too.
+        const uint32_t cur_start = fss_starts[fss_idx];
+        const uint32_t partner_idx = (fss_contents[cur_start] == sample_idx)? fss_contents[cur_start + 1] : fss_contents[cur_start];
+        if (GetNyparrEntry(genovec, partner_idx) != 3) {
+          qfam_w[lm_idx] = S_CAST(double, S_CAST(int32_t, cur_geno)) - 1.0 - qfam_b[fss_idx];
+          continue;
+        }
+      }
+    }
+    const double cur_pheno = pheno_d2[lm_idx];
+    qt_sum -= cur_pheno;
+    qt_ssq -= cur_pheno * cur_pheno;
+    ClearBit(lm_idx, nm_lm);
+  }
+  *qt_sum_ptr = qt_sum;
+  *qt_ssq_ptr = qt_ssq;
+}
+
+// --qfam/--qfam-parents only: the genotype sum of squares doesn't depend on
+// the flips, and samples with W == 0 can be skipped entirely.
+void QfamFlipPrecalc(uint32_t lm_ct, const double* qfam_w, const double* pheno_d2, uintptr_t* nm_lm, double* geno_sum_ptr, double* geno_ssq_ptr, double* qt_g_prod_ptr) {
+  double geno_sum = 0.0;
+  double geno_ssq = 0.0;
+  double qt_g_prod = 0.0;
+  uintptr_t lm_idx_base = 0;
+  uintptr_t cur_bits = nm_lm[0];
+  const uint32_t nm_ct = PopcountWords(nm_lm, BitCtToWordCt(lm_ct));
+  for (uint32_t uii = 0; uii != nm_ct; ++uii) {
+    const uint32_t lm_idx = BitIter1(nm_lm, &lm_idx_base, &cur_bits);
+    const double cur_geno = qfam_w[lm_idx];
+    if (fabs(cur_geno) < kQfamSmallEpsilon) {
+      ClearBit(lm_idx, nm_lm);
+    } else {
+      geno_sum += cur_geno;
+      geno_ssq += cur_geno * cur_geno;
+      qt_g_prod += cur_geno * pheno_d2[lm_idx];
+    }
+  }
+  *geno_sum_ptr = geno_sum * 0.5;
+  *geno_ssq_ptr = geno_ssq;
+  *qt_g_prod_ptr = qt_g_prod * 0.5;
+}
+
+// Univariate OLS of the phenotype on the (permuted, flipped) genotype score.
+// Returns 1 when there is nothing to report.
+BoolErr QfamRegress(uint32_t test_type, uint32_t nind, uint32_t lm_ct, const uint32_t* sample_lm_to_fss_idx, const uintptr_t* nm_lm, const double* pheno_d2, const double* qfam_b, const double* qfam_w, const uint32_t* qfam_permute, const uintptr_t* qfam_flip, double nind_recip, double qt_sum, double qt_ssq, double geno_sum, double geno_ssq, double qt_g_prod, double* beta_ptr, double* tstat_ptr) {
+  if (nind < 3) {
+    return 1;
+  }
+  const uint32_t lm_ctl = BitCtToWordCt(lm_ct);
+  if (test_type & (kQfamWithin1 | kQfamWithin2)) {
+    for (uint32_t widx = 0; widx != lm_ctl; ++widx) {
+      uintptr_t cur_word = nm_lm[widx] & qfam_flip[widx];
+      while (cur_word) {
+        const uint32_t lm_idx = widx * kBitsPerWord + ctzw(cur_word);
+        const double neg_w = -qfam_w[lm_idx];
+        geno_sum += neg_w;
+        qt_g_prod += neg_w * pheno_d2[lm_idx];
+        cur_word &= cur_word - 1;
+      }
+    }
+    geno_sum *= 2;
+    qt_g_prod *= 2;
+  } else {
+    uintptr_t lm_idx_base = 0;
+    uintptr_t cur_bits = nm_lm[0];
+    for (uint32_t uii = 0; uii != nind; ++uii) {
+      const uint32_t lm_idx = BitIter1(nm_lm, &lm_idx_base, &cur_bits);
+      const uint32_t fss_idx = qfam_permute[sample_lm_to_fss_idx[lm_idx]];
+      double cur_geno = qfam_b[fss_idx];
+      if (test_type == kQfamTotal) {
+        const double cur_w = qfam_w[lm_idx];
+        if (IsSet(qfam_flip, fss_idx)) {
+          cur_geno -= cur_w;
+        } else {
+          cur_geno += cur_w;
+        }
+      }
+      geno_sum += cur_geno;
+      geno_ssq += cur_geno * cur_geno;
+      qt_g_prod += cur_geno * pheno_d2[lm_idx];
+    }
+  }
+  const double qt_mean = qt_sum * nind_recip;
+  const double geno_mean = geno_sum * nind_recip;
+  const double dof_recip = 1.0 / u31tod(nind - 1);
+  const double qt_var = (qt_ssq - qt_sum * qt_mean) * dof_recip;
+  const double geno_var = (geno_ssq - geno_sum * geno_mean) * dof_recip;
+  if (geno_var == 0.0) {
+    return 1;
+  }
+  const double qt_g_covar = (qt_g_prod - qt_sum * geno_mean) * dof_recip;
+  const double geno_var_recip = 1.0 / geno_var;
+  const double beta = qt_g_covar * geno_var_recip;
+  const double resid = qt_var * geno_var_recip - beta * beta;
+  *beta_ptr = beta;
+  *tstat_ptr = beta * sqrt(u31tod(nind - 2) / resid);
+  return 0;
+}
+
+// Families (both parents present), then sibships (samples sharing FID/PAT/MAT
+// whose parents aren't both present), then singletons.  Parents who appear in
+// more than one family are dropped from the regression, since otherwise the
+// result would depend on which of their families came first in the file.
+PglErr QfamBuildGroups(const PedigreeIdInfo* piip, const uintptr_t* founder_collapsed, const FamilyInfo* fip, const uint32_t* idx_to_uidx, uint32_t sample_ct, uint32_t test_type, QfamGroups* qgp) {
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t family_ct = fip->family_ct;
+    const uint32_t trio_ct = fip->trio_ct;
+    const uint64_t* family_list = fip->family_list;
+    const uint64_t* trio_list = fip->trio_list;
+    uint32_t* family_child_offsets;
+    uint32_t* family_children;
+    uintptr_t* not_in_family;
+    uintptr_t* is_child;
+    uintptr_t* double_parent;
+    uintptr_t* is_parent;
+    uint32_t* sample_to_fss_idx;
+    if (unlikely(bigstack_calloc_u32(family_ct + 1, &family_child_offsets) ||
+                 bigstack_alloc_u32(trio_ct, &family_children) ||
+                 bigstack_alloc_w(sample_ctl, &not_in_family) ||
+                 bigstack_calloc_w(sample_ctl, &is_child) ||
+                 bigstack_calloc_w(sample_ctl, &double_parent) ||
+                 bigstack_calloc_w(sample_ctl, &is_parent) ||
+                 bigstack_alloc_u32(sample_ct, &sample_to_fss_idx))) {
+      goto QfamBuildGroups_ret_NOMEM;
+    }
+    SetAllBits(sample_ct, not_in_family);
+    SetAllU32Arr(sample_ct, sample_to_fss_idx);
+    for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+      family_child_offsets[1 + (trio_list[trio_idx] >> 32)] += 1;
+    }
+    for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
+      family_child_offsets[family_idx + 1] += family_child_offsets[family_idx];
+    }
+    {
+      uint32_t* write_idxs;
+      if (unlikely(bigstack_end_alloc_u32(family_ct + 1, &write_idxs))) {
+        goto QfamBuildGroups_ret_NOMEM;
+      }
+      memcpy(write_idxs, family_child_offsets, (family_ct + 1) * sizeof(int32_t));
+      for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+        const uint64_t trio_code = trio_list[trio_idx];
+        const uint32_t child_idx = S_CAST(uint32_t, trio_code);
+        family_children[write_idxs[trio_code >> 32]++] = child_idx;
+        SetBit(child_idx, is_child);
+        sample_to_fss_idx[child_idx] = trio_code >> 32;
+      }
+      BigstackEndReset(write_idxs);
+    }
+    for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
+      const uint64_t family_code = family_list[family_idx];
+      const uint32_t parent_idxs[2] = {S_CAST(uint32_t, family_code), S_CAST(uint32_t, family_code >> 32)};
+      for (uint32_t uii = 0; uii != 2; ++uii) {
+        const uint32_t parent_idx = parent_idxs[uii];
+        SetBit(parent_idx, is_parent);
+        if (IsSet(not_in_family, parent_idx)) {
+          if (sample_to_fss_idx[parent_idx] == UINT32_MAX) {
+            sample_to_fss_idx[parent_idx] = family_idx;
+          }
+          ClearBit(parent_idx, not_in_family);
+        } else {
+          SetBit(parent_idx, double_parent);
+        }
+      }
+    }
+    BitvecInvmask(is_child, sample_ctl, not_in_family);
+    BitvecInvmask(is_child, sample_ctl, double_parent);
+    // Children have their family's index no matter what, and a parent keeps
+    // the index of the first family it appeared in.
+    for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+      const uint64_t trio_code = trio_list[trio_idx];
+      sample_to_fss_idx[S_CAST(uint32_t, trio_code)] = trio_code >> 32;
+    }
+
+    // Upper bound: every family contributes 2 parents plus its children, and
+    // every other sample appears in exactly one sibship or singleton entry.
+    const uintptr_t fss_contents_capacity = 2 * S_CAST(uintptr_t, family_ct) + trio_ct + sample_ct;
+    const uintptr_t fss_capacity = family_ct + sample_ct + 2;
+    uint32_t* fss_starts;
+    uint32_t* fss_contents;
+    if (unlikely(bigstack_alloc_u32(fss_capacity, &fss_starts) ||
+                 bigstack_alloc_u32(fss_contents_capacity, &fss_contents))) {
+      goto QfamBuildGroups_ret_NOMEM;
+    }
+    uint32_t* contents_iter = fss_contents;
+    for (uint32_t family_idx = 0; family_idx != family_ct; ++family_idx) {
+      fss_starts[family_idx] = contents_iter - fss_contents;
+      const uint64_t family_code = family_list[family_idx];
+      *contents_iter++ = S_CAST(uint32_t, family_code);
+      *contents_iter++ = family_code >> 32;
+      const uint32_t child_end = family_child_offsets[family_idx + 1];
+      for (uint32_t uii = family_child_offsets[family_idx]; uii != child_end; ++uii) {
+        *contents_iter++ = family_children[uii];
+      }
+    }
+    uint32_t fs_ct = family_ct;
+    {
+      // Sibships, keyed by FID/PAT/MAT.
+      uint32_t candidate_ct = 0;
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        if (IsSet(not_in_family, sample_idx) && (!IsSet(founder_collapsed, sample_idx))) {
+          ++candidate_ct;
+        }
+      }
+      if (candidate_ct > 1) {
+        const SampleIdInfo* siip = &(piip->sii);
+        const ParentalIdInfo* parental_id_infop = &(piip->parental_id_info);
+        const uintptr_t max_key_blen = siip->max_sample_id_blen + parental_id_infop->max_paternal_id_blen + parental_id_infop->max_maternal_id_blen;
+        char* key_strbox;
+        uint32_t* key_id_map;
+        if (unlikely(bigstack_end_alloc_c(max_key_blen * candidate_ct, &key_strbox) ||
+                     bigstack_end_alloc_u32(candidate_ct, &key_id_map))) {
+          goto QfamBuildGroups_ret_NOMEM;
+        }
+        uint32_t key_idx = 0;
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          if ((!IsSet(not_in_family, sample_idx)) || IsSet(founder_collapsed, sample_idx)) {
+            continue;
+          }
+          const uint32_t sample_uidx = idx_to_uidx[sample_idx];
+          const char* cur_sample_id = &(siip->sample_ids[sample_uidx * siip->max_sample_id_blen]);
+          const char* fid_end = AdvToDelim(cur_sample_id, '\t');
+          char* write_iter = &(key_strbox[key_idx * max_key_blen]);
+          write_iter = memcpyax(write_iter, cur_sample_id, fid_end - cur_sample_id, '\t');
+          write_iter = strcpyax(write_iter, &(parental_id_infop->paternal_ids[sample_uidx * parental_id_infop->max_paternal_id_blen]), '\t');
+          // strcpya() doesn't write the terminator, and the keys are compared
+          // as C strings below.
+          *strcpya(write_iter, &(parental_id_infop->maternal_ids[sample_uidx * parental_id_infop->max_maternal_id_blen])) = '\0';
+          key_id_map[key_idx] = sample_idx;
+          ++key_idx;
+        }
+        if (unlikely(SortStrboxIndexed(candidate_ct, max_key_blen, 0, key_strbox, key_id_map))) {
+          goto QfamBuildGroups_ret_NOMEM;
+        }
+        uint32_t run_start = 0;
+        while (run_start != candidate_ct) {
+          const char* cur_key = &(key_strbox[run_start * max_key_blen]);
+          uint32_t run_end = run_start + 1;
+          while ((run_end != candidate_ct) && (!strcmp(cur_key, &(key_strbox[run_end * max_key_blen])))) {
+            ++run_end;
+          }
+          if (run_end - run_start >= 2) {
+            fss_starts[fs_ct] = contents_iter - fss_contents;
+            for (uint32_t uii = run_start; uii != run_end; ++uii) {
+              const uint32_t sample_idx = key_id_map[uii];
+              sample_to_fss_idx[sample_idx] = fs_ct;
+              ClearBit(sample_idx, not_in_family);
+              *contents_iter++ = sample_idx;
+            }
+            ++fs_ct;
+          }
+          run_start = run_end;
+        }
+        BigstackEndReset(key_strbox);
+      }
+    }
+    uint32_t fss_ct = fs_ct;
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      if (!IsSet(not_in_family, sample_idx)) {
+        continue;
+      }
+      fss_starts[fss_ct] = contents_iter - fss_contents;
+      sample_to_fss_idx[sample_idx] = fss_ct;
+      *contents_iter++ = sample_idx;
+      ++fss_ct;
+    }
+    fss_starts[fss_ct] = contents_iter - fss_contents;
+
+    uintptr_t* lm_eligible;
+    if (unlikely(bigstack_alloc_w(sample_ctl, &lm_eligible))) {
+      goto QfamBuildGroups_ret_NOMEM;
+    }
+    SetAllBits(sample_ct, lm_eligible);
+    BitvecInvmask(double_parent, sample_ctl, lm_eligible);
+    if (test_type == kQfamWithin1) {
+      BitvecInvmask(founder_collapsed, sample_ctl, lm_eligible);
+    }
+    const uint32_t lm_ct = PopcountWords(lm_eligible, sample_ctl);
+    uint32_t* sample_lm_to_fss_idx;
+    if (unlikely(bigstack_alloc_u32(lm_ct, &sample_lm_to_fss_idx))) {
+      goto QfamBuildGroups_ret_NOMEM;
+    }
+    {
+      uintptr_t sample_idx_base = 0;
+      uintptr_t cur_bits = lm_eligible[0];
+      for (uint32_t lm_idx = 0; lm_idx != lm_ct; ++lm_idx) {
+        sample_lm_to_fss_idx[lm_idx] = sample_to_fss_idx[BitIter1(lm_eligible, &sample_idx_base, &cur_bits)];
+      }
+    }
+    uintptr_t* lm_within2_founder = nullptr;
+    if (test_type == kQfamWithin2) {
+      if (unlikely(bigstack_alloc_w(sample_ctl, &lm_within2_founder))) {
+        goto QfamBuildGroups_ret_NOMEM;
+      }
+      memcpy(lm_within2_founder, is_parent, sample_ctl * sizeof(intptr_t));
+      BitvecInvmask(double_parent, sample_ctl, lm_within2_founder);
+      BitvecAnd(founder_collapsed, sample_ctl, lm_within2_founder);
+    }
+    qgp->fss_starts = fss_starts;
+    qgp->fss_contents = fss_contents;
+    qgp->sample_lm_to_fss_idx = sample_lm_to_fss_idx;
+    qgp->lm_eligible = lm_eligible;
+    qgp->lm_within2_founder = lm_within2_founder;
+    qgp->family_ct = family_ct;
+    qgp->fs_ct = fs_ct;
+    qgp->fss_ct = fss_ct;
+    qgp->lm_ct = lm_ct;
+  }
+  while (0) {
+  QfamBuildGroups_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  }
+  return reterr;
+}
+
+PglErr QfamReport(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const PermConfig* perm_config_ptr, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, QfamFlags flags, uint32_t mperm_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t test_type = flags & kfQfamTestMask;
+    const uint32_t only_within = (test_type & (kQfamWithin1 | kQfamWithin2))? 1 : 0;
+    const char* flag_suffix = (test_type == kQfamWithin1)? "within" : ((test_type == kQfamWithin2)? "parents" : ((test_type == kQfamTotal)? "total" : "between"));
+    const char* test_str = only_within? "WITHIN" : ((test_type == kQfamTotal)? "TOTAL" : "BETWEEN");
+    const PhenoCol* qt_pheno_col = nullptr;
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      if (pheno_cols[pheno_idx].type_code == kPhenoDtypeQt) {
+        qt_pheno_col = &(pheno_cols[pheno_idx]);
+        break;
+      }
+    }
+    if (unlikely(!qt_pheno_col)) {
+      logerrprintfww("Error: --qfam-%s requires a quantitative phenotype.\n", flag_suffix);
+      goto QfamReport_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* sample_include;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include))) {
+      goto QfamReport_ret_NOMEM;
+    }
+    BitvecAndCopy(orig_sample_include, qt_pheno_col->nonmiss, raw_sample_ctl, sample_include);
+    uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+    if (unlikely(!sample_ct)) {
+      logerrprintfww("Error: --qfam-%s requires at least one sample with a nonmissing quantitative phenotype.\n", flag_suffix);
+      goto QfamReport_ret_INCONSISTENT_INPUT;
+    }
+
+    // As in PLINK 1.x, the haploid genome and chrMT are out of scope.
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* autosomal_variant_include;
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &autosomal_variant_include))) {
+      goto QfamReport_ret_NOMEM;
+    }
+    memcpy(autosomal_variant_include, variant_include, raw_variant_ctl * sizeof(intptr_t));
+    const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
+    uint32_t skipped_variant_ct = 0;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if ((!IsSet(cip->haploid_mask, chr_idx)) && (chr_idx != mt_code)) {
+        continue;
+      }
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      skipped_variant_ct += PopcountBitRange(autosomal_variant_include, chr_vidx_start, chr_vidx_end);
+      ClearBitsNz(chr_vidx_start, chr_vidx_end, autosomal_variant_include);
+    }
+    if (skipped_variant_ct) {
+      logprintf("--qfam-%s: Excluding %u haploid/MT variant%s.\n", flag_suffix, skipped_variant_ct, (skipped_variant_ct == 1)? "" : "s");
+    }
+    const uint32_t autosomal_variant_ct = variant_ct - skipped_variant_ct;
+    if (unlikely(!autosomal_variant_ct)) {
+      logerrprintfww("Error: No variants remaining for --qfam-%s.\n", flag_suffix);
+      goto QfamReport_ret_INCONSISTENT_INPUT;
+    }
+
+    FamilyInfo family_info;
+    PreinitFamilyInfo(&family_info);
+    reterr = GetTriosAndFamilies(sample_include, piip, founder_info, sex_nm, sex_male, raw_sample_ct, kfTrio0, &sample_ct, nullptr, &family_info);
+    if (unlikely(reterr)) {
+      goto QfamReport_ret_1;
+    }
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    uint32_t* sample_include_cumulative_popcounts;
+    uintptr_t* founder_collapsed;
+    uint32_t* idx_to_uidx;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 bigstack_alloc_w(sample_ctl, &founder_collapsed) ||
+                 bigstack_alloc_u32(sample_ct, &idx_to_uidx))) {
+      goto QfamReport_ret_NOMEM;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    CopyBitarrSubset(founder_info, sample_include, sample_ct, founder_collapsed);
+    ZeroTrailingBits(sample_ct, founder_collapsed);
+    {
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        idx_to_uidx[sample_idx] = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+      }
+    }
+    QfamGroups qgroups;
+    reterr = QfamBuildGroups(piip, founder_collapsed, &family_info, idx_to_uidx, sample_ct, test_type, &qgroups);
+    if (unlikely(reterr)) {
+      goto QfamReport_ret_1;
+    }
+    const uint32_t fss_ct = qgroups.fss_ct;
+    const uint32_t lm_ct = qgroups.lm_ct;
+    if (unlikely(fss_ct < 2)) {
+      logerrprintfww("Error: --qfam-%s requires at least two families.\n", flag_suffix);
+      goto QfamReport_ret_INCONSISTENT_INPUT;
+    }
+    if (unlikely(lm_ct < 3)) {
+      logerrprintfww("Error: Fewer than three eligible %ss for --qfam-%s.\n", (test_type == kQfamWithin1)? "nonfounder" : "sample", flag_suffix);
+      goto QfamReport_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t fss_ctl = BitCtToWordCt(fss_ct);
+    const uint32_t lm_ctl = BitCtToWordCt(lm_ct);
+    const uint32_t flip_ctl = only_within? lm_ctl : fss_ctl;
+
+    double* pheno_d2;
+    if (unlikely(bigstack_alloc_d(lm_ct, &pheno_d2))) {
+      goto QfamReport_ret_NOMEM;
+    }
+    double qt_sum_all = 0.0;
+    double qt_ssq_all = 0.0;
+    {
+      const double* pheno_qt = qt_pheno_col->data.qt;
+      uintptr_t sample_idx_base = 0;
+      uintptr_t cur_bits = qgroups.lm_eligible[0];
+      for (uint32_t lm_idx = 0; lm_idx != lm_ct; ++lm_idx) {
+        const uint32_t sample_idx = BitIter1(qgroups.lm_eligible, &sample_idx_base, &cur_bits);
+        const double cur_pheno = pheno_qt[idx_to_uidx[sample_idx]];
+        pheno_d2[lm_idx] = cur_pheno;
+        qt_sum_all += cur_pheno;
+        qt_ssq_all += cur_pheno * cur_pheno;
+      }
+    }
+
+    const uint32_t perm_adapt = !mperm_ct;
+    const uint32_t perms_total = perm_adapt? perm_config_ptr->aperm_max : mperm_ct;
+    const double aperm_alpha = perm_config_ptr->aperm_alpha;
+    const double adaptive_intercept = perm_config_ptr->aperm_init_interval;
+    const double adaptive_slope = perm_config_ptr->aperm_interval_slope;
+    const double adaptive_ci_zt = perm_adapt? QuantileToZscore(1.0 - perm_config_ptr->aperm_beta / (2.0 * u31tod(autosomal_variant_ct))) : 0.0;
+    uint32_t first_adapt_check = perm_config_ptr->aperm_min;
+    if (u31tod(first_adapt_check) < adaptive_intercept) {
+      first_adapt_check = S_CAST(uint32_t, adaptive_intercept);
+    }
+
+    const uint32_t emp_se = (flags / kfQfamEmpSe) & 1;
+    const uint32_t perm_count = (flags / kfQfamPermCount) & 1;
+    const uint32_t output_zst = (flags / kfQfamZs) & 1;
+    const uint32_t chr_col = flags & kfQfamColChrom;
+    const uint32_t ref_col = flags & kfQfamColRef;
+    const uint32_t alt1_col = flags & kfQfamColAlt1;
+    const uint32_t alt_col = flags & kfQfamColAlt;
+    const uint32_t a1_col = flags & kfQfamColA1;
+    const uint32_t all_nonref = (gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    uint32_t provref_col = 0;
+    if (ref_col) {
+      if (flags & kfQfamColProvref) {
+        provref_col = 1;
+      } else if (flags & kfQfamColMaybeprovref) {
+        provref_col = all_nonref || (nonref_flags && (!IntersectionRangeIsEmpty(autosomal_variant_include, nonref_flags, 0, raw_variant_ct)));
+      }
+    }
+    const uint32_t test_col = flags & kfQfamColTest;
+    const uint32_t nind_col = flags & kfQfamColNind;
+    const uint32_t beta_col = flags & kfQfamColBeta;
+    const uint32_t stat_col = flags & kfQfamColStat;
+    const uint32_t rawp_col = flags & kfQfamColRawp;
+    const uint32_t emp1_col = flags & kfQfamColEmp1;
+    const uint32_t np_col = flags & kfQfamColNp;
+
+    uintptr_t* nm_fss;
+    uintptr_t* nm_lm;
+    uintptr_t* qfam_flip;
+    uintptr_t* fss_flip;
+    double* qfam_b;
+    double* qfam_w;
+    uint32_t* dummy_perm;
+    uint32_t* cur_perm;
+    uint32_t* permute_edit_buf;
+    uintptr_t* genovec;
+    uintptr_t* genovec_buf;
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    if (unlikely(bigstack_alloc_w(fss_ctl, &nm_fss) ||
+                 bigstack_alloc_w(lm_ctl, &nm_lm) ||
+                 bigstack_calloc_w(flip_ctl, &qfam_flip) ||
+                 bigstack_alloc_w(fss_ctl, &fss_flip) ||
+                 bigstack_alloc_d(fss_ct, &qfam_b) ||
+                 bigstack_alloc_d(lm_ct, &qfam_w) ||
+                 bigstack_alloc_u32(fss_ct, &dummy_perm) ||
+                 bigstack_alloc_u32(fss_ct, &cur_perm) ||
+                 bigstack_alloc_u32(fss_ct, &permute_edit_buf) ||
+                 bigstack_alloc_w(sample_ctl2, &genovec) ||
+                 bigstack_alloc_w(sample_ctl2, &genovec_buf))) {
+      goto QfamReport_ret_NOMEM;
+    }
+    for (uint32_t fss_idx = 0; fss_idx != fss_ct; ++fss_idx) {
+      dummy_perm[fss_idx] = fss_idx;
+    }
+    uintptr_t* dummy_flip;
+    if (unlikely(bigstack_calloc_w(flip_ctl, &dummy_flip))) {
+      goto QfamReport_ret_NOMEM;
+    }
+
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    char* chr_buf;
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto QfamReport_ret_NOMEM;
+    }
+    char* outname_end2 = strcpya_k(outname_end, ".qfam.");
+    outname_end2 = strcpya(outname_end2, flag_suffix);
+    OutnameZstSet("", output_zst, outname_end2);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_chr_blen;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto QfamReport_ret_1;
+    }
+    *cswritep++ = '#';
+    if (chr_col) {
+      cswritep = strcpya_k(cswritep, "CHROM\t");
+    }
+    if (flags & kfQfamColPos) {
+      cswritep = strcpya_k(cswritep, "POS\t");
+    } else {
+      variant_bps = nullptr;
+    }
+    cswritep = strcpya_k(cswritep, "ID");
+    if (ref_col) {
+      cswritep = strcpya_k(cswritep, "\tREF");
+    }
+    if (alt1_col) {
+      cswritep = strcpya_k(cswritep, "\tALT1");
+    }
+    if (alt_col) {
+      cswritep = strcpya_k(cswritep, "\tALT");
+    }
+    if (provref_col) {
+      cswritep = strcpya_k(cswritep, "\tPROVISIONAL_REF?");
+    }
+    if (a1_col) {
+      cswritep = strcpya_k(cswritep, "\tA1");
+    }
+    if (test_col) {
+      cswritep = strcpya_k(cswritep, "\tTEST");
+    }
+    if (nind_col) {
+      cswritep = strcpya_k(cswritep, "\tNIND");
+    }
+    if (beta_col) {
+      cswritep = strcpya_k(cswritep, "\tBETA");
+    }
+    if (stat_col) {
+      cswritep = strcpya_k(cswritep, "\tSTAT");
+    }
+    if (rawp_col) {
+      cswritep = strcpya_k(cswritep, "\tRAW_P");
+    }
+    if (emp_se) {
+      cswritep = strcpya_k(cswritep, "\tEMP_BETA\tEMP_SE");
+    }
+    if (emp1_col) {
+      cswritep = strcpya_k(cswritep, "\tEMP1");
+    }
+    if (np_col) {
+      cswritep = strcpya_k(cswritep, "\tNP");
+    }
+    AppendBinaryEoln(&cswritep);
+    logprintfww("--qfam-%s: Permuting %u families/sibships/singletons, %u sample%s in the regression, up to %u permutation%s.\n", flag_suffix, fss_ct, lm_ct, (lm_ct == 1)? "" : "s", perms_total, (perms_total == 1)? "" : "s");
+
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    const uint32_t* trio_lookup = family_info.trio_lookup;
+    const uint32_t trio_ct = family_info.trio_ct;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = autosomal_variant_include[0];
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t chr_blen = 0;
+    uint32_t regress_fail_ct = 0;
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = (autosomal_variant_ct + 99) / 100;
+    printf("--qfam-%s: 0%%", flag_suffix);
+    fflush(stdout);
+    for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(autosomal_variant_include, &variant_uidx_base, &cur_bits);
+      if (variant_uidx >= chr_end) {
+        do {
+          ++chr_fo_idx;
+          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        } while (variant_uidx >= chr_end);
+        char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
+        *chr_name_end++ = '\t';
+        chr_blen = chr_name_end - chr_buf;
+      }
+      reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto QfamReport_ret_1;
+      }
+      ZeroTrailingNyps(sample_ct, genovec);
+      // Mendel errors are set to missing first, as in PLINK 1.x, reading every
+      // trio from the unmodified genotypes.
+      {
+        memcpy(genovec_buf, genovec, sample_ctl2 * sizeof(intptr_t));
+        const uint32_t* trio_lookup_iter = trio_lookup;
+        for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+          const uint32_t child_idx = trio_lookup_iter[0];
+          const uint32_t dad_idx = trio_lookup_iter[1];
+          const uint32_t mom_idx = trio_lookup_iter[2];
+          trio_lookup_iter = &(trio_lookup_iter[3]);
+          const uint32_t child_geno = GetNyparrEntry(genovec_buf, child_idx);
+          if (child_geno == 3) {
+            continue;
+          }
+          const uint32_t error_result = kBiallelicMendelErrorTableAutosomalOrX[GetNyparrEntry(genovec_buf, dad_idx) + GetNyparrEntry(genovec_buf, mom_idx) * 4 + child_geno * 16];
+          if (!error_result) {
+            continue;
+          }
+          SetNyparrEntryTo3(child_idx, genovec);
+          if (error_result & 0x100) {
+            SetNyparrEntryTo3(dad_idx, genovec);
+          }
+          if (error_result & 0x10000) {
+            SetNyparrEntryTo3(mom_idx, genovec);
+          }
+        }
+      }
+      double qt_sum;
+      double qt_ssq;
+      QfamComputeBw(genovec, &qgroups, pheno_d2, qt_sum_all, qt_ssq_all, nm_fss, nm_lm, qfam_b, qfam_w, &qt_sum, &qt_ssq);
+      const uint32_t cur_fss_ct = PopcountWords(nm_fss, fss_ctl);
+      const uint32_t nind = PopcountWords(nm_lm, lm_ctl);
+      const double nind_recip = 1.0 / u31tod(nind);
+      double geno_sum = 0.0;
+      double geno_ssq = 0.0;
+      double qt_g_prod = 0.0;
+      if (only_within) {
+        QfamFlipPrecalc(lm_ct, qfam_w, pheno_d2, nm_lm, &geno_sum, &geno_ssq, &qt_g_prod);
+      }
+      double beta = 0.0;
+      double tstat = 0.0;
+      const uint32_t regress_ok = !QfamRegress(test_type, nind, lm_ct, qgroups.sample_lm_to_fss_idx, nm_lm, pheno_d2, qfam_b, qfam_w, dummy_perm, dummy_flip, nind_recip, qt_sum, qt_ssq, geno_sum, geno_ssq, qt_g_prod, &beta, &tstat);
+      uint32_t success_2 = 0;
+      uint32_t perm_attempt_ct = perms_total;
+      double beta_sum = 0.0;
+      double beta_ssq = 0.0;
+      uint32_t beta_fail_ct = 0;
+      if (!regress_ok) {
+        ++regress_fail_ct;
+      } else {
+        const double stat_high = fabs(tstat) + kQfamEpsilon;
+        const double stat_low = fabs(tstat) - kQfamEpsilon;
+        uint32_t next_adapt_check = first_adapt_check;
+        for (uint32_t perm_idx = 0; perm_idx != perms_total; ++perm_idx) {
+          // One random sign flip per family, and (for the tests that use B) a
+          // random permutation of the families.
+          for (uint32_t widx = 0; widx != fss_ctl; ++widx) {
+            uintptr_t cur_word = sfmt_genrand_uint32(sfmtp);
+#ifdef __LP64__
+            cur_word |= S_CAST(uintptr_t, sfmt_genrand_uint32(sfmtp)) << 32;
+#endif
+            fss_flip[widx] = cur_word;
+          }
+          const uint32_t* perm_ptr = dummy_perm;
+          if (only_within) {
+            ZeroWArr(lm_ctl, qfam_flip);
+            for (uint32_t lm_idx = 0; lm_idx != lm_ct; ++lm_idx) {
+              if (IsSet(fss_flip, qgroups.sample_lm_to_fss_idx[lm_idx])) {
+                SetBit(lm_idx, qfam_flip);
+              }
+            }
+          } else {
+            memcpy(qfam_flip, fss_flip, fss_ctl * sizeof(intptr_t));
+            for (uint32_t fss_idx = 0; fss_idx != fss_ct; ++fss_idx) {
+              cur_perm[fss_idx] = fss_idx;
+            }
+            for (uint32_t uii = fss_ct - 1; uii; --uii) {
+              const uint32_t ujj = RandU32(uii + 1, sfmtp);
+              const uint32_t tmp = cur_perm[uii];
+              cur_perm[uii] = cur_perm[ujj];
+              cur_perm[ujj] = tmp;
+            }
+            perm_ptr = cur_perm;
+            if (cur_fss_ct != fss_ct) {
+              // A family with no genotype must not be permuted in; walk the
+              // permutation cycle until a genotyped one is found, as PLINK
+              // 1.07's qfam.cpp does.
+              memcpy(permute_edit_buf, cur_perm, fss_ct * sizeof(int32_t));
+              uintptr_t fss_idx_base = 0;
+              uintptr_t nm_bits = nm_fss[0];
+              for (uint32_t uii = 0; uii != cur_fss_ct; ++uii) {
+                const uint32_t orig_fss_idx = BitIter1(nm_fss, &fss_idx_base, &nm_bits);
+                uint32_t new_fss_idx = permute_edit_buf[orig_fss_idx];
+                if (IsSet(nm_fss, new_fss_idx)) {
+                  continue;
+                }
+                uint32_t ujj;
+                while (1) {
+                  ujj = permute_edit_buf[new_fss_idx];
+                  permute_edit_buf[new_fss_idx] = new_fss_idx;
+                  if (IsSet(nm_fss, ujj)) {
+                    break;
+                  }
+                  new_fss_idx = ujj;
+                }
+                permute_edit_buf[orig_fss_idx] = ujj;
+              }
+              perm_ptr = permute_edit_buf;
+            }
+          }
+          double perm_beta;
+          double perm_tstat;
+          if (!QfamRegress(test_type, nind, lm_ct, qgroups.sample_lm_to_fss_idx, nm_lm, pheno_d2, qfam_b, qfam_w, perm_ptr, qfam_flip, nind_recip, qt_sum, qt_ssq, geno_sum, geno_ssq, qt_g_prod, &perm_beta, &perm_tstat)) {
+            beta_sum += perm_beta;
+            beta_ssq += perm_beta * perm_beta;
+            const double perm_abs_tstat = fabs(perm_tstat);
+            if (perm_abs_tstat > stat_high) {
+              success_2 += 2;
+            } else if (perm_abs_tstat > stat_low) {
+              success_2 += 1;
+            }
+          } else {
+            // Conservative handling of a permutation that can't be fitted.
+            success_2 += 2;
+            ++beta_fail_ct;
+          }
+          if (perm_adapt && (perm_idx + 1 == next_adapt_check)) {
+            if (success_2) {
+              const double pval = S_CAST(double, S_CAST(int32_t, success_2 + 2)) / (2 * u31tod(next_adapt_check + 1));
+              const double ci_halfwidth = adaptive_ci_zt * sqrt(pval * (1 - pval) / u31tod(next_adapt_check));
+              if ((pval - ci_halfwidth > aperm_alpha) || (pval + ci_halfwidth < aperm_alpha)) {
+                perm_attempt_ct = next_adapt_check;
+                break;
+              }
+            }
+            next_adapt_check += S_CAST(int32_t, adaptive_intercept + u31tod(next_adapt_check) * adaptive_slope);
+          }
+        }
+      }
+
+      if (chr_col) {
+        cswritep = memcpya(cswritep, chr_buf, chr_blen);
+      }
+      if (variant_bps) {
+        cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      }
+      cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+      const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx);
+      const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      if (ref_col) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, cur_alleles[0]);
+      }
+      if (alt1_col) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, cur_alleles[1]);
+      }
+      if (alt_col) {
+        *cswritep++ = '\t';
+        for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto QfamReport_ret_WRITE_FAIL;
+          }
+          cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+        }
+        --cswritep;
+      }
+      if (provref_col) {
+        *cswritep++ = '\t';
+        *cswritep++ = (all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx)))? 'Y' : 'N';
+      }
+      if (a1_col) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, cur_alleles[1]);
+      }
+      if (test_col) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, test_str);
+      }
+      if (nind_col) {
+        *cswritep++ = '\t';
+        cswritep = u32toa(nind, cswritep);
+      }
+      if (!regress_ok) {
+        if (beta_col) {
+          cswritep = strcpya_k(cswritep, "\tNA");
+        }
+        if (stat_col) {
+          cswritep = strcpya_k(cswritep, "\tNA");
+        }
+        if (rawp_col) {
+          cswritep = strcpya_k(cswritep, "\tNA");
+        }
+        if (emp_se) {
+          cswritep = strcpya_k(cswritep, "\tNA\tNA");
+        }
+        if (emp1_col) {
+          cswritep = strcpya_k(cswritep, "\tNA");
+        }
+        if (np_col) {
+          cswritep = strcpya_k(cswritep, "\tNA");
+        }
+      } else {
+        if (beta_col) {
+          *cswritep++ = '\t';
+          cswritep = dtoa_g(beta, cswritep);
+        }
+        if (stat_col) {
+          *cswritep++ = '\t';
+          cswritep = dtoa_g(tstat, cswritep);
+        }
+        if (rawp_col) {
+          // Deliberately not passed through --output-min-p: only the empirical
+          // p-value is meant to be interpreted here.
+          *cswritep++ = '\t';
+          cswritep = lntoa_g(TstatToLnP(tstat, nind - 2), cswritep);
+        }
+        if (emp_se) {
+          const uint32_t beta_ct = perm_attempt_ct - beta_fail_ct;
+          if (beta_ct <= 1) {
+            cswritep = strcpya_k(cswritep, "\tNA\tNA");
+          } else {
+            const double beta_mean = beta_sum / u31tod(beta_ct);
+            *cswritep++ = '\t';
+            cswritep = dtoa_g(beta_mean, cswritep);
+            *cswritep++ = '\t';
+            cswritep = dtoa_g(sqrt((beta_ssq - beta_sum * beta_mean) / u31tod(beta_ct - 1)), cswritep);
+          }
+        }
+        if (emp1_col) {
+          *cswritep++ = '\t';
+          if (perm_count) {
+            cswritep = dtoa_g(S_CAST(double, S_CAST(int32_t, success_2)) * 0.5, cswritep);
+          } else {
+            cswritep = dtoa_g(S_CAST(double, S_CAST(int32_t, success_2 + 2)) / (2 * u31tod(perm_attempt_ct + 1)), cswritep);
+          }
+        }
+        if (np_col) {
+          *cswritep++ = '\t';
+          cswritep = u32toa(perm_attempt_ct, cswritep);
+        }
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto QfamReport_ret_WRITE_FAIL;
+      }
+      if (variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx * 100LLU) / autosomal_variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, autosomal_variant_ct)) / 100;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto QfamReport_ret_WRITE_FAIL;
+    }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\b", stdout);
+    if (regress_fail_ct) {
+      logprintf("--qfam-%s: %u variant%s had no usable regression.\n", flag_suffix, regress_fail_ct, (regress_fail_ct == 1)? "" : "s");
+    }
+    logprintfww("--qfam-%s report written to %s .\n", flag_suffix, outname);
+  }
+  while (0) {
+  QfamReport_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  QfamReport_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  QfamReport_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ QfamReport_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
 }
 
 #ifdef __cplusplus

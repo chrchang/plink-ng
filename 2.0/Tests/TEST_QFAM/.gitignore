@@ -1,0 +1,6 @@
+plink19*
+plink2*
+tmp_*
+qfam.*
+qfam_flipped.vcf
+*.log
