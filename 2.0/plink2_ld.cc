@@ -13440,6 +13440,16 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
   return reterr;
 }
 
+void InitTwolocus(TwolocusInfo* tlip) {
+  tlip->mkr1 = nullptr;
+  tlip->mkr2 = nullptr;
+}
+
+void CleanupTwolocus(TwolocusInfo* tlip) {
+  free_cond(tlip->mkr1);
+  free_cond(tlip->mkr2);
+}
+
 void InitTag(TagInfo* tip) {
   tip->tag_fname = nullptr;
   tip->list_all = 0;
@@ -13868,6 +13878,195 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
   return reterr;
 }
 
+// --twolocus: joint genotype counts for a pair of variants.  PLINK 1.x writes
+// a fixed-width human-readable report with marginals; plink2 has no
+// fixed-width output anywhere else, so this is a table instead, and the
+// marginals are left to the reader since every count that produces them is
+// present.
+PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* mkr1, const char* mkr2, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  PglErr reterr = kPglRetSuccess;
+  {
+    const char* mkr_names[2];
+    mkr_names[0] = mkr1;
+    mkr_names[1] = mkr2;
+    // Two IDs to resolve, so a linear scan is cheaper than standing up a hash
+    // table; it also catches duplicate IDs, which the report cannot resolve.
+    uint32_t variant_uidxs[2] = {UINT32_MAX, UINT32_MAX};
+    {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        const char* cur_variant_id = variant_ids[variant_uidx];
+        for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
+          if (!strcmp(cur_variant_id, mkr_names[var_idx])) {
+            if (unlikely(variant_uidxs[var_idx] != UINT32_MAX)) {
+              logerrprintfww("Error: --twolocus variant ID '%s' appears multiple times.\n", mkr_names[var_idx]);
+              goto TwolocusReport_ret_INCONSISTENT_INPUT;
+            }
+            variant_uidxs[var_idx] = variant_uidx;
+          }
+        }
+      }
+    }
+    for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
+      const uint32_t cur_uidx = variant_uidxs[var_idx];
+      if (unlikely(cur_uidx == UINT32_MAX)) {
+        logerrprintfww("Error: --twolocus variant '%s' not found.\n", mkr_names[var_idx]);
+        goto TwolocusReport_ret_INCONSISTENT_INPUT;
+      }
+    }
+    // Allele counts drive the size of the joint table, so they are needed
+    // before the genotypes are read.
+    uint32_t allele_cts[2];
+    uint32_t geno_cts[2];
+    for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
+      const uint32_t cur_uidx = variant_uidxs[var_idx];
+      allele_cts[var_idx] = allele_idx_offsets? (allele_idx_offsets[cur_uidx + 1] - allele_idx_offsets[cur_uidx]) : 2;
+      // Unordered genotypes over k alleles, plus one cell for missing.
+      geno_cts[var_idx] = (allele_cts[var_idx] * (allele_cts[var_idx] + 1)) / 2 + 1;
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    const uint32_t multiallelic_present = (allele_cts[0] > 2) || (allele_cts[1] > 2);
+    uint32_t* sample_include_cumulative_popcounts;
+    PgenVariant pgv;
+    // Each sample's genotype is stored as an unordered allele pair, so both
+    // ALT/ALT and ALT1/ALT2 calls are counted in their own cells rather than
+    // collapsed together.
+    AlleleCode* wide_codes[2];
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 BigstackAllocPgv(sample_ct, multiallelic_present, kfPgenGlobal0, &pgv) ||
+                 BIGSTACK_ALLOC_X(AlleleCode, 2 * S_CAST(uintptr_t, sample_ct), &(wide_codes[0])) ||
+                 BIGSTACK_ALLOC_X(AlleleCode, 2 * S_CAST(uintptr_t, sample_ct), &(wide_codes[1])))) {
+      goto TwolocusReport_ret_NOMEM;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
+      reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidxs[var_idx], simple_pgrp, &pgv);
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidxs[var_idx]);
+        goto TwolocusReport_ret_1;
+      }
+      PglMultiallelicSparseToDenseMiss(&pgv, sample_ct, wide_codes[var_idx]);
+    }
+    // Genotype index of the unordered pair (a, b) with a <= b, and one extra
+    // index for a missing call.
+    uint32_t* geno_idxs[2];
+    for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
+      if (unlikely(bigstack_alloc_u32(sample_ct, &(geno_idxs[var_idx])))) {
+        goto TwolocusReport_ret_NOMEM;
+      }
+      const AlleleCode* cur_codes = wide_codes[var_idx];
+      uint32_t* cur_idxs = geno_idxs[var_idx];
+      const uint32_t missing_idx = geno_cts[var_idx] - 1;
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const AlleleCode ac0 = cur_codes[2 * sample_idx];
+        const AlleleCode ac1 = cur_codes[2 * sample_idx + 1];
+        if ((ac0 == kMissingAlleleCode) || (ac1 == kMissingAlleleCode)) {
+          cur_idxs[sample_idx] = missing_idx;
+          continue;
+        }
+        const uint32_t lo = MINV(ac0, ac1);
+        const uint32_t hi = MAXV(ac0, ac1);
+        cur_idxs[sample_idx] = (hi * (hi + 1)) / 2 + lo;
+      }
+    }
+
+    // PLINK 1.x always splits on the case/control phenotype, but several
+    // phenotypes may be loaded here, so guessing which one to split on would
+    // be wrong as often as not.  Until the command takes a phenotype name,
+    // report a single table over all samples.
+    const uint32_t group_ct = 1;
+    // [group][geno1 * geno_cts[1] + geno2]
+    const uintptr_t cells_per_group = S_CAST(uintptr_t, geno_cts[0]) * geno_cts[1];
+    uint64_t* counts;
+    if (unlikely(bigstack_calloc_u64(group_ct * cells_per_group, &counts))) {
+      goto TwolocusReport_ret_NOMEM;
+    }
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      counts[geno_idxs[0][sample_idx] * S_CAST(uintptr_t, geno_cts[1]) + geno_idxs[1][sample_idx]] += 1;
+    }
+
+    const uintptr_t allele_idx_offset_bases[2] = {
+      allele_idx_offsets? allele_idx_offsets[variant_uidxs[0]] : (variant_uidxs[0] * 2),
+      allele_idx_offsets? allele_idx_offsets[variant_uidxs[1]] : (variant_uidxs[1] * 2)
+    };
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 4 * kMaxIdSlen + 4 * S_CAST(uintptr_t, max_allele_slen) + 256;
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".twolocus");
+    reterr = InitCstreamAlloc(outname, 0, 0, max_thread_ct, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto TwolocusReport_ret_1;
+    }
+    cswritep = strcpya_k(cswritep, "#GROUP\tID1\tGT1\tID2\tGT2\tCT\tFREQ");
+    AppendBinaryEoln(&cswritep);
+    const char* group_names[3] = {"ALL", "CASE", "CTRL"};
+    // Genotype index geno_cts[i] - 1 is the missing call; the rest decode
+    // back to the allele pair (lo, hi) they were built from.
+    for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
+      const uint64_t* cur_counts = &(counts[group_idx * cells_per_group]);
+      uint64_t group_total = 0;
+      for (uintptr_t ulii = 0; ulii != cells_per_group; ++ulii) {
+        group_total += cur_counts[ulii];
+      }
+      const double tot_recip = group_total? (1.0 / u63tod(group_total)) : 0.0;
+      for (uint32_t geno1 = 0; geno1 != geno_cts[0]; ++geno1) {
+        for (uint32_t geno2 = 0; geno2 != geno_cts[1]; ++geno2) {
+          cswritep = strcpyax(cswritep, group_names[group_idx], '\t');
+          const uint32_t genos[2] = {geno1, geno2};
+          for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
+            cswritep = strcpyax(cswritep, variant_ids[variant_uidxs[var_idx]], '\t');
+            const uint32_t cur_geno = genos[var_idx];
+            if (cur_geno == geno_cts[var_idx] - 1) {
+              *cswritep++ = '.';
+            } else {
+              // Invert idx = hi * (hi + 1) / 2 + lo.
+              uint32_t hi = 0;
+              while ((hi + 1) * (hi + 2) / 2 <= cur_geno) {
+                ++hi;
+              }
+              const uint32_t lo = cur_geno - (hi * (hi + 1)) / 2;
+              const char* const* cur_alleles = &(allele_storage[allele_idx_offset_bases[var_idx]]);
+              cswritep = strcpyax(cswritep, cur_alleles[lo], '/');
+              cswritep = strcpya(cswritep, cur_alleles[hi]);
+            }
+            *cswritep++ = '\t';
+          }
+          const uint64_t cur_ct = cur_counts[geno1 * S_CAST(uintptr_t, geno_cts[1]) + geno2];
+          cswritep = i64toa(S_CAST(int64_t, cur_ct), cswritep);
+          *cswritep++ = '\t';
+          cswritep = dtoa_g(u63tod(cur_ct) * tot_recip, cswritep);
+          AppendBinaryEoln(&cswritep);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto TwolocusReport_ret_WRITE_FAIL;
+          }
+        }
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto TwolocusReport_ret_WRITE_FAIL;
+    }
+      logprintfww("--twolocus: Joint genotype counts for '%s' and '%s' written to %s .\n", mkr1, mkr2, outname);
+  }
+  while (0) {
+  TwolocusReport_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  TwolocusReport_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  TwolocusReport_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ TwolocusReport_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+  
 PglErr Vcor(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const double* variant_cms, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const VcorInfo* vcip, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   const VcorFlags flags = vcip->flags;
   const uint32_t phased_calc = (flags / kfVcorPhased) & 1;

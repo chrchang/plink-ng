@@ -1242,6 +1242,20 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      all-pairs computation on more than 400k variants.\n"
 "    With either output type, the computation can be subdivided with --parallel.\n\n"
               );
+    HelpPrint("twolocus\0", &help_ctrl, 1,
+"  --twolocus <variant ID> <variant ID>\n"
+"    Joint genotype count report for a pair of variants, with one row per\n"
+"    (group, genotype, genotype) cell.\n"
+"    * The report covers all samples in one ALL group.  PLINK 1.x also splits\n"
+"      on the case/control phenotype, but several phenotypes may be loaded\n"
+"      here, so that split will be requested by phenotype name instead.\n"
+"    * Multiallelic variants get one row per unordered allele pair, so\n"
+"      ALT1/ALT1 and ALT1/ALT2 are separate cells rather than being collapsed\n"
+"      together.\n"
+"    * PLINK 1.x writes a fixed-width report with marginal totals; this is a\n"
+"      table instead, and the marginals are left to the reader since every\n"
+"      count producing them is present.\n\n"
+              );
     HelpPrint("show-tags\0list-all\0tag-kb\0tag-r2\0", &help_ctrl, 1,
 "  --show-tags ['zs'] [<filename> | 'all']\n"
 "    Report which variants tag which, where variant A tags variant B when the\n"
