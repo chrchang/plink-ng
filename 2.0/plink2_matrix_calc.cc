@@ -1706,9 +1706,7 @@ static double PedigreeKinship(const KingPedigree* kpp, uint32_t idx1, uint32_t i
     return 0.5 * (1.0 + PedigreeKinship(kpp, dad_idx, mom_idx));
   }
   if (kpp->depths[idx1] < kpp->depths[idx2]) {
-    const uint32_t tmp_idx = idx1;
-    idx1 = idx2;
-    idx2 = tmp_idx;
+    swap_u32(&idx1, &idx2);
   }
   const uint32_t dad_idx = dads[idx1];
   const uint32_t mom_idx = moms[idx1];

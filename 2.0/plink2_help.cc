@@ -1440,9 +1440,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    present.  If id is omitted, a .kin0.id file is also written.\n"
 "    * Parent/offspring pairs cannot be told apart from full siblings by\n"
 "      kinship coefficient alone; both are 0.25.  The ibs0 column is what\n"
-"      separates them, and it should be much closer to zero for a\n"
-"      parent/offspring pair, since a parent and child always share an\n"
-"      allele.\n\n"
+"      separates them: it should be much closer to zero for a parent/offspring\n"
+"      pair, since a parent and child normally share an allele.\n\n"
                );
     HelpPrint("distance\0distance-matrix\0ibs-matrix\0", &help_ctrl, 1,
 "  --distance [{square | square0 | triangle}] [{zs | bin | bin4}] ['ibs']\n"
