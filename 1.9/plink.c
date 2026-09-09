@@ -141,19 +141,80 @@ static const char ver_str2[] =
 #endif
   "\n";
 static const char errstr_append[] = "For more information, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
-#ifdef STABLE_BUILD
-  #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --tdt, --qfam, --annotate, --clump, --gene-report,\n--meta-analysis, --epistasis, --fast-epistasis, and --score.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions (warning: long).\n";
-  #else
-static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --qfam, --annotate, --clump, --gene-report, --meta-analysis,\n--epistasis, --fast-epistasis, and --score.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions (warning: long).\n";
-  #endif
-#else
-  #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --unrelated-heritability, --tdt, --dfam, --qfam, --tucc,\n--annotate, --clump, --gene-report, --meta-analysis, --epistasis,\n--fast-epistasis, and --score.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions (warning: long).\n";
-  #else
-static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --dfam, --qfam, --tucc, --annotate, --clump, --gene-report,\n--meta-analysis, --epistasis, --fast-epistasis, and --score.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions (warning: long).\n";
-  #endif
+// Grouped command listing for the no-argument/-h case, in the style of
+// samtools and friends: one line per command, so that a new user can see what
+// the program does without paging through the full --help.  The commands that
+// need LAPACK, or that only exist in development builds, appear only there.
+static const char notestr_null_calc2[] =
+"Commands:\n"
+"  -- Data management\n"
+"     --make-bed             write a new binary fileset\n"
+"     --recode               write the data out in another format\n"
+"     --merge-list           merge several filesets\n"
+"     --write-snplist        list the variant IDs that pass the filters\n"
+"     --list-duplicate-vars  list variants sharing position and allele codes\n"
+"     --flip-scan            find strand-inconsistent variants, using LD\n"
+"\n"
+"  -- Summary statistics\n"
+"     --freqx                per-variant genotype counts\n"
+"     --missing              sample- and variant-level missingness\n"
+"     --hardy                Hardy-Weinberg equilibrium exact test\n"
+"     --mendel               Mendel error report\n"
+"     --ibc                  inbreeding coefficients\n"
+"     --impute-sex           impute sex from X-chromosome homozygosity\n"
+"     --test-mishap          missingness vs. flanking haplotype association\n"
+"\n"
+"  -- Linkage disequilibrium\n"
+"     --r2                   pairwise LD; --r for the signed correlation\n"
+"     --indep-pairphase      LD-based variant pruning\n"
+"     --show-tags            tag variant selection\n"
+"     --blocks               haplotype blocks, Gabriel et al. (2002)\n"
+"     --fast-epistasis       pairwise interaction scan; --epistasis is exact\n"
+"\n"
+"  -- Relatedness and population structure\n"
+"     --distance             pairwise genomic distance matrix\n"
+"     --genome               identity-by-descent report\n"
+"     --homozyg              runs of homozygosity\n"
+"     --make-rel             relationship matrix\n"
+"     --make-grm-gz          relationship matrix in GCTA's format\n"
+"     --rel-cutoff           prune samples by relatedness\n"
+"     --cluster              IBS-based sample clustering\n"
+#ifndef NOLAPACK
+"     --pca                  principal components\n"
 #endif
+"     --neighbour            nearest-neighbour outlier detection\n"
+"     --ibs-test             case/control IBS permutation test\n"
+"     --regress-distance     regress genomic distance on covariates\n"
+#if !defined(STABLE_BUILD) && !defined(NOLAPACK)
+"     --unrelated-heritability  REML additive heritability estimate\n"
+#endif
+"\n"
+"  -- Association\n"
+"     --model                case/control tests, including trend and 2x3\n"
+"     --bd                   Breslow-Day test for odds ratio homogeneity\n"
+"     --gxe                  gene-environment interaction\n"
+"     --logistic             logistic regression; --linear for quantitative\n"
+"     --dosage               association on imputed dosages\n"
+"     --lasso                LASSO effect size estimation\n"
+"     --test-missing         differential missingness by case/control status\n"
+"     --make-perm-pheno      write permuted phenotypes, without testing\n"
+"     --tdt                  transmission disequilibrium test\n"
+#ifndef STABLE_BUILD
+"     --dfam                 sib-TDT, for discordant sibships and trios\n"
+#endif
+"     --qfam                 family-based test for quantitative traits\n"
+#ifndef STABLE_BUILD
+"     --tucc                 write pseudo-controls for trios\n"
+#endif
+"\n"
+"  -- Report post-processing\n"
+"     --annotate             add annotations to a variant-based report\n"
+"     --clump                LD-based clumping of association results\n"
+"     --gene-report          gene-based report from a variant-based report\n"
+"     --meta-analysis        meta-analyze several association reports\n"
+"     --score                polygenic scores\n"
+"\n"
+"\"" PROG_NAME_STR " --help <flag name>\" describes one flag; \"" PROG_NAME_STR " --help | more\" describes\nthem all (warning: long).\n";
 
 static const char errstr_nomem[] = "Error: Out of memory.  The --memory flag may be helpful.\n";
 static const char errstr_write[] = "Error: File write failure.\n";
