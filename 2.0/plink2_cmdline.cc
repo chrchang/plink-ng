@@ -3247,7 +3247,10 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
           reterr = kPglRetHelp;
           goto CmdlineParsePhase1_ret_1;
         }
-        if (strequal_k(flagname_p, "version", flagname_p_slen)) {
+        // -v/-V as well as --version, mirroring the -h/-? handling above.
+        if (strequal_k(flagname_p, "version", flagname_p_slen) ||
+            strequal_k(flagname_p, "v", flagname_p_slen) ||
+            strequal_k(flagname_p, "V", flagname_p_slen)) {
           version_present = 1;
         } else if (strequal_k(flagname_p, "silent", flagname_p_slen)) {
           silent_present = 1;
