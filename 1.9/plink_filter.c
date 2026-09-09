@@ -2037,8 +2037,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     // Zero-initialized, like the _allfs arrays below: the fill loops skip
     // haploid markers, and both hardy_report() and enforce_hwe_threshold()
     // read every marker.  Leaving these uninitialized meant --hardy printed
-    // whatever was on the heap for chrY and chrMT, and --hwe could include or
-    // exclude such a variant depending on it.
+    // whatever was on the heap for chrY.
     if (bigstack_calloc_i(unfiltered_marker_ct, &hwe_lls) ||
 	bigstack_calloc_i(unfiltered_marker_ct, &hwe_lhs) ||
 	bigstack_calloc_i(unfiltered_marker_ct, &hwe_hhs)) {
