@@ -2829,14 +2829,18 @@ PglErr AllocAndFlattenEx(const char* const* sources, const char* flagname_p, uin
     tot_blen += cur_blen;
   }
   char* buf_iter;
-  if (pgl_malloc(tot_blen, &buf_iter)) {
+  // Consumers walk this list with strnul(), whose vectorized Rawmemchr() reads
+  // a whole vector at a time and can therefore run up to kBytesPerVec-1 bytes
+  // past the final terminator.  That is harmless inside bigstack, but this is
+  // an exact-size malloc(), so the padding has to be explicit.
+  if (pgl_malloc(tot_blen + kBytesPerVec, &buf_iter)) {
     return kPglRetNomem;
   }
   *flattened_buf_ptr = buf_iter;
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
     buf_iter = strcpyax(buf_iter, sources[param_idx], '\0');
   }
-  *buf_iter = '\0';
+  memset(buf_iter, 0, kBytesPerVec + 1);
   return kPglRetSuccess;
 }
 

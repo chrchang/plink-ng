@@ -3403,7 +3403,9 @@ PglErr AllocAndFlattenCommaDelimEx(const char* const* sources, const char* flagn
     tot_blen += 1 + strlen(cur_param_iter);
   }
   char* write_iter;
-  if (unlikely(pgl_malloc(tot_blen, &write_iter))) {
+  // See the comment in AllocAndFlattenEx(): strnul()'s vectorized Rawmemchr()
+  // reads past the final terminator, so an exact-size malloc() isn't enough.
+  if (unlikely(pgl_malloc(tot_blen + kBytesPerVec, &write_iter))) {
     return kPglRetNomem;
   }
   *flattened_buf_ptr = write_iter;
@@ -3429,7 +3431,7 @@ PglErr AllocAndFlattenCommaDelimEx(const char* const* sources, const char* flagn
     }
     write_iter = strcpyax(write_iter, cur_param_iter, '\0');
   }
-  *write_iter = '\0';
+  memset(write_iter, 0, kBytesPerVec + 1);
   return kPglRetSuccess;
 }
 
