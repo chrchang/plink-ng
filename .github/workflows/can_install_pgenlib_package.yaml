@@ -23,6 +23,16 @@ jobs:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
     steps:
 
+      # The runner image carries third-party apt sources that this job has no
+      # use for.  setup-r runs apt-get update, which scans all of them, so an
+      # inconsistent index on any one of them fails the job for reasons that
+      # have nothing to do with plink-ng.  Dropping the Google Chrome source
+      # is enough: it is the one that has broken here.
+      - name: Drop apt sources this job does not need
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list \
+                     /etc/apt/sources.list.d/*google*.sources
+
       # Install R
       - uses: r-lib/actions/setup-r@v2
 
