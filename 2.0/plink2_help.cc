@@ -1759,6 +1759,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * --seed makes the result reproducible.\n"
 "    * PLINK 1.x could restrict permutation to within --within clusters; that\n"
 "      is not supported here yet, so the shuffle is unrestricted.\n\n"
+    HelpPrint("write-var-ranges\0", &help_ctrl, 1,
+"  --write-var-ranges <block ct> ['zs']\n"
+"    Divide the variants that pass your filters into the given number of\n"
+"    equal-size blocks, and write the first and last variant ID of each to\n"
+"    <output prefix>.var.ranges.  Handy with --snps for splitting a job across\n"
+"    machines.\n"
+"    * Block sizes differ by at most one variant when the count does not\n"
+"      divide evenly.\n\n"
                );
     HelpPrint("write-snplist\0", &help_ctrl, 1,
 "  --write-snplist ['zs'] ['allow-dups']\n"
