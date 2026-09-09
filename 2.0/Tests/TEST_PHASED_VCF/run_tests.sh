@@ -36,8 +36,8 @@ diff -q 1kg_noheader.txt plink2_noheader.txt
 # sample 667
 cat 1kg_noheader.txt | cut -f 1-500,579-675,677- > 1kg_noheader_pruned.txt
 
-cat plink1_data.fam | head -n 569 | tail -n 78 | cut -f 1-2 > remove.txt
-cat plink1_data.fam | head -n 667 | tail -n 1 | cut -f 1-2 >> remove.txt
+head -n 569 plink1_data.fam | tail -n 78 | cut -f 1-2 > remove.txt
+head -n 667 plink1_data.fam | tail -n 1 | cut -f 1-2 >> remove.txt
 $1/plink2 $2 $3 --pfile plink2_data --remove remove.txt --export vcf --out plink2_pruned
 
 # there's a tiny chance that fileDate will change between this and the next VCF
