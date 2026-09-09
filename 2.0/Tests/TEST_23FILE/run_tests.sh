@@ -110,3 +110,41 @@ awk -v chr="$long_chr" -F '\t' '{
     if ($3 != 1) {print "wrong position: " $3; exit 1}
     if ($4 != "AG") {print "wrong genotype: " $4; exit 1}
 }' plink2_long_body.txt
+
+# 7. --list-23-indels, against PLINK 1.9 on the biallelic cases, and against a
+#    hand-written expectation on the cases PLINK 1.9 cannot represent.
+plink --bfile plink19 --list-23-indels --out plink19_indel
+$1/plink2 $2 $3 --bfile plink19 --list-23-indels --out plink2_indel
+diff -q plink19_indel.indel plink2_indel.indel
+# Non-empty, so the comparison above isn't vacuous.
+test "$(wc -l < plink2_indel.indel)" -eq 3
+
+# The same list has to come out of plink2's own --23file import, where a
+# monomorphic indel's other allele is '.' rather than the opposite call.
+$1/plink2 $2 $3 --23file in23.txt FAM1 SAMP1 M --make-pgen --out plink2_23
+$1/plink2 $2 $3 --pfile plink2_23 --list-23-indels --out plink2_23_indel
+diff -q plink19_indel.indel plink2_23_indel.indel
+
+$1/plink2 $2 $3 --pfile plink2_23 --list-23-indels zs --out plink2_indel_zs
+$1/plink2 $2 $3 --zst-decompress plink2_indel_zs.indel.zst > plink2_indel_zs.indel
+diff -q plink19_indel.indel plink2_indel_zs.indel
+
+# A variant is only an indel call when every allele is 'D', 'I' or missing.
+# 'DEL'/'INS' spell the same thing in a different encoding and are not listed,
+# and neither is a D/I variant which also has an ACGT allele.
+cat > indel_edge.vcf << 'EOF'
+##fileformat=VCFv4.2
+##contig=<ID=1>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="GT">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	NA1	NA2
+1	1	e_di	D	I	.	.	.	GT	0/1	0/0
+1	2	e_dmiss	D	.	.	.	.	GT	0/0	0/0
+1	3	e_multi	D	I,A	.	.	.	GT	0/1	1/2
+1	4	e_word	DEL	INS	.	.	.	GT	0/1	0/0
+1	5	e_snp	A	G	.	.	.	GT	0/1	0/0
+1	6	e_dg	D	G	.	.	.	GT	0/1	0/0
+EOF
+$1/plink2 $2 $3 --vcf indel_edge.vcf --double-id --make-pgen --out plink2_edge
+$1/plink2 $2 $3 --pfile plink2_edge --list-23-indels --out plink2_edge_indel
+printf 'e_di\ne_dmiss\n' > expected_edge_indel.txt
+diff -q expected_edge_indel.txt plink2_edge_indel.indel
