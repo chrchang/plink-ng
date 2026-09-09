@@ -13739,6 +13739,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       }
       bgen13_scan_ctx.err_info = (~0LLU) << 32;
       bgen13_scan_ctx.error_on_polyploid = !(import_flags & kfImportPolyploidMissing);
+      // Only ever set to 1, by a worker that finds a dosage; nothing zeroes it
+      // otherwise.  The bgen-1.1 branch above does the same for its context.
+      bgen13_scan_ctx.dosage_exists = 0;
       SetThreadFuncAndData(Bgen13DosageOrPhaseScanThread, &bgen13_scan_ctx, &tg);
 
       uint32_t block_vidx = 0;
@@ -14243,7 +14246,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         max_uncompressed_geno_blen = max_compressed_geno_blen;
       }
       // Now that we know max_uncompressed_geno_blen, try to increase
-      // calc_thread_ct, and resize bgen11_ctx.thread_wkspaces[tidx] (and also resize
+      // calc_thread_ct, and resize bgen13_ctx.thread_wkspaces[tidx] (and also resize
       // compressed_geno_bufs[] in next step).
       // Additional *6 in denominator since we want to limit these allocations
       // to 1/6 of remaining workspace.
