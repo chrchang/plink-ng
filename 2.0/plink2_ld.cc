@@ -14725,6 +14725,8 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
     uint32_t chr_blen = 0;
     uint32_t problem_ct = 0;
     uint32_t flip_ct = 0;
+    uint32_t maj_allele_idx = 0;
+    uint32_t cur_allele_ct = 2;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
@@ -14742,19 +14744,25 @@ PglErr FlipScanRefDataset(const uintptr_t* variant_include, const ChrInfo* cip, 
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
       if (allele_idx_offsets) {
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
-      // Same allele on both sides, chosen the way the rest of plink2's
-      // LD-based commands choose it.  ref_ref_freqs[] holds the reference
-      // fileset's frequency for *this dataset's* REF allele, the swap having
-      // already been undone, so the major allele is a biallelic complement
-      // away.
-      const uint32_t maj_allele_idx = maj_alleles? maj_alleles[variant_uidx] : 0;
-      const double dataset_maj_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), maj_allele_idx, 2);
+      if (maj_alleles) {
+        maj_allele_idx = maj_alleles[variant_uidx];
+      }
+      // Same allele on both sides, chosen from this dataset, as in
+      // FlipScanRefFreq().  A multiallelic variant never gets a panel
+      // frequency (both sides must be biallelic with the same allele pair),
+      // but its MAJ_FREQ is still reported, so the major allele has to be
+      // looked up against the real allele count rather than assumed to be
+      // REF or ALT1.
+      const double dataset_maj_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), maj_allele_idx, cur_allele_ct);
       const double panel_ref_freq = ref_ref_freqs[variant_uidx];
       const uint32_t have_panel = (panel_ref_freq == panel_ref_freq);
       double panel_maj_freq = 0.0 / 0.0;
       uint32_t is_problem = 0;
       if (have_panel) {
+        // have_panel implies both sides are biallelic with the same allele
+        // pair, so maj_allele_idx is 0 or 1 here.
         panel_maj_freq = maj_allele_idx? (1.0 - panel_ref_freq) : panel_ref_freq;
         if (IsSet(ref_flips, variant_uidx)) {
           ++flip_ct;
