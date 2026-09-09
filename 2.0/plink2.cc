@@ -3702,7 +3702,7 @@ static const Plink1FlagHint kPlink1FlagHints[] = {
   {"dominant", "use the --glm 'dominant' modifier instead"},
   {"extract-snp", "use --snp instead"},
   {"gc", "use the --adjust/--adjust-file 'gc' modifier instead"},
-  {"genome", "use --make-king-table instead; the KING-robust kinship estimator has replaced the method-of-moments IBD proportions (Z0/Z1/Z2, PI_HAT), and its 'rt'/'ekin' columns report what the pedigree expects"},
+  {"genome", "use --make-king-table instead; the KING-robust kinship estimator has replaced the method-of-moments IBD proportions (Z0/Z1/Z2, PI_HAT), and its 'rt'/'pkin' columns report what the pedigree expects"},
   {"genotypic", "use the --glm 'genotypic' modifier instead"},
   {"hethom", "use the --glm 'hethom' modifier instead"},
   {"hide-covar", "use the --glm 'hide-covar' modifier instead"},
