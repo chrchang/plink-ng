@@ -21,6 +21,7 @@
 #include "include/pgenlib_read.h"
 #include "include/plink2_base.h"
 #include "plink2_common.h"
+#include "plink2_perm.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -129,6 +130,43 @@ PglErr MendelErrorScan(const PedigreeIdInfo* piip, const uintptr_t* founder_info
 // - sex_female_collapsed_interleaved is unsued in the biallelic case.
 // - If fip->duo_exists, genobuf and wide_codes_buf must have space for
 //   sample_ct+1 samples.
+CONSTI32(kQfamWithin1, 1);
+CONSTI32(kQfamWithin2, 2);
+CONSTI32(kQfamTotal, 4);
+CONSTI32(kQfamBetween, 8);
+
+FLAGSET_DEF_START()
+  kfQfam0,
+  kfQfamWithin1 = (1 << 0),
+  kfQfamWithin2 = (1 << 1),
+  kfQfamTotal = (1 << 2),
+  kfQfamBetween = (1 << 3),
+  kfQfamTestMask = (kfQfamWithin1 | kfQfamWithin2 | kfQfamTotal | kfQfamBetween),
+  kfQfamPermCount = (1 << 4),
+  kfQfamEmpSe = (1 << 5),
+  kfQfamZs = (1 << 6),
+
+  kfQfamColChrom = (1 << 7),
+  kfQfamColPos = (1 << 8),
+  kfQfamColRef = (1 << 9),
+  kfQfamColAlt1 = (1 << 10),
+  kfQfamColAlt = (1 << 11),
+  kfQfamColMaybeprovref = (1 << 12),
+  kfQfamColProvref = (1 << 13),
+  kfQfamColA1 = (1 << 14),
+  kfQfamColTest = (1 << 15),
+  kfQfamColNind = (1 << 16),
+  kfQfamColBeta = (1 << 17),
+  kfQfamColStat = (1 << 18),
+  kfQfamColRawp = (1 << 19),
+  kfQfamColEmp1 = (1 << 20),
+  kfQfamColNp = (1 << 21),
+  kfQfamColDefault = (kfQfamColChrom | kfQfamColPos | kfQfamColMaybeprovref | kfQfamColA1 | kfQfamColTest | kfQfamColNind | kfQfamColBeta | kfQfamColStat | kfQfamColRawp | kfQfamColEmp1 | kfQfamColNp),
+  kfQfamColAll = ((kfQfamColNp * 2) - kfQfamColChrom)
+FLAGSET_DEF_END(QfamFlags);
+
+PglErr QfamReport(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* nonref_flags, const PermConfig* perm_config_ptr, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, PgenGlobalFlags gflags, QfamFlags flags, uint32_t mperm_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, char* outname, char* outname_end);
+
 uint32_t EraseMendelErrors(const FamilyInfo* fip, const uintptr_t* sex_male_collapsed, const uintptr_t* sex_male_collapsed_interleaved, const uintptr_t* sex_female_collapsed, const uintptr_t* sex_female_collapsed_interleaved, uint32_t sample_ct, uint32_t male_ct, uint32_t female_ct, uint32_t is_x, uint32_t is_y, uint32_t is_mt, uintptr_t* genoarr, uint32_t* patch_01_ctp, uintptr_t* patch_01_set, AlleleCode* patch_01_vals, uint32_t* patch_10_ctp, uintptr_t* patch_10_set, AlleleCode* patch_10_vals, uintptr_t* erase_map, uintptr_t* genovec_buf, AlleleCode* wide_codes_buf);
 
 #ifdef __cplusplus
