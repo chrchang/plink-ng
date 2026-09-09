@@ -1625,9 +1625,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   }
   ulii = (max_window_size + 1) * 2;
   for (uljj = 0; uljj < max_window_size; uljj++) {
-    neg_uidx_buf[uljj * ulii] = 0.0;
-    neg_uidx_buf[uljj * ulii + 1] = 0.0;
-    // bugfix: initialize r_matrix diagonal
+    // initialize r_matrix diagonal
     r_matrix[uljj * ulii] = 0.0;
     r_matrix[uljj * ulii + 1] = 0.0;
   }
@@ -1692,6 +1690,10 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     window_cidx = max_window_size - 1;
     window_cidx2 = 0;
     do {
+      // window_cidx: current variant
+      // window_cidx2: trailing variant in window
+      // window_cidx3: temporary index for LD calcs between trailing variants
+      //               and current variant
       if (++window_cidx == max_window_size) {
 	window_cidx = 0;
       }
@@ -1760,6 +1762,10 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	}
       }
 
+      // bugfix (7 Sep 2026): if max_window_locus_ct == max_window_size,
+      // ulii == window_cidx check below is not sufficient to know we need to
+      // advance trailing-window marker
+      const uint32_t prev_marker_uidx = marker_uidx;
       if (++chrom_marker_idx < chrom_marker_ct) {
         marker_uidx++;
 	if (IS_SET(marker_exclude, marker_uidx)) {
@@ -1785,7 +1791,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	ulii -= max_window_size;
       }
       marker_uidx2 = window_uidxs[window_cidx2];
-      if ((ulii == window_cidx) || (marker_pos[marker_uidx2] < marker_pos_thresh)) {
+      if (((ulii == window_cidx) && (prev_marker_uidx != marker_uidx2)) || (marker_pos[marker_uidx2] < marker_pos_thresh)) {
 	do {
 	  pos_r_tot = 0.0;
 	  neg_r_tot = 0.0;
@@ -11480,6 +11486,12 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     if (load_and_collapse(unfiltered_sample_ct, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx_cur), bedfile, loadbuf_raw, cursnp_ptr)) {
       goto test_mishap_ret_READ_FAIL;
     }
+    // bugfix (7 Sep 2026)
+    if (marker_uidx_next > marker_uidx_cur + 1) {
+      if (fseeko(bedfile, bed_offset + marker_uidx_next * ((uint64_t)unfiltered_sample_ct4), SEEK_SET)) {
+        goto test_mishap_ret_READ_FAIL;
+      }
+    }
     missing_ct_cur = count_01(cursnp_ptr, sample_ctl2);
     marker_uidx_prev = ~ZEROLU;
     for (; marker_uidx_cur < chrom_end; marker_uidx_prev = marker_uidx_cur, marker_uidx_cur = marker_uidx_next, prevsnp_ptr = cursnp_ptr, cursnp_ptr = nextsnp_ptr, missing_ct_cur = missing_ct_next, marker_uidx_next++) {
@@ -11508,14 +11520,14 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
       if (missing_ct_cur < 5) {
 	continue;
       }
-      quatervec_copy_only_01(cursnp_ptr, unfiltered_sample_ct, maskbuf_mid);
+      quatervec_copy_only_01(cursnp_ptr, sample_ct, maskbuf_mid);
       uiptr = counts;
       for (uii = 0; uii < 2; uii++) {
 	if (uii) {
-	  quatervec_01_invert(unfiltered_sample_ct, maskbuf_mid);
+	  quatervec_01_invert(sample_ct, maskbuf_mid);
 	}
         for (ujj = 0; ujj < 3; ujj++) {
-          vec_datamask(unfiltered_sample_ct, ujj + (ujj + 1) / 2, prevsnp_ptr, maskbuf_mid, maskbuf);
+          vec_datamask(sample_ct, ujj + (ujj + 1) / 2, prevsnp_ptr, maskbuf_mid, maskbuf);
 	  ukk = popcount01_longs(maskbuf, sample_ctl2);
 	  genovec_3freq(nextsnp_ptr, maskbuf, sample_ctl2, &umm, &(uiptr[1]), &(uiptr[2]));
 	  uiptr[0] = ukk - umm - uiptr[1] - uiptr[2];

@@ -57,8 +57,10 @@ FLAGSET_DEF_START()
   kfKingColIbs1 = (1 << 20),
   kfKingColHamming = (1 << 21),
   kfKingColKinship = (1 << 22),
+  kfKingColRt = (1 << 23),
+  kfKingColPkin = (1 << 24),
   kfKingColDefault = (kfKingColMaybefid | kfKingColId | kfKingColMaybesid | kfKingColNsnp | kfKingColHethet | kfKingColIbs0 | kfKingColKinship),
-  kfKingColAll = ((kfKingColKinship * 2) - kfKingColMaybefid)
+  kfKingColAll = ((kfKingColPkin * 2) - kfKingColMaybefid)
 FLAGSET_DEF_END(KingFlags);
 
 // --make-rel, --make-grm-list, --make-grm-bin, --make-grm-sparse
@@ -225,7 +227,7 @@ PglErr KingCutoffBatchBinary(const SampleIdInfo* siip, uint32_t raw_sample_ct, d
 
 PglErr KingCutoffBatchTable(const SampleIdInfo* siip, const char* kin0_fname, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 
-PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
+PglErr CalcKing(const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* variant_include_orig, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
 
 ENUM_U31_DEF_START()
   kRcCheck0,
@@ -233,7 +235,30 @@ ENUM_U31_DEF_START()
   kRcCheckConcordance
 ENUM_U31_DEF_END(RelConcordanceCheckMode);
 
-PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, RelConcordanceCheckMode rel_or_concordance_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, const char* require_fnames, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, RelConcordanceCheckMode rel_or_concordance_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+
+// --distance, --distance-matrix, --ibs-matrix
+FLAGSET_DEF_START()
+  kfDistance0,
+  kfDistanceMatrixZs = (1 << 0),
+  kfDistanceMatrixBin = (1 << 1),
+  kfDistanceMatrixBin4 = (1 << 2),
+  kfDistanceMatrixEncodemask = (kfDistanceMatrixZs | kfDistanceMatrixBin | kfDistanceMatrixBin4),
+  kfDistanceMatrixSq = (1 << 3),
+  kfDistanceMatrixSq0 = (1 << 4),
+  kfDistanceMatrixTri = (1 << 5),
+  kfDistanceMatrixShapemask = (kfDistanceMatrixSq | kfDistanceMatrixSq0 | kfDistanceMatrixTri),
+
+  // Which of the three reports to write; more than one is allowed.
+  kfDistanceAlleleCt = (1 << 6),
+  kfDistanceIbs = (1 << 7),
+  kfDistance1MinusIbs = (1 << 8),
+  kfDistanceOutputMask = (kfDistanceAlleleCt | kfDistanceIbs | kfDistance1MinusIbs),
+
+  kfDistanceFlatMissing = (1 << 9)
+FLAGSET_DEF_END(DistanceFlags);
+
+PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, double grm_sparse_cutoff, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
 

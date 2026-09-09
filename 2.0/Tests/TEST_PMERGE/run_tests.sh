@@ -13,7 +13,7 @@ set -exo pipefail
 plink --simulate simulate.txt --simulate-missing 0.02 --out tmp_data
 
 # Three chromosomes, so the parts have disjoint coordinate ranges.
-cat tmp_data.bim | head -n 99 > tmp_data1.bim
+head -n 99 tmp_data.bim > tmp_data1.bim
 cat tmp_data.bim | sed -n '100,198p' | sed 's/^1/2/' > tmp_data2.bim
 cat tmp_data.bim | tail -n 99 | sed 's/^1/3/' > tmp_data3.bim
 cat tmp_data1.bim tmp_data2.bim tmp_data3.bim > tmp_data.bim

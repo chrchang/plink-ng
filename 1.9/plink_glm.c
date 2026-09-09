@@ -3737,6 +3737,12 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
     }
   }
 
+  if (!sample_valid_ct) {
+    // Zero here means the trailing-word clear below would index before the
+    // buffer, and every downstream loop divides by it.
+    logerrprint("Error: No samples remain for --linear/--logistic after removing those with a\nmissing phenotype or covariate.\n");
+    goto glm_common_init_ret_INVALID_CMDLINE;
+  }
   sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   if (alloc_collapsed_haploid_filters(load_mask, sex_male, unfiltered_sample_ct, sample_valid_ct, hh_or_mt_exists, 1, &sample_include2, &sample_male_include2)) {
     goto glm_common_init_ret_NOMEM;

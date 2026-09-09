@@ -2034,18 +2034,22 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   if (!hwe_needed) {
     *hwe_lls_ptr = (int32_t*)g_bigstack_base;
   } else {
-    if (bigstack_alloc_i(unfiltered_marker_ct, &hwe_lls) ||
-	bigstack_alloc_i(unfiltered_marker_ct, &hwe_lhs) ||
-	bigstack_alloc_i(unfiltered_marker_ct, &hwe_hhs)) {
+    // Zero-initialized, like the _allfs arrays below: the fill loops skip
+    // haploid markers, and both hardy_report() and enforce_hwe_threshold()
+    // read every marker.  Leaving these uninitialized meant --hardy printed
+    // whatever was on the heap for chrY.
+    if (bigstack_calloc_i(unfiltered_marker_ct, &hwe_lls) ||
+	bigstack_calloc_i(unfiltered_marker_ct, &hwe_lhs) ||
+	bigstack_calloc_i(unfiltered_marker_ct, &hwe_hhs)) {
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
     *hwe_lls_ptr = hwe_lls;
     *hwe_lhs_ptr = hwe_lhs;
     *hwe_hhs_ptr = hwe_hhs;
     if (hardy_needed) {
-      if (bigstack_alloc_i(unfiltered_marker_ct, &hwe_ll_cases) ||
-          bigstack_alloc_i(unfiltered_marker_ct, &hwe_lh_cases) ||
-          bigstack_alloc_i(unfiltered_marker_ct, &hwe_hh_cases)) {
+      if (bigstack_calloc_i(unfiltered_marker_ct, &hwe_ll_cases) ||
+          bigstack_calloc_i(unfiltered_marker_ct, &hwe_lh_cases) ||
+          bigstack_calloc_i(unfiltered_marker_ct, &hwe_hh_cases)) {
 	goto calc_freqs_and_hwe_ret_NOMEM;
       }
     }

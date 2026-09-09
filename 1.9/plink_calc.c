@@ -3755,7 +3755,6 @@ uint32_t distance_d_write_1mibs_sq_emitn(uint32_t overflow_ct, unsigned char* re
 
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t sample_ct, int32_t first_sample_idx, int32_t end_sample_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf) {
   // membuf assumed to be of at least size sample_ct * 8.
-  printf("distance_d_write\n");
   uint32_t bin4 = dist_calc_type & DISTANCE_BIN4;
   int32_t shape = dist_calc_type & DISTANCE_SHAPEMASK;
   int32_t write_alcts = dist_calc_type & DISTANCE_ALCT;
@@ -3978,8 +3977,9 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	dist_ptr = dists;
 	for (ii = first_sample_idx; ii < end_sample_idx; ii++) {
 	  for (uii = 0; uii < (uint32_t)ii; uii++) {
-	    fxx = (float)dist_ptr[uii];
-	    fwrite(&fxx, 4, 1, *outfile_ptr);
+            // bugfix (7 Sep 2026): this previously clobbered fxx
+	    fyy = (float)dist_ptr[uii];
+	    fwrite(&fyy, 4, 1, *outfile_ptr);
 	  }
 	  dist_ptr = &(dist_ptr[(uint32_t)ii]);
 	  if (shape == DISTANCE_SQ0) {
@@ -7744,7 +7744,10 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       //     = 4 * maf * (1 - maf) * (maf * maf - maf + 1)
       //     constant factor doesn't matter here
       dxx = set_allele_freqs[marker_uidx];
-      if ((dxx != 0.0) && (dxx != 1.0)) {
+      if (dxx == 1.0) {
+        // bugfix (7 Sep 2026)
+        dxx = 0.0;
+      } else if (dxx != 0.0) {
 	dxx = dxx * (1.0 - dxx) * (dxx * dxx - dxx + 1);
 	if (main_weights) {
 	  dxx *= main_weights[marker_idx];
@@ -7758,6 +7761,14 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     // performance becomes less important than accuracy on 50+ million marker
     // sets.)
     // subtract marker_ct to guard against rounding-driven overflow
+    if (!(dyy > 0.0)) {
+      // Every remaining variant is monomorphic, so every weight is zero.  The
+      // division below then gives infinity, and 0 * infinity is NaN, which the
+      // cast to uint32_t makes undefined.
+      logerrprint("Error: No variant has positive weight; --distance cannot be computed.\n");
+      retval = RET_DEGENERATE_DATA;
+      goto calc_distance_ret_1;
+    }
     dyy = (4294967296.0 - ((double)((intptr_t)marker_ct))) / dyy;
     for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
       uii = (uint32_t)(dist_missing_wts[marker_idx] * dyy + 0.5);
@@ -8408,6 +8419,11 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       goto calc_cluster_neighbor_ret_NOMEM;
     }
     fill_double_zero(ulii, neighbor_quantiles);
+    // The index array has to be cleared too.  update_neighbor() only writes an
+    // entry when a distance beats the current quantile, so a sample that never
+    // accumulates neighbor_n2 neighbors leaves entries at whatever malloc
+    // returned, and the report loop then uses them as sample indices.
+    fill_uint_zero(ulii, neighbor_qindices);
   }
   fill_ulong_zero(BITCT_TO_WORDCT(initial_triangle_size), cluster_merge_prevented);
   if ((min_ppc != 0.0) || genome_main || read_genome_fname) {
