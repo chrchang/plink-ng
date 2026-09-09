@@ -302,7 +302,7 @@ FLAGSET_DEF_START()
   kfLoadFilterLogImportMergeMask = ((kfLoadFilterLogImportMergeAlreadyApplied * 2) - kfLoadFilterLogImportMaxAlleles),
   // main .pvar load only
   kfLoadFilterLogExcludeIfInfo = (1 << 9),
-  kfLoadFilterLogExcludePalindromicSnps = (1 << 19),
+  kfLoadFilterLogExcludePalindromicSnps = (1 << 10),
   kfLoadFilterLogExtractIfInfo = (1 << 11),
   kfLoadFilterLogMaxAlleles = (1 << 12),
   kfLoadFilterLogMinAlleles = (1 << 13),
