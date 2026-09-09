@@ -6982,6 +6982,11 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
         } else if (strequal_k_unsafe(flagname_p2, "lip-scan-ref-pfile") || strequal_k_unsafe(flagname_p2, "lip-scan-ref-bfile")) {
+          // Still need to possibly filter founders, and independently verify
+          // handling of multiallelic variants.
+          logerrputs("Error: --flip-scan-ref-{b,p}file is under development.\n");
+          reterr = kPglRetNotYetSupported;
+          goto main_ret_1;
           // Same shape as --pgen-diff: one prefix, or the three filenames.
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
