@@ -201,6 +201,7 @@ ENUM_U31_DEF_START()
   kCmd1BitKingCutoff,
   kCmd1BitMissingReport,
   kCmd1BitWriteSnplist,
+  kCmd1BitInfoToCols,
   kCmd1BitAlleleFreq,
   kCmd1BitGenoCounts,
   kCmd1BitHardy,
@@ -246,6 +247,7 @@ FLAGSET64_DEF_START()
   kfCommand1KingCutoff = (1LLU << kCmd1BitKingCutoff),
   kfCommand1MissingReport = (1LLU << kCmd1BitMissingReport),
   kfCommand1WriteSnplist = (1LLU << kCmd1BitWriteSnplist),
+  kfCommand1InfoToCols = (1LLU << kCmd1BitInfoToCols),
   kfCommand1AlleleFreq = (1LLU << kCmd1BitAlleleFreq),
   kfCommand1GenoCounts = (1LLU << kCmd1BitGenoCounts),
   kfCommand1Hardy = (1LLU << kCmd1BitHardy),
@@ -635,6 +637,7 @@ typedef struct Plink2CmdlineStruct {
   TwentythreeInfo twenty_three_info;
   TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
+  InfoColsInfo info_cols_info;
 } Plink2Cmdline;
 
 // er, probably time to just always initialize this...
@@ -770,6 +773,7 @@ uint32_t FounderRawGenoCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc
 uint32_t InfoReloadIsNeeded(Command1Flags command_flags1, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, RmDupMode rmdup_mode) {
   return ((command_flags1 & kfCommand1MakePlink2) && (pvar_psam_flags & kfPvarColXinfo)) ||
     ((command_flags1 & kfCommand1Exportf) && (exportf_flags & (kfExportfVcf | kfExportfBcf))) ||
+    (command_flags1 & kfCommand1InfoToCols) ||
     (rmdup_mode != kRmDup0);
 }
 
@@ -1103,7 +1107,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // LoadPvar() uses pvar_psam_flags to determine what's needed for .pvar
       // export.  These booleans are just for tracking requirements beyond
       // that.
-      const uint32_t xheader_needed = (pcp->exportf_info.flags & (kfExportfVcf | kfExportfBcf))? 1 : 0;
+      // --info-to-cols reads the ##INFO lines, to enumerate keys for 'all' and
+      // to tell Flag keys from the rest.
+      const uint32_t xheader_needed = ((pcp->exportf_info.flags & (kfExportfVcf | kfExportfBcf)) || (pcp->command_flags1 & kfCommand1InfoToCols))? 1 : 0;
       const uint32_t qualfilter_needed = xheader_needed || ((pcp->rmdup_mode != kRmDup0) && (pcp->rmdup_mode <= kRmDupExcludeMismatch));
 
       uint32_t neg_bp_seen = 0;
@@ -2815,6 +2821,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1InfoToCols) {
+        reterr = InfoToCols(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, info_reload_slen? pvarname : nullptr, xheader, &(pcp->info_cols_info), xheader_blen, variant_ct, max_allele_slen, pcp->max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1WriteSnplist) {
         reterr = WriteSnplist(variant_include, variant_ids, variant_ct, (pcp->misc_flags / kfMiscWriteSnplistZs) & 1, (pcp->misc_flags / kfMiscWriteSnplistAllowDups) & 1, pcp->max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
@@ -3953,6 +3966,7 @@ int main(int argc, char** argv) {
   InitGenDummy(&gendummy_info);
   AdjustFileInfo adjust_file_info;
   InitAdjust(&pc.adjust_info, &adjust_file_info);
+  InitInfoCols(&pc.info_cols_info);
   ChrInfo chr_info;
   if (unlikely(InitChrInfo(&chr_info))) {
     goto main_ret_NOMEM_NOLOG;
@@ -7980,6 +7994,54 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1Distance;
           pc.dependency_flags |= kfFilterAllReq;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "nfo-to-cols")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* keys_str = argvk[arg_idx + 1];
+          const uint32_t keys_slen = strlen(keys_str);
+          if (strequal_k(keys_str, "all", keys_slen)) {
+            pc.info_cols_info.flags |= kfInfoColsAll;
+          } else {
+            // Comma-separated, since INFO keys cannot contain commas and a
+            // space-separated list could not be told apart from a modifier.
+            if (unlikely(!keys_slen)) {
+              logerrputs("Error: Empty --info-to-cols key list.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            char* keys_flattened;
+            if (unlikely(pgl_malloc(keys_slen + 2, &keys_flattened))) {
+              goto main_ret_NOMEM;
+            }
+            memcpy(keys_flattened, keys_str, keys_slen);
+            keys_flattened[keys_slen] = '\0';
+            keys_flattened[keys_slen + 1] = '\0';
+            for (uint32_t uii = 0; uii != keys_slen; ++uii) {
+              if (keys_flattened[uii] == ',') {
+                keys_flattened[uii] = '\0';
+              }
+            }
+            for (const char* key_iter = keys_flattened; *key_iter; ) {
+              const uint32_t key_slen = strlen(key_iter);
+              if (unlikely(!key_slen)) {
+                free(keys_flattened);
+                logerrputs("Error: Empty key in --info-to-cols key list.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              key_iter = &(key_iter[key_slen + 1]);
+            }
+            pc.info_cols_info.keys_flattened = keys_flattened;
+          }
+          if (param_ct == 2) {
+            const char* cur_modif = argvk[arg_idx + 2];
+            if (unlikely(!strequal_k(cur_modif, "zs", strlen(cur_modif)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --info-to-cols argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.info_cols_info.flags |= kfInfoColsZs;
+          }
+          pc.command_flags1 |= kfCommand1InfoToCols;
+          pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "d-delim")) {
           if (unlikely(const_fid || (import_flags & kfImportDoubleId))) {
             logerrputs("Error: --id-delim can no longer be used with --const-fid or --double-id.\n");
@@ -14467,6 +14529,7 @@ int main(int argc, char** argv) {
   free_cond(rseeds);
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
+  CleanupInfoCols(&pc.info_cols_info);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.zero_cluster_phenoname);
   free_cond(pc.zero_cluster_fname);

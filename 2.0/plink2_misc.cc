@@ -14371,6 +14371,326 @@ PglErr CheckAlleleUniqueness(const uintptr_t* variant_include, const ChrInfo* ci
   return reterr;
 }
 
+void InitInfoCols(InfoColsInfo* icip) {
+  icip->keys_flattened = nullptr;
+  icip->flags = kfInfoCols0;
+}
+
+void CleanupInfoCols(InfoColsInfo* icip) {
+  free_cond(icip->keys_flattened);
+}
+
+// Scans the ##INFO=<...> lines in xheader for ID= and Number=.  Only the two
+// things --info-to-cols needs are extracted: the key list, when 'all' was
+// requested, and which keys are declared Number=0 (i.e. VCF Flag), so that
+// their columns can be reported as 0/1 rather than as a missing value.
+// keys_flattened, when non-null, restricts the scan to those keys.
+PglErr ScanInfoHeaderKeys(const char* xheader, uintptr_t xheader_blen, const char* keys_flattened, char** all_keys_flattenedp, uintptr_t* key_ctp, unsigned char** is_flagp) {
+  // Two modes.  With keys_flattened, *is_flagp is already sized for those keys
+  // and only the Flag marks are filled in.  Without it ('all'), the key list
+  // itself is built from the header, and *is_flagp is allocated here.
+  const uint32_t all_mode = (keys_flattened == nullptr);
+  uintptr_t key_ct = 0;
+  uintptr_t key_byte_ct = 0;
+  char* write_iter = nullptr;
+  for (uint32_t pass_idx = 0; pass_idx != 2; ++pass_idx) {
+    if (pass_idx) {
+      if (!all_mode) {
+        break;
+      }
+      if (unlikely(!key_ct)) {
+        logerrputs("Error: --info-to-cols 'all' requires ##INFO header lines, and this dataset has\nnone.\n");
+        return kPglRetInconsistentInput;
+      }
+      char* all_keys;
+      if (unlikely(bigstack_alloc_c(key_byte_ct + 1, &all_keys) ||
+                   bigstack_calloc_uc(key_ct, is_flagp))) {
+        return kPglRetNomem;
+      }
+      all_keys[key_byte_ct] = '\0';
+      *all_keys_flattenedp = all_keys;
+      *key_ctp = key_ct;
+      write_iter = all_keys;
+      key_ct = 0;
+    }
+    const char* xheader_iter = xheader;
+    const char* xheader_end = &(xheader[xheader_blen]);
+    while (xheader_iter != xheader_end) {
+      const char* line_start = xheader_iter;
+      const char* line_end = S_CAST(const char*, memchr(line_start, '\n', xheader_end - line_start));
+      if (!line_end) {
+        line_end = xheader_end;
+        xheader_iter = xheader_end;
+      } else {
+        xheader_iter = &(line_end[1]);
+      }
+      if (!StrStartsWith(line_start, "##INFO=<ID=", line_end - line_start)) {
+        continue;
+      }
+      const char* id_start = &(line_start[strlen("##INFO=<ID=")]);
+      const char* id_end = id_start;
+      while ((id_end != line_end) && (*id_end != ',') && (*id_end != '>')) {
+        ++id_end;
+      }
+      const uint32_t id_slen = id_end - id_start;
+      if (!id_slen) {
+        continue;
+      }
+      uintptr_t key_idx = key_ct;
+      if (!all_mode) {
+        const char* key_iter = keys_flattened;
+        uint32_t found = 0;
+        for (uintptr_t kidx = 0; *key_iter; ++kidx) {
+          const uint32_t key_slen = strlen(key_iter);
+          if ((key_slen == id_slen) && memequal(key_iter, id_start, id_slen)) {
+            key_idx = kidx;
+            found = 1;
+            break;
+          }
+          key_iter = &(key_iter[key_slen + 1]);
+        }
+        if (!found) {
+          continue;
+        }
+      }
+      // Number=0 marks a VCF Flag.
+      uint32_t is_flag = 0;
+      const char* num_start = S_CAST(const char*, memmem(id_end, line_end - id_end, ",Number=", strlen(",Number=")));
+      if (num_start) {
+        num_start = &(num_start[strlen(",Number=")]);
+        if ((&(num_start[1]) < line_end) && (num_start[0] == '0') && ((num_start[1] == ',') || (num_start[1] == '>'))) {
+          is_flag = 1;
+        }
+      }
+      if (all_mode && (!pass_idx)) {
+        ++key_ct;
+        key_byte_ct += id_slen + 1;
+        continue;
+      }
+      if (is_flag) {
+        (*is_flagp)[key_idx] = 1;
+      }
+      if (all_mode) {
+        write_iter = memcpyax(write_iter, id_start, id_slen, '\0');
+        ++key_ct;
+      }
+    }
+  }
+  return kPglRetSuccess;
+}
+
+PglErr InfoToCols(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* pvar_info_reload, const char* xheader, const InfoColsInfo* icip, uintptr_t xheader_blen, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  TextStream pvar_reload_txs;
+  CompressStreamState css;
+  PreinitTextStream(&pvar_reload_txs);
+  PreinitCstream(&css);
+  {
+    if (unlikely(!pvar_info_reload)) {
+      logerrputs("Error: --info-to-cols requires an INFO column in the .pvar/VCF file.\n");
+      goto InfoToCols_ret_INCONSISTENT_INPUT;
+    }
+    const InfoColsFlags flags = icip->flags;
+    char* keys_flattened = icip->keys_flattened;
+    uintptr_t key_ct = 0;
+    unsigned char* is_flag = nullptr;
+    if (flags & kfInfoColsAll) {
+      reterr = ScanInfoHeaderKeys(xheader, xheader_blen, nullptr, &keys_flattened, &key_ct, &is_flag);
+      if (unlikely(reterr)) {
+        goto InfoToCols_ret_1;
+      }
+    } else {
+      const char* key_iter = keys_flattened;
+      while (*key_iter) {
+        ++key_ct;
+        key_iter = &(key_iter[strlen(key_iter) + 1]);
+      }
+      if (unlikely(bigstack_calloc_uc(key_ct, &is_flag))) {
+        goto InfoToCols_ret_NOMEM;
+      }
+      if (xheader_blen) {
+        reterr = ScanInfoHeaderKeys(xheader, xheader_blen, keys_flattened, nullptr, nullptr, &is_flag);
+        if (unlikely(reterr)) {
+          goto InfoToCols_ret_1;
+        }
+      }
+    }
+    // Per-key key/length lookup, and per-variant value slots.
+    const char** key_ptrs;
+    uint32_t* key_slens;
+    const char** val_ptrs;
+    uint32_t* val_slens;
+    if (unlikely(bigstack_alloc_kcp(key_ct, &key_ptrs) ||
+                 bigstack_alloc_u32(key_ct, &key_slens) ||
+                 bigstack_alloc_kcp(key_ct, &val_ptrs) ||
+                 bigstack_alloc_u32(key_ct, &val_slens))) {
+      goto InfoToCols_ret_NOMEM;
+    }
+    {
+      const char* key_iter = keys_flattened;
+      for (uintptr_t key_idx = 0; key_idx != key_ct; ++key_idx) {
+        key_ptrs[key_idx] = key_iter;
+        key_slens[key_idx] = strlen(key_iter);
+        key_iter = &(key_iter[key_slens[key_idx] + 1]);
+      }
+    }
+
+    uint32_t info_col_idx;
+    char* pvar_info_line_iter;
+    reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (max_thread_ct > 1), &pvar_reload_txs, &pvar_info_line_iter, &info_col_idx);
+    if (unlikely(reterr)) {
+      goto InfoToCols_ret_TSTREAM_FAIL;
+    }
+
+    const uint32_t output_zst = (flags / kfInfoColsZs) & 1;
+    OutnameZstSet(".vinfo", output_zst, outname_end);
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 2 * max_allele_slen + 256;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto InfoToCols_ret_1;
+    }
+    char* chr_buf;
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto InfoToCols_ret_NOMEM;
+    }
+    cswritep = strcpya_k(cswritep, "#CHROM\tPOS\tID\tREF\tALT");
+    for (uintptr_t key_idx = 0; key_idx != key_ct; ++key_idx) {
+      *cswritep++ = '\t';
+      if (unlikely(CsputsStd(key_ptrs[key_idx], key_slens[key_idx], &css, &cswritep))) {
+        goto InfoToCols_ret_WRITE_FAIL;
+      }
+    }
+    AppendBinaryEoln(&cswritep);
+
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t chr_buf_blen = 0;
+    uint32_t trs_variant_uidx = 0;
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      if (variant_uidx >= chr_end) {
+        do {
+          ++chr_fo_idx;
+          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        } while (variant_uidx >= chr_end);
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
+        *chr_name_end = '\t';
+        chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
+      }
+      reterr = PvarInfoReload(info_col_idx, variant_uidx, &pvar_reload_txs, &pvar_info_line_iter, &trs_variant_uidx);
+      if (unlikely(reterr)) {
+        goto InfoToCols_ret_TSTREAM_REWIND_FAIL;
+      }
+      ZeroPtrArr(key_ct, val_ptrs);
+      const char* info_token = pvar_info_line_iter;
+      const char* info_token_end = CurTokenEnd(info_token);
+      if ((info_token_end != &(info_token[1])) || (info_token[0] != '.')) {
+        const char* subtoken_iter = info_token;
+        while (subtoken_iter < info_token_end) {
+          const char* subtoken_end = S_CAST(const char*, memchr(subtoken_iter, ';', info_token_end - subtoken_iter));
+          if (!subtoken_end) {
+            subtoken_end = info_token_end;
+          }
+          const char* eq_ptr = S_CAST(const char*, memchr(subtoken_iter, '=', subtoken_end - subtoken_iter));
+          const uint32_t cur_key_slen = (eq_ptr? eq_ptr : subtoken_end) - subtoken_iter;
+          for (uintptr_t key_idx = 0; key_idx != key_ct; ++key_idx) {
+            if ((key_slens[key_idx] == cur_key_slen) && memequal(key_ptrs[key_idx], subtoken_iter, cur_key_slen)) {
+              if (eq_ptr) {
+                val_ptrs[key_idx] = &(eq_ptr[1]);
+                val_slens[key_idx] = subtoken_end - eq_ptr - 1;
+              } else {
+                // Flag: no value.  Recorded as present with zero length.
+                val_ptrs[key_idx] = subtoken_end;
+                val_slens[key_idx] = 0;
+              }
+              break;
+            }
+          }
+          subtoken_iter = &(subtoken_end[1]);
+        }
+      }
+      cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
+      cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      const char* variant_id = variant_ids[variant_uidx];
+      if (unlikely(CsputsStd(variant_id, strlen(variant_id), &css, &cswritep))) {
+        goto InfoToCols_ret_WRITE_FAIL;
+      }
+      *cswritep++ = '\t';
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      uintptr_t allele_ct = 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+      }
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      if (unlikely(CsputsStd(cur_alleles[0], strlen(cur_alleles[0]), &css, &cswritep))) {
+        goto InfoToCols_ret_WRITE_FAIL;
+      }
+      *cswritep++ = '\t';
+      for (uintptr_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+        if (allele_idx != 1) {
+          *cswritep++ = ',';
+        }
+        if (unlikely(CsputsStd(cur_alleles[allele_idx], strlen(cur_alleles[allele_idx]), &css, &cswritep))) {
+          goto InfoToCols_ret_WRITE_FAIL;
+        }
+      }
+      for (uintptr_t key_idx = 0; key_idx != key_ct; ++key_idx) {
+        *cswritep++ = '\t';
+        if (is_flag[key_idx]) {
+          *cswritep++ = val_ptrs[key_idx]? '1' : '0';
+        } else if (!val_ptrs[key_idx]) {
+          cswritep = strcpya_k(cswritep, "NA");
+        } else if (!val_slens[key_idx]) {
+          // Present without a value, but not declared as a Flag.
+          *cswritep++ = '1';
+        } else if (unlikely(CsputsStd(val_ptrs[key_idx], val_slens[key_idx], &css, &cswritep))) {
+          goto InfoToCols_ret_WRITE_FAIL;
+        }
+        if (unlikely(Cswrite(&css, &cswritep))) {
+          goto InfoToCols_ret_WRITE_FAIL;
+        }
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto InfoToCols_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto InfoToCols_ret_WRITE_FAIL;
+    }
+    logprintfww("--info-to-cols: %" PRIuPTR " INFO key%s for %u variant%s written to %s .\n", key_ct, (key_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  InfoToCols_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  InfoToCols_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(pvar_info_reload, &pvar_reload_txs);
+    break;
+  InfoToCols_ret_TSTREAM_REWIND_FAIL:
+    TextStreamErrPrintRewind(pvar_info_reload, &pvar_reload_txs, &reterr);
+    break;
+  InfoToCols_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  InfoToCols_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ InfoToCols_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  CleanupTextStream2(pvar_info_reload, &pvar_reload_txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

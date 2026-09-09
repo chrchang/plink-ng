@@ -1690,6 +1690,19 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --write-samples\n"
 "    Report IDs of all samples which pass your filters/inclusion thresholds.\n\n"
                );
+    HelpPrint("info-to-cols\0", &help_ctrl, 1,
+"  --info-to-cols {<key>[,<key>...] | 'all'} ['zs']\n"
+"    Write the named INFO keys as ordinary tab-delimited columns, one row per\n"
+"    variant, to <output prefix>.vinfo.  This is the direction that VCF-derived\n"
+"    data usually has to leave plink2 in: --extract-if-info can filter on a\n"
+"    key, but nothing else could get one out.\n"
+"    * The key list is comma-separated, since INFO keys cannot contain commas.\n"
+"      'all' takes every key declared in the ##INFO header lines.\n"
+"    * A key declared Number=0 is a Flag, and its column is 0 or 1.  Any other\n"
+"      key is reported as its value, or NA where the variant does not carry it.\n"
+"      A key present without a value, where the header did not declare it a\n"
+"      Flag, is reported as 1.\n\n"
+               );
     HelpPrint("write-snplist\0", &help_ctrl, 1,
 "  --write-snplist ['zs'] ['allow-dups']\n"
 "    List all variants which pass your filters/inclusion thresholds.  Unless the\n"

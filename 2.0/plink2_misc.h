@@ -27,6 +27,25 @@ namespace plink2 {
 #endif
 
 FLAGSET_DEF_START()
+  kfInfoCols0,
+  kfInfoColsZs = (1 << 0),
+  kfInfoColsAll = (1 << 1)
+FLAGSET_DEF_END(InfoColsFlags);
+
+typedef struct InfoColsInfoStruct {
+  NONCOPYABLE(InfoColsInfoStruct);
+  // \0-separated, \0\0-terminated; null when 'all' was given.
+  char* keys_flattened;
+  InfoColsFlags flags;
+} InfoColsInfo;
+
+void InitInfoCols(InfoColsInfo* icip);
+
+void CleanupInfoCols(InfoColsInfo* icip);
+
+PglErr InfoToCols(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* pvar_info_reload, const char* xheader, const InfoColsInfo* icip, uintptr_t xheader_blen, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, char* outname, char* outname_end);
+
+FLAGSET_DEF_START()
   kfRecoverVarIds0,
   kfRecoverVarIdsStrictBimOrder = (1 << 0),
   kfRecoverVarIdsRigid = (1 << 1),
