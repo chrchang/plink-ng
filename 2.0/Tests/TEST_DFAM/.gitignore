@@ -1,0 +1,14 @@
+plink19*
+plink2*
+tmp_*
+dfam.*
+dfam_flipped.vcf
+ref*.txt
+a1.txt
+q19*
+q2d*
+k19*
+k2d*
+s19*
+expected*
+*.log
