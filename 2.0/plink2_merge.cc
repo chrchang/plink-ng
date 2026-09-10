@@ -4600,34 +4600,29 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
                   }
                 }
               } else if (merge_info_mode != kMergeInfoCmModeFirst) {
-                // bugfix (9 Sep 2026)
-                // NmMatch or NmFirst.
-                // 1. if current value is missing, do nothing; otherwise
-                // 2. if basic_info_fields[kidx] is null, always initialize;
-                //    otherwise,
-                // 3. if NmFirst or basic_info_fields[kidx] is locked-missing,
-                //    do nothing; otherwise
-                // 4. if values unequal, set to locked-missing.
-                uint32_t is_nonmissing = 0;
+                // Locked-missing string is "==" (or "=." when we don't need to
+                // generate a temporary .pvar).  This is the only way for
+                // basic_info_fields[kidx] == locked_missing_semicolon_str to
+                // be true.
                 const uint32_t value_slen = value_end - key_end;
-                if (knum <= 1) {
-                  is_nonmissing = (key_end[1] != '.') || (value_slen != 2);
-                } else {
-                  is_nonmissing = (value_slen != S_CAST(uint32_t, knum) * 2) || (!memequal(key_end, info_missing_str, value_slen));
-                }
-                if (is_nonmissing) {
-                  if (!basic_info_fields[kidx]) {
-                    basic_info_fields[kidx] = key_end;
-                  } else if ((merge_info_mode == kMergeInfoCmModeNmFirst) || memequal_k(basic_info_fields[kidx], locked_missing_semicolon_str, 3)) {
-                    // Locked-missing string is "==" (or "=." when we don't
-                    // need to generate a temporary .pvar).  This is the only
-                    // way for basic_info_fields[kidx] ==
-                    // locked_missing_semicolon_str to be true.
-
-                    // do nothing
-                  } else if (!memequal(key_end, basic_info_fields[kidx], value_slen + 1)) {
-                    // This may need to be postprocessed in the knum>1 case.
-                    basic_info_fields[kidx] = locked_missing_semicolon_str;
+                if ((!basic_info_fields[kidx]) || ((merge_info_mode == kMergeInfoCmModeNmMatch) && (!memequal_k(basic_info_fields[kidx], locked_missing_semicolon_str, 3)))) {
+                  uint32_t is_nonmissing;
+                  if (knum <= 1) {
+                    is_nonmissing = (key_end[1] != '.') || (value_slen != 2);
+                  } else {
+                    is_nonmissing = (value_slen != S_CAST(uint32_t, knum) * 2) || (!memequal(key_end, info_missing_str, value_slen));
+                  }
+                  if (is_nonmissing) {
+                    if (!basic_info_fields[kidx]) {
+                      basic_info_fields[kidx] = key_end;
+                    } else {
+                      // set to locked-missing if unequal
+                      if (!memequal(key_end, basic_info_fields[kidx], value_slen + 1)) {
+                        // This may need to be postprocessed in the knum>1
+                        // case.
+                        basic_info_fields[kidx] = locked_missing_semicolon_str;
+                      }
+                    }
                   }
                 }
               }
