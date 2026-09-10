@@ -1,0 +1,16 @@
+plink_*
+plink2_*
+tmp_*
+*.log
+wts.txt
+wts_nh.txt
+ones.txt
+ones.txt.bak
+empty.txt
+neg.txt
+zeros.txt
+zeros.txt.bak
+zero_ids.txt
+oracle.bin
+!run_tests.sh
+!oracle.py
