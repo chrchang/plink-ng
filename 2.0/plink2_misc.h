@@ -55,7 +55,9 @@ FLAGSET_DEF_START()
   kfPhenoTransformVstdAll = (1 << 5),
   kfPhenoTransformQuantnormPheno = (1 << 6),
   kfPhenoTransformQuantnormCovar = (1 << 7),
-  kfPhenoTransformQuantnormAll = (1 << 8)
+  kfPhenoTransformQuantnormAll = (1 << 8),
+  kfPhenoTransformTailPheno = (1 << 9),
+  kfPhenoTransformMustHaveSex = (1 << 10)
 FLAGSET_DEF_END(PhenoTransformFlags);
 
 FLAGSET_DEF_START()
@@ -502,6 +504,10 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
 PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* siip, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uint32_t max_thread_ct, uintptr_t* sex_nm, uintptr_t* sex_male);
 
 PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t* sample_include, uint32_t raw_sample_ct, PhenoTransformFlags pheno_transform_flags, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr, PhenoCol** covar_cols_ptr, char** covar_names_ptr, uint32_t* covar_ct_ptr, uintptr_t* max_covar_name_blen_ptr);
+
+PglErr PhenoTailDowncode(double tail_lt, double tail_hbt, uint32_t raw_sample_ct, uint32_t pheno_ct, PhenoCol* pheno_cols);
+
+PglErr PhenoMustHaveSex(const uintptr_t* sex_nm, uint32_t raw_sample_ct, uint32_t pheno_ct, PhenoCol* pheno_cols);
 
 PglErr PhenoVarianceStandardize(const char* vstd_flattened, const uintptr_t* sample_include, const char* pheno_names, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uint32_t is_covar_flag, PhenoCol* pheno_cols);
 
