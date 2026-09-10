@@ -123,4 +123,9 @@ cd TEST_PGEN_MALFORMED
 cd ..
 echo "TEST_PGEN_MALFORMED passed."
 
+cd TEST_DISTANCE_WTS
+./run_tests.sh $d $2 $3 > TEST_DISTANCE_WTS.log
+cd ..
+echo "TEST_DISTANCE_WTS passed."
+
 echo "All tests passed."
