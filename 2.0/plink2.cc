@@ -534,6 +534,11 @@ typedef struct Plink2CmdlineStruct {
   double minimac3_r2_max;
   double af_pseudocount;
   double min_maf;
+  // --grm-maf: a MAF floor for --pca and GRM construction alone.  Negative
+  // means the flag was not given, which is distinct from a threshold of 0.
+  double grm_min_maf;
+  FreqFilterMode grm_maf_mode;
+  uint32_t grm_maf_yes_really;
   double max_maf;
   double thin_keep_prob;
   double thin_keep_sample_prob;
@@ -2715,8 +2720,67 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
       }
+      // --pca and GRM construction standardize each variant by
+      // sqrt(2p(1-p)), which blows up as p goes to zero: below roughly the
+      // inverse square root of the sample size, a single rare variant can
+      // dominate the result.  --grm-maf sets a floor for these commands
+      // alone; without it, a variant under a quarter of that point is an
+      // error rather than a silently unstable answer.
+      const uintptr_t* grm_variant_include = variant_include;
+      uint32_t grm_variant_ct = variant_ct;
+      if ((pcp->command_flags1 & (kfCommand1MakeRel | kfCommand1Pca)) || keep_grm) {
+        const double instability_thresh = 0.25 / sqrt(u31tod(sample_ct));
+        if (pcp->grm_min_maf >= 0.0) {
+          if (unlikely((pcp->grm_min_maf < instability_thresh) && (!pcp->grm_maf_yes_really))) {
+            logerrprintfww("Error: --grm-maf %g is below %g, a quarter of the inverse square root of the sample size, where --pca/GRM construction becomes unreliable. Add 'yes-really' to --grm-maf if that is what you want.\n", pcp->grm_min_maf, instability_thresh);
+            goto Plink2Core_ret_INCONSISTENT_INPUT;
+          }
+          uintptr_t* new_variant_include;
+          if (unlikely(bigstack_alloc_w(raw_variant_ctl, &new_variant_include))) {
+            goto Plink2Core_ret_NOMEM;
+          }
+          memcpy(new_variant_include, variant_include, raw_variant_ctl * sizeof(intptr_t));
+          STD_ARRAY_DECL(FreqFilterMode, 4, grm_filter_modes);
+          grm_filter_modes[0] = pcp->grm_maf_mode;
+          grm_filter_modes[1] = kFreqFilterNonmajor;
+          grm_filter_modes[2] = kFreqFilterNonmajor;
+          grm_filter_modes[3] = kFreqFilterNonmajor;
+          const uint32_t prev_ct = grm_variant_ct;
+          EnforceFreqConstraints(allele_idx_offsets, nonfounders? allele_ddosages : founder_allele_ddosages, allele_freqs, grm_filter_modes, pcp->grm_min_maf, 1.0, 0, ~0LLU, new_variant_include, &grm_variant_ct);
+          grm_variant_include = new_variant_include;
+          logprintf("--grm-maf: %u variant%s remaining for --pca/GRM construction (%u removed).\n", grm_variant_ct, (grm_variant_ct == 1)? "" : "s", prev_ct - grm_variant_ct);
+          if (unlikely(!grm_variant_ct)) {
+            logerrputs("Error: --grm-maf removed every variant.\n");
+            goto Plink2Core_ret_DEGENERATE_DATA;
+          }
+        } else {
+          double min_typed_freq = 1.0;
+          uintptr_t variant_uidx_base = 0;
+          uintptr_t cur_bits = variant_include[0];
+          uint32_t allele_ct = 2;
+          for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+            const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+            uintptr_t allele_idx_offset_base;
+            if (!allele_idx_offsets) {
+              allele_idx_offset_base = 2 * variant_uidx;
+            } else {
+              allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+              allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+            }
+            const double* cur_allele_freqs = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
+            const double cur_typed_freq = GetTypedFreq(cur_allele_freqs, allele_ct, kFreqFilterNonmajor);
+            if (cur_typed_freq < min_typed_freq) {
+              min_typed_freq = cur_typed_freq;
+            }
+          }
+          if (unlikely(min_typed_freq < instability_thresh)) {
+            logerrprintfww("Error: --pca/GRM construction is unreliable at very low minor allele frequencies, and the lowest remaining here is %g, under %g (a quarter of the inverse square root of the %u samples). Use --grm-maf <freq> to set a floor for this calculation alone, or \"--grm-maf <freq> yes-really\" to proceed anyway.\n", min_typed_freq, instability_thresh, sample_ct);
+            goto Plink2Core_ret_INCONSISTENT_INPUT;
+          }
+        }
+      }
       if ((pcp->command_flags1 & kfCommand1MakeRel) || keep_grm) {
-        reterr = CalcGrm(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->grm_flags, pcp->grm_sparse_cutoff, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
+        reterr = CalcGrm(sample_include, &pii.sii, grm_variant_include, cip, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, grm_variant_ct, max_allele_ct, pcp->grm_flags, pcp->grm_sparse_cutoff, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2797,7 +2861,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 #ifndef NOLAPACK
       if (pcp->command_flags1 & kfCommand1Pca) {
         // if the GRM is on the stack, this always frees it
-        reterr = CalcPca(sample_include, &pii.sii, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, sfmtp, grm, outname, outname_end);
+        reterr = CalcPca(sample_include, &pii.sii, grm_variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, grm_variant_ct, max_allele_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, sfmtp, grm, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3157,7 +3221,39 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Homozyg) {
-        reterr = HomozygReport(sample_include, &pii.sii, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_ct, &(pcp->homozyg_info), pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        // --homozyg-min-af is only load-bearing when the data still contains
+        // low-frequency variants: the run-length rules are calibrated for
+        // common ones, and a rare variant inflates the homozygous stretches.
+        // Rather than demand the flag unconditionally, check what is actually
+        // there, and only insist when it matters.
+        HomozygInfo homozyg_info = pcp->homozyg_info;
+        if (homozyg_info.min_af < 0.0) {
+          double min_typed_freq = 1.0;
+          uintptr_t variant_uidx_base = 0;
+          uintptr_t cur_bits = variant_include[0];
+          uint32_t allele_ct = 2;
+          for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+            const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+            uintptr_t allele_idx_offset_base;
+            if (!allele_idx_offsets) {
+              allele_idx_offset_base = 2 * variant_uidx;
+            } else {
+              allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+              allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+            }
+            const double* cur_allele_freqs = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
+            const double cur_typed_freq = GetTypedFreq(cur_allele_freqs, allele_ct, kFreqFilterNonmajor);
+            if (cur_typed_freq < min_typed_freq) {
+              min_typed_freq = cur_typed_freq;
+            }
+          }
+          if (unlikely(min_typed_freq < 0.05 * (1 - kSmallEpsilon))) {
+            logerrprintfww("Error: --homozyg requires --homozyg-min-af (equivalently, --homozyg-maf) when the data contains low-frequency variants, and the lowest allele frequency here is %g. 0.05 is a reasonable value with the other default parameters; 0 reproduces PLINK 1.x, which applied no frequency floor.\n", min_typed_freq);
+            goto Plink2Core_ret_INCONSISTENT_INPUT;
+          }
+          homozyg_info.min_af = 0.0;
+        }
+        reterr = HomozygReport(sample_include, &pii.sii, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_ct, &homozyg_info, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -4312,6 +4408,9 @@ int main(int argc, char** argv) {
     pc.minimac3_r2_max = 0.0;
     pc.af_pseudocount = 0.0;
     pc.min_maf = 0.0;
+    pc.grm_min_maf = -1.0;
+    pc.grm_maf_mode = kFreqFilterNonmajor;
+    pc.grm_maf_yes_really = 0;
     pc.max_maf = 1.0;
     pc.thin_keep_prob = 1.0;
     pc.thin_keep_sample_prob = 1.0;
@@ -7094,7 +7193,49 @@ int main(int argc, char** argv) {
         break;
 
       case 'g':
-        if (strequal_k_unsafe(flagname_p2, "eno")) {
+        if (strequal_k_unsafe(flagname_p2, "rm-maf") || strequal_k_unsafe(flagname_p2, "rm-min-af")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* first_modif = argvk[arg_idx + 1];
+          if (unlikely(!ScantokDouble(first_modif, &pc.grm_min_maf))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, first_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (unlikely(pc.grm_min_maf < 0.0)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: --%s argument '%s' too small (must be >= 0).\n", flagname_p, first_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (unlikely(pc.grm_min_maf > 1.0)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: --%s argument '%s' too large (must be <= 1).\n", flagname_p, first_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          // ScantokDouble() only succeeds when the number is the whole token,
+          // so a mode selector is always a separate parameter, exactly as with
+          // --maf.
+          uint32_t mode_seen = 0;
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            if (strequal_k(cur_modif, "yes-really", strlen(cur_modif))) {
+              if (unlikely(pc.grm_maf_yes_really)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Duplicate --%s 'yes-really' modifier.\n", flagname_p);
+                goto main_ret_INVALID_CMDLINE_2A;
+              }
+              pc.grm_maf_yes_really = 1;
+              continue;
+            }
+            if (unlikely(mode_seen)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument sequence.\n", flagname_p);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            if (unlikely(ParseFreqSelector(cur_modif, flagname_p, &pc.grm_maf_mode))) {
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            mode_seen = 1;
+          }
+          pc.filter_flags |= kfFilterPvarReq;
+          pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
+        } else if (strequal_k_unsafe(flagname_p2, "eno")) {
           if (unlikely(make_plink2_flags & kfMakePlink2FillMissingWithRef)) {
             // While --geno/--mind technically makes more sense before
             // --fill-missing-with-ref than after it, it doesn't really make
@@ -13971,10 +14112,6 @@ int main(int argc, char** argv) {
     }
     if (unlikely(pc.ld_info.flipscan_ref_freq_fname && (!(pc.command_flags1 & kfCommand1FlipScan)))) {
       logerrputs("Error: --flip-scan-ref-freq must be used with --flip-scan.\n");
-      goto main_ret_INVALID_CMDLINE_A;
-    }
-    if (unlikely((pc.command_flags1 & kfCommand1Homozyg) && (pc.homozyg_info.min_af < 0.0))) {
-      logerrputs("Error: --homozyg requires --homozyg-min-af (equivalently, --homozyg-maf).  0.05\nis a reasonable value with the other default parameters; 0 reproduces PLINK\n1.x, which applied no frequency floor.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely(pc.rename_chrs_fname && (pc.sort_vars_mode <= kSortNone))) {

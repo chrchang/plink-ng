@@ -125,6 +125,8 @@ ENUM_U31_DEF_START()
   kFreqFilterMinor = 4
 ENUM_U31_DEF_END(FreqFilterMode);
 
+double GetTypedFreq(const double* cur_allele_freqs, uint32_t allele_ct, FreqFilterMode mode);
+
 void EnforceFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_ddosages, const double* allele_freqs, STD_ARRAY_KREF(FreqFilterMode, 4) filter_modes, double min_maf, double max_maf, uint64_t min_allele_ddosage, uint64_t max_allele_ddosage, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
 void EnforceImpR2Thresh(const ChrInfo* cip, const double* imp_r2_vals, double imp_r2_min, double imp_r2_max, uint32_t is_minimac3_r2, uintptr_t* variant_include, uint32_t* variant_ct_ptr);

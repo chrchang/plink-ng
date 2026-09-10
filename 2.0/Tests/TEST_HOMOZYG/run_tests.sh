@@ -122,10 +122,22 @@ test "$(grep -vc '^#' plink2_maf.hom)" -le "$(grep -vc '^#' plink2.hom)"
 # --homozyg-maf is the same flag.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg --homozyg-maf 0.05 --out plink2_maf2
 diff -q plink2_maf.hom plink2_maf2.hom
-if $1/plink2 $2 $3 --bfile tmp_data --homozyg --out plink2_nomaf > /dev/null 2>&1; then
-    echo "--homozyg ran without --homozyg-min-af"
+# --homozyg-min-af is only demanded when the data actually contains
+# low-frequency variants.  This fileset's lowest MAF is 0.25, so the flag is
+# optional here, and omitting it must match an explicit floor of 0.
+$1/plink2 $2 $3 --bfile tmp_data --homozyg --out plink2_nomaf
+$1/plink2 $2 $3 --bfile tmp_data --homozyg --homozyg-min-af 0 --out plink2_maf0
+diff -q plink2_nomaf.hom plink2_maf0.hom
+diff -q plink2_nomaf.hom.indiv plink2_maf0.hom.indiv
+
+# With low-frequency variants present it is demanded again.
+{ printf '400 rare 0.001 0.02 1 1\n'; printf '400 common 0.2 0.5 1 1\n'; } > tmp_rare.sim
+plink --simulate tmp_rare.sim --simulate-ncases 50 --simulate-ncontrols 50 --out tmp_rare > /dev/null
+if $1/plink2 $2 $3 --bfile tmp_rare --homozyg --out plink2_nomaf2 > /dev/null 2>&1; then
+    echo "--homozyg ran without --homozyg-min-af on a fileset with rare variants"
     exit 1
 fi
+$1/plink2 $2 $3 --bfile tmp_rare --homozyg --homozyg-min-af 0.05 --out plink2_rare
 
 # 5. Multithreading must not change the result.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg --homozyg-min-af 0 --threads 1 --out plink2_st
