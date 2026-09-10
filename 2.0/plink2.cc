@@ -14273,7 +14273,14 @@ int main(int argc, char** argv) {
         // No main dataset is loaded on this code path, so the chromosome set
         // still needs to be finalized.
         FinalizeChrset(kfLoadFilterLog0, &chr_info);
-        reterr = GeneReport(&gene_report_info, &chr_info, pc.ln_pfilter, pc.output_min_ln, pc.max_thread_ct, outname, outname_end);
+        // PLINK 1.x honours --extract here, but only its plain ID-list form;
+        // the interval forms have no variant positions to work against on this
+        // path, since no dataset is loaded.
+        if (unlikely(pc.extract_fnames && (pc.filter_flags & (kfFilterExtractBed0 | kfFilterExtractBed1)))) {
+          logerrputs("Error: --gene-report only supports --extract's plain variant ID list, not its\ninterval forms.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        }
+        reterr = GeneReport(&gene_report_info, &chr_info, pc.extract_fnames, pc.ln_pfilter, pc.output_min_ln, pc.max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
           goto main_ret_1;
         }

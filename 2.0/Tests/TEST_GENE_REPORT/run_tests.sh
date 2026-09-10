@@ -67,6 +67,20 @@ plink --gene-report report19.txt genes.txt --gene-list-border 10 --gene-subset s
 $1/plink2 $2 $3 --gene-report report20.txt genes.txt --gene-list-border 10 --gene-subset subset.txt --pfilter 0.2 --out plink2_gr
 check
 
+# --extract, which restricts the report rows rather than a variant_include.
+# The ID list has to be large enough that the report's matches would collide
+# with it if it were allocated in the wrong part of the arena.
+awk 'NR > 1 && (NR % 3) == 0 {print $3}' report19.txt > extract.txt
+test $(wc -l < extract.txt) -ge 1000
+
+plink --gene-report report19.txt genes.txt --extract extract.txt --out plink_gr
+$1/plink2 $2 $3 --gene-report report20.txt genes.txt --extract extract.txt --out plink2_gr
+check
+
+plink --gene-report report19.txt genes.txt --extract extract.txt --pfilter 0.1 --gene-list-border 25 --out plink_gr
+$1/plink2 $2 $3 --gene-report report20.txt genes.txt --extract extract.txt --pfilter 0.1 --gene-list-border 25 --out plink2_gr
+check
+
 # plink 1.9 field names, and a report with no p-value column.
 awk 'NR > 1 {print $1, $2, $3}' report19.txt > report_nop.txt
 sed -i.bak '1i\

@@ -75,7 +75,7 @@ void InitGeneReport(GeneReportInfo* grip);
 
 void CleanupGeneReport(GeneReportInfo* grip);
 
-PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end);
+PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, const char* extract_fnames, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 }
