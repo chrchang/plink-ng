@@ -2371,6 +2371,20 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                             specified) or --pheno (if no --covar) file.\n"
 "  --not-covar <name...>    : Ignore the named covariate(s).\n"
                );
+    HelpPrint("make-pheno\0", &help_ctrl, 0,
+"  --make-pheno <filename> <value> : Define a new case/control phenotype,\n"
+"                                   named MAKEPHENO, from a list of sample\n"
+"                                   IDs.  If the value parameter is \'*\', all\n"
+"                                   samples in the file are cases and everyone\n"
+"                                   else is a control; note that some shells\n"
+"                                   require the * to be quoted.  Otherwise,\n"
+"                                   only samples in the file have a phenotype,\n"
+"                                   and they are cases when the column after\n"
+"                                   their ID matches the value parameter.\n"
+"                                   (PLINK 1.x replaced the phenotype instead\n"
+"                                   of adding one, since it had room for only\n"
+"                                   one at a time.)\n"
+               );
     HelpPrint("within\0mwithin\0family\0family-missing-catname\0", &help_ctrl, 0,
 "  --within <f> [new pheno name] : Import a PLINK 1.x categorical phenotype.\n"
 "                                  (Phenotype name defaults to 'CATPHENO'.)\n"
