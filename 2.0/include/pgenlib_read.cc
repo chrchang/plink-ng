@@ -3523,7 +3523,13 @@ PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* _
   }
   const uint32_t common2_code = *onebit_main_iter++;
   const uint32_t geno_code_low = common2_code / 4;
-  const uint32_t geno_code_high = (common2_code & 3) + geno_code_low;
+  const uint32_t common_code_delta = common2_code & 3;
+  // Both codes index genocounts[], so a corrupted byte here would otherwise
+  // write outside it.  ValidateOnebit() applies the same test.
+  if (unlikely((!common_code_delta) || (geno_code_low + common_code_delta > 3))) {
+    return kPglRetMalformedInput;
+  }
+  const uint32_t geno_code_high = common_code_delta + geno_code_low;
   uint32_t high_geno_ct;
   if (raw_sample_ct == sample_ct) {
     high_geno_ct = PopcountBytes(onebit_main_iter, initial_bitarray_byte_ct);

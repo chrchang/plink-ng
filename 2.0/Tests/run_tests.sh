@@ -118,4 +118,9 @@ cd TEST_SHOW_TAGS
 cd ..
 echo "TEST_SHOW_TAGS passed."
 
+cd TEST_PGEN_MALFORMED
+./run_tests.sh $d $2 $3 > TEST_PGEN_MALFORMED.log
+cd ..
+echo "TEST_PGEN_MALFORMED passed."
+
 echo "All tests passed."
