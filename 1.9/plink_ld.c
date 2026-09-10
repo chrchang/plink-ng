@@ -1786,12 +1786,24 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
       }
       // only need to enforce window locus count constraint during first loop
       // iteration
-      ulii = window_cidx2 + max_window_locus_ct;
-      if (ulii >= max_window_size) {
-	ulii -= max_window_size;
+      // bugfix (10 Sep 2026): max_window_size is the largest number of markers
+      // the bp window can hold, so when it is no larger than
+      // max_window_locus_ct, the locus count constraint cannot bind and the
+      // circular-buffer arithmetic below does not describe it.  Reducing
+      // window_cidx2 + max_window_locus_ct by a single max_window_size in that
+      // case made the trailing marker flush after only
+      // (max_window_locus_ct % max_window_size) further markers, silently
+      // shrinking every window.
+      uint32_t count_flush = 0;
+      if (max_window_locus_ct < max_window_size) {
+        ulii = window_cidx2 + max_window_locus_ct;
+        if (ulii >= max_window_size) {
+          ulii -= max_window_size;
+        }
+        count_flush = (ulii == window_cidx);
       }
       marker_uidx2 = window_uidxs[window_cidx2];
-      if (((ulii == window_cidx) && (prev_marker_uidx != marker_uidx2)) || (marker_pos[marker_uidx2] < marker_pos_thresh)) {
+      if ((count_flush && (prev_marker_uidx != marker_uidx2)) || (marker_pos[marker_uidx2] < marker_pos_thresh)) {
 	do {
 	  pos_r_tot = 0.0;
 	  neg_r_tot = 0.0;
