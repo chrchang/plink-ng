@@ -2638,7 +2638,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      the 'yes-really' modifier.\n"
 "    * Without this flag, a variant below that point is an error rather than a\n"
 "      silently unstable answer; the message reports the lowest frequency\n"
-"      present.\n\n"
+"      present.\n"
+"    * A monomorphic variant is rejected whatever the threshold, since there\n"
+"      is no minor allele to standardize by; 'yes-really' does not apply.\n\n"
                );
     HelpPrint("af-pseudocount\0maf-succ\0", &help_ctrl, 0,
 "  --af-pseudocount <x>    : Given j observations of one allele and k\n"

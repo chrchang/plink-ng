@@ -16,11 +16,19 @@ plink --simulate tmp_mix.sim --simulate-ncases 200 --simulate-ncontrols 200 --ou
 printf '500 common 0.1 0.5 1 1\n' > tmp_common.sim
 plink --simulate tmp_common.sim --simulate-ncases 200 --simulate-ncontrols 200 --out tmp_common > /dev/null
 
-# 1. Without --grm-maf, a variant below the instability point is an error, and
-#    the message names the lowest frequency present.
+# 1. A monomorphic variant gets its own message, and 'yes-really' does not
+#    bypass it: there is no minor allele to standardize by.  Simulating in the
+#    0.0005-0.01 range at 400 samples reliably produces some.
 fails $1/plink2 $2 $3 --bfile tmp_mix --pca 4 --out plink2_bad
 $1/plink2 $2 $3 --bfile tmp_mix --pca 4 --out plink2_bad > tmp_err.txt 2>&1 || true
-grep -q 'lowest remaining here is' tmp_err.txt
+grep -q 'carry no minor allele' tmp_err.txt
+fails $1/plink2 $2 $3 --bfile tmp_mix --pca 4 --grm-maf 0 yes-really --out plink2_bad
+
+# 1b. With those excluded, what remains is the instability error, and its
+#     message names the lowest frequency present.
+fails $1/plink2 $2 $3 --bfile tmp_mix --mac 1 --pca 4 --out plink2_bad
+$1/plink2 $2 $3 --bfile tmp_mix --mac 1 --pca 4 --out plink2_bad > tmp_err2.txt 2>&1 || true
+grep -q 'lowest remaining here is' tmp_err2.txt
 
 # 2. A common-only fileset needs no flag.
 $1/plink2 $2 $3 --bfile tmp_common --pca 4 --out plink2_common

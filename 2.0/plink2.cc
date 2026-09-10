@@ -2723,9 +2723,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // --pca and GRM construction standardize each variant by
       // sqrt(2p(1-p)), which blows up as p goes to zero: below roughly the
       // inverse square root of the sample size, a single rare variant can
-      // dominate the result.  --grm-maf sets a floor for these commands
-      // alone; without it, a variant under a quarter of that point is an
-      // error rather than a silently unstable answer.
+      // dominate the result, and at p = 0 the standardization has nothing to
+      // divide by at all.  --grm-maf sets a floor for these commands alone.
       const uintptr_t* grm_variant_include = variant_include;
       uint32_t grm_variant_ct = variant_ct;
       if ((pcp->command_flags1 & (kfCommand1MakeRel | kfCommand1Pca)) || keep_grm) {
@@ -2753,13 +2752,21 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             logerrputs("Error: --grm-maf removed every variant.\n");
             goto Plink2Core_ret_DEGENERATE_DATA;
           }
-        } else {
-          double min_typed_freq = 1.0;
+        }
+        // Scan what the calculation will actually see.  A monomorphic variant
+        // is a different problem from a merely rare one: it carries no
+        // information and its standardization divides by zero, so no amount of
+        // 'yes-really' makes it usable.
+        double min_typed_freq = 1.0;
+        uint32_t monomorphic_ct = 0;
+        // below half an allele copy, no minor allele was observed at all
+        const double monomorphic_thresh = 0.25 / u31tod(sample_ct);
+        {
           uintptr_t variant_uidx_base = 0;
-          uintptr_t cur_bits = variant_include[0];
+          uintptr_t cur_bits = grm_variant_include[0];
           uint32_t allele_ct = 2;
-          for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
-            const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+          for (uint32_t variant_idx = 0; variant_idx != grm_variant_ct; ++variant_idx) {
+            const uintptr_t variant_uidx = BitIter1(grm_variant_include, &variant_uidx_base, &cur_bits);
             uintptr_t allele_idx_offset_base;
             if (!allele_idx_offsets) {
               allele_idx_offset_base = 2 * variant_uidx;
@@ -2769,14 +2776,21 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
             const double* cur_allele_freqs = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
             const double cur_typed_freq = GetTypedFreq(cur_allele_freqs, allele_ct, kFreqFilterNonmajor);
+            if (cur_typed_freq < monomorphic_thresh) {
+              ++monomorphic_ct;
+            }
             if (cur_typed_freq < min_typed_freq) {
               min_typed_freq = cur_typed_freq;
             }
           }
-          if (unlikely(min_typed_freq < instability_thresh)) {
-            logerrprintfww("Error: --pca/GRM construction is unreliable at very low minor allele frequencies, and the lowest remaining here is %g, under %g (a quarter of the inverse square root of the %u samples). Use --grm-maf <freq> to set a floor for this calculation alone, or \"--grm-maf <freq> yes-really\" to proceed anyway.\n", min_typed_freq, instability_thresh, sample_ct);
-            goto Plink2Core_ret_INCONSISTENT_INPUT;
-          }
+        }
+        if (unlikely(monomorphic_ct)) {
+          logerrprintfww("Error: --pca/GRM construction cannot use monomorphic variants, and %u of the %u being scanned %s no minor allele. Exclude them, with any positive --grm-maf threshold or with --mac 1.\n", monomorphic_ct, grm_variant_ct, (monomorphic_ct == 1)? "carries" : "carry");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
+        if (unlikely((pcp->grm_min_maf < 0.0) && (min_typed_freq < instability_thresh))) {
+          logerrprintfww("Error: --pca/GRM construction is unreliable at very low minor allele frequencies, and the lowest remaining here is %g, under %g (a quarter of the inverse square root of the %u samples). Use --grm-maf <freq> to set a floor for this calculation alone, or \"--grm-maf <freq> yes-really\" to proceed anyway.\n", min_typed_freq, instability_thresh, sample_ct);
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
       }
       if ((pcp->command_flags1 & kfCommand1MakeRel) || keep_grm) {
@@ -7198,7 +7212,8 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* first_modif = argvk[arg_idx + 1];
-          if (unlikely(!ScantokDouble(first_modif, &pc.grm_min_maf))) {
+          const char* attached_mode = ScanadvDouble(first_modif, &pc.grm_min_maf);
+          if (unlikely(!attached_mode)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, first_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -7210,10 +7225,17 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: --%s argument '%s' too large (must be <= 1).\n", flagname_p, first_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          // ScantokDouble() only succeeds when the number is the whole token,
-          // so a mode selector is always a separate parameter, exactly as with
-          // --maf.
           uint32_t mode_seen = 0;
+          if (attached_mode[0] == ':') {
+            // bcftools freq:mode notation, as --maf accepts
+            if (unlikely(ParseFreqSelector(attached_mode, flagname_p, &pc.grm_maf_mode))) {
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            mode_seen = 1;
+          } else if (unlikely(attached_mode[0])) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, first_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
           for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             if (strequal_k(cur_modif, "yes-really", strlen(cur_modif))) {
@@ -9688,7 +9710,11 @@ int main(int argc, char** argv) {
           }
           if (param_ct) {
             const char* cur_modif = argvk[arg_idx + 1];
-            const char* mode_str = ScantokDouble(cur_modif, &pc.min_maf);
+            // ScanadvDouble() rather than ScantokDouble(), so that the
+          // bcftools freq:mode notation the help documents actually parses:
+          // ScantokDouble() requires the number to end the token, which makes
+          // the ':' branch below unreachable.
+          const char* mode_str = ScanadvDouble(cur_modif, &pc.min_maf);
             if (!mode_str) {
               pc.min_maf = 0.01;
               if (unlikely(param_ct == 2)) {
@@ -9742,7 +9768,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          const char* mode_str = ScantokDouble(cur_modif, &pc.max_maf);
+          const char* mode_str = ScanadvDouble(cur_modif, &pc.max_maf);
           if (unlikely(!mode_str)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-maf argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
@@ -9788,7 +9814,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
-          const char* mode_str = ScantokDouble(cur_modif, &dxx);
+          const char* mode_str = ScanadvDouble(cur_modif, &dxx);
           if (unlikely((!mode_str) || (dxx < 0.0) || (dxx > 2147483646.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mac argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
@@ -9836,7 +9862,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
-          const char* mode_str = ScantokDouble(cur_modif, &dxx);
+          const char* mode_str = ScanadvDouble(cur_modif, &dxx);
           if (unlikely((!mode_str) || (dxx < 0.0) || (dxx > 2147483646.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-mac argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
