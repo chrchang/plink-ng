@@ -3756,7 +3756,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_nm,
         if (unlikely(bigstack_alloc_w(raw_sample_ctl, &nonfemale_tmp))) {
           goto WriteGenoCounts_ret_NOMEM;
         }
-        BitvecXor3Copy(sample_include, sex_male, sex_nm, raw_sample_ct, nonfemale_tmp);
+        BitvecXor3Copy(sample_include, sex_male, sex_nm, raw_sample_ctl, nonfemale_tmp);
         sex_nonfemale = nonfemale_tmp;
       }
       FillCumulativePopcounts(sex_nonfemale, raw_sample_ctl, sex_nonfemale_cumulative_popcounts);
@@ -6566,7 +6566,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
 }
 
 void Unscramble2(uint32_t sample_ct, uint32_t* dst, uint32_t* unscramble_buf) {
-  const uint32_t acc2_vec_ct = NypCtToWordCt(sample_ct);
+  const uint32_t acc2_vec_ct = NypCtToVecCt(sample_ct);
   memcpy(unscramble_buf, dst, acc2_vec_ct * 16 * kBytesPerVec);
   for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
     const uint32_t scrambled_idx = VcountScramble2(sample_idx);

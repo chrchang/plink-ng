@@ -3766,7 +3766,7 @@ PglErr ValidateAndAllocCmpExpr(const char* const* sources, const char* flag_name
 
 // See e.g. meta_analysis_open_and_read_header() in plink 1.9.
 // Assumes at least one search term.
-PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_multistrs, const char* flagname_p, uint32_t search_col_ct, uint32_t* found_col_ct_ptr, uint32_t* found_type_bitset_ptr, uint32_t* col_skips, uint32_t* col_types) {
+PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_multistrs, const char* flag_nodash, uint32_t search_col_ct, uint32_t* found_col_ct_ptr, uint32_t* found_type_bitset_ptr, uint32_t* col_skips, uint32_t* col_types) {
   assert(search_col_ct <= 32);
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
@@ -3805,7 +3805,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
     assert(search_term_ct);
     const char* duplicate_search_term = FindSortedStrboxDuplicate(merged_strbox, search_term_ct, max_blen);
     if (unlikely(duplicate_search_term)) {
-      logerrprintfww("Error: Duplicate term '%s' in --%s column search order.\n", duplicate_search_term, flagname_p);
+      logerrprintfww("Error: Duplicate term '%s' in --%s column search order.\n", duplicate_search_term, flag_nodash);
       goto SearchHeaderLine_ret_INVALID_CMDLINE;
     }
 
@@ -3821,7 +3821,9 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
         const uint32_t priority_idx = cur_map_idx >> 5;
         if (priority_vals[search_col_idx] >= priority_idx) {
           if (unlikely(priority_vals[search_col_idx] == priority_idx)) {
-            logerrprintfww("Error: Duplicate column header '%s' in --%s file.\n", &(merged_strbox[max_blen * cur_map_idx]), flagname_p);
+            // cur_map_idx packs the search-column index and the priority
+            // index; ii is the merged_strbox entry that was actually matched.
+            logerrprintfww("Error: Duplicate column header '%s' in --%s file.\n", &(merged_strbox[max_blen * S_CAST(uint32_t, ii)]), flag_nodash);
             goto SearchHeaderLine_ret_MALFORMED_INPUT;
           }
           priority_vals[search_col_idx] = priority_idx;

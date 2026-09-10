@@ -3695,6 +3695,8 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
     }
     u16setsa(pmcp->info_missing_str, 0x2e2c, max_num);
     pmcp->info_missing_str[0] = '=';
+    // bugfix (9 Sep 2026): forgot to initialize pr_str
+    memcpy(pmcp->pr_str, "PR;==;=.;=,.,", strlen("PR;==;=.;=,.,"));
     pmcp->locked_missing_semicolon_str = &(pmcp->pr_str[3]);
     pmcp->missing_semicolon_str = &(pmcp->pr_str[6]);
     pmcp->locked_missing_comma_str = &(pmcp->pr_str[9]);
@@ -4577,27 +4579,28 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
                   }
                 }
               } else if (merge_info_mode != kMergeInfoCmModeFirst) {
-                uint32_t is_nonmissing = 0;
                 // Locked-missing string is "==" (or "=." when we don't need to
                 // generate a temporary .pvar).  This is the only way for
                 // basic_info_fields[kidx] == locked_missing_semicolon_str to
                 // be true.
                 const uint32_t value_slen = value_end - key_end;
                 if ((!basic_info_fields[kidx]) || ((merge_info_mode == kMergeInfoCmModeNmMatch) && (!memequal_k(basic_info_fields[kidx], locked_missing_semicolon_str, 3)))) {
+                  uint32_t is_nonmissing;
                   if (knum <= 1) {
                     is_nonmissing = (key_end[1] != '.') || (value_slen != 2);
                   } else {
                     is_nonmissing = (value_slen != S_CAST(uint32_t, knum) * 2) || (!memequal(key_end, info_missing_str, value_slen));
                   }
-                }
-                if (is_nonmissing) {
-                  if (!basic_info_fields[kidx]) {
-                    basic_info_fields[kidx] = key_end;
-                  } else {
-                    // set to locked-missing if unequal
-                    if (!memequal(key_end, basic_info_fields[kidx], value_slen + 1)) {
-                      // This may need to be postprocessed in the knum>1 case.
-                      basic_info_fields[kidx] = locked_missing_semicolon_str;
+                  if (is_nonmissing) {
+                    if (!basic_info_fields[kidx]) {
+                      basic_info_fields[kidx] = key_end;
+                    } else {
+                      // set to locked-missing if unequal
+                      if (!memequal(key_end, basic_info_fields[kidx], value_slen + 1)) {
+                        // This may need to be postprocessed in the knum>1
+                        // case.
+                        basic_info_fields[kidx] = locked_missing_semicolon_str;
+                      }
                     }
                   }
                 }
@@ -4920,15 +4923,13 @@ void CopyAndPermuteBitarr(const uintptr_t* __restrict read_bitarr, const uint32_
 }
 
 // Subset of CopyAndPermute8bit().
-void PermuteUpdate8bitDenseFromSparse(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t sample_ct, uint32_t val_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
-  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  ZeroWArr(sample_ctl, dst_subset);
+void PermuteUpdate8bitDenseFromSparse(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t src_popcount, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
   const unsigned char* src_vals_uc = S_CAST(const unsigned char*, src_vals);
   unsigned char* dst_vals_uc = S_CAST(unsigned char*, dst_vals);
 
   uintptr_t cur_bits = src_subset[0];
   uintptr_t old_sample_idx_base = 0;
-  for (uint32_t old_val_idx = 0; old_val_idx != val_ct; ++old_val_idx) {
+  for (uint32_t old_val_idx = 0; old_val_idx != src_popcount; ++old_val_idx) {
     const uint32_t old_sample_idx = BitIter1(src_subset, &old_sample_idx_base, &cur_bits);
     const uint32_t new_sample_idx = old_sample_idx_to_new[old_sample_idx];
     SetBit(new_sample_idx, dst_subset);
@@ -4936,25 +4937,30 @@ void PermuteUpdate8bitDenseFromSparse(const uintptr_t* __restrict src_subset, co
   }
 }
 
+// bugfix (9 Sep 2026): need to distinguish CopyAndPermute operations (which
+// first clear dst_subset) from PermuteUpdate
+static inline void CopyAndPermute8bitDense(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t new_sample_ct, uint32_t src_popcount, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
+  const uint32_t new_sample_ctl = BitCtToWordCt(new_sample_ct);
+  ZeroWArr(new_sample_ctl, dst_subset);
+  PermuteUpdate8bitDenseFromSparse(src_subset, src_vals, old_sample_idx_to_new, src_popcount, dst_subset, dst_vals);
+}
+
 // ok for dst_subset to be nullptr.
-void PermuteUpdate16bitDenseFromSparse(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t sample_ct, uint32_t val_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
-  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+void PermuteUpdate16bitDenseFromSparse(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t src_popcount, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
   const uint16_t* src_vals_u16 = S_CAST(const uint16_t*, src_vals);
   uint16_t* dst_vals_u16 = S_CAST(uint16_t*, dst_vals);
 
   uintptr_t cur_bits = src_subset[0];
   uintptr_t old_sample_idx_base = 0;
   if (dst_subset) {
-    // bugfix (15 May 2025): forgot to put this behind dst_subset != nullptr
-    ZeroWArr(sample_ctl, dst_subset);
-    for (uint32_t old_val_idx = 0; old_val_idx != val_ct; ++old_val_idx) {
+    for (uint32_t old_val_idx = 0; old_val_idx != src_popcount; ++old_val_idx) {
       const uint32_t old_sample_idx = BitIter1(src_subset, &old_sample_idx_base, &cur_bits);
       const uint32_t new_sample_idx = old_sample_idx_to_new[old_sample_idx];
       SetBit(new_sample_idx, dst_subset);
       dst_vals_u16[new_sample_idx] = src_vals_u16[old_val_idx];
     }
   } else {
-    for (uint32_t old_val_idx = 0; old_val_idx != val_ct; ++old_val_idx) {
+    for (uint32_t old_val_idx = 0; old_val_idx != src_popcount; ++old_val_idx) {
       const uint32_t old_sample_idx = BitIter1(src_subset, &old_sample_idx_base, &cur_bits);
       const uint32_t new_sample_idx = old_sample_idx_to_new[old_sample_idx];
       dst_vals_u16[new_sample_idx] = src_vals_u16[old_val_idx];
@@ -4962,10 +4968,18 @@ void PermuteUpdate16bitDenseFromSparse(const uintptr_t* __restrict src_subset, c
   }
 }
 
-void PermuteUpdateGenovec(const uintptr_t* __restrict r_genovec, const uint32_t* __restrict clobber_sample_idx_to_new, uint32_t clobber_sample_ct, uintptr_t* __restrict genovec) {
-  // possible todo: add most-common-geno optimization when clobber_sample_ct is
-  // sufficiently large.  That should be unlikely, though.
-  const uint32_t read_genoword_ct_m1 = (clobber_sample_ct - 1) / kBitsPerWordD2;
+void CopyAndPermute16bitDense(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t new_sample_ct, uint32_t src_popcount, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
+  if (dst_subset) {
+    const uint32_t new_sample_ctl = BitCtToWordCt(new_sample_ct);
+    ZeroWArr(new_sample_ctl, dst_subset);
+  }
+  PermuteUpdate16bitDenseFromSparse(src_subset, src_vals, old_sample_idx_to_new, src_popcount, dst_subset, dst_vals);
+}
+
+void PermuteUpdateGenovec(const uintptr_t* __restrict r_genovec, const uint32_t* __restrict clobber_sample_idx_to_new, uint32_t r_genovec_sample_ct, uintptr_t* __restrict genovec) {
+  // possible todo: add most-common-geno optimization when r_genovec_sample_ct
+  // is sufficiently large.  That should be unlikely, though.
+  const uint32_t read_genoword_ct_m1 = (r_genovec_sample_ct - 1) / kBitsPerWordD2;
   for (uint32_t widx = 0; ; ++widx) {
     // We know the existing genovec bits at the positions we're clobbering are
     // all set, so xor operations make sense here.
@@ -4974,7 +4988,7 @@ void PermuteUpdateGenovec(const uintptr_t* __restrict r_genovec, const uint32_t*
       if (widx > read_genoword_ct_m1) {
         break;
       }
-      geno_word_xor = bzhi_max(~(r_genovec[widx]), 2 * ModNz(clobber_sample_ct, kBitsPerWordD2));
+      geno_word_xor = bzhi_max(~(r_genovec[widx]), 2 * ModNz(r_genovec_sample_ct, kBitsPerWordD2));
     } else {
       geno_word_xor = ~(r_genovec[widx]);
     }
@@ -5476,9 +5490,9 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               }
             } else {
               if (!unlocked_ct) {
-                CopyAndPermute8bit(nullptr, pgvp->patch_01_set, pgvp->patch_01_vals, old_sample_idx_to_new, read_sample_ct, patch_01_ct, mwp->patch_01_set, mwp->patch_01_vals);
+                CopyAndPermute8bit(nullptr, pgvp->patch_01_set, pgvp->patch_01_vals, old_sample_idx_to_new, write_sample_ct, patch_01_ct, mwp->patch_01_set, mwp->patch_01_vals);
               } else {
-                PermuteUpdate8bitDenseFromSparse(pgvp->patch_01_set, pgvp->patch_01_vals, old_sample_idx_to_new, read_sample_ct, patch_01_ct, mwp->patch_01_set, mwp->patch_01_vals);
+                CopyAndPermute8bitDense(pgvp->patch_01_set, pgvp->patch_01_vals, old_sample_idx_to_new, write_sample_ct, patch_01_ct, mwp->patch_01_set, mwp->patch_01_vals);
               }
             }
           }
@@ -5493,9 +5507,9 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               }
             } else {
               if (!unlocked_ct) {
-                CopyAndPermute16bit(nullptr, pgvp->patch_10_set, pgvp->patch_10_vals, old_sample_idx_to_new, read_sample_ct, patch_10_ct, mwp->patch_10_set, mwp->patch_10_vals);
+                CopyAndPermute16bit(nullptr, pgvp->patch_10_set, pgvp->patch_10_vals, old_sample_idx_to_new, write_sample_ct, patch_10_ct, mwp->patch_10_set, mwp->patch_10_vals);
               } else {
-                PermuteUpdate16bitDenseFromSparse(pgvp->patch_10_set, pgvp->patch_10_vals, old_sample_idx_to_new, read_sample_ct, patch_10_ct, mwp->patch_10_set, mwp->patch_10_vals);
+                CopyAndPermute16bitDense(pgvp->patch_10_set, pgvp->patch_10_vals, old_sample_idx_to_new, write_sample_ct, patch_10_ct, mwp->patch_10_set, mwp->patch_10_vals);
               }
             }
           }
@@ -5521,9 +5535,9 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             }
           } else {
             if (!unlocked_ct) {
-              CopyAndPermute16bit(nullptr, pgvp->dosage_present, pgvp->dosage_main, old_sample_idx_to_new, read_sample_ct, dosage_ct, mwp->dosage_present, mwp->dosage_main);
+              CopyAndPermute16bit(nullptr, pgvp->dosage_present, pgvp->dosage_main, old_sample_idx_to_new, write_sample_ct, dosage_ct, mwp->dosage_present, mwp->dosage_main);
             } else {
-              PermuteUpdate16bitDenseFromSparse(pgvp->dosage_present, pgvp->dosage_main, old_sample_idx_to_new, read_sample_ct, dosage_ct, nullptr, mwp->dosage_main);
+              CopyAndPermute16bitDense(pgvp->dosage_present, pgvp->dosage_main, old_sample_idx_to_new, write_sample_ct, dosage_ct, nullptr, mwp->dosage_main);
             }
           }
           dphase_ct = pgvp->dphase_ct;
@@ -5537,9 +5551,9 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
               }
             } else {
               if (!unlocked_ct) {
-                CopyAndPermute16bit(nullptr, pgvp->dphase_present, pgvp->dphase_delta, old_sample_idx_to_new, read_sample_ct, dphase_ct, mwp->dphase_present, mwp->dphase_delta);
+                CopyAndPermute16bit(nullptr, pgvp->dphase_present, pgvp->dphase_delta, old_sample_idx_to_new, write_sample_ct, dphase_ct, mwp->dphase_present, mwp->dphase_delta);
               } else {
-                PermuteUpdate16bitDenseFromSparse(pgvp->dphase_present, pgvp->dphase_delta, old_sample_idx_to_new, read_sample_ct, dphase_ct, mwp->dphase_present, mwp->dphase_delta);
+                CopyAndPermute16bitDense(pgvp->dphase_present, pgvp->dphase_delta, old_sample_idx_to_new, write_sample_ct, dphase_ct, mwp->dphase_present, mwp->dphase_delta);
               }
             }
           }
@@ -5775,7 +5789,8 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         //     clobber_pgvp can be modified after pointing to pgvp above, that
         //     can only happen when clobber_sample_ct == read_sample_ct.)
         // 1b. Perform the following word-based comparisons, incrementally
-        //     updating compare_mask:
+        //     clearing compare_mask bits as nonmissing-nonmissing mismatches
+        //     are found:
         //       (2->1)(compare_pgvp->genovec ^ genovec) & compare_mask
         //       if r_patch_01_ct:
         //         (compare_pgvp->patch_01_set ^ patch_01_set) & compare_mask
@@ -5819,8 +5834,11 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           if (!compare_mask_hw) {
             continue;
           }
-          const uintptr_t diff_bits = r_genovec[widx] ^ genovec[widx];
-          const Halfword diff_hw = PackWordToHalfwordMask5555(diff_bits | (diff_bits >> 1));
+          // bugfix (9 Sep 2026): diff_bits must exclude missing entries in
+          // r_genovec
+          const uintptr_t new_geno_word = r_genovec[widx];
+          const uintptr_t diff_bits = new_geno_word ^ genovec[widx];
+          const Halfword diff_hw = PackWordToHalfwordMask5555((diff_bits | (diff_bits >> 1)) & (~(new_geno_word & (new_geno_word >> 1))));
           compare_mask_hwalias[widx] = compare_mask_hw & (~diff_hw);
         }
         // possible todo: check if performance gain from switching to single
@@ -5839,8 +5857,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           if (pgvp->patch_01_ct) {
             uintptr_t* r_patch_01_set = compare_pgvp->patch_01_set;
             AlleleCode* r_patch_01_dense = compare_pgvp->patch_01_vals;
-            ZeroWArr(write_sample_ctl, r_patch_01_set);
-            PermuteUpdate8bitDenseFromSparse(pgvp->patch_01_set, pgvp->patch_01_vals, old_sample_idx_to_new, read_sample_ct, pgvp->patch_01_ct, r_patch_01_set, r_patch_01_dense);
+            CopyAndPermute8bitDense(pgvp->patch_01_set, pgvp->patch_01_vals, old_sample_idx_to_new, write_sample_ct, pgvp->patch_01_ct, r_patch_01_set, r_patch_01_dense);
             Compare8bitDense(r_patch_01_set, r_patch_01_dense, patch_01_set, patch_01_dense, write_sample_ctl, compare_mask);
             if (clobber_sample_ct) {
               Update8bitDense(clobber_sample_span, r_patch_01_set, r_patch_01_dense, write_sample_ctl, patch_01_set, patch_01_dense);
@@ -5854,8 +5871,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           if (pgvp->patch_10_ct) {
             uintptr_t* r_patch_10_set = compare_pgvp->patch_10_set;
             AlleleCode* r_patch_10_dense = compare_pgvp->patch_10_vals;
-            ZeroWArr(write_sample_ctl, r_patch_10_set);
-            PermuteUpdate16bitDenseFromSparse(pgvp->patch_10_set, pgvp->patch_10_vals, old_sample_idx_to_new, read_sample_ct, pgvp->patch_10_ct, r_patch_10_set, r_patch_10_dense);
+            CopyAndPermute16bitDense(pgvp->patch_10_set, pgvp->patch_10_vals, old_sample_idx_to_new, write_sample_ct, pgvp->patch_10_ct, r_patch_10_set, r_patch_10_dense);
             Compare16bitDense(r_patch_10_set, r_patch_10_dense, patch_10_set, patch_10_dense, write_sample_ctl, compare_mask);
             if (clobber_sample_ct) {
               Update16bitDense(clobber_sample_span, r_patch_10_set, r_patch_10_dense, write_sample_ctl, patch_10_set, patch_10_dense);
@@ -5901,8 +5917,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           if (pgvp->dosage_ct) {
             uintptr_t* r_dosage_present = compare_pgvp->dosage_present;
             uint16_t* r_dosage_dense = compare_pgvp->dosage_main;
-            ZeroWArr(write_sample_ctl, r_dosage_present);
-            PermuteUpdate16bitDenseFromSparse(pgvp->dosage_present, pgvp->dosage_main, old_sample_idx_to_new, read_sample_ct, pgvp->dosage_ct, r_dosage_present, r_dosage_dense);
+            CopyAndPermute16bitDense(pgvp->dosage_present, pgvp->dosage_main, old_sample_idx_to_new, write_sample_ct, pgvp->dosage_ct, r_dosage_present, r_dosage_dense);
             Compare16bitDense(r_dosage_present, r_dosage_dense, dosage_present, dosage_dense, write_sample_ctl, compare_mask);
             if (clobber_sample_ct) {
               Update16bitDense(clobber_sample_span, r_dosage_present, r_dosage_dense, write_sample_ctl, dosage_present, dosage_dense);
@@ -5914,8 +5929,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             if (pgvp->dphase_ct) {
               uintptr_t* r_dphase_present = compare_pgvp->dphase_present;
               int16_t* r_dphase_dense = compare_pgvp->dphase_delta;
-              ZeroWArr(write_sample_ctl, r_dphase_present);
-              PermuteUpdate16bitDenseFromSparse(pgvp->dphase_present, pgvp->dphase_delta, old_sample_idx_to_new, read_sample_ct, pgvp->dphase_ct, r_dphase_present, r_dphase_dense);
+              CopyAndPermute16bitDense(pgvp->dphase_present, pgvp->dphase_delta, old_sample_idx_to_new, write_sample_ct, pgvp->dphase_ct, r_dphase_present, r_dphase_dense);
               Compare16bitDense(r_dphase_present, r_dphase_dense, dphase_present, dphase_dense, write_sample_ctl, compare_mask);
               if (clobber_sample_ct) {
                 Update16bitDense(clobber_sample_span, r_dphase_present, r_dphase_dense, write_sample_ctl, dosage_present, dosage_dense);
@@ -6007,9 +6021,9 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
             PermuteUpdateHphase(clobber_pgvp->phasepresent, clobber_pgvp->phaseinfo, clobber_sample_idx_to_new, r_phasepresent_ct, phasepresent, phaseinfo);
           }
           if (r_dosage_ct) {
-            PermuteUpdate16bitDenseFromSparse(clobber_pgvp->dosage_present, clobber_pgvp->dosage_main, clobber_sample_idx_to_new, clobber_sample_ct, r_dosage_ct, dosage_present, dosage_dense);
+            PermuteUpdate16bitDenseFromSparse(clobber_pgvp->dosage_present, clobber_pgvp->dosage_main, clobber_sample_idx_to_new, r_dosage_ct, dosage_present, dosage_dense);
             if (r_dphase_ct) {
-              PermuteUpdate16bitDenseFromSparse(clobber_pgvp->dphase_present, clobber_pgvp->dphase_delta, clobber_sample_idx_to_new, clobber_sample_ct, r_dosage_ct, dphase_present, dphase_dense);
+              PermuteUpdate16bitDenseFromSparse(clobber_pgvp->dphase_present, clobber_pgvp->dphase_delta, clobber_sample_idx_to_new, r_dphase_ct, dphase_present, dphase_dense);
             }
           }
         } else {
@@ -6047,10 +6061,10 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           }
           PermuteUpdateGenovec(r_genovec, clobber_sample_idx_to_new, clobber_sample_ct, genovec);
           if (r_patch_01_ct) {
-            PermuteUpdate8bitDenseFromSparse(r_patch_01_set, r_patch_01_vals, clobber_sample_idx_to_new, clobber_sample_ct, r_patch_01_ct, patch_01_set, patch_01_dense);
+            PermuteUpdate8bitDenseFromSparse(r_patch_01_set, r_patch_01_vals, clobber_sample_idx_to_new, r_patch_01_ct, patch_01_set, patch_01_dense);
           }
           if (r_patch_10_ct) {
-            PermuteUpdate16bitDenseFromSparse(r_patch_10_set, r_patch_10_vals, clobber_sample_idx_to_new, clobber_sample_ct, r_patch_10_ct, patch_10_set, patch_10_dense);
+            PermuteUpdate16bitDenseFromSparse(r_patch_10_set, r_patch_10_vals, clobber_sample_idx_to_new, r_patch_10_ct, patch_10_set, patch_10_dense);
           }
           if (r_phasepresent_ct) {
             PermuteUpdateHphase(clobber_pgvp->phasepresent, clobber_pgvp->phaseinfo, clobber_sample_idx_to_new, r_phasepresent_ct, phasepresent, phaseinfo);

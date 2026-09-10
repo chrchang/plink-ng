@@ -1988,9 +1988,9 @@ void CopyDosage(const uintptr_t* __restrict read_dosagepresent, const Dosage* re
   memcpy(write_dosagevals, read_dosagevals, dosage_ct * sizeof(Dosage));
 }
 
-uint32_t CopyAndPermute8bit(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t sample_ct, uint32_t val_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
-  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  ZeroWArr(sample_ctl, dst_subset);
+uint32_t CopyAndPermute8bit(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t new_sample_ct, uint32_t val_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
+  const uint32_t new_sample_ctl = BitCtToWordCt(new_sample_ct);
+  ZeroWArr(new_sample_ctl, dst_subset);
   const unsigned char* src_vals_uc = S_CAST(const unsigned char*, src_vals);
   unsigned char* dst_vals_uc = S_CAST(unsigned char*, dst_vals);
 
@@ -2029,9 +2029,9 @@ uint32_t CopyAndPermute8bit(const uintptr_t* __restrict sample_include, const ui
   return new_val_ct;
 }
 
-uint32_t CopyAndPermute16bit(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t sample_ct, uint32_t val_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
-  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  ZeroWArr(sample_ctl, dst_subset);
+uint32_t CopyAndPermute16bit(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t new_sample_ct, uint32_t val_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
+  const uint32_t new_sample_ctl = BitCtToWordCt(new_sample_ct);
+  ZeroWArr(new_sample_ctl, dst_subset);
   const uint16_t* src_vals_u16 = S_CAST(const uint16_t*, src_vals);
   uint16_t* dst_vals_u16 = S_CAST(uint16_t*, dst_vals);
 

@@ -675,7 +675,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uint32_t col_types[9];
     uint32_t relevant_col_ct;
     uint32_t found_type_bitset;
-    reterr = SearchHeaderLine(header_start, col_search_order, "--adjust-file", 9, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+    reterr = SearchHeaderLine(header_start, col_search_order, "adjust-file", 9, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
     if (unlikely(reterr)) {
       goto AdjustFile_ret_1;
     }

@@ -716,12 +716,13 @@ PglErr ExportPed(const char* outname, const uintptr_t* orig_sample_include, cons
 
     char* writebuf = g_textbuf;
     if (!multichar_allele_present) {
-      // Inner loop writes kBitsPerWordD4 genotypes at a time, and we just move
-      // the write pointer backward at the end if the last block is short.
-      // So, to avoid possibly copying uninitialized memory, we initialize
-      // geno_pair_matrix up to variant_idx_end/2 instead of just
-      // (variant_ct+1)/2.
-      const uint32_t variant_idx_end = RoundUpPow2(variant_ct, kBitsPerWordD4);
+      // Inner loop writes kBitsPerWordD4 genotype pairs at a time, i.e. a
+      // whole kBitsPerWordD2-genotype word, and we just move the write pointer
+      // backward at the end if the last block is short.  So, to avoid possibly
+      // copying uninitialized memory, we initialize geno_pair_matrix up to
+      // variant_idx_end/2 instead of just (variant_ct+1)/2, rounding up to the
+      // word granularity the loop actually walks.
+      const uint32_t variant_idx_end = RoundUpPow2(variant_ct, kBitsPerWordD2);
       const uint32_t geno_pair_alloc_ct = variant_idx_end / 2;
       char* geno_pair_matrix_start;
       if (unlikely(bigstack_alloc_c(geno_pair_alloc_ct * ((128 - 32 * compound_genotypes) * k1LU), &geno_pair_matrix_start))) {

@@ -7688,7 +7688,7 @@ PglErr ClumpReports(const uintptr_t* orig_variant_include, const ChrInfo* cip, c
       uint32_t col_types[4];
       uint32_t relevant_col_ct;
       uint32_t found_type_bitset;
-      reterr = SearchHeaderLine(header_start, col_search_order, "--clump", 4, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+      reterr = SearchHeaderLine(header_start, col_search_order, "clump", 4, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
       if (unlikely(reterr)) {
         goto ClumpReports_ret_1;
       }
