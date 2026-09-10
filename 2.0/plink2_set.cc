@@ -795,7 +795,7 @@ HEADER_INLINE uintptr_t GeneReportRecordSize(uintptr_t id_slen) {
   return RoundUpPow2(kGeneReportRecordHeaderSize + id_slen, 8);
 }
 
-PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, const char* extract_fnames, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   const char* report_fname = grip->report_fname;
@@ -830,6 +830,20 @@ PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, double ln_pfil
       goto GeneReport_ret_1;
     }
     BigstackEndReset(bigstack_end_mark);
+    // --extract restricts which variants of the report are considered, as in
+    // PLINK 1.x.  There is no dataset on this code path, so it cannot go
+    // through the usual variant_include filtering and is applied to the report
+    // rows directly.  This must be loaded after the BigstackEndReset() above,
+    // since the box has to survive until the report is scanned.
+    char* sorted_extract_ids = nullptr;
+    uintptr_t extract_id_ct = 0;
+    uintptr_t max_extract_id_blen = 0;
+    if (extract_fnames) {
+      reterr = LoadSortedIdBox(extract_fnames, "--extract file", max_thread_ct, &sorted_extract_ids, &extract_id_ct, &max_extract_id_blen);
+      if (unlikely(reterr)) {
+        goto GeneReport_ret_1;
+      }
+    }
     if (unlikely(gene_ct > 0x80000000LLU)) {
       snprintf(g_logbuf, kLogbufSize, "Error: Too many genes in %s (--gene-report can only handle 2147483648).\n", grip->glist_fname);
       goto GeneReport_ret_MALFORMED_INPUT_WW;
@@ -968,6 +982,9 @@ PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, double ln_pfil
         }
       }
       const uintptr_t id_slen = token_slens[2];
+      if (extract_id_ct && (bsearch_strbox(token_ptrs[2], sorted_extract_ids, id_slen, max_extract_id_blen, extract_id_ct) == -1)) {
+        continue;
+      }
       const uintptr_t record_size = GeneReportRecordSize(id_slen);
       if (unlikely(S_CAST(uintptr_t, R_CAST(unsigned char*, match_list) - record_iter) < record_size + chr_max_gene_ct * sizeof(int64_t))) {
         goto GeneReport_ret_NOMEM;
