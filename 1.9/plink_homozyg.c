@@ -1291,15 +1291,19 @@ void assign_allelic_match_groups(uint32_t pool_size, uint32_t* allelic_match_cts
 	tri_coord = tri_coord_no_diag(main_slot_idx, slot_idx2);
       }
       if (IS_SET(allelic_match_matrix, tri_coord)) {
+	// Groups are assigned greedily, in decreasing order of NSIM, so an ROH
+	// which already belongs to a group must stay in it.  Otherwise a
+	// later, lower-NSIM group steals members from an earlier one, and the
+	// earlier group ends up with fewer than NSIM + 1 entries.
 	if (allelic_match_cts[pool_idx] != 0xffffffffU) {
 	  nsim_nz_ct--;
 	  allelic_match_cts[pool_idx] = 0xffffffffU;
-	}
 #ifdef __LP64__
-        cur_pool[pool_idx] = (cur_pool[pool_idx] & 0xffffffff00000000LLU) | group_idx;
+	  cur_pool[pool_idx] = (cur_pool[pool_idx] & 0xffffffff00000000LLU) | group_idx;
 #else
-        cur_pool[2 * pool_idx] = group_idx;
+	  cur_pool[2 * pool_idx] = group_idx;
 #endif
+	}
       }
     }
 #ifdef __LP64__
