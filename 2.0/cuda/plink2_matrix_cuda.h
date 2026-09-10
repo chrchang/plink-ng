@@ -1,8 +1,8 @@
 #ifndef __PLINK2_MATRIX_CUDA_H__
 #define __PLINK2_MATRIX_CUDA_H__
 
-// This file is part of PLINK 2.00, copyright (C) 2005-2026 Shaun Purcell,
-// Christopher Chang.
+// This file is part of PLINK 2.0, copyright (C) 2005-2026 Shaun Purcell,
+// Christopher Chang, Benjamin Demaille.
 //
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by the Free
