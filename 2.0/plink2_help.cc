@@ -2554,6 +2554,27 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --keep-col-match-name <col name> : Check column with given name instead.\n"
 "  --keep-col-match-num <n>         : Check nth column instead.\n"
                );
+    HelpPrint("attrib\0attrib-indiv\0", &help_ctrl, 0,
+"  --attrib <f> [attribute list]\n"
+"  --attrib-indiv <f> [attr list] : Given a file which assigns attributes to\n"
+"                                   variants (--attrib) or samples\n"
+"                                   (--attrib-indiv), and a comma-delimited\n"
+"                                   list of attribute names (with no\n"
+"                                   whitespace), exclude variants/samples\n"
+"                                   which are either missing from the file or\n"
+"                                   have none of the listed attributes.\n"
+"                                   Names preceded by \'-\' are negative match\n"
+"                                   conditions instead: an item with at least\n"
+"                                   one of them is excluded.  The list cannot\n"
+"                                   start with \'-\', since the command-line\n"
+"                                   parser would treat that as a flag; put a\n"
+"                                   comma in front to get around this.\n"
+"                                   When no list is given, every variant or\n"
+"                                   sample named in the file is kept.\n"
+"                                   The --attrib file has variant IDs in the\n"
+"                                   first column; the --attrib-indiv file has\n"
+"                                   sample IDs in the usual leading columns.\n"
+               );
     HelpPrint("geno\0mind\0oblig-clusters\0oblig-missing\0", &help_ctrl, 0,
 "  --geno [val] [{dosage | hh-missing}]\n"
 "  --mind [val] [{dosage | hh-missing}] : \n"
