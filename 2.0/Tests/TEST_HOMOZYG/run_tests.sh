@@ -142,3 +142,32 @@ diff -q plink2.hom plink2_zs.hom
 # 7. cols= drops the columns it doesn't name.
 $1/plink2 $2 $3 --bfile tmp_data --homozyg cols=chrom,pos,nsnp --homozyg-min-af 0 --out plink2_cols
 head -n 1 plink2_cols.hom | grep -qx '#IID	CHROM	ID1	ID2	POS1	POS2	NSNP'
+
+# 8. 'group' pool report.  PLINK 1.9's --homozyg group aborts on an assertion
+#    for these inputs, so this checks the report against itself rather than
+#    against 1.9: the pool structure has enough internal redundancy to catch
+#    the mistakes that matter.
+$1/plink2 $2 $3 --bfile tmp_data --homozyg group --homozyg-min-af 0 --out plink2_pool
+head -n 1 plink2_pool.hom.overlap | grep -qx '#POOL	FID	IID	CHROM	ID1	ID2	POS1	POS2	KB	NSNP	NSIM	GRP'
+grep -q '6 pools of overlapping ROH present' plink2_pool.log
+python3 check_pool.py plink2_pool.hom.overlap plink2_pool.hom 6
+
+# 'consensus-match' changes which runs are grouped together, but has to stay
+# internally consistent too.
+$1/plink2 $2 $3 --bfile tmp_data --homozyg group consensus-match --homozyg-min-af 0 --out plink2_poolcm
+python3 check_pool.py plink2_poolcm.hom.overlap plink2_poolcm.hom 6
+
+# --pool-size drops the pools below it.
+$1/plink2 $2 $3 --bfile tmp_data --homozyg group --pool-size 4 --homozyg-min-af 0 --out plink2_pool4
+awk -F'\t' '$2 == "CON" && $3 < 4 { print "pool smaller than --pool-size present"; exit 1 }' plink2_pool4.hom.overlap
+test "$(awk -F'\t' '$2 == "CON"' plink2_pool4.hom.overlap | wc -l)" -lt 6
+
+# A --pool-size nothing reaches leaves no report at all.
+$1/plink2 $2 $3 --bfile tmp_data --homozyg group --pool-size 30 --homozyg-min-af 0 --out plink2_pool30
+grep -q 'No pools of 30 or more' plink2_pool30.log
+test ! -e plink2_pool30.hom.overlap
+
+# --homozyg-match 1 demands perfect concordance, so it cannot group more runs
+# together than the default threshold does.
+$1/plink2 $2 $3 --bfile tmp_data --homozyg group --homozyg-match 1 --homozyg-min-af 0 --out plink2_poolm1
+python3 check_pool.py plink2_poolm1.hom.overlap plink2_poolm1.hom 6

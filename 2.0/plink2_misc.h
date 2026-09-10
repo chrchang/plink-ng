@@ -237,6 +237,9 @@ FLAGSET_DEF_START()
   kfHomozyg0,
   kfHomozygOldLengths = (1 << 0),
   kfHomozygZs = (1 << 1),
+  kfHomozygGroup = (1 << 21),
+  kfHomozygGroupVerbose = (1 << 22),
+  kfHomozygConsensusMatch = (1 << 23),
 
   kfHomozygColMaybefid = (1 << 2),
   kfHomozygColFid = (1 << 3),
@@ -262,6 +265,9 @@ FLAGSET_DEF_END(HomozygFlags);
 
 typedef struct HomozygInfoStruct {
   HomozygFlags flags;
+  // pool reports
+  double overlap_min;
+  uint32_t pool_size_min;
   uint32_t min_snp;
   uint32_t min_bases;
   double min_af;

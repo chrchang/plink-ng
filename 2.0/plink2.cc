@@ -7605,7 +7605,7 @@ int main(int argc, char** argv) {
 
       case 'h':
         if (strequal_k_unsafe(flagname_p2, "omozyg")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -7624,9 +7624,11 @@ int main(int argc, char** argv) {
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
-            } else if (unlikely(strequal_k(cur_modif, "group", cur_modif_slen) ||
-                                strequal_k(cur_modif, "group-verbose", cur_modif_slen) ||
-                                strequal_k(cur_modif, "consensus-match", cur_modif_slen) ||
+            } else if (strequal_k(cur_modif, "group", cur_modif_slen)) {
+              pc.homozyg_info.flags |= kfHomozygGroup;
+            } else if (strequal_k(cur_modif, "consensus-match", cur_modif_slen)) {
+              pc.homozyg_info.flags |= kfHomozygConsensusMatch;
+            } else if (unlikely(strequal_k(cur_modif, "group-verbose", cur_modif_slen) ||
                                 strequal_k(cur_modif, "extend", cur_modif_slen))) {
               snprintf(g_logbuf, kLogbufSize, "Error: --homozyg \'%s\' modifier is not implemented yet.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -7684,6 +7686,21 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.homozyg_info.min_af = dxx;
+          if (!(pc.command_flags1 & kfCommand1Homozyg)) {
+            pc.command_flags1 |= kfCommand1Homozyg;
+            pc.filter_flags |= kfFilterAllReq;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "omozyg-match")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          double dxx;
+          if (unlikely((!ScantokDouble(cur_modif, &dxx)) || (dxx <= 0.0) || (dxx > 1.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --homozyg-match argument '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.homozyg_info.overlap_min = dxx;
           if (!(pc.command_flags1 & kfCommand1Homozyg)) {
             pc.command_flags1 |= kfCommand1Homozyg;
             pc.filter_flags |= kfFilterAllReq;
@@ -10862,7 +10879,22 @@ int main(int argc, char** argv) {
         break;
 
       case 'p':
-        if (strequal_k_unsafe(flagname_p2, "file")) {
+        if (strequal_k_unsafe(flagname_p2, "ool-size")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          uint32_t uii;
+          if (unlikely(ScanUintCappedx(cur_modif, 0x7ffffffe, &uii) || (uii < 2))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --pool-size argument '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.homozyg_info.pool_size_min = uii;
+          if (!(pc.command_flags1 & kfCommand1Homozyg)) {
+            pc.command_flags1 |= kfCommand1Homozyg;
+            pc.filter_flags |= kfFilterAllReq;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "file")) {
           if (unlikely(load_params || xload)) {
             // currently only possible with --bcf, --bfile, --pfile
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
