@@ -682,6 +682,10 @@ typedef struct Plink2CmdlineStruct {
   char* require_no_info_flattened;
   char* make_pheno_fname;
   char* make_pheno_val;
+  char* attrib_fname;
+  char* attrib_liststr;
+  char* attrib_sample_fname;
+  char* attrib_sample_liststr;
   char* keep_col_match_fname;
   char* keep_col_match_flattened;
   char* keep_col_match_name;
@@ -1644,7 +1648,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
     }
     const uint32_t htable_needed_early = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct);
-    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_cm_flag || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params || (pcp->flip_info.fname && (!pcp->flip_info.subset_fname)));
+    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_cm_flag || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params || pcp->attrib_fname || (pcp->flip_info.fname && (!pcp->flip_info.subset_fname)));
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, pcp->bed_border_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1785,6 +1789,14 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_1;
           }
         }
+        // Not a "standard" file format, but it can be more convenient than
+        // forcing users to generate full-blown sites-only VCF files, etc.
+        if (pcp->attrib_fname) {
+          reterr = AttribFilter(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->attrib_fname, pcp->attrib_liststr, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, &variant_ct);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
         if (pcp->rmdup_mode != kRmDup0) {
           reterr = RmDup(sample_include, cip, variant_bps, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, allele_idx_offsets, TO_CONSTCPCONSTP(allele_storage_mutable), pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->missing_varid_match, raw_sample_ct, sample_ct, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, dup_ct, pcp->rmdup_mode, (pcp->command_flags1 / kfCommand1RmDupList) & 1, pcp->max_thread_ct, pgenname[0]? (&simple_pgr) : nullptr, variant_include, &variant_ct, outname, outname_end);
           if (reterr || (!(pcp->command_flags1 & (~(kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList))))) {
@@ -1800,10 +1812,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
       }
-
-      // todo: --attrib; although it isn't a "standard" file format, it can be
-      // more convenient than forcing users to generate full-blown sites-only
-      // VCF files, etc.
     }
     // variant_ids[] is fixed from this point on.
     const char* const* variant_ids = TO_CONSTCPCONSTP(variant_ids_mutable);
@@ -1905,7 +1913,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         KeepOneId(pcp->indv_str, &pii.sii, raw_sample_ct, (pcp->misc_flags / kfMiscIidSid) & 1, sample_include, &sample_ct);
       }
 
-      // todo: --attrib-indiv
+      if (pcp->attrib_sample_fname) {
+        reterr = AttribFilterSample(pcp->attrib_sample_fname, pcp->attrib_sample_liststr, &pii.sii, raw_sample_ct, sample_include, &sample_ct);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
 
       if (pcp->keep_col_match_fname) {
         reterr = KeepColMatch(pcp->keep_col_match_fname, &pii.sii, pcp->keep_col_match_flattened, pcp->keep_col_match_name, raw_sample_ct, pcp->keep_col_match_num, sample_include, &sample_ct);
@@ -4214,6 +4227,10 @@ int main(int argc, char** argv) {
   pc.require_no_info_flattened = nullptr;
   pc.make_pheno_fname = nullptr;
   pc.make_pheno_val = nullptr;
+  pc.attrib_fname = nullptr;
+  pc.attrib_liststr = nullptr;
+  pc.attrib_sample_fname = nullptr;
+  pc.attrib_sample_liststr = nullptr;
   pc.keep_col_match_fname = nullptr;
   pc.keep_col_match_flattened = nullptr;
   pc.keep_col_match_name = nullptr;
@@ -4846,6 +4863,36 @@ int main(int argc, char** argv) {
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "llow-no-vars"))) {
           logerrputs("Error: --allow-no-vars is retired.  (If you are performing a set of operations\nwhich doesn't require variant information, the variant file won't be loaded at\nall.)\n");
           goto main_ret_INVALID_CMDLINE;
+        } else if (strequal_k_unsafe(flagname_p2, "ttrib")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.attrib_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          if (param_ct == 2) {
+            reterr = CmdlineAllocString(argvk[arg_idx + 2], argvk[arg_idx], 0x7ffffff0, &pc.attrib_liststr);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          pc.filter_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ttrib-indiv")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.attrib_sample_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          if (param_ct == 2) {
+            reterr = CmdlineAllocString(argvk[arg_idx + 2], argvk[arg_idx], 0x7ffffff0, &pc.attrib_sample_liststr);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "djust")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -15277,6 +15324,10 @@ int main(int argc, char** argv) {
   free_cond(pc.keep_col_match_flattened);
   free_cond(pc.make_pheno_fname);
   free_cond(pc.make_pheno_val);
+  free_cond(pc.attrib_fname);
+  free_cond(pc.attrib_liststr);
+  free_cond(pc.attrib_sample_fname);
+  free_cond(pc.attrib_sample_liststr);
   free_cond(pc.keep_col_match_fname);
   free_cond(pc.require_no_info_flattened);
   free_cond(pc.require_info_flattened);
