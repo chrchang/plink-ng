@@ -1699,7 +1699,11 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
           if (slot_idx1 == max_pool_size) {
 	    break;
 	  }
-          clear_bits((((uintptr_t)slot_idx1) * (slot_idx1 - 1)) / 2, slot_idx1, allelic_match_matrix);
+          // slot 0's row of the triangular matrix is empty, and clear_bits()
+          // requires a nonzero length.
+          if (slot_idx1) {
+            clear_bits((((uintptr_t)slot_idx1) * (slot_idx1 - 1)) / 2, slot_idx1, allelic_match_matrix);
+          }
           slot_idx1++;
 	}
       } else {
@@ -1714,7 +1718,9 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	if (roh_slot_end_uidx[slot_idx1] <= con_uidx2) {
           CLEAR_BIT(slot_idx1, roh_slot_occupied);
           if (!is_consensus_match) {
-            clear_bits((((uintptr_t)slot_idx1) * (slot_idx1 - 1)) / 2, slot_idx1, allelic_match_matrix);
+            if (slot_idx1) {
+              clear_bits((((uintptr_t)slot_idx1) * (slot_idx1 - 1)) / 2, slot_idx1, allelic_match_matrix);
+            }
 	    slot_idx2 = slot_idx1;
 	    while (1) {
               slot_idx2 = next_set(roh_slot_occupied, slot_idx2 + 1, max_pool_size);
