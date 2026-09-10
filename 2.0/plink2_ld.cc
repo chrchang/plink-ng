@@ -13894,6 +13894,613 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
 // fixed-width output anywhere else, so this is a table instead, and the
 // marginals are left to the reader since every count that produces them is
 // present.
+void InitEpi(EpiInfo* epi_ip) {
+  epi_ip->flags = kfEpi0;
+  epi_ip->epi1 = 1e-4;
+  epi_ip->epi2 = 0.01;
+  epi_ip->gap_kb = 1000;
+}
+
+// --fast-epistasis: PLINK 1.07's allele-based interaction test, with the
+// variance and empty-cell corrections from Ueki M, Cordell HJ (2012) Improved
+// statistics for genome-wide interaction analysis.
+//
+// For one pair of variants and one group of samples, the 3x3 joint genotype
+// table collapses to a 2x2 allele table, and the statistic is the difference
+// between the case and control log odds ratios divided by the square root of
+// the summed variances.  'case-only' drops the control term.
+//
+// counts_3x3 is laid out as [geno1 * 3 + geno2], with geno counted in ALT
+// alleles.  Swapping a variant's REF and ALT swaps rows or columns in pairs,
+// which inverts the odds ratio and so only flips the sign of the difference;
+// the reported chi-square statistic does not depend on allele coding.
+static void FepiCountsToStats(const uint32_t* counts_3x3, uint32_t no_ueki, double* lnor_ptr, double* var_ptr) {
+  double c11 = u31tod(4 * counts_3x3[0] + 2 * (counts_3x3[1] + counts_3x3[3]) + counts_3x3[4]);
+  double c12 = u31tod(4 * counts_3x3[2] + 2 * (counts_3x3[1] + counts_3x3[5]) + counts_3x3[4]);
+  double c21 = u31tod(4 * counts_3x3[6] + 2 * (counts_3x3[3] + counts_3x3[7]) + counts_3x3[4]);
+  double c22 = u31tod(4 * counts_3x3[8] + 2 * (counts_3x3[5] + counts_3x3[7]) + counts_3x3[4]);
+  if (no_ueki) {
+    const double rc11 = 1.0 / c11;
+    const double rc12 = 1.0 / c12;
+    const double rc21 = 1.0 / c21;
+    const double rc22 = 1.0 / c22;
+    *lnor_ptr = log(c11 * c22 * rc12 * rc21);
+    *var_ptr = rc11 + rc12 + rc21 + rc22;
+    return;
+  }
+  // The empty-cell correction only kicks in when some 3x3 cell is empty.
+  const uint32_t no_adj = (counts_3x3[0] && counts_3x3[1] && counts_3x3[2] && counts_3x3[3] && counts_3x3[4] && counts_3x3[5] && counts_3x3[6] && counts_3x3[7] && counts_3x3[8]);
+  const double adj = no_adj? 0.0 : 4.5;
+  c11 += adj;
+  c12 += adj;
+  c21 += adj;
+  c22 += adj;
+  double rc11 = 1.0 / c11;
+  double rc12 = 1.0 / c12;
+  double rc21 = 1.0 / c21;
+  double rc22 = 1.0 / c22;
+  *lnor_ptr = log(c11 * c22 * rc12 * rc21);
+
+  double d2 = rc11 - rc12;
+  double d3 = rc11 - rc21;
+  double d5 = rc11 - rc12 - rc21 + rc22;
+  double d6 = rc22 - rc12;
+  double d8 = rc22 - rc21;
+  rc11 *= rc11;
+  rc12 *= rc12;
+  rc21 *= rc21;
+  rc22 *= rc22;
+  d2 *= d2;
+  d3 *= d3;
+  d5 *= d5;
+  d6 *= d6;
+  d8 *= d8;
+  const double cell_adj = no_adj? 0.0 : 0.5;
+  *var_ptr = 4 * (4 * (rc11 * (u31tod(counts_3x3[0]) + cell_adj) +
+                       rc12 * (u31tod(counts_3x3[2]) + cell_adj) +
+                       rc21 * (u31tod(counts_3x3[6]) + cell_adj) +
+                       rc22 * (u31tod(counts_3x3[8]) + cell_adj)) +
+                  d2 * (u31tod(counts_3x3[1]) + cell_adj) +
+                  d3 * (u31tod(counts_3x3[3]) + cell_adj) +
+                  d6 * (u31tod(counts_3x3[5]) + cell_adj) +
+                  d8 * (u31tod(counts_3x3[7]) + cell_adj)) +
+             d5 * (u31tod(counts_3x3[4]) + cell_adj);
+}
+
+// Per-variant genotype bitvectors, one triple per group: index 0 is hom-REF,
+// 1 is het, 2 is hom-ALT, and a missing call is in none of them.  A 3x3 cell
+// count is then one PopcountWordsIntersect.
+static void GenovecToGenoBits(const uintptr_t* genovec, uint32_t sample_ct, uintptr_t* hom_buf, uintptr_t* ref2het_buf, uintptr_t* dst) {
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  SplitHomRef2het(genovec, sample_ct, hom_buf, ref2het_buf);
+  uintptr_t* hom_ref = dst;
+  uintptr_t* het = &(dst[sample_ctl]);
+  uintptr_t* hom_alt = &(dst[2 * sample_ctl]);
+  for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
+    const uintptr_t hom_word = hom_buf[widx];
+    const uintptr_t ref2het_word = ref2het_buf[widx];
+    hom_ref[widx] = hom_word & ref2het_word;
+    het[widx] = (~hom_word) & ref2het_word;
+    hom_alt[widx] = hom_word & (~ref2het_word);
+  }
+  ZeroTrailingBits(sample_ct, hom_ref);
+  ZeroTrailingBits(sample_ct, het);
+  ZeroTrailingBits(sample_ct, hom_alt);
+}
+
+typedef struct EpiSummaryEntryStruct {
+  uint32_t n_sig;
+  uint32_t n_tot;
+  double best_chisq;
+  uint32_t best_vidx;
+} EpiSummaryEntry;
+
+PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  char* cswritetp = nullptr;
+  CompressStreamState css;
+  CompressStreamState csst;
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
+  PreinitCstream(&csst);
+  {
+    const EpiFlags flags = epi_ip->flags;
+    const uint32_t is_case_only = (flags / kfEpiCaseOnly) & 1;
+    const uint32_t no_ueki = (flags / kfEpiNoUeki) & 1;
+    const uint32_t no_p_value = (flags / kfEpiNoP) & 1;
+
+    // PLINK 1.x had a single phenotype.  Rather than guess which of several
+    // loaded case/control phenotypes an O(variant_ct^2) scan was meant for,
+    // ask.
+    uint32_t pheno_idx = UINT32_MAX;
+    uint32_t cc_pheno_ct = 0;
+    for (uint32_t uii = 0; uii != pheno_ct; ++uii) {
+      if (pheno_cols[uii].type_code == kPhenoDtypeCc) {
+        ++cc_pheno_ct;
+        if (pheno_idx == UINT32_MAX) {
+          pheno_idx = uii;
+        }
+      }
+    }
+    if (unlikely(!cc_pheno_ct)) {
+      logerrputs("Error: --fast-epistasis requires a case/control phenotype.\n");
+      goto CalcEpi_ret_INCONSISTENT_INPUT;
+    }
+    if (unlikely(cc_pheno_ct > 1)) {
+      logerrputs("Error: --fast-epistasis needs exactly one case/control phenotype; select one\nwith --pheno-name.\n");
+      goto CalcEpi_ret_INCONSISTENT_INPUT;
+    }
+    const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* case_include;
+    uintptr_t* ctrl_include;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &case_include) ||
+                 bigstack_alloc_w(raw_sample_ctl, &ctrl_include))) {
+      goto CalcEpi_ret_NOMEM;
+    }
+    BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, ctrl_include);
+    BitvecAndCopy(ctrl_include, cur_pheno_col->data.cc, raw_sample_ctl, case_include);
+    BitvecInvmask(case_include, raw_sample_ctl, ctrl_include);
+    const uint32_t case_ct = PopcountWords(case_include, raw_sample_ctl);
+    const uint32_t ctrl_ct = PopcountWords(ctrl_include, raw_sample_ctl);
+    if (unlikely(case_ct < 2)) {
+      logerrputs("Error: --fast-epistasis requires at least 2 cases.\n");
+      goto CalcEpi_ret_DEGENERATE_DATA;
+    }
+    if (unlikely((!is_case_only) && (ctrl_ct < 2))) {
+      logerrputs("Error: --fast-epistasis requires at least 2 controls; use the 'case-only'\nmodifier to run without them.\n");
+      goto CalcEpi_ret_DEGENERATE_DATA;
+    }
+    const uint32_t group_ct = is_case_only? 1 : 2;
+    const uint32_t group_cts[2] = {case_ct, ctrl_ct};
+    const uintptr_t* group_includes[2] = {case_include, ctrl_include};
+    const uint32_t case_ctl = BitCtToWordCt(case_ct);
+    const uint32_t ctrl_ctl = is_case_only? 0 : BitCtToWordCt(ctrl_ct);
+    const uint32_t group_ctls[2] = {case_ctl, ctrl_ctl};
+    const uintptr_t words_per_variant = 3 * S_CAST(uintptr_t, case_ctl + ctrl_ctl);
+
+    // Non-autosomal variants are left out, as in PLINK 1.x.
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* variant_include;
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include))) {
+      goto CalcEpi_ret_NOMEM;
+    }
+    memcpy(variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+    const uint32_t chr_ct = cip->chr_ct;
+    uint32_t nonautosomal_ct = 0;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if (!IsSet(cip->haploid_mask, chr_idx) && (chr_idx != S_CAST(uint32_t, cip->xymt_codes[kChrOffsetMT]))) {
+        continue;
+      }
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      nonautosomal_ct += PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+      ClearBitsNz(chr_vidx_start, chr_vidx_end, variant_include);
+    }
+    uint32_t variant_ct = orig_variant_ct - nonautosomal_ct;
+    if (unlikely(variant_ct < 2)) {
+      logerrputs("Error: --fast-epistasis requires at least 2 autosomal variants.\n");
+      goto CalcEpi_ret_DEGENERATE_DATA;
+    }
+
+    // Monomorphic variants are dropped up front.  Without the Ueki correction
+    // an empty allele-table cell divides by zero, so each group has to be
+    // polymorphic on its own; with it, the +4.5 adjustment absorbs empty
+    // cells, and PLINK 1.x only drops variants monomorphic across every
+    // phenotyped sample.  Matching that keeps the two reports over the same
+    // pairs.
+    uintptr_t* analysis_include;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &analysis_include))) {
+      goto CalcEpi_ret_NOMEM;
+    }
+    BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, analysis_include);
+    const uint32_t analysis_ct = PopcountWords(analysis_include, raw_sample_ctl);
+    uint32_t* sample_include_cumulative_popcounts[3];
+    PgrSampleSubsetIndex pssis[3];
+    for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
+      if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &(sample_include_cumulative_popcounts[group_idx])))) {
+        goto CalcEpi_ret_NOMEM;
+      }
+      FillCumulativePopcounts(group_includes[group_idx], raw_sample_ctl, sample_include_cumulative_popcounts[group_idx]);
+    }
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &(sample_include_cumulative_popcounts[2])))) {
+      goto CalcEpi_ret_NOMEM;
+    }
+    FillCumulativePopcounts(analysis_include, raw_sample_ctl, sample_include_cumulative_popcounts[2]);
+    const uint32_t max_group_ct = MAXV(analysis_ct, MAXV(case_ct, ctrl_ct));
+    uintptr_t* genovec;
+    uintptr_t* hom_buf;
+    uintptr_t* ref2het_buf;
+    if (unlikely(bigstack_alloc_w(NypCtToWordCt(max_group_ct), &genovec) ||
+                 bigstack_alloc_w(BitCtToWordCt(max_group_ct), &hom_buf) ||
+                 bigstack_alloc_w(BitCtToWordCt(max_group_ct), &ref2het_buf))) {
+      goto CalcEpi_ret_NOMEM;
+    }
+    {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t variant_include_bits = variant_include[0];
+      uint32_t skipped_ct = 0;
+      const uint32_t mono_group_start = no_ueki? 0 : 2;
+      const uint32_t mono_group_end = no_ueki? group_ct : 3;
+      const uint32_t mono_group_cts[3] = {case_ct, ctrl_ct, analysis_ct};
+      const uintptr_t* mono_group_includes[3] = {case_include, ctrl_include, analysis_include};
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+        for (uint32_t group_idx = mono_group_start; group_idx != mono_group_end; ++group_idx) {
+          PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[group_idx], simple_pgrp, &(pssis[group_idx]));
+          reterr = PgrGet(mono_group_includes[group_idx], pssis[group_idx], mono_group_cts[group_idx], variant_uidx, simple_pgrp, genovec);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto CalcEpi_ret_1;
+          }
+          // GenoarrCountFreqsUnsafe() counts whole words and derives the
+          // hom-REF count by subtraction, so the nyps past sample_ct have to
+          // be cleared first; PgrGet() leaves them alone.
+          ZeroTrailingNyps(mono_group_cts[group_idx], genovec);
+          STD_ARRAY_DECL(uint32_t, 4, genocounts);
+          GenoarrCountFreqsUnsafe(genovec, mono_group_cts[group_idx], genocounts);
+          const uint32_t nonmiss_ct = genocounts[0] + genocounts[1] + genocounts[2];
+          if ((genocounts[0] == nonmiss_ct) || (genocounts[1] == nonmiss_ct) || (genocounts[2] == nonmiss_ct)) {
+            ClearBit(variant_uidx, variant_include);
+            ++skipped_ct;
+            break;
+          }
+        }
+      }
+      if (skipped_ct) {
+        variant_ct -= skipped_ct;
+        logprintf("--fast-epistasis: Skipping %u monomorphic variant%s.\n", skipped_ct, (skipped_ct == 1)? "" : "s");
+      }
+      if (unlikely(variant_ct < 2)) {
+        logerrputs("Error: --fast-epistasis has fewer than 2 usable variants left.\n");
+        goto CalcEpi_ret_DEGENERATE_DATA;
+      }
+    }
+    if (nonautosomal_ct) {
+      logprintf("--fast-epistasis: Skipping %u non-autosomal variant%s.\n", nonautosomal_ct, (nonautosomal_ct == 1)? "" : "s");
+    }
+
+    uint32_t* variant_uidxs;
+    uint32_t* variant_chr_fo_idxs;
+    if (unlikely(bigstack_alloc_u32(variant_ct, &variant_uidxs) ||
+                 bigstack_alloc_u32(variant_ct, &variant_chr_fo_idxs))) {
+      goto CalcEpi_ret_NOMEM;
+    }
+    {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t variant_include_bits = variant_include[0];
+      uint32_t chr_fo_idx = 0;
+      uint32_t chr_vidx_end = cip->chr_fo_vidx_start[1];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+        while (variant_uidx >= chr_vidx_end) {
+          ++chr_fo_idx;
+          chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        }
+        variant_uidxs[variant_idx] = variant_uidx;
+        variant_chr_fo_idxs[variant_idx] = chr_fo_idx;
+      }
+    }
+
+    // Rows are split across --parallel jobs; every job still needs to reach
+    // every column to its right.
+    // ParallelBounds() splits a triangle whose row r carries r entries below
+    // it; this scan's row r carries variant_ct - 1 - r entries above it.  The
+    // two are mirror images, so the bounds come back in the mirrored index and
+    // get reflected here.
+    uint32_t mirror_start;
+    uint32_t mirror_end;
+    // The reflection also reverses the job order, so ask for the mirrored job
+    // index as well; job 1 then produces the first rows and concatenating the
+    // jobs in order reproduces a single run.
+    ParallelBounds(variant_ct, 1, parallel_tot - 1 - parallel_idx, parallel_tot, R_CAST(int32_t*, &mirror_start), R_CAST(int32_t*, &mirror_end));
+    const uint32_t row_start_idx = variant_ct - mirror_end;
+    const uint32_t row_end_idx = variant_ct - mirror_start;
+    if (row_start_idx == row_end_idx) {
+      logerrputs("Warning: This --parallel job has no rows to scan.\n");
+    }
+
+    // Two variant blocks are held at once: the rows, and the columns they are
+    // being tested against.  Everything to the right of a row has to be
+    // reachable, so the column block sweeps the whole range each time the row
+    // block advances.
+    uintptr_t bytes_per_variant = words_per_variant * sizeof(intptr_t);
+    uintptr_t max_slot_ct = (bigstack_left() / 2) / bytes_per_variant;
+    if (unlikely(max_slot_ct < 4)) {
+      goto CalcEpi_ret_NOMEM;
+    }
+    if (max_slot_ct > variant_ct) {
+      max_slot_ct = variant_ct;
+    }
+    // The report has to come out in row-major order, so that concatenating
+    // --parallel jobs reproduces a single run, as PLINK 1.x promises.  A row
+    // block only preserves that order while the whole column range fits in one
+    // block; when it does not, the row block drops to a single row, so its
+    // columns are still swept in order.  That costs a reread of the column
+    // range per row, but only in the case that was already going to be
+    // dominated by rereads.
+    uint32_t col_block_size = max_slot_ct - 1;
+    uint32_t row_block_size = 1;
+    if (col_block_size >= variant_ct) {
+      col_block_size = variant_ct;
+      row_block_size = max_slot_ct - col_block_size;
+      if (!row_block_size) {
+        row_block_size = 1;
+      }
+    }
+    uintptr_t* row_bits;
+    uintptr_t* col_bits;
+    if (unlikely(bigstack_alloc_w(row_block_size * words_per_variant, &row_bits) ||
+                 bigstack_alloc_w(col_block_size * words_per_variant, &col_bits))) {
+      goto CalcEpi_ret_NOMEM;
+    }
+
+    EpiSummaryEntry* summary;
+    if (unlikely(BIGSTACK_ALLOC_X(EpiSummaryEntry, variant_ct, &summary))) {
+      goto CalcEpi_ret_NOMEM;
+    }
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      summary[variant_idx].n_sig = 0;
+      summary[variant_idx].n_tot = 0;
+      summary[variant_idx].best_chisq = -1.0;
+      summary[variant_idx].best_vidx = UINT32_MAX;
+    }
+
+    const double alpha1_ln = log(epi_ip->epi1);
+    const double alpha2_ln = log(epi_ip->epi2);
+    const uint32_t gap_bp = is_case_only? (epi_ip->gap_kb * 1000) : 0;
+    const uint32_t output_zst = (flags / kfEpiZs) & 1;
+    char* outname_end2;
+    if (is_case_only) {
+      outname_end2 = strcpya_k(outname_end, ".epi.co");
+    } else {
+      outname_end2 = strcpya_k(outname_end, ".epi.cc");
+    }
+    // Main report is <prefix>.epi.cc[.<job>], summary is
+    // <prefix>.epi.cc.summary[.<job>], as in PLINK 1.x.
+    char* main_end = outname_end2;
+    if (parallel_tot > 1) {
+      *main_end++ = '.';
+      main_end = u32toa(parallel_idx + 1, main_end);
+    }
+    if (output_zst) {
+      snprintf(main_end, kMaxOutfnameExtBlen - S_CAST(uintptr_t, main_end - outname_end), ".zst");
+    } else {
+      *main_end = '\0';
+    }
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + 256;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto CalcEpi_ret_1;
+    }
+    if (!parallel_idx) {
+      cswritep = strcpya_k(cswritep, "#CHROM1\tID1\tCHROM2\tID2\tSTAT");
+      if (!no_p_value) {
+        cswritep = strcpya_k(cswritep, "\tP");
+      }
+      AppendBinaryEoln(&cswritep);
+    }
+
+    // Loads variant_idxs [block_start, block_end) into dst.
+    // (Declared as a lambda-free helper loop to keep the reader in one place.)
+    uint32_t pairs_done = 0;
+    uint64_t pair_ct_total = 0;
+    for (uint32_t row_idx = row_start_idx; row_idx != row_end_idx; ++row_idx) {
+      pair_ct_total += variant_ct - row_idx - 1;
+    }
+    uint64_t pairs_reported = 0;
+    fputs("--fast-epistasis: 0%", stdout);
+    fflush(stdout);
+    uint64_t next_print_pair = pair_ct_total / 100;
+    uint32_t pct = 0;
+    uint64_t pairs_seen = 0;
+
+    for (uint32_t row_block_start = row_start_idx; row_block_start < row_end_idx; row_block_start += row_block_size) {
+      const uint32_t row_block_end = MINV(row_block_start + row_block_size, row_end_idx);
+      const uint32_t cur_row_ct = row_block_end - row_block_start;
+      for (uint32_t slot_idx = 0; slot_idx != cur_row_ct; ++slot_idx) {
+        uintptr_t* dst = &(row_bits[slot_idx * words_per_variant]);
+        for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
+          PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[group_idx], simple_pgrp, &(pssis[group_idx]));
+          reterr = PgrGet(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidxs[row_block_start + slot_idx], simple_pgrp, genovec);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, variant_uidxs[row_block_start + slot_idx]);
+            goto CalcEpi_ret_1;
+          }
+          GenovecToGenoBits(genovec, group_cts[group_idx], hom_buf, ref2het_buf, dst);
+          dst = &(dst[3 * group_ctls[group_idx]]);
+        }
+      }
+      for (uint32_t col_block_start = row_block_start; col_block_start < variant_ct; col_block_start += col_block_size) {
+        const uint32_t col_block_end = MINV(col_block_start + col_block_size, variant_ct);
+        const uint32_t cur_col_ct = col_block_end - col_block_start;
+        for (uint32_t slot_idx = 0; slot_idx != cur_col_ct; ++slot_idx) {
+          uintptr_t* dst = &(col_bits[slot_idx * words_per_variant]);
+          for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
+            PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[group_idx], simple_pgrp, &(pssis[group_idx]));
+            reterr = PgrGet(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidxs[col_block_start + slot_idx], simple_pgrp, genovec);
+            if (unlikely(reterr)) {
+              PgenErrPrintNV(reterr, variant_uidxs[col_block_start + slot_idx]);
+              goto CalcEpi_ret_1;
+            }
+            GenovecToGenoBits(genovec, group_cts[group_idx], hom_buf, ref2het_buf, dst);
+            dst = &(dst[3 * group_ctls[group_idx]]);
+          }
+        }
+        for (uint32_t row_idx = row_block_start; row_idx != row_block_end; ++row_idx) {
+          const uintptr_t* row_slot = &(row_bits[(row_idx - row_block_start) * words_per_variant]);
+          const uint32_t col_first = MAXV(col_block_start, row_idx + 1);
+          for (uint32_t col_idx = col_first; col_idx != col_block_end; ++col_idx) {
+            ++pairs_seen;
+            if (gap_bp && (variant_chr_fo_idxs[row_idx] == variant_chr_fo_idxs[col_idx])) {
+              const uint32_t bp1 = variant_bps[variant_uidxs[row_idx]];
+              const uint32_t bp2 = variant_bps[variant_uidxs[col_idx]];
+              if (bp2 - bp1 < gap_bp) {
+                continue;
+              }
+            }
+            const uintptr_t* col_slot = &(col_bits[(col_idx - col_block_start) * words_per_variant]);
+            double lnor_diff = 0.0;
+            double var_sum = 0.0;
+            const uintptr_t* row_iter = row_slot;
+            const uintptr_t* col_iter = col_slot;
+            for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
+              const uint32_t cur_ctl = group_ctls[group_idx];
+              uint32_t counts[9];
+              for (uint32_t geno1 = 0; geno1 != 3; ++geno1) {
+                const uintptr_t* row_vec = &(row_iter[geno1 * cur_ctl]);
+                for (uint32_t geno2 = 0; geno2 != 3; ++geno2) {
+                  counts[geno1 * 3 + geno2] = PopcountWordsIntersect(row_vec, &(col_iter[geno2 * cur_ctl]), cur_ctl);
+                }
+              }
+              double cur_lnor;
+              double cur_var;
+              FepiCountsToStats(counts, no_ueki, &cur_lnor, &cur_var);
+              if (group_idx) {
+                lnor_diff -= cur_lnor;
+              } else {
+                lnor_diff = cur_lnor;
+              }
+              var_sum += cur_var;
+              row_iter = &(row_iter[3 * cur_ctl]);
+              col_iter = &(col_iter[3 * cur_ctl]);
+            }
+            const double chisq = lnor_diff * lnor_diff / var_sum;
+            if (!std::isfinite(chisq)) {
+              continue;
+            }
+            const double ln_pval = ChisqToLnP(chisq, 1);
+            summary[row_idx].n_tot += 1;
+            summary[col_idx].n_tot += 1;
+            if (ln_pval <= alpha2_ln) {
+              summary[row_idx].n_sig += 1;
+              summary[col_idx].n_sig += 1;
+            }
+            if (chisq > summary[row_idx].best_chisq) {
+              summary[row_idx].best_chisq = chisq;
+              summary[row_idx].best_vidx = col_idx;
+            }
+            if (chisq > summary[col_idx].best_chisq) {
+              summary[col_idx].best_chisq = chisq;
+              summary[col_idx].best_vidx = row_idx;
+            }
+            if (ln_pval <= alpha1_ln) {
+              ++pairs_reported;
+              cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[row_idx]], cswritep);
+              *cswritep++ = '\t';
+              cswritep = strcpyax(cswritep, variant_ids[variant_uidxs[row_idx]], '\t');
+              cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[col_idx]], cswritep);
+              *cswritep++ = '\t';
+              cswritep = strcpyax(cswritep, variant_ids[variant_uidxs[col_idx]], '\t');
+              cswritep = dtoa_g(chisq, cswritep);
+              if (!no_p_value) {
+                *cswritep++ = '\t';
+                cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+              }
+              AppendBinaryEoln(&cswritep);
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto CalcEpi_ret_WRITE_FAIL;
+              }
+            }
+          }
+          if (pairs_seen >= next_print_pair) {
+            if (pct > 9) {
+              putc_unlocked('\b', stdout);
+            }
+            pct = (pairs_seen * 100LLU) / pair_ct_total;
+            if (pct > 99) {
+              pct = 99;
+            }
+            printf("\b\b%u%%", pct);
+            fflush(stdout);
+            next_print_pair = ((pct + 1) * pair_ct_total) / 100;
+          }
+        }
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto CalcEpi_ret_WRITE_FAIL;
+    }
+    fputs("\b\b\b", stdout);
+    logprintf("--fast-epistasis: %" PRIu64 " pair%s tested, %" PRIu64 " written to %s .\n", pairs_seen, (pairs_seen == 1)? "" : "s", pairs_reported, outname);
+    (void)pairs_done;
+
+    // Summary report: one row per variant with a tested pair.
+    char* summary_end = strcpya_k(outname_end2, ".summary");
+    if (parallel_tot > 1) {
+      *summary_end++ = '.';
+      summary_end = u32toa(parallel_idx + 1, summary_end);
+    }
+    if (output_zst) {
+      snprintf(summary_end, kMaxOutfnameExtBlen - S_CAST(uintptr_t, summary_end - outname_end), ".zst");
+    } else {
+      *summary_end = '\0';
+    }
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &csst, &cswritetp);
+    if (unlikely(reterr)) {
+      goto CalcEpi_ret_1;
+    }
+    cswritetp = strcpya_k(cswritetp, "#CHROM\tID\tN_SIG\tN_TOT");
+    if (parallel_tot == 1) {
+      cswritetp = strcpya_k(cswritetp, "\tPROP");
+    }
+    cswritetp = strcpya_k(cswritetp, "\tBEST_CHISQ\tBEST_CHROM\tBEST_ID");
+    AppendBinaryEoln(&cswritetp);
+    uint32_t summary_row_ct = 0;
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const EpiSummaryEntry* cur = &(summary[variant_idx]);
+      if (!cur->n_tot) {
+        continue;
+      }
+      ++summary_row_ct;
+      cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[variant_idx]], cswritetp);
+      *cswritetp++ = '\t';
+      cswritetp = strcpyax(cswritetp, variant_ids[variant_uidxs[variant_idx]], '\t');
+      cswritetp = u32toa_x(cur->n_sig, '\t', cswritetp);
+      cswritetp = u32toa(cur->n_tot, cswritetp);
+      if (parallel_tot == 1) {
+        *cswritetp++ = '\t';
+        cswritetp = dtoa_g(S_CAST(double, cur->n_sig) / S_CAST(double, cur->n_tot), cswritetp);
+      }
+      *cswritetp++ = '\t';
+      cswritetp = dtoa_g(cur->best_chisq, cswritetp);
+      *cswritetp++ = '\t';
+      cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[cur->best_vidx]], cswritetp);
+      *cswritetp++ = '\t';
+      cswritetp = strcpya(cswritetp, variant_ids[variant_uidxs[cur->best_vidx]]);
+      AppendBinaryEoln(&cswritetp);
+      if (unlikely(Cswrite(&csst, &cswritetp))) {
+        goto CalcEpi_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&csst, cswritetp))) {
+      goto CalcEpi_ret_WRITE_FAIL;
+    }
+    logprintfww("--fast-epistasis: Summary for %u variant%s written to %s .\n", summary_row_ct, (summary_row_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  CalcEpi_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  CalcEpi_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  CalcEpi_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  CalcEpi_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
+    break;
+  }
+ CalcEpi_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  CswriteCloseCond(&csst, cswritetp);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const PhenoCol* pheno_cols, const char* pheno_names, const TwolocusInfo* tlip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;

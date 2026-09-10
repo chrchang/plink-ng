@@ -235,6 +235,7 @@ ENUM_U31_DEF_START()
   kCmd1BitDistance,
   kCmd1BitTestMissing,
   kCmd1BitShowTags,
+  kCmd1BitEpi,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -279,7 +280,8 @@ FLAGSET64_DEF_START()
   kfCommand1Twolocus = (1LLU << kCmd1BitTwolocus),
   kfCommand1Distance = (1LLU << kCmd1BitDistance),
   kfCommand1TestMissing = (1LLU << kCmd1BitTestMissing),
-  kfCommand1ShowTags = (1LLU << kCmd1BitShowTags)
+  kfCommand1ShowTags = (1LLU << kCmd1BitShowTags),
+  kfCommand1Epi = (1LLU << kCmd1BitEpi)
 FLAGSET64_DEF_END(Command1Flags);
 
 // The shape and encoding modifiers are mutually exclusive within each group,
@@ -502,6 +504,7 @@ typedef struct Plink2CmdlineStruct {
   ClumpInfo clump_info;
   VcorInfo vcor_info;
   TwolocusInfo twolocus_info;
+  EpiInfo epi_info;
   TagInfo tag_info;
   LdScoreInfo ld_score_info;
   PhenoSvdInfo pheno_svd_info;
@@ -644,7 +647,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags | kfCommand1Epi)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -3182,6 +3185,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
       }
+      if (pcp->command_flags1 & kfCommand1Epi) {
+        reterr = CalcEpi(sample_include, pheno_cols, variant_include, cip, variant_bps, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
       if (pcp->command_flags1 & kfCommand1ShowTags) {
         if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
           logerrputs("Error: --show-tags requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -4052,6 +4061,7 @@ int main(int argc, char** argv) {
   InitClump(&pc.clump_info);
   InitVcor(&pc.vcor_info);
   InitTwolocus(&pc.twolocus_info);
+  InitEpi(&pc.epi_info);
   InitTag(&pc.tag_info);
   InitLdScore(&pc.ld_score_info);
   InitPhenoSvd(&pc.pheno_svd_info);
@@ -4476,6 +4486,10 @@ int main(int argc, char** argv) {
     uint32_t delete_pmerge_result = 0;
     uint32_t aperm_present = 0;
     uint32_t clump_log10_p1_present = 0;
+    // --epi1/--epi2/--gap sort before --fast-epistasis, so the flag they depend
+    // on has not been seen yet when they are parsed.
+    uint32_t epi_thresh_present = 0;
+    uint32_t epi_gap_present = 0;
     uint32_t clump_log10_p2_present = 0;
     uint32_t score_col_nums_present = 0;
     uint32_t r2_required = 0;
@@ -6164,7 +6178,22 @@ int main(int argc, char** argv) {
         break;
 
       case 'e':
-        if (strequal_k_unsafe(flagname_p2, "xtract")) {
+        if (strequal_k_unsafe(flagname_p2, "pi1") || strequal_k_unsafe(flagname_p2, "pi2")) {
+          epi_thresh_present = 1;
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx <= 0.0) || (dxx > 1.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (flagname_p2[2] == '1') {
+            pc.epi_info.epi1 = dxx;
+          } else {
+            pc.epi_info.epi2 = dxx;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "xtract")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6700,7 +6729,35 @@ int main(int argc, char** argv) {
         break;
 
       case 'f':
-        if (strequal_k_unsafe(flagname_p2, "req")) {
+        if (strequal_k_unsafe(flagname_p2, "ast-epistasis")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiZs;
+            } else if (strequal_k(cur_modif, "case-only", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiCaseOnly;
+            } else if (strequal_k(cur_modif, "no-ueki", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiNoUeki;
+            } else if (strequal_k(cur_modif, "nop", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiNoP;
+            } else if (unlikely(strequal_k(cur_modif, "boost", cur_modif_slen) || strequal_k(cur_modif, "joint-effects", cur_modif_slen))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --fast-epistasis's '%s' test is not implemented yet.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            } else if (unlikely(strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --fast-epistasis's '%s' modifier needs variant sets, which are not\nimplemented yet.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --fast-epistasis argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          pc.command_flags1 |= kfCommand1Epi;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "req")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -7211,7 +7268,18 @@ int main(int argc, char** argv) {
         break;
 
       case 'g':
-        if (strequal_k_unsafe(flagname_p2, "rm-maf") || strequal_k_unsafe(flagname_p2, "rm-min-af")) {
+        if (strequal_k_unsafe(flagname_p2, "ap")) {
+          epi_gap_present = 1;
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0) || (dxx > 2147483.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gap argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.epi_info.gap_kb = S_CAST(uint32_t, dxx);
+        } else if (strequal_k_unsafe(flagname_p2, "rm-maf") || strequal_k_unsafe(flagname_p2, "rm-min-af")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -14304,6 +14372,21 @@ int main(int argc, char** argv) {
       if (unlikely(reterr)) {
         goto main_ret_1;
       }
+    }
+
+    // --epi1/--epi2/--gap all sort before --fast-epistasis, so their
+    // dependency cannot be checked while parsing them.
+    if (unlikely(epi_thresh_present && (!(pc.command_flags1 & kfCommand1Epi)))) {
+      logerrputs("Error: --epi1/--epi2 must be used with --fast-epistasis.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely(epi_gap_present && (!(pc.command_flags1 & kfCommand1Epi)))) {
+      logerrputs("Error: --gap must be used with --fast-epistasis.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely(epi_gap_present && (!(pc.epi_info.flags & kfEpiCaseOnly)))) {
+      logerrputs("Error: --gap only affects \"--fast-epistasis case-only\".\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
 
     print_end_time = 1;
