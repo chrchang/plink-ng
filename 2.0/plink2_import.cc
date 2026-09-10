@@ -12606,6 +12606,14 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   PreinitCstream(&pvar_css);
   ThreadGroup tg;
   PreinitThreads(&tg);
+  // Function scope on purpose: the import threads hold pointers to these,
+  // and CleanupThreads() at the exit label is what joins them.  Declared
+  // inside their blocks, an error path that jumps out while a worker is
+  // still running leaves it writing into a scope that has ended.
+  Bgen11DosageScanCtx bgen11_scan_ctx;
+  Bgen11GenoToPgenCtx bgen11_ctx;
+  Bgen13DosageOrPhaseScanCtx bgen13_scan_ctx;
+  Bgen13GenoToPgenCtx bgen13_ctx;
   STPgenWriter spgw;
   PglErr reterr = kPglRetSuccess;
   PreinitSpgw(&spgw);
@@ -12938,10 +12946,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     if (layout == 1) {
       // v1.1
       // this block belongs in its own function...
-      Bgen11DosageScanCtx scan_ctx;
-      scan_ctx.common = &common;
-      scan_ctx.dosage_exists = 0;
-      scan_ctx.reterr = kPglRetSuccess;
+      bgen11_scan_ctx.common = &common;
+      bgen11_scan_ctx.dosage_exists = 0;
+      bgen11_scan_ctx.reterr = kPglRetSuccess;
       uintptr_t loadbuf_size = RoundDownPow2(bigstack_left() / 4, kCacheline);
 #ifdef __LP64__
       if (loadbuf_size > kMaxLongLine) {
@@ -12953,7 +12960,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         goto OxBgenToPgen_ret_NOMEM;
       }
       unsigned char* loadbuf = S_CAST(unsigned char*, bigstack_alloc_raw(loadbuf_size));
-      scan_ctx.import_dosage_certainty_int = 1 + S_CAST(int32_t, import_dosage_certainty * 32768);
+      bgen11_scan_ctx.import_dosage_certainty_int = 1 + S_CAST(int32_t, import_dosage_certainty * 32768);
       uintptr_t bgen_geno_max_byte_ct = 6LU * sample_ct;
       if (compression_mode) {
         bgen_geno_max_byte_ct = libdeflate_deflate_compress_bound(nullptr, bgen_geno_max_byte_ct);
@@ -12987,12 +12994,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       if (calc_thread_ct > header_variant_ct) {
         calc_thread_ct = header_variant_ct;
       }
-      if (unlikely(bigstack_alloc_u16p(calc_thread_ct, &scan_ctx.bgen_geno_bufs))) {
+      if (unlikely(bigstack_alloc_u16p(calc_thread_ct, &bgen11_scan_ctx.bgen_geno_bufs))) {
         goto OxBgenToPgen_ret_NOMEM;
       }
       const uint32_t sample_ct_x3 = sample_ct * 3;
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-        if (unlikely(bigstack_alloc_u16(sample_ct_x3, &(scan_ctx.bgen_geno_bufs[tidx])))) {
+        if (unlikely(bigstack_alloc_u16(sample_ct_x3, &(bgen11_scan_ctx.bgen_geno_bufs[tidx])))) {
           goto OxBgenToPgen_ret_NOMEM;
         }
       }
@@ -13024,31 +13031,30 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           goto OxBgenToPgen_ret_NOMEM;
         }
       }
-      Bgen11GenoToPgenCtx ctx;
-      ctx.common = &common;
-      ctx.bgen_geno_bufs = scan_ctx.bgen_geno_bufs;
-      ctx.hard_call_halfdist = kDosage4th - hard_call_thresh;
-      ctx.import_dosage_certainty_int = scan_ctx.import_dosage_certainty_int;
-      ctx.prov_ref_allele_second = prov_ref_allele_second;
-      ctx.reterr = kPglRetSuccess;
+      bgen11_ctx.common = &common;
+      bgen11_ctx.bgen_geno_bufs = bgen11_scan_ctx.bgen_geno_bufs;
+      bgen11_ctx.hard_call_halfdist = kDosage4th - hard_call_thresh;
+      bgen11_ctx.import_dosage_certainty_int = bgen11_scan_ctx.import_dosage_certainty_int;
+      bgen11_ctx.prov_ref_allele_second = prov_ref_allele_second;
+      bgen11_ctx.reterr = kPglRetSuccess;
       unsigned char* compressed_geno_bufs[2];
       if (unlikely(bigstack_alloc_uc(bgen_geno_max_byte_ct * main_block_size, &(compressed_geno_bufs[0])) ||
                    bigstack_alloc_uc(bgen_geno_max_byte_ct * main_block_size, &(compressed_geno_bufs[1])) ||
                    bigstack_alloc_ucp(main_block_size, &(common.compressed_geno_starts[0])) ||
                    bigstack_alloc_ucp(main_block_size, &(common.compressed_geno_starts[1])) ||
-                   bigstack_alloc_w(sample_ctaw2 * main_block_size, &(ctx.write_genovecs[0])) ||
-                   bigstack_alloc_w(sample_ctaw2 * main_block_size, &(ctx.write_genovecs[1])) ||
-                   bigstack_alloc_u32(main_block_size, &(ctx.write_dosage_cts[0])) ||
-                   bigstack_alloc_u32(main_block_size, &(ctx.write_dosage_cts[1])) ||
-                   bigstack_alloc_w(sample_ctaw * main_block_size, &(ctx.write_dosage_presents[0])) ||
-                   bigstack_alloc_w(sample_ctaw * main_block_size, &(ctx.write_dosage_presents[1])) ||
-                   bigstack_alloc_dosage(sample_ct * main_block_size, &(ctx.write_dosage_mains[0])) ||
-                   bigstack_alloc_dosage(sample_ct * main_block_size, &(ctx.write_dosage_mains[1])))) {
+                   bigstack_alloc_w(sample_ctaw2 * main_block_size, &(bgen11_ctx.write_genovecs[0])) ||
+                   bigstack_alloc_w(sample_ctaw2 * main_block_size, &(bgen11_ctx.write_genovecs[1])) ||
+                   bigstack_alloc_u32(main_block_size, &(bgen11_ctx.write_dosage_cts[0])) ||
+                   bigstack_alloc_u32(main_block_size, &(bgen11_ctx.write_dosage_cts[1])) ||
+                   bigstack_alloc_w(sample_ctaw * main_block_size, &(bgen11_ctx.write_dosage_presents[0])) ||
+                   bigstack_alloc_w(sample_ctaw * main_block_size, &(bgen11_ctx.write_dosage_presents[1])) ||
+                   bigstack_alloc_dosage(sample_ct * main_block_size, &(bgen11_ctx.write_dosage_mains[0])) ||
+                   bigstack_alloc_dosage(sample_ct * main_block_size, &(bgen11_ctx.write_dosage_mains[1])))) {
         // this should be impossible
         assert(0);
         goto OxBgenToPgen_ret_NOMEM;
       }
-      SetThreadFuncAndData(Bgen11DosageScanThread, &scan_ctx, &tg);
+      SetThreadFuncAndData(Bgen11DosageScanThread, &bgen11_scan_ctx, &tg);
 
       uint32_t filter_exists = chr_filter_exists || (overlong_varids_mode == kImportOverlongVarIdsSkip);
       // likely cases are (i) non-hardcall near top of the file, and (ii) no
@@ -13195,11 +13201,11 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           if (ThreadsAreActive(&tg)) {
             // process *previous* block results
             JoinThreads(&tg);
-            reterr = scan_ctx.reterr;
+            reterr = bgen11_scan_ctx.reterr;
             if (unlikely(reterr)) {
               goto OxBgenToPgen_ret_bgen11_thread_fail;
             }
-            dosage_exists = scan_ctx.dosage_exists;
+            dosage_exists = bgen11_scan_ctx.dosage_exists;
             if (dosage_exists) {
               // don't need to scan for any more dosages
               StopThreads(&tg);
@@ -13250,11 +13256,11 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       }
       if (ThreadsAreActive(&tg)) {
         JoinThreads(&tg);
-        reterr = scan_ctx.reterr;
+        reterr = bgen11_scan_ctx.reterr;
         if (unlikely(reterr)) {
           goto OxBgenToPgen_ret_bgen11_thread_fail;
         }
-        if (block_vidx && (!scan_ctx.dosage_exists)) {
+        if (block_vidx && (!bgen11_scan_ctx.dosage_exists)) {
           common.cur_block_size = block_vidx;
         } else {
           common.cur_block_size = 0;
@@ -13264,11 +13270,11 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
         }
         JoinThreads(&tg);
-        reterr = scan_ctx.reterr;
+        reterr = bgen11_scan_ctx.reterr;
         if (unlikely(reterr)) {
           goto OxBgenToPgen_ret_bgen11_thread_fail;
         }
-        dosage_exists = scan_ctx.dosage_exists;
+        dosage_exists = bgen11_scan_ctx.dosage_exists;
       }
 
       if (unlikely(fseeko(bgenfile, initial_uints[0] + 4, SEEK_SET))) {
@@ -13307,7 +13313,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       // (May be better to change this to use one output buffer instead of 2.)
       uint32_t prev_block_write_ct = 0;
       parity = 0;
-      SetThreadFuncAndData(Bgen11GenoToPgenThread, &ctx, &tg);
+      SetThreadFuncAndData(Bgen11GenoToPgenThread, &bgen11_ctx, &tg);
       for (uint32_t vidx_start = 0; ; ) {
         uint32_t cur_block_write_ct = 0;
         if (!IsLastBlock(&tg)) {
@@ -13540,7 +13546,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
         if (vidx_start) {
           JoinThreads(&tg);
-          reterr = ctx.reterr;
+          reterr = bgen11_ctx.reterr;
           if (unlikely(reterr)) {
             goto OxBgenToPgen_ret_bgen11_thread_fail;
           }
@@ -13557,10 +13563,10 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         parity = 1 - parity;
         if (vidx_start) {
           // write *previous* block results
-          uintptr_t* write_genovec_iter = ctx.write_genovecs[parity];
-          uint32_t* write_dosage_ct_iter = ctx.write_dosage_cts[parity];
-          uintptr_t* write_dosage_present_iter = ctx.write_dosage_presents[parity];
-          Dosage* write_dosage_main_iter = ctx.write_dosage_mains[parity];
+          uintptr_t* write_genovec_iter = bgen11_ctx.write_genovecs[parity];
+          uint32_t* write_dosage_ct_iter = bgen11_ctx.write_dosage_cts[parity];
+          uintptr_t* write_dosage_present_iter = bgen11_ctx.write_dosage_presents[parity];
+          Dosage* write_dosage_main_iter = bgen11_ctx.write_dosage_mains[parity];
           for (uint32_t vidx = vidx_start - prev_block_write_ct; vidx != vidx_start; ++vidx) {
             const uint32_t cur_dosage_ct = *write_dosage_ct_iter++;
             if (!cur_dosage_ct) {
@@ -13598,15 +13604,14 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         goto OxBgenToPgen_ret_NOMEM;
       }
 
-      Bgen13DosageOrPhaseScanCtx scan_ctx;
-      scan_ctx.common = &common;
-      scan_ctx.bgen_import_dosage_certainty_thresholds = nullptr;
+      bgen13_scan_ctx.common = &common;
+      bgen13_scan_ctx.bgen_import_dosage_certainty_thresholds = nullptr;
       if (import_dosage_certainty > (1.0 - kSmallEpsilon) / 3.0) {
-        scan_ctx.bgen_import_dosage_certainty_thresholds = S_CAST(uint32_t*, bigstack_alloc_raw_rd((kMaxBgenImportBits + 1) * sizeof(int32_t)));
+        bgen13_scan_ctx.bgen_import_dosage_certainty_thresholds = S_CAST(uint32_t*, bigstack_alloc_raw_rd((kMaxBgenImportBits + 1) * sizeof(int32_t)));
         for (uint32_t bit_precision = 1; bit_precision != (kMaxBgenImportBits + 1); ++bit_precision) {
           const uint32_t denom = (1U << bit_precision) - 1;
           const double denom_d = u31tod(denom);
-          scan_ctx.bgen_import_dosage_certainty_thresholds[bit_precision] = 1 + S_CAST(int32_t, import_dosage_certainty * denom_d);
+          bgen13_scan_ctx.bgen_import_dosage_certainty_thresholds[bit_precision] = 1 + S_CAST(int32_t, import_dosage_certainty * denom_d);
         }
       }
       // bugfix (2 Jul 2017): if max_thread_ct == 1 but there's >12GiB memory,
@@ -13616,29 +13621,29 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         calc_thread_ct_limit = raw_variant_ct;
       }
 
-      scan_ctx.thread_wkspaces = S_CAST(unsigned char**, bigstack_alloc_raw_rd(calc_thread_ct_limit * sizeof(intptr_t)));
-      scan_ctx.thread_bidxs[0] = S_CAST(uint32_t*, bigstack_alloc_raw_rd((calc_thread_ct_limit + 1) * sizeof(int32_t)));
-      scan_ctx.thread_bidxs[1] = S_CAST(uint32_t*, bigstack_alloc_raw_rd((calc_thread_ct_limit + 1) * sizeof(int32_t)));
+      bgen13_scan_ctx.thread_wkspaces = S_CAST(unsigned char**, bigstack_alloc_raw_rd(calc_thread_ct_limit * sizeof(intptr_t)));
+      bgen13_scan_ctx.thread_bidxs[0] = S_CAST(uint32_t*, bigstack_alloc_raw_rd((calc_thread_ct_limit + 1) * sizeof(int32_t)));
+      bgen13_scan_ctx.thread_bidxs[1] = S_CAST(uint32_t*, bigstack_alloc_raw_rd((calc_thread_ct_limit + 1) * sizeof(int32_t)));
       uintptr_t main_block_size = 65536;
-      if (unlikely(bigstack_alloc_kcp(calc_thread_ct_limit, &(scan_ctx.err_extra)) ||
+      if (unlikely(bigstack_alloc_kcp(calc_thread_ct_limit, &(bgen13_scan_ctx.err_extra)) ||
                    // ***** all bigstack allocations from this point on are
                    //       reset before pass 2 *****
                    // probably want to change this to use Gparse...
-                   bigstack_alloc_u16(main_block_size, &(scan_ctx.bgen_allele_cts[0])) ||
-                   bigstack_alloc_u16(main_block_size, &(scan_ctx.bgen_allele_cts[1])) ||
+                   bigstack_alloc_u16(main_block_size, &(bgen13_scan_ctx.bgen_allele_cts[0])) ||
+                   bigstack_alloc_u16(main_block_size, &(bgen13_scan_ctx.bgen_allele_cts[1])) ||
                    bigstack_alloc_ucp(main_block_size + 1, &(common.compressed_geno_starts[0])) ||
                    bigstack_alloc_ucp(main_block_size + 1, &(common.compressed_geno_starts[1])))) {
         goto OxBgenToPgen_ret_NOMEM;
       }
       if (compression_mode) {
-        if (unlikely(bigstack_alloc_u32(main_block_size, &(scan_ctx.uncompressed_genodata_byte_cts[0])) ||
-                     bigstack_alloc_u32(main_block_size, &(scan_ctx.uncompressed_genodata_byte_cts[1])))) {
+        if (unlikely(bigstack_alloc_u32(main_block_size, &(bgen13_scan_ctx.uncompressed_genodata_byte_cts[0])) ||
+                     bigstack_alloc_u32(main_block_size, &(bgen13_scan_ctx.uncompressed_genodata_byte_cts[1])))) {
           goto OxBgenToPgen_ret_NOMEM;
         }
       } else {
         // defensive
-        scan_ctx.uncompressed_genodata_byte_cts[0] = nullptr;
-        scan_ctx.uncompressed_genodata_byte_cts[1] = nullptr;
+        bgen13_scan_ctx.uncompressed_genodata_byte_cts[0] = nullptr;
+        bgen13_scan_ctx.uncompressed_genodata_byte_cts[1] = nullptr;
       }
 
       // ploidy >2 is not supported by PLINK 2.  (A future build may have code
@@ -13730,11 +13735,11 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       compressed_geno_bufs[0] = S_CAST(unsigned char*, bigstack_alloc_raw(mainbuf_size));
       compressed_geno_bufs[1] = S_CAST(unsigned char*, bigstack_alloc_raw(mainbuf_size));
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-        scan_ctx.thread_wkspaces[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(thread_wkspace_size));
+        bgen13_scan_ctx.thread_wkspaces[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(thread_wkspace_size));
       }
-      scan_ctx.err_info = (~0LLU) << 32;
-      scan_ctx.error_on_polyploid = !(import_flags & kfImportPolyploidMissing);
-      SetThreadFuncAndData(Bgen13DosageOrPhaseScanThread, &scan_ctx, &tg);
+      bgen13_scan_ctx.err_info = (~0LLU) << 32;
+      bgen13_scan_ctx.error_on_polyploid = !(import_flags & kfImportPolyploidMissing);
+      SetThreadFuncAndData(Bgen13DosageOrPhaseScanThread, &bgen13_scan_ctx, &tg);
 
       uint32_t block_vidx = 0;
 
@@ -13746,10 +13751,10 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       uint32_t cur_thread_fill_idx = 0;
 
       uint32_t parity = 0;
-      uint32_t* thread_bidxs = scan_ctx.thread_bidxs[0];
-      uint16_t* bgen_allele_cts = scan_ctx.bgen_allele_cts[0];
+      uint32_t* thread_bidxs = bgen13_scan_ctx.thread_bidxs[0];
+      uint16_t* bgen_allele_cts = bgen13_scan_ctx.bgen_allele_cts[0];
       unsigned char** compressed_geno_starts = common.compressed_geno_starts[0];
-      uint32_t* uncompressed_genodata_byte_cts = scan_ctx.uncompressed_genodata_byte_cts[0];
+      uint32_t* uncompressed_genodata_byte_cts = bgen13_scan_ctx.uncompressed_genodata_byte_cts[0];
       unsigned char* bgen_geno_iter = compressed_geno_bufs[0];
       unsigned char* cur_geno_buf_end = &(bgen_geno_iter[thread_wkspace_size]);
       thread_bidxs[0] = 0;
@@ -14088,12 +14093,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             if (ThreadsAreActive(&tg)) {
               // process *previous* block results
               JoinThreads(&tg);
-              reterr = S_CAST(PglErr, scan_ctx.err_info & 255);
+              reterr = S_CAST(PglErr, bgen13_scan_ctx.err_info & 255);
               if (unlikely(reterr)) {
-                PrintBgenImportErr(scan_ctx.err_extra, scan_ctx.err_info, scan_ctx.vidx_start);
+                PrintBgenImportErr(bgen13_scan_ctx.err_extra, bgen13_scan_ctx.err_info, bgen13_scan_ctx.vidx_start);
                 goto OxBgenToPgen_ret_1;
               }
-              dosage_exists = scan_ctx.dosage_exists;
+              dosage_exists = bgen13_scan_ctx.dosage_exists;
               if (dosage_exists) {
                 // don't need to scan for any more dosages
                 StopThreads(&tg);
@@ -14112,14 +14117,14 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
                 continue;
               }
             }
-            scan_ctx.vidx_start = variant_ct;
+            bgen13_scan_ctx.vidx_start = variant_ct;
             if (unlikely(SpawnThreads(&tg))) {
               goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
             }
             compressed_geno_starts = common.compressed_geno_starts[parity];
-            uncompressed_genodata_byte_cts = scan_ctx.uncompressed_genodata_byte_cts[parity];
-            thread_bidxs = scan_ctx.thread_bidxs[parity];
-            bgen_allele_cts = scan_ctx.bgen_allele_cts[parity];
+            uncompressed_genodata_byte_cts = bgen13_scan_ctx.uncompressed_genodata_byte_cts[parity];
+            thread_bidxs = bgen13_scan_ctx.thread_bidxs[parity];
+            bgen_allele_cts = bgen13_scan_ctx.bgen_allele_cts[parity];
             bgen_geno_iter = compressed_geno_bufs[parity];
             thread_bidxs[0] = 0;
             compressed_geno_starts[0] = bgen_geno_iter;
@@ -14168,7 +14173,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         // decompression job has launched (e.g. there's only 1 variant on the
         // relevant chromosome in the entire .bgen, and calc_thread_ct == 2).
         thread_bidxs[cur_thread_fill_idx + 1] = block_vidx;
-        scan_ctx.vidx_start = 0;
+        bgen13_scan_ctx.vidx_start = 0;
         if (unlikely(SpawnThreads(&tg))) {
           goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
         }
@@ -14176,12 +14181,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       }
       if (ThreadsAreActive(&tg)) {
         JoinThreads(&tg);
-        reterr = S_CAST(PglErr, scan_ctx.err_info & 255);
+        reterr = S_CAST(PglErr, bgen13_scan_ctx.err_info & 255);
         if (unlikely(reterr)) {
-          PrintBgenImportErr(scan_ctx.err_extra, scan_ctx.err_info, scan_ctx.vidx_start);
+          PrintBgenImportErr(bgen13_scan_ctx.err_extra, bgen13_scan_ctx.err_info, bgen13_scan_ctx.vidx_start);
           goto OxBgenToPgen_ret_1;
         }
-        if ((!block_vidx) || scan_ctx.dosage_exists) {
+        if ((!block_vidx) || bgen13_scan_ctx.dosage_exists) {
           // ignore thread_bidxs[] in this case
           StopThreads(&tg);
         } else {
@@ -14191,16 +14196,16 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             thread_bidxs[++cur_thread_fill_idx] = block_vidx;
           }
           DeclareLastThreadBlock(&tg);
-          scan_ctx.vidx_start = variant_ct - block_vidx;
+          bgen13_scan_ctx.vidx_start = variant_ct - block_vidx;
           SpawnThreads(&tg);
           JoinThreads(&tg);
-          reterr = S_CAST(PglErr, scan_ctx.err_info & 255);
+          reterr = S_CAST(PglErr, bgen13_scan_ctx.err_info & 255);
           if (unlikely(reterr)) {
-            PrintBgenImportErr(scan_ctx.err_extra, scan_ctx.err_info, scan_ctx.vidx_start);
+            PrintBgenImportErr(bgen13_scan_ctx.err_extra, bgen13_scan_ctx.err_info, bgen13_scan_ctx.vidx_start);
             goto OxBgenToPgen_ret_bgen13_thread_fail;
           }
         }
-        dosage_exists = scan_ctx.dosage_exists;
+        dosage_exists = bgen13_scan_ctx.dosage_exists;
       }
 
       if (max_allele_ct == 2) {
@@ -14226,7 +14231,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         goto OxBgenToPgen_ret_1;
       }
 
-      BigstackReset(scan_ctx.bgen_allele_cts[0]);
+      BigstackReset(bgen13_scan_ctx.bgen_allele_cts[0]);
 
       // only needs to fit chromosome codes in second pass
       loadbuf = S_CAST(unsigned char*, bigstack_alloc_raw_rd(kMaxIdBlen));
@@ -14257,19 +14262,18 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
         goto OxBgenToPgen_ret_NOMEM;
       }
-      Bgen13GenoToPgenCtx ctx;
-      ctx.common = &common;
-      ctx.err_extra = scan_ctx.err_extra;
-      ctx.error_on_polyploid = !(import_flags & kfImportPolyploidMissing);
-      ctx.hard_call_halfdist = kDosage4th - hard_call_thresh;
-      ctx.bgen_import_dosage_certainty_thresholds = scan_ctx.bgen_import_dosage_certainty_thresholds;
-      ctx.prov_ref_allele_second = prov_ref_allele_second;
-      ctx.thread_wkspaces = scan_ctx.thread_wkspaces;
+      bgen13_ctx.common = &common;
+      bgen13_ctx.err_extra = bgen13_scan_ctx.err_extra;
+      bgen13_ctx.error_on_polyploid = !(import_flags & kfImportPolyploidMissing);
+      bgen13_ctx.hard_call_halfdist = kDosage4th - hard_call_thresh;
+      bgen13_ctx.bgen_import_dosage_certainty_thresholds = bgen13_scan_ctx.bgen_import_dosage_certainty_thresholds;
+      bgen13_ctx.prov_ref_allele_second = prov_ref_allele_second;
+      bgen13_ctx.thread_wkspaces = bgen13_scan_ctx.thread_wkspaces;
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-        ctx.thread_wkspaces[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(thread_wkspace_size));
+        bgen13_ctx.thread_wkspaces[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(thread_wkspace_size));
       }
-      ctx.thread_bidxs[0] = scan_ctx.thread_bidxs[0];
-      ctx.thread_bidxs[1] = scan_ctx.thread_bidxs[1];
+      bgen13_ctx.thread_bidxs[0] = bgen13_scan_ctx.thread_bidxs[0];
+      bgen13_ctx.thread_bidxs[1] = bgen13_scan_ctx.thread_bidxs[1];
       if (compression_mode == 1) {
         for (uint32_t tidx = old_calc_thread_ct; tidx < calc_thread_ct; ++tidx) {
           common.libdeflate_decompressors[tidx] = libdeflate_alloc_decompressor();
@@ -14310,12 +14314,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       // may as well guarantee divisibility
       per_thread_block_limit = main_block_size / calc_thread_ct;
       main_block_size = per_thread_block_limit * calc_thread_ct;
-      ctx.gparse[0] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
-      ctx.gparse[1] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
-      ctx.block_allele_idx_offsets[0] = nullptr;  // defensive
-      ctx.block_allele_idx_offsets[1] = nullptr;
-      ctx.err_info = (~0LLU) << 32;
-      SetThreadFuncAndData(Bgen13GenoToPgenThread, &ctx, &tg);
+      bgen13_ctx.gparse[0] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
+      bgen13_ctx.gparse[1] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
+      bgen13_ctx.block_allele_idx_offsets[0] = nullptr;  // defensive
+      bgen13_ctx.block_allele_idx_offsets[1] = nullptr;
+      bgen13_ctx.err_info = (~0LLU) << 32;
+      SetThreadFuncAndData(Bgen13GenoToPgenThread, &bgen13_ctx, &tg);
       cachelines_avail = bigstack_left() / (kCacheline * 2);
       if (unlikely(bigstack_alloc_uc(cachelines_avail * kCacheline, &(compressed_geno_bufs[0])) ||
                    bigstack_alloc_uc(cachelines_avail * kCacheline, &(compressed_geno_bufs[1])))) {
@@ -14349,10 +14353,10 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           const uint32_t block_vidx_limit = variant_ct - vidx_start;
           cur_thread_block_vidx_limit = MINV(block_vidx_limit, per_thread_block_limit);
           cur_thread_fill_idx = 0;
-          thread_bidxs = ctx.thread_bidxs[parity];
-          GparseRecord* cur_gparse = ctx.gparse[parity];
+          thread_bidxs = bgen13_ctx.thread_bidxs[parity];
+          GparseRecord* cur_gparse = bgen13_ctx.gparse[parity];
           if (allele_idx_offsets) {
-            ctx.block_allele_idx_offsets[parity] = &(allele_idx_offsets[vidx_start]);
+            bgen13_ctx.block_allele_idx_offsets[parity] = &(allele_idx_offsets[vidx_start]);
           }
           bgen_geno_iter = compressed_geno_bufs[parity];
           unsigned char* cur_thread_byte_stop = &(bgen_geno_iter[per_thread_byte_limit]);
@@ -14509,9 +14513,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
         if (vidx_start) {
           JoinThreads(&tg);
-          reterr = S_CAST(PglErr, ctx.err_info);
+          reterr = S_CAST(PglErr, bgen13_ctx.err_info);
           if (unlikely(reterr)) {
-            PrintBgenImportErr(ctx.err_extra, ctx.err_info, vidx_start - prev_block_write_ct);
+            PrintBgenImportErr(bgen13_ctx.err_extra, bgen13_ctx.err_info, vidx_start - prev_block_write_ct);
             goto OxBgenToPgen_ret_1;
           }
         }
@@ -14526,7 +14530,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         parity = 1 - parity;
         if (vidx_start) {
           // write *previous* block results
-          reterr = GparseFlush(ctx.gparse[parity], allele_idx_offsets, prev_block_write_ct, &spgw);
+          reterr = GparseFlush(bgen13_ctx.gparse[parity], allele_idx_offsets, prev_block_write_ct, &spgw);
           if (unlikely(reterr)) {
             goto OxBgenToPgen_ret_1;
           }
@@ -14654,6 +14658,10 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     // note that nomem is also possible here
   }
  OxBgenToPgen_ret_1:
+  // Join the workers before freeing anything they hold.  The decompressors
+  // below belong to the scan/compress threads, and an error path reaches here
+  // with those threads still inside libdeflate_zlib_decompress_ex().
+  CleanupThreads(&tg);
   if (common.libdeflate_decompressors) {
     for (uint32_t tidx = 0; tidx != max_thread_ct; ++tidx) {
       if (!common.libdeflate_decompressors[tidx]) {
@@ -14664,7 +14672,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     // common.libdeflate_decompressors = nullptr;
   }
   CleanupSpgw(&spgw, &reterr);
-  CleanupThreads(&tg);
   fclose_cond(bgenfile);
   fclose_cond(psamfile);
   CswriteCloseCond(&pvar_css, pvar_cswritep);

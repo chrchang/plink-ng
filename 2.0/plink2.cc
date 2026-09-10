@@ -62,7 +62,7 @@
 namespace plink2 {
 #endif
 
-static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7.4.a"
+static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7.4.b"
 #ifdef NOLAPACK
   "NL"
 #elif defined(LAPACK_ILP64)
@@ -90,7 +90,7 @@ static PREFER_CONSTEXPR char ver_str[] = "PLINK v2.0.0-a.7.4.a"
 #elif defined(USE_AOCL)
   " AMD"
 #endif
-  " (31 Aug 2026)";
+  " (10 Sep 2026)";
 static PREFER_CONSTEXPR char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -8692,7 +8692,11 @@ int main(int argc, char** argv) {
           }
           if (param_ct) {
             const char* cur_modif = argvk[arg_idx + 1];
-            const char* mode_str = ScantokDouble(cur_modif, &pc.min_maf);
+            // ScanadvDouble() rather than ScantokDouble(), so that the
+            // bcftools freq:mode notation the help documents actually parses:
+            // ScantokDouble() requires the number to end the token, which
+            // makes the ':' branch below unreachable.
+            const char* mode_str = ScanadvDouble(cur_modif, &pc.min_maf);
             if (!mode_str) {
               pc.min_maf = 0.01;
               if (unlikely(param_ct == 2)) {
@@ -8746,7 +8750,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          const char* mode_str = ScantokDouble(cur_modif, &pc.max_maf);
+          const char* mode_str = ScanadvDouble(cur_modif, &pc.max_maf);
           if (unlikely(!mode_str)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-maf argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
@@ -8792,7 +8796,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
-          const char* mode_str = ScantokDouble(cur_modif, &dxx);
+          const char* mode_str = ScanadvDouble(cur_modif, &dxx);
           if (unlikely((!mode_str) || (dxx < 0.0) || (dxx > 2147483646.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mac argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
@@ -8840,7 +8844,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
-          const char* mode_str = ScantokDouble(cur_modif, &dxx);
+          const char* mode_str = ScanadvDouble(cur_modif, &dxx);
           if (unlikely((!mode_str) || (dxx < 0.0) || (dxx > 2147483646.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-mac argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;

@@ -321,7 +321,12 @@ HEADER_INLINE void ZeroTrailingNyps(uintptr_t nyp_ct, uintptr_t* bitarr) {
 HEADER_INLINE void SetTrailingNyps(uintptr_t nyp_ct, uintptr_t* bitarr) {
   const uintptr_t trail_ct = nyp_ct % kBitsPerWordD2;
   if (trail_ct) {
-    bitarr[nyp_ct / kBitsPerWordD2] |= (~k0LU) << (nyp_ct * 2);
+    // Shift by trail_ct * 2, not nyp_ct * 2.  The two agree on x86-64 and
+    // ARM64, where the shift count is masked to 6 bits and (nyp_ct * 2) % 64
+    // is exactly trail_ct * 2, but a shift that wide is undefined, and it is
+    // wrong on any target that does not mask.  ZeroTrailingBits() next door
+    // already uses the remainder.
+    bitarr[nyp_ct / kBitsPerWordD2] |= (~k0LU) << (trail_ct * 2);
   }
 }
 
