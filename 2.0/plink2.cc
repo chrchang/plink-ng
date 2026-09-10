@@ -3403,9 +3403,10 @@ PglErr AllocAndFlattenCommaDelimEx(const char* const* sources, const char* flagn
     tot_blen += 1 + strlen(cur_param_iter);
   }
   char* write_iter;
-  // See the comment in AllocAndFlattenEx(): padding so that strnul()'s
-  // vectorized Rawmemchr() doesn't make AddressSanitizer complain.
-  if (unlikely(pgl_malloc(tot_blen + kBytesPerVec, &write_iter))) {
+  // See the comment in AllocAndFlattenEx(): a whole number of vectors, so that
+  // strnul()'s vectorized Rawmemchr() doesn't make AddressSanitizer complain.
+  const uintptr_t alloc_blen = RoundUpPow2(tot_blen, kBytesPerVec);
+  if (unlikely(pgl_malloc(alloc_blen, &write_iter))) {
     return kPglRetNomem;
   }
   *flattened_buf_ptr = write_iter;
@@ -3431,7 +3432,7 @@ PglErr AllocAndFlattenCommaDelimEx(const char* const* sources, const char* flagn
     }
     write_iter = strcpyax(write_iter, cur_param_iter, '\0');
   }
-  memset(write_iter, 0, kBytesPerVec + 1);
+  memset(write_iter, 0, alloc_blen - (tot_blen - 1));
   return kPglRetSuccess;
 }
 
