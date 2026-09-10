@@ -9498,9 +9498,10 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgr_ptr
 }
 
 
-// Currently assumes no phase or multiallelic hardcalls.
-// tried to have more custom code, turned out to not be worth it
-PglErr ReadMissingness(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict missingness, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf) {
+// Currently assumes no phase or multiallelic hardcalls when hets is non-null;
+// otherwise PgrGetMissingnessD()'s skip-aux1or2 logic is necessary.
+// Tried to have more custom code here, turned out to not be worth it.
+PglErr ReadHcMissingnessBasic(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict missingness, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf) {
   const unsigned char* fread_ptr;
   const unsigned char* fread_end;
   PglErr reterr = ReadGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, &fread_ptr, &fread_end, genovec_buf);
@@ -9523,7 +9524,7 @@ PglErr PgrGetMissingness(const uintptr_t* __restrict sample_include, PgrSampleSu
   PgenReaderMain* pgrp = GetPgrp(pgr_ptr);
   // may as well add a hets parameter?
   assert(vidx < pgrp->fi.raw_variant_ct);
-  return ReadMissingness(sample_include, GetSicp(pssi), sample_ct, vidx, pgrp, nullptr, nullptr, missingness, nullptr, genovec_buf);
+  return ReadHcMissingnessBasic(sample_include, GetSicp(pssi), sample_ct, vidx, pgrp, nullptr, nullptr, missingness, nullptr, genovec_buf);
 }
 
 PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf) {
@@ -9537,7 +9538,9 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleS
   const uint32_t* sample_include_cumulative_popcounts = GetSicp(pssi);
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const uint32_t dosage_is_relevant = missingness_dosage && VrtypeDosage(vrtype);
-  const uint32_t need_to_skip_aux1or2 = dosage_is_relevant && (vrtype & 0x18);
+  // bugfix (7 Sep 2026): when hets is non-null, need to check for ALTx/ALTy
+  // hets in multiallelic variants
+  const uint32_t need_to_skip_aux1or2 = (dosage_is_relevant && (vrtype & 0x18)) || (hets && (vrtype & 8));
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
   const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
@@ -9545,7 +9548,7 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleS
   const unsigned char* fread_end = nullptr;
   uintptr_t* missingness_base = missingness_hc? missingness_hc : missingness_dosage;
   if (!need_to_skip_aux1or2) {
-    PglErr reterr = ReadMissingness(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, dosage_is_relevant? (&fread_ptr) : nullptr, dosage_is_relevant? (&fread_end) : nullptr, missingness_base, hets, genovec_buf);
+    PglErr reterr = ReadHcMissingnessBasic(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, dosage_is_relevant? (&fread_ptr) : nullptr, dosage_is_relevant? (&fread_end) : nullptr, missingness_base, hets, genovec_buf);
     if (missingness_dosage && missingness_hc) {
       memcpy(missingness_dosage, missingness_hc, BitCtToWordCt(sample_ct) * sizeof(intptr_t));
     }
@@ -9561,7 +9564,7 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleS
     uintptr_t* subsetted_genovec = pgrp->workspace_vec;
     CopyNyparrNonemptySubset(genovec_buf, sample_include, raw_sample_ct, sample_ct, subsetted_genovec);
     GenoarrToMissingnessUnsafe(subsetted_genovec, sample_ct, missingness_base);
-    if (missingness_hc) {
+    if (missingness_hc && missingness_dosage) {
       memcpy(missingness_dosage, missingness_hc, BitCtToWordCt(sample_ct) * sizeof(intptr_t));
     }
 
@@ -9598,6 +9601,9 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleS
       }
       if (hets) {
         CopyBitarrSubset(all_hets, sample_include, sample_ct, hets);
+        if (!dosage_is_relevant) {
+          return kPglRetSuccess;
+        }
       }
       if (VrtypeHphase(vrtype)) {
         reterr = SkipAux2(fread_end, PopcountWords(all_hets, raw_sample_ctl), &fread_ptr, nullptr);
