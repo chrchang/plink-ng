@@ -3403,7 +3403,11 @@ PglErr AllocAndFlattenCommaDelimEx(const char* const* sources, const char* flagn
     tot_blen += 1 + strlen(cur_param_iter);
   }
   char* write_iter;
-  if (unlikely(pgl_malloc(tot_blen, &write_iter))) {
+  // See the comment in AllocAndFlattenEx(): kBytesPerVec-1 bytes of slack, so
+  // that strnul()'s vectorized Rawmemchr() doesn't make AddressSanitizer
+  // complain.
+  const uintptr_t alloc_blen = tot_blen + kBytesPerVec - 1;
+  if (unlikely(pgl_malloc(alloc_blen, &write_iter))) {
     return kPglRetNomem;
   }
   *flattened_buf_ptr = write_iter;
@@ -3429,7 +3433,7 @@ PglErr AllocAndFlattenCommaDelimEx(const char* const* sources, const char* flagn
     }
     write_iter = strcpyax(write_iter, cur_param_iter, '\0');
   }
-  *write_iter = '\0';
+  memset(write_iter, 0, alloc_blen - (tot_blen - 1));
   return kPglRetSuccess;
 }
 

@@ -2829,14 +2829,24 @@ PglErr AllocAndFlattenEx(const char* const* sources, const char* flagname_p, uin
     tot_blen += cur_blen;
   }
   char* buf_iter;
-  if (pgl_malloc(tot_blen, &buf_iter)) {
+  // Consumers walk this list with strnul(), whose vectorized Rawmemchr() reads
+  // a whole aligned vector at a time and so touches up to kBytesPerVec-1 bytes
+  // past the final terminator.  Those loads cannot fault, since an aligned
+  // vector never straddles a page boundary, but AddressSanitizer flags them:
+  // this is one of only two exact-size malloc() buffers scanned that way, the
+  // rest being bigstack.  kBytesPerVec-1 bytes of slack covers the overshoot
+  // whatever alignment malloc() happens to give us, which rounding the request
+  // up to a vector multiple does not: that only works when the base is already
+  // vector-aligned.
+  const uintptr_t alloc_blen = tot_blen + kBytesPerVec - 1;
+  if (pgl_malloc(alloc_blen, &buf_iter)) {
     return kPglRetNomem;
   }
   *flattened_buf_ptr = buf_iter;
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
     buf_iter = strcpyax(buf_iter, sources[param_idx], '\0');
   }
-  *buf_iter = '\0';
+  memset(buf_iter, 0, alloc_blen - (tot_blen - 1));
   return kPglRetSuccess;
 }
 
