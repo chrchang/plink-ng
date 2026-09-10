@@ -2567,6 +2567,18 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    nonmissing.  Alternatively, you can use 'hh-missing' to also treat\n"
 "    heterozygous haploid calls as missing.\n"
                );
+    HelpPrint("oblig-missing\0geno\0mind\0", &help_ctrl, 0,
+"  --oblig-missing <variant file> <sample file> : Specify blocks of missing\n"
+"    genotype calls for --geno/--mind to ignore.  The first file should have\n"
+"    variant IDs in the first column and block IDs in the second; the second\n"
+"    file should have sample IDs in the usual leading columns and block IDs\n"
+"    after them.  A sample belongs to at most one block, while a variant may\n"
+"    belong to several.\n"
+"    The calls in a block drop out of both the numerator and the denominator of\n"
+"    the missing call frequency: a variant is compared against the samples\n"
+"    outside its blocks, and a sample against the variants outside its block.\n"
+"    On chrY, where the denominator counts males only, so does the block.\n"
+               );
     HelpPrint("y-nosex-missing-stats\0genotyping-rate\0missing\0geno\0mind\0", &help_ctrl, 0,
 "  --y-nosex-missing-stats : On chrY, include unknown-sex samples when computing\n"
 "                            missing-genotype and heterozygous-haploid stats.\n"
