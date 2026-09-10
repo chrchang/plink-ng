@@ -911,7 +911,43 @@ int32_t populate_roh_slots_from_disk(FILE* bedfile, uint64_t bed_offset, uintptr
   return 0;
 }
 
+static inline void roh_slot_uncount_range(uintptr_t* roh_slot_idxl, uintptr_t* roh_slot_idxs, uint32_t block_start_idxl, uint32_t block_start_idxs, uint32_t cidx_start, uint32_t cidx_end, uint32_t* joint_homozyg_ctp, uint32_t* joint_homozyg_mismatch_ctp) {
+  // Removes [cidx_start, cidx_end) from an is_allelic_match() tally.  The two
+  // slots' block starts differ by a multiple of the block size, so a given
+  // marker sits at the same bit offset in both.
+  uint32_t offset_idxl = cidx_start - block_start_idxl;
+  uintptr_t* read_ptr_l = &(roh_slot_idxl[offset_idxl / BITCT2]);
+  uintptr_t* read_ptr_s = &(roh_slot_idxs[(cidx_start - block_start_idxs) / BITCT2]);
+  uint32_t bit_offset = offset_idxl % BITCT2;
+  uint32_t markers_left = cidx_end - cidx_start;
+  uintptr_t wloader_l;
+  uintptr_t wloader_s;
+  uintptr_t joint_word;
+  uint32_t cur_marker_ct;
+  while (markers_left) {
+    cur_marker_ct = BITCT2 - bit_offset;
+    if (cur_marker_ct > markers_left) {
+      cur_marker_ct = markers_left;
+    }
+    wloader_l = *read_ptr_l++;
+    wloader_s = *read_ptr_s++;
+    joint_word = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & ((FIVEMASK >> (2 * (BITCT2 - cur_marker_ct))) << (2 * bit_offset));
+    *joint_homozyg_ctp -= popcount2_long(joint_word);
+    *joint_homozyg_mismatch_ctp -= popcount2_long(joint_word & (wloader_l ^ wloader_s));
+    markers_left -= cur_marker_ct;
+    bit_offset = 0;
+  }
+}
+
 static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot_idxl, uintptr_t* roh_slot_idxs, uint32_t block_start_idxl, uint32_t block_start_idxs, uint32_t overlap_cidx_start, uint32_t overlap_cidx_end) {
+  uintptr_t* roh_slot_idxl_base = roh_slot_idxl;
+  uintptr_t* roh_slot_idxs_base = roh_slot_idxs;
+#ifdef __LP64__
+  const uint32_t window_cidx_start = overlap_cidx_start & (~63);
+#else
+  const uint32_t window_cidx_start = overlap_cidx_start & (~15);
+#endif
+  const uint32_t window_cidx_end = ((overlap_cidx_end + (BITCT2 - 1)) / BITCT2) * BITCT2;
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
@@ -1130,6 +1166,21 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
     joint_word = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
     joint_homozyg_ct += popcount2_long(joint_word);
     joint_homozyg_mismatch_ct += popcount2_long(joint_word & (wloader_l ^ wloader_s));
+  }
+  // The loops above cover a whole number of blocks/words: everything from
+  // overlap_cidx_start rounded down to the start of its block, through
+  // overlap_cidx_end rounded up to the end of its word.  When the caller's
+  // interval is the intersection of the two ROHs, that rounding is harmless,
+  // since every marker outside the interval is outside at least one of the two
+  // ROHs, and initialize_roh_slot() has written "missing" there.  With
+  // 'consensus-match' the interval is the pool's consensus segment, which is
+  // strictly inside both ROHs, so real genotypes from up to 63 markers before
+  // it and 31 markers after it are counted as well; take them back out.
+  if (window_cidx_start != overlap_cidx_start) {
+    roh_slot_uncount_range(roh_slot_idxl_base, roh_slot_idxs_base, block_start_idxl, block_start_idxs, window_cidx_start, overlap_cidx_start, &joint_homozyg_ct, &joint_homozyg_mismatch_ct);
+  }
+  if (window_cidx_end != overlap_cidx_end) {
+    roh_slot_uncount_range(roh_slot_idxl_base, roh_slot_idxs_base, block_start_idxl, block_start_idxs, overlap_cidx_end, window_cidx_end, &joint_homozyg_ct, &joint_homozyg_mismatch_ct);
   }
   return (((double)((int32_t)joint_homozyg_mismatch_ct)) <= mismatch_max * ((int32_t)joint_homozyg_ct));
 }
