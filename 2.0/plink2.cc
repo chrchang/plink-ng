@@ -3403,8 +3403,8 @@ PglErr AllocAndFlattenCommaDelimEx(const char* const* sources, const char* flagn
     tot_blen += 1 + strlen(cur_param_iter);
   }
   char* write_iter;
-  // See the comment in AllocAndFlattenEx(): strnul()'s vectorized Rawmemchr()
-  // reads past the final terminator, so an exact-size malloc() isn't enough.
+  // See the comment in AllocAndFlattenEx(): padding so that strnul()'s
+  // vectorized Rawmemchr() doesn't make AddressSanitizer complain.
   if (unlikely(pgl_malloc(tot_blen + kBytesPerVec, &write_iter))) {
     return kPglRetNomem;
   }

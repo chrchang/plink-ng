@@ -2830,9 +2830,11 @@ PglErr AllocAndFlattenEx(const char* const* sources, const char* flagname_p, uin
   }
   char* buf_iter;
   // Consumers walk this list with strnul(), whose vectorized Rawmemchr() reads
-  // a whole vector at a time and can therefore run up to kBytesPerVec-1 bytes
-  // past the final terminator.  That is harmless inside bigstack, but this is
-  // an exact-size malloc(), so the padding has to be explicit.
+  // a whole aligned vector at a time and so touches up to kBytesPerVec-1 bytes
+  // past the final terminator.  Those loads cannot fault, since an aligned
+  // vector never straddles a page boundary, but AddressSanitizer flags them:
+  // this is one of only two exact-size malloc() buffers scanned that way, the
+  // rest being bigstack.  The padding keeps the sanitizer build usable.
   if (pgl_malloc(tot_blen + kBytesPerVec, &buf_iter)) {
     return kPglRetNomem;
   }
