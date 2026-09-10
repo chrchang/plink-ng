@@ -3403,9 +3403,10 @@ PglErr AllocAndFlattenCommaDelimEx(const char* const* sources, const char* flagn
     tot_blen += 1 + strlen(cur_param_iter);
   }
   char* write_iter;
-  // See the comment in AllocAndFlattenEx(): a whole number of vectors, so that
-  // strnul()'s vectorized Rawmemchr() doesn't make AddressSanitizer complain.
-  const uintptr_t alloc_blen = RoundUpPow2(tot_blen, kBytesPerVec);
+  // See the comment in AllocAndFlattenEx(): kBytesPerVec-1 bytes of slack, so
+  // that strnul()'s vectorized Rawmemchr() doesn't make AddressSanitizer
+  // complain.
+  const uintptr_t alloc_blen = tot_blen + kBytesPerVec - 1;
   if (unlikely(pgl_malloc(alloc_blen, &write_iter))) {
     return kPglRetNomem;
   }

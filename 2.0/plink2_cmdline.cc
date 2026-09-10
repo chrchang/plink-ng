@@ -2834,9 +2834,11 @@ PglErr AllocAndFlattenEx(const char* const* sources, const char* flagname_p, uin
   // past the final terminator.  Those loads cannot fault, since an aligned
   // vector never straddles a page boundary, but AddressSanitizer flags them:
   // this is one of only two exact-size malloc() buffers scanned that way, the
-  // rest being bigstack.  Rounding the request up to a whole number of vectors
-  // keeps the sanitizer build usable.
-  const uintptr_t alloc_blen = RoundUpPow2(tot_blen, kBytesPerVec);
+  // rest being bigstack.  kBytesPerVec-1 bytes of slack covers the overshoot
+  // whatever alignment malloc() happens to give us, which rounding the request
+  // up to a vector multiple does not: that only works when the base is already
+  // vector-aligned.
+  const uintptr_t alloc_blen = tot_blen + kBytesPerVec - 1;
   if (pgl_malloc(alloc_blen, &buf_iter)) {
     return kPglRetNomem;
   }
