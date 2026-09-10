@@ -258,7 +258,33 @@ FLAGSET_DEF_START()
   kfDistanceFlatMissing = (1 << 9)
 FLAGSET_DEF_END(DistanceFlags);
 
-PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+// --neighbour
+FLAGSET_DEF_START()
+  kfNeighbour0,
+  kfNeighbourZs = (1 << 0),
+
+  kfNeighbourColMaybefid = (1 << 1),
+  kfNeighbourColFid = (1 << 2),
+  kfNeighbourColId = (1 << 3),
+  kfNeighbourColMaybesid = (1 << 4),
+  kfNeighbourColSid = (1 << 5),
+  kfNeighbourColNn = (1 << 6),
+  kfNeighbourColIbs = (1 << 7),
+  kfNeighbourColZ = (1 << 8),
+  kfNeighbourColId2 = (1 << 9),
+  kfNeighbourColDefault = (kfNeighbourColMaybefid | kfNeighbourColId | kfNeighbourColMaybesid | kfNeighbourColNn | kfNeighbourColIbs | kfNeighbourColZ | kfNeighbourColId2),
+  kfNeighbourColAll = ((kfNeighbourColId2 * 2) - kfNeighbourColMaybefid)
+FLAGSET_DEF_END(NeighbourFlags);
+
+typedef struct NeighbourInfoStruct {
+  NeighbourFlags flags;
+  uint32_t n1;
+  uint32_t n2;
+} NeighbourInfo;
+
+void InitNeighbour(NeighbourInfo* neighbour_ip);
+
+PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const NeighbourInfo* neighbour_ip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, double grm_sparse_cutoff, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
 

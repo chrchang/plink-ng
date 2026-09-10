@@ -235,6 +235,7 @@ ENUM_U31_DEF_START()
   kCmd1BitDistance,
   kCmd1BitTestMissing,
   kCmd1BitShowTags,
+  kCmd1BitNeighbour,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -279,7 +280,8 @@ FLAGSET64_DEF_START()
   kfCommand1Twolocus = (1LLU << kCmd1BitTwolocus),
   kfCommand1Distance = (1LLU << kCmd1BitDistance),
   kfCommand1TestMissing = (1LLU << kCmd1BitTestMissing),
-  kfCommand1ShowTags = (1LLU << kCmd1BitShowTags)
+  kfCommand1ShowTags = (1LLU << kCmd1BitShowTags),
+  kfCommand1Neighbour = (1LLU << kCmd1BitNeighbour)
 FLAGSET64_DEF_END(Command1Flags);
 
 // The shape and encoding modifiers are mutually exclusive within each group,
@@ -452,6 +454,7 @@ typedef struct Plink2CmdlineStruct {
   SortMode sort_vars_mode;
   GrmFlags grm_flags;
   DistanceFlags distance_flags;
+  NeighbourInfo neighbour_info;
   double grm_sparse_cutoff;
   PcaFlags pca_flags;
   WriteCovarFlags write_covar_flags;
@@ -639,7 +642,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags | kfCommand1Neighbour)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -676,7 +679,7 @@ uint32_t IndecentAlleleFreqsAreNeeded(Command1Flags command_flags1, VcorFlags vc
   }
   // Vscore could go either here or in the decent bucket
   return (command_flags1 & kfCommand1Vscore) ||
-    ((command_flags1 & kfCommand1Distance) && (!(distance_flags & kfDistanceFlatMissing))) ||
+    ((command_flags1 & (kfCommand1Distance | kfCommand1Neighbour)) && (!(distance_flags & kfDistanceFlatMissing))) ||
     ((command_flags1 & kfCommand1Vcor) && (vcor_flags & kfVcorColFreq)) ||
     (min_maf != 0.0) ||
     (max_maf != 1.0);
@@ -2709,8 +2712,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
       }
-      if (pcp->command_flags1 & kfCommand1Distance) {
-        reterr = CalcDistance(sample_include, &pii.sii, variant_include, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, variant_ct, pcp->distance_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+      if (pcp->command_flags1 & (kfCommand1Distance | kfCommand1Neighbour)) {
+        reterr = CalcDistance(sample_include, &pii.sii, variant_include, allele_idx_offsets, allele_freqs, &(pcp->neighbour_info), raw_sample_ct, sample_ct, variant_ct, pcp->distance_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3936,6 +3939,7 @@ int main(int argc, char** argv) {
   InitExportf(&pc.exportf_info);
   InitGwasSsf(&pc.gwas_ssf_info);
   InitClump(&pc.clump_info);
+  InitNeighbour(&pc.neighbour_info);
   InitVcor(&pc.vcor_info);
   InitTwolocus(&pc.twolocus_info);
   InitTag(&pc.tag_info);
@@ -10612,7 +10616,64 @@ int main(int argc, char** argv) {
         break;
 
       case 'n':
-        if (strequal_k_unsafe(flagname_p2, "o-fid")) {
+        if (strequal_k_unsafe(flagname_p2, "eighbour") || strequal_k_unsafe(flagname_p2, "eighbor")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t param_idx = 1;
+          uint32_t explicit_cols = 0;
+          for (; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0id\0maybesid\0sid\0nn\0ibs\0z\0id2\0", "neighbour", kfNeighbourColMaybefid, kfNeighbourColDefault, 1, &pc.neighbour_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              explicit_cols = 1;
+              continue;
+            }
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.neighbour_info.flags |= kfNeighbourZs;
+              continue;
+            }
+            uint32_t cur_val;
+            if (unlikely(ScanPosintDefcapx(cur_modif, &cur_val))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --neighbour argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            if (!pc.neighbour_info.n1) {
+              pc.neighbour_info.n1 = cur_val;
+            } else if (!pc.neighbour_info.n2) {
+              pc.neighbour_info.n2 = cur_val;
+            } else {
+              logerrputs("Error: --neighbour takes at most two neighbour-rank arguments.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+          if (unlikely(!pc.neighbour_info.n2)) {
+            logerrputs("Error: --neighbour requires two neighbour-rank arguments.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.neighbour_info.n1 > pc.neighbour_info.n2)) {
+            logerrputs("Error: --neighbour's first argument cannot be larger than its second.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (!explicit_cols) {
+            pc.neighbour_info.flags |= kfNeighbourColDefault;
+          }
+          // PLINK 1.x's --neighbour reports the plain pairwise-complete IBS
+          // proportion, which is what --distance's 'flat-missing' computes.
+          // The two share one pass over the data, so a --distance that wants
+          // the frequency-weighted correction cannot ride along.
+          if (unlikely((pc.command_flags1 & kfCommand1Distance) && (!(pc.distance_flags & kfDistanceFlatMissing)))) {
+            logerrputs("Error: --neighbour reports identity-by-state with --distance's 'flat-missing'\nrescaling, so it cannot be combined with a --distance that leaves the default\nfrequency-weighted rescaling in place.  Add 'flat-missing' to --distance, or run\nthe two commands separately.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.distance_flags |= kfDistanceFlatMissing;
+          pc.command_flags1 |= kfCommand1Neighbour;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "o-fid")) {
           pc.fam_cols &= ~kfFamCol1;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "o-parents")) {
@@ -10976,6 +11037,10 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
         } else if (strequal_k_unsafe(flagname_p2, "arallel")) {
+          if (unlikely(pc.command_flags1 & kfCommand1Neighbour)) {
+            logerrputs("Error: --parallel cannot be used with --neighbour, which needs every pair.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(pc.king_flags & kfKingMatrixSq)) {
             logerrputs("Error: --parallel cannot be used with \"--make-king square\".  Use \"--make-king\nsquare0\" or plain --make-king instead.\n");
             goto main_ret_INVALID_CMDLINE_A;

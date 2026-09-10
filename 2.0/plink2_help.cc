@@ -1497,6 +1497,33 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * PLINK 1.x wrote these space-delimited with a trailing delimiter; PLINK 2\n"
 "      writes them tab-delimited with none, like every other table it produces.\n\n"
                );
+    HelpPrint("neighbour\0neighbor\0distance\0ibs-matrix\0", &help_ctrl, 1,
+"  --neighbour <n1> <n2> ['zs'] ['cols='<column set descriptor>]\n"
+"    For every sample, report its n1th- through n2th-closest neighbours by\n"
+"    identity-by-state, with a Z-score for each rank.\n"
+"    * IBS is the same number \"--distance ibs flat-missing\" writes to .mibs:\n"
+"      the proportion of shared alleles over the variants where both samples\n"
+"      are called.  The two share one pass over the data, so they can be\n"
+"      requested together as long as --distance also asks for 'flat-missing'.\n"
+"    * The Z-score for a rank is taken over that rank's values across all\n"
+"      samples, so a sample much further from its nearest neighbour than the\n"
+"      rest of the cohort is what a large negative Z means.  It is NA when\n"
+"      every sample shares the same value at that rank.\n"
+"    * Ties are possible, and which of the tied samples is named is not\n"
+"      meaningful.\n"
+"    * --parallel cannot be used, since every pair has to be seen.\n"
+"    Supported column sets are:\n"
+"      maybefid: FID, if that column was in the input.  Requires 'id'.\n"
+"      fid: Force FID even when it was absent in the input.\n"
+"      id: IID.\n"
+"      maybesid: SID, if that column was in the input.  Requires 'id'.\n"
+"      sid: Force SID even when it was absent in the input.\n"
+"      nn: Neighbour rank.\n"
+"      ibs: Identity-by-state with that neighbour.\n"
+"      z: Z-score of the ibs value within its rank.\n"
+"      id2: The neighbour's ID, in the same shape as the sample's own.\n"
+"    The default is maybefid,id,maybesid,nn,ibs,z,id2.\n\n"
+               );
     // possible todo: --king-table-subset analogue for fast-approximate
     // --make-grm-sparse
     HelpPrint("make-rel\0make-grm\0make-grm-bin\0make-grm-list\0make-grm-gz\0make-grm-sparse\0", &help_ctrl, 1,

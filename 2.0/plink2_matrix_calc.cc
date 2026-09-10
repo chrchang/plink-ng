@@ -5202,6 +5202,213 @@ PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* 
   return reterr;
 }
 
+void InitNeighbour(NeighbourInfo* neighbour_ip) {
+  neighbour_ip->flags = kfNeighbour0;
+  neighbour_ip->n1 = 0;
+  neighbour_ip->n2 = 0;
+}
+
+// --neighbour: for every sample, its n1th- through n2th-closest neighbours by
+// IBS, with a Z-score for each rank.
+//
+// The report shares --distance's pairwise pass; IBS is the same number
+// --distance's 'ibs' modifier writes to .mibs.  Ties keep the lower sample
+// index, matching PLINK 1.9.
+//
+// A sample's own row is not a candidate, so each of the sample_ct top lists is
+// drawn from sample_ct - 1 values, and n2 cannot exceed that.
+static void UpdateNeighbour(double cur_ibs, uint32_t other_idx, uint32_t neighbour_n2, double* cur_ibs_vals, uint32_t* cur_ibs_idxs, uint32_t* cur_ct_ptr) {
+  const uint32_t cur_ct = *cur_ct_ptr;
+  if ((cur_ct == neighbour_n2) && (cur_ibs <= cur_ibs_vals[neighbour_n2 - 1])) {
+    return;
+  }
+  uint32_t insert_pos = cur_ct;
+  if (insert_pos == neighbour_n2) {
+    --insert_pos;
+  } else {
+    *cur_ct_ptr = cur_ct + 1;
+  }
+  // Strict '<' keeps the earlier-inserted entry ahead of a tie, and the
+  // scan visits smaller other_idx first within a row.
+  while (insert_pos && (cur_ibs_vals[insert_pos - 1] < cur_ibs)) {
+    cur_ibs_vals[insert_pos] = cur_ibs_vals[insert_pos - 1];
+    cur_ibs_idxs[insert_pos] = cur_ibs_idxs[insert_pos - 1];
+    --insert_pos;
+  }
+  cur_ibs_vals[insert_pos] = cur_ibs;
+  cur_ibs_idxs[insert_pos] = other_idx;
+}
+
+PglErr WriteNearest(const uintptr_t* sample_include, const SampleIdInfo* siip, const uint32_t* counts, const double* wboth, const double* wmiss, double wsum, uint32_t sample_ct, uint32_t variant_ct, const NeighbourInfo* neighbour_ip, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
+  {
+    const NeighbourFlags flags = neighbour_ip->flags;
+    const uint32_t neighbour_n1 = neighbour_ip->n1;
+    const uint32_t neighbour_n2 = neighbour_ip->n2;
+    const uint32_t rank_ct = neighbour_n2 + 1 - neighbour_n1;
+    const double variant_ctd = u31tod(variant_ct);
+    const double half_variant_ct_recip = 0.5 / variant_ctd;
+
+    double* ibs_vals;
+    uint32_t* ibs_idxs;
+    uint32_t* ibs_cts;
+    double* rank_means;
+    double* rank_stdev_recips;
+    if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, sample_ct) * neighbour_n2, &ibs_vals) ||
+                 bigstack_alloc_u32(S_CAST(uintptr_t, sample_ct) * neighbour_n2, &ibs_idxs) ||
+                 bigstack_calloc_u32(sample_ct, &ibs_cts) ||
+                 bigstack_alloc_d(rank_ct, &rank_means) ||
+                 bigstack_alloc_d(rank_ct, &rank_stdev_recips))) {
+      goto WriteNearest_ret_NOMEM;
+    }
+
+    // One pass over the lower triangle, offering each cell to both of its
+    // samples' lists.
+    uint64_t cell_idx = 0;
+    for (uint32_t row_idx = 1; row_idx != sample_ct; ++row_idx) {
+      double* row_vals = &(ibs_vals[S_CAST(uintptr_t, row_idx) * neighbour_n2]);
+      uint32_t* row_idxs = &(ibs_idxs[S_CAST(uintptr_t, row_idx) * neighbour_n2]);
+      for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx, ++cell_idx) {
+        const double cur_ibs = DistanceReportVal(DistanceCellVal(counts, wboth, wmiss, wsum, variant_ctd, cell_idx, col_idx, row_idx), kDistReportIbs, half_variant_ct_recip);
+        UpdateNeighbour(cur_ibs, col_idx, neighbour_n2, row_vals, row_idxs, &(ibs_cts[row_idx]));
+        UpdateNeighbour(cur_ibs, row_idx, neighbour_n2, &(ibs_vals[S_CAST(uintptr_t, col_idx) * neighbour_n2]), &(ibs_idxs[S_CAST(uintptr_t, col_idx) * neighbour_n2]), &(ibs_cts[col_idx]));
+      }
+    }
+
+    // Z-scores are within a rank, across samples, with the sample variance.
+    const double sample_ctd = u31tod(sample_ct);
+    for (uint32_t rank_idx = 0; rank_idx != rank_ct; ++rank_idx) {
+      const uint32_t val_idx = neighbour_n1 - 1 + rank_idx;
+      double sum = 0.0;
+      double ssq = 0.0;
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const double cur_val = ibs_vals[S_CAST(uintptr_t, sample_idx) * neighbour_n2 + val_idx];
+        sum += cur_val;
+        ssq += cur_val * cur_val;
+      }
+      const double mean = sum / sample_ctd;
+      rank_means[rank_idx] = mean;
+      const double variance = (ssq - sum * mean) / (sample_ctd - 1);
+      // Every sample can share one value at this rank (two samples, or a
+      // duplicated fileset); the Z-score is then undefined, and the column
+      // gets NA rather than a zero that reads like a real result.
+      rank_stdev_recips[rank_idx] = (variance > 0.0)? (1.0 / sqrt(variance)) : 0.0;
+    }
+
+    const uint32_t output_zst = (flags / kfNeighbourZs) & 1;
+    OutnameZstSet(".nearest", output_zst, outname_end);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen * 4 + 128;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto WriteNearest_ret_1;
+    }
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    uint32_t col_fid = 0;
+    uint32_t col_sid = 0;
+    if (flags & kfNeighbourColId) {
+      col_fid = FidColIsRequired(siip, flags / kfNeighbourColMaybefid);
+      col_sid = SidColIsRequired(sids, flags / kfNeighbourColMaybesid);
+    }
+    *cswritep++ = '#';
+    if (flags & kfNeighbourColId) {
+      if (col_fid) {
+        cswritep = strcpya_k(cswritep, "FID\t");
+      }
+      cswritep = strcpya_k(cswritep, "IID\t");
+      if (col_sid) {
+        cswritep = strcpya_k(cswritep, "SID\t");
+      }
+    }
+    if (flags & kfNeighbourColNn) {
+      cswritep = strcpya_k(cswritep, "NN\t");
+    }
+    if (flags & kfNeighbourColIbs) {
+      cswritep = strcpya_k(cswritep, "IBS\t");
+    }
+    if (flags & kfNeighbourColZ) {
+      cswritep = strcpya_k(cswritep, "Z\t");
+    }
+    if (flags & kfNeighbourColId2) {
+      if (col_fid) {
+        cswritep = strcpya_k(cswritep, "FID2\t");
+      }
+      cswritep = strcpya_k(cswritep, "IID2\t");
+      if (col_sid) {
+        cswritep = strcpya_k(cswritep, "SID2\t");
+      }
+    }
+    DecrAppendBinaryEoln(&cswritep);
+
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t sample_include_bits = sample_include[0];
+    uint32_t* sample_idx_to_uidx;
+    if (unlikely(bigstack_alloc_u32(sample_ct, &sample_idx_to_uidx))) {
+      goto WriteNearest_ret_NOMEM;
+    }
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      sample_idx_to_uidx[sample_idx] = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+    }
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const double* cur_vals = &(ibs_vals[S_CAST(uintptr_t, sample_idx) * neighbour_n2]);
+      const uint32_t* cur_idxs = &(ibs_idxs[S_CAST(uintptr_t, sample_idx) * neighbour_n2]);
+      for (uint32_t rank_idx = 0; rank_idx != rank_ct; ++rank_idx) {
+        const uint32_t val_idx = neighbour_n1 - 1 + rank_idx;
+        if (flags & kfNeighbourColId) {
+          cswritep = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_idx_to_uidx[sample_idx], cswritep);
+          *cswritep++ = '\t';
+        }
+        if (flags & kfNeighbourColNn) {
+          cswritep = u32toa_x(val_idx + 1, '\t', cswritep);
+        }
+        const double cur_val = cur_vals[val_idx];
+        if (flags & kfNeighbourColIbs) {
+          cswritep = dtoa_g(cur_val, cswritep);
+          *cswritep++ = '\t';
+        }
+        if (flags & kfNeighbourColZ) {
+          if (rank_stdev_recips[rank_idx] == 0.0) {
+            cswritep = strcpya_k(cswritep, "NA");
+          } else {
+            cswritep = dtoa_g((cur_val - rank_means[rank_idx]) * rank_stdev_recips[rank_idx], cswritep);
+          }
+          *cswritep++ = '\t';
+        }
+        if (flags & kfNeighbourColId2) {
+          cswritep = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_idx_to_uidx[cur_idxs[val_idx]], cswritep);
+          *cswritep++ = '\t';
+        }
+        DecrAppendBinaryEoln(&cswritep);
+        if (unlikely(Cswrite(&css, &cswritep))) {
+          goto WriteNearest_ret_WRITE_FAIL;
+        }
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto WriteNearest_ret_WRITE_FAIL;
+    }
+    logprintfww("--neighbour: Report written to %s .\n", outname);
+  }
+  while (0) {
+  WriteNearest_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  WriteNearest_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ WriteNearest_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 // --distance: PLINK 1.x's genomic distance matrices.
 //
 // The per-pair scan is the KING-robust dense path with a cheaper kernel: the
@@ -5214,14 +5421,17 @@ PglErr WriteDistanceMatrix(const uintptr_t* sample_include, const SampleIdInfo* 
 // Hardy-Weinberg (which is what makes a missing call at a common variant cost
 // more than one at a rare variant).  'flat-missing' replaces that with a
 // plain nonmissing count.
-PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const NeighbourInfo* neighbour_ip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, DistanceFlags flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   ThreadGroup tg;
   PglErr reterr = kPglRetSuccess;
   PreinitThreads(&tg);
   {
+    // --neighbour shares this pass; the messages name whichever flag asked
+    // for it.
+    const char* flag_name = (flags & kfDistanceOutputMask)? "--distance" : "--neighbour";
     if (unlikely(sample_ct < 2)) {
-      logerrputs("Error: --distance requires at least 2 samples.\n");
+      logerrprintf("Error: %s requires at least 2 samples.\n", flag_name);
       goto CalcDistance_ret_DEGENERATE_DATA;
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
@@ -5468,12 +5678,12 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         goto CalcDistance_ret_THREAD_CREATE_FAIL;
       }
       variants_completed += cur_block_size;
-      printf("\r--distance: %u variants complete.", variants_completed);
+      printf("\r%s: %u variants complete.", flag_name, variants_completed);
       fflush(stdout);
       parity = 1 - parity;
     } while (!IsLastBlock(&tg));
     JoinThreads(&tg);
-    fputs("\r--distance: Writing...                   \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", stdout);
+    printf("\r%s: Writing...                   \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", flag_name);
     fflush(stdout);
 
     for (uint32_t report_kind = kDistReportAlleleCt; report_kind <= kDistReport1MinusIbs; ++report_kind) {
@@ -5488,6 +5698,13 @@ PglErr CalcDistance(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       }
       putc_unlocked('\r', stdout);
       reterr = WriteDistanceMatrix(sample_include, siip, ctx.counts, ctx.wboth, wmiss, wsum, sample_ct, grand_row_start_idx, grand_row_end_idx, variant_ct, flags, report_kind, parallel_idx, parallel_tot, max_thread_ct, outname, outname_end);
+      if (unlikely(reterr)) {
+        goto CalcDistance_ret_1;
+      }
+    }
+    if (neighbour_ip->n2) {
+      putc_unlocked('\r', stdout);
+      reterr = WriteNearest(sample_include, siip, ctx.counts, ctx.wboth, wmiss, wsum, sample_ct, variant_ct, neighbour_ip, max_thread_ct, outname, outname_end);
       if (unlikely(reterr)) {
         goto CalcDistance_ret_1;
       }
