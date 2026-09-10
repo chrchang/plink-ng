@@ -6315,7 +6315,21 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
     goto load_distance_wts_ret_READ_FAIL;
   }
   bigstack_reset(bigstack_mark);
-  marker_ct = popcount_longs(marker_include, unfiltered_marker_ctl) - zcount;
+  // bugfix (10 Sep 2026): weight-0 variants were left in marker_include while
+  // being subtracted from marker_ct, so the caller iterated over marker_ct
+  // included variants and read main_weights[] in order.  Every weight past the
+  // first zero was then applied to the wrong variant, and the last zcount
+  // included variants were dropped from the calculation instead of the
+  // weight-0 ones.  They have to leave marker_include too; they are only in it
+  // so that a repeated ID is still caught above.
+  if (zcount) {
+    for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+      if (is_set(marker_include, marker_uidx) && (main_weights_tmp[marker_uidx] == 0.0)) {
+        clear_bit(marker_uidx, marker_include);
+      }
+    }
+  }
+  marker_ct = popcount_longs(marker_include, unfiltered_marker_ctl);
   if (!marker_ct) {
     logerrprint("Error: No valid nonzero entries in --distance-wts file.\n");
     goto load_distance_wts_ret_INVALID_FORMAT;
@@ -6334,13 +6348,9 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
   }
   dptr = *main_weights_ptr;
   *marker_ct_ptr = marker_ct;
-  for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++) {
+  for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     next_set_unsafe_ck(marker_include, &marker_uidx);
-    dxx = main_weights_tmp[marker_uidx];
-    if (dxx != 0.0) {
-      *dptr++ = dxx;
-      marker_idx++;
-    }
+    *dptr++ = main_weights_tmp[marker_uidx];
   }
   while (0) {
   load_distance_wts_ret_NOMEM:
