@@ -1984,12 +1984,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
     }
-    if (pcp->pheno_transform_flags & kfPhenoTransformMustHaveSex) {
-      reterr = PhenoMustHaveSex(sex_nm, raw_sample_ct, pheno_ct, pheno_cols);
-      if (unlikely(reterr)) {
-        goto Plink2Core_ret_1;
-      }
-    }
     if (pcp->pheno_transform_flags & kfPhenoTransformTailPheno) {
       reterr = PhenoTailDowncode(pcp->tail_pheno_lt, pcp->tail_pheno_hbt, raw_sample_ct, pheno_ct, pheno_cols);
       if (unlikely(reterr)) {
@@ -8906,10 +8900,9 @@ int main(int argc, char** argv) {
         break;
 
       case 'm':
-        if (strequal_k_unsafe(flagname_p2, "ust-have-sex")) {
-          pc.pheno_transform_flags |= kfPhenoTransformMustHaveSex;
-          pc.dependency_flags |= kfFilterPsamReq;
-          goto main_param_zero;
+        if (unlikely(strequal_k_unsafe(flagname_p2, "ust-have-sex"))) {
+          logerrputs("Error: --must-have-sex is not implemented.  --remove-nosex drops the same\nsamples outright, which covers the usual intent; contact us if you need their\ngenotypes kept with only the phenotypes blanked.\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "emory")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;

@@ -3775,35 +3775,6 @@ PglErr PhenoTailDowncode(double tail_lt, double tail_hbt, uint32_t raw_sample_ct
   return reterr;
 }
 
-// --must-have-sex: a sample whose sex is unknown has every phenotype set to
-// missing.  PLINK 1.x applied this only on the way out to --make-bed and
-// friends; here it happens before anything reads the phenotypes, so analysis
-// commands see the same thing the written fileset would.
-PglErr PhenoMustHaveSex(const uintptr_t* sex_nm, uint32_t raw_sample_ct, uint32_t pheno_ct, PhenoCol* pheno_cols) {
-  const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-  uint32_t cleared_ct = 0;
-  for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-    PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
-    uintptr_t* nonmiss = cur_pheno_col->nonmiss;
-    const uint32_t before_ct = PopcountWords(nonmiss, raw_sample_ctl);
-    BitvecAnd(sex_nm, raw_sample_ctl, nonmiss);
-    const uint32_t after_ct = PopcountWords(nonmiss, raw_sample_ctl);
-    cleared_ct += before_ct - after_ct;
-    if ((before_ct != after_ct) && (cur_pheno_col->type_code == kPhenoDtypeCat)) {
-      // Categorical phenotypes are read straight out of data.cat[], with 0
-      // standing for missing, so that has to agree with nonmiss[].
-      uint32_t* cat = cur_pheno_col->data.cat;
-      for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
-        if (!IsSet(nonmiss, sample_uidx)) {
-          cat[sample_uidx] = 0;
-        }
-      }
-    }
-  }
-  logprintf("--must-have-sex: %u phenotype value%s set to missing.\n", cleared_ct, (cleared_ct == 1)? "" : "s");
-  return kPglRetSuccess;
-}
-
 PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* sample_include, const char* pheno_names, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uint32_t is_subset_flag, PhenoCol* pheno_cols) {
   unsigned char* bigstack_mark = g_bigstack_base;
   const char* flag_prefix = is_subset_flag? (is_covar? "covar-" : "pheno-") : "";
