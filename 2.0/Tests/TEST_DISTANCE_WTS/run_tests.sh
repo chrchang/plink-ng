@@ -18,7 +18,10 @@ cp tmp_data.bim tmp_miss.bim
 
 # The genotypes come from a plain LCG so every awk produces the same file.  The
 # low bits of an LCG have short periods, so values are taken from bits 9-30.
-awk -v missrate=0 -v out=tmp_data.bed 'BEGIN {
+# LC_ALL=C is needed because printf "%c" writes a byte in the C locale but a
+# UTF-8 sequence for values above 127 in a multibyte one, which gawk uses by
+# default.
+LC_ALL=C awk -v missrate=0 -v out=tmp_data.bed 'BEGIN {
   s = 5551212
   printf "%c%c%c", 108, 27, 1 > out
   for (j = 0; j < 300; ++j) {
@@ -44,7 +47,7 @@ awk -v missrate=0 -v out=tmp_data.bed 'BEGIN {
     }
   }
 }'
-awk -v missrate=5 -v out=tmp_miss.bed 'BEGIN {
+LC_ALL=C awk -v missrate=5 -v out=tmp_miss.bed 'BEGIN {
   s = 90210
   printf "%c%c%c", 108, 27, 1 > out
   for (j = 0; j < 300; ++j) {
