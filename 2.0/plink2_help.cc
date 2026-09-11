@@ -1489,6 +1489,21 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      want when missingness is highly nonrandom.\n"
 "    * The computation can be subdivided with --parallel.\n\n"
                );
+    HelpPrint("distance-wts\0distance-exp\0distance\0", &help_ctrl, 0,
+"  --distance-wts exp=<x>\n"
+"  --distance-wts <filename> ['noheader'] : Weight each variant's contribution\n"
+"    to --distance.  With 'exp=', the weight is (2q(1-q))^{-x}, where q is the\n"
+"    allele frequency; monomorphic variants then have zero weight.  Otherwise\n"
+"    the weights are read from a file with variant IDs in the first column and\n"
+"    weights in the second, and a header line unless 'noheader' is specified.\n"
+"    * Variants with zero weight, and variants absent from a weight file, are\n"
+"      excluded from the calculation.\n"
+"    * The same weights scale the missing-call correction, so a missing call at\n"
+"      a variant which barely counts toward the distance barely counts against\n"
+"      the denominator either.  This makes 'flat-missing' meaningless here, and\n"
+"      the two cannot be combined.\n"
+"    * --distance-exp <x> is a deprecated synonym for --distance-wts exp=<x>.\n\n"
+               );
     HelpPrint("distance-matrix\0ibs-matrix\0distance\0", &help_ctrl, 1,
 "  --distance-matrix\n"
 "  --ibs-matrix\n"

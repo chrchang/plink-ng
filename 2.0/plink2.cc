@@ -612,6 +612,9 @@ typedef struct Plink2CmdlineStruct {
   char* king_table_require_fnames;
   char* require_info_flattened;
   char* require_no_info_flattened;
+  char* distance_wts_fname;
+  double distance_wts_exp;
+  uint32_t distance_wts_noheader;
   char* keep_col_match_fname;
   char* keep_col_match_flattened;
   char* keep_col_match_name;
@@ -927,6 +930,7 @@ void UpdateSampleSubsets(const uintptr_t* sample_include, uint32_t raw_sample_ct
 // command_flags2 will probably be needed before we're done
 static_assert(kPglMaxAlleleCt == 255, "Plink2Core() --maj-ref needs to be updated.");
 PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, char* king_cutoff_fprefix, ChrInfo* cip, sfmt_t* sfmtp) {
+  double* distance_wts = nullptr;
   PhenoCol* pheno_cols = nullptr;
   PhenoCol* covar_cols = nullptr;
   PhenoCol* loop_cats_pheno_col = nullptr;
@@ -1536,7 +1540,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
     }
     const uint32_t htable_needed_early = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct);
-    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_cm_flag || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params || (pcp->flip_info.fname && (!pcp->flip_info.subset_fname)));
+    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_cm_flag || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_info.fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params || pcp->distance_wts_fname || (pcp->flip_info.fname && (!pcp->flip_info.subset_fname)));
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, pcp->bed_border_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1673,6 +1677,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         if (pcp->extract_col_cond_info.params) {
           reterr = ExtractColCond(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, &pcp->extract_col_cond_info, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, &variant_ct);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
+        if (pcp->distance_wts_fname) {
+          reterr = LoadDistanceWts(pcp->distance_wts_fname, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->distance_wts_noheader, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, &distance_wts);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -2710,7 +2720,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       if (pcp->command_flags1 & kfCommand1Distance) {
-        reterr = CalcDistance(sample_include, &pii.sii, variant_include, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, variant_ct, pcp->distance_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = CalcDistance(sample_include, &pii.sii, variant_include, allele_idx_offsets, allele_freqs, distance_wts, pcp->distance_wts_exp, raw_variant_ct, raw_sample_ct, sample_ct, variant_ct, pcp->distance_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3230,6 +3240,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     break;
   }
  Plink2Core_ret_1:
+  free_cond(distance_wts);
   if (loop_cats_pheno_col) {
     // Current implementation requires this to happen before CleanupPhenoCols()
     // on pheno_cols/covar_cols, since loop_cats_pheno_col actually points to
@@ -3895,6 +3906,9 @@ int main(int argc, char** argv) {
   pc.king_table_require_fnames = nullptr;
   pc.require_info_flattened = nullptr;
   pc.require_no_info_flattened = nullptr;
+  pc.distance_wts_fname = nullptr;
+  pc.distance_wts_exp = 0.0;
+  pc.distance_wts_noheader = 0;
   pc.keep_col_match_fname = nullptr;
   pc.keep_col_match_flattened = nullptr;
   pc.keep_col_match_name = nullptr;
@@ -5872,6 +5886,63 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.dosage_erase_thresh = S_CAST(int32_t, dosage_erase_frac * ((1 + kSmallEpsilon) * kDosageMid));
+        } else if (strequal_k_unsafe(flagname_p2, "istance-wts")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Distance))) {
+            logerrputs("Error: --distance-wts must be used with --distance.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.distance_flags & kfDistanceFlatMissing)) {
+            logerrputs("Error: --distance-wts cannot be used with --distance's 'flat-missing' modifier.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* first_param = argvk[arg_idx + 1];
+          if ((strlen(first_param) > 4) && (!memcmp(first_param, "exp=", 4))) {
+            if (unlikely(param_ct != 1)) {
+              logerrputs("Error: --distance-wts's 'exp=' form takes no other parameter.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely(!ScantokDouble(&(first_param[4]), &pc.distance_wts_exp)) || (pc.distance_wts_exp == 0.0)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --distance-wts exponent '%s'.\n", &(first_param[4]));
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          } else {
+            uint32_t fname_param_idx = 1;
+            if (param_ct == 2) {
+              if (!strcmp(first_param, "noheader")) {
+                fname_param_idx = 2;
+              } else if (unlikely(strcmp(argvk[arg_idx + 2], "noheader"))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --distance-wts parameter '%s'.\n", argvk[arg_idx + 2]);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              pc.distance_wts_noheader = 1;
+            }
+            reterr = AllocFname(argvk[arg_idx + fname_param_idx], flagname_p, &pc.distance_wts_fname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          pc.filter_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "istance-exp")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(!(pc.command_flags1 & kfCommand1Distance))) {
+            logerrputs("Error: --distance-exp must be used with --distance.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.distance_flags & kfDistanceFlatMissing)) {
+            logerrputs("Error: --distance-exp cannot be used with --distance's 'flat-missing' modifier.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(!ScantokDouble(argvk[arg_idx + 1], &pc.distance_wts_exp)) || (pc.distance_wts_exp == 0.0)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --distance-exp parameter '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          logputs("Note: --distance-exp is deprecated.  Use \"--distance-wts exp=<x>\" instead.\n");
+          pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "ummy")) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -14490,6 +14561,7 @@ int main(int argc, char** argv) {
   free_cond(pc.ref_allele_flag);
   free_cond(pc.keep_col_match_name);
   free_cond(pc.keep_col_match_flattened);
+  free_cond(pc.distance_wts_fname);
   free_cond(pc.keep_col_match_fname);
   free_cond(pc.require_no_info_flattened);
   free_cond(pc.require_info_flattened);
