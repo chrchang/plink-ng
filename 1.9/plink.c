@@ -97,7 +97,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.9.0-rc1"
+  "PLINK v1.9.0-rc2-dev"
 #else
   "PLINK v1.9.1-dev"
 #endif
@@ -109,12 +109,12 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (9 Sep 2026)";
+  " (11 Sep 2026)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifdef STABLE_BUILD
-  "      " // adjust based on length of version number
+  "  " // adjust based on length of version number
 #else
   "      "
 #endif
@@ -146,73 +146,51 @@ static const char errstr_append[] = "For more information, try \"" PROG_NAME_STR
 // the program does without paging through the full --help.  The commands that
 // need LAPACK, or that only exist in development builds, appear only there.
 static const char notestr_null_calc2[] =
-"Commands:\n"
+"Commands include:\n"
 "  -- Data management\n"
-"     --make-bed             write a new binary fileset\n"
-"     --recode               write the data out in another format\n"
-"     --merge-list           merge several filesets\n"
-"     --write-snplist        list the variant IDs that pass the filters\n"
-"     --list-duplicate-vars  list variants sharing position and allele codes\n"
-"     --flip-scan            find strand-inconsistent variants, using LD\n"
+"     --make-bed                 write a new binary fileset\n"
+"     --recode                   write the data out in another format\n"
+"     --a1-allele, --a2-allele   control allele order\n"
+"     --merge-list               merge several filesets\n"
+"     --write-snplist            list the variant IDs that pass the filters\n"
 "\n"
 "  -- Summary statistics\n"
-"     --freqx                per-variant genotype counts\n"
-"     --missing              sample- and variant-level missingness\n"
-"     --hardy                Hardy-Weinberg equilibrium exact test\n"
-"     --mendel               Mendel error report\n"
-"     --ibc                  inbreeding coefficients\n"
-"     --impute-sex           impute sex from X-chromosome homozygosity\n"
-"     --test-mishap          missingness vs. flanking haplotype association\n"
+"     --freq, --freqx            per-variant allele frequencies, genotype counts\n"
+"     --missing                  sample- and variant-level missingness\n"
+"     --hardy                    Hardy-Weinberg equilibrium exact test\n"
+"     --mendel                   Mendel error report\n"
+"     --het, --ibc               inbreeding coefficients\n"
+"     --check-sex, --impute-sex  check/impute sex using chrX homozygosity\n"
+"     --score                    polygenic scores\n"
 "\n"
 "  -- Linkage disequilibrium\n"
-"     --r2                   pairwise LD; --r for the signed correlation\n"
-"     --indep-pairphase      LD-based variant pruning\n"
-"     --show-tags            tag variant selection\n"
-"     --blocks               haplotype blocks, Gabriel et al. (2002)\n"
-"     --fast-epistasis       pairwise interaction scan; --epistasis is exact\n"
+"     --indep-pairwise           LD-based variant pruning\n"
+"     --r, --r2                  pairwise LD\n"
+"     --blocks                   haplotype blocks, Gabriel et al. (2002)\n"
 "\n"
 "  -- Relatedness and population structure\n"
-"     --distance             pairwise genomic distance matrix\n"
-"     --genome               identity-by-descent report\n"
-"     --homozyg              runs of homozygosity\n"
-"     --make-rel             relationship matrix\n"
-"     --make-grm-gz          relationship matrix in GCTA's format\n"
-"     --rel-cutoff           prune samples by relatedness\n"
-"     --cluster              IBS-based sample clustering\n"
+"     --genome                   identity-by-descent report\n"
+"     --homozyg                  runs of homozygosity\n"
+"     --make-grm-gz              relationship matrix in GCTA's format\n"
+"     --rel-cutoff               prune samples by relatedness\n"
+"     --cluster                  IBS-based sample clustering\n"
 #ifndef NOLAPACK
-"     --pca                  principal components\n"
+"     --pca                      principal components\n"
 #endif
-"     --neighbour            nearest-neighbour outlier detection\n"
-"     --ibs-test             case/control IBS permutation test\n"
-"     --regress-distance     regress genomic distance on covariates\n"
-#if !defined(STABLE_BUILD) && !defined(NOLAPACK)
-"     --unrelated-heritability  REML additive heritability estimate\n"
-#endif
+"     --neighbour                nearest-neighbour outlier detection\n"
 "\n"
 "  -- Association\n"
-"     --model                case/control tests, including trend and 2x3\n"
-"     --bd                   Breslow-Day test for odds ratio homogeneity\n"
-"     --gxe                  gene-environment interaction\n"
-"     --logistic             logistic regression; --linear for quantitative\n"
-"     --dosage               association on imputed dosages\n"
-"     --lasso                LASSO effect size estimation\n"
-"     --test-missing         differential missingness by case/control status\n"
-"     --make-perm-pheno      write permuted phenotypes, without testing\n"
-"     --tdt                  transmission disequilibrium test\n"
-#ifndef STABLE_BUILD
-"     --dfam                 sib-TDT, for discordant sibships and trios\n"
-#endif
-"     --qfam                 family-based test for quantitative traits\n"
-#ifndef STABLE_BUILD
-"     --tucc                 write pseudo-controls for trios\n"
-#endif
+"     --linear, --logistic       linear and logistic regression with covariates\n"
+"     --lasso                    LASSO effect size estimation\n"
+"     --test-missing             differential missingness by case/control status\n"
+"     --adjust                   multiple-testing correction\n"
+"     --tdt                      transmission disequilibrium test\n"
+"     --qfam                     family-based test for quantitative traits\n"
+"     --fast-epistasis           pairwise interaction scan for binary phenotype\n"
 "\n"
 "  -- Report post-processing\n"
-"     --annotate             add annotations to a variant-based report\n"
-"     --clump                LD-based clumping of association results\n"
-"     --gene-report          gene-based report from a variant-based report\n"
-"     --meta-analysis        meta-analyze several association reports\n"
-"     --score                polygenic scores\n"
+"     --clump                    LD-based clumping of association results\n"
+"     --meta-analysis            meta-analyze several association reports\n"
 "\n"
 "\"" PROG_NAME_STR " --help <flag name>\" describes one flag; \"" PROG_NAME_STR " --help | more\" describes\nthem all (warning: long).\n";
 
