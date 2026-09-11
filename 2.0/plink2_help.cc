@@ -3142,9 +3142,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                         (same syntax as --snps), and --ld-snp-list specifies a\n"
 "                         file to load variant IDs from.\n"
               );
-    HelpPrint("tag-kb\0tag-r2\0show-tags\0", &help_ctrl, 0,
+    HelpPrint("tag-kb\0tag-r2\0tag-mode2\0show-tags\0", &help_ctrl, 0,
 "  --tag-kb <kbs>       : Set --show-tags max tag kb distance (default 250).\n"
 "  --tag-r2 <val>       : Set --show-tags min tag r^2 (default 0.8).\n"
+"  --tag-mode2          : Make --show-tags read a two-column file, treating only\n"
+"                         the variants whose second column is '1' as targets,\n"
+"                         and write a .tags file in the same two-column form\n"
+"                         covering every variant.  Cannot be used with\n"
+"                         \"--show-tags all\".\n"
               );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,
