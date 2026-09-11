@@ -123,4 +123,14 @@ cd TEST_PGEN_MALFORMED
 cd ..
 echo "TEST_PGEN_MALFORMED passed."
 
+cd TEST_BLOCKS
+./run_tests.sh $d $2 $3 > TEST_BLOCKS.log
+cd ..
+echo "TEST_BLOCKS passed."
+
+cd TEST_TEST_MISHAP
+./run_tests.sh $d $2 $3 > TEST_TEST_MISHAP.log
+cd ..
+echo "TEST_TEST_MISHAP passed."
+
 echo "All tests passed."
