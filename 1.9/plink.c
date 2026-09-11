@@ -12943,6 +12943,15 @@ int32_t main(int32_t argc, char** argv) {
     logerrprint("Error: --distance-wts must be used with --distance, --make-rel, --make-grm-bin,\nor --make-grm-gz.\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
+  if ((distance_wts_fname || (distance_exp != 0.0)) && (dist_calc_type & DISTANCE_FLAT_MISSING)) {
+    // calc_distance() applies the weighted missingness correction whenever
+    // variant weights are in play, so the flat correction the user asked for
+    // would be silently ignored.  (The flat branch does have a main_weights
+    // case, but the counts it needs are only accumulated by the unweighted
+    // path, so reaching it would just divide by zero-filled arrays.)
+    logerrprint("Error: --distance-wts/--distance-exp cannot be used with --distance's\n'flat-missing' modifier.\n");
+    goto main_ret_INVALID_CMDLINE_A;
+  }
   if ((parallel_tot > 1) && (!(calculation_type & (CALC_LD | CALC_DISTANCE | CALC_GENOME | CALC_RELATIONSHIP)))) {
     if ((!(calculation_type & CALC_EPI)) || (!(epi_info.modifier & (EPI_FAST | EPI_REG)))) {
       logerrprint("Error: --parallel only affects --r/--r2, --distance, --genome, --make-rel,\n--make-grm-gz/--make-grm-bin, and --epistasis/--fast-epistasis.\n");
