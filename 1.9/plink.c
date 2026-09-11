@@ -1827,7 +1827,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto plink_ret_1;
     }
-    retval = ibs_test_calc(threads, read_dists_fname, unfiltered_sample_ct, sample_exclude, sample_ct, ibs_test_perms, pheno_nm_ct, pheno_ctrl_ct, pheno_nm, pheno_c);
+    retval = ibs_test_calc(threads, read_dists_fname, marker_ct, unfiltered_sample_ct, sample_exclude, sample_ct, ibs_test_perms, pheno_nm_ct, pheno_ctrl_ct, pheno_nm, pheno_c);
     if (retval) {
       goto plink_ret_1;
     }
