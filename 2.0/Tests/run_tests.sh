@@ -123,4 +123,9 @@ cd TEST_PGEN_MALFORMED
 cd ..
 echo "TEST_PGEN_MALFORMED passed."
 
+cd TEST_INFO_TO_COLS
+./run_tests.sh $d $2 $3 > TEST_INFO_TO_COLS.log
+cd ..
+echo "TEST_INFO_TO_COLS passed."
+
 echo "All tests passed."
