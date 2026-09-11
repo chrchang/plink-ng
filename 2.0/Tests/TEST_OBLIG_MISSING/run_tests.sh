@@ -27,8 +27,10 @@ awk 'BEGIN {
 }'
 
 # The .bed is written by an awk program rather than --dummy, since the
-# missingness pattern is the point of the test.
-awk 'BEGIN {
+# missingness pattern is the point of the test.  LC_ALL=C is needed because
+# printf "%c" writes a byte in the C locale but a UTF-8 sequence for values
+# above 127 in a multibyte one, which gawk uses by default.
+LC_ALL=C awk 'BEGIN {
   s = 20250910
   printf "%c%c%c", 108, 27, 1 > "tmp_data.bed"
   for (j = 0; j < 300; ++j) {
