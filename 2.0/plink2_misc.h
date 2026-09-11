@@ -26,6 +26,8 @@
 namespace plink2 {
 #endif
 
+PglErr WriteVarRanges(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t block_ct, uint32_t variant_ct, uint32_t output_zst, uint32_t max_variant_id_slen, uint32_t max_thread_ct, char* outname, char* outname_end);
+
 FLAGSET_DEF_START()
   kfRecoverVarIds0,
   kfRecoverVarIdsStrictBimOrder = (1 << 0),
