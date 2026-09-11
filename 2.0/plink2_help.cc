@@ -926,6 +926,25 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    maybefid,maybesid,maybepheno,chrom,pos,kb,nsnp,density,phom,phet,nseg,\n"
 "    kbtot,kbavg,aff,unaff.\n\n"
               );
+    HelpPrint("gxe\0mcovar\0", &help_ctrl, 1,
+"  --gxe [phenotype name] ['covar-name='<covariate name>] ['zs']\n"
+"    Test whether a variant's effect on a quantitative phenotype differs\n"
+"    between two groups of samples.  The groups are defined by a covariate\n"
+"    taking exactly two distinct values; the phenotype is regressed on the\n"
+"    genotype separately within each, and the two slopes are compared as\n"
+"    (BETA1 - BETA2) / sqrt(SE1^2 + SE2^2).\n"
+"    * The first covariate defines the groups unless 'covar-name=' names\n"
+"      another.  PLINK 1.x took a 1-based column index here instead, which\n"
+"      broke whenever the covariate file changed.\n"
+"    * The lower covariate value is group 1, so the report does not depend on\n"
+"      sample order.\n"
+"    * BETA is the effect of the allele named in the A1 column, which is ALT.\n"
+"      PLINK 1.x reported the effect of the minor allele instead, so its BETA\n"
+"      columns have the opposite sign wherever ALT is the major allele.  Z_GXE\n"
+"      and P are unaffected, since both slopes flip together.\n"
+"    * A group with fewer than three nonmissing genotypes, or no genotype\n"
+"      variance, gives NA rather than a spurious slope.\n\n"
+               );
     HelpPrint("test-missing\0", &help_ctrl, 1,
 "  --test-missing ['midp'] ['dosage'] ['zs'] ['cols='<column set descriptor>]\n"
 "    Check for association between missingness and case/control status, using\n"
