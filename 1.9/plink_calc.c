@@ -763,7 +763,6 @@ static double* g_ibs_test_partial_sums;
 static double* g_perm_results;
 static uintptr_t g_perm_ct;
 static double g_half_marker_ct_recip;
-static uint32_t g_load_dists;
 static unsigned char* g_generic_buf;
 
 void ibs_test_init_col_buf(uintptr_t row_idx, uintptr_t perm_ct, uintptr_t* perm_rows, uintptr_t* perm_col_buf) {
@@ -788,7 +787,7 @@ void ibs_test_init_col_buf(uintptr_t row_idx, uintptr_t perm_ct, uintptr_t* perm
   } while (perm_idx < perm_ct);
 }
 
-double fill_psbuf(uintptr_t block_size, double half_marker_ct_recip, uint32_t load_dists, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* dists, uintptr_t* col_uidxp, double* psbuf, double* ssq0p) {
+double fill_psbuf(uintptr_t block_size, double half_marker_ct_recip, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* dists, uintptr_t* col_uidxp, double* psbuf, double* ssq0p) {
   // also updates total sum and sums of squares
   double tot = 0.0;
   uintptr_t col_idx = 0;
@@ -810,11 +809,7 @@ double fill_psbuf(uintptr_t block_size, double half_marker_ct_recip, uint32_t lo
     subtot = 0.0;
     do {
       next_set_ul_unsafe_ck(pheno_nm, &col_uidx);
-      if (load_dists) {
-	dxx = dists[col_uidx];
-      } else {
-	dxx = 1.0 - dists[col_uidx] * half_marker_ct_recip;
-      }
+      dxx = 1.0 - dists[col_uidx] * half_marker_ct_recip;
       increment[sub_block_idx] = subtot - dxx;
       subtot += dxx;
       ssq[IS_SET(pheno_c, col_uidx)] += dxx * dxx;
@@ -912,7 +907,6 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
   uintptr_t* perm_rows = g_perm_rows;
   double* dists = g_dists;
   double half_marker_ct_recip = g_half_marker_ct_recip;
-  uint32_t load_dists = g_load_dists;
   double ssq[3];
   double* dptr;
   double block_tot;
@@ -941,7 +935,7 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
       } else {
 	block_size = BITCT;
       }
-      block_tot = fill_psbuf(block_size, half_marker_ct_recip, load_dists, pheno_nm, pheno_c, dptr, &col_uidx, psptr, &(ssq[row_set]));
+      block_tot = fill_psbuf(block_size, half_marker_ct_recip, pheno_nm, pheno_c, dptr, &col_uidx, psptr, &(ssq[row_set]));
       dist_tot += block_tot;
       ibs_test_process_perms(&(perm_rows[(col_idx / BITCT) * perm_ct]), perm_ct, (block_size + 7) / 8, block_tot, psptr, perm_col_buf, perm_results);
       col_idx += block_size;
@@ -2694,9 +2688,10 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
 }
 #endif
 
-int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
-  // g_dists and g_half_marker_ct_recip assumed to be populated by
-  // calc_distance().
+int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+  // g_dists is populated either by calc_distance() or by --read-dists, and
+  // holds distances in both cases; g_half_marker_ct_recip turns one into an
+  // IBS value, and calc_distance() only sets it when it runs.
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t pheno_nm_ctl = BITCT_TO_WORDCT(pheno_nm_ct);
@@ -2746,7 +2741,13 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   double* rptr2;
 #endif
   uintptr_t perm_idx;
-  g_load_dists = read_dists_fname? 1 : 0;
+  if (read_dists_fname) {
+    // --read-dists skipped calc_distance(), so the scale factor it would have
+    // computed has to be set here.  A matrix written by --distance on this
+    // same dataset then gives exactly the same report as recalculating, which
+    // is what --read-dists promises.
+    g_half_marker_ct_recip = 0.5 / ((double)((intptr_t)marker_ct));
+  }
   g_sample_ct = sample_ct;
   perm_ct += 1; // first permutation = original config
   if (pheno_ctrl_ct < 2) {
