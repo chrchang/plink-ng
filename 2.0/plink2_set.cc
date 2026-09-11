@@ -23,6 +23,7 @@
 #include "include/plink2_string.h"
 #include "include/plink2_text.h"
 #include "plink2_cmdline.h"
+#include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
 
 #ifdef __cplusplus
@@ -634,6 +635,548 @@ PglErr LoadAndSortIntervalBed(const char* fname, const ChrInfo* cip, const char*
  LoadAndSortIntervalBed_ret_1:
   CleanupTextStream2(fname, &txs, &reterr);
   BigstackEndReset(bigstack_end_mark);
+  return reterr;
+}
+
+void InitGeneReport(GeneReportInfo* grip) {
+  grip->report_fname = nullptr;
+  grip->glist_fname = nullptr;
+  grip->subset_fname = nullptr;
+  grip->chr_field = nullptr;
+  grip->pos_field = nullptr;
+  grip->id_field = nullptr;
+  grip->p_field = nullptr;
+  // UINT32_MAX = unset; --gene-list-border cannot exceed 0x7ffffffe.
+  grip->border = UINT32_MAX;
+  grip->flags = kfGeneReport0;
+}
+
+void CleanupGeneReport(GeneReportInfo* grip) {
+  free_cond(grip->report_fname);
+  free_cond(grip->glist_fname);
+  free_cond(grip->subset_fname);
+  free_cond(grip->chr_field);
+  free_cond(grip->pos_field);
+  free_cond(grip->id_field);
+  free_cond(grip->p_field);
+}
+
+// Loads a whitespace-delimited ID file into a strcmp-sorted, deduplicated
+// fixed-width box at the end of the bigstack, so that bsearch_strbox() works
+// on it.
+PglErr LoadSortedIdBox(const char* fname, const char* file_descrip, uint32_t max_thread_ct, char** sorted_ids_ptr, uintptr_t* id_ct_ptr, uintptr_t* max_id_blen_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    reterr = SizeAndInitTextStream(fname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto LoadSortedIdBox_ret_TSTREAM_FAIL;
+    }
+    uintptr_t id_ct = 0;
+    uintptr_t max_id_blen = 0;
+    while (1) {
+      const char* line_iter = TextGet(&txs);
+      if (!line_iter) {
+        break;
+      }
+      while (!IsEolnKns(*line_iter)) {
+        const char* token_end = CurTokenEnd(line_iter);
+        const uintptr_t slen = token_end - line_iter;
+        if (unlikely(slen > kMaxIdSlen)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s IDs are limited to " MAX_ID_SLEN_STR " characters.\n", file_descrip);
+          goto LoadSortedIdBox_ret_MALFORMED_INPUT_WW;
+        }
+        if (slen >= max_id_blen) {
+          max_id_blen = slen + 1;
+        }
+        ++id_ct;
+        line_iter = FirstNonTspace(token_end);
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LoadSortedIdBox_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(!id_ct)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s file is empty.\n", file_descrip);
+      goto LoadSortedIdBox_ret_MALFORMED_INPUT_WW;
+    }
+    char* sorted_ids;
+    uint32_t* id_map;
+    if (unlikely(bigstack_end_alloc_c(id_ct * max_id_blen, &sorted_ids) ||
+                 bigstack_alloc_u32(id_ct, &id_map))) {
+      goto LoadSortedIdBox_ret_NOMEM;
+    }
+    reterr = TextRewind(&txs);
+    if (unlikely(reterr)) {
+      goto LoadSortedIdBox_ret_TSTREAM_FAIL;
+    }
+    uintptr_t id_idx = 0;
+    while (id_idx != id_ct) {
+      const char* line_iter = TextGet(&txs);
+      if (unlikely(!line_iter)) {
+        goto LoadSortedIdBox_ret_REWIND_FAIL;
+      }
+      while (!IsEolnKns(*line_iter)) {
+        const char* token_end = CurTokenEnd(line_iter);
+        const uintptr_t slen = token_end - line_iter;
+        if (unlikely(id_idx == id_ct)) {
+          goto LoadSortedIdBox_ret_REWIND_FAIL;
+        }
+        memcpyx(&(sorted_ids[id_idx * max_id_blen]), line_iter, slen, '\0');
+        ++id_idx;
+        line_iter = FirstNonTspace(token_end);
+      }
+    }
+    if (unlikely(SortStrboxIndexed(id_ct, max_id_blen, 0, sorted_ids, id_map))) {
+      goto LoadSortedIdBox_ret_NOMEM;
+    }
+    // Remove duplicates, so that bsearch_strbox() results are unambiguous.
+    uintptr_t write_idx = 1;
+    for (uintptr_t read_idx = 1; read_idx != id_ct; ++read_idx) {
+      const char* cur_id = &(sorted_ids[read_idx * max_id_blen]);
+      if (strequal_overread(&(sorted_ids[(write_idx - 1) * max_id_blen]), cur_id)) {
+        continue;
+      }
+      if (write_idx != read_idx) {
+        strcpy(&(sorted_ids[write_idx * max_id_blen]), cur_id);
+      }
+      ++write_idx;
+    }
+    *sorted_ids_ptr = sorted_ids;
+    *id_ct_ptr = write_idx;
+    *max_id_blen_ptr = max_id_blen;
+  }
+  while (0) {
+  LoadSortedIdBox_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadSortedIdBox_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(file_descrip, &txs);
+    break;
+  LoadSortedIdBox_ret_REWIND_FAIL:
+    logerrprintfww(kErrprintfRewind, file_descrip);
+    reterr = kPglRetRewindFail;
+    break;
+  LoadSortedIdBox_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+  CleanupTextStream2(file_descrip, &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// Recovers the chromosome index from the fixed-width prefix LoadIntervalBed()
+// prepends to each set name.  Mirrors the decoder in
+// LoadAndSortIntervalBed().
+uint32_t GenePrefixToChrIdx(const char* chrprefixed_gene_name) {
+  uint32_t chr_idx = 0;
+  for (uint32_t uii = 0; uii != kMaxChrCodeDigits - 1; ++uii) {
+    chr_idx += ctou32(chrprefixed_gene_name[uii]) - 48;
+    chr_idx *= 10;
+  }
+  // Last prefix character is offset by 33 instead of 48; see
+  // LoadAndSortIntervalBed().
+  return chr_idx + ctou32(chrprefixed_gene_name[kMaxChrCodeDigits - 1]) - 33;
+}
+
+// Each saved report line is stored as an 8-byte-aligned record:
+//   [0..7]: ln(p-value), or kLnPvalError when the report has no P column
+//   [8..11]: bp coordinate
+//   [12..15]: variant ID length
+//   [16..]: variant ID, not null-terminated, padded to a multiple of 8 bytes
+CONSTI32(kGeneReportRecordHeaderSize, 16);
+
+HEADER_INLINE uintptr_t GeneReportRecordSize(uintptr_t id_slen) {
+  return RoundUpPow2(kGeneReportRecordHeaderSize + id_slen, 8);
+}
+
+PglErr GeneReport(const GeneReportInfo* grip, const ChrInfo* cip, const char* extract_fnames, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  const char* report_fname = grip->report_fname;
+  uintptr_t line_idx = 0;
+  char* cswritep = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  CompressStreamState css;
+  PreinitTextStream(&txs);
+  PreinitCstream(&css);
+  {
+    char* sorted_subset_ids = nullptr;
+    uintptr_t subset_ct = 0;
+    uintptr_t max_subset_id_blen = 0;
+    if (grip->subset_fname) {
+      reterr = LoadSortedIdBox(grip->subset_fname, "--gene-subset file", max_thread_ct, &sorted_subset_ids, &subset_ct, &max_subset_id_blen);
+      if (unlikely(reterr)) {
+        goto GeneReport_ret_1;
+      }
+    }
+    // The border is applied to the variant interval rather than to the gene
+    // ranges, so that the reported gene boundaries and DIST values stay
+    // relative to the unextended gene.
+    uintptr_t gene_ct;
+    char* gene_names;
+    uintptr_t max_gene_id_blen;
+    uintptr_t* chr_bounds;
+    uint32_t** genedefs;
+    uintptr_t chr_max_gene_ct;
+    reterr = LoadAndSortIntervalBed(grip->glist_fname, cip, sorted_subset_ids, (grip->flags / kfGeneReport0based) & 1, 0, subset_ct, max_subset_id_blen, max_thread_ct, &gene_ct, &gene_names, &max_gene_id_blen, &chr_bounds, &genedefs, &chr_max_gene_ct);
+    if (unlikely(reterr)) {
+      goto GeneReport_ret_1;
+    }
+    BigstackEndReset(bigstack_end_mark);
+    // --extract restricts which variants of the report are considered, as in
+    // PLINK 1.x.  There is no dataset on this code path, so it cannot go
+    // through the usual variant_include filtering and is applied to the report
+    // rows directly.  This must be loaded after the BigstackEndReset() above,
+    // since the box has to survive until the report is scanned.
+    char* sorted_extract_ids = nullptr;
+    uintptr_t extract_id_ct = 0;
+    uintptr_t max_extract_id_blen = 0;
+    if (extract_fnames) {
+      reterr = LoadSortedIdBox(extract_fnames, "--extract file", max_thread_ct, &sorted_extract_ids, &extract_id_ct, &max_extract_id_blen);
+      if (unlikely(reterr)) {
+        goto GeneReport_ret_1;
+      }
+    }
+    if (unlikely(gene_ct > 0x80000000LLU)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: Too many genes in %s (--gene-report can only handle 2147483648).\n", grip->glist_fname);
+      goto GeneReport_ret_MALFORMED_INPUT_WW;
+    }
+    if (!gene_ct) {
+      logerrputs("Warning: No genes remain for --gene-report.\n");
+    }
+
+    // gene_names is sorted by (chromosome index, gene name); the output is
+    // sorted by (gene name, chromosome index), so build the remapping tables.
+    uint32_t* gene_nameidx_to_chridx;
+    uint32_t* gene_chridx_to_nameidx;
+    if (unlikely(bigstack_alloc_u32(gene_ct, &gene_nameidx_to_chridx) ||
+                 bigstack_alloc_u32(gene_ct, &gene_chridx_to_nameidx))) {
+      goto GeneReport_ret_NOMEM;
+    }
+    if (gene_ct) {
+      // Sort key: gene name, then a space, then the chromosome-index prefix.
+      const uintptr_t sort_key_blen = max_gene_id_blen + kMaxChrCodeDigits + 1;
+      char* sort_keys;
+      if (unlikely(bigstack_alloc_c(gene_ct * sort_key_blen, &sort_keys))) {
+        goto GeneReport_ret_NOMEM;
+      }
+      for (uintptr_t gene_idx = 0; gene_idx != gene_ct; ++gene_idx) {
+        const char* chrprefixed_gene_name = &(gene_names[gene_idx * max_gene_id_blen]);
+        char* key_iter = strcpyax(&(sort_keys[gene_idx * sort_key_blen]), &(chrprefixed_gene_name[kMaxChrCodeDigits]), ' ');
+        memcpyx(key_iter, chrprefixed_gene_name, kMaxChrCodeDigits, '\0');
+        gene_nameidx_to_chridx[gene_idx] = gene_idx;
+      }
+      if (unlikely(SortStrboxIndexed(gene_ct, sort_key_blen, 1, sort_keys, gene_nameidx_to_chridx))) {
+        goto GeneReport_ret_NOMEM;
+      }
+      for (uintptr_t name_idx = 0; name_idx != gene_ct; ++name_idx) {
+        gene_chridx_to_nameidx[gene_nameidx_to_chridx[name_idx]] = name_idx;
+      }
+      BigstackReset(sort_keys);
+    }
+
+    reterr = SizeAndInitTextStream(report_fname, bigstack_left() / 8, MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto GeneReport_ret_TSTREAM_FAIL;
+    }
+    char* header_start;
+    do {
+      ++line_idx;
+      header_start = TextGet(&txs);
+      if (unlikely(!header_start)) {
+        reterr = TextStreamRawErrcode(&txs);
+        if (reterr == kPglRetEof) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", report_fname);
+          goto GeneReport_ret_MALFORMED_INPUT_WW;
+        }
+        goto GeneReport_ret_TSTREAM_FAIL;
+      }
+    } while (strequal_k_unsafe(header_start, "##"));
+    if (*header_start == '#') {
+      ++header_start;
+    }
+    const GeneReportFlags flags = grip->flags;
+    // [0] = CHROM, [1] = POS, [2] = ID, [3] = P
+    const char* col_search_order[4];
+    col_search_order[0] = grip->chr_field? grip->chr_field : "CHROM\0CHR\0";
+    col_search_order[1] = grip->pos_field? grip->pos_field : "POS\0BP\0";
+    col_search_order[2] = grip->id_field? grip->id_field : "ID\0SNP\0";
+    col_search_order[3] = grip->p_field? grip->p_field : "P\0UNADJ\0";
+    uint32_t col_skips[4];
+    uint32_t col_types[4];
+    uint32_t relevant_col_ct;
+    uint32_t found_type_bitset;
+    reterr = SearchHeaderLine(header_start, col_search_order, "gene-report", 4, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+    if (unlikely(reterr)) {
+      goto GeneReport_ret_1;
+    }
+    if (unlikely((found_type_bitset & 7) != 7)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s must have chromosome, bp coordinate, and variant ID columns.\n", report_fname);
+      goto GeneReport_ret_INCONSISTENT_INPUT_WW;
+    }
+    const uint32_t p_col_present = (found_type_bitset >> 3) & 1;
+    if (unlikely((!p_col_present) && (ln_pfilter != kLnPvalError))) {
+      snprintf(g_logbuf, kLogbufSize, "Error: --pfilter requires a p-value column in %s.\n", report_fname);
+      goto GeneReport_ret_INCONSISTENT_INPUT_WW;
+    }
+
+    // Report lines that match at least one gene are stored at the bottom of
+    // the arena (growing upwards); (gene, line) matches are stored at the top
+    // (8-byte entries, growing downwards).  A single line can match at most
+    // chr_max_gene_ct genes, so that much headroom is kept in reserve.
+    unsigned char* record_iter = g_bigstack_base;
+    uint64_t* match_list_end = R_CAST(uint64_t*, BigstackEndRoundedDown());
+    uint64_t* match_list = match_list_end;
+    const uint32_t border = (grip->border == UINT32_MAX)? 0 : grip->border;
+    uint32_t max_id_slen = 1;
+    uintptr_t saved_line_ct = 0;
+    uintptr_t skipped_chr_ct = 0;
+    while (1) {
+      ++line_idx;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      const char* token_ptrs[4];
+      uint32_t token_slens[4];
+      if (unlikely(!TokenLexK0(line_start, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, report_fname);
+        goto GeneReport_ret_MALFORMED_INPUT_WW;
+      }
+      const uint32_t chr_idx = GetChrCode(token_ptrs[0], cip, token_slens[0]);
+      if (IsI32Neg(chr_idx)) {
+        ++skipped_chr_ct;
+        continue;
+      }
+      if (!IsSet(cip->chr_mask, chr_idx)) {
+        continue;
+      }
+      uint32_t variant_bp;
+      if (unlikely(ScanUintDefcap(token_ptrs[1], &variant_bp))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, report_fname);
+        goto GeneReport_ret_MALFORMED_INPUT_WW;
+      }
+      double ln_pval = kLnPvalError;
+      if (p_col_present) {
+        const char* pval_str = token_ptrs[3];
+        if (!ScantokLn(pval_str, &ln_pval)) {
+          const uint32_t pval_slen = token_slens[3];
+          if (IsNanStr(pval_str, pval_slen)) {
+            ln_pval = kLnPvalError;
+          } else if (likely(strequal_k(pval_str, "INF", pval_slen))) {
+            ln_pval = kLnNormalMin;
+          } else {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid p-value on line %" PRIuPTR " of %s.\n", line_idx, report_fname);
+            goto GeneReport_ret_MALFORMED_INPUT_WW;
+          }
+        }
+        if (ln_pval > ln_pfilter) {
+          continue;
+        }
+      }
+      const uintptr_t id_slen = token_slens[2];
+      if (extract_id_ct && (bsearch_strbox(token_ptrs[2], sorted_extract_ids, id_slen, max_extract_id_blen, extract_id_ct) == -1)) {
+        continue;
+      }
+      const uintptr_t record_size = GeneReportRecordSize(id_slen);
+      if (unlikely(S_CAST(uintptr_t, R_CAST(unsigned char*, match_list) - record_iter) < record_size + chr_max_gene_ct * sizeof(int64_t))) {
+        goto GeneReport_ret_NOMEM;
+      }
+      const uint32_t bp_start = (variant_bp > border)? (variant_bp - border) : 0;
+      const uint32_t bp_end = (variant_bp > UINT32_MAX - border)? UINT32_MAX : (variant_bp + border);
+      const uintptr_t gene_idx_end = chr_bounds[chr_idx + 1];
+      uint64_t* match_list_stop = match_list;
+      for (uintptr_t gene_idx = chr_bounds[chr_idx]; gene_idx != gene_idx_end; ++gene_idx) {
+        if (IntervalInSetdef(genedefs[gene_idx], bp_start, bp_end)) {
+          *(--match_list) = (S_CAST(uint64_t, gene_chridx_to_nameidx[gene_idx]) << 32) | saved_line_ct;
+        }
+      }
+      if (match_list == match_list_stop) {
+        continue;
+      }
+      if (unlikely(saved_line_ct == 0x100000000LLU)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Too many matching lines in %s (--gene-report can only handle 4294967296).\n", report_fname);
+        goto GeneReport_ret_MALFORMED_INPUT_WW;
+      }
+      memcpy(record_iter, &ln_pval, sizeof(double));
+      memcpy(&(record_iter[8]), &variant_bp, sizeof(int32_t));
+      const uint32_t id_slen_u32 = id_slen;
+      memcpy(&(record_iter[12]), &id_slen_u32, sizeof(int32_t));
+      memcpy(&(record_iter[kGeneReportRecordHeaderSize]), token_ptrs[2], id_slen);
+      record_iter = &(record_iter[record_size]);
+      if (id_slen > max_id_slen) {
+        max_id_slen = id_slen;
+      }
+      ++saved_line_ct;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto GeneReport_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(CleanupTextStream2(report_fname, &txs, &reterr))) {
+      goto GeneReport_ret_1;
+    }
+    if (skipped_chr_ct) {
+      logerrprintfww("Warning: %" PRIuPTR " line%s in %s skipped due to unrecognized chromosome code%s.\n", skipped_chr_ct, (skipped_chr_ct == 1)? "" : "s", report_fname, (skipped_chr_ct == 1)? "" : "s");
+    }
+
+    // Saved-line index -> record lookup table, placed just below the match
+    // list since record_iter is not aligned for pointers.
+    if (unlikely(S_CAST(uintptr_t, R_CAST(unsigned char*, match_list) - record_iter) < saved_line_ct * sizeof(intptr_t))) {
+      goto GeneReport_ret_NOMEM;
+    }
+    unsigned char** line_lookup = &(R_CAST(unsigned char**, match_list)[-S_CAST(intptr_t, saved_line_ct)]);
+    {
+      unsigned char* record_scan = g_bigstack_base;
+      for (uintptr_t saved_line_idx = 0; saved_line_idx != saved_line_ct; ++saved_line_idx) {
+        line_lookup[saved_line_idx] = record_scan;
+        uint32_t id_slen;
+        memcpy(&id_slen, &(record_scan[12]), sizeof(int32_t));
+        record_scan = &(record_scan[GeneReportRecordSize(id_slen)]);
+      }
+    }
+    const uintptr_t match_ct = match_list_end - match_list;
+    STD_SORT(match_ct, u64cmp, match_list);
+    BigstackBaseSet(record_iter);
+    BigstackEndSet(line_lookup);
+
+    const uint32_t output_zst = (flags / kfGeneReportZs) & 1;
+    OutnameZstSet(".gene.report", output_zst, outname_end);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_gene_id_blen + max_id_slen + 256;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto GeneReport_ret_1;
+    }
+    const uint32_t chrom_col = (flags / kfGeneReportColChrom) & 1;
+    const uint32_t genepos_col = (flags / kfGeneReportColGenepos) & 1;
+    const uint32_t genekb_col = (flags / kfGeneReportColGenekb) & 1;
+    const uint32_t dist_col = (flags / kfGeneReportColDist) & 1;
+    const uint32_t pos_col = (flags / kfGeneReportColPos) & 1;
+    const uint32_t p_col = p_col_present && ((flags / kfGeneReportColP) & 1);
+    *cswritep++ = '#';
+    cswritep = strcpya_k(cswritep, "GENE");
+    if (chrom_col) {
+      cswritep = strcpya_k(cswritep, "\tCHROM");
+    }
+    if (genepos_col) {
+      cswritep = strcpya_k(cswritep, "\tGENE_START\tGENE_END");
+    }
+    if (genekb_col) {
+      cswritep = strcpya_k(cswritep, "\tGENE_KB");
+    }
+    if (dist_col) {
+      cswritep = strcpya_k(cswritep, "\tDIST");
+    }
+    cswritep = strcpya_k(cswritep, "\tID");
+    if (pos_col) {
+      cswritep = strcpya_k(cswritep, "\tPOS");
+    }
+    if (p_col) {
+      cswritep = strcpya_k(cswritep, "\tP");
+    }
+    AppendBinaryEoln(&cswritep);
+
+    uintptr_t prev_name_idx = ~k0LU;
+    const char* cur_gene_name = nullptr;
+    uint32_t cur_gene_start = 0;
+    uint32_t cur_gene_end = 0;
+    uint32_t cur_chr_idx = 0;
+    double cur_gene_kb = 0.0;
+    for (uintptr_t match_idx = 0; match_idx != match_ct; ++match_idx) {
+      const uint64_t cur_match = match_list[match_idx];
+      const uintptr_t name_idx = cur_match >> 32;
+      if (name_idx != prev_name_idx) {
+        prev_name_idx = name_idx;
+        const uintptr_t gene_idx = gene_nameidx_to_chridx[name_idx];
+        const char* chrprefixed_gene_name = &(gene_names[gene_idx * max_gene_id_blen]);
+        cur_gene_name = &(chrprefixed_gene_name[kMaxChrCodeDigits]);
+        cur_chr_idx = GenePrefixToChrIdx(chrprefixed_gene_name);
+        const uint32_t* genedef = genedefs[gene_idx];
+        const uint32_t range_ct = genedef[0];
+        cur_gene_start = genedef[1];
+        cur_gene_end = genedef[2 * range_ct];
+        uint32_t covered_bp_ct = 0;
+        for (uint32_t range_idx = 0; range_idx != range_ct; ++range_idx) {
+          covered_bp_ct += genedef[2 * range_idx + 2] - genedef[2 * range_idx + 1];
+        }
+        cur_gene_kb = u31tod(covered_bp_ct) * 0.001;
+      }
+      const unsigned char* record = line_lookup[S_CAST(uint32_t, cur_match)];
+      double ln_pval;
+      memcpy(&ln_pval, record, sizeof(double));
+      uint32_t variant_bp;
+      memcpy(&variant_bp, &(record[8]), sizeof(int32_t));
+      uint32_t id_slen;
+      memcpy(&id_slen, &(record[12]), sizeof(int32_t));
+      cswritep = strcpya(cswritep, cur_gene_name);
+      if (chrom_col) {
+        *cswritep++ = '\t';
+        cswritep = chrtoa(cip, cur_chr_idx, cswritep);
+      }
+      if (genepos_col) {
+        *cswritep++ = '\t';
+        cswritep = u32toa_x(cur_gene_start, '\t', cswritep);
+        cswritep = u32toa(cur_gene_end - 1, cswritep);
+      }
+      if (genekb_col) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(cur_gene_kb, cswritep);
+      }
+      if (dist_col) {
+        *cswritep++ = '\t';
+        cswritep = dtoa_g(S_CAST(double, S_CAST(int32_t, variant_bp) - S_CAST(int32_t, cur_gene_start)) * 0.001, cswritep);
+      }
+      *cswritep++ = '\t';
+      cswritep = memcpya(cswritep, &(record[kGeneReportRecordHeaderSize]), id_slen);
+      if (pos_col) {
+        *cswritep++ = '\t';
+        cswritep = u32toa(variant_bp, cswritep);
+      }
+      if (p_col) {
+        *cswritep++ = '\t';
+        cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto GeneReport_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto GeneReport_ret_WRITE_FAIL;
+    }
+    logprintfww("--gene-report: %" PRIuPTR " gene-variant pair%s written to %s .\n", match_ct, (match_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  GeneReport_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  GeneReport_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(report_fname, &txs);
+    break;
+  GeneReport_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  GeneReport_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  GeneReport_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ GeneReport_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  CleanupTextStream2(report_fname, &txs, &reterr);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 

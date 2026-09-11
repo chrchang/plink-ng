@@ -2096,6 +2096,30 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Default set is chrom,maybeprovref,a1,unadj,gc,bonf,holm,sidakss,sidaksd,\n"
 "    fdrbh,fdrby.\n\n"
                );
+    HelpPrint("gene-report\0gene-list-border\0gene-subset\0", &help_ctrl, 1,
+"  --gene-report <report file> <gene range file> ['zs'] ['0based']\n"
+"                ['cols='<column set descriptor>]\n"
+"    Given an association report and a gene range file, list every\n"
+"    (gene, variant) pair where the variant falls inside the gene, sorted by\n"
+"    gene name.  No main dataset is loaded; the chromosome codes and base-pair\n"
+"    coordinates are taken from the association report.\n"
+"    The gene range file has the same format as --clump-range's; '0based'\n"
+"    selects half-open 0-based coordinates, as in a BED file.\n"
+"    * --pfilter can be used to drop high-p-value variants, and --extract's\n"
+"      plain variant ID list form can be used to restrict the report rows.\n"
+"    * The DIST column is the distance in kb from the start of the gene to the\n"
+"      variant; it is negative when --gene-list-border puts the variant before\n"
+"      the gene.\n"
+"    The following column sets are supported:\n"
+"      chrom: Chromosome ID.\n"
+"      genepos: Start and end coordinates of the gene.\n"
+"      genekb: Total length of the gene, in kb.\n"
+"      dist: Distance from the start of the gene to the variant, in kb.\n"
+"      (GENE and ID are always present, and positioned here.)\n"
+"      pos: Base-pair coordinate of the variant.\n"
+"      p: P-value of the variant.  (Omitted if missing from input file.)\n"
+"    Default set is chrom,genepos,genekb,dist,pos,p.\n\n"
+               );
     // todo: reimplement most/all of PLINK 1.x's other automatic checks (het
     // haploids, missing sex, etc. with corresponding output files) and have a
     // flag (--qc1?) which invokes them all.
@@ -3226,6 +3250,20 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --adjust-a1-field <n...>\n"
 "  --adjust-test-field <n...>\n"
 "  --adjust-p-field <n...>\n"
+               );
+    HelpPrint("gene-list-border\0gene-subset\0gene-report\0", &help_ctrl, 0,
+"  --gene-list-border <kbs> : Extend each --gene-report gene by this many\n"
+"                             kilobases on each side.  The reported gene\n"
+"                             boundaries and DIST values stay relative to the\n"
+"                             unextended gene.\n"
+"  --gene-subset <filename> : Restrict --gene-report to the genes named in this\n"
+"                             file.\n"
+               );
+    HelpPrint("gene-report-chr-field\0gene-report-pos-field\0gene-report-id-field\0gene-report-p-field\0gene-report\0", &help_ctrl, 0,
+"  --gene-report-chr-field <n...> : Set --gene-report input field names.  When\n"
+"  --gene-report-pos-field <n...>   multiple arguments are given to these flags,\n"
+"  --gene-report-id-field <n...>    earlier names take precedence over later\n"
+"  --gene-report-p-field <n...>     ones.\n"
                );
     HelpPrint("ci\0linear\0logistic\0", &help_ctrl, 0,
 "  --ci <size>        : Report confidence ratios for odds ratios/betas.\n"
