@@ -3186,7 +3186,11 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       if (pcp->command_flags1 & kfCommand1Epi) {
-        reterr = CalcEpi(sample_include, pheno_cols, variant_include, cip, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (pcp->epi_info.flags & kfEpiRegress) {
+          reterr = CalcEpiLinear(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, pcp->vif_thresh, pcp->glm_info.max_corr, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        } else {
+          reterr = CalcEpi(sample_include, pheno_cols, variant_include, cip, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        }
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -6225,11 +6229,37 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          if (unlikely(pc.epi_info.flags & kfEpiRegress)) {
+            logerrputs("Error: --epistasis-boost cannot be used with --epistasis.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(ParseEpiBoostModifiers(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0, &pc.epi_info.flags))) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           pc.command_flags1 |= kfCommand1Epi;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "pistasis")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiZs;
+            } else if (strequal_k(cur_modif, "nop", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiNoP;
+            } else if (unlikely(strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --epistasis's '%s' modifier needs variant sets, which are not\nimplemented yet.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --epistasis argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          pc.epi_info.flags |= kfEpiRegress;
+          pc.command_flags1 |= kfCommand1Epi;
+          pc.dependency_flags |= kfFilterAllReq | kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "xtract")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -6782,7 +6812,11 @@ int main(int argc, char** argv) {
             }
           }
           if (unlikely(!boost_found)) {
-            logerrputs("Error: --fast-epistasis's default test has been retired.  Use --epistasis-boost\nfor the BOOST test.\n");
+            logerrputs("Error: --fast-epistasis's default test has been retired.  Use --epistasis-boost\nfor the BOOST test, or --epistasis for the quantitative-phenotype test.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.epi_info.flags & kfEpiRegress)) {
+            logerrputs("Error: --fast-epistasis cannot be used with --epistasis.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(ParseEpiBoostModifiers(&(argvk[arg_idx + 1]), flagname_p, param_ct, 1, &pc.epi_info.flags))) {
@@ -13719,7 +13753,7 @@ int main(int argc, char** argv) {
           import_flags |= kfImportVcfAllowNoNonvar;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "if")) {
-          if (unlikely(!(pc.command_flags1 & kfCommand1Glm))) {
+          if (unlikely((!(pc.command_flags1 & kfCommand1Glm)) && (!(pc.epi_info.flags & kfEpiRegress)))) {
             logerrputs("Error: --vif must be used with --glm/--epistasis.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -14399,7 +14433,7 @@ int main(int argc, char** argv) {
     // --epi1/--epi2 sort before --epistasis-boost, so their dependency cannot
     // be checked while parsing them.
     if (unlikely(epi_thresh_present && (!(pc.command_flags1 & kfCommand1Epi)))) {
-      logerrputs("Error: --epi1/--epi2 must be used with --epistasis-boost.\n");
+      logerrputs("Error: --epi1/--epi2 must be used with --epistasis-boost/--epistasis.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
 

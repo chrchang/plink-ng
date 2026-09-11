@@ -1253,6 +1253,25 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      all-pairs computation on more than 400k variants.\n"
 "    With either output type, the computation can be subdivided with --parallel.\n\n"
               );
+    HelpPrint("epistasis\0epi1\0epi2\0vif\0", &help_ctrl, 1,
+"  --epistasis ['zs'] ['nop']\n"
+"    Scan every pair of autosomal variants for an interaction with a\n"
+"    quantitative phenotype, by least-squares regression of the phenotype on\n"
+"    the two genotypes, their product, and any --covar covariates.  The\n"
+"    report, written to <output prefix>.epi.qt, gives the product term's\n"
+"    coefficient, its standard error and its t-statistic, with a per-variant\n"
+"    summary alongside it in .epi.qt.summary.\n"
+"    * PLINK 1.07 and 1.9 have no covariate support here, and report the\n"
+"      squared t-statistic as a 1-df chi-square with a normal p-value; this\n"
+"      reports the t-statistic itself, with the matching t p-value.\n"
+"    * A constant covariate is dropped with a warning, as in --glm, and\n"
+"      --vif sets the variance inflation factor a pair must stay under.\n"
+"    * Samples missing either genotype, the phenotype, or any covariate are\n"
+"      left out of that pair's regression.\n"
+"    * --epi1 (default 1e-4) is the reporting threshold and --epi2 (default\n"
+"      0.01) the summary's N_SIG threshold, as for --epistasis-boost.  The\n"
+"      case/control branch of --epistasis is not implemented yet.\n\n"
+               );
     HelpPrint("epistasis-boost\0fast-epistasis\0epi1\0epi2\0", &help_ctrl, 1,
 "  --epistasis-boost ['zs'] ['nop']\n"
 "  --epi1 <p-value>\n"

@@ -35,6 +35,7 @@
 #include "plink2_decompress.h"
 #include "plink2_matrix.h"
 #include "plink2_filter.h"
+#include "plink2_glm_shared.h"
 #include "plink2_pvar.h"
 #include "plink2_set.h"
 
@@ -14674,6 +14675,803 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
     break;
   }
  CalcEpi_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  CswriteCloseCond(&csst, cswritetp);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// --epistasis: the interaction term of a linear regression of the phenotype on
+// the two genotypes, their product, and any covariates.  PLINK 1.9 supports no
+// covariates here, and solves the 4-parameter case with a hardcoded 4x4
+// inverse.
+//
+// Covariates are added the way --glm does them rather than by solving a
+// (4 + covariate)-parameter least squares from scratch for every pair: the
+// covariate block of X'X is the same for every pair with no missing calls,
+// each variant's own row is the same for every pair it appears in, and only
+// the product term's row genuinely varies.  So the per-pair work is one pass
+// over the samples where both genotypes are nonzero, a correction pass over
+// the samples missing either call, and a solve whose dimension does not depend
+// on the sample count.
+//
+// Each variant is held as three bitvectors over the analysis samples: nonzero,
+// hom-ALT, and missing.  The genotype is then 0, 1 or 2 without a lookup, and
+// the samples that contribute to the product term are one AND away.
+
+// Per-variant summaries, over the samples where this variant is not missing:
+// sum of genotypes, sum of squares, dot product with the phenotype, and dot
+// product with each covariate.
+CONSTI32(kEpiLinearVariantDoubleCt, 3);
+
+static void EpiLinearFillSlot(const uintptr_t* genovec, const double* pheno_vals, const double* covar_vals, uint32_t sample_ct, uint32_t covar_ct, uintptr_t* bits, double* dbls, uint32_t* miss_ct_ptr) {
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  uintptr_t* nonzero = bits;
+  uintptr_t* hom_alt = &(bits[sample_ctl]);
+  uintptr_t* missing = &(bits[2 * sample_ctl]);
+  Halfword* nonzero_alias = R_CAST(Halfword*, nonzero);
+  Halfword* hom_alt_alias = R_CAST(Halfword*, hom_alt);
+  Halfword* missing_alias = R_CAST(Halfword*, missing);
+  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+    const uintptr_t geno_word = genovec[widx];
+    const uintptr_t lo = geno_word & kMask5555;
+    const uintptr_t hi = (geno_word >> 1) & kMask5555;
+    // 0 = hom-REF, 1 = het, 2 = hom-ALT, 3 = missing.
+    nonzero_alias[widx] = PackWordToHalfword(lo ^ hi);
+    hom_alt_alias[widx] = PackWordToHalfword(hi & (~lo));
+    missing_alias[widx] = PackWordToHalfword(lo & hi);
+  }
+  if (sample_ctl2 % 2) {
+    nonzero_alias[sample_ctl2] = 0;
+    hom_alt_alias[sample_ctl2] = 0;
+    missing_alias[sample_ctl2] = 0;
+  }
+  const uint32_t nonzero_ct = PopcountWords(nonzero, sample_ctl);
+  const uint32_t hom_alt_ct = PopcountWords(hom_alt, sample_ctl);
+  // Each nonzero genotype contributes 1 and each hom-ALT another 1, so the
+  // squares are 1 and 4 respectively.
+  dbls[0] = u31tod(nonzero_ct + hom_alt_ct);
+  dbls[1] = u31tod(nonzero_ct + 3 * hom_alt_ct);
+  double pheno_dot = 0.0;
+  double* covar_dots = &(dbls[kEpiLinearVariantDoubleCt]);
+  for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+    covar_dots[covar_idx] = 0.0;
+  }
+  for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
+    uintptr_t nonzero_word = nonzero[widx];
+    if (!nonzero_word) {
+      continue;
+    }
+    const uintptr_t hom_alt_word = hom_alt[widx];
+    const uint32_t sample_idx_base = widx * kBitsPerWord;
+    do {
+      const uint32_t bit_idx = ctzw(nonzero_word);
+      nonzero_word &= nonzero_word - 1;
+      const uint32_t sample_idx = sample_idx_base + bit_idx;
+      const double cur_geno = u31tod(1 + S_CAST(uint32_t, (hom_alt_word >> bit_idx) & 1));
+      pheno_dot += cur_geno * pheno_vals[sample_idx];
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+        covar_dots[covar_idx] += cur_geno * covar_vals[covar_idx * S_CAST(uintptr_t, sample_ct) + sample_idx];
+      }
+    } while (nonzero_word);
+  }
+  dbls[2] = pheno_dot;
+  *miss_ct_ptr = PopcountWords(missing, sample_ctl);
+}
+
+PglErr CalcEpiLinear(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, double vif_thresh, double max_corr, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  char* cswritetp = nullptr;
+  CompressStreamState css;
+  CompressStreamState csst;
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
+  PreinitCstream(&csst);
+  {
+    const EpiFlags flags = epi_ip->flags;
+    const uint32_t no_p_value = (flags / kfEpiNoP) & 1;
+    const uint32_t output_zst = (flags / kfEpiZs) & 1;
+
+    // As with --epistasis-boost, PLINK 1.x had a single phenotype, and an
+    // O(variant_ct^2) scan is not something to guess about.
+    uint32_t pheno_idx = UINT32_MAX;
+    uint32_t qt_pheno_ct = 0;
+    for (uint32_t uii = 0; uii != pheno_ct; ++uii) {
+      if (pheno_cols[uii].type_code == kPhenoDtypeQt) {
+        ++qt_pheno_ct;
+        if (pheno_idx == UINT32_MAX) {
+          pheno_idx = uii;
+        }
+      }
+    }
+    if (unlikely(!qt_pheno_ct)) {
+      logerrputs("Error: --epistasis requires a quantitative phenotype.  Its case/control\nbranch is not implemented yet; --epistasis-boost covers case/control data.\n");
+      goto CalcEpiLinear_ret_INCONSISTENT_INPUT;
+    }
+    if (unlikely(qt_pheno_ct > 1)) {
+      logerrputs("Error: --epistasis needs exactly one quantitative phenotype; select one with\n--pheno-name.\n");
+      goto CalcEpiLinear_ret_INCONSISTENT_INPUT;
+    }
+    const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* sample_include;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include))) {
+      goto CalcEpiLinear_ret_NOMEM;
+    }
+    BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, sample_include);
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+      const PhenoCol* cur_covar_col = &(covar_cols[covar_idx]);
+      if (unlikely(cur_covar_col->type_code == kPhenoDtypeCat)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --epistasis does not support categorical covariates yet ('%s'). Split it into binary covariates with --split-cat-pheno first.\n", &(covar_names[covar_idx * max_covar_name_blen]));
+        goto CalcEpiLinear_ret_INCONSISTENT_INPUT_WW;
+      }
+      BitvecAnd(cur_covar_col->nonmiss, raw_sample_ctl, sample_include);
+    }
+    const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+    if (unlikely(sample_ct < 6)) {
+      logerrputs("Error: --epistasis needs more samples than regression parameters.\n");
+      goto CalcEpiLinear_ret_DEGENERATE_DATA;
+    }
+    logprintf("--epistasis: Regressing %s on %u sample%s.\n", &(pheno_names[pheno_idx * max_pheno_name_blen]), sample_ct, (sample_ct == 1)? "" : "s");
+
+    // The covariates are stored one column at a time, since the inner loops
+    // walk a single covariate across many samples.
+    double* pheno_vals;
+    double* covar_vals = nullptr;
+    if (unlikely(bigstack_alloc_d(sample_ct, &pheno_vals))) {
+      goto CalcEpiLinear_ret_NOMEM;
+    }
+    if (covar_ct) {
+      if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, sample_ct) * covar_ct, &covar_vals))) {
+        goto CalcEpiLinear_ret_NOMEM;
+      }
+    }
+    {
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t sample_include_bits = sample_include[0];
+      const double* pheno_qt = cur_pheno_col->data.qt;
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+        pheno_vals[sample_idx] = pheno_qt[sample_uidx];
+        for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+          const PhenoCol* cur_covar_col = &(covar_cols[covar_idx]);
+          const double cur_val = (cur_covar_col->type_code == kPhenoDtypeQt)? cur_covar_col->data.qt[sample_uidx] : u31tod(IsSet(cur_covar_col->data.cc, sample_uidx));
+          covar_vals[covar_idx * S_CAST(uintptr_t, sample_ct) + sample_idx] = cur_val;
+        }
+      }
+    }
+
+    // A covariate that is constant across the analysis samples is collinear
+    // with the intercept, and would fail every pair rather than none.  --glm
+    // drops those with a warning; do the same.
+    uint32_t cur_covar_ct = 0;
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+      const double* cur_col = &(covar_vals[covar_idx * S_CAST(uintptr_t, sample_ct)]);
+      const double first_val = cur_col[0];
+      uint32_t sample_idx = 1;
+      for (; sample_idx != sample_ct; ++sample_idx) {
+        if (cur_col[sample_idx] != first_val) {
+          break;
+        }
+      }
+      if (sample_idx == sample_ct) {
+        logerrprintf("Warning: Excluding constant covariate '%s' from --epistasis.\n", &(covar_names[covar_idx * max_covar_name_blen]));
+        continue;
+      }
+      if (cur_covar_ct != covar_idx) {
+        memcpy(&(covar_vals[cur_covar_ct * S_CAST(uintptr_t, sample_ct)]), cur_col, sample_ct * sizeof(double));
+      }
+      ++cur_covar_ct;
+    }
+    const uint32_t param_ct = 4 + cur_covar_ct;
+    if (unlikely(sample_ct <= param_ct + 1)) {
+      logerrputs("Error: --epistasis needs more samples than regression parameters.\n");
+      goto CalcEpiLinear_ret_DEGENERATE_DATA;
+    }
+
+    // The intercept-and-covariate block of X'X, and the matching part of X'y,
+    // over every analysis sample.  A pair only has to correct these for the
+    // samples missing one of its two genotypes.
+    const uint32_t base_dim = cur_covar_ct + 1;
+    double* base_xtx;
+    double* base_xty;
+    if (unlikely(bigstack_calloc_d(S_CAST(uintptr_t, base_dim) * base_dim, &base_xtx) ||
+                 bigstack_calloc_d(base_dim, &base_xty))) {
+      goto CalcEpiLinear_ret_NOMEM;
+    }
+    double base_pheno_ssq = 0.0;
+    {
+      base_xtx[0] = u31tod(sample_ct);
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const double cur_pheno = pheno_vals[sample_idx];
+        base_xty[0] += cur_pheno;
+        base_pheno_ssq += cur_pheno * cur_pheno;
+        for (uint32_t covar_idx = 0; covar_idx != cur_covar_ct; ++covar_idx) {
+          const double cur_covar = covar_vals[covar_idx * S_CAST(uintptr_t, sample_ct) + sample_idx];
+          base_xtx[covar_idx + 1] += cur_covar;
+          base_xty[covar_idx + 1] += cur_covar * cur_pheno;
+          double* cur_row = &(base_xtx[(covar_idx + 1) * S_CAST(uintptr_t, base_dim)]);
+          for (uint32_t covar_idx2 = 0; covar_idx2 <= covar_idx; ++covar_idx2) {
+            cur_row[covar_idx2 + 1] += cur_covar * covar_vals[covar_idx2 * S_CAST(uintptr_t, sample_ct) + sample_idx];
+          }
+        }
+      }
+      // fill in the upper triangle, and the intercept column
+      for (uint32_t row_idx = 1; row_idx != base_dim; ++row_idx) {
+        base_xtx[row_idx * S_CAST(uintptr_t, base_dim)] = base_xtx[row_idx];
+        for (uint32_t col_idx = row_idx + 1; col_idx != base_dim; ++col_idx) {
+          base_xtx[row_idx * S_CAST(uintptr_t, base_dim) + col_idx] = base_xtx[col_idx * S_CAST(uintptr_t, base_dim) + row_idx];
+        }
+      }
+    }
+
+    // Non-autosomal variants are left out, as in PLINK 1.x.
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* variant_include;
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include))) {
+      goto CalcEpiLinear_ret_NOMEM;
+    }
+    memcpy(variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
+    const uint32_t chr_ct = cip->chr_ct;
+    uint32_t nonautosomal_ct = 0;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if (!IsSet(cip->haploid_mask, chr_idx) && (chr_idx != S_CAST(uint32_t, cip->xymt_codes[kChrOffsetMT]))) {
+        continue;
+      }
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      nonautosomal_ct += PopcountBitRange(variant_include, chr_vidx_start, chr_vidx_end);
+      ClearBitsNz(chr_vidx_start, chr_vidx_end, variant_include);
+    }
+    uint32_t variant_ct = orig_variant_ct - nonautosomal_ct;
+    if (unlikely(variant_ct < 2)) {
+      logerrputs("Error: --epistasis requires at least 2 autosomal variants.\n");
+      goto CalcEpiLinear_ret_DEGENERATE_DATA;
+    }
+
+    uint32_t* sample_include_cumulative_popcounts;
+    uintptr_t* genovec;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                 bigstack_alloc_w(NypCtToWordCt(sample_ct), &genovec))) {
+      goto CalcEpiLinear_ret_NOMEM;
+    }
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+    // A variant with a single genotype value across the analysis samples makes
+    // the regression singular in every pair it appears in, so it is dropped up
+    // front rather than failing variant_ct times.
+    {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t variant_include_bits = variant_include[0];
+      uint32_t skipped_ct = 0;
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+        reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+        if (unlikely(reterr)) {
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto CalcEpiLinear_ret_1;
+        }
+        ZeroTrailingNyps(sample_ct, genovec);
+        STD_ARRAY_DECL(uint32_t, 4, genocounts);
+        GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
+        const uint32_t nonmiss_ct = genocounts[0] + genocounts[1] + genocounts[2];
+        if ((nonmiss_ct <= param_ct) || (genocounts[0] == nonmiss_ct) || (genocounts[1] == nonmiss_ct) || (genocounts[2] == nonmiss_ct)) {
+          ClearBit(variant_uidx, variant_include);
+          ++skipped_ct;
+        }
+      }
+      if (skipped_ct) {
+        variant_ct -= skipped_ct;
+        logprintf("--epistasis: Skipping %u monomorphic variant%s.\n", skipped_ct, (skipped_ct == 1)? "" : "s");
+      }
+      if (unlikely(variant_ct < 2)) {
+        logerrputs("Error: --epistasis has fewer than 2 usable variants left.\n");
+        goto CalcEpiLinear_ret_DEGENERATE_DATA;
+      }
+    }
+    if (nonautosomal_ct) {
+      logprintf("--epistasis: Skipping %u non-autosomal variant%s.\n", nonautosomal_ct, (nonautosomal_ct == 1)? "" : "s");
+    }
+
+    uint32_t* variant_uidxs;
+    uint32_t* variant_chr_fo_idxs;
+    if (unlikely(bigstack_alloc_u32(variant_ct, &variant_uidxs) ||
+                 bigstack_alloc_u32(variant_ct, &variant_chr_fo_idxs))) {
+      goto CalcEpiLinear_ret_NOMEM;
+    }
+    {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t variant_include_bits = variant_include[0];
+      uint32_t chr_fo_idx = 0;
+      uint32_t chr_vidx_end = cip->chr_fo_vidx_start[1];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+        while (variant_uidx >= chr_vidx_end) {
+          ++chr_fo_idx;
+          chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        }
+        variant_uidxs[variant_idx] = variant_uidx;
+        variant_chr_fo_idxs[variant_idx] = chr_fo_idx;
+      }
+    }
+
+    // Rows are split across --parallel jobs, mirrored the same way as in
+    // CalcEpi(): ParallelBounds() splits a triangle whose row r carries r
+    // entries below it, and this scan's row r carries variant_ct - 1 - r
+    // entries above it.
+    uint32_t mirror_start;
+    uint32_t mirror_end;
+    ParallelBounds(variant_ct, 1, parallel_tot - 1 - parallel_idx, parallel_tot, R_CAST(int32_t*, &mirror_start), R_CAST(int32_t*, &mirror_end));
+    const uint32_t row_start_idx = variant_ct - mirror_end;
+    const uint32_t row_end_idx = variant_ct - mirror_start;
+    if (row_start_idx == row_end_idx) {
+      logerrputs("Warning: This --parallel job has no rows to scan.\n");
+    }
+
+    // Scratch for the per-pair solve.
+    const uintptr_t param_ct_x2 = S_CAST(uintptr_t, param_ct) * param_ct;
+    double* xtx;
+    double* xty;
+    double* betas;
+    double* dbl_2d_buf;
+    double* inverse_corr_buf;
+    double* covar_ab_dots = nullptr;
+    if (unlikely(bigstack_alloc_d(param_ct_x2, &xtx) ||
+                 bigstack_alloc_d(param_ct, &xty) ||
+                 bigstack_alloc_d(param_ct, &betas) ||
+                 bigstack_alloc_d(param_ct * S_CAST(uintptr_t, MAXV(param_ct, 7)), &dbl_2d_buf) ||
+                 bigstack_alloc_d(param_ct_x2, &inverse_corr_buf))) {
+      goto CalcEpiLinear_ret_NOMEM;
+    }
+    if (cur_covar_ct) {
+      if (unlikely(bigstack_alloc_d(cur_covar_ct, &covar_ab_dots))) {
+        goto CalcEpiLinear_ret_NOMEM;
+      }
+    }
+    MatrixInvertBuf1* inv_1d_buf = S_CAST(MatrixInvertBuf1*, bigstack_alloc(param_ct * kMatrixInvertBuf1CheckedAlloc));
+    if (unlikely(!inv_1d_buf)) {
+      goto CalcEpiLinear_ret_NOMEM;
+    }
+
+    // Two variant blocks are held at once, rows and columns, as in CalcEpi().
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uintptr_t words_per_variant = 3 * S_CAST(uintptr_t, sample_ctl);
+    const uintptr_t doubles_per_variant = kEpiLinearVariantDoubleCt + cur_covar_ct;
+    const uintptr_t bytes_per_variant = words_per_variant * sizeof(intptr_t) + doubles_per_variant * sizeof(double) + sizeof(int32_t);
+    uintptr_t max_slot_ct = (bigstack_left() / 2) / bytes_per_variant;
+    if (unlikely(max_slot_ct < 4)) {
+      goto CalcEpiLinear_ret_NOMEM;
+    }
+    if (max_slot_ct > variant_ct) {
+      max_slot_ct = variant_ct;
+    }
+    uint32_t col_block_size = max_slot_ct - 1;
+    uint32_t row_block_size = 1;
+    if (col_block_size >= variant_ct) {
+      col_block_size = variant_ct;
+      row_block_size = max_slot_ct - col_block_size;
+      if (!row_block_size) {
+        row_block_size = 1;
+      }
+    }
+    uintptr_t* row_bits;
+    uintptr_t* col_bits;
+    double* row_dbls;
+    double* col_dbls;
+    uint32_t* row_miss_cts;
+    uint32_t* col_miss_cts;
+    if (unlikely(bigstack_alloc_w(row_block_size * words_per_variant, &row_bits) ||
+                 bigstack_alloc_w(col_block_size * words_per_variant, &col_bits) ||
+                 bigstack_alloc_d(row_block_size * doubles_per_variant, &row_dbls) ||
+                 bigstack_alloc_d(col_block_size * doubles_per_variant, &col_dbls) ||
+                 bigstack_alloc_u32(row_block_size, &row_miss_cts) ||
+                 bigstack_alloc_u32(col_block_size, &col_miss_cts))) {
+      goto CalcEpiLinear_ret_NOMEM;
+    }
+
+    EpiSummaryEntry* summary;
+    if (unlikely(BIGSTACK_ALLOC_X(EpiSummaryEntry, variant_ct, &summary))) {
+      goto CalcEpiLinear_ret_NOMEM;
+    }
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      summary[variant_idx].n_sig = 0;
+      summary[variant_idx].n_tot = 0;
+      summary[variant_idx].best_chisq = -1.0;
+      summary[variant_idx].best_vidx = UINT32_MAX;
+    }
+
+    double alpha1 = epi_ip->epi1;
+    if (alpha1 == 0.0) {
+      alpha1 = 0.0001;
+    }
+    const double alpha1_ln = log(alpha1);
+    const double alpha2_ln = log(epi_ip->epi2);
+    char* outname_end2 = strcpya_k(outname_end, ".epi.qt");
+    char* main_end = outname_end2;
+    if (parallel_tot > 1) {
+      *main_end++ = '.';
+      main_end = u32toa(parallel_idx + 1, main_end);
+    }
+    if (output_zst) {
+      snprintf(main_end, kMaxOutfnameExtBlen - S_CAST(uintptr_t, main_end - outname_end), ".zst");
+    } else {
+      *main_end = '\0';
+    }
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + 256;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto CalcEpiLinear_ret_1;
+    }
+    if (!parallel_idx) {
+      cswritep = strcpya_k(cswritep, "#CHROM1\tID1\tCHROM2\tID2\tBETA_INT\tSE\tT_STAT");
+      if (!no_p_value) {
+        cswritep = strcpya_k(cswritep, "\tP");
+      }
+      AppendBinaryEoln(&cswritep);
+    }
+
+    uint64_t pair_ct_total = 0;
+    for (uint32_t row_idx = row_start_idx; row_idx != row_end_idx; ++row_idx) {
+      pair_ct_total += variant_ct - row_idx - 1;
+    }
+    uint64_t pairs_reported = 0;
+    uint64_t pairs_seen = 0;
+    uint64_t pairs_tested = 0;
+    fputs("--epistasis: 0%", stdout);
+    fflush(stdout);
+    uint64_t next_print_pair = pair_ct_total / 100;
+    uint32_t pct = 0;
+    const uintptr_t covar_stride = sample_ct;
+
+    for (uint32_t row_block_start = row_start_idx; row_block_start < row_end_idx; row_block_start += row_block_size) {
+      const uint32_t row_block_end = MINV(row_block_start + row_block_size, row_end_idx);
+      const uint32_t cur_row_ct = row_block_end - row_block_start;
+      for (uint32_t slot_idx = 0; slot_idx != cur_row_ct; ++slot_idx) {
+        const uint32_t variant_uidx = variant_uidxs[row_block_start + slot_idx];
+        reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+        if (unlikely(reterr)) {
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto CalcEpiLinear_ret_1;
+        }
+        ZeroTrailingNyps(sample_ct, genovec);
+        EpiLinearFillSlot(genovec, pheno_vals, covar_vals, sample_ct, cur_covar_ct, &(row_bits[slot_idx * words_per_variant]), &(row_dbls[slot_idx * doubles_per_variant]), &(row_miss_cts[slot_idx]));
+      }
+      for (uint32_t col_block_start = row_block_start; col_block_start < variant_ct; col_block_start += col_block_size) {
+        const uint32_t col_block_end = MINV(col_block_start + col_block_size, variant_ct);
+        const uint32_t cur_col_ct = col_block_end - col_block_start;
+        for (uint32_t slot_idx = 0; slot_idx != cur_col_ct; ++slot_idx) {
+          const uint32_t variant_uidx = variant_uidxs[col_block_start + slot_idx];
+          reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto CalcEpiLinear_ret_1;
+          }
+          ZeroTrailingNyps(sample_ct, genovec);
+          EpiLinearFillSlot(genovec, pheno_vals, covar_vals, sample_ct, cur_covar_ct, &(col_bits[slot_idx * words_per_variant]), &(col_dbls[slot_idx * doubles_per_variant]), &(col_miss_cts[slot_idx]));
+        }
+        for (uint32_t row_idx = row_block_start; row_idx != row_block_end; ++row_idx) {
+          const uintptr_t* row_nonzero = &(row_bits[(row_idx - row_block_start) * words_per_variant]);
+          const uintptr_t* row_hom_alt = &(row_nonzero[sample_ctl]);
+          const uintptr_t* row_missing = &(row_nonzero[2 * sample_ctl]);
+          const double* row_dbl = &(row_dbls[(row_idx - row_block_start) * doubles_per_variant]);
+          const uint32_t row_miss_ct = row_miss_cts[row_idx - row_block_start];
+          const uint32_t col_first = MAXV(col_block_start, row_idx + 1);
+          for (uint32_t col_idx = col_first; col_idx != col_block_end; ++col_idx) {
+            ++pairs_seen;
+            const uintptr_t* col_nonzero = &(col_bits[(col_idx - col_block_start) * words_per_variant]);
+            const uintptr_t* col_hom_alt = &(col_nonzero[sample_ctl]);
+            const uintptr_t* col_missing = &(col_nonzero[2 * sample_ctl]);
+            const double* col_dbl = &(col_dbls[(col_idx - col_block_start) * doubles_per_variant]);
+            const uint32_t col_miss_ct = col_miss_cts[col_idx - col_block_start];
+
+            // Product-term sums, over the samples where both genotypes are
+            // nonzero.  A missing call was zeroed when the slot was filled, so
+            // those samples drop out here on their own.
+            uint32_t joint_cts[4];
+            joint_cts[0] = 0;
+            joint_cts[1] = 0;
+            joint_cts[2] = 0;
+            joint_cts[3] = 0;
+            double sum_ab_pheno = 0.0;
+            for (uint32_t covar_idx = 0; covar_idx != cur_covar_ct; ++covar_idx) {
+              covar_ab_dots[covar_idx] = 0.0;
+            }
+            for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
+              uintptr_t both_word = row_nonzero[widx] & col_nonzero[widx];
+              if (!both_word) {
+                continue;
+              }
+              const uintptr_t row_hom_word = row_hom_alt[widx];
+              const uintptr_t col_hom_word = col_hom_alt[widx];
+              const uint32_t sample_idx_base = widx * kBitsPerWord;
+              do {
+                const uint32_t bit_idx = ctzw(both_word);
+                both_word &= both_word - 1;
+                const uint32_t row_is_hom = S_CAST(uint32_t, (row_hom_word >> bit_idx) & 1);
+                const uint32_t col_is_hom = S_CAST(uint32_t, (col_hom_word >> bit_idx) & 1);
+                joint_cts[row_is_hom * 2 + col_is_hom] += 1;
+                const uint32_t sample_idx = sample_idx_base + bit_idx;
+                const double cur_ab = u31tod((1 + row_is_hom) * (1 + col_is_hom));
+                sum_ab_pheno += cur_ab * pheno_vals[sample_idx];
+                for (uint32_t covar_idx = 0; covar_idx != cur_covar_ct; ++covar_idx) {
+                  covar_ab_dots[covar_idx] += cur_ab * covar_vals[covar_idx * covar_stride + sample_idx];
+                }
+              } while (both_word);
+            }
+            const double sum_ab = u31tod(joint_cts[0] + 2 * (joint_cts[1] + joint_cts[2]) + 4 * joint_cts[3]);
+            const double sum_aab = u31tod(joint_cts[0] + 2 * joint_cts[1] + 4 * joint_cts[2] + 8 * joint_cts[3]);
+            const double sum_abb = u31tod(joint_cts[0] + 4 * joint_cts[1] + 2 * joint_cts[2] + 8 * joint_cts[3]);
+            const double sum_aabb = u31tod(joint_cts[0] + 4 * (joint_cts[1] + joint_cts[2]) + 16 * joint_cts[3]);
+
+            // X'X, lower triangle only, with the predictors ordered intercept,
+            // A, B, AB, covariates.
+            xtx[0] = u31tod(sample_ct);
+            xtx[param_ct] = row_dbl[0];
+            xtx[param_ct + 1] = row_dbl[1];
+            xtx[2 * param_ct] = col_dbl[0];
+            xtx[2 * param_ct + 1] = sum_ab;
+            xtx[2 * param_ct + 2] = col_dbl[1];
+            xtx[3 * param_ct] = sum_ab;
+            xtx[3 * param_ct + 1] = sum_aab;
+            xtx[3 * param_ct + 2] = sum_abb;
+            xtx[3 * param_ct + 3] = sum_aabb;
+            xty[0] = base_xty[0];
+            xty[1] = row_dbl[2];
+            xty[2] = col_dbl[2];
+            xty[3] = sum_ab_pheno;
+            for (uint32_t covar_idx = 0; covar_idx != cur_covar_ct; ++covar_idx) {
+              double* cur_row = &(xtx[(4 + covar_idx) * S_CAST(uintptr_t, param_ct)]);
+              cur_row[0] = base_xtx[covar_idx + 1];
+              cur_row[1] = row_dbl[kEpiLinearVariantDoubleCt + covar_idx];
+              cur_row[2] = col_dbl[kEpiLinearVariantDoubleCt + covar_idx];
+              cur_row[3] = covar_ab_dots[covar_idx];
+              const double* base_row = &(base_xtx[(covar_idx + 1) * S_CAST(uintptr_t, base_dim)]);
+              for (uint32_t covar_idx2 = 0; covar_idx2 <= covar_idx; ++covar_idx2) {
+                cur_row[4 + covar_idx2] = base_row[covar_idx2 + 1];
+              }
+              xty[4 + covar_idx] = base_xty[covar_idx + 1];
+            }
+            double cur_pheno_ssq = base_pheno_ssq;
+            uint32_t cur_sample_ct = sample_ct;
+
+            // Everything above except the product term counts every analysis
+            // sample; the ones missing either genotype have to come back out.
+            if (row_miss_ct || col_miss_ct) {
+              for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
+                uintptr_t miss_word = row_missing[widx] | col_missing[widx];
+                if (!miss_word) {
+                  continue;
+                }
+                const uintptr_t row_miss_word = row_missing[widx];
+                const uintptr_t col_miss_word = col_missing[widx];
+                const uintptr_t row_nonzero_word = row_nonzero[widx];
+                const uintptr_t col_nonzero_word = col_nonzero[widx];
+                const uintptr_t row_hom_word = row_hom_alt[widx];
+                const uintptr_t col_hom_word = col_hom_alt[widx];
+                const uint32_t sample_idx_base = widx * kBitsPerWord;
+                do {
+                  const uint32_t bit_idx = ctzw(miss_word);
+                  miss_word &= miss_word - 1;
+                  const uint32_t sample_idx = sample_idx_base + bit_idx;
+                  const double cur_pheno = pheno_vals[sample_idx];
+                  --cur_sample_ct;
+                  xtx[0] -= 1.0;
+                  xty[0] -= cur_pheno;
+                  cur_pheno_ssq -= cur_pheno * cur_pheno;
+                  for (uint32_t covar_idx = 0; covar_idx != cur_covar_ct; ++covar_idx) {
+                    const double cur_covar = covar_vals[covar_idx * covar_stride + sample_idx];
+                    double* cur_row = &(xtx[(4 + covar_idx) * S_CAST(uintptr_t, param_ct)]);
+                    cur_row[0] -= cur_covar;
+                    xty[4 + covar_idx] -= cur_covar * cur_pheno;
+                    for (uint32_t covar_idx2 = 0; covar_idx2 <= covar_idx; ++covar_idx2) {
+                      cur_row[4 + covar_idx2] -= cur_covar * covar_vals[covar_idx2 * covar_stride + sample_idx];
+                    }
+                  }
+                  if (!((row_miss_word >> bit_idx) & 1)) {
+                    const double cur_geno = u31tod(S_CAST(uint32_t, ((row_nonzero_word >> bit_idx) & 1) + ((row_hom_word >> bit_idx) & 1)));
+                    if (cur_geno != 0.0) {
+                      xtx[param_ct] -= cur_geno;
+                      xtx[param_ct + 1] -= cur_geno * cur_geno;
+                      xty[1] -= cur_geno * cur_pheno;
+                      for (uint32_t covar_idx = 0; covar_idx != cur_covar_ct; ++covar_idx) {
+                        xtx[(4 + covar_idx) * S_CAST(uintptr_t, param_ct) + 1] -= cur_geno * covar_vals[covar_idx * covar_stride + sample_idx];
+                      }
+                    }
+                  }
+                  if (!((col_miss_word >> bit_idx) & 1)) {
+                    const double cur_geno = u31tod(S_CAST(uint32_t, ((col_nonzero_word >> bit_idx) & 1) + ((col_hom_word >> bit_idx) & 1)));
+                    if (cur_geno != 0.0) {
+                      xtx[2 * param_ct] -= cur_geno;
+                      xtx[2 * param_ct + 2] -= cur_geno * cur_geno;
+                      xty[2] -= cur_geno * cur_pheno;
+                      for (uint32_t covar_idx = 0; covar_idx != cur_covar_ct; ++covar_idx) {
+                        xtx[(4 + covar_idx) * S_CAST(uintptr_t, param_ct) + 2] -= cur_geno * covar_vals[covar_idx * covar_stride + sample_idx];
+                      }
+                    }
+                  }
+                } while (miss_word);
+              }
+            }
+            if (cur_sample_ct <= param_ct + 1) {
+              continue;
+            }
+            for (uint32_t pred_idx = 1; pred_idx != param_ct; ++pred_idx) {
+              dbl_2d_buf[pred_idx] = xtx[pred_idx * S_CAST(uintptr_t, param_ct)];
+            }
+            if (CheckMaxCorrAndVif(xtx, 1, param_ct, cur_sample_ct, max_corr, vif_thresh, dbl_2d_buf, nullptr, inverse_corr_buf, inv_1d_buf)) {
+              continue;
+            }
+            if (InvertSymmdefMatrixChecked(param_ct, xtx, inv_1d_buf, dbl_2d_buf)) {
+              continue;
+            }
+            ReflectMatrix(param_ct, xtx);
+            double rss = cur_pheno_ssq;
+            for (uint32_t pred_idx = 0; pred_idx != param_ct; ++pred_idx) {
+              const double* cur_row = &(xtx[pred_idx * S_CAST(uintptr_t, param_ct)]);
+              double cur_beta = 0.0;
+              for (uint32_t pred_idx2 = 0; pred_idx2 != param_ct; ++pred_idx2) {
+                cur_beta += cur_row[pred_idx2] * xty[pred_idx2];
+              }
+              betas[pred_idx] = cur_beta;
+              rss -= cur_beta * xty[pred_idx];
+            }
+            if (!(rss > 0.0)) {
+              continue;
+            }
+            const uint32_t cur_df = cur_sample_ct - param_ct;
+            const double sigma_sq = rss / u31tod(cur_df);
+            const double se_sq = xtx[3 * S_CAST(uintptr_t, param_ct) + 3] * sigma_sq;
+            if (!(se_sq > 0.0)) {
+              continue;
+            }
+            const double beta_int = betas[3];
+            const double se = sqrt(se_sq);
+            const double tstat = beta_int / se;
+            if (!std::isfinite(tstat)) {
+              continue;
+            }
+            ++pairs_tested;
+            const double ln_pval = TstatToLnP(tstat, cur_df);
+            // The summary's BEST_CHISQ is the squared t-statistic, which is
+            // what PLINK 1.9 reports there.
+            const double chisq = tstat * tstat;
+            summary[row_idx].n_tot += 1;
+            summary[col_idx].n_tot += 1;
+            if (ln_pval <= alpha2_ln) {
+              summary[row_idx].n_sig += 1;
+              summary[col_idx].n_sig += 1;
+            }
+            if (chisq > summary[row_idx].best_chisq) {
+              summary[row_idx].best_chisq = chisq;
+              summary[row_idx].best_vidx = col_idx;
+            }
+            if (chisq > summary[col_idx].best_chisq) {
+              summary[col_idx].best_chisq = chisq;
+              summary[col_idx].best_vidx = row_idx;
+            }
+            if (ln_pval <= alpha1_ln) {
+              ++pairs_reported;
+              cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[row_idx]], cswritep);
+              *cswritep++ = '\t';
+              cswritep = strcpyax(cswritep, variant_ids[variant_uidxs[row_idx]], '\t');
+              cswritep = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[col_idx]], cswritep);
+              *cswritep++ = '\t';
+              cswritep = strcpyax(cswritep, variant_ids[variant_uidxs[col_idx]], '\t');
+              cswritep = dtoa_g(beta_int, cswritep);
+              *cswritep++ = '\t';
+              cswritep = dtoa_g(se, cswritep);
+              *cswritep++ = '\t';
+              cswritep = dtoa_g(tstat, cswritep);
+              if (!no_p_value) {
+                *cswritep++ = '\t';
+                cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
+              }
+              AppendBinaryEoln(&cswritep);
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto CalcEpiLinear_ret_WRITE_FAIL;
+              }
+            }
+          }
+          if (pairs_seen >= next_print_pair) {
+            if (pct > 9) {
+              putc_unlocked('\b', stdout);
+            }
+            pct = (pairs_seen * 100LLU) / pair_ct_total;
+            if (pct > 99) {
+              pct = 99;
+            }
+            printf("\b\b%u%%", pct);
+            fflush(stdout);
+            next_print_pair = ((pct + 1) * pair_ct_total) / 100;
+          }
+        }
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto CalcEpiLinear_ret_WRITE_FAIL;
+    }
+    fputs("\b\b\b", stdout);
+    logprintf("--epistasis: %" PRIu64 " pair%s tested, %" PRIu64 " written to %s .\n", pairs_tested, (pairs_tested == 1)? "" : "s", pairs_reported, outname);
+    if (pairs_tested != pairs_seen) {
+      const uint64_t fail_ct = pairs_seen - pairs_tested;
+      logprintf("--epistasis: %" PRIu64 " pair%s skipped as singular or rank-deficient.\n", fail_ct, (fail_ct == 1)? "" : "s");
+    }
+
+    char* summary_end = strcpya_k(outname_end2, ".summary");
+    if (parallel_tot > 1) {
+      *summary_end++ = '.';
+      summary_end = u32toa(parallel_idx + 1, summary_end);
+    }
+    if (output_zst) {
+      snprintf(summary_end, kMaxOutfnameExtBlen - S_CAST(uintptr_t, summary_end - outname_end), ".zst");
+    } else {
+      *summary_end = '\0';
+    }
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &csst, &cswritetp);
+    if (unlikely(reterr)) {
+      goto CalcEpiLinear_ret_1;
+    }
+    cswritetp = strcpya_k(cswritetp, "#CHROM\tID\tN_SIG\tN_TOT");
+    if (parallel_tot == 1) {
+      cswritetp = strcpya_k(cswritetp, "\tPROP");
+    }
+    cswritetp = strcpya_k(cswritetp, "\tBEST_CHISQ\tBEST_CHROM\tBEST_ID");
+    AppendBinaryEoln(&cswritetp);
+    uint32_t summary_row_ct = 0;
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const EpiSummaryEntry* cur = &(summary[variant_idx]);
+      if (!cur->n_tot) {
+        continue;
+      }
+      ++summary_row_ct;
+      cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[variant_idx]], cswritetp);
+      *cswritetp++ = '\t';
+      cswritetp = strcpyax(cswritetp, variant_ids[variant_uidxs[variant_idx]], '\t');
+      cswritetp = u32toa_x(cur->n_sig, '\t', cswritetp);
+      cswritetp = u32toa(cur->n_tot, cswritetp);
+      if (parallel_tot == 1) {
+        *cswritetp++ = '\t';
+        cswritetp = dtoa_g(S_CAST(double, cur->n_sig) / S_CAST(double, cur->n_tot), cswritetp);
+      }
+      *cswritetp++ = '\t';
+      cswritetp = dtoa_g(cur->best_chisq, cswritetp);
+      *cswritetp++ = '\t';
+      cswritetp = chrtoa(cip, cip->chr_file_order[variant_chr_fo_idxs[cur->best_vidx]], cswritetp);
+      *cswritetp++ = '\t';
+      cswritetp = strcpya(cswritetp, variant_ids[variant_uidxs[cur->best_vidx]]);
+      AppendBinaryEoln(&cswritetp);
+      if (unlikely(Cswrite(&csst, &cswritetp))) {
+        goto CalcEpiLinear_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&csst, cswritetp))) {
+      goto CalcEpiLinear_ret_WRITE_FAIL;
+    }
+    logprintfww("--epistasis: Summary for %u variant%s written to %s .\n", summary_row_ct, (summary_row_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  CalcEpiLinear_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  CalcEpiLinear_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  CalcEpiLinear_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  CalcEpiLinear_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  CalcEpiLinear_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
+    break;
+  }
+ CalcEpiLinear_ret_1:
   CswriteCloseCond(&css, cswritep);
   CswriteCloseCond(&csst, cswritetp);
   BigstackReset(bigstack_mark);
