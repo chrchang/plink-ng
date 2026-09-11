@@ -276,7 +276,8 @@ FLAGSET_DEF_START()
   kfEpiZs = (1 << 0),
   kfEpiCaseOnly = (1 << 1),
   kfEpiNoUeki = (1 << 2),
-  kfEpiNoP = (1 << 3)
+  kfEpiNoP = (1 << 3),
+  kfEpiBoost = (1 << 4)
 FLAGSET_DEF_END(EpiFlags);
 
 typedef struct EpiInfoStruct {

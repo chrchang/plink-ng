@@ -6744,7 +6744,9 @@ int main(int argc, char** argv) {
               pc.epi_info.flags |= kfEpiNoUeki;
             } else if (strequal_k(cur_modif, "nop", cur_modif_slen)) {
               pc.epi_info.flags |= kfEpiNoP;
-            } else if (unlikely(strequal_k(cur_modif, "boost", cur_modif_slen) || strequal_k(cur_modif, "joint-effects", cur_modif_slen))) {
+            } else if (strequal_k(cur_modif, "boost", cur_modif_slen)) {
+              pc.epi_info.flags |= kfEpiBoost;
+            } else if (unlikely(strequal_k(cur_modif, "joint-effects", cur_modif_slen))) {
               snprintf(g_logbuf, kLogbufSize, "Error: --fast-epistasis's '%s' test is not implemented yet.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             } else if (unlikely(strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen))) {
@@ -6753,6 +6755,16 @@ int main(int argc, char** argv) {
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --fast-epistasis argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (pc.epi_info.flags & kfEpiBoost) {
+            if (unlikely(pc.epi_info.flags & kfEpiNoUeki)) {
+              logerrputs("Error: --fast-epistasis's 'boost' and 'no-ueki' modifiers cannot be used\ntogether.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely(pc.epi_info.flags & kfEpiCaseOnly)) {
+              logerrputs("Error: --fast-epistasis boost does not have a case-only mode.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             }
           }
           pc.command_flags1 |= kfCommand1Epi;
