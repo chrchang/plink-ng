@@ -14453,12 +14453,9 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
     // reachable, so the column block sweeps the whole range each time the row
     // block advances.
     uintptr_t bytes_per_variant = words_per_variant * sizeof(intptr_t);
-    uintptr_t max_slot_ct = (bigstack_left() / 2) / bytes_per_variant;
+    const uintptr_t max_slot_ct = (bigstack_left() / 2) / bytes_per_variant;
     if (unlikely(max_slot_ct < 4)) {
       goto CalcEpi_ret_NOMEM;
-    }
-    if (max_slot_ct > variant_ct) {
-      max_slot_ct = variant_ct;
     }
     // The report has to come out in row-major order, so that concatenating
     // --parallel jobs reproduces a single run, as PLINK 1.x promises.  A row
@@ -14467,14 +14464,14 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
     // columns are still swept in order.  That costs a reread of the column
     // range per row, but only in the case that was already going to be
     // dominated by rereads.
-    uint32_t col_block_size = max_slot_ct - 1;
-    uint32_t row_block_size = 1;
-    if (col_block_size >= variant_ct) {
+    uint32_t col_block_size;
+    uint32_t row_block_size;
+    if (max_slot_ct > variant_ct) {
       col_block_size = variant_ct;
-      row_block_size = max_slot_ct - col_block_size;
-      if (!row_block_size) {
-        row_block_size = 1;
-      }
+      row_block_size = MINV(max_slot_ct - variant_ct, variant_ct);
+    } else {
+      col_block_size = max_slot_ct - 1;
+      row_block_size = 1;
     }
     uintptr_t* row_bits;
     uintptr_t* col_bits;
