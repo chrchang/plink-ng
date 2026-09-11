@@ -1690,6 +1690,19 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --write-samples\n"
 "    Report IDs of all samples which pass your filters/inclusion thresholds.\n\n"
                );
+    HelpPrint("make-perm-pheno\0", &help_ctrl, 1,
+"  --make-perm-pheno <ct> [phenotype name] ['zs']\n"
+"    Write the given number of phenotype permutations to\n"
+"    <output prefix>.pphe, without running an association test.  Name the\n"
+"    phenotype when more than one is loaded.\n"
+"    * Only samples with a nonmissing phenotype take part; the rest keep the\n"
+"      missing-phenotype string in every column.\n"
+"    * Each column is an independent shuffle of the same values, so the case\n"
+"      count, or the quantitative distribution, is preserved exactly.\n"
+"    * --seed makes the result reproducible.\n"
+"    * PLINK 1.x could restrict permutation to within --within clusters; that\n"
+"      is not supported here yet, so the shuffle is unrestricted.\n\n"
+               );
     HelpPrint("write-snplist\0", &help_ctrl, 1,
 "  --write-snplist ['zs'] ['allow-dups']\n"
 "    List all variants which pass your filters/inclusion thresholds.  Unless the\n"

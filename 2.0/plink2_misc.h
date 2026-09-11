@@ -21,10 +21,13 @@
 #include "include/pgenlib_read.h"
 #include "include/plink2_base.h"
 #include "plink2_common.h"
+#include "plink2_random.h"
 
 #ifdef __cplusplus
 namespace plink2 {
 #endif
+
+PglErr MakePermPheno(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const char* pheno_name, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t perm_ct, uint32_t output_zst, uint32_t max_thread_ct, sfmt_t* sfmtp, char* outname, char* outname_end);
 
 FLAGSET_DEF_START()
   kfRecoverVarIds0,
