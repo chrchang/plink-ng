@@ -456,6 +456,8 @@ typedef struct Plink2CmdlineStruct {
   PcaFlags pca_flags;
   WriteCovarFlags write_covar_flags;
   PhenoTransformFlags pheno_transform_flags;
+  double tail_pheno_lt;
+  double tail_pheno_hbt;
   FaFlags fa_flags;
   RangeList snps_range_list;
   RangeList exclude_snps_range_list;
@@ -1980,6 +1982,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             logprintf("%u %s phenotype value%s remaining after main filters.\n", obs_ct, (pheno_type_code == kPhenoDtypeQt)? "quantitative" : "categorical", (obs_ct == 1)? "" : "s");
           }
         }
+      }
+    }
+    if (pcp->pheno_transform_flags & kfPhenoTransformTailPheno) {
+      reterr = PhenoTailDowncode(pcp->tail_pheno_lt, pcp->tail_pheno_hbt, raw_sample_ct, pheno_ct, pheno_cols);
+      if (unlikely(reterr)) {
+        goto Plink2Core_ret_1;
       }
     }
     if (pcp->pheno_transform_flags & kfPhenoTransformSplitCat) {
@@ -4270,6 +4278,8 @@ int main(int argc, char** argv) {
     pc.pca_flags = kfPca0;
     pc.write_covar_flags = kfWriteCovar0;
     pc.pheno_transform_flags = kfPhenoTransform0;
+    pc.tail_pheno_lt = 0.0;
+    pc.tail_pheno_hbt = 0.0;
     pc.fa_flags = kfFa0;
     pc.fam_cols = kfFamCol13456;
     pc.king_flags = kfKing0;
@@ -8894,7 +8904,10 @@ int main(int argc, char** argv) {
         break;
 
       case 'm':
-        if (strequal_k_unsafe(flagname_p2, "emory")) {
+        if (unlikely(strequal_k_unsafe(flagname_p2, "ust-have-sex"))) {
+          logerrputs("Error: --must-have-sex is not implemented.  --remove-nosex drops the same\nsamples outright, which covers the usual intent; contact us if you need their\ngenotypes kept with only the phenotypes blanked.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        } else if (strequal_k_unsafe(flagname_p2, "emory")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -12859,7 +12872,31 @@ int main(int argc, char** argv) {
         break;
 
       case 't':
-        if (strequal_k_unsafe(flagname_p2, "wolocus")) {
+        if (strequal_k_unsafe(flagname_p2, "ail-pheno")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double tail_lt;
+          if (unlikely(!ScanadvDouble(argvk[arg_idx + 1], &tail_lt))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --tail-pheno lower bound '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          double tail_hbt = tail_lt;
+          if (param_ct == 2) {
+            if (unlikely(!ScanadvDouble(argvk[arg_idx + 2], &tail_hbt))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --tail-pheno upper bound '%s'.\n", argvk[arg_idx + 2]);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            if (unlikely(tail_hbt < tail_lt)) {
+              logerrputs("Error: --tail-pheno's upper bound cannot be smaller than its lower bound.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+          pc.tail_pheno_lt = tail_lt;
+          pc.tail_pheno_hbt = tail_hbt;
+          pc.pheno_transform_flags |= kfPhenoTransformTailPheno;
+          pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "wolocus")) {
           // The report has one row per joint genotype cell, so it is small
           // enough that compressing it is not worth a modifier.
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {

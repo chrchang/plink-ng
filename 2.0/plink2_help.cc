@@ -2471,6 +2471,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --pheno-quantile-normalize [...]   phenotypes to a N(0,1) distribution,\n"
 "  --covar-quantile-normalize [...]   preserving only the original rank orders.\n"
                );
+    HelpPrint("tail-pheno\0pheno\0", &help_ctrl, 0,
+"  --tail-pheno <Lt> [Hbt] : Downcode every quantitative phenotype to a\n"
+"                            case/control one.  Samples with a value greater\n"
+"                            than Hbt are cases, and those with a value at or\n"
+"                            below Lt are controls.  When Hbt is unspecified it\n"
+"                            equals Lt; otherwise the values in between are set\n"
+"                            to missing.\n"
+               );
     HelpPrint("chr\0not-chr\0", &help_ctrl, 0,
 "  --chr <chr(s)...>  : Exclude all variants not on the given chromosome(s).\n"
 "                       Valid choices for humans are 0 (unplaced), 1-22, X, Y,\n"
