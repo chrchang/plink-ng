@@ -105,14 +105,23 @@ SNP WT
 
 cmp_bin() {
     python3 - "$1" "$2" <<'PYEOF'
-import numpy as np, sys
-a = np.fromfile(sys.argv[1], dtype=np.float64)
-b = np.fromfile(sys.argv[2], dtype=np.float64)
-assert a.size == b.size and a.size, 'size %d vs %d' % (a.size, b.size)
-den = np.maximum(np.abs(a), np.abs(b))
-den[den == 0] = 1.0
-r = float((np.abs(a - b) / den).max())
-assert r < 1e-9, 'max relative difference %g' % r
+import array
+import sys
+
+a = array.array('d')
+b = array.array('d')
+with open(sys.argv[1], 'rb') as f:
+    a.frombytes(f.read())
+with open(sys.argv[2], 'rb') as f:
+    b.frombytes(f.read())
+assert len(a) == len(b) and len(a), 'size %d vs %d' % (len(a), len(b))
+worst = 0.0
+for x, y in zip(a, b):
+    den = max(abs(x), abs(y))
+    if den == 0.0:
+        continue
+    worst = max(worst, abs(x - y) / den)
+assert worst < 1e-9, 'max relative difference %g' % worst
 PYEOF
 }
 
