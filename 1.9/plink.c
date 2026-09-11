@@ -3634,7 +3634,8 @@ int32_t main(int32_t argc, char** argv) {
 	fputs(notestr_null_calc2, stdout);
 	goto main_ret_1;
       }
-      if (!strcmp("version", argptr)) {
+      // -v/-V as well as --version, mirroring the -h/-? handling just above.
+      if ((!strcmp("version", argptr)) || (!strcmp("v", argptr)) || (!strcmp("V", argptr))) {
 	ujj = 1;
       } else if ((!strcmp("silent", argptr)) || (!strcmp("gplink", argptr))) {
 	ukk = 1;
