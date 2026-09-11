@@ -17,6 +17,7 @@
 #include "plink2_stats.h"
 
 #include <assert.h>
+#include <float.h>
 #include <math.h>
 #include <stdlib.h>  // exit()
 
@@ -4174,6 +4175,382 @@ double HweXchrLnP(int32_t obs_fhets, int32_t obs_fhom1, int32_t obs_fhom2, int32
     return 0.0;
   }
   return result;
+}
+
+// --- Quadratic forms in normal variables, and the Cauchy combination ---
+//
+// Both are wanted by variance-component gene-based tests: SKAT's null
+// distribution is a linear combination of chi^2_1 variables, and the omnibus
+// tests (ACAT-V, ACAT-O, SKATO-ACAT) combine p-values with a Cauchy sum.
+// Written from the published formulas rather than adapted from an existing
+// implementation.
+
+static const double kQfPi = 3.14159265358979323846;
+static const double kQfRecipPi = 0.31830988618379067154;
+static const double kQfLnPi = 1.1447298858494001741;
+static const double kQfLn2 = 0.69314718055994530942;
+
+// Below this, tan((0.5 - p) * pi) is replaced by its 1/(p * pi) limit.
+static const double kAcatSmallLnP = -34.538776394910684;  // ln(1e-15)
+
+// ln(1e-5): where the inversion stops being reliable and the saddlepoint
+// takes over.  The SKAT R package and regenie both switch here.
+static const double kQfLnTailThresh = -11.512925464970229;
+
+// Cauchy combination test.  Liu, Chen, Li, Morrison, Boerwinkle & Lin (2019),
+// AJHG 104:410-421.
+//
+//   T = sum_i w_i * tan((0.5 - p_i) * pi),  p = 0.5 - atan(T / sum_i w_i) / pi
+//
+// Takes and returns natural-log p-values.  Combining very small p-values is
+// the entire point of the test, and is exactly where the textbook formula
+// dies: tan((0.5 - p) * pi) is cot(p * pi), which overflows as soon as p
+// underflows.  Those terms are accumulated as a log-sum-exp instead, so an
+// input p-value below DBL_MIN still lands in the right place.
+//
+// weights can be nullptr, in which case every p-value is weighted equally.
+double AcatCombineLnP(const double* ln_pvals, const double* weights, uint32_t pval_ct) {
+  if (!pval_ct) {
+    return 0.0;
+  }
+  double w_sum = 0.0;
+  for (uint32_t uii = 0; uii != pval_ct; ++uii) {
+    const double cur_w = weights? weights[uii] : 1.0;
+    if (cur_w > 0.0) {
+      w_sum += cur_w;
+    }
+  }
+  if (w_sum <= 0.0) {
+    return 0.0;
+  }
+
+  // Offset for the log-sum-exp over the small-p branch.
+  double max_shift = -DBL_MAX;
+  for (uint32_t uii = 0; uii != pval_ct; ++uii) {
+    const double cur_w = weights? weights[uii] : 1.0;
+    if ((cur_w > 0.0) && (ln_pvals[uii] < kAcatSmallLnP)) {
+      const double cur_shift = log(cur_w) - ln_pvals[uii];
+      if (cur_shift > max_shift) {
+        max_shift = cur_shift;
+      }
+    }
+  }
+
+  const double p_ceil = 1.0 - 1.0 / u31tod(pval_ct);
+  double t_normal = 0.0;
+  double small_sum = 0.0;
+  for (uint32_t uii = 0; uii != pval_ct; ++uii) {
+    const double cur_w = weights? weights[uii] : 1.0;
+    if (cur_w <= 0.0) {
+      continue;
+    }
+    const double cur_ln_p = ln_pvals[uii];
+    if (cur_ln_p < kAcatSmallLnP) {
+      small_sum += exp(log(cur_w) - cur_ln_p - max_shift);
+    } else {
+      double cur_p = exp(cur_ln_p);
+      // p == 1 sends tan() to -infinity and takes the statistic with it.  The
+      // reference implementation replaces it with 1 - 1/d; so do we.
+      if (cur_p >= 1.0) {
+        cur_p = p_ceil;
+      }
+      // tan((0.5 - p) * pi) is cot(pi * p), and the latter avoids the
+      // cancellation in (0.5 - p) followed by tan()'s blowup near pi/2.  The
+      // direct form loses about four digits at p = 1e-12 and three more by
+      // 1e-14, i.e. right up to the small-p branch's cutoff.
+      t_normal += cur_w / tan(kQfPi * cur_p);
+    }
+  }
+
+  if (max_shift == -DBL_MAX) {
+    const double ratio = t_normal / w_sum;
+    if (ratio > 1.0) {
+      // 0.5 - atan(x)/pi is atan(1/x)/pi, and the latter does not cancel.
+      return log(atan(1.0 / ratio) * kQfRecipPi);
+    }
+    return log(0.5 - atan(ratio) * kQfRecipPi);
+  }
+  // ln(T).  The normal-range terms enter as a correction which is tiny by
+  // construction, since every small-branch term is at least 1e15 / pi.
+  const double ln_t_small = max_shift + log(small_sum) - kQfLnPi;
+  double correction = 0.0;
+  if (t_normal != 0.0) {
+    correction = exp(log(fabs(t_normal)) - ln_t_small);
+    if (t_normal < 0.0) {
+      correction = -correction;
+    }
+    if (correction <= -1.0) {
+      correction = 0.0;
+    }
+  }
+  const double ln_t = ln_t_small + log1p(correction);
+  // T/W is enormous here, so atan(W/T) is W/T to full precision.
+  return log(w_sum) - kQfLnPi - ln_t;
+}
+
+// Imhof (1961) inversion of the characteristic function of
+// Q = sum_j lambda_j * chi^2_1:
+//
+//   P(Q > q) = 0.5 + (1/pi) * integral_0^inf sin(theta(u)) / (u * rho(u)) du
+//   theta(u) = 0.5 * sum_j atan(lambda_j * u) - 0.5 * q * u
+//
+// Imhof states this with theta negated and the integral subtracted; sin is
+// odd, so the two forms agree.
+//   rho(u)   = prod_j (1 + lambda_j^2 * u^2)^(1/4)
+//
+// Davies (1980) AS 155 is this inversion with a particular error-bounded
+// truncation and step size.
+static double ImhofIntegrand(double uu, double qval, const double* lambdas, uint32_t lambda_ct, double scale) {
+  double theta = -0.5 * qval * uu;
+  double ln_rho = 0.0;
+  for (uint32_t uii = 0; uii != lambda_ct; ++uii) {
+    const double lu = lambdas[uii] * scale * uu;
+    theta += 0.5 * atan(lu);
+    ln_rho += 0.25 * log1p(lu * lu);
+  }
+  return sin(theta) * exp(-ln_rho) / uu;
+}
+
+// Returns -1 if the integral did not converge to acc.  Relative accuracy
+// degrades once the result drops below ~1e-5, where cancellation in the
+// integrand dominates; QfMixLnP() switches to the saddlepoint there.
+double DaviesQfP(double qval, const double* lambdas, uint32_t lambda_ct, double acc) {
+  if (!lambda_ct) {
+    return (qval > 0.0)? 0.0 : 1.0;
+  }
+  if (qval <= 0.0) {
+    return 1.0;
+  }
+  if (lambda_ct == 1) {
+    // Exact, and worth special-casing rather than just faster: with a single
+    // eigenvalue the integrand decays like u^(-3/2), so the truncation point
+    // the error bound demands is far past where the quadrature stays sane.
+    return (lambdas[0] > 0.0)? ChisqToP(qval / lambdas[0], 1) : 0.0;
+  }
+  // Scale so the largest eigenvalue is 1.  The p-value does not depend on it,
+  // but the amount of work does, and badly: the eigenvalues here are on the
+  // scale of a genotype variance times the sample count, so without this the
+  // integrand oscillates thousands of times per unit u and the grid needed to
+  // resolve it runs to millions of points per test.
+  double lambda_max = 0.0;
+  for (uint32_t uii = 0; uii != lambda_ct; ++uii) {
+    if (lambdas[uii] > lambda_max) {
+      lambda_max = lambdas[uii];
+    }
+  }
+  if (!(lambda_max > 0.0)) {
+    return (qval > 0.0)? 0.0 : 1.0;
+  }
+  const double scale = 1.0 / lambda_max;
+  qval *= scale;
+  double lambda_sum = 0.0;
+  for (uint32_t uii = 0; uii != lambda_ct; ++uii) {
+    lambda_sum += lambdas[uii] * scale;
+  }
+  // Truncation.  Bounding the integrand by 1/(u*rho(u)) and integrating that
+  // demands an absurd upper limit, because it throws away the oscillation:
+  // past the point where theta'(u) has settled near -q/2, sin(theta(u)) turns
+  // over many times per unit u and the tail very nearly cancels itself.  One
+  // integration by parts keeps that, giving |tail| <= 2/(|theta'(U)|*U*rho(U)).
+  const double tail_target = acc * kQfPi;
+  double uu_max = 1.0;
+  for (uint32_t iter = 0; ; ++iter) {
+    if (iter > 300) {
+      return -1.0;
+    }
+    double ln_rho = 0.0;
+    double theta_deriv = -0.5 * qval;
+    for (uint32_t uii = 0; uii != lambda_ct; ++uii) {
+      const double lu = lambdas[uii] * scale * uu_max;
+      ln_rho += 0.25 * log1p(lu * lu);
+      theta_deriv += 0.5 * lambdas[uii] * scale / (1.0 + lu * lu);
+    }
+    if (theta_deriv < 0.0) {
+      const double bound = 2.0 * exp(-ln_rho) / (-theta_deriv * uu_max);
+      if (bound < tail_target) {
+        break;
+      }
+    }
+    uu_max *= 2.0;
+  }
+
+  // The integrand turns over roughly every 4*pi/q in u once theta' has
+  // settled, so the coarsest grid that can be believed has to resolve that.
+  double nn_dbl = 8.0 * uu_max * (fabs(qval) + lambda_sum) * 0.5 * kQfRecipPi;
+  if (nn_dbl > 131072.0) {
+    // Would cost more than the answer is worth; the caller falls back to the
+    // saddlepoint, which is where this regime belongs anyway.
+    return -1.0;
+  }
+  uint32_t nn = 1024;
+  while ((u31tod(nn) < nn_dbl) && (nn < 131072)) {
+    nn *= 2;
+  }
+  const double f_zero = 0.5 * (lambda_sum - qval);  // u -> 0 limit
+  double hh = uu_max / u31tod(nn);
+  double total = 0.5 * (f_zero + ImhofIntegrand(uu_max, qval, lambdas, lambda_ct, scale));
+  for (uint32_t uii = 1; uii != nn; ++uii) {
+    total += ImhofIntegrand(u31tod(uii) * hh, qval, lambdas, lambda_ct, scale);
+  }
+  double integral = total * hh;
+  for (uint32_t pass = 0; pass != 12; ++pass) {
+    if (nn > 524288) {
+      break;
+    }
+    const double prev = integral;
+    nn *= 2;
+    hh *= 0.5;
+    double sum_new = 0.0;
+    for (uint32_t uii = 1; uii < nn; uii += 2) {
+      sum_new += ImhofIntegrand(u31tod(uii) * hh, qval, lambdas, lambda_ct, scale);
+    }
+    integral = 0.5 * prev + hh * sum_new;
+    if (fabs(integral - prev) < acc) {
+      const double pval = 0.5 + integral * kQfRecipPi;
+      // A value outside [0, 1] means the quadrature lost more than it kept;
+      // say so instead of clamping a wrong answer into range.
+      if ((pval < -1e-6) || (pval > 1.0 + 1e-6)) {
+        return -1.0;
+      }
+      if (pval < 0.0) {
+        return 0.0;
+      }
+      return (pval > 1.0)? 1.0 : pval;
+    }
+  }
+  return -1.0;
+}
+
+// Kuonen (1999) Biometrika 86:929-935: saddlepoint approximation for the same
+// quadratic form, in log space.  The inversion above loses relative accuracy
+// below ~1e-5; the saddlepoint keeps it arbitrarily far into the tail, which
+// is where a genome-wide threshold lives.
+//
+//   K(z)   = -0.5 * sum_j ln(1 - 2*lambda_j*z)
+//   K'(z)  = sum_j lambda_j / (1 - 2*lambda_j*z)
+//   K''(z) = sum_j 2*lambda_j^2 / (1 - 2*lambda_j*z)^2
+//
+// Solve K'(zhat) = q, then apply Lugannani-Rice.  Returns a positive value,
+// which is not a possible log p-value, when the approximation does not apply:
+// at or below the mean the saddlepoint is at zero and the correction term is
+// singular.
+double KuonenQfLnP(double qval, const double* lambdas, uint32_t lambda_ct) {
+  double lambda_max = 0.0;
+  double lambda_sum = 0.0;
+  for (uint32_t uii = 0; uii != lambda_ct; ++uii) {
+    if (lambdas[uii] > lambda_max) {
+      lambda_max = lambdas[uii];
+    }
+    lambda_sum += lambdas[uii];
+  }
+  if ((lambda_max <= 0.0) || (qval <= lambda_sum)) {
+    return 1.0;
+  }
+  double lo = 0.0;
+  double hi = 0.5 / lambda_max;
+  for (uint32_t iter = 0; iter != 200; ++iter) {
+    const double mid = 0.5 * (lo + hi);
+    if ((mid <= lo) || (mid >= hi)) {
+      break;
+    }
+    double kp = 0.0;
+    for (uint32_t uii = 0; uii != lambda_ct; ++uii) {
+      kp += lambdas[uii] / (1.0 - 2.0 * lambdas[uii] * mid);
+    }
+    if (kp < qval) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  const double zhat = 0.5 * (lo + hi);
+  double kk = 0.0;
+  double kpp = 0.0;
+  for (uint32_t uii = 0; uii != lambda_ct; ++uii) {
+    const double denom = 1.0 - 2.0 * lambdas[uii] * zhat;
+    if (denom <= 0.0) {
+      return 1.0;
+    }
+    kk -= 0.5 * log(denom);
+    kpp += 2.0 * lambdas[uii] * lambdas[uii] / (denom * denom);
+  }
+  const double ww_sq = 2.0 * (zhat * qval - kk);
+  if ((ww_sq <= 0.0) || (kpp <= 0.0)) {
+    return 1.0;
+  }
+  const double ww = sqrt(ww_sq);
+  const double vv = zhat * sqrt(kpp);
+  if ((ww <= 0.0) || (vv <= 0.0)) {
+    return 1.0;
+  }
+  const double zz = ww + log(vv / ww) / ww;
+  if (zz <= 0.0) {
+    return 1.0;
+  }
+  return ZscoreToLnP(zz) - kQfLn2;
+}
+
+// P(sum_j lambda_j * chi^2_1 > qval) as a natural log, via inversion in the
+// body of the distribution and the saddlepoint in the tail.  Implementations
+// differ in exactly where they make this switch, so two correct SKAT
+// implementations disagree slightly in the far tail; 1e-5 is the threshold
+// the SKAT R package and regenie both use.
+double QfMixLnP(double qval, const double* lambdas, uint32_t lambda_ct) {
+  if (qval <= 0.0) {
+    return 0.0;
+  }
+  // Saddlepoint first, even though the inversion is the more accurate of the
+  // two in the body.  It costs microseconds and tells us which regime we are
+  // in; the inversion, asked for a far-tail probability it cannot deliver,
+  // spends its entire refinement ladder before giving up, which is an order of
+  // magnitude more work than the answer.
+  const double kuonen_ln_p = KuonenQfLnP(qval, lambdas, lambda_ct);
+  if ((kuonen_ln_p <= 0.0) && (kuonen_ln_p < kQfLnTailThresh)) {
+    return kuonen_ln_p;
+  }
+  // 1e-6 absolute, which is what regenie asks of its own inversion.  The
+  // inversion is only trusted above 1e-5 here, so a tighter target would buy
+  // digits nobody reads and cost an order of magnitude more work.
+  const double davies_p = DaviesQfP(qval, lambdas, lambda_ct, 1e-6);
+  if ((davies_p > 1e-5) && (davies_p <= 1.0)) {
+    return log(davies_p);
+  }
+  if (kuonen_ln_p <= 0.0) {
+    return kuonen_ln_p;
+  }
+  if (davies_p > 0.0) {
+    return log(davies_p);
+  }
+  // Neither applies.  Two-moment (Satterthwaite) match as a last resort: it is
+  // poor in the far tail, which is why it is last, but it is better than
+  // reporting a number no method produced.
+  double l1 = 0.0;
+  double l2 = 0.0;
+  for (uint32_t uii = 0; uii != lambda_ct; ++uii) {
+    l1 += lambdas[uii];
+    l2 += lambdas[uii] * lambdas[uii];
+  }
+  if ((l1 <= 0.0) || (l2 <= 0.0)) {
+    return 0.0;
+  }
+  const double scale = l2 / l1;
+  const double df_dbl = l1 * l1 / l2;
+  uint32_t df = S_CAST(uint32_t, df_dbl + 0.5);
+  if (!df) {
+    df = 1;
+  }
+  return ChisqToLnP(qval / scale, df);
+}
+
+// Beta(maf; a1, a2) density, the standard rare-variant weight.  Squared and
+// multiplied by maf * (1 - maf) it becomes the ACAT-V variant weight, which is
+// what makes a rarer variant count for more.
+double BetaDensity(double xx, double a1, double a2) {
+  if ((xx <= 0.0) || (xx >= 1.0)) {
+    return 0.0;
+  }
+  const double ln_beta = lgamma(a1) + lgamma(a2) - lgamma(a1 + a2);
+  return exp((a1 - 1.0) * log(xx) + (a2 - 1.0) * log1p(-xx) - ln_beta);
 }
 
 #ifdef __cplusplus

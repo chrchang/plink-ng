@@ -25,6 +25,7 @@
 #include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
 #include "include/plink2_float.h"
+#include "include/plink2_htable.h"
 #include "include/plink2_simd.h"
 #include "include/plink2_stats.h"
 #include "include/plink2_string.h"
@@ -980,6 +981,402 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
   }
  AdjustFile_ret_1:
   CleanupTextStream2(in_fname, &adjust_txs, &reterr);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+
+void InitAcat(AcatInfo* acat_info_ptr) {
+  acat_info_ptr->flags = kfAcat0;
+  acat_info_ptr->fname = nullptr;
+  acat_info_ptr->test_name = nullptr;
+  acat_info_ptr->id_field = nullptr;
+  acat_info_ptr->test_field = nullptr;
+  acat_info_ptr->p_field = nullptr;
+  acat_info_ptr->freq_field = nullptr;
+  acat_info_ptr->beta_a1 = 1.0;
+  acat_info_ptr->beta_a2 = 25.0;
+}
+
+void CleanupAcat(AcatInfo* acat_info_ptr) {
+  free_cond(acat_info_ptr->fname);
+  free_cond(acat_info_ptr->test_name);
+  free_cond(acat_info_ptr->id_field);
+  free_cond(acat_info_ptr->test_field);
+  free_cond(acat_info_ptr->p_field);
+  free_cond(acat_info_ptr->freq_field);
+}
+
+
+PglErr AcatSets(const AcatInfo* acip, const char* set_fname, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  const char* in_fname = acip->fname;
+  uintptr_t line_idx = 0;
+  char* cswritep = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  CompressStreamState css;
+  TextStream txs;
+  PreinitCstream(&css);
+  PreinitTextStream(&txs);
+  {
+    if (unlikely(!set_fname)) {
+      logerrputs("Error: --acat-file requires --set-list.\n");
+      goto AcatSets_ret_INCONSISTENT_INPUT;
+    }
+    // Pass 1 counts the rows we will keep and measures the longest variant ID;
+    // pass 2 fills the arrays.  Same shape as AdjustFile().
+    reterr = SizeAndInitTextStream(in_fname, bigstack_left() / 4, max_thread_ct, &txs);
+    if (unlikely(reterr)) {
+      goto AcatSets_ret_TSTREAM_FAIL;
+    }
+    const char* header_start;
+    do {
+      ++line_idx;
+      header_start = TextGet(&txs);
+      if (unlikely(!header_start)) {
+        reterr = TextStreamRawErrcode(&txs);
+        if (reterr == kPglRetEof) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", in_fname);
+          goto AcatSets_ret_MALFORMED_INPUT_WW;
+        }
+        goto AcatSets_ret_TSTREAM_FAIL;
+      }
+    } while (strequal_k_unsafe(header_start, "##"));
+    if (*header_start == '#') {
+      ++header_start;
+    }
+    const uint32_t input_log10 = (acip->flags / kfAcatInputLog10) & 1;
+    // [0] = ID, [1] = TEST, [2] = P, [3] = A1_FREQ
+    const char* col_search_order[4];
+    col_search_order[0] = acip->id_field? acip->id_field : "ID\0SNP\0";
+    col_search_order[1] = acip->test_field? acip->test_field : "TEST\0";
+    col_search_order[2] = acip->p_field? acip->p_field : (input_log10? "LOG10_P\0NEG_LOG10_P\0P\0" : "P\0UNADJ\0");
+    col_search_order[3] = acip->freq_field? acip->freq_field : "A1_FREQ\0MAF\0FREQ\0";
+    uint32_t col_skips[4];
+    uint32_t col_types[4];
+    uint32_t relevant_col_ct;
+    uint32_t found_type_bitset;
+    reterr = SearchHeaderLine(header_start, col_search_order, "--acat-file", 4, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+    if (unlikely(reterr)) {
+      goto AcatSets_ret_1;
+    }
+    if (unlikely((found_type_bitset & 5) != 5)) {
+      logerrputs("Error: --acat-file requires ID and P columns.\n");
+      goto AcatSets_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t have_freq = (found_type_bitset >> 3) & 1;
+    const char* test_name = acip->test_name;
+    const uint32_t test_name_slen = test_name? strlen(test_name) : 0;
+    if (unlikely(test_name && (!((found_type_bitset >> 1) & 1)))) {
+      logerrputs("Error: --acat-file test= was specified, but the file has no TEST column.\n");
+      goto AcatSets_ret_INCONSISTENT_INPUT;
+    }
+
+    uintptr_t variant_ct = 0;
+    uintptr_t max_id_blen = 2;
+    while (1) {
+      ++line_idx;
+      const char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      const char* token_ptrs[4];
+      uint32_t token_slens[4];
+      if (unlikely(!TokenLexK0(line_start, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens))) {
+        goto AcatSets_ret_MISSING_TOKENS;
+      }
+      if (test_name) {
+        if ((token_slens[1] != test_name_slen) || (!memequal(token_ptrs[1], test_name, test_name_slen))) {
+          continue;
+        }
+      }
+      if (token_slens[0] >= max_id_blen) {
+        max_id_blen = token_slens[0] + 1;
+      }
+      ++variant_ct;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto AcatSets_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(!variant_ct)) {
+      logerrputs("Error: --acat-file: no association results to combine.\n");
+      goto AcatSets_ret_INCONSISTENT_INPUT;
+    }
+#ifdef __LP64__
+    if (unlikely(variant_ct > 0xffffffffU)) {
+      logerrputs("Error: Too many variants for --acat-file.\n");
+      goto AcatSets_ret_MALFORMED_INPUT;
+    }
+#endif
+    char* variant_ids;
+    double* ln_pvals;
+    double* weights;
+    if (unlikely(bigstack_alloc_c(variant_ct * max_id_blen, &variant_ids) ||
+                 bigstack_alloc_d(variant_ct, &ln_pvals) ||
+                 bigstack_alloc_d(variant_ct, &weights))) {
+      goto AcatSets_ret_NOMEM;
+    }
+
+    reterr = TextRewind(&txs);
+    if (unlikely(reterr)) {
+      goto AcatSets_ret_TSTREAM_FAIL;
+    }
+    line_idx = 0;
+    do {
+      ++line_idx;
+      reterr = TextNextLineLstripK(&txs, &header_start);
+      if (unlikely(reterr)) {
+        goto AcatSets_ret_TSTREAM_REWIND_FAIL;
+      }
+    } while (strequal_k_unsafe(header_start, "##"));
+
+    const double beta_a1 = acip->beta_a1;
+    const double beta_a2 = acip->beta_a2;
+    const double ln_ten = kLn10;
+    uintptr_t variant_idx = 0;
+    while (variant_idx < variant_ct) {
+      ++line_idx;
+      const char* line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        break;
+      }
+      const char* token_ptrs[4];
+      uint32_t token_slens[4];
+      if (unlikely(!TokenLexK0(line_start, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens))) {
+        goto AcatSets_ret_MISSING_TOKENS;
+      }
+      if (test_name) {
+        if ((token_slens[1] != test_name_slen) || (!memequal(token_ptrs[1], test_name, test_name_slen))) {
+          continue;
+        }
+      }
+      memcpyx(&(variant_ids[variant_idx * max_id_blen]), token_ptrs[0], token_slens[0], '\0');
+
+      const char* pval_str = token_ptrs[2];
+      double cur_ln_pval;
+      if (IsNanStr(pval_str, token_slens[2])) {
+        // A variant with no p-value contributes nothing rather than poisoning
+        // its set.
+        cur_ln_pval = 1.0;  // sentinel; positive is impossible for a log p
+      } else {
+        double dxx;
+        if (unlikely(!ScantokDouble(pval_str, &dxx))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid p-value on line %" PRIuPTR " of %s.\n", line_idx, in_fname);
+          goto AcatSets_ret_MALFORMED_INPUT_WW;
+        }
+        if (input_log10) {
+          cur_ln_pval = (-dxx) * ln_ten;
+        } else if (dxx > 0.0) {
+          cur_ln_pval = log(dxx);
+        } else {
+          // An exact zero in the input file is a p-value that underflowed on
+          // the way out of whatever wrote it.  Treat it as the smallest
+          // representable rather than -inf, which would make the combination
+          // degenerate.
+          cur_ln_pval = -745.0;
+        }
+        if (cur_ln_pval > 0.0) {
+          cur_ln_pval = 0.0;
+        }
+      }
+      ln_pvals[variant_idx] = cur_ln_pval;
+
+      double cur_weight = 1.0;
+      if (have_freq) {
+        double freq;
+        if (ScantokDouble(token_ptrs[3], &freq) && (freq > 0.0) && (freq < 1.0)) {
+          const double maf = (freq > 0.5)? (1.0 - freq) : freq;
+          const double beta_wt = BetaDensity(maf, beta_a1, beta_a2);
+          cur_weight = beta_wt * beta_wt * maf * (1.0 - maf);
+          if (!(cur_weight > 0.0)) {
+            cur_weight = 0.0;
+          }
+        } else {
+          cur_weight = 0.0;
+        }
+      }
+      weights[variant_idx] = cur_weight;
+      ++variant_idx;
+    }
+    // No TextStreamErrcode2() here on purpose: this loop stops on the variant
+    // count rather than on end-of-file, so the stream is normally still mid-
+    // file, and TextStreamErrcode2() reports anything that is not EOF as an
+    // error.
+    const uint32_t final_variant_ct = variant_idx;
+    CleanupTextStream2(in_fname, &txs, &reterr);
+    if (unlikely(reterr)) {
+      goto AcatSets_ret_1;
+    }
+
+    // Variant-ID lookup.  Duplicate IDs are allowed here: a --glm output can
+    // legitimately carry one row per ALT allele, and every such row is a
+    // p-value for the set.  PopulateStrboxHtable() keeps the first, so
+    // duplicates are resolved by a linear rescan below.
+    const uint32_t id_htable_size = GetHtableFastSize(final_variant_ct);
+    uint32_t* id_htable;
+    if (unlikely(bigstack_alloc_u32(id_htable_size, &id_htable))) {
+      goto AcatSets_ret_NOMEM;
+    }
+    PopulateStrboxHtable(variant_ids, final_variant_ct, max_id_blen, id_htable_size, id_htable);
+
+    // A set can name at most every variant in the results file, so one
+    // allocation up front removes any need to grow these later.  That matters:
+    // the parsed set line points into the text stream's own buffer, so
+    // reallocating underneath it would leave those pointers dangling.
+    double* set_ln_pvals;
+    double* set_weights;
+    if (unlikely(bigstack_alloc_d(final_variant_ct, &set_ln_pvals) ||
+                 bigstack_alloc_d(final_variant_ct, &set_weights))) {
+      goto AcatSets_ret_NOMEM;
+    }
+
+    // Second stream: the set definitions.
+    reterr = SizeAndInitTextStream(set_fname, bigstack_left() / 4, MAXV(max_thread_ct, 1), &txs);
+    if (unlikely(reterr)) {
+      goto AcatSets_ret_TSTREAM_SET_FAIL;
+    }
+    OutnameZstSet(".acat", acip->flags & kfAcatZs, outname_end);
+    reterr = InitCstreamAlloc(outname, 0, acip->flags & kfAcatZs, MAXV(max_thread_ct, 1), kCompressStreamBlock + kMaxMediumLine, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto AcatSets_ret_1;
+    }
+    cswritep = strcpya_k(cswritep, "#SET\tCHROM\tPOS\tNVAR\tNVAR_TESTED\tP" EOLN_STR);
+
+    uint32_t set_ct = 0;
+    uint64_t skipped_set_ct = 0;
+    line_idx = 0;
+    while (1) {
+      ++line_idx;
+      const char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      if ((*line_start == '#') || (*line_start == '\0')) {
+        continue;
+      }
+      // <set name> <chromosome> <position> <comma-separated variant IDs>
+      const char* set_name = line_start;
+      const char* set_name_end = CurTokenEnd(set_name);
+      const char* chr_str = FirstNonTspace(set_name_end);
+      if (unlikely(IsEolnKns(*chr_str))) {
+        goto AcatSets_ret_SET_MISSING_TOKENS;
+      }
+      const char* chr_end = CurTokenEnd(chr_str);
+      const char* pos_str = FirstNonTspace(chr_end);
+      if (unlikely(IsEolnKns(*pos_str))) {
+        goto AcatSets_ret_SET_MISSING_TOKENS;
+      }
+      const char* pos_end = CurTokenEnd(pos_str);
+      const char* id_list = FirstNonTspace(pos_end);
+      if (unlikely(IsEolnKns(*id_list))) {
+        goto AcatSets_ret_SET_MISSING_TOKENS;
+      }
+      const char* id_list_end = CurTokenEnd(id_list);
+
+      // Count members, growing the per-set buffers as needed.
+      uint32_t member_ct = 1;
+      for (const char* scan = id_list; scan != id_list_end; ++scan) {
+        if (*scan == ',') {
+          ++member_ct;
+        }
+      }
+      uint32_t tested_ct = 0;
+      const char* id_iter = id_list;
+      while (1) {
+        const char* id_end = id_iter;
+        while ((id_end != id_list_end) && (*id_end != ',')) {
+          ++id_end;
+        }
+        const uint32_t id_slen = id_end - id_iter;
+        if (id_slen) {
+          // Nnt: the ID runs up to a comma or the end of the line, so it is not
+          // null-terminated the way StrboxHtableFind() requires.
+          uint32_t variant_uidx = StrboxHtableFindNnt(id_iter, variant_ids, id_htable, max_id_blen, id_slen, id_htable_size);
+          while (variant_uidx != UINT32_MAX) {
+            const double cur_ln_p = ln_pvals[variant_uidx];
+            if (cur_ln_p <= 0.0) {
+              set_ln_pvals[tested_ct] = cur_ln_p;
+              set_weights[tested_ct] = weights[variant_uidx];
+              ++tested_ct;
+            }
+            variant_uidx = UINT32_MAX;
+          }
+        }
+        if (id_end == id_list_end) {
+          break;
+        }
+        id_iter = &(id_end[1]);
+      }
+
+      if (!tested_ct) {
+        ++skipped_set_ct;
+        continue;
+      }
+      cswritep = memcpyax(cswritep, set_name, set_name_end - set_name, '\t');
+      cswritep = memcpyax(cswritep, chr_str, chr_end - chr_str, '\t');
+      cswritep = memcpyax(cswritep, pos_str, pos_end - pos_str, '\t');
+      cswritep = u32toa_x(member_ct, '\t', cswritep);
+      cswritep = u32toa_x(tested_ct, '\t', cswritep);
+      double set_ln_p = AcatCombineLnP(set_ln_pvals, set_weights, tested_ct);
+      if (set_ln_p > output_min_ln) {
+        cswritep = lntoa_g(set_ln_p, cswritep);
+      } else {
+        cswritep = lntoa_g(output_min_ln, cswritep);
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto AcatSets_ret_WRITE_FAIL;
+      }
+      ++set_ct;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto AcatSets_ret_TSTREAM_SET_FAIL;
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto AcatSets_ret_WRITE_FAIL;
+    }
+    logprintfww("--acat-file: %u set%s written to %s .\n", set_ct, (set_ct == 1)? "" : "s", outname);
+    if (skipped_set_ct) {
+      logerrprintfww("Warning: %" PRIu64 " set%s skipped, with no member p-value in %s.\n", skipped_set_ct, (skipped_set_ct == 1)? "" : "s", in_fname);
+    }
+  }
+  while (0) {
+  AcatSets_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  AcatSets_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(in_fname, &txs);
+    break;
+  AcatSets_ret_TSTREAM_REWIND_FAIL:
+    TextStreamErrPrintRewind(in_fname, &txs, &reterr);
+    break;
+  AcatSets_ret_TSTREAM_SET_FAIL:
+    TextStreamErrPrint(set_fname, &txs);
+    break;
+  AcatSets_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, in_fname);
+  AcatSets_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  AcatSets_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  AcatSets_ret_SET_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, set_fname);
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  AcatSets_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  AcatSets_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ AcatSets_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  CleanupTextStream2(in_fname, &txs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

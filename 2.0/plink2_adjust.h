@@ -83,6 +83,32 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
 
 PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end);
 
+FLAGSET_DEF_START()
+  kfAcat0,
+  kfAcatZs = (1 << 0),
+  kfAcatInputLog10 = (1 << 1)
+FLAGSET_DEF_END(AcatFlags);
+
+typedef struct AcatInfoStruct {
+  NONCOPYABLE(AcatInfoStruct);
+  AcatFlags flags;
+  char* fname;  // association results
+  char* test_name;
+  char* id_field;
+  char* test_field;
+  char* p_field;
+  char* freq_field;
+  double beta_a1;
+  double beta_a2;
+} AcatInfo;
+
+void InitAcat(AcatInfo* acat_info_ptr);
+
+void CleanupAcat(AcatInfo* acat_info_ptr);
+
+// Set-level Cauchy combination of per-variant p-values.
+PglErr AcatSets(const AcatInfo* acip, const char* set_fname, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

@@ -561,6 +561,52 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
 
 PglErr CheckAlleleUniqueness(const uintptr_t* variant_include, const ChrInfo* cip, const ChrIdx* chr_idxs, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_thread_ct);
 
+// --make-gene-masks.  A mask is a pseudo-variant whose dosage summarizes a
+// sample's rare-variant burden across a set, which is how the modern
+// gene-based tests are actually built.  Writing them as an ordinary dosage
+// fileset means --glm tests them with the machinery it already has, rather
+// than duplicating a regression path here.
+FLAGSET_DEF_START()
+  kfGeneMask0,
+  kfGeneMaskModeSum = (1 << 0)
+FLAGSET_DEF_END(GeneMaskFlags);
+
+typedef struct GeneMaskInfoStruct {
+  GeneMaskFlags flags;
+  double max_af;
+} GeneMaskInfo;
+
+void InitGeneMask(GeneMaskInfo* gene_mask_info_ptr);
+
+PglErr MakeGeneMasks(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const GeneMaskInfo* gmip, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+
+
+// --vc-test: variance-component and omnibus gene-based tests.  All of them
+// share one covariates-only null fit and one genotype pass per set, which is
+// what makes running the whole battery cost barely more than running one.
+typedef struct VcTestInfoStruct {
+  NONCOPYABLE(VcTestInfoStruct);
+  double max_af;
+  double beta_a1;
+  double beta_a2;
+  uint32_t mac_thresh;
+  // Names a loaded covariate to be used as a per-sample offset, with its
+  // coefficient fixed at 1, rather than fitted.  That distinction is the whole
+  // point: a leave-one-chromosome-out prediction is an offset, and passing one
+  // as an ordinary covariate estimates a coefficient for it, which is wrong.
+  char* offset_covar_name;
+  // Per-variant weights, one column per scheme.  Running the battery under
+  // several weight schemes and combining is what STAAR does with its
+  // annotation channels.
+  char* weights_fname;
+} VcTestInfo;
+
+void InitVcTest(VcTestInfo* vc_test_info_ptr);
+
+void CleanupVcTest(VcTestInfo* vc_test_info_ptr);
+
+PglErr VcTests(const uintptr_t* sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const VcTestInfo* vtip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

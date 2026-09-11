@@ -33,6 +33,8 @@
 #include "plink2_cmdline.h"
 #include "plink2_compress_stream.h"
 #include "plink2_decompress.h"
+#include "include/pgenlib_write.h"
+#include "plink2_matrix.h"
 #include "plink2_data.h"
 
 #ifdef __cplusplus
@@ -14370,6 +14372,1345 @@ PglErr CheckAlleleUniqueness(const uintptr_t* variant_include, const ChrInfo* ci
   BigstackReset(bigstack_mark);
   return reterr;
 }
+
+void InitGeneMask(GeneMaskInfo* gene_mask_info_ptr) {
+  gene_mask_info_ptr->flags = kfGeneMask0;
+  gene_mask_info_ptr->max_af = 0.01;
+}
+
+// Reads one set-definition line: set name, chromosome, position, then a
+// comma-separated list of variant IDs.  This is the layout REGENIE's
+// --set-list uses, so existing gene definitions work unchanged.
+typedef struct SetLineStruct {
+  const char* name;
+  const char* name_end;
+  const char* chr_str;
+  const char* chr_end;
+  const char* pos_str;
+  const char* pos_end;
+  const char* id_list;
+  const char* id_list_end;
+} SetLine;
+
+static BoolErr ParseSetLine(const char* line_start, SetLine* slp) {
+  slp->name = line_start;
+  slp->name_end = CurTokenEnd(slp->name);
+  slp->chr_str = FirstNonTspace(slp->name_end);
+  if (IsEolnKns(*(slp->chr_str))) {
+    return 1;
+  }
+  slp->chr_end = CurTokenEnd(slp->chr_str);
+  slp->pos_str = FirstNonTspace(slp->chr_end);
+  if (IsEolnKns(*(slp->pos_str))) {
+    return 1;
+  }
+  slp->pos_end = CurTokenEnd(slp->pos_str);
+  slp->id_list = FirstNonTspace(slp->pos_end);
+  if (IsEolnKns(*(slp->id_list))) {
+    return 1;
+  }
+  slp->id_list_end = CurTokenEnd(slp->id_list);
+  return 0;
+}
+
+PglErr MakeGeneMasks(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const GeneMaskInfo* gmip, const char* output_missing_pheno, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  FILE* pvar_file = nullptr;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream set_txs;
+  STPgenWriter spgw;
+  PreinitTextStream(&set_txs);
+  PreinitSpgw(&spgw);
+  {
+    if (unlikely(!sample_ct)) {
+      logerrputs("Error: --make-gene-masks requires at least one sample.\n");
+      goto MakeGeneMasks_ret_INCONSISTENT_INPUT;
+    }
+    // Sets name their members by variant ID, so those IDs have to identify a
+    // single variant.  This is the same requirement --indep-pairwise imposes.
+    uint32_t* variant_id_htable;
+    uint32_t* htable_dup_base;
+    uint32_t variant_id_htable_size;
+    uint32_t dup_ct = 0;
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, 0, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
+    if (unlikely(reterr)) {
+      goto MakeGeneMasks_ret_1;
+    }
+    if (unlikely(dup_ct)) {
+      logerrputs("Error: --make-gene-masks requires unique variant IDs.  (--set-missing-var-ids\nand --rm-dup may be useful.)\n");
+      goto MakeGeneMasks_ret_INCONSISTENT_INPUT;
+    }
+    uint32_t max_variant_id_slen = 1;
+    for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ++variant_uidx) {
+      if (IsSet(variant_include, variant_uidx)) {
+        const uint32_t cur_slen = strlen(variant_ids[variant_uidx]);
+        if (cur_slen > max_variant_id_slen) {
+          max_variant_id_slen = cur_slen;
+        }
+      }
+    }
+
+    const double max_af = gmip->max_af;
+    const uint32_t mode_sum = (gmip->flags / kfGeneMaskModeSum) & 1;
+  
+    // Pass 1 counts the sets that will produce a mask.  The .pgen writer needs
+    // the true variant count up front, and the allele frequencies are already
+    // loaded, so this costs no genotype reads.
+    reterr = SizeAndInitTextStream(set_fname, bigstack_left() / 8, MAXV(max_thread_ct, 1), &set_txs);
+    if (unlikely(reterr)) {
+      goto MakeGeneMasks_ret_TSTREAM_FAIL;
+    }
+    uint32_t mask_ct = 0;
+    uint64_t empty_set_ct = 0;
+    while (1) {
+      ++line_idx;
+      const char* line_start = TextGet(&set_txs);
+      if (!line_start) {
+        break;
+      }
+      if ((*line_start == '#') || (*line_start == '\0')) {
+        continue;
+      }
+      SetLine sl;
+      if (unlikely(ParseSetLine(line_start, &sl))) {
+        goto MakeGeneMasks_ret_MISSING_TOKENS;
+      }
+      uint32_t kept_ct = 0;
+      const char* id_iter = sl.id_list;
+      while (1) {
+        const char* id_end = id_iter;
+        while ((id_end != sl.id_list_end) && (*id_end != ',')) {
+          ++id_end;
+        }
+        const uint32_t id_slen = id_end - id_iter;
+        if (id_slen) {
+          const uint32_t htable_val = VariantIdDupflagHtableFind(id_iter, variant_ids, variant_id_htable, id_slen, variant_id_htable_size, max_variant_id_slen);
+          if (htable_val != UINT32_MAX) {
+            // Bit 31 is the duplicate flag; duplicates are rejected above.
+            const uint32_t variant_uidx = htable_val & 0x7fffffff;
+            const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx);
+            const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+            // Multiallelic variants have no single alternate dosage to add to
+            // a burden score, so they are left out rather than guessed at.
+            if (allele_ct == 2) {
+              const double alt_freq = 1.0 - allele_freqs[allele_idx_offset_base - variant_uidx];
+              if (alt_freq <= max_af) {
+                ++kept_ct;
+              }
+            }
+          }
+        }
+        if (id_end == sl.id_list_end) {
+          break;
+        }
+        id_iter = &(id_end[1]);
+      }
+      if (kept_ct) {
+        ++mask_ct;
+      } else {
+        ++empty_set_ct;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&set_txs, &reterr))) {
+      goto MakeGeneMasks_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(!mask_ct)) {
+      logerrputs("Error: --make-gene-masks: no set has a qualifying variant.\n");
+      goto MakeGeneMasks_ret_INCONSISTENT_INPUT;
+    }
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+    uintptr_t spgw_alloc_cacheline_ct;
+    uint32_t max_vrec_len;
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, mask_ct, sample_ct, 0, kPgenWriteBackwardSeek, kfPgenGlobalDosagePresent, 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
+      goto MakeGeneMasks_ret_1;
+    }
+    unsigned char* spgw_alloc;
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* genovec;
+    uintptr_t* dosage_present;
+    uint16_t* dosage_main;
+    uintptr_t* write_genovec;
+    uintptr_t* write_dosage_present;
+    uint16_t* write_dosage_main;
+    double* mask_vals;
+    uint32_t* sample_include_cumulative_popcounts;
+    if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc) ||
+                 bigstack_alloc_w(sample_ctl2, &genovec) ||
+                 bigstack_alloc_w(sample_ctl, &dosage_present) ||
+                 bigstack_alloc_u16(sample_ct, &dosage_main) ||
+                 bigstack_alloc_w(sample_ctl2, &write_genovec) ||
+                 bigstack_alloc_w(sample_ctl, &write_dosage_present) ||
+                 bigstack_alloc_u16(sample_ct, &write_dosage_main) ||
+                 bigstack_alloc_d(sample_ct, &mask_vals) ||
+                 bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts))) {
+      goto MakeGeneMasks_ret_NOMEM;
+    }
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
+    FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &pvar_file))) {
+      goto MakeGeneMasks_ret_OPEN_FAIL;
+    }
+    fputs("##INFO=<ID=NVAR,Number=1,Type=Integer,Description=\"Variants in mask\">" EOLN_STR, pvar_file);
+    fputs("#CHROM\tPOS\tID\tREF\tALT\tINFO" EOLN_STR, pvar_file);
+
+    reterr = TextRewind(&set_txs);
+    if (unlikely(reterr)) {
+      goto MakeGeneMasks_ret_TSTREAM_FAIL;
+    }
+    line_idx = 0;
+    uint32_t written_ct = 0;
+    while (written_ct < mask_ct) {
+      ++line_idx;
+      const char* line_start = TextGet(&set_txs);
+      if (!line_start) {
+        break;
+      }
+      if ((*line_start == '#') || (*line_start == '\0')) {
+        continue;
+      }
+      SetLine sl;
+      if (unlikely(ParseSetLine(line_start, &sl))) {
+        goto MakeGeneMasks_ret_MISSING_TOKENS;
+      }
+      ZeroDArr(sample_ct, mask_vals);
+      uint32_t kept_ct = 0;
+      const char* id_iter = sl.id_list;
+      while (1) {
+        const char* id_end = id_iter;
+        while ((id_end != sl.id_list_end) && (*id_end != ',')) {
+          ++id_end;
+        }
+        const uint32_t id_slen = id_end - id_iter;
+        if (id_slen) {
+          const uint32_t htable_val = VariantIdDupflagHtableFind(id_iter, variant_ids, variant_id_htable, id_slen, variant_id_htable_size, max_variant_id_slen);
+          if (htable_val != UINT32_MAX) {
+            // Bit 31 is the duplicate flag; duplicates are rejected above.
+            const uint32_t variant_uidx = htable_val & 0x7fffffff;
+            const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx);
+            const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+            if (allele_ct == 2) {
+              const double alt_freq = 1.0 - allele_freqs[allele_idx_offset_base - variant_uidx];
+              if (alt_freq <= max_af) {
+                uint32_t dosage_ct;
+                reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+                if (unlikely(reterr)) {
+                  PgenErrPrintNV(reterr, variant_uidx);
+                  goto MakeGeneMasks_ret_1;
+                }
+                // Alternate-allele dosage in [0, 2].  A missing call counts as
+                // reference: the burden convention is that an uncalled site is
+                // not evidence of carrying anything, and mean-imputing at these
+                // frequencies would smear a fractional carrier across everyone.
+                for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+                  const uintptr_t cur_geno = GetNyparrEntry(genovec, sample_idx);
+                  double cur_val = (cur_geno == 3)? 0.0 : u31tod(cur_geno);
+                  if (dosage_ct && IsSet(dosage_present, sample_idx)) {
+                    const uint32_t dosage_idx = PopcountBitRange(dosage_present, 0, sample_idx);
+                    cur_val = S_CAST(double, dosage_main[dosage_idx]) * (1.0 / 16384.0);
+                  }
+                  if (mode_sum) {
+                    mask_vals[sample_idx] += cur_val;
+                  } else if (cur_val > mask_vals[sample_idx]) {
+                    mask_vals[sample_idx] = cur_val;
+                  }
+                }
+                ++kept_ct;
+              }
+            }
+          }
+        }
+        if (id_end == sl.id_list_end) {
+          break;
+        }
+        id_iter = &(id_end[1]);
+      }
+      if (!kept_ct) {
+        continue;
+      }
+
+      uint32_t write_dosage_ct = 0;
+      ZeroWArr(sample_ctl, write_dosage_present);
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        double cur_val = mask_vals[sample_idx];
+        if (cur_val > 2.0) {
+          // Only reachable under 'sum'; a dosage above 2 is not representable
+          // and would not mean anything if it were.
+          cur_val = 2.0;
+        }
+        uint32_t cur_dosage = S_CAST(uint32_t, cur_val * 16384.0 + 0.5);
+        if (cur_dosage > 32768) {
+          cur_dosage = 32768;
+        }
+        SetBit(sample_idx, write_dosage_present);
+        write_dosage_main[write_dosage_ct++] = cur_dosage;
+        // The hardcall track has to stay consistent with the dosages.
+        const uint32_t nearest = (cur_dosage + 8192) / 16384;
+        AssignNyparrEntry(sample_idx, (nearest == 0)? 0 : ((nearest == 1)? 1 : 2), write_genovec);
+      }
+      if (unlikely(SpgwAppendBiallelicGenovecDosage16(write_genovec, write_dosage_present, write_dosage_main, write_dosage_ct, &spgw))) {
+        goto MakeGeneMasks_ret_WRITE_FAIL;
+      }
+      fwrite(sl.chr_str, 1, sl.chr_end - sl.chr_str, pvar_file);
+      putc_unlocked('\t', pvar_file);
+      fwrite(sl.pos_str, 1, sl.pos_end - sl.pos_str, pvar_file);
+      putc_unlocked('\t', pvar_file);
+      fwrite(sl.name, 1, sl.name_end - sl.name, pvar_file);
+      fputs("\tR\tA\tNVAR=", pvar_file);
+      fprintf(pvar_file, "%u" EOLN_STR, kept_ct);
+      ++written_ct;
+    }
+    if (unlikely(ferror_unlocked(pvar_file))) {
+      goto MakeGeneMasks_ret_WRITE_FAIL;
+    }
+    if (unlikely(fclose_null(&pvar_file))) {
+      goto MakeGeneMasks_ret_WRITE_FAIL;
+    }
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto MakeGeneMasks_ret_1;
+    }
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
+    reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, nullptr, output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, kfPsamColDefault, 0);
+    if (unlikely(reterr)) {
+      goto MakeGeneMasks_ret_1;
+    }
+    *outname_end = '\0';
+    logprintfww("--make-gene-masks: %u mask%s written to %s.pgen + %s.pvar + %s.psam .\n", written_ct, (written_ct == 1)? "" : "s", outname, outname, outname);
+    if (empty_set_ct) {
+      logerrprintfww("Warning: %" PRIu64 " set%s skipped, with no variant passing --mask-max-af.\n", empty_set_ct, (empty_set_ct == 1)? "" : "s");
+    }
+  }
+  while (0) {
+  MakeGeneMasks_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  MakeGeneMasks_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  MakeGeneMasks_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(set_fname, &set_txs);
+    break;
+  MakeGeneMasks_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, set_fname);
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  MakeGeneMasks_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  MakeGeneMasks_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ MakeGeneMasks_ret_1:
+  CleanupSpgw(&spgw, &reterr);
+  fclose_cond(pvar_file);
+  CleanupTextStream2(set_fname, &set_txs, &reterr);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+
+void InitVcTest(VcTestInfo* vc_test_info_ptr) {
+  vc_test_info_ptr->max_af = 0.01;
+  vc_test_info_ptr->beta_a1 = 1.0;
+  vc_test_info_ptr->beta_a2 = 25.0;
+  vc_test_info_ptr->mac_thresh = 10;
+  vc_test_info_ptr->offset_covar_name = nullptr;
+  vc_test_info_ptr->weights_fname = nullptr;
+}
+
+void CleanupVcTest(VcTestInfo* vc_test_info_ptr) {
+  free_cond(vc_test_info_ptr->offset_covar_name);
+  free_cond(vc_test_info_ptr->weights_fname);
+}
+
+// Modified Gram-Schmidt.  The covariate count is small, and an orthonormal
+// basis is what lets the projection below be a plain multiply instead of a
+// solve: with X'X = I, (I - X(X'X)^{-1}X') is just (I - XX').
+// Returns the number of columns kept; a column that is a linear combination of
+// the earlier ones is dropped rather than allowed to produce a singular fit.
+static uint32_t OrthonormalizeCols(uint32_t row_ct, uint32_t col_ct, double* mat) {
+  uint32_t kept_ct = 0;
+  for (uint32_t col_idx = 0; col_idx != col_ct; ++col_idx) {
+    double* cur_col = &(mat[S_CAST(uintptr_t, col_idx) * row_ct]);
+    for (uint32_t prev_idx = 0; prev_idx != kept_ct; ++prev_idx) {
+      const double* prev_col = &(mat[S_CAST(uintptr_t, prev_idx) * row_ct]);
+      double dotprod = 0.0;
+      for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
+        dotprod += prev_col[row_idx] * cur_col[row_idx];
+      }
+      for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
+        cur_col[row_idx] -= dotprod * prev_col[row_idx];
+      }
+    }
+    double norm_sq = 0.0;
+    for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
+      norm_sq += cur_col[row_idx] * cur_col[row_idx];
+    }
+    if (norm_sq < 1e-10) {
+      continue;
+    }
+    const double recip = 1.0 / sqrt(norm_sq);
+    double* kept_col = &(mat[S_CAST(uintptr_t, kept_ct) * row_ct]);
+    for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
+      kept_col[row_idx] = cur_col[row_idx] * recip;
+    }
+    ++kept_ct;
+  }
+  return kept_ct;
+}
+
+// Logistic null fit by iteratively reweighted least squares, on the
+// covariates alone.  This is the only null SKAT-as-published needs for
+// unrelated samples: the variance component is a prior on the alternative,
+// not something estimated here.
+static BoolErr LogisticNullFit(const double* xx, const double* yy, const double* offsets, uint32_t row_ct, uint32_t col_ct, double* betas, double* mu, double* wkspace) {
+  double* eta = wkspace;
+  double* xtwx = &(wkspace[row_ct]);
+  double* xtwz = &(xtwx[S_CAST(uintptr_t, col_ct) * col_ct]);
+  double* solve_buf = &(xtwz[col_ct]);
+  for (uint32_t col_idx = 0; col_idx != col_ct; ++col_idx) {
+    betas[col_idx] = 0.0;
+  }
+  for (uint32_t iter = 0; iter != 50; ++iter) {
+    for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
+      double cur_eta = offsets? offsets[row_idx] : 0.0;
+      for (uint32_t col_idx = 0; col_idx != col_ct; ++col_idx) {
+        cur_eta += xx[S_CAST(uintptr_t, col_idx) * row_ct + row_idx] * betas[col_idx];
+      }
+      eta[row_idx] = cur_eta;
+      const double expterm = exp(-cur_eta);
+      mu[row_idx] = 1.0 / (1.0 + expterm);
+    }
+    // X'WX and X'W z, with z the working response.
+    for (uint32_t ii = 0; ii != col_ct; ++ii) {
+      for (uint32_t jj = 0; jj <= ii; ++jj) {
+        double acc = 0.0;
+        for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
+          const double ww = mu[row_idx] * (1.0 - mu[row_idx]);
+          acc += ww * xx[S_CAST(uintptr_t, ii) * row_ct + row_idx] * xx[S_CAST(uintptr_t, jj) * row_ct + row_idx];
+        }
+        xtwx[S_CAST(uintptr_t, ii) * col_ct + jj] = acc;
+        xtwx[S_CAST(uintptr_t, jj) * col_ct + ii] = acc;
+      }
+      double acc2 = 0.0;
+      for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
+        const double ww = mu[row_idx] * (1.0 - mu[row_idx]);
+        // The offset is fixed, so it comes out of the working response.
+        const double zz = eta[row_idx] - (offsets? offsets[row_idx] : 0.0) + ((ww > 1e-12)? ((yy[row_idx] - mu[row_idx]) / ww) : 0.0);
+        acc2 += ww * xx[S_CAST(uintptr_t, ii) * row_ct + row_idx] * zz;
+      }
+      xtwz[ii] = acc2;
+    }
+    // Gauss-Jordan on a small system.
+    for (uint32_t ii = 0; ii != col_ct; ++ii) {
+      for (uint32_t jj = 0; jj != col_ct; ++jj) {
+        solve_buf[S_CAST(uintptr_t, ii) * (col_ct + 1) + jj] = xtwx[S_CAST(uintptr_t, ii) * col_ct + jj];
+      }
+      solve_buf[S_CAST(uintptr_t, ii) * (col_ct + 1) + col_ct] = xtwz[ii];
+    }
+    for (uint32_t ii = 0; ii != col_ct; ++ii) {
+      uint32_t pivot = ii;
+      double best = fabs(solve_buf[S_CAST(uintptr_t, ii) * (col_ct + 1) + ii]);
+      for (uint32_t kk = ii + 1; kk != col_ct; ++kk) {
+        const double cand = fabs(solve_buf[S_CAST(uintptr_t, kk) * (col_ct + 1) + ii]);
+        if (cand > best) {
+          best = cand;
+          pivot = kk;
+        }
+      }
+      if (best < 1e-12) {
+        return 1;
+      }
+      if (pivot != ii) {
+        for (uint32_t jj = 0; jj <= col_ct; ++jj) {
+          const double tmp = solve_buf[S_CAST(uintptr_t, ii) * (col_ct + 1) + jj];
+          solve_buf[S_CAST(uintptr_t, ii) * (col_ct + 1) + jj] = solve_buf[S_CAST(uintptr_t, pivot) * (col_ct + 1) + jj];
+          solve_buf[S_CAST(uintptr_t, pivot) * (col_ct + 1) + jj] = tmp;
+        }
+      }
+      const double recip = 1.0 / solve_buf[S_CAST(uintptr_t, ii) * (col_ct + 1) + ii];
+      for (uint32_t jj = 0; jj <= col_ct; ++jj) {
+        solve_buf[S_CAST(uintptr_t, ii) * (col_ct + 1) + jj] *= recip;
+      }
+      for (uint32_t kk = 0; kk != col_ct; ++kk) {
+        if (kk == ii) {
+          continue;
+        }
+        const double factor = solve_buf[S_CAST(uintptr_t, kk) * (col_ct + 1) + ii];
+        if (factor == 0.0) {
+          continue;
+        }
+        for (uint32_t jj = 0; jj <= col_ct; ++jj) {
+          solve_buf[S_CAST(uintptr_t, kk) * (col_ct + 1) + jj] -= factor * solve_buf[S_CAST(uintptr_t, ii) * (col_ct + 1) + jj];
+        }
+      }
+    }
+    double max_delta = 0.0;
+    for (uint32_t ii = 0; ii != col_ct; ++ii) {
+      const double new_beta = solve_buf[S_CAST(uintptr_t, ii) * (col_ct + 1) + col_ct];
+      const double delta = fabs(new_beta - betas[ii]);
+      if (delta > max_delta) {
+        max_delta = delta;
+      }
+      betas[ii] = new_beta;
+    }
+    if (max_delta < 1e-10) {
+      break;
+    }
+  }
+  for (uint32_t row_idx = 0; row_idx != row_ct; ++row_idx) {
+    double cur_eta = offsets? offsets[row_idx] : 0.0;
+    for (uint32_t col_idx = 0; col_idx != col_ct; ++col_idx) {
+      cur_eta += xx[S_CAST(uintptr_t, col_idx) * row_ct + row_idx] * betas[col_idx];
+    }
+    mu[row_idx] = 1.0 / (1.0 + exp(-cur_eta));
+  }
+  return 0;
+}
+
+// Per-variant weights supplied by the user, one column per scheme.  This is
+// what makes annotation-driven testing expressible here without plink2 taking
+// any position on where an annotation came from: from its side a functional
+// score is just another numeric column, indistinguishable from a Beta(MAF)
+// weight.  A variant absent from the file, or with a missing entry, gets
+// weight zero and drops out of that scheme.
+static PglErr LoadVcWeights(const char* fname, const char* const* variant_ids, const uint32_t* variant_id_htable, uint32_t variant_id_htable_size, uint32_t max_variant_id_slen, uint32_t raw_variant_ct, uint32_t max_thread_ct, double** weights_ptr, char** scheme_names_ptr, uintptr_t* max_scheme_name_blen_ptr, uint32_t* scheme_ct_ptr) {
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    reterr = SizeAndInitTextStream(fname, bigstack_left() / 8, MAXV(max_thread_ct, 1), &txs);
+    if (unlikely(reterr)) {
+      goto LoadVcWeights_ret_TSTREAM_FAIL;
+    }
+    ++line_idx;
+    const char* header = TextGet(&txs);
+    if (unlikely(!header)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", fname);
+      goto LoadVcWeights_ret_MALFORMED_INPUT_WW;
+    }
+    if (*header == '#') {
+      ++header;
+    }
+    // First column is the variant ID; the rest name the schemes.
+    const char* iter = FirstNonTspace(header);
+    const char* first_end = CurTokenEnd(iter);
+    uint32_t scheme_ct = 0;
+    uintptr_t max_name_blen = 2;
+    {
+      const char* scan = FirstNonTspace(first_end);
+      while (!IsEolnKns(*scan)) {
+        const char* scan_end = CurTokenEnd(scan);
+        const uintptr_t cur_blen = S_CAST(uintptr_t, scan_end - scan) + 1;
+        if (cur_blen > max_name_blen) {
+          max_name_blen = cur_blen;
+        }
+        ++scheme_ct;
+        scan = FirstNonTspace(scan_end);
+      }
+    }
+    if (unlikely(!scheme_ct)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %s has no weight column.\n", fname);
+      goto LoadVcWeights_ret_MALFORMED_INPUT_WW;
+    }
+    if (unlikely(scheme_ct > 32)) {
+      logerrputs("Error: --vc-weights supports at most 32 weight columns.\n");
+      goto LoadVcWeights_ret_MALFORMED_INPUT;
+    }
+    char* scheme_names;
+    double* weights;
+    if (unlikely(bigstack_alloc_c(scheme_ct * max_name_blen, &scheme_names) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, raw_variant_ct) * scheme_ct, &weights))) {
+      goto LoadVcWeights_ret_NOMEM;
+    }
+    {
+      const char* scan = FirstNonTspace(first_end);
+      for (uint32_t scheme_idx = 0; scheme_idx != scheme_ct; ++scheme_idx) {
+        const char* scan_end = CurTokenEnd(scan);
+        memcpyx(&(scheme_names[scheme_idx * max_name_blen]), scan, scan_end - scan, '\0');
+        scan = FirstNonTspace(scan_end);
+      }
+    }
+    ZeroDArr(S_CAST(uintptr_t, raw_variant_ct) * scheme_ct, weights);
+
+    uintptr_t matched_ct = 0;
+    while (1) {
+      ++line_idx;
+      const char* line_start = TextGet(&txs);
+      if (!line_start) {
+        break;
+      }
+      if (*line_start == '#') {
+        continue;
+      }
+      const char* id_start = FirstNonTspace(line_start);
+      if (IsEolnKns(*id_start)) {
+        continue;
+      }
+      const char* id_end = CurTokenEnd(id_start);
+      const uint32_t id_slen = id_end - id_start;
+      const uint32_t htable_val = VariantIdDupflagHtableFind(id_start, variant_ids, variant_id_htable, id_slen, variant_id_htable_size, max_variant_id_slen);
+      const char* scan = FirstNonTspace(id_end);
+      if (htable_val == UINT32_MAX) {
+        continue;
+      }
+      const uint32_t variant_uidx = htable_val & 0x7fffffff;
+      double* cur_weights = &(weights[S_CAST(uintptr_t, variant_uidx) * scheme_ct]);
+      for (uint32_t scheme_idx = 0; scheme_idx != scheme_ct; ++scheme_idx) {
+        if (unlikely(IsEolnKns(*scan))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
+          goto LoadVcWeights_ret_MALFORMED_INPUT_WW;
+        }
+        const char* scan_end = CurTokenEnd(scan);
+        double dxx;
+        if (ScanadvDouble(scan, &dxx) && (dxx >= 0.0)) {
+          cur_weights[scheme_idx] = dxx;
+        }
+        scan = FirstNonTspace(scan_end);
+      }
+      ++matched_ct;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LoadVcWeights_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(!matched_ct)) {
+      snprintf(g_logbuf, kLogbufSize, "Error: No variant in %s matched the loaded dataset.\n", fname);
+      goto LoadVcWeights_ret_MALFORMED_INPUT_WW;
+    }
+    logprintfww("--vc-weights: %u weight column%s for %" PRIuPTR " variant%s loaded from %s.\n", scheme_ct, (scheme_ct == 1)? "" : "s", matched_ct, (matched_ct == 1)? "" : "s", fname);
+    *weights_ptr = weights;
+    *scheme_names_ptr = scheme_names;
+    *max_scheme_name_blen_ptr = max_name_blen;
+    *scheme_ct_ptr = scheme_ct;
+  }
+  while (0) {
+  LoadVcWeights_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadVcWeights_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(fname, &txs);
+    break;
+  LoadVcWeights_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  LoadVcWeights_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+  CleanupTextStream2(fname, &txs, &reterr);
+  BigstackEndReset(bigstack_end_mark);
+  return reterr;
+}
+
+// Keeps the eigenvalues that carry the distribution and drops the ones that
+// are numerically zero.  The threshold has to be relative: the kernel is
+// rank-deficient after the covariates are projected out, so it produces
+// eigenvalues around 1e-8 next to others around 1e2, and an absolute cutoff
+// keeps that noise.  Keeping it is not just untidy, it is expensive: a
+// near-zero eigenvalue means the inversion's integrand decays only past
+// u ~ 1 / lambda_min, so the quadrature runs to millions of points.  This is
+// the SKAT package's convention, mean of the non-negative eigenvalues over
+// 1e5.
+static uint32_t FilterQfEigvals(uint32_t eigval_ct, double scale, double* eigvals) {
+  double total = 0.0;
+  uint32_t nonneg_ct = 0;
+  for (uint32_t ii = 0; ii != eigval_ct; ++ii) {
+    if (eigvals[ii] > 0.0) {
+      total += eigvals[ii];
+      ++nonneg_ct;
+    }
+  }
+  if (!nonneg_ct) {
+    return 0;
+  }
+  const double thresh = (total / u31tod(nonneg_ct)) * 1e-5;
+  uint32_t kept_ct = 0;
+  for (uint32_t ii = 0; ii != eigval_ct; ++ii) {
+    if (eigvals[ii] > thresh) {
+      eigvals[kept_ct++] = eigvals[ii] * scale;
+    }
+  }
+  return kept_ct;
+}
+
+#ifdef NOLAPACK
+PglErr VcTests(__maybe_unused const uintptr_t* sample_include, __maybe_unused const PhenoCol* pheno_cols, __maybe_unused const char* pheno_names, __maybe_unused const PhenoCol* covar_cols, __maybe_unused const char* covar_names, __maybe_unused const uintptr_t* variant_include, __maybe_unused const char* const* variant_ids, __maybe_unused const uintptr_t* allele_idx_offsets, __maybe_unused const double* allele_freqs, __maybe_unused const char* set_fname, __maybe_unused const VcTestInfo* vtip, __maybe_unused uint32_t raw_sample_ct, __maybe_unused uint32_t pheno_ct, __maybe_unused uintptr_t max_pheno_name_blen, __maybe_unused uint32_t covar_ct, __maybe_unused uintptr_t max_covar_name_blen, __maybe_unused uint32_t raw_variant_ct, __maybe_unused uint32_t variant_ct, __maybe_unused uint32_t max_thread_ct, __maybe_unused PgenReader* simple_pgrp, __maybe_unused char* outname, __maybe_unused char* outname_end) {
+  logerrputs("Error: --vc-test requires a build with LAPACK.\n");
+  return kPglRetNotSupported;
+}
+#else
+// The rho grid SKAT-O minimizes over.  regenie uses eight points; the exact
+// minimum-p correction needs a one-dimensional integration, which is why the
+// combination here is a Cauchy sum over the grid instead (regenie calls that
+// variant SKATO-ACAT).  No quadrature, and no vendored Fortran.
+static const double kSkatoRhos[] = {0.0, 0.01, 0.04, 0.09, 0.16, 0.25, 0.5, 1.0};
+static const uint32_t kSkatoRhoCt = 8;
+
+PglErr VcTests(const uintptr_t* sample_include, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const char* set_fname, const VcTestInfo* vtip, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  char* cswritep = nullptr;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  CompressStreamState css;
+  TextStream set_txs;
+  PreinitCstream(&css);
+  PreinitTextStream(&set_txs);
+  {
+    if (unlikely(!pheno_ct)) {
+      logerrputs("Error: --vc-test requires a phenotype.\n");
+      goto VcTests_ret_INCONSISTENT_INPUT;
+    }
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+      if (unlikely(covar_cols[covar_idx].type_code != kPhenoDtypeQt)) {
+        logerrputs("Error: --vc-test currently supports quantitative covariates only.\n");
+        goto VcTests_ret_INCONSISTENT_INPUT;
+      }
+    }
+    uint32_t offset_covar_idx = UINT32_MAX;
+    if (vtip->offset_covar_name) {
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+        if (!strcmp(&(covar_names[covar_idx * max_covar_name_blen]), vtip->offset_covar_name)) {
+          offset_covar_idx = covar_idx;
+          break;
+        }
+      }
+      if (unlikely(offset_covar_idx == UINT32_MAX)) {
+        logerrprintfww("Error: --vc-offset covariate '%s' not found.\n", vtip->offset_covar_name);
+        goto VcTests_ret_INCONSISTENT_INPUT;
+      }
+    }
+    uint32_t* variant_id_htable;
+    uint32_t* htable_dup_base;
+    uint32_t variant_id_htable_size;
+    uint32_t dup_ct = 0;
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, 0, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
+    if (unlikely(reterr)) {
+      goto VcTests_ret_1;
+    }
+    if (unlikely(dup_ct)) {
+      logerrputs("Error: --vc-test requires unique variant IDs.  (--set-missing-var-ids and\n--rm-dup may be useful.)\n");
+      goto VcTests_ret_INCONSISTENT_INPUT;
+    }
+    uint32_t max_variant_id_slen = 1;
+    for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ++variant_uidx) {
+      if (IsSet(variant_include, variant_uidx)) {
+        const uint32_t cur_slen = strlen(variant_ids[variant_uidx]);
+        if (cur_slen > max_variant_id_slen) {
+          max_variant_id_slen = cur_slen;
+        }
+      }
+    }
+
+    // Widest set in the file, so the per-set buffers can be sized once.
+    reterr = SizeAndInitTextStream(set_fname, bigstack_left() / 16, MAXV(max_thread_ct, 1), &set_txs);
+    if (unlikely(reterr)) {
+      goto VcTests_ret_TSTREAM_FAIL;
+    }
+    uint32_t max_member_ct = 1;
+    while (1) {
+      ++line_idx;
+      const char* line_start = TextGet(&set_txs);
+      if (!line_start) {
+        break;
+      }
+      if ((*line_start == '#') || (*line_start == '\0')) {
+        continue;
+      }
+      SetLine sl;
+      if (unlikely(ParseSetLine(line_start, &sl))) {
+        goto VcTests_ret_MISSING_TOKENS;
+      }
+      uint32_t member_ct = 1;
+      for (const char* scan = sl.id_list; scan != sl.id_list_end; ++scan) {
+        if (*scan == ',') {
+          ++member_ct;
+        }
+      }
+      if (member_ct > max_member_ct) {
+        max_member_ct = member_ct;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&set_txs, &reterr))) {
+      goto VcTests_ret_TSTREAM_FAIL;
+    }
+    CleanupTextStream2(set_fname, &set_txs, &reterr);
+    if (unlikely(reterr)) {
+      goto VcTests_ret_1;
+    }
+    if (unlikely(max_member_ct > 8192)) {
+      logerrputs("Error: --vc-test does not support sets with more than 8192 variants.\n");
+      goto VcTests_ret_INCONSISTENT_INPUT;
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    const uint32_t max_col_ct = covar_ct + 1;
+    uintptr_t* cur_sample_include;
+    uint32_t* cur_sample_include_cumulative_popcounts;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
+                 bigstack_alloc_u32(raw_sample_ctl, &cur_sample_include_cumulative_popcounts))) {
+      goto VcTests_ret_NOMEM;
+    }
+
+    lapack_int eig_lwork;
+    lapack_int eig_liwork;
+    uintptr_t eig_wkspace_byte_ct;
+    if (unlikely(GetExtractEigvecsLworks(max_member_ct, max_member_ct, &eig_lwork, &eig_liwork, &eig_wkspace_byte_ct))) {
+      goto VcTests_ret_NOMEM;
+    }
+    unsigned char* eig_wkspace;
+    double* kmat;
+    double* kmat_work;
+    double* kmat_raw;
+    double* svals_raw;
+    double* eigvals;
+    double* eigvecs;
+    double* svals;
+    double* weights;
+    double* beta_weights;
+    double* mafs;
+    uint32_t* member_uidxs;
+    uint32_t* is_ultrarare;
+    double* rho_pvals;
+    if (unlikely(bigstack_alloc_uc(eig_wkspace_byte_ct, &eig_wkspace) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, max_member_ct) * max_member_ct, &kmat) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, max_member_ct) * max_member_ct, &kmat_work) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, max_member_ct) * max_member_ct, &kmat_raw) ||
+                 bigstack_alloc_d(max_member_ct, &svals_raw) ||
+                 bigstack_alloc_d(max_member_ct, &eigvals) ||
+                 bigstack_alloc_d(S_CAST(uintptr_t, max_member_ct) * max_member_ct, &eigvecs) ||
+                 bigstack_alloc_d(max_member_ct, &svals) ||
+                 bigstack_alloc_d(max_member_ct, &weights) ||
+                 bigstack_alloc_d(max_member_ct, &beta_weights) ||
+                 bigstack_alloc_d(max_member_ct, &mafs) ||
+                 bigstack_alloc_u32(max_member_ct, &member_uidxs) ||
+                 bigstack_alloc_u32(max_member_ct, &is_ultrarare) ||
+                 bigstack_alloc_d(kSkatoRhoCt, &rho_pvals))) {
+      goto VcTests_ret_NOMEM;
+    }
+
+    double* variant_weights = nullptr;
+    char* scheme_names = nullptr;
+    uintptr_t max_scheme_name_blen = 0;
+    uint32_t scheme_ct = 1;
+    if (vtip->weights_fname) {
+      reterr = LoadVcWeights(vtip->weights_fname, variant_ids, variant_id_htable, variant_id_htable_size, max_variant_id_slen, raw_variant_ct, max_thread_ct, &variant_weights, &scheme_names, &max_scheme_name_blen, &scheme_ct);
+      if (unlikely(reterr)) {
+        goto VcTests_ret_1;
+      }
+    }
+    const double max_af = vtip->max_af;
+    const double beta_a1 = vtip->beta_a1;
+    const double beta_a2 = vtip->beta_a2;
+    const uint32_t mac_thresh = vtip->mac_thresh;
+    const uintptr_t* orig_sample_include = sample_include;
+    uint32_t reported_pheno_ct = 0;
+
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
+      const PhenoDtype dtype = cur_pheno_col->type_code;
+      if (dtype == kPhenoDtypeCat) {
+        logerrprintfww("Warning: Skipping categorical phenotype '%s' for --vc-test.\n", &(pheno_names[pheno_idx * max_pheno_name_blen]));
+        continue;
+      }
+      // Analysis subset: phenotype and every covariate observed.
+      memcpy(cur_sample_include, orig_sample_include, raw_sample_ctl * sizeof(intptr_t));
+      BitvecAnd(cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include);
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+        BitvecAnd(covar_cols[covar_idx].nonmiss, raw_sample_ctl, cur_sample_include);
+      }
+      const uint32_t cur_sample_ct = PopcountWords(cur_sample_include, raw_sample_ctl);
+      if (cur_sample_ct <= max_col_ct + 1) {
+        logerrprintfww("Warning: Skipping phenotype '%s' for --vc-test: too few samples.\n", &(pheno_names[pheno_idx * max_pheno_name_blen]));
+        continue;
+      }
+      FillCumulativePopcounts(cur_sample_include, raw_sample_ctl, cur_sample_include_cumulative_popcounts);
+      PgrSampleSubsetIndex pssi;
+      PgrSetSampleSubsetIndex(cur_sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+      unsigned char* pheno_bigstack_mark = g_bigstack_base;
+      double* xx;
+      double* yy;
+      double* resid;
+      double* vsqrt;
+      double* mu;
+      double* offsets;
+      double* betas;
+      double* logistic_wkspace;
+      double* geno_buf;
+      double* xproj;
+      const uintptr_t geno_buf_size = S_CAST(uintptr_t, max_member_ct) * cur_sample_ct;
+      if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, max_col_ct) * cur_sample_ct, &xx) ||
+                   bigstack_alloc_d(cur_sample_ct, &yy) ||
+                   bigstack_alloc_d(cur_sample_ct, &resid) ||
+                   bigstack_alloc_d(cur_sample_ct, &vsqrt) ||
+                   bigstack_alloc_d(cur_sample_ct, &mu) ||
+                   bigstack_alloc_d(cur_sample_ct, &offsets) ||
+                   bigstack_alloc_d(max_col_ct, &betas) ||
+                   bigstack_alloc_d(cur_sample_ct + S_CAST(uintptr_t, max_col_ct) * (2 * max_col_ct + 3), &logistic_wkspace) ||
+                   bigstack_alloc_d(geno_buf_size, &geno_buf) ||
+                   bigstack_alloc_d(S_CAST(uintptr_t, max_member_ct) * max_col_ct, &xproj))) {
+        goto VcTests_ret_NOMEM;
+      }
+      // Column 0 is the intercept.
+      for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+        xx[row_idx] = 1.0;
+      }
+      uint32_t x_input_col_ct = 1;
+      {
+        uintptr_t sample_uidx_base = 0;
+        uintptr_t cur_bits = cur_sample_include[0];
+        for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+          const uintptr_t sample_uidx = BitIter1(cur_sample_include, &sample_uidx_base, &cur_bits);
+          yy[row_idx] = (dtype == kPhenoDtypeQt)? cur_pheno_col->data.qt[sample_uidx] : (IsSet(cur_pheno_col->data.cc, sample_uidx)? 1.0 : 0.0);
+          offsets[row_idx] = (offset_covar_idx == UINT32_MAX)? 0.0 : covar_cols[offset_covar_idx].data.qt[sample_uidx];
+          uint32_t write_col = 1;
+          for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+            if (covar_idx == offset_covar_idx) {
+              continue;
+            }
+            xx[S_CAST(uintptr_t, write_col) * cur_sample_ct + row_idx] = covar_cols[covar_idx].data.qt[sample_uidx];
+            ++write_col;
+          }
+          x_input_col_ct = write_col;
+        }
+      }
+
+      double varscale;
+      uint32_t xcol_ct;
+      if (dtype == kPhenoDtypeQt) {
+        xcol_ct = OrthonormalizeCols(cur_sample_ct, x_input_col_ct, xx);
+        for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+          // A term with its coefficient fixed at 1 simply comes off the
+          // response.
+          resid[row_idx] = yy[row_idx] - offsets[row_idx];
+          vsqrt[row_idx] = 1.0;
+        }
+        for (uint32_t col_idx = 0; col_idx != xcol_ct; ++col_idx) {
+          const double* cur_col = &(xx[S_CAST(uintptr_t, col_idx) * cur_sample_ct]);
+          double dotprod = 0.0;
+          for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+            dotprod += cur_col[row_idx] * (yy[row_idx] - offsets[row_idx]);
+          }
+          for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+            resid[row_idx] -= dotprod * cur_col[row_idx];
+          }
+        }
+        double rss = 0.0;
+        for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+          rss += resid[row_idx] * resid[row_idx];
+        }
+        varscale = rss / u31tod(cur_sample_ct - xcol_ct);
+        if (!(varscale > 0.0)) {
+          logerrprintfww("Warning: Skipping phenotype '%s' for --vc-test: no residual variance.\n", &(pheno_names[pheno_idx * max_pheno_name_blen]));
+          BigstackReset(pheno_bigstack_mark);
+          continue;
+        }
+      } else {
+        if (unlikely(LogisticNullFit(xx, yy, (offset_covar_idx == UINT32_MAX)? nullptr : offsets, cur_sample_ct, x_input_col_ct, betas, mu, logistic_wkspace))) {
+          logerrprintfww("Warning: Skipping phenotype '%s' for --vc-test: the covariate-only logistic fit did not converge.\n", &(pheno_names[pheno_idx * max_pheno_name_blen]));
+          BigstackReset(pheno_bigstack_mark);
+          continue;
+        }
+        for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+          resid[row_idx] = yy[row_idx] - mu[row_idx];
+          const double vv = mu[row_idx] * (1.0 - mu[row_idx]);
+          vsqrt[row_idx] = sqrt((vv > 1e-12)? vv : 1e-12);
+          // The projection below is against V^{1/2}X, not X.
+          for (uint32_t col_idx = 0; col_idx != x_input_col_ct; ++col_idx) {
+            xx[S_CAST(uintptr_t, col_idx) * cur_sample_ct + row_idx] *= vsqrt[row_idx];
+          }
+        }
+        xcol_ct = OrthonormalizeCols(cur_sample_ct, x_input_col_ct, xx);
+        varscale = 1.0;
+      }
+
+      // Output file, one per phenotype, named the way --glm names its own.
+      char* outname_iter = outname_end;
+      if (pheno_ct > 1) {
+        *outname_iter++ = '.';
+        outname_iter = strcpya(outname_iter, &(pheno_names[pheno_idx * max_pheno_name_blen]));
+      }
+      snprintf(outname_iter, kMaxOutfnameExtBlen - 16, ".vc");
+      reterr = InitCstreamAlloc(outname, 0, 0, MAXV(max_thread_ct, 1), kCompressStreamBlock + kMaxMediumLine, &css, &cswritep);
+      if (unlikely(reterr)) {
+        goto VcTests_ret_1;
+      }
+      cswritep = strcpya_k(cswritep, "#SET\tCHROM\tPOS\tWEIGHTS\tNVAR\tNVAR_ULTRARARE\tBURDEN_P\tSKAT_P\tSKATO_P\tACATV_P\tACATO_P" EOLN_STR);
+
+      reterr = SizeAndInitTextStream(set_fname, bigstack_left() / 8, MAXV(max_thread_ct, 1), &set_txs);
+      if (unlikely(reterr)) {
+        goto VcTests_ret_TSTREAM_FAIL;
+      }
+      uint32_t set_ct = 0;
+      uint64_t skipped_ct = 0;
+      line_idx = 0;
+      while (1) {
+        ++line_idx;
+        const char* line_start = TextGet(&set_txs);
+        if (!line_start) {
+          break;
+        }
+        if ((*line_start == '#') || (*line_start == '\0')) {
+          continue;
+        }
+        SetLine sl;
+        if (unlikely(ParseSetLine(line_start, &sl))) {
+          goto VcTests_ret_MISSING_TOKENS;
+        }
+        uint32_t mm = 0;
+        const char* id_iter = sl.id_list;
+        while (1) {
+          const char* id_end = id_iter;
+          while ((id_end != sl.id_list_end) && (*id_end != ',')) {
+            ++id_end;
+          }
+          const uint32_t id_slen = id_end - id_iter;
+          if (id_slen) {
+            const uint32_t htable_val = VariantIdDupflagHtableFind(id_iter, variant_ids, variant_id_htable, id_slen, variant_id_htable_size, max_variant_id_slen);
+            if (htable_val != UINT32_MAX) {
+              const uint32_t variant_uidx = htable_val & 0x7fffffff;
+              const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx);
+              const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base) : 2;
+              if (allele_ct == 2) {
+                const double alt_freq = 1.0 - allele_freqs[allele_idx_offset_base - variant_uidx];
+                if ((alt_freq <= max_af) && (alt_freq > 0.0)) {
+                  member_uidxs[mm++] = variant_uidx;
+                }
+              }
+            }
+          }
+          if (id_end == sl.id_list_end) {
+            break;
+          }
+          id_iter = &(id_end[1]);
+        }
+        if (!mm) {
+          ++skipped_ct;
+          continue;
+        }
+
+        // Load the set, weight it, and residualize against the covariates.
+        uint32_t ultrarare_ct = 0;
+        {
+          const uint32_t sample_ctl2 = NypCtToWordCt(cur_sample_ct);
+          const uint32_t sample_ctl = BitCtToWordCt(cur_sample_ct);
+          uintptr_t* genovec;
+          uintptr_t* dosage_present;
+          uint16_t* dosage_main;
+          unsigned char* set_bigstack_mark = g_bigstack_base;
+          if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
+                       bigstack_alloc_w(sample_ctl, &dosage_present) ||
+                       bigstack_alloc_u16(cur_sample_ct, &dosage_main))) {
+            goto VcTests_ret_NOMEM;
+          }
+          for (uint32_t midx = 0; midx != mm; ++midx) {
+            const uint32_t variant_uidx = member_uidxs[midx];
+            uint32_t dosage_ct;
+            reterr = PgrGetD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+            if (unlikely(reterr)) {
+              PgenErrPrintNV(reterr, variant_uidx);
+              goto VcTests_ret_1;
+            }
+            double* cur_row = &(geno_buf[S_CAST(uintptr_t, midx) * cur_sample_ct]);
+            double dosage_sum = 0.0;
+            uint32_t nonmiss_ct = 0;
+            for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+              const uintptr_t cur_geno = GetNyparrEntry(genovec, row_idx);
+              double cur_val;
+              if (dosage_ct && IsSet(dosage_present, row_idx)) {
+                cur_val = S_CAST(double, dosage_main[PopcountBitRange(dosage_present, 0, row_idx)]) * (1.0 / 16384.0);
+              } else if (cur_geno == 3) {
+                cur_val = -1.0;  // missing, filled in below
+              } else {
+                cur_val = u31tod(cur_geno);
+              }
+              cur_row[row_idx] = cur_val;
+              if (cur_val >= 0.0) {
+                dosage_sum += cur_val;
+                ++nonmiss_ct;
+              }
+            }
+            const double mean_dosage = nonmiss_ct? (dosage_sum / u31tod(nonmiss_ct)) : 0.0;
+            for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+              if (cur_row[row_idx] < 0.0) {
+                // Mean imputation, which is what SKAT specifies; the burden
+                // convention of counting a missing call as reference belongs
+                // to --make-gene-masks, not here.
+                cur_row[row_idx] = mean_dosage;
+              }
+            }
+            double maf = 0.5 * mean_dosage;
+            if (maf > 0.5) {
+              maf = 1.0 - maf;
+            }
+            mafs[midx] = maf;
+            const double beta_wt = BetaDensity(maf, beta_a1, beta_a2);
+            beta_weights[midx] = beta_wt;
+            is_ultrarare[midx] = (dosage_sum < u31tod(mac_thresh))? 1 : 0;
+            ultrarare_ct += is_ultrarare[midx];
+            // Genotypes are kept unweighted here.  A weight enters the score
+            // linearly and the kernel bilinearly, so scoring once and scaling
+            // afterwards gives the same answer while letting several weight
+            // schemes share one genotype pass.
+            double score = 0.0;
+            for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+              score += cur_row[row_idx] * resid[row_idx];
+            }
+            svals_raw[midx] = score;
+            if (dtype != kPhenoDtypeQt) {
+              for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+                cur_row[row_idx] *= vsqrt[row_idx];
+              }
+            }
+          }
+          BigstackReset(set_bigstack_mark);
+        }
+
+        // Kmat = G'G - (G'X)(X'G), with X orthonormal.
+        for (uint32_t midx = 0; midx != mm; ++midx) {
+          const double* cur_row = &(geno_buf[S_CAST(uintptr_t, midx) * cur_sample_ct]);
+          for (uint32_t col_idx = 0; col_idx != xcol_ct; ++col_idx) {
+            const double* xcol = &(xx[S_CAST(uintptr_t, col_idx) * cur_sample_ct]);
+            double acc = 0.0;
+            for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+              acc += cur_row[row_idx] * xcol[row_idx];
+            }
+            xproj[S_CAST(uintptr_t, midx) * max_col_ct + col_idx] = acc;
+          }
+        }
+        for (uint32_t ii = 0; ii != mm; ++ii) {
+          const double* row_i = &(geno_buf[S_CAST(uintptr_t, ii) * cur_sample_ct]);
+          for (uint32_t jj = 0; jj <= ii; ++jj) {
+            const double* row_j = &(geno_buf[S_CAST(uintptr_t, jj) * cur_sample_ct]);
+            double acc = 0.0;
+            for (uint32_t row_idx = 0; row_idx != cur_sample_ct; ++row_idx) {
+              acc += row_i[row_idx] * row_j[row_idx];
+            }
+            for (uint32_t col_idx = 0; col_idx != xcol_ct; ++col_idx) {
+              acc -= xproj[S_CAST(uintptr_t, ii) * max_col_ct + col_idx] * xproj[S_CAST(uintptr_t, jj) * max_col_ct + col_idx];
+            }
+            kmat_raw[S_CAST(uintptr_t, ii) * mm + jj] = acc;
+            kmat_raw[S_CAST(uintptr_t, jj) * mm + ii] = acc;
+          }
+        }
+
+        for (uint32_t scheme_idx = 0; scheme_idx != scheme_ct; ++scheme_idx) {
+        // Apply the weight scheme.  A weight enters the score linearly and the
+        // kernel bilinearly, so this is all a new scheme costs.
+        for (uint32_t ii = 0; ii != mm; ++ii) {
+          weights[ii] = variant_weights? variant_weights[S_CAST(uintptr_t, member_uidxs[ii]) * scheme_ct + scheme_idx] : beta_weights[ii];
+        }
+        for (uint32_t ii = 0; ii != mm; ++ii) {
+          svals[ii] = svals_raw[ii] * weights[ii];
+          for (uint32_t jj = 0; jj != mm; ++jj) {
+            kmat[S_CAST(uintptr_t, ii) * mm + jj] = kmat_raw[S_CAST(uintptr_t, ii) * mm + jj] * weights[ii] * weights[jj];
+          }
+        }
+
+        // Burden, SKAT, SKAT-O, ACAT-V, ACAT-O.
+        double sum_s = 0.0;
+        double sum_k = 0.0;
+        for (uint32_t ii = 0; ii != mm; ++ii) {
+          sum_s += svals[ii];
+          for (uint32_t jj = 0; jj != mm; ++jj) {
+            sum_k += kmat[S_CAST(uintptr_t, ii) * mm + jj];
+          }
+        }
+        double burden_ln_p = 0.0;
+        if (sum_k > 0.0) {
+          burden_ln_p = ChisqToLnP((sum_s * sum_s) / (varscale * sum_k), 1);
+        }
+        double q_skat = 0.0;
+        for (uint32_t ii = 0; ii != mm; ++ii) {
+          q_skat += svals[ii] * svals[ii];
+        }
+        // S ~ N(0, varscale * Kmat) under the null, so the quadratic form's
+        // eigenvalues are varscale times Kmat's, not Kmat's.  Dropping that
+        // factor leaves SKAT and SKAT-O wrong by exactly the residual
+        // variance, which is invisible in a scaled phenotype and glaring
+        // otherwise: the rho = 1 grid point stops agreeing with the burden
+        // test it is supposed to reproduce.
+        memcpy(kmat_work, kmat, S_CAST(uintptr_t, mm) * mm * sizeof(double));
+        double skat_ln_p = 0.0;
+        if (unlikely(ExtractEigvecs(mm, mm, eig_lwork, eig_liwork, kmat_work, eigvals, eigvecs, eig_wkspace))) {
+          goto VcTests_ret_NOMEM;
+        }
+        {
+          const uint32_t pos_ct = FilterQfEigvals(mm, varscale, eigvals);
+          if (pos_ct) {
+            skat_ln_p = QfMixLnP(q_skat, eigvals, pos_ct);
+          }
+        }
+        // SKAT-O over the rho grid, combined with a Cauchy sum rather than the
+        // exact minimum-p correction, which needs a quadrature routine.
+        double skato_ln_p = 0.0;
+        for (uint32_t rho_idx = 0; rho_idx != kSkatoRhoCt; ++rho_idx) {
+          const double rho = kSkatoRhos[rho_idx];
+          const double q_rho = (1.0 - rho) * q_skat + rho * sum_s * sum_s;
+          // R_rho^{1/2} = aa * I + bb * J for R_rho = (1 - rho) I + rho J.
+          const double aa = sqrt(1.0 - rho);
+          const double bb = (sqrt(1.0 - rho + u31tod(mm) * rho) - aa) / u31tod(mm);
+          for (uint32_t ii = 0; ii != mm; ++ii) {
+            for (uint32_t jj = 0; jj != mm; ++jj) {
+              double acc = aa * aa * kmat[S_CAST(uintptr_t, ii) * mm + jj];
+              double row_sum_i = 0.0;
+              double row_sum_j = 0.0;
+              for (uint32_t kk = 0; kk != mm; ++kk) {
+                row_sum_i += kmat[S_CAST(uintptr_t, kk) * mm + jj];
+                row_sum_j += kmat[S_CAST(uintptr_t, ii) * mm + kk];
+              }
+              acc += aa * bb * (row_sum_i + row_sum_j) + bb * bb * sum_k;
+              kmat_work[S_CAST(uintptr_t, ii) * mm + jj] = acc;
+            }
+          }
+          if (unlikely(ExtractEigvecs(mm, mm, eig_lwork, eig_liwork, kmat_work, eigvals, eigvecs, eig_wkspace))) {
+            goto VcTests_ret_NOMEM;
+          }
+          const uint32_t pos_ct = FilterQfEigvals(mm, varscale, eigvals);
+          rho_pvals[rho_idx] = pos_ct? QfMixLnP(q_rho, eigvals, pos_ct) : 0.0;
+        }
+        skato_ln_p = AcatCombineLnP(rho_pvals, nullptr, kSkatoRhoCt);
+
+        // ACAT-V: individual score tests above the MAC threshold, plus one
+        // burden test over everything below it.
+        double acatv_ln_p = 0.0;
+        {
+          uint32_t acat_ct = 0;
+          double ultrarare_s = 0.0;
+          double ultrarare_k = 0.0;
+          double ultrarare_w = 0.0;
+          for (uint32_t ii = 0; ii != mm; ++ii) {
+            if (is_ultrarare[ii]) {
+              ultrarare_s += svals[ii];
+              ultrarare_w += weights[ii] * weights[ii] * mafs[ii] * (1.0 - mafs[ii]);
+              for (uint32_t jj = 0; jj != mm; ++jj) {
+                if (is_ultrarare[jj]) {
+                  ultrarare_k += kmat[S_CAST(uintptr_t, ii) * mm + jj];
+                }
+              }
+              continue;
+            }
+            const double kii = kmat[S_CAST(uintptr_t, ii) * mm + ii];
+            if (kii <= 0.0) {
+              continue;
+            }
+            rho_pvals[0] = 0.0;  // placeholder, unused
+            eigvals[acat_ct] = ChisqToLnP((svals[ii] * svals[ii]) / (varscale * kii), 1);
+            kmat_work[acat_ct] = weights[ii] * weights[ii] * mafs[ii] * (1.0 - mafs[ii]);
+            ++acat_ct;
+          }
+          if (ultrarare_k > 0.0) {
+            eigvals[acat_ct] = ChisqToLnP((ultrarare_s * ultrarare_s) / (varscale * ultrarare_k), 1);
+            kmat_work[acat_ct] = ultrarare_w;
+            ++acat_ct;
+          }
+          if (acat_ct) {
+            acatv_ln_p = AcatCombineLnP(eigvals, kmat_work, acat_ct);
+          }
+        }
+
+        double omnibus[4];
+        omnibus[0] = burden_ln_p;
+        omnibus[1] = skat_ln_p;
+        omnibus[2] = skato_ln_p;
+        omnibus[3] = acatv_ln_p;
+        const double acato_ln_p = AcatCombineLnP(omnibus, nullptr, 4);
+
+        cswritep = memcpyax(cswritep, sl.name, sl.name_end - sl.name, '\t');
+        cswritep = memcpyax(cswritep, sl.chr_str, sl.chr_end - sl.chr_str, '\t');
+        cswritep = memcpyax(cswritep, sl.pos_str, sl.pos_end - sl.pos_str, '\t');
+        if (scheme_names) {
+          cswritep = strcpyax(cswritep, &(scheme_names[scheme_idx * max_scheme_name_blen]), '\t');
+        } else {
+          cswritep = strcpya_k(cswritep, "BETA\t");
+        }
+        cswritep = u32toa_x(mm, '\t', cswritep);
+        cswritep = u32toa_x(ultrarare_ct, '\t', cswritep);
+        cswritep = lntoa_g(burden_ln_p, cswritep);
+        *cswritep++ = '\t';
+        cswritep = lntoa_g(skat_ln_p, cswritep);
+        *cswritep++ = '\t';
+        cswritep = lntoa_g(skato_ln_p, cswritep);
+        *cswritep++ = '\t';
+        cswritep = lntoa_g(acatv_ln_p, cswritep);
+        *cswritep++ = '\t';
+        cswritep = lntoa_g(acato_ln_p, cswritep);
+        AppendBinaryEoln(&cswritep);
+        if (unlikely(Cswrite(&css, &cswritep))) {
+          goto VcTests_ret_WRITE_FAIL;
+        }
+        }
+        ++set_ct;
+      }
+      if (unlikely(TextStreamErrcode2(&set_txs, &reterr))) {
+        goto VcTests_ret_TSTREAM_FAIL;
+      }
+      CleanupTextStream2(set_fname, &set_txs, &reterr);
+      if (unlikely(reterr)) {
+        goto VcTests_ret_1;
+      }
+      if (unlikely(CswriteCloseNull(&css, cswritep))) {
+        goto VcTests_ret_WRITE_FAIL;
+      }
+      logprintfww("--vc-test (%s): %u set%s written to %s .\n", &(pheno_names[pheno_idx * max_pheno_name_blen]), set_ct, (set_ct == 1)? "" : "s", outname);
+      if (skipped_ct) {
+        logerrprintfww("Warning: %" PRIu64 " set%s skipped, with no variant under --vc-max-af.\n", skipped_ct, (skipped_ct == 1)? "" : "s");
+      }
+      ++reported_pheno_ct;
+      BigstackReset(pheno_bigstack_mark);
+    }
+    if (unlikely(!reported_pheno_ct)) {
+      logerrputs("Error: --vc-test: no phenotype could be analyzed.\n");
+      goto VcTests_ret_INCONSISTENT_INPUT;
+    }
+    *outname_end = '\0';
+  }
+  while (0) {
+  VcTests_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  VcTests_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(set_fname, &set_txs);
+    break;
+  VcTests_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, set_fname);
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  VcTests_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  VcTests_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ VcTests_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  CleanupTextStream2(set_fname, &set_txs, &reterr);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+#endif  // !NOLAPACK
 
 #ifdef __cplusplus
 }  // namespace plink2

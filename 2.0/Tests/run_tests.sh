@@ -113,6 +113,21 @@ cd TEST_KING_RT
 cd ..
 echo "TEST_KING_RT passed."
 
+cd TEST_ACAT
+./run_tests.sh $d $2 $3 > TEST_ACAT.log
+cd ..
+echo "TEST_ACAT passed."
+
+cd TEST_GENE_MASK
+./run_tests.sh $d $2 $3 > TEST_GENE_MASK.log
+cd ..
+echo "TEST_GENE_MASK passed."
+
+cd TEST_VC_TEST
+./run_tests.sh $d $2 $3 > TEST_VC_TEST.log
+cd ..
+echo "TEST_VC_TEST passed."
+
 cd TEST_SHOW_TAGS
 ./run_tests.sh $d $2 $3 > TEST_SHOW_TAGS.log
 cd ..
