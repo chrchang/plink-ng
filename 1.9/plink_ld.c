@@ -4999,7 +4999,7 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
 	incr_1122 = solutions[cur_sol_idx];
         cur_lnlike = calc_lnlike(known11, known12, known21, known22, center_ct_d, freq11, freq12, freq21, freq22, half_hethet_share, incr_1122);
 	if (cur_lnlike > best_lnlike) {
-          cur_lnlike = best_lnlike;
+          best_lnlike = cur_lnlike;
           best_sol = incr_1122;
 	}
       } while (++cur_sol_idx < sol_end_idx);
