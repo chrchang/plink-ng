@@ -11009,6 +11009,8 @@ PglErr HetCalcMain(const uintptr_t* sample_include, const uintptr_t* variant_sub
 
 void InitHomozyg(HomozygInfo* hip) {
   hip->flags = kfHomozyg0;
+  hip->overlap_min = 0.95;
+  hip->pool_size_min = 2;
   hip->min_snp = 100;
   hip->min_bases = 1000000;
   // Very low-frequency variants are nearly always homozygous, so on a modern
@@ -11323,6 +11325,538 @@ THREAD_FUNC_DECL HomozygThread(void* raw_arg) {
     }
   } while (!THREAD_BLOCK_FINISH(arg));
   THREAD_RETURN;
+}
+
+
+// Pool reports for --homozyg group.
+//
+// A pool is a maximal set of runs of homozygosity that all overlap each other.
+// For an interval graph those are exactly the sets of runs covering some run's
+// first variant, so the sweep below emits the active set at each run start
+// where at least one member ends before the next start; anything else is a
+// subset of a later set.
+//
+// Within a pool, two runs are "allelically matched" when, over the variants
+// where both samples are homozygous, the fraction carrying *different*
+// homozygous genotypes is at most 1 - --homozyg-match.  The comparison region
+// is the pair's own overlap, or the pool's consensus region under
+// 'consensus-match'.  Groups are then formed greedily: the run matching the
+// most others becomes a group's reference, everything still unassigned that
+// matches it joins, repeat.
+typedef struct RohPoolStruct {
+  uint32_t member_start;  // into pool_members
+  uint32_t member_ct;
+  uint32_t chr_idx;
+  uint32_t con_start_uidx;
+  uint32_t con_end_uidx;
+  uint32_t union_start_uidx;
+  uint32_t union_end_uidx;
+} RohPool;
+
+// Returns 1 when the two runs match over [cmp_start_pos, cmp_end_pos), which
+// are positions within each run's own genotype buffer.
+uint32_t RohAllelicMatch(const uintptr_t* geno_a, const uintptr_t* geno_b, uint32_t a_offset, uint32_t b_offset, uint32_t cmp_len, double mismatch_max) {
+  uint32_t joint_hom_ct = 0;
+  uint32_t mismatch_ct = 0;
+  for (uint32_t uii = 0; uii != cmp_len; ++uii) {
+    const uint32_t ga = GetNyparrEntry(geno_a, a_offset + uii);
+    if ((ga != 0) && (ga != 2)) {
+      continue;
+    }
+    const uint32_t gb = GetNyparrEntry(geno_b, b_offset + uii);
+    if ((gb != 0) && (gb != 2)) {
+      continue;
+    }
+    ++joint_hom_ct;
+    mismatch_ct += (ga != gb);
+  }
+  return (u31tod(mismatch_ct) <= mismatch_max * u31tod(joint_hom_ct));
+}
+
+
+// Loads each member's genotypes over its own run, computes the pairwise
+// allelic-match matrix, assigns groups, and writes .hom.overlap.
+PglErr HomozygPoolWrite(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const PhenoCol* report_pheno_col, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const RohRecord* roh_list, const RohPool* pools, const uint32_t* pool_members, const uint32_t* pool_order, uint32_t pool_ct, uint32_t sample_ct, uint32_t col_fid, uint32_t col_sid, uint32_t col_pheno, uint32_t is_new_lengths, uint32_t is_consensus_match, double mismatch_max, PgenReader* simple_pgrp, FILE** outfile_ptr, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    uintptr_t* genovec;
+    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec))) {
+      goto HomozygPoolWrite_ret_NOMEM;
+    }
+    uint32_t max_member_ct = 0;
+    uint32_t max_member_len = 0;
+    for (uint32_t pool_idx = 0; pool_idx != pool_ct; ++pool_idx) {
+      const RohPool* cur_pool = &(pools[pool_idx]);
+      max_member_ct = MAXV(max_member_ct, cur_pool->member_ct);
+      const uint32_t member_end = cur_pool->member_start + cur_pool->member_ct;
+      for (uint32_t uii = cur_pool->member_start; uii != member_end; ++uii) {
+        const RohRecord* mem_rec = &(roh_list[pool_members[uii]]);
+        max_member_len = MAXV(max_member_len, mem_rec->nsnp);
+      }
+    }
+    const uintptr_t member_geno_words = NypCtToWordCt(max_member_len? max_member_len : 1);
+    uintptr_t* member_genos;
+    uint32_t* nsim_cts;
+    uint32_t* group_ids;
+    uintptr_t* is_reference;
+    uintptr_t* match_matrix;
+    uint32_t* member_pos;
+    const uintptr_t match_matrix_bits = (S_CAST(uintptr_t, max_member_ct) * (max_member_ct - 1)) / 2;
+    if (unlikely(bigstack_alloc_w(member_geno_words * max_member_ct, &member_genos) ||
+                 bigstack_alloc_u32(max_member_ct, &nsim_cts) ||
+                 bigstack_alloc_u32(max_member_ct, &group_ids) ||
+                 bigstack_alloc_w(BitCtToWordCt(max_member_ct), &is_reference) ||
+                 bigstack_alloc_w(BitCtToWordCt(match_matrix_bits? match_matrix_bits : 1), &match_matrix) ||
+                 bigstack_alloc_u32(max_member_ct, &member_pos))) {
+      goto HomozygPoolWrite_ret_NOMEM;
+    }
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".hom.overlap");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, outfile_ptr))) {
+      goto HomozygPoolWrite_ret_OPEN_FAIL;
+    }
+    FILE* outfile = *outfile_ptr;
+    {
+      char* write_iter = g_textbuf;
+      write_iter = strcpya_k(write_iter, "#POOL\t");
+      if (col_fid) {
+        write_iter = strcpya_k(write_iter, "FID\t");
+      }
+      write_iter = strcpya_k(write_iter, "IID");
+      if (col_sid) {
+        write_iter = strcpya_k(write_iter, "\tSID");
+      }
+      if (col_pheno) {
+        write_iter = strcpya_k(write_iter, "\tPHENO");
+      }
+      write_iter = strcpya_k(write_iter, "\tCHROM\tID1\tID2\tPOS1\tPOS2\tKB\tNSNP\tNSIM\tGRP");
+      AppendBinaryEoln(&write_iter);
+      if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
+        goto HomozygPoolWrite_ret_WRITE_FAIL;
+      }
+    }
+
+    for (uint32_t order_idx = 0; order_idx != pool_ct; ++order_idx) {
+      const RohPool* cur_pool = &(pools[pool_order[order_idx]]);
+      const uint32_t member_ct = cur_pool->member_ct;
+      const uint32_t* members = &(pool_members[cur_pool->member_start]);
+
+      // Load each member's genotypes over its own run.
+      ZeroU32Arr(member_ct, member_pos);
+      ZeroWArr(member_geno_words * member_ct, member_genos);
+      {
+        uintptr_t variant_uidx_base;
+        uintptr_t cur_bits;
+        BitIter1Start(variant_include, cur_pool->union_start_uidx, &variant_uidx_base, &cur_bits);
+        const uint32_t scan_variant_ct = PopcountBitRange(variant_include, cur_pool->union_start_uidx, cur_pool->union_end_uidx + 1);
+        for (uint32_t uii = 0; uii != scan_variant_ct; ++uii) {
+          const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+          uint32_t needed = 0;
+          for (uint32_t midx = 0; midx != member_ct; ++midx) {
+            const RohRecord* mem_rec = &(roh_list[members[midx]]);
+            if ((variant_uidx >= mem_rec->start_uidx) && (variant_uidx <= mem_rec->end_uidx)) {
+              needed = 1;
+              break;
+            }
+          }
+          if (!needed) {
+            continue;
+          }
+          reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+          if (unlikely(reterr)) {
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto HomozygPoolWrite_ret_1;
+          }
+          for (uint32_t midx = 0; midx != member_ct; ++midx) {
+            const RohRecord* mem_rec = &(roh_list[members[midx]]);
+            if ((variant_uidx < mem_rec->start_uidx) || (variant_uidx > mem_rec->end_uidx)) {
+              continue;
+            }
+            AssignNyparrEntry(member_pos[midx], GetNyparrEntry(genovec, mem_rec->sample_idx), &(member_genos[midx * member_geno_words]));
+            member_pos[midx] += 1;
+          }
+        }
+      }
+
+      // Pairwise allelic match.
+      ZeroU32Arr(member_ct, nsim_cts);
+      if (member_ct >= 2) {
+        ZeroWArr(BitCtToWordCt((S_CAST(uintptr_t, member_ct) * (member_ct - 1)) / 2), match_matrix);
+      }
+      for (uint32_t midx1 = 1; midx1 < member_ct; ++midx1) {
+        const RohRecord* rec1 = &(roh_list[members[midx1]]);
+        for (uint32_t midx2 = 0; midx2 != midx1; ++midx2) {
+          const RohRecord* rec2 = &(roh_list[members[midx2]]);
+          uint32_t cmp_start;
+          uint32_t cmp_end;
+          if (is_consensus_match) {
+            cmp_start = cur_pool->con_start_uidx;
+            cmp_end = cur_pool->con_end_uidx;
+          } else {
+            cmp_start = MAXV(rec1->start_uidx, rec2->start_uidx);
+            cmp_end = MINV(rec1->end_uidx, rec2->end_uidx);
+          }
+          if (cmp_start > cmp_end) {
+            continue;
+          }
+          const uint32_t off1 = PopcountBitRange(variant_include, rec1->start_uidx, cmp_start);
+          const uint32_t off2 = PopcountBitRange(variant_include, rec2->start_uidx, cmp_start);
+          const uint32_t cmp_len = PopcountBitRange(variant_include, cmp_start, cmp_end + 1);
+          if (!cmp_len) {
+            continue;
+          }
+          if (RohAllelicMatch(&(member_genos[midx1 * member_geno_words]), &(member_genos[midx2 * member_geno_words]), off1, off2, cmp_len, mismatch_max)) {
+            SetBit((S_CAST(uintptr_t, midx1) * (midx1 - 1)) / 2 + midx2, match_matrix);
+            nsim_cts[midx1] += 1;
+            nsim_cts[midx2] += 1;
+          }
+        }
+      }
+
+      // Greedy grouping, as in PLINK 1.9: the unassigned run matching the most
+      // others becomes a group's reference.
+      SetAllU32Arr(member_ct, group_ids);
+      ZeroWArr(BitCtToWordCt(member_ct), is_reference);
+      uint32_t group_ct = 0;
+      while (1) {
+        uint32_t best_idx = UINT32_MAX;
+        uint32_t best_nsim = 0;
+        for (uint32_t midx = 0; midx != member_ct; ++midx) {
+          if ((group_ids[midx] == UINT32_MAX) && (nsim_cts[midx] > best_nsim)) {
+            best_nsim = nsim_cts[midx];
+            best_idx = midx;
+          }
+        }
+        if (best_idx == UINT32_MAX) {
+          break;
+        }
+        ++group_ct;
+        group_ids[best_idx] = group_ct;
+        SetBit(best_idx, is_reference);
+        for (uint32_t midx = 0; midx != member_ct; ++midx) {
+          if ((midx == best_idx) || (group_ids[midx] != UINT32_MAX)) {
+            continue;
+          }
+          const uintptr_t tri_coord = (best_idx > midx)? ((S_CAST(uintptr_t, best_idx) * (best_idx - 1)) / 2 + midx) : ((S_CAST(uintptr_t, midx) * (midx - 1)) / 2 + best_idx);
+          if (IsSet(match_matrix, tri_coord)) {
+            group_ids[midx] = group_ct;
+          }
+        }
+      }
+      for (uint32_t midx = 0; midx != member_ct; ++midx) {
+        if (group_ids[midx] == UINT32_MAX) {
+          group_ids[midx] = ++group_ct;
+          SetBit(midx, is_reference);
+        }
+      }
+
+      // Rows, ordered by group then by member index.
+      uint32_t case_ct = 0;
+      uint32_t pheno_ct_known = 0;
+      for (uint32_t group_idx = 1; group_idx <= group_ct; ++group_idx) {
+        for (uint32_t midx = 0; midx != member_ct; ++midx) {
+          if (group_ids[midx] != group_idx) {
+            continue;
+          }
+          const RohRecord* mem_rec = &(roh_list[members[midx]]);
+          const uint32_t sample_uidx = IdxToUidx(sample_include, sample_include_cumulative_popcounts, 0, BitCtToWordCt(sample_ct), mem_rec->sample_idx);
+          char* write_iter = g_textbuf;
+          *write_iter++ = 'S';
+          write_iter = u32toa_x(order_idx + 1, '\t', write_iter);
+          write_iter = AppendXid(sample_ids, sids, col_fid, col_sid, max_sample_id_blen, max_sid_blen, sample_uidx, write_iter);
+          if (col_pheno) {
+            *write_iter++ = '\t';
+            write_iter = AppendPhenoStr(report_pheno_col, "NA", 2, sample_uidx, write_iter);
+            if (report_pheno_col && (report_pheno_col->type_code == kPhenoDtypeCc) && IsSet(report_pheno_col->nonmiss, sample_uidx)) {
+              ++pheno_ct_known;
+              case_ct += IsSet(report_pheno_col->data.cc, sample_uidx);
+            }
+          }
+          *write_iter++ = '\t';
+          write_iter = chrtoa(cip, cur_pool->chr_idx, write_iter);
+          *write_iter++ = '\t';
+          write_iter = strcpyax(write_iter, variant_ids[mem_rec->start_uidx], '\t');
+          write_iter = strcpyax(write_iter, variant_ids[mem_rec->end_uidx], '\t');
+          write_iter = u32toa_x(variant_bps[mem_rec->start_uidx], '\t', write_iter);
+          write_iter = u32toa_x(variant_bps[mem_rec->end_uidx], '\t', write_iter);
+          write_iter = dtoa_g(u31tod(variant_bps[mem_rec->end_uidx] + is_new_lengths - variant_bps[mem_rec->start_uidx]) / (1000.0 - kRohEpsilon), write_iter);
+          *write_iter++ = '\t';
+          write_iter = u32toa_x(mem_rec->nsnp, '\t', write_iter);
+          write_iter = u32toa_x(nsim_cts[midx], '\t', write_iter);
+          write_iter = u32toa(group_ids[midx], write_iter);
+          if (IsSet(is_reference, midx)) {
+            *write_iter++ = '*';
+          }
+          AppendBinaryEoln(&write_iter);
+          if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
+            goto HomozygPoolWrite_ret_WRITE_FAIL;
+          }
+        }
+      }
+
+      // CON and UNION summary rows.
+      for (uint32_t uii = 0; uii != 2; ++uii) {
+        const uint32_t range_start = uii? cur_pool->union_start_uidx : cur_pool->con_start_uidx;
+        const uint32_t range_end = uii? cur_pool->union_end_uidx : cur_pool->con_end_uidx;
+        char* write_iter = g_textbuf;
+        *write_iter++ = 'S';
+        write_iter = u32toa_x(order_idx + 1, '\t', write_iter);
+        if (col_fid) {
+          if (uii) {
+            write_iter = strcpya_k(write_iter, "UNION\t");
+          } else {
+            write_iter = strcpya_k(write_iter, "CON\t");
+          }
+        }
+        write_iter = u32toa(member_ct, write_iter);
+        if (col_sid) {
+          write_iter = strcpya_k(write_iter, "\tNA");
+        }
+        if (col_pheno) {
+          *write_iter++ = '\t';
+          if (pheno_ct_known) {
+            write_iter = u32toa_x(case_ct, ':', write_iter);
+            write_iter = u32toa(pheno_ct_known - case_ct, write_iter);
+          } else {
+            write_iter = strcpya_k(write_iter, "NA");
+          }
+        }
+        *write_iter++ = '\t';
+        write_iter = chrtoa(cip, cur_pool->chr_idx, write_iter);
+        *write_iter++ = '\t';
+        write_iter = strcpyax(write_iter, variant_ids[range_start], '\t');
+        write_iter = strcpyax(write_iter, variant_ids[range_end], '\t');
+        write_iter = u32toa_x(variant_bps[range_start], '\t', write_iter);
+        write_iter = u32toa_x(variant_bps[range_end], '\t', write_iter);
+        write_iter = dtoa_g(u31tod(variant_bps[range_end] + is_new_lengths - variant_bps[range_start]) / (1000.0 - kRohEpsilon), write_iter);
+        *write_iter++ = '\t';
+        write_iter = u32toa(PopcountBitRange(variant_include, range_start, range_end + 1), write_iter);
+        write_iter = strcpya_k(write_iter, "\tNA\tNA");
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, outfile))) {
+          goto HomozygPoolWrite_ret_WRITE_FAIL;
+        }
+      }
+    }
+    if (unlikely(fclose_null(outfile_ptr))) {
+      goto HomozygPoolWrite_ret_WRITE_FAIL;
+    }
+    logprintfww("--homozyg group: Pool report written to %s .\n", outname);
+  }
+  while (0) {
+  HomozygPoolWrite_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  HomozygPoolWrite_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  HomozygPoolWrite_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ HomozygPoolWrite_ret_1:
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+
+PglErr HomozygPoolReport(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const PhenoCol* report_pheno_col, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const RohRecord* roh_list, uintptr_t roh_ct, uint32_t sample_ct, uint32_t col_fid, uint32_t col_sid, uint32_t col_pheno, uint32_t is_new_lengths, const HomozygInfo* hip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t pool_size_min = hip->pool_size_min;
+    const uint32_t is_consensus_match = (hip->flags / kfHomozygConsensusMatch) & 1;
+    const double mismatch_max = 1.0 - hip->overlap_min * (1 - kRohEpsilon);
+
+    // Runs sorted by (start variant, end variant, sample), which is also the
+    // sweep order.
+    uint32_t* roh_by_start;
+    if (unlikely(bigstack_alloc_u32(roh_ct? roh_ct : 1, &roh_by_start))) {
+      goto HomozygPoolReport_ret_NOMEM;
+    }
+    {
+      uint64_t* sort_keys;
+      if (unlikely(bigstack_end_alloc_u64(roh_ct? roh_ct : 1, &sort_keys))) {
+        goto HomozygPoolReport_ret_NOMEM;
+      }
+      for (uintptr_t ulii = 0; ulii != roh_ct; ++ulii) {
+        sort_keys[ulii] = (S_CAST(uint64_t, roh_list[ulii].start_uidx) << 32) | ulii;
+      }
+      STD_SORT(roh_ct, u64cmp, sort_keys);
+      for (uintptr_t ulii = 0; ulii != roh_ct; ++ulii) {
+        roh_by_start[ulii] = S_CAST(uint32_t, sort_keys[ulii]);
+      }
+      BigstackEndReset(sort_keys);
+    }
+
+    // Sweep for maximal pools.  active[] holds run indexes.
+    uint32_t* active;
+    uint32_t* pool_members;
+    RohPool* pools;
+    const uintptr_t max_pool_ct = roh_ct? roh_ct : 1;
+    if (unlikely(bigstack_alloc_u32(max_pool_ct, &active) ||
+                 BIGSTACK_ALLOC_X(RohPool, max_pool_ct, &pools))) {
+      goto HomozygPoolReport_ret_NOMEM;
+    }
+    // Upper bound: each pool is emitted at a distinct run start, and holds at
+    // most every run.  That product is too large to reserve, so members are
+    // appended to the remaining arena and the total checked as we go.
+    pool_members = R_CAST(uint32_t*, g_bigstack_base);
+    const uintptr_t max_member_ct = bigstack_left() / (2 * sizeof(int32_t));
+    uintptr_t member_ct_total = 0;
+    uint32_t pool_ct = 0;
+    uint32_t active_ct = 0;
+    for (uintptr_t sort_idx = 0; sort_idx != roh_ct; ++sort_idx) {
+      const uint32_t roh_idx = roh_by_start[sort_idx];
+      const RohRecord* cur_rec = &(roh_list[roh_idx]);
+      const uint32_t cur_start = cur_rec->start_uidx;
+      const uint32_t cur_chr_idx = GetVariantChr(cip, cur_start);
+      // Drop runs that ended before this one starts, or sit on an earlier
+      // chromosome.
+      uint32_t new_active_ct = 0;
+      uint32_t dropped = 0;
+      for (uint32_t uii = 0; uii != active_ct; ++uii) {
+        const RohRecord* act_rec = &(roh_list[active[uii]]);
+        if ((act_rec->end_uidx >= cur_start) && (GetVariantChr(cip, act_rec->start_uidx) == cur_chr_idx)) {
+          active[new_active_ct++] = active[uii];
+        } else {
+          dropped = 1;
+        }
+      }
+      active_ct = new_active_ct;
+      active[active_ct++] = roh_idx;
+      // The set is maximal iff it isn't carried whole into the next start.
+      uint32_t emit = 1;
+      if (sort_idx + 1 != roh_ct) {
+        const RohRecord* next_rec = &(roh_list[roh_by_start[sort_idx + 1]]);
+        const uint32_t next_start = next_rec->start_uidx;
+        if (GetVariantChr(cip, next_start) == cur_chr_idx) {
+          emit = 0;
+          for (uint32_t uii = 0; uii != active_ct; ++uii) {
+            if (roh_list[active[uii]].end_uidx < next_start) {
+              emit = 1;
+              break;
+            }
+          }
+        }
+      }
+      (void)dropped;
+      if ((!emit) || (active_ct < pool_size_min)) {
+        continue;
+      }
+      if (unlikely(member_ct_total + active_ct > max_member_ct)) {
+        goto HomozygPoolReport_ret_NOMEM;
+      }
+      RohPool* cur_pool = &(pools[pool_ct]);
+      cur_pool->member_start = member_ct_total;
+      cur_pool->member_ct = active_ct;
+      cur_pool->chr_idx = cur_chr_idx;
+      uint32_t con_start = 0;
+      uint32_t con_end = UINT32_MAX;
+      uint32_t union_start = UINT32_MAX;
+      uint32_t union_end = 0;
+      for (uint32_t uii = 0; uii != active_ct; ++uii) {
+        const RohRecord* mem_rec = &(roh_list[active[uii]]);
+        pool_members[member_ct_total + uii] = active[uii];
+        con_start = MAXV(con_start, mem_rec->start_uidx);
+        con_end = MINV(con_end, mem_rec->end_uidx);
+        union_start = MINV(union_start, mem_rec->start_uidx);
+        union_end = MAXV(union_end, mem_rec->end_uidx);
+      }
+      cur_pool->con_start_uidx = con_start;
+      cur_pool->con_end_uidx = con_end;
+      cur_pool->union_start_uidx = union_start;
+      cur_pool->union_end_uidx = union_end;
+      member_ct_total += active_ct;
+      ++pool_ct;
+    }
+    BigstackBaseSet(&(pool_members[member_ct_total]));
+
+    if (!pool_ct) {
+      logprintf("--homozyg group: No pools of %u or more overlapping runs.\n", pool_size_min);
+      goto HomozygPoolReport_ret_1;
+    }
+    logprintf("--homozyg group: %u pool%s of overlapping ROH present.\n", pool_ct, (pool_ct == 1)? "" : "s");
+
+    // Sort members of each pool by sample index, for reproducibility, and sort
+    // the pools by decreasing size then genomic position, which is the order
+    // PLINK 1.9 numbers them in.
+    for (uint32_t pool_idx = 0; pool_idx != pool_ct; ++pool_idx) {
+      const RohPool* cur_pool = &(pools[pool_idx]);
+      uint32_t* members = &(pool_members[cur_pool->member_start]);
+      const uint32_t member_ct = cur_pool->member_ct;
+      for (uint32_t uii = 1; uii < member_ct; ++uii) {
+        const uint32_t tmp = members[uii];
+        const uint32_t key = roh_list[tmp].sample_idx;
+        uint32_t ujj = uii;
+        while (ujj && (roh_list[members[ujj - 1]].sample_idx > key)) {
+          members[ujj] = members[ujj - 1];
+          --ujj;
+        }
+        members[ujj] = tmp;
+      }
+    }
+    uint32_t* pool_order;
+    if (unlikely(bigstack_alloc_u32(pool_ct, &pool_order))) {
+      goto HomozygPoolReport_ret_NOMEM;
+    }
+    {
+      uint64_t* pool_keys;
+      if (unlikely(bigstack_end_alloc_u64(pool_ct, &pool_keys))) {
+        goto HomozygPoolReport_ret_NOMEM;
+      }
+      for (uint32_t pool_idx = 0; pool_idx != pool_ct; ++pool_idx) {
+        // descending size, then ascending consensus start
+        const uint64_t inv_size = 0xffffffffLLU - pools[pool_idx].member_ct;
+        pool_keys[pool_idx] = (inv_size << 32) | pools[pool_idx].con_start_uidx;
+      }
+      uint32_t* aux;
+      if (unlikely(bigstack_end_alloc_u32(pool_ct, &aux))) {
+        goto HomozygPoolReport_ret_NOMEM;
+      }
+      for (uint32_t pool_idx = 0; pool_idx != pool_ct; ++pool_idx) {
+        aux[pool_idx] = pool_idx;
+      }
+      // insertion sort on (key, original index); pool counts are small enough
+      // in practice, and this keeps the ordering fully determined.
+      for (uint32_t uii = 1; uii < pool_ct; ++uii) {
+        const uint64_t key = pool_keys[uii];
+        const uint32_t val = aux[uii];
+        uint32_t ujj = uii;
+        while (ujj && ((pool_keys[ujj - 1] > key) || ((pool_keys[ujj - 1] == key) && (aux[ujj - 1] > val)))) {
+          pool_keys[ujj] = pool_keys[ujj - 1];
+          aux[ujj] = aux[ujj - 1];
+          --ujj;
+        }
+        pool_keys[ujj] = key;
+        aux[ujj] = val;
+      }
+      memcpy(pool_order, aux, pool_ct * sizeof(int32_t));
+      BigstackEndReset(pool_keys);
+    }
+    reterr = HomozygPoolWrite(sample_include, sample_include_cumulative_popcounts, siip, report_pheno_col, variant_include, cip, variant_bps, variant_ids, roh_list, pools, pool_members, pool_order, pool_ct, sample_ct, col_fid, col_sid, col_pheno, is_new_lengths, is_consensus_match, mismatch_max, simple_pgrp, &outfile, outname, outname_end);
+    if (unlikely(reterr)) {
+      goto HomozygPoolReport_ret_1;
+    }
+  }
+  while (0) {
+  HomozygPoolReport_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  }
+ HomozygPoolReport_ret_1:
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
 }
 
 PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, const HomozygInfo* hip, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
@@ -11949,6 +12483,13 @@ PglErr HomozygReport(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     const char* summary_suffix = (flags & kfHomozygZs)? ".hom.summary.zst" : ".hom.summary";
     *outname_end = '\0';
     logprintfww("--homozyg: %" PRIuPTR " run%s of homozygosity found; results written to %s.hom + %s.hom.indiv + %s%s .\n", roh_ct, (roh_ct == 1)? "" : "s", outname, outname, outname, summary_suffix);
+
+    if (flags & kfHomozygGroup) {
+      reterr = HomozygPoolReport(sample_include, sample_include_cumulative_popcounts, siip, report_pheno_col, variant_include, cip, variant_bps, variant_ids, roh_list, roh_ct, sample_ct, col_fid, col_sid, col_pheno, is_new_lengths, hip, simple_pgrp, outname, outname_end);
+      if (unlikely(reterr)) {
+        goto HomozygReport_ret_1;
+      }
+    }
   }
   while (0) {
   HomozygReport_ret_NOMEM:
