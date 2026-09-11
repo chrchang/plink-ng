@@ -125,12 +125,71 @@ static_assert(CompileTimeSlen(ver_str) + CompileTimeSlen(ver_str2) == 160, "ver_
 #endif
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
+// Grouped command listing for the no-argument/-h case, in the style of
+// samtools and friends: one line per command, so that a new user can see what
+// the program does without paging through the full --help.
+static const char notestr_null_calc2[] =
+"Commands:\n"
+"  -- Data management\n"
+"     --make-pgen            write a new fileset; --make-bed for PLINK 1 binary\n"
+"     --export               write the data out in another format\n"
+"     --pmerge               merge filesets; --pmerge-list for several at once\n"
+"     --rm-dup               resolve duplicate-ID variants\n"
+"     --write-snplist        list the variant IDs that pass the filters\n"
+"     --write-samples        list the sample IDs that pass the filters\n"
+"\n"
+"  -- Summary statistics\n"
+"     --freq                 allele frequencies or counts\n"
+"     --geno-counts          per-variant genotype counts\n"
+"     --sample-counts        per-sample genotype counts\n"
+"     --missing              sample- and variant-level missingness\n"
+"     --hardy                Hardy-Weinberg equilibrium exact test\n"
+"     --mendel               Mendel error report\n"
+"     --het                  inbreeding coefficients\n"
+"     --check-sex            compare imputed with reported sex\n"
+"     --fst                  Hudson or Weir-Cockerham Fst\n"
+"\n"
+"  -- Linkage disequilibrium\n"
+"     --indep-pairwise       LD-based variant pruning\n"
+"     --r2-phased            pairwise LD; --r2-unphased for hardcall r^2\n"
+"     --ld                   diplotype frequencies and D' for one pair\n"
+"     --ld-score             per-variant LD Score\n"
+"     --show-tags            tag variant selection\n"
+"     --twolocus             joint genotype counts for one pair\n"
+"     --flip-scan            find strand-inconsistent variants, using LD\n"
+"\n"
+"  -- Relatedness and population structure\n"
+"     --make-king            KING-robust kinship matrix\n"
+"     --king-cutoff          prune samples by kinship\n"
+"     --make-grm-list        relationship matrix in GCTA's format\n"
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --mendel, --het, --fst, --indep-pairwise,\n--r2-phased, --sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--check-sex, --write-samples, --write-snplist, --make-grm-list, --pca, --glm,\n--adjust-file, --gwas-ssf, --pheno-svd, --clump, --score-list, --variant-score,\n--genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
-#else
-// no --pca
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --mendel, --het, --fst, --indep-pairwise,\n--r2-phased, --sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--check-sex, --write-samples, --write-snplist, --make-grm-list, --glm,\n--adjust-file, --gwas-ssf, --clump, --score-list, --variant-score,\n--genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+"     --pca                  principal components\n"
 #endif
+"     --distance             pairwise genomic distance matrix\n"
+"     --homozyg              runs of homozygosity\n"
+"     --sample-diff          compare genotypes between sample pairs\n"
+"     --pgen-diff            compare genotypes between two filesets\n"
+"\n"
+"  -- Association\n"
+"     --glm                  linear and logistic regression\n"
+"     --test-missing         differential missingness by case/control status\n"
+"     --score                polygenic scores; --score-list for several\n"
+"     --variant-score        per-variant scores from sample weights\n"
+"\n"
+"  -- Report post-processing\n"
+"     --adjust-file          multiple-testing correction of a report\n"
+"     --clump                LD-based clumping of association results\n"
+"     --gwas-ssf             write reports in GWAS-SSF format\n"
+#ifndef NOLAPACK
+"     --pheno-svd            reduce phenotypes to their principal components\n"
+#endif
+"\n"
+"  -- File utilities\n"
+"     --pgen-info            report basic information about a .pgen\n"
+"     --validate             check every variant record in a .pgen\n"
+"     --zst-decompress       decompress a Zstd-compressed file\n"
+"\n"
+"\"" PROG_NAME_STR " --help <flag name>\" describes one flag; \"" PROG_NAME_STR " --help | more\" describes\nthem all.\n";
 
 // multiallelics-already-joined + terminating null
 CONSTI32(kMaxFlagBlen, 29);
