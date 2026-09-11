@@ -123,4 +123,9 @@ cd TEST_PGEN_MALFORMED
 cd ..
 echo "TEST_PGEN_MALFORMED passed."
 
+cd TEST_TUCC
+./run_tests.sh $d $2 $3 > TEST_TUCC.log
+cd ..
+echo "TEST_TUCC passed."
+
 echo "All tests passed."

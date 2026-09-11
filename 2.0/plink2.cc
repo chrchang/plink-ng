@@ -228,6 +228,7 @@ ENUM_U31_DEF_START()
   kCmd1BitPhenoSvd,
   kCmd1BitCheckOrImputeSex,
   kCmd1BitMendelReport,
+  kCmd1BitTucc,
   kCmd1BitLdScore,
   kCmd1BitFlipScan,
   kCmd1BitHomozyg,
@@ -273,6 +274,7 @@ FLAGSET64_DEF_START()
   kfCommand1PhenoSvd = (1LLU << kCmd1BitPhenoSvd),
   kfCommand1CheckOrImputeSex = (1LLU << kCmd1BitCheckOrImputeSex),
   kfCommand1MendelReport = (1LLU << kCmd1BitMendelReport),
+  kfCommand1Tucc = (1LLU << kCmd1BitTucc),
   kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
   kfCommand1FlipScan = (1LLU << kCmd1BitFlipScan),
   kfCommand1Homozyg = (1LLU << kCmd1BitHomozyg),
@@ -639,7 +641,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags | kfCommand1Tucc)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -2631,6 +2633,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           variant_ct = PopcountWords(variant_include, raw_variant_ctl);
           logprintf("--me: %u sample%s and %u variant%s remaining.\n", sample_ct, (sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s");
           UpdateSampleSubsets(sample_include, raw_sample_ct, sample_ct, founder_info, &founder_ct, sex_nm, sex_male, &male_ct, &nosex_ct);
+        }
+      }
+
+      if (pcp->command_flags1 & kfCommand1Tucc) {
+        reterr = Tucc(sample_include, &pii, founder_info, sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, variant_cms, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, (pcp->misc_flags / kfMiscTuccVzs) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
         }
       }
 
@@ -13101,7 +13110,7 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1TestMissing;
           pc.dependency_flags |= kfFilterAllReq;
-        } else if (likely(strequal_k_unsafe(flagname_p2, "ests"))) {
+        } else if (strequal_k_unsafe(flagname_p2, "ests")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Glm))) {
             logerrputs("Error: --tests must be used with --glm.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -13122,6 +13131,20 @@ int main(int argc, char** argv) {
               goto main_ret_1;
             }
           }
+        } else if (likely(strequal_k_unsafe(flagname_p2, "ucc"))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (param_ct) {
+            const char* cur_modif = argvk[arg_idx + 1];
+            if (unlikely(!strequal_k(cur_modif, "vzs", strlen(cur_modif)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --tucc argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.misc_flags |= kfMiscTuccVzs;
+          }
+          pc.command_flags1 |= kfCommand1Tucc;
+          pc.dependency_flags |= kfFilterAllReq;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }

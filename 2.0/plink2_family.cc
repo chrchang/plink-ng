@@ -19,6 +19,7 @@
 #include <assert.h>
 
 #include "include/pgenlib_misc.h"
+#include "include/pgenlib_write.h"
 #include "include/plink2_bits.h"
 #include "include/plink2_float.h"
 #include "include/plink2_htable.h"
@@ -28,6 +29,7 @@
 #include "plink2_cmdline.h"
 #include "plink2_common.h"
 #include "plink2_compress_stream.h"
+#include "plink2_data.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -2181,6 +2183,356 @@ uint32_t EraseMendelErrors(const FamilyInfo* fip, const uintptr_t* sex_male_coll
     ClearGenoarrMissing1bit16Unsafe(genoarr, patch_10_ctp, patch_10_set, patch_10_vals);
   }
   return variant_error_ct;
+}
+
+// Pseudo-case/pseudo-control ("transmitted/untransmitted") dataset generation,
+// PLINK 1.9's --tucc.
+//
+// For each trio, the pseudo-case carries the child's genotype and the
+// pseudo-control carries the two parental alleles the child did not receive.
+// Since each parent transmits exactly one allele, the untransmitted ALT count
+// is (paternal + maternal) - child regardless of which parent transmitted
+// what, so the pair is determined by the three ALT counts alone.  A trio which
+// isn't Mendel-consistent at the variant, or has any genotype missing, yields
+// two missing genotypes.
+PglErr Tucc(const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* variant_cms, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t output_zst, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* pvar_cswritep = nullptr;
+  CompressStreamState pvar_css;
+  PreinitCstream(&pvar_css);
+  FILE* outfile = nullptr;
+  STPgenWriter spgw;
+  PglErr reterr = kPglRetSuccess;
+  PreinitSpgw(&spgw);
+  {
+    if (unlikely(IsSet(cip->haploid_mask, 0))) {
+      logerrputs("Error: --tucc cannot be used on haploid genomes.\n");
+      goto Tucc_ret_INCONSISTENT_INPUT;
+    }
+    // Only diploid autosomal biallelic variants have a well-defined
+    // untransmitted genotype here; PLINK 1.9 drops the rest, and so do we.
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* write_variant_include;
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, &write_variant_include))) {
+      goto Tucc_ret_NOMEM;
+    }
+    memcpy(write_variant_include, variant_include, raw_variant_ctl * sizeof(intptr_t));
+    const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
+    uint32_t haploid_variant_ct = 0;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if ((!IsSet(cip->haploid_mask, chr_idx)) && (chr_idx != mt_code)) {
+        continue;
+      }
+      const uint32_t chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+      const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      haploid_variant_ct += PopcountBitRange(write_variant_include, chr_vidx_start, chr_vidx_end);
+      ClearBitsNz(chr_vidx_start, chr_vidx_end, write_variant_include);
+    }
+    uint32_t multiallelic_variant_ct = 0;
+    if (allele_idx_offsets) {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = write_variant_include[0];
+      const uint32_t cur_variant_ct = variant_ct - haploid_variant_ct;
+      for (uint32_t variant_idx = 0; variant_idx != cur_variant_ct; ++variant_idx) {
+        const uintptr_t variant_uidx = BitIter1(write_variant_include, &variant_uidx_base, &cur_bits);
+        if (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] != 2) {
+          ClearBit(variant_uidx, write_variant_include);
+          ++multiallelic_variant_ct;
+        }
+      }
+    }
+    if (haploid_variant_ct) {
+      logprintf("--tucc: Excluding %u haploid/MT variant%s.\n", haploid_variant_ct, (haploid_variant_ct == 1)? "" : "s");
+    }
+    if (multiallelic_variant_ct) {
+      logprintf("--tucc: Excluding %u multiallelic variant%s.\n", multiallelic_variant_ct, (multiallelic_variant_ct == 1)? "" : "s");
+    }
+    const uint32_t write_variant_ct = variant_ct - haploid_variant_ct - multiallelic_variant_ct;
+    if (unlikely(!write_variant_ct)) {
+      logerrputs("Error: No variants remaining for --tucc.\n");
+      goto Tucc_ret_INCONSISTENT_INPUT;
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* trio_sample_include;
+    uint32_t* trio_sample_include_cumulative_popcounts;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &trio_sample_include) ||
+                 bigstack_alloc_u32(raw_sample_ctl, &trio_sample_include_cumulative_popcounts))) {
+      goto Tucc_ret_NOMEM;
+    }
+    FamilyInfo family_info;
+    PreinitFamilyInfo(&family_info);
+    reterr = GetTriosAndFamilies(orig_sample_include, piip, founder_info, sex_nm, sex_male, raw_sample_ct, kfTrioPopulateIds, &sample_ct, trio_sample_include, &family_info);
+    if (unlikely(reterr)) {
+      goto Tucc_ret_1;
+    }
+    if (!sample_ct) {
+      logerrputs("Warning: Skipping --tucc since there are no trios.\n");
+      goto Tucc_ret_1;
+    }
+    FillCumulativePopcounts(trio_sample_include, raw_sample_ctl, trio_sample_include_cumulative_popcounts);
+    const uint32_t trio_ct = family_info.trio_ct;
+    const uintptr_t write_sample_ct = 2 * S_CAST(uintptr_t, trio_ct);
+    if (unlikely(write_sample_ct > 0x7ffffffe)) {
+      logerrputs("Error: Too many trios for --tucc.\n");
+      goto Tucc_ret_INCONSISTENT_INPUT;
+    }
+
+    // .psam.  Both pseudo-samples inherit the child's FID and sex; the IID
+    // gets PLINK 1.9's '_T'/'_U' suffix, and the phenotype is case for the
+    // transmitted sample and control for the untransmitted one.
+    const uint32_t write_fid = DataFidColIsRequired(trio_sample_include, &(piip->sii), sample_ct, 1);
+    const uintptr_t max_fid_blen = family_info.max_fid_blen;
+    const uintptr_t max_iid_blen = family_info.max_iid_blen;
+    uintptr_t* sex_nm_collapsed;
+    uintptr_t* sex_male_collapsed;
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    if (unlikely(bigstack_alloc_w(sample_ctl, &sex_nm_collapsed) ||
+                 bigstack_alloc_w(sample_ctl, &sex_male_collapsed))) {
+      goto Tucc_ret_NOMEM;
+    }
+    CopyBitarrSubset(sex_nm, trio_sample_include, sample_ct, sex_nm_collapsed);
+    CopyBitarrSubset(sex_male, trio_sample_include, sample_ct, sex_male_collapsed);
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".tucc.psam");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+      goto Tucc_ret_OPEN_FAIL;
+    }
+    {
+      const uintptr_t writebuf_blen = kMaxMediumLine + max_fid_blen + max_iid_blen + 32;
+      char* writebuf;
+      if (unlikely(bigstack_alloc_c(writebuf_blen, &writebuf))) {
+        goto Tucc_ret_NOMEM;
+      }
+      char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+      char* write_iter = writebuf;
+      *write_iter++ = '#';
+      if (write_fid) {
+        write_iter = strcpya_k(write_iter, "FID\t");
+      }
+      write_iter = strcpya_k(write_iter, "IID\tSEX\tPHENO1");
+      AppendBinaryEoln(&write_iter);
+      const uint32_t* trio_lookup = family_info.trio_lookup;
+      for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+        const uint32_t child_idx = trio_lookup[trio_idx * 3];
+        const char* child_iid = &(family_info.iids[child_idx * max_iid_blen]);
+        const uint32_t child_iid_slen = strlen(child_iid);
+        const char* child_fid = &(family_info.trio_fids[trio_idx * max_fid_blen]);
+        const uint32_t child_fid_slen = write_fid? strlen(child_fid) : 0;
+        for (uint32_t is_pseudocontrol = 0; is_pseudocontrol != 2; ++is_pseudocontrol) {
+          if (write_fid) {
+            write_iter = memcpyax(write_iter, child_fid, child_fid_slen, '\t');
+          }
+          write_iter = memcpyax(write_iter, child_iid, child_iid_slen, '_');
+          *write_iter++ = 'T' + is_pseudocontrol;
+          *write_iter++ = '\t';
+          if (!IsSet(sex_nm_collapsed, child_idx)) {
+            write_iter = strcpya_k(write_iter, "NA");
+          } else {
+            *write_iter++ = '2' - IsSet(sex_male_collapsed, child_idx);
+          }
+          *write_iter++ = '\t';
+          *write_iter++ = '2' - is_pseudocontrol;
+          AppendBinaryEoln(&write_iter);
+          if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+            goto Tucc_ret_WRITE_FAIL;
+          }
+        }
+      }
+      if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+        goto Tucc_ret_WRITE_FAIL;
+      }
+      BigstackReset(writebuf);
+    }
+
+    // .pvar
+    uint32_t write_cm = 0;
+    if (variant_cms) {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = write_variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != write_variant_ct; ++variant_idx) {
+        const uintptr_t variant_uidx = BitIter1(write_variant_include, &variant_uidx_base, &cur_bits);
+        if (variant_cms[variant_uidx] != 0.0) {
+          write_cm = 1;
+          break;
+        }
+      }
+    }
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    char* chr_buf;
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto Tucc_ret_NOMEM;
+    }
+    OutnameZstSet(".tucc.pvar", output_zst, outname_end);
+    {
+      const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 2 * max_allele_slen + 64;
+      reterr = InitCstreamAlloc(outname, 0, output_zst, MAXV(max_thread_ct - 1, 1), overflow_buf_size, &pvar_css, &pvar_cswritep);
+      if (unlikely(reterr)) {
+        goto Tucc_ret_1;
+      }
+      pvar_cswritep = strcpya_k(pvar_cswritep, "#CHROM\tPOS\tID\tREF\tALT");
+      if (write_cm) {
+        pvar_cswritep = strcpya_k(pvar_cswritep, "\tCM");
+      }
+      AppendBinaryEoln(&pvar_cswritep);
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = write_variant_include[0];
+      uint32_t chr_fo_idx = UINT32_MAX;
+      uint32_t chr_end = 0;
+      uint32_t chr_buf_blen = 0;
+      for (uint32_t variant_idx = 0; variant_idx != write_variant_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(write_variant_include, &variant_uidx_base, &cur_bits);
+        if (variant_uidx >= chr_end) {
+          do {
+            ++chr_fo_idx;
+            chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          } while (variant_uidx >= chr_end);
+          char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
+          *chr_name_end = '\t';
+          chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
+        }
+        pvar_cswritep = memcpya(pvar_cswritep, chr_buf, chr_buf_blen);
+        pvar_cswritep = u32toa_x(variant_bps[variant_uidx], '\t', pvar_cswritep);
+        pvar_cswritep = strcpyax(pvar_cswritep, variant_ids[variant_uidx], '\t');
+        const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (variant_uidx * 2);
+        pvar_cswritep = strcpyax(pvar_cswritep, allele_storage[allele_idx_offset_base], '\t');
+        pvar_cswritep = strcpya(pvar_cswritep, allele_storage[allele_idx_offset_base + 1]);
+        if (write_cm) {
+          *pvar_cswritep++ = '\t';
+          pvar_cswritep = dtoa_g_p8(variant_cms[variant_uidx], pvar_cswritep);
+        }
+        AppendBinaryEoln(&pvar_cswritep);
+        if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
+          goto Tucc_ret_WRITE_FAIL;
+        }
+      }
+      if (unlikely(CswriteCloseNull(&pvar_css, pvar_cswritep))) {
+        goto Tucc_ret_WRITE_FAIL;
+      }
+      pvar_cswritep = nullptr;
+    }
+
+    // .pgen
+    uint32_t nonref_flags_storage = 3;
+    uintptr_t* nonref_flags_write = PgrGetNonrefFlags(simple_pgrp);
+    if (!nonref_flags_write) {
+      nonref_flags_storage = (PgrGetGflags(simple_pgrp) & kfPgenGlobalAllNonref)? 2 : 1;
+    } else {
+      const uint32_t write_variant_ctl = BitCtToWordCt(write_variant_ct);
+      uintptr_t* old_nonref_flags = nonref_flags_write;
+      if (unlikely(bigstack_alloc_w(write_variant_ctl, &nonref_flags_write))) {
+        goto Tucc_ret_NOMEM;
+      }
+      CopyBitarrSubset(old_nonref_flags, write_variant_include, write_variant_ct, nonref_flags_write);
+    }
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".tucc.pgen");
+    uintptr_t spgw_alloc_cacheline_ct;
+    uint32_t max_vrec_len;
+    reterr = SpgwInitPhase1(outname, nullptr, nonref_flags_write, write_variant_ct, write_sample_ct, 0, kPgenWriteBackwardSeek, kfPgenGlobal0, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
+      goto Tucc_ret_1;
+    }
+    unsigned char* spgw_alloc;
+    if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc))) {
+      goto Tucc_ret_NOMEM;
+    }
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
+
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    const uint32_t write_sample_ctl2 = NypCtToWordCt(write_sample_ct);
+    uintptr_t* genovec;
+    uintptr_t* write_genovec;
+    if (unlikely(bigstack_alloc_w(sample_ctl2, &genovec) ||
+                 bigstack_alloc_w(write_sample_ctl2, &write_genovec))) {
+      goto Tucc_ret_NOMEM;
+    }
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(trio_sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    const uint32_t* trio_lookup = family_info.trio_lookup;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = write_variant_include[0];
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = (write_variant_ct + 99) / 100;
+    fputs("--tucc: 0%", stdout);
+    fflush(stdout);
+    for (uint32_t variant_idx = 0; variant_idx != write_variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(write_variant_include, &variant_uidx_base, &cur_bits);
+      reterr = PgrGet(trio_sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec);
+      if (unlikely(reterr)) {
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto Tucc_ret_1;
+      }
+      ZeroWArr(write_sample_ctl2, write_genovec);
+      const uint32_t* trio_lookup_iter = trio_lookup;
+      for (uint32_t trio_idx = 0; trio_idx != trio_ct; ++trio_idx) {
+        const uint32_t child_geno = GetNyparrEntry(genovec, trio_lookup_iter[0]);
+        const uint32_t dad_geno = GetNyparrEntry(genovec, trio_lookup_iter[1]);
+        const uint32_t mom_geno = GetNyparrEntry(genovec, trio_lookup_iter[2]);
+        trio_lookup_iter = &(trio_lookup_iter[3]);
+        uintptr_t case_geno = 3;
+        uintptr_t control_geno = 3;
+        if ((child_geno != 3) && (dad_geno != 3) && (mom_geno != 3)) {
+          // A parent can transmit a REF allele iff their ALT count is <= 1,
+          // and an ALT allele iff it is >= 1, so the reachable child ALT
+          // counts are the contiguous range below.
+          const uint32_t min_child_geno = (dad_geno == 2) + (mom_geno == 2);
+          const uint32_t max_child_geno = (dad_geno != 0) + (mom_geno != 0);
+          if ((child_geno >= min_child_geno) && (child_geno <= max_child_geno)) {
+            case_geno = child_geno;
+            control_geno = dad_geno + mom_geno - child_geno;
+          }
+        }
+        AssignNyparrEntry(2 * trio_idx, case_geno, write_genovec);
+        AssignNyparrEntry(2 * trio_idx + 1, control_geno, write_genovec);
+      }
+      if (unlikely(SpgwAppendBiallelicGenovec(write_genovec, &spgw))) {
+        goto Tucc_ret_WRITE_FAIL;
+      }
+      if (variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx * 100LLU) / write_variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, write_variant_ct)) / 100;
+      }
+    }
+    reterr = SpgwFinish(&spgw);
+    if (unlikely(reterr)) {
+      goto Tucc_ret_1;
+    }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\b", stdout);
+    logprintf("done.\n");
+    outname_end[6] = '\0';
+    logprintfww("--tucc: %u trio%s written to %spgen + %spvar%s + %spsam .\n", trio_ct, (trio_ct == 1)? "" : "s", outname, outname, output_zst? ".zst" : "", outname);
+  }
+  while (0) {
+  Tucc_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  Tucc_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  Tucc_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  Tucc_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ Tucc_ret_1:
+  CswriteCloseCond(&pvar_css, pvar_cswritep);
+  CleanupSpgw(&spgw, &reterr);
+  fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
+  return reterr;
 }
 
 #ifdef __cplusplus
