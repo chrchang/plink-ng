@@ -35,7 +35,7 @@ awk -f cmp19.awk plink19_m.epi.qt plink2_m.epi.qt
 awk -f summary19.awk plink19_m.epi.qt.summary plink2_m.epi.qt.summary
 
 # 3. Against the oracle, which solves each pair's least squares from scratch
-#    in numpy.  A smaller fileset, since the oracle is quadratic and slow.
+#    from scratch.  A smaller fileset, since the oracle is quadratic and slow.
 plink --simulate-qt simulate_small.txt --simulate-n 300 --simulate-missing 0.05 --out tmp_small > /dev/null
 $1/plink2 $2 $3 --bfile tmp_small --epistasis --epi1 1 --out plink2_s
 python3 oracle.py tmp_small > oracle_nocovar.txt
