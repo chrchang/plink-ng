@@ -73,6 +73,12 @@ $1/plink2 $2 $3 --bfile tmp_data --epistasis --epi1 1 --threads 1 --out plink2_s
 diff -q plink2.epi.qt plink2_st.epi.qt
 diff -q plink2.epi.qt.summary plink2_st.epi.qt.summary
 
+# The threads split each row's columns, so the covariate case has to come out
+# the same way too.
+$1/plink2 $2 $3 --bfile tmp_small --covar tmp_small.cov --epistasis --epi1 1 --threads 1 --out plink2_ct
+diff -q plink2_c.epi.qt plink2_ct.epi.qt
+diff -q plink2_c.epi.qt.summary plink2_ct.epi.qt.summary
+
 for i in 1 2 3
 do
     $1/plink2 $2 $3 --bfile tmp_data --epistasis --epi1 1 --parallel $i 3 --out plink2_par$i
