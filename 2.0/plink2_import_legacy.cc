@@ -2333,7 +2333,7 @@ PglErr LgenToPgen(const char* lgenname, const char* mapname, const char* famname
       }
     }
 
-    reterr = RewritePsam(famname, missing_catname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, nullptr);
+    reterr = RewritePsam(famname, missing_catname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, nullptr, nullptr);
     if (unlikely(reterr)) {
       goto LgenToPgen_ret_1;
     }
