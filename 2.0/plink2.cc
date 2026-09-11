@@ -228,6 +228,7 @@ ENUM_U31_DEF_START()
   kCmd1BitPhenoSvd,
   kCmd1BitCheckOrImputeSex,
   kCmd1BitMendelReport,
+  kCmd1BitQfam,
   kCmd1BitLdScore,
   kCmd1BitFlipScan,
   kCmd1BitHomozyg,
@@ -273,6 +274,7 @@ FLAGSET64_DEF_START()
   kfCommand1PhenoSvd = (1LLU << kCmd1BitPhenoSvd),
   kfCommand1CheckOrImputeSex = (1LLU << kCmd1BitCheckOrImputeSex),
   kfCommand1MendelReport = (1LLU << kCmd1BitMendelReport),
+  kfCommand1Qfam = (1LLU << kCmd1BitQfam),
   kfCommand1LdScore = (1LLU << kCmd1BitLdScore),
   kfCommand1FlipScan = (1LLU << kCmd1BitFlipScan),
   kfCommand1Homozyg = (1LLU << kCmd1BitHomozyg),
@@ -478,6 +480,8 @@ typedef struct Plink2CmdlineStruct {
   HetFlags het_flags;
   HomozygInfo homozyg_info;
   TestMissingFlags test_missing_flags;
+  QfamFlags qfam_flags;
+  uint32_t qfam_mperm_ct;
   SampleCountsFlags sample_counts_flags;
   RecoverVarIdsFlags recover_var_ids_flags;
   VscoreFlags vscore_flags;
@@ -639,7 +643,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags | kfCommand1Qfam)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -2634,6 +2638,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1Qfam) {
+        reterr = QfamReport(sample_include, &pii, founder_info, sex_nm, sex_male, pheno_cols, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonref_flags, &(pcp->perm_config), raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, pgfi.gflags, pcp->qfam_flags, pcp->qfam_mperm_ct, pcp->max_thread_ct, &simple_pgr, sfmtp, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1SampleCounts) {
         reterr = SampleCounts(sample_include, &pii.sii, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, allele_storage, raw_sample_ct, sample_ct, male_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->sample_counts_flags, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
         if (unlikely(reterr)) {
@@ -4282,6 +4293,8 @@ int main(int argc, char** argv) {
     pc.het_flags = kfHet0;
     InitHomozyg(&pc.homozyg_info);
     pc.test_missing_flags = kfTestMissing0;
+    pc.qfam_flags = kfQfam0;
+    pc.qfam_mperm_ct = 0;
     pc.sample_counts_flags = kfSampleCounts0;
     pc.recover_var_ids_flags = kfRecoverVarIds0;
     pc.vscore_flags = kfVscore0;
@@ -11619,7 +11632,59 @@ int main(int argc, char** argv) {
         break;
 
       case 'q':
-        if (strequal_k_unsafe(flagname_p2, "uantile-normalize")) {
+        if (strequal_k_unsafe(flagname_p2, "fam") || strequal_k_unsafe(flagname_p2, "fam-parents") || strequal_k_unsafe(flagname_p2, "fam-between") || strequal_k_unsafe(flagname_p2, "fam-total")) {
+          if (unlikely(pc.command_flags1 & kfCommand1Qfam)) {
+            logerrputs("Error: Only one --qfam... flag may be specified.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (flagname_p2[3] == '\0') {
+            pc.qfam_flags |= kfQfamWithin1;
+          } else if (flagname_p2[4] == 'p') {
+            pc.qfam_flags |= kfQfamWithin2;
+          } else if (flagname_p2[4] == 'b') {
+            pc.qfam_flags |= kfQfamBetween;
+          } else {
+            pc.qfam_flags |= kfQfamTotal;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t explicit_cols = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "perm", cur_modif_slen)) {
+              // adaptive permutation is the default; accepted for
+              // PLINK 1.9 compatibility
+              continue;
+            } else if (strequal_k(cur_modif, "perm-count", cur_modif_slen)) {
+              pc.qfam_flags |= kfQfamPermCount;
+            } else if (strequal_k(cur_modif, "emp-se", cur_modif_slen)) {
+              pc.qfam_flags |= kfQfamEmpSe;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.qfam_flags |= kfQfamZs;
+            } else if (StrStartsWith(cur_modif, "mperm=", cur_modif_slen)) {
+              if (unlikely(ScanPosintCappedx(&(cur_modif[6]), kApermMax, &pc.qfam_mperm_ct))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s mperm= argument '%s'.\n", flagname_p, &(cur_modif[6]));
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0maybeprovref\0provref\0a1\0test\0nind\0beta\0stat\0rawp\0emp1\0np\0", flagname_p, kfQfamColChrom, kfQfamColDefault, 0, &pc.qfam_flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              explicit_cols = 1;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (!explicit_cols) {
+            pc.qfam_flags |= kfQfamColDefault;
+          }
+          pc.command_flags1 |= kfCommand1Qfam;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "uantile-normalize")) {
           if (unlikely(pc.pheno_transform_flags & (kfPhenoTransformQuantnormPheno | kfPhenoTransformQuantnormCovar))) {
             logerrputs("Error: --quantile-normalize cannot be used with --pheno-quantile-normalize or\n--covar-quantile-normalize.\n");
             goto main_ret_INVALID_CMDLINE;

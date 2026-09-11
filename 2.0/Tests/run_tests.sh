@@ -123,4 +123,9 @@ cd TEST_PGEN_MALFORMED
 cd ..
 echo "TEST_PGEN_MALFORMED passed."
 
+cd TEST_QFAM
+./run_tests.sh $d $2 $3 > TEST_QFAM.log
+cd ..
+echo "TEST_QFAM passed."
+
 echo "All tests passed."
