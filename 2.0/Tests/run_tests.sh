@@ -123,4 +123,14 @@ cd TEST_PGEN_MALFORMED
 cd ..
 echo "TEST_PGEN_MALFORMED passed."
 
+cd TEST_CLUMP_EXTRAS
+./run_tests.sh $d $2 $3 > TEST_CLUMP_EXTRAS.log
+cd ..
+echo "TEST_CLUMP_EXTRAS passed."
+
+cd TEST_CLUMP_REPORTS
+./run_tests.sh $d $2 $3 > TEST_CLUMP_REPORTS.log
+cd ..
+echo "TEST_CLUMP_REPORTS passed."
+
 echo "All tests passed."
