@@ -1696,6 +1696,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    'allow-dups' modifier is provided, this now errors out when duplicate\n"
 "    variant ID(s) remain.\n\n"
                );
+    HelpPrint("list-23-indels\0write-snplist\0", &help_ctrl, 1,
+"  --list-23-indels ['zs']\n"
+"    List the variants which pass your filters/inclusion thresholds and have\n"
+"    23andMe-style indel calls ('D' and/or 'I' allele codes).\n\n"
+               );
     HelpPrint("glm\0linear\0logistic\0assoc\0", &help_ctrl, 1,
 "  --glm ['zs'] ['omit-ref'] [{sex | no-x-sex}] ['log10'] ['pheno-ids']\n"
 "        [{genotypic | hethom | dominant | recessive | hetonly}] ['interaction']\n"

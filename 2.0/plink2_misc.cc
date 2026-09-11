@@ -9941,6 +9941,73 @@ PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant
   return reterr;
 }
 
+PglErr List23Indels(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t variant_ct, uint32_t output_zst, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
+  {
+    OutnameZstSet(".indel", output_zst, outname_end);
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kCompressStreamBlock + kMaxIdSlen + 2, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto List23Indels_ret_1;
+    }
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t written_ct = 0;
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      uintptr_t allele_idx_end = allele_idx_offset_base + 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        allele_idx_end = allele_idx_offsets[variant_uidx + 1];
+      }
+      // A 23andMe-style indel call is spelled 'D' or 'I'; the other allele is
+      // the opposite call, or missing when the sample set is monomorphic.
+      // Anything else means the variant isn't in that encoding at all.
+      uint32_t di_seen = 0;
+      for (uintptr_t allele_idx = allele_idx_offset_base; allele_idx != allele_idx_end; ++allele_idx) {
+        const char* cur_allele = allele_storage[allele_idx];
+        if (cur_allele[1]) {
+          di_seen = 0;
+          break;
+        }
+        const char cur_cc = cur_allele[0];
+        if ((cur_cc == 'D') || (cur_cc == 'I')) {
+          di_seen = 1;
+        } else if (cur_cc != '.') {
+          di_seen = 0;
+          break;
+        }
+      }
+      if (!di_seen) {
+        continue;
+      }
+      cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto List23Indels_ret_WRITE_FAIL;
+      }
+      ++written_ct;
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto List23Indels_ret_WRITE_FAIL;
+    }
+    logprintfww("--list-23-indels: %u indel variant ID%s written to %s .\n", written_ct, (written_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  List23Indels_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ List23Indels_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 // similar to write_psam().
 PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uint32_t* new_sample_idx_to_old, const char* output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, WriteCovarFlags write_covar_flags, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
