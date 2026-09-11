@@ -1762,10 +1762,6 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	}
       }
 
-      // bugfix (7 Sep 2026): if max_window_locus_ct == max_window_size,
-      // ulii == window_cidx check below is not sufficient to know we need to
-      // advance trailing-window marker
-      const uint32_t prev_marker_uidx = marker_uidx;
       if (++chrom_marker_idx < chrom_marker_ct) {
         marker_uidx++;
 	if (IS_SET(marker_exclude, marker_uidx)) {
@@ -1803,7 +1799,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
         count_flush = (ulii == window_cidx);
       }
       marker_uidx2 = window_uidxs[window_cidx2];
-      if ((count_flush && (prev_marker_uidx != marker_uidx2)) || (marker_pos[marker_uidx2] < marker_pos_thresh)) {
+      if (count_flush || (marker_pos[marker_uidx2] < marker_pos_thresh)) {
 	do {
 	  pos_r_tot = 0.0;
 	  neg_r_tot = 0.0;
