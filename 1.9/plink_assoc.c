@@ -11819,11 +11819,15 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
       case_ctd = dptr[0] + dptr[1];
       ctrl_ctd = dptr[2] + dptr[3];
       if ((case_ctd < 1.5) || (ctrl_ctd < 1.5)) {
+	// no observed alleles in one of the two groups
 	wptr = memcpya(wptr_start, "      NA       NA ", 18);
 	wptr = dtoa_g_wxp4x(case_ctd - 1, 8, ' ', wptr);
 	wptr = dtoa_g_wxp4x(ctrl_ctd - 1, 8, ' ', wptr);
 	wptr = fw_strcpy(6, &(cluster_ids_collapsed[cluster_idx * max_cluster_id_len]), wptr);
-        wptr = memcpya(wptr, "         NA   NA         NA         NA\n", 39);
+        wptr = memcpya(wptr, "         NA", 11);
+        wptr = memcpya(wptr, "   NA ", 6);
+        wptr = memcpya(wptr, "        NA ", 11);
+        wptr = memcpya(wptr, "        NA\n", 11);
       } else {
         wptr = dtoa_g_wxp4x(dptr[0] / case_ctd, 8, ' ', wptr_start);
         wptr = dtoa_g_wxp4x(dptr[2] / ctrl_ctd, 8, ' ', wptr);
@@ -11845,9 +11849,9 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	} else {
 	  wptr = memcpya(wptr, "        NA\n", 11);
 	}
-	if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
-	  goto homog_assoc_ret_WRITE_FAIL;
-	}
+      }
+      if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
+	goto homog_assoc_ret_WRITE_FAIL;
       }
     }
     if (marker_idx >= loop_end) {
