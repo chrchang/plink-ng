@@ -254,9 +254,10 @@ FLAGSET_DEF_START()
   kfHomozygColNseg = (1 << 15),
   kfHomozygColKbtot = (1 << 16),
   kfHomozygColKbavg = (1 << 17),
-  kfHomozygColAff = (1 << 18),
-  kfHomozygColUnaff = (1 << 19),
-  kfHomozygColDefault = (kfHomozygColMaybefid | kfHomozygColMaybesid | kfHomozygColMaybepheno | kfHomozygColChrom | kfHomozygColPos | kfHomozygColKb | kfHomozygColNsnp | kfHomozygColDensity | kfHomozygColPhom | kfHomozygColPhet | kfHomozygColNseg | kfHomozygColKbtot | kfHomozygColKbavg | kfHomozygColAff | kfHomozygColUnaff),
+  kfHomozygColFroh = (1 << 18),
+  kfHomozygColAff = (1 << 19),
+  kfHomozygColUnaff = (1 << 20),
+  kfHomozygColDefault = (kfHomozygColMaybefid | kfHomozygColMaybesid | kfHomozygColMaybepheno | kfHomozygColChrom | kfHomozygColPos | kfHomozygColKb | kfHomozygColNsnp | kfHomozygColDensity | kfHomozygColPhom | kfHomozygColPhet | kfHomozygColNseg | kfHomozygColKbtot | kfHomozygColKbavg | kfHomozygColFroh | kfHomozygColAff | kfHomozygColUnaff),
   kfHomozygColAll = ((kfHomozygColUnaff * 2) - kfHomozygColMaybefid)
 FLAGSET_DEF_END(HomozygFlags);
 
