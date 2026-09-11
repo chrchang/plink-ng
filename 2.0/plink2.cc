@@ -612,6 +612,8 @@ typedef struct Plink2CmdlineStruct {
   char* king_table_require_fnames;
   char* require_info_flattened;
   char* require_no_info_flattened;
+  char* make_pheno_fname;
+  char* make_pheno_val;
   char* keep_col_match_fname;
   char* keep_col_match_flattened;
   char* keep_col_match_name;
@@ -1448,6 +1450,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // they're now under the categorical-phenotype umbrella
     if ((pcp->misc_flags & kfMiscCatPhenoFamily) || pcp->within_fname) {
       reterr = Plink1ClusterImport(pcp->within_fname, pcp->catpheno_name, pcp->family_missing_catname, sample_include, pii.sii.sample_ids, pcp->missing_catname, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->mwithin_val, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
+      if (unlikely(reterr)) {
+        goto Plink2Core_ret_1;
+      }
+    }
+
+    if (pcp->make_pheno_fname) {
+      reterr = MakePheno(pcp->make_pheno_fname, pcp->make_pheno_val, sample_include, &pii.sii, raw_sample_ct, sample_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -3895,6 +3904,8 @@ int main(int argc, char** argv) {
   pc.king_table_require_fnames = nullptr;
   pc.require_info_flattened = nullptr;
   pc.require_no_info_flattened = nullptr;
+  pc.make_pheno_fname = nullptr;
+  pc.make_pheno_val = nullptr;
   pc.keep_col_match_fname = nullptr;
   pc.keep_col_match_flattened = nullptr;
   pc.keep_col_match_name = nullptr;
@@ -9318,6 +9329,19 @@ int main(int argc, char** argv) {
           make_plink2_flags |= kfMakePsam;
           pc.command_flags1 |= kfCommand1MakePlink2;
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ake-pheno")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.make_pheno_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          reterr = CmdlineAllocString(argvk[arg_idx + 2], argvk[arg_idx], kMaxIdSlen, &pc.make_pheno_val);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "ake-king")) {
           // may want to add options for handling X/Y/MT
           if (unlikely(king_cutoff_fprefix)) {
@@ -14490,6 +14514,8 @@ int main(int argc, char** argv) {
   free_cond(pc.ref_allele_flag);
   free_cond(pc.keep_col_match_name);
   free_cond(pc.keep_col_match_flattened);
+  free_cond(pc.make_pheno_fname);
+  free_cond(pc.make_pheno_val);
   free_cond(pc.keep_col_match_fname);
   free_cond(pc.require_no_info_flattened);
   free_cond(pc.require_info_flattened);

@@ -1739,6 +1739,198 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
   return reterr;
 }
 
+
+// PLINK 1.x's --make-pheno: build a case/control phenotype from a list of
+// sample IDs.  With a '*' value, every sample has a phenotype and the ones
+// named in the file are the cases; otherwise only the samples named in the
+// file have a phenotype, and the ones whose third column matches the value are
+// the cases.
+PglErr MakePheno(const char* fname, const char* val_str, const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t sample_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  // Owned by this function until the column is installed at the very end, so
+  // that a malformed file cannot leave a half-initialized phenotype behind.
+  uintptr_t* new_pheno_data = nullptr;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    if (!sample_ct) {
+      goto MakePheno_ret_1;
+    }
+    const char makepheno_name[] = "MAKEPHENO";
+    const uint32_t makepheno_name_blen = 10;
+    const uintptr_t old_max_pheno_name_blen = *max_pheno_name_blen_ptr;
+    const uint32_t old_pheno_ct = *pheno_ct_ptr;
+    const char* old_pheno_names = *pheno_names_ptr;
+    uintptr_t new_max_pheno_name_blen;
+    if (old_pheno_names && (makepheno_name_blen <= old_max_pheno_name_blen)) {
+      new_max_pheno_name_blen = old_max_pheno_name_blen;
+      for (uint32_t pheno_idx = 0; pheno_idx != old_pheno_ct; ++pheno_idx) {
+        if (unlikely(memequal(makepheno_name, &(old_pheno_names[pheno_idx * old_max_pheno_name_blen]), makepheno_name_blen))) {
+          logerrputs("Error: Cannot create a new phenotype named 'MAKEPHENO', since another\nphenotype of the same name already exists.\n");
+          goto MakePheno_ret_INCONSISTENT_INPUT;
+        }
+      }
+    } else {
+      new_max_pheno_name_blen = makepheno_name_blen;
+    }
+
+    // The phenotype is filled in before the arrays are grown, so that a
+    // malformed file cannot leave a half-initialized column behind.
+    const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    if (unlikely(vecaligned_malloc(2 * raw_sample_ctaw * sizeof(intptr_t), &new_pheno_data))) {
+      goto MakePheno_ret_NOMEM;
+    }
+    uintptr_t* pheno_nonmiss = new_pheno_data;
+    uintptr_t* pheno_cc = &(new_pheno_data[raw_sample_ctaw]);
+    ZeroWArr(2 * raw_sample_ctaw, new_pheno_data);
+    const uint32_t val_is_star = (val_str[0] == '*') && (val_str[1] == '\0');
+    if (val_is_star) {
+      memcpy(pheno_nonmiss, sample_include, raw_sample_ctl * sizeof(intptr_t));
+    }
+
+    uintptr_t* seen_xid_idxs;
+    if (unlikely(bigstack_calloc_w(BitCtToWordCt(sample_ct), &seen_xid_idxs))) {
+      goto MakePheno_ret_NOMEM;
+    }
+    reterr = SizeAndInitTextStream(fname, bigstack_left() - (bigstack_left() / 4), 1, &txs);
+    if (unlikely(reterr)) {
+      goto MakePheno_ret_TSTREAM_FAIL;
+    }
+    char* line_start;
+    XidMode xid_mode;
+    reterr = LoadXidHeader("make-pheno", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetEof) {
+        logerrputs("Error: Empty --make-pheno file.\n");
+        goto MakePheno_ret_MALFORMED_INPUT;
+      }
+      goto MakePheno_ret_TSTREAM_XID_FAIL;
+    }
+    uint32_t* xid_map = nullptr;
+    char* sorted_xidbox = nullptr;
+    uintptr_t max_xid_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    if (unlikely(reterr)) {
+      goto MakePheno_ret_1;
+    }
+    char* idbuf;
+    if (unlikely(bigstack_alloc_c(max_xid_blen, &idbuf))) {
+      goto MakePheno_ret_NOMEM;
+    }
+    if (*line_start == '#') {
+      ++line_idx;
+      line_start = TextGet(&txs);
+    }
+    const uint32_t val_slen = strlen(val_str);
+    for (; line_start; ++line_idx, line_start = TextGet(&txs)) {
+      if (IsEolnKns(*line_start)) {
+        continue;
+      }
+      const char* linebuf_iter = line_start;
+      uint32_t xid_idx_start;
+      uint32_t xid_idx_end;
+      if (SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
+          goto MakePheno_ret_MISSING_TOKENS;
+        }
+        continue;
+      }
+      if (unlikely(IsSet(seen_xid_idxs, xid_idx_start))) {
+        logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --make-pheno file duplicates one earlier in the file.\n", line_idx);
+        goto MakePheno_ret_MALFORMED_INPUT;
+      }
+      SetBit(xid_idx_start, seen_xid_idxs);
+      uint32_t is_case = 1;
+      if (!val_is_star) {
+        // SortedXidboxReadMultifind() leaves the iterator on the delimiter
+        // which ends the last ID column.
+        const char* val_start = FirstNonTspace(linebuf_iter);
+        if (unlikely(IsEolnKns(*val_start))) {
+          goto MakePheno_ret_MISSING_TOKENS;
+        }
+        const char* val_end = CurTokenEnd(val_start);
+        is_case = (S_CAST(uintptr_t, val_end - val_start) == val_slen) && memequal(val_start, val_str, val_slen);
+      }
+      for (uint32_t xid_idx = xid_idx_start; xid_idx != xid_idx_end; ++xid_idx) {
+        const uint32_t sample_uidx = xid_map[xid_idx];
+        SetBit(sample_uidx, pheno_nonmiss);
+        if (is_case) {
+          SetBit(sample_uidx, pheno_cc);
+        }
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto MakePheno_ret_TSTREAM_FAIL;
+    }
+
+    const uint32_t new_pheno_ct = old_pheno_ct + 1;
+    char* pheno_names;
+    if (unlikely(pgl_malloc(new_pheno_ct * new_max_pheno_name_blen, &pheno_names))) {
+      goto MakePheno_ret_NOMEM;
+    }
+    if (old_pheno_names && (old_max_pheno_name_blen == new_max_pheno_name_blen)) {
+      memcpy(pheno_names, old_pheno_names, old_pheno_ct * new_max_pheno_name_blen);
+    } else {
+      for (uint32_t pheno_idx = 0; pheno_idx != old_pheno_ct; ++pheno_idx) {
+        strcpy(&(pheno_names[pheno_idx * new_max_pheno_name_blen]), &(old_pheno_names[pheno_idx * old_max_pheno_name_blen]));
+      }
+    }
+    memcpy(&(pheno_names[old_pheno_ct * new_max_pheno_name_blen]), makepheno_name, makepheno_name_blen);
+    free_cond(old_pheno_names);
+    *pheno_names_ptr = pheno_names;
+
+    PhenoCol* new_pheno_cols = S_CAST(PhenoCol*, realloc(*pheno_cols_ptr, new_pheno_ct * sizeof(PhenoCol)));
+    if (unlikely(!new_pheno_cols)) {
+      goto MakePheno_ret_NOMEM;
+    }
+    *pheno_cols_ptr = new_pheno_cols;
+    *pheno_ct_ptr = new_pheno_ct;
+    *max_pheno_name_blen_ptr = new_max_pheno_name_blen;
+    new_pheno_cols[old_pheno_ct].category_names = nullptr;
+    new_pheno_cols[old_pheno_ct].nonmiss = pheno_nonmiss;
+    new_pheno_cols[old_pheno_ct].data.cc = pheno_cc;
+    new_pheno_cols[old_pheno_ct].type_code = kPhenoDtypeCc;
+    new_pheno_cols[old_pheno_ct].nonnull_category_ct = 0;
+    new_pheno_data = nullptr;
+
+    BitvecAnd(sample_include, raw_sample_ctl, pheno_nonmiss);
+    BitvecAnd(pheno_nonmiss, raw_sample_ctl, pheno_cc);
+    const uint32_t case_ct = PopcountWords(pheno_cc, raw_sample_ctl);
+    const uint32_t nonmiss_ct = PopcountWords(pheno_nonmiss, raw_sample_ctl);
+    logprintf("--make-pheno: %u case%s and %u control%s.\n", case_ct, (case_ct == 1)? "" : "s", nonmiss_ct - case_ct, (nonmiss_ct - case_ct == 1)? "" : "s");
+  }
+  while (0) {
+  MakePheno_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  MakePheno_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
+  MakePheno_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--make-pheno file", &txs);
+    break;
+  MakePheno_ret_MISSING_TOKENS:
+    logerrprintfww("Error: Line %" PRIuPTR " of --make-pheno file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
+  MakePheno_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  MakePheno_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ MakePheno_ret_1:
+  vecaligned_free_cond(new_pheno_data);
+  BigstackReset(bigstack_mark);
+  CleanupTextStream2("--make-pheno file", &txs, &reterr);
+  return reterr;
+}
+
 PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, const char* missing_catname, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
