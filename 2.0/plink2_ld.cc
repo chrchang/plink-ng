@@ -13898,78 +13898,11 @@ void InitEpi(EpiInfo* epi_ip) {
   epi_ip->flags = kfEpi0;
   epi_ip->epi1 = 0.0;
   epi_ip->epi2 = 0.01;
-  epi_ip->gap_kb = 1000;
 }
 
-// --fast-epistasis: PLINK 1.07's allele-based interaction test, with the
-// variance and empty-cell corrections from Ueki M, Cordell HJ (2012) Improved
-// statistics for genome-wide interaction analysis.
-//
-// For one pair of variants and one group of samples, the 3x3 joint genotype
-// table collapses to a 2x2 allele table, and the statistic is the difference
-// between the case and control log odds ratios divided by the square root of
-// the summed variances.  'case-only' drops the control term.
-//
-// counts_3x3 is laid out as [geno1 * 3 + geno2], with geno counted in ALT
-// alleles.  Swapping a variant's REF and ALT swaps rows or columns in pairs,
-// which inverts the odds ratio and so only flips the sign of the difference;
-// the reported chi-square statistic does not depend on allele coding.
-static void FepiCountsToStats(const uint32_t* counts_3x3, uint32_t no_ueki, double* lnor_ptr, double* var_ptr) {
-  double c11 = u31tod(4 * counts_3x3[0] + 2 * (counts_3x3[1] + counts_3x3[3]) + counts_3x3[4]);
-  double c12 = u31tod(4 * counts_3x3[2] + 2 * (counts_3x3[1] + counts_3x3[5]) + counts_3x3[4]);
-  double c21 = u31tod(4 * counts_3x3[6] + 2 * (counts_3x3[3] + counts_3x3[7]) + counts_3x3[4]);
-  double c22 = u31tod(4 * counts_3x3[8] + 2 * (counts_3x3[5] + counts_3x3[7]) + counts_3x3[4]);
-  if (no_ueki) {
-    const double rc11 = 1.0 / c11;
-    const double rc12 = 1.0 / c12;
-    const double rc21 = 1.0 / c21;
-    const double rc22 = 1.0 / c22;
-    *lnor_ptr = log(c11 * c22 * rc12 * rc21);
-    *var_ptr = rc11 + rc12 + rc21 + rc22;
-    return;
-  }
-  // The empty-cell correction only kicks in when some 3x3 cell is empty.
-  const uint32_t no_adj = (counts_3x3[0] && counts_3x3[1] && counts_3x3[2] && counts_3x3[3] && counts_3x3[4] && counts_3x3[5] && counts_3x3[6] && counts_3x3[7] && counts_3x3[8]);
-  const double adj = no_adj? 0.0 : 4.5;
-  c11 += adj;
-  c12 += adj;
-  c21 += adj;
-  c22 += adj;
-  double rc11 = 1.0 / c11;
-  double rc12 = 1.0 / c12;
-  double rc21 = 1.0 / c21;
-  double rc22 = 1.0 / c22;
-  *lnor_ptr = log(c11 * c22 * rc12 * rc21);
-
-  double d2 = rc11 - rc12;
-  double d3 = rc11 - rc21;
-  double d5 = rc11 - rc12 - rc21 + rc22;
-  double d6 = rc22 - rc12;
-  double d8 = rc22 - rc21;
-  rc11 *= rc11;
-  rc12 *= rc12;
-  rc21 *= rc21;
-  rc22 *= rc22;
-  d2 *= d2;
-  d3 *= d3;
-  d5 *= d5;
-  d6 *= d6;
-  d8 *= d8;
-  const double cell_adj = no_adj? 0.0 : 0.5;
-  *var_ptr = 4 * (4 * (rc11 * (u31tod(counts_3x3[0]) + cell_adj) +
-                       rc12 * (u31tod(counts_3x3[2]) + cell_adj) +
-                       rc21 * (u31tod(counts_3x3[6]) + cell_adj) +
-                       rc22 * (u31tod(counts_3x3[8]) + cell_adj)) +
-                  d2 * (u31tod(counts_3x3[1]) + cell_adj) +
-                  d3 * (u31tod(counts_3x3[3]) + cell_adj) +
-                  d6 * (u31tod(counts_3x3[5]) + cell_adj) +
-                  d8 * (u31tod(counts_3x3[7]) + cell_adj)) +
-             d5 * (u31tod(counts_3x3[4]) + cell_adj);
-}
-
-// --fast-epistasis boost: the two-stage test of Wan X et al. (2010) BOOST: A
-// fast approach to detecting gene-gene interactions in genome-wide case-
-// control studies.  Every pair is first scored with the Kirkwood superposition
+// --epistasis-boost: the two-stage test of Wan X et al. (2010) BOOST: A fast
+// approach to detecting gene-gene interactions in genome-wide case-control
+// studies.  Every pair is first scored with the Kirkwood superposition
 // approximation, which is closed-form; only the pairs clearing the --epi1
 // threshold are then fit properly, by iterative proportional fitting of the
 // homogeneous association model (all three two-way interactions, no three-way
@@ -14227,7 +14160,7 @@ typedef struct EpiSummaryEntryStruct {
   uint32_t best_vidx;
 } EpiSummaryEntry;
 
-PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* cswritetp = nullptr;
@@ -14238,10 +14171,7 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
   PreinitCstream(&csst);
   {
     const EpiFlags flags = epi_ip->flags;
-    const uint32_t is_case_only = (flags / kfEpiCaseOnly) & 1;
-    const uint32_t no_ueki = (flags / kfEpiNoUeki) & 1;
     const uint32_t no_p_value = (flags / kfEpiNoP) & 1;
-    const uint32_t is_boost = (flags / kfEpiBoost) & 1;
 
     // PLINK 1.x had a single phenotype.  Rather than guess which of several
     // loaded case/control phenotypes an O(variant_ct^2) scan was meant for,
@@ -14257,11 +14187,11 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
       }
     }
     if (unlikely(!cc_pheno_ct)) {
-      logerrputs("Error: --fast-epistasis requires a case/control phenotype.\n");
+      logerrputs("Error: --epistasis-boost requires a case/control phenotype.\n");
       goto CalcEpi_ret_INCONSISTENT_INPUT;
     }
     if (unlikely(cc_pheno_ct > 1)) {
-      logerrputs("Error: --fast-epistasis needs exactly one case/control phenotype; select one\nwith --pheno-name.\n");
+      logerrputs("Error: --epistasis-boost needs exactly one case/control phenotype; select one\nwith --pheno-name.\n");
       goto CalcEpi_ret_INCONSISTENT_INPUT;
     }
     const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
@@ -14278,18 +14208,18 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
     const uint32_t case_ct = PopcountWords(case_include, raw_sample_ctl);
     const uint32_t ctrl_ct = PopcountWords(ctrl_include, raw_sample_ctl);
     if (unlikely(case_ct < 2)) {
-      logerrputs("Error: --fast-epistasis requires at least 2 cases.\n");
+      logerrputs("Error: --epistasis-boost requires at least 2 cases.\n");
       goto CalcEpi_ret_DEGENERATE_DATA;
     }
-    if (unlikely((!is_case_only) && (ctrl_ct < 2))) {
-      logerrputs("Error: --fast-epistasis requires at least 2 controls; use the 'case-only'\nmodifier to run without them.\n");
+    if (unlikely(ctrl_ct < 2)) {
+      logerrputs("Error: --epistasis-boost requires at least 2 controls.\n");
       goto CalcEpi_ret_DEGENERATE_DATA;
     }
-    const uint32_t group_ct = is_case_only? 1 : 2;
+    const uint32_t group_ct = 2;
     const uint32_t group_cts[2] = {case_ct, ctrl_ct};
     const uintptr_t* group_includes[2] = {case_include, ctrl_include};
     const uint32_t case_ctl = BitCtToWordCt(case_ct);
-    const uint32_t ctrl_ctl = is_case_only? 0 : BitCtToWordCt(ctrl_ct);
+    const uint32_t ctrl_ctl = BitCtToWordCt(ctrl_ct);
     const uint32_t group_ctls[2] = {case_ctl, ctrl_ctl};
     const uintptr_t words_per_variant = 3 * S_CAST(uintptr_t, case_ctl + ctrl_ctl);
 
@@ -14314,16 +14244,14 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
     }
     uint32_t variant_ct = orig_variant_ct - nonautosomal_ct;
     if (unlikely(variant_ct < 2)) {
-      logerrputs("Error: --fast-epistasis requires at least 2 autosomal variants.\n");
+      logerrputs("Error: --epistasis-boost requires at least 2 autosomal variants.\n");
       goto CalcEpi_ret_DEGENERATE_DATA;
     }
 
-    // Monomorphic variants are dropped up front.  Without the Ueki correction
-    // an empty allele-table cell divides by zero, so each group has to be
-    // polymorphic on its own; with it, the +4.5 adjustment absorbs empty
-    // cells, and PLINK 1.x only drops variants monomorphic across every
-    // phenotyped sample.  Matching that keeps the two reports over the same
-    // pairs.
+    // Monomorphic variants are dropped up front, over the whole phenotyped
+    // set rather than group by group, as in PLINK 1.x.  An empty genotype row
+    // or column within a group is not degenerate here: it costs two degrees
+    // of freedom instead.
     uintptr_t* analysis_include;
     if (unlikely(bigstack_alloc_w(raw_sample_ctl, &analysis_include))) {
       goto CalcEpi_ret_NOMEM;
@@ -14355,44 +14283,37 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
       uintptr_t variant_uidx_base = 0;
       uintptr_t variant_include_bits = variant_include[0];
       uint32_t skipped_ct = 0;
-      const uint32_t mono_group_start = no_ueki? 0 : 2;
-      const uint32_t mono_group_end = no_ueki? group_ct : 3;
-      const uint32_t mono_group_cts[3] = {case_ct, ctrl_ct, analysis_ct};
-      const uintptr_t* mono_group_includes[3] = {case_include, ctrl_include, analysis_include};
+      PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[2], simple_pgrp, &(pssis[2]));
       for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
         const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
-        for (uint32_t group_idx = mono_group_start; group_idx != mono_group_end; ++group_idx) {
-          PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[group_idx], simple_pgrp, &(pssis[group_idx]));
-          reterr = PgrGet(mono_group_includes[group_idx], pssis[group_idx], mono_group_cts[group_idx], variant_uidx, simple_pgrp, genovec);
-          if (unlikely(reterr)) {
-            PgenErrPrintNV(reterr, variant_uidx);
-            goto CalcEpi_ret_1;
-          }
-          // GenoarrCountFreqsUnsafe() counts whole words and derives the
-          // hom-REF count by subtraction, so the nyps past sample_ct have to
-          // be cleared first; PgrGet() leaves them alone.
-          ZeroTrailingNyps(mono_group_cts[group_idx], genovec);
-          STD_ARRAY_DECL(uint32_t, 4, genocounts);
-          GenoarrCountFreqsUnsafe(genovec, mono_group_cts[group_idx], genocounts);
-          const uint32_t nonmiss_ct = genocounts[0] + genocounts[1] + genocounts[2];
-          if ((genocounts[0] == nonmiss_ct) || (genocounts[1] == nonmiss_ct) || (genocounts[2] == nonmiss_ct)) {
-            ClearBit(variant_uidx, variant_include);
-            ++skipped_ct;
-            break;
-          }
+        reterr = PgrGet(analysis_include, pssis[2], analysis_ct, variant_uidx, simple_pgrp, genovec);
+        if (unlikely(reterr)) {
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto CalcEpi_ret_1;
+        }
+        // GenoarrCountFreqsUnsafe() counts whole words and derives the hom-REF
+        // count by subtraction, so the nyps past sample_ct have to be cleared
+        // first; PgrGet() leaves them alone.
+        ZeroTrailingNyps(analysis_ct, genovec);
+        STD_ARRAY_DECL(uint32_t, 4, genocounts);
+        GenoarrCountFreqsUnsafe(genovec, analysis_ct, genocounts);
+        const uint32_t nonmiss_ct = genocounts[0] + genocounts[1] + genocounts[2];
+        if ((genocounts[0] == nonmiss_ct) || (genocounts[1] == nonmiss_ct) || (genocounts[2] == nonmiss_ct)) {
+          ClearBit(variant_uidx, variant_include);
+          ++skipped_ct;
         }
       }
       if (skipped_ct) {
         variant_ct -= skipped_ct;
-        logprintf("--fast-epistasis: Skipping %u monomorphic variant%s.\n", skipped_ct, (skipped_ct == 1)? "" : "s");
+        logprintf("--epistasis-boost: Skipping %u monomorphic variant%s.\n", skipped_ct, (skipped_ct == 1)? "" : "s");
       }
       if (unlikely(variant_ct < 2)) {
-        logerrputs("Error: --fast-epistasis has fewer than 2 usable variants left.\n");
+        logerrputs("Error: --epistasis-boost has fewer than 2 usable variants left.\n");
         goto CalcEpi_ret_DEGENERATE_DATA;
       }
     }
     if (nonautosomal_ct) {
-      logprintf("--fast-epistasis: Skipping %u non-autosomal variant%s.\n", nonautosomal_ct, (nonautosomal_ct == 1)? "" : "s");
+      logprintf("--epistasis-boost: Skipping %u non-autosomal variant%s.\n", nonautosomal_ct, (nonautosomal_ct == 1)? "" : "s");
     }
 
     uint32_t* variant_uidxs;
@@ -14437,15 +14358,13 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
 
     // boost divides by cell and margin counts constantly, and there are only
     // analysis_ct + 1 possible denominators.
-    double* recip_cache = nullptr;
-    if (is_boost) {
-      if (unlikely(bigstack_alloc_d(analysis_ct + 1, &recip_cache))) {
-        goto CalcEpi_ret_NOMEM;
-      }
-      recip_cache[0] = 0.0;
-      for (uint32_t uii = 1; uii <= analysis_ct; ++uii) {
-        recip_cache[uii] = 1.0 / u31tod(uii);
-      }
+    double* recip_cache;
+    if (unlikely(bigstack_alloc_d(analysis_ct + 1, &recip_cache))) {
+      goto CalcEpi_ret_NOMEM;
+    }
+    recip_cache[0] = 0.0;
+    for (uint32_t uii = 1; uii <= analysis_ct; ++uii) {
+      recip_cache[uii] = 1.0 / u31tod(uii);
     }
 
     // Two variant blocks are held at once: the rows, and the columns they are
@@ -14491,43 +14410,33 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
       summary[variant_idx].best_vidx = UINT32_MAX;
     }
 
-    // PLINK 1.x's --epi1 default depends on the test: for boost it is a
-    // screening threshold, deciding which pairs are fit at all, so its default
-    // is much stricter than a report filter's.
+    // --epi1 is a screening threshold here, deciding which pairs are fit at
+    // all, so PLINK 1.x's default for it is much stricter than a report
+    // filter's.
     double alpha1 = epi_ip->epi1;
     if (alpha1 == 0.0) {
-      alpha1 = is_boost? 0.000005 : 0.0001;
+      alpha1 = 0.000005;
     }
-    const double alpha1_ln = log(alpha1);
-    const double alpha2_ln = log(epi_ip->epi2);
-    // boost's df varies from pair to pair, so its thresholds are chi-square
-    // quantiles at df 4, 2 and 1 rather than one p-value cutoff.
-    double alpha1sq[3] = {0.0, 0.0, 0.0};
-    double alpha2sq[3] = {0.0, 0.0, 0.0};
-    if (is_boost) {
-      alpha1sq[0] = FepiChisqThresh(alpha1, 4);
-      alpha1sq[1] = FepiChisqThresh(alpha1, 2);
-      alpha1sq[2] = FepiChisqThresh(alpha1, 1);
-      alpha2sq[0] = FepiChisqThresh(epi_ip->epi2, 4);
-      if (alpha1sq[0] == alpha2sq[0]) {
-        // --epi1 and --epi2 agree: count the pairs that clear the fit rather
-        // than the ones that cleared the screen.
-        alpha2sq[0] *= 1 + kSmallEpsilon;
-        alpha2sq[1] = alpha1sq[1] * (1 + kSmallEpsilon);
-        alpha2sq[2] = alpha1sq[2] * (1 + kSmallEpsilon);
-      } else {
-        alpha2sq[1] = FepiChisqThresh(epi_ip->epi2, 2);
-        alpha2sq[2] = FepiChisqThresh(epi_ip->epi2, 1);
-      }
-    }
-    const uint32_t gap_bp = is_case_only? (epi_ip->gap_kb * 1000) : 0;
-    const uint32_t output_zst = (flags / kfEpiZs) & 1;
-    char* outname_end2;
-    if (is_case_only) {
-      outname_end2 = strcpya_k(outname_end, ".epi.co");
+    // df varies from pair to pair, so the thresholds are chi-square quantiles
+    // at df 4, 2 and 1 rather than one p-value cutoff.
+    double alpha1sq[3];
+    double alpha2sq[3];
+    alpha1sq[0] = FepiChisqThresh(alpha1, 4);
+    alpha1sq[1] = FepiChisqThresh(alpha1, 2);
+    alpha1sq[2] = FepiChisqThresh(alpha1, 1);
+    alpha2sq[0] = FepiChisqThresh(epi_ip->epi2, 4);
+    if (alpha1sq[0] == alpha2sq[0]) {
+      // --epi1 and --epi2 agree: count the pairs that clear the fit rather
+      // than the ones that cleared the screen.
+      alpha2sq[0] *= 1 + kSmallEpsilon;
+      alpha2sq[1] = alpha1sq[1] * (1 + kSmallEpsilon);
+      alpha2sq[2] = alpha1sq[2] * (1 + kSmallEpsilon);
     } else {
-      outname_end2 = strcpya_k(outname_end, ".epi.cc");
+      alpha2sq[1] = FepiChisqThresh(epi_ip->epi2, 2);
+      alpha2sq[2] = FepiChisqThresh(epi_ip->epi2, 1);
     }
+    const uint32_t output_zst = (flags / kfEpiZs) & 1;
+    char* outname_end2 = strcpya_k(outname_end, ".epi.cc");
     // Main report is <prefix>.epi.cc[.<job>], summary is
     // <prefix>.epi.cc.summary[.<job>], as in PLINK 1.x.
     char* main_end = outname_end2;
@@ -14546,10 +14455,7 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
       goto CalcEpi_ret_1;
     }
     if (!parallel_idx) {
-      cswritep = strcpya_k(cswritep, "#CHROM1\tID1\tCHROM2\tID2\tSTAT");
-      if (is_boost) {
-        cswritep = strcpya_k(cswritep, "\tDF");
-      }
+      cswritep = strcpya_k(cswritep, "#CHROM1\tID1\tCHROM2\tID2\tSTAT\tDF");
       if (!no_p_value) {
         cswritep = strcpya_k(cswritep, "\tP");
       }
@@ -14564,7 +14470,7 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
       pair_ct_total += variant_ct - row_idx - 1;
     }
     uint64_t pairs_reported = 0;
-    fputs("--fast-epistasis: 0%", stdout);
+    fputs("--epistasis-boost: 0%", stdout);
     fflush(stdout);
     uint64_t next_print_pair = pair_ct_total / 100;
     uint32_t pct = 0;
@@ -14607,13 +14513,6 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
           const uint32_t col_first = MAXV(col_block_start, row_idx + 1);
           for (uint32_t col_idx = col_first; col_idx != col_block_end; ++col_idx) {
             ++pairs_seen;
-            if (gap_bp && (variant_chr_fo_idxs[row_idx] == variant_chr_fo_idxs[col_idx])) {
-              const uint32_t bp1 = variant_bps[variant_uidxs[row_idx]];
-              const uint32_t bp2 = variant_bps[variant_uidxs[col_idx]];
-              if (bp2 - bp1 < gap_bp) {
-                continue;
-              }
-            }
             const uintptr_t* col_slot = &(col_bits[(col_idx - col_block_start) * words_per_variant]);
             uint32_t counts[18];
             {
@@ -14632,50 +14531,23 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
                 col_iter = &(col_iter[3 * cur_ctl]);
               }
             }
-            // chisq drives BEST_CHISQ and the --epi2 count; report_stat is what
-            // the report prints, which for boost is the fitted statistic rather
-            // than the one the pair was selected on.
+            // chisq is the screening statistic, which drives BEST_CHISQ and
+            // the --epi2 count; report_stat is the fitted one the report
+            // prints.
             double chisq;
-            double report_stat;
+            double report_stat = 0.0;
             double ln_pval = 0.0;
-            uint32_t report_df = 1;
-            uint32_t is_sig;
+            uint32_t df_adj;
             uint32_t do_report;
-            if (!is_boost) {
-              double lnor_diff = 0.0;
-              double var_sum = 0.0;
-              for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
-                double cur_lnor;
-                double cur_var;
-                FepiCountsToStats(&(counts[group_idx * 9]), no_ueki, &cur_lnor, &cur_var);
-                if (group_idx) {
-                  lnor_diff -= cur_lnor;
-                } else {
-                  lnor_diff = cur_lnor;
-                }
-                var_sum += cur_var;
-              }
-              chisq = lnor_diff * lnor_diff / var_sum;
-              if (!std::isfinite(chisq)) {
-                continue;
-              }
-              ln_pval = ChisqToLnP(chisq, 1);
-              is_sig = (ln_pval <= alpha2_ln);
-              do_report = (ln_pval <= alpha1_ln);
-              report_stat = chisq;
-            } else {
-              uint32_t df_adj;
-              report_stat = 0.0;
-              if (FepiBoost(counts, recip_cache, alpha1sq, &chisq, &report_stat, &df_adj, &do_report)) {
-                continue;
-              }
-              is_sig = (chisq >= alpha2sq[df_adj]);
-              report_df = 4 >> df_adj;
-              if (do_report) {
-                // A perfect fit lands on zero from either side; the p-value of
-                // a negative statistic is the p-value of zero.
-                ln_pval = ChisqToLnP(MAXV(report_stat, 0.0), report_df);
-              }
+            if (FepiBoost(counts, recip_cache, alpha1sq, &chisq, &report_stat, &df_adj, &do_report)) {
+              continue;
+            }
+            const uint32_t is_sig = (chisq >= alpha2sq[df_adj]);
+            const uint32_t report_df = 4 >> df_adj;
+            if (do_report) {
+              // A perfect fit lands on zero from either side; the p-value of a
+              // negative statistic is the p-value of zero.
+              ln_pval = ChisqToLnP(MAXV(report_stat, 0.0), report_df);
             }
             summary[row_idx].n_tot += 1;
             summary[col_idx].n_tot += 1;
@@ -14700,10 +14572,8 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
               *cswritep++ = '\t';
               cswritep = strcpyax(cswritep, variant_ids[variant_uidxs[col_idx]], '\t');
               cswritep = dtoa_g(report_stat, cswritep);
-              if (is_boost) {
-                *cswritep++ = '\t';
-                cswritep = u32toa(report_df, cswritep);
-              }
+              *cswritep++ = '\t';
+              cswritep = u32toa(report_df, cswritep);
               if (!no_p_value) {
                 *cswritep++ = '\t';
                 cswritep = lntoa_g(MAXV(ln_pval, output_min_ln), cswritep);
@@ -14733,7 +14603,7 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
       goto CalcEpi_ret_WRITE_FAIL;
     }
     fputs("\b\b\b", stdout);
-    logprintf("--fast-epistasis: %" PRIu64 " pair%s tested, %" PRIu64 " written to %s .\n", pairs_seen, (pairs_seen == 1)? "" : "s", pairs_reported, outname);
+    logprintf("--epistasis-boost: %" PRIu64 " pair%s tested, %" PRIu64 " written to %s .\n", pairs_seen, (pairs_seen == 1)? "" : "s", pairs_reported, outname);
     (void)pairs_done;
 
     // Summary report: one row per variant with a tested pair.
@@ -14787,7 +14657,7 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
     if (unlikely(CswriteCloseNull(&csst, cswritetp))) {
       goto CalcEpi_ret_WRITE_FAIL;
     }
-    logprintfww("--fast-epistasis: Summary for %u variant%s written to %s .\n", summary_row_ct, (summary_row_ct == 1)? "" : "s", outname);
+    logprintfww("--epistasis-boost: Summary for %u variant%s written to %s .\n", summary_row_ct, (summary_row_ct == 1)? "" : "s", outname);
   }
   while (0) {
   CalcEpi_ret_NOMEM:

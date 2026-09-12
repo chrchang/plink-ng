@@ -3186,7 +3186,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       if (pcp->command_flags1 & kfCommand1Epi) {
-        reterr = CalcEpi(sample_include, pheno_cols, variant_include, cip, variant_bps, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = CalcEpi(sample_include, pheno_cols, variant_include, cip, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3504,6 +3504,35 @@ PglErr Alloc2col(const char* const* sources, const char* flagname_p, uint32_t pa
 }
 
 // flagname_p only needed when check_file_existence true
+// --epistasis-boost's modifiers.  --fast-epistasis is accepted as a synonym
+// when its 'boost' modifier is named, so that modifier is allowed through
+// there and rejected here.
+PglErr ParseEpiBoostModifiers(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t accept_boost, EpiFlags* flags_ptr) {
+  EpiFlags flags = *flags_ptr;
+  for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
+    const char* cur_modif = sources[param_idx];
+    const uint32_t cur_modif_slen = strlen(cur_modif);
+    if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+      flags |= kfEpiZs;
+    } else if (strequal_k(cur_modif, "nop", cur_modif_slen)) {
+      flags |= kfEpiNoP;
+    } else if (accept_boost && strequal_k(cur_modif, "boost", cur_modif_slen)) {
+      // The test selector, already found by the caller.
+    } else if (unlikely(strequal_k(cur_modif, "case-only", cur_modif_slen) || strequal_k(cur_modif, "no-ueki", cur_modif_slen) || strequal_k(cur_modif, "joint-effects", cur_modif_slen))) {
+      logerrprintfww("Error: --%s: '%s' only applies to PLINK 1.9's retired --fast-epistasis tests.\n", flagname_p, cur_modif);
+      return kPglRetInvalidCmdline;
+    } else if (unlikely(strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen))) {
+      logerrprintfww("Error: --%s's '%s' modifier needs variant sets, which are not implemented yet.\n", flagname_p, cur_modif);
+      return kPglRetInvalidCmdline;
+    } else {
+      logerrprintfww("Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+      return kPglRetInvalidCmdline;
+    }
+  }
+  *flags_ptr = flags;
+  return kPglRetSuccess;
+}
+
 PglErr AllocAndFlattenCommaDelimEx(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t check_file_existence, char** flattened_buf_ptr) {
   uint32_t tot_blen = 1;
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
@@ -4486,10 +4515,9 @@ int main(int argc, char** argv) {
     uint32_t delete_pmerge_result = 0;
     uint32_t aperm_present = 0;
     uint32_t clump_log10_p1_present = 0;
-    // --epi1/--epi2/--gap sort before --fast-epistasis, so the flag they depend
-    // on has not been seen yet when they are parsed.
+    // --epi1/--epi2 sort before --epistasis-boost, so the flag they depend on
+    // has not been seen yet when they are parsed.
     uint32_t epi_thresh_present = 0;
-    uint32_t epi_gap_present = 0;
     uint32_t clump_log10_p2_present = 0;
     uint32_t score_col_nums_present = 0;
     uint32_t r2_required = 0;
@@ -6193,6 +6221,15 @@ int main(int argc, char** argv) {
           } else {
             pc.epi_info.epi2 = dxx;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "pistasis-boost")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(ParseEpiBoostModifiers(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0, &pc.epi_info.flags))) {
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.command_flags1 |= kfCommand1Epi;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "xtract")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -6730,42 +6767,26 @@ int main(int argc, char** argv) {
 
       case 'f':
         if (strequal_k_unsafe(flagname_p2, "ast-epistasis")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          // Only the 'boost' test is kept, so --fast-epistasis is accepted as
+          // a synonym for --epistasis-boost when 'boost' is named, and
+          // rejected otherwise.
+          uint32_t boost_found = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            const uint32_t cur_modif_slen = strlen(cur_modif);
-            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
-              pc.epi_info.flags |= kfEpiZs;
-            } else if (strequal_k(cur_modif, "case-only", cur_modif_slen)) {
-              pc.epi_info.flags |= kfEpiCaseOnly;
-            } else if (strequal_k(cur_modif, "no-ueki", cur_modif_slen)) {
-              pc.epi_info.flags |= kfEpiNoUeki;
-            } else if (strequal_k(cur_modif, "nop", cur_modif_slen)) {
-              pc.epi_info.flags |= kfEpiNoP;
-            } else if (strequal_k(cur_modif, "boost", cur_modif_slen)) {
-              pc.epi_info.flags |= kfEpiBoost;
-            } else if (unlikely(strequal_k(cur_modif, "joint-effects", cur_modif_slen))) {
-              snprintf(g_logbuf, kLogbufSize, "Error: --fast-epistasis's '%s' test is not implemented yet.\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
-            } else if (unlikely(strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen))) {
-              snprintf(g_logbuf, kLogbufSize, "Error: --fast-epistasis's '%s' modifier needs variant sets, which are not\nimplemented yet.\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
-            } else {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --fast-epistasis argument '%s'.\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
+            if (strequal_k(cur_modif, "boost", strlen(cur_modif))) {
+              boost_found = 1;
+              break;
             }
           }
-          if (pc.epi_info.flags & kfEpiBoost) {
-            if (unlikely(pc.epi_info.flags & kfEpiNoUeki)) {
-              logerrputs("Error: --fast-epistasis's 'boost' and 'no-ueki' modifiers cannot be used\ntogether.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            if (unlikely(pc.epi_info.flags & kfEpiCaseOnly)) {
-              logerrputs("Error: --fast-epistasis boost does not have a case-only mode.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
+          if (unlikely(!boost_found)) {
+            logerrputs("Error: --fast-epistasis's default test has been retired.  Use --epistasis-boost\nfor the BOOST test.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(ParseEpiBoostModifiers(&(argvk[arg_idx + 1]), flagname_p, param_ct, 1, &pc.epi_info.flags))) {
+            goto main_ret_INVALID_CMDLINE_A;
           }
           pc.command_flags1 |= kfCommand1Epi;
           pc.dependency_flags |= kfFilterAllReq;
@@ -7280,18 +7301,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'g':
-        if (strequal_k_unsafe(flagname_p2, "ap")) {
-          epi_gap_present = 1;
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
-            goto main_ret_INVALID_CMDLINE_2A;
-          }
-          double dxx;
-          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0) || (dxx > 2147483.0))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gap argument '%s'.\n", argvk[arg_idx + 1]);
-            goto main_ret_INVALID_CMDLINE_WWA;
-          }
-          pc.epi_info.gap_kb = S_CAST(uint32_t, dxx);
-        } else if (strequal_k_unsafe(flagname_p2, "rm-maf") || strequal_k_unsafe(flagname_p2, "rm-min-af")) {
+        if (strequal_k_unsafe(flagname_p2, "rm-maf") || strequal_k_unsafe(flagname_p2, "rm-min-af")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -14386,18 +14396,10 @@ int main(int argc, char** argv) {
       }
     }
 
-    // --epi1/--epi2/--gap all sort before --fast-epistasis, so their
-    // dependency cannot be checked while parsing them.
+    // --epi1/--epi2 sort before --epistasis-boost, so their dependency cannot
+    // be checked while parsing them.
     if (unlikely(epi_thresh_present && (!(pc.command_flags1 & kfCommand1Epi)))) {
-      logerrputs("Error: --epi1/--epi2 must be used with --fast-epistasis.\n");
-      goto main_ret_INVALID_CMDLINE_A;
-    }
-    if (unlikely(epi_gap_present && (!(pc.command_flags1 & kfCommand1Epi)))) {
-      logerrputs("Error: --gap must be used with --fast-epistasis.\n");
-      goto main_ret_INVALID_CMDLINE_A;
-    }
-    if (unlikely(epi_gap_present && (!(pc.epi_info.flags & kfEpiCaseOnly)))) {
-      logerrputs("Error: --gap only affects \"--fast-epistasis case-only\".\n");
+      logerrputs("Error: --epi1/--epi2 must be used with --epistasis-boost.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
 

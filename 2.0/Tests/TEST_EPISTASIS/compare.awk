@@ -1,4 +1,4 @@
-# Compares a PLINK 1.9 .epi.cc/.epi.co report against a plink2 one.
+# Compares a PLINK 1.9 .epi.cc report against a plink2 one.
 #
 # The pair key is normalized, since the two programs emit a pair in whatever
 # order their scans reach it.  PLINK 1.9 prints STAT to four significant
@@ -9,9 +9,9 @@
 # rounding noise, and the noise is absolute rather than relative, since the
 # statistic is a sum over 2N cell terms.  Such a row is accepted when both
 # sides are within zero_tol of zero, and a near-zero row present on one side
-# alone is not a disagreement either: with 'boost' under a permissive --epi1
-# the screening threshold is zero, so which side of it such a pair falls on is
-# noise as well.  A chi-square statistic that small is a p-value of 0.999
+# alone is not a disagreement either: under a permissive --epi1 the screening
+# threshold is zero, so which side of it such a pair falls on is noise as
+# well.  A chi-square statistic that small is a p-value of 0.999
 # either way.
 function abs(x) { return (x < 0)? -x : x }
 function sigdigits(t,   s) {
@@ -29,8 +29,8 @@ function same(txt, a, b,   nd, mag, tol) {
 function pairkey(x, y) { return (x < y)? (x "|" y) : (y "|" x) }
 BEGIN { zero_tol = 1e-6 }
 # PLINK 1.9 emits a row with STAT=nan for a pair whose statistic is undefined
-# (an empty allele-table cell with 'no-ueki', a table boost cannot fit), but
-# only when --epi1 is permissive enough, and its own .summary excludes those
+# (a table the fit stage cannot handle), but only when --epi1 is permissive
+# enough, and its own .summary excludes those
 # pairs from N_TOT.  The port omits the row instead, so those rows are skipped
 # here rather than being counted as a disagreement.
 FNR == NR {
