@@ -132,5 +132,9 @@ cd TEST_EPISTASIS
 ./run_tests.sh $d $2 $3 > TEST_EPISTASIS.log
 cd ..
 echo "TEST_EPISTASIS passed."
+cd TEST_SETS
+./run_tests.sh $d $2 $3 > TEST_SETS.log
+cd ..
+echo "TEST_SETS passed."
 
 echo "All tests passed."

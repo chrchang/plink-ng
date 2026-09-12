@@ -16,6 +16,8 @@
 
 #include "plink2_set.h"
 
+#include "plink2_compress_stream.h"
+
 #include <string.h>
 
 #include "include/plink2_bits.h"
@@ -490,6 +492,465 @@ uint32_t IntervalInSetdef(const uint32_t* setdef, uint32_t variant_uidx_start, u
   }
   const uint32_t first_hit = AdvBoundedTo1Bit(R_CAST(const uintptr_t*, &(setdef[4])), idx_start, idx_end);
   return (first_hit < idx_end);
+}
+
+void InitSet(SetInfo* sip) {
+  sip->fname = nullptr;
+  sip->setnames_flattened = nullptr;
+  sip->merged_set_name = nullptr;
+  sip->flags = kfSet0;
+}
+
+void CleanupSet(SetInfo* sip) {
+  free_cond(sip->fname);
+  free_cond(sip->setnames_flattened);
+  free_cond(sip->merged_set_name);
+}
+
+uint32_t InSetdef(const uint32_t* setdef, uint32_t variant_idx) {
+  const uint32_t range_ct = setdef[0];
+  if (range_ct != UINT32_MAX) {
+    for (uint32_t range_idx = 0; range_idx != range_ct; ++range_idx) {
+      const uint32_t range_start = setdef[range_idx * 2 + 1];
+      if (variant_idx < range_start) {
+        return 0;
+      }
+      if (variant_idx < setdef[range_idx * 2 + 2]) {
+        return 1;
+      }
+    }
+    return 0;
+  }
+  const uint32_t offset = setdef[1];
+  const uint32_t bit_ct = setdef[2];
+  if ((variant_idx < offset) || (variant_idx >= offset + bit_ct)) {
+    return setdef[3];
+  }
+  return IsSet(R_CAST(const uintptr_t*, &(setdef[4])), variant_idx - offset);
+}
+
+uint32_t SetdefSize(const uint32_t* setdef, uint32_t variant_ct) {
+  const uint32_t range_ct = setdef[0];
+  if (range_ct != UINT32_MAX) {
+    uint32_t total = 0;
+    for (uint32_t range_idx = 0; range_idx != range_ct; ++range_idx) {
+      total += setdef[range_idx * 2 + 2] - setdef[range_idx * 2 + 1];
+    }
+    return total;
+  }
+  const uint32_t offset = setdef[1];
+  const uint32_t bit_ct = setdef[2];
+  uint32_t total = PopcountWords(R_CAST(const uintptr_t*, &(setdef[4])), BitCtToWordCt(bit_ct));
+  if (setdef[3]) {
+    total += offset + (variant_ct - MINV(variant_ct, offset + bit_ct));
+  }
+  return total;
+}
+
+void UnpackSetdef(const uint32_t* setdef, uint32_t variant_ct, uintptr_t* include_bitvec) {
+  const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+  const uint32_t range_ct = setdef[0];
+  if (range_ct != UINT32_MAX) {
+    ZeroWArr(variant_ctl, include_bitvec);
+    for (uint32_t range_idx = 0; range_idx != range_ct; ++range_idx) {
+      const uint32_t range_start = setdef[range_idx * 2 + 1];
+      const uint32_t range_end = MINV(setdef[range_idx * 2 + 2], variant_ct);
+      if (range_end > range_start) {
+        FillBitsNz(range_start, range_end, include_bitvec);
+      }
+    }
+    return;
+  }
+  const uint32_t offset = setdef[1];
+  const uint32_t bit_ct = setdef[2];
+  if (setdef[3]) {
+    SetAllBits(variant_ct, include_bitvec);
+    if (offset < variant_ct) {
+      ClearBitsNz(offset, MINV(offset + bit_ct, variant_ct), include_bitvec);
+    }
+  } else {
+    ZeroWArr(variant_ctl, include_bitvec);
+  }
+  const uintptr_t* src = R_CAST(const uintptr_t*, &(setdef[4]));
+  const uint32_t copy_end = MINV(offset + bit_ct, variant_ct);
+  for (uint32_t variant_idx = offset; variant_idx != copy_end; ++variant_idx) {
+    if (IsSet(src, variant_idx - offset)) {
+      SetBit(variant_idx, include_bitvec);
+    }
+  }
+  ZeroTrailingBits(variant_ct, include_bitvec);
+}
+
+// Emits the smaller of the two setdef forms for one set, whose members are
+// given as a bitvector over the filtered variant space.  The range form costs
+// eight bytes per run of consecutive members, the bitfield form sixteen bytes
+// plus one bit per variant between the first and last member, so which one
+// wins depends on how localized the set is.
+//
+// member_bitvec must have a zeroed word past its variant_ct bits, so that a
+// run ending on the last variant still terminates the scan for its end.
+static uint32_t* SaveSetdef(const uintptr_t* member_bitvec, uint32_t variant_ct, unsigned char** alloc_basep, unsigned char* alloc_end) {
+  const uint32_t first_member = AdvBoundedTo1Bit(member_bitvec, 0, variant_ct);
+  uint32_t range_ct = 0;
+  uint32_t last_end = 0;
+  if (first_member != variant_ct) {
+    uint32_t range_start = first_member;
+    while (1) {
+      const uint32_t range_end = AdvTo0Bit(member_bitvec, range_start);
+      ++range_ct;
+      last_end = range_end;
+      if (range_end >= variant_ct) {
+        last_end = variant_ct;
+        break;
+      }
+      const uint32_t next_start = AdvBoundedTo1Bit(member_bitvec, range_end, variant_ct);
+      if (next_start == variant_ct) {
+        break;
+      }
+      range_start = next_start;
+    }
+  }
+  const uintptr_t range_form_size = (S_CAST(uintptr_t, range_ct) * 2 + 1) * sizeof(int32_t);
+  uintptr_t bitfield_form_size = UINTPTR_MAX;
+  uint32_t bitfield_offset = 0;
+  uint32_t bitfield_bit_ct = 0;
+  if (range_ct) {
+    // The offset is a multiple of 128, as the encoding requires.
+    bitfield_offset = first_member & (~127);
+    bitfield_bit_ct = RoundUpPow2(last_end - bitfield_offset, 128);
+    bitfield_form_size = 4 * sizeof(int32_t) + bitfield_bit_ct / CHAR_BIT;
+  }
+  if ((!range_ct) || (range_form_size <= bitfield_form_size)) {
+    const uintptr_t alloc_size = RoundUpPow2(range_form_size, 16);
+    if (S_CAST(uintptr_t, alloc_end - (*alloc_basep)) < alloc_size) {
+      return nullptr;
+    }
+    uint32_t* setdef = R_CAST(uint32_t*, *alloc_basep);
+    *alloc_basep = &((*alloc_basep)[alloc_size]);
+    setdef[0] = range_ct;
+    uint32_t* write_iter = &(setdef[1]);
+    uint32_t range_start = first_member;
+    for (uint32_t range_idx = 0; range_idx != range_ct; ++range_idx) {
+      const uint32_t range_end = MINV(AdvTo0Bit(member_bitvec, range_start), variant_ct);
+      *write_iter++ = range_start;
+      *write_iter++ = range_end;
+      if (range_end == variant_ct) {
+        break;
+      }
+      range_start = AdvBoundedTo1Bit(member_bitvec, range_end, variant_ct);
+    }
+    return setdef;
+  }
+  const uintptr_t alloc_size = RoundUpPow2(bitfield_form_size, 16);
+  if (S_CAST(uintptr_t, alloc_end - (*alloc_basep)) < alloc_size) {
+    return nullptr;
+  }
+  uint32_t* setdef = R_CAST(uint32_t*, *alloc_basep);
+  *alloc_basep = &((*alloc_basep)[alloc_size]);
+  setdef[0] = UINT32_MAX;
+  setdef[1] = bitfield_offset;
+  setdef[2] = bitfield_bit_ct;
+  setdef[3] = 0;
+  uintptr_t* dst = R_CAST(uintptr_t*, &(setdef[4]));
+  const uint32_t dst_word_ct = bitfield_bit_ct / kBitsPerWord;
+  ZeroWArr(dst_word_ct, dst);
+  for (uint32_t variant_idx = first_member; variant_idx != last_end; ++variant_idx) {
+    if (IsSet(member_bitvec, variant_idx)) {
+      SetBit(variant_idx - bitfield_offset, dst);
+    }
+  }
+  return setdef;
+}
+
+// True if a set with this name is wanted.
+static uint32_t SetNameWanted(const char* name, uint32_t name_slen, const char* setnames_flattened) {
+  if (setnames_flattened) {
+    const char* iter = setnames_flattened;
+    while (*iter) {
+      const uint32_t cur_slen = strlen(iter);
+      if ((cur_slen == name_slen) && memequal(iter, name, name_slen)) {
+        return 1;
+      }
+      iter = &(iter[cur_slen + 1]);
+    }
+    return 0;
+  }
+  return 1;
+}
+
+PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, VariantSets* vsp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  const char* fname = sip->fname;
+  PglErr reterr = kPglRetSuccess;
+  TokenStream tks;
+  PreinitTokenStream(&tks);
+  {
+    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+    const char* merged_set_name = sip->merged_set_name;
+
+    uint32_t* variant_id_htable;
+    uint32_t* htable_dup_base;
+    uint32_t variant_id_htable_size;
+    uint32_t dup_ct;
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, bigstack_left() / 8, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
+    if (unlikely(reterr)) {
+      goto DefineSets_ret_1;
+    }
+    unsigned char* htable_mark = g_bigstack_base;
+
+    // Variant uidxs have to be turned into filtered indexes, which is what a
+    // setdef is over.
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uint32_t* variant_include_cumulative_popcounts;
+    if (unlikely(bigstack_end_alloc_u32(raw_variant_ctl, &variant_include_cumulative_popcounts))) {
+      goto DefineSets_ret_NOMEM;
+    }
+    FillCumulativePopcounts(variant_include, raw_variant_ctl, variant_include_cumulative_popcounts);
+
+    reterr = InitTokenStream(fname, MAXV(max_thread_ct - 1, 1), &tks);
+    if (unlikely(reterr)) {
+      goto DefineSets_ret_TKSTREAM_FAIL;
+    }
+    // Pass 1 sizes everything; pass 2 fills it.  A variant ID that is not in
+    // the current variant set is ignored, as in PLINK 1.x, and so is a set
+    // that ends up empty.
+    uintptr_t kept_set_ct = 0;
+    uintptr_t max_set_name_blen = 0;
+    uintptr_t membership_ct = 0;
+    for (uint32_t pass_idx = 0; pass_idx != 2; ++pass_idx) {
+      uint32_t* membership_offsets = nullptr;
+      uint32_t* memberships = nullptr;
+      char* set_names = nullptr;
+      if (pass_idx) {
+        if (merged_set_name) {
+          kept_set_ct = 1;
+          max_set_name_blen = strlen(merged_set_name) + 1;
+        }
+        if (unlikely(!kept_set_ct)) {
+          logerrprintfww("Error: --set file '%s' contains no set that --subset/--set-names keeps.\n", fname);
+          goto DefineSets_ret_INCONSISTENT_INPUT;
+        }
+        if (unlikely(bigstack_end_alloc_u32(kept_set_ct + 1, &membership_offsets) ||
+                     bigstack_end_alloc_u32(membership_ct, &memberships) ||
+                     bigstack_end_alloc_c(kept_set_ct * max_set_name_blen, &set_names))) {
+          goto DefineSets_ret_NOMEM;
+        }
+        vsp->set_names = set_names;
+        vsp->max_set_name_blen = max_set_name_blen;
+        membership_offsets[0] = 0;
+        reterr = TokenRewind(&tks);
+        if (unlikely(reterr)) {
+          goto DefineSets_ret_TKSTREAM_FAIL;
+        }
+      }
+      // 0: between sets, 1: inside a set being kept, 2: inside a skipped set
+      uint32_t in_set = 0;
+      uintptr_t set_idx = 0;
+      uintptr_t cur_membership_ct = 0;
+      while (1) {
+        char* shard_boundaries[2];
+        reterr = TksNext(&tks, 1, shard_boundaries);
+        if (reterr) {
+          break;
+        }
+        char* shard_iter = shard_boundaries[0];
+        char* shard_end = shard_boundaries[1];
+        while (1) {
+          shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
+          if (shard_iter == shard_end) {
+            break;
+          }
+          char* token_end = CurTokenEnd(shard_iter);
+          const uint32_t token_slen = token_end - shard_iter;
+          if ((token_slen == 3) && memequal_sk(shard_iter, "END")) {
+            if (unlikely(!in_set)) {
+              logerrprintfww("Error: Unmatched END in --set file '%s'.\n", fname);
+              goto DefineSets_ret_MALFORMED_INPUT;
+            }
+            if ((in_set == 1) && (!merged_set_name)) {
+              if (!pass_idx) {
+                ++kept_set_ct;
+              } else {
+                membership_offsets[++set_idx] = cur_membership_ct;
+              }
+            }
+            in_set = 0;
+          } else if (!in_set) {
+            const char token_end_char = *token_end;
+            *token_end = '\0';
+            in_set = SetNameWanted(shard_iter, token_slen, sip->setnames_flattened)? 1 : 2;
+            if ((in_set == 1) && (!merged_set_name)) {
+              if (!pass_idx) {
+                if (token_slen >= max_set_name_blen) {
+                  max_set_name_blen = token_slen + 1;
+                }
+              } else {
+                memcpy(&(set_names[set_idx * max_set_name_blen]), shard_iter, token_slen + 1);
+              }
+            }
+            *token_end = token_end_char;
+          } else if (in_set == 1) {
+            const char token_end_char = *token_end;
+            *token_end = '\0';
+            uint32_t cur_llidx;
+            const uint32_t variant_uidx = VariantIdDupHtableFind(shard_iter, variant_ids, variant_id_htable, htable_dup_base, token_slen, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
+            *token_end = token_end_char;
+            if (variant_uidx != UINT32_MAX) {
+              if (!pass_idx) {
+                ++membership_ct;
+              } else {
+                memberships[cur_membership_ct] = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx);
+              }
+              ++cur_membership_ct;
+            }
+          }
+          shard_iter = token_end;
+        }
+      }
+      if (unlikely(reterr != kPglRetEof)) {
+        goto DefineSets_ret_TKSTREAM_FAIL;
+      }
+      reterr = kPglRetSuccess;
+      if (unlikely(in_set)) {
+        logerrprintfww("Error: --set file '%s' ends in the middle of a set; every set needs a closing END.\n", fname);
+        goto DefineSets_ret_MALFORMED_INPUT;
+      }
+      if (pass_idx && merged_set_name) {
+        memcpy(set_names, merged_set_name, max_set_name_blen);
+        membership_offsets[1] = cur_membership_ct;
+      }
+      if (pass_idx) {
+        // Now that the file has been read, the hash table can go, and the
+        // setdefs can take its place.
+        BigstackReset(htable_mark);
+        uintptr_t* member_bitvec;
+        if (unlikely(bigstack_end_alloc_w(variant_ctl + 1, &member_bitvec) ||
+                     bigstack_alloc_u32p(kept_set_ct, &(vsp->setdefs)))) {
+          goto DefineSets_ret_NOMEM;
+        }
+        unsigned char* alloc_base = g_bigstack_base;
+        unsigned char* alloc_end = g_bigstack_end;
+        for (uintptr_t cur_set_idx = 0; cur_set_idx != kept_set_ct; ++cur_set_idx) {
+          ZeroWArr(variant_ctl + 1, member_bitvec);
+          const uint32_t offset_start = membership_offsets[cur_set_idx];
+          const uint32_t offset_end = membership_offsets[cur_set_idx + 1];
+          for (uint32_t uii = offset_start; uii != offset_end; ++uii) {
+            SetBit(memberships[uii], member_bitvec);
+          }
+          vsp->setdefs[cur_set_idx] = SaveSetdef(member_bitvec, variant_ct, &alloc_base, alloc_end);
+          if (unlikely(!vsp->setdefs[cur_set_idx])) {
+            goto DefineSets_ret_NOMEM;
+          }
+        }
+        BigstackBaseSet(alloc_base);
+        vsp->set_ct = kept_set_ct;
+      }
+    }
+    if (CleanupTokenStream3(fname, &tks, &reterr)) {
+      goto DefineSets_ret_1;
+    }
+    // The names have to outlive the temporaries above them.
+    char* set_names_final;
+    if (unlikely(bigstack_alloc_c(vsp->set_ct * vsp->max_set_name_blen, &set_names_final))) {
+      goto DefineSets_ret_NOMEM;
+    }
+    memcpy(set_names_final, vsp->set_names, vsp->set_ct * vsp->max_set_name_blen);
+    vsp->set_names = set_names_final;
+    logprintf("--set: %" PRIuPTR " set%s loaded, %" PRIuPTR " membership%s in all.\n", vsp->set_ct, (vsp->set_ct == 1)? "" : "s", membership_ct, (membership_ct == 1)? "" : "s");
+    bigstack_mark = g_bigstack_base;
+  }
+  while (0) {
+  DefineSets_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  DefineSets_ret_TKSTREAM_FAIL:
+    TokenStreamErrPrint(fname, &tks);
+    reterr = TokenStreamErrcode(&tks);
+    break;
+  DefineSets_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  DefineSets_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ DefineSets_ret_1:
+  CleanupTokenStream2(fname, &tks, &reterr);
+  BigstackEndReset(bigstack_end_mark);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr WriteSetList(const VariantSets* vsp, const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, SetFlags flags, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
+  {
+    const uint32_t output_zst = (flags / kfSetWriteListZs) & 1;
+    OutnameZstSet(".set", output_zst, outname_end);
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 64;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto WriteSetList_ret_1;
+    }
+    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+    uintptr_t* member_bitvec;
+    uint32_t* variant_idx_to_uidx;
+    if (unlikely(bigstack_alloc_w(variant_ctl, &member_bitvec) ||
+                 bigstack_alloc_u32(variant_ct, &variant_idx_to_uidx))) {
+      goto WriteSetList_ret_NOMEM;
+    }
+    {
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t variant_include_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        variant_idx_to_uidx[variant_idx] = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+      }
+    }
+    const uintptr_t set_ct = vsp->set_ct;
+    const uintptr_t max_set_name_blen = vsp->max_set_name_blen;
+    for (uintptr_t set_idx = 0; set_idx != set_ct; ++set_idx) {
+      cswritep = strcpya(cswritep, &(vsp->set_names[set_idx * max_set_name_blen]));
+      AppendBinaryEoln(&cswritep);
+      UnpackSetdef(vsp->setdefs[set_idx], variant_ct, member_bitvec);
+      uintptr_t variant_idx_base = 0;
+      uintptr_t member_bits = member_bitvec[0];
+      const uint32_t cur_member_ct = PopcountWords(member_bitvec, variant_ctl);
+      for (uint32_t uii = 0; uii != cur_member_ct; ++uii) {
+        const uintptr_t variant_idx = BitIter1(member_bitvec, &variant_idx_base, &member_bits);
+        cswritep = strcpya(cswritep, variant_ids[variant_idx_to_uidx[variant_idx]]);
+        AppendBinaryEoln(&cswritep);
+        if (unlikely(Cswrite(&css, &cswritep))) {
+          goto WriteSetList_ret_WRITE_FAIL;
+        }
+      }
+      cswritep = strcpya_k(cswritep, "END");
+      AppendBinaryEoln(&cswritep);
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto WriteSetList_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto WriteSetList_ret_WRITE_FAIL;
+    }
+    logprintfww("--write-set: %" PRIuPTR " set%s written to %s .\n", set_ct, (set_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  WriteSetList_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  WriteSetList_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ WriteSetList_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
 }
 
 PglErr LoadAndSortIntervalBed(const char* fname, const ChrInfo* cip, const char* sorted_subset_ids, uint32_t zero_based, uint32_t border_extend, uintptr_t subset_ct, uintptr_t max_subset_id_blen, uint32_t max_thread_ct, uintptr_t* gene_ct_ptr, char** gene_names_ptr, uintptr_t* max_gene_id_blen_ptr, uintptr_t** chr_bounds_ptr, uint32_t*** genedefs_ptr, uintptr_t* chr_max_gene_ct_ptr) {
