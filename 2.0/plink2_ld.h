@@ -22,6 +22,7 @@
 #include "include/plink2_base.h"
 #include "plink2_cmdline.h"
 #include "plink2_common.h"
+#include "plink2_set.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -274,7 +275,9 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
 FLAGSET_DEF_START()
   kfEpi0,
   kfEpiZs = (1 << 0),
-  kfEpiNoP = (1 << 1)
+  kfEpiNoP = (1 << 1),
+  kfEpiSetBySet = (1 << 2),
+  kfEpiSetByAll = (1 << 3)
 FLAGSET_DEF_END(EpiFlags);
 
 typedef struct EpiInfoStruct {
@@ -285,7 +288,7 @@ typedef struct EpiInfoStruct {
 
 void InitEpi(EpiInfo* epi_ip);
 
-PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const EpiInfo* epi_ip, const VariantSets* vsp, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const PhenoCol* pheno_cols, const char* pheno_names, const TwolocusInfo* tlip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 

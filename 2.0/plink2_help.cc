@@ -1253,8 +1253,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      all-pairs computation on more than 400k variants.\n"
 "    With either output type, the computation can be subdivided with --parallel.\n\n"
               );
-    HelpPrint("epistasis-boost\0fast-epistasis\0epi1\0epi2\0", &help_ctrl, 1,
-"  --epistasis-boost ['zs'] ['nop']\n"
+    HelpPrint("epistasis-boost\0fast-epistasis\0epi1\0epi2\0set\0", &help_ctrl, 1,
+"  --epistasis-boost ['zs'] ['nop'] [{set-by-set | set-by-all}]\n"
 "  --epi1 <p-value>\n"
 "  --epi2 <p-value>\n"
 "    Scan every pair of autosomal variants for an interaction, using the\n"
@@ -1275,6 +1275,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * This is quadratic in the variant count, so it is meant for a filtered\n"
 "      set rather than a whole genome.  It can be subdivided with --parallel,\n"
 "      and the resulting main reports concatenate in order.\n"
+"    * With --set loaded, 'set-by-set' scans the pairs inside one set, or\n"
+"      every pair across two, and 'set-by-all' scans one set against every\n"
+"      variant.  Both drop a variant's pair with itself.\n"
 "    * PLINK 1.9's --fast-epistasis is accepted as a synonym when its\n"
 "      'boost' modifier is named.  Its other tests have been retired.\n\n"
                );

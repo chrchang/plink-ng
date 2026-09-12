@@ -3541,13 +3541,18 @@ PglErr ParseEpiBoostModifiers(const char* const* sources, const char* flagname_p
     } else if (unlikely(strequal_k(cur_modif, "case-only", cur_modif_slen) || strequal_k(cur_modif, "no-ueki", cur_modif_slen) || strequal_k(cur_modif, "joint-effects", cur_modif_slen))) {
       logerrprintfww("Error: --%s: '%s' only applies to PLINK 1.9's retired --fast-epistasis tests.\n", flagname_p, cur_modif);
       return kPglRetInvalidCmdline;
-    } else if (unlikely(strequal_k(cur_modif, "set-by-set", cur_modif_slen) || strequal_k(cur_modif, "set-by-all", cur_modif_slen))) {
-      logerrprintfww("Error: --%s's '%s' modifier needs variant sets, which are not implemented yet.\n", flagname_p, cur_modif);
-      return kPglRetInvalidCmdline;
+    } else if (strequal_k(cur_modif, "set-by-set", cur_modif_slen)) {
+      flags |= kfEpiSetBySet;
+    } else if (strequal_k(cur_modif, "set-by-all", cur_modif_slen)) {
+      flags |= kfEpiSetByAll;
     } else {
       logerrprintfww("Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
       return kPglRetInvalidCmdline;
     }
+  }
+  if (unlikely((flags & (kfEpiSetBySet | kfEpiSetByAll)) == (kfEpiSetBySet | kfEpiSetByAll))) {
+    logerrprintf("Error: --%s's 'set-by-set' and 'set-by-all' modifiers cannot be used together.\n", flagname_p);
+    return kPglRetInvalidCmdline;
   }
   *flags_ptr = flags;
   return kPglRetSuccess;
@@ -6243,7 +6248,7 @@ int main(int argc, char** argv) {
             pc.epi_info.epi2 = dxx;
           }
         } else if (strequal_k_unsafe(flagname_p2, "pistasis-boost")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (unlikely(ParseEpiBoostModifiers(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0, &pc.epi_info.flags))) {
@@ -6788,7 +6793,7 @@ int main(int argc, char** argv) {
 
       case 'f':
         if (strequal_k_unsafe(flagname_p2, "ast-epistasis")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           // Only the 'boost' test is kept, so --fast-epistasis is accepted as
