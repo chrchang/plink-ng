@@ -1272,7 +1272,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      0.01) the summary's N_SIG threshold, as for --epistasis-boost.  The\n"
 "      case/control branch of --epistasis is not implemented yet.\n\n"
                );
-    HelpPrint("epistasis-boost\0fast-epistasis\0epi1\0epi2\0", &help_ctrl, 1,
+    HelpPrint("epistasis-boost\0fast-epistasis\0epi1\0epi2\0covar\0", &help_ctrl, 1,
 "  --epistasis-boost ['zs'] ['nop']\n"
 "  --epi1 <p-value>\n"
 "  --epi2 <p-value>\n"
@@ -1291,6 +1291,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      towards the summary's N_SIG.  'nop' drops the p-value column.\n"
 "    * A case/control phenotype is required, and exactly one must be loaded;\n"
 "      select it with --pheno-name if you have several.\n"
+"    * With --covar, the pairs that clear --epi1 are refit by logistic\n"
+"      regression on genotype dummies for both variants, their interaction,\n"
+"      and the covariates, and STAT/DF/P come from that fit; this is the\n"
+"      postprocessing step suggested by the BOOST paper, so the screen keeps\n"
+"      its speed.  BEST_CHISQ and N_SIG stay unadjusted, since they cover\n"
+"      pairs that were never refit.  A genotype combination with no samples\n"
+"      has no term to estimate, so the adjusted DF can be below the\n"
+"      unadjusted one.  A sample missing a covariate is left out of the whole\n"
+"      scan, and a pair whose fit does not converge is left out of the\n"
+"      report.\n"
 "    * This is quadratic in the variant count, so it is meant for a filtered\n"
 "      set rather than a whole genome.  It can be subdivided with --parallel,\n"
 "      and the resulting main reports concatenate in order.\n"

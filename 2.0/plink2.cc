@@ -3189,7 +3189,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (pcp->epi_info.flags & kfEpiRegress) {
           reterr = CalcEpiLinear(sample_include, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, pcp->vif_thresh, pcp->glm_info.max_corr, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         } else {
-          reterr = CalcEpi(sample_include, pheno_cols, variant_include, cip, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = CalcEpi(sample_include, pheno_cols, covar_cols, covar_names, variant_include, cip, variant_ids, &(pcp->epi_info), raw_sample_ct, pheno_ct, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         }
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;

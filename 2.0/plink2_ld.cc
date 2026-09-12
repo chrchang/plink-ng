@@ -35,6 +35,7 @@
 #include "plink2_decompress.h"
 #include "plink2_matrix.h"
 #include "plink2_filter.h"
+#include "plink2_glm_logistic.h"
 #include "plink2_glm_shared.h"
 #include "plink2_pvar.h"
 #include "plink2_set.h"
@@ -14161,7 +14162,213 @@ typedef struct EpiSummaryEntryStruct {
   uint32_t best_vidx;
 } EpiSummaryEntry;
 
-PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+// --epistasis-boost with covariates: the postprocessing step of Wan X et al.
+// (2010).  The screen and the log-linear fit are left alone; only the pairs
+// that clear --epi1 reach this, and those are refit by logistic regression of
+// the phenotype on genotype dummies for both variants, their products, and the
+// covariates.  The statistic is the likelihood ratio between the model
+// carrying the product terms and the one without them.
+//
+// With no covariate this would only reproduce the log-linear statistic: the
+// paper's Methods note that the homogeneous log-linear model is the equivalent
+// form of the main-effect logistic model, and the saturated one of the full
+// model.  The degrees of freedom therefore follow the same rule as the
+// log-linear fit, a genotype value with no samples costing its whole row or
+// column and leaving (r - 1) * (c - 1).
+typedef struct EpiCovarCtxStruct {
+  const double* covar_vals;
+  const uintptr_t* case_bitvec;
+  uint32_t analysis_ct;
+  uint32_t covar_ct;
+  uintptr_t max_sample_ctav;
+  uintptr_t predictor_ctav;
+  double* yy;
+  double* xx;
+  double* coef;
+  double* ll;
+  double* pp;
+  double* vv;
+  double* hh;
+  double* grad;
+  double* dcoef;
+  MatrixInvertBuf1* inv_1d_buf;
+  double* dbl_2d_buf;
+  uint32_t* nm_sample_idxs;
+  unsigned char* nm_row_levels;
+  unsigned char* nm_col_levels;
+} EpiCovarCtx;
+
+// Log-likelihood of the fitted model.  LogisticRegressionD() leaves p - y in
+// its own buffer rather than p, so this recomputes the linear predictor from
+// the coefficients.
+static double EpiCovarLoglik(const double* xx, const double* yy, const double* coef, uintptr_t sample_ctav, uint32_t sample_ct, uint32_t predictor_ct) {
+  double loglik = 0.0;
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    double eta = 0.0;
+    for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+      eta += coef[pred_idx] * xx[pred_idx * sample_ctav + sample_idx];
+    }
+    // log(1 + exp(eta)) overflows for a large positive eta, so the dominant
+    // term comes out of the logarithm.
+    if (eta > 0.0) {
+      loglik += (yy[sample_idx] - 1.0) * eta - log1p(exp(-eta));
+    } else {
+      loglik += yy[sample_idx] * eta - log1p(exp(eta));
+    }
+  }
+  return loglik;
+}
+
+// row_geno_bits and col_geno_bits are the two variants' genotype bitvector
+// triples over the analysis samples; counts is the 2x3x3 table the screen was
+// computed from, whose two groups partition those same samples.
+//
+// Returns 1 if the pair cannot be fit, in which case it is left out of the
+// report.
+// row_geno_bits and col_geno_bits are the two variants' genotype bitvector
+// triples over the analysis samples; counts is the 2x3x3 table the screen was
+// computed from, whose two groups partition those same samples.
+//
+// The two models are built separately rather than as a prefix and an
+// extension of one design, because the natural extension is not always full
+// rank: a genotype combination with no samples leaves its product term with
+// nothing to estimate.  The full model is instead the saturated one over the
+// occupied cells, which is what the log-linear fit's saturated model is too,
+// so the interaction degrees of freedom are the occupied cell count less the
+// main-effect parameters.
+//
+// Returns 1 if the pair cannot be fit, in which case it is left out of the
+// report.
+static uint32_t EpiCovarRefit(const uintptr_t* row_geno_bits, const uintptr_t* col_geno_bits, const uint32_t* counts, uint32_t analysis_ctl, EpiCovarCtx* ctx, double* stat_ptr, uint32_t* df_ptr) {
+  uint32_t row_levels[3];
+  uint32_t col_levels[3];
+  uint32_t row_level_ct = 0;
+  uint32_t col_level_ct = 0;
+  for (uint32_t geno = 0; geno != 3; ++geno) {
+    uint32_t row_tot = 0;
+    uint32_t col_tot = 0;
+    for (uint32_t other = 0; other != 3; ++other) {
+      row_tot += counts[geno * 3 + other] + counts[9 + geno * 3 + other];
+      col_tot += counts[other * 3 + geno] + counts[9 + other * 3 + geno];
+    }
+    if (row_tot) {
+      row_levels[row_level_ct++] = geno;
+    }
+    if (col_tot) {
+      col_levels[col_level_ct++] = geno;
+    }
+  }
+  if ((row_level_ct < 2) || (col_level_ct < 2)) {
+    return 1;
+  }
+  // Cell 0 is the reference; the rest get a dummy in the full model.
+  uint32_t cell_cols[3][3];
+  uint32_t occupied_ct = 0;
+  for (uint32_t row_level_idx = 0; row_level_idx != row_level_ct; ++row_level_idx) {
+    for (uint32_t col_level_idx = 0; col_level_idx != col_level_ct; ++col_level_idx) {
+      const uint32_t cell_idx = row_levels[row_level_idx] * 3 + col_levels[col_level_idx];
+      const uint32_t cell_ct = counts[cell_idx] + counts[9 + cell_idx];
+      cell_cols[row_level_idx][col_level_idx] = cell_ct? occupied_ct++ : UINT32_MAX;
+    }
+  }
+  const uint32_t covar_ct = ctx->covar_ct;
+  const uint32_t main_predictor_ct = row_level_ct + col_level_ct - 1 + covar_ct;
+  const uint32_t full_predictor_ct = occupied_ct + covar_ct;
+  if (full_predictor_ct <= main_predictor_ct) {
+    // Every remaining cell is determined by the margins, so there is no
+    // interaction left to test.
+    return 1;
+  }
+
+  // The samples of each occupied cell, in cell order, so that the design can
+  // be filled without decoding a genotype.
+  uint32_t* nm_sample_idxs = ctx->nm_sample_idxs;
+  unsigned char* nm_row_levels = ctx->nm_row_levels;
+  unsigned char* nm_col_levels = ctx->nm_col_levels;
+  uint32_t nm_ct = 0;
+  for (uint32_t row_level_idx = 0; row_level_idx != row_level_ct; ++row_level_idx) {
+    const uintptr_t* row_vec = &(row_geno_bits[row_levels[row_level_idx] * analysis_ctl]);
+    for (uint32_t col_level_idx = 0; col_level_idx != col_level_ct; ++col_level_idx) {
+      const uintptr_t* col_vec = &(col_geno_bits[col_levels[col_level_idx] * analysis_ctl]);
+      for (uint32_t widx = 0; widx != analysis_ctl; ++widx) {
+        uintptr_t cur_word = row_vec[widx] & col_vec[widx];
+        const uint32_t sample_idx_base = widx * kBitsPerWord;
+        while (cur_word) {
+          nm_sample_idxs[nm_ct] = sample_idx_base + ctzw(cur_word);
+          nm_row_levels[nm_ct] = row_level_idx;
+          nm_col_levels[nm_ct] = col_level_idx;
+          ++nm_ct;
+          cur_word &= cur_word - 1;
+        }
+      }
+    }
+  }
+  if (nm_ct <= full_predictor_ct) {
+    return 1;
+  }
+  // LogisticRegressionD() derives its own column stride from the sample count,
+  // so the design has to be laid out at that stride.
+  const uintptr_t sample_ctav = RoundUpPow2(nm_ct, kDoublePerDVec);
+  double* xx = ctx->xx;
+  double* yy = ctx->yy;
+  const double* covar_vals = ctx->covar_vals;
+  const uintptr_t covar_stride = ctx->analysis_ct;
+  ZeroDArr(sample_ctav, yy);
+  for (uint32_t sample_idx = 0; sample_idx != nm_ct; ++sample_idx) {
+    yy[sample_idx] = u31tod(IsSet(ctx->case_bitvec, nm_sample_idxs[sample_idx]));
+  }
+  const uintptr_t predictor_ctav = ctx->predictor_ctav;
+  double loglik[2];
+  const uint32_t predictor_cts[2] = {main_predictor_ct, full_predictor_ct};
+  for (uint32_t model_idx = 0; model_idx != 2; ++model_idx) {
+    const uint32_t cur_predictor_ct = predictor_cts[model_idx];
+    for (uint32_t pred_idx = 0; pred_idx != cur_predictor_ct; ++pred_idx) {
+      ZeroDArr(sample_ctav, &(xx[pred_idx * sample_ctav]));
+    }
+    // Model 0: intercept, one dummy per non-reference genotype of each
+    // variant, covariates.  Model 1: intercept, one dummy per non-reference
+    // occupied cell, covariates.
+    const uint32_t covar_col_start = cur_predictor_ct - covar_ct;
+    for (uint32_t sample_idx = 0; sample_idx != nm_ct; ++sample_idx) {
+      const uint32_t analysis_idx = nm_sample_idxs[sample_idx];
+      const uint32_t row_level_idx = nm_row_levels[sample_idx];
+      const uint32_t col_level_idx = nm_col_levels[sample_idx];
+      xx[sample_idx] = 1.0;
+      if (!model_idx) {
+        if (row_level_idx) {
+          xx[row_level_idx * sample_ctav + sample_idx] = 1.0;
+        }
+        if (col_level_idx) {
+          xx[(row_level_ct - 1 + col_level_idx) * sample_ctav + sample_idx] = 1.0;
+        }
+      } else {
+        const uint32_t cell_col = cell_cols[row_level_idx][col_level_idx];
+        if (cell_col) {
+          xx[cell_col * sample_ctav + sample_idx] = 1.0;
+        }
+      }
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+        xx[(covar_col_start + covar_idx) * sample_ctav + sample_idx] = covar_vals[covar_idx * covar_stride + analysis_idx];
+      }
+    }
+    uint32_t is_unfinished = 0;
+    ZeroDArr(predictor_ctav, ctx->coef);
+    if (LogisticRegressionD(yy, xx, nullptr, nm_ct, cur_predictor_ct, &is_unfinished, ctx->coef, ctx->ll, ctx->pp, ctx->vv, ctx->hh, ctx->grad, ctx->dcoef, ctx->inv_1d_buf, ctx->dbl_2d_buf) || is_unfinished) {
+      return 1;
+    }
+    loglik[model_idx] = EpiCovarLoglik(xx, yy, ctx->coef, sample_ctav, nm_ct, cur_predictor_ct);
+  }
+  const double stat = 2 * (loglik[1] - loglik[0]);
+  if (!std::isfinite(stat)) {
+    return 1;
+  }
+  // A perfect fit lands on zero from either side.
+  *stat_ptr = MAXV(stat, 0.0);
+  *df_ptr = full_predictor_ct - main_predictor_ct;
+  return 0;
+}
+
+PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const EpiInfo* epi_ip, uint32_t raw_sample_ct, uint32_t pheno_ct, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, double output_min_ln, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   char* cswritetp = nullptr;
@@ -14197,15 +14404,31 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
     }
     const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+
+    // A sample missing a covariate is left out of the whole scan, not just of
+    // the covariate-adjusted refit, so that the screen and the refit are over
+    // the same samples; this is what --glm does with a missing covariate.
+    uintptr_t* analysis_include;
     uintptr_t* case_include;
     uintptr_t* ctrl_include;
-    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &case_include) ||
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &analysis_include) ||
+                 bigstack_alloc_w(raw_sample_ctl, &case_include) ||
                  bigstack_alloc_w(raw_sample_ctl, &ctrl_include))) {
       goto CalcEpi_ret_NOMEM;
     }
-    BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, ctrl_include);
+    BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, analysis_include);
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+      const PhenoCol* cur_covar_col = &(covar_cols[covar_idx]);
+      if (unlikely(cur_covar_col->type_code == kPhenoDtypeCat)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --epistasis-boost does not support categorical covariates yet ('%s').  Split it into binary covariates with --split-cat-pheno first.\n", &(covar_names[covar_idx * max_covar_name_blen]));
+        goto CalcEpi_ret_INCONSISTENT_INPUT_WW;
+      }
+      BitvecAnd(cur_covar_col->nonmiss, raw_sample_ctl, analysis_include);
+    }
+    memcpy(ctrl_include, analysis_include, raw_sample_ctl * sizeof(intptr_t));
     BitvecAndCopy(ctrl_include, cur_pheno_col->data.cc, raw_sample_ctl, case_include);
     BitvecInvmask(case_include, raw_sample_ctl, ctrl_include);
+    const uint32_t analysis_ct = PopcountWords(analysis_include, raw_sample_ctl);
     const uint32_t case_ct = PopcountWords(case_include, raw_sample_ctl);
     const uint32_t ctrl_ct = PopcountWords(ctrl_include, raw_sample_ctl);
     if (unlikely(case_ct < 2)) {
@@ -14216,13 +14439,64 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
       logerrputs("Error: --epistasis-boost requires at least 2 controls.\n");
       goto CalcEpi_ret_DEGENERATE_DATA;
     }
+    // The covariates are stored one column at a time, since the refit walks a
+    // single covariate across the samples of one pair.
+    double* covar_vals = nullptr;
+    if (covar_ct) {
+      if (unlikely(bigstack_alloc_d(S_CAST(uintptr_t, analysis_ct) * covar_ct, &covar_vals))) {
+        goto CalcEpi_ret_NOMEM;
+      }
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t analysis_include_bits = analysis_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != analysis_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(analysis_include, &sample_uidx_base, &analysis_include_bits);
+        for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+          const PhenoCol* cur_covar_col = &(covar_cols[covar_idx]);
+          const double cur_val = (cur_covar_col->type_code == kPhenoDtypeQt)? cur_covar_col->data.qt[sample_uidx] : u31tod(IsSet(cur_covar_col->data.cc, sample_uidx));
+          covar_vals[covar_idx * S_CAST(uintptr_t, analysis_ct) + sample_idx] = cur_val;
+        }
+      }
+    }
+    // A covariate that is constant across the analysis samples is collinear
+    // with the intercept, so it is dropped rather than left to make every fit
+    // fail, as in --glm.
+    uint32_t cur_covar_ct = 0;
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+      const double* cur_col = &(covar_vals[covar_idx * S_CAST(uintptr_t, analysis_ct)]);
+      const double first_val = cur_col[0];
+      uint32_t sample_idx = 1;
+      for (; sample_idx != analysis_ct; ++sample_idx) {
+        if (cur_col[sample_idx] != first_val) {
+          break;
+        }
+      }
+      if (sample_idx == analysis_ct) {
+        logerrprintf("Warning: Excluding constant covariate '%s' from --epistasis-boost.\n", &(covar_names[covar_idx * max_covar_name_blen]));
+        continue;
+      }
+      if (cur_covar_ct != covar_idx) {
+        memcpy(&(covar_vals[cur_covar_ct * S_CAST(uintptr_t, analysis_ct)]), cur_col, analysis_ct * sizeof(double));
+      }
+      ++cur_covar_ct;
+    }
+    // With no covariate left there is nothing for the refit to adjust for, and
+    // the logistic likelihood ratio would only reproduce the log-linear fit,
+    // so the screen-and-fit path is used unchanged.
+    const uint32_t covar_refit = (cur_covar_ct != 0);
+
     const uint32_t group_ct = 2;
-    const uint32_t group_cts[2] = {case_ct, ctrl_ct};
-    const uintptr_t* group_includes[2] = {case_include, ctrl_include};
+    const uint32_t group_cts[3] = {case_ct, ctrl_ct, analysis_ct};
+    const uintptr_t* group_includes[3] = {case_include, ctrl_include, analysis_include};
     const uint32_t case_ctl = BitCtToWordCt(case_ct);
     const uint32_t ctrl_ctl = BitCtToWordCt(ctrl_ct);
-    const uint32_t group_ctls[2] = {case_ctl, ctrl_ctl};
-    const uintptr_t words_per_variant = 3 * S_CAST(uintptr_t, case_ctl + ctrl_ctl);
+    const uint32_t analysis_ctl = BitCtToWordCt(analysis_ct);
+    // The refit needs each variant's genotypes over the analysis samples, not
+    // split by phenotype, so a third bitvector triple is loaded alongside the
+    // two the 2x3x3 table is counted from.  It is only allocated when there is
+    // a covariate to adjust for.
+    const uint32_t load_group_ct = group_ct + covar_refit;
+    const uint32_t group_ctls[3] = {case_ctl, ctrl_ctl, analysis_ctl};
+    const uintptr_t words_per_variant = 3 * (S_CAST(uintptr_t, case_ctl + ctrl_ctl) + (covar_refit? analysis_ctl : 0));
 
     // Non-autosomal variants are left out, as in PLINK 1.x.
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
@@ -14253,12 +14527,6 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
     // set rather than group by group, as in PLINK 1.x.  An empty genotype row
     // or column within a group is not degenerate here: it costs two degrees
     // of freedom instead.
-    uintptr_t* analysis_include;
-    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &analysis_include))) {
-      goto CalcEpi_ret_NOMEM;
-    }
-    BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, analysis_include);
-    const uint32_t analysis_ct = PopcountWords(analysis_include, raw_sample_ctl);
     uint32_t* sample_include_cumulative_popcounts[3];
     PgrSampleSubsetIndex pssis[3];
     for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
@@ -14368,6 +14636,48 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
       recip_cache[uii] = 1.0 / u31tod(uii);
     }
 
+    // The refit's workspace, claimed before the variant blocks take what is
+    // left of bigstack.
+    EpiCovarCtx covar_ctx;
+    if (covar_refit) {
+      // Intercept, up to two dummies per variant, up to four products, and the
+      // covariates.
+      const uint32_t max_predictor_ct = 9 + cur_covar_ct;
+      const uintptr_t max_sample_ctav = RoundUpPow2(analysis_ct, kDoublePerDVec);
+      const uintptr_t predictor_ctav = RoundUpPow2(max_predictor_ct, kDoublePerDVec);
+      covar_ctx.covar_vals = covar_vals;
+      covar_ctx.case_bitvec = nullptr;
+      covar_ctx.analysis_ct = analysis_ct;
+      covar_ctx.covar_ct = cur_covar_ct;
+      covar_ctx.max_sample_ctav = max_sample_ctav;
+      covar_ctx.predictor_ctav = predictor_ctav;
+      covar_ctx.inv_1d_buf = S_CAST(MatrixInvertBuf1*, bigstack_alloc(max_predictor_ct * kMatrixInvertBuf1CheckedAlloc));
+      if (unlikely((!covar_ctx.inv_1d_buf) ||
+                   bigstack_alloc_d(max_sample_ctav, &covar_ctx.yy) ||
+                   bigstack_alloc_d(max_sample_ctav * max_predictor_ct, &covar_ctx.xx) ||
+                   bigstack_alloc_d(predictor_ctav, &covar_ctx.coef) ||
+                   bigstack_alloc_d(predictor_ctav * max_predictor_ct, &covar_ctx.ll) ||
+                   bigstack_alloc_d(max_sample_ctav, &covar_ctx.pp) ||
+                   bigstack_alloc_d(max_sample_ctav, &covar_ctx.vv) ||
+                   bigstack_alloc_d(predictor_ctav * max_predictor_ct, &covar_ctx.hh) ||
+                   bigstack_alloc_d(predictor_ctav, &covar_ctx.grad) ||
+                   bigstack_alloc_d(predictor_ctav, &covar_ctx.dcoef) ||
+                   bigstack_alloc_d(max_predictor_ct * MAXV(max_predictor_ct, 7), &covar_ctx.dbl_2d_buf) ||
+                   bigstack_alloc_u32(analysis_ct, &covar_ctx.nm_sample_idxs) ||
+                   bigstack_alloc_uc(analysis_ct, &covar_ctx.nm_row_levels) ||
+                   bigstack_alloc_uc(analysis_ct, &covar_ctx.nm_col_levels))) {
+        goto CalcEpi_ret_NOMEM;
+      }
+      // The refit indexes its phenotype by analysis-sample index, so the
+      // case set is needed in those coordinates rather than the raw ones.
+      uintptr_t* case_collapsed;
+      if (unlikely(bigstack_alloc_w(analysis_ctl, &case_collapsed))) {
+        goto CalcEpi_ret_NOMEM;
+      }
+      CopyBitarrSubset(case_include, analysis_include, analysis_ct, case_collapsed);
+      covar_ctx.case_bitvec = case_collapsed;
+    }
+
     // Two variant blocks are held at once: the rows, and the columns they are
     // being tested against.  Everything to the right of a row has to be
     // reachable, so the column block sweeps the whole range each time the row
@@ -14471,6 +14781,7 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
       pair_ct_total += variant_ct - row_idx - 1;
     }
     uint64_t pairs_reported = 0;
+    uint64_t refit_fail_ct = 0;
     fputs("--epistasis-boost: 0%", stdout);
     fflush(stdout);
     uint64_t next_print_pair = pair_ct_total / 100;
@@ -14482,7 +14793,7 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
       const uint32_t cur_row_ct = row_block_end - row_block_start;
       for (uint32_t slot_idx = 0; slot_idx != cur_row_ct; ++slot_idx) {
         uintptr_t* dst = &(row_bits[slot_idx * words_per_variant]);
-        for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
+        for (uint32_t group_idx = 0; group_idx != load_group_ct; ++group_idx) {
           PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[group_idx], simple_pgrp, &(pssis[group_idx]));
           reterr = PgrGet(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidxs[row_block_start + slot_idx], simple_pgrp, genovec);
           if (unlikely(reterr)) {
@@ -14498,7 +14809,7 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
         const uint32_t cur_col_ct = col_block_end - col_block_start;
         for (uint32_t slot_idx = 0; slot_idx != cur_col_ct; ++slot_idx) {
           uintptr_t* dst = &(col_bits[slot_idx * words_per_variant]);
-          for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
+          for (uint32_t group_idx = 0; group_idx != load_group_ct; ++group_idx) {
             PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts[group_idx], simple_pgrp, &(pssis[group_idx]));
             reterr = PgrGet(group_includes[group_idx], pssis[group_idx], group_cts[group_idx], variant_uidxs[col_block_start + slot_idx], simple_pgrp, genovec);
             if (unlikely(reterr)) {
@@ -14544,7 +14855,24 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
               continue;
             }
             const uint32_t is_sig = (chisq >= alpha2sq[df_adj]);
-            const uint32_t report_df = 4 >> df_adj;
+            uint32_t report_df = 4 >> df_adj;
+            if (do_report && covar_refit) {
+              // The covariate-adjusted statistic replaces the log-linear one.
+              // The screen is what the summary is built from, so it is left
+              // alone, and a pair the refit cannot fit still counts towards
+              // N_TOT: it was tested, it just has no adjusted statistic to
+              // report.
+              const uintptr_t analysis_offset = 3 * S_CAST(uintptr_t, case_ctl + ctrl_ctl);
+              double adj_stat;
+              uint32_t adj_df;
+              if (EpiCovarRefit(&(row_slot[analysis_offset]), &(col_slot[analysis_offset]), counts, analysis_ctl, &covar_ctx, &adj_stat, &adj_df)) {
+                ++refit_fail_ct;
+                do_report = 0;
+              } else {
+                report_stat = adj_stat;
+                report_df = adj_df;
+              }
+            }
             if (do_report) {
               // A perfect fit lands on zero from either side; the p-value of a
               // negative statistic is the p-value of zero.
@@ -14605,6 +14933,12 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
     }
     fputs("\b\b\b", stdout);
     logprintf("--epistasis-boost: %" PRIu64 " pair%s tested, %" PRIu64 " written to %s .\n", pairs_seen, (pairs_seen == 1)? "" : "s", pairs_reported, outname);
+    if (covar_refit) {
+      logprintf("--epistasis-boost: STAT/DF/P adjusted for %u covariate%s; BEST_CHISQ and N_SIG\nare not.\n", cur_covar_ct, (cur_covar_ct == 1)? "" : "s");
+      if (refit_fail_ct) {
+        logprintfww("Warning: %" PRIu64 " pair%s left out of the report because the covariate-adjusted fit did not converge.\n", refit_fail_ct, (refit_fail_ct == 1)? "" : "s");
+      }
+    }
     (void)pairs_done;
 
     // Summary report: one row per variant with a tested pair.
@@ -14667,6 +15001,9 @@ PglErr CalcEpi(const uintptr_t* orig_sample_include, const PhenoCol* pheno_cols,
   CalcEpi_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
+  CalcEpi_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
   CalcEpi_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
