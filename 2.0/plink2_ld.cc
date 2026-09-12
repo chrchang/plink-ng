@@ -13452,11 +13452,13 @@ PglErr LdScore(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
 void InitTwolocus(TwolocusInfo* tlip) {
   tlip->mkr1 = nullptr;
   tlip->mkr2 = nullptr;
+  tlip->pheno_name = nullptr;
 }
 
 void CleanupTwolocus(TwolocusInfo* tlip) {
   free_cond(tlip->mkr1);
   free_cond(tlip->mkr2);
+  free_cond(tlip->pheno_name);
 }
 
 void InitTag(TagInfo* tip) {
@@ -13892,7 +13894,7 @@ PglErr ShowTags(const uintptr_t* orig_variant_include, const ChrInfo* cip, const
 // fixed-width output anywhere else, so this is a table instead, and the
 // marginals are left to the reader since every count that produces them is
 // present.
-PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* mkr1, const char* mkr2, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const PhenoCol* pheno_cols, const char* pheno_names, const TwolocusInfo* tlip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t variant_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -13900,8 +13902,8 @@ PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_
   PglErr reterr = kPglRetSuccess;
   {
     const char* mkr_names[2];
-    mkr_names[0] = mkr1;
-    mkr_names[1] = mkr2;
+    mkr_names[0] = tlip->mkr1;
+    mkr_names[1] = tlip->mkr2;
     // Two IDs to resolve, so a linear scan is cheaper than standing up a hash
     // table; it also catches duplicate IDs, which the report cannot resolve.
     uint32_t variant_uidxs[2] = {UINT32_MAX, UINT32_MAX};
@@ -13988,11 +13990,115 @@ PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_
       }
     }
 
-    // PLINK 1.x always splits on the case/control phenotype, but several
-    // phenotypes may be loaded here, so guessing which one to split on would
-    // be wrong as often as not.  Until the command takes a phenotype name,
-    // report a single table over all samples.
-    const uint32_t group_ct = 1;
+    // PLINK 1.x always splits on the case/control phenotype.  Several
+    // phenotypes may be loaded here, so the one to split on is named
+    // explicitly; without a name there is a single table over all samples.
+    // A binary phenotype becomes a two-category one, so both kinds are
+    // reported the same way: one table per category, after the ALL table.
+    const char* pheno_name = tlip->pheno_name;
+    const char** group_names;
+    uint32_t* sample_group_idxs = nullptr;
+    uint32_t group_ct = 1;
+    if (!pheno_name) {
+      if (unlikely(bigstack_alloc_kcp(1, &group_names))) {
+        goto TwolocusReport_ret_NOMEM;
+      }
+      group_names[0] = "ALL";
+    } else {
+      const PhenoCol* pheno_col;
+      {
+        const uint32_t pheno_blen = strlen(pheno_name) + 1;
+        if (unlikely(pheno_blen > max_pheno_name_blen)) {
+          goto TwolocusReport_ret_PHENO_NOT_FOUND;
+        }
+        for (uintptr_t pheno_idx = 0; ; ++pheno_idx) {
+          if (unlikely(pheno_idx == pheno_ct)) {
+            goto TwolocusReport_ret_PHENO_NOT_FOUND;
+          }
+          if (memequal(pheno_name, &(pheno_names[pheno_idx * max_pheno_name_blen]), pheno_blen)) {
+            pheno_col = &(pheno_cols[pheno_idx]);
+            break;
+          }
+        }
+      }
+      if (unlikely(pheno_col->type_code == kPhenoDtypeQt)) {
+        logerrprintfww("Error: --twolocus phenotype '%s' is quantitative (binary or categorical required).\n", pheno_name);
+        goto TwolocusReport_ret_INCONSISTENT_INPUT;
+      }
+      // Recode a binary phenotype as a two-category one, the way --fst does,
+      // so the grouping below only has to handle categories.
+      const uint32_t* sample_cats;
+      const char* const* category_names;
+      uint32_t nonnull_category_ct;
+      if (pheno_col->type_code == kPhenoDtypeCat) {
+        sample_cats = pheno_col->data.cat;
+        category_names = pheno_col->category_names;
+        nonnull_category_ct = pheno_col->nonnull_category_ct;
+      } else {
+        assert(pheno_col->type_code == kPhenoDtypeCc);
+        uint32_t* cat_tmp;
+        const char** cc_names;
+        if (unlikely(bigstack_calloc_u32(raw_sample_ct, &cat_tmp) ||
+                     bigstack_alloc_kcp(3, &cc_names))) {
+          goto TwolocusReport_ret_NOMEM;
+        }
+        const uintptr_t* pheno_nm = pheno_col->nonmiss;
+        const uintptr_t* pheno_cc = pheno_col->data.cc;
+        for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+          if (IsSet(pheno_nm, sample_uidx)) {
+            cat_tmp[sample_uidx] = 2 - IsSet(pheno_cc, sample_uidx);
+          }
+        }
+        // Same spellings --fst uses; 'CASE' sorts before 'CONTROL'.
+        cc_names[0] = nullptr;
+        cc_names[1] = "CASE";
+        cc_names[2] = "CONTROL";
+        sample_cats = cat_tmp;
+        category_names = cc_names;
+        nonnull_category_ct = 2;
+      }
+      // Only categories some included sample actually falls in get a table.
+      const uint32_t cat_ctl = BitCtToWordCt(nonnull_category_ct + 1);
+      uintptr_t* cats_seen;
+      uint32_t* cat_to_group;
+      if (unlikely(bigstack_calloc_w(cat_ctl, &cats_seen) ||
+                   bigstack_calloc_u32(nonnull_category_ct + 1, &cat_to_group) ||
+                   bigstack_alloc_u32(sample_ct, &sample_group_idxs))) {
+        goto TwolocusReport_ret_NOMEM;
+      }
+      {
+        uintptr_t sample_uidx_base = 0;
+        uintptr_t cur_bits = sample_include[0];
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+          const uint32_t cat_idx = IsSet(pheno_col->nonmiss, sample_uidx)? sample_cats[sample_uidx] : 0;
+          sample_group_idxs[sample_idx] = cat_idx;
+          if (cat_idx) {
+            SetBit(cat_idx, cats_seen);
+          }
+        }
+      }
+      group_ct = 1 + PopcountWords(cats_seen, cat_ctl);
+      if (unlikely(bigstack_alloc_kcp(group_ct, &group_names))) {
+        goto TwolocusReport_ret_NOMEM;
+      }
+      group_names[0] = "ALL";
+      {
+        uint32_t group_idx = 1;
+        uintptr_t cat_base = 0;
+        uintptr_t cur_bits = cats_seen[0];
+        for (uint32_t uii = 1; uii != group_ct; ++uii) {
+          const uint32_t cat_idx = BitIter1(cats_seen, &cat_base, &cur_bits);
+          cat_to_group[cat_idx] = group_idx;
+          group_names[group_idx] = category_names[cat_idx];
+          ++group_idx;
+        }
+      }
+      // Samples with no value for this phenotype stay in ALL only.
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        sample_group_idxs[sample_idx] = cat_to_group[sample_group_idxs[sample_idx]];
+      }
+    }
     // [group][geno1 * geno_cts[1] + geno2]
     const uintptr_t cells_per_group = S_CAST(uintptr_t, geno_cts[0]) * geno_cts[1];
     uint64_t* counts;
@@ -14000,7 +14106,14 @@ PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_
       goto TwolocusReport_ret_NOMEM;
     }
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      counts[geno_idxs[0][sample_idx] * S_CAST(uintptr_t, geno_cts[1]) + geno_idxs[1][sample_idx]] += 1;
+      const uintptr_t cell = geno_idxs[0][sample_idx] * S_CAST(uintptr_t, geno_cts[1]) + geno_idxs[1][sample_idx];
+      counts[cell] += 1;
+      if (sample_group_idxs) {
+        const uint32_t group_idx = sample_group_idxs[sample_idx];
+        if (group_idx) {
+          counts[group_idx * cells_per_group + cell] += 1;
+        }
+      }
     }
 
     const uintptr_t allele_idx_offset_bases[2] = {
@@ -14015,7 +14128,6 @@ PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_
     }
     cswritep = strcpya_k(cswritep, "#GROUP\tID1\tGT1\tID2\tGT2\tCT\tFREQ");
     AppendBinaryEoln(&cswritep);
-    const char* group_names[3] = {"ALL", "CASE", "CTRL"};
     // Genotype index geno_cts[i] - 1 is the missing call; the rest decode
     // back to the allele pair (lo, hi) they were built from.
     for (uint32_t group_idx = 0; group_idx != group_ct; ++group_idx) {
@@ -14061,7 +14173,7 @@ PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto TwolocusReport_ret_WRITE_FAIL;
     }
-      logprintfww("--twolocus: Joint genotype counts for '%s' and '%s' written to %s .\n", mkr1, mkr2, outname);
+      logprintfww("--twolocus: Joint genotype counts for '%s' and '%s' written to %s .\n", tlip->mkr1, tlip->mkr2, outname);
   }
   while (0) {
   TwolocusReport_ret_NOMEM:
@@ -14069,6 +14181,10 @@ PglErr TwolocusReport(const uintptr_t* sample_include, const uintptr_t* variant_
     break;
   TwolocusReport_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
+    break;
+  TwolocusReport_ret_PHENO_NOT_FOUND:
+    logerrprintfww("Error: --twolocus phenotype '%s' not found.\n", tlip->pheno_name);
+    reterr = kPglRetInconsistentInput;
     break;
   TwolocusReport_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;

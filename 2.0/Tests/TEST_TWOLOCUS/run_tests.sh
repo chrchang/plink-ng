@@ -79,3 +79,34 @@ if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --twolocus zs b5v2 b5v9 --out 
     echo "--twolocus still accepts 'zs'"
     exit 1
 fi
+
+# 9. A named phenotype adds one table per category after ALL.
+printf '#FID\tIID\tCC\tCAT\tQT\n' > tmp_ph.txt
+awk '{print $1, $2, ((NR % 3)? 2 : 1), ("grp" (NR % 3)), (NR % 7)}' OFS='\t' tmp_data.fam >> tmp_ph.txt
+
+# Binary: CASE/CONTROL, as PLINK 1.x reports but only when asked.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_ph.txt --twolocus b0v0 b0v3 CC --out plink2_cc
+test "$(awk '!/^#/ {print $1}' plink2_cc.twolocus | sort -u | tr -d '\n')" = "ALLCASECONTROL"
+
+# Categorical: one table per observed category.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_ph.txt --twolocus b0v0 b0v3 CAT --out plink2_cat
+test "$(awk '!/^#/ {print $1}' plink2_cat.twolocus | sort -u | tr -d '\n')" = "ALLgrp0grp1grp2"
+
+# The category tables partition ALL, so their counts have to add back up.
+awk '!/^#/ {s[$1] += $6}
+     END {if (s["ALL"] != s["grp0"] + s["grp1"] + s["grp2"]) {
+            print "category counts do not sum to ALL"; exit 1}}' plink2_cat.twolocus
+# ...and the ALL table is the same one the no-phenotype run produces.
+$BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_ph.txt --twolocus b0v0 b0v3 --out plink2_noph
+diff -q <(awk '!/^#/ && $1 == "ALL"' plink2_cat.twolocus) <(awk '!/^#/ && $1 == "ALL"' plink2_noph.twolocus)
+
+# 10. A quantitative phenotype has no categories, and an unknown name is not
+#     silently ignored.
+if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_ph.txt --twolocus b0v0 b0v3 QT --out plink2_bad > /dev/null 2>&1; then
+    echo "quantitative phenotype accepted"
+    exit 1
+fi
+if $BUILD/plink2 $EXTRA1 $EXTRA2 --bfile tmp_data --pheno tmp_ph.txt --twolocus b0v0 b0v3 NOSUCH --out plink2_bad > /dev/null 2>&1; then
+    echo "unknown phenotype name accepted"
+    exit 1
+fi
