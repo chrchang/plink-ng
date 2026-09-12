@@ -106,13 +106,69 @@ diff -q plink2_nop.epi.cc plink2_fenop.epi.cc
 fails $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis --epi1 1 --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis zs --epi1 1 --out plink2_bad
 
-# 12. Rejected: the retired tests, the modifiers that need variant sets, and
-#     the flag dependencies.
+# 12. Rejected: the retired tests and the flag dependencies.
 fails $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis boost case-only --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis boost no-ueki --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --fast-epistasis boost joint-effects --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost case-only --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost boost --out plink2_bad
-fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost set-by-set --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epi1 0.01 --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost --gap 100 --out plink2_bad
+
+# 13. The set modes, which PLINK 1.9 also has, so they are checked against it.
+#     setA is 40 variants on the first chromosome, setB 30 on the second.
+{
+    printf 'setA\n'
+    awk 'NR <= 40 {print $2}' tmp_data.bim
+    printf 'END\n\nsetB\n'
+    awk 'NR > 200 && NR <= 230 {print $2}' tmp_data.bim
+    printf 'END\n'
+} > tmp_sets.txt
+
+# 13a. One set: every pair inside it, which is still a triangle.
+plink --bfile tmp_data --set tmp_sets.txt --set-names setA --fast-epistasis boost set-by-set --epi1 1 --out plink19_sbs
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis-boost set-by-set --epi1 1 --out plink2_sbs
+compare plink19_sbs.epi.cc plink2_sbs.epi.cc
+test "$(grep -vc '^#' plink2_sbs.epi.cc)" -eq 780
+
+# 13b. Two sets: every ordered pair across them.
+plink --bfile tmp_data --set tmp_sets.txt --fast-epistasis boost set-by-set --epi1 1 --out plink19_2s
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis-boost set-by-set --epi1 1 --out plink2_2s
+compare plink19_2s.epi.cc plink2_2s.epi.cc
+test "$(grep -vc '^#' plink2_2s.epi.cc)" -eq 1200
+
+# 13c. set-by-all: the set against every variant, minus the self-pairs.
+plink --bfile tmp_data --set tmp_sets.txt --set-names setA --fast-epistasis boost set-by-all --epi1 1 --out plink19_sba
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis-boost set-by-all --epi1 1 --out plink2_sba
+compare plink19_sba.epi.cc plink2_sba.epi.cc
+test "$(grep -vc '^#' plink2_sba.epi.cc)" -eq 23960
+
+# 14. --parallel splits the row list in both modes, and the chunks concatenate.
+for i in 1 2 3
+do
+    $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis-boost set-by-all --epi1 1 --parallel $i 3 --out plink2_sbap$i
+done
+cat plink2_sbap1.epi.cc.1 plink2_sbap2.epi.cc.2 plink2_sbap3.epi.cc.3 > plink2_sbap.epi.cc
+diff -q plink2_sba.epi.cc plink2_sbap.epi.cc
+for i in 1 2 3
+do
+    $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names setA --epistasis-boost set-by-set --epi1 1 --parallel $i 3 --out plink2_sbsp$i
+done
+cat plink2_sbsp1.epi.cc.1 plink2_sbsp2.epi.cc.2 plink2_sbsp3.epi.cc.3 > plink2_sbsp.epi.cc
+diff -q plink2_sbs.epi.cc plink2_sbsp.epi.cc
+
+# 15. A variant filter takes variants out of the sets, so the row count follows.
+printf 'common_0\ncommon_1\n' > tmp_set_exclude.txt
+$1/plink2 $2 $3 --bfile tmp_data --exclude tmp_set_exclude.txt --set tmp_sets.txt --set-names setA --epistasis-boost set-by-set --epi1 1 --out plink2_sbsf
+test "$(grep -vc '^#' plink2_sbsf.epi.cc)" -eq 703
+
+# 16. Rejected: a set mode with no --set, the two modes together, set-by-all
+#     with more than one set, and set-by-set with more than two.
+fails $1/plink2 $2 $3 --bfile tmp_data --epistasis-boost set-by-set --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis-boost set-by-set set-by-all --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --epistasis-boost set-by-all --out plink2_bad
+{
+    cat tmp_sets.txt
+    printf '\nsetC\ncommon_5\nEND\n'
+} > tmp_three.txt
+fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_three.txt --epistasis-boost set-by-set --out plink2_bad
