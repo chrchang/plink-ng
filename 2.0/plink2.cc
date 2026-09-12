@@ -235,6 +235,8 @@ ENUM_U31_DEF_START()
   kCmd1BitDistance,
   kCmd1BitTestMissing,
   kCmd1BitShowTags,
+  kCmd1BitEpi,
+  kCmd1BitWriteSet,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -279,7 +281,9 @@ FLAGSET64_DEF_START()
   kfCommand1Twolocus = (1LLU << kCmd1BitTwolocus),
   kfCommand1Distance = (1LLU << kCmd1BitDistance),
   kfCommand1TestMissing = (1LLU << kCmd1BitTestMissing),
-  kfCommand1ShowTags = (1LLU << kCmd1BitShowTags)
+  kfCommand1ShowTags = (1LLU << kCmd1BitShowTags),
+  kfCommand1Epi = (1LLU << kCmd1BitEpi),
+  kfCommand1WriteSet = (1LLU << kCmd1BitWriteSet)
 FLAGSET64_DEF_END(Command1Flags);
 
 // The shape and encoding modifiers are mutually exclusive within each group,
@@ -502,6 +506,8 @@ typedef struct Plink2CmdlineStruct {
   ClumpInfo clump_info;
   VcorInfo vcor_info;
   TwolocusInfo twolocus_info;
+  EpiInfo epi_info;
+  SetInfo set_info;
   TagInfo tag_info;
   LdScoreInfo ld_score_info;
   PhenoSvdInfo pheno_svd_info;
@@ -644,7 +650,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_ln_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff | kfCommand1Clump | kfCommand1Vcor | kfCommand1LdScore | kfCommand1FlipScan | kfCommand1Homozyg | kfCommand1Twolocus | kfCommand1Distance | kfCommand1TestMissing | kfCommand1ShowTags | kfCommand1Epi)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -3182,6 +3188,29 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
       }
+      // Sets index the filtered variant space, so they are defined once
+      // every variant filter has been applied, and before the commands that
+      // take them.
+      VariantSets variant_sets;
+      variant_sets.set_ct = 0;
+      if (pcp->set_info.fname) {
+        reterr = DefineSets(&(pcp->set_info), variant_include, variant_ids, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->max_thread_ct, &variant_sets);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+      if (pcp->command_flags1 & kfCommand1Epi) {
+        reterr = CalcEpi(sample_include, pheno_cols, variant_include, cip, variant_ids, &(pcp->epi_info), &variant_sets, raw_sample_ct, pheno_ct, raw_variant_ct, variant_ct, pcp->output_min_ln, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+      if (pcp->command_flags1 & kfCommand1WriteSet) {
+        reterr = WriteSetList(&variant_sets, variant_include, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
       if (pcp->command_flags1 & kfCommand1ShowTags) {
         if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
           logerrputs("Error: --show-tags requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -3495,6 +3524,40 @@ PglErr Alloc2col(const char* const* sources, const char* flagname_p, uint32_t pa
 }
 
 // flagname_p only needed when check_file_existence true
+// --epistasis-boost's modifiers.  --fast-epistasis is accepted as a synonym
+// when its 'boost' modifier is named, so that modifier is allowed through
+// there and rejected here.
+PglErr ParseEpiBoostModifiers(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t accept_boost, EpiFlags* flags_ptr) {
+  EpiFlags flags = *flags_ptr;
+  for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
+    const char* cur_modif = sources[param_idx];
+    const uint32_t cur_modif_slen = strlen(cur_modif);
+    if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+      flags |= kfEpiZs;
+    } else if (strequal_k(cur_modif, "nop", cur_modif_slen)) {
+      flags |= kfEpiNoP;
+    } else if (accept_boost && strequal_k(cur_modif, "boost", cur_modif_slen)) {
+      // The test selector, already found by the caller.
+    } else if (unlikely(strequal_k(cur_modif, "case-only", cur_modif_slen) || strequal_k(cur_modif, "no-ueki", cur_modif_slen) || strequal_k(cur_modif, "joint-effects", cur_modif_slen))) {
+      logerrprintfww("Error: --%s: '%s' only applies to PLINK 1.9's retired --fast-epistasis tests.\n", flagname_p, cur_modif);
+      return kPglRetInvalidCmdline;
+    } else if (strequal_k(cur_modif, "set-by-set", cur_modif_slen)) {
+      flags |= kfEpiSetBySet;
+    } else if (strequal_k(cur_modif, "set-by-all", cur_modif_slen)) {
+      flags |= kfEpiSetByAll;
+    } else {
+      logerrprintfww("Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+      return kPglRetInvalidCmdline;
+    }
+  }
+  if (unlikely((flags & (kfEpiSetBySet | kfEpiSetByAll)) == (kfEpiSetBySet | kfEpiSetByAll))) {
+    logerrprintf("Error: --%s's 'set-by-set' and 'set-by-all' modifiers cannot be used together.\n", flagname_p);
+    return kPglRetInvalidCmdline;
+  }
+  *flags_ptr = flags;
+  return kPglRetSuccess;
+}
+
 PglErr AllocAndFlattenCommaDelimEx(const char* const* sources, const char* flagname_p, uint32_t param_ct, uint32_t check_file_existence, char** flattened_buf_ptr) {
   uint32_t tot_blen = 1;
   for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
@@ -4052,6 +4115,8 @@ int main(int argc, char** argv) {
   InitClump(&pc.clump_info);
   InitVcor(&pc.vcor_info);
   InitTwolocus(&pc.twolocus_info);
+  InitEpi(&pc.epi_info);
+  InitSet(&pc.set_info);
   InitTag(&pc.tag_info);
   InitLdScore(&pc.ld_score_info);
   InitPhenoSvd(&pc.pheno_svd_info);
@@ -4476,6 +4541,9 @@ int main(int argc, char** argv) {
     uint32_t delete_pmerge_result = 0;
     uint32_t aperm_present = 0;
     uint32_t clump_log10_p1_present = 0;
+    // --epi1/--epi2 sort before --epistasis-boost, so the flag they depend on
+    // has not been seen yet when they are parsed.
+    uint32_t epi_thresh_present = 0;
     uint32_t clump_log10_p2_present = 0;
     uint32_t score_col_nums_present = 0;
     uint32_t r2_required = 0;
@@ -6164,7 +6232,31 @@ int main(int argc, char** argv) {
         break;
 
       case 'e':
-        if (strequal_k_unsafe(flagname_p2, "xtract")) {
+        if (strequal_k_unsafe(flagname_p2, "pi1") || strequal_k_unsafe(flagname_p2, "pi2")) {
+          epi_thresh_present = 1;
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx <= 0.0) || (dxx > 1.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (flagname_p2[2] == '1') {
+            pc.epi_info.epi1 = dxx;
+          } else {
+            pc.epi_info.epi2 = dxx;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "pistasis-boost")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(ParseEpiBoostModifiers(&(argvk[arg_idx + 1]), flagname_p, param_ct, 0, &pc.epi_info.flags))) {
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.command_flags1 |= kfCommand1Epi;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "xtract")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6700,7 +6792,31 @@ int main(int argc, char** argv) {
         break;
 
       case 'f':
-        if (strequal_k_unsafe(flagname_p2, "req")) {
+        if (strequal_k_unsafe(flagname_p2, "ast-epistasis")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          // Only the 'boost' test is kept, so --fast-epistasis is accepted as
+          // a synonym for --epistasis-boost when 'boost' is named, and
+          // rejected otherwise.
+          uint32_t boost_found = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            if (strequal_k(cur_modif, "boost", strlen(cur_modif))) {
+              boost_found = 1;
+              break;
+            }
+          }
+          if (unlikely(!boost_found)) {
+            logerrputs("Error: --fast-epistasis's default test has been retired.  Use --epistasis-boost\nfor the BOOST test.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(ParseEpiBoostModifiers(&(argvk[arg_idx + 1]), flagname_p, param_ct, 1, &pc.epi_info.flags))) {
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.command_flags1 |= kfCommand1Epi;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "req")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -12311,7 +12427,45 @@ int main(int argc, char** argv) {
         break;
 
       case 's':
-        if (strequal_k_unsafe(flagname_p2, "how-tags")) {
+        if (strequal_k_unsafe(flagname_p2, "et")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.set_info.fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "et-collapse-all")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          // --set sorts first, so its presence can be checked here.
+          if (unlikely(!pc.set_info.fname)) {
+            logerrputs("Error: --set-collapse-all must be used with --set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(strlen(argvk[arg_idx + 1]) >= kMaxIdSlen)) {
+            logerrputs("Error: --set-collapse-all set name too long.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          reterr = CmdlineAllocString(argvk[arg_idx + 1], argvk[arg_idx], kMaxIdSlen, &pc.set_info.merged_set_name);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "et-names")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(!pc.set_info.fname)) {
+            logerrputs("Error: --set-names must be used with --set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          reterr = AllocAndFlattenCommaDelim(&(argvk[arg_idx + 1]), param_ct, &pc.set_info.setnames_flattened);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "how-tags")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -13750,7 +13904,26 @@ int main(int argc, char** argv) {
         break;
 
       case 'w':
-        if (strequal_k_unsafe(flagname_p2, "rite-snplist")) {
+        if (strequal_k_unsafe(flagname_p2, "rite-set")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(!pc.set_info.fname)) {
+            logerrputs("Error: --write-set must be used with --set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (param_ct) {
+            const char* cur_modif = argvk[arg_idx + 1];
+            if (unlikely(!strequal_k(cur_modif, "zs", strlen(cur_modif)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-set argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.set_info.flags |= kfSetWriteListZs;
+          }
+          pc.set_info.flags |= kfSetWriteList;
+          pc.command_flags1 |= kfCommand1WriteSet;
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "rite-snplist")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -14306,6 +14479,13 @@ int main(int argc, char** argv) {
       }
     }
 
+    // --epi1/--epi2 sort before --epistasis-boost, so their dependency cannot
+    // be checked while parsing them.
+    if (unlikely(epi_thresh_present && (!(pc.command_flags1 & kfCommand1Epi)))) {
+      logerrputs("Error: --epi1/--epi2 must be used with --epistasis-boost.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+
     print_end_time = 1;
 
     if (batch_job) {
@@ -14726,6 +14906,7 @@ int main(int argc, char** argv) {
   CleanupPermConfig(&pc.perm_config);
   CleanupVcor(&pc.vcor_info);
   CleanupTwolocus(&pc.twolocus_info);
+  CleanupSet(&pc.set_info);
   CleanupTag(&pc.tag_info);
   CleanupClump(&pc.clump_info);
   CleanupGwasSsf(&pc.gwas_ssf_info);

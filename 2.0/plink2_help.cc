@@ -1253,6 +1253,34 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      all-pairs computation on more than 400k variants.\n"
 "    With either output type, the computation can be subdivided with --parallel.\n\n"
               );
+    HelpPrint("epistasis-boost\0fast-epistasis\0epi1\0epi2\0set\0", &help_ctrl, 1,
+"  --epistasis-boost ['zs'] ['nop'] [{set-by-set | set-by-all}]\n"
+"  --epi1 <p-value>\n"
+"  --epi2 <p-value>\n"
+"    Scan every pair of autosomal variants for an interaction, using the\n"
+"    two-stage test of Wan X et al. (2010) BOOST: A fast approach to detecting\n"
+"    gene-gene interactions in genome-wide case-control studies.  The report\n"
+"    is written to <output prefix>.epi.cc, with a per-variant summary\n"
+"    alongside it in .epi.cc.summary.\n"
+"    * Pairs are screened with a closed-form approximation, and only those\n"
+"      clearing --epi1 are then fit by iterative proportional fitting.  So\n"
+"      --epi1 (default 5e-6) decides which pairs are tested at all rather\n"
+"      than only which are printed.\n"
+"    * An empty genotype row or column costs two degrees of freedom instead\n"
+"      of dropping the pair, so the report has a DF column.\n"
+"    * --epi2 (default 0.01) is the threshold a pair must pass to count\n"
+"      towards the summary's N_SIG.  'nop' drops the p-value column.\n"
+"    * A case/control phenotype is required, and exactly one must be loaded;\n"
+"      select it with --pheno-name if you have several.\n"
+"    * This is quadratic in the variant count, so it is meant for a filtered\n"
+"      set rather than a whole genome.  It can be subdivided with --parallel,\n"
+"      and the resulting main reports concatenate in order.\n"
+"    * With --set loaded, 'set-by-set' scans the pairs inside one set, or\n"
+"      every pair across two, and 'set-by-all' scans one set against every\n"
+"      variant.  Both drop a variant's pair with itself.\n"
+"    * PLINK 1.9's --fast-epistasis is accepted as a synonym when its\n"
+"      'boost' modifier is named.  Its other tests have been retired.\n\n"
+               );
     HelpPrint("twolocus\0", &help_ctrl, 1,
 "  --twolocus <variant ID> <variant ID> [phenotype name]\n"
 "    Joint genotype count report for a pair of variants, with one row per\n"
@@ -1696,6 +1724,23 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("write-samples\0write-snplist\0", &help_ctrl, 1,
 "  --write-samples\n"
 "    Report IDs of all samples which pass your filters/inclusion thresholds.\n\n"
+               );
+    HelpPrint("set\0set-names\0set-collapse-all\0write-set\0", &help_ctrl, 1,
+"  --set <filename>\n"
+"  --set-names <name(s)...>\n"
+"  --set-collapse-all <set name>\n"
+"  --write-set ['zs']\n"
+"    Load named sets of variants, for the commands that take them.  The file is\n"
+"    a stream of whitespace-delimited tokens: each set is its name, then its\n"
+"    variant IDs, then END.\n"
+"    * A variant ID that is not in your filtered variant set is ignored, and a\n"
+"      set can be empty, as in PLINK 1.x.  Sets keep their file order.\n"
+"    * --set-names keeps only the named sets; --set-collapse-all replaces them\n"
+"      all with their union, under the given name.\n"
+"    * --write-set writes the loaded sets back out in the same format, which is\n"
+"      how to see what the two filters above did.\n"
+"    * Sets are defined after your variant filters have been applied, so a\n"
+"      filter that drops a variant drops it from every set as well.\n\n"
                );
     HelpPrint("write-snplist\0", &help_ctrl, 1,
 "  --write-snplist ['zs'] ['allow-dups']\n"
