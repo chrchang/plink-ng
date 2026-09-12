@@ -41,6 +41,48 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
 
 uint32_t IntervalInSetdef(const uint32_t* setdef, uint32_t variant_uidx_start, uint32_t variant_uidx_end);
 
+// --set: named sets of variants, given as whitespace-delimited tokens, each
+// set being its name, then its variant IDs, then END.  A variant ID that is
+// not in the current variant set is ignored, as in PLINK 1.x.
+FLAGSET_DEF_START()
+  kfSet0,
+  kfSetWriteList = (1 << 0),
+  kfSetWriteListZs = (1 << 1)
+FLAGSET_DEF_END(SetFlags);
+
+typedef struct SetInfoStruct {
+  NONCOPYABLE(SetInfoStruct);
+  char* fname;
+  char* setnames_flattened;
+  char* merged_set_name;
+  SetFlags flags;
+} SetInfo;
+
+void InitSet(SetInfo* sip);
+
+void CleanupSet(SetInfo* sip);
+
+// setdefs are indexed over the filtered variant space, as in PLINK 1.x: entry
+// i is the i'th set bit of variant_include.  So a set's contents depend on the
+// filters in effect when it was loaded.
+typedef struct VariantSetsStruct {
+  uintptr_t set_ct;
+  char* set_names;
+  uintptr_t max_set_name_blen;
+  uint32_t** setdefs;
+} VariantSets;
+
+PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, VariantSets* vsp);
+
+PglErr WriteSetList(const VariantSets* vsp, const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, SetFlags flags, uint32_t max_thread_ct, char* outname, char* outname_end);
+
+uint32_t InSetdef(const uint32_t* setdef, uint32_t variant_idx);
+
+uint32_t SetdefSize(const uint32_t* setdef, uint32_t variant_ct);
+
+// include_bitvec must have room for variant_ct bits, and is overwritten.
+void UnpackSetdef(const uint32_t* setdef, uint32_t variant_ct, uintptr_t* include_bitvec);
+
 PglErr LoadAndSortIntervalBed(const char* fname, const ChrInfo* cip, const char* sorted_subset_ids, uint32_t zero_based, uint32_t border_extend, uintptr_t subset_ct, uintptr_t max_subset_id_blen, uint32_t max_thread_ct, uintptr_t* gene_ct_ptr, char** gene_names_ptr, uintptr_t* max_gene_id_blen_ptr, uintptr_t** chr_bounds_ptr, uint32_t*** genedefs_ptr, uintptr_t* chr_max_gene_ct_ptr);
 
 #ifdef __cplusplus

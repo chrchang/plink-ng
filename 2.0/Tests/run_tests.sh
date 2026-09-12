@@ -128,4 +128,9 @@ cd TEST_GRM_MAF
 cd ..
 echo "TEST_GRM_MAF passed."
 
+cd TEST_SETS
+./run_tests.sh $d $2 $3 > TEST_SETS.log
+cd ..
+echo "TEST_SETS passed."
+
 echo "All tests passed."
