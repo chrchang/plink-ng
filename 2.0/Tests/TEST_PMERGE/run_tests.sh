@@ -173,11 +173,11 @@ $1/plink2 $2 $3 --pfile merged_mixed --export vcf vcf-dosage=DS --out merged_mix
 grep -v '^##' merged_mixedv.vcf > merged_mixed_body.vcf
 diff -q expected_mixed.vcfbody merged_mixed_body.vcf
 
-# 7. Merge conflicts.  Only the cases whose answer is well-defined today are
-#    asserted here: 'first' never consults a later record, so it is exact
-#    regardless of how conflicts are resolved.  The nm-match and nm-first
-#    conflict cases are deliberately left out pending #362, #363, #364 and
-#    #365, rather than freezing current behaviour into assertions.
+# 7. Merge conflicts.  'first' never consults a later record, so it is exact
+#    regardless of how conflicts are resolved; nm-match and nm-first are
+#    checked against the rules themselves by check_merge.py, which applies
+#    them to whatever the fixtures import to rather than to a transcript of
+#    today's output.
 
 # 7a. Hardcall, dosage and phase conflicts, same samples and variants in both
 #     filesets.  'keep first value, even if missing' means the merge of (a, b)
@@ -219,5 +219,53 @@ diff -q expected_qfi_first.pvarbody qm_first_body.pvar
 $1/plink2 $2 $3 --pfile qa --pmerge qb --merge-qual-mode nm-first --merge-filter-mode nm-first --merge-info-mode nm-first --out qm_nmfirst
 grep -v '^##' qm_nmfirst.pvar > qm_nmfirst_body.pvar
 diff -q expected_qfi_nmfirst.pvarbody qm_nmfirst_body.pvar
+
+# 7d. The same conflicts under nm-match and nm-first, checked against the
+#     documented rules: a sample identical in both inputs survives unchanged
+#     whatever its neighbours do, a one-sided value wins, and the two modes
+#     differ only where both inputs have a value.
+$1/plink2 $2 $3 --pfile ca --pmerge cb --merge-mode nm-match --out c_nmmatch
+$1/plink2 $2 $3 --pfile c_nmmatch --export vcf vcf-dosage=DS --out c_nmmatchx
+grep -v '^##' c_nmmatchx.vcf > c_nmmatch_body.vcf
+python3 check_merge.py ca_body.vcf cb_body.vcf c_nmmatch_body.vcf nm-match
+$1/plink2 $2 $3 --pfile ca --pmerge cb --merge-mode nm-first --out c_nmfirst
+$1/plink2 $2 $3 --pfile c_nmfirst --export vcf vcf-dosage=DS --out c_nmfirstx
+grep -v '^##' c_nmfirstx.vcf > c_nmfirst_body.vcf
+python3 check_merge.py ca_body.vcf cb_body.vcf c_nmfirst_body.vcf nm-first
+
+# 7e. Same for the multiallelic fixtures, where an ALTx/ALTy genotype has its
+#     own representation and a clobbered sample used to take its neighbours
+#     with it.
+$1/plink2 $2 $3 --pfile cmb --export vcf --out cmbx
+grep -v '^##' cmbx.vcf > cmb_body.vcf
+$1/plink2 $2 $3 --pfile cma --pmerge cmb --merge-mode nm-match --out cm_nmmatch
+$1/plink2 $2 $3 --pfile cm_nmmatch --export vcf --out cm_nmmatchx
+grep -v '^##' cm_nmmatchx.vcf > cm_nmmatch_body.vcf
+python3 check_merge.py cma_body.vcf cmb_body.vcf cm_nmmatch_body.vcf nm-match
+$1/plink2 $2 $3 --pfile cma --pmerge cmb --merge-mode nm-first --out cm_nmfirst
+$1/plink2 $2 $3 --pfile cm_nmfirst --export vcf --out cm_nmfirstx
+grep -v '^##' cm_nmfirstx.vcf > cm_nmfirst_body.vcf
+python3 check_merge.py cma_body.vcf cmb_body.vcf cm_nmfirst_body.vcf nm-first
+
+# 7f. nm-match is symmetric by definition, so swapping the two filesets has to
+#     give the same hardcalls.  Two order dependences are left out of this
+#     assertion and reported instead: a dosage present in only one input
+#     survives only when that input comes first, and the same is true of a
+#     multiallelic genotype.
+$1/plink2 $2 $3 --pfile cb --pmerge ca --merge-mode nm-match --out c_nmmatch_rev
+$1/plink2 $2 $3 --pfile c_nmmatch_rev --export vcf --out c_nmmatch_revx
+$1/plink2 $2 $3 --pfile c_nmmatch --export vcf --out c_nmmatch_hardx
+diff <(grep -v '^##' c_nmmatch_hardx.vcf) <(grep -v '^##' c_nmmatch_revx.vcf)
+
+# 7g. An INFO conflict under nm-match resolves to a missing value, and the
+#     .pvar stays the size of its contents.  Per key: NS differs on u1 and
+#     goes missing while AA agrees and survives, and AA differs on u3.  QUAL
+#     10 against 99 goes missing; FILTER PASS against q10 keeps q10, since
+#     PASS records the absence of a failing filter rather than a value of its
+#     own.
+$1/plink2 $2 $3 --pfile qa --pmerge qb --merge-qual-mode nm-match --merge-filter-mode nm-match --merge-info-mode nm-match --out qm_nmmatch
+test "$(tr -d '\0' < qm_nmmatch.pvar | wc -c)" -eq "$(wc -c < qm_nmmatch.pvar)"
+grep -v '^##' qm_nmmatch.pvar > qm_nmmatch_body.pvar
+diff -q expected_qfi_nmmatch.pvarbody qm_nmmatch_body.pvar
 
 echo "TEST_PMERGE passed."

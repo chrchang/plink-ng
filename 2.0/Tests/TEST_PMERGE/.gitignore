@@ -15,3 +15,5 @@
 !qfi_b.vcf
 !expected_qfi_first.pvarbody
 !expected_qfi_nmfirst.pvarbody
+!expected_qfi_nmmatch.pvarbody
+!check_merge.py
