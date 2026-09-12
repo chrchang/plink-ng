@@ -1697,6 +1697,23 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --write-samples\n"
 "    Report IDs of all samples which pass your filters/inclusion thresholds.\n\n"
                );
+    HelpPrint("set\0set-names\0set-collapse-all\0write-set\0", &help_ctrl, 1,
+"  --set <filename>\n"
+"  --set-names <name(s)...>\n"
+"  --set-collapse-all <set name>\n"
+"  --write-set ['zs']\n"
+"    Load named sets of variants, for the commands that take them.  The file is\n"
+"    a stream of whitespace-delimited tokens: each set is its name, then its\n"
+"    variant IDs, then END.\n"
+"    * A variant ID that is not in your filtered variant set is ignored, and a\n"
+"      set can be empty, as in PLINK 1.x.  Sets keep their file order.\n"
+"    * --set-names keeps only the named sets; --set-collapse-all replaces them\n"
+"      all with their union, under the given name.\n"
+"    * --write-set writes the loaded sets back out in the same format, which is\n"
+"      how to see what the two filters above did.\n"
+"    * Sets are defined after your variant filters have been applied, so a\n"
+"      filter that drops a variant drops it from every set as well.\n\n"
+               );
     HelpPrint("write-snplist\0", &help_ctrl, 1,
 "  --write-snplist ['zs'] ['allow-dups']\n"
 "    List all variants which pass your filters/inclusion thresholds.  Unless the\n"

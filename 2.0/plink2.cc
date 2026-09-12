@@ -235,6 +235,7 @@ ENUM_U31_DEF_START()
   kCmd1BitDistance,
   kCmd1BitTestMissing,
   kCmd1BitShowTags,
+  kCmd1BitWriteSet,
   kCmd1BitCt
 ENUM_U31_DEF_END(Command1BitIdx);
 
@@ -279,7 +280,8 @@ FLAGSET64_DEF_START()
   kfCommand1Twolocus = (1LLU << kCmd1BitTwolocus),
   kfCommand1Distance = (1LLU << kCmd1BitDistance),
   kfCommand1TestMissing = (1LLU << kCmd1BitTestMissing),
-  kfCommand1ShowTags = (1LLU << kCmd1BitShowTags)
+  kfCommand1ShowTags = (1LLU << kCmd1BitShowTags),
+  kfCommand1WriteSet = (1LLU << kCmd1BitWriteSet)
 FLAGSET64_DEF_END(Command1Flags);
 
 // The shape and encoding modifiers are mutually exclusive within each group,
@@ -502,6 +504,7 @@ typedef struct Plink2CmdlineStruct {
   ClumpInfo clump_info;
   VcorInfo vcor_info;
   TwolocusInfo twolocus_info;
+  SetInfo set_info;
   TagInfo tag_info;
   LdScoreInfo ld_score_info;
   PhenoSvdInfo pheno_svd_info;
@@ -3182,6 +3185,22 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
       }
+      // Sets index the filtered variant space, so they are defined once
+      // every variant filter has been applied.
+      VariantSets variant_sets;
+      variant_sets.set_ct = 0;
+      if (pcp->set_info.fname) {
+        reterr = DefineSets(&(pcp->set_info), variant_include, variant_ids, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->max_thread_ct, &variant_sets);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+      if (pcp->command_flags1 & kfCommand1WriteSet) {
+        reterr = WriteSetList(&variant_sets, variant_include, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
       if (pcp->command_flags1 & kfCommand1ShowTags) {
         if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
           logerrputs("Error: --show-tags requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -4052,6 +4071,7 @@ int main(int argc, char** argv) {
   InitClump(&pc.clump_info);
   InitVcor(&pc.vcor_info);
   InitTwolocus(&pc.twolocus_info);
+  InitSet(&pc.set_info);
   InitTag(&pc.tag_info);
   InitLdScore(&pc.ld_score_info);
   InitPhenoSvd(&pc.pheno_svd_info);
@@ -12311,7 +12331,45 @@ int main(int argc, char** argv) {
         break;
 
       case 's':
-        if (strequal_k_unsafe(flagname_p2, "how-tags")) {
+        if (strequal_k_unsafe(flagname_p2, "et")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.set_info.fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "et-collapse-all")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          // --set sorts first, so its presence can be checked here.
+          if (unlikely(!pc.set_info.fname)) {
+            logerrputs("Error: --set-collapse-all must be used with --set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(strlen(argvk[arg_idx + 1]) >= kMaxIdSlen)) {
+            logerrputs("Error: --set-collapse-all set name too long.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          reterr = CmdlineAllocString(argvk[arg_idx + 1], argvk[arg_idx], kMaxIdSlen, &pc.set_info.merged_set_name);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "et-names")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(!pc.set_info.fname)) {
+            logerrputs("Error: --set-names must be used with --set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          reterr = AllocAndFlattenCommaDelim(&(argvk[arg_idx + 1]), param_ct, &pc.set_info.setnames_flattened);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "how-tags")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -13750,7 +13808,26 @@ int main(int argc, char** argv) {
         break;
 
       case 'w':
-        if (strequal_k_unsafe(flagname_p2, "rite-snplist")) {
+        if (strequal_k_unsafe(flagname_p2, "rite-set")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(!pc.set_info.fname)) {
+            logerrputs("Error: --write-set must be used with --set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (param_ct) {
+            const char* cur_modif = argvk[arg_idx + 1];
+            if (unlikely(!strequal_k(cur_modif, "zs", strlen(cur_modif)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-set argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.set_info.flags |= kfSetWriteListZs;
+          }
+          pc.set_info.flags |= kfSetWriteList;
+          pc.command_flags1 |= kfCommand1WriteSet;
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "rite-snplist")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -14726,6 +14803,7 @@ int main(int argc, char** argv) {
   CleanupPermConfig(&pc.perm_config);
   CleanupVcor(&pc.vcor_info);
   CleanupTwolocus(&pc.twolocus_info);
+  CleanupSet(&pc.set_info);
   CleanupTag(&pc.tag_info);
   CleanupClump(&pc.clump_info);
   CleanupGwasSsf(&pc.gwas_ssf_info);
