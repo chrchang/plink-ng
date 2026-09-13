@@ -1605,7 +1605,6 @@ THREAD_RET_TYPE calc_wdist_thread(void* arg) {
   uintptr_t* masks_ptr = g_masks;
   uintptr_t* mmasks_ptr = g_mmasks;
   double* subset_weights_ptr = g_subset_weights;
-  uint32_t* subset_weights_i_ptr = g_subset_weights_i;
   uint32_t* weighted_missing_ptr = &(g_missing_tot_weights[offset]);
   uint32_t end_idx = g_thread_start[tidx + 1];
   uint32_t is_last_block;
@@ -1613,8 +1612,7 @@ THREAD_RET_TYPE calc_wdist_thread(void* arg) {
     is_last_block = g_is_last_thread_block;
     incr_dists(dists_ptr, geno_ptr, masks_ptr, subset_weights_ptr, ulii, end_idx);
     if (is_last_block || (g_thread_spawn_ct & 1)) {
-      // subset_weights_i is stationary here
-      incr_wt_dist_missing(weighted_missing_ptr, subset_weights_i_ptr, mmasks_ptr, ulii, end_idx);
+      incr_wt_dist_missing(weighted_missing_ptr, g_subset_weights_i, mmasks_ptr, ulii, end_idx);
     }
     if ((!tidx) || is_last_block) {
       THREAD_RETURN;
@@ -7815,7 +7813,6 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     if (bigstack_alloc_d(32768, &subset_weights)) {
       goto calc_distance_ret_NOMEM;
     }
-    g_subset_weights_i = wtbuf;
 #endif
     g_subset_weights = subset_weights;
   }
@@ -7976,7 +7973,8 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       }
     } else {
       fill_ulong_zero(sample_ct, mmasks);
-      for (ukk = 0; ukk < ujj; ukk += MULTIPLEX_DIST_EXP / 2) {
+      uint32_t parity = 0;
+      for (ukk = 0; ukk < ujj; ukk += MULTIPLEX_DIST_EXP / 2, ++parity) {
 	glptr = geno;
 	glptr2 = masks;
 	glptr3 = mmasks;
@@ -8012,8 +8010,12 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	  }
 	}
 	fill_subset_weights(subset_weights, &(main_weights[marker_idx - ujj + ukk]));
-        g_subset_weights_i = &(wtbuf[ukk]);
-	uii = is_last_block && (ukk + (MULTIPLEX_DIST_EXP / 3) >= ujj);
+        // bugfix (13 Sep 2026): calc_wdist_thread() assumes this is advanced
+        // every other loop iteration
+        if (!parity) {
+          g_subset_weights_i = &(wtbuf[ukk]);
+        }
+	uii = is_last_block && (ukk + (MULTIPLEX_DIST_EXP / 2) >= ujj);
 	if (spawn_threads2(threads, &calc_wdist_thread, dist_thread_ct, uii)) {
 	  goto calc_distance_ret_THREAD_CREATE_FAIL;
 	}
@@ -8151,6 +8153,11 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	giptr2 = sample_missing;
 	uii = giptr2[sample_idx];
 	for (ujj = 0; ujj < sample_idx; ujj++) {
+          /*
+          if ((sample_idx == 3) && (ujj == 0)) {
+            printf("%g %u %u %u %u %u\n", marker_weight_sum_d, marker_weight_sum, uii, *giptr2, *giptr, *iptr);
+          }
+          */
 	  *dptr2++ = (marker_weight_sum_d / ((marker_weight_sum - uii - (*giptr2++)) + (*giptr++))) * (*iptr++);
 	}
       }
@@ -8159,6 +8166,11 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	giptr2 = sample_missing;
 	uii = giptr2[sample_idx];
 	for (ujj = 0; ujj < sample_idx; ujj++) {
+          /*
+          if ((sample_idx == 3) && (ujj == 0)) {
+            printf("%g %u %u %u %u %g\n", marker_weight_sum_d, marker_weight_sum, uii, *giptr2, *giptr, *dptr2);
+          }
+          */
 	  *dptr2 *= (marker_weight_sum_d / ((marker_weight_sum - uii - (*giptr2++)) + (*giptr++)));
 	  dptr2++;
 	}

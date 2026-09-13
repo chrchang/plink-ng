@@ -1878,13 +1878,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                  variant a weight of (2q(1-q))^{-x}, where q\n"
 "                                  is the loaded or inferred MAF.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("distance-wts\tdistance\tmake-grm-gz\tmake-grm-bin", &help_ctrl, 0,
 "  --distance-wts <f> ['noheader'] : When computing genomic distances, assign\n"
 "                                    each variant the weight specified in the\n"
 "                                    file.\n"
 	       );
-#endif
     help_print("read-dists\tload-dists\tibs-test\tgroupdist\tregress-distance\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
 "  --read-dists <dist file> [id file] : Load a triangular binary distance matrix\n"
 "                                       (allele-count units assumed) instead of\n"
