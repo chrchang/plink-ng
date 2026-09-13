@@ -25,8 +25,13 @@
 #endif
 
 #include "SFMT.h"
-#include "bgzf.h"
-#include "hts.h"
+#ifdef SYSTEM_HTSLIB
+#  include <htslib/bgzf.h>
+#  include <htslib/hts.h>
+#else
+#  include "bgzf.h"
+#  include "hts.h"
+#endif
 #include "pigz.h"
 #include "plink_common.h"
 #include "plink_family.h"

@@ -8623,7 +8623,10 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       }
       for (ulii = 0; ulii < neighbor_row_ct; ulii++) {
         wptr = uint32toa_w6x(ulii + neighbor_n1, ' ', wptr_start);
-	sample_idx2 = sample_idx1 + ulii * sample_ct;
+	// neighbor_quantiles[] holds every rank from 1 up, so the row for
+	// rank (neighbor_n1 + ulii) is at that rank's offset, not at ulii.
+	// The mean/stdev loop above already indexes it that way.
+	sample_idx2 = sample_idx1 + (neighbor_n1 - 1 + ulii) * sample_ct;
         dxx = neighbor_quantiles[sample_idx2];
 	wptr = dtoa_g_wxp4x(dxx, 12, ' ', wptr);
         wptr = dtoa_g_wxp4x((dxx - neighbor_quantile_means[ulii]) * neighbor_quantile_stdev_recips[ulii], 12, ' ', wptr);

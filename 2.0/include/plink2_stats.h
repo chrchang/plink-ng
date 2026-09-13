@@ -35,7 +35,7 @@ double ChisqToLnP(double chisq, uint32_t df);
 // double PToChisq(double pval, uint32_t df);
 
 // only handles df=1 for now
-double LnPToChisq(double ln_pval);
+double LnPToChisq(double ln_pval, uint32_t df);
 
 // No -9 error return since that's a legitimate p-value logarithm.  Caller is
 // responsible for validating input.

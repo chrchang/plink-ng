@@ -3531,6 +3531,10 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeI
   TextStream txs;
   CompressStreamState css;
   ThreadGroup tg;
+  // Function scope for the same reason as CalcKing()'s contexts: the workers
+  // hold a pointer to this, CleanupThreads() at the exit label is what joins
+  // them, and the PgrGet() error path inside the block jumps straight there.
+  CalcKingTableSubsetCtx ctx;
   PreinitTextStream(&txs);
   PreinitCstream(&css);
   PreinitThreads(&tg);
@@ -3595,7 +3599,6 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const PedigreeI
     uintptr_t* splitbuf_ref2het;
     VecW* vecaligned_buf;
     // ok if allocations are a bit oversized
-    CalcKingTableSubsetCtx ctx;
     if (unlikely(bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
                  bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
                  bigstack_alloc_w(sample_ctaw2, &loadbuf) ||

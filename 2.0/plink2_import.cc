@@ -5161,17 +5161,29 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
 
 // Dosage parsing is messy enough that we stick as closely as possible to the
 // VCF logic, instead of trying to vectorize.
-BoolErr ParseBcfBiallelicGp(const float* cur_gp_start, uint32_t is_haploid, double import_dosage_certainty, DosageParseResult* dpr_ptr, double* alt_dosage_ptr) {
+// BCF FORMAT payloads are not aligned within the record, so the float vectors
+// are addressed as bytes and each value is copied out.  Casting the record
+// pointer to const float* and indexing it is undefined behavior, and on a
+// target that does not permit unaligned loads it faults; -DNO_UNALIGNED does
+// not help, since the access is an ordinary indexed load rather than one of
+// the primitives that flag controls.
+HEADER_INLINE float BcfFloatAt(const unsigned char* base, uintptr_t idx) {
+  float fval;
+  memcpy(&fval, &(base[idx * sizeof(float)]), sizeof(float));
+  return fval;
+}
+
+BoolErr ParseBcfBiallelicGp(const unsigned char* cur_gp_start, uint32_t is_haploid, double import_dosage_certainty, DosageParseResult* dpr_ptr, double* alt_dosage_ptr) {
   // See ParseVcfBiallelicGp().
   // P(0/0), P(0/1), P(1/1), etc.
   // assumes dpr initialized to kDosageParseOk
   // assumes *gp_iter is not missing
   // returns 1 if missing OR parsing error.  error: dpr still kDosageParseOk
-  const float prob_0altf = cur_gp_start[0];
+  const float prob_0altf = BcfFloatAt(cur_gp_start, 0);
   if (unlikely((prob_0altf < S_CAST(float, 0.0)) || (prob_0altf > S_CAST(float, 1.0)))) {
     return 1;
   }
-  const float prob_1altf = cur_gp_start[1];
+  const float prob_1altf = BcfFloatAt(cur_gp_start, 1);
   // second predicate written to be true on NaN
   if (unlikely((prob_1altf < S_CAST(float, 0.0)) || (!(prob_1altf <= S_CAST(float, 1.0))))) {
     return 1;
@@ -5189,7 +5201,7 @@ BoolErr ParseBcfBiallelicGp(const float* cur_gp_start, uint32_t is_haploid, doub
     *alt_dosage_ptr = 2 * prob_1alt / denom;
     return 0;
   }
-  const float prob_2altf = cur_gp_start[2];
+  const float prob_2altf = BcfFloatAt(cur_gp_start, 2);
   if (unlikely((prob_2altf < S_CAST(float, 0.0)) || (!(prob_2altf <= S_CAST(float, 1.0))))) {
     return 1;
   }
@@ -5209,7 +5221,7 @@ BoolErr ParseBcfBiallelicGp(const float* cur_gp_start, uint32_t is_haploid, doub
   return 0;
 }
 
-BoolErr ParseBcfBiallelicDosage(const float* cur_dosage_start, uint32_t is_haploid_or_0ploid, uint32_t dosage_is_gp, double import_dosage_certainty, DosageParseResult* dpr_ptr, uint32_t* dosage_int_ptr) {
+BoolErr ParseBcfBiallelicDosage(const unsigned char* cur_dosage_start, uint32_t is_haploid_or_0ploid, uint32_t dosage_is_gp, double import_dosage_certainty, DosageParseResult* dpr_ptr, uint32_t* dosage_int_ptr) {
   // See ParseVcfBiallelicDosage().
   // assumes dpr initialized to kDosageParseOk
   // returns 1 if missing OR parsing error.  error: dpr still kDosageParseOk.
@@ -5226,7 +5238,7 @@ BoolErr ParseBcfBiallelicDosage(const float* cur_dosage_start, uint32_t is_haplo
       return 1;
     }
   } else {
-    alt_dosage = S_CAST(double, *cur_dosage_start);
+    alt_dosage = S_CAST(double, BcfFloatAt(cur_dosage_start, 0));
     if (unlikely(alt_dosage < 0.0)) {
       return 1;
     }
@@ -5262,7 +5274,7 @@ BoolErr ParseBcfBiallelicDosage(const float* cur_dosage_start, uint32_t is_haplo
   return 0;
 }
 
-BoolErr ParseBcfBiallelicHds(const float* dosage_main, const unsigned char* hds_main, uint32_t dosage_value_ct, uint32_t hds_value_ct, uint32_t sample_idx, uint32_t is_haploid_or_0ploid, uint32_t dosage_is_gp, double import_dosage_certainty, DosageParseResult* dpr_ptr, uint32_t* dosage_int_ptr, int32_t* cur_dphase_delta_ptr, uint32_t* hds_valid_ptr) {
+BoolErr ParseBcfBiallelicHds(const unsigned char* dosage_main, const unsigned char* hds_main, uint32_t dosage_value_ct, uint32_t hds_value_ct, uint32_t sample_idx, uint32_t is_haploid_or_0ploid, uint32_t dosage_is_gp, double import_dosage_certainty, DosageParseResult* dpr_ptr, uint32_t* dosage_int_ptr, int32_t* cur_dphase_delta_ptr, uint32_t* hds_valid_ptr) {
   // See ParseVcfBiallelicHds().
   // assumes dpr initialized to kDosageParseOk
   // assumes cur_dphase_delta initialized to 0
@@ -5329,7 +5341,7 @@ BoolErr ParseBcfBiallelicHds(const float* dosage_main, const unsigned char* hds_
       return 1;
     }
   }
-  const float* cur_dosage_start = &(dosage_main[sample_idx * dosage_value_ct]);
+  const unsigned char* cur_dosage_start = &(dosage_main[sample_idx * S_CAST(uintptr_t, dosage_value_ct) * sizeof(float)]);
   return ParseBcfBiallelicDosage(cur_dosage_start, is_haploid_or_0ploid, dosage_is_gp, import_dosage_certainty, dpr_ptr, dosage_int_ptr);
 }
 
@@ -5370,7 +5382,7 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
       hds_main = hds_main_raw;
     }
   }
-  const float* dosage_main = nullptr;
+  const unsigned char* dosage_main = nullptr;
   uint32_t dosage_value_ct = 0;
   if (dosage_start) {
     const unsigned char* dosage_main_raw = dosage_start;
@@ -5382,7 +5394,7 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
       return kBcfParseNonfloatDosage;
     }
     if (dosage_value_ct) {
-      dosage_main = R_CAST(const float*, dosage_main_raw);
+      dosage_main = dosage_main_raw;
     }
   }
   if ((!hds_value_ct) && (!dosage_value_ct)) {
@@ -6999,7 +7011,7 @@ BcfParseErr BcfConvertPhasedBiallelicDosage(const BcfImportContext* bicp, const 
       return kBcfParsePolyploidError;
     }
   }
-  const float* dosage_main = nullptr;
+  const unsigned char* dosage_main = nullptr;
   uint32_t dosage_value_ct = 0;
   if (metap->dosage_vec_offset != UINT32_MAX) {
     const unsigned char* dosage_main_raw = &(record_start[metap->dosage_vec_offset * S_CAST(uintptr_t, kBytesPerVec)]);
@@ -7008,7 +7020,7 @@ BcfParseErr BcfConvertPhasedBiallelicDosage(const BcfImportContext* bicp, const 
     if (unlikely(dosage_value_type != 5)) {
       return kBcfParseNonfloatDosage;
     }
-    dosage_main = R_CAST(const float*, dosage_main_raw);
+    dosage_main = dosage_main_raw;
   }
   const unsigned char* gt_main = nullptr;
   uint32_t gt_value_type = 0;

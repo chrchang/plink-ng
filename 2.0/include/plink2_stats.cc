@@ -29,9 +29,9 @@ namespace plink2 {
 
 // Thread-unsafe portions of plink_stats.c have been replaced, mostly by code
 // derived from boost/math/special_functions/gamma.hpp and
-// boost/math/special_functions/detail/igamma_inverse.hpp in Boost 1.60 and
-// 1.84 (Maddock et al.).  The derived portions are subject to the following
-// license:
+// boost/math/special_functions/detail/igamma_inverse.hpp in Boost 1.60, 1.84,
+// and 1.91 (Maddock et al.).  The derived portions are subject to the
+// following license:
 //
 // *****
 // Boost Software License - Version 1.0 - August 17th, 2003
@@ -664,8 +664,149 @@ double ChisqToLnP(double chisq, uint32_t df) {
 // ***** end ChisqToLnP *****
 
 
-// ***** thread-safe PToChisq *****
-// port of Boost 1.60 implementation
+// ***** thread-safe LnPToChisq *****
+// port of Boost 1.60-1.91 implementation
+
+double find_inverse_gamma_df1_shared(double yy) {
+  const double c1 = -0.5 * log(yy);
+  const double c1_2 = c1 * c1;
+  const double c1_3 = c1_2 * c1;
+  const double c1_4 = c1_2 * c1_2;
+  // a_2 = 0.25
+  // a_3 = 0.125
+
+  const double c2 = -0.5 * (1 + c1);
+  const double c3 = 0.25 * c1_2 + prefer_fma(0.75, c1, 0.875);
+  const double c4 = prefer_fma(c1_3, -1.0 / 6.0, -26.75 / 12.0) - prefer_fma(0.875, c1_2, 1.875 * c1);
+  const double c5 = prefer_fma(5.75 / 6.0, c1_3, 0.125 * c1_4) + prefer_fma(3.625, c1_2, prefer_fma(7.75, c1, 83.0625 / 12.0));
+
+  const double y_recip = 1.0 / yy;
+  return POLY4(y_recip, yy + c1, c2, c3, c4, c5);
+}
+
+double find_inverse_s_poly(double tt) {
+  return tt - POLY3(tt, 3.31125922108741, 11.6616720288968, 4.28342155967104, 0.213623493715853) / POLY4(tt, 1, 6.61053765625462, 6.40691597760039, 1.27364489782223, 0.3611708101884203e-1);
+}
+
+double find_inverse_s(double pp, double qq) {
+  double tt;
+  if (pp < 0.5) {
+    tt = sqrt(-2 * log(pp));
+  } else {
+    tt = sqrt(-2 * log(qq));
+  }
+  double ss = find_inverse_s_poly(tt);
+  if (pp < 0.5) {
+    ss = -ss;
+  }
+  return ss;
+}
+
+double didonato_sn_a2(double x, uint32_t nn) {
+  // a=2, nn>=1, tolerance=1e-4 hardcoded
+  const double tolerance = 1e-4;
+  double sum = 1;
+  double partial = x * (1 / 3);
+  sum += partial;
+  for (uint32_t i = 2; i <= nn; ++i) {
+    partial *= x / u31tod(2 + i);
+    sum += partial;
+    if (partial < tolerance) {
+      break;
+    }
+  }
+  return sum;
+}
+
+double find_inverse_gamma_df4_shared(double pp, double qq, double lnq, uint32_t* has_10_digits_ptr) {
+  // Two modes:
+  //   (pp, qq): ok to initialize lnq to 0
+  //   lnq only: set qq = -1; has_10_digits_ptr == nullptr ok
+  double s;
+  if (qq != -1) {
+    s = find_inverse_s(pp, qq);
+  } else {
+    const double tt = sqrt(-2 * lnq);
+    s = find_inverse_s_poly(tt);
+  }
+  const double s_2 = s * s;
+  const double s_3 = s_2 * s;
+  const double s_4 = s_2 * s_2;
+  const double s_5 = s_4 * s;
+  // const double ra = sqrt(a);
+  const double ra = kSqrt2;
+
+  // refer to Boost code if adapting to other dfs
+  double w = 2 + s * ra + (s * s - 1) * (1 / 3);
+  w += (s_3 - 7 * s) / (36 * ra);
+  w -= (3 * s_4 + 7 * s_2 - 16) * (1 / (810 * 2));
+  w += (9 * s_5 + 256 * s_3 - 433 * s) * (1 / (38880 * 2 * ra));
+
+  if (qq < 0.5) {
+    if (qq != -1) {
+      lnq = log(qq);
+    }
+    if (w < 6) {
+      return w;
+    }
+    // const double D = MAXV(2, a * (a - 1));  i.e. 2
+    // const double lg = lgamma(a);  i.e. 0
+    // const double lb = lnq + lg;
+    const double lb = lnq;
+    if (lb < -4.6) {
+      // DiDonato and Morris Eq 25
+      const double y = -lb;
+      const double c1 = log(y);
+      const double c1_2 = c1 * c1;
+      const double c1_3 = c1_2 * c1;
+      const double c1_4 = c1_2 * c1_2;
+
+      const double c2 = 1 + c1;
+      const double c3 = (-(c1_2 * 0.5) + 1 * 0.5);
+      const double c4 = ((c1_3 / 3) - c1_2 * 0.5 - c1 - 1 / 6);
+      const double c5 = (-(c1_4 * 0.25)
+                         + c1_3 * (5 / 6)
+                         + c1_2
+                         - c1 * 0.5
+                         - 5 / 12);
+
+      const double y_2 = y * y;
+      const double y_3 = y_2 * y;
+      const double y_4 = y_2 * y_2;
+      return y + c1 + (c2 / y) + (c3 / y_2) + (c4 / y_3) + (c5 / y_4);
+    }
+    // DiDonato and Morris Eq 33
+    const double u = -lb + log(w) - log(1 - 1 / (1 + w));
+    return -lb + log(u) - log(1 - 1 / (1 + u));
+  }
+  double z = w;
+  double v = 1;
+  if (w < 0.45) {
+    // DiDonato and Morris Eq 35
+    v = log(pp) + kLn2;
+    z = exp((v + w) * 0.5);
+    s = log1p(z * (1 / 3) * (1 + z * 0.25));
+    z = exp((v + z - s) * 0.5);
+    s = log1p(z * (1 / 3) * (1 + z * 0.25));
+    z = exp((v + z - s) * 0.5);
+    s = log1p(z * (1 / 3) * (1 + z * 0.25 * (1 + z * 0.2)));
+    z = exp((v + z - s) * 0.5);
+  }
+
+  if ((z <= 0.03) || (z > 2.1)) {
+    if (z <= 0.006) {
+      *has_10_digits_ptr = 1;
+    }
+    return z;
+  }
+  // DiDonato and Morris Eq 36
+  const double ls = log(didonato_sn_a2(z, 100));
+  if (v == 1) {
+    v = log(pp) + kLn2;
+  }
+  z = exp((v + z - ls) * 0.5);
+  return z * (1 - (2 * log(z) - z - v + ls) / (2 - z));
+}
 
 double find_inverse_gamma2(uint32_t df, double pp, double qq, uint32_t* has_10_digits_ptr) {
   // currently assumes *has_10_digits_ptr initialized to zero
@@ -683,41 +824,25 @@ double find_inverse_gamma2(uint32_t df, double pp, double qq, uint32_t* has_10_d
       //   = p * p * pi * 0.25
       const double uu = pp * pp * (0.25 * kPi);
       return uu / prefer_fma(uu, -1.0 / 1.5, 1);
-    } else {
-      const double yy = -log(bb);
-      if (bb > 0.1) {
-        const double uu = yy - 0.5 * log(yy);
-        if (bb > 0.15) {
-          return (yy - 0.5 * log(uu) - log(1 + 0.5 / uu));
-        }
-        return (yy - 0.5 * log(uu) - log(prefer_fma(uu + 5, uu, 3.75) / prefer_fma(uu + 4.5, uu, 2)));
-      } else {
-        const double c1 = -0.5 * log(yy);
-        const double c1_2 = c1 * c1;
-        const double c1_3 = c1_2 * c1;
-        const double c1_4 = c1_2 * c1_2;
-        // a_2 = 0.25
-        // a_3 = 0.125
-
-        const double c2 = -0.5 * (1 + c1);
-        const double c3 = 0.25 * c1_2 + prefer_fma(0.75, c1, 0.875);
-        const double c4 = prefer_fma(c1_3, -1.0 / 6.0, -26.75 / 12.0) - prefer_fma(0.875, c1_2, 1.875 * c1);
-        const double c5 = prefer_fma(5.75 / 6.0, c1_3, 0.125 * c1_4) + prefer_fma(3.625, c1_2, prefer_fma(7.75, c1, 83.0625 / 12.0));
-
-        if (bb < 1e-28) {
-          *has_10_digits_ptr = 1;
-        }
-        const double y_recip = 1.0 / yy;
-        // todo: test this substitute
-        // return POLY4(y_recip, yy + c1, c2, c3, c4, c5);
-        const double y_recip_2 = y_recip * y_recip;
-        const double y_recip_3 = y_recip_2 * y_recip;
-        const double y_recip_4 = y_recip_2 * y_recip_2;
-        return prefer_fma(c2, y_recip, yy) + prefer_fma(c3, y_recip_2, c1) + prefer_fma(c5, y_recip_4, c4 * y_recip_3);
-      }
     }
+    const double yy = -log(bb);
+    if (bb > 0.1) {
+      const double uu = yy - 0.5 * log(yy);
+      if (bb > 0.15) {
+        return (yy - 0.5 * log(uu) - log(1 + 0.5 / uu));
+      }
+      return (yy - 0.5 * log(uu) - log(prefer_fma(uu + 5, uu, 3.75) / prefer_fma(uu + 4.5, uu, 2)));
+    }
+    if (bb < 1e-28) {
+      *has_10_digits_ptr = 1;
+    }
+    return find_inverse_gamma_df1_shared(yy);
   }
-  // not implemented yet
+  if (df == 4) {
+    return find_inverse_gamma_df4_shared(pp, qq, 0, has_10_digits_ptr);
+  }
+  // not implemented yet (but not difficult to add, just need to make the df=4
+  // function messier)
   assert(0);
   exit(1);
   return 0;
@@ -846,41 +971,23 @@ double gamma_p_inv_imp2(uint32_t df, double qq) {
   return result;
 }
 
-// double PToChisq(double pval, uint32_t df) {
-//   // only need this to handle df=1, 2, 4 for now
-//   return gamma_p_inv_imp2(df, pval) * 2;
-// }
-
-// ***** end thread-safe PToChisq *****
-
-double LnPToChisq(double ln_pval) {
+double LnPToChisq(double ln_pval, uint32_t df) {
   if (ln_pval > -65.04474754675797) {
-    return gamma_p_inv_imp2(1, exp(ln_pval)) * 2;
+    return 2 * gamma_p_inv_imp2(df, exp(ln_pval));
   }
-  // (bb < 1e-28) case in find_inverse_gamma2()
-  // possible todo: deduplicate code
-  const double yy = kLnSqrtPi - ln_pval;
-  const double c1 = -0.5 * log(yy);
-  const double c1_2 = c1 * c1;
-  const double c1_3 = c1_2 * c1;
-  const double c1_4 = c1_2 * c1_2;
-  // a_2 = 0.25
-  // a_3 = 0.125
-
-  const double c2 = -0.5 * (1 + c1);
-  const double c3 = 0.25 * c1_2 + prefer_fma(0.75, c1, 0.875);
-  const double c4 = prefer_fma(c1_3, -1.0 / 6.0, -26.75 / 12.0) - prefer_fma(0.875, c1_2, 1.875 * c1);
-  const double c5 = prefer_fma(5.75 / 6.0, c1_3, 0.125 * c1_4) + prefer_fma(3.625, c1_2, prefer_fma(7.75, c1, 83.0625 / 12.0));
-
-  const double y_recip = 1.0 / yy;
-  // todo: test this substitute
-  // return POLY4(y_recip, yy + c1, c2, c3, c4, c5);
-  const double y_recip_2 = y_recip * y_recip;
-  const double y_recip_3 = y_recip_2 * y_recip;
-  const double y_recip_4 = y_recip_2 * y_recip_2;
-  return 2 * (prefer_fma(c2, y_recip, yy) + prefer_fma(c3, y_recip_2, c1) + prefer_fma(c5, y_recip_4, c4 * y_recip_3));
+  if (df == 1) {
+    // (bb < 1e-28) case in find_inverse_gamma2()
+    // bugfix (13 Sep 2026): kLnSqrtPi term had wrong sign
+    const double yy = -kLnSqrtPi - ln_pval;
+    return 2 * find_inverse_gamma_df1_shared(yy);
+  }
+  if (df == 2) {
+    return -2 * ln_pval;
+  }
+  return 2 * find_inverse_gamma_df4_shared(0, -1, ln_pval, nullptr);
 }
 
+// ***** end thread-safe LnPToChisq *****
 
 // ***** thread-safe TstatToLnP *****
 
@@ -1334,6 +1441,9 @@ double FstatToLnP(double ff, uint32_t df1, uint32_t df2) {
 
 // Inverse normal distribution
 // (todo: check if boost implementation is better)
+// (todo: benchmark against high-accuracy github.com/chrchang/stats
+// implementation, if the latter is not much slower we can just use it
+// everywhere)
 
 // Lower tail quantile for standard normal distribution function.
 //
@@ -1355,43 +1465,6 @@ double FstatToLnP(double ff, uint32_t df1, uint32_t df2) {
 
 // Coefficients in rational approximations.
 
-static const double kIvnA[] =
-  {
-    -3.969683028665376e+01,
-    2.209460984245205e+02,
-    -2.759285104469687e+02,
-    1.383577518672690e+02,
-    -3.066479806614716e+01,
-     2.506628277459239e+00
-  };
-
-static const double kIvnB[] =
-  {
-    -5.447609879822406e+01,
-    1.615858368580409e+02,
-    -1.556989798598866e+02,
-    6.680131188771972e+01,
-    -1.328068155288572e+01
-  };
-
-static const double kIvnC[] =
-  {
-    -7.784894002430293e-03,
-    -3.223964580411365e-01,
-    -2.400758277161838e+00,
-    -2.549732539343734e+00,
-    4.374664141464968e+00,
-     2.938163982698783e+00
-  };
-
-static const double kIvnD[] =
-  {
-    7.784695709041462e-03,
-    3.224671290700398e-01,
-    2.445134137142996e+00,
-    3.754408661907416e+00
-  };
-
 static const double kIvnLow = 0.02425;
 static const double kIvnHigh = 0.97575;
 
@@ -1405,25 +1478,13 @@ double QuantileToZscore(double pval) {
     // const double frac = (((((kIvnC[0]*q+kIvnC[1])*q+kIvnC[2])*q+kIvnC[3])*q+kIvnC[4])*q+kIvnC[5]) /
     //   ((((kIvnD[0]*q+kIvnD[1])*q+kIvnD[2])*q+kIvnD[3])*q+1);
     // todo: test this substitute
-    // const double frac = _poly5(q, q2, 2.938163982698783e+00, 4.374664141464968e+00, -2.549732539343734e+00, -2.400758277161838e+00, -3.223964580411365e-01, -7.784894002430293e-03) / _poly4(q, q2, 1, 3.754408661907416e+00, 2.445134137142996e+00, 3.224671290700398e-01, 7.784695709041462e-03);
-    const double numer_rem0 = prefer_fma(prefer_fma(kIvnC[1], q2, kIvnC[3]), q2, kIvnC[5]);
-    const double numer_rem1 = q * prefer_fma(prefer_fma(kIvnC[0], q2, kIvnC[2]), q2, kIvnC[4]);
-    const double denom_rem0 = prefer_fma(prefer_fma(kIvnD[0], q2, kIvnD[2]), q2, 1);
-    const double denom_rem1 = q * prefer_fma(kIvnD[1], q2, kIvnD[3]);
-    const double frac = (numer_rem0 + numer_rem1) / (denom_rem0 + denom_rem1);
+    const double frac = _poly5(q, q2, 2.938163982698783e+00, 4.374664141464968e+00, -2.549732539343734e+00, -2.400758277161838e+00, -3.223964580411365e-01, -7.784894002430293e-03) / _poly4(q, q2, 1, 3.754408661907416e+00, 2.445134137142996e+00, 3.224671290700398e-01, 7.784695709041462e-03);
     return (pval < kIvnLow)? frac : -frac;
   }
   // Rational approximation for central region
   const double q = pval - 0.5;
   const double q2 = q*q;
-  // todo: test this substitute
-  // return q * POLY5(q2, 2.506628277459239e+00, -3.066479806614716e+01, 1.383577518672690e+02, -2.759285104469687e+02, 2.209460984245205e+02, -3.969683028665376e+01) / POLY5(q2, 1, -1.328068155288572e+01, 6.680131188771972e+01, -1.556989798598866e+02, 1.615858368580409e+02, -5.447609879822406e+01);
-  const double q4 = q2*q2;
-  const double numer_rem1 = prefer_fma(prefer_fma(kIvnA[1], q4, kIvnA[3]), q4, kIvnA[5]);
-  const double numer_rem3 = q2 * prefer_fma(prefer_fma(kIvnA[0], q4, kIvnA[2]), q4, kIvnA[4]);
-  const double denom_rem0 = prefer_fma(prefer_fma(kIvnB[1], q4, kIvnB[3]), q4, 1);
-  const double denom_rem2 = q2 * prefer_fma(prefer_fma(kIvnB[0], q4, kIvnB[2]), q4, kIvnB[4]);
-  return q * (numer_rem1 + numer_rem3) / (denom_rem0 + denom_rem2);
+  return q * POLY5(q2, 2.506628277459239e+00, -3.066479806614716e+01, 1.383577518672690e+02, -2.759285104469687e+02, 2.209460984245205e+02, -3.969683028665376e+01) / POLY5(q2, 1, -1.328068155288572e+01, 6.680131188771972e+01, -1.556989798598866e+02, 1.615858368580409e+02, -5.447609879822406e+01);
 }
 
 intptr_t HypergeomCompare(uint64_t obs_m11, uint64_t obs_m12, uint64_t obs_m21, uint64_t obs_m22, int64_t m22_incr, td_real* neg_numer_tdr_ptr, double* dbl_ptr) {
