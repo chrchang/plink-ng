@@ -513,6 +513,7 @@ void InitSet(SetInfo* sip) {
   sip->fname = nullptr;
   sip->subset_fname = nullptr;
   sip->setnames_flattened = nullptr;
+  sip->genekeep_flattened = nullptr;
   sip->merged_set_name = nullptr;
   sip->make_set_border = 0;
   sip->flags = kfSet0;
@@ -522,6 +523,7 @@ void CleanupSet(SetInfo* sip) {
   free_cond(sip->fname);
   free_cond(sip->subset_fname);
   free_cond(sip->setnames_flattened);
+  free_cond(sip->genekeep_flattened);
   free_cond(sip->merged_set_name);
 }
 
@@ -1125,7 +1127,7 @@ static PglErr DefineSetsFromRanges(const SetInfo* sip, const ChrInfo* cip, const
   return reterr;
 }
 
-PglErr DefineSets(const SetInfo* sip, const ChrInfo* cip, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, VariantSets* vsp) {
+PglErr DefineSets(const SetInfo* sip, const ChrInfo* cip, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, uint32_t quiet, VariantSets* vsp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   const uint32_t make_set = (sip->flags / kfSetMakeFromRanges) & 1;
@@ -1154,16 +1156,105 @@ PglErr DefineSets(const SetInfo* sip, const ChrInfo* cip, const uintptr_t* varia
     if (unlikely(reterr)) {
       goto DefineSets_ret_1;
     }
-    const uintptr_t set_ct = vsp->set_ct;
-    uintptr_t membership_ct = 0;
-    for (uintptr_t set_idx = 0; set_idx != set_ct; ++set_idx) {
-      membership_ct += SetdefSize(vsp->setdefs[set_idx], variant_ct);
+    if (!quiet) {
+      const uintptr_t set_ct = vsp->set_ct;
+      uintptr_t membership_ct = 0;
+      for (uintptr_t set_idx = 0; set_idx != set_ct; ++set_idx) {
+        membership_ct += SetdefSize(vsp->setdefs[set_idx], variant_ct);
+      }
+      logprintf("--%sset: %" PRIuPTR " set%s loaded, %" PRIuPTR " membership%s in all.\n", make_set? "make-" : "", set_ct, (set_ct == 1)? "" : "s", membership_ct, (membership_ct == 1)? "" : "s");
     }
-    logprintf("--%sset: %" PRIuPTR " set%s loaded, %" PRIuPTR " membership%s in all.\n", make_set? "make-" : "", set_ct, (set_ct == 1)? "" : "s", membership_ct, (membership_ct == 1)? "" : "s");
     bigstack_mark = g_bigstack_base;
   }
  DefineSets_ret_1:
   BigstackEndReset(bigstack_end_mark);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr GeneFilter(const SetInfo* sip, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  const uint32_t gene_all = (sip->flags / kfSetGeneAll) & 1;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t variant_ct = *variant_ct_ptr;
+    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+    // The sets are built over the current variant set, so that the union
+    // below is already in the filtered index space; they are discarded on the
+    // way out, and DefineSets() rebuilds them over what survives.
+    VariantSets variant_sets;
+    variant_sets.set_ct = 0;
+    variant_sets.set_names = nullptr;
+    variant_sets.max_set_name_blen = 0;
+    variant_sets.setdefs = nullptr;
+    reterr = DefineSets(sip, cip, variant_include, variant_bps, variant_ids, raw_variant_ct, variant_ct, max_variant_id_slen, max_thread_ct, 1, &variant_sets);
+    if (unlikely(reterr)) {
+      goto GeneFilter_ret_1;
+    }
+    char* sorted_genekeep_ids = nullptr;
+    uint32_t genekeep_ct = 0;
+    uintptr_t max_genekeep_blen = 0;
+    if (!gene_all) {
+      // --gene takes the names --write-set reports, so a complemented set is
+      // named with its 'C_' prefix.
+      if (unlikely(MultistrToStrboxDedupAlloc(sip->genekeep_flattened, &sorted_genekeep_ids, &genekeep_ct, &max_genekeep_blen))) {
+        goto GeneFilter_ret_NOMEM;
+      }
+    }
+    uintptr_t* keep_bitvec;
+    uintptr_t* cur_set_bitvec;
+    if (unlikely(bigstack_calloc_w(variant_ctl, &keep_bitvec) ||
+                 bigstack_alloc_w(variant_ctl, &cur_set_bitvec))) {
+      goto GeneFilter_ret_NOMEM;
+    }
+    const uintptr_t set_ct = variant_sets.set_ct;
+    const uintptr_t max_set_name_blen = variant_sets.max_set_name_blen;
+    uint32_t matched_set_ct = 0;
+    for (uintptr_t set_idx = 0; set_idx != set_ct; ++set_idx) {
+      const char* cur_set_name = &(variant_sets.set_names[set_idx * max_set_name_blen]);
+      if (!gene_all) {
+        if (bsearch_strbox(cur_set_name, sorted_genekeep_ids, strlen(cur_set_name), max_genekeep_blen, genekeep_ct) == -1) {
+          continue;
+        }
+      }
+      ++matched_set_ct;
+      UnpackSetdef(variant_sets.setdefs[set_idx], variant_ct, cur_set_bitvec);
+      BitvecOr(cur_set_bitvec, variant_ctl, keep_bitvec);
+    }
+    if (unlikely(!matched_set_ct)) {
+      if (gene_all) {
+        logerrputs("Error: All variants excluded by --gene-all, since no sets were defined.\n");
+      } else {
+        logerrputs("Error: All variants excluded by --gene, since it matched no set.\n");
+      }
+      goto GeneFilter_ret_DEGENERATE_DATA;
+    }
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      // safe to clear as we go: BitIter1() has already consumed this bit
+      const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      if (!IsSet(keep_bitvec, variant_idx)) {
+        ClearBit(variant_uidx, variant_include);
+      }
+    }
+    const uint32_t new_variant_ct = PopcountWords(variant_include, BitCtToWordCt(raw_variant_ct));
+    if (unlikely(!new_variant_ct)) {
+      logerrprintf("Error: All variants excluded by --gene%s.\n", gene_all? "-all" : "");
+      goto GeneFilter_ret_DEGENERATE_DATA;
+    }
+    *variant_ct_ptr = new_variant_ct;
+    logprintf("--gene%s: %u set%s matched, %u variant%s remaining.\n", gene_all? "-all" : "", matched_set_ct, (matched_set_ct == 1)? "" : "s", new_variant_ct, (new_variant_ct == 1)? "" : "s");
+  }
+  while (0) {
+  GeneFilter_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  GeneFilter_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
+    break;
+  }
+ GeneFilter_ret_1:
   BigstackReset(bigstack_mark);
   return reterr;
 }
