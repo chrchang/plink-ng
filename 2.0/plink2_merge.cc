@@ -5853,8 +5853,11 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
                 const uintptr_t new_bit = k1LU << (new_sample_idx % kBitsPerWord);
                 if ((!new_dosage_ct) || (!(new_raw_dosage_present[new_widx] & new_bit))) {
                   unlocked_dbl_nonmissing_sample_span[new_widx] &= ~new_bit;
-                  geno_word &= (~(3 * k1LU)) << bit_read_shift_ct;
-                  continue;
+                  // cur_geno must still be stored in r_genovec below: the
+                  // clobber loop tells "incoming missing" apart from "incoming
+                  // hom-ref" by looking for 3 there, so skipping the store
+                  // would turn a sample that's missing in every record into a
+                  // hom-ref call.
                 }
               }
               const uint32_t new_word_idx = new_sample_idx / kBitsPerWordD2;
