@@ -7091,6 +7091,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
     // 4. If filesets cover disjoint positions, handle this as a concatenation
     //    job (or error out on --variant-inner-join).
     // 5. Otherwise, perform general-purpose incremental merge.
+    const uint32_t outname_slen = outname_end - outname;
     uintptr_t fileset_ct = 2;
     {
       PmergeInputFilesetLl** filesets_endp = &input_filesets;
@@ -7135,6 +7136,18 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
           goto Pmerge_ret_1;
         }
       }
+      // Sanity check: output .pgen filename must not overlap an input .pgen
+      // filename.  This doesn't catch all possible input clobbering, but it
+      // should catch ~all accidents.
+      strcpy_k(outname_end, ".pgen");
+      PmergeInputFilesetLl* filesets_iter = input_filesets;
+      do {
+        if (unlikely(!strcmp(filesets_iter->pgen_fname, outname))) {
+          logerrprintfww("Error: --pmerge[-list] output filename '%s' appears in the input.\n", outname);
+          goto Pmerge_ret_INCONSISTENT_INPUT;
+        }
+        filesets_iter = filesets_iter->next;
+      } while (filesets_iter);
     }
 
     SampleIdInfo sii;
@@ -7195,7 +7208,6 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
         next_filesets = nullptr;
       }
     }
-    const uint32_t outname_slen = outname_end - outname;
     memcpy(pgenname, outname, outname_slen);
     strcpy_k(&(pgenname[outname_slen]), ".pgen");
     memcpy(pvarname, outname, outname_slen);
@@ -7216,6 +7228,9 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, const char*
   while (0) {
   Pmerge_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  Pmerge_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   }
  Pmerge_ret_1:
