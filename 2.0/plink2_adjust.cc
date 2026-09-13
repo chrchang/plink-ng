@@ -169,7 +169,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           // (Don't think there are any other cases yet where valid_allele_ct
           // can be less than orig_allele_ct?)
           if (cur_ln_pval <= 0.0) {
-            sortbuf[valid_allele_ct].chisq = LnPToChisq(cur_ln_pval);
+            sortbuf[valid_allele_ct].chisq = LnPToChisq(cur_ln_pval, 1);
             sortbuf[valid_allele_ct].ln_pval = cur_ln_pval;
             sortbuf[valid_allele_ct].variant_uidx = allele_uidx / 2;
             sortbuf[valid_allele_ct].allele_idx = allele_uidx % 2;
@@ -229,7 +229,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           }
           const double cur_ln_pval = ln_pvals[aidx];
           if (cur_ln_pval <= 0.0) {
-            sortbuf[valid_allele_ct].chisq = LnPToChisq(cur_ln_pval);
+            sortbuf[valid_allele_ct].chisq = LnPToChisq(cur_ln_pval, 1);
             sortbuf[valid_allele_ct].ln_pval = cur_ln_pval;
             sortbuf[valid_allele_ct].variant_uidx = variant_uidx;
             sortbuf[valid_allele_ct].allele_idx = allele_uidx - allele_idx_offset_start;
