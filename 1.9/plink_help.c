@@ -1887,7 +1887,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #endif
     help_print("read-dists\tload-dists\tibs-test\tgroupdist\tregress-distance\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
 "  --read-dists <dist file> [id file] : Load a triangular binary distance matrix\n"
-"                                       instead of recalculating from scratch.\n"
+"                                       (allele-count units assumed) instead of\n"
+"                                       recalculating from scratch.\n"
 	       );
     help_print("ppc-gap\tmin\tmax\tgenome\tZ-genome", &help_ctrl, 0,
 "  --ppc-gap <val>    : Minimum number of base pairs, in thousands, between\n"
