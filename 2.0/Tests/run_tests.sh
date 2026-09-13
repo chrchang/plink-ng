@@ -128,6 +128,11 @@ cd TEST_PGEN_MALFORMED
 cd ..
 echo "TEST_PGEN_MALFORMED passed."
 
+cd TEST_PHENO_UTILS
+./run_tests.sh $d $2 $3 > TEST_PHENO_UTILS.log
+cd ..
+echo "TEST_PHENO_UTILS passed."
+
 cd TEST_GRM_MAF
 ./run_tests.sh $d $2 $3 > TEST_GRM_MAF.log
 cd ..
