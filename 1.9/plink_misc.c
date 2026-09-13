@@ -5856,11 +5856,18 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	if (scan_double(token_ptrs[1], &cur_beta) || (cur_beta == INFINITY) || ((!input_beta) && (!(cur_beta >= 0))) || (input_beta && ((cur_beta != cur_beta) || (cur_beta == -INFINITY)))) {
 	  problem_mask |= 0x10;
 	}
-	if (scan_double(token_ptrs[2], &cur_se) || (!(cur_se >= 0.0)) || (cur_se == INFINITY)) {
+	// A zero standard error is as unusable as a negative one: the
+	// inverse-variance weight is 1 / (se * se), so it turns the whole
+	// variant's estimate into a NaN while still being counted in N.
+	if (scan_double(token_ptrs[2], &cur_se) || (!(cur_se > 0.0)) || (cur_se == INFINITY)) {
 	  problem_mask |= 0x20;
 	}
 	if (weighted_z) {
-	  if (scan_double(token_ptrs[3], &cur_p) || (!(cur_p >= 0.0)) || (cur_p > 1.0)) {
+	  // Same for a p-value of exactly zero: the weighted-Z analysis needs
+	  // a finite z-score, and inverting a zero p-value does not give one.
+	  // BAD_ESS below already rejects the whole line for a value only
+	  // weighted-Z uses.
+	  if (scan_double(token_ptrs[3], &cur_p) || (!(cur_p > 0.0)) || (cur_p > 1.0)) {
 	    problem_mask |= 0x80;
 	  }
 	  if (scan_double(token_ptrs[4], &cur_ess) || (!(cur_ess > 0.0)) || (cur_ess == INFINITY)) {
@@ -6277,11 +6284,11 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	  if (!realnum(cur_beta)) {
 	    continue;
 	  }
-	  if (scan_double(token_ptrs[2], &cur_se) || (!(cur_se >= 0.0)) || (cur_se == INFINITY)) {
+	  if (scan_double(token_ptrs[2], &cur_se) || (!(cur_se > 0.0)) || (cur_se == INFINITY)) {
 	    continue;
 	  }
 	  if (weighted_z) {
-	    if (scan_double(token_ptrs[3], &cur_p) || (!(cur_p >= 0.0)) || (cur_p > 1.0)) {
+	    if (scan_double(token_ptrs[3], &cur_p) || (!(cur_p > 0.0)) || (cur_p > 1.0)) {
 	      continue;
 	    }
 	    if (scan_double(token_ptrs[4], &cur_ess) || (!(cur_ess > 0.0)) || (cur_ess == INFINITY)) {
