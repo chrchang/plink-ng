@@ -1132,7 +1132,7 @@ PglErr MetaAnalysis(const MetaInfo* mip, uint32_t max_thread_ct, char* outname, 
         sum_w2 += cur_w * cur_w;
         sum_wbeta += cur_w * cur_beta;
         if (weighted_z) {
-          const double abs_z = sqrt(LnPToChisq(cur_rec->ln_pval));
+          const double abs_z = sqrt(LnPToChisq(cur_rec->ln_pval, 1));
           const double cur_z = (cur_beta < 0.0)? (-abs_z) : abs_z;
           const double cur_wz_w = sqrt(cur_rec->ess);
           sum_wz += cur_wz_w * cur_z;

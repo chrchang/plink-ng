@@ -117,6 +117,7 @@ cd TEST_SHOW_TAGS
 ./run_tests.sh $d $2 $3 > TEST_SHOW_TAGS.log
 cd ..
 echo "TEST_SHOW_TAGS passed."
+
 cd TEST_META_ANALYSIS
 ./run_tests.sh $d $2 $3 > TEST_META_ANALYSIS.log
 cd ..
