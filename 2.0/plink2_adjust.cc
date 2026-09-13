@@ -658,6 +658,18 @@ typedef struct MetaRecordStruct {
 #endif
 } MetaRecord;
 
+#ifndef __cplusplus
+int32_t MetaRecordCmp(const void* aa, const void* bb) {
+  const MetaRecord* mr1 = S_CAST(const MetaRecord*, aa);
+  const MetaRecord* mr2 = S_CAST(const MetaRecord*, bb);
+  const int32_t id_cmp = strcmp(mr1->id, mr2->id);
+  if (id_cmp) {
+    return id_cmp;
+  }
+  return S_CAST(int32_t, mr1->file_idx) - S_CAST(int32_t, mr2->file_idx);
+}
+#endif
+
 // ID-major, so same-variant rows are adjacent; file index breaks ties so a
 // group's order is deterministic.
 // Chromosomes are compared numerically when both sides are numeric, so the
@@ -701,6 +713,23 @@ typedef struct MetaGroupStruct {
   }
 #endif
 } MetaGroup;
+
+#ifndef __cplusplus
+int32_t MetaGroupCmp(const void* aa, const void* bb) {
+  const MetaGroup* mg1 = S_CAST(const MetaGroup*, aa);
+  const MetaGroup* mg2 = S_CAST(const MetaGroup*, bb);
+  const int32_t chr_cmp = MetaChrCmp(mg1->chr, mg2->chr);
+  if (chr_cmp) {
+    return chr_cmp;
+  }
+  const uint32_t bp1 = mg1->bp;
+  const uint32_t bp2 = mg2->bp;
+  if (bp1 != bp2) {
+    return (bp1 < bp2)? -1 : 1;
+  }
+  return S_CAST(int32_t, mg1->first_rec) - S_CAST(int32_t, mg2->first_rec);
+}
+#endif
 
 // Fills col_skips/col_types for one input file; shared by both passes so the
 // two cannot disagree about which columns they are reading.
