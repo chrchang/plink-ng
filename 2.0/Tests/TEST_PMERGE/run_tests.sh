@@ -84,4 +84,34 @@ if $1/plink2 $2 $3 --pfile part1 --pmerge part1 --out merged_self 2> tmp_self_er
 fi
 grep -q "under development" tmp_self_err.txt
 
+# 7. --merge-mode nm-match over a group of records.  Same-position same-ID
+#    duplicates inside one fileset are the only way to reach the genotype merge
+#    while the job stays a concatenation, so the fixtures pair them with a
+#    fileset on chromosome 2.  The _a and _b fixtures hold the same data with
+#    the two records of each variant swapped, and both are checked against the
+#    same expected output, since "nonmissing values must match" is symmetric:
+#      s1 is missing in every record, so it must stay missing;
+#      s2 is missing in one record and called in the other, so the call wins;
+#      s3 has two different calls, which is the one genuine conflict.
+#    nmdos covers the same three cases on the dosage track.
+for o in a b
+do
+    $1/plink2 $2 $3 --vcf nmdup_$o.vcf --make-pgen --out tmp_nmdup_$o
+    $1/plink2 $2 $3 --vcf nmdos_$o.vcf dosage=DS --make-pgen --out tmp_nmdos_$o
+done
+$1/plink2 $2 $3 --vcf nmdup_other.vcf --make-pgen --out tmp_nmother
+
+for o in a b
+do
+    $1/plink2 $2 $3 --pfile tmp_nmdup_$o --pmerge tmp_nmother --merge-mode nm-match --out tmp_nmdupm_$o
+    $1/plink2 $2 $3 --pfile tmp_nmdupm_$o --export vcf --out tmp_nmdupx_$o
+    grep -v '^#' tmp_nmdupx_$o.vcf > tmp_nmdup_body_$o.vcf
+    diff -q nmdup_expected.vcfbody tmp_nmdup_body_$o.vcf
+
+    $1/plink2 $2 $3 --pfile tmp_nmdos_$o --pmerge tmp_nmother --merge-mode nm-match --out tmp_nmdosm_$o
+    $1/plink2 $2 $3 --pfile tmp_nmdosm_$o --export vcf vcf-dosage=DS --out tmp_nmdosx_$o
+    grep -v '^#' tmp_nmdosx_$o.vcf > tmp_nmdos_body_$o.vcf
+    diff -q nmdos_expected.vcfbody tmp_nmdos_body_$o.vcf
+done
+
 echo "TEST_PMERGE passed."
