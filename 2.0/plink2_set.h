@@ -44,17 +44,33 @@ uint32_t IntervalInSetdef(const uint32_t* setdef, uint32_t variant_uidx_start, u
 // --set: named sets of variants, given as whitespace-delimited tokens, each
 // set being its name, then its variant IDs, then END.  A variant ID that is
 // not in the current variant set is ignored, as in PLINK 1.x.
+// --make-set instead names bp ranges, in a file with chromosome code, start
+// and end positions, and set ID in its first four columns, with an optional
+// group label in the fifth.
 FLAGSET_DEF_START()
   kfSet0,
   kfSetWriteList = (1 << 0),
-  kfSetWriteListZs = (1 << 1)
+  kfSetWriteListZs = (1 << 1),
+  kfSetWriteTable = (1 << 2),
+  kfSetWriteTableZs = (1 << 3),
+
+  // --make-set: sets are named bp ranges instead of variant-ID lists.
+  kfSetMakeFromRanges = (1 << 4),
+  kfSetCollapseGroup = (1 << 5),
+
+  // --complement-sets and friends: every set is inverted, and (unless the name
+  // came from --make-set-complement-all) gains a "C_" prefix.
+  kfSetComplements = (1 << 6),
+  kfSetCPrefix = (1 << 7)
 FLAGSET_DEF_END(SetFlags);
 
 typedef struct SetInfoStruct {
   NONCOPYABLE(SetInfoStruct);
   char* fname;
+  char* subset_fname;
   char* setnames_flattened;
   char* merged_set_name;
+  uint32_t make_set_border;
   SetFlags flags;
 } SetInfo;
 
@@ -72,9 +88,11 @@ typedef struct VariantSetsStruct {
   uint32_t** setdefs;
 } VariantSets;
 
-PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, VariantSets* vsp);
+PglErr DefineSets(const SetInfo* sip, const ChrInfo* cip, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, VariantSets* vsp);
 
 PglErr WriteSetList(const VariantSets* vsp, const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, SetFlags flags, uint32_t max_thread_ct, char* outname, char* outname_end);
+
+PglErr WriteSetTable(const VariantSets* vsp, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t variant_ct, SetFlags flags, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 uint32_t InSetdef(const uint32_t* setdef, uint32_t variant_idx);
 
