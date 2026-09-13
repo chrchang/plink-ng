@@ -153,9 +153,11 @@ def main():
             cell_keys = sorted(cells)
             main_ct = 1 + len(live) + (len(row_levels) - 1) + (len(col_levels) - 1)
             full_ct = 1 + len(live) + len(cell_keys) - 1
-            df = full_ct - main_ct
-            if df < 1 or len(members) <= full_ct:
+            # A sampling zero costs the full model a parameter without costing
+            # the table a degree of freedom, so the two counts differ.
+            if full_ct - main_ct < 1 or len(members) <= full_ct:
                 continue
+            df = (len(row_levels) - 1) * (len(col_levels) - 1)
             # The reference level is the last one here, and the reference cell
             # the last occupied one, where plink2 takes the first of each.
             y = []

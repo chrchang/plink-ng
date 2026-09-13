@@ -15382,9 +15382,10 @@ static double EpiCovarLoglik(const double* xx, const double* yy, const double* c
 // extension of one design, because the natural extension is not always full
 // rank: a genotype combination with no samples leaves its product term with
 // nothing to estimate.  The full model is instead the saturated one over the
-// occupied cells, which is what the log-linear fit's saturated model is too,
-// so the interaction degrees of freedom are the occupied cell count less the
-// main-effect parameters.
+// occupied cells, which is what the log-linear fit's saturated model is too.
+// The degrees of freedom reported are still the table's, (rows - 1) times
+// (columns - 1) over the levels that are present, so a sampling zero leaves
+// them alone and only an empty row or column reduces them.
 //
 // Returns 1 if the pair cannot be fit, in which case it is left out of the
 // report.
@@ -15513,7 +15514,11 @@ static uint32_t EpiCovarRefit(const uintptr_t* row_geno_bits, const uintptr_t* c
   }
   // A perfect fit lands on zero from either side.
   *stat_ptr = MAXV(stat, 0.0);
-  *df_ptr = full_predictor_ct - main_predictor_ct;
+  // A sampling zero costs the full model a parameter, but the degrees of
+  // freedom stay those of the table it is a zero in, as on the unadjusted
+  // side: only an empty row or column, which drops a level outright, reduces
+  // them.
+  *df_ptr = (row_level_ct - 1) * (col_level_ct - 1);
   return 0;
 }
 
