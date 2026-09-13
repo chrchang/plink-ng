@@ -1819,6 +1819,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * Sets are defined after your variant filters have been applied, so a\n"
 "      filter that drops a variant drops it from every set as well.\n\n"
                );
+    HelpPrint("gene\0gene-all\0set\0make-set\0", &help_ctrl, 1,
+"  --gene <set name(s)...>\n"
+"  --gene-all\n"
+"    Exclude variants which are not in any of the named sets (--gene), or in\n"
+"    any set at all (--gene-all).  The names are the ones --write-set reports,\n"
+"    so with --complement-sets they carry the 'C_' prefix.\n"
+"    * This is a variant filter, so it is applied before the sets the other\n"
+"      commands see are defined; those sets then cover only the variants it\n"
+"      kept.\n\n"
+               );
     HelpPrint("write-snplist\0", &help_ctrl, 1,
 "  --write-snplist ['zs'] ['allow-dups']\n"
 "    List all variants which pass your filters/inclusion thresholds.  Unless the\n"

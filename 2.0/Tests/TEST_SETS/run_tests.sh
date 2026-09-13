@@ -141,7 +141,37 @@ $1/plink2 $2 $3 --zst-decompress plink2_tbl_zs.set.table.zst > plink2_tbl_zs.set
 $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-table --out plink2_tbl
 diff -q plink2_tbl.set.table plink2_tbl_zs.set.table
 
-# 12. Malformed files are rejected: an unmatched END, and a set with no END.
+# 12. --gene/--gene-all keep the variants in the named sets, as a variant
+#     filter, so the sets the other commands then see cover only those.
+for gene_flags in "--gene geneA" "--gene geneA,geneD" "--gene-all"; do
+    $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt $gene_flags --write-snplist --out plink2_gene
+    plink --bfile tmp_data --set tmp_sets.txt $(echo $gene_flags | tr ',' ' ') --write-snplist --out plink19_gene > /dev/null
+    diff -q plink19_gene.snplist plink2_gene.snplist
+done
+for gene_flags in "--gene geneA" "--gene-all"; do
+    $1/plink2 $2 $3 --bfile tmp_data --make-set tmp_ranges.txt $gene_flags --write-snplist --out plink2_gene_ms
+    plink --bfile tmp_data --make-set tmp_ranges.txt $gene_flags --write-snplist --out plink19_gene_ms > /dev/null
+    diff -q plink19_gene_ms.snplist plink2_gene_ms.snplist
+done
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --gene-all --write-set --out plink2_gene_set
+plink --bfile tmp_data --set tmp_sets.txt --gene-all --write-set --out plink19_gene_set > /dev/null
+diff -q plink19_gene_set.set plink2_gene_set.set
+# --gene geneA leaves geneA's variants only, so geneB and geneD lose theirs.
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --gene geneA --write-set --out plink2_gene_one
+printf 'geneA\nsv_0\nsv_1\nsv_20\nEND\n\ngeneB\nEND\n\ngeneC\nEND\n\ngeneD\nEND\n\n' > tmp_gene_one.set
+diff -q tmp_gene_one.set plink2_gene_one.set
+
+# 13. --gene takes the names --write-set reports, so a complemented set needs
+#     its 'C_' prefix.  Not diffed against 1.9: its --gene keeps every variant
+#     as soon as one set is skipped, and its complements lose a variant
+#     (chrchang/plink-ng#478).
+$1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --complement-sets --gene C_geneB --write-snplist --out plink2_gene_comp
+test "$(wc -l < plink2_gene_comp.snplist)" -eq 28
+fails grep -qx 'sv_2' plink2_gene_comp.snplist
+fails grep -qx 'sv_3' plink2_gene_comp.snplist
+grep -qx 'sv_0' plink2_gene_comp.snplist
+
+# 14. Malformed files are rejected: an unmatched END, and a set with no END.
 printf 'geneA\nsv_0\nEND\nEND\n' > tmp_extra_end.txt
 fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_extra_end.txt --write-set --out plink2_bad
 printf 'geneA\nsv_0\n' > tmp_no_end.txt
@@ -155,7 +185,7 @@ fails $1/plink2 $2 $3 --bfile tmp_data --make-set tmp_bad_chr.txt --write-set --
 printf '1 2 4 geneA\n' > tmp_nogroup.txt
 fails $1/plink2 $2 $3 --bfile tmp_data --make-set tmp_nogroup.txt --make-set-collapse-group --write-set --out plink2_bad
 
-# 13. Rejected: selections that match nothing, and the flag dependencies.
+# 15. Rejected: selections that match nothing, and the flag dependencies.
 fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --set-names nosuchset --write-set --out plink2_bad
 printf 'nosuchset\n' > tmp_nosuch.txt
 fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --subset tmp_nosuch.txt --write-set --out plink2_bad
@@ -175,3 +205,7 @@ fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --make-set tmp_ranges.
 fails $1/plink2 $2 $3 --bfile tmp_data --make-set tmp_ranges.txt --complement-sets --make-set-complement-all ALL --write-set --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --make-set tmp_ranges.txt --make-set-collapse-group --make-set-complement-group --write-set --out plink2_bad
 fails $1/plink2 $2 $3 --bfile tmp_data --make-set tmp_ranges.txt --make-set-collapse-group --set-collapse-all ALL --write-set --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --gene nosuchset --write-snplist --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --gene geneA --write-snplist --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --gene-all --write-snplist --out plink2_bad
+fails $1/plink2 $2 $3 --bfile tmp_data --set tmp_sets.txt --gene geneA --gene-all --write-snplist --out plink2_bad

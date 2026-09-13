@@ -61,7 +61,10 @@ FLAGSET_DEF_START()
   // --complement-sets and friends: every set is inverted, and (unless the name
   // came from --make-set-complement-all) gains a "C_" prefix.
   kfSetComplements = (1 << 6),
-  kfSetCPrefix = (1 << 7)
+  kfSetCPrefix = (1 << 7),
+
+  // --gene-all; --gene names its sets in genekeep_flattened instead.
+  kfSetGeneAll = (1 << 8)
 FLAGSET_DEF_END(SetFlags);
 
 typedef struct SetInfoStruct {
@@ -69,6 +72,7 @@ typedef struct SetInfoStruct {
   char* fname;
   char* subset_fname;
   char* setnames_flattened;
+  char* genekeep_flattened;
   char* merged_set_name;
   uint32_t make_set_border;
   SetFlags flags;
@@ -88,7 +92,13 @@ typedef struct VariantSetsStruct {
   uint32_t** setdefs;
 } VariantSets;
 
-PglErr DefineSets(const SetInfo* sip, const ChrInfo* cip, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, VariantSets* vsp);
+PglErr DefineSets(const SetInfo* sip, const ChrInfo* cip, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, uint32_t quiet, VariantSets* vsp);
+
+// --gene/--gene-all: keeps the variants that are in at least one of the named
+// sets (every set, for --gene-all).  Runs as a variant filter, so the sets it
+// loads are thrown away afterwards, and DefineSets() rebuilds them over the
+// variants that survived.
+PglErr GeneFilter(const SetInfo* sip, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
 PglErr WriteSetList(const VariantSets* vsp, const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, SetFlags flags, uint32_t max_thread_ct, char* outname, char* outname_end);
 

@@ -2762,6 +2762,21 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         EnforceMinBpSpace(cip, variant_bps, pcp->min_bp_space, variant_include, &variant_ct);
       }
 
+      if (pcp->set_info.genekeep_flattened || (pcp->set_info.flags & kfSetGeneAll)) {
+        if (unlikely((pcp->set_info.flags & kfSetMakeFromRanges) && (vpos_sortstatus & kfUnsortedVarBp))) {
+          logerrputs("Error: --make-set requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
+        if (unlikely(!variant_ct)) {
+          logerrputs("Error: No variants remaining after main filters.\n");
+          goto Plink2Core_ret_DEGENERATE_DATA;
+        }
+        reterr = GeneFilter(&(pcp->set_info), cip, variant_bps, variant_ids, raw_variant_ct, max_variant_id_slen, pcp->max_thread_ct, variant_include, &variant_ct);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->filter_flags & kfFilterPvarReq) {
         if (unlikely(!variant_ct)) {
           // do we want this to be conditionally acceptable?
@@ -3358,7 +3373,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: --make-set requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
-        reterr = DefineSets(&(pcp->set_info), cip, variant_include, variant_bps, variant_ids, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->max_thread_ct, &variant_sets);
+        reterr = DefineSets(&(pcp->set_info), cip, variant_include, variant_bps, variant_ids, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->max_thread_ct, 0, &variant_sets);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -7730,6 +7745,28 @@ int main(int argc, char** argv) {
             pc.filter_flags |= kfFilterPvarReq;
             pc.dependency_flags = kfFilterAllReq | kfFilterNoSplitChr;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "ene")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          // --set/--make-set sort later, so the dependency is checked after
+          // the parsing loop.
+          reterr = AllocAndFlattenCommaDelim(&(argvk[arg_idx + 1]), param_ct, &pc.set_info.genekeep_flattened);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ene-all")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 0))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          // --gene sorts first, so its presence can be checked here.
+          if (unlikely(pc.set_info.genekeep_flattened)) {
+            logerrputs("Error: --gene-all cannot be used with --gene.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.set_info.flags |= kfSetGeneAll;
+          pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "eno-counts")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -14824,6 +14861,10 @@ int main(int argc, char** argv) {
     }
     if (unlikely((!pc.set_info.fname) && ((pc.set_info.flags & kfSetComplements) || pc.set_info.merged_set_name))) {
       logerrputs("Error: --complement-sets/--make-set-complement-all must be used with\n--set/--make-set.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely((!pc.set_info.fname) && (pc.set_info.genekeep_flattened || (pc.set_info.flags & kfSetGeneAll)))) {
+      logerrputs("Error: --gene/--gene-all must be used with --set/--make-set.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely((pc.set_info.flags & kfSetCollapseGroup) && (!(pc.set_info.flags & kfSetMakeFromRanges)))) {
