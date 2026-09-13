@@ -3056,7 +3056,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            * 'file'/'f' uses the order in the given file\n"
 "                              (named in the last argument).\n"
                );
-    HelpPrint("pmerge\0pmerge-list\0delete-pmerge-result\0pmerge-list-dir\0pmerge-output-vzs\0sample-inner-join\0variant-inner-join\0pheno-inner-join\0merge-mode\0merge-parents-mode\0merge-sex-mode\0merge-pheno-mode\0merge-xheader-mode\0merge-qual-mode\0merge-filter-mode\0merge-info-mode\0merge-cm-mode\0", &help_ctrl, 0,
+    HelpPrint("pmerge\0pmerge-list\0delete-pmerge-result\0pmerge-list-dir\0pmerge-output-vzs\0sample-inner-join\0variant-inner-join\0pheno-inner-join\0merge-mode\0merge-parents-mode\0merge-sex-mode\0merge-pheno-mode\0merge-xheader-mode\0merge-qual-mode\0merge-filter-mode\0merge-info-mode\0merge-cm-mode\0merge-ignore-phase\0merge-ignore-dosage\0", &help_ctrl, 0,
 "  --pmerge-list-dir <dir>  : Specify base dir to join to --pmerge-list entries.\n"
 "  --pmerge-output-vzs      : Compress the .pvar file from --pmerge[-list].\n"
 "  --delete-pmerge-result   : Delete --pmerge[-list] output files at the end of\n"
@@ -3092,6 +3092,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                             * 'np-union' = keep all non-PASS values\n"
 "                                            (--merge-filter-mode default, not\n"
 "                                            applicable to others)\n"
+"  --merge-ignore-phase     : Discard phase information before merge.\n"
+"  --merge-ignore-dosage    : Discard dosage information before merge.\n"
               );
     HelpPrint("pmerge\0pmerge-list\0merge-pheno-sort\0merge-info-sort\0", &help_ctrl, 0,
 "  --merge-pheno-sort <m>   : Set sort order for phenotype columns and INFO\n"

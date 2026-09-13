@@ -10565,6 +10565,14 @@ int main(int argc, char** argv) {
           } else {
             pmerge_info.merge_cm_mode = mode;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "erge-ignore-phase")) {
+          pmerge_info.flags |= kfPmergeIgnorePhase;
+          pmerge_required = 1;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "erge-ignore-dosage")) {
+          pmerge_info.flags |= kfPmergeIgnoreDosage;
+          pmerge_required = 1;
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "erge-info-sort") ||
                    strequal_k_unsafe(flagname_p2, "erge-pheno-sort")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -14240,6 +14248,8 @@ int main(int argc, char** argv) {
         logerrputs("Error: --multiallelics-already-joined must be used with --pmerge[-list].\n");
       } else if (pmerge_info.flags & kfPmergePhenoInnerJoin) {
         logerrputs("Error: --pheno-inner-join must be used with --pmerge[-list].\n");
+      } else if (pmerge_info.flags & (kfPmergeIgnorePhase | kfPmergeIgnoreDosage)) {
+        logerrputs("Error: --merge-ignore-{phase,dosage} must be used with --pmerge[-list].\n");
       } else {
         assert(0);
       }
