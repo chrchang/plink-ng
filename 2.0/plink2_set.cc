@@ -38,13 +38,16 @@ typedef struct MakeSetRangeStruct {
   uint32_t uidx_end;
 } MakeSetRange;
 
-PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t zero_based, uint32_t track_set_names, uint32_t border_extend, uint32_t fail_on_no_sets, uint32_t c_prefix, uintptr_t subset_ct, uintptr_t max_subset_id_blen, TextStream* txsp, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, MakeSetRange*** make_set_range_arr_ptr) {
+PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t zero_based, uint32_t track_set_names, uint32_t border_extend, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t collapse_group, uintptr_t subset_ct, uintptr_t max_subset_id_blen, TextStream* txsp, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, MakeSetRange*** make_set_range_arr_ptr) {
   // In plink 1.9, this was named load_range_list() and called directly by
   // ExtractExcludeRange(), define_sets(), and indirectly by annotate(),
   // gene_report(), and clump_reports().  That function required set IDs in
   // column 4, and interpreted column 5 as a set "group label".
   // However, column 5 wasn't used very often, and without it, we're free to
-  // generalize this function to point at UCSC interval-BED files.
+  // generalize this function to point at UCSC interval-BED files; it is only
+  // read when collapse_group is set, which is --make-set-collapse-group and
+  // --make-set-complement-group.  (collapse_group requires track_set_names,
+  // and is only supported with variant_bps.)
   //
   // Assumes caller will reset g_bigstack_end later.
   PglErr reterr = kPglRetSuccess;
@@ -61,6 +64,9 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         char* first_token_end = CurTokenEnd(line_start);
         char* cur_set_id = NextTokenMult(first_token_end, 3);
         char* last_token = cur_set_id;
+        if (collapse_group && (!NoMoreTokensKns(cur_set_id))) {
+          last_token = NextToken(cur_set_id);
+        }
         if (unlikely(NoMoreTokensKns(last_token))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
           goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
@@ -80,12 +86,15 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
           goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
         }
         // chr_mask check removed, we want to track empty sets
-        uint32_t set_id_slen = strlen_se(cur_set_id);
+        const uint32_t cur_set_id_slen = strlen_se(cur_set_id);
+        // the set name is the group label when grouping, the set ID otherwise
+        const uint32_t name_slen = collapse_group? strlen_se(last_token) : cur_set_id_slen;
         // we're about to possibly clobber \n, so advance line_iter now
-        line_iter = AdvPastDelim(&(cur_set_id[set_id_slen]), '\n');
-        cur_set_id[set_id_slen] = '\0';
+        line_iter = AdvPastDelim(&(last_token[name_slen]), '\n');
+        last_token[name_slen] = '\0';
+        cur_set_id[cur_set_id_slen] = '\0';
         if (subset_ct) {
-          if (bsearch_strbox(cur_set_id, sorted_subset_ids, set_id_slen, max_subset_id_blen, subset_ct) == -1) {
+          if (bsearch_strbox(cur_set_id, sorted_subset_ids, cur_set_id_slen, max_subset_id_blen, subset_ct) == -1) {
             continue;
           }
         }
@@ -93,7 +102,7 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         if (make_set_ll && strequal_overread(make_set_ll->str, last_token)) {
           continue;
         }
-        uint32_t set_id_blen = set_id_slen + 1;
+        uint32_t set_id_blen = name_slen + 1;
         // argh, --clump counts positional overlaps which don't include any
         // variants in the dataset.  So we prefix set IDs with a chromosome
         // index in that case (with leading zeroes) and treat cross-chromosome
@@ -201,7 +210,11 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
       char* line_start = line_iter;
       char* first_token_end = CurTokenEnd(line_start);
       char* last_token = NextTokenMult(first_token_end, 2 + track_set_names);
-      if (unlikely(NoMoreTokensKns(last_token))) {
+      char* name_token = last_token;
+      if (collapse_group && (!NoMoreTokensKns(last_token))) {
+        name_token = NextToken(last_token);
+      }
+      if (unlikely(NoMoreTokensKns(name_token))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
         goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
       }
@@ -215,7 +228,7 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
       }
-      line_iter = CurTokenEnd(last_token);
+      line_iter = CurTokenEnd(name_token);
       if (!IsSet(cip->chr_mask, cur_chr_code)) {
         continue;
       }
@@ -253,23 +266,25 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         range_first -= border_extend;
       }
       range_last += border_extend;
-      const uint32_t last_token_slen = line_iter - last_token;
+      const uint32_t name_token_slen = line_iter - name_token;
       // about to potentially clobber \n, advance now
       line_iter = AdvToDelim(line_iter, '\n');
       uint32_t cur_set_idx = 0;
       if (set_ct > 1) {
         // bugfix: bsearch_strbox_natural requires null-terminated string
-        last_token[last_token_slen] = '\0';
+        name_token[name_token_slen] = '\0';
         if (c_prefix) {
-          last_token = &(last_token[-2]);
-          memcpy_k(last_token, "C_", 2);
+          // the two bytes before the name are the tail of a token we are done
+          // with, or whitespace
+          name_token = &(name_token[-2]);
+          memcpy_k(name_token, "C_", 2);
         } else if (!variant_bps) {
-          last_token = &(last_token[-S_CAST(int32_t, kMaxChrCodeDigits)]);
-          u32toa_zchr(cur_chr_code, last_token);
-          last_token[kMaxChrCodeDigits - 1] -= 15;
+          name_token = &(name_token[-S_CAST(int32_t, kMaxChrCodeDigits)]);
+          u32toa_zchr(cur_chr_code, name_token);
+          name_token[kMaxChrCodeDigits - 1] -= 15;
         }
         // this should never fail
-        cur_set_idx = bsearch_strbox_natural(last_token, set_names, max_set_id_blen, set_ct);
+        cur_set_idx = bsearch_strbox_natural(name_token, set_names, max_set_id_blen, set_ct);
       }
       if (variant_bps) {
         // translate to within-chromosome uidx
@@ -383,7 +398,7 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
         fname_txs = fnames_iter;
       }
       MakeSetRange** range_arr = nullptr;
-      reterr = LoadIntervalBed(cip, variant_bps, nullptr, fname_txs, zero_based, 0, bed_border_bp, 0, 0, 0, 0, &txs, nullptr, nullptr, nullptr, nullptr, &range_arr);
+      reterr = LoadIntervalBed(cip, variant_bps, nullptr, fname_txs, zero_based, 0, bed_border_bp, 0, 0, 0, 0, 0, &txs, nullptr, nullptr, nullptr, nullptr, &range_arr);
       if (unlikely(reterr)) {
         goto ExtractExcludeRange_ret_1;
       }
@@ -496,13 +511,16 @@ uint32_t IntervalInSetdef(const uint32_t* setdef, uint32_t variant_uidx_start, u
 
 void InitSet(SetInfo* sip) {
   sip->fname = nullptr;
+  sip->subset_fname = nullptr;
   sip->setnames_flattened = nullptr;
   sip->merged_set_name = nullptr;
+  sip->make_set_border = 0;
   sip->flags = kfSet0;
 }
 
 void CleanupSet(SetInfo* sip) {
   free_cond(sip->fname);
+  free_cond(sip->subset_fname);
   free_cond(sip->setnames_flattened);
   free_cond(sip->merged_set_name);
 }
@@ -662,25 +680,149 @@ static uint32_t* SaveSetdef(const uintptr_t* member_bitvec, uint32_t variant_ct,
   return setdef;
 }
 
-// True if a set with this name is wanted.
-static uint32_t SetNameWanted(const char* name, uint32_t name_slen, const char* setnames_flattened) {
-  if (setnames_flattened) {
-    const char* iter = setnames_flattened;
-    while (*iter) {
-      const uint32_t cur_slen = strlen(iter);
-      if ((cur_slen == name_slen) && memequal(iter, name, name_slen)) {
-        return 1;
-      }
-      iter = &(iter[cur_slen + 1]);
-    }
-    return 0;
+// True if a set with this name is wanted, given the sorted --subset/--set-names
+// list (an empty list means every set is wanted).
+static uint32_t SetNameWanted(const char* name, uint32_t name_slen, const char* sorted_subset_ids, uintptr_t subset_ct, uintptr_t max_subset_id_blen) {
+  if (!subset_ct) {
+    return 1;
   }
-  return 1;
+  return (bsearch_strbox(name, sorted_subset_ids, name_slen, max_subset_id_blen, subset_ct) != -1);
 }
 
-PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, VariantSets* vsp) {
-  unsigned char* bigstack_mark = g_bigstack_base;
-  unsigned char* bigstack_end_mark = g_bigstack_end;
+// --subset names sets in a file, --set-names on the command line; either way
+// the result is one sorted, deduplicated list.  Allocated at the end of the
+// arena, since it is only needed while the set file is being read.
+static PglErr LoadSubsetIds(const char* subset_fname, const char* setnames_flattened, uint32_t max_thread_ct, char** sorted_subset_ids_ptr, uintptr_t* subset_ct_ptr, uintptr_t* max_subset_id_blen_ptr) {
+  PglErr reterr = kPglRetSuccess;
+  TokenStream tks;
+  PreinitTokenStream(&tks);
+  {
+    LlStr* id_ll = nullptr;
+    uintptr_t id_ct = 0;
+    uintptr_t max_id_blen = 0;
+    if (subset_fname) {
+      reterr = InitTokenStream(subset_fname, MAXV(max_thread_ct - 1, 1), &tks);
+      if (unlikely(reterr)) {
+        goto LoadSubsetIds_ret_TKSTREAM_FAIL;
+      }
+      while (1) {
+        char* shard_boundaries[2];
+        reterr = TksNext(&tks, 1, shard_boundaries);
+        if (reterr) {
+          break;
+        }
+        char* shard_iter = shard_boundaries[0];
+        char* shard_end = shard_boundaries[1];
+        while (1) {
+          shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
+          if (shard_iter == shard_end) {
+            break;
+          }
+          char* token_end = CurTokenEnd(shard_iter);
+          const uint32_t token_slen = token_end - shard_iter;
+          if (unlikely(token_slen >= kMaxIdSlen)) {
+            logerrputs("Error: Set IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+            goto LoadSubsetIds_ret_MALFORMED_INPUT;
+          }
+          LlStr* ll_tmp;
+          if (unlikely(bigstack_end_alloc_llstr(token_slen + 1, &ll_tmp))) {
+            goto LoadSubsetIds_ret_NOMEM;
+          }
+          ll_tmp->next = id_ll;
+          memcpyx(ll_tmp->str, shard_iter, token_slen, '\0');
+          id_ll = ll_tmp;
+          ++id_ct;
+          if (token_slen >= max_id_blen) {
+            max_id_blen = token_slen + 1;
+          }
+          shard_iter = token_end;
+        }
+      }
+      if (unlikely(reterr != kPglRetEof)) {
+        goto LoadSubsetIds_ret_TKSTREAM_FAIL;
+      }
+      reterr = kPglRetSuccess;
+      if (CleanupTokenStream3(subset_fname, &tks, &reterr)) {
+        goto LoadSubsetIds_ret_1;
+      }
+    }
+    uintptr_t cmdline_name_ct = 0;
+    if (setnames_flattened) {
+      const char* name_iter = setnames_flattened;
+      while (*name_iter) {
+        const uintptr_t cur_blen = strlen(name_iter) + 1;
+        if (unlikely(cur_blen > kMaxIdBlen)) {
+          logerrputs("Error: Set IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+          goto LoadSubsetIds_ret_MALFORMED_INPUT;
+        }
+        if (cur_blen > max_id_blen) {
+          max_id_blen = cur_blen;
+        }
+        ++cmdline_name_ct;
+        name_iter = &(name_iter[cur_blen]);
+      }
+    }
+    const uintptr_t total_id_ct = id_ct + cmdline_name_ct;
+    if (!total_id_ct) {
+      *subset_ct_ptr = 0;
+      goto LoadSubsetIds_ret_1;
+    }
+    const char** strptr_arr;
+    char* sorted_subset_ids;
+    if (unlikely(bigstack_end_alloc_kcp(total_id_ct, &strptr_arr) ||
+                 bigstack_end_alloc_c(total_id_ct * max_id_blen, &sorted_subset_ids))) {
+      goto LoadSubsetIds_ret_NOMEM;
+    }
+    for (uintptr_t ulii = 0; ulii != id_ct; ++ulii) {
+      strptr_arr[ulii] = id_ll->str;
+      id_ll = id_ll->next;
+    }
+    {
+      const char* name_iter = setnames_flattened;
+      for (uintptr_t ulii = id_ct; ulii != total_id_ct; ++ulii) {
+        strptr_arr[ulii] = name_iter;
+        name_iter = &(name_iter[strlen(name_iter) + 1]);
+      }
+    }
+    StrptrArrSort(total_id_ct, strptr_arr);
+    *subset_ct_ptr = CopyAndDedupSortedStrptrsToStrbox(strptr_arr, total_id_ct, max_id_blen, sorted_subset_ids);
+    *sorted_subset_ids_ptr = sorted_subset_ids;
+    *max_subset_id_blen_ptr = max_id_blen;
+  }
+  while (0) {
+  LoadSubsetIds_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadSubsetIds_ret_TKSTREAM_FAIL:
+    TokenStreamErrPrint(subset_fname, &tks);
+    reterr = TokenStreamErrcode(&tks);
+    break;
+  LoadSubsetIds_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ LoadSubsetIds_ret_1:
+  if (subset_fname) {
+    CleanupTokenStream2(subset_fname, &tks, &reterr);
+  }
+  return reterr;
+}
+
+// Turns one set's member bitvector into a setdef, inverting it first when
+// --complement-sets is in effect.  member_bitvec is left zeroed.
+static uint32_t* SaveSetdefAndClear(uint32_t variant_ct, uint32_t complement_sets, uintptr_t* member_bitvec, unsigned char** alloc_basep, unsigned char* alloc_end) {
+  const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+  if (complement_sets) {
+    BitvecInvert(variant_ctl, member_bitvec);
+    ZeroTrailingBits(variant_ct, member_bitvec);
+  }
+  uint32_t* setdef = SaveSetdef(member_bitvec, variant_ct, alloc_basep, alloc_end);
+  ZeroWArr(variant_ctl, member_bitvec);
+  return setdef;
+}
+
+// --set: sets are variant-ID lists.
+static PglErr DefineSetsFromIdLists(const SetInfo* sip, const uintptr_t* variant_include, const char* const* variant_ids, const char* sorted_subset_ids, uintptr_t subset_ct, uintptr_t max_subset_id_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, VariantSets* vsp) {
   const char* fname = sip->fname;
   PglErr reterr = kPglRetSuccess;
   TokenStream tks;
@@ -688,6 +830,9 @@ PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const ch
   {
     const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
     const char* merged_set_name = sip->merged_set_name;
+    const uint32_t complement_sets = (sip->flags / kfSetComplements) & 1;
+    // 0 or 2; --complement-sets renames the sets it inverts, as in PLINK 1.x.
+    const uint32_t c_prefix = 2 * ((sip->flags / kfSetCPrefix) & 1);
 
     uint32_t* variant_id_htable;
     uint32_t* htable_dup_base;
@@ -695,7 +840,7 @@ PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const ch
     uint32_t dup_ct;
     reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, bigstack_left() / 8, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
     if (unlikely(reterr)) {
-      goto DefineSets_ret_1;
+      goto DefineSetsFromIdLists_ret_1;
     }
     unsigned char* htable_mark = g_bigstack_base;
 
@@ -704,13 +849,13 @@ PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const ch
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uint32_t* variant_include_cumulative_popcounts;
     if (unlikely(bigstack_end_alloc_u32(raw_variant_ctl, &variant_include_cumulative_popcounts))) {
-      goto DefineSets_ret_NOMEM;
+      goto DefineSetsFromIdLists_ret_NOMEM;
     }
     FillCumulativePopcounts(variant_include, raw_variant_ctl, variant_include_cumulative_popcounts);
 
     reterr = InitTokenStream(fname, MAXV(max_thread_ct - 1, 1), &tks);
     if (unlikely(reterr)) {
-      goto DefineSets_ret_TKSTREAM_FAIL;
+      goto DefineSetsFromIdLists_ret_TKSTREAM_FAIL;
     }
     // Pass 1 sizes everything; pass 2 fills it.  A variant ID that is not in
     // the current variant set is ignored, as in PLINK 1.x, and so is a set
@@ -729,19 +874,19 @@ PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const ch
         }
         if (unlikely(!kept_set_ct)) {
           logerrprintfww("Error: --set file '%s' contains no set that --subset/--set-names keeps.\n", fname);
-          goto DefineSets_ret_INCONSISTENT_INPUT;
+          goto DefineSetsFromIdLists_ret_INCONSISTENT_INPUT;
         }
         if (unlikely(bigstack_end_alloc_u32(kept_set_ct + 1, &membership_offsets) ||
                      bigstack_end_alloc_u32(membership_ct, &memberships) ||
                      bigstack_end_alloc_c(kept_set_ct * max_set_name_blen, &set_names))) {
-          goto DefineSets_ret_NOMEM;
+          goto DefineSetsFromIdLists_ret_NOMEM;
         }
         vsp->set_names = set_names;
         vsp->max_set_name_blen = max_set_name_blen;
         membership_offsets[0] = 0;
         reterr = TokenRewind(&tks);
         if (unlikely(reterr)) {
-          goto DefineSets_ret_TKSTREAM_FAIL;
+          goto DefineSetsFromIdLists_ret_TKSTREAM_FAIL;
         }
       }
       // 0: between sets, 1: inside a set being kept, 2: inside a skipped set
@@ -766,7 +911,7 @@ PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const ch
           if ((token_slen == 3) && memequal_sk(shard_iter, "END")) {
             if (unlikely(!in_set)) {
               logerrprintfww("Error: Unmatched END in --set file '%s'.\n", fname);
-              goto DefineSets_ret_MALFORMED_INPUT;
+              goto DefineSetsFromIdLists_ret_MALFORMED_INPUT;
             }
             if ((in_set == 1) && (!merged_set_name)) {
               if (!pass_idx) {
@@ -779,14 +924,22 @@ PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const ch
           } else if (!in_set) {
             const char token_end_char = *token_end;
             *token_end = '\0';
-            in_set = SetNameWanted(shard_iter, token_slen, sip->setnames_flattened)? 1 : 2;
+            in_set = SetNameWanted(shard_iter, token_slen, sorted_subset_ids, subset_ct, max_subset_id_blen)? 1 : 2;
             if ((in_set == 1) && (!merged_set_name)) {
               if (!pass_idx) {
-                if (token_slen >= max_set_name_blen) {
-                  max_set_name_blen = token_slen + 1;
+                if (unlikely(token_slen + c_prefix >= kMaxIdBlen)) {
+                  logerrputs("Error: Set IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+                  goto DefineSetsFromIdLists_ret_MALFORMED_INPUT;
+                }
+                if (token_slen + c_prefix >= max_set_name_blen) {
+                  max_set_name_blen = token_slen + c_prefix + 1;
                 }
               } else {
-                memcpy(&(set_names[set_idx * max_set_name_blen]), shard_iter, token_slen + 1);
+                char* name_dst = &(set_names[set_idx * max_set_name_blen]);
+                if (c_prefix) {
+                  memcpy_k(name_dst, "C_", 2);
+                }
+                memcpy(&(name_dst[c_prefix]), shard_iter, token_slen + 1);
               }
             }
             *token_end = token_end_char;
@@ -809,12 +962,12 @@ PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const ch
         }
       }
       if (unlikely(reterr != kPglRetEof)) {
-        goto DefineSets_ret_TKSTREAM_FAIL;
+        goto DefineSetsFromIdLists_ret_TKSTREAM_FAIL;
       }
       reterr = kPglRetSuccess;
       if (unlikely(in_set)) {
         logerrprintfww("Error: --set file '%s' ends in the middle of a set; every set needs a closing END.\n", fname);
-        goto DefineSets_ret_MALFORMED_INPUT;
+        goto DefineSetsFromIdLists_ret_MALFORMED_INPUT;
       }
       if (pass_idx && merged_set_name) {
         memcpy(set_names, merged_set_name, max_set_name_blen);
@@ -827,20 +980,20 @@ PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const ch
         uintptr_t* member_bitvec;
         if (unlikely(bigstack_end_alloc_w(variant_ctl + 1, &member_bitvec) ||
                      bigstack_alloc_u32p(kept_set_ct, &(vsp->setdefs)))) {
-          goto DefineSets_ret_NOMEM;
+          goto DefineSetsFromIdLists_ret_NOMEM;
         }
+        ZeroWArr(variant_ctl + 1, member_bitvec);
         unsigned char* alloc_base = g_bigstack_base;
         unsigned char* alloc_end = g_bigstack_end;
         for (uintptr_t cur_set_idx = 0; cur_set_idx != kept_set_ct; ++cur_set_idx) {
-          ZeroWArr(variant_ctl + 1, member_bitvec);
           const uint32_t offset_start = membership_offsets[cur_set_idx];
           const uint32_t offset_end = membership_offsets[cur_set_idx + 1];
           for (uint32_t uii = offset_start; uii != offset_end; ++uii) {
             SetBit(memberships[uii], member_bitvec);
           }
-          vsp->setdefs[cur_set_idx] = SaveSetdef(member_bitvec, variant_ct, &alloc_base, alloc_end);
+          vsp->setdefs[cur_set_idx] = SaveSetdefAndClear(variant_ct, complement_sets, member_bitvec, &alloc_base, alloc_end);
           if (unlikely(!vsp->setdefs[cur_set_idx])) {
-            goto DefineSets_ret_NOMEM;
+            goto DefineSetsFromIdLists_ret_NOMEM;
           }
         }
         BigstackBaseSet(alloc_base);
@@ -848,35 +1001,168 @@ PglErr DefineSets(const SetInfo* sip, const uintptr_t* variant_include, const ch
       }
     }
     if (CleanupTokenStream3(fname, &tks, &reterr)) {
-      goto DefineSets_ret_1;
+      goto DefineSetsFromIdLists_ret_1;
     }
     // The names have to outlive the temporaries above them.
     char* set_names_final;
     if (unlikely(bigstack_alloc_c(vsp->set_ct * vsp->max_set_name_blen, &set_names_final))) {
-      goto DefineSets_ret_NOMEM;
+      goto DefineSetsFromIdLists_ret_NOMEM;
     }
     memcpy(set_names_final, vsp->set_names, vsp->set_ct * vsp->max_set_name_blen);
     vsp->set_names = set_names_final;
-    logprintf("--set: %" PRIuPTR " set%s loaded, %" PRIuPTR " membership%s in all.\n", vsp->set_ct, (vsp->set_ct == 1)? "" : "s", membership_ct, (membership_ct == 1)? "" : "s");
-    bigstack_mark = g_bigstack_base;
   }
   while (0) {
-  DefineSets_ret_NOMEM:
+  DefineSetsFromIdLists_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  DefineSets_ret_TKSTREAM_FAIL:
+  DefineSetsFromIdLists_ret_TKSTREAM_FAIL:
     TokenStreamErrPrint(fname, &tks);
     reterr = TokenStreamErrcode(&tks);
     break;
-  DefineSets_ret_MALFORMED_INPUT:
+  DefineSetsFromIdLists_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  DefineSets_ret_INCONSISTENT_INPUT:
+  DefineSetsFromIdLists_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   }
- DefineSets_ret_1:
+ DefineSetsFromIdLists_ret_1:
   CleanupTokenStream2(fname, &tks, &reterr);
+  return reterr;
+}
+
+// --make-set: sets are bp ranges, which LoadIntervalBed turns into ranges of
+// variant uidxs; all that is left is to move them to the filtered variant
+// space that a setdef is over.
+static PglErr DefineSetsFromRanges(const SetInfo* sip, const ChrInfo* cip, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* sorted_subset_ids, uintptr_t subset_ct, uintptr_t max_subset_id_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, VariantSets* vsp) {
+  const char* fname = sip->fname;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    const char* merged_set_name = sip->merged_set_name;
+    const uint32_t complement_sets = (sip->flags / kfSetComplements) & 1;
+    const uint32_t c_prefix = 2 * ((sip->flags / kfSetCPrefix) & 1);
+    const uint32_t collapse_group = (sip->flags / kfSetCollapseGroup) & 1;
+    reterr = InitTextStreamEx(fname, 1, kMaxLongLine, kTextStreamBlenFast, MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto DefineSetsFromRanges_ret_TSTREAM_FAIL;
+    }
+    uintptr_t set_ct = 0;
+    uintptr_t max_set_name_blen = 0;
+    char* set_names = nullptr;
+    MakeSetRange** make_set_range_arr = nullptr;
+    // --set-collapse-all/--make-set-complement-all merge every range into one
+    // set, so there are no names to track in that case.
+    reterr = LoadIntervalBed(cip, variant_bps, sorted_subset_ids, fname, 0, (merged_set_name == nullptr), sip->make_set_border, 0, c_prefix, collapse_group, subset_ct, max_subset_id_blen, &txs, &set_ct, &set_names, &max_set_name_blen, nullptr, &make_set_range_arr);
+    if (unlikely(reterr)) {
+      goto DefineSetsFromRanges_ret_1;
+    }
+    if (!set_ct) {
+      if (unlikely(subset_ct)) {
+        logerrprintfww("Error: --make-set file '%s' contains no set that --subset/--set-names keeps.\n", fname);
+        goto DefineSetsFromRanges_ret_INCONSISTENT_INPUT;
+      }
+      // LoadIntervalBed has already warned about the empty file.
+      vsp->set_ct = 0;
+      goto DefineSetsFromRanges_ret_1;
+    }
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+    uint32_t* variant_include_cumulative_popcounts;
+    uintptr_t* member_bitvec;
+    if (unlikely(bigstack_end_alloc_u32(raw_variant_ctl, &variant_include_cumulative_popcounts) ||
+                 bigstack_end_alloc_w(variant_ctl + 1, &member_bitvec) ||
+                 bigstack_alloc_u32p(set_ct, &(vsp->setdefs)))) {
+      goto DefineSetsFromRanges_ret_NOMEM;
+    }
+    FillCumulativePopcounts(variant_include, raw_variant_ctl, variant_include_cumulative_popcounts);
+    ZeroWArr(variant_ctl + 1, member_bitvec);
+    unsigned char* alloc_base = g_bigstack_base;
+    unsigned char* alloc_end = g_bigstack_end;
+    for (uintptr_t set_idx = 0; set_idx != set_ct; ++set_idx) {
+      for (MakeSetRange* msr_iter = make_set_range_arr[set_idx]; msr_iter; msr_iter = msr_iter->next) {
+        const uint32_t uidx_start = msr_iter->uidx_start;
+        const uint32_t uidx_end = msr_iter->uidx_end;
+        const uint32_t idx_start = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, uidx_start);
+        const uint32_t idx_end = (uidx_end >= raw_variant_ct)? variant_ct : RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, uidx_end);
+        // Overlapping ranges are merged by the bitvector, so they need no
+        // sorting of their own.
+        if (idx_end > idx_start) {
+          FillBitsNz(idx_start, idx_end, member_bitvec);
+        }
+      }
+      vsp->setdefs[set_idx] = SaveSetdefAndClear(variant_ct, complement_sets, member_bitvec, &alloc_base, alloc_end);
+      if (unlikely(!vsp->setdefs[set_idx])) {
+        goto DefineSetsFromRanges_ret_NOMEM;
+      }
+    }
+    BigstackBaseSet(alloc_base);
+    if (merged_set_name) {
+      max_set_name_blen = strlen(merged_set_name) + 1;
+      if (unlikely(bigstack_alloc_c(max_set_name_blen, &set_names))) {
+        goto DefineSetsFromRanges_ret_NOMEM;
+      }
+      memcpy(set_names, merged_set_name, max_set_name_blen);
+    }
+    vsp->set_ct = set_ct;
+    vsp->set_names = set_names;
+    vsp->max_set_name_blen = max_set_name_blen;
+  }
+  while (0) {
+  DefineSetsFromRanges_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  DefineSetsFromRanges_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(fname, &txs);
+    break;
+  DefineSetsFromRanges_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ DefineSetsFromRanges_ret_1:
+  CleanupTextStream2(fname, &txs, &reterr);
+  return reterr;
+}
+
+PglErr DefineSets(const SetInfo* sip, const ChrInfo* cip, const uintptr_t* variant_include, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, VariantSets* vsp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  const uint32_t make_set = (sip->flags / kfSetMakeFromRanges) & 1;
+  PglErr reterr = kPglRetSuccess;
+  {
+    char* sorted_subset_ids = nullptr;
+    uintptr_t subset_ct = 0;
+    uintptr_t max_subset_id_blen = 0;
+    if (sip->subset_fname || sip->setnames_flattened) {
+      reterr = LoadSubsetIds(sip->subset_fname, sip->setnames_flattened, max_thread_ct, &sorted_subset_ids, &subset_ct, &max_subset_id_blen);
+      if (unlikely(reterr)) {
+        goto DefineSets_ret_1;
+      }
+      if (unlikely(!subset_ct)) {
+        // An empty list keeps nothing, which is never what the user meant.
+        logerrputs("Error: --subset file is empty.\n");
+        reterr = kPglRetInconsistentInput;
+        goto DefineSets_ret_1;
+      }
+    }
+    if (make_set) {
+      reterr = DefineSetsFromRanges(sip, cip, variant_include, variant_bps, sorted_subset_ids, subset_ct, max_subset_id_blen, raw_variant_ct, variant_ct, max_thread_ct, vsp);
+    } else {
+      reterr = DefineSetsFromIdLists(sip, variant_include, variant_ids, sorted_subset_ids, subset_ct, max_subset_id_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_thread_ct, vsp);
+    }
+    if (unlikely(reterr)) {
+      goto DefineSets_ret_1;
+    }
+    const uintptr_t set_ct = vsp->set_ct;
+    uintptr_t membership_ct = 0;
+    for (uintptr_t set_idx = 0; set_idx != set_ct; ++set_idx) {
+      membership_ct += SetdefSize(vsp->setdefs[set_idx], variant_ct);
+    }
+    logprintf("--%sset: %" PRIuPTR " set%s loaded, %" PRIuPTR " membership%s in all.\n", make_set? "make-" : "", set_ct, (set_ct == 1)? "" : "s", membership_ct, (membership_ct == 1)? "" : "s");
+    bigstack_mark = g_bigstack_base;
+  }
+ DefineSets_ret_1:
   BigstackEndReset(bigstack_end_mark);
   BigstackReset(bigstack_mark);
   return reterr;
@@ -953,6 +1239,140 @@ PglErr WriteSetList(const VariantSets* vsp, const uintptr_t* variant_include, co
   return reterr;
 }
 
+// Membership of variant_idx, plus the first index after it at which membership
+// can change.  *range_idxp is this set's cursor into the range form, and must
+// start at zero and only be reused for increasing variant_idx.
+static uint32_t SetdefMembershipRun(const uint32_t* setdef, uint32_t variant_ct, uint32_t variant_idx, uint32_t* range_idxp, uint32_t* next_change_idxp) {
+  const uint32_t range_ct = setdef[0];
+  if (range_ct != UINT32_MAX) {
+    uint32_t range_idx = *range_idxp;
+    while ((range_idx != range_ct) && (setdef[range_idx * 2 + 2] <= variant_idx)) {
+      ++range_idx;
+    }
+    *range_idxp = range_idx;
+    if (range_idx == range_ct) {
+      *next_change_idxp = variant_ct;
+      return 0;
+    }
+    const uint32_t range_start = setdef[range_idx * 2 + 1];
+    if (variant_idx < range_start) {
+      *next_change_idxp = range_start;
+      return 0;
+    }
+    *next_change_idxp = setdef[range_idx * 2 + 2];
+    return 1;
+  }
+  const uint32_t offset = setdef[1];
+  const uint32_t bit_ct = setdef[2];
+  const uint32_t outer_val = setdef[3];
+  if (variant_idx < offset) {
+    *next_change_idxp = offset;
+    return outer_val;
+  }
+  if (variant_idx >= offset + bit_ct) {
+    *next_change_idxp = variant_ct;
+    return outer_val;
+  }
+  const uintptr_t* bitvec = R_CAST(const uintptr_t*, &(setdef[4]));
+  const uint32_t bit_idx = variant_idx - offset;
+  if (IsSet(bitvec, bit_idx)) {
+    *next_change_idxp = offset + AdvBoundedTo0Bit(bitvec, bit_idx, bit_ct);
+    return 1;
+  }
+  *next_change_idxp = offset + AdvBoundedTo1Bit(bitvec, bit_idx, bit_ct);
+  return 0;
+}
+
+PglErr WriteSetTable(const VariantSets* vsp, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t variant_ct, SetFlags flags, uint32_t max_thread_ct, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
+  {
+    const uintptr_t set_ct = vsp->set_ct;
+    const uintptr_t max_set_name_blen = vsp->max_set_name_blen;
+    const uint32_t output_zst = (flags / kfSetWriteTableZs) & 1;
+    OutnameZstSet(".set.table", output_zst, outname_end);
+    // A variant line is an ID, a chromosome code, a position, and two
+    // characters per set; the header line is flushed one set name at a time.
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + 64 + 2 * set_ct;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto WriteSetTable_ret_1;
+    }
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    uint32_t* range_idxs;
+    uint32_t* next_change_idxs;
+    unsigned char* cur_vals;
+    char* chr_buf;
+    if (unlikely(bigstack_calloc_u32(set_ct, &range_idxs) ||
+                 bigstack_calloc_u32(set_ct, &next_change_idxs) ||
+                 bigstack_calloc_uc(set_ct, &cur_vals) ||
+                 bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto WriteSetTable_ret_NOMEM;
+    }
+    cswritep = strcpya_k(cswritep, "SNP\tCHR\tBP");
+    for (uintptr_t set_idx = 0; set_idx != set_ct; ++set_idx) {
+      *cswritep++ = '\t';
+      cswritep = strcpya(cswritep, &(vsp->set_names[set_idx * max_set_name_blen]));
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto WriteSetTable_ret_WRITE_FAIL;
+      }
+    }
+    AppendBinaryEoln(&cswritep);
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t chr_buf_blen = 0;
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      if (variant_uidx >= chr_end) {
+        do {
+          ++chr_fo_idx;
+          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        } while (variant_uidx >= chr_end);
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
+        chr_buf_blen = chr_name_end - chr_buf;
+      }
+      cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+      *cswritep++ = '\t';
+      cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
+      *cswritep++ = '\t';
+      cswritep = u32toa(variant_bps[variant_uidx], cswritep);
+      for (uintptr_t set_idx = 0; set_idx != set_ct; ++set_idx) {
+        if (next_change_idxs[set_idx] == variant_idx) {
+          cur_vals[set_idx] = SetdefMembershipRun(vsp->setdefs[set_idx], variant_ct, variant_idx, &(range_idxs[set_idx]), &(next_change_idxs[set_idx]));
+        }
+        *cswritep++ = '\t';
+        *cswritep++ = '0' + cur_vals[set_idx];
+      }
+      AppendBinaryEoln(&cswritep);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto WriteSetTable_ret_WRITE_FAIL;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto WriteSetTable_ret_WRITE_FAIL;
+    }
+    logprintfww("--set-table: %" PRIuPTR " set%s written to %s .\n", set_ct, (set_ct == 1)? "" : "s", outname);
+  }
+  while (0) {
+  WriteSetTable_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  WriteSetTable_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ WriteSetTable_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr LoadAndSortIntervalBed(const char* fname, const ChrInfo* cip, const char* sorted_subset_ids, uint32_t zero_based, uint32_t border_extend, uintptr_t subset_ct, uintptr_t max_subset_id_blen, uint32_t max_thread_ct, uintptr_t* gene_ct_ptr, char** gene_names_ptr, uintptr_t* max_gene_id_blen_ptr, uintptr_t** chr_bounds_ptr, uint32_t*** genedefs_ptr, uintptr_t* chr_max_gene_ct_ptr) {
   // --clump-range[0]; in plink 1.9, also --annotate and --gene-report
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -968,7 +1388,7 @@ PglErr LoadAndSortIntervalBed(const char* fname, const ChrInfo* cip, const char*
     uintptr_t max_gene_id_blen = 0;
     uint64_t* range_sort_buf;
     MakeSetRange** gene_arr;
-    reterr = LoadIntervalBed(cip, nullptr, sorted_subset_ids, fname, zero_based, 1, border_extend, 0, 0, subset_ct, max_subset_id_blen, &txs, &gene_ct, gene_names_ptr, &max_gene_id_blen, &range_sort_buf, &gene_arr);
+    reterr = LoadIntervalBed(cip, nullptr, sorted_subset_ids, fname, zero_based, 1, border_extend, 0, 0, 0, subset_ct, max_subset_id_blen, &txs, &gene_ct, gene_names_ptr, &max_gene_id_blen, &range_sort_buf, &gene_arr);
     if (unlikely(reterr)) {
       goto LoadAndSortIntervalBed_ret_1;
     }

@@ -3278,8 +3278,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // every variant filter has been applied.
       VariantSets variant_sets;
       variant_sets.set_ct = 0;
+      variant_sets.set_names = nullptr;
+      variant_sets.max_set_name_blen = 0;
+      variant_sets.setdefs = nullptr;
       if (pcp->set_info.fname) {
-        reterr = DefineSets(&(pcp->set_info), variant_include, variant_ids, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->max_thread_ct, &variant_sets);
+        if (unlikely((pcp->set_info.flags & kfSetMakeFromRanges) && (vpos_sortstatus & kfUnsortedVarBp))) {
+          logerrputs("Error: --make-set requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
+        reterr = DefineSets(&(pcp->set_info), cip, variant_include, variant_bps, variant_ids, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->max_thread_ct, &variant_sets);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3291,9 +3298,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       if (pcp->command_flags1 & kfCommand1WriteSet) {
-        reterr = WriteSetList(&variant_sets, variant_include, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
+        if (pcp->set_info.flags & kfSetWriteList) {
+          reterr = WriteSetList(&variant_sets, variant_include, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
+        if (pcp->set_info.flags & kfSetWriteTable) {
+          reterr = WriteSetTable(&variant_sets, variant_include, cip, variant_bps, variant_ids, variant_ct, pcp->set_info.flags, pcp->max_thread_ct, outname, outname_end);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
         }
       }
       if (pcp->command_flags1 & kfCommand1ShowTags) {
@@ -5504,6 +5519,13 @@ int main(int argc, char** argv) {
             }
           }
           pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "omplement-sets")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 0))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          // --set/--make-set sort later, so the dependency is checked after
+          // the parsing loop.
+          pc.set_info.flags |= kfSetComplements | kfSetCPrefix;
         } else if (strequal_k_unsafe(flagname_p2, "onst-fid")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -10145,6 +10167,74 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1MissingReport;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ake-set")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.set_info.fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.set_info.flags |= kfSetMakeFromRanges;
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ake-set-border")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          // --make-set sorts first, so its presence can be checked here.
+          if (unlikely(!(pc.set_info.flags & kfSetMakeFromRanges))) {
+            logerrputs("Error: --make-set-border must be used with --make-set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          double dxx;
+          if (unlikely((!ScanadvDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-set-border argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (dxx > 2147483.646) {
+            pc.set_info.make_set_border = 2147483646;
+          } else {
+            pc.set_info.make_set_border = S_CAST(int32_t, dxx * 1000 * (1 + kSmallEpsilon));
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "ake-set-collapse-group")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 0))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(!(pc.set_info.flags & kfSetMakeFromRanges))) {
+            logerrputs("Error: --make-set-collapse-group must be used with --make-set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.set_info.flags |= kfSetCollapseGroup;
+        } else if (strequal_k_unsafe(flagname_p2, "ake-set-complement-all")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(pc.set_info.flags & kfSetComplements)) {
+            logerrputs("Error: --make-set-complement-all cannot be used with --complement-sets.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.set_info.flags & kfSetCollapseGroup)) {
+            logerrputs("Error: --make-set-complement-all cannot be used with\n--make-set-collapse-group.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          reterr = CmdlineAllocString(argvk[arg_idx + 1], argvk[arg_idx], kMaxIdSlen, &pc.set_info.merged_set_name);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.set_info.flags |= kfSetComplements;
+        } else if (strequal_k_unsafe(flagname_p2, "ake-set-complement-group")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 0))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(!(pc.set_info.flags & kfSetMakeFromRanges))) {
+            logerrputs("Error: --make-set-complement-group must be used with --make-set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely((pc.set_info.flags & (kfSetComplements | kfSetCollapseGroup)) || pc.set_info.merged_set_name)) {
+            logerrputs("Error: --make-set-complement-group cannot be used with --complement-sets,\n--make-set-collapse-group, or --make-set-complement-all.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.set_info.flags |= kfSetComplements | kfSetCPrefix | kfSetCollapseGroup;
         } else if (strequal_k_unsafe(flagname_p2, "aj-ref")) {
           if (unlikely(pc.alt_allele_flag)) {
             logerrputs("Error: --maj-ref cannot be used with --ref-allele/--alt[1]-allele.\n");
@@ -12783,6 +12873,11 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          // --make-set sorts first, so its presence can be checked here.
+          if (unlikely(pc.set_info.fname)) {
+            logerrputs("Error: --set cannot be used with --make-set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.set_info.fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
@@ -12792,9 +12887,18 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          // --set sorts first, so its presence can be checked here.
+          // --set/--make-set sort first, so their presence can be checked
+          // here.
           if (unlikely(!pc.set_info.fname)) {
-            logerrputs("Error: --set-collapse-all must be used with --set.\n");
+            logerrputs("Error: --set-collapse-all must be used with --set/--make-set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.set_info.merged_set_name)) {
+            logerrputs("Error: --set-collapse-all cannot be used with --make-set-complement-all.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.set_info.flags & kfSetCollapseGroup)) {
+            logerrputs("Error: --set-collapse-all cannot be used with --make-set-collapse-group or\n--make-set-complement-group.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(strlen(argvk[arg_idx + 1]) >= kMaxIdSlen)) {
@@ -12810,10 +12914,41 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (unlikely(!pc.set_info.fname)) {
-            logerrputs("Error: --set-names must be used with --set.\n");
+            logerrputs("Error: --set-names must be used with --set/--make-set.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           reterr = AllocAndFlattenCommaDelim(&(argvk[arg_idx + 1]), param_ct, &pc.set_info.setnames_flattened);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "et-table")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(!pc.set_info.fname)) {
+            logerrputs("Error: --set-table must be used with --set/--make-set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (param_ct) {
+            const char* cur_modif = argvk[arg_idx + 1];
+            if (unlikely(!strequal_k(cur_modif, "zs", strlen(cur_modif)))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --set-table argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.set_info.flags |= kfSetWriteTableZs;
+          }
+          pc.set_info.flags |= kfSetWriteTable;
+          pc.command_flags1 |= kfCommand1WriteSet;
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ubset")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(!pc.set_info.fname)) {
+            logerrputs("Error: --subset must be used with --set/--make-set.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, &pc.set_info.subset_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -14285,7 +14420,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (unlikely(!pc.set_info.fname)) {
-            logerrputs("Error: --write-set must be used with --set.\n");
+            logerrputs("Error: --write-set must be used with --set/--make-set.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (param_ct) {
@@ -14568,6 +14703,14 @@ int main(int argc, char** argv) {
     }
     if (unlikely((xload & kfXloadEigGeno) && ((xload & (kfXloadEigInd | kfXloadEigSnp)) != (kfXloadEigInd | kfXloadEigSnp)))) {
       logerrputs("Error: --eiggeno must be used with either --eigfile, or --eigind + --eigsnp.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely((!pc.set_info.fname) && ((pc.set_info.flags & kfSetComplements) || pc.set_info.merged_set_name))) {
+      logerrputs("Error: --complement-sets/--make-set-complement-all must be used with\n--set/--make-set.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if (unlikely((pc.set_info.flags & kfSetCollapseGroup) && (!(pc.set_info.flags & kfSetMakeFromRanges)))) {
+      logerrputs("Error: --make-set-collapse-group/--make-set-complement-group must be used with\n--make-set.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely((pc.sample_sort_mode != kSort0) && (!(pc.command_flags1 & (kfCommand1MakePlink2 | kfCommand1WriteCovar | kfCommand1Pmerge))))) {
