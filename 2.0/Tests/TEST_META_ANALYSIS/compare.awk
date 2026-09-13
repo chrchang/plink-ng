@@ -23,11 +23,11 @@ function printed_tol(s,   mant, expo, dot, digits, epos) {
 }
 function same_value(a, b, abs_floor,   tol) {
     if (a == "NA" || b == "NA") { return a == b }
-    # Half of 1.9's last printed digit, or a 0.2% relative band, whichever is
+    # Half of 1.9's last printed digit, or a 0.1% relative band, whichever is
     # looser: 1.9 prints four significant digits, and a few statistics differ
     # in the last of them.
     tol = printed_tol(a);
-    if (2e-3 * abs(a) > tol) { tol = 2e-3 * abs(a) }
+    if (1e-3 * abs(a) > tol) { tol = 1e-3 * abs(a) }
     if (abs_floor > tol) { tol = abs_floor }
     return abs(a - b) <= tol + 1e-12
 }
