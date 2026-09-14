@@ -14516,8 +14516,12 @@ PglErr MakePermPheno(const uintptr_t* sample_include, const SampleIdInfo* siip, 
     }
     const uint32_t is_cc = (pheno_col->type_code == kPhenoDtypeCc);
     if (unlikely((!is_cc) && (pheno_col->type_code != kPhenoDtypeQt))) {
-      logerrputs("Error: --make-perm-pheno's phenotype must be case/control or quantitative.\n");
-      goto MakePermPheno_ret_INCONSISTENT_INPUT;
+      // Categorical phenotypes may be worth supporting later.  But reasonable
+      // to wait until at least one PLINK 2 command (multinomial logistic
+      // regression?) can analyze them.
+      logerrputs("Error: --make-perm-pheno's phenotype currently must be case/control or\nquantitative.\n");
+      reterr = kPglRetNotYetSupported;
+      goto MakePermPheno_ret_1;
     }
 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
