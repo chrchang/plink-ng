@@ -5314,6 +5314,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
   uintptr_t window_entry_base_cost = 2;
   uintptr_t duplicate_id_htable_max_alloc = 0;
   uint64_t rejected_ct = 0;
+  uint64_t p_underflow_ct = 0;
   double cur_p = 0.0;
   double cur_ess = 0.0;
   uint32_t max_var_id_len_p1 = 0;
@@ -5870,6 +5871,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
           // cur_p<DBL_MIN as cur_p=DBL_MIN should prevent the latter type of
           // significant result from getting lost.
           if (cur_p < 2.2250738585072014e-308) {
+            ++p_underflow_ct;
             cur_p = 2.2250738585072014e-308;
           }
 	  if (scan_double(token_ptrs[4], &cur_ess) || (!(cur_ess > 0.0)) || (cur_ess == INFINITY)) {
@@ -6584,6 +6586,9 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
       putc_unlocked('\r', stdout);
     }
     LOGPRINTFWW("--meta-analysis: %" PRIuPTR " variant%s processed; results written to %s .\n", final_variant_ct, (final_variant_ct == 1)? "" : "s", outname);
+    if (p_underflow_ct) {
+      LOGERRPRINTF("Warning: %" PRIu64 " p-value%s underflowed, treated as 2.225e-308.\n", p_underflow_ct, (p_underflow_ct == 1)? "" : "s");
+    }
   }
 
   while (0) {
