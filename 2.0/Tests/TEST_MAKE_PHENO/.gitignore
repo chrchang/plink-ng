@@ -1,0 +1,9 @@
+plink_*
+plink2_*
+tmp_*
+*.log
+list.txt
+dup.txt
+flat19.txt
+flat20.txt
+!run_tests.sh
